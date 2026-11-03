@@ -107,6 +107,9 @@ App rules (`packages/release/app-check.mjs` `RULES`) and RightKit's own prefligh
 | `switches-inventory` | A (app, compile tier) | G20 |
 | `speech-link` | A (app, compile tier) | G21 |
 | `e2e-under-cargo-test` | A (app, compile tier) | G22 |
+| `scratch-checkout` | A (app, compile tier) | G23 |
+| `trust-policy-exclude` | A (app, release tier) | G24 |
+| `commit-citations` | A (app, release tier) | G28 |
 | `suite-key-literal` | A (app, release tier) | C3-04 |
 | `suite-updater-key` | A (app, release tier) | C3-14 |
 | `engine-record-store` | A (app, release tier) | C3-05 |

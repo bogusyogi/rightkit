@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-catalog",
+  "capabilities": [
+    {
+      "capability": "localization-catalog",
+      "summary": "Catalog completeness check and TypeScript, Rust and Swift table generation from one folder of JSON string catalogs",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: catalog generation is not an ownership fingerprint.",
+        "The runtime lookup stays in @rightkit/i18n (TypeScript) and rightkit-i18n (Rust); this crate only validates the source and emits tables."
+      ]
+    }
+  ]
+}

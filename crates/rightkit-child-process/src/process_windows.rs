@@ -25,11 +25,12 @@ use windows::{
             Threading::{
                 OpenProcess, OpenThread, ProcessPowerThrottling, ResumeThread,
                 SetProcessInformation, TerminateProcess, WaitForSingleObject,
-                BELOW_NORMAL_PRIORITY_CLASS, CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP,
-                CREATE_NO_WINDOW, CREATE_SUSPENDED, DETACHED_PROCESS, IDLE_PRIORITY_CLASS,
-                PROCESS_CREATION_FLAGS, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
-                PROCESS_POWER_THROTTLING_EXECUTION_SPEED, PROCESS_POWER_THROTTLING_STATE,
-                PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, THREAD_SUSPEND_RESUME,
+                BELOW_NORMAL_PRIORITY_CLASS, CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_CONSOLE,
+                CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, CREATE_SUSPENDED, DETACHED_PROCESS,
+                IDLE_PRIORITY_CLASS, PROCESS_CREATION_FLAGS,
+                PROCESS_POWER_THROTTLING_CURRENT_VERSION, PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+                PROCESS_POWER_THROTTLING_STATE, PROCESS_QUERY_LIMITED_INFORMATION,
+                PROCESS_SYNCHRONIZE, THREAD_SUSPEND_RESUME,
             },
         },
     },
@@ -90,6 +91,7 @@ pub(crate) fn apply_efficiency(process: &impl AsHandle) -> io::Result<()> {
 pub(crate) fn creation_flags(
     detached: bool,
     hidden: bool,
+    new_console: bool,
     priority: ProcessPriority,
 ) -> PROCESS_CREATION_FLAGS {
     let mode = if detached {
@@ -97,7 +99,11 @@ pub(crate) fn creation_flags(
     } else {
         CREATE_SUSPENDED
     };
-    let flags = if hidden {
+    // A new console wins over hidden: `CREATE_NEW_CONSOLE` and `CREATE_NO_WINDOW` are not
+    // combined (`windows_new_console` clears `hidden`, this keeps the rule in one place).
+    let flags = if new_console {
+        CREATE_NEW_CONSOLE | mode
+    } else if hidden {
         CREATE_NO_WINDOW | mode
     } else {
         mode
@@ -109,9 +115,10 @@ pub(crate) fn configure(
     command: &mut Command,
     detached: bool,
     hidden: bool,
+    new_console: bool,
     priority: ProcessPriority,
 ) {
-    command.creation_flags(creation_flags(detached, hidden, priority).0);
+    command.creation_flags(creation_flags(detached, hidden, new_console, priority).0);
 }
 
 /// Creation flags of the detached fallback used when the caller's job denies breakaway:
@@ -120,12 +127,15 @@ pub(crate) fn configure(
 /// console, so console programs such as powershell.exe keep working with piped stdio) instead of
 /// `DETACHED_PROCESS`; the two must not be combined because `CREATE_NO_WINDOW` is ignored when
 /// `DETACHED_PROCESS` is present (Microsoft "Process Creation Flags"). A visible child keeps
-/// `DETACHED_PROCESS`.
+/// `DETACHED_PROCESS`; a child that asked for a new console gets `CREATE_NEW_CONSOLE` instead.
 pub(crate) fn in_job_detached_flags(
     hidden: bool,
+    new_console: bool,
     priority: ProcessPriority,
 ) -> PROCESS_CREATION_FLAGS {
-    let console = if hidden {
+    let console = if new_console {
+        CREATE_NEW_CONSOLE
+    } else if hidden {
         CREATE_NO_WINDOW
     } else {
         DETACHED_PROCESS
@@ -137,9 +147,10 @@ pub(crate) fn in_job_detached_flags(
 pub(crate) fn configure_in_job_detached(
     command: &mut Command,
     hidden: bool,
+    new_console: bool,
     priority: ProcessPriority,
 ) {
-    command.creation_flags(in_job_detached_flags(hidden, priority).0);
+    command.creation_flags(in_job_detached_flags(hidden, new_console, priority).0);
 }
 
 /// Whether a failed breakaway launch was refused by the caller's job object

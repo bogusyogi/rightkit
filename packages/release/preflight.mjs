@@ -369,7 +369,12 @@ export function ownershipCheck(repoRoot, options = {}) {
   let checked;
   const split = options.releaseSource?.mode === "snapshot" ? options.releaseSource : null;
   try { checked = (options.evidenceFactory ?? createOwnershipEvidence)(repoRoot, options.scanRoot ?? repoRoot, options.scope ?? null, ...(split ? [split] : [])); }
-  catch (error) { return fail("ownership", `ownership evidence failed: ${error.message}`, "restore protected RightKit ownership trust and catalog"); }
+  catch (error) {
+    // A dirty release checkout is the app's own tree, not a RightKit trust problem (#974): name the files and the real fix.
+    const dirtyPaths = error?.blocked?.check === "clean-checkout" && Array.isArray(error.blocked.paths) ? error.blocked.paths : null;
+    if (dirtyPaths) return fail("ownership", `ownership evidence failed: ${error.message}: ${dirtyPaths.join(", ")}`, "commit or park these files; a release builds only from a clean committed tree");
+    return fail("ownership", `ownership evidence failed: ${error.message}`, "restore protected RightKit ownership trust and catalog");
+  }
   const { result, evidence, floor } = checked;
   // R4: evidence for another commit or tree than the selected one is refused whatever produced it (a factory that read HEAD, a stale one).
   if (split && (evidence?.commit !== split.commit || (evidence?.tree !== undefined && evidence.tree !== split.tree))) {

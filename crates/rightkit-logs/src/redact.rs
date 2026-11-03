@@ -1,3 +1,4 @@
+use crate::scrub::RedactionCounts;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -52,24 +53,37 @@ impl RedactionPolicy {
         self.redact(value);
     }
 
-    pub(crate) fn redact(&self, value: &mut Value) {
+    /// [`RedactionPolicy::redact_value`] that also returns how many values it replaced, in
+    /// [`RedactionCounts::sensitive_key`]. Counts only: the key names are not recorded.
+    pub fn redact_value_counted(&self, value: &mut Value) -> RedactionCounts {
+        RedactionCounts {
+            sensitive_key: self.redact(value) as u64,
+            ..RedactionCounts::default()
+        }
+    }
+
+    /// Redacts in place and returns how many values were replaced.
+    pub(crate) fn redact(&self, value: &mut Value) -> usize {
+        let mut replaced = 0;
         match value {
             Value::Object(object) => {
                 for (key, child) in object.iter_mut() {
                     if self.is_sensitive_key(key) {
                         *child = Value::String(REDACTION_MARKER.to_string());
+                        replaced += 1;
                     } else {
-                        self.redact(child);
+                        replaced += self.redact(child);
                     }
                 }
             }
             Value::Array(items) => {
                 for item in items {
-                    self.redact(item);
+                    replaced += self.redact(item);
                 }
             }
             _ => {}
         }
+        replaced
     }
 
     fn is_sensitive_key(&self, key: &str) -> bool {

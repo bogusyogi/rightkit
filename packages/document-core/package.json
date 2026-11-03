@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/document-core",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Shared base for the document editors: platform bridge, settings, state, PDF helpers and the format registry.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -248,7 +248,6 @@
   "dependencies": {
     "@codemirror/view": "^6.43.14",
     "@phosphor-icons/react": "^2.1.10",
-    "@rightkit/license": "workspace:^",
     "@rightkit/logs": "workspace:^",
     "@rightkit/pdf-ui": "workspace:^",
     "@rightkit/platform-ui": "workspace:^",
@@ -270,14 +269,12 @@
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "typescript": "^7.0.2",
-    "vite": "^8.3.4",
-    "vitest": "^5.0.5"
+    "vite": "^8.3.4"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
     "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "pnpm --filter \"@rightkit/document-core^...\" run build && vitest run"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",

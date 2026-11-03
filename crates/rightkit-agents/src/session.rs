@@ -52,13 +52,36 @@ use crate::event::{AgentEvent, UnknownPolicy};
 
 /// Bring-your-own-key variables an account-scoped launch must not inherit. Names are spelled
 /// with `concat!` so the source never contains them as one literal. Pass the list to
-/// [`SessionConfig::scrub_byok_env`]. `CODEX_API_KEY` and `ANTHROPIC_AUTH_TOKEN` are included
-/// as credential-class names; their exact CLI behavior is unverified.
+/// [`SessionConfig::scrub_byok_env`]. The list matches the CodeRight `FORBIDDEN_BYOK_ENV_VARS`
+/// set (Bedrock, Vertex, AWS, Google, OpenAI, xAI, Cursor, OpenRouter and host secrets) in
+/// addition to `CODEX_API_KEY` and `ANTHROPIC_AUTH_TOKEN`; the exact CLI behavior of the
+/// last two is unverified.
 pub const BYOK_ENV_VARS: &[&str] = &[
     concat!("ANTHROPIC", "_API_KEY"),
     concat!("ANTHROPIC", "_AUTH_TOKEN"),
+    concat!("CLAUDE_CODE", "_USE_BEDROCK"),
+    concat!("CLAUDE_CODE", "_USE_VERTEX"),
+    concat!("AWS", "_ACCESS_KEY_ID"),
+    concat!("AWS", "_SECRET_ACCESS_KEY"),
+    concat!("AWS", "_SESSION_TOKEN"),
+    concat!("AWS", "_PROFILE"),
+    concat!("GOOGLE_APPLICATION", "_CREDENTIALS"),
+    concat!("GOOGLE_CLOUD", "_PROJECT"),
     concat!("OPENAI", "_API_KEY"),
+    concat!("OPENAI", "_BASE_URL"),
+    concat!("OPENAI", "_ORG_ID"),
+    concat!("OPENAI", "_PROJECT"),
     concat!("CODEX", "_API_KEY"),
+    concat!("XAI", "_API_KEY"),
+    concat!("XAI", "_BASE_URL"),
+    concat!("CURSOR", "_API_KEY"),
+    concat!("CURSOR", "_API_BASE_URL"),
+    concat!("OPENROUTER", "_API_KEY"),
+    concat!("MINIMAX", "_API_KEY"),
+    concat!("TINYFISH", "_API_KEY"),
+    concat!("RIGHTKIT_DAEMON", "_TOKEN"),
+    concat!("RIGHTKIT_GATEWAY", "_TOKEN"),
+    concat!("RIGHTKIT_DRIVER_INSTANCE", "_SECRET"),
 ];
 
 /// Default time to wait for the Codex `initialize` and `thread/start` handshake.
@@ -97,6 +120,13 @@ pub struct SessionExtras {
     /// Inherited variables removed before spawn. Applied before [`SessionConfig::env`], so an
     /// explicit `env` entry for the same name still wins.
     pub env_remove: Vec<OsString>,
+    /// Start the CLI from an empty environment: only the names in `env_allow` are inherited
+    /// (their values come from this process), then `SessionConfig::env` is added. Applied
+    /// before `env_remove`.
+    pub env_clear: bool,
+    /// Inherited variables kept when `env_clear` is set. A name that is not set in this
+    /// process is simply not passed. Include `PATH` when the CLI is named without a directory.
+    pub env_allow: Vec<OsString>,
     /// [`UnknownPolicy::FailClosed`] refuses unknown Codex notifications in the required
     /// families: the reader emits [`SessionEvent::Error`] and does not forward the line.
     pub unknown_policy: UnknownPolicy,
@@ -230,6 +260,7 @@ struct Pending {
 enum Request {
     TurnStart,
     Interrupt,
+    Steer,
 }
 
 struct Shared {
@@ -295,7 +326,10 @@ impl Shared {
         match parser.parse_line(line) {
             Ok(events) => {
                 for event in events {
-                    if let AgentEvent::ApprovalRequested { id, tool, input } = &event {
+                    if let AgentEvent::ApprovalRequested {
+                        id, tool, input, ..
+                    } = &event
+                    {
                         lock(&self.pending).insert(
                             id.clone(),
                             Pending {
@@ -328,24 +362,24 @@ impl Shared {
                 params,
                 event,
             }) => match event {
-                Some(AgentEvent::ApprovalRequested {
-                    id: approval_id,
-                    tool,
-                    input,
-                }) => {
-                    lock(&self.pending).insert(
-                        approval_id.clone(),
-                        Pending {
-                            tool: tool.clone(),
-                            input: input.clone(),
-                            wire_id: id,
-                        },
-                    );
-                    self.emit_agent(AgentEvent::ApprovalRequested {
+                Some(event @ AgentEvent::ApprovalRequested { .. }) => {
+                    if let AgentEvent::ApprovalRequested {
                         id: approval_id,
                         tool,
                         input,
-                    });
+                        ..
+                    } = &event
+                    {
+                        lock(&self.pending).insert(
+                            approval_id.clone(),
+                            Pending {
+                                tool: tool.clone(),
+                                input: input.clone(),
+                                wire_id: id,
+                            },
+                        );
+                    }
+                    self.emit_agent(event);
                 }
                 _ => {
                     // Never leave the server waiting on a request nobody answers.
@@ -395,6 +429,7 @@ impl Shared {
             let what = match request {
                 Request::TurnStart => "turn/start",
                 Request::Interrupt => "turn/interrupt",
+                Request::Steer => "turn/steer",
             };
             self.emit(SessionEvent::Error(format!("{what} rejected: {error}")));
             return;
@@ -424,6 +459,23 @@ impl Session {
     /// Spawn the CLI and, for Codex, complete the `initialize` / `thread/start` handshake
     /// (bounded by `startup_timeout`). On any failure the whole tree is already torn down.
     pub fn spawn(config: SessionConfig) -> Result<Session, SessionError> {
+        Session::spawn_with(config, |command| {
+            OwnedCommand::from_command(command).spawn()
+        })
+    }
+
+    /// [`Session::spawn`] with the process started by `launcher`. The launcher receives the
+    /// fully prepared command (program, argv, working directory, environment, piped stdio)
+    /// and returns the started child. A host uses it to confine the CLI (pre-exec sandbox,
+    /// job object, ACL lease) while this crate keeps the protocol handling. The child must
+    /// come back with piped stdin, stdout and stderr, and should be an `OwnedChild` so the
+    /// whole tree is still torn down by [`Session::shutdown`] or drop.
+    ///
+    /// The Codex handshake and the stream reader run exactly as in [`Session::spawn`].
+    pub fn spawn_with<F>(config: SessionConfig, launcher: F) -> Result<Session, SessionError>
+    where
+        F: FnOnce(Command) -> std::io::Result<OwnedChild>,
+    {
         let (kind, program, args, thread_params) = resolve(&config)?;
         let mut command = Command::new(&program);
         command
@@ -434,13 +486,32 @@ impl Session {
         if let Some(cwd) = &config.cwd {
             command.current_dir(cwd);
         }
+        if config.extras.env_clear {
+            command.env_clear();
+            for key in &config.extras.env_allow {
+                if let Some(value) = std::env::var_os(key) {
+                    command.env(key, value);
+                }
+            }
+        }
         for key in &config.extras.env_remove {
             command.env_remove(key);
+        }
+        if matches!(config.backend, Backend::Claude(_)) {
+            if let Some(account) = &config.extras.claude.account {
+                let edits = claude::launch_env(account);
+                for key in &edits.remove {
+                    command.env_remove(key);
+                }
+                for (key, value) in &edits.set {
+                    command.env(key, value);
+                }
+            }
         }
         for (key, value) in &config.env {
             command.env(key, value);
         }
-        let mut child = OwnedCommand::from_command(command).spawn()?;
+        let mut child = launcher(command)?;
         let stdin = child
             .take_stdin()
             .ok_or_else(|| SessionError::Startup("child has no stdin".into()))?;
@@ -563,6 +634,43 @@ impl Session {
                     .inspect_err(|_| {
                         lock(&self.shared.requests).remove(&id);
                     })
+            }
+        }
+    }
+
+    /// Add text to the turn that is running now, without starting a new turn. Claude queues the
+    /// text on stdin for the running turn (the same frame as [`Session::send_user_message`]).
+    /// Codex sends `turn/steer` to the active turn, named by its `turn/started` notification.
+    /// Returns `false` when Codex has no active turn to steer (nothing was sent). The
+    /// `turn/steer` params (`expectedTurnId`, `input`) are unverified against a live run.
+    pub fn steer(&self, text: &str) -> Result<bool, SessionError> {
+        match self.shared.kind {
+            Kind::Claude => self
+                .shared
+                .write_line(&claude::user_turn_frame(text))
+                .map(|()| true),
+            Kind::Codex => {
+                let thread = self.session_id();
+                let turn = lock(&self.shared.turn).clone();
+                let (Some(thread), Some(turn)) = (thread, turn) else {
+                    return Ok(false);
+                };
+                let id = self.shared.next_request_id();
+                lock(&self.shared.requests).insert(id, Request::Steer);
+                self.shared
+                    .send_request(
+                        id,
+                        "turn/steer",
+                        json!({
+                            "threadId": thread,
+                            "expectedTurnId": turn,
+                            "input": [{"type": "text", "text": text}]
+                        }),
+                    )
+                    .inspect_err(|_| {
+                        lock(&self.shared.requests).remove(&id);
+                    })?;
+                Ok(true)
             }
         }
     }

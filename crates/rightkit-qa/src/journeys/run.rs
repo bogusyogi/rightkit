@@ -3,13 +3,17 @@
 //!
 //! * **Launch and collect (step 4).** [`run_with`] re-measures the checkout against the build record,
 //!   then runs every selected scenario in its own supervised worker ([`supervise::run_worker`]) in
-//!   the pool: one world per scenario, the manifest's tokens held, a control token file written per
-//!   world, every binary of the record re-hashed before each launch and again after the run. A
+//!   the pool: one scenario slot per scenario, the manifest's tokens held, a control token file written
+//!   per slot, every binary of the record re-hashed before each launch and again after the run. The
+//!   scenarios run on the owner's real data under a snapshot taken after the build and before the
+//!   first launch ([`crate::snapshot`], rightkit#1437), restored and verified before the receipt is
+//!   written. A
 //!   `runner = "adapter"` journey runs through the Harness bridge over the recorded libtest binary.
 //!   A Windows process outside the interactive session is refused, never given a pass.
 //! * **Receipt (step 5).** The receipt is built from what the run observed: the worker's step
 //!   samples, engine starts per environment set, survivors and launch facts, the runner's own
-//!   record of tokens and worlds, the build record and the manifest's `[budget]`. The verdict is
+//!   record of tokens and launches, the snapshot and its verified restore, the build record and the
+//!   manifest's `[budget]`. The verdict is
 //!   recomputed by [`validate_receipt`], the file is validated again from disk, and the run is a pass
 //!   only if that validation passes. An `explore` run records a scenario and writes no receipt.
 //!
@@ -34,7 +38,7 @@
 //!   finished run's binary copies when asked, applies the ordinary run retention, then removes the
 //!   binary copies of the oldest finished runs until the store fits. Evidence is never removed by
 //!   the cap; a store still over the cap refuses the NEXT run at start.
-use super::adapter::{EndRecord, Isolation, Record, SelectedJourney, Selection, StartRecord};
+use super::adapter::{EndRecord, Record, SelectedJourney, Selection, StartRecord};
 use super::bridge::{self, BridgeEntry, BridgeEnv, BridgeOptions};
 use super::build_record::{
     self, ArtifactSpec, BuildPlan, BuildRecord, CurrentInputs, MarkerPolicy, RawBuild,
@@ -43,8 +47,8 @@ use super::build_record::{
 use super::manifest::{self, Journey, Manifest, MANIFEST_FILE, PLATFORMS, TIERS};
 use super::receipt::{
     self, validate_receipt, AdapterRun, BuildRecordRef, Counts, EngineStartCounts, EngineStarts,
-    FileRef, Host, JourneyWorld, LaunchFacts, Launched, Receipt, ReceiptIsolation, ReceiptJourney,
-    ReceiptKind, ReceiptSelection, ReceiptTiming, ValidateOptions, Verdict,
+    FileRef, Host, JourneyLaunch, LaunchFacts, Launched, Receipt, ReceiptJourney, ReceiptKind,
+    ReceiptSelection, ReceiptSnapshot, ReceiptTiming, ValidateOptions, Verdict,
 };
 use super::{
     code, ArtifactDigest, Evidence, EvidenceKind, JourneyStatus, Problem, Units, PROTOCOL,
@@ -56,7 +60,7 @@ use crate::control;
 use crate::evidence::CheckStatus;
 use crate::interactive;
 use crate::lock::LockOptions;
-use crate::pool::{self, HomeTemplate, Job, Pool, SpecInputs, WorldPlan};
+use crate::pool::{self, Job, Pool, SpecInputs, WorldPlan};
 use crate::process::Tracker;
 use crate::retention;
 use crate::scenario::Scenario;
@@ -67,8 +71,7 @@ use crate::util::{
     canonical_plain, err, new_id, now_iso, now_ms, plain_path, sha256_hex, Error, Result,
 };
 use crate::worker::{
-    self, Deadlines, ScenarioSpec, Survivor, SurvivorOwner, Token, WorkerLaunch, WorkerOutcome,
-    World,
+    self, Deadlines, ScenarioSpec, Survivor, SurvivorOwner, Token, WorkerOutcome, World,
 };
 use crate::workspace;
 
@@ -1034,12 +1037,6 @@ fn path_keys(p: &Path) -> Vec<String> {
         .collect()
 }
 
-/// `path` lies strictly under `root` (pure text).
-fn under(root: &Path, path: &Path) -> bool {
-    let (r, p) = (path_keys(root), path_keys(path));
-    path.is_absolute() && p.len() > r.len() && p[..r.len()] == r[..]
-}
-
 fn same_path(a: &Path, b: &Path) -> bool {
     path_keys(a) == path_keys(b)
 }
@@ -1055,29 +1052,6 @@ fn last_env<'a>(env: &'a [(String, String)], name: &str) -> Option<&'a str> {
             }
         })
         .map(|(_, v)| v.as_str())
-}
-
-fn is_isolation_key(key: &str) -> bool {
-    let up = key.to_ascii_uppercase();
-    ["DATA", "HOME", "PROFILE", "CONFIG"]
-        .iter()
-        .any(|w| up.contains(w))
-        || matches!(
-            up.as_str(),
-            "APPDATA" | "LOCALAPPDATA" | "TMPDIR" | "TEMP" | "TMP"
-        )
-}
-
-fn arg_value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
-    let mut found = None;
-    for (i, a) in args.iter().enumerate() {
-        if a == flag {
-            found = args.get(i + 1).map(String::as_str);
-        } else if let Some(v) = a.strip_prefix(flag).and_then(|r| r.strip_prefix('=')) {
-            found = Some(v);
-        }
-    }
-    found
 }
 
 fn wild_match(p: &[u8], t: &[u8]) -> bool {
@@ -1155,67 +1129,6 @@ pub fn deadlines_for(timeout_s: Option<u64>, kind: Option<&KindBudget>) -> Deadl
         scenario_ms,
         teardown_ms: pool::DEFAULT_TEARDOWN_MS,
     }
-}
-
-/// What the runner can check about one launch against the world it ran in. Every message is a
-/// reason the scenario is not recorded as isolated.
-pub fn launch_problems(world: &World, run_root: &Path, l: &WorkerLaunch) -> Vec<String> {
-    let mut p = vec![];
-    if !under(&world.dir, &l.data_dir) {
-        p.push(format!(
-            "the app was told the data directory {}, which is not under its world {}",
-            l.data_dir.display(),
-            world.dir.display()
-        ));
-    }
-    let mut told = false;
-    if let Some(name) = &l.data_dir_env {
-        told = true;
-        match last_env(&l.env, name) {
-            Some(v) if same_path(Path::new(v), &l.data_dir) => {}
-            Some(v) => p.push(format!(
-                "{name}={v:?} is not the data directory {} the launch recorded",
-                l.data_dir.display()
-            )),
-            None => p.push(format!("the launch environment has no {name}")),
-        }
-    }
-    if let Some(flag) = &l.data_dir_arg {
-        told = true;
-        match arg_value(&l.args, flag) {
-            Some(v) if same_path(Path::new(v), &l.data_dir) => {}
-            _ => p.push(format!(
-                "the launch arguments do not carry {flag} <data dir>"
-            )),
-        }
-    }
-    if !told {
-        p.push("no record of how the app was told its data directory".into());
-    }
-    if last_env(&l.env, &world.env_marker.name) != Some(world.env_marker.value.as_str()) {
-        p.push(format!(
-            "the world marker {} is not in the launch environment",
-            world.env_marker.name
-        ));
-    }
-    for (k, v) in &l.env {
-        let dir_like = is_isolation_key(k) || k == control::token::ENV_AUTH_FILE;
-        if dir_like && Path::new(v).is_absolute() && !under(run_root, Path::new(v)) {
-            p.push(format!(
-                "launch environment {k}={v:?} points outside the run root"
-            ));
-        }
-    }
-    if l.token_less_refused.is_some() {
-        match last_env(&l.env, control::token::ENV_AUTH_FILE) {
-            Some(v) if same_path(Path::new(v), &world.control_token_file) => {}
-            _ => p.push(format!(
-                "the launch environment does not name the world's token file in {}",
-                control::token::ENV_AUTH_FILE
-            )),
-        }
-    }
-    p
 }
 
 /// One journey from its units `(name, status, reason)`, 1:1 and without softening: no unit is
@@ -1310,8 +1223,6 @@ struct UnitReport {
     world: Option<World>,
     /// Build record roles whose binaries this unit launched.
     roles: Vec<String>,
-    /// Why the unit's launch is not recorded as isolated.
-    isolation_problems: Vec<String>,
     evidence: Vec<Evidence>,
 }
 
@@ -1326,7 +1237,6 @@ impl UnitReport {
             outcome: None,
             world,
             roles: vec![],
-            isolation_problems: vec![],
             evidence: vec![],
         }
     }
@@ -1363,13 +1273,12 @@ fn record_roles(rec: &BuildRecord, run_root: &Path) -> Vec<(String, PathBuf)> {
 }
 
 /// Judge one scenario outcome. The worker's verdict is advice: a pass stands only with launch
-/// facts that check out against the world, binaries that are the build record's, and no survivor.
+/// facts, binaries that are the build record's, and no survivor.
 fn judge_unit(
     name: &str,
     ran: std::result::Result<UnitRun, String>,
     world: Option<World>,
     roles: &[(String, PathBuf)],
-    run_root: &Path,
 ) -> UnitReport {
     let mut rep = UnitReport::new(name, world.clone());
     let ran = match ran {
@@ -1400,10 +1309,10 @@ fn judge_unit(
     match (&outcome.launch, world.as_ref()) {
         (None, _) => {
             if outcome.status == CheckStatus::Passed {
-                rep.demote("the worker reported no launch: a scenario that launched nothing proves nothing about the build, and its isolation cannot be recorded");
+                rep.demote("the worker reported no launch: a scenario that launched nothing proves nothing about the build, and its launch cannot be recorded");
             }
         }
-        (Some(l), w) => {
+        (Some(l), _) => {
             for b in &l.binaries {
                 match roles.iter().find(|(_, p)| same_path(p, b)) {
                     Some((role, _)) => {
@@ -1419,13 +1328,6 @@ fn judge_unit(
             }
             if l.binaries.is_empty() {
                 rep.demote("the scenario launched no binary of the build record");
-            }
-            if let Some(w) = w {
-                rep.isolation_problems = launch_problems(w, run_root, l);
-                if !rep.isolation_problems.is_empty() {
-                    let why = rep.isolation_problems.join("; ");
-                    rep.demote(&format!("isolation not recorded: {why}"));
-                }
             }
         }
     }
@@ -1581,11 +1483,9 @@ fn budget_for(
 struct Gathered {
     journeys: Vec<JourneyOut>,
     launched: BTreeMap<String, crate::binary::LaunchCheck>,
-    isolated: bool,
     adapter_name: String,
     adapter_argv: Vec<String>,
     adapter_exit: i64,
-    isolation_dir: PathBuf,
     problems: Vec<String>,
 }
 
@@ -1621,15 +1521,35 @@ fn gather_scenarios(
     let run = &prepared.run;
     let record = &prepared.record;
     let platform = prepared.selection.platform.clone();
-    // The base workspace the worlds are cut from (as the suite does): its home is the run root of
-    // every world, its binding file is what each world home is built from.
+    // The run's scratch workspace (as the suite does): its home is the run root of every scenario slot.
     let ws = workspace::create(
         managed_root,
         Some(&format!("{}-w", run.marker.run_id)),
         &m.app,
     )?;
-    let template = HomeTemplate::capture(&ws.home)?;
     let roles = record_roles(record, &run.root);
+    // The step plugin is a binary of its own. The manifest refuses a plugin role named like the
+    // engine or the UI; this refuses the same binary under another role or a copy of it, by digest
+    // (rightkit#942 F3).
+    if let Some(pd) = &m.plugin {
+        let digest = |role: &str| {
+            record
+                .artifacts
+                .iter()
+                .find(|a| a.role == role)
+                .map(|a| a.sha256.as_str())
+        };
+        if let Some(plugin_sha) = digest(&pd.role) {
+            for other in record.artifacts.iter().filter(|a| a.role != pd.role) {
+                if other.sha256 == plugin_sha {
+                    return err(format!(
+                        "[plugin] role {:?} is the same binary (sha256 {plugin_sha}) as role {:?}; a plugin must be its own binary, not a copy of the engine or the UI",
+                        pd.role, other.role
+                    ));
+                }
+            }
+        }
+    }
 
     struct Unit {
         journey: usize,
@@ -1742,7 +1662,6 @@ fn gather_scenarios(
     };
     let run_worker_hook = hooks.worker;
     let ws_ref = &ws;
-    let template_ref = &template;
     let units_ref = &units;
     let runnable_ref = &runnable;
     let journeys_ref = journeys;
@@ -1758,8 +1677,8 @@ fn gather_scenarios(
             return Err("internal: a unit that did not load was scheduled".to_string());
         };
         let tier_budget = m_ref.budget.as_ref().and_then(|b| b.kind(&j.tier));
-        let wsw = pool::world_workspace(ws_ref, template_ref, world, g)
-            .map_err(|e| format!("the scenario world could not be built: {}", e.0))?;
+        let wsw = pool::world_workspace(ws_ref, world, g)
+            .map_err(|e| format!("the scenario slot could not be built: {}", e.0))?;
         let runtime = json!({
             "config": cfg.config_path.to_string_lossy(),
             "tier": j.tier,
@@ -1771,6 +1690,7 @@ fn gather_scenarios(
             "plugin": plugin_json.clone(),
             "workspace": {
                 "root": wsw.root.to_string_lossy(),
+                "home": wsw.home.to_string_lossy(),
                 "evidenceDir": wsw.evidence_dir.to_string_lossy(),
                 "captureDir": wsw.capture_dir.to_string_lossy(),
                 "env": wsw.env,
@@ -1824,7 +1744,7 @@ fn gather_scenarios(
             Ok(Err(why)) => Err(why),
             Ok(Ok(r)) => Ok(r),
         };
-        reports[i] = Some(judge_unit(&units[i].name, flat, world, &roles, &ws.home));
+        reports[i] = Some(judge_unit(&units[i].name, flat, world, &roles));
     }
     let mut reps: Vec<UnitReport> = reports
         .into_iter()
@@ -1847,14 +1767,14 @@ fn gather_scenarios(
     let mut problems = post_run_problems(record, &run.root, &cur_end, &mut reps);
 
     // Evidence: the runner's judgement beside the worker's raw files, copied into the run directory
-    // (the world directories are disposed with the base workspace).
+    // (the slot directories are disposed with the run workspace).
     for (i, r) in reps.iter_mut().enumerate() {
         let dir = run.root.join("units").join(format!("{:03}", i + 1));
         let _ = std::fs::create_dir_all(&dir);
         let judged = json!({
             "scenario": r.name, "journey": journeys[units[i].journey].id,
             "status": r.status, "message": r.message,
-            "isolationProblems": r.isolation_problems, "roles": r.roles,
+            "roles": r.roles,
         });
         let settled = dir.join(SETTLED_FILE);
         if std::fs::write(
@@ -1880,7 +1800,6 @@ fn gather_scenarios(
     }
 
     let mut out = vec![];
-    let mut isolated = true;
     let mut any_error = false;
     for (ji, j) in journeys.iter().enumerate() {
         let mine: Vec<usize> = (0..units.len())
@@ -1929,7 +1848,6 @@ fn gather_scenarios(
             if r.status == CheckStatus::Errored {
                 any_error = true;
             }
-            isolated &= r.isolation_problems.is_empty();
             if let Some(o) = &r.outcome {
                 if o.engine_starts > 0 {
                     match engine_start_counts_of(o) {
@@ -1960,27 +1878,20 @@ fn gather_scenarios(
                 survivors.extend(o.survivors.iter().cloned());
             }
         }
-        let rep_for_world = mine
+        let rep_for_launch = mine
             .iter()
             .map(|i| &reps[*i])
             .find(|r| r.outcome.as_ref().is_some_and(|o| o.launch.is_some()) && r.world.is_some())
             .or_else(|| mine.iter().map(|i| &reps[*i]).find(|r| r.world.is_some()));
-        let world = rep_for_world.and_then(|r| {
+        let launch = rep_for_launch.and_then(|r| {
             let w = r.world.as_ref()?;
-            let launch = r.outcome.as_ref().and_then(|o| o.launch.as_ref());
-            let (env, args, den, dar, probe): (Vec<(String, String)>, Vec<String>, _, _, _) =
-                match launch {
-                    Some(l) => (
-                        l.env.clone(),
-                        l.args.clone(),
-                        l.data_dir_env.clone(),
-                        l.data_dir_arg.clone(),
-                        l.token_less_refused,
-                    ),
-                    None => (pool::world_env(w, &grants[ji]), vec![], None, None, None),
-                };
+            let launched = r.outcome.as_ref().and_then(|o| o.launch.as_ref());
+            let (env, probe): (Vec<(String, String)>, _) = match launched {
+                Some(l) => (l.env.clone(), l.token_less_refused),
+                None => (pool::world_env(w, &grants[ji]), None),
+            };
             // N2: the file the app was actually given (the launch environment's one value, which the
-            // suite wrote from the running app), not the world's file by assumption.
+            // suite wrote from the running app), not the slot's file by assumption.
             let control_auth = probe.map(|refused| {
                 let given = last_env(&env, control::token::ENV_AUTH_FILE)
                     .map(PathBuf::from)
@@ -1991,22 +1902,14 @@ fn gather_scenarios(
                     token_less_refused: refused,
                 }
             });
-            let mut jw = JourneyWorld::from_world(
+            Some(JourneyLaunch::from_world(
                 w,
                 ws.home.as_path(),
                 LaunchFacts {
-                    data_dir_env: den.as_deref(),
-                    data_dir_arg: dar.as_deref(),
-                    args: &args,
                     env: &env,
                     control_auth,
                 },
-            );
-            // The directory the app was actually told, not the world's data root.
-            if let Some(l) = launch {
-                jw.data_dir = l.data_dir.to_string_lossy().into_owned();
-            }
-            Some(jw)
+            ))
         });
         out.push(JourneyOut {
             journey: ReceiptJourney {
@@ -2026,7 +1929,7 @@ fn gather_scenarios(
                 }),
                 survivors: Some(survivors),
                 tokens_held: Some(grants[ji].clone()),
-                world,
+                launch,
             },
             result,
         });
@@ -2040,7 +1943,7 @@ fn gather_scenarios(
             launched.insert(role.clone(), c);
         }
     }
-    // The base workspace is finished here; its worlds were copied into the evidence above.
+    // The run workspace is finished here; the slot files were copied into the evidence above.
     let _ = ws.set_outcome(if any_error {
         RunOutcome::Failed
     } else {
@@ -2054,12 +1957,9 @@ fn gather_scenarios(
     Ok(Gathered {
         journeys: out,
         launched,
-        isolated,
         adapter_name: ADAPTER_NAME.to_string(),
         adapter_argv: vec![],
         adapter_exit: i64::from(any_error),
-        isolation_dir: ws.data_dir.clone(),
-
         problems,
     })
 }
@@ -2074,35 +1974,28 @@ struct BridgeRun {
     survivors: Vec<Survivor>,
 }
 
-/// The environment a bridged binary is given: the world's variables, the profile directories moved
-/// into the world, and the data directory the receipt records.
+/// The environment a bridged binary is given: the scenario slot's variables and the snapshot it runs
+/// under. No home, profile, data or temp directory is moved: it runs on the owner's real data.
 fn bridge_env(
     world: &World,
     tokens: &[Token],
     run_token: &str,
 ) -> (BridgeEnv, Vec<(String, String)>) {
-    let text = |p: &Path| p.to_string_lossy().into_owned();
     let mut extra: Vec<(String, String)> = pool::world_env(world, tokens)
         .into_iter()
         .filter(|(k, _)| *k != world.env_marker.name)
         .collect();
-    let cache = world.home.join("cache");
-    for (k, v) in [
-        ("RIGHTKIT_QA_DATA_DIR", text(&world.data_dir)),
-        ("HOME", text(&world.home)),
-        ("USERPROFILE", text(&world.home)),
-        ("APPDATA", text(&world.data_dir)),
-        ("LOCALAPPDATA", text(&world.data_dir)),
-        ("XDG_DATA_HOME", text(&world.data_dir)),
-        ("XDG_CONFIG_HOME", text(&world.data_dir)),
-        ("XDG_CACHE_HOME", text(&cache)),
-        ("TMPDIR", text(&world.temp)),
-        ("TMP", text(&world.temp)),
-        ("TEMP", text(&world.temp)),
-    ] {
-        extra.push((k.to_string(), v));
+    // The bridged binaries run on the owner's real data under the snapshot this process armed: they
+    // are told which one, and no home, profile or temp directory is moved.
+    if let Some(marker) = crate::snapshot::armed_marker_path() {
+        extra.push((
+            crate::snapshot::MARKER_ENV.to_string(),
+            marker.to_string_lossy().into_owned(),
+        ));
     }
-    let _ = std::fs::create_dir_all(&cache);
+    if let Some(id) = crate::snapshot::armed_snapshot_id() {
+        extra.push((super::adapter::ENV_SNAPSHOT_ID.to_string(), id));
+    }
     // What the receipt records: the world marker (each bridged process carries `<marker>-<n>`),
     // the run token's presence is not recorded, only its name.
     let mut recorded = extra.clone();
@@ -2312,7 +2205,6 @@ fn gather_bridge(
     let cur_end = CurrentInputs::gather(app_root, &prepared.plan, &prepared.manifest_sha256)?;
     let mut out = vec![];
     let mut launched = BTreeMap::new();
-    let mut isolated = true;
     let mut any_error = false;
     let mut argv = vec![];
     let mut adapter_name = String::new();
@@ -2397,27 +2289,21 @@ fn gather_bridge(
         if result.status == JourneyStatus::Errored {
             any_error = true;
         }
-        let jworld = world.as_ref().map(|w| {
+        let jlaunch = world.as_ref().map(|w| {
             let (_, recorded) = bridge_env(w, &grants[i], "recorded");
             let recorded: Vec<(String, String)> = recorded
                 .into_iter()
                 .filter(|(k, _)| k != RUN_TOKEN_ENV)
                 .collect();
-            JourneyWorld::from_world(
+            JourneyLaunch::from_world(
                 w,
                 worlds_root.as_path(),
                 LaunchFacts {
-                    data_dir_env: Some("RIGHTKIT_QA_DATA_DIR"),
-                    data_dir_arg: None,
-                    args: &[],
                     env: &recorded,
                     control_auth: None,
                 },
             )
         });
-        if jworld.is_none() {
-            isolated = false;
-        }
         out.push(JourneyOut {
             journey: ReceiptJourney {
                 id: j.id.clone(),
@@ -2432,7 +2318,7 @@ fn gather_bridge(
                 engine_starts: None,
                 survivors: Some(survivors),
                 tokens_held: Some(grants[i].clone()),
-                world: jworld,
+                launch: jlaunch,
             },
             result,
         });
@@ -2440,12 +2326,9 @@ fn gather_bridge(
     Ok(Gathered {
         journeys: out,
         launched,
-        isolated,
         adapter_name,
         adapter_argv: argv,
         adapter_exit: i64::from(any_error),
-        isolation_dir: plan.worlds_dir(),
-
         problems: vec![],
     })
 }
@@ -2455,6 +2338,7 @@ fn gather_bridge(
 fn results_text(
     prepared: &Prepared,
     g: &Gathered,
+    snap: &ReceiptSnapshot,
     started_at: &str,
     ended_at: &str,
 ) -> Result<String> {
@@ -2477,11 +2361,7 @@ fn results_text(
         adapter_version: env!("CARGO_PKG_VERSION").to_string(),
         started_at: started_at.to_string(),
         artifacts,
-        isolation: Isolation {
-            data_dir: g.isolation_dir.to_string_lossy().into_owned(),
-            guard: if g.isolated { "passed" } else { "failed" }.into(),
-            qa_mode: "runtime".into(),
-        },
+        snapshot_id: snap.snapshot_id.clone(),
     })];
     for j in &g.journeys {
         let r = &j.result;
@@ -2519,6 +2399,7 @@ fn build_receipt(
     prepared: &Prepared,
     m: &Manifest,
     g: &Gathered,
+    snap: &ReceiptSnapshot,
     started_at: &str,
     ended_at: &str,
     results: &[u8],
@@ -2577,12 +2458,7 @@ fn build_receipt(
         mapping,
         build: rec.to_receipt_build(run_dir),
         launched,
-        isolation: ReceiptIsolation {
-            data_dir: g.isolation_dir.to_string_lossy().into_owned(),
-            guard: if g.isolated { "passed" } else { "failed" }.into(),
-            qa_mode: "runtime".into(),
-            real_data_touched: false,
-        },
+        snapshot: snap.clone(),
         adapter: AdapterRun {
             name: g.adapter_name.clone(),
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -2661,7 +2537,23 @@ pub fn run_with(opts: &JourneyRunOptions, hooks: &Hooks<'_>) -> Result<RunReport
     let started_at = now_iso();
     let prepared = prepare_with(&opts.prepare, hooks.broker)?;
     let cap = opts.prepare.store_cap;
-    match collect(opts, hooks, &prepared, &started_at) {
+    // The journeys run on the owner's real data (rightkit#1437, GC-A10): snapshot after the build and
+    // before anything launches. `collect` restores and verifies it before the receipt is written;
+    // an error on the way restores here. A kill leaves the marker, and the next `rightkit-qa` start
+    // restores it before anything else.
+    let mut armed = match arm_snapshot(opts) {
+        Ok(armed) => Some(armed),
+        Err(e) => {
+            let _ = finish_with_error(&prepared, cap, &e);
+            return Err(e);
+        }
+    };
+    let result = collect(opts, hooks, &prepared, &started_at, &mut armed);
+    let result = match armed.take() {
+        Some(left) => crate::snapshot::finish(left, result),
+        None => result,
+    };
+    match result {
         Ok(report) => Ok(report),
         Err(e) => {
             let _ = finish_with_error(&prepared, cap, &e);
@@ -2670,11 +2562,35 @@ pub fn run_with(opts: &JourneyRunOptions, hooks: &Hooks<'_>) -> Result<RunReport
     }
 }
 
+/// Arm the `[snapshot]` of the app's `rightkit-qa.toml`. A journey run with none is refused: QA runs on
+/// the owner's real data, so it must snapshot and restore it (Adrian, 2026-11-03: "real data. snapshot
+/// and restore.").
+fn arm_snapshot(opts: &JourneyRunOptions) -> Result<crate::snapshot::Armed> {
+    let app_root = canonical_plain(&opts.prepare.app_root).map_err(|e| {
+        Error(format!(
+            "cannot resolve {}: {e}",
+            opts.prepare.app_root.display()
+        ))
+    })?;
+    let cfg_path = app_root.join("rightkit-qa.toml");
+    if !cfg_path.is_file() {
+        return err(format!(
+            "{} does not exist: a journey run needs rightkit-qa.toml with a [snapshot] of the app's real data (QA runs on the owner's real data and must snapshot and restore it). Add:\n[snapshot]\napp_name = \"<the installed folder name>\"\nprocess_names = [\"<the app's process name>\"]",
+            cfg_path.display()
+        ));
+    }
+    let cfg = QaConfig::load(&cfg_path)?;
+    let snapshot = cfg.require_snapshot()?;
+    let managed_root = storage::managed_root(opts.prepare.managed_root.as_deref());
+    crate::snapshot::arm(&cfg.app, snapshot, &managed_root)
+}
+
 fn collect(
     opts: &JourneyRunOptions,
     hooks: &Hooks<'_>,
     prepared: &Prepared,
     started_at: &str,
+    snapshot: &mut Option<crate::snapshot::Armed>,
 ) -> Result<RunReport> {
     let app_root = canonical_plain(&opts.prepare.app_root).map_err(|e| {
         Error(format!(
@@ -2731,7 +2647,7 @@ fn collect(
         )?
     } else {
         let Some(cfg) = cfg.as_ref() else {
-            return err("journeys run needs rightkit-qa.toml in the app root: the scenario workers read their engine and data-directory settings from it");
+            return err("journeys run needs rightkit-qa.toml in the app root: the scenario workers read their engine settings and the [snapshot] of the real data from it");
         };
         gather_scenarios(
             prepared,
@@ -2747,8 +2663,25 @@ fn collect(
     for p in &g.problems {
         eprintln!("[qa] {p}");
     }
+    // Every journey has run and every app is stopped: put the owner's real data back and verify it
+    // against the snapshot manifest. The receipt records the snapshot and that verification; a
+    // restore that fails fails the run (the marker stays, the next start restores it).
+    let Some(armed) = snapshot.take() else {
+        return err("internal: the journeys reached the receipt with no snapshot armed");
+    };
+    let restored = armed.restore()?;
+    eprintln!("[qa] {}", restored.describe());
+    let snap = ReceiptSnapshot {
+        snapshot_id: restored.snapshot_id.clone(),
+        manifest_sha256: restored.manifest_sha256.clone(),
+        credentials_sha256: restored.credentials_sha256.clone(),
+        roots: u32::try_from(restored.roots_restored).unwrap_or(u32::MAX),
+        credentials: u32::try_from(restored.credentials_restored).unwrap_or(u32::MAX),
+        android: restored.android_restored,
+        restore_verified: true,
+    };
     let ended_at = now_iso();
-    let results = results_text(prepared, &g, started_at, &ended_at)?;
+    let results = results_text(prepared, &g, &snap, started_at, &ended_at)?;
     let results_path = run.root.join(RESULTS_FILE);
     std::fs::write(&results_path, results.as_bytes())
         .map_err(|e| Error(format!("cannot write {}: {e}", results_path.display())))?;
@@ -2768,6 +2701,7 @@ fn collect(
         prepared,
         &m,
         &g,
+        &snap,
         started_at,
         &ended_at,
         results.as_bytes(),

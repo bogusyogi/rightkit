@@ -10,6 +10,8 @@
 //!   `rightkit-browser`, `speech.*` over the shared speech service
 //!   (`rightkit-speech-client`, the first client).
 //! * `right-ctl <app> <command>`: the CLI over the same toolbox.
+//! * `ToolboxProvider` (feature `mcp-provider`): serves a [`Toolbox`] over MCP as a
+//!   `rightkit_mcp::ToolProvider`; every call still passes the toolbox's gate.
 //! * [`applicability`]: the M22 applicability record (`client | host | both | absent` plus real
 //!   entrypoints) an app declares in `rightkit-mandatory.json`.
 //!
@@ -22,6 +24,8 @@ pub mod backends;
 pub mod coding_tools;
 pub mod exposure;
 mod journal;
+#[cfg(feature = "mcp-provider")]
+mod mcp_provider;
 mod peer;
 mod spec;
 mod toolbox;
@@ -30,7 +34,10 @@ pub use applicability::{AgentRole, ApplicabilityError, ApplicabilityRecord, APPL
 pub use backends::control::{
     control_tools, AppProfile, CommandPolicy, CLIENT_APP, CONTROL_METHODS,
 };
+pub use backends::http::HttpEndpoint;
 pub use journal::JsonlJournal;
+#[cfg(feature = "mcp-provider")]
+pub use mcp_provider::ToolboxProvider;
 pub use peer::CallContextExt;
 pub use spec::*;
 pub use toolbox::{

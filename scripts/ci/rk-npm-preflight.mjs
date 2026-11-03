@@ -66,7 +66,6 @@ export function readPackages(root = ROOT) {
 /** The hosted npm verify's rows for one package, in its order: install, build closure, the package's test script. */
 export function packageRows(unit, pkg, { storeDir, timeoutMinutes = 30 } = {}) {
   if (!storeDir) throw new Error("the pnpm store pin (ci/rk-pipeline.json tools.pnpm.<platform>.storeDir) is required");
-  if (!pkg.scripts.test) throw new Error(`${unit} has no test script; an npm package without one needs allow_no_test, which this pre-flight never supplies`);
   return [
     { id: "install", kind: "install", args: ["install", "--frozen-lockfile", "--store-dir", storeDir], timeoutMinutes },
     { id: "build-closure", kind: "build", args: pnpmBuildClosureArgs([unit]), timeoutMinutes },
@@ -74,7 +73,8 @@ export function packageRows(unit, pkg, { storeDir, timeoutMinutes = 30 } = {}) {
     // sibling-dependent contract tests (asset-gated, ci/asset-gated.json npm) skip here as they do there.
     // RK_ISOLATED_CHECKOUT (not RIGHTKIT_*: the broker reserves that prefix in adapter environments) is the switch
     // right-suite-contract.test.mjs honours; the adapter's env allowlist names it.
-    { id: "test", kind: "test", args: ["--dir", pkg.dir, "run", "test"], env: { RK_ISOLATED_CHECKOUT: "1" }, timeoutMinutes },
+    // End-to-end tests only (Adrian, 2026-11-03): no test script, no test row.
+    ...(pkg.scripts.test ? [{ id: "test", kind: "test", args: ["--dir", pkg.dir, "run", "test"], env: { RK_ISOLATED_CHECKOUT: "1" }, timeoutMinutes }] : []),
   ];
 }
 

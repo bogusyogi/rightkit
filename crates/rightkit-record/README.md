@@ -43,7 +43,35 @@ failures as `HelperEvent`s.
 - `protocol`: the helper wire protocol. Length-prefixed JSON frames (`rightkit-sidecar`) with `request`, `response`, `event` and `bye` kinds.
 - `process`: `ProcessBackend`, the core's `Backend` over a helper's stdio, and `serve_backend`, which lets a helper serve any `Backend`.
 - `windows` (Windows only): Windows.Graphics.Capture and Media Foundation capture for one HWND (`src/lib.rs:47-49`).
+- `screen`, `rkv`: whole-screen capture with markers, its reader, and the lossless `RKV1` container (see "Whole-screen capture with step markers").
 - `macos` (macOS only): ScreenCaptureKit capture through the Swift helper in `helpers/macos`; the module launches it and speaks the helper protocol (`src/lib.rs:50-53`).
+
+## Whole-screen capture with step markers
+
+`ScreenRecorder` records one monitor or the whole virtual screen (every monitor composited) at up to 120 fps into a lossless file, stamps every frame with the capture clock, and lets the caller drop labelled markers on that same clock (rightkit#443). It is the sibling of the window `Recorder`: no scenario, redaction or manifest, just a directory.
+
+```rust
+let spec = ScreenSpec::new(ScreenTarget::Virtual, 60, true, out_dir);
+let mut take = ScreenRecorder::start_default(spec)?;
+take.mark("step-1")?;            // {"seq":0,"label":"step-1","hostNs":...,"utcMs":...}
+// ... drive the app ...
+let done = take.stop()?;          // writes screen.json
+for frame in ScreenReader::open(&out_dir)? {
+    let frame = frame?;           // host_ns, width, height, packed BGRA
+}
+```
+
+| File | Content |
+|---|---|
+| `screen.rkv` | the frames, each with its `hostNs`, in the lossless `RKV1` container (`rkv` module) |
+| `markers.ndjson` | one line per `mark` (or the path in `ScreenSpec::markers`) |
+| `screen.json` | clock, size, monitors, frame, drop and marker counts, how the take ended |
+
+`hostNs` is QPC nanoseconds on Windows (`clock` = `qpc_ns`) and `CLOCK_UPTIME_RAW` nanoseconds on macOS (`uptime_ns`); frames and markers share it, so `Marker::active_at(&markers, frame.host_ns)` is the step a frame belongs to. Capture delivers a frame when the screen changes: a static screen produces no frames, and a gap is not a drop. Whole-screen capture is lossless only (`lossless == false` is refused), needs no ffmpeg, and needs Screen Recording permission on macOS. Monitor 0 is the primary monitor, the rest follow left to right, then top to bottom.
+
+CLI (Windows and macOS): `rightkit-record-helper capture --screen --fps 60 --lossless --out <dir> [--target virtual|monitor:N] [--seconds <n>] [--markers <file>]` and `rightkit-record-helper monitors`. stdin takes `mark <label>` and `stop`; stdout is JSON lines. The macOS capture runs in the Swift helper's `capture-screen` mode (`helpers/macos`), launched through `rightkit-child-process`.
+
+Status: not built or run when written (see the changelog); the acceptance is SwiftRight's H19 flicker probe running on it on both hosts.
 
 ## Recoverable media (R14)
 

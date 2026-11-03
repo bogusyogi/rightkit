@@ -11,7 +11,6 @@
 // docs/ARCHITECTURE.md.
 #![allow(deprecated)]
 
-pub mod aligned_probe;
 mod multiarray;
 mod stage;
 

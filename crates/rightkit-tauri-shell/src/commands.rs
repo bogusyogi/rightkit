@@ -179,8 +179,10 @@ pub fn rk_shell_window(
             .set_fullscreen(!window.is_fullscreen().unwrap_or(false))
             .map_err(|e| e.to_string()),
         "hide" => {
-            let r = window.hide();
-            if window.label() == window.app_handle().state::<ShellState>().main_label {
+            let r = crate::windows::hide_or_destroy(window.app_handle(), &window);
+            if window.label() == window.app_handle().state::<ShellState>().main_label
+                && matches!(r, Ok(false))
+            {
                 crate::idle::note_hidden(window.app_handle(), false);
             }
             if r.is_ok() && window.label() == window.app_handle().state::<ShellState>().main_label {
@@ -189,7 +191,7 @@ pub fn rk_shell_window(
                     crate::lifecycle::Visibility::Hidden,
                 );
             }
-            r.map_err(|e| e.to_string())
+            r.map(|_| ()).map_err(|e| e.to_string())
         }
         "show" => {
             // The guard decides: never-show makes this a silent no-op.
@@ -211,6 +213,146 @@ pub fn rk_shell_window(
         other => return Err(format!("unknown window action {other}")),
     };
     r
+}
+
+/// Close the calling window past the app's close hook (see `ShellBuilder::on_close_requested`): the
+/// app has finished its own work (saved, stopped jobs) and approves the close. The window then closes
+/// through the ordinary close path, so the window-state save runs. Without a close hook this is an
+/// ordinary close.
+#[tauri::command]
+pub fn rk_shell_force_close(
+    webview: Webview<Wry>,
+    window: WebviewWindow<Wry>,
+    state: State<'_, ShellState>,
+) -> Result<(), String> {
+    guard_command(&webview, "rk_shell_force_close").map_err(|e| e.to_string())?;
+    if state.close_hook.is_some() {
+        state
+            .close_approved
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(window.label().to_owned());
+    }
+    window.close().map_err(|e| e.to_string())
+}
+
+/// Take the one-shot payload the opener gave the calling window (`WindowSpec::payload`). The first
+/// call returns it; every later call returns `null`.
+#[tauri::command]
+pub fn rk_shell_take_payload(
+    webview: Webview<Wry>,
+    state: State<'_, ShellState>,
+) -> Result<Option<serde_json::Value>, String> {
+    guard_command(&webview, "rk_shell_take_payload").map_err(|e| e.to_string())?;
+    let label = webview.label().to_owned();
+    Ok(state
+        .payloads
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&label))
+}
+
+/// Options for `rk_shell_pick_file` and `rk_shell_pick_folder` (#746).
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PickOptions {
+    pub title: Option<String>,
+    /// A starting folder, a hint only: it grants nothing.
+    pub directory: Option<String>,
+    /// `(name, extensions)` pairs; none means any file. Extensions carry no dot.
+    pub filters: Option<Vec<(String, Vec<String>)>>,
+}
+
+/// The picked path, canonicalised and granted to the path broker; `None` when the person closed the
+/// dialog. The grant is the person's own choice, so the app reads the file without a second prompt.
+#[cfg(feature = "dialog")]
+fn pick_blocking(
+    app: &AppHandle<Wry>,
+    options: &PickOptions,
+    folder: bool,
+) -> Result<Option<String>, ShellError> {
+    use tauri_plugin_dialog::Dialog;
+    let dialog = app.try_state::<Dialog<Wry>>().ok_or_else(|| {
+        ShellError::Unsupported("the file dialog plugin is not registered by this app".into())
+    })?;
+    let mut builder = dialog.file();
+    if let Some(title) = options.title.as_deref().filter(|t| !t.trim().is_empty()) {
+        builder = builder.set_title(title);
+    }
+    if let Some(dir) = options
+        .directory
+        .as_deref()
+        .filter(|d| !d.trim().is_empty())
+    {
+        builder = builder.set_directory(dir);
+    }
+    for (name, extensions) in options.filters.iter().flatten() {
+        let refs: Vec<&str> = extensions.iter().map(String::as_str).collect();
+        builder = builder.add_filter(name.as_str(), &refs);
+    }
+    let picked = if folder {
+        builder.blocking_pick_folder()
+    } else {
+        builder.blocking_pick_file()
+    };
+    let Some(picked) = picked else {
+        return Ok(None);
+    };
+    let path = picked
+        .into_path()
+        .map_err(|e| ShellError::Io(format!("picked path: {e}")))?;
+    let canonical = std::fs::canonicalize(&path)?;
+    let state = app.state::<ShellState>();
+    state.broker.grant_normalized(canonical).map(Some)
+}
+
+#[cfg(not(feature = "dialog"))]
+fn pick_blocking(
+    _app: &AppHandle<Wry>,
+    _options: &PickOptions,
+    _folder: bool,
+) -> Result<Option<String>, ShellError> {
+    Err(ShellError::Unsupported(
+        "the file dialog is not compiled into this build (feature dialog)".into(),
+    ))
+}
+
+/// Ask the person for a file (#746). Runs off the main thread; resolves to the granted path or `null`.
+#[tauri::command]
+pub async fn rk_shell_pick_file(
+    webview: Webview<Wry>,
+    options: PickOptions,
+) -> Result<Option<String>, ShellError> {
+    guard_command(&webview, "rk_shell_pick_file")?;
+    let app = webview.app_handle().clone();
+    tauri::async_runtime::spawn_blocking(move || pick_blocking(&app, &options, false))
+        .await
+        .map_err(|e| ShellError::Other(format!("file dialog: {e}")))?
+}
+
+/// Ask the person for a folder (#746). Runs off the main thread; resolves to the granted path or `null`.
+#[tauri::command]
+pub async fn rk_shell_pick_folder(
+    webview: Webview<Wry>,
+    options: PickOptions,
+) -> Result<Option<String>, ShellError> {
+    guard_command(&webview, "rk_shell_pick_folder")?;
+    let app = webview.app_handle().clone();
+    tauri::async_runtime::spawn_blocking(move || pick_blocking(&app, &options, true))
+        .await
+        .map_err(|e| ShellError::Other(format!("folder dialog: {e}")))?
+}
+
+/// Set the window's fullscreen state to `on`. An explicit state, not a toggle: a stale or repeated
+/// request lands in the state it names, whatever the window is in when it arrives.
+#[tauri::command]
+pub fn rk_shell_set_fullscreen(
+    webview: Webview<Wry>,
+    on: bool,
+    window: WebviewWindow<Wry>,
+) -> Result<(), String> {
+    guard_command(&webview, "rk_shell_set_fullscreen").map_err(|e| e.to_string())?;
+    window.set_fullscreen(on).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -780,6 +922,24 @@ pub fn rk_shell_path_require(
     } else {
         state.broker.require_file(&path)
     }
+}
+
+/// Reveal a granted file in the OS file manager (Finder, Explorer). The path must already be granted
+/// by the path broker: an ungranted path is refused with `broker_denied` before anything runs.
+#[tauri::command]
+pub fn rk_shell_reveal(
+    webview: Webview<Wry>,
+    path: String,
+    state: State<'_, ShellState>,
+) -> Result<(), ShellError> {
+    guard_command(&webview, "rk_shell_reveal")?;
+    require(&state, Module::Broker)?;
+    let granted = state.broker.require_file(&path)?;
+    let normalized = crate::broker::normalize_existing_file(&granted)?;
+    let scope = rightkit_child_process::reveal::PathScope::new([&normalized])
+        .map_err(|e| ShellError::Io(format!("reveal scope: {e}")))?;
+    rightkit_child_process::reveal::reveal(&normalized, &scope)
+        .map_err(|e| ShellError::Io(format!("reveal: {e}")))
 }
 
 #[tauri::command]

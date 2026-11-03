@@ -1,10 +1,27 @@
 //! Neutral crypto primitives: SHA-256, HMAC-SHA256, constant-time compare,
 //! base64/base64url, hex, a BLAKE3 text hash, canonical JSON and approval tokens.
 //!
-//! SHA-256, HMAC, base64 and the compare are implemented in this crate; BLAKE3 and
-//! JSON come from `blake3` and `serde_json`.
+//! SHA-256, HMAC-SHA256, base64 and the compare are implemented in this crate; BLAKE3 and
+//! JSON come from `blake3` and `serde_json`. Signatures (Ed25519; ECDSA P-256 and RSA PKCS#1
+//! v1.5 SHA-256 verify), AEAD (AES-256-GCM, ChaCha20-Poly1305), HKDF-SHA256, PBKDF2,
+//! HMAC-SHA1/256/512, TOTP, the system RNG and a wiped `Secret` wrap `ring`.
 
+pub mod aead;
 pub mod approval;
+mod error;
+mod kdf;
+mod secret;
+mod sign;
+
+pub use error::CryptoError;
+pub use kdf::{
+    hkdf_sha256, hmac, pbkdf2_derive, pbkdf2_verify, random_bytes, random_fill, totp,
+    HmacAlgorithm, Pbkdf2Hash, TOTP_DIGITS,
+};
+pub use secret::{wipe, Secret};
+pub use sign::{
+    ecdsa_p256_verify, ed25519_verify, rsa_pkcs1_sha256_verify, EcdsaEncoding, Ed25519Signer,
+};
 
 use serde_json::Value;
 

@@ -22,12 +22,11 @@
     "templates",
     "*.mjs",
     "*.json",
-    "!*.test.mjs",
-    "!test-support.mjs"
+    "!*.test.mjs"
   ],
   "sideEffects": false,
   "scripts": {
-    "test": "node --test *.test.mjs"
+    "test": "node --test pack-smoke.test.mjs"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",

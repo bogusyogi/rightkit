@@ -49,7 +49,7 @@ const EXACT_SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const USER_AGENT = "right-release-resolver/1 (https://github.com/bogusyogi/rightkit)";
 // The updater is @rightkit/outdated, a dependency of this package; `right-release update` runs its bin (pnpm links only an
 // app's direct dependencies' bins, so `pnpm exec right-update` does not exist in an app that has just @rightkit/release).
-export const FIX = `run \`${UPDATE_COMMAND}\` (the pinned @rightkit/outdated updater; it reads .rightkit/update.json) to move the pin`;
+export const FIX = `run \`${UPDATE_COMMAND}\` (the pinned @rightkit/outdated updater; it reads .rightkit/update.json, and says how to create it when the app has none) to move the pin, or set the exact version by hand and refresh the lock`;
 const DEFAULT_ATTEMPTS = 3;
 const DEFAULT_TIMEOUT_MS = 15000;
 const CONCURRENCY = 6;

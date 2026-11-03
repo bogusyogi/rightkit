@@ -11,6 +11,9 @@ use std::fmt;
 use std::sync::{Arc, OnceLock};
 
 use rightkit_dictation_core::engine::{RecordingContext, RecordingContextState};
+use rightkit_dictation_core::settings::SettingsBlob;
+use rightkit_text_polish::vocab_learn::Suggestion;
+use rightkit_text_polish::vocabulary::VocabularyEntry;
 use rightkit_transcript_library::delivery::{
     DeliveryBackend, DeliveryError, DeliveryRecord, TargetSnapshot,
 };

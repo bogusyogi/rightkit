@@ -18,7 +18,10 @@ impl Newline {
     }
 }
 
-fn stamp(ms: u64, sep: char) -> String {
+/// `HH:MM:SS<sep>mmm` for a millisecond offset: `,` gives the SubRip and whisper.cpp
+/// `timestamps` form (`01:02:03,004`), `.` gives the WebVTT form (`01:02:03.004`).
+/// Shared by [`to_srt`], [`to_vtt`] and any whisper-compatible JSON writer (#1095).
+pub fn subtitle_timestamp(ms: u64, sep: char) -> String {
     format!(
         "{:02}:{:02}:{:02}{sep}{:03}",
         ms / 3_600_000,
@@ -51,8 +54,8 @@ pub fn to_srt(cues: &[Cue], nl: Newline) -> String {
         n += 1;
         out.push_str(&format!(
             "{n}{nl}{} --> {}{nl}",
-            stamp(c.start_ms, ','),
-            stamp(c.end_ms, ',')
+            subtitle_timestamp(c.start_ms, ','),
+            subtitle_timestamp(c.end_ms, ',')
         ));
         for l in lines {
             out.push_str(&l);
@@ -80,8 +83,8 @@ pub fn to_vtt(cues: &[Cue], nl: Newline) -> String {
         }
         out.push_str(&format!(
             "{} --> {}{nl}",
-            stamp(c.start_ms, '.'),
-            stamp(c.end_ms, '.')
+            subtitle_timestamp(c.start_ms, '.'),
+            subtitle_timestamp(c.end_ms, '.')
         ));
         for l in lines {
             out.push_str(&vtt_escape(&l));

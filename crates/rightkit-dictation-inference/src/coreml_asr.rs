@@ -22,7 +22,6 @@ mod subtitles;
 mod window_health;
 
 pub use command_alignment::{CommandAlignment, CommandAlignmentMethod, MIN_COMMAND_LOGPROB_MEAN};
-pub use decode_window::{take_decoder_probe_counts, take_fused_probe_counts};
 pub use frontend_lookahead_probe::{
     estimate_peak_bytes, EncodedWindow, FrontendLookaheadConfig, FrontendLookaheadCounters,
     FrontendLookaheadProbe, FrontendLookaheadStats, MemoryGate, MIN_AVAILABLE_MEMORY_BYTES,

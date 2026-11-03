@@ -3,7 +3,7 @@
 //! * macOS Keychain / Windows Credential Manager / Linux Secret Service behind one [`Store`], per-app [`Namespace`].
 //! * Passive [`Store::exists`]: never requests secret bytes, never prompts.
 //! * Explicit [`Interaction`]: runtime calls are non-interactive; only a user action opts in.
-//! * Test/dev guards (`RIGHTKIT_NO_KEYCHAIN` plus per-app variables) swap in memory (debug and test builds only; a release build denies) or deny.
+//! * Guards (`RIGHTKIT_NO_KEYCHAIN` plus per-app variables) deny every operation; there is no in-memory store and no dummy data (rightkit#1437).
 //! * [`Store::get_or_create_key`] provisions DB keys; [`migrate_between`] and friends move
 //!   legacy items. [`Secret`] never prints.
 //! * Android: an AES-GCM key in `AndroidKeyStore` encrypts each secret and only the ciphertext is
@@ -14,6 +14,7 @@
 //!   action and returns no secret.
 
 mod backend;
+mod chunked;
 mod error;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod keyring_compat;
@@ -37,12 +38,13 @@ mod linux;
 pub mod macos;
 #[cfg(feature = "os-auth")]
 pub mod os_auth;
+#[cfg(feature = "protected-key")]
+pub mod protected_key;
 #[cfg(windows)]
 mod windows;
 
-#[cfg(feature = "memory-backend")]
-pub use backend::MemoryBackend;
 pub use backend::{system_backend, Backend, ConditionalDelete, Interaction, UnavailableBackend};
+pub use chunked::{ChunkedBackend, INLINE_MAX as CHUNK_INLINE_MAX};
 pub use error::{Error, Result};
 pub use migrate::{
     migrate_between, migrate_plaintext_file, EnvImport, EnvMap, EnvReader, FileMigration,

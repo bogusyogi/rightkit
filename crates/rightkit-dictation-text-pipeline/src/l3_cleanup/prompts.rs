@@ -15,7 +15,6 @@ pub(crate) const SUMMARY_PROMPT_VERSION: &str = "l3_summarize_prompt_v7";
 // Product routing uses Groq only: Qwen3.8 for L1, same for L2/L3,
 // then Groq GPT-OSS-120B (see docs/results/2026-09-06-qwen38-*).
 // Without a Groq key, no cloud attempt occurs and local fallback remains.
-// Cerebras support below is retained only for test/live-eval compatibility.
 // Same-provider/model fallback is intentional and
 // sequential — first structurally-valid response wins.
 pub(crate) const L1_GROQ_PRIMARY: &str = "qwen/qwen3.8-27b";
@@ -24,14 +23,7 @@ pub(crate) const L2_GROQ_PRIMARY: &str = "qwen/qwen3.8-27b";
 pub(crate) const L2_GROQ_SAME_PROVIDER_FALLBACK: &str = "openai/gpt-oss-120b";
 pub(crate) const L3_GROQ_PRIMARY: &str = "qwen/qwen3.8-27b";
 pub(crate) const L3_GROQ_SAME_PROVIDER_FALLBACK: &str = "openai/gpt-oss-120b";
-// Dormant OpenRouter backend (legacy compatibility only — never a default
-// production route). The smoke above removed it from the product ladder;
-// the fallback is kept here so an external eval harness can opt in via
-// `RIGHTKIT_L3_OPENROUTER_MODEL` + the per-model validation marker.
-pub(crate) const L1_OPENROUTER_FALLBACK: &str = "qwen/qwen3-32b";
-pub(crate) const L2_OPENROUTER_FALLBACK: &str = "qwen/qwen3-32b";
 pub(crate) const DEFAULT_GROQ_MODEL: &str = L1_GROQ_PRIMARY;
-pub(crate) const DEFAULT_NVIDIA_MODEL: &str = "meta/llama-4-maverick-17b-128e-instruct";
 // One shared contract applies to every cloud semantic lane. Keeping this in a
 // single macro prevents L1/L2/L3 wording from drifting while retaining static
 // prompt bytes for provider prefix caching.
@@ -85,34 +77,6 @@ Return only the polished text."#
 
 // The single production L1 body. Every destination compiles these bytes.
 pub(crate) const APP_SYS_GENERAL: &str = APP_SYS_15;
-// INTENTIONALLY RETIRED (HR-ASR-009), not pending: Adrian decided there is no
-// dedicated Work prompt profile — General/Dev/Work/Notes converge on the same
-// task-aware body (`app_task_prompt()`, wired in `wire.rs` `semantic_prompt`).
-// This constant is kept only as the frozen approved text the byte-equality
-// test `production_l1_prompts_match_approved_plan_bytes` in `tests.rs`
-// checks against `docs/plans/2026-08-26-ai-polish-surface-routing-field-context.md`.
-// `#[cfg(test)]` makes production routing to it impossible, not merely
-// discouraged — do not remove the attribute to "fix" the routing gap; that
-// gap is the decision, not a bug.
-// INTENTIONALLY RETIRED (HR-ASR-009), not pending: Adrian decided there is no
-// dedicated Email prompt profile — General and Email both route to
-// `APP_SYS_GENERAL` (see `wire.rs` `semantic_prompt`). This constant is
-// kept only as the frozen approved text the byte-equality test
-// `production_l1_prompts_match_approved_plan_bytes` in `tests.rs`
-// checks against `docs/plans/2026-08-26-ai-polish-surface-routing-field-context.md`.
-// `#[cfg(test)]` makes production routing to it impossible, not merely
-// discouraged — do not remove the attribute to "fix" the routing gap; that
-// gap is the decision, not a bug.
-// INTENTIONALLY RETIRED (HR-ASR-009), not pending: Adrian decided there is no
-// dedicated Notes prompt profile — General/Dev/Work/Notes converge on the
-// same task-aware body (`app_task_prompt()`, wired in `wire.rs`
-// `semantic_prompt`). This constant is kept only as the frozen approved text
-// the byte-equality test `production_l1_prompts_match_approved_plan_bytes` in
-// `tests.rs` checks against
-// `docs/plans/2026-08-26-ai-polish-surface-routing-field-context.md`.
-// `#[cfg(test)]` makes production routing to it impossible, not merely
-// discouraged — do not remove the attribute to "fix" the routing gap; that
-// gap is the decision, not a bug.
 // v9: wire guard added. On Qwen 3.8, 2 of 3 unguarded L2 samples echoed the
 // whole C1 wire and source back instead of a prompt; 3.6 leaked the header
 // lines. Guarded, 3/3 clean.

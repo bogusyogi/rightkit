@@ -2,6 +2,7 @@
 
 ## 0.1.5-phase1 (unreleased)
 
+- Fixed (rightkit#798): on Windows Codex runs hook commands through PowerShell, which rejects the quoted form `"node" "script"` the installer wrote ("Unexpected token"), so the RightKit policy hooks never ran in Codex there. `install-agent-policy.mjs` now writes the Codex commands with `codexHookCommand`: `& 'node' 'script'` (call operator, single-quoted literals, an apostrophe doubled) on `win32`, the quoted POSIX form elsewhere. The Claude Code form (run by bash) is unchanged. `registeredHookKind` already claims the new form, so a reinstall replaces the quoted and the hand-written bare entries in place. After the reinstall Codex needs `/hooks` re-trust (the command text changed); acceptance run on the Dell: `powershell -NoProfile -Command "<command>"` from `~/.codex/hooks.json`, then Codex's log shows the hooks succeeding.
 - `rightkit-host-gate` is now a `bin` of this package (rightkit#1365), so a workspace link puts it on PATH; before, nothing installed it on Linux. The package is private and stays unpublished; a published route for apps is still open.
 
 ## Unreleased (run-root rules of the heavy-write guard, storage hardening)

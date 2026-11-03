@@ -38,6 +38,13 @@ const ALWAYS_DENIED: &[&str] = &[
     "com.anthropic.claudefordesktop",
 ];
 
+/// Whether `app_id` is one of the apps that are never drivable, whatever the allowlist says
+/// (system privacy panes, the OS credential prompts, other computer-use hosts). Primitives that
+/// act outside the allowlist ([`crate::foreign`]) refuse these too.
+pub fn always_denied(app_id: &str) -> bool {
+    ALWAYS_DENIED.contains(&app_id.to_ascii_lowercase().as_str())
+}
+
 #[derive(Default)]
 pub struct Policy {
     allowed: Mutex<HashSet<String>>,

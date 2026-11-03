@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 
-use crate::{BuildMode, MediaError, VerifiedFfmpeg};
+use crate::VerifiedFfmpeg;
 
 /// One FFmpeg argument: plain text or a filesystem path (kept as `OsString`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -18,6 +18,9 @@ pub enum FfmpegArg {
     Text(String),
     Path(PathBuf),
 }
+
+/// Video filter chain from [`FfmpegCommand::h264_compatible_input`].
+pub const H264_COMPATIBLE_VF: &str = "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p";
 
 /// An ordered FFmpeg argument vector.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -106,6 +109,13 @@ impl FfmpegCommand {
         self.stdin_piped
     }
 
+    /// Append the H.264-safe video filter: width and height rounded down to even numbers and
+    /// pixel format `yuv420p`. Call it after the input, before the output and codec options.
+    /// It drops at most one pixel per odd dimension.
+    pub fn h264_compatible_input(&mut self) -> &mut Self {
+        self.text("-vf").text(H264_COMPATIBLE_VF)
+    }
+
     pub fn args(&self) -> &[FfmpegArg] {
         &self.args
     }
@@ -136,9 +146,7 @@ impl FfmpegCommand {
 /// Anything the runner can execute as FFmpeg.
 ///
 /// Production code passes a [`VerifiedFfmpeg`] (catalog digest + LGPL build probe).
-/// [`DevFfmpeg`] exists for development hosts and tests that have an FFmpeg that is
-/// not in the approved catalog (for example Homebrew's); it is deliberately named
-/// so it cannot be mistaken for the verified path.
+/// The trait is public and unsealed, so a caller can implement it for its own type.
 pub trait FfmpegBinary {
     fn ffmpeg_path(&self) -> &Path;
 }
@@ -146,88 +154,6 @@ pub trait FfmpegBinary {
 impl FfmpegBinary for VerifiedFfmpeg {
     fn ffmpeg_path(&self) -> &Path {
         self.path()
-    }
-}
-
-/// An FFmpeg path that has NOT been checked against the artifact catalog.
-///
-/// Policy by build mode (see [`BuildMode`]): [`DevFfmpeg::try_unverified`] refuses with
-/// [`MediaError::UnverifiedRefusedInRelease`] in any build without the `dev-overrides` feature.
-/// `DevFfmpeg::unverified`, which has no mode check, is compiled only in this crate's own test
-/// builds and with `dev-overrides`.
-///
-/// What is closed: the two public constructors that turned a bare path into a `DevFfmpeg` with
-/// no mode check. `DevFfmpeg::allow_in_release_builds` is removed in every build and
-/// `DevFfmpeg::unverified` does not exist without the feature (both are proved by the doctests
-/// below). This is not a guarantee that a release build runs only catalog-verified binaries.
-/// What remains open, by design or as a follow-up:
-///
-/// - [`crate::dev_resolve::resolve_for_development`] is a public function with no mode check:
-///   it returns a `DevFfmpeg` for the first existing candidate (including `RIGHTKIT_FFMPEG`)
-///   when none verifies against the catalog. Its callers (`rightkit-audio`, `rightkit-motion`
-///   and this crate's end-to-end tests) depend on that, so its behaviour is unchanged here.
-///   Gating it behind `dev-overrides` is a follow-up, not done in this change.
-/// - [`FfmpegBinary`] is a public, unsealed trait: any type can implement it and be passed to
-///   the runner.
-/// - [`BuildMode::Development`] is a public variant: a caller that passes it to
-///   [`crate::handle::verified_or_development_in`] or [`crate::unverified::resolve_unverified`]
-///   gets the development fallback in any build.
-///
-/// The crate's own fallbacks ([`crate::verified_or_development`],
-/// [`crate::resolve_ffmpeg_handle`]) check the mode before they build a `DevFfmpeg` through a
-/// crate-private constructor.
-///
-/// ```
-/// use rightkit_ffmpeg::DevFfmpeg;
-///
-/// // The control for the proofs below: the mode-checked constructor is always there.
-/// let _ = DevFfmpeg::try_unverified("ffmpeg");
-/// ```
-///
-/// `DevFfmpeg::allow_in_release_builds`, the explicit release escape of earlier versions, is
-/// removed in every build:
-///
-/// ```compile_fail,E0599
-/// let _ = rightkit_ffmpeg::DevFfmpeg::allow_in_release_builds("ffmpeg");
-/// ```
-#[cfg_attr(
-    not(feature = "dev-overrides"),
-    doc = "
-Without the `dev-overrides` feature `DevFfmpeg::unverified` does not exist either, so no code
-outside a test build of this crate can turn a bare path into a `DevFfmpeg` without the mode check:
-
-```compile_fail,E0599
-let _ = rightkit_ffmpeg::DevFfmpeg::unverified(\"ffmpeg\");
-```
-"
-)]
-#[derive(Clone, Debug)]
-pub struct DevFfmpeg(PathBuf);
-
-impl DevFfmpeg {
-    /// A development binary the caller has already decided may run: the callers in this crate
-    /// check [`BuildMode::Development`] first.
-    pub(crate) fn mode_gated(path: impl Into<PathBuf>) -> Self {
-        Self(path.into())
-    }
-
-    /// A `DevFfmpeg` for `path`, refused with [`MediaError::UnverifiedRefusedInRelease`]
-    /// in any build without the `dev-overrides` feature.
-    pub fn try_unverified(path: impl Into<PathBuf>) -> Result<Self, MediaError> {
-        Self::try_unverified_in(path, BuildMode::from_build_features())
-    }
-
-    fn try_unverified_in(path: impl Into<PathBuf>, mode: BuildMode) -> Result<Self, MediaError> {
-        match mode {
-            BuildMode::Development => Ok(Self::mode_gated(path)),
-            BuildMode::Release => Err(MediaError::UnverifiedRefusedInRelease),
-        }
-    }
-}
-
-impl FfmpegBinary for DevFfmpeg {
-    fn ffmpeg_path(&self) -> &Path {
-        &self.0
     }
 }
 

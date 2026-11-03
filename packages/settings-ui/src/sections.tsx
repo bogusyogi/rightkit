@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Badge, Button, Input, Toggle } from "@rightkit/react-shell/react";
 import { LICENSE_MESSAGES, isLicensed, licenseMessage, type LicenseView, type Lifecycle, type MessageCode } from "@rightkit/license";
-import type { LogsClient } from "@rightkit/logs";
+import type { DiagnosticEntry, LogsClient } from "@rightkit/logs";
 import type { AutoUpdateClient, AutoUpdateStatus } from "@rightkit/app-update";
 import { errText } from "./errors.js";
 import { useDoctor, useLicenseSection, type DoctorCheck, type DoctorResult, type DoctorStatus, type LicenseClientLike } from "./hooks.js";
@@ -82,6 +82,11 @@ export interface UpdatesOptions {
   supportsAutoInstall?: boolean;
   /** Override any user-visible string. */
   labels?: Partial<UpdatesLabels>;
+  /**
+   * Replace the whole body. Receives the controller (status and actions) and the default card, so an app can keep any piece
+   * and draw its own markup around the same state.
+   */
+  render?: (parts: { controller: UpdatesController; card: ReactNode }) => ReactNode;
 }
 
 export interface UpdatesLabels {
@@ -236,7 +241,7 @@ function UpdatesBody({ ctx, o }: { ctx: SettingsContext; o: UpdatesOptions }) {
   const L = updatesLabels(o);
   const line = statusLine(status);
   const auto = ctx.values["updates.autoInstall"] === true;
-  return (
+  const card = (
     <SettingsGroup>
       <SettingRow id="updates.status" label={L.version(o.currentVersion)} description={<span role="status" data-update-status={status.kind}>{L.status(status, line.text)}</span>}>
         <UpdatesControls controller={controller} onRestart={o.onRestart} labels={o.labels} showStatus={false} showBadge />
@@ -251,6 +256,7 @@ function UpdatesBody({ ctx, o }: { ctx: SettingsContext; o: UpdatesOptions }) {
       ) : null}
     </SettingsGroup>
   );
+  return o.render ? <>{o.render({ controller, card })}</> : card;
 }
 
 export function updatesSection(options: UpdatesOptions): SettingsSection {
@@ -324,6 +330,8 @@ export interface LicenseLabels {
   verifyHint?: string;
   verify?: string;
   purchase?: string;
+  /** Shown while the client resolves and until the first read settles. Default "Checking licence…". */
+  loading?: string;
 }
 
 /** Stable DOM ids the app can set (e.g. to keep QA selectors such as `#settings-pro`). Nothing is rendered unless set. */
@@ -344,8 +352,19 @@ export interface LicenseIds {
   verify?: string;
 }
 
+/** What a `plan` function receives. `licensed` is any active licence; `pro` is the Pro tier or above. */
+export interface LicensePlanState {
+  view: LicenseView | null;
+  tier: string | null;
+  pro: boolean;
+  licensed: boolean;
+}
+
+/** The client as the licence section takes it: the object, a promise of it, or a factory that resolves it. */
+export type LicenseClientSource = LicenseClientLike | Promise<LicenseClientLike> | (() => Promise<LicenseClientLike>);
+
 export interface LicenseOptions {
-  client: LicenseClientLike;
+  client: LicenseClientSource;
   /** Awaited before `client.deactivate()` (e.g. suppress a bridge that would react to the licence going away). A throw aborts the deactivation and is shown. */
   beforeDeactivate?: () => Promise<void> | void;
   /** Ask for a second click before deactivating. Default true; false deactivates on the first click. */
@@ -354,8 +373,13 @@ export interface LicenseOptions {
   openExternal?: (url: string) => void | Promise<void>;
   /** Display names for tiers, e.g. `{ pro: "Pro" }`. Falls back to the tier string. */
   tierLabels?: Record<string, string>;
-  /** Plan / upsell panel rendered above the licence rows. */
+  /** Plan / upsell panel rendered above the licence rows. Shown only once the first read has settled. */
   planSlot?: ReactNode;
+  /**
+   * Plan wording, rendered above the rows in place of `planSlot`. A function receives the licence state, so the app can
+   * tell Pro from any other licensed plan (`pro`) and name the tier (`tier`). Not shown until the first read settles.
+   */
+  plan?: ReactNode | ((state: LicensePlanState) => ReactNode);
   /** Fired after activate/deactivate so the app can refresh its licence state. */
   onChange?: (view: LicenseView | null) => void;
   /** Reword every visible string. */
@@ -403,76 +427,130 @@ function describeLicense(view: LicenseView | null, L: LicenseLabels): { tone: To
   return { tone: "warn", label: L.attention ?? "Action needed", detail: message ?? licenseMessage(view.unresolved ? "unresolved" : view.busy ? "busy" : "unknown") };
 }
 
-function LicenseBody({ ctx, o }: { ctx: SettingsContext; o: LicenseOptions }) {
-  void ctx;
+function isLicenseClient(source: LicenseClientSource): source is LicenseClientLike {
+  return typeof source === "object" && source !== null && typeof (source as LicenseClientLike).activate === "function";
+}
+
+/** Resolves the section's client source. `client` stays null until it resolves; `failed` is set when the promise or factory rejects. */
+function useLicenseClient(source: LicenseClientSource): { client: LicenseClientLike | null; failed: boolean } {
+  const [state, setState] = useState<{ client: LicenseClientLike | null; failed: boolean }>(() => (isLicenseClient(source) ? { client: source, failed: false } : { client: null, failed: false }));
+  useEffect(() => {
+    if (isLicenseClient(source)) {
+      setState({ client: source, failed: false });
+      return;
+    }
+    let live = true;
+    let pending: Promise<LicenseClientLike>;
+    try {
+      pending = typeof source === "function" ? source() : source;
+    } catch (e) {
+      pending = Promise.reject(e);
+    }
+    void pending.then(
+      (client) => {
+        if (live) setState({ client, failed: false });
+      },
+      () => {
+        if (live) setState({ client: null, failed: true });
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [source]);
+  return state;
+}
+
+function LicenseStatusRow({ o, text }: { o: LicenseOptions; text: string }) {
+  const L = o.labels ?? {};
+  return (
+    <SettingsGroup>
+      <SettingRow id="license.status" label={L.statusLabel ?? "Licence"} description={<span role="status" id={o.ids?.status}>{text}</span>} />
+    </SettingsGroup>
+  );
+}
+
+function LicenseBody({ o }: { o: LicenseOptions }) {
+  const { client, failed } = useLicenseClient(o.client);
+  if (!client) return <LicenseStatusRow o={o} text={failed ? LICENSE_MESSAGES.unknown : (o.labels?.loading ?? "Checking licence…")} />;
+  return <LicenseLoaded client={client} o={o} />;
+}
+
+function LicenseLoaded({ client, o }: { client: LicenseClientLike; o: LicenseOptions }) {
   const L = o.labels ?? {};
   const ids = o.ids ?? {};
   const [key, setKey] = useState("");
-  const lic = useLicenseSection({ ...o, notAcceptedMessage: L.notAccepted });
+  const lic = useLicenseSection({ client, beforeDeactivate: o.beforeDeactivate, confirmDeactivate: o.confirmDeactivate, notAcceptedMessage: L.notAccepted, onChange: o.onChange });
+  // Until the first read settles a null view means "not read yet", never "Free".
+  if (!lic.loaded) return <LicenseStatusRow o={o} text={L.loading ?? "Checking licence…"} />;
   const info = describeLicense(lic.license, L);
   const detailLines = licenseDetailLines(lic.license, L);
   const t = lic.tier;
   const active = isLicensed(lic.license);
-  // A stored licence (even an expired or revoked one) is removed with Deactivate; a rejected key stays in the activate row.
   const holds = lic.license?.revisionState === "active";
   const note = lic.error;
   const busy = lic.busy;
+  const planState: LicensePlanState = { view: lic.license, tier: t, pro: lic.pro, licensed: active };
+  const plan = o.plan === undefined ? o.planSlot : typeof o.plan === "function" ? o.plan(planState) : o.plan;
   return (
-    <SettingsGroup>
-      <SettingRow id="license.status" label={active ? (L.activeStatusLabel ?? L.statusLabel ?? "Licence") : (L.statusLabel ?? "Licence")} description={<><span role="status" id={ids.status}>{info.detail}</span>{detailLines.map((line) => <div key={line} className="rk-sr__extra">{line}</div>)}</>}>
-        <div className="rk-sr__buttons">
-          {t ? <Badge tone="accent">{o.tierLabels?.[t] ?? t}</Badge> : null}
-          <Badge tone={info.tone}>{info.label}</Badge>
-        </div>
-      </SettingRow>
-      {lic.canVerify ? (
-        <SettingRow id="license.verify" label={L.verifyTitle ?? "Licence check"} description={lic.verifyError ? <span role="alert">{lic.verifyError}</span> : (L.verifyHint ?? "Check this purchase with the licence server.")}>
-          <Button id={ids.verify} size="sm" variant="ghost" disabled={lic.verifying} onClick={() => void lic.verify()}>{L.verify ?? "Verify purchase"}</Button>
+    <>
+      {plan}
+      <SettingsGroup>
+        <SettingRow id="license.status" label={active ? (L.activeStatusLabel ?? L.statusLabel ?? "Licence") : (L.statusLabel ?? "Licence")} description={<><span role="status" id={ids.status}>{info.detail}</span>{detailLines.map((line) => <div key={line} className="rk-sr__extra">{line}</div>)}</>}>
+          <div className="rk-sr__buttons">
+            {t ? <Badge tone="accent">{o.tierLabels?.[t] ?? t}</Badge> : null}
+            <Badge tone={info.tone}>{info.label}</Badge>
+          </div>
         </SettingRow>
-      ) : null}
-      {holds ? (
-        <SettingRow id="license.deactivate" label={L.deactivateTitle ?? "Deactivate this device"} description={note ? <span role="alert">{note}</span> : (L.deactivateHint ?? "Frees the seat so you can activate another device.")}>
-          {o.confirmDeactivate === false ? (
-            <Button id={ids.deactivate} size="sm" variant="ghost" disabled={busy} onClick={lic.requestDeactivate}>{L.deactivate ?? "Deactivate"}</Button>
-          ) : (
-            <Button id={ids.deactivate} size="sm" variant={lic.confirmPending ? "danger" : "ghost"} disabled={busy} onClick={lic.requestDeactivate}>
-              {lic.confirmPending ? (L.confirmDeactivate ?? "Confirm deactivate") : (L.deactivate ?? "Deactivate")}
-            </Button>
-          )}
-        </SettingRow>
-      ) : (
-        <SettingRow id="license.activate" label={L.keyTitle ?? "Licence key"} description={note ?? L.keyHint ?? "Paste the key from your purchase email."} stacked>
-          <form
-            id={ids.form}
-            className="rk-sr__inline"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!key.trim()) return;
-              void lic.activate(key).then((l) => {
-                if (l) setKey("");
-              });
-            }}
-          >
-            <Input
-              id={ids.licenseKey}
-              aria-label={L.keyAria ?? "Licence key"}
-              placeholder={L.keyPlaceholder ?? "XXXX-XXXX-XXXX-XXXX"}
-              value={key}
-              autoComplete="off"
-              spellCheck={false}
-              onChange={(e) => setKey(e.target.value)}
-              aria-invalid={lic.license?.status === "invalid" ? true : undefined}
-            />
-            <Button id={ids.activate} type="submit" variant="primary" size="sm" disabled={busy || !key.trim()}>{lic.activating && L.activating ? L.activating : (L.activate ?? "Activate")}</Button>
-          </form>
-        </SettingRow>
-      )}
-      {o.purchaseUrl && !active ? (
-        <SettingRow label={L.purchaseTitle ?? "Need a licence?"}>
-          <Button size="sm" variant="ghost" onClick={() => void o.openExternal?.(o.purchaseUrl!)}>{L.purchase ?? "Get a licence"}</Button>
-        </SettingRow>
-      ) : null}
-    </SettingsGroup>
+        {lic.canVerify ? (
+          <SettingRow id="license.verify" label={L.verifyTitle ?? "Licence check"} description={lic.verifyError ? <span role="alert">{lic.verifyError}</span> : (L.verifyHint ?? "Check this purchase with the licence server.")}>
+            <Button id={ids.verify} size="sm" variant="ghost" disabled={lic.verifying} onClick={() => void lic.verify()}>{L.verify ?? "Verify purchase"}</Button>
+          </SettingRow>
+        ) : null}
+        {holds ? (
+          <SettingRow id="license.deactivate" label={L.deactivateTitle ?? "Deactivate this device"} description={note ? <span role="alert">{note}</span> : (L.deactivateHint ?? "Frees the seat so you can activate another device.")}>
+            {o.confirmDeactivate === false ? (
+              <Button id={ids.deactivate} size="sm" variant="ghost" disabled={busy} onClick={lic.requestDeactivate}>{L.deactivate ?? "Deactivate"}</Button>
+            ) : (
+              <Button id={ids.deactivate} size="sm" variant={lic.confirmPending ? "danger" : "ghost"} disabled={busy} onClick={lic.requestDeactivate}>
+                {lic.confirmPending ? (L.confirmDeactivate ?? "Confirm deactivate") : (L.deactivate ?? "Deactivate")}
+              </Button>
+            )}
+          </SettingRow>
+        ) : (
+          <SettingRow id="license.activate" label={L.keyTitle ?? "Licence key"} description={note ?? L.keyHint ?? "Paste the key from your purchase email."} stacked>
+            <form
+              id={ids.form}
+              className="rk-sr__inline"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!key.trim()) return;
+                void lic.activate(key).then((l) => {
+                  if (l) setKey("");
+                });
+              }}
+            >
+              <Input
+                id={ids.licenseKey}
+                aria-label={L.keyAria ?? "Licence key"}
+                placeholder={L.keyPlaceholder ?? "XXXX-XXXX-XXXX-XXXX"}
+                value={key}
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(e) => setKey(e.target.value)}
+                aria-invalid={lic.license?.status === "invalid" ? true : undefined}
+              />
+              <Button id={ids.activate} type="submit" variant="primary" size="sm" disabled={busy || !key.trim()}>{lic.activating && L.activating ? L.activating : (L.activate ?? "Activate")}</Button>
+            </form>
+          </SettingRow>
+        )}
+        {o.purchaseUrl && !active ? (
+          <SettingRow label={L.purchaseTitle ?? "Need a licence?"}>
+            <Button size="sm" variant="ghost" onClick={() => void o.openExternal?.(o.purchaseUrl!)}>{L.purchase ?? "Get a licence"}</Button>
+          </SettingRow>
+        ) : null}
+      </SettingsGroup>
+    </>
   );
 }
 
@@ -489,15 +567,7 @@ export function licenseSection(options: LicenseOptions): SettingsSection {
       { id: "license.status", label: L.searchStatus ?? "Licence status", keywords: ["pro", "trial", "tier"] },
       { id: "license.activate", label: L.searchActivate ?? "Activate licence key", keywords: ["key"] },
     ],
-    render: (ctx) => {
-      const inner = (
-        <>
-          {options.planSlot}
-          <LicenseBody ctx={ctx} o={options} />
-        </>
-      );
-      return options.ids?.section ? <div id={options.ids.section}>{inner}</div> : inner;
-    },
+    render: () => (options.ids?.section ? <div id={options.ids.section}><LicenseBody o={options} /></div> : <LicenseBody o={options} />),
   };
 }
 
@@ -511,9 +581,12 @@ export interface LegalOptions {
   openExternal?: (url: string) => void | Promise<void>;
   /** Re-open the `@rightkit/legal-ui` gate in `re-acceptance` mode. */
   onReview?: () => void;
+  /** Replace the whole body. Receives the default card and the acceptance sentence (null when no acceptance is known). */
+  render?: (parts: { card: ReactNode; acceptedNote: string | null }) => ReactNode;
 }
 
 export function legalSection(o: LegalOptions): SettingsSection {
+  const acceptedNote = o.acceptedAt ? `You accepted these on ${new Date(o.acceptedAt).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}${o.acceptedVersion ? ` (version ${o.acceptedVersion})` : ""}.` : null;
   return {
     id: "legal",
     icon: sectionIcons.legal,
@@ -522,36 +595,105 @@ export function legalSection(o: LegalOptions): SettingsSection {
     order: 200,
     keywords: ["terms", "privacy", "agreement", "eula"],
     entries: o.documents.map((d, i) => ({ id: `legal.doc.${i}`, label: d.title, keywords: ["terms", "privacy"] })),
-    render: () => (
-      <SettingsGroup description={o.acceptedAt ? `You accepted these on ${new Date(o.acceptedAt).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}${o.acceptedVersion ? ` (version ${o.acceptedVersion})` : ""}.` : undefined}>
-        {o.documents.map((d, i) => (
-          <SettingRow key={d.url} id={`legal.doc.${i}`} label={d.title}>
-            <Button size="sm" variant="ghost" onClick={() => void o.openExternal?.(d.url)}>Read</Button>
-          </SettingRow>
-        ))}
-        {o.onReview ? (
-          <SettingRow label="Review agreement" description="Open the agreement screen again.">
-            <Button size="sm" variant="secondary" onClick={o.onReview}>Review</Button>
-          </SettingRow>
-        ) : null}
-      </SettingsGroup>
-    ),
+    render: () => {
+      const card = (
+        <SettingsGroup description={acceptedNote ?? undefined}>
+          {o.documents.map((d, i) => (
+            <SettingRow key={d.url} id={`legal.doc.${i}`} label={d.title}>
+              <Button size="sm" variant="ghost" onClick={() => void o.openExternal?.(d.url)}>Read</Button>
+            </SettingRow>
+          ))}
+          {o.onReview ? (
+            <SettingRow label="Review agreement" description="Open the agreement screen again.">
+              <Button size="sm" variant="secondary" onClick={o.onReview}>Review</Button>
+            </SettingRow>
+          ) : null}
+        </SettingsGroup>
+      );
+      return o.render ? <>{o.render({ card, acceptedNote })}</> : card;
+    },
   };
 }
 
 /* ---- Diagnostics & logs --------------------------------------------------------------------- */
 
+/** Email-support action: the report is copied, then a prefilled `mailto:` opens. */
+export interface DiagnosticsEmailSupport {
+  /** Recipient address. */
+  address: string;
+  subject: string;
+  /** Body text. Say that the report is on the clipboard; the user pastes it in. */
+  body: string;
+}
+
+/** The end of one log file, for the preview. Log text is content-free by the app's own field policy. */
+export interface LogFileTail {
+  name: string;
+  path: string;
+  tail: string;
+}
+
+export interface DiagnosticsLogFiles {
+  /** Tail text of each log file. Called on mount and on Refresh. */
+  list(): Promise<LogFileTail[]>;
+  /** Reveals a log file in the system file manager. Omit to hide the Reveal buttons. */
+  reveal?(path: string): void | Promise<void>;
+}
+
 export interface DiagnosticsOptions {
   logs: LogsClient;
   /** Copy text to the clipboard; defaults to `navigator.clipboard`. */
   copy?: (text: string) => void | Promise<void>;
+  /** Email-support action (copy the report, then open the mail link). Omit to hide the action. */
+  emailSupport?: DiagnosticsEmailSupport;
+  /** Opens the mail link; defaults to `window.location.assign`. Hosts that block `mailto:` in the webview pass their opener. */
+  openExternal?: (url: string) => void | Promise<void>;
+  /** The renderer ring log, shown inline by "View". Called on open, on Refresh and after Clear. */
+  entries?: () => DiagnosticEntry[];
+  /** Multi-file log tail preview with reveal. */
+  logFiles?: DiagnosticsLogFiles;
 }
 
 function DiagnosticsBody({ ctx, o }: { ctx: SettingsContext; o: DiagnosticsOptions }) {
   const [report, setReport] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [showLog, setShowLog] = useState(false);
+  const [ring, setRing] = useState<DiagnosticEntry[]>([]);
+  const [tails, setTails] = useState<LogFileTail[] | null>(null);
   const copy = o.copy ?? ((t: string) => navigator.clipboard.writeText(t));
+  const { logFiles, entries, emailSupport } = o;
+  useEffect(() => {
+    if (logFiles) void logFiles.list().then(setTails, (e) => setNote(errText(e)));
+  }, [logFiles]);
+  const readTails = () => {
+    if (logFiles) void logFiles.list().then(setTails, (e) => setNote(errText(e)));
+  };
+  const readRing = () => {
+    if (entries) setRing(entries());
+  };
+  // Flush, then collect; the report is kept so Copy and the email action reuse it.
+  const collect = async (): Promise<string> => {
+    await o.logs.flush();
+    const text = JSON.stringify(await o.logs.collectDiagnostics(), null, 2);
+    setReport(text);
+    return text;
+  };
+  const sendEmail = async (email: DiagnosticsEmailSupport) => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const text = report ?? (await collect());
+      await copy(text);
+      setNote("Report copied. Paste it into the email.");
+      const url = `mailto:${email.address}?subject=${encodeURIComponent(email.subject)}&body=${encodeURIComponent(email.body)}`;
+      await (o.openExternal ? o.openExternal(url) : window.location.assign(url));
+    } catch (e) {
+      setNote(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <>
       <SettingsGroup description="Logs are content-free: field names are allow-listed by the app and never include what you type, say or open.">
@@ -567,10 +709,7 @@ function DiagnosticsBody({ ctx, o }: { ctx: SettingsContext; o: DiagnosticsOptio
               onClick={() => {
                 setBusy(true);
                 setNote(null);
-                void o.logs
-                  .flush()
-                  .then(() => o.logs.collectDiagnostics())
-                  .then((r) => setReport(JSON.stringify(r, null, 2)))
+                void collect()
                   .catch((e) => setNote(errText(e)))
                   .finally(() => setBusy(false));
               }}
@@ -582,15 +721,79 @@ function DiagnosticsBody({ ctx, o }: { ctx: SettingsContext; o: DiagnosticsOptio
             ) : null}
           </div>
         </SettingRow>
+        {emailSupport ? (
+          <SettingRow id="diagnostics.email" label="Email to support" description="Copies the report to the clipboard, then opens an email to support. Paste the report into it.">
+            <Button size="sm" variant="secondary" disabled={busy} onClick={() => void sendEmail(emailSupport)}>Email to support</Button>
+          </SettingRow>
+        ) : null}
+        {entries ? (
+          <SettingRow id="diagnostics.log" label="Recent log" description={showLog ? `${ring.length} recent renderer events.` : "Show the renderer's recent events here."}>
+            <div className="rk-sr__buttons">
+              {showLog ? <Button size="sm" variant="ghost" onClick={readRing}>Refresh</Button> : null}
+              <Button
+                size="sm"
+                variant="secondary"
+                aria-expanded={showLog}
+                onClick={() => {
+                  if (!showLog) readRing();
+                  setShowLog((v) => !v);
+                }}
+              >
+                {showLog ? "Hide" : "View"}
+              </Button>
+            </div>
+          </SettingRow>
+        ) : null}
         <SettingRow id="diagnostics.clear" label="Clear logs" description="Deletes the log files on this device.">
           <ConfirmButton
             label="Clear"
             disabled={busy}
-            onConfirm={() => void o.logs.clear().then(() => (setReport(null), setNote("Logs cleared.")), (e) => setNote(errText(e)))}
+            onConfirm={() =>
+              void o.logs.clear().then(
+                () => {
+                  setReport(null);
+                  setNote("Logs cleared.");
+                  readRing();
+                  readTails();
+                },
+                (e) => setNote(errText(e)),
+              )
+            }
           />
         </SettingRow>
       </SettingsGroup>
       {report ? <pre className="rk-diag" aria-label="Diagnostics report" tabIndex={0}>{report}</pre> : null}
+      {entries && showLog ? (
+        ring.length === 0 ? (
+          <p className="rk-sg__desc">No renderer events recorded yet.</p>
+        ) : (
+          <ol className="rk-diag rk-diag__entries" aria-label="Recent log" tabIndex={0}>
+            {ring.map((e, i) => (
+              <li key={`${e.ts_ms}-${i}`}>
+                <time dateTime={new Date(e.ts_ms).toISOString()}>{new Date(e.ts_ms).toLocaleTimeString()}</time> <span className="rk-diag__kind">{e.kind}</span> <span>{e.event}</span>
+                {e.duration_ms !== undefined ? ` · ${e.duration_ms} ms` : null}
+              </li>
+            ))}
+          </ol>
+        )
+      ) : null}
+      {logFiles && tails ? (
+        <SettingsGroup title="Log files" description="The end of each log file on this device.">
+          {tails.map((f, i) => (
+            <SettingRow
+              key={f.path}
+              id={`diagnostics.files.${i}`}
+              label={f.name}
+              stacked={!logFiles.reveal}
+              description={<pre className="rk-diag rk-diag__tail" aria-label={`${f.name} tail`} tabIndex={0}>{f.tail || "(empty)"}</pre>}
+            >
+              {logFiles.reveal ? (
+                <Button size="sm" variant="ghost" aria-label={`Reveal ${f.name}`} onClick={() => void logFiles.reveal?.(f.path)}>Reveal</Button>
+              ) : null}
+            </SettingRow>
+          ))}
+        </SettingsGroup>
+      ) : null}
     </>
   );
 }
@@ -606,6 +809,8 @@ export function diagnosticsSection(options: DiagnosticsOptions): SettingsSection
     entries: [
       { id: "diagnostics.verbose", label: "Verbose logging", keywords: ["debug"] },
       { id: "diagnostics.collect", label: "Collect diagnostics report", keywords: ["support", "logs"] },
+      ...(options.emailSupport ? [{ id: "diagnostics.email", label: "Email to support", keywords: ["support", "mail", "report"] }] : []),
+      ...(options.entries ? [{ id: "diagnostics.log", label: "Recent log", keywords: ["ring", "events", "renderer"] }] : []),
       { id: "diagnostics.clear", label: "Clear logs" },
     ],
     render: (ctx) => <DiagnosticsBody ctx={ctx} o={options} />,
@@ -665,21 +870,29 @@ export interface DoctorIds {
   rerun?: (checkId: string) => string;
 }
 
-export interface DoctorOptions {
-  checks: ReadonlyArray<DoctorCheck>;
+export interface DoctorOptions<P = undefined> {
+  checks: ReadonlyArray<DoctorCheck<P>>;
   /** Run every check once when the section first renders. Default false. */
   autoRun?: boolean;
   /** Called after each check finishes. */
-  onResult?: (check: DoctorCheck, result: DoctorResult) => void;
+  onResult?: (check: DoctorCheck<P>, result: DoctorResult) => void;
+  /**
+   * One expensive probe shared by every check (for example a single engine `doctor` call). Concurrent checks share one call;
+   * each check's `run` receives its result. See `useDoctor`.
+   */
+  probe?: () => Promise<P>;
+  /** Content under the summary row, rendered from the latest probe report once one has settled (for example engine notes). */
+  notes?: (report: P) => ReactNode;
   labels?: DoctorLabels;
   ids?: DoctorIds;
 }
 
-function DoctorBody({ o }: { o: DoctorOptions }) {
+function DoctorBody<P>({ o }: { o: DoctorOptions<P> }) {
   const L = o.labels ?? {};
   const ids = o.ids ?? {};
-  const doc = useDoctor(o.checks, { autoRun: o.autoRun, onResult: o.onResult });
-  const runOne = (c: DoctorCheck) => void doc.runOne(c.id);
+  const doc = useDoctor<P>(o.checks, { autoRun: o.autoRun, onResult: o.onResult, probe: o.probe });
+  const runOne = (c: DoctorCheck<P>) => void doc.runOne(c.id);
+  const notes = o.notes && doc.report !== null ? o.notes(doc.report) : null;
   const state = (id: string): DoctorStatus => doc.status[id] ?? { state: "idle" };
   const anyRunning = doc.running;
   const { passed } = doc.summary;
@@ -714,6 +927,7 @@ function DoctorBody({ o }: { o: DoctorOptions }) {
         <Button id={ids.runAll} size="sm" variant="secondary" disabled={anyRunning || o.checks.length === 0} onClick={() => void doc.runAll()}>{anyRunning ? (L.runAllBusy ?? "Checking…") : (L.runAll ?? "Run all")}</Button>
       </SettingRow>
       {L.detailsLabel ? <details className="rk-doctor__details"><summary>{L.detailsLabel}</summary>{list}</details> : list}
+      {notes ? <div className="rk-doctor__notes">{notes}</div> : null}
     </SettingsGroup>
   );
   return ids.section ? <div id={ids.section}>{body}</div> : body;
@@ -723,7 +937,7 @@ function DoctorBody({ o }: { o: DoctorOptions }) {
  * Engine doctor: app-supplied checks with run-all, per-check re-run, status badges, labels and stable ids. The package
  * runs nothing itself; `run()` is yours (an IPC call, a sidecar probe). Add to `standardSections` as `doctor`.
  */
-export function doctorSection(options: DoctorOptions): SettingsSection {
+export function doctorSection<P = undefined>(options: DoctorOptions<P>): SettingsSection {
   const L = options.labels ?? {};
   const label = L.sectionLabel ?? "Engine check";
   return {
@@ -744,6 +958,13 @@ export function doctorSection(options: DoctorOptions): SettingsSection {
 export interface ModelsOptions {
   models: ModelsBackend;
   title?: string;
+  /**
+   * Per-model disable. Return a reason to disable Download for that model; the reason shows in its row. Return false or
+   * nothing to keep it enabled. An installed model keeps its status (shown while disabled) and Remove.
+   */
+  isDisabled?: (model: ModelEntry) => string | false | null | undefined;
+  /** Extra controls rendered after a row's main action (for example "Make active"). */
+  actions?: (model: ModelEntry) => ReactNode;
 }
 
 const FIT_TEXT: Record<NonNullable<ModelEntry["fit"]>["kind"], { tone: "ok" | "warn" | "bad" | "neutral"; text: string }> = {
@@ -778,6 +999,8 @@ function ModelsBody({ o }: { o: ModelsOptions }) {
       {entries.map((m) => {
         const fit = m.fit ? FIT_TEXT[m.fit.kind] : null;
         const working = m.state === "downloading" || m.state === "verifying";
+        const installed = m.state === "installed";
+        const reason = o.isDisabled?.(m) || null;
         return (
           <SettingRow
             key={m.id}
@@ -787,20 +1010,23 @@ function ModelsBody({ o }: { o: ModelsOptions }) {
               <>
                 {[m.description, m.sizeBytes ? formatBytes(m.sizeBytes) : null].filter(Boolean).join(" · ")}
                 {fit ? <> {" "}<Badge tone={fit.tone}>{fit.text}</Badge></> : null}
+                {reason ? <> {" "}<span className="rk-sr__disabled-reason">{reason}</span></> : null}
+                {reason && installed ? <> {" "}<Badge tone="ok">Installed</Badge></> : null}
                 {m.state === "error" && m.error ? <span className="rk-sr__err" role="alert"> {m.error.message}</span> : null}
                 {working ? <ProgressBar value={m.progress ?? 0} label={`${m.label} ${m.state}`} /> : null}
               </>
             }
           >
-            {m.state === "installed" ? (
+            {installed ? (
               m.shared || m.removable === false ? null : <ConfirmButton label="Remove" confirmLabel="Confirm remove" onConfirm={() => void act(() => o.models.remove(m.id))} />
             ) : working ? (
               <Button size="sm" variant="ghost" onClick={() => void act(() => o.models.cancel(m.id))}>Cancel</Button>
             ) : (
-              <Button size="sm" variant="secondary" disabled={NOT_LOCAL.has(m.fit?.kind ?? "")} onClick={() => void act(() => o.models.install(m.id))}>
+              <Button size="sm" variant="secondary" disabled={!!reason || NOT_LOCAL.has(m.fit?.kind ?? "")} onClick={() => void act(() => o.models.install(m.id))}>
                 {m.state === "error" ? "Retry" : "Download"}
               </Button>
             )}
+            {o.actions ? o.actions(m) : null}
           </SettingRow>
         );
       })}

@@ -57,8 +57,12 @@
 //! * No thread or timer: external settings edits are noticed when the app calls
 //!   [`settings::SettingsBridge::poll_external`] (or on the next `get`).
 
+#[cfg(feature = "license")]
+pub mod account;
 #[cfg(feature = "app-lock")]
 pub mod app_lock;
+#[cfg(feature = "app-update")]
+pub mod app_update;
 #[cfg(all(feature = "host-services", feature = "crash"))]
 pub mod crash;
 pub mod legal;
@@ -81,6 +85,10 @@ use tauri::{AppHandle, Manager, Webview, Wry};
 use crate::caller_gate::{self, CallerError, CallerFacts, Denial};
 use crate::error::ShellError;
 
+#[cfg(feature = "license")]
+pub use account::AccountHostService;
+#[cfg(feature = "app-update")]
+pub use app_update::{AppUpdateHostService, BootStatus};
 #[cfg(all(feature = "host-services", feature = "crash"))]
 pub use crash::CrashHostService;
 pub use legal::{
@@ -222,6 +230,13 @@ impl HostServices {
                 license.attach_emitter(app.clone());
             }
         }
+        #[cfg(feature = "app-update")]
+        {
+            // The boot probation of an update that just installed: counted once per start.
+            if let Some(service) = self.service::<AppUpdateHostService>(ServiceId::APP_UPDATE) {
+                service.evaluate(&app.package_info().version.to_string());
+            }
+        }
         if app.manage(self) {
             Ok(())
         } else {
@@ -314,9 +329,29 @@ impl HostServicesBuilder {
         self.service(ServiceId::LICENSE, trust, LicenseHostService::new(client))
     }
 
+    /// Register the native account session client behind the nine `rightkit_account_*` commands
+    /// (feature `license`). Trust the window that manages the account; a registered content webview
+    /// is refused regardless.
+    #[cfg(feature = "license")]
+    pub fn account_client(
+        self,
+        trust: ServiceTrust,
+        client: rightkit_license::AccountSessionClient,
+    ) -> Self {
+        self.service(ServiceId::ACCOUNT, trust, AccountHostService::new(client))
+    }
+
     /// Slot for the update service.
     pub fn update<T: Any + Send + Sync>(self, trust: ServiceTrust, instance: T) -> Self {
         self.service(ServiceId::UPDATE, trust, instance)
+    }
+
+    /// Register boot probation and the fetch bridge (feature `app-update`): the
+    /// `rightkit_boot_*` and `rightkit_app_update_fetch` commands. Trust the window that runs the
+    /// app's update flow; a registered content webview is refused regardless.
+    #[cfg(feature = "app-update")]
+    pub fn app_update(self, trust: ServiceTrust, service: AppUpdateHostService) -> Self {
+        self.service(ServiceId::APP_UPDATE, trust, service)
     }
 
     /// Register the native model store & declared catalog (feature `models`).

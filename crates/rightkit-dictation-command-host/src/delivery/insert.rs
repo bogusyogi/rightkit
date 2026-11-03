@@ -18,7 +18,6 @@
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 use std::time::Instant;
 
-use super::clipboard::write_clipboard_text;
 use super::keystrokes::{send_enter_keystroke, send_paste_keystroke};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use super::targets::target_ready_for_input;
@@ -104,11 +103,7 @@ pub(crate) fn insert_transcript(
     // fails closed BEFORE the clipboard is touched; unknown readability no
     // longer vetoes an ordinary paste. The shell twin does the same in
     // `src-tauri/src/delivery/backend.rs`.
-    let secure_state = if test_mode() {
-        Some(false)
-    } else {
-        crate::focus::windows_focused_element_is_password()
-    };
+    let secure_state = crate::focus::windows_focused_element_is_password();
     // Positive password evidence is the only security veto (spec 3.3):
     // unknown readability never refuses an otherwise valid ordinary paste.
     if crate::focus::password_state_vetoes_paste(secure_state) {
@@ -116,14 +111,10 @@ pub(crate) fn insert_transcript(
     }
 
     let clipboard_snapshot_started = Instant::now();
-    let prior = if test_mode() {
-        None
-    } else {
-        Some(
-            rightkit_automation::desktop::windows::snapshot_general_clipboard()
-                .ok_or_else(|| DeliveryError::new("E_CLIPBOARD", "could not snapshot clipboard"))?,
-        )
-    };
+    let prior = Some(
+        rightkit_automation::desktop::windows::snapshot_general_clipboard()
+            .ok_or_else(|| DeliveryError::new("E_CLIPBOARD", "could not snapshot clipboard"))?,
+    );
     // Delivery spec section 4.5: a snapshot that cannot represent every prior
     // format must never back the destructive transcript write — silent format
     // loss is forbidden. Route to visible recovery instead.
@@ -145,25 +136,19 @@ pub(crate) fn insert_transcript(
         elapsed_ms(clipboard_snapshot_started),
     ));
     let clipboard_write_started = Instant::now();
-    let transcript_sequence = if test_mode() {
-        write_clipboard_text(transcript)
-            .map_err(|reason| DeliveryError::new("E_CLIPBOARD", reason.to_string()))?;
-        0
-    } else {
-        match rightkit_automation::desktop::windows::stage_clipboard_text(
-            transcript,
-            prior.as_ref().expect("live clipboard snapshot").sequence(),
-        ) {
-            Ok(sequence) => sequence,
-            Err(failure) => {
-                if let Some(restore_sequence) = failure.restore_sequence {
-                    restore_prior_windows(prior, restore_sequence);
-                }
-                return Err(DeliveryError::new(
-                    "E_CLIPBOARD",
-                    CopyFallbackReason::ClipboardUnavailable.to_string(),
-                ));
+    let transcript_sequence = match rightkit_automation::desktop::windows::stage_clipboard_text(
+        transcript,
+        prior.as_ref().expect("live clipboard snapshot").sequence(),
+    ) {
+        Ok(sequence) => sequence,
+        Err(failure) => {
+            if let Some(restore_sequence) = failure.restore_sequence {
+                restore_prior_windows(prior, restore_sequence);
             }
+            return Err(DeliveryError::new(
+                "E_CLIPBOARD",
+                CopyFallbackReason::ClipboardUnavailable.to_string(),
+            ));
         }
     };
     steps.push(DeliveryTimingStep::new(
@@ -172,13 +157,9 @@ pub(crate) fn insert_transcript(
     ));
     // Captured BEFORE Ctrl+V so any confirmation is attributable to THIS
     // paste rather than to text that merely happened to already be there
-    // (HR-DELIVERY-006). `None` in test mode / on a failed read is handled
+    // (HR-DELIVERY-006). `None` on a failed read is handled
     // as "no proof possible" by `wait_for_paste_consumed_windows`.
-    let paste_proof = if test_mode() {
-        None
-    } else {
-        crate::focus::focused_field_raw_text_for_proof()
-    };
+    let paste_proof = crate::focus::focused_field_raw_text_for_proof();
     let paste_started = Instant::now();
     let paste_result = send_paste_keystroke();
     steps.push(DeliveryTimingStep::new(
@@ -199,18 +180,11 @@ pub(crate) fn insert_transcript(
     if send_enter {
         let settle_ms = paste_settle_ms_for_target(target);
         let submit_started = Instant::now();
-        // `test_mode()` never touches the real clipboard, UIA, or SendInput
-        // (every helper above already short-circuits to a canned success —
-        // see `send_paste_keystroke`/`send_enter_keystroke`/`write_clipboard_text`
-        // in `keystrokes.rs`/`clipboard.rs`), so there is nothing real to read
-        // back here either; treat it the same way those helpers do rather than
-        // fail the send path on an unreadable fake target.
-        let consumed = test_mode()
-            || wait_for_paste_consumed_windows(
-                transcript,
-                paste_proof.as_deref(),
-                std::time::Duration::from_millis(settle_ms),
-            );
+        let consumed = wait_for_paste_consumed_windows(
+            transcript,
+            paste_proof.as_deref(),
+            std::time::Duration::from_millis(settle_ms),
+        );
         if !consumed || !target_ready_for_input(target) {
             steps.push(DeliveryTimingStep::new(
                 "paste_unconfirmed_or_target_changed_skipped_enter",
@@ -242,11 +216,7 @@ pub(crate) fn insert_transcript(
         // Submitting needs POSITIVE non-password evidence at Enter time; an
         // Unknown probe (timeout/saturated/unavailable) is unproven, so the
         // paste stays confirmed but Enter is withheld.
-        let enter_security = if test_mode() {
-            Some(false)
-        } else {
-            crate::focus::windows_focused_element_is_password()
-        };
+        let enter_security = crate::focus::windows_focused_element_is_password();
         if !crate::focus::password_state_allows_submit(enter_security) {
             steps.push(DeliveryTimingStep::new(
                 "enter_skipped_password_state_unproven",
@@ -284,12 +254,11 @@ pub(crate) fn insert_transcript(
         })
     } else {
         let settle_ms = paste_settle_ms_for_target(target);
-        let consumed = test_mode()
-            || wait_for_paste_consumed_windows(
-                transcript,
-                paste_proof.as_deref(),
-                std::time::Duration::from_millis(settle_ms),
-            );
+        let consumed = wait_for_paste_consumed_windows(
+            transcript,
+            paste_proof.as_deref(),
+            std::time::Duration::from_millis(settle_ms),
+        );
         if !consumed {
             // Spec 4.4: reason codes let consumers record exactly why the
             // outcome is Unconfirmed rather than a generic paste failure.
@@ -351,7 +320,7 @@ pub(crate) fn insert_transcript(
     // Posting Cmd+V without Accessibility is never attributable insertion.
     // Keep the transcript recoverable via the outer clipboard-only fallback.
     let access_started = Instant::now();
-    if !test_mode() && !crate::macos_input::accessibility_trusted(false) {
+    if !crate::macos_input::accessibility_trusted(false) {
         steps.push(DeliveryTimingStep::new(
             "accessibility_check",
             elapsed_ms(access_started),
@@ -368,36 +337,29 @@ pub(crate) fn insert_transcript(
 
     // Never post Cmd+V into a password field. The platform probe is bounded;
     // unknown security state remains clipboard-only and never receives Enter.
-    if !test_mode() {
-        let secure_started = Instant::now();
-        let secure_state = target
-            .process_id
-            .and_then(|pid| focused_field_security_with_retry_macos(pid as i32));
-        steps.push(DeliveryTimingStep::new(
-            "secure_target_revalidation",
-            elapsed_ms(secure_started),
-        ));
-        // Positive secure-field evidence is the only security veto (spec 3.3):
-        // unknown readability never refuses an otherwise valid ordinary paste.
-        if secure_state == Some(true) {
-            return Err(DeliveryError::new("E_SECURE_TARGET", "secure_target"));
-        }
+    let secure_started = Instant::now();
+    let secure_state = target
+        .process_id
+        .and_then(|pid| focused_field_security_with_retry_macos(pid as i32));
+    steps.push(DeliveryTimingStep::new(
+        "secure_target_revalidation",
+        elapsed_ms(secure_started),
+    ));
+    // Positive secure-field evidence is the only security veto (spec 3.3):
+    // unknown readability never refuses an otherwise valid ordinary paste.
+    if secure_state == Some(true) {
+        return Err(DeliveryError::new("E_SECURE_TARGET", "secure_target"));
     }
 
     // Optional before-text evidence captured BEFORE Cmd+V: read-back
     // verification afterwards compares against THIS, so a confirmed delta is
     // attributable to this dispatch — never inferred from post-paste text
-    // alone. `None` means no proof possible (test mode or an unreadable
+    // alone. `None` means no proof possible (an unreadable
     // field); the post-paste check then reports Unconfirmed rather than
     // claiming insertion it cannot attribute.
-    let pre_paste_baseline: Option<rightkit_automation::desktop::macos::FocusedFieldProof> =
-        if test_mode() {
-            None
-        } else {
-            target.process_id.map(|pid| {
-                rightkit_automation::desktop::macos::focused_field_proof_for_pid(pid as i32)
-            })
-        };
+    let pre_paste_baseline: Option<rightkit_automation::desktop::macos::FocusedFieldProof> = target
+        .process_id
+        .map(|pid| rightkit_automation::desktop::macos::focused_field_proof_for_pid(pid as i32));
     steps.push(DeliveryTimingStep::new(
         if pre_paste_baseline
             .as_ref()
@@ -418,24 +380,16 @@ pub(crate) fn insert_transcript(
         rightkit_automation::desktop::macos::acquire_clipboard_transaction();
 
     let clipboard_snapshot_started = Instant::now();
-    let mut prior = if test_mode() {
-        None
-    } else {
-        Some(
-            rightkit_automation::desktop::macos::snapshot_general_pasteboard()
-                .ok_or_else(|| DeliveryError::new("E_CLIPBOARD", "could not snapshot clipboard"))?,
-        )
-    };
+    let mut prior = Some(
+        rightkit_automation::desktop::macos::snapshot_general_pasteboard()
+            .ok_or_else(|| DeliveryError::new("E_CLIPBOARD", "could not snapshot clipboard"))?,
+    );
     steps.push(DeliveryTimingStep::new(
         "clipboard_snapshot",
         elapsed_ms(clipboard_snapshot_started),
     ));
     let stage_started = Instant::now();
-    let mut promised = if test_mode() {
-        write_clipboard_text(transcript)
-            .map_err(|reason| DeliveryError::new("E_CLIPBOARD", reason.to_string()))?;
-        None
-    } else {
+    let mut promised = {
         match rightkit_automation::desktop::macos::stage_promised_clipboard_text(
             transcript,
             prior
@@ -464,14 +418,10 @@ pub(crate) fn insert_transcript(
     // read-back can be blank or delayed for Chromium/Electron and is not used
     // to gate paste, Enter, or restoration.
     steps.push(DeliveryTimingStep::new(
-        if test_mode() {
-            "clipboard_write"
-        } else {
-            "promised_clipboard_stage"
-        },
+        "promised_clipboard_stage",
         elapsed_ms(stage_started),
     ));
-    if !test_mode() && !target_ready_for_input(target) {
+    if !target_ready_for_input(target) {
         if let (Some(promised), Some(prior)) = (&mut promised, prior.take()) {
             let _ = promised.restore_if_unchanged_owned(prior);
         }
@@ -501,8 +451,7 @@ pub(crate) fn insert_transcript(
     let receipt = promised
         .as_ref()
         .map(|promised| promised.wait_for_receipt(Duration::from_millis(PASTE_RECEIPT_TIMEOUT_MS)));
-    let receipt_observed =
-        test_mode() || receipt.as_ref().is_some_and(|receipt| receipt.observed());
+    let receipt_observed = receipt.as_ref().is_some_and(|receipt| receipt.observed());
     steps.push(DeliveryTimingStep::new(
         if receipt_observed {
             "paste_receipt_observed"
@@ -525,21 +474,9 @@ pub(crate) fn insert_transcript(
     // captured on the same editor before staging: a delta attributable to
     // this dispatch confirms insertion; a receipt without attributable proof
     // stays Unconfirmed and never submits Enter.
-    if !test_mode() {
-        let baseline = match pre_paste_baseline.as_ref() {
-            Some(baseline) if !baseline.is_blind() => baseline,
-            _ => {
-                steps.push(DeliveryTimingStep::new(
-                    "paste_readback_unavailable",
-                    elapsed_ms(receipt_started),
-                ));
-                return Err(DeliveryError::new(
-                    "E_UNCONFIRMED_INSERTION",
-                    "paste_readback_unavailable",
-                ));
-            }
-        };
-        let Some(pid) = target.process_id else {
+    let baseline = match pre_paste_baseline.as_ref() {
+        Some(baseline) if !baseline.is_blind() => baseline,
+        _ => {
             steps.push(DeliveryTimingStep::new(
                 "paste_readback_unavailable",
                 elapsed_ms(receipt_started),
@@ -547,30 +484,40 @@ pub(crate) fn insert_transcript(
             return Err(DeliveryError::new(
                 "E_UNCONFIRMED_INSERTION",
                 "paste_readback_unavailable",
-            ));
-        };
-        let deadline = Instant::now() + Duration::from_millis(PASTE_READBACK_TIMEOUT_MS);
-        let attributable = loop {
-            if rightkit_automation::desktop::macos::insertion_confirmed_for_pid(
-                pid as i32, baseline, transcript,
-            ) {
-                break true;
-            }
-            if Instant::now() >= deadline {
-                break false;
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        };
-        if !attributable {
-            steps.push(DeliveryTimingStep::new(
-                "paste_readback_unconfirmed",
-                elapsed_ms(receipt_started),
-            ));
-            return Err(DeliveryError::new(
-                "E_UNCONFIRMED_INSERTION",
-                "paste_readback_unconfirmed",
             ));
         }
+    };
+    let Some(pid) = target.process_id else {
+        steps.push(DeliveryTimingStep::new(
+            "paste_readback_unavailable",
+            elapsed_ms(receipt_started),
+        ));
+        return Err(DeliveryError::new(
+            "E_UNCONFIRMED_INSERTION",
+            "paste_readback_unavailable",
+        ));
+    };
+    let deadline = Instant::now() + Duration::from_millis(PASTE_READBACK_TIMEOUT_MS);
+    let attributable = loop {
+        if rightkit_automation::desktop::macos::insertion_confirmed_for_pid(
+            pid as i32, baseline, transcript,
+        ) {
+            break true;
+        }
+        if Instant::now() >= deadline {
+            break false;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    if !attributable {
+        steps.push(DeliveryTimingStep::new(
+            "paste_readback_unconfirmed",
+            elapsed_ms(receipt_started),
+        ));
+        return Err(DeliveryError::new(
+            "E_UNCONFIRMED_INSERTION",
+            "paste_readback_unconfirmed",
+        ));
     }
 
     if send_enter {

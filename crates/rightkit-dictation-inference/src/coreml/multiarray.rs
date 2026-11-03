@@ -10,16 +10,13 @@ use super::stage::nserr;
 
 /// Build an i32 MLMultiArray.
 pub fn ml_i32(dims: &[usize], data: &[i32]) -> Result<Retained<MLMultiArray>, String> {
-    if super::aligned_probe::enabled() {
-        return finish_probe(super::aligned_probe::aligned_i32(dims, data));
-    }
     unsafe {
         let arr = new_marray(dims, MLMultiArrayDataType::Int32)?;
         let ptr = arr.dataPointer().as_ptr() as *mut i32;
         for (i, &x) in data.iter().enumerate() {
             *ptr.add(i) = x;
         }
-        finish_probe(Ok(arr))
+        Ok(arr)
     }
 }
 
@@ -57,42 +54,26 @@ unsafe fn new_marray(
 
 /// Build an f32 MLMultiArray from f32 data (row-major, C-contiguous).
 pub fn ml_f32(dims: &[usize], data: &[f32]) -> Result<Retained<MLMultiArray>, String> {
-    if super::aligned_probe::enabled() {
-        return finish_probe(super::aligned_probe::aligned_f32(dims, data));
-    }
     unsafe {
         let arr = new_marray(dims, MLMultiArrayDataType::Float32)?;
         let ptr = arr.dataPointer().as_ptr() as *mut f32;
         for (i, &x) in data.iter().enumerate() {
             *ptr.add(i) = x;
         }
-        finish_probe(Ok(arr))
+        Ok(arr)
     }
 }
 
 /// Build an f16 MLMultiArray from f32 data (row-major, C-contiguous).
 pub fn ml_f16(dims: &[usize], data: &[f32]) -> Result<Retained<MLMultiArray>, String> {
-    if super::aligned_probe::enabled() {
-        return finish_probe(super::aligned_probe::aligned_f16(dims, data));
-    }
     unsafe {
         let arr = new_marray(dims, MLMultiArrayDataType::Float16)?;
         let ptr = arr.dataPointer().as_ptr() as *mut f16;
         for (i, &x) in data.iter().enumerate() {
             *ptr.add(i) = f16::from_f32(x);
         }
-        finish_probe(Ok(arr))
+        Ok(arr)
     }
-}
-
-fn finish_probe(
-    result: Result<Retained<MLMultiArray>, String>,
-) -> Result<Retained<MLMultiArray>, String> {
-    let array = result?;
-    if super::aligned_probe::prefetch_enabled() {
-        super::aligned_probe::touch_logical_edges(&array)?;
-    }
-    Ok(array)
 }
 
 /// Row-padded fast path shared by `read_f32` / `read_f16`.
@@ -107,10 +88,6 @@ fn finish_probe(
 ///
 /// Returns `Some(row_len, row_pitch, rows)` when the fast path applies.
 fn row_layout(shape: &[usize], strides: &[isize]) -> Option<(usize, usize, usize)> {
-    // Escape hatch for A/B measurement; unset in production.
-    if rightkit_dictation_core::dev_var_os!("RIGHTKIT_COREML_NO_ROW_FAST_PATH").is_some() {
-        return None;
-    }
     if shape.len() < 2 || *strides.last()? != 1 {
         return None;
     }

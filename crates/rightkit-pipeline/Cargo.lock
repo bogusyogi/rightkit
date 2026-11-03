@@ -1648,7 +1648,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rightkit-audio"
-version = "0.3.2"
+version = "0.3.4"
 dependencies = [
  "hound",
  "rightkit-ffmpeg",
@@ -1671,10 +1671,11 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "libc",
  "windows",
+ "zeroize",
 ]
 
 [[package]]
@@ -1690,7 +1691,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ffmpeg"
-version = "0.2.14"
+version = "0.2.16"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -1700,17 +1701,18 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.10"
+version = "0.4.12"
 dependencies = [
  "blake3",
  "libc",
  "sha2",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-job-queue"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "rightkit-child-process",
  "serde",
@@ -1721,7 +1723,6 @@ dependencies = [
 name = "rightkit-pipeline"
 version = "0.1.2"
 dependencies = [
- "blake3",
  "rightkit-audio",
  "rightkit-captions",
  "rightkit-child-process",
@@ -1747,7 +1748,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-transcript"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -1756,7 +1757,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-typeset"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "thiserror",
  "typst",
@@ -3095,6 +3096,12 @@ dependencies = [
  "syn 3.0.9",
  "synstructure",
 ]
+
+[[package]]
+name = "zeroize"
+version = "1.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
 
 [[package]]
 name = "zerotrie"

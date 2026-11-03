@@ -1,7 +1,7 @@
 //! Crash-recoverable multi-file publication: [`FileTransaction::prepare`], [`PreparedTransaction::commit`]
 //! and [`recover_transactions`] (feature `transaction`).
 //!
-//! A transaction publishes several files under one root so that a crash or failure at any point
+//! A transaction publishes several files under one root (or, see "Several roots", under several) so that a crash or failure at any point
 //! leaves either the old state, the new state, or a recoverable state that
 //! [`recover_transactions`] resolves deterministically. It is **not** all-file atomic visibility: a
 //! reader that opens two of the files can see one old and one new while a commit runs. Consumers
@@ -30,6 +30,43 @@
 //! }
 //! # Ok::<(), rightkit_fs::FsError>(())
 //! ```
+//!
+//! # Several roots
+//!
+//! Entries may live under different roots (folders the user chose, each possibly reached through
+//! a link), with one commit decision for all of them. [`TransactionEntry::in_root`] names an
+//! entry's root; an entry without one is under the root passed to [`FileTransaction::prepare`],
+//! the **coordinating root**. Only the coordinating root holds the protocol's records: the
+//! operation lock, `.rktxn/<id>/journal` and `.rktxn/<id>/commit`. Every other root holds staged
+//! and backup names only, beside the destinations they belong to, so a media folder never gains a
+//! `.rktxn` directory. Pass the app's own data directory as the coordinating root and the user's
+//! folders as the other roots.
+//!
+//! * Each root is resolved once at preparation (links are allowed in the root path, never in the
+//!   relative part) and recorded in the journal with its file identity; the journal then uses the
+//!   `rktxn-journal 2` format. A single-root transaction keeps the version 1 format and layout, so
+//!   journals written before this existed recover unchanged.
+//! * Roots of one transaction may not be the same directory under two names (they are one root)
+//!   and may not be inside one another; duplicate or overlapping destinations are refused per
+//!   root.
+//! * The commit protocol is the table below, run over all entries in entry order; the marker in
+//!   the coordinating root is the one decision for every root. [`PreparedTransaction::commit_then`]
+//!   runs its `after` before that marker, so a caller's own record and the files of every root
+//!   are all new or all old.
+//! * [`recover_transactions`] on the coordinating root resolves the whole transaction from that
+//!   journal: it finds each other root again by its recorded path and proves it is the recorded
+//!   directory before touching anything in it. A root that cannot be reached, or is another
+//!   directory now, keeps the transaction [`RecoveryOutcome::Retained`]: no root is restored,
+//!   completed or deleted until it is available (the coordinating root takes no new transaction
+//!   meanwhile). Recovery on another root alone finds nothing to do; call it on the coordinating
+//!   root at start-up.
+//! * Only the coordinating root's lock is taken, so another process that writes the same
+//!   non-coordinating folder outside this protocol is not serialized with it; the identity checks
+//!   of every entry (`ExpectedPrior`, the recorded prior file) still detect a changed destination
+//!   and fail closed. Cooperating writers must share one coordinating root.
+//! * A leftover of a committed transaction that no longer matches its identity, in a
+//!   non-coordinating root, is renamed in its own directory to `<name>.retained` (not moved to the
+//!   coordinating root, which may be another volume).
 //!
 //! # Layout
 //!
@@ -169,6 +206,8 @@ const RETAINED_DIR: &str = "retained";
 const JOURNAL: &str = "journal";
 const COMMIT: &str = "commit";
 const JOURNAL_MAGIC: &str = "rktxn-journal 1";
+/// A journal of a transaction whose entries span several roots (see the module docs).
+const JOURNAL_MAGIC_MULTI: &str = "rktxn-journal 2";
 const COMMIT_MAGIC: &str = "rktxn-commit 1";
 const SIDE_MARKER: &str = ".rktxn-";
 const SIDE_PREFIX_MAX: usize = 64;
@@ -322,6 +361,7 @@ pub struct TransactionEntry {
     expect: ExpectedPrior,
     publication: Publication,
     private: bool,
+    root: Option<PathBuf>,
 }
 
 impl TransactionEntry {
@@ -334,6 +374,7 @@ impl TransactionEntry {
             expect: ExpectedPrior::Any,
             publication: Publication::Replace,
             private: false,
+            root: None,
         }
     }
 
@@ -358,6 +399,20 @@ impl TransactionEntry {
     pub fn private(mut self) -> Self {
         self.private = true;
         self
+    }
+
+    /// Publish this entry under `root` instead of the transaction's coordinating root (the one
+    /// passed to [`FileTransaction::prepare`]). The destination stays a bounded relative path under
+    /// `root`; `root` itself is resolved once and may contain links (a folder the user chose), but
+    /// no component of the relative part may. See the module docs, "Several roots".
+    pub fn in_root(mut self, root: impl Into<PathBuf>) -> Self {
+        self.root = Some(root.into());
+        self
+    }
+
+    /// The explicit root of this entry, if [`in_root`](Self::in_root) set one.
+    pub fn root(&self) -> Option<&Path> {
+        self.root.as_deref()
     }
 
     /// The relative destination.
@@ -920,11 +975,15 @@ struct EntryPaths {
     backup: PathBuf,
 }
 
-fn entry_paths(root: &Path, entry: &JournalEntry) -> Result<EntryPaths> {
+fn entry_paths(ctx: &Ctx<'_>, entry: &JournalEntry) -> Result<EntryPaths> {
     let corrupt = |reason: &str| FsError::Corrupt {
-        path: root.join(AREA).join(JOURNAL),
+        path: ctx.root.join(AREA).join(JOURNAL),
         reason: reason.to_string(),
     };
+    let root = ctx
+        .root_of(entry.root)
+        .ok_or_else(|| corrupt("an entry names a root the journal does not list"))?;
+    let root = root.as_path();
     let dest = split_journal_rel(&entry.dest)
         .ok_or_else(|| corrupt("an entry destination is not a plain relative path"))?;
     let stage = split_journal_rel(&entry.stage)
@@ -1009,12 +1068,24 @@ struct JournalEntry {
     /// existed, so this entry never published; written before the staged copy is removed so a
     /// replay after the removal reaches the same decision.
     unpublished: bool,
+    /// Which root the destination is under: 0 is the coordinating root (the one that holds this
+    /// journal), `n` is `Journal::others[n - 1]`.
+    root: usize,
+}
+
+/// A root other than the coordinating one: where to find it and which directory it was.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct JournalRoot {
+    path: String,
+    key: FileKey,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Journal {
     id: String,
     root: FileKey,
+    /// The other roots of a multi-root transaction; empty for the single-root format.
+    others: Vec<JournalRoot>,
     phase: JournalPhase,
     entries: Vec<JournalEntry>,
     /// The CRC-32 of the rendered body; set by `render` and `parse`.
@@ -1054,13 +1125,29 @@ impl Journal {
     /// The journal text and its CRC-32 (also stored in `self.crc` by the caller).
     fn render(&self) -> (String, u32) {
         let mut out = String::new();
-        out.push_str(JOURNAL_MAGIC);
+        let multi = !self.others.is_empty();
+        out.push_str(if multi {
+            JOURNAL_MAGIC_MULTI
+        } else {
+            JOURNAL_MAGIC
+        });
         out.push('\n');
         out.push_str(&format!("id {}\n", self.id));
         out.push_str(&format!(
             "root {:x}.{:x}\n",
             self.root.volume, self.root.index
         ));
+        if multi {
+            out.push_str(&format!("roots {}\n", self.others.len()));
+            for other in &self.others {
+                out.push_str(&format!(
+                    "rootn {} {:x}.{:x}\n",
+                    hex_encode(&other.path),
+                    other.key.volume,
+                    other.key.index
+                ));
+            }
+        }
         out.push_str(match self.phase {
             JournalPhase::Staging => "phase staging\n",
             JournalPhase::Staged => "phase staged\n",
@@ -1068,7 +1155,7 @@ impl Journal {
         out.push_str(&format!("entries {}\n", self.entries.len()));
         for (index, entry) in self.entries.iter().enumerate() {
             out.push_str(&format!(
-                "entry {index} {} {} {} {} {} {} {} {}\n",
+                "entry {index} {} {} {} {} {} {} {} {}{}\n",
                 if entry.create_new { 'N' } else { 'R' },
                 if entry.private { 1 } else { 0 },
                 hex_encode(&entry.dest),
@@ -1077,6 +1164,11 @@ impl Journal {
                 render_ident(&entry.prior),
                 render_ident(&entry.staged),
                 if entry.unpublished { 1 } else { 0 },
+                if multi {
+                    format!(" {}", entry.root)
+                } else {
+                    String::new()
+                },
             ));
         }
         let crc = crate::zip::crc32(out.as_bytes());
@@ -1109,9 +1201,11 @@ impl Journal {
             return Err(corrupt("the checksum does not match the journal"));
         }
         let mut lines = body.lines();
-        if lines.next() != Some(JOURNAL_MAGIC) {
-            return Err(corrupt("not a version 1 journal"));
-        }
+        let multi = match lines.next() {
+            Some(JOURNAL_MAGIC) => false,
+            Some(JOURNAL_MAGIC_MULTI) => true,
+            _ => return Err(corrupt("not a version 1 or 2 journal")),
+        };
         let mut field = |name: &str| -> Result<String> {
             let line = lines
                 .next()
@@ -1135,6 +1229,39 @@ impl Journal {
                 _ => return Err(corrupt("the root identity is malformed")),
             }
         };
+        let mut others: Vec<JournalRoot> = Vec::new();
+        if multi {
+            let count: usize = field("roots")?
+                .parse()
+                .map_err(|_| corrupt("the root count is malformed"))?;
+            if count == 0 || count > MAX_ENTRIES {
+                return Err(corrupt("the root count is out of range"));
+            }
+            for _ in 0..count {
+                let line = field("rootn")?;
+                let mut parts = line.split(' ');
+                let (Some(path_hex), Some(key_text), None) =
+                    (parts.next(), parts.next(), parts.next())
+                else {
+                    return Err(corrupt("a root line is malformed"));
+                };
+                let path = hex_decode(path_hex)
+                    .filter(|path| !path.is_empty() && !path.contains('\0'))
+                    .ok_or_else(|| corrupt("a root path is not hex of UTF-8"))?;
+                let mut key_parts = key_text.split('.');
+                let volume = key_parts
+                    .next()
+                    .and_then(|p| u64::from_str_radix(p, 16).ok());
+                let index = key_parts
+                    .next()
+                    .and_then(|p| u64::from_str_radix(p, 16).ok());
+                let key = match (volume, index, key_parts.next()) {
+                    (Some(volume), Some(index), None) => FileKey { volume, index },
+                    _ => return Err(corrupt("a root identity is malformed")),
+                };
+                others.push(JournalRoot { path, key });
+            }
+        }
         let phase = match field("phase")?.as_str() {
             "staging" => JournalPhase::Staging,
             "staged" => JournalPhase::Staged,
@@ -1150,7 +1277,7 @@ impl Journal {
         for index in 0..count {
             let line = field("entry")?;
             let tokens: Vec<&str> = line.split(' ').collect();
-            if tokens.len() != 9 || tokens[0] != index.to_string() {
+            if tokens.len() != (if multi { 10 } else { 9 }) || tokens[0] != index.to_string() {
                 return Err(corrupt("an entry line is malformed or out of order"));
             }
             let create_new = match tokens[1] {
@@ -1167,6 +1294,15 @@ impl Journal {
                 "1" => true,
                 "0" => false,
                 _ => return Err(corrupt("an entry rollback mark is unknown")),
+            };
+            let entry_root = if multi {
+                tokens[9]
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|root| *root <= others.len())
+                    .ok_or_else(|| corrupt("an entry names a root the journal does not list"))?
+            } else {
+                0
             };
             let decode = |text: &str| {
                 hex_decode(text).ok_or_else(|| corrupt("an entry path is not hex of UTF-8"))
@@ -1203,6 +1339,7 @@ impl Journal {
                 prior,
                 staged,
                 unpublished,
+                root: entry_root,
             });
         }
         if lines.next().is_some() {
@@ -1211,6 +1348,7 @@ impl Journal {
         Ok(Self {
             id,
             root,
+            others,
             phase,
             entries,
             crc,
@@ -1411,6 +1549,8 @@ struct PlannedEntry {
     components: Vec<String>,
     candidate: PathBuf,
     candidate_ident: Ident,
+    /// Which root the destination is under (0: the coordinating root).
+    root: usize,
     parents: Vec<(PathBuf, FileKey)>,
     expect: ExpectedPrior,
     create_new: bool,
@@ -1423,8 +1563,33 @@ pub struct PreparedTransaction {
     root: PathBuf,
     requested_root: PathBuf,
     root_key: FileKey,
+    /// The other roots of a multi-root transaction, in first-use order (entry root `n` is
+    /// `others[n - 1]`).
+    others: Vec<PreparedRoot>,
     entries: Vec<PlannedEntry>,
     options: TransactionOptions,
+}
+
+/// A root other than the coordinating one, resolved once at preparation.
+#[derive(Debug)]
+struct PreparedRoot {
+    requested: PathBuf,
+    root: PathBuf,
+    key: FileKey,
+}
+
+/// True when one path is the other or lies below it.
+fn nested(a: &Path, b: &Path) -> bool {
+    let (a, b): (Vec<String>, Vec<String>) = (
+        a.components()
+            .map(|c| fold(&c.as_os_str().to_string_lossy()))
+            .collect(),
+        b.components()
+            .map(|c| fold(&c.as_os_str().to_string_lossy()))
+            .collect(),
+    );
+    let shared = a.len().min(b.len());
+    a[..shared] == b[..shared]
 }
 
 impl FileTransaction {
@@ -1461,18 +1626,71 @@ impl FileTransaction {
         if entries.len() > MAX_ENTRIES {
             return Err(FsError::TooManyEntries(MAX_ENTRIES));
         }
+        // Each explicit root is resolved once, here; an entry without one is under `root`.
+        let mut others: Vec<PreparedRoot> = Vec::new();
+        let mut entry_roots: Vec<usize> = Vec::with_capacity(entries.len());
+        for entry in &entries {
+            let Some(requested) = entry.root.as_deref() else {
+                entry_roots.push(0);
+                continue;
+            };
+            let resolved = canonicalize_plain(requested).map_err(|e| FsError::io(requested, e))?;
+            let key = FileKey::of_path(&resolved)?;
+            let meta = fs::metadata(&resolved).map_err(|e| FsError::io(&resolved, e))?;
+            if !meta.is_dir() {
+                return Err(FsError::NotADirectory(resolved));
+            }
+            if key == root_key {
+                entry_roots.push(0);
+            } else if let Some(at) = others.iter().position(|other| other.key == key) {
+                entry_roots.push(at + 1);
+            } else {
+                others.push(PreparedRoot {
+                    requested: std::path::absolute(requested)
+                        .map_err(|e| FsError::io(requested, e))?,
+                    root: resolved,
+                    key,
+                });
+                entry_roots.push(others.len());
+            }
+        }
+        // A root inside another would let two names reach one file; refuse it up front.
+        let all_roots: Vec<&Path> = std::iter::once(root.as_path())
+            .chain(others.iter().map(|other| other.root.as_path()))
+            .collect();
+        for (at, first) in all_roots.iter().enumerate() {
+            for second in &all_roots[at + 1..] {
+                if nested(first, second) {
+                    return Err(FsError::io(
+                        second,
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "the roots of one transaction may not be inside one another",
+                        ),
+                    ));
+                }
+            }
+        }
         let mut planned: Vec<PlannedEntry> = Vec::with_capacity(entries.len());
-        let mut folded: Vec<Vec<String>> = Vec::with_capacity(entries.len());
-        for entry in entries {
+        let mut folded: Vec<(usize, Vec<String>)> = Vec::with_capacity(entries.len());
+        for (entry, entry_root) in entries.into_iter().zip(entry_roots) {
+            let (this_root, this_key): (&Path, FileKey) = if entry_root == 0 {
+                (root.as_path(), root_key)
+            } else {
+                (
+                    others[entry_root - 1].root.as_path(),
+                    others[entry_root - 1].key,
+                )
+            };
             let components = split_relative(&entry.destination)?;
             let key: Vec<String> = components.iter().map(|c| fold(c)).collect();
-            for other in &folded {
+            for (other_root, other) in &folded {
                 let shared = key.len().min(other.len());
-                if key[..shared] == other[..shared] {
+                if *other_root == entry_root && key[..shared] == other[..shared] {
                     return Err(bad_name(&entry.destination));
                 }
             }
-            folded.push(key);
+            folded.push((entry_root, key));
             if entry.publication == Publication::CreateNew && entry.expect != ExpectedPrior::Absent
             {
                 return Err(FsError::io(
@@ -1493,8 +1711,8 @@ impl FileTransaction {
                 }
                 Probe::Other(_) => return Err(FsError::NotAFile(entry.candidate)),
             };
-            let mut parents = vec![(root.clone(), root_key)];
-            let mut parent = root.clone();
+            let mut parents = vec![(this_root.to_path_buf(), this_key)];
+            let mut parent = this_root.to_path_buf();
             for component in components.iter().take(components.len() - 1) {
                 parent.push(component);
                 match fs::symlink_metadata(&parent) {
@@ -1513,11 +1731,12 @@ impl FileTransaction {
                 components,
                 candidate: entry.candidate,
                 candidate_ident,
+                root: entry_root,
                 expect: entry.expect,
                 create_new: entry.publication == Publication::CreateNew,
                 private: entry.private,
             };
-            let dest = resolve_entry_path(&root, &planned_entry.components)?;
+            let dest = resolve_entry_path(this_root, &planned_entry.components)?;
             check_expectation(&dest, &planned_entry)?;
             planned.push(planned_entry);
         }
@@ -1525,6 +1744,7 @@ impl FileTransaction {
             root,
             requested_root,
             root_key,
+            others,
             entries: planned,
             options,
         })
@@ -1613,10 +1833,28 @@ impl PreparedTransaction {
                 "the prepared root was substituted",
             ));
         }
+        for other in &self.others {
+            let resolved = canonicalize_plain(&other.requested)
+                .map_err(|e| FsError::io(&other.requested, e))?;
+            if resolved != other.root || FileKey::of_path(&resolved)? != other.key {
+                return Err(conflict(
+                    &other.requested,
+                    "a prepared root was substituted",
+                ));
+            }
+        }
         for entry in &self.entries {
             verify_parent_identities(&entry.parents)?;
         }
         Ok(())
+    }
+
+    fn root_path(&self, index: usize) -> &Path {
+        if index == 0 {
+            &self.root
+        } else {
+            &self.others[index - 1].root
+        }
     }
 
     /// The canonical root.
@@ -1629,7 +1867,7 @@ impl PreparedTransaction {
         self.entries
             .iter()
             .map(|entry| {
-                let mut path = self.root.clone();
+                let mut path = self.root_path(entry.root).to_path_buf();
                 path.extend(&entry.components);
                 path
             })
@@ -1639,6 +1877,33 @@ impl PreparedTransaction {
     /// Commit the transaction. See the module docs for the protocol and [`TransactionReport`] for
     /// the outcomes. `Err` means nothing was changed.
     pub fn commit(self) -> Result<TransactionReport> {
+        self.commit_inner(None)
+    }
+
+    /// [`commit`](Self::commit), running `after` once every file is published and **before** the
+    /// commit marker is written, while the outcome can still be undone. If `after` returns an error
+    /// the whole transaction is rolled back (every destination restored and verified) and the
+    /// report is [`TransactionReport::RolledBack`] with `after`'s error as its cause (or
+    /// [`TransactionReport::RecoveryRequired`] if the rollback itself could not finish). If `after`
+    /// succeeds the marker is written as in `commit`. A crash inside `after`, or between it and the
+    /// marker, leaves no marker, so [`recover_transactions`] rolls the files back: the caller's own
+    /// record (the row `after` writes) and the files are then either both new or both old, provided
+    /// `after`'s effect is itself one atomic step that recovery of the caller undoes or never
+    /// started. `after` runs with the operation lock held: it must not call this crate's
+    /// transaction functions for the same root.
+    pub fn commit_then(self, after: impl FnOnce() -> Result<()>) -> Result<TransactionReport> {
+        let mut after = Some(after);
+        let mut call = move || match after.take() {
+            Some(f) => f(),
+            None => Ok(()),
+        };
+        self.commit_inner(Some(&mut call))
+    }
+
+    fn commit_inner(
+        self,
+        after: Option<&mut dyn FnMut() -> Result<()>>,
+    ) -> Result<TransactionReport> {
         self.verify_prepared_directories()?;
         let area = self.root.join(AREA);
         create_dir_all_durable(&area, true)?;
@@ -1656,11 +1921,29 @@ impl PreparedTransaction {
         let id = new_id();
         let mut entries = Vec::with_capacity(self.entries.len());
         for (index, planned) in self.entries.iter().enumerate() {
-            entries.push(plan_entry(&self.root, &id, index, planned)?);
+            entries.push(plan_entry(
+                self.root_path(planned.root),
+                &id,
+                index,
+                planned,
+            )?);
+        }
+        let mut others = Vec::with_capacity(self.others.len());
+        for other in &self.others {
+            // The journal holds the path as UTF-8 text so recovery can find the root again.
+            let path = other
+                .root
+                .to_str()
+                .ok_or_else(|| FsError::BadName(other.root.display().to_string()))?;
+            others.push(JournalRoot {
+                path: path.to_string(),
+                key: other.key,
+            });
         }
         let mut journal = Journal {
             id: id.clone(),
             root: root_key,
+            others,
             phase: JournalPhase::Staging,
             entries,
             crc: 0,
@@ -1673,10 +1956,13 @@ impl PreparedTransaction {
         let ctx = Ctx {
             records: std::cell::RefCell::new(Vec::new()),
             root: &self.root,
+            others: std::cell::RefCell::new(
+                self.others.iter().map(|other| other.root.clone()).collect(),
+            ),
             options: &self.options,
             txn_dir: &txn_dir,
         };
-        run_commit(&ctx, &self.entries, &mut journal)
+        run_commit(&ctx, &self.entries, &mut journal, after)
     }
 }
 
@@ -1727,6 +2013,7 @@ fn plan_entry(root: &Path, id: &str, index: usize, planned: &PlannedEntry) -> Re
         prior,
         staged: None,
         unpublished: false,
+        root: planned.root,
     })
 }
 
@@ -1765,12 +2052,32 @@ fn read_record_claim(path: &Path, expected: &str) -> Result<RecordClaim> {
 
 struct Ctx<'a> {
     records: std::cell::RefCell<Vec<(String, RecordClaim)>>,
+    /// The coordinating root: it holds the journal, the commit marker and the operation lock.
     root: &'a Path,
+    /// The other roots, resolved (at commit from the prepared roots, at recovery from the journal
+    /// after each was verified against its recorded identity). Entry root `n` is `others[n - 1]`.
+    others: std::cell::RefCell<Vec<PathBuf>>,
     options: &'a TransactionOptions,
     txn_dir: &'a Path,
 }
 
 impl Ctx<'_> {
+    /// The root directory entry root `index` stands for, if the journal lists it.
+    fn root_of(&self, index: usize) -> Option<PathBuf> {
+        if index == 0 {
+            Some(self.root.to_path_buf())
+        } else {
+            self.others.borrow().get(index - 1).cloned()
+        }
+    }
+
+    /// `entry`'s destination as a path to show in a report.
+    fn shown(&self, entry: &JournalEntry) -> PathBuf {
+        self.root_of(entry.root)
+            .unwrap_or_else(|| self.root.to_path_buf())
+            .join(&entry.dest)
+    }
+
     fn claim_record(&self, path: &Path, claim: RecordClaim) {
         let name = path
             .file_name()
@@ -1798,6 +2105,7 @@ fn run_commit(
     ctx: &Ctx<'_>,
     planned: &[PlannedEntry],
     journal: &mut Journal,
+    after: Option<&mut dyn FnMut() -> Result<()>>,
 ) -> Result<TransactionReport> {
     // Phases 3 to 5: journal, staged copies, staged journal. No live destination is touched.
     if let Err(cause) = begin_staging(ctx, planned, journal) {
@@ -1816,6 +2124,12 @@ fn run_commit(
     if let Err(cause) = fire(Step::BeforeCommitMarker, &marker_path) {
         // The marker was never attempted, so rollback is the only consistent outcome.
         return Ok(roll_back_here(ctx, journal, cause));
+    }
+    // The caller's step that must succeed together with the files: still undoable here.
+    if let Some(after) = after {
+        if let Err(cause) = after() {
+            return Ok(roll_back_here(ctx, journal, cause));
+        }
     }
     let marker = marker_text(&journal.id, journal.crc);
     if let Err(cause) = write_record(ctx, &marker_path, &marker, ReplaceMode::NoReplace) {
@@ -1839,7 +2153,7 @@ fn run_commit(
     let published: Vec<PathBuf> = journal
         .entries
         .iter()
-        .filter_map(|entry| entry_paths(ctx.root, entry).ok().map(|paths| paths.dest))
+        .filter_map(|entry| entry_paths(ctx, entry).ok().map(|paths| paths.dest))
         .collect();
     let retained = match fire(Step::AfterCommitMarker, &marker_path) {
         Ok(()) => complete_committed(ctx, journal).into_items(),
@@ -1918,7 +2232,7 @@ fn stage_entry(
 ) -> Result<Ident> {
     let entry = journal.entries[index].clone();
     let entry = &entry;
-    let paths = entry_paths(ctx.root, entry)?;
+    let paths = entry_paths(ctx, entry)?;
     fire(Step::BeforeStage(index), &paths.stage)?;
     verify_parent_identities(&planned.parents)?;
     if let Some(parent) = paths.dest.parent() {
@@ -1931,7 +2245,7 @@ fn stage_entry(
         }
     }
     // The parents may have just been created: resolve again, so a link planted in the gap is seen.
-    let paths = entry_paths(ctx.root, entry)?;
+    let paths = entry_paths(ctx, entry)?;
     let staged = {
         // The staged file exists (under its writer's temporary name) before it has its staged
         // name: journal its file key now, so nothing can ever hold the staged name without a
@@ -2142,7 +2456,7 @@ fn publish_step(ctx: &Ctx<'_>, from: &Path, to: &Path, replace: ReplaceMode) -> 
 }
 
 fn apply_entry(ctx: &Ctx<'_>, index: usize, entry: &JournalEntry) -> Result<()> {
-    let paths = entry_paths(ctx.root, entry)?;
+    let paths = entry_paths(ctx, entry)?;
     let staged = entry.staged.ok_or_else(|| FsError::Corrupt {
         path: ctx.txn_dir.join(JOURNAL),
         reason: "an entry has no staged identity".into(),
@@ -2261,10 +2575,10 @@ fn rollback(ctx: &Ctx<'_>, journal: &mut Journal) -> RollbackOutcome {
         // Retry the durability barrier even when a previous recovery already removed/restored
         // every file. A missing name is not evidence that its unlink reached stable storage.
         for entry in &journal.entries {
-            if let Err(error) = sync_parent_strict(&ctx.root.join(&entry.dest)) {
+            if let Err(error) = sync_parent_strict(&ctx.shown(entry)) {
                 outcome
                     .retained
-                    .push(RetainedItem::new(ctx.root.join(&entry.dest), error));
+                    .push(RetainedItem::new(ctx.shown(entry), error));
             }
         }
     }
@@ -2293,8 +2607,8 @@ fn rollback_entry(
     entry: &JournalEntry,
     journal: &mut Journal,
 ) -> std::result::Result<Option<PathBuf>, RetainedItem> {
-    let shown = ctx.root.join(&entry.dest);
-    let paths = entry_paths(ctx.root, entry).map_err(|e| RetainedItem::new(&shown, e))?;
+    let shown = ctx.shown(entry);
+    let paths = entry_paths(ctx, entry).map_err(|e| RetainedItem::new(&shown, e))?;
     let staged = entry
         .staged
         .ok_or_else(|| RetainedItem::new(&paths.dest, "the entry has no staged identity"))?;
@@ -2407,8 +2721,8 @@ fn complete_committed(ctx: &Ctx<'_>, journal: &Journal) -> Cleanup {
         set_aside: Vec::new(),
     };
     for (index, entry) in journal.entries.iter().enumerate() {
-        let shown = ctx.root.join(&entry.dest);
-        let paths = match entry_paths(ctx.root, entry) {
+        let shown = ctx.shown(entry);
+        let paths = match entry_paths(ctx, entry) {
             Ok(paths) => paths,
             Err(error) => {
                 cleanup.note(Err(RetainedItem::new(&shown, error)));
@@ -2418,7 +2732,7 @@ fn complete_committed(ctx: &Ctx<'_>, journal: &Journal) -> Cleanup {
         if let Some(prior) = &entry.prior {
             let attempt = fire(Step::BeforeCleanup(index), &paths.backup)
                 .map_err(|e| RetainedItem::new(&paths.backup, e))
-                .and_then(|()| finish_leftover(ctx, &paths.backup, prior))
+                .and_then(|()| finish_leftover(ctx, &paths.backup, prior, entry.root))
                 .and_then(|moved| {
                     fire(Step::AfterCleanup(index), &paths.backup)
                         .map_err(|e| RetainedItem::new(&paths.backup, e))
@@ -2427,7 +2741,7 @@ fn complete_committed(ctx: &Ctx<'_>, journal: &Journal) -> Cleanup {
             cleanup.note(attempt);
         }
         if let Some(staged) = &entry.staged {
-            cleanup.note(finish_leftover(ctx, &paths.stage, staged));
+            cleanup.note(finish_leftover(ctx, &paths.stage, staged, entry.root));
         }
     }
     if cleanup.blocking.is_empty() {
@@ -2446,16 +2760,26 @@ fn finish_leftover(
     ctx: &Ctx<'_>,
     path: &Path,
     expect: &Ident,
+    root: usize,
 ) -> std::result::Result<Option<RetainedItem>, RetainedItem> {
     match probe(path) {
-        Ok(Probe::File(now)) if now != *expect => set_aside(ctx, path).map(Some),
-        Ok(Probe::Missing) => resume_set_aside(ctx, path),
+        Ok(Probe::File(now)) if now != *expect => set_aside(ctx, path, root).map(Some),
+        Ok(Probe::Missing) => resume_set_aside(ctx, path, root),
         _ => remove_matching(ctx, path, expect).map(|()| None),
     }
 }
 
 /// `.rktxn/retained/<id>` and the name `path` takes in it.
-fn set_aside_target(ctx: &Ctx<'_>, path: &Path) -> Option<(PathBuf, PathBuf)> {
+///
+/// A leftover of another root than the coordinating one is not moved to the coordinating root's
+/// directory (that may be another volume, and names from different roots could collide): it keeps
+/// its directory and takes the name `<name>.retained`.
+fn set_aside_target(ctx: &Ctx<'_>, path: &Path, root: usize) -> Option<(PathBuf, PathBuf)> {
+    if root != 0 {
+        let name = path.file_name()?.to_string_lossy().into_owned();
+        let target = path.with_file_name(format!("{name}.retained"));
+        return Some((path.parent()?.to_path_buf(), target));
+    }
     let (id, name) = (ctx.txn_dir.file_name()?, path.file_name()?);
     let dir = ctx.root.join(AREA).join(RETAINED_DIR).join(id);
     let target = dir.join(name);
@@ -2478,8 +2802,12 @@ fn set_aside_item(path: &Path, target: &Path, how: &str) -> RetainedItem {
 /// directory it entered have both been flushed; until then it is a blocking failure and the
 /// journal stays, so recovery repeats the flushes. Fails (and the item is retained where it was)
 /// when the rename cannot be made, for instance across volumes.
-fn set_aside(ctx: &Ctx<'_>, path: &Path) -> std::result::Result<RetainedItem, RetainedItem> {
-    let Some((dir, target)) = set_aside_target(ctx, path) else {
+fn set_aside(
+    ctx: &Ctx<'_>,
+    path: &Path,
+    root: usize,
+) -> std::result::Result<RetainedItem, RetainedItem> {
+    let Some((dir, target)) = set_aside_target(ctx, path, root) else {
         return Err(RetainedItem::new(path, "it has no name to set aside under"));
     };
     create_dir_all_durable(&dir, true).map_err(|e| RetainedItem::new(path, e))?;
@@ -2492,8 +2820,9 @@ fn set_aside(ctx: &Ctx<'_>, path: &Path) -> std::result::Result<RetainedItem, Re
 fn resume_set_aside(
     ctx: &Ctx<'_>,
     path: &Path,
+    root: usize,
 ) -> std::result::Result<Option<RetainedItem>, RetainedItem> {
-    let Some((_, target)) = set_aside_target(ctx, path) else {
+    let Some((_, target)) = set_aside_target(ctx, path, root) else {
         return Ok(None);
     };
     let looked = fire(Step::SetAsideProbe, &target)
@@ -2579,7 +2908,7 @@ fn discard(ctx: &Ctx<'_>, journal: &Journal) -> Vec<RetainedItem> {
     let mut retained = Vec::new();
     let full = journal.phase == JournalPhase::Staged;
     for entry in &journal.entries {
-        match entry_paths(ctx.root, entry) {
+        match entry_paths(ctx, entry) {
             Ok(paths) => {
                 if let Err(item) =
                     remove_claimed(&paths.stage, entry.staged.as_ref(), full, ctx.options.retry)
@@ -2587,7 +2916,7 @@ fn discard(ctx: &Ctx<'_>, journal: &Journal) -> Vec<RetainedItem> {
                     retained.push(item);
                 }
             }
-            Err(error) => retained.push(RetainedItem::new(ctx.root.join(&entry.dest), error)),
+            Err(error) => retained.push(RetainedItem::new(ctx.shown(entry), error)),
         }
     }
     if retained.is_empty() {
@@ -2754,6 +3083,7 @@ pub fn recover_transactions_with(
         let ctx = Ctx {
             records: std::cell::RefCell::new(Vec::new()),
             root: &root,
+            others: std::cell::RefCell::new(Vec::new()),
             options,
             txn_dir: &txn_dir,
         };
@@ -2774,6 +3104,34 @@ fn retained_outcome(reason: &str, items: Vec<RetainedItem>) -> RecoveryOutcome {
 
 fn present(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok()
+}
+
+/// Find each non-coordinating root of a multi-root journal again and prove it is the directory
+/// that was recorded (same file index and device). The journal that lives in the coordinating
+/// root is the only decision for every root: a root that cannot be reached or whose identity
+/// differs keeps the whole transaction retained, and nothing in any root is touched. A reboot
+/// that renumbers a device is therefore resolved by a person, as for the coordinating root.
+fn resolve_other_roots(ctx: &Ctx<'_>, journal: &Journal) -> std::result::Result<(), RetainedItem> {
+    let mut resolved = Vec::with_capacity(journal.others.len());
+    for other in &journal.others {
+        let shown = Path::new(&other.path);
+        let root = canonicalize_plain(shown).map_err(|e| {
+            RetainedItem::new(
+                shown,
+                format!("the root cannot be reached ({e}); recover when it is available"),
+            )
+        })?;
+        let key = FileKey::of_path(&root).map_err(|e| RetainedItem::new(&root, e))?;
+        if key != other.key {
+            return Err(RetainedItem::new(
+                &root,
+                "this directory is not the one the journal recorded for the root (its file identity differs)",
+            ));
+        }
+        resolved.push(root);
+    }
+    *ctx.others.borrow_mut() = resolved;
+    Ok(())
 }
 
 fn recover_one(ctx: &Ctx<'_>, name: &str, root_key: FileKey) -> RecoveryOutcome {
@@ -2880,6 +3238,12 @@ fn recover_one(ctx: &Ctx<'_>, name: &str, root_key: FileKey) -> RecoveryOutcome 
                 &journal_path,
                 "the root has the recorded file index but another device number; a renumbering after a restart is not proven, so the transaction is kept for a person to resolve",
             )],
+        );
+    }
+    if let Err(item) = resolve_other_roots(ctx, &journal) {
+        return retained_outcome(
+            "a root of the transaction cannot be resolved to the directory the journal recorded",
+            vec![item],
         );
     }
     if has_marker {

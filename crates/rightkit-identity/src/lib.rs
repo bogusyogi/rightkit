@@ -6,6 +6,7 @@ pub mod bearer;
 pub mod build_info;
 pub mod installation;
 pub mod pairing;
+mod sas;
 mod util;
 
 pub use bearer::{AuthError, BearerRegistry, RateLimiter};
@@ -15,8 +16,9 @@ pub use installation::{
     Startup, StartupClaim,
 };
 pub use pairing::{
-    confirmation_code, transcript_mac, DeviceGrant, Observation, PairingSession, PairingState,
-    PairingTranscript, ReplayStore, ResumeTicket, Role,
+    confirmation_code, label_bytes, pairing_code, pairing_commit, transcript_mac, DeviceGrant,
+    Observation, PairingSession, PairingState, PairingTranscript, ReplayStore, ResumeTicket, Role,
+    CODE_DIGITS, MAX_LABEL_CHARS, NONCE_BYTES,
 };
 
 /// Errors from this crate.

@@ -55,7 +55,8 @@ mod windows_appcontainer;
 mod windows_job;
 
 pub use confine::{
-    confine_command, deny_read_enforced, is_landlock_available, landlock_abi_version,
+    confine_command, deny_exec_enforced, deny_read_enforced, is_landlock_available,
+    landlock_abi_version, system_roots_enforced,
 };
 pub use denial::{classify_denial, DenialCategory, DenialSignature, DenialSource};
 pub use denial_report::{
@@ -70,7 +71,7 @@ pub use error::SandboxError;
 pub use pins::{default_user_dirs, is_interpreter_dir, read_root_is_too_broad, PinHandle};
 pub use policy::{
     ConfinementMode, DenyReadEntry, EnvPolicy, LandlockMode, LoopbackPolicy, NetworkPolicy,
-    SandboxCommand, SandboxPolicy, SeccompMode,
+    SandboxCommand, SandboxPolicy, SeccompMode, SystemRoots, UnixSocketPolicy,
 };
 #[cfg(feature = "pty")]
 pub use pty::{PtyError, PtyLeaseSnapshot, PtySession, PtySize, UnacknowledgedInputDecision};
@@ -82,10 +83,8 @@ pub use spawn::{Sandbox, SandboxOutput, SandboxedChild, DEFAULT_OUTPUT_CAP};
 pub use spawn::{WindowsAuxiliaryIo, WindowsPipeSpawn};
 #[cfg(windows)]
 pub use windows_appcontainer::{
-    appcontainer_profile_exists_for_test, appcontainer_profile_name_for_test,
-    delete_appcontainer_profile_for_test, remove_unused_appcontainer_profiles,
-    resolve_program_str as resolve_program, sweep_stale_appcontainer_ancestor_aces,
-    sweep_stale_appcontainer_ancestor_aces_for_owner, AncestorLeasePolicy,
-    AppContainerAncestorLease, AppContainerProfile, ProfileKept, ProfileSweepReport,
-    UnleasableAncestor, WithGrantError,
+    remove_unused_appcontainer_profiles, resolve_program_str as resolve_program,
+    sweep_stale_appcontainer_ancestor_aces, sweep_stale_appcontainer_ancestor_aces_for_owner,
+    AncestorLeasePolicy, AppContainerAncestorLease, AppContainerProfile, ProfileKept,
+    ProfileSweepReport, UnleasableAncestor, WithGrantError,
 };

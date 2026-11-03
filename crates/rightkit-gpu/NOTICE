@@ -1,0 +1,10 @@
+rightkit-gpu
+Copyright (c) 2026 Orthic Labs, MIT OR Apache-2.0.
+
+This crate adapts code from Ember `crates/gpu` (Orthic Labs fork of LightCraft):
+`backend.rs`, `exit.rs`, `budget.rs` and the generic part of `ctx.rs`.
+
+Upstream attribution
+LightCraft
+Copyright (c) 2026 ArtCraft Team and the LightCraft contributors.
+Licensed under the MIT License or the Apache License, Version 2.0, at your option.

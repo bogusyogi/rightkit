@@ -59,6 +59,20 @@
 //! config.clear_sources.push(ClearSource::jsonl("engine", app_data.join("logs/engine.jsonl")));
 //! ```
 //!
+//! # An app's own log queue (`sink`, `record_filter`, `primary_source_name`)
+//!
+//! An app that already owns one ordered, gated queue over several JSONL files (a
+//! [`rightkit_logs::ValueWriter`]) registers it as [`LogsConfig::sink`]. Then [`LogsRuntime::write`]
+//! hands every checked record to the sink (`append`, or `append_sync` for an `error`, after a
+//! bounded `flush` to keep order), [`LogsRuntime::collect`] flushes the sink before it reads the
+//! files, and [`LogsRuntime::clear`] clears the primary source through `sink.clear()`, which
+//! removes every file the sink owns in queue order. The shell then builds no second writer that
+//! appends to those files. [`LogsConfig::record_filter`] sees each renderer record (as JSON)
+//! before key redaction and may rewrite it or drop it (`None`, counted as `filtered`).
+//! [`LogsConfig::primary_source_name`] names the primary source in the bundle and the clear
+//! report (default `renderer`). The recording gate of the sink is the app's to set on the sink;
+//! [`LogsRuntime::set_recording`] gates the shell's own write path.
+//!
 //! # The settings snapshot
 //!
 //! [`LogsConfig::settings`] is a closure the app registers to describe its non-secret settings.
@@ -76,7 +90,7 @@ use std::time::Duration;
 
 use rightkit_logs::{
     cap_batch, collect_diagnostics, redact_url_text, scrub_text, AsyncWriter, BundleMetadata,
-    CollectionPolicy, DiagnosticsBundle, EventRecord, JsonlStore, Level, LogSource,
+    CollectionPolicy, DiagnosticsBundle, EventRecord, JsonlStore, Level, LogSink, LogSource,
     RedactionPolicy, StoreStatus, DEFAULT_BATCH_CAP, LOGS_DROPPED_EVENT,
 };
 use serde::{Deserialize, Serialize};
@@ -97,8 +111,12 @@ pub const ORDER_FLUSH_TIMEOUT: Duration = Duration::from_millis(250);
 /// collected bundle never carries a path, root, URL, query, free text or command output field.
 pub const SUITE_KEY_FRAGMENTS: [&str; 6] = ["path", "root", "url", "query", "text", "output"];
 
+/// A hook that sees each renderer record before key redaction: it returns the record to keep
+/// (possibly rewritten) or `None` to drop it.
+pub type RecordFilter = Arc<dyn Fn(Value) -> Option<Value> + Send + Sync>;
+
 /// Native configuration of a [`LogsRuntime`].
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct LogsConfig {
     pub app_name: String,
     pub app_version: String,
@@ -126,6 +144,37 @@ pub struct LogsConfig {
     /// The app's non-secret settings for the bundle's `metadata.settings` (see
     /// [`SettingsSnapshot`]). `None` leaves the field `{}`.
     pub settings: Option<SettingsSnapshot>,
+    /// The app's own queue over its log files. `Some`: writes, the flush before a collect and the
+    /// clear go through it instead of the shell's own store and writer (see the module
+    /// documentation). `None`: the shell's store and writer, as before.
+    pub sink: Option<Arc<dyn LogSink>>,
+    /// Applied to every renderer record before key redaction; `None` from it drops the record.
+    pub record_filter: Option<RecordFilter>,
+    /// What the primary log is called in the bundle and in the [`ClearReport`]. Default `renderer`.
+    pub primary_source_name: String,
+}
+
+impl fmt::Debug for LogsConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LogsConfig")
+            .field("app_name", &self.app_name)
+            .field("app_version", &self.app_version)
+            .field("build", &self.build)
+            .field("log_path", &self.log_path)
+            .field("max_file_bytes", &self.max_file_bytes)
+            .field("queue_capacity", &self.queue_capacity)
+            .field("batch_cap", &self.batch_cap)
+            .field("owner_only", &self.owner_only)
+            .field("redaction", &self.redaction)
+            .field("collection", &self.collection)
+            .field("extra_sources", &self.extra_sources)
+            .field("clear_sources", &self.clear_sources)
+            .field("settings", &self.settings)
+            .field("sink", &self.sink.is_some())
+            .field("record_filter", &self.record_filter.is_some())
+            .field("primary_source_name", &self.primary_source_name)
+            .finish()
+    }
 }
 
 /// One log that [`LogsRuntime::clear`] clears besides the renderer log: a name for the report and
@@ -227,6 +276,9 @@ impl LogsConfig {
             extra_sources: Vec::new(),
             clear_sources: Vec::new(),
             settings: None,
+            sink: None,
+            record_filter: None,
+            primary_source_name: "renderer".into(),
         }
     }
 }
@@ -244,6 +296,8 @@ pub struct WriteReport {
     pub invalid: usize,
     /// Serialised larger than [`MAX_EVENT_BYTES`].
     pub oversize: usize,
+    /// Dropped by [`LogsConfig::record_filter`].
+    pub filtered: usize,
     /// Dropped by [`cap_batch`] (the batch also starts with one `logs_dropped` record).
     pub capped: usize,
     /// Queued on the non-blocking writer.
@@ -320,6 +374,9 @@ pub struct LogsRuntime {
     batch_cap: usize,
     clear_sources: Vec<ClearSource>,
     settings: Option<SettingsSnapshot>,
+    sink: Option<Arc<dyn LogSink>>,
+    record_filter: Option<RecordFilter>,
+    primary_name: String,
 }
 
 /// Replace every string leaf with its scrubbed form: free-text identifiers first
@@ -353,15 +410,42 @@ pub struct PreparedBatch {
     pub records: Vec<EventRecord>,
     pub invalid: usize,
     pub oversize: usize,
+    pub filtered: usize,
 }
 
 /// Check, redact and scrub a renderer batch (see the module documentation).
 pub fn prepare_batch(events: Vec<Value>, redaction: &RedactionPolicy) -> PreparedBatch {
+    prepare_batch_filtered(events, redaction, None)
+}
+
+/// [`prepare_batch`] with a [`RecordFilter`] applied to each record before key redaction.
+pub fn prepare_batch_filtered(
+    events: Vec<Value>,
+    redaction: &RedactionPolicy,
+    filter: Option<&RecordFilter>,
+) -> PreparedBatch {
     let mut out = PreparedBatch::default();
     for mut event in events {
         if !event.is_object() {
             out.invalid += 1;
             continue;
+        }
+        if let Some(filter) = filter {
+            match catch_unwind(AssertUnwindSafe(|| filter(event))) {
+                Ok(Some(kept)) => event = kept,
+                Ok(None) => {
+                    out.filtered += 1;
+                    continue;
+                }
+                Err(_) => {
+                    out.invalid += 1;
+                    continue;
+                }
+            }
+            if !event.is_object() {
+                out.invalid += 1;
+                continue;
+            }
         }
         let size = serde_json::to_vec(&event).map_or(usize::MAX, |bytes| bytes.len());
         if size > MAX_EVENT_BYTES {
@@ -394,7 +478,12 @@ impl LogsRuntime {
         }
         let store = Arc::new(store);
         let writer = AsyncWriter::spawn(Arc::clone(&store), config.queue_capacity)?;
-        let mut sources = vec![LogSource::new("renderer", config.log_path)];
+        let primary_name = if config.primary_source_name.is_empty() {
+            "renderer".to_owned()
+        } else {
+            config.primary_source_name
+        };
+        let mut sources = vec![LogSource::new(primary_name.clone(), config.log_path)];
         sources.extend(config.extra_sources);
         let mut policy = config.collection;
         policy.redaction = config.redaction.clone();
@@ -414,6 +503,9 @@ impl LogsRuntime {
             batch_cap: config.batch_cap.max(1),
             clear_sources: config.clear_sources,
             settings: config.settings,
+            sink: config.sink,
+            record_filter: config.record_filter,
+            primary_name,
         })
     }
 
@@ -459,9 +551,10 @@ impl LogsRuntime {
             report.muted = report.received;
             return report;
         }
-        let prepared = prepare_batch(events, &self.redaction);
+        let prepared = prepare_batch_filtered(events, &self.redaction, self.record_filter.as_ref());
         report.invalid = prepared.invalid;
         report.oversize = prepared.oversize;
+        report.filtered = prepared.filtered;
         let before = prepared.records.len();
         let batch = cap_batch(prepared.records, self.batch_cap);
         // `cap_batch` counts its marker toward the cap; it exists only when it dropped records.
@@ -472,6 +565,28 @@ impl LogsRuntime {
         };
         let mut unflushed = false;
         for record in batch {
+            if let Some(sink) = &self.sink {
+                let Ok(value) = serde_json::to_value(&record) else {
+                    report.invalid += 1;
+                    continue;
+                };
+                if record.level == Level::Error {
+                    if unflushed {
+                        sink.flush(ORDER_FLUSH_TIMEOUT);
+                        unflushed = false;
+                    }
+                    match sink.append_sync(&value) {
+                        Ok(()) => report.errors_appended += 1,
+                        Err(_) => report.errors_failed += 1,
+                    }
+                } else if sink.append(value) {
+                    report.queued += 1;
+                    unflushed = true;
+                } else {
+                    report.queue_dropped += 1;
+                }
+                continue;
+            }
             if record.level == Level::Error {
                 if unflushed {
                     // Arrival order across the two paths. Bounded; a miss only reorders.
@@ -504,6 +619,10 @@ impl LogsRuntime {
         if let Some(settings) = &self.settings {
             metadata.settings = self.settings_value(settings);
         }
+        if let Some(sink) = &self.sink {
+            // The sink's files are read from disk: let everything queued so far reach them first.
+            sink.flush(ORDER_FLUSH_TIMEOUT);
+        }
         let mut bundle = collect_diagnostics(&self.sources, metadata, &policy);
         sanitize_strings(&mut bundle.metadata.settings);
         for source in &mut bundle.sources {
@@ -522,11 +641,15 @@ impl LogsRuntime {
         value
     }
 
-    /// Clear the renderer log (`renderer`) and then every [`LogsConfig::clear_sources`] entry, in
+    /// Clear the primary log (`renderer` unless [`LogsConfig::primary_source_name`] says otherwise; through
+    /// the [`LogsConfig::sink`] when there is one) and then every [`LogsConfig::clear_sources`] entry, in
     /// order. A source that fails, or panics, is reported and the rest still run.
     pub fn clear(&self) -> ClearReport {
         let mut report = ClearReport::default();
-        attempt_clear(&mut report, "renderer", || self.store.clear());
+        match &self.sink {
+            Some(sink) => attempt_clear(&mut report, &self.primary_name, || sink.clear()),
+            None => attempt_clear(&mut report, &self.primary_name, || self.store.clear()),
+        }
         for source in &self.clear_sources {
             attempt_clear(&mut report, &source.name, || (source.clear)());
         }

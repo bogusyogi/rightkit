@@ -11,6 +11,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -19,6 +20,13 @@ use crate::event::{
     AgentEvent, ControlOutcome, ControlResponse, McpServerStatus, ParseError, PermissionDenial,
     RateLimitInfo, ResultSummary, SessionInit, UnknownPolicy, UsageCounts,
 };
+
+/// Environment name carrying a subscription OAuth token for the Claude CLI.
+pub const OAUTH_TOKEN_VAR: &str = "CLAUDE_CODE_OAUTH_TOKEN";
+
+/// Environment name carrying a Claude API key. Built with `concat!`, like the BYOK list in
+/// `session`, so the source never holds it as one literal.
+pub const API_KEY_VAR: &str = concat!("ANTHROPIC", "_API_KEY");
 
 /// Tool names Claude Code uses for a call that spawns a subagent.
 const SUBAGENT_TOOLS: &[&str] = &["Task", "Agent"];
@@ -135,6 +143,57 @@ pub struct ClaudeExtras {
     pub max_turns: Option<u32>,
     /// `--fallback-model <id>`. Must differ from `model`.
     pub fallback_model: Option<String>,
+    /// `--mcp-config <value>`: a JSON string or a path. Must not be empty or start with `-`.
+    pub mcp_config: Option<String>,
+    /// `--strict-mcp-config`: use only the servers named by `mcp_config`, ignoring the user's
+    /// own MCP configuration.
+    pub strict_mcp_config: bool,
+    /// The account this launch runs on. Applied to the child environment by [`launch_env`]
+    /// (`SessionConfig` applies it for Claude sessions).
+    pub account: Option<ClaudeAccount>,
+}
+
+/// The account a Claude launch runs on. Each variant sets one credential variable and removes
+/// the other, so a stray key in the host environment cannot silently switch the account.
+#[derive(Clone, PartialEq, Eq)]
+pub enum ClaudeAccount {
+    /// Subscription login: sets `CLAUDE_CODE_OAUTH_TOKEN`, removes the API key.
+    OAuthToken(String),
+    /// API key billing: sets the API key variable, removes `CLAUDE_CODE_OAUTH_TOKEN`.
+    ApiKey(String),
+}
+
+impl std::fmt::Debug for ClaudeAccount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The credential never reaches a log line.
+        match self {
+            ClaudeAccount::OAuthToken(_) => f.write_str("ClaudeAccount::OAuthToken(<redacted>)"),
+            ClaudeAccount::ApiKey(_) => f.write_str("ClaudeAccount::ApiKey(<redacted>)"),
+        }
+    }
+}
+
+/// Environment edits for one Claude launch: variables to set and variables to remove.
+/// Holds credentials, so it has no `Debug` implementation.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct ClaudeLaunchEnv {
+    pub set: Vec<(String, String)>,
+    pub remove: Vec<String>,
+}
+
+/// The environment edits for `account`. Empty credentials are refused by
+/// [`build_args_with`], so call that first.
+pub fn launch_env(account: &ClaudeAccount) -> ClaudeLaunchEnv {
+    match account {
+        ClaudeAccount::OAuthToken(token) => ClaudeLaunchEnv {
+            set: vec![(OAUTH_TOKEN_VAR.to_string(), token.clone())],
+            remove: vec![API_KEY_VAR.to_string()],
+        },
+        ClaudeAccount::ApiKey(key) => ClaudeLaunchEnv {
+            set: vec![(API_KEY_VAR.to_string(), key.clone())],
+            remove: vec![OAUTH_TOKEN_VAR.to_string()],
+        },
+    }
 }
 
 /// Flag and value that make Claude Code ask the host (the stdio control channel, not an MCP
@@ -194,6 +253,21 @@ pub fn build_args_with(
             ));
         }
     }
+    if let Some(config) = &extras.mcp_config {
+        if config.trim().is_empty() || config.starts_with('-') {
+            return Err(
+                "mcp_config must be a JSON string or a path and must not start with '-'".into(),
+            );
+        }
+    }
+    if let Some(account) = &extras.account {
+        let credential = match account {
+            ClaudeAccount::OAuthToken(value) | ClaudeAccount::ApiKey(value) => value,
+        };
+        if credential.trim().is_empty() {
+            return Err("account credential is empty".into());
+        }
+    }
 
     let mut args: Vec<String> = [
         "--print",
@@ -232,6 +306,12 @@ pub fn build_args_with(
     }
     if extras.no_chrome {
         args.push("--no-chrome".into());
+    }
+    if let Some(config) = &extras.mcp_config {
+        args.extend(["--mcp-config".to_string(), config.clone()]);
+    }
+    if extras.strict_mcp_config {
+        args.push("--strict-mcp-config".into());
     }
     if !options.allowed_tools.is_empty() {
         args.push("--allowedTools".into());
@@ -298,27 +378,22 @@ pub fn check_permission_mode(mode: &str) -> Result<(), String> {
     }
 }
 
-/// One stdin frame carrying a user turn, newline-terminated.
+/// One stdin frame carrying a user turn, without a line break. The writer adds the break.
 pub fn user_turn_frame(text: &str) -> String {
-    let mut line =
-        json!({"type": "user", "message": {"role": "user", "content": text}}).to_string();
-    line.push('\n');
-    line
+    json!({"type": "user", "message": {"role": "user", "content": text}}).to_string()
 }
 
-/// One stdin frame asking Claude to interrupt the running turn, newline-terminated.
+/// One stdin frame asking Claude to interrupt the running turn, without a line break.
 pub fn interrupt_frame(request_id: &str) -> String {
-    let mut line = json!({
+    json!({
         "type": "control_request",
         "request_id": request_id,
         "request": {"subtype": "interrupt"}
     })
-    .to_string();
-    line.push('\n');
-    line
+    .to_string()
 }
 
-/// One stdin frame answering a `can_use_tool` request with allow, newline-terminated.
+/// One stdin frame answering a `can_use_tool` request with allow, without a line break.
 /// `updated_input` is the tool input to run with; echo the request's input to approve as-is.
 pub fn permission_allow_frame(request_id: &str, updated_input: &Value) -> String {
     control_success_frame(
@@ -327,7 +402,7 @@ pub fn permission_allow_frame(request_id: &str, updated_input: &Value) -> String
     )
 }
 
-/// One stdin frame answering a `can_use_tool` request with deny, newline-terminated.
+/// One stdin frame answering a `can_use_tool` request with deny, without a line break.
 /// `interrupt` also stops the running turn.
 pub fn permission_deny_frame(request_id: &str, message: &str, interrupt: bool) -> String {
     control_success_frame(
@@ -337,24 +412,20 @@ pub fn permission_deny_frame(request_id: &str, message: &str, interrupt: bool) -
 }
 
 fn control_success_frame(request_id: &str, response: Value) -> String {
-    let mut line = json!({
+    json!({
         "type": "control_response",
         "response": {"subtype": "success", "request_id": request_id, "response": response}
     })
-    .to_string();
-    line.push('\n');
-    line
+    .to_string()
 }
 
 fn control_request_frame(request_id: &str, request: Value) -> String {
-    let mut line = json!({
+    json!({
         "type": "control_request",
         "request_id": request_id,
         "request": request
     })
-    .to_string();
-    line.push('\n');
-    line
+    .to_string()
 }
 
 /// Process-wide counter behind [`next_request_id`].
@@ -362,10 +433,25 @@ static REQUEST_IDS: AtomicU64 = AtomicU64::new(1);
 
 /// A control request id unique within this process: `rk-<kind>-<n>`.
 pub fn next_request_id(kind: &str) -> String {
-    format!("rk-{kind}-{}", REQUEST_IDS.fetch_add(1, Ordering::Relaxed))
+    next_request_id_with("rk", kind)
 }
 
-/// `initialize` control request, newline-terminated. `hooks` is passed through unchanged
+/// A control request id unique within this process: `<prefix>-<kind>-<n>`. The prefix lets a
+/// host keep its own id shape (for example `coderight`). `prefix` must be non-empty and use
+/// only ASCII letters, digits, `_` and `-`; a bad prefix falls back to `rk`.
+pub fn next_request_id_with(prefix: &str, kind: &str) -> String {
+    let shaped = !prefix.is_empty()
+        && prefix
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    let prefix = if shaped { prefix } else { "rk" };
+    format!(
+        "{prefix}-{kind}-{}",
+        REQUEST_IDS.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
+/// `initialize` control request, without a line break. `hooks` is passed through unchanged
 /// when given. Unverified: the wire body follows the issue's description of the control
 /// channel, not a recorded session.
 pub fn initialize_frame(request_id: &str, hooks: Option<&Value>) -> String {
@@ -376,7 +462,7 @@ pub fn initialize_frame(request_id: &str, hooks: Option<&Value>) -> String {
     control_request_frame(request_id, request)
 }
 
-/// `set_model` control request, newline-terminated. `None` selects the default model.
+/// `set_model` control request, without a line break. `None` selects the default model.
 /// Unverified: `null` as the default is an assumption, not a recorded reply.
 pub fn set_model_frame(request_id: &str, model: Option<&str>) -> Result<String, String> {
     if let Some(model) = model {
@@ -388,7 +474,7 @@ pub fn set_model_frame(request_id: &str, model: Option<&str>) -> Result<String, 
     ))
 }
 
-/// `set_permission_mode` control request, newline-terminated. `bypassPermissions` is refused.
+/// `set_permission_mode` control request, without a line break. `bypassPermissions` is refused.
 /// Unverified: the subtype and field names follow the issue, not a recorded session.
 pub fn set_permission_mode_frame(request_id: &str, mode: &str) -> Result<String, String> {
     check_permission_mode(mode)?;
@@ -399,33 +485,59 @@ pub fn set_permission_mode_frame(request_id: &str, mode: &str) -> Result<String,
 }
 
 /// Parse a `control_response` envelope into its request id and outcome. `None` when the
-/// envelope has no request id or an unknown subtype. Unverified: the error arm reads an
-/// `error` string, as the issue describes.
+/// envelope has no request id or an unknown subtype; [`try_parse_control_response`] says why.
 pub fn parse_control_response(value: &Value) -> Option<ControlResponse> {
-    let response = value.get("response")?;
-    let request_id = str_field(response, "request_id")?;
-    let outcome = match response.get("subtype").and_then(Value::as_str)? {
+    try_parse_control_response(value).ok()
+}
+
+/// Parse a `control_response` envelope, or say why it is not usable. A host that treats a
+/// malformed answer as a protocol failure uses this form: a missing `response` object, a
+/// missing or empty `request_id`, and an unknown or missing `subtype` each yield a
+/// [`ParseError`]. The error arm reads an `error` string, as the issue describes.
+pub fn try_parse_control_response(value: &Value) -> Result<ControlResponse, ParseError> {
+    let response = value
+        .get("response")
+        .ok_or_else(|| ParseError("control_response: missing response".into()))?;
+    let request_id = str_field(response, "request_id")
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| ParseError("control_response: missing request_id".into()))?;
+    let subtype = response
+        .get("subtype")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ParseError("control_response: missing subtype".into()))?;
+    let outcome = match subtype {
         "success" => ControlOutcome::Success {
             payload: response.get("response").cloned().unwrap_or(Value::Null),
         },
         "error" => ControlOutcome::Error {
             message: str_field(response, "error").unwrap_or_default(),
         },
-        _ => return None,
+        other => {
+            return Err(ParseError(format!(
+                "control_response: unknown subtype {other}"
+            )))
+        }
     };
-    Some(ControlResponse {
+    Ok(ControlResponse {
         request_id,
         outcome,
     })
 }
 
-/// Account identity from the `initialize` answer. Unverified key names: `accountInfo` with
-/// `email`, `organization` (or `org`) and `plan`.
+/// Account identity from the `initialize` answer. Read from `account` (the Agent SDK shape)
+/// or `accountInfo` (the earlier shape), whichever is present. Unverified key names: `email`,
+/// `organization` (or `org`), `plan`, `subscriptionType`, `tokenSource` and `apiKeySource`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ClaudeAccountIdentity {
     pub email: Option<String>,
     pub organization: Option<String>,
     pub plan: Option<String>,
+    /// Subscription tier the account reports (`subscriptionType`), for example `max`.
+    pub subscription_type: Option<String>,
+    /// Where the credential came from, as the CLI names it (`tokenSource`).
+    pub token_source: Option<String>,
+    /// Where the API key came from, as the CLI names it (`apiKeySource`).
+    pub api_key_source: Option<String>,
 }
 
 /// The typed `initialize` answer. Unverified: `models` is read as strings or as objects
@@ -439,11 +551,15 @@ pub struct InitializeResponse {
 /// Parse the success payload of an `initialize` control response.
 pub fn parse_initialize_response(payload: &Value) -> InitializeResponse {
     let account = payload
-        .get("accountInfo")
+        .get("account")
+        .or_else(|| payload.get("accountInfo"))
         .map(|info| ClaudeAccountIdentity {
             email: str_field(info, "email"),
             organization: str_field(info, "organization").or_else(|| str_field(info, "org")),
             plan: str_field(info, "plan"),
+            subscription_type: str_field(info, "subscriptionType"),
+            token_source: str_field(info, "tokenSource"),
+            api_key_source: str_field(info, "apiKeySource"),
         });
     let models: Vec<String> = payload
         .get("models")
@@ -463,10 +579,12 @@ pub fn parse_initialize_response(payload: &Value) -> InitializeResponse {
 }
 
 /// The typed interrupt answer. `queued_user_messages` counts the messages the CLI reports as
-/// queued when the turn was interrupted. Unverified key name.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// queued when the turn was interrupted; `pending` holds those messages as sent, so a host can
+/// re-queue them. Unverified key name (`queuedUserMessages`).
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct InterruptReceipt {
     pub queued_user_messages: u64,
+    pub pending: Vec<Value>,
 }
 
 /// Parse an interrupt answer. `None` unless the session advertised
@@ -481,12 +599,14 @@ pub fn parse_interrupt_receipt(
     {
         return None;
     }
-    let queued = payload
+    let pending: Vec<Value> = payload
         .get("queuedUserMessages")
         .and_then(Value::as_array)
-        .map_or(0, |items| items.len() as u64);
+        .cloned()
+        .unwrap_or_default();
     Some(InterruptReceipt {
-        queued_user_messages: queued,
+        queued_user_messages: pending.len() as u64,
+        pending,
     })
 }
 
@@ -548,7 +668,7 @@ impl PermissionDecision {
         }
     }
 
-    /// The newline-terminated control response that carries this decision.
+    /// The control response that carries this decision, without a line break.
     pub fn frame(&self, request_id: &str) -> String {
         match self {
             PermissionDecision::Allow { updated_input } => {
@@ -586,6 +706,25 @@ pub fn answer_can_use_tool(
     match answer.recv_timeout(timeout) {
         Ok(answer) => PermissionDecision::from_answer(answer, &request.input),
         Err(_) => no_answer(),
+    }
+}
+
+/// Async form of [`answer_can_use_tool`] for hosts on a tokio runtime. The host creates a
+/// `tokio::sync::oneshot` channel per request and sends the answer on it. The wait is bounded
+/// by `timeout`; no receiver, a timeout, or a dropped sender yields the same fail-closed denial
+/// (`NO_ANSWER_MESSAGE`). Nothing is spawned here.
+#[cfg(any(feature = "driver_host", feature = "agent_host"))]
+pub async fn answer_can_use_tool_async(
+    request: &CanUseTool,
+    answer: Option<tokio::sync::oneshot::Receiver<PermissionAnswer>>,
+    timeout: Duration,
+) -> PermissionDecision {
+    let Some(answer) = answer else {
+        return no_answer();
+    };
+    match tokio::time::timeout(timeout, answer).await {
+        Ok(Ok(answer)) => PermissionDecision::from_answer(answer, &request.input),
+        Ok(Err(_)) | Err(_) => no_answer(),
     }
 }
 
@@ -636,6 +775,17 @@ impl StreamParser {
         if self.policy == UnknownPolicy::FailClosed {
             if let Some(method) = unknown_required_method(&value, &message_type) {
                 return Err(ParseError::unknown_required(&method));
+            }
+            if message_type == "system" {
+                // A system message without its identity is refused, never defaulted.
+                let subtype = value.get("subtype").and_then(Value::as_str);
+                let Some(subtype) = subtype.filter(|s| !s.is_empty()) else {
+                    return Err(ParseError("system message missing subtype".into()));
+                };
+                let has_session = str_field(&value, "session_id").is_some_and(|s| !s.is_empty());
+                if subtype == "init" && !has_session {
+                    return Err(ParseError("system init missing session_id".into()));
+                }
             }
         }
         let parent = parent_tool_use_id(&value);
@@ -786,10 +936,11 @@ fn unknown_required_method(value: &Value, message_type: &str) -> Option<String> 
         && REQUIRED_SUBTYPE_WORDS
             .iter()
             .any(|word| subtype.contains(word));
+    // A key counts only when it carries a value: `"tool_use_id": null` is no required payload.
     let carries_required = value.as_object().is_some_and(|object| {
         REQUIRED_PAYLOAD_KEYS
             .iter()
-            .any(|key| object.contains_key(*key))
+            .any(|key| object.get(*key).is_some_and(|present| !present.is_null()))
     });
     if named_required || carries_required {
         Some(format!("system:{subtype}"))
@@ -836,17 +987,17 @@ fn control_request(value: &Value, events: &mut Vec<AgentEvent>) {
         .and_then(Value::as_str)
         == Some("can_use_tool")
     {
+        let text = |key: &str| request.and_then(|r| str_field(r, key));
         events.push(AgentEvent::ApprovalRequested {
             id: str_field(value, "request_id").unwrap_or_default(),
-            tool: request
-                .and_then(|r| r.get("tool_name"))
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
+            tool: text("tool_name").unwrap_or_default(),
             input: request
                 .and_then(|r| r.get("input"))
                 .cloned()
                 .unwrap_or(Value::Null),
+            tool_use_id: text("tool_use_id"),
+            agent_id: text("agent_id"),
+            blocked_path: text("blocked_path"),
         });
     }
 }

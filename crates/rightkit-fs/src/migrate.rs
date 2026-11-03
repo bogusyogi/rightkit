@@ -23,7 +23,11 @@
 //!   `to` is populated, so a repeat is refused and the caller removes the leftover `from` itself.
 //!
 //! Limits: a directory that another process holds open (a Windows working directory inside it, an
-//! indexer) can refuse the rename or the final removal; the error is returned. Symlinks inside the
+//! indexer) can refuse the rename or the final removal; the error is returned. On Windows an empty
+//! `to` is replaced in place by the rename (its ACL and timestamps are those of the moved tree);
+//! only a platform that refuses that falls back to removing the empty directory first. A read-only
+//! file in the copy is flushed with its read-only attribute cleared for the flush and restored.
+//! Symlinks inside the
 //! tree are kept as symlinks on the copy path. On the copy path every copied file is flushed
 //! (`sync_all`) and, on Unix, every directory of the copy is synced before the publishing rename;
 //! `from` is removed only after that rename succeeded and the parent directory of `to` was synced
@@ -215,15 +219,39 @@ fn sync_file(path: &Path) -> io::Result<()> {
     // Windows needs write access for `FlushFileBuffers`; nothing is written.
     match fs::OpenOptions::new().read(true).write(true).open(path) {
         Ok(file) => file.sync_all(),
-        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            // A read-only file: flush through a read handle where the platform allows it.
-            match fs::File::open(path)?.sync_all() {
-                Err(e) if cfg!(windows) && e.kind() == io::ErrorKind::PermissionDenied => Ok(()),
-                other => other,
-            }
-        }
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => sync_read_only(path, e),
         Err(e) => Err(e),
     }
+}
+
+/// A file the write open refused. Unix flushes through a read handle.
+#[cfg(not(windows))]
+fn sync_read_only(path: &Path, _refused: io::Error) -> io::Result<()> {
+    fs::File::open(path)?.sync_all()
+}
+
+/// Windows cannot flush through a read handle, and a read-only file refuses the write open. When
+/// the refusal is the read-only attribute, clear it for the flush and put it back (also when the
+/// flush fails), so the copy is made durable instead of silently skipped. Any other refusal (an
+/// ACL) is the original error.
+#[cfg(windows)]
+fn sync_read_only(path: &Path, refused: io::Error) -> io::Result<()> {
+    let mut permissions = fs::metadata(path)?.permissions();
+    if !permissions.readonly() {
+        return Err(refused);
+    }
+    permissions.set_readonly(false);
+    fs::set_permissions(path, permissions)?;
+    let flushed = fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .and_then(|file| file.sync_all());
+    let restored = fs::metadata(path).and_then(|meta| {
+        let mut back = meta.permissions();
+        back.set_readonly(true);
+        fs::set_permissions(path, back)
+    });
+    flushed.and(restored)
 }
 
 #[cfg(unix)]
@@ -262,20 +290,31 @@ fn rename_into_place(src: &Path, to: &Path, _existing_empty: bool) -> io::Result
     fs::rename(src, to)
 }
 
-/// Windows: the empty directory is removed right before the rename and recreated if it fails, so
-/// the caller's empty `to` is never lost.
+/// Windows: the rename is tried first with `to` untouched, because current `std` renames a
+/// directory over an empty one in place (keeping the destination's ACL and timestamps), and a
+/// cross-volume refusal then leaves the caller's empty `to` exactly as it was. Only when the
+/// platform refuses to replace the empty directory (not a volume crossing, not a populated
+/// destination) is the empty directory removed right before a second rename and recreated if that
+/// fails; that path loses the empty directory's own ACL and timestamps.
 #[cfg(windows)]
 fn rename_into_place(src: &Path, to: &Path, existing_empty: bool) -> io::Result<()> {
-    if existing_empty {
-        // `remove_dir` fails on a directory that became non-empty, so nothing is lost.
-        fs::remove_dir(to)?;
-        let result = fs::rename(src, to);
-        if result.is_err() {
-            let _ = fs::create_dir(to);
+    let first = fs::rename(src, to);
+    if !existing_empty {
+        return first;
+    }
+    match first {
+        Ok(()) => Ok(()),
+        Err(e) if is_cross_device(&e) => Err(e),
+        Err(e) if !(is_occupied(&e) || e.kind() == io::ErrorKind::PermissionDenied) => Err(e),
+        Err(_) => {
+            // `remove_dir` fails on a directory that became non-empty, so nothing is lost.
+            fs::remove_dir(to)?;
+            let result = fs::rename(src, to);
+            if result.is_err() {
+                let _ = fs::create_dir(to);
+            }
+            result
         }
-        result
-    } else {
-        fs::rename(src, to)
     }
 }
 

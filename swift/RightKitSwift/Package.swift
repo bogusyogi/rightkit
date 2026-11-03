@@ -20,6 +20,7 @@ let package = Package(
         .library(name: "RightKitSpeech", targets: ["RightKitSpeech"]),
         .library(name: "RightKitIntents", targets: ["RightKitIntents"]),
         .library(name: "RightKitAppleCredentials", targets: ["RightKitAppleCredentials"]),
+        .library(name: "RightKitCredentialProvider", targets: ["RightKitCredentialProvider"]),
         .library(name: "RightKitOverlay", targets: ["RightKitOverlay"]),
         .library(name: "RightKitWatch", targets: ["RightKitWatch"]),
         .library(name: "RightKitUI", targets: ["RightKitUI"]),
@@ -41,6 +42,11 @@ let package = Package(
         .library(name: "RightKitEngine", targets: ["RightKitEngine"]),
         .library(name: "RightKitHub", targets: ["RightKitHub"]),
         .library(name: "RightKitHubQA", targets: ["RightKitHubQA"]),
+        .library(name: "RightKitSend", targets: ["RightKitSend"]),
+        .library(name: "RightKitJobQueue", targets: ["RightKitJobQueue"]),
+        .library(name: "RightKitCLIProtocol", targets: ["RightKitCLIProtocol"]),
+        .library(name: "RightKitURLPolicy", targets: ["RightKitURLPolicy"]),
+        .library(name: "RightKitDaemonClient", targets: ["RightKitDaemonClient"]),
         // macOS CloudKit helper for rightkit-sync (rightkit#1302). Apps build it with
         // `swift build --product rightkit-cloudkit-helper`; the body is compiled on macOS only.
         .executable(name: "rightkit-cloudkit-helper", targets: ["rightkit-cloudkit-helper"]),
@@ -85,6 +91,8 @@ let package = Package(
         .target(name: "RightKitIntents"),
         .testTarget(name: "RightKitIntentsTests", dependencies: ["RightKitIntents"]),
         .target(name: "RightKitAppleCredentials"),
+        // Extension lifecycle and bounded bridge for an ASCredentialProviderViewController host (rightkit#968). No test target: end-to-end on a device only.
+        .target(name: "RightKitCredentialProvider"),
         .testTarget(name: "RightKitAppleCredentialsTests", dependencies: ["RightKitAppleCredentials"]),
         .target(name: "RightKitOverlay"),
         .testTarget(name: "RightKitOverlayTests", dependencies: ["RightKitOverlay"]),
@@ -132,6 +140,16 @@ let package = Package(
         .testTarget(name: "RightKitHubTests", dependencies: ["RightKitHub", "RightKitHubQA"]),
         // Line-JSON `rightkit-sync-helper/1` CloudKit helper over RightKitCloudSync (macOS only; empty elsewhere).
         .executableTarget(name: "rightkit-cloudkit-helper", dependencies: ["RightKitCloudSync"]),
-        .testTarget(name: "RightKitCloudKitHelperTests", dependencies: ["rightkit-cloudkit-helper"]),
+        // Bonjour discovery and certificate-pinned TLS for peer-to-peer send (rightkit#762).
+        .target(name: "RightKitSend"),
+        // Durable FIFO job queue on one atomically written file (rightkit#762).
+        .target(name: "RightKitJobQueue"),
+        // Line-JSON framing and request/response envelope for the CLI helper protocol (rightkit#762).
+        .target(name: "RightKitCLIProtocol"),
+        // Outbound URL policy against server-side request forgery (rightkit#762).
+        .target(name: "RightKitURLPolicy"),
+        // Client halves of rightkit-daemon: cross-process wake and Darwin notify observer (rightkit#404), SSE parser
+        // and Last-Event-ID replay stream (rightkit#1120). Foundation/Darwin only.
+        .target(name: "RightKitDaemonClient"),
     ],
 )

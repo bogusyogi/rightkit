@@ -108,3 +108,17 @@ pub fn landlock_abi_version() -> Option<u32> {
 pub const fn deny_read_enforced() -> bool {
     cfg!(target_os = "macos")
 }
+
+/// Whether [`SandboxPolicy::system_roots()`] narrows the implicit system roots on this platform:
+/// `true` on Linux (Landlock) only. Elsewhere the setting is ignored, so check this before
+/// relying on it for a boundary.
+pub const fn system_roots_enforced() -> bool {
+    cfg!(target_os = "linux")
+}
+
+/// Whether [`SandboxPolicy::deny_exec_path()`] is enforced here: `true` on macOS (Seatbelt deny)
+/// and Linux (by the absence of an exec grant; a deny inside a granted exec root is refused, not
+/// ignored). `false` on Windows, where a policy with any exec deny is refused.
+pub const fn deny_exec_enforced() -> bool {
+    cfg!(any(target_os = "macos", target_os = "linux"))
+}

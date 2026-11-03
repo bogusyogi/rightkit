@@ -12,11 +12,15 @@
 //! `tests/fixtures/codex/schema-0.161.0.json` pins the method sets this client was written
 //! against; a drift test compares it to [`KNOWN_NOTIFICATIONS`] and the other lists.
 
+use std::collections::BTreeMap;
 use std::io::{BufRead, Write};
 
 use serde_json::{json, Value};
 
-use crate::event::{AgentEvent, ParseError, RateLimitInfo, UnknownPolicy, UsageCounts};
+use crate::event::{
+    AgentEvent, McpStartup, ParseError, PlanStep, RateLimitInfo, RateLimitWindow, RateLimitWindows,
+    ResultSummary, UnknownPolicy, UsageCounts,
+};
 
 /// Notification families whose unknown members carry execution truth. Under
 /// [`UnknownPolicy::FailClosed`] an unknown method in one of these is refused.
@@ -47,12 +51,16 @@ pub const KNOWN_NOTIFICATIONS: &[&str] = &[
     "thread/started",
     "turn/started",
     "turn/completed",
+    "turn/failed",
+    "turn/plan/updated",
     "item/started",
     "item/completed",
     "item/agentMessage/delta",
     "thread/tokenUsage/updated",
     "thread/compacted",
     "serverRequest/resolved",
+    "account/rateLimits/updated",
+    "mcpServer/startupStatus/updated",
 ];
 
 /// Presentation-only notifications that carry no execution truth.
@@ -63,15 +71,12 @@ const BOOKKEEPING_NOTIFICATIONS: &[&str] = &[
     "item/commandExecution/outputDelta",
     "item/fileChange/outputDelta",
     "item/plan/delta",
-    "turn/plan/updated",
     "turn/diff/updated",
     "account/updated",
-    "account/rateLimits/updated",
     "configWarning",
     "warning",
     "thread/name/updated",
     "thread/status/changed",
-    "mcpServer/startupStatus/updated",
 ];
 
 /// One incoming line, classified.
@@ -159,6 +164,10 @@ fn approval_event(id: &Value, method: &str, params: &Value) -> AgentEvent {
         id: id_string(id),
         tool: method.to_string(),
         input: params.clone(),
+        // The item the approval is for; Codex names it `itemId`.
+        tool_use_id: text_at(params, &["itemId"]),
+        agent_id: None,
+        blocked_path: None,
     }
 }
 
@@ -213,42 +222,61 @@ fn notification_events(method: &str, params: &Value, raw: &Value) -> Vec<AgentEv
                 .and_then(|t| t.get("status"))
                 .and_then(Value::as_str)
                 .unwrap_or("completed");
-            let mut events = vec![AgentEvent::Result {
-                cost_usd: None,
-                duration_ms: turn
-                    .and_then(|t| t.get("durationMs"))
-                    .and_then(Value::as_u64),
-                num_turns: Some(1),
-                permission_denials: Vec::new(),
-                is_error: status == "failed",
-                subtype: status.to_string(),
-            }];
+            let failure = turn.and_then(|t| t.get("error"));
+            let mut events = vec![
+                turn_detail(status, failure.and_then(error_message)),
+                AgentEvent::Result {
+                    cost_usd: None,
+                    duration_ms: turn
+                        .and_then(|t| t.get("durationMs"))
+                        .and_then(Value::as_u64),
+                    num_turns: Some(1),
+                    permission_denials: Vec::new(),
+                    is_error: status == "failed",
+                    subtype: status.to_string(),
+                },
+            ];
             // A usage-limit failure is the ordinary turn failure plus a rejected rate limit.
-            events.extend(
-                turn.and_then(|t| t.get("error"))
-                    .and_then(usage_limit)
-                    .map(AgentEvent::RateLimit),
-            );
+            events.extend(failure.and_then(usage_limit).map(AgentEvent::RateLimit));
             events
         }
         "turn/failed" => {
-            // `turn/failed` ends the turn: the terminal failure is always emitted, and a usage
-            // limit adds the rate-limit metadata beside it.
+            // `turn/failed` ends the turn: the failure text and the terminal result are always
+            // emitted, and a usage limit adds the rate-limit metadata beside them.
             let carrier = params.get("error").unwrap_or(params);
-            let mut events = vec![AgentEvent::Result {
-                cost_usd: None,
-                duration_ms: params
-                    .get("turn")
-                    .and_then(|t| t.get("durationMs"))
-                    .and_then(Value::as_u64),
-                num_turns: Some(1),
-                permission_denials: Vec::new(),
-                is_error: true,
-                subtype: "failed".to_string(),
-            }];
+            let mut events = vec![
+                turn_detail("failed", error_message(carrier)),
+                AgentEvent::Result {
+                    cost_usd: None,
+                    duration_ms: params
+                        .get("turn")
+                        .and_then(|t| t.get("durationMs"))
+                        .and_then(Value::as_u64),
+                    num_turns: Some(1),
+                    permission_denials: Vec::new(),
+                    is_error: true,
+                    subtype: "failed".to_string(),
+                },
+            ];
             events.extend(usage_limit(carrier).map(AgentEvent::RateLimit));
             events
         }
+        "account/rateLimits/updated" => {
+            let limits = params.get("rateLimits").unwrap_or(params);
+            vec![AgentEvent::RateLimitWindows(RateLimitWindows {
+                primary: limits.get("primary").and_then(rate_limit_window),
+                secondary: limits.get("secondary").and_then(rate_limit_window),
+                plan_type: text_at(limits, &["planType"]),
+            })]
+        }
+        "mcpServer/startupStatus/updated" => vec![AgentEvent::McpStartup(McpStartup {
+            name: text_at(params, &["name"]).unwrap_or_default(),
+            status: text_at(params, &["status"]).unwrap_or_default(),
+            error: text_at(params, &["error"]),
+        })],
+        "turn/plan/updated" => vec![AgentEvent::PlanUpdated {
+            plan: plan_steps(params.get("plan")),
+        }],
         "error" => {
             let carrier = params.get("error").unwrap_or(params);
             match usage_limit(carrier) {
@@ -289,6 +317,82 @@ fn usage_limit(carrier: &Value) -> Option<RateLimitInfo> {
             .and_then(Value::as_u64),
         ..RateLimitInfo::default()
     })
+}
+
+/// The failure text of a Codex error object (`message`), when it has one.
+fn error_message(carrier: &Value) -> Option<String> {
+    carrier
+        .get("message")
+        .and_then(Value::as_str)
+        .filter(|message| !message.is_empty())
+        .map(str::to_string)
+}
+
+/// The turn outcome that precedes the matching [`AgentEvent::Result`]: the failure text and the
+/// subtype. Usage is reported by `thread/tokenUsage/updated`, so it stays empty here.
+fn turn_detail(status: &str, failure_message: Option<String>) -> AgentEvent {
+    AgentEvent::ResultDetail(ResultSummary {
+        subtype: status.to_string(),
+        is_error: status == "failed",
+        interrupted: status == "interrupted",
+        failure_message,
+        usage: None,
+        model_usage: BTreeMap::new(),
+    })
+}
+
+/// One rate-limit window of `account/rateLimits/updated`. `None` when `usedPercent` is absent.
+fn rate_limit_window(value: &Value) -> Option<RateLimitWindow> {
+    Some(RateLimitWindow {
+        used_percent: value.get("usedPercent").and_then(Value::as_f64)?,
+        window_minutes: value.get("windowDurationMins").and_then(Value::as_u64),
+        resets_at: value.get("resetsAt").and_then(Value::as_u64),
+    })
+}
+
+/// The steps of a `turn/plan/updated` plan. A step without text is skipped; a missing status
+/// reads as `pending`.
+fn plan_steps(plan: Option<&Value>) -> Vec<PlanStep> {
+    plan.and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            Some(PlanStep {
+                step: item.get("step").and_then(Value::as_str)?.to_string(),
+                status: item
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("pending")
+                    .to_string(),
+            })
+        })
+        .collect()
+}
+
+/// The text a finished tool item returned: command output, MCP result text, dynamic tool
+/// content, or the error text when that is all there is.
+fn item_output(item: &Value) -> String {
+    if let Some(output) = item.get("aggregatedOutput").and_then(Value::as_str) {
+        return output.to_string();
+    }
+    if let Some(parts) = item.pointer("/result/content").and_then(Value::as_array) {
+        return text_parts(parts);
+    }
+    if let Some(parts) = item.get("contentItems").and_then(Value::as_array) {
+        return text_parts(parts);
+    }
+    item.pointer("/error/message")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn text_parts(parts: &[Value]) -> String {
+    parts
+        .iter()
+        .filter_map(|part| part.get("text").and_then(Value::as_str))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Environment entries for a Codex launch, to add to `SessionConfig::env`. `CODEX_HOME`
@@ -341,11 +445,19 @@ fn item_events(item: Option<&Value>, started: bool) -> Vec<AgentEvent> {
                     parent_tool_use_id: None,
                 }]
             } else {
-                vec![AgentEvent::ToolResult {
-                    id,
-                    is_error,
-                    parent_tool_use_id: None,
-                }]
+                vec![
+                    AgentEvent::ToolResultContent {
+                        id: id.clone(),
+                        is_error,
+                        content: item_output(item),
+                        parent_tool_use_id: None,
+                    },
+                    AgentEvent::ToolResult {
+                        id,
+                        is_error,
+                        parent_tool_use_id: None,
+                    },
+                ]
             }
         }
         "collabAgentToolCall" => {

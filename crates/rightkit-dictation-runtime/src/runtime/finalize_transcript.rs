@@ -758,33 +758,6 @@ pub(crate) fn finalize_phase2_process(
         writing_region: writing_region.clone(),
         sound_alikes: crate::vocabulary::sound_alike_pairs(),
     };
-    // Explicit dogfood evaluation mode: capture one production-real input,
-    // fan it out to the frozen prompt/model matrix, and never type it into
-    // the target app. This stays outside normal delivery and is inert unless
-    // the operator sets RIGHTKIT_AI_EVAL_MODE.
-    if crate::l3_cleanup::live_eval_suppresses_delivery() {
-        let (lane, eval_input) = match ai_transform {
-            Some(rightkit_text_polish::text_pipeline::AiTransformIntent::Prompt) => (
-                crate::l3_cleanup::LiveEvalLane::L2,
-                fallback_candidate.as_str(),
-            ),
-            Some(rightkit_text_polish::text_pipeline::AiTransformIntent::Summarize) => (
-                crate::l3_cleanup::LiveEvalLane::L3,
-                fallback_candidate.as_str(),
-            ),
-            None => (
-                crate::l3_cleanup::LiveEvalLane::L1,
-                fallback_candidate.as_str(),
-            ),
-        };
-        match crate::l3_cleanup::run_live_evaluation(eval_input, &ai_context, lane) {
-            Ok(path) => tracing::info!(output = %path.display(), "live_eval_case_complete"),
-            Err(error) => tracing::error!(%error, "live_eval_case_failed"),
-        }
-        trace_stop_to_engine_outcome(stop_started_at, "live_eval_no_delivery");
-        return Ok(FinalizeCommit::outcome_only(FinalizeOutcome::ResetToArmed));
-    }
-
     // Cancel/new-Start check before the (potentially multi-second) cloud L2/L3
     // polish call — no point spending an HTTP round-trip on a session that's
     // already been superseded.

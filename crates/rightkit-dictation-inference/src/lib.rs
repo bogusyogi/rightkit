@@ -8,17 +8,9 @@
 )]
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-/// The TDT/RNN-T beam emission reward: the platform default from `rightkit-asr`, overridable in
-/// test builds by `RIGHTKIT_ASR_BEAM_EMIT_REWARD` (a finite, non-negative number).
+/// The TDT/RNN-T beam emission reward: the platform default from `rightkit-asr`.
 pub fn beam_emit_reward() -> f32 {
-    static REWARD: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
-    *REWARD.get_or_init(|| {
-        rightkit_dictation_core::dev_var!("RIGHTKIT_ASR_BEAM_EMIT_REWARD")
-            .ok()
-            .and_then(|raw| raw.trim().parse::<f32>().ok())
-            .filter(|v| v.is_finite() && *v >= 0.0)
-            .unwrap_or_else(rightkit_asr::parakeet_core::tdt_beam::default_emit_reward)
-    })
+    rightkit_asr::parakeet_core::tdt_beam::default_emit_reward()
 }
 
 pub mod asr;

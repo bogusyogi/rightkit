@@ -33,6 +33,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::driver_host::cli_runtime::ids::{ContextEpoch, ContextEpochReason};
+use std::sync::Mutex;
 
 /// A live, in-memory view of one `driver_bindings` row. The
 /// `driver_bindings` table carries every recovery-relevant field; this

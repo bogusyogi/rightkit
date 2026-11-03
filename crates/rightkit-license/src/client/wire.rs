@@ -111,16 +111,33 @@ impl Transport {
 
     /// `POST /v1/licenses/deactivate`, best effort: the local clear is authoritative.
     pub(crate) fn deactivate(&self, activation_token: &str) -> bool {
+        matches!(self.deactivate_status(activation_token), Some(status) if (200..300).contains(&status))
+    }
+
+    /// `POST /v1/licenses/deactivate`: the HTTP status the server answered, `None` when there was no
+    /// answer (a transport failure, a timeout, a policy refusal). The pending-release drain judges
+    /// the status itself ([`settles`]).
+    pub(crate) fn deactivate_status(&self, activation_token: &str) -> Option<u16> {
         let body = json!({ "app": self.app, "activationToken": activation_token });
-        matches!(
-            self.post(suite_api::LICENSE_DEACTIVATE_PATH, &body, &[activation_token]),
-            Ok(reply) if (200..300).contains(&reply.status)
+        self.post(
+            suite_api::LICENSE_DEACTIVATE_PATH,
+            &body,
+            &[activation_token],
         )
+        .ok()
+        .map(|reply| reply.status)
     }
 
     /// `POST /v1/licenses/trial`. Issues no credential; the key arrives by e-mail.
-    pub(crate) fn trial(&self, email: &str) -> Result<TrialAnswer, LicenseError> {
-        let body = json!({ "app": self.app, "email": email });
+    pub(crate) fn trial(
+        &self,
+        email: &str,
+        platform: Option<&str>,
+    ) -> Result<TrialAnswer, LicenseError> {
+        let body = match platform {
+            Some(platform) => json!({ "app": self.app, "email": email, "platform": platform }),
+            None => json!({ "app": self.app, "email": email }),
+        };
         let reply = self.post(suite_api::LICENSE_TRIAL_PATH, &body, &[])?;
         if reply.status == 429 {
             return Ok(TrialAnswer::RateLimited);
@@ -258,16 +275,26 @@ impl Transport {
 
     /// `POST /v1/pro/{app}/devices/lease/remove`, best effort.
     pub(crate) fn lease_remove(&self, device_id_hash: &str, lease_id: &str) -> bool {
-        let body = json!({ "deviceIdHash": device_id_hash, "leaseId": lease_id });
-        matches!(
-            self.post(
-                &suite_api::fill_app(suite_api::LEASE_REMOVE_PATH, &self.app),
-                &body,
-                &[],
-            ),
-            Ok(reply) if (200..300).contains(&reply.status)
-        )
+        matches!(self.lease_remove_status(device_id_hash, lease_id), Some(status) if (200..300).contains(&status))
     }
+
+    /// `POST /v1/pro/{app}/devices/lease/remove`: the HTTP status, `None` when there was no answer.
+    pub(crate) fn lease_remove_status(&self, device_id_hash: &str, lease_id: &str) -> Option<u16> {
+        let body = json!({ "deviceIdHash": device_id_hash, "leaseId": lease_id });
+        self.post(
+            &suite_api::fill_app(suite_api::LEASE_REMOVE_PATH, &self.app),
+            &body,
+            &[],
+        )
+        .ok()
+        .map(|reply| reply.status)
+    }
+}
+
+/// Whether a release answer settles a queued release: 2xx acknowledges it, and 404 and 410 say the
+/// lease or activation is already gone. Anything else (including no answer) keeps it queued.
+pub(crate) fn settles(status: Option<u16>) -> bool {
+    matches!(status, Some(200..=299 | 404 | 410))
 }
 
 /// Classify an activate or refresh answer exactly as `@rightkit/license` 0.2.1 does: only an

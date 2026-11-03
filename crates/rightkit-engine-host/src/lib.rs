@@ -1,7 +1,7 @@
 //! The engine binary framework: one registry of named commands served two ways, as a headless
 //! CLI ([`cli`]) and as the resident stdio sidecar a shell supervises ([`sidecar`]), with the wire
 //! types they share ([`wire`]), the contract and TypeScript export ([`registry`]) and the
-//! isolated-data-folder rule ([`data_folder`]), the process environment an engine's commands read
+//! QA marker ([`data_folder`]), the process environment an engine's commands read
 //! ([`mod@env`]) and installed-app discovery for an `apps` command ([`apps`]).
 //!
 //! ```no_run

@@ -15,4 +15,4 @@ pub use protocol::{
 };
 pub use rightkit_speech_client::{FileTranscript, TimedWord};
 pub use secret::{wipe_json_strings, wipe_string, SecretString};
-pub use validation::{validate_frame, FakeEngine};
+pub use validation::validate_frame;

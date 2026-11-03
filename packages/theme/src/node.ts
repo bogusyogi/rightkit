@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { parseBrand, type BrandFile } from "./brand.js";
-import { checkBrandContrast, checkGeneratedCss, scanHardcodedColors, type ContrastReport, type ScanOptions, type TokenFinding } from "./check.js";
+import { checkBrandContrast, checkGeneratedCss, checkSuiteDefaults, scanHardcodedColors, type ContrastReport, type ScanOptions, type TokenFinding } from "./check.js";
 import { generateCss, type CssFormat } from "./css.js";
 
 export function readBrand(path: string): BrandFile {
@@ -48,4 +48,9 @@ export function scanFiles(files: string[], options?: ScanOptions): TokenFinding[
   return files.flatMap((f) => scanHardcodedColors(f, readFileSync(f, "utf8"), options));
 }
 
-export { checkGeneratedCss };
+export { checkGeneratedCss, checkSuiteDefaults };
+
+/** Read a `shell.css` (from `@rightkit/react-shell`) and return its drift problems against `SUITE_DEFAULTS` and `SUITE_MOTION`. */
+export function checkSuiteDefaultsFile(shellCssPath: string): string[] {
+  return checkSuiteDefaults(readFileSync(shellCssPath, "utf8"));
+}

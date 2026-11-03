@@ -198,11 +198,11 @@ impl AsyncClient {
                 .build()
                 .map_err(map_reqwest_error)
         };
-        let http_proxy = proxy.as_ref().map(&through).transpose()?;
+        let http_proxy = proxy.as_ref().map(through).transpose()?;
         let routes = match system_routes {
             Some(routes) => Some(AsyncRoutes {
-                http: routes.http().map(&through).transpose()?,
-                https: routes.https().map(&through).transpose()?,
+                http: routes.http().map(through).transpose()?,
+                https: routes.https().map(through).transpose()?,
                 routes,
             }),
             None => None,
@@ -660,8 +660,7 @@ impl AsyncClient {
                 });
             }
             hops += 1;
-            let unusable =
-                || HttpError::InvalidRequest("redirect with an unusable Location".into());
+            let unusable = || redirect::unusable_location(&raw_url);
             let next_raw = redirect::resolve_location(&raw_url, location).ok_or_else(unusable)?;
             let next = reqwest::Url::parse(&next_raw)
                 .ok()
@@ -724,6 +723,7 @@ impl AsyncClient {
             redirect_hop,
         )?;
         policy.admit(url.scheme(), &raw_host)?;
+        policy.check_path(raw_url)?;
         let via_proxy = if let Some(r) = &self.routes {
             // Per request: the bypass list and the scheme's own endpoint decide.
             r.routes

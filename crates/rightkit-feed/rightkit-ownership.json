@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-feed",
+  "capabilities": [
+    {
+      "capability": "feed-parse",
+      "summary": "RSS 2.0, RSS 1.0 and Atom feed parsing: tolerant, bounded, no entity expansion, DOCTYPE skipped, item id/link/title/date/summary extraction",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: apps call this crate instead of hand-rolling an RSS or Atom parser.",
+        "No fetching, HTML sanitising, JSON Feed or media extensions."
+      ]
+    }
+  ]
+}

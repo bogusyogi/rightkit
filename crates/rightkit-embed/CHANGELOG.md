@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.4 (unpublished)
+
+- `vector` now enables `rightkit-db/bundled`, so a consuming app links the bundled SQLite instead of a system SQLite (macOS) or failing to link (Windows). Before, SQLite was bundled only through dev-dependencies, which consumers never inherit (rightkit#1346 item 2).
+
 ## 0.6.3 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

@@ -3,6 +3,12 @@
 All notable changes to `rightkit-asr`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.4.2 (unpublished)
+
+- Removed the `dev_var!`/`dev_var_os!` stubs and every environment experiment switch behind them (`RIGHTKIT_ONNX_*_EXPERIMENT`, `RIGHTKIT_ONNX_DML_*`, `RIGHTKIT_ASR_ALLOW_DML_FUSION`, `RIGHTKIT_ASR_BIAS_CACHE`, `RIGHTKIT_CONTROL_ALIGN_ENCODER_REUSE`), the audit-only split predictor/joint decoder (`OnnxAsr::predictor_step*`, `joint_from_predictor*`, `has_split_predictor_experiment`, `PredictorOutput`) and the DirectML optimizer bisect; the shipped defaults are unchanged. `AlignEncoderReuse::from_env` now returns `Off`. (Adrian, 2026-11-03: "make sure no debug assertions in their respective apps/ repos"; "My decision was no unit tests. Only e2e."; "dev mode, is mine. im the fucking owner, my data. no dummy data ... real data. snapshot and restore."). Release behaviour unchanged.
+
+- `WINDOWS_VENDOR_DURATION_CAP_INDEX` 2 -> 4 (#913), on paired Parakeet Ultra evidence (Windows DirectML, beam 2): decoder calls per window -24% with 6/6 pair wins, FLEURS en_us WER 5.53% -> 5.35%. Consumers inherit the measured value; HeardRight's local override can be dropped. Behaviour change for Windows vendor decode only.
+
 ## 0.4.1 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

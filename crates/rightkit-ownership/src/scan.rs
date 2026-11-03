@@ -26,6 +26,7 @@ use crate::lockfiles::{transitive_dependencies, ContentDigest, LockContext, OWNE
 use crate::paths::{self, posix_basename};
 use crate::source::{extname, finding_policy, source_findings, source_matchers};
 use crate::types::{coverage_json, Cov};
+use crate::verdict::is_blocking_finding;
 
 pub const MANIFEST_FILE: &str = "rightkit-ownership.json";
 pub const EXCEPTIONS_FILE: &str = ".rightkit/ownership-exceptions.json";
@@ -219,7 +220,7 @@ fn file_inventory(
         }
     };
     let mut inventory =
-        git_listed_inventory(app_root, &relevant, &protected, &max, repository_root);
+        git_listed_inventory(app_root, &relevant, &protected, &max, repository_root, true);
     for item in &mut inventory.coverage {
         if item.reason == "file-over-size-limit" {
             item.reason = if protected_set.contains(item.path.as_str()) {

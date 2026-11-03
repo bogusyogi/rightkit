@@ -1,4 +1,5 @@
 use crate::peer::PeerIdentity;
+use std::collections::BTreeSet;
 
 /// A capability a device holds (from enrolment). A plain label compared for equality.
 pub type Scope = String;

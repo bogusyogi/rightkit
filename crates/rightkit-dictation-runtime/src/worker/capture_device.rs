@@ -35,8 +35,6 @@ pub(crate) struct CaptureStart {
     /// Set when the start stream needed its one cold reopen; the no-speech
     /// clock restarts at this time and the session's repair budget is spent.
     pub(crate) repaired_at: Option<worker_clock::WorkerInstant>,
-    /// RIGHTKIT_VAD_AUTO_CALIBRATE audio, read after the seed.
-    pub(crate) calibration: Option<Vec<f32>>,
 }
 
 impl CaptureDevice {
@@ -243,22 +241,6 @@ impl CaptureDevice {
             "seed_captured",
             start_received_at.elapsed().as_millis() as u64,
         );
-        // Auto-calibrate was attempted here but BREAKS in practice:
-        // on Windows WASAPI the first ~250ms of audio after the PTT
-        // key fires is typically the user starting to speak
-        // (PTT-down + first word lands in <250ms), so we use the
-        // first syllable of their command as the noise floor and
-        // then set speech_threshold = 8x of THAT, which can never
-        // be reached. VAD fires zero times after. Calibration is
-        // opt-in via the RIGHTKIT_VAD_AUTO_CALIBRATE env var for users
-        // who want to tune for a fixed room; the default uses the
-        // 0.20 Silero threshold, which does not have this failure
-        // mode.
-        if !capture_needs_reopen
-            && rightkit_dictation_core::dev_var_os!("RIGHTKIT_VAD_AUTO_CALIBRATE").is_some()
-        {
-            start.calibration = cap.read_f32_blocking(SAMPLE_RATE as usize, 250).ok();
-        }
         // A resumed warm stream with no callbacks/samples, non-finite
         // readiness PCM, or terminal stream error gets exactly one cold
         // reopen. Digital-zero PCM remains valid quiet/noise-gated input.

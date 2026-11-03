@@ -9,6 +9,7 @@
 use serde::{Deserialize, Serialize};
 
 use rightkit_social_publish::protocol::Scope;
+use std::collections::BTreeMap;
 
 /// Which CSV columns carry what. `metric_columns` maps a metric name (lowercase letters, digits,
 /// underscores or dots) to the header of its column. `observed_at_column`, when set, names a column of UTC

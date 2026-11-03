@@ -760,15 +760,16 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "libc",
  "windows",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "getrandom 0.4.3",
  "secret-service",
@@ -781,9 +782,10 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crypto"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "blake3",
+ "ring",
  "serde_json",
 ]
 
@@ -797,16 +799,17 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.10"
+version = "0.4.12"
 dependencies = [
  "libc",
  "sha2",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.8"
+version = "0.3.9"
 dependencies = [
  "getrandom 0.4.3",
  "libc",

@@ -1,6 +1,6 @@
 # @rightkit/qa
 
-Shared browser and QA primitives for Right Suite apps: run storage and evidence bundles, bearer-authenticated loopback control, owned-process cleanup, pane and frame checks, paint checks, workspace environment, a raw Chrome DevTools Protocol page driver, and the Chrome for Testing re-export.
+Shared browser and QA primitives for Right Suite apps: run storage and evidence bundles, bearer-authenticated loopback control, owned-process cleanup, pane and frame checks, paint checks, a raw Chrome DevTools Protocol page driver, and the Chrome for Testing re-export.
 
 | Item | Value |
 |---|---|
@@ -13,9 +13,9 @@ Shared browser and QA primitives for Right Suite apps: run storage and evidence 
 
 | Import | Contents |
 |---|---|
-| `@rightkit/qa` | `export *` from evidence, devserver, frames, guard, loopback, ownership, paint, panes, process, workspace, storage, userdata, page and chrome modules. Includes `QaBrowserSession`, `QaPage`, `QaElement`, `QaKeyboard`, `QaMouse`, `TimeoutError`, `ElementOccludedError`, `FillMismatchError`, `freePort`. From 0.4.8 also `CdpClient`, `connectCdp`, `freePortSync`, `waitForHttp`, `stopDevServer`, `readDetachedRecord`, `DevServerIdentityError`. |
+| `@rightkit/qa` | `export *` from evidence, devserver, frames, guard, loopback, ownership, paint, panes, process, dialog, storage, page and chrome modules. Includes `QaBrowserSession`, `QaPage`, `QaElement`, `QaKeyboard`, `QaMouse`, `TimeoutError`, `ElementOccludedError`, `FillMismatchError`, `freePort`. From 0.4.8 also `CdpClient`, `connectCdp`, `freePortSync`, `waitForHttp`, `stopDevServer`, `readDetachedRecord`, `DevServerIdentityError`. |
 | `@rightkit/qa/chrome` | Re-export of `@rightkit/qa-chrome` |
-| `@rightkit/qa/journeys` | End-to-end journeys standard (`docs/E2E-TESTING-STANDARD.md`): manifest reader, adapter protocol helpers, receipt validator, census, advisory gate, `runJourneys`. Also `journeys` from `@rightkit/qa`; CLI `rightkit-qa-journeys`. |
+| `@rightkit/qa/journeys` | End-to-end journeys standard (`docs/E2E-TESTING-STANDARD.md`): manifest reader, adapter protocol helpers, receipt validator, census, advisory gate. Also `journeys` from `@rightkit/qa`; CLI `rightkit-qa-journeys`. |
 
 Dependency: `@rightkit/qa-chrome` (exact `0.1.10`).
 
@@ -94,7 +94,7 @@ try {
 - `page.fill(target, value, { replace?, verify? })`. The default inserts at the caret, as `type()` does. `replace: true` selects the whole field first; an empty value then deletes it. `verify: true` (requires `replace`) reads the value back once and throws `FillMismatchError` on a difference. The error gives lengths, not values.
 - `page.mouse.wheel({ deltaX?, deltaY? })` sends one `mouseWheel` event at the tracked pointer position. The pointer does not move.
 - `page.setUserAgent(ua, { platform?, acceptLanguage? })` overrides the user agent for the page and its later navigations. Each call replaces the whole override. `page.resetUserAgent()` restores the `navigator.userAgent` captured before the first override.
-- `waitForFunction(fn, { failureArtifacts: { directory, label?, extra?, allowInsideRunRoot? } })` and `waitForSelector(...)` write a screenshot and a JSON state dump on timeout: url, title, bounded page text (`pageText`), the focused element's descriptor without its value (`activeElement`), console entries, and `extra()` if given (`extra`, or `extraError` when it throws, never settles or cannot serialise). Paths are on `error.artifacts` (`json`, `screenshot?`). `directory` must be absolute and must not lie inside `RIGHTKIT_RUN_ROOT`, which `disposeQaWorkspace` deletes; `allowInsideRunRoot: true` opts in, and those files then go with the workspace, so copy them out before dispose. A failed write is appended to the error message; the timeout still throws.
+- `waitForFunction(fn, { failureArtifacts: { directory, label?, extra? } })` and `waitForSelector(...)` write a screenshot and a JSON state dump on timeout: url, title, bounded page text (`pageText`), the focused element's descriptor without its value (`activeElement`), console entries, and `extra()` if given (`extra`, or `extraError` when it throws, never settles or cannot serialise). Paths are on `error.artifacts` (`json`, `screenshot?`). `directory` must be absolute. A failed write is appended to the error message; the timeout still throws.
 
 - `page.send(method, params?, timeout?)` is a page-scoped raw CDP escape hatch: unsupported surface, with Chrome's names, params and results. Prefer the typed methods. `page.setFocusEmulation(enabled)` sends `Emulation.setFocusEmulationEnabled`.
 - Navigation and reloads: `evaluate`, `waitForFunction` and `waitForSelector` re-resolve the main-frame context when Chrome reports it missing, and retry within the caller's timeout.
@@ -187,42 +187,27 @@ These methods expose Chrome's own DevTools protocol. Their names, params and res
 
 `commandLine()` needs the browser launched with `--enable-automation`. `launchChromeForTesting` does not pass that flag, so launch with `launchChromeForTesting({ args: ["--enable-automation"] })`. Without it, the call rejects with an error that names the requirement; the browser is unchanged.
 
-## Run root and workspace disposal
+## QA runs on the owner's real data under a snapshot and restore
 
-`createQaWorkspace` sets `RIGHTKIT_RUN_ROOT` to the workspace `home`. `disposeQaWorkspace` deletes that home, and deletes the workspace root too unless `keepEvidence` is set. A host must never map a directory that holds artifacts it wants to keep onto `RIGHTKIT_RUN_ROOT`, or onto the workspace root or home. Copy artifacts out before disposal, or use `keepEvidence: true` and keep anything written under `evidence` or `captures`.
-
-## QA runs never touch real user data
-
-A test run may never start an app on the user's real data or on a location that can raise a system dialog. `spawnQaApp(workspace, command, args, options)` calls `assertQaLaunchSafe` before it spawns anything; call `assertQaLaunchSafe(workspace, { cwd, env, dirs })` yourself when you launch by other means. There is no opt-out.
-
-- The workspace home must be a QA root this package created: directly under a `rightkit-qa` directory inside a system temp root on the internal disk, with the `.rightkit-app.json` binding. The working directory and every absolute path in the environment (and any `dirs`) must resolve, symlinks followed, inside it.
-- Refused anywhere: the user's home directory itself; Documents, Desktop, Downloads, Pictures, Music, Movies, Videos; iCloud Drive (`~/Library/Mobile Documents`, `~/Library/CloudStorage`), OneDrive, Dropbox, Google Drive; the user's real application-support / AppData / `.config` directory of the app under test; any `/Volumes/*` volume; any UNC path.
-- A violation throws `UserDataViolation` with `path`, `rule` and `detail`. Nothing is launched.
-
-Seed state with generated fixtures; that is the default. `seedFrom(workspace, source, { destRel, transform, scrub })` copies through your `transform(source, dest)` into `<dataDir>/<destRel>` and refuses a `source` in a forbidden location (including the real per-user data of the app) unless `scrub` is `{ declaredScrubbed: true, verify }` and `verify(dest)` returns true before launch ("zero user rows, else no launch"). A false result deletes the copy and throws.
+Adrian, 2026-11-03: "dev mode, is mine. im the fucking owner, my data. no dummy data, no fucking made up shit. real data. snapshot and restore." This package starts no app and makes no throwaway home, data folder or fixture. The snapshot of the owner's real data is taken and restored by the Rust `rightkit-qa journeys run` (`[snapshot]` in `rightkit-qa.toml`, see the crate README); this package validates what that run recorded: `rightkit.journeys.receipt/2` carries the snapshot id, the manifest sha256 and `restore_verified`, and an adapter reports `start.snapshot_id` (protocol 2). Browser sessions (Chrome for Testing) keep their own browser profile, which is not the owner's data.
 
 `assertNoPermissionDialog(pid, frontmostNames)` fails on a macOS dialog agent among sampled foreground names. The live check is a no-op: this package has no window-by-owner enumeration (TODO in `livePermissionDialogCheck`).
 
-### QA home hygiene
-
-Each home carries `.rightkit-home.json` (owner pid, start time). `withQaWorkspace(options, body)` removes the home when `body` ends, pass or fail; `disposeQaWorkspace(ws, { failed, keepFailedHome })` or `RIGHTKIT_QA_KEEP_FAILED_HOME=1` keeps only a failed run's home and prints its path and size. `createQaWorkspace` first removes homes whose owner is dead and that are older than 2 hours (`RIGHTKIT_QA_HOME_MAX_AGE_SECS`; a live pid is never touched), then throws `QaRootOverCapError` naming the largest homes if this product's homes still hold more than 4 GB (`RIGHTKIT_QA_ROOT_CAP_BYTES`, `0` disables; "QA root limits" below adds the root-wide ceiling; `RIGHTKIT_QA_HOME_SWEEP=0` skips the sweep). Both are off under vitest unless `preflight: { enabled: true }`. `cleanQaHomes({ dryRun })` runs the sweep by hand. Deletion happens only inside the `rightkit-qa` root, never by a caller's path, and never follows a symlink out of it. `disposeQaWorkspace` refuses a home that is not runner-created.
-
 ## End-to-end journeys (0.6.0)
 
-Implements the Node side of `docs/E2E-TESTING-STANDARD.md` (phase 1). The app declares user journeys in `journeys.toml` (and, for the gate, `journeys-map.toml`); RightKit selects, builds, launches an adapter and writes a receipt that a validator re-checks offline.
+Implements the Node side of `docs/E2E-TESTING-STANDARD.md`. The app declares user journeys in `journeys.toml` (and, for the gate, `journeys-map.toml`); The Rust runner selects, builds, snapshots the real data, launches an adapter, restores and writes a receipt that this package's validator re-checks offline.
 
 ```
 rightkit-qa-journeys check [--root DIR]
 rightkit-qa-journeys census [--root DIR] [--base REF] [--json]      # report only
-rightkit-qa-journeys run [--root DIR] [--id J-001]... [--platform P] [--tier T] [--run-root DIR]
 rightkit-qa-journeys validate-receipt FILE [--root DIR] [--manifest PATH] [--results PATH] [--tree SHA] [--require-clean] [--check-files]
 rightkit-qa-journeys gate [--root DIR] [--base REF] [--receipts DIR]  # advisory: always exits 0
 ```
 
-- `check` exits 1 on any problem. `run` and `validate-receipt` exit 0 only for a verdict of `passed`; `failed` and `incomplete` exit 1. A receipt is never accepted on its own word: `validate-receipt` recomputes counts and verdict from `results.jsonl` (beside the receipt unless `--results`), the manifest and the digests, and a missing results file, manifest or evidence file is `incomplete`.
-- Adapter protocol v1: the runner writes `selection.json` and an empty `results.jsonl` and sets `RIGHTKIT_JOURNEYS_PROTOCOL=1`, `RIGHTKIT_JOURNEYS_SELECTION` and `RIGHTKIT_JOURNEYS_RESULTS`. A Node adapter uses `Reporter.fromEnv()` then `start`, one `journey` per selected id, `end`; its exit code is 0 whenever it finished the protocol. Every line carries `run_id` and `nonce`.
+- `check` exits 1 on any problem. `validate-receipt` exits 0 only for a verdict of `passed`; `failed` and `incomplete` exit 1. A receipt is never accepted on its own word: `validate-receipt` recomputes counts and verdict from `results.jsonl` (beside the receipt unless `--results`), the manifest and the digests, and a missing results file, manifest or evidence file is `incomplete`.
+- Adapter protocol 2: the runner writes `selection.json` and an empty `results.jsonl` and sets `RIGHTKIT_JOURNEYS_PROTOCOL=2`, `RIGHTKIT_JOURNEYS_SELECTION`, `RIGHTKIT_JOURNEYS_RESULTS` and `RIGHTKIT_JOURNEYS_SNAPSHOT_ID` (the snapshot of the real data the run is made under). A Node adapter uses `Reporter.fromEnv()` then `start` (which reads the snapshot id from the environment and refuses without one), one `journey` per selected id, `end`; its exit code is 0 whenever it finished the protocol. Every line carries `run_id` and `nonce`.
 - Tests are tagged `// rk-test: pure`, `contract` or `pin #<issue>`; `census` counts tagged, untagged and malformed tags, journeys, tests per journey, and the change against `--base`.
-- Phase 1 limits: `run` supports `runner = "adapter"` only, starts the adapter directly (no interactive-session launcher, no broker receipt), records `session: "noninteractive"` unless `RIGHTKIT_QA_INTERACTIVE=1`, and has been exercised only against the fixture adapter (`@rightkit/qa/journeys-fixture-adapter`). The `gate` does not fetch approval comments.
+- This package has no runner: `journeys run` is the Rust `rightkit-qa` command, which owns the snapshot and restore. The Node side reads the manifest, validates receipts (`rightkit.journeys.receipt/2`: snapshot id, manifest sha256, restore verified; adapter protocol 2) and runs the advisory gate, which does not fetch approval comments.
 
 ## Ownership: this package versus the Rust `rightkit-qa` crate
 
@@ -238,23 +223,10 @@ Both runners stay. Pick by what the test drives.
 
 The pane, frame and paint helpers take a driver object with `execute` (paint also needs `executeAsync`; frames also need `switchToFrame` and `switchToParentFrame`). `QaPage` has none of these methods, so it needs an adapter.
 
-This package drives no native app and no WebView2 window (`spawnQaApp` only starts a guarded process in a QA workspace); it never replaces the Rust crate for them.
+This package drives no native app and no WebView2 window it never replaces the Rust crate for them.
 
 **QA is a development tool, not a user automation surface.** The native rows drive only builds compiled with `rightkit-qa-driver`'s `qa-control` feature (the app's `qa-native` build). A shipped app contains no such server and `right-release` refuses to seal or upload one that does; this package's `QaBrowserSession.attach` connects only to a debugging port that the browser or app was already started with. The only supported automation surface for users is an app's own command line or plugin. See `crates/rightkit-qa-driver/README.md`, "QA control never ships".
 
 ## Known issues
 
 - `@rightkit/qa-chrome` is pinned exactly to `0.1.10` (the published 0.5.2 pins `0.1.10`). A qa-chrome release therefore needs a `@rightkit/qa` republish to reach consumers.
-
-## QA root limits
-
-Homes live under `<tmp>/rightkit-qa/` (`/private/tmp/rightkit-qa` on macOS). Two limits are checked when a run starts, after the dead-home sweep.
-
-- **Per-product cap** (`RIGHTKIT_QA_ROOT_CAP_BYTES`, default 4 GB, `0` disables). A run for `appKey` X is refused only when X's own homes hold more than the cap. A home belongs to the product named by the `app` in its `.rightkit-app.json` binding, else by the label in its directory name (`<app cut to 16 characters>-<suffix>`). Other products' homes never count.
-- **Root ceiling** (`RIGHTKIT_QA_ROOT_CEILING_BYTES`, default 32 GB, `0` disables). Every run is refused when all homes together exceed it. The refusal names the largest homes with their product. The cap is checked first.
-
-A refusal is a `QaRootOverCapError`. Its message names the product, the total, the largest homes, and says `cleanQaHomes()` (or `rightkit-qa clean`) removes the homes of dead runs; `error.detail` has `kind` (`'product-cap'` or `'root-ceiling'`), `app`, `totalBytes`, `homeCount`, `limitBytes` and `largest` (`{ path, bytes, product }`).
-
-**Setting limits in code.** The variables do not always reach the test process, so pass the limits to the call: `createQaWorkspace({ appKey, rootCapBytes: 8_000_000_000, rootCeilingBytes: 0 })`, or the same options on `withQaWorkspace` (`0` disables a limit; a value that is not a non-negative number throws `TypeError`). `preflight.capBytes` and `preflight.ceilingBytes` do the same and lose to the top-level options. A value set in code wins over the variable; a limit left unset falls back to the variable, then the default. Both limits are off under vitest unless `preflight: { enabled: true }`.
-
-**The sweep removes more.** `cleanQaHomes` (run at every start) removes a home that has no `.rightkit-home.json` owner marker (written before it existed, or missing a file) when all of these hold: it is a plain directory directly inside `rightkit-qa` (never a symlink, never outside it); its name is `<label>-<6 letters or digits>` or `<label>-<16 lowercase hex>` (the two runners' patterns); no pid its records name is alive (the `ownerPid` of the run record its binding points at, and the pid of a home marker that has no binding); and nothing in it, the directory included, was modified within `RIGHTKIT_QA_HOME_MAX_AGE_SECS` (default 2 hours). Not checked: which processes have the home as working directory or an open file (there is no process-table walk), and the run record's lease (a 24 hour timer, not evidence of a live process; it is what kept cancelled runs counted). An app that holds a home and writes nothing for two hours, or a recorded pid reused by an unrelated live process, is the residual risk: the first is removed, the second is kept. Homes with an owner marker keep the earlier rule (pid dead and run older than the window).

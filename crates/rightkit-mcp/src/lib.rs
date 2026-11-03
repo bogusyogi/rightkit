@@ -25,6 +25,7 @@ pub mod pool;
 mod raw;
 mod sanitize;
 pub mod server;
+pub mod session_status;
 pub mod trust;
 mod types;
 
@@ -47,6 +48,10 @@ pub use server::{
     InitializedPolicy, ReadContext, ReadOnlyPolicy, RequestContext, RequestValidation,
     ResponseInfo, ServerHost, ServerOptions, ServerTransport, StdioInputMode, ToolProvider,
     TransformContext, TransformInfo,
+};
+pub use session_status::{
+    engine_source_status, session_source_status, EngineConnection, EngineSource, SessionDiscovery,
+    SourceState, SourceStatus,
 };
 pub use trust::{
     fingerprint, ImportedTrust, PendingApproval, ServerSource, TrustDecision, TrustStore,

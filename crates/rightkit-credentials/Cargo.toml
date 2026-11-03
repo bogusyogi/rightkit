@@ -1,9 +1,9 @@
 [package]
 name = "rightkit-credentials"
-version = "0.4.5"
+version = "0.4.6"
 edition = "2021"
 rust-version = "1.98.0"
-description = "Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager / Linux Secret Service / Android Keystore, passive presence checks, non-interactive mode, test guards, DB-key provisioning, and migration."
+description = "Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager / Linux Secret Service / Android Keystore, passive presence checks, non-interactive mode, guards that deny, DB-key provisioning, and migration."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
@@ -12,16 +12,8 @@ categories = ["os", "authentication"]
 include = ["src/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
-# The in-process `MemoryBackend` (and the `GuardMode::Memory` swap). A dev-dependency capability: a crate enables it only under
-# `[dev-dependencies]`, so no release dependency tree carries it. Without it a tripped guard is `Deny`.
-memory-backend = []
 # `impl rightkit_app_settings::SecretProbe for Store` (presence-only adapter).
 settings-probe = ["dep:rightkit-app-settings"]
-# TEST ONLY. Compiles the throwaway macOS test keychain (`IsolatedKeychain`,
-# `KeychainBackend::open_isolated_file`) and the CLI's `--isolated-keychain`. Without it there is
-# no write path to an explicit keychain. Never enable it in a shipped build; enable it only as
-# `cargo test --features isolated-test-keychain` for the end-to-end suite.
-isolated-test-keychain = []
 # OS user-presence authentication (`os_auth`): LocalAuthentication on macOS, Windows Hello on Windows,
 # an injected `BiometricBridge` on Android, typed Unsupported elsewhere. Pulls the platform bindings
 # below (all already in the workspace lock); adds nothing on Linux or Android.
@@ -29,6 +21,11 @@ os-auth = ["dep:objc2", "dep:block2", "dep:objc2-foundation", "dep:windows"]
 # The application must also select its existing rightkit-db SQLCipher provider. This feature
 # deliberately selects no crypto provider, preserving compatibility with existing databases.
 db-adapter = ["dep:rightkit-db", "rightkit-db/encrypted-lifecycle", "dep:sha2"]
+
+# OS-bound keys (`protected_key`): a Secure Enclave P-256 key on macOS, a Windows Hello key credential
+# on Windows, typed `Unsupported` elsewhere; sign, seal and unseal after OS user verification, plus a
+# PIN-derived wrap. Needs a signed app with the keychain-access-groups entitlement on macOS.
+protected-key = ["dep:rightkit-crypto", "dep:windows"]
 
 [[bin]]
 name = "rightkit-credentials"
@@ -43,6 +40,7 @@ zeroize = "1.9"
 rightkit-app-settings = { version = "0.3.1", path = "../rightkit-app-settings", optional = true }
 rightkit-db = { version = "0.5.3", path = "../rightkit-db", optional = true, default-features = false }
 sha2 = { version = "0.11.1", optional = true }
+rightkit-crypto = { version = "0.1.2", path = "../rightkit-crypto", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6", optional = true }
@@ -50,7 +48,7 @@ block2 = { version = "0.6", optional = true }
 objc2-foundation = { version = "0.3", optional = true, features = ["NSError", "NSString", "NSObject"] }
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", optional = true, features = ["Foundation", "Security_Credentials_UI", "Win32_Foundation", "Win32_System_WinRT"] }
+windows = { version = "0.62", optional = true, features = ["Foundation", "Security_Credentials", "Security_Credentials_UI", "Security_Cryptography", "Storage_Streams", "Win32_Foundation", "Win32_System_WinRT"] }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Credentials", "Win32_Security_Cryptography", "Win32_System_Threading"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -61,7 +59,7 @@ tempfile = "3"
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "thread-spawn: one thread per keychain or helper call so the call can time out (store.rs run), plus a writer thread and a reader thread per helper exchange (apple_helper.rs), each ends when the OS call, pipe or helper returns or is killed; the trusted-helper check (apple_helper.rs verify_helper) runs one /usr/bin/codesign child per exchange of an AppleHelper::new_trusted client and polls it with a sleep of at most 10 ms until it exits or 20 s pass, then kills and reaps it; resident-static: the in-flight table in store.rs holds one entry per credential mutation currently inside an OS call and drops it when that call returns, the process-wide MemoryBackend holds only the secrets the caller stores, and the mint, UI-policy and Windows target locks hold no data; on Linux each mutation waits on a per-user flock, and on Android on a per-directory flock (android.rs), that the holder releases when its call ends; sleep: the codesign poll above; a rotation call (rotation.rs) retries its process-local mutex and its per-credential lock file with a 5 ms sleep until the store timeout, then ends in Error::InProgress, and holds both only for that call; os-auth feature (os_auth): on Windows one worker thread per prompt or availability call (hello.rs on_mta_thread), bounded by a channel timeout, that ends when the WinRT operation completes or is cancelled on timeout (the cancel runs on one further short worker thread of the same kind, bounded by a 2 s channel timeout), and on macOS a LocalAuthentication reply block the OS runs on its own queue once per prompt, and a process-wide prompt lock (os_auth PROMPT) and installed Android bridge slot that hold no data; no listener, timer or watcher (reviewed 2026-10-19; os_auth added 2026-10-20 under PK08-7, review pending)"
+continuous_reason = "thread-spawn: one thread per keychain or helper call so the call can time out (store.rs run), plus a writer thread and a reader thread per helper exchange (apple_helper.rs), each ends when the OS call, pipe or helper returns or is killed; the trusted-helper check (apple_helper.rs verify_helper) runs one /usr/bin/codesign child per exchange of an AppleHelper::new_trusted client and polls it with a sleep of at most 10 ms until it exits or 20 s pass, then kills and reaps it; resident-static: the in-flight table in store.rs holds one entry per credential mutation currently inside an OS call and drops it when that call returns, the mint, UI-policy and Windows target locks hold no data; on Linux each mutation waits on a per-user flock, and on Android on a per-directory flock (android.rs), that the holder releases when its call ends; sleep: the codesign poll above; a rotation call (rotation.rs) retries its process-local mutex and its per-credential lock file with a 5 ms sleep until the store timeout, then ends in Error::InProgress, and holds both only for that call; os-auth feature (os_auth): on Windows one worker thread per prompt or availability call (hello.rs on_mta_thread), bounded by a channel timeout, that ends when the WinRT operation completes or is cancelled on timeout (the cancel runs on one further short worker thread of the same kind, bounded by a 2 s channel timeout), and on macOS a LocalAuthentication reply block the OS runs on its own queue once per prompt, and a process-wide prompt lock (os_auth PROMPT) and installed Android bridge slot that hold no data; no listener, timer or watcher (reviewed 2026-10-19; os_auth added 2026-10-20 under PK08-7, review pending)"
 
 # One Cargo workspace and lock per crate (rightkit#1285).
 [workspace]

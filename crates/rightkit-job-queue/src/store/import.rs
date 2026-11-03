@@ -14,7 +14,7 @@ use rightkit_db::rusqlite::{params, params_from_iter, Connection, OptionalExtens
 use rightkit_db::write_txn;
 use serde_json::Value;
 
-use super::{artifact_row, format_utc, now, Artifact, JobRecord, JobStore, COMPLETE, FAILED};
+use super::{artifact_row, format_utc, Artifact, JobRecord, JobStore, COMPLETE, FAILED};
 use crate::config::{Ext, StatusModel};
 use crate::error::{JobError, JobResult, JOB_EXISTS};
 
@@ -437,7 +437,7 @@ impl JobStore {
             .id
             .clone()
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        let (created, updated) = resolve_times(rec);
+        let (created, updated) = resolve_times(rec, &self.cfg.now());
         let mut cols = String::from(
             "job_id, request_id, kind, request_json, status, attempts, error_json, result_json, \
              created_at, updated_at, attempt_gen",
@@ -592,22 +592,19 @@ fn at(mut e: JobError, index: usize, rec: &ImportRecord, label: bool) -> JobErro
 }
 
 /// `(created_at, updated_at)` as stored: what the record states, else one from the other, else
-/// the time of the import.
-fn resolve_times(rec: &ImportRecord) -> (String, String) {
+/// the time of the import (`at`).
+fn resolve_times(rec: &ImportRecord, at: &str) -> (String, String) {
     match (&rec.created_at, &rec.updated_at) {
         (Some(c), Some(u)) => (c.clone(), u.clone()),
         (Some(c), None) => (c.clone(), c.clone()),
         (None, Some(u)) => (u.clone(), u.clone()),
-        (None, None) => {
-            let n = now();
-            (n.clone(), n)
-        }
+        (None, None) => (at.to_string(), at.to_string()),
     }
 }
 
 /// A job id is used as a file name by the lock directory and the scratch layout, so it must be a
 /// single, portable path component.
-fn check_job_id(id: &str) -> JobResult<()> {
+pub(super) fn check_job_id(id: &str) -> JobResult<()> {
     let bad = id.is_empty()
         || id.len() > 255
         || id == "."

@@ -1,19 +1,30 @@
 //! rightkit-record-helper: the out-of-process Windows capture helper (RK3).
 //!
-//! Two modes over `rightkit_record::windows::WindowsBackend`:
-//! - `capture`: a one-shot take. The helper writes only the media file and prints
-//!   one JSON summary on stdout.
+//! Modes over `rightkit_record::windows::WindowsBackend`:
+//! - `capture --hwnd`: a one-shot take of one window. The helper writes only the media file and
+//!   prints one JSON summary on stdout.
 //! - `serve`: the helper protocol over stdin and stdout, for rightkit-child-process. The
 //!   core owns the bundle; nothing else may write to stdout in this mode.
+//!
+//! and, on Windows and macOS, the whole-screen mode of `screen_cli` (`capture --screen`,
+//! `monitors`; rightkit#443).
 //!
 //! rightkit-child-process will own this helper later.
 
 #[cfg(windows)]
 mod args;
+mod screen_cli;
 
-#[cfg(windows)]
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
+    if screen_cli::wants(&argv) {
+        std::process::exit(screen_cli::run(&argv));
+    }
+    platform_main(argv);
+}
+
+#[cfg(windows)]
+fn platform_main(argv: Vec<String>) {
     if argv.first().map(String::as_str) == Some("serve") {
         let code = match windows_run::serve() {
             Ok(()) => 0,
@@ -211,11 +222,11 @@ mod windows_run {
 }
 
 #[cfg(not(windows))]
-fn main() {
+fn platform_main(_argv: Vec<String>) {
     let body = serde_json::json!({
         "ok": false,
         "code": "unsupported",
-        "message": "rightkit-record-helper captures only on Windows; the macOS helper is not part of this crate",
+        "message": "rightkit-record-helper captures a window only on Windows (the macOS window helper is not part of this crate); whole-screen capture is `capture --screen` on Windows and macOS",
     });
     println!("{body}");
     eprintln!("{}", body["message"].as_str().unwrap_or_default());

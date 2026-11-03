@@ -115,6 +115,9 @@ pub struct WatchMetrics {
     /// Records a bounded queue discarded because it was full (each gap also queues one
     /// `Overflow`). Always 0 for the legacy constructors.
     pub dropped_total: u64,
+    /// Records merged into an identical unread tail record instead of being queued (directory
+    /// granularity). Always 0 for the legacy constructors.
+    pub coalesced_total: u64,
     /// Most records the queue holds before it clears; 0 means unbounded.
     pub queue_capacity: u64,
 }
@@ -259,6 +262,7 @@ impl TypedWatcher {
                     overflow_total: counters.overflow.load(Ordering::Relaxed),
                     error_total: counters.error.load(Ordering::Relaxed),
                     dropped_total: 0,
+                    coalesced_total: 0,
                     queue_capacity: 0,
                 }
             }

@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-connector-gen",
+  "capabilities": [
+    {
+      "capability": "workflow-connector-gen",
+      "summary": "Generate n8n, Zapier and Make connectors from an engine contract description instead of hand-writing one per app",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: apps generate workflow-automation connectors with this crate instead of hand-writing them.",
+        "Renders source text only; the HTTP bridge the connectors call is the app's."
+      ]
+    }
+  ]
+}

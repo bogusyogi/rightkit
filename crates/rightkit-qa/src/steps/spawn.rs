@@ -37,7 +37,6 @@
 use crate::engine::parse_cold_reason;
 use crate::engine::EngineTarget;
 use crate::process::{record_survivors_if_exited, terminate_bounded, Tracker};
-use crate::userdata::{check_engine_launch, EngineLaunch};
 use rightkit_child_process::{OwnedChild, OwnedCommand};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
@@ -62,7 +61,6 @@ pub struct SpawnEnv<'a> {
     pub tracker: &'a Tracker,
     /// The scenario's engine target, for `engine: true`.
     pub engine: Option<&'a EngineTarget>,
-    pub data_dir: &'a Path,
     /// Where captured stdout and stderr go (the scenario's evidence log directory).
     pub log_dir: &'a Path,
     /// Added to a `program` child's environment before the request's own `env` (the world marker
@@ -74,10 +72,31 @@ pub struct SpawnEnv<'a> {
 }
 
 /// Whether two paths name the same file: canonical paths when both resolve, else literal equality.
-fn same_file(a: &Path, b: &Path) -> bool {
+fn same_path(a: &Path, b: &Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
         (Ok(x), Ok(y)) => x == y,
         _ => a == b,
+    }
+}
+
+/// Whether `a` is the same program as `b`: the same file, or a copy with the same bytes (a copied
+/// `${build.app}` or the same binary under another name runs the same code, rightkit#942 F3). The
+/// size is compared first, so the hash is read only for a candidate of equal size.
+fn same_file(a: &Path, b: &Path) -> bool {
+    if same_path(a, b) {
+        return true;
+    }
+    match (std::fs::metadata(a), std::fs::metadata(b)) {
+        (Ok(x), Ok(y)) if x.is_file() && y.is_file() && x.len() == y.len() => {
+            match (
+                rightkit_fs::digest::sha256_file(a),
+                rightkit_fs::digest::sha256_file(b),
+            ) {
+                (Ok(x), Ok(y)) => x == y,
+                _ => false,
+            }
+        }
+        _ => false,
     }
 }
 
@@ -270,22 +289,12 @@ impl SpawnTable {
                     engine.binary.display()
                 ));
             }
-            let launch_env = engine.env_for(Some(env.data_dir), &step_env);
-            // The same guard the engine's own launches pass: no isolated data directory, no launch.
-            check_engine_launch(&EngineLaunch {
-                binary: &engine.binary,
-                args: &args,
-                data_dir: Some(env.data_dir),
-                data_dir_env: engine.data_dir_env.as_deref(),
-                data_dir_arg: engine.data_dir_arg.as_deref(),
-                forbidden_args: &engine.forbidden_args,
-                env: &launch_env,
-                refusal_probe: engine.allow_no_data_dir_for_refusal_probe,
-            })
-            .map_err(|e| format!("rightkit-qa refused the spawn: {e}"))?;
+            // The engine runs on the owner's real data: only under a verified snapshot.
+            crate::snapshot::require_armed().map_err(|e| e.0)?;
+            let launch_env = engine.env_for(&step_env);
             // windowless: handed to OwnedCommand::from_command below, which hides the console
             cmd = Command::new(&engine.binary);
-            // The world workspace's isolation first, the engine's own env (data dir, marker) over it.
+            // The scenario slot's variables first, the engine's own env over it.
             for (k, v) in env.extra_env {
                 cmd.env(k, v);
             }
@@ -299,7 +308,7 @@ impl SpawnTable {
             })?;
             if let Some(engine) = env.engine {
                 if same_file(Path::new(program), &engine.binary) {
-                    return Err("the engine binary is started with `engine: true`, which applies the data-directory guard".to_string());
+                    return Err("the engine binary is started with `engine: true`, which applies the target's own env".to_string());
                 }
             }
             if let Some(ui) = env.ui_binary {
@@ -307,9 +316,8 @@ impl SpawnTable {
                     return Err("rightkit-qa refused the spawn: the UI binary is started only by the runner's own launch path (`ui_launch`), never by `spawn`".to_string());
                 }
             }
-            // The world's isolation (HOME, TMP, APPDATA, XDG, data dir) is not the plugin's to
-            // repoint: a step `env` naming one of those with another value would put the child on
-            // a real profile.
+            // The scenario slot's variables (marker, ports, control endpoint, tokens) are not the
+            // plugin's to repoint.
             for (k, v) in &step_env {
                 if let Some((_, world)) = env
                     .extra_env
@@ -318,7 +326,7 @@ impl SpawnTable {
                 {
                     if world != v {
                         return Err(format!(
-                            "rightkit-qa refused the spawn: `env` {k} would override the world's isolated value"
+                            "rightkit-qa refused the spawn: `env` {k} would override the scenario slot's value"
                         ));
                     }
                 }

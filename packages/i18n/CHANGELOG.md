@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 (unpublished)
+
+- Issue #416 (Pulse Windows port): the Rust pair `rightkit-i18n` now loads these catalogs in native code. No change to the TypeScript runtime.
+
 ## 0.2.0 (2026-10-17)
 
 Added (#616, CodeRight port; additive):

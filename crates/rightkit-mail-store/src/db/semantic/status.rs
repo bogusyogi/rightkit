@@ -3,6 +3,10 @@
 //! message. The state is derived from plain inputs, so it is testable without
 //! a model, a runtime or an app.
 
+use rightkit_db::rusqlite::Connection;
+
+use super::index;
+
 /// The one state shown to the user.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]

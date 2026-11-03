@@ -538,8 +538,29 @@ pub fn paste_prompt_with_options(
                 serde_json::to_string_pretty(&live.block.artifact_roots)
                     .unwrap_or_else(|_| "[]".into())
             };
+            let open_items = if live.block.open_items.is_empty() {
+                format!(
+                    "none: {}",
+                    live.block.open_items_none_reason.as_deref().unwrap_or("no reason recorded")
+                )
+            } else {
+                serde_json::to_string_pretty(&live.block.open_items)
+                    .unwrap_or_else(|_| "[]".into())
+            };
+            let procedures = if live.block.procedures.is_empty() {
+                "none declared".to_string()
+            } else {
+                serde_json::to_string_pretty(&live.block.procedures)
+                    .unwrap_or_else(|_| "[]".into())
+            };
+            let struck = if live.block.struck_items.is_empty() {
+                "none".to_string()
+            } else {
+                serde_json::to_string_pretty(&live.block.struck_items)
+                    .unwrap_or_else(|_| "[]".into())
+            };
             format!(
-                "\nSOURCE ASSERTIONS (declared by source, hash-bound by the receipt, not transcript evidence; confirm drift-prone state before relying on it)\n- block: {}\n- sha256: {}\n- {memory}\n- changed_since (the packet may not state the old value of any entry as a LOCKED decision; account for every entry):\n{changed}\n- artifact_roots (list each in the packet artifact table):\n{roots}\n- in_flight (reconcile every item before writing the packet):\n{}\n",
+                "\nSOURCE ASSERTIONS (declared by source, hash-bound by the receipt, not transcript evidence; confirm drift-prone state before relying on it)\n- block: {}\n- sha256: {}\n- {memory}\n- changed_since (the packet may not state the old value of any entry as a LOCKED decision; account for every entry):\n{changed}\n- artifact_roots (list each in the packet artifact table):\n{roots}\n- in_flight (reconcile every item before writing the packet):\n{}\n- open_items (the source ledger: give every id a disposition of carried, done+evidence, superseded or user-cancelled under \"Imported open items\" in section 8; the validator fails a missing id):\n{open_items}\n- procedures (put every step in section 10 in order; the validator fails a missing step):\n{procedures}\n- struck_items (prefilled rows the source dropped, with its reason):\n{struck}\n",
                 live.path, live.sha256, in_flight
             )
         }

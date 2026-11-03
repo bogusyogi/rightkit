@@ -19,6 +19,10 @@ path = "src/lib.rs"
 name = "rightkit-mesh-mailbox"
 path = "src/bin/rightkit-mesh-mailbox.rs"
 
+[[bin]]
+name = "rightkit-mesh-relay-admission"
+path = "src/bin/rightkit-mesh-relay-admission.rs"
+
 [features]
 default = ["fast-apple-datapath"]
 # iroh's fast-apple-datapath (sendmsg_x/recvmsg_x batching on macOS); phone builds (FFI) turn it off: private syscalls fail App Store review.

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-transcript-library"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Transcript library: delivery records (outcome, target, timings, source), history store contract with filters, paging, retention, scoped deletes and an in-memory store."

@@ -6,18 +6,8 @@ import {
   type LoadedDocument,
   type ViewMeta,
 } from "../documents/types.js";
-import type { LicenseClient } from "@rightkit/license";
 import { isTauri } from "@rightkit/platform-ui";
 import { createShell, type AssociationGroupStatus, type Shell } from "@rightkit/tauri-shell";
-
-// Browser-QA fixture modules load on demand. Every call site sits behind `BROWSER_QA_BUILD` (a
-// build-time constant), so production builds fold the guard to `false`, drop these dynamic imports,
-// and never emit the fixture chunks. Keep static imports of these modules out of this file.
-const loadQaFixtures = () => import("./browserQa.js");
-const loadQaText = () => import("./browserQaText.js");
-const loadQaDocx = () => import("./browserQaDocx.js");
-const loadQaPdf = () => import("./browserQaPdf.js");
-const loadQaLicense = () => import("./browserQaLicense.js");
 
 /** True when running inside the Tauri webview (vs. plain `vite dev` in a browser). */
 const inTauri = isTauri;
@@ -28,14 +18,6 @@ export function getShell(): Shell {
   shell ??= createShell();
   return shell;
 }
-
-/**
- * Build-time switch for the browser-QA fixtures: `true` in `vite dev` and in the
- * `VITE_RIGHTKIT_BROWSER_QA=1` build, a literal `false` in production builds. Every QA branch in
- * this module is guarded with it, so the minifier drops those branches and nothing references the
- * `browserQa*` fixture modules in a production bundle.
- */
-const BROWSER_QA_BUILD = import.meta.env?.DEV || import.meta.env?.VITE_RIGHTKIT_BROWSER_QA === "1";
 
 /**
  * Write text to the system clipboard: through the shell's native clipboard in the app, through the
@@ -51,14 +33,6 @@ export async function writeClipboardText(text: string): Promise<void> {
     throw new Error("The clipboard is unavailable.");
   }
   await navigator.clipboard.writeText(text);
-}
-
-export function isBrowserQaMode(): boolean {
-  const qaBuild = import.meta.env?.VITE_RIGHTKIT_BROWSER_QA === "1";
-  if (!import.meta.env?.DEV && !qaBuild) return false;
-  if (typeof window === "undefined" || inTauri()) return false;
-  const params = new URLSearchParams(window.location.search);
-  return params.has("qa") || qaBuild;
 }
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -80,16 +54,6 @@ async function listen<T>(
  * update Bearer; the webview only sends commands and receives validated display views.
  */
 export const nativeIpc = { invoke, listen };
-
-/**
- * Browser-QA licence client (`@rightkit/license/testing`, in-memory, no network). Returns null
- * outside browser QA, so the caller uses the native client. The `testing` export resolves only
- * under the `development` condition and the call site folds to `false` in a release build.
- */
-export async function browserQaLicenseClient(): Promise<LicenseClient | null> {
-  if (BROWSER_QA_BUILD && isBrowserQaMode()) return (await loadQaLicense()).qaLicenseClient();
-  return null;
-}
 
 /** Classified shape every bridge caller can rely on. `code` matches the Rust `HostError`
  *  variant in snake_case (e.g. "broker_denied", "file_not_found"), or "unknown" when the rejection
@@ -127,9 +91,6 @@ export function parseHostError(e: unknown): ClassifiedError {
 }
 
 export async function openFileDialog(): Promise<string | null> {
-  if (BROWSER_QA_BUILD && isBrowserQaMode()) {
-    return (await loadQaFixtures()).qaDialogPath();
-  }
   if (!inTauri()) {
     console.warn("openFileDialog: not in Tauri — open a real document via `pnpm tauri dev`.");
     return null;
@@ -162,26 +123,6 @@ interface RawWriteDocumentResult {
 
 export async function readDocument(path: string): Promise<LoadedDocument> {
   const format = formatFromPath(path);
-  if (BROWSER_QA_BUILD && isBrowserQaMode()) {
-    const qaDocx = await loadQaDocx();
-    const qaText = await loadQaText();
-    const savedDocx = qaDocx.readQaDocxDocument({
-      path,
-      displayName: baseName(path),
-      format,
-      content: "",
-    });
-    if (savedDocx) return savedDocx;
-    const doc = await (await loadQaFixtures()).qaDocumentForPath(path);
-    if (doc) {
-      if (format === "pdf") {
-        const assetUrl = await (await loadQaPdf()).qaCurrentPdfAssetUrl(path);
-        return { ...doc, assetUrl: assetUrl ?? doc.assetUrl };
-      }
-      return qaText.readQaTextDocument(doc);
-    }
-    return qaText.readQaTextDocument({ path, displayName: baseName(path), format, content: "" });
-  }
   if (!inTauri()) {
     return { path, displayName: baseName(path), format, content: "" };
   }
@@ -242,10 +183,6 @@ export async function getPersistenceStatus(): Promise<{ degraded: boolean; quara
 }
 
 export async function getInitialOpenPaths(): Promise<string[]> {
-  if (BROWSER_QA_BUILD && isBrowserQaMode()) {
-    const path = (await loadQaFixtures()).qaInitialOpenPath();
-    return path ? [path] : [];
-  }
   if (!inTauri()) return [];
   // The shell's open-paths gate: it grants and drains what argv / a second launch / macOS
   // open-document queued so far (display paths only) and switches to live `rightkit-shell://open-paths`
@@ -398,8 +335,6 @@ export async function writeDocument(
   encoding?: string,
   expectedSourceSha256?: string,
 ): Promise<WriteDocumentResult> {
-  if (BROWSER_QA_BUILD && isBrowserQaMode())
-    return (await loadQaText()).writeQaTextDocument(path, content, encoding, expectedSourceSha256);
   if (!inTauri()) throw new Error("Saving requires the desktop app.");
   const result = await invoke<RawWriteDocumentResult>("write_document", {
     path,
@@ -417,10 +352,6 @@ export async function writeDocument(
 // changing writeDocumentBytes's contract (out of scope here) — and a 32k-arg spread/apply call is
 // exactly the call-stack-pressure risk the loop below was already written to avoid. Not a clear
 // improvement, so kept unchanged per the audit's own guidance.
-function arrayBufferToBase64(ab: ArrayBuffer): string {
-  return byteArrayToBase64(new Uint8Array(ab));
-}
-
 function byteArrayToBase64(bytes: Uint8Array): string {
   let bin = "";
   const chunk = 0x8000;
@@ -437,11 +368,6 @@ function byteArrayToBase64(bytes: Uint8Array): string {
 }
 
 export async function writeDocumentBytes(path: string, data: ArrayBuffer): Promise<void> {
-  if (BROWSER_QA_BUILD && isBrowserQaMode()) {
-    if (formatFromPath(path) === "docx")
-      await (await loadQaDocx()).writeQaDocxDocument(path, data, arrayBufferToBase64(data));
-    return;
-  }
   if (!inTauri()) throw new Error("Saving requires the desktop app.");
   // Raw request body (like ocr_page): the DOCX bytes cross IPC as-is, with no JS base64 encode on
   // the main thread. The target path rides in a hex header so any filesystem path is header-safe.
@@ -461,7 +387,6 @@ function pathToHex(path: string): string {
  * reserializing its bytes. The desktop command owns both broker checks and the filesystem copy so
  * PDF Save As preserves signatures, encryption, widgets, and any bytes pdf.js cannot round-trip. */
 export async function copyDocument(sourcePath: string, targetPath: string): Promise<void> {
-  if (BROWSER_QA_BUILD && isBrowserQaMode()) return;
   if (!inTauri()) throw new Error("Saving requires the desktop app.");
   await invoke("copy_document", { sourcePath, targetPath });
 }
@@ -519,8 +444,6 @@ import type {
 import type { OcrLine } from "../documents/pdf/pdfOcr.js";
 import { hostAppName } from "../appName.js";
 
-if (BROWSER_QA_BUILD && isBrowserQaMode())
-  void loadQaPdf().then((qaPdf) => qaPdf.registerViewrightQaGlobal());
 
 /** Normalizes an `invoke()` raw-body result (an `ArrayBuffer`, or occasionally already a
  *  `Uint8Array`/plain byte array depending on Tauri's IPC transport) into a `Uint8Array`. */
@@ -536,9 +459,8 @@ function toUint8Array(body: unknown): Uint8Array {
  *  dynamic `@tauri-apps/api/core` import reach into `window.__TAURI_INTERNALS__`, which is
  *  `undefined` there and throws a raw, unclassified "Cannot read properties of undefined (reading
  *  'invoke')" instead of a `ClassifiedError` a caller's existing catch/`errorMessage` handling can
- *  show meaningfully. These six PDF-editor commands have no browser-QA fixture to fall back to
- *  (unlike `readDocument`'s `qaDocumentForPath`) — a real Rust backend is unavoidable for source
- *  inspection/composition/save — so the correct graceful behavior is a clean, classified rejection
+ *  show meaningfully. These six PDF-editor commands need the real Rust backend for source
+ *  inspection/composition/save, so the correct graceful behavior is a clean, classified rejection
  *  rather than either a raw crash or a fabricated result. */
 function requireTauriForPdfEdit(command: string): void {
   if (!inTauri()) {
@@ -550,7 +472,6 @@ function requireTauriForPdfEdit(command: string): void {
 export const ocrPage = async (png: ArrayBuffer | Uint8Array): Promise<OcrLine[]> => {
   // Browser QA has no Rust OCR backend, so the IPC-boundary fixture keeps the scanned-page UI
   // exercisable without moving a mock into the document components.
-  if (BROWSER_QA_BUILD && isBrowserQaMode()) return (await loadQaFixtures()).qaOcrLines();
   requireTauriForPdfEdit("ocr_page");
   const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
   return tauriInvoke<OcrLine[]>("ocr_page", png);
@@ -567,7 +488,6 @@ let ocrAvailableProbe: Promise<boolean> | null = null;
 export const ocrAvailable = (): Promise<boolean> => {
   // Browser QA has no Rust OCR backend, so the IPC-boundary fixture keeps the scanned-page UI
   // exercisable without moving a mock into the document components.
-  if (BROWSER_QA_BUILD && isBrowserQaMode()) return Promise.resolve(true);
   if (!inTauri()) return Promise.resolve(false);
   ocrAvailableProbe ??= invoke<boolean>("ocr_available").catch(() => {
     ocrAvailableProbe = null;
@@ -600,15 +520,12 @@ export const inspectPdfPage: InspectPdfPage = async (
 ): Promise<PdfPageGraph> => {
   // Browser QA has no Rust content-stream walker, so the IPC-boundary fixture keeps Edit-text mode
   // reachable/non-crashing (islands always empty — source-text editing stays native-only).
-  if (BROWSER_QA_BUILD && isBrowserQaMode())
-    return (await loadQaPdf()).qaInspectPdfPage(path, page);
   requireTauriForPdfEdit("inspect_pdf_page");
   return invoke<PdfPageGraph>("inspect_pdf_page", { path, page });
 };
 
 /** §7.2 `list_pdf_fonts`. Returns the bundled + system font catalog available for embedding. */
 export const listPdfFonts: ListPdfFonts = async (): Promise<PdfFontCatalogEntry[]> => {
-  if (BROWSER_QA_BUILD && isBrowserQaMode()) return (await loadQaPdf()).qaListPdfFonts();
   requireTauriForPdfEdit("list_pdf_fonts");
   return invoke<PdfFontCatalogEntry[]>("list_pdf_fonts");
 };
@@ -619,8 +536,6 @@ export const listPdfFonts: ListPdfFonts = async (): Promise<PdfFontCatalogEntry[
 export const composePdfPreview: ComposePdfPreview = async (
   request: ComposePdfPreviewRequest,
 ): Promise<ComposedPdfPreview> => {
-  if (BROWSER_QA_BUILD && isBrowserQaMode())
-    return (await loadQaPdf()).qaComposePdfPreview(request);
   requireTauriForPdfEdit("compose_pdf_preview");
   const body = await invoke<number[]>("compose_pdf_preview", {
     request: {
@@ -664,7 +579,6 @@ interface RawPreparedPdfSaveMeta {
 export const preparePdfSave: PreparePdfSave = async (
   request: PreparePdfSaveRequest,
 ): Promise<PreparedPdfSave> => {
-  if (BROWSER_QA_BUILD && isBrowserQaMode()) return (await loadQaPdf()).qaPreparePdfSave(request);
   requireTauriForPdfEdit("prepare_pdf_save");
   const meta = await invoke<RawPreparedPdfSaveMeta>("prepare_pdf_save", {
     request: {
@@ -703,8 +617,6 @@ export const commitPdfSave: CommitPdfSave = async (
   token: string,
   targetPath?: string,
 ): Promise<PdfCommitResult> => {
-  if (BROWSER_QA_BUILD && isBrowserQaMode())
-    return (await loadQaPdf()).qaCommitPdfSave(token, targetPath);
   requireTauriForPdfEdit("commit_pdf_save");
   const result = await invoke<{ targetPath: string; documentSha256: string }>("commit_pdf_save", {
     token,
@@ -717,16 +629,6 @@ export const commitPdfSave: CommitPdfSave = async (
     revision: { documentSha256: result.documentSha256, pageCount: 0, pages: [] },
   };
 };
-
-/** Browser-QA-only: current bytes of the in-memory QA PDF "disk" at `path`, or `null` outside QA
- *  mode / for an untouched path. PdfViewer.tsx's post-commit reload uses this instead of
- *  re-fetching its `url` prop — a real Tauri stream token is a revocable token that re-resolves to
- *  the same (now-committed) file on every fetch, but browser QA's `url` is a static `data:` URL
- *  captured once at document-open time, which can never reflect a later commit on its own. */
-export async function qaReloadPdfBytes(path: string): Promise<Uint8Array | null> {
-  if (!BROWSER_QA_BUILD || !isBrowserQaMode()) return null;
-  return (await loadQaPdf()).qaCurrentPdfBytes(path);
-}
 
 /** Token of the interactive HTML preview that currently owns DevTools (the active tab's frame), or
  *  null. Set by the HTML preview frame; DevTools opens exactly that registered document. */
@@ -746,7 +648,7 @@ export function releaseInspectableHtmlPreview(token: string): void {
  *  main webview is never inspectable. No-op without an active HTML preview or outside Tauri. */
 export async function openDevtools(): Promise<void> {
   const token = inspectableHtmlToken;
-  if (!token || (BROWSER_QA_BUILD && isBrowserQaMode()) || !inTauri()) return;
+  if (!token || !inTauri()) return;
   await invoke("open_html_devtools", { token });
 }
 
@@ -754,7 +656,7 @@ export async function openDevtools(): Promise<void> {
 export async function setDevtoolsShortcutScope(_enabled: boolean): Promise<void> {}
 
 export async function revealInFileExplorer(path: string): Promise<void> {
-  if ((BROWSER_QA_BUILD && isBrowserQaMode()) || !inTauri()) return;
+  if (!inTauri()) return;
   await invoke("reveal_in_file_explorer", { path });
 }
 
@@ -791,8 +693,6 @@ export async function printCurrentWebview(): Promise<boolean> {
 }
 
 export async function listSystemFonts(): Promise<string[]> {
-  if (BROWSER_QA_BUILD && isBrowserQaMode())
-    return ["Inter", "Source Serif 4", "JetBrains Mono", "Geist", "Newsreader"];
   if (!inTauri()) return [];
   return invoke<string[]>("list_system_fonts");
 }
@@ -824,20 +724,6 @@ export interface SetFileAssociationDefaultsResult {
   allSet: boolean;
 }
 
-const QA_FILE_ASSOCIATION_FORMATS = ["md", "mdx", "txt", "pdf", "html", "docx", "image"];
-let qaPreferredAssociationFormats = new Set(["md", "mdx"]);
-
-function qaFileAssociationStatus(): FileAssociationStatus {
-  return {
-    formats: QA_FILE_ASSOCIATION_FORMATS.map((formatId) => ({
-      formatId,
-      extensions: [],
-      handlers: [],
-      allSet: qaPreferredAssociationFormats.has(formatId),
-    })),
-  };
-}
-
 function toFormatStatus(group: AssociationGroupStatus): FileAssociationFormatStatus {
   return {
     formatId: group.id,
@@ -852,7 +738,6 @@ function toFormatStatus(group: AssociationGroupStatus): FileAssociationFormatSta
 }
 
 export async function fileAssociationStatus(): Promise<FileAssociationStatus> {
-  if (BROWSER_QA_BUILD && isBrowserQaMode()) return qaFileAssociationStatus();
   const status = await getShell().associations.status();
   return { formats: status.groups.map(toFormatStatus) };
 }
@@ -860,11 +745,6 @@ export async function fileAssociationStatus(): Promise<FileAssociationStatus> {
 export async function setFileAssociationDefaults(
   formatIds: string[],
 ): Promise<SetFileAssociationDefaultsResult> {
-  if (BROWSER_QA_BUILD && isBrowserQaMode()) {
-    qaPreferredAssociationFormats = new Set(formatIds);
-    const status = qaFileAssociationStatus();
-    return { formats: status.formats, allSet: formatIds.length > 0 };
-  }
   // macOS: one NSWorkspace request per content type (system consent sheet), one shared 60 s
   // deadline (the shell default; the host clamps a given value to 1 to 120 s).
   const result = await getShell().associations.set(formatIds);
@@ -874,7 +754,6 @@ export async function setFileAssociationDefaults(
 /** Windows owns protected default-app choices. This opens Windows Default apps; the shell never
  * writes UserChoice registry hashes or claims a default changed. */
 export async function openFileAssociationSettings(_formatIds: string[]): Promise<void> {
-  if (BROWSER_QA_BUILD && isBrowserQaMode()) return;
   await getShell().associations.openDefaultApps();
 }
 
@@ -1001,14 +880,11 @@ export async function saveFileDialog(
   defaultName?: string,
   format?: string,
 ): Promise<string | null> {
-  if (BROWSER_QA_BUILD && isBrowserQaMode())
-    return `D:\\${hostAppName()} QA\\${defaultName ?? `untitled.${format ?? "txt"}`}`;
   if (!inTauri()) return null;
   return invoke<string | null>("save_file_dialog", { defaultName, format });
 }
 
 export async function grantKnownFileToken(token: string): Promise<string | null> {
-  if (BROWSER_QA_BUILD && isBrowserQaMode()) return token;
   if (!inTauri()) return null;
   return invoke<string | null>("grant_known_file_token", { token });
 }
@@ -1025,13 +901,11 @@ export async function openLinkedDocument(
   target: string,
   from?: string | null,
 ): Promise<string | null> {
-  if (BROWSER_QA_BUILD && isBrowserQaMode()) return target;
   if (!inTauri()) return null;
   return invoke<string | null>("open_linked_document", { target, from: from ?? null });
 }
 
 export async function regrantSavedTarget(path: string): Promise<string | null> {
-  if (BROWSER_QA_BUILD && isBrowserQaMode()) return path;
   if (!inTauri()) return null;
   return invoke<string | null>("regrant_saved_target", { path });
 }

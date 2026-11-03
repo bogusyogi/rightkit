@@ -43,14 +43,18 @@ pub use android::{
 #[cfg(feature = "support-bundle")]
 pub use archive::create_zip;
 #[cfg(feature = "support-bundle")]
-pub use bundle::{build_support_bundle, BundleManifest, SupportBundleOptions};
+pub use bundle::{
+    admit_crash_artifacts, build_support_bundle, build_support_bundle_with_extras,
+    build_support_bundle_with_sections, AdmittedCrashArtifacts, BundleExtras, BundleManifest,
+    ExtraFile, SectionDigest, SupportBundleOptions,
+};
 #[cfg(feature = "diagnostics")]
 pub use diagnostics::{init_diagnostics, Diagnostics, DiagnosticsConfig, CRASH_SUBDIR, LOG_SUBDIR};
 pub use hang::{HangEvent, HangOptions, HangWatchdog, Heartbeat};
 pub use hook::{
     capture_native_for_pid, fallback_crash_dir, install_panic_hook, install_process_hook,
-    record_helper_exit, record_report, recording_enabled, set_recording_enabled, CrashConfig,
-    ProcessKind,
+    record_helper_exit, record_report, recording_enabled, set_recording_enabled, CaughtPanicScope,
+    CrashConfig, ProcessKind,
 };
 pub use native::{capture_native, set_dump_helper, NativeCapture, DEFAULT_DUMP_HELPER};
 pub use pending::{enqueue_pending, list_pending, EnqueueSummary, CRASH_EVENT_TYPE};

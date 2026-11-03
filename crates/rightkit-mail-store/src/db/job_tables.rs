@@ -22,6 +22,7 @@
 
 use rightkit_db::rusqlite::Connection;
 use rightkit_job_queue::{ExtColumn, JobError, JobRecord, JobTable, StatusModel, StoreConfig};
+use serde_json::json;
 use std::sync::OnceLock;
 
 pub(crate) const OUTBOX_TABLE: &str = "outbox";

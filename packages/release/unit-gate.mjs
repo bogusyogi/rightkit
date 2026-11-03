@@ -13,7 +13,9 @@ import { RIGHTKIT_REPOSITORY, buildDirectOrigin, directStageEvidence, verifyDire
 import { exclusionsFor } from "./pack-digest.mjs";
 import { ATTEST_STAGE_NONCE_ENV, qualificationNonce } from "./provenance-verify.mjs";
 import { verifyQualificationReceipts } from "./qualification-verify.mjs";
-import { assignJobs, describeCommand, expectedStageCommands } from "./stage-commands.mjs";
+import { assignJobs, describeCommand, directRowsNotRun, expectedStageCommands } from "./stage-commands.mjs";
+import { carriedCargoMapOf } from "./carried-cargo.mjs";
+import { UNSCOPED, readLedger } from "./cargo-ledger.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
 import { controlPlaneProblem } from "./control-plane.mjs";
 
@@ -400,8 +402,18 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
     // so a missing one fails here, before any dispatch, naming it. Jobs that are none of the stage's commands are not carried.
     const fetched = [...new Set(ids ?? [])].map((id) => fetchReceipt(id));
     // A carried cargo command is bound to the directory of the primary checkout it ran in (source.checkout; stage-commands.mjs requestIs).
-    const { assigned, missing } = assignJobs(stageCommands({ unit, root, platform })[stage], fetched.map((r) => ({ id: r.id, payload: r.provenance.payload })), { checkout: source?.checkout ?? null });
+    const rows = stageCommands({ unit, root, platform })[stage];
+    const { assigned, missing } = assignJobs(rows, fetched.map((r) => ({ id: r.id, payload: r.provenance.payload })), { checkout: source?.checkout ?? null });
     if (missing.length) throw new Error(`the ${stage} stage's ${describeCommand(missing[0])} has no broker job receipt (${missing.length} required command(s) missing)`);
+    // GC-A11: a command that compiles nothing runs directly and makes no receipt (rightkit#1484); the stage's carrier ledger must show it ran with exit 0.
+    if (rows.some((row) => row.direct === true)) {
+      const carried = carriedCargoMapOf(envExtra);
+      let entries = null;
+      if (carried?.map) { try { entries = readLedger(carried.map.ledgerDir, UNSCOPED).entries; } catch { entries = null; } }
+      if (entries === null) throw new Error(`the ${stage} stage runs ${rows.filter((row) => row.direct === true).length} direct (non-compiling) command(s) and its carrier ledger cannot be read to verify them`);
+      const notRun = directRowsNotRun(rows, entries);
+      if (notRun.length) throw new Error(`the ${stage} stage's direct command ${describeCommand(notRun[0].row)} ${notRun[0].why} in the carrier ledger (${notRun.length} direct command(s) unverified)`);
+    }
     receipts[stage] = fetched.filter((r) => assigned.has(r.id));
   };
   const verifyArtifact = (result) => {

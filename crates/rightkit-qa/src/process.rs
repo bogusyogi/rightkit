@@ -468,6 +468,66 @@ fn children_of(pid: u32) -> Vec<u32> {
     }
 }
 
+/// Every descendant of `pid` that is running now, as `(pid, image name)`. Best effort: a helper that
+/// cannot answer in time gives an empty list, and the kill goes ahead regardless.
+#[cfg(unix)]
+fn descendant_images(pid: u32) -> Vec<(u32, String)> {
+    let mut found: Vec<u32> = Vec::new();
+    let mut frontier = vec![pid];
+    while let Some(p) = frontier.pop() {
+        for kid in children_of(p) {
+            if !found.contains(&kid) && kid != pid {
+                found.push(kid);
+                frontier.push(kid);
+            }
+        }
+    }
+    found
+        .into_iter()
+        .map(|kid| {
+            let image = output_bounded(
+                Command::new("ps").args(["-o", "comm=", "-p", &kid.to_string()]),
+                KILL_HELPER_TIMEOUT,
+            )
+            .ok()
+            .flatten()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .filter(|i| !i.is_empty())
+            .unwrap_or_else(|| "(unknown image)".to_string());
+            (kid, image)
+        })
+        .collect()
+}
+
+#[cfg(windows)]
+fn descendant_images(pid: u32) -> Vec<(u32, String)> {
+    let script = format!(
+        "$p = Get-CimInstance Win32_Process; $q = New-Object System.Collections.Queue; $q.Enqueue({pid}); \
+         while ($q.Count) {{ $c = $q.Dequeue(); foreach ($x in $p) {{ if ($x.ParentProcessId -eq $c) {{ \
+         \"$($x.ProcessId),$($x.Name)\"; $q.Enqueue($x.ProcessId) }} }} }}"
+    );
+    let out = output_bounded(
+        hidden(Command::new("powershell.exe").args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            &script,
+        ])),
+        KILL_HELPER_TIMEOUT,
+    );
+    match out {
+        Ok(Some(o)) => String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .filter_map(|l| {
+                let (id, name) = l.trim().split_once(',')?;
+                Some((id.parse().ok()?, name.to_string()))
+            })
+            .filter(|(id, _): &(u32, String)| *id != pid)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// Terminate `pid` and its descendants. TERM first, KILL after a short grace.
 pub fn kill_tree(pid: u32) {
     if !is_alive(pid) {
@@ -727,7 +787,12 @@ impl Tracker {
     /// Kill every registered process still running. A recorded survivor is never signalled by pid:
     /// it was ended by the cleanup that recorded it, and its pid may name something else by now.
     pub fn kill_all(&self) {
-        for (pid, _) in self.live_registered() {
+        for (pid, label) in self.live_registered() {
+            // Every descendant the kill is about to end is recorded first, with its pid and image,
+            // so the teardown reads it as a survivor and the report names it (rightkit#942 F5).
+            for (child, image) in descendant_images(pid) {
+                self.record_survivor(child, &format!("{label}: descendant {image}"));
+            }
             kill_tree(pid);
         }
     }

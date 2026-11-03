@@ -4,6 +4,7 @@ use crate::{
     id::{AgentId, RequestId, TaskId},
     non_empty, require_version, ContractError,
 };
+use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]

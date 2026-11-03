@@ -25,12 +25,21 @@
 //!   With feature `cookie-export`, `CookieExport` goes the other way: it keeps the cookies of
 //!   declared domains and publishes them as a private Netscape file through rightkit-fs; an
 //!   empty or invalid export never replaces the previous file.
+//! * With feature `profile-vault`, [`ProfileVault`] and [`LaunchOptions::encrypted_profile`] keep
+//!   a persistent profile as one authenticated-encrypted file at rest: decrypted to a private
+//!   working directory for the session, re-sealed and wiped at stop, recovered after a crash, and
+//!   refused with a typed [`VaultError`] when the credential-store key is unavailable.
+//! * [`capture`] loads one real URL and returns a typed [`CaptureReport`]: load result, PNG,
+//!   metrics, console and (feature `axe`) axe-core output, each hashed and bound to the session,
+//!   process, profile, page, frame, loader and context that produced it, with the terminal
+//!   cleanup outcome ([`StopReport`]) of success, failure, timeout and cancellation alike.
 //! * [`BrowserPage::observe`] returns refs that are checked for staleness before use.
 //! * [`design_mode`] holds the element-picker primitives: an isolated-world binding bridge,
 //!   a one-shot native-gesture submit gate, device-pixel capture geometry and the picker script builder.
 // The source-only fixture browser is confined by macOS Seatbelt / the Windows sandbox; on other hosts its
 // constructors refuse and the rest of the fixture machinery is unreachable.
 #![cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
+mod capture;
 mod cdp_ext;
 mod config;
 #[cfg(feature = "cookie-export")]
@@ -53,7 +62,19 @@ mod proxy;
 mod real_session;
 mod sandbox_access;
 mod session;
+#[cfg(feature = "profile-vault")]
+mod vault;
+mod visible;
 
+pub use capture::{
+    capture, AxeObservation, AxeSpec, AxeStatus, CaptureArtifact, CaptureBinding,
+    CaptureCancellation, CaptureIdentity, CaptureReport, CaptureRequest, CaptureStatus,
+    CleanupReport, ConsoleObservation, ConsoleRecord, LoadObservation, MetricsObservation,
+    ScreenshotArtifact, CAPTURE_SCHEMA, MAX_CAPTURE_AXE_BYTES, MAX_CAPTURE_CONSOLE_RECORDS,
+    MAX_CAPTURE_DEADLINE, MAX_CAPTURE_SCREENSHOT_BYTES, MAX_CAPTURE_VIEWPORT_EDGE,
+};
+#[cfg(feature = "axe")]
+pub use capture::{AXE_SHA256, AXE_VERSION};
 pub use cdp_ext::{
     AxNode, AxSummary, ContinueOverrides, DownloadBehavior, ExceptionFrame, InterceptDecision,
     InterceptFailure, InterceptStage, InterceptedRequest, PageException, RequestInterceptor,
@@ -81,7 +102,8 @@ pub use fixture_protocol::{
 };
 pub use fixture_server::FixtureServer;
 pub use page::{
-    BrowserPage, ConsoleLine, Observation, ObservedNode, Rect, ScreenshotOptions, Target,
+    BrowserPage, ConsoleLine, Observation, ObservedNode, Rect, ScreenshotClip, ScreenshotFormat,
+    ScreenshotOptions, Target, MAX_EXTRA_HEADERS, MAX_HEADER_VALUE_BYTES, MAX_USER_AGENT_BYTES,
     OBSERVE_AX_DEPTH,
 };
 pub use policy::{
@@ -95,4 +117,7 @@ pub use real_session::{
     BrowserKind, BrowserSource, ConsentRevocation, ImportReport, ImportSpec, SourceProfile,
     UserConsentReceipt, CONSENT_SCHEMA,
 };
-pub use session::{BrowserSession, PageSetup};
+pub use session::{BrowserSession, PageSetup, StopReport};
+#[cfg(feature = "profile-vault")]
+pub use vault::{ProfileVault, VaultError};
+pub use visible::{run_visible_until_exit, VisibleExit, VisibleLaunch};

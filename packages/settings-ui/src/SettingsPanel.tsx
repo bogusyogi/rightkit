@@ -65,14 +65,14 @@ export function revealSetting(root: ParentNode, id: string): boolean {
  * The active section's article: heading (`heading` ?? `label`) plus its body. With the heading hidden (`hideSectionHeading`
  * on the section or the panel) there is no `<h1>` and the article is labelled by `label`.
  */
-export function SectionFrame({ section, ctx, hideSectionHeading = false }: { section: SettingsSection; ctx: SettingsContext; hideSectionHeading?: boolean }) {
+export function SectionFrame({ section, ctx, hideSectionHeading = false, classNames }: { section: SettingsSection; ctx: SettingsContext; hideSectionHeading?: boolean; classNames?: SettingsClassNames }) {
   const body = <SettingsSectionScope id={section.id} title={section.label} keywords={sectionTerms(section)}>{section.render(ctx)}</SettingsSectionScope>;
   if ((section.hideSectionHeading ?? hideSectionHeading)) {
-    return <article className="rk-settings__section" aria-label={section.label}>{body}</article>;
+    return <article className={cx("rk-settings__section", classNames?.section)} aria-label={section.label}>{body}</article>;
   }
   return (
-    <article className="rk-settings__section" aria-labelledby={`rk-sec-${section.id}`}>
-      <h1 id={`rk-sec-${section.id}`} className="rk-settings__h1">{section.heading ?? section.label}</h1>
+    <article className={cx("rk-settings__section", classNames?.section)} aria-labelledby={`rk-sec-${section.id}`}>
+      <h1 id={`rk-sec-${section.id}`} className={cx("rk-settings__h1", classNames?.title)}>{section.heading ?? section.label}</h1>
       {body}
     </article>
   );
@@ -83,6 +83,21 @@ const sectionTerms = (s: SettingsSection): string[] | undefined => {
   const t = [...(s.keywords ?? []), ...(s.group ? [s.group] : [])];
   return t.length ? t : undefined;
 };
+
+/**
+ * Extra class names per part of the frame, appended after the built-in classes. Use them to theme the panel from the app
+ * without copying its markup; the built-in classes (and `settings.css`) stay as they are.
+ */
+export interface SettingsClassNames {
+  root?: string;
+  nav?: string;
+  item?: string;
+  search?: string;
+  body?: string;
+  section?: string;
+  title?: string;
+  error?: string;
+}
 
 /** State passed to `renderNavItem`. */
 export interface NavItemState {
@@ -114,6 +129,8 @@ export interface SettingsPanelProps {
    * unless `search` is set to `true` explicitly, in which case it sits above the content; a controlled `query` works either way.
    */
   hideNav?: boolean;
+  /** Extra class names per part (see `SettingsClassNames`). */
+  classNames?: SettingsClassNames;
   /** Controlled active section id. */
   activeId?: string;
   onActiveChange?: (id: string) => void;
@@ -188,7 +205,7 @@ export interface SettingsPanelProps {
  * Persistence is the backend's; sections receive a `SettingsContext` and never touch storage themselves.
  */
 export function SettingsPanel(props: SettingsPanelProps) {
-  const { backend, sections, title = "Settings", navHeading, navFooter, renderNavItem, hideNav = false, defaultActiveId, search, hideSearch = false, searchLabel = "Search settings", loading, hideSectionHeading = false, initial, className, keepMounted = false, paint = true, nativePreSize = false } = props;
+  const { backend, sections, title = "Settings", navHeading, navFooter, renderNavItem, hideNav = false, defaultActiveId, search, hideSearch = false, searchLabel = "Search settings", loading, hideSectionHeading = false, initial, className, keepMounted = false, paint = true, nativePreSize = false, classNames } = props;
   const { searchMode = "navigate", highlight = false, openSectionLabel, resultHeadingLevel, findShortcut, escapeClears, formatAnnouncement } = props;
   const allSections = searchMode === "all-sections";
   const announce = props.announceResults ?? allSections;
@@ -253,7 +270,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
   const searchField = showSearch ? (
     <input
       ref={searchInput}
-      className="rk-input rk-settings__search"
+      className={cx("rk-input rk-settings__search", classNames?.search)}
       type="search"
       placeholder={searchLabel}
       aria-label={searchLabel}
@@ -284,8 +301,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
   const navCount = matches.reduce((n, m) => n + (m.entryIds.length || 1), 0);
   return (
     <SettingsSearchProvider query={query} enabled={searchEnabled} filter={searching} highlight={highlight}>
-    <div className={cx("rk-settings", hideNav && "rk-settings--no-nav", !paint && "rk-settings--no-paint", nativePreSize && "rk-settings--native-pre", className)} data-testid="settings-panel">
-      {hideNav ? null : <nav className="rk-settings__nav" aria-label={typeof heading === "string" ? heading : typeof title === "string" ? title : "Settings"} onKeyDown={onNavKey}>
+    <div className={cx("rk-settings", hideNav && "rk-settings--no-nav", !paint && "rk-settings--no-paint", nativePreSize && "rk-settings--native-pre", className, classNames?.root)} data-testid="settings-panel">
+      {hideNav ? null : <nav className={cx("rk-settings__nav", classNames?.nav)} aria-label={typeof heading === "string" ? heading : typeof title === "string" ? title : "Settings"} onKeyDown={onNavKey}>
         {heading === false || heading === null ? null : <h2 className="rk-settings__title">{heading}</h2>}
         {searchField}
         {matches.length === 0 ? <p className="rk-settings__none">No settings match “{query}”.</p> : null}
@@ -298,7 +315,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
               <button
                 type="button"
                 data-section-id={section.id}
-                className={cx("rk-settings__item", active?.id === section.id && "is-active")}
+                className={cx("rk-settings__item", active?.id === section.id && "is-active", classNames?.item)}
                 aria-current={active?.id === section.id ? "page" : undefined}
                 data-active={active?.id === section.id ? "true" : undefined}
                 onClick={() => (searching ? openSection(section.id) : select(section.id, entryIds[0]))}
@@ -325,10 +342,10 @@ export function SettingsPanel(props: SettingsPanelProps) {
         })}
         {navFooter ? <div className="rk-settings__navfooter">{navFooter}</div> : null}
       </nav>}
-      <div className="rk-settings__body" ref={content}>
+      <div className={cx("rk-settings__body", classNames?.body)} ref={content}>
         {hideNav && searchField ? <div className="rk-settings__searchbar" role="search">{searchField}</div> : null}
         {settings.error ? (
-          <div className="rk-settings__error" role="alert">
+          <div className={cx("rk-settings__error", classNames?.error)} role="alert">
             <span>{settings.error}</span>
             <button type="button" className="rk-btn rk-btn--sm rk-btn--ghost" onClick={settings.clearError}>
               Dismiss
@@ -349,7 +366,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
         ) : searching ? (
           <SearchResults sections={ordered} ctx={ctx} query={query} onOpen={openSection} openLabel={openSectionLabel} headingLevel={resultHeadingLevel} />
         ) : active ? (
-          <SectionFrame key={active.id} section={active} ctx={ctx} hideSectionHeading={hideSectionHeading} />
+          <SectionFrame key={active.id} section={active} ctx={ctx} hideSectionHeading={hideSectionHeading} classNames={classNames} />
         ) : null}
         <div className="rk-settings__saving" aria-live="polite">{settings.saving ? "Saving…" : ""}</div>
       </div>

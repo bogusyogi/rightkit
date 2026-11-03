@@ -20,7 +20,9 @@ pub const PLATFORMS: [&str; 3] = ["macos", "windows", "linux"];
 pub const SURFACES: [&str; 5] = ["native-ui", "web", "engine", "cli", "installed"];
 pub const RUNNERS: [&str; 2] = ["scenario", "adapter"];
 pub const TIERS: [&str; 3] = ["fast", "full", "paid"];
-pub const DATA: [&str; 2] = ["generated", "seeded"];
+/// The only value a journey's optional `data` key may carry. Every journey runs on the owner's real data
+/// under a snapshot and restore (rightkit#1437); `generated` and `seeded` are refused.
+pub const DATA: [&str; 1] = ["real"];
 pub const CHANGE_KINDS: [&str; 5] = [
     "removed",
     "downgraded",
@@ -125,7 +127,7 @@ impl BuildArtifact {
 }
 
 /// The `[build]` table: the app's ONE QA build (ADR-0001 D18). Every `runner = "scenario"` journey
-/// runs against it, so an app has one feature set and one test-mode world.
+/// runs against it, so an app has one feature set and one QA world.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BuildDecl {
@@ -197,7 +199,9 @@ pub struct Journey {
     pub adapter: Option<String>,
     pub entry: String,
     pub tier: String,
-    pub data: String,
+    /// Optional and redundant: the data is always the owner's real data. See [`DATA`].
+    #[serde(default)]
+    pub data: Option<String>,
     #[serde(default)]
     pub release_critical: bool,
     /// Machine-wide resources the journey holds while it runs (`focus`, `audio`, `gui-session`,
@@ -450,15 +454,12 @@ pub fn check_manifest(m: &Manifest, root: &Path) -> Vec<String> {
                 j.tier
             ));
         }
-        if j.data == "real" {
-            issues.push(format!(
-                "{what}: data = \"real\" is refused; QA never runs on real user data"
-            ));
-        } else if !DATA.contains(&j.data.as_str()) {
-            issues.push(format!(
-                "{what}: unknown data {:?} (generated, seeded)",
-                j.data
-            ));
+        if let Some(d) = &j.data {
+            if !DATA.contains(&d.as_str()) {
+                issues.push(format!(
+                    "{what}: data = {d:?} is refused; QA runs on the owner's real data under a snapshot and restore (delete the key or write data = \"real\")"
+                ));
+            }
         }
         if let Err(e) = crate::pool::parse_tokens(&j.tokens) {
             issues.push(format!("{what}: {}", e.0));

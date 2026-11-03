@@ -7,13 +7,11 @@ import { formatGate, runGate } from './gate.js';
 import { systemGit } from './git.js';
 import { checkRoot, type Manifest } from './manifest.js';
 import { validateReceiptFile, type Receipt } from './receipt.js';
-import { JourneysError, runJourneys } from './run.js';
-import type { Problem } from './util.js';
+import { JourneysError, type Problem } from './util.js';
 
 const USAGE = `rightkit-qa-journeys <command>
   check [--root DIR]                       validate journeys.toml and journeys-map.toml
   census [--root DIR] [--base REF] [--json]  count tagged/untagged tests and journeys (report only)
-  run [--root DIR] [--id J-001]... [--platform P] [--tier T] [--run-root DIR]
   validate-receipt FILE [--root DIR] [--manifest PATH] [--results PATH] [--tree SHA] [--require-clean] [--check-files]
   gate [--root DIR] [--base REF] [--receipts DIR] [--tree SHA]   advisory; always exits 0`;
 
@@ -101,18 +99,6 @@ export function main(argv: string[]): number {
         const diff = base ? censusDiff(root, git, base, prefix) : null;
         console.log(args.flags.has('json') ? JSON.stringify({ report, diff }, null, 2) : formatCensus(report, diff));
         return 0;
-      }
-      case 'run': {
-        const result = runJourneys({
-          root,
-          ...(args.flags.has('id') ? { ids: args.flags.get('id')! } : {}),
-          ...(one(args, 'platform') ? { platform: one(args, 'platform')! } : {}),
-          ...(one(args, 'tier') ? { tier: one(args, 'tier')! } : {}),
-          ...(one(args, 'run-root') ? { runRoot: one(args, 'run-root')! } : {}),
-        });
-        printProblems(result.receipt.problems);
-        console.log(`verdict: ${result.receipt.verdict}\nreceipt: ${result.receiptPath}`);
-        return result.ok ? 0 : 1;
       }
       case 'validate-receipt': {
         const file = args.positional[0];

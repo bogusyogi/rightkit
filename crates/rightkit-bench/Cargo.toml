@@ -1,9 +1,9 @@
 [package]
 name = "rightkit-bench"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
-description = "Benchmark harness building blocks: warmup-and-percentile timing, SQLite EXPLAIN QUERY PLAN probes, and article-quality corpus scoring with a reference extractor."
+description = "Benchmark harness building blocks: warmup-and-percentile timing, concurrent load driver, real-data SQLite probes and EXPLAIN QUERY PLAN checks (read-only; writes only under a rightkit-qa snapshot), and article-quality corpus scoring."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
@@ -17,11 +17,18 @@ path = "src/lib.rs"
 default = []
 # EXPLAIN QUERY PLAN probes; the caller's rightkit-db features pick the SQLite build.
 sqlite = ["dep:rightkit-db"]
+# Writes to the owner's real database (`owner::WriteGate`): only while a rightkit-qa snapshot is armed (rightkit#1481).
+qa-snapshot = ["sqlite", "dep:rightkit-qa"]
+# Rekey round trip on the owner's real SQLCipher database (needs the gate above to write).
+sqlcipher = ["sqlite", "rightkit-db/sqlcipher-libtomcrypt"]
+sqlcipher-system = ["sqlite", "rightkit-db/sqlcipher-system"]
 
 [dependencies]
 scraper = { version = "0.27" }
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 rightkit-db = { version = "0.5.3", optional = true, path = "../rightkit-db" }
+rightkit-qa = { version = "0.10.3", optional = true, path = "../rightkit-qa", default-features = false }
 [workspace]
 
 # Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids

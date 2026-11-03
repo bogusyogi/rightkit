@@ -3,6 +3,7 @@ use crate::error::ServiceError;
 use crate::host_identity::{
     verify_peer_process, HostExpectation, HostIdentityError, HostIdentityReason, HostProcess,
 };
+use crate::peer::PeerIdentity;
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -101,6 +102,39 @@ impl CallContext {
         expect: &HostExpectation,
     ) -> Result<HostProcess, HostIdentityError> {
         let host = verify_peer_process(self.peer(), expect)?;
+        if self.peer_closed() {
+            return Err(HostIdentityError {
+                expected: expect.executables().to_vec(),
+                found_pid: Some(host.pid),
+                found_executable: Some(host.executable),
+                reason: HostIdentityReason::HostChanged(
+                    "the connection closed while the peer was identified".to_string(),
+                ),
+            });
+        }
+        Ok(host)
+    }
+    /// Is the process on the other end of this connection code-signed by an identity `policy`
+    /// names (macOS team identifier, Windows Authenticode signer)? The signature counterpart of
+    /// [`verify_peer_executable`](Self::verify_peer_executable), with the same pinning (pid plus
+    /// start time, macOS audit token) and the same fail-closed rules; see
+    /// [`verify_peer`](crate::verify_peer) for what each platform checks. A route that must come
+    /// from the signed owner (the licence snapshot delivery, rightkit#1501) calls it per request:
+    ///
+    /// ```text
+    /// let owner = PeerPolicy::signed_by(SigningIdentity::MacTeamId("ABCDE12345".into()));
+    /// if cx.verify_peer_signed(&owner).is_err() {
+    ///     return Err(ServiceError::new(ERROR_FORBIDDEN, "owner only"));
+    /// }
+    /// ```
+    ///
+    /// Run it per call; do not cache the answer past the connection.
+    pub fn verify_peer_signed(
+        &self,
+        policy: &crate::PeerPolicy,
+    ) -> Result<HostProcess, HostIdentityError> {
+        let expect = crate::peer_signature::expectation(policy);
+        let host = verify_peer_process(self.peer(), &expect)?;
         if self.peer_closed() {
             return Err(HostIdentityError {
                 expected: expect.executables().to_vec(),

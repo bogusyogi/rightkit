@@ -4,7 +4,7 @@ Nearby file and text sharing over the open LocalSend v2 protocol, with the Pulse
 TLS identity pinning, per-device trust (Allow, Ask, Deny), macOS Bonjour discovery, and
 received files that are never executable. Blocking sockets and threads; no async runtime.
 
-Status: `0.1.0`, published on crates.io. Rust API only: no C ABI is exported and no xcframework is in this repository.
+Status: `0.4.0` (unpublished). Rust API only: no C ABI is exported and no xcframework is in this repository.
 
 ## What it owns
 
@@ -20,6 +20,12 @@ Status: `0.1.0`, published on crates.io. Rust API only: no C ABI is exported and
   it again first and fails with `Error::TrustStore` while it stays unreadable. Known limit: until
   the list has been read, every device is treated as Ask, so a device the owner denied gets a
   request card again. It is never allowed by this.
+- Transport: `transport::{Transport, Sender, Receiver}` apply the same send and receive rules (trust admission,
+  whole-manifest approval, strict file names) over a channel other than LocalSend's HTTPS, such as a device mesh.
+  Trust is keyed by `TrustSubject`: a TLS fingerprint or any other identifier the transport proves (`dev_<32 hex>`).
+  `TrustStore` is public so a host keeps one Allow, Ask, Deny record file per transport.
+- Commands: `commands::invoke` is a JSON command surface over `Service` for a Tauri host (one registered command);
+  the React side is `@rightkit/send-ui`.
 - Errors: `Error`, typed. Hosts map variants (or the serialized `code`) to their own words.
 - `Policy`: the unproven-sender limits, the 64 GiB single-file refusal, the message cap and
   the answer wait. `Policy::default()` is Pulse's current behaviour.
@@ -63,8 +69,8 @@ On iOS the crate opens no mDNS or multicast sockets. Browse and advertise belong
 
 ## Tests
 
-`rustright cargo test -p rightkit-send --all-features` runs the in-crate tests and the loopback
-integration tests in `tests/localsend.rs` (no network is needed beyond the local machine).
+The crate carries no unit tests (Adrian: end-to-end only). The registry consumer in `ci/consumers/rightkit-send`
+exercises a real TLS exchange over loopback; the transport layer is proven by a real send between two devices.
 
 ## Runtime budget
 

@@ -104,15 +104,9 @@ pub struct EngineInfoResult {
 /// Resolve the application asset root that contains `heardright/models`.
 ///
 /// Dev keeps models under `<repo>/app/heardright/models`; packaged/downloaded
-/// builds resolve through `model_fetch::models_base` from this hint and
-/// `RIGHTKIT_MODELS_DIR`. Unlike the retired sidecar resolver, this helper never
+/// builds resolve through `model_fetch::models_base` from this hint. Unlike the retired sidecar resolver, this helper never
 /// requires Python or the engine executable to exist.
 pub fn resolve_app_path() -> PathBuf {
-    if let Some(path) =
-        rightkit_dictation_core::dev_var_os!("RIGHTKIT_ENGINE_APP_PATH").map(PathBuf::from)
-    {
-        return path;
-    }
     for root in candidate_runtime_roots() {
         if let Some(app_path) = first_existing(&[
             root.join("app")
@@ -194,12 +188,6 @@ fn first_existing(paths: &[PathBuf]) -> Option<PathBuf> {
 
 fn candidate_runtime_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
-    if let Some(root) =
-        rightkit_dictation_core::dev_var_os!("RIGHTKIT_NEXT_ENGINE_ROOT").map(PathBuf::from)
-    {
-        push_unique(&mut roots, root);
-    }
-
     if let Ok(cwd) = std::env::current_dir() {
         push_ancestors(&mut roots, &cwd);
     }

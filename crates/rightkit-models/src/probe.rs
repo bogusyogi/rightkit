@@ -142,6 +142,8 @@ async fn platform_gpus(runner: &dyn ProbeRunner) -> Vec<Gpu> {
             name: "Apple Silicon (unified)".into(),
             vram_gb: None,
             unified: true,
+            vram_mib: None,
+            source: None,
             backends: vec!["metal".into()],
         });
     }
@@ -161,10 +163,14 @@ pub fn parse_nvidia_smi_csv(text: &str) -> Vec<Gpu> {
         .filter_map(|line| {
             let mut parts = line.split(',').map(str::trim);
             let name = parts.next().filter(|name| !name.is_empty())?;
+            let mib_raw = parts.next().unwrap_or_default();
+            let vram_mib = mib_raw.parse::<u64>().ok().filter(|mib| *mib > 0);
             Some(Gpu {
                 name: name.to_string(),
-                vram_gb: parts.next().and_then(parse_memory).map(round1),
+                vram_gb: parse_memory(mib_raw).map(round1),
                 unified: false,
+                vram_mib,
+                source: Some("nvidia-smi".into()),
                 backends: vec!["cuda".into(), "vulkan".into()],
             })
         })
@@ -188,10 +194,17 @@ pub fn parse_wmic_video(text: &str) -> Vec<Gpu> {
                 .ok()
                 .filter(|bytes| *bytes > 0)
                 .map(|bytes| round1(bytes as f64 / GIB));
+            let vram_mib = ram_bytes
+                .parse::<u64>()
+                .ok()
+                .filter(|bytes| *bytes > 0)
+                .map(|bytes| bytes / (1024 * 1024));
             Some(Gpu {
                 name: name.to_string(),
                 vram_gb,
                 unified: false,
+                vram_mib,
+                source: Some("wmic".into()),
                 backends: backends_for(name),
             })
         })
@@ -212,6 +225,8 @@ pub fn parse_system_profiler_displays(text: &str) -> Vec<Gpu> {
                 name: name.to_string(),
                 vram_gb: None,
                 unified: name.to_ascii_lowercase().contains("apple"),
+                vram_mib: None,
+                source: Some("system_profiler".into()),
                 backends: vec!["metal".into()],
             });
         } else if let Some(rest) = line.strip_prefix("VRAM") {

@@ -19,6 +19,17 @@ Brand-neutral, read-only renderer for Markdown and sanitized HTML in Right Suite
 
 Peer dependency: `react` `>=18 <21`.
 
+## Required consumer override (katex advisory)
+
+`remark-math` pulls `micromark-extension-math`, which resolves `katex` 0.16.x, inside the range of advisory GHSA-238p-pmpm-9mq7 (prototype pollution can bypass trust restrictions; vulnerable >=0.11.0 <0.18.2). A library cannot carry a pnpm override, so every consumer that installs `@rightkit/doc-render` adds, in `pnpm-workspace.yaml`:
+
+```yaml
+overrides:
+  "micromark-extension-math>katex": "^0.19.0"
+```
+
+(or `"pnpm": { "overrides": { ... } }` in the root `package.json`), then reinstalls. Drop it once `micromark-extension-math` accepts katex 0.18.2 or later. The check: `pnpm exec rightkit-doc-render-check-katex` reads `pnpm-lock.yaml` (and `package-lock.json`), prints the resolved katex versions and exits 1 when one is below 0.18.2 while `@rightkit/doc-render` is resolved; pass lockfile paths to check others. Wire it into the app's check or doctor.
+
 ## Example
 
 ```tsx

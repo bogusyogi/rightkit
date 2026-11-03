@@ -722,6 +722,7 @@ async fn capture_png(page: &rightkit_browser::BrowserPage, alpha: bool) -> Resul
     if alpha {
         page.screenshot_with(rightkit_browser::ScreenshotOptions {
             omit_background: true,
+            ..Default::default()
         })
         .await
         .map_err(browser_error)

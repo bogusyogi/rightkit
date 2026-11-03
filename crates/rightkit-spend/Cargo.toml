@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-spend"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -11,9 +11,17 @@ keywords = ["spend", "budget", "ledger", "sqlite"]
 categories = ["database"]
 include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
+[features]
+default = []
+# `SealKey::from_keychain`: the approved-budget seal key held in the OS credential store.
+keychain = ["dep:rightkit-credentials"]
+
 [dependencies]
 rightkit-db = { version = "0.5.3", path = "../rightkit-db", default-features = false }
+rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
+rightkit-credentials = { version = "0.4.6", path = "../rightkit-credentials", optional = true }
 thiserror = "2"
+zeroize = "1.9"
 
 [package.metadata.rightkit]
 continuous = false

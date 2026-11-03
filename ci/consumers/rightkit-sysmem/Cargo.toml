@@ -1,0 +1,10 @@
+[package]
+name = "rightkit-sysmem-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-sysmem = { version = "=0.1.0" }

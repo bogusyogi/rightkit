@@ -39,4 +39,7 @@ pub struct PublishPayload {
     pub media: Vec<PublishMedia>,
     #[serde(default)]
     pub settings: Value,
+    /// The follow-up comment posted after the post is live (#1497; see `comment`). Absent: none.
+    #[serde(default)]
+    pub first_comment: Option<String>,
 }

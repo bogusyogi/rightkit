@@ -9,13 +9,57 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+use rightkit_qa::config::QaConfig;
 use rightkit_qa::control::{launch, Control, LaunchSpec, Mode};
 use rightkit_qa::process::{is_alive, Tracker};
+use rightkit_qa::snapshot::{self, Armed};
 use rightkit_qa::workspace;
 use rightkit_tauri_shell::clipboard::{self, Board, ClipboardContent};
 use serde_json::{json, Value};
 
 const EXE: &str = env!("CARGO_BIN_EXE_shell-example-app");
+
+/// The journey's hold on the owner's real data (rightkit#1437): the example app's data folders are
+/// snapshotted by `begin` and restored and verified when the guard drops, after the app has
+/// stopped (declare it first in a test so it drops last). One test at a time holds it: the
+/// snapshot marker is one per app, and the apps share their single-instance name.
+struct Snapshot {
+    armed: Option<Armed>,
+    _serial: std::sync::MutexGuard<'static, ()>,
+}
+
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn begin() -> Snapshot {
+    let serial = SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let config = QaConfig::load(&Path::new(env!("CARGO_MANIFEST_DIR")).join("rightkit-qa.toml"))
+        .expect("rightkit-qa.toml");
+    let cfg = config
+        .require_snapshot()
+        .expect("[snapshot] in rightkit-qa.toml");
+    let armed = snapshot::arm(&config.app, cfg, &rightkit_qa::storage::managed_root(None))
+        .unwrap_or_else(|e| panic!("cannot snapshot the real data: {e}"));
+    Snapshot {
+        armed: Some(armed),
+        _serial: serial,
+    }
+}
+
+impl Drop for Snapshot {
+    fn drop(&mut self) {
+        if let Some(armed) = self.armed.take() {
+            match armed.restore() {
+                Ok(done) => eprintln!("[qa] {}", done.describe()),
+                Err(e) if std::thread::panicking() => {
+                    eprintln!("[qa] snapshot restore failed: {e}")
+                }
+                Err(e) => panic!("the snapshot restore FAILED: {e}. This run is not a pass."),
+            }
+        }
+    }
+}
 
 struct Run {
     c: Control,
@@ -23,7 +67,6 @@ struct Run {
     open_log: PathBuf,
     stall_log: PathBuf,
     state_dir: PathBuf,
-    home: PathBuf,
 }
 
 /// LaunchServices cannot start an app whose log/bundle lives on an external volume (error -10810),
@@ -52,8 +95,6 @@ fn start_with(
     let open_log = ws.home.join("opened.txt");
     let stall_log = ws.home.join("stall.txt");
     let state_dir = state_dir.unwrap_or_else(|| ws.home.join("state"));
-    let home = ws.home.join("home");
-    std::fs::create_dir_all(&home).unwrap();
     let mut env: Vec<(String, String)> = vec![
         (
             "RIGHTKIT_EXAMPLE_OPEN_LOG".into(),
@@ -67,7 +108,6 @@ fn start_with(
             "RIGHTKIT_EXAMPLE_STATE_DIR".into(),
             state_dir.to_string_lossy().into(),
         ),
-        ("RIGHTKIT_SHELL_HOME".into(), home.to_string_lossy().into()),
     ];
     env.extend(
         extra_env
@@ -94,7 +134,6 @@ fn start_with(
         open_log,
         stall_log,
         state_dir,
-        home,
     }
 }
 
@@ -215,6 +254,7 @@ fn assert_window_server_background(pid: u32) {
 
 #[test]
 fn shell_hardens_the_webview_and_wires_menu_tray_links_engine_and_exit() {
+    let _snap = begin();
     let tracker = Tracker::new();
     let mut run = start(&tracker, "shell-main", None);
     let pid = run.c.pid;
@@ -548,8 +588,9 @@ fn shell_hardens_the_webview_and_wires_menu_tray_links_engine_and_exit() {
     // --- autostart: a real, valid LaunchAgent that is removed again ------------------------
     let on = ok(&bridge(c, "rk.autostart.set(true)")).clone();
     assert_eq!(on["enabled"], true);
-    let plist = run
-        .home
+    // The owner's real home: the LaunchAgent is written under the real `~/Library/LaunchAgents` and removed
+    // again below (it is the example app's own, uniquely named entry).
+    let plist = PathBuf::from(std::env::var_os("HOME").expect("HOME"))
         .join("Library/LaunchAgents/rk-shell-example.autostart.plist");
     assert_eq!(on["entry"].as_str().map(PathBuf::from), Some(plist.clone()));
     let lint = Command::new("/usr/bin/plutil")
@@ -658,6 +699,7 @@ fn shell_hardens_the_webview_and_wires_menu_tray_links_engine_and_exit() {
 
 #[test]
 fn window_geometry_is_saved_and_restored_across_launches() {
+    let _snap = begin();
     let tracker = Tracker::new();
     let shared_state = internal_tmp().join(format!("rk-shell-state-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&shared_state);
@@ -712,6 +754,7 @@ fn window_geometry_is_saved_and_restored_across_launches() {
 #[test]
 #[ignore = "background-only QA forbids native popup over user work"]
 fn positive_control_native_menu_is_detectable_where_the_shell_allows_it() {
+    let _snap = begin();
     let tracker = Tracker::new();
     let mut run = start(&tracker, "shell-positive", None);
     let pid = run.c.pid;
@@ -742,6 +785,7 @@ fn native_menu_bar_matches_the_spec_through_accessibility() {
         println!("native menu bar AX check NOT RUN: this process has no Accessibility permission (run the test binary from an interactive terminal)");
         return;
     }
+    let _snap = begin();
     let tracker = Tracker::new();
     // A status item only opens its menu in a launched (not LaunchServices-hidden) app, so this one
     // test runs in background mode: window shown, app never activated.
@@ -820,6 +864,7 @@ fn native_menu_bar_matches_the_spec_through_accessibility() {
 
 #[test]
 fn closing_the_window_keeps_a_tray_app_running_and_a_second_launch_brings_it_back() {
+    let _snap = begin();
     let tracker = Tracker::new();
     let mut run = start_with(
         &tracker,
@@ -882,6 +927,7 @@ fn closing_the_window_keeps_a_tray_app_running_and_a_second_launch_brings_it_bac
 /// bundle is built): theme mirrored natively, link routing, and native actions run commands.
 #[test]
 fn app_shell_runs_on_the_real_shell_bridge() {
+    let _snap = begin();
     let tracker = Tracker::new();
     let mut run = start(&tracker, "shell-appshell", None);
     let c = &run.c;
@@ -955,6 +1001,7 @@ fn app_shell_runs_on_the_real_shell_bridge() {
 
 #[test]
 fn shell_native_capabilities_cover_paths_ranges_errors_presence_dnd_idle_and_recovery() {
+    let _snap = begin();
     let tracker = Tracker::new();
     let fixture = internal_tmp().join(format!("rk-shell-capabilities-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&fixture);
@@ -1078,6 +1125,7 @@ fn shell_native_capabilities_cover_paths_ranges_errors_presence_dnd_idle_and_rec
 
 #[test]
 fn shell_native_notification_delivery_gate() {
+    let _snap = begin();
     let tracker = Tracker::new();
     let mut run = start(&tracker, "shell-notification-delivery", None);
     let c = &run.c;

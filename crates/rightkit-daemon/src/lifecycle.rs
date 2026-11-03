@@ -73,6 +73,10 @@ use crate::error::{ConnectError, ServiceError, ERROR_UNAVAILABLE};
 use crate::host_identity::{HostExpectation, HostIdentityError, HostIdentityReason};
 use crate::record::{try_read_record, ServiceRecord};
 
+pub use crate::incumbent::{stop_incumbent, IncumbentError, IncumbentStop};
+pub use crate::shutdown::{OrderedShutdown, PhaseOutcome, PhaseReport, ShutdownReport};
+use std::num::NonZeroU32;
+
 /// A reply (or a request) belongs to a host generation that is no longer the current one. Not
 /// retryable: the request may have run on the old host.
 pub const ERROR_STALE_GENERATION: &str = "stale_generation";

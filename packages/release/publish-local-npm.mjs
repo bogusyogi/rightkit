@@ -26,6 +26,23 @@ const GATE = fileURLToPath(new URL("./bin/rightkit-gate.mjs", import.meta.url));
 
 function fail(message) { throw new Error(message); }
 
+/**
+ * The registry's version document for `name@version`, asked directly (not through `npm view`, which can answer from its own cache and
+ * hides the status and stderr of a failed try, rightkit#1487) with cache-control: no-cache. Returns { status, body, error }: `status` is
+ * the HTTP status (0 when no response came), `body` the parsed JSON on a 200, `error` the reason when there is no usable answer.
+ */
+export function fetchVersionDocument(run, name, version) {
+  const url = `${REGISTRY}${name.replace("/", "%2f")}/${version}`;
+  const r = run("curl", ["-sS", "--max-time", "30", "-H", "cache-control: no-cache", "-H", "pragma: no-cache", "-H", "accept: application/json", "-w", "\n%{http_code}", url], { encoding: "utf8", maxBuffer: 1 << 24 });
+  if (r.error || r.status !== 0) return { status: 0, error: `curl ${r.error ? r.error.message : `exited ${r.status}: ${String(r.stderr ?? "").trim()}`}` };
+  const text = String(r.stdout ?? "");
+  const cut = text.lastIndexOf("\n");
+  const status = Number(text.slice(cut + 1).trim());
+  if (!Number.isInteger(status) || status === 0) return { status: 0, error: "curl returned no HTTP status" };
+  if (status !== 200) return { status, error: `HTTP ${status}` };
+  try { return { status, body: JSON.parse(text.slice(0, cut)) }; } catch (e) { return { status, error: `HTTP 200 with an unreadable body: ${e.message}` }; }
+}
+
 /** The pnpm store the checkout installed from (`storeDir` in its node_modules/.modules.yaml, e.g. /Volumes/D/.pnpm-store/v11), as a `--store-dir` value (its parent). */
 export function checkoutStoreDir(repo, readFile = (f) => fs.readFileSync(f, "utf8")) {
   let text;
@@ -50,7 +67,7 @@ export function parseArgs(argv) {
   return out;
 }
 
-export function publishLocalNpm(argv, { run = spawnSync, log = console.log, platform = process.platform, readToken = () => readKeychainToken(run) } = {}) {
+export function publishLocalNpm(argv, { run = spawnSync, log = console.log, platform = process.platform, readToken = () => readKeychainToken(run), verifyTries = 20, verifyDelaySeconds = 15 } = {}) {
   const o = parseArgs(argv);
   if (platform !== "darwin") fail(`publish-local npm runs on the Mac (the token is the Keychain item ${NPM_KEYCHAIN_SERVICE}); this host is ${platform}`);
   const git = (args) => {
@@ -66,8 +83,9 @@ export function publishLocalNpm(argv, { run = spawnSync, log = console.log, plat
   if (manifest.name !== o.pkg) fail(`${dir}/package.json at ${commit} names ${manifest.name}, not ${o.pkg}`);
   const version = manifest.version;
 
-  const already = run("npm", ["view", `${o.pkg}@${version}`, "version", "--prefer-online", "--registry", REGISTRY], { encoding: "utf8" });
-  if (String(already.stdout ?? "").trim() === version) fail(`${o.pkg}@${version} is already on npm; bump the version`);
+  const already = fetchVersionDocument(run, o.pkg, version);
+  if (already.status === 200 && already.body?.version === version) fail(`${o.pkg}@${version} is already on npm; bump the version`);
+  if (already.status !== 404) fail(`cannot tell whether ${o.pkg}@${version} is on npm (${already.error ?? `HTTP ${already.status}`}); nothing published`);
 
   log(`publish-local: Class A for npm:${o.pkg} on ${commit.slice(0, 12)}`);
   const classA = run(process.execPath, [GATE, "--to", "check", "--unit", `npm:${o.pkg}`, "--commit", commit], { cwd: o.repo, stdio: ["ignore", "inherit", "inherit"] });
@@ -106,14 +124,21 @@ export function publishLocalNpm(argv, { run = spawnSync, log = console.log, plat
       { encoding: "utf8", env: { ...process.env, RIGHTKIT_NPM_TOKEN: token } });
     if (pub.status !== 0) fail(`npm publish failed:\n${redact(`${pub.stdout ?? ""}${pub.stderr ?? ""}`).trim()}`);
 
-    // The registry may take a moment to serve a new version.
+    // The registry may take a moment to serve a new version. Every try asks the registry directly, logs its status when it has no answer, and the
+    // command fails only after the whole wait (verifyTries x verifyDelaySeconds); a served version with another shasum fails at once.
     let shasum = "";
-    for (let i = 0; i < 20 && !shasum; i += 1) {
-      const view = run("npm", ["view", `${o.pkg}@${version}`, "dist.shasum", "--prefer-online", "--registry", REGISTRY], { encoding: "utf8" });
-      shasum = String(view.stdout ?? "").trim();
-      if (!shasum) run("sleep", ["15"]);
+    let last = "no try ran";
+    for (let i = 1; i <= verifyTries && !shasum; i += 1) {
+      const doc = fetchVersionDocument(run, o.pkg, version);
+      if (doc.status === 200 && typeof doc.body?.dist?.shasum === "string" && doc.body.dist.shasum) shasum = doc.body.dist.shasum;
+      else {
+        last = doc.error ?? `HTTP ${doc.status} without dist.shasum`;
+        log(`publish-local: registry try ${i}/${verifyTries} for ${o.pkg}@${version}: ${last}${i < verifyTries ? `; retrying in ${verifyDelaySeconds}s` : ""}`);
+        if (i < verifyTries) run("sleep", [String(verifyDelaySeconds)]);
+      }
     }
-    if (shasum !== sha1) fail(`registry shasum ${shasum || "(not served yet)"} != packed ${sha1} for ${o.pkg}@${version}`);
+    if (!shasum) fail(`registry never served ${o.pkg}@${version} after ${verifyTries} tries ${verifyDelaySeconds}s apart (last: ${last}); the publish itself succeeded, so check ${REGISTRY}${o.pkg.replace("/", "%2f")}/${version} before publishing again`);
+    if (shasum !== sha1) fail(`registry shasum ${shasum} != packed ${sha1} for ${o.pkg}@${version}`);
     log(`publish-local: ${o.pkg}@${version} published from ${commit.slice(0, 12)}; registry shasum ${shasum} matches`);
     return { name: o.pkg, version, commit, shasum };
   } finally {

@@ -235,6 +235,27 @@ impl StatusModel {
             held: BTreeSet::new(),
         }
     }
+    /// Add the standard held status [`crate::UNCERTAIN`] ("the effect may have happened; do not
+    /// run it again"): it becomes a non-terminal, held status that every other non-held
+    /// non-terminal status may move to, left only through [`crate::JobStore::resolve`]. It is where
+    /// a [`crate::Recovery::Uncertain`] job parks when its runner is lost after an attempt began.
+    pub fn with_uncertain(mut self) -> Self {
+        let uncertain = crate::store::UNCERTAIN.to_string();
+        if !self.non_terminal.contains(&uncertain) {
+            self.non_terminal.push(uncertain.clone());
+        }
+        let from: Vec<String> = self
+            .non_terminal
+            .iter()
+            .filter(|s| **s != uncertain && !self.held.contains(*s))
+            .cloned()
+            .collect();
+        for f in from {
+            self.transitions.insert((f, uncertain.clone()));
+        }
+        self.held.insert(uncertain);
+        self
+    }
     /// Permit `from -> to` between non-terminal statuses.
     pub fn allow(mut self, from: impl Into<String>, to: impl Into<String>) -> Self {
         self.transitions.insert((from.into(), to.into()));
@@ -475,7 +496,13 @@ pub struct StoreConfig {
     pub(crate) unique: Vec<Vec<String>>,
     pub(crate) revision: Option<String>,
     pub(crate) due: Option<String>,
+    pub(crate) clock: Option<ClockFn>,
+    pub(crate) owner_epochs: bool,
+    pub(crate) outbox: bool,
 }
+
+/// Source of the UTC timestamps the store writes; see [`StoreConfig::clock`].
+pub type ClockFn = Arc<dyn Fn() -> String + Send + Sync>;
 
 impl Default for StoreConfig {
     fn default() -> Self {
@@ -497,6 +524,9 @@ impl Default for StoreConfig {
             unique: vec![],
             revision: None,
             due: None,
+            clock: None,
+            owner_epochs: false,
+            outbox: false,
         }
     }
 }
@@ -521,6 +551,9 @@ impl std::fmt::Debug for StoreConfig {
             .field("unique", &self.unique)
             .field("revision", &self.revision)
             .field("due", &self.due)
+            .field("clock", &self.clock.is_some())
+            .field("owner_epochs", &self.owner_epochs)
+            .field("outbox", &self.outbox)
             .finish()
     }
 }
@@ -528,6 +561,42 @@ impl std::fmt::Debug for StoreConfig {
 impl StoreConfig {
     pub fn new() -> Self {
         Self::default()
+    }
+    /// The clock behind every timestamp the store writes: a job's `created_at` and `updated_at`,
+    /// event times, submission rows, artifact rows, acknowledgements and the `updated_at` of a
+    /// held (deferred) settlement. `clock` returns UTC as `YYYY-MM-DDTHH:MM:SSZ`, the format the
+    /// default clock writes (an app that replays scenarios deterministically passes its injected
+    /// `now`). The store does not check the text; the times it orders by are the ones it is
+    /// given. Default: the wall clock. Imported records keep the times they state.
+    pub fn clock(mut self, clock: impl Fn() -> String + Send + Sync + 'static) -> Self {
+        self.clock = Some(Arc::new(clock));
+        self
+    }
+    /// The current time as the store writes it: the clock set with [`StoreConfig::clock`], else
+    /// the wall clock.
+    pub fn now(&self) -> String {
+        match &self.clock {
+            Some(clock) => clock(),
+            None => crate::store::now(),
+        }
+    }
+    /// Enable owner epochs: a durable per-database counter (`rk_owner`) that the process owning
+    /// the store claims once at start with `JobStore::claim_owner_epoch`. A claim also advances
+    /// the attempt generation of every non-terminal job, so a write from an attempt of an older
+    /// owner (a previous process whose runner is still alive, or a stale host) fails with
+    /// `stale_attempt` and changes nothing. A job row can record the epoch that leased it in an
+    /// app-declared extension column. Off by default; the table is created only when on.
+    pub fn owner_epochs(mut self) -> Self {
+        self.owner_epochs = true;
+        self
+    }
+    /// Enable the transactional outbox (`rk_outbox`, `rk_outbox_cursor`): events appended on the
+    /// caller's connection commit or roll back with the writes beside them, and a consumer reads
+    /// past its own durable cursor (at-least-once delivery). See `JobTable::outbox_append`. Off by
+    /// default; the tables are created only when on.
+    pub fn outbox(mut self) -> Self {
+        self.outbox = true;
+        self
     }
     /// Declare an extension column on `jobs`. Missing columns are added to an
     /// existing database at open (a NOT NULL one needs a default to be added).

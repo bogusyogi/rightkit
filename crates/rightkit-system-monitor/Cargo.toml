@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-system-monitor"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.98.0"
 description = "Live system monitoring: CPU, memory pressure, hang-proof disk listing, per-process footprint/disk I/O/GPU rows, process groups and inspection, network counters, GPU temperature and drive health."
@@ -20,7 +20,7 @@ rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process"
 libc = { version = "0.2" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
-sysinfo = { version = "=0.39.6" }
+sysinfo = { version = "=0.40.0" }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "=0.62.2", features = ["Win32_Devices_DeviceAndDriverInstallation", "Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_Performance", "Win32_System_Power", "Win32_System_Threading"] }

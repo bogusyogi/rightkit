@@ -18,6 +18,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveInvocation } from "../../packages/release/deterministic-scans.mjs";
 import { DEFAULT_OUT } from "./rk-preflight.mjs";
 import { versionPinProblems } from "./release-version-pins.mjs";
 import { HOST_FOR_PLATFORM, INFRA_STATUSES, readTarball } from "./rk-release-canary-leg.mjs";
@@ -52,7 +53,11 @@ export const receiptPath = (out, sha) => path.join(out, sha, RECEIPT_NAME);
 export function exec(command, args, { cwd, env, timeoutMs = 120_000 } = {}) {
   return new Promise((resolve) => {
     let stdout = "", stderr = "", timedOut = false;
-    const child = spawn(command, args, { cwd, env: env ?? process.env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    // No shell on any host: on Windows npm and pnpm are cmd shims that spawn cannot start by name (ENOENT), so the existing launcher
+    // resolves them (PATH, then node + the shim's JS entry; rightkit#1261). POSIX runs the command as given.
+    const inv = resolveInvocation(command, args, { env: env ?? process.env });
+    if (inv.error) { resolve({ code: 127, stdout, stderr: inv.error.message, timedOut }); return; }
+    const child = spawn(inv.file, inv.args, { cwd, env: env ?? process.env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, windowsVerbatimArguments: inv.verbatim });
     const timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, timeoutMs);
     child.stdout.on("data", (c) => { stdout += c; });
     child.stderr.on("data", (c) => { stderr += c; });

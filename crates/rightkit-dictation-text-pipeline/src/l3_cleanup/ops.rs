@@ -1,15 +1,14 @@
 //! Operation plumbing for the cleanup lanes: token/input budgets, timeout
 //! scaling, the provider circuit wrappers around `state::CIRCUIT`, the
 //! aggregate counters surfaced through `health()`, and the
-//! content-free attempt/result/skip tracing events. Tuning overrides (timeouts, input cap,
-//! circuit) come from `overrides`, which reads the environment in test and `test-mode` builds only.
+//! content-free attempt/result/skip tracing events. Timeouts, input cap and
+//! circuit settings are fixed product values.
 
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use parking_lot::{Mutex, MutexGuard};
 
-use super::overrides;
 use super::prompts::{
     is_app_prompt_version, PROMPT_POLISH_VERSION, PROMPT_VERSION, SUMMARY_PROMPT_VERSION,
 };
@@ -25,45 +24,23 @@ pub(crate) fn max_tokens_for(input: &str) -> u32 {
 }
 
 pub(crate) fn max_input_chars() -> usize {
-    overrides::max_input_chars()
-        .unwrap_or(4_000)
-        .clamp(256, 20_000) as usize
-}
-
-pub(crate) fn total_timeout() -> Duration {
-    // Two sequential Groq models need two useful network windows. Keep the
-    // default bounded at 3s while reserving 1.5s for each model.
-    let timeout_ms = overrides::total_timeout_ms().unwrap_or(3_000);
-    Duration::from_millis(timeout_ms.clamp(300, 15_000))
+    4_000
 }
 
 /// Cloud budget scaled to the input: a fixed sub-second budget cannot round-trip a long
 /// dictation (measured: a 2,400-char dictation timed out on
 /// both providers and fell back to local polish). Base 3s + 2ms/char,
 /// capped at 8s — a long recording already took seconds to transcribe, so a
-/// proportionate polish wait is the right trade. An explicit
-/// RIGHTKIT_L3_TOTAL_TIMEOUT_MS override still wins (clamped like before).
+/// proportionate polish wait is the right trade.
 pub(crate) fn total_timeout_for_input(input: &str) -> Duration {
-    if overrides::total_timeout_ms().is_some() {
-        return total_timeout();
-    }
     let scaled = 3_000 + (input.chars().count() as u64).saturating_mul(2);
     Duration::from_millis(scaled.clamp(1_500, 8_000))
 }
 
-pub(crate) fn provider_timeout() -> Duration {
-    let timeout_ms = overrides::provider_timeout_ms().unwrap_or(1_500);
-    Duration::from_millis(timeout_ms.clamp(250, 15_000))
-}
-
 /// Per-attempt cap matched to the scaled total budget. Two sequential models
 /// share the total budget, so half of it gives the fallback a real window while
-/// preserving the operation deadline. An explicit provider timeout override
-/// still wins.
+/// preserving the operation deadline.
 pub(crate) fn provider_timeout_for_budget(total: Duration) -> Duration {
-    if overrides::provider_timeout_ms().is_some() {
-        return provider_timeout();
-    }
     total / 2
 }
 
@@ -75,8 +52,7 @@ pub(crate) fn provider_timeout_for_budget(total: Duration) -> Duration {
 /// scales with the text (Adrian, 2026-10-31): `L1_DICTATION_BASE_BUDGET` plus
 /// `L1_DICTATION_PER_CHAR_MICROS` per character, never above
 /// `L1_DICTATION_MAX_BUDGET`; a fixed 900 ms could not round-trip a long
-/// dictation. An explicit RIGHTKIT_L3_TOTAL_TIMEOUT_MS /
-/// RIGHTKIT_L3_PROVIDER_TIMEOUT_MS override still wins. L2 prompt polish and
+/// dictation. L2 prompt polish and
 /// L3 summary keep the scaled budget and the fallback roster.
 ///
 /// This is separate from the "8 words / 3 s" gate in `text_polish`
@@ -106,17 +82,8 @@ pub(crate) fn lane_timeouts(input: &str, prompt_version: &str) -> (Duration, Dur
     if !is_dictation_lane(prompt_version) {
         return (scaled, provider_timeout_for_budget(scaled));
     }
-    let total = if overrides::total_timeout_ms().is_some() {
-        scaled
-    } else {
-        l1_dictation_cloud_budget(input)
-    };
-    let cap = if overrides::provider_timeout_ms().is_some() {
-        provider_timeout()
-    } else {
-        total
-    };
-    (total, cap)
+    let total = l1_dictation_cloud_budget(input);
+    (total, total)
 }
 
 pub(crate) fn trace_budget_exceeded(
@@ -148,15 +115,11 @@ pub(crate) fn fair_attempt_budget(
 }
 
 fn circuit_threshold() -> u32 {
-    overrides::circuit_fails().unwrap_or(3).clamp(1, 20) as u32
+    3
 }
 
 fn circuit_cooldown() -> Duration {
-    Duration::from_millis(
-        overrides::circuit_cooldown_ms()
-            .unwrap_or(60_000)
-            .clamp(1_000, 600_000),
-    )
+    Duration::from_millis(60_000)
 }
 
 pub(crate) fn provider_circuit_open(provider: Provider) -> bool {

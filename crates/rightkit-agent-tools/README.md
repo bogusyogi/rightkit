@@ -22,6 +22,17 @@ Exposure rules are built in and cannot be loosened (`exposure` module). No paste
 
 Do not use it to take foreground input or to click the screen with computer-use tools on Right Suite apps. Do not use it for dictation or text delivery; the exposure rules block those.
 
+## Transports and agent hosts
+
+An app is reached over one of two transports; the profile, the allowlist and the exposure rules are the same for both.
+
+- **Pipe** (default): the `control-<app>` `rightkit-daemon` service.
+- **Loopback HTTP** (`AppProfile::with_http`, or `RIGHT_CTL_HTTP_<APP>=ip:port[/path]` for `right-ctl`): for an app whose control surface is a local HTTP server. Wire contract `control-http v1`: `POST <path>` with `{"method","params"}`, answered `{"ok":true,"result"}` or `{"ok":false,"error":{"code","message","retryable"}}`. Only loopback addresses are accepted; a bearer token, if the app needs one, comes from a file (`RIGHT_CTL_HTTP_<APP>_TOKEN_FILE`) read on each call.
+
+**Serving a toolbox over MCP.** With feature `mcp-provider`, `ToolboxProvider::new(Arc<Toolbox>, Caller)` is a `rightkit_mcp::ToolProvider`. `rightkit-mcp` keeps the transport (framing, versions, batching, deadline, cancellation); the toolbox keeps policy and schema. `tools/list` shows only what the caller's allowlist permits, every `tools/call` passes the toolbox's full gate, a refusal is a tool-level error with the stable `ToolError` code, and an unknown tool is `ToolNotFound`. A cancelled MCP request cancels the tool's `CancelToken`. Decision record: `docs/plans/2026-10-20-rightkit-spec-adjudication.md`, section C.
+
+**Agent hosts are exempt from `right-ctl`'s tool surface.** An app that hosts agents and ships its own model-facing tool registry (CodeRight's `engine/crates/tools`: git, edit, exec, MCP, code mode) does not publish that registry through `right-ctl`; its tools are governed by the host's own permission engine. The pasteboard rule still holds there: the host runs `rightkit_agent_tools::exposure::forbidden` (and `forbidden_with` for a dictation app) over every tool and command name it registers and refuses a match. What `right-ctl` can reach on such an app is its control surface (`<app>.*`), over either transport.
+
 ## Applicability record (M22)
 
 Every app declares its role for the agent surface in `rightkit-mandatory.json`, tied to the real entrypoints that prove it:
@@ -103,7 +114,7 @@ Results go to stdout as JSON. Errors go to stderr as `{"error":{code,message,ret
 
 ## Platform support
 
-Desktop tools need macOS Accessibility or Windows UI Automation. `tests/desktop_tools.rs` drives the `desktop.*` tools through the toolbox gate over the simulated desktop in `rightkit-automation` (`mock::MockPlatform`), so it runs on every host and never touches a real desktop. The real OS backends are tested in `rightkit-automation`; see that crate's README for its status.
+Desktop tools need macOS Accessibility or Windows UI Automation. The `desktop.*` tools drive the real OS backends in `rightkit-automation`; see that crate's README for its status.
 
 ## Version and changes
 

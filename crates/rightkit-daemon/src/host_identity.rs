@@ -214,6 +214,10 @@ type Verifier = Arc<dyn Fn(&HostProcess) -> Result<(), String> + Send + Sync>;
 pub struct HostExpectation {
     executables: Vec<PathBuf>,
     verifier: Option<Verifier>,
+    /// The server-side check accepts any executable and relies on the verifier alone (a peer
+    /// admitted by code signature, see `peer_signature`). Never set by a public constructor that
+    /// a caller can reach without also naming a verifier.
+    any_executable: bool,
 }
 
 impl fmt::Debug for HostExpectation {
@@ -270,6 +274,7 @@ impl HostExpectation {
         Self {
             executables: vec![path.into()],
             verifier: None,
+            any_executable: false,
         }
     }
 
@@ -282,6 +287,7 @@ impl HostExpectation {
         Self {
             executables: paths.into_iter().map(Into::into).collect(),
             verifier: None,
+            any_executable: false,
         }
     }
 
@@ -359,6 +365,19 @@ impl HostExpectation {
     /// The executables this expectation names, as supplied.
     pub fn executables(&self) -> &[PathBuf] {
         &self.executables
+    }
+
+    /// An expectation that names no path: the server-side check identifies the peer process
+    /// (same user, pid pinned by start time) and accepts it only when `check` does. Crate-internal
+    /// so that "any executable" is always paired with a verifier (a code-signature check).
+    pub(crate) fn any_executable_verified(
+        check: impl Fn(&HostProcess) -> Result<(), String> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            executables: Vec::new(),
+            verifier: Some(Arc::new(check)),
+            any_executable: true,
+        }
     }
 }
 
@@ -644,10 +663,11 @@ mod unix_impl {
         };
         let ExeInfo { path, id } = exe;
         let found = std::fs::canonicalize(&path).unwrap_or(path);
-        if !expect
-            .executables
-            .iter()
-            .any(|expected| same_executable(expected, &found, id))
+        if !expect.any_executable
+            && !expect
+                .executables
+                .iter()
+                .any(|expected| same_executable(expected, &found, id))
         {
             return Err(refuse(Some(found), HostIdentityReason::ExecutableMismatch));
         }
@@ -692,7 +712,7 @@ mod unix_impl {
                 reason,
             }
         };
-        if expect.executables.is_empty() {
+        if expect.executables.is_empty() && !expect.any_executable {
             return Err(refuse(None, None, HostIdentityReason::NoExpectation));
         }
         if !os::SUPPORTED {
@@ -1331,7 +1351,7 @@ mod windows_impl {
                 reason,
             }
         };
-        if expect.executables.is_empty() {
+        if expect.executables.is_empty() && !expect.any_executable {
             return Err(refuse(None, None, HostIdentityReason::NoExpectation));
         }
         let Some(pid) = peer.pid else {
@@ -1393,10 +1413,11 @@ mod windows_impl {
 
         let found = std::fs::canonicalize(&image).unwrap_or(image);
         let id = file_id(&found);
-        if !expect
-            .executables
-            .iter()
-            .any(|expected| same_executable(expected, &found, id))
+        if !expect.any_executable
+            && !expect
+                .executables
+                .iter()
+                .any(|expected| same_executable(expected, &found, id))
         {
             return Err(refuse(
                 Some(pid),

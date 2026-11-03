@@ -64,6 +64,9 @@ pub struct PublishRemote {
     pub container_id: Option<String>,
     pub post_id: Option<String>,
     pub permalink: Option<String>,
+    /// The id of the posted follow-up comment (`comment` phase); absent until it is posted.
+    #[serde(default)]
+    pub comment_id: Option<String>,
 }
 
 /// One durable publish job, as every publish command returns it. Holds no token.
@@ -151,7 +154,8 @@ pub struct PublishStepOutput {
     pub job: PublishJob,
     /// What this step did: `advanced`, `polling`, `published`, `waiting`, `not_due`, `failed`,
     /// `outcome_unknown`, `cancelled`, `terminal`, `reconciled_adopted`, `reconciled_requeued`,
-    /// `reconcile_exhausted`, `reconcile_ambiguous`, `reconcile_failed`.
+    /// `reconcile_exhausted`, `reconcile_ambiguous`, `reconcile_failed`, `comment_failed` (the follow-up comment ended
+    /// without a comment; the post stays `published`).
     pub outcome: String,
     pub detail: Option<String>,
     /// Platform requests this command sent.

@@ -396,11 +396,17 @@ struct Current {
     revision: u64,
 }
 
+/// Reverts an applied candidate when its commit fails (see [`SettingsBridge::with_apply`]).
+pub type Undo = Box<dyn FnOnce() + Send>;
+
+type ApplyHook = Arc<dyn Fn(&Map<String, Value>) -> Result<Undo, String> + Send + Sync>;
+
 /// The settings bridge. See the module documentation.
 pub struct SettingsBridge {
     document: Document,
     schema: Arc<dyn SettingsSchema>,
     read_only: bool,
+    apply: Option<ApplyHook>,
     observed: Mutex<Option<Observed>>,
     listeners: Listeners,
     next_id: AtomicU64,
@@ -414,6 +420,7 @@ impl SettingsBridge {
             document,
             schema: Arc::new(schema),
             read_only: false,
+            apply: None,
             observed: Mutex::new(None),
             listeners: Arc::new(Mutex::new(Vec::new())),
             next_id: AtomicU64::new(0),
@@ -425,6 +432,20 @@ impl SettingsBridge {
     /// working. For a build or mode that must not change the settings file.
     pub fn read_only(mut self, yes: bool) -> Self {
         self.read_only = yes;
+        self
+    }
+
+    /// Run the app's effect for each candidate between validation and the commit (#1101): `apply`
+    /// receives the complete candidate and applies it to the running app (an engine, a settings
+    /// consumer). It returns an [`Undo`] that runs when the commit then fails (a revision conflict or
+    /// a storage error), so a rejected save leaves the file and the live app in agreement. A refusal
+    /// from `apply` is a `validation_failed` error and changes nothing. A commit that reached the
+    /// file keeps its effects.
+    pub fn with_apply(
+        mut self,
+        apply: impl Fn(&Map<String, Value>) -> Result<Undo, String> + Send + Sync + 'static,
+    ) -> Self {
+        self.apply = Some(Arc::new(apply));
         self
     }
 
@@ -640,11 +661,21 @@ impl SettingsBridge {
                 .prepare_patch(&before.values, patch)
                 .map_err(SettingsError::Rejected)?;
             self.check_candidate(&candidate)?;
-            match self.document.put(
+            let mut undo = match &self.apply {
+                Some(apply) => Some(apply(&candidate).map_err(SettingsError::Rejected)?),
+                None => None,
+            };
+            let stored = self.document.put(
                 self.schema.schema_version(),
                 Value::Object(candidate.clone()),
                 Some(before.revision),
-            ) {
+            );
+            if !matches!(stored, Ok(_) | Err(StoreError::Replaced { .. })) {
+                if let Some(undo) = undo.take() {
+                    undo();
+                }
+            }
+            match stored {
                 Ok(state) => {
                     let after = current_of(state);
                     let _ = self.observe(&after);

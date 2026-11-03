@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.16 (unpublished)
+
+- Renamed (breaking): `verify_ffmpeg_or_development` is now `verify_ffmpeg_handle` and `verify_ffprobe_or_development` is now `verify_ffprobe_handle`; there never was a development fallback after `dev-overrides` went. Callers change the name only.
+- Removed (breaking): the `dev-overrides` feature and every development path: `BuildMode`, `DevFfmpeg`, `UnverifiedTool`/`UnverifiedRequest`/`UnverifiedSource`, `resolve_unverified`, `AnyFfmpeg`, `resolve_ffmpeg_or_unverified`, `handle::verified_or_development(_in)`, the `dev_resolve` module, `ToolHandle::Development`, and `MediaError::UnverifiedRefusedInRelease`/`UnverifiedNotFound`. `resolve_ffmpeg_handle(_with)` and `resolve_ffprobe_handle(_with)` lose their `dev` and `mode` arguments. `verify_ffmpeg_or_development` and `verify_ffprobe_or_development` keep their names so dependents compile, and now only verify (follow-up: rename). `Capabilities` and `VerifiedFfmpeg::probe_capabilities` stay. Adrian, 2026-11-03: "My decision was no unit tests. Only e2e.", "make sure no debug assertions in their respective apps/ repos" and "dev mode, is mine. im the fucking owner, my data. no dummy data, no fucking made up shit. real data. snapshot and restore." Callers to fix: rightkit-dictation-inference `file_transcribe.rs` (`DevFfmpeg`, `try_unverified`), `packages/release/app-check.mjs` G19.
+- rightkit#246 (code side): `ArtifactCatalog::bundle_plan(parts, targets) -> BundlePlan` and `BundlePlan::source_offer(product, contact, catalog)` (module `bundle`). For the tool and variant pairs an app ships and each `(os, arch)` target: the approved row's retained archive (`url`, archive sha256, `member`, or `None` where the catalog holds none), the content digest the shipped file must match, the Tauri `externalBin` name, every notice file and the source availability statement text (FFmpeg source URL and digest, build-notes file, configure flags, every component's source pin). A combination without an approved row, such as any Linux target today, is an error; nothing is skipped or invented. `right-release` (stage-sidecar `sources`) consumes it. Still open and not in this crate: Linux decode rows (no approved Linux artifact or digest exists in the repository) and an encoder-capable variant with `h264_mf` / `h264_videotoolbox` (the catalog has `export-ass` and `export-ass-zimg` rows; the `decode` rows link no encoder).
+
+## 0.2.15
+
+- `ebur128::parse_ebur128_summary` and `Ebur128Summary`: parses the ebur128 summary from stderr with sample and true peak kept apart, reading only the text after the last `Summary:` (#1007).
+- `FfmpegCommand::h264_compatible_input()` and `H264_COMPATIBLE_VF`: even dimensions and `yuv420p` for H.264 encodes (#719).
+- Development resolver: a bare `ffmpeg` on absolute `PATH` directories is a last-resort candidate (#739).
+
 ## Unreleased
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

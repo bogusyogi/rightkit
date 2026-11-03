@@ -315,6 +315,18 @@ impl JobError {
             ),
         )
     }
+    /// A `Recovery::Uncertain` job began an attempt and lost its runner (or its handler ended
+    /// with a retryable error): the effect may have happened, so the job is held `uncertain`
+    /// for an explicit resolution and is never run again by recovery.
+    #[cfg(feature = "store")]
+    pub fn uncertain(job_id: &str) -> Self {
+        Self::new(
+            crate::store::UNCERTAIN,
+            format!(
+                "job {job_id} was interrupted after it started and its recovery class is uncertain; whether its effect happened is unknown, so it is held for resolution and was not run again"
+            ),
+        )
+    }
     /// A `Recovery::Never` job's handler ended with a retryable error. The handler may already
     /// have had effects, so the job fails instead of pausing for a later re-run.
     pub fn interrupted_by(job_id: &str, cause: &JobError) -> Self {

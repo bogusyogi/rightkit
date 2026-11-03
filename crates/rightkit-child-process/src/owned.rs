@@ -131,6 +131,8 @@ type InheritedValue = RawHandleOrFd;
 pub struct OwnedCommand {
     command: Command,
     windows_hidden: bool,
+    // Windows: `CREATE_NEW_CONSOLE` (set by `windows_new_console`); wins over `windows_hidden`.
+    windows_new_console: bool,
     windows_breakaway: BreakawayMode,
     caller_job: CallerJob,
     job_assignment: JobAssignmentMode,
@@ -147,6 +149,15 @@ pub struct OwnedCommand {
     inherited_fds: Vec<std::os::fd::RawFd>,
     // Opt-out of descriptor/handle sanitation (Orthic-Labs/rightkit#835).
     inherit_all_descriptors: bool,
+    // Unix: make the child's stdin its controlling terminal after `setsid` (a pseudo-terminal
+    // slave). Set by `unix_controlling_terminal`.
+    unix_controlling_terminal: bool,
+    // Unix: hooks that run in the child after every hook of this crate, immediately before exec.
+    #[cfg(unix)]
+    last_hooks: LastHooks,
+    // Windows: the pseudoconsole (HPCON) the child attaches to. Set by `windows_pseudoconsole`.
+    #[cfg(windows)]
+    windows_pseudoconsole: Option<isize>,
     #[cfg(windows)]
     windows_spawn_config: Option<crate::WindowsSpawnConfig>,
     #[cfg(windows)]
@@ -155,6 +166,18 @@ pub struct OwnedCommand {
     // caller edit, so a later `command_mut` cannot undo it.
     run_stdio: Option<RunStdio>,
     env_cleared: bool,
+}
+
+/// Caller hooks that run in the forked child after the crate's own (see
+/// [`OwnedCommand::pre_exec_last`]).
+#[cfg(unix)]
+#[derive(Default)]
+struct LastHooks(Vec<Box<dyn FnMut() -> io::Result<()> + Send + Sync + 'static>>);
+#[cfg(unix)]
+impl std::fmt::Debug for LastHooks {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "LastHooks({})", self.0.len())
+    }
 }
 
 /// The piped stdio contract of the bounded runners: stdout and stderr are always piped, stdin
@@ -191,6 +214,7 @@ impl OwnedCommand {
         Self {
             command,
             windows_hidden: true,
+            windows_new_console: false,
             windows_breakaway: BreakawayMode::None,
             caller_job: None,
             job_assignment: JobAssignmentMode::Strict,
@@ -203,6 +227,11 @@ impl OwnedCommand {
             #[cfg(unix)]
             inherited_fds: Vec::new(),
             inherit_all_descriptors: false,
+            unix_controlling_terminal: false,
+            #[cfg(unix)]
+            last_hooks: LastHooks::default(),
+            #[cfg(windows)]
+            windows_pseudoconsole: None,
             #[cfg(windows)]
             windows_spawn_config: None,
             #[cfg(windows)]
@@ -274,6 +303,23 @@ impl OwnedCommand {
         self.inherit_all_descriptors = enabled;
         self
     }
+    /// Windows: attaches the child to the pseudoconsole `hpcon` (an `HPCON` from
+    /// `CreatePseudoConsole`, as its raw `isize`), so its console is the ConPTY. The spawn goes
+    /// through the native path (suspended, then assigned to the job, as for any owned child) with
+    /// the pseudoconsole as the process attribute and no handle inheritance: the standard
+    /// streams, the hidden and new-console flags and the inheritance allowlist do not apply.
+    /// The pseudoconsole must stay open until `spawn` returns, and the caller closes it (after the
+    /// child is gone). Conflicts with `inherit_all_descriptors(true)` (`InvalidInput`). Unix
+    /// has no counterpart here; see `unix_controlling_terminal`.
+    ///
+    /// # Safety
+    ///
+    /// `hpcon` must be a valid pseudoconsole handle that outlives the spawn call.
+    #[cfg(windows)]
+    pub unsafe fn windows_pseudoconsole(&mut self, hpcon: isize) -> &mut Self {
+        self.windows_pseudoconsole = Some(hpcon);
+        self
+    }
     /// Supply opaque stdio/environment/raw-arg settings for native allowlisted spawns.
     /// Required after from_command/command_mut when inherit_handles_only is set.
     /// Ordinary std spawns ignore it; fresh new() Commands have known defaults. The bounded
@@ -337,6 +383,7 @@ impl OwnedCommand {
     /// Compatibility no-op: hidden is already the default.
     pub fn windows_hide(&mut self) -> &mut Self {
         self.windows_hidden = true;
+        self.windows_new_console = false;
         self
     }
     /// Windows: leaves the console window visible, clearing the hidden default, for a
@@ -344,6 +391,20 @@ impl OwnedCommand {
     /// Pair it with [`spawn_uncontained_detached`](Self::spawn_uncontained_detached) for a
     /// fire-and-forget launch. Unix ignores it.
     pub fn windows_visible(&mut self) -> &mut Self {
+        self.windows_hidden = false;
+        self
+    }
+    /// Windows: gives the child its own new console window (`CREATE_NEW_CONSOLE`), for a
+    /// console program an operator asked to see (an attach window, a log tail) when this
+    /// process has no console or a hidden one. It replaces the hidden default
+    /// (`CREATE_NO_WINDOW`) and, for a detached launch whose job denied breakaway, the
+    /// no-console fallback (`DETACHED_PROCESS`); it clears `windows_hide` and is cleared by it.
+    /// Pair it with [`spawn_uncontained_detached`](Self::spawn_uncontained_detached) for a
+    /// window that outlives this process, or with [`spawn`](Self::spawn) for an owned one.
+    /// The child's stdio follows the command as usual: leave it inherited for the new console
+    /// to show output. Unix ignores it.
+    pub fn windows_new_console(&mut self) -> &mut Self {
+        self.windows_new_console = true;
         self.windows_hidden = false;
         self
     }
@@ -385,6 +446,36 @@ impl OwnedCommand {
     /// Ignored on Unix. BestEffort reports errors on OwnedChild.
     pub fn job_assignment_mode(&mut self, mode: JobAssignmentMode) -> &mut Self {
         self.job_assignment = mode;
+        self
+    }
+    /// Unix: makes the child's standard input (which must be a pseudo-terminal slave, wired with
+    /// `command_mut().stdin(..)`) its controlling terminal: the child calls `setsid` and then
+    /// `ioctl(0, TIOCSCTTY, 0)` between `fork` and `exec`, so job control, `SIGINT` from the
+    /// terminal and `/dev/tty` work. It implies a session whatever
+    /// [`unix_containment`](Self::unix_containment) says (a controlling terminal belongs to a
+    /// session leader), so the group-wide signals of this crate still reach the child's whole
+    /// tree. A spawn whose stdin is not a terminal fails (`ENOTTY`). Ignored on Windows.
+    pub fn unix_controlling_terminal(&mut self, enabled: bool) -> &mut Self {
+        self.unix_controlling_terminal = enabled;
+        self
+    }
+    /// Unix: runs `hook` in the child after fork and after every hook of this crate
+    /// (`setsid`, priority, the descriptor sweep, the parent-death tie), as the last step before
+    /// `exec`. For a confinement that must be the final word on what the child may do (a
+    /// seccomp filter, a `landlock` ruleset). Hooks run in the order added; one that fails
+    /// aborts the spawn with its error. Windows ignores it.
+    ///
+    /// # Safety
+    ///
+    /// As for `std::os::unix::process::CommandExt::pre_exec`: the hook runs in a forked child of
+    /// a possibly multi-threaded process, so it may call only async-signal-safe functions (no
+    /// allocation, no locks), and must not rely on state another thread may hold.
+    #[cfg(unix)]
+    pub unsafe fn pre_exec_last<F>(&mut self, hook: F) -> &mut Self
+    where
+        F: FnMut() -> io::Result<()> + Send + Sync + 'static,
+    {
+        self.last_hooks.0.push(Box::new(hook));
         self
     }
     /// Ignored on Windows. Session runs setsid before exec.
@@ -519,6 +610,19 @@ impl OwnedCommand {
                 "inherit_all_descriptors conflicts with inherit_handles_only and inherit_fd(s)",
             ));
         }
+        #[cfg(windows)]
+        if self.windows_pseudoconsole.is_some() {
+            if self.inherit_all_descriptors {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "a pseudoconsole child inherits nothing: inherit_all_descriptors conflicts",
+                ));
+            }
+            // The pseudoconsole is a process attribute only the native spawn can set.
+            if self.windows_spawn_config.is_none() {
+                self.windows_spawn_config = Some(crate::WindowsSpawnConfig::default());
+            }
+        }
         // Windows: a command whose stdio and environment are known (`new`, or an explicit
         // config) takes the native spawn with an empty handle list by default, so the child
         // inherits its stdio and nothing else. A bare `from_command` has no config and keeps
@@ -562,7 +666,11 @@ impl OwnedCommand {
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
-            let session = detached || self.unix_containment == UnixContainment::Session;
+            let controlling_terminal = self.unix_controlling_terminal;
+            let session = detached
+                || controlling_terminal
+                || self.unix_containment == UnixContainment::Session;
+            let mut last_hooks = std::mem::take(&mut self.last_hooks.0);
             let nice_floor = self.process_priority.nice_floor();
             #[cfg(target_os = "macos")]
             let utility_qos = self.process_priority == ProcessPriority::Efficient;
@@ -592,6 +700,14 @@ impl OwnedCommand {
                     if result < 0 {
                         return Err(io::Error::last_os_error());
                     }
+                    if controlling_terminal {
+                        // After setsid this process leads a session with no controlling
+                        // terminal; fd 0 is the terminal slave (std wired stdio before any hook).
+                        // SAFETY: ioctl on a descriptor, no pointers; arg 0 does not steal.
+                        if unsafe { libc::ioctl(0, libc::TIOCSCTTY as _, 0 as libc::c_int) } < 0 {
+                            return Err(io::Error::last_os_error());
+                        }
+                    }
                     if let Some(floor) = nice_floor {
                         crate::process_unix::raise_nice_to(floor)?;
                     }
@@ -606,6 +722,9 @@ impl OwnedCommand {
                     if let Some(supervisor) = supervisor {
                         crate::process_unix::die_with_parent(supervisor)?;
                     }
+                    for hook in last_hooks.iter_mut() {
+                        hook()?;
+                    }
                     Ok(())
                 });
             }
@@ -615,16 +734,22 @@ impl OwnedCommand {
             &mut self.command,
             detached,
             self.windows_hidden,
+            self.windows_new_console,
             self.process_priority,
         );
         #[cfg(unix)]
         let _ = (
             self.windows_hidden,
+            self.windows_new_console,
             self.windows_breakaway,
             self.job_assignment,
         );
         #[cfg(windows)]
-        let _ = (self.unix_containment, self.kill_on_parent_exit);
+        let _ = (
+            self.unix_containment,
+            self.kill_on_parent_exit,
+            self.unix_controlling_terminal,
+        );
         let spawned_at = SystemTime::now();
         let hold_suspended = self.hold_suspended && !detached;
         #[cfg(unix)]
@@ -670,6 +795,7 @@ impl OwnedCommand {
                         crate::process_windows::configure_in_job_detached(
                             &mut self.command,
                             self.windows_hidden,
+                            self.windows_new_console,
                             self.process_priority,
                         );
                         (PlatformChild::from(self.command.spawn()?), true)
@@ -688,10 +814,12 @@ impl OwnedCommand {
                     handles,
                     detached,
                     self.windows_hidden,
+                    self.windows_new_console,
                     self.process_priority,
                     self.env_cleared,
                     self.partial_spawn_cleanup_timeout,
                     in_job_fallback,
+                    self.windows_pseudoconsole,
                 )?
             }
         };
@@ -987,6 +1115,16 @@ impl OwnedChild {
     }
     pub fn wait_timeout(&mut self, timeout: Duration) -> io::Result<Option<ExitStatus>> {
         self.handle.wait_timeout(timeout)
+    }
+    /// CPU time (user, system) and peak resident memory of this child, once it has exited and
+    /// been reaped through this crate (see [`ChildUsage`](crate::ChildUsage)); `None` before.
+    pub fn resource_usage(&self) -> io::Result<Option<crate::ChildUsage>> {
+        self.handle.resource_usage()
+    }
+    /// [`wait`](Self::wait), returning the child's resource usage with its exit status.
+    pub fn wait_with_usage(&mut self) -> io::Result<(ExitStatus, Option<crate::ChildUsage>)> {
+        let status = self.wait()?;
+        Ok((status, self.resource_usage()?))
     }
     /// Asks the tree to stop, waits up to `grace` for the leader, then forces the tree down.
     ///

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Docs: README records the ruling of rightkit#967 (the hosted sync service is live and supported; the `rightkit-sync` `http` feature is its client). No code change.
+
 ## 0.1.0
 
 Initial version. Private package; deployed as a Cloudflare Worker, not published to npm.

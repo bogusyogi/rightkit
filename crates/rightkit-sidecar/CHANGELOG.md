@@ -3,6 +3,8 @@
 ## 0.3.1 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+- **New: feature `tokio` (rightkit#634).** `tokio_io` (re-exported at the root) adds `read_json_line_async`, `read_json_line_async_opts`, `read_json_line_or_oversized_async_opts`, `write_json_line_async`, `write_json_line_flush_async`, `write_encoded_line_async` and `write_encoded_line_flush_async` over `tokio::io::AsyncBufRead` / `AsyncWrite`. They run the same line machine as the blocking readers (it is now one private `LineScan` that the blocking and async loops share, so blocking behaviour is unchanged): bounded buffering of `limit + 1` bytes, an oversized line drained through its newline, the `max_discard` cut-off, blank-line and limit options, and a malformed line left in `buffer`. `ReadLimits::deadline` is checked between chunks; a read future dropped mid-line leaves the stream off a line boundary. The feature enables optional `tokio` with `io-util` only (no runtime); off by default. Written from code, not compiled.
+- **New: opt-in empty frames (rightkit#1163).** `length_prefixed::FrameOptions { allow_empty }` (default `false`, also re-exported at the root) with `read_frame_bytes_opts`, `write_frame_bytes_opts`, `read_frame_bytes_deadline_opts`, `write_frame_bytes_deadline_opts`, and `deadline::read_frame_deadline_opts` / `write_frame_deadline_opts`. With `allow_empty`, a zero-length body is a valid frame in both directions; the functions without `_opts` still refuse it with `Io(InvalidData)`. Additive, Breaking: none. Written from code, not compiled.
 
 ## 0.3.0 — unpublished staging
 

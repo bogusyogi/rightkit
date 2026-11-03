@@ -167,33 +167,6 @@ impl ModelHttpOptions {
         self
     }
 
-    /// Tests only. Let this transport reach any loopback address (`127.0.0.1`, `localhost`,
-    /// `::1`, any port, plain `http`) and bypass environment proxies, so a test can serve model
-    /// files from a local server. Every other destination keeps the public-web rules.
-    ///
-    /// There is no cargo feature for this. It needs proof of a test run: a
-    /// [`rightkit_daemon::mode::Mode`] that is `Mode::Test`. That value can only be produced by
-    /// `rightkit_daemon::mode::decide` in a build that compiled `rightkit-daemon`'s `test-mode`
-    /// feature (the app's QA or dev build, refused by the release scan), after the activation
-    /// selector and a runner-bound, isolated test root were verified. In every other build
-    /// `decide` returns `Mode::Release`, and this returns an error and changes nothing, so a
-    /// release build cannot enable loopback by configuration. Compare the single-host
-    /// [`ModelHttpOptions::allow_loopback_host`], which needs the `dev-worker-override` feature.
-    #[doc(hidden)]
-    pub fn allow_loopback_for_tests(
-        mut self,
-        mode: &rightkit_daemon::mode::Mode,
-    ) -> Result<Self, HttpError> {
-        if !mode.is_test() {
-            return Err(HttpError::InvalidRequest(
-                "loopback for tests needs a test run (not a release run)".into(),
-            ));
-        }
-        self.address_policy = loopback_test_policy();
-        self.proxy = ProxyMode::None;
-        Ok(self)
-    }
-
     /// Check the values that become header text or an allowance: the user agent (the value
     /// from [`ModelHttpOptions::resolved_user_agent`]) must be a valid header value, and
     /// [`ModelHttpOptions::loopback_host`], when set, must be a plain host name or IP literal
@@ -231,15 +204,6 @@ impl ModelHttpOptions {
         }
         self
     }
-}
-
-/// Public-web rules plus loopback addresses for the three loopback host names; see
-/// [`ModelHttpOptions::allow_loopback_for_tests`].
-pub(crate) fn loopback_test_policy() -> AddressPolicy {
-    AddressPolicy::public_web().allow_if(
-        vec!["127.0.0.1".into(), "localhost".into(), "::1".into()],
-        |ip| ip.is_loopback(),
-    )
 }
 
 /// A header value this crate will send: not empty, no leading or trailing space, and only
@@ -293,7 +257,7 @@ fn normalize_loopback_host(host: &str) -> Option<String> {
 /// Host (lowercase, no brackets, no trailing dot) and port of an `http` or `https` URL's
 /// authority. `None` for any other scheme, for userinfo, and for an unparsable port.
 #[cfg_attr(not(feature = "dev-worker-override"), allow(dead_code))]
-fn url_host_port(url: &str) -> Option<(String, u16)> {
+pub(crate) fn url_host_port(url: &str) -> Option<(String, u16)> {
     let (scheme, rest) = url.split_once("://")?;
     let default_port = if scheme.eq_ignore_ascii_case("http") {
         80
@@ -374,16 +338,6 @@ impl DevLoopback {
 }
 
 impl ModelHttp {
-    /// Tests only: [`ModelHttpOptions::allow_loopback_for_tests`] applied to `options`, then
-    /// [`ModelHttp::try_new`]. Fails unless `mode` is `Mode::Test`.
-    #[doc(hidden)]
-    pub fn for_loopback_tests(
-        options: ModelHttpOptions,
-        mode: &rightkit_daemon::mode::Mode,
-    ) -> Result<Self, HttpError> {
-        Self::try_new(options.allow_loopback_for_tests(mode)?)
-    }
-
     /// Build the transport from `options`. Never fails: a user agent that is not a valid
     /// header value is replaced by the default (`rightkit-models/<version>`), and an invalid
     /// loopback allowance is dropped. Use [`ModelHttp::try_new`] to see those errors instead.

@@ -18,7 +18,11 @@ pub const WINDOWS_EMIT_REWARD: f32 = 0.10;
 
 /// Current vendored Windows model code clamps the duration *logit index* with
 /// `.min(self.config.duration_cap)`. Preserve index-cap semantics during extraction.
-pub const WINDOWS_VENDOR_DURATION_CAP_INDEX: usize = 2;
+///
+/// 4 (was 2, #913): paired Windows evidence on Parakeet Ultra (DirectML, beam 2) showed
+/// decoder calls per window down 24% with 6/6 pair wins, FLEURS en_us WER 5.53% -> 5.35%,
+/// and the 224-clip canonical corpus favoured 4. Matches the macOS value consumers already use.
+pub const WINDOWS_VENDOR_DURATION_CAP_INDEX: usize = 4;
 
 /// Model-defined semantics that must be supplied by each runtime/model adapter.
 /// No cross-platform defaults are provided deliberately: blank ID and duration

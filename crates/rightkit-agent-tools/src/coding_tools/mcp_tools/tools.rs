@@ -3,6 +3,8 @@
 //
 // - `list_mcp_tools` → `manager.discover_all()` rendered as a list.
 // - `mcp_call` → `manager.invoke(qualified_name, args, Some(session_id))`.
+// - `list_mcp_sources` → `manager.connection_states()` classified by `rightkit_mcp::session_status`;
+//   reads held state only, never starts a server or lists or calls a tool.
 
 use crate::coding_tools::context::ToolContext;
 use crate::coding_tools::tool_trait::{Tool, ToolResult};
@@ -94,6 +96,61 @@ impl Tool for ListMcpToolsTool {
         }
 
         ToolResult::ok(wrap_mcp_output(&lines.join("\n")))
+    }
+}
+
+pub struct ListMcpSourcesTool;
+
+#[async_trait::async_trait]
+impl Tool for ListMcpSourcesTool {
+    fn name(&self) -> &str {
+        "list_mcp_sources"
+    }
+
+    fn is_read_only(&self) -> bool {
+        true
+    }
+
+    fn description(&self) -> &str {
+        "Report the state of each MCP tool source in this session: ready, no-tools, failed, or \
+         pending (still starting or not connected yet), with the tool count. It reads state the \
+         session already holds; it does not start a server, call a tool, or show a URL, header \
+         or token. Use it to tell a server that is not connected from one that has no tools. \
+         Call list_mcp_tools for the tools themselves."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({ "type": "object", "properties": {} })
+    }
+
+    async fn execute(&self, _args: Value, ctx: &ToolContext) -> ToolResult {
+        let manager = match &ctx.mcp {
+            Some(m) => m,
+            None => return ToolResult::ok("No MCP servers are configured."),
+        };
+        if manager.is_empty() {
+            return ToolResult::ok("No MCP servers are configured.");
+        }
+        let held: Vec<rightkit_mcp::EngineSource> = manager
+            .connection_states()
+            .into_iter()
+            .filter(|source| manager.is_channel_allowed(&source.name, &ctx.mcp_channel))
+            .collect();
+        let statuses = rightkit_mcp::engine_source_status(&held);
+        if statuses.is_empty() {
+            return ToolResult::ok("No MCP servers are available to this session.");
+        }
+        let sources: Vec<Value> = statuses
+            .iter()
+            .map(|status| {
+                json!({
+                    "name": status.name,
+                    "state": status.state,
+                    "tools": status.tools,
+                })
+            })
+            .collect();
+        ToolResult::ok(json!({ "sources": sources }).to_string())
     }
 }
 

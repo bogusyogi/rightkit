@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.4.3 (unreleased)
+
+- Removed `tests/render_qa_critic_states.rs`: it fed synthetic `CriticInput` to the critic binary and judged nothing from a real render (Adrian, 2026-11-03: "My decision was no unit tests. Only e2e."). The `rightkit-render-critic` binary is unchanged.
+- rightkit#1489, new additive feature `phone` (off by default): module `phone`, the phone review and pause surface PostRight asked for, built on `rightkit-daemon`'s pattern public routes. `PhoneSurface::register` serves `GET /review/api/jobs`, `POST /review/api/jobs/{id}/approve | reject | resolve | pause` and `POST /review/api/account/pause`. `TokenRegistry` issues per-device bearer tokens bound to one account (HMAC-SHA256 stored, the secret shown once, constant-time verify, revocable, optional expiry, host-supplied persistence); a revoked, expired, unknown or malformed token is the same `401`. Approve takes `expected_revision` and `policy_revision`, reject and resolve take `expected_revision`; stale revisions, a wrong job state and an autonomous pairing answer `409` (`revision_conflict`, `policy_revision_conflict`, `state_conflict`, `autonomy_gated`); approve, reject and resolve run only at `Reviewed` or `ReviewLight`, pause at any level. Failed authentication is counted per remote address by the daemon's `FailLimiter` (`429`). The host implements `ReviewHost`; nothing is logged and no token or host text reaches a response. PostRight keeps `review.token_issue`, `review.token_revoke` and `calendar.resolve_failure`, which call `TokenRegistry::issue`, `revoke` and the host.
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 

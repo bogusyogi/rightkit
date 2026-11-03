@@ -7,6 +7,7 @@ use std::io::{Read, Write};
 use std::process::Stdio;
 use std::time::Duration;
 
+use rightkit_child_process::OwnedCommand;
 use rightkit_http::Secret;
 
 /// Default bound on one system-source lookup.

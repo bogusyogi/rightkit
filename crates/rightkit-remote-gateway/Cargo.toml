@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-remote-gateway"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.98.0"
 description = "Remote tools for agents on this computer: files, documents, terminals, processes, screen, app launch, media, clipboard, chat read and start, saved logins and payments; folder confinement, per-chat unlock, local approvals, owner settings and the activity trail."
@@ -17,13 +17,13 @@ path = "src/lib.rs"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1" }
 ring = "0.17"
-sysinfo = { version = "0.39" }
+sysinfo = { version = "0.40" }
 portable-pty = "=0.9.0"
 rightkit-app-host = { version = "0.1.0", path = "../rightkit-app-host" }
 rightkit-owner-approvals = { version = "0.1.0", path = "../rightkit-owner-approvals" }
 rightkit-chat-bridge = { version = "0.1.0", path = "../rightkit-chat-bridge" }
 rightkit-device-link-types = { version = "0.1.0", path = "../rightkit-device-link-types" }
-rightkit-system-monitor = { version = "0.1.0", path = "../rightkit-system-monitor" }
+rightkit-system-monitor = { version = "0.2.0", path = "../rightkit-system-monitor" }
 rightkit-automation = { version = "0.6.2", default-features = false, path = "../rightkit-automation" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-credentials = { version = "0.4.2", path = "../rightkit-credentials" }

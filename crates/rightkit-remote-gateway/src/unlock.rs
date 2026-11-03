@@ -420,9 +420,13 @@ fn descends_from(pid: u32, ancestor: u32) -> bool {
 /// information cannot be read.
 fn ancestors(pid: u32) -> Vec<u32> {
     use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
-    let mut system = System::new();
-    system.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
     let mut line = Vec::new();
+    let Ok(mut system) = System::new() else {
+        // The chain ends where process information cannot be read: here, at the first entry.
+        line.push(pid);
+        return line;
+    };
+    system.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
     let mut at = Pid::from_u32(pid);
     for _ in 0..64 {
         line.push(at.as_u32());

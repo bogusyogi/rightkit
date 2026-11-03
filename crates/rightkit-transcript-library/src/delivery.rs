@@ -276,21 +276,6 @@ impl TargetSnapshot {
         }
     }
 
-    pub fn test_target() -> Self {
-        Self {
-            process_id: Some(1),
-            process_name: Some("test-target".to_string()),
-            window_title: Some("Test Target".to_string()),
-            window_handle: Some(1),
-            focused_control_handle: Some(2),
-            foreground_target: Some(ForegroundTarget::WindowHandle { handle: 1 }),
-            focused_text_input: Some(true),
-            is_elevated: Some(false),
-            stop_continuity: None,
-            exe_path: None,
-        }
-    }
-
     /// Conservative identity proof for irreversible delivery. A field handle,
     /// when both observations expose one, is stronger than app/window identity.
     /// Missing/unknown identity never proves that two targets are identical.
@@ -461,19 +446,6 @@ impl DeliveryRecord {
     pub fn with_source(mut self, source: DeliverySource) -> Self {
         self.source = Some(source);
         self
-    }
-
-    pub fn for_test(
-        delivery_id: DeliveryId,
-        transcript: impl Into<String>,
-        outcome: DeliveryOutcome,
-    ) -> Self {
-        Self::new(
-            delivery_id.into_string(),
-            transcript,
-            outcome,
-            TargetSnapshot::test_target(),
-        )
     }
 
     /// Build (or rebuild) the draft row for a session. `delivery_id` is

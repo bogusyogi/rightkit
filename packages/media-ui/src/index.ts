@@ -95,3 +95,43 @@ export {
   type ImageFontOptions,
   DEFAULT_IMAGE_FONT_ID,
 } from "./image/imageFonts.js";
+
+// Thumbnail tile, mask painting and voice-call bar: fabric-free, plain React and canvas.
+export {
+  MediaThumbnail,
+  DEFAULT_MEDIA_THUMBNAIL_LABELS,
+  type MediaThumbnailProps,
+  type MediaThumbnailLabels,
+} from "./MediaThumbnail.js";
+export {
+  MaskPainter,
+  DEFAULT_MASK_PAINTER_LABELS,
+  type MaskPainterProps,
+  type MaskPainterHandle,
+  type MaskPainterLabels,
+  type MaskTool,
+} from "./MaskPainter.js";
+export { exportMaskPng, maskPixels, maskHasPaint, type MaskExportOptions } from "./mask.js";
+export {
+  VoiceCallBar,
+  DEFAULT_VOICE_CALL_BAR_LABELS,
+  type VoiceCallBarProps,
+  type VoiceCallBarLabels,
+  type VoiceCallDevice,
+} from "./VoiceCallBar.js";
+export {
+  useVoiceCall,
+  reduceVoiceCall,
+  initialVoiceCallState,
+  voiceCallPhase,
+  MAX_VOICE_CALL_LINES,
+  type VoiceCallActivity,
+  type VoiceCallPhase,
+  type VoiceCallEvent,
+  type VoiceCallEventSource,
+  type VoiceCallCommands,
+  type VoiceCallLine,
+  type VoiceCallState,
+  type VoiceCallAction,
+  type VoiceCallController,
+} from "./voiceCall.js";

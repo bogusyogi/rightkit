@@ -11,7 +11,12 @@
 export type PdfSource =
   | { kind: "bytes"; data: Uint8Array; revision?: string | number }
   | { kind: "url"; url: string; revision?: string | number }
-  | { kind: "loader"; load(): Promise<Uint8Array>; revision?: string | number };
+  | { kind: "loader"; load(): Promise<Uint8Array>; revision?: string | number }
+  /** An http(s) URL read through byte-range requests (`createPdfRangeTransport`): only the ranges
+   *  pdf.js asks for are fetched, so a large PDF opens without a full download. The server (or custom
+   *  URL scheme) must answer `Range` with `206` and a matching `Content-Range`; otherwise the load
+   *  fails with a clear error. `headers` go on every request; `chunkSize` is pdf.js `rangeChunkSize`. */
+  | { kind: "range"; url: string; headers?: Record<string, string>; chunkSize?: number; revision?: string | number };
 
 export type PdfFitMode = "width" | "page" | null;
 export type PdfPanel = null | "outline" | "thumbs";

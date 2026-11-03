@@ -14,6 +14,7 @@ import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
 import { acquireManagedRunLease, directCargoEnv, directPlatform, gateNoBroker, managedRuntimeClient, managedRuntimeCommand, runCargoSync } from "./managed-cargo.mjs";
 import { BUNDLE_MARKERS, bundleMarkerBuffer, readTauriBundleMarkers } from "./tauri-bundle-marker.mjs";
 import { installPortableDevelopment } from "./portable-development.mjs";
+import { PAYLOAD_ROOT_KIND, installPayloadRoot, validatePayloadRootDescriptor } from "./payload-root-install.mjs";
 import { previousPathOf, stagingPathOf, swapInPlace } from "./in-place-install.mjs";
 import { stageDevelopmentBinaries, validateStageEntries } from "./stage-binary.mjs";
 import { assertStableDesignatedRequirement, readBundleExecutable, requestedCiAdhocSigning, signMacosDevelopmentBundle } from "./development-signing.mjs";
@@ -27,6 +28,8 @@ import { ASSEMBLED_APP_KIND, installAssembledMac, installAssembledWindows, resol
 import { assertIosDevelopmentSession, installIosDevelopment, iosDevelopmentApp, iosUiTestCommands, prepareIosDevelopment, prepareIosUiTests, runIosDevelopmentCommands, validateIosDevelopment } from "./ios-dev.mjs";
 import { packLinuxArtifacts, validateLinuxArchive } from "./linux-artifacts.mjs";
 import { buildAndEmbedNativeHelpers, nativeHelpersFromConfig } from "./native-helpers.mjs";
+import { devExpectPresentFindings, devSelfCheckSettings } from "./release-switch-scan.mjs";
+import { devWebQaPairing } from "./qa-web-pairing.mjs";
 import { androidDevelopmentNdkCommand, androidDevelopmentSerial, installAndroidDevelopment, validateAndroidDevelopment } from "./android-dev.mjs";
 
 // GATE-CONTRACT GC-A07: the dev installer is the release Cargo profile plus the `qa-native` feature
@@ -89,6 +92,9 @@ export function validateDevelopmentConfig(config, platform, { root = process.cwd
     for (const key of ["sourceDirectory", "entrypoint"]) {
       if (typeof descriptor[key] !== "string" || !descriptor[key] || path.isAbsolute(descriptor[key]) || path.win32.isAbsolute(descriptor[key]) || descriptor[key].split(/[\\/]/).includes("..")) throw new Error(`portable development ${key} must be a contained relative path`);
     }
+  } else if (target.install?.kind === PAYLOAD_ROOT_KIND) {
+    if (platform === "android" || platform === "ios") throw new Error(`the ${PAYLOAD_ROOT_KIND} development installer is for --platform win, mac or linux`);
+    validatePayloadRootDescriptor(target.install, platform);
   } else if (target.install?.kind === TAURI_DEVID_KIND) {
     if (platform !== "mac") throw new Error(`the ${TAURI_DEVID_KIND} development installer is for --platform mac`);
     resolveTauriDevIdDescriptor(target.install, { appRoot: root });
@@ -176,6 +182,8 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
     // broker's per-generation target folder or a hashed dev-targets folder.
     const staged = target.stage?.length ? stageDevelopmentBinaries(target.stage, { root, platform: platform === "win" ? "win32" : process.platform, managedOutputDirs: carriedOutputDirsSince(childEnv) }) : [];
     for (const file of staged) console.log(`right-release dev: staged ${file}`);
+    // The web and native QA halves are built together or not at all (rightkit#1480).
+    if (!dryRun && (platform === "win" || platform === "mac")) assertDevWebQaPairing({ root, config, commands: target.build });
     // Linux: the declared files become one tarball per architecture plus the digest manifest a guest link pins (rightkit#1230).
     // Only from a clean checkout: an artifact others install must name the exact commit it was built from.
     if (platform === "linux" && target.archive && !dryRun) {
@@ -199,7 +207,7 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
       }
       releaseLease = false;
       return installTauriDevId({ appRoot: root, config: target.install, releaseConfig: config, built, env: childEnv })
-        .then((outcome) => ({ built: true, installed: true, ...(staged.length ? { staged } : {}), devid: outcome }))
+        .then((outcome) => { assertDevSelfCheck({ config, paths: [outcome.installed ?? path.resolve(target.install.destination)] }); return { built: true, installed: true, ...(staged.length ? { staged } : {}), devid: outcome }; })
         .finally(() => lease.release());
     }
     if (target.install.kind === TAURI_AUTHENTICODE_KIND) {
@@ -216,6 +224,7 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
         install: (installer) => installWindowsDevelopment(descriptor, installer, { root, env: childEnv, run, debugDir }),
         installedExe: () => path.resolve(root, descriptor.expectedInstalledPath),
       } });
+      assertDevSelfCheck({ config, paths: [path.resolve(root, descriptor.expectedInstalledPath)] });
       return { built: true, installed: true, ...(staged.length ? { staged } : {}), authenticode };
     }
     if (target.install.kind === ASSEMBLED_APP_KIND) {
@@ -231,8 +240,25 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
         .finally(() => lease.release());
     }
     const signing = install(target.install, { root, platform, config, env: childEnv, run, door, sinceMs: startedMs, serial });
+    if (target.install.kind === "tauri" && (platform === "win" || platform === "mac")) assertDevSelfCheck({ config, paths: [platform === "win" ? path.resolve(root, target.install.expectedInstalledPath) : path.resolve(target.install.destination)] });
     return { built: true, installed: true, ...(staged.length ? { staged } : {}), ...(platform === "mac" && target.install.kind === "tauri" ? { signing } : {}) };
   } finally { if (releaseLease) lease.release(); }
+}
+
+// The dev-build self-check (#397): the installed dev copy must carry the strings the release scan refuses, or that scan proves nothing.
+function assertDevSelfCheck({ config, paths }) {
+  const settings = devSelfCheckSettings(config?.releaseSwitches?.devSelfCheck);
+  if (settings.skip) { console.log(`right-release dev: dev self-check skipped (releaseSwitches.devSelfCheck.optOut: ${settings.skip})`); return; }
+  const findings = devExpectPresentFindings({ binaryPaths: paths, expect: settings.expect });
+  if (findings.length) throw new DevelopmentInstallError("DEV_SELF_CHECK_FAILED", `dev self-check failed:\n${findings.map((f) => `- ${f.reason}`).join("\n")}\nAn app whose dev build has no QA control server declares releaseSwitches.devSelfCheck: { "optOut": "<reason>" }.`);
+  console.log(`right-release dev: dev self-check: the installed dev binary carries ${settings.expect.join(", ")}`);
+}
+
+// The web and native QA halves must not drift (qa-web-pairing.mjs): refuses a dev build whose bundle and Cargo features disagree.
+function assertDevWebQaPairing({ root, config, commands }) {
+  const result = devWebQaPairing({ root, config, commands });
+  if (result.findings.length) throw new DevelopmentInstallError("DEV_WEB_QA_PAIRING", `web/native QA pairing failed:\n${result.findings.map((f) => `- ${f.reason}`).join("\n")}`);
+  if (result.checked) console.log(`right-release dev: web/native QA pairing ok (qa-native ${result.nativeQa ? "on" : "off"}, web QA marker ${result.webQa ? "present" : "absent"})`);
 }
 
 /** WSL reports `linux` as its platform under both generations; which one it is decides whether a Linux kernel runs at all. */
@@ -260,6 +286,13 @@ export function assertNativeDevelopmentHost(platform, host = process.platform, {
 function install(descriptor, { root, platform, config, env, run, door, sinceMs = null, serial }) {
   if (descriptor.kind === "adb") return installAndroidDevelopment(descriptor, { root, env, run, serial });
   if (descriptor.kind === "command") return execute(descriptor, { root, env, run, door, label: "install" });
+  if (descriptor.kind === PAYLOAD_ROOT_KIND) {
+    const checked = validatePayloadRootDescriptor(descriptor, platform);
+    const source = path.resolve(root, checked.sourceDirectory);
+    const inside = path.relative(path.resolve(root), source);
+    if (inside === "" || inside.startsWith("..") || path.isAbsolute(inside)) throw new Error("payload-root sourceDirectory must be a folder inside the repository");
+    return installPayloadRoot(checked, { source, log: (line) => console.log(line) });
+  }
   if (descriptor.kind === "portable") return installPortableDevelopment(descriptor, { root, platform: platform === "win" ? "win32" : "darwin", env });
   if (platform === "win") {
     if (!descriptor.expectedInstalledPath) throw new Error("Windows Tauri installer requires expectedInstalledPath for installed verification");

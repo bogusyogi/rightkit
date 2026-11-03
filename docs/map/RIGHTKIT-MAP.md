@@ -384,8 +384,8 @@ Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipeline
 - **Depends on:** `rightkit-child-process`, `rightkit-fs`
 - **Used by:** `rightkit-asr`, `rightkit-audio`, `rightkit-motion`, `rightkit-onnx`, `rightkit-playback`
 - **Apps:** coderight `=0.2.10` (behind), cutright `=0.2.10` (behind), ember `=0.2.9` (behind), genright `=0.2.10` (behind), heardright `=0.2.10` (behind), pulse `=0.2.10` (behind), scraperight `=0.2.10` (behind)
-- **Features:** `default`, `native`, `dev-overrides`
-- **Public modules:** `bundled`, `command`, `content_digest`, `decode`, `dev_resolve`, `encoders`, `handle`, `loudnorm`, `native`, `probe`, `quickprobe`, `runner`, `staging`, `unverified`, `verify_cache`
+- **Features:** `default`, `native`
+- **Public modules:** `bundled`, `command`, `content_digest`, `decode`, `encoders`, `handle`, `loudnorm`, `native`, `probe`, `quickprobe`, `runner`, `staging`, `verify_cache`
 - **Reads env:** `RIGHTKIT_FFMPEG`, `RIGHTKIT_WORKSPACE_ROOT`
 - **Spawns:** `ps`
 - **Size:** 17,345 lines in 30 files, 230 tests

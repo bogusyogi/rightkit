@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Follows rightkit-motion 0.3.0 (#1144): dependency requirement only; `ProjectServer::start` is unchanged. Its `ChromeSource` can move to `rightkit_motion::browser_source::BrowserFrameSource`.
+- Follows rightkit-browser 0.3.9 (#921): the omit-background screenshot literal uses `..Default::default()` because `ScreenshotOptions` gained fields. Capture behaviour unchanged.
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 
 ## 0.1.0 (unreleased)

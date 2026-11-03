@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { adhocSafeEntitlements } from "./adhoc-entitlements.mjs";
+import { refreshRuntimeManifests, validateRuntimeManifestPaths } from "./runtime-manifest-refresh.mjs";
 import { runMacCodesignCommands } from "./macos-signing-session.mjs";
 import { DEFAULT_TEAM } from "./signing-identity.mjs";
 import { bundleRelativePath, compileBundlePathMap, globToRegExp, isGlobPattern, lookupBundlePath, resolveBundleIdentifier, validateBundleRelativeKey, validateIdentifierTemplate, validateSigningIdentifier } from "./mac-bundle-signing.mjs";
@@ -175,6 +176,7 @@ const ASSERT_KEYS = new Set(["path", "identifier", "teamIdentifier", "authority"
  *   install.timestamp                               true adds --timestamp (a secure timestamp contacts Apple's server)
  *   install.assert                                  [{ path-or-glob, identifier?, teamIdentifier?, authority? }]
  *   install.assertTeamSignedNested                  true: every Mach-O in the bundle carries the app's TeamIdentifier
+ *   install.runtimeManifests / sign.runtimeManifests [bundle-relative manifest.json]    re-hashed after the nested code is signed, before the app seal
  * install.* entries win over sign.* entries (so one declaration in `sign` keeps dev and release identifiers identical).
  * `root` resolves entitlement plist paths and checks they exist; without it only the shape is validated.
  */
@@ -211,7 +213,11 @@ export function readDevSigningSettings(descriptor = {}, config = {}, { root, exi
     for (const key of checks) if (typeof item[key] !== "string" || !item[key].trim()) invalidConfig(`${label}.${key} must be a non-empty string`);
     return { path: item.path, ...Object.fromEntries(checks.map((key) => [key, item[key]])) };
   });
-  return { identifiers, identifierTemplate, entitlements, timestamp: descriptor.timestamp === true, assertions, assertTeamSignedNested: descriptor.assertTeamSignedNested === true };
+  // Bundled runtime manifests re-described after the nested code is signed and before the app is sealed (install.runtimeManifests, else sign.runtimeManifests; rightkit#722).
+  let runtimeManifests;
+  try { runtimeManifests = validateRuntimeManifestPaths(descriptor.runtimeManifests ?? sign.runtimeManifests, descriptor.runtimeManifests !== undefined ? "install.runtimeManifests" : "sign.runtimeManifests"); }
+  catch (error) { invalidConfig(error.message); }
+  return { identifiers, identifierTemplate, entitlements, timestamp: descriptor.timestamp === true, assertions, assertTeamSignedNested: descriptor.assertTeamSignedNested === true, runtimeManifests };
 }
 
 function listBundleFiles(bundle) {
@@ -366,7 +372,24 @@ export function signMacosDevelopmentBundle(options) {
       }
       commands.push([...args, target.file]);
     }
-    const signed = runMacCodesignCommands(commands, { ...options.sessionOptions, cwd: root, env, run });
+    // Deepest first: every nested item is signed, then the bundled runtime manifest(s) are re-described from the re-signed bytes, then the
+    // app itself seals them (rightkit#722). Without a declared manifest the whole ordered list still runs as one session.
+    const sessionOptions = { ...options.sessionOptions, cwd: root, env, run };
+    let signed;
+    if (settings.runtimeManifests.length && commands.length > 1) {
+      const nestedCommands = commands.slice(0, -1);
+      const nestedSigned = runMacCodesignCommands(nestedCommands, sessionOptions);
+      for (const [index, args] of nestedCommands.entries()) checked("codesign", args, { ...context, run: () => nestedSigned[index] }, "DEV_MAC_SIGNING_FAILED", identity);
+      try { refreshRuntimeManifests({ base: bundle, manifests: settings.runtimeManifests }); }
+      catch (cause) { throw new MacosDevelopmentSigningError("DEV_MAC_SIGNING_CONFIG_INVALID", cause.message, { cause }); }
+      signed = [...nestedSigned, ...runMacCodesignCommands(commands.slice(-1), sessionOptions)];
+    } else {
+      if (settings.runtimeManifests.length) {
+        try { refreshRuntimeManifests({ base: bundle, manifests: settings.runtimeManifests }); }
+        catch (cause) { throw new MacosDevelopmentSigningError("DEV_MAC_SIGNING_CONFIG_INVALID", cause.message, { cause }); }
+      }
+      signed = runMacCodesignCommands(commands, sessionOptions);
+    }
     for (const [index, args] of commands.entries()) checked("codesign", args, { ...context, run: () => signed[index] }, "DEV_MAC_SIGNING_FAILED", identity);
     checked("codesign", ["--verify", "--strict", "--deep", bundle], context, "DEV_MAC_SIGNATURE_INVALID", identity);
     const details = output(checked("codesign", ["--display", "--verbose=4", bundle], context, "DEV_MAC_SIGNATURE_INVALID", identity));

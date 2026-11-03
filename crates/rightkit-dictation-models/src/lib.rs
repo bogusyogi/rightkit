@@ -9,12 +9,7 @@ pub mod resumable_download;
 pub mod retired_model_cleanup;
 pub mod shared;
 pub mod ultra_model;
-pub mod verify_receipt;
 pub mod whisper_model;
-
-/// Fixtures for the activation tests here and in the crates above this one.
-#[cfg(feature = "test-mode")]
-pub mod test_support;
 
 pub use rightkit_dictation_telemetry::{app_paths, system_identity, telemetry};
 

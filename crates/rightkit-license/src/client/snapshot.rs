@@ -11,8 +11,9 @@ use rightkit_credentials::Secret;
 
 use super::LicenseClient;
 use crate::{
-    NativeCredential, NativeEntitlementSource, CLOCK_FRESH, CLOCK_INITIALIZED, SNAPSHOT_CLOCK,
-    SNAPSHOT_DEVICE, SNAPSHOT_NAMES, SNAPSHOT_TOKEN,
+    ClockStore, NativeCredential, NativeEntitlementSource, CLOCK_FRESH, CLOCK_INITIALIZED,
+    SNAPSHOT_CLOCK, SNAPSHOT_CLOCK_STATE, SNAPSHOT_DEVICE, SNAPSHOT_NAMES,
+    SNAPSHOT_NAMES_WITH_CLOCK, SNAPSHOT_TOKEN,
 };
 
 /// One name of a snapshot before it is written.
@@ -25,7 +26,7 @@ enum Item {
 /// Put `items` into a fresh snapshot. The names are constants that pass the handoff name check and
 /// are distinct, which the tests assert; an insert that failed anyway would leave the entry
 /// missing, and a missing token is "no licence" on the engine, so Pro stays denied.
-fn snapshot_of(items: [(&str, Item); 3]) -> Snapshot {
+fn snapshot_of<const N: usize>(items: [(&str, Item); N]) -> Snapshot {
     let mut snapshot = Snapshot::new();
     for (name, item) in items {
         let _ = match item {
@@ -85,10 +86,70 @@ impl LicenseClient {
         }
     }
 
+    /// [`engine_snapshot`](Self::engine_snapshot) plus the anti-rollback high-water mark
+    /// ([`SNAPSHOT_CLOCK_STATE`]), for an owner that keeps its ledger in the credential store
+    /// (`LicenseClientConfig::with_credential_clock`) where an engine cannot read it (rightkit#1477).
+    /// The mark is the owner's real ledger, read through the client's own clock store (the file or
+    /// the credential store, under the same fences as every other clock access) and sent as the
+    /// ledger's JSON. A licence that is absent or not signed is an absent mark. When a signed
+    /// licence is stored but the ledger cannot be read right now (a held lock, an unresolved write,
+    /// an unreadable or corrupt store), the mark is a failed read and so is the whole answer on the
+    /// engine, which refuses Pro rather than verifying against a ledger it was not given. A signed
+    /// licence with no ledger yet is sent as `fresh` with an absent mark, as in the three-name
+    /// snapshot.
+    pub fn engine_snapshot_with_clock(&self) -> Snapshot {
+        let read = match self.native_entitlement_source() {
+            Ok(source) => source.read(),
+            Err(_) => Ok(NativeCredential::Absent),
+        };
+        match read {
+            Ok(NativeCredential::Signed(signed)) => {
+                let mark = match self.native_clock_store().map(|store| store.load()) {
+                    Ok(Ok(Some(state))) => Item::Value(Secret::from_string(state.encode())),
+                    Ok(Ok(None)) => Item::Absent,
+                    Ok(Err(_)) | Err(_) => Item::Failed,
+                };
+                snapshot_of([
+                    (
+                        SNAPSHOT_TOKEN,
+                        Item::Value(Secret::from_string(signed.token)),
+                    ),
+                    (
+                        SNAPSHOT_DEVICE,
+                        Item::Value(Secret::from_string(signed.device_binding)),
+                    ),
+                    (
+                        SNAPSHOT_CLOCK,
+                        Item::Value(Secret::from_string(if signed.clock_initialized {
+                            CLOCK_INITIALIZED
+                        } else {
+                            CLOCK_FRESH
+                        })),
+                    ),
+                    (SNAPSHOT_CLOCK_STATE, mark),
+                ])
+            }
+            Ok(_) => snapshot_of([
+                (SNAPSHOT_TOKEN, Item::Absent),
+                (SNAPSHOT_DEVICE, Item::Absent),
+                (SNAPSHOT_CLOCK, Item::Absent),
+                (SNAPSHOT_CLOCK_STATE, Item::Absent),
+            ]),
+            Err(_) => snapshot_of([
+                (SNAPSHOT_TOKEN, Item::Failed),
+                (SNAPSHOT_DEVICE, Item::Failed),
+                (SNAPSHOT_CLOCK, Item::Failed),
+                (SNAPSHOT_CLOCK_STATE, Item::Failed),
+            ]),
+        }
+    }
+
     /// Answer an engine's handoff request for the snapshot: a Reply with the request's id, or an
     /// Error with its id and a typed code. Only a snapshot-mode request for exactly the three
-    /// names of [`crate::SNAPSHOT_NAMES`] is answered; any other name is `NotAllowed` and any other
-    /// shape (strict mode, a missing or repeated name, a message that is not a request) is
+    /// names of [`crate::SNAPSHOT_NAMES`] (answered with [`engine_snapshot`](Self::engine_snapshot))
+    /// or exactly the four of [`crate::SNAPSHOT_NAMES_WITH_CLOCK`] (answered with
+    /// [`engine_snapshot_with_clock`](Self::engine_snapshot_with_clock)) is answered; any other name
+    /// is `NotAllowed` and any other shape (strict mode, a missing or repeated name, a message that is not a request) is
     /// `Invalid`, so the owner's licence record is never released through another name.
     ///
     /// The transport must have verified the caller (same app, same user, signed path) first, as for
@@ -99,17 +160,25 @@ impl LicenseClient {
         };
         if let Some(stranger) = names
             .iter()
-            .find(|name| !SNAPSHOT_NAMES.contains(&name.as_str()))
+            .find(|name| !SNAPSHOT_NAMES_WITH_CLOCK.contains(&name.as_str()))
         {
             return Message::error(*id, ErrorCode::NotAllowed, Some(stranger.as_str()));
         }
-        let whole = names.len() == SNAPSHOT_NAMES.len()
-            && SNAPSHOT_NAMES
-                .iter()
-                .all(|wanted| names.iter().any(|name| name == wanted));
-        if *mode != Mode::Snapshot || !whole {
+        let asks_for = |wanted: &[&str]| {
+            names.len() == wanted.len()
+                && wanted
+                    .iter()
+                    .all(|wanted| names.iter().any(|name| name == wanted))
+        };
+        if *mode != Mode::Snapshot {
             return Message::error(*id, ErrorCode::Invalid, None);
         }
-        Message::reply_snapshot(*id, self.engine_snapshot())
+        if asks_for(&SNAPSHOT_NAMES) {
+            Message::reply_snapshot(*id, self.engine_snapshot())
+        } else if asks_for(&SNAPSHOT_NAMES_WITH_CLOCK) {
+            Message::reply_snapshot(*id, self.engine_snapshot_with_clock())
+        } else {
+            Message::error(*id, ErrorCode::Invalid, None)
+        }
     }
 }

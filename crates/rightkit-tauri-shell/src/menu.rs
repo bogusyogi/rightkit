@@ -163,6 +163,49 @@ pub fn validate(spec: &MenuSpec) -> Result<(), String> {
     }
     validate_entries(&spec.help).map_err(|e| format!("help menu: {e}"))?;
     all.extend(entry_ids(&spec.help));
+    let mut labels = HashSet::new();
+    for g in &spec.groups {
+        if !labels.insert(g.label.as_str()) {
+            return Err(format!("menu group {} given twice", g.label));
+        }
+    }
+    for slot in &spec.order {
+        if let MenuSlot::Group(label) = slot {
+            if !labels.contains(label.as_str()) {
+                return Err(format!("menu order names the unknown group {label}"));
+            }
+        }
+    }
+    let mut placed = HashSet::new();
+    for p in &spec.placements {
+        if !placed.insert(p.menu) {
+            return Err(format!("menu placement {:?} given twice", p.menu));
+        }
+        for list in [&p.start, &p.end] {
+            validate_entries(list).map_err(|e| format!("menu {:?}: {e}", p.menu))?;
+            all.extend(entry_ids(list));
+        }
+        for item in &p.omit {
+            if !item.lives_in(p.menu) {
+                return Err(format!("{item:?} is not an item of the {:?} menu", p.menu));
+            }
+        }
+    }
+    if spec.omits_menu(BuiltinMenu::App) {
+        return Err("the App menu holds Quit and cannot be omitted".into());
+    }
+    if spec.omits_menu(BuiltinMenu::File)
+        && (spec.settings.is_some()
+            || spec
+                .overrides
+                .iter()
+                .any(|o| matches!(o.role, OverrideRole::Quit | OverrideRole::CloseWindow)))
+    {
+        return Err(
+            "the File menu cannot be omitted while settings or a Quit / Close Window override would live in it"
+                .into(),
+        );
+    }
     let mut roles = HashSet::new();
     for o in &spec.overrides {
         if !roles.insert(o.role) {
@@ -185,16 +228,171 @@ pub fn validate(spec: &MenuSpec) -> Result<(), String> {
     Ok(())
 }
 
+/// An operating system a menu group may be limited to ([`MenuGroup::platforms`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum MenuPlatform {
+    Macos,
+    Windows,
+    Linux,
+}
+
+impl MenuPlatform {
+    /// The operating system this build runs on.
+    pub fn current() -> Self {
+        if cfg!(target_os = "macos") {
+            MenuPlatform::Macos
+        } else if cfg!(windows) {
+            MenuPlatform::Windows
+        } else {
+            MenuPlatform::Linux
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MenuGroup {
     pub label: String,
     pub entries: Vec<MenuEntry>,
+    /// The operating systems that get this menu. Empty (the default) means every one. The ids in a
+    /// gated-off group still count for [`validate`], so one spec is valid on every OS.
+    #[serde(default)]
+    pub platforms: Vec<MenuPlatform>,
+}
+
+impl MenuGroup {
+    /// A top-level menu on every operating system.
+    pub fn new(label: &str, entries: Vec<MenuEntry>) -> Self {
+        Self {
+            label: label.into(),
+            entries,
+            platforms: Vec::new(),
+        }
+    }
+    /// Limit the menu to `platforms` (replaces an earlier limit).
+    pub fn only_on(mut self, platforms: &[MenuPlatform]) -> Self {
+        self.platforms = platforms.to_vec();
+        self
+    }
+    /// Whether this OS gets the menu.
+    pub fn applies(&self, platform: MenuPlatform) -> bool {
+        self.platforms.is_empty() || self.platforms.contains(&platform)
+    }
+}
+
+/// A menu the shell builds itself. `App` exists on macOS only (the application menu), `File` on
+/// Windows and Linux only; a placement or omission naming the menu of another OS is ignored there,
+/// so one spec serves every OS. `View` is the macOS menu holding Fullscreen; on Windows and Linux
+/// it is built only when a [`MenuPlacement`] gives it entries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum BuiltinMenu {
+    App,
+    File,
+    Edit,
+    View,
+    Window,
+    Help,
+}
+
+/// A shell-built extra an app may drop from one built-in menu ([`MenuPlacement::omit`]). The
+/// editing items (Undo, Redo, Cut, Copy, Paste, Select All), the shell's quit item and an
+/// overridden item are never droppable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum BuiltinItem {
+    /// App menu: About.
+    About,
+    /// App menu: Services.
+    Services,
+    /// App menu: Hide, Hide Others and Show All.
+    Hide,
+    /// View menu: Enter Full Screen.
+    Fullscreen,
+    /// Window menu: Minimize.
+    Minimize,
+    /// Window menu: Maximize.
+    Maximize,
+    /// File menu (Windows, Linux) or Window menu (macOS): Close Window.
+    CloseWindow,
+}
+
+impl BuiltinItem {
+    /// Whether the shell puts this item into `menu`.
+    pub fn lives_in(self, menu: BuiltinMenu) -> bool {
+        match self {
+            BuiltinItem::About | BuiltinItem::Services | BuiltinItem::Hide => {
+                menu == BuiltinMenu::App
+            }
+            BuiltinItem::Fullscreen => menu == BuiltinMenu::View,
+            BuiltinItem::Minimize | BuiltinItem::Maximize => menu == BuiltinMenu::Window,
+            BuiltinItem::CloseWindow => matches!(menu, BuiltinMenu::File | BuiltinMenu::Window),
+        }
+    }
+}
+
+/// Entries an app adds to a shell-built menu, and the shell extras it drops from it. The entries
+/// are ordinary [`MenuEntry`] rows (checks and nested submenus included) and are built by the
+/// shell, so `rk_shell_set_menu_state` and `rk_shell_set_menu_item_checked` reach them by id.
+///
+/// `start` goes above the shell's items. `end` goes below them, except in the App menu (macOS) and
+/// the File menu (Windows, Linux), where it goes just above the quit item. In Help, `start` and
+/// `end` surround [`MenuSpec::help`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MenuPlacement {
+    pub menu: BuiltinMenu,
+    #[serde(default)]
+    pub start: Vec<MenuEntry>,
+    #[serde(default)]
+    pub end: Vec<MenuEntry>,
+    #[serde(default)]
+    pub omit: Vec<BuiltinItem>,
+}
+
+impl MenuPlacement {
+    pub fn new(menu: BuiltinMenu) -> Self {
+        Self {
+            menu,
+            start: Vec::new(),
+            end: Vec::new(),
+            omit: Vec::new(),
+        }
+    }
+    pub fn with_start(mut self, entries: Vec<MenuEntry>) -> Self {
+        self.start = entries;
+        self
+    }
+    pub fn with_end(mut self, entries: Vec<MenuEntry>) -> Self {
+        self.end = entries;
+        self
+    }
+    pub fn omitting(mut self, items: &[BuiltinItem]) -> Self {
+        self.omit = items.to_vec();
+        self
+    }
+}
+
+/// One position in the menu bar ([`MenuSpec::order`]).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MenuSlot {
+    App,
+    File,
+    Edit,
+    View,
+    Window,
+    Help,
+    /// An app group, by its [`MenuGroup::label`].
+    Group(String),
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct MenuSpec {
     pub app_name: String,
-    /// Extra top-level menus, placed after Edit/View.
+    /// Extra top-level menus, placed after Edit/View (see [`MenuSpec::order`]).
     pub groups: Vec<MenuGroup>,
     /// Entries appended to Help.
     pub help: Vec<MenuEntry>,
@@ -202,6 +400,49 @@ pub struct MenuSpec {
     pub settings: Option<(String, String)>,
     /// Replace native Undo / Redo / Quit / Close Window with app-id items that emit menu events.
     pub overrides: Vec<MenuOverride>,
+    /// The order of the top-level menus. The slots listed come first, in the listed order; every
+    /// other menu follows in the default order (App or File, Edit, View, the groups, Window,
+    /// Help). A slot that does not exist on this OS is skipped. On macOS the App menu is always
+    /// first, as the OS requires. Empty keeps the default order.
+    pub order: Vec<MenuSlot>,
+    /// Built-in menus the shell does not build. The App menu on macOS cannot be omitted (it holds
+    /// Quit); the File menu cannot be omitted while `settings` or a Quit / Close Window override
+    /// would live in it.
+    pub omit_menus: Vec<BuiltinMenu>,
+    /// Entries to add to, and extras to drop from, the built-in menus; one per menu.
+    pub placements: Vec<MenuPlacement>,
+}
+
+impl MenuSpec {
+    fn placement(&self, menu: BuiltinMenu) -> Option<&MenuPlacement> {
+        self.placements.iter().find(|p| p.menu == menu)
+    }
+    fn omits(&self, menu: BuiltinMenu, item: BuiltinItem) -> bool {
+        self.placement(menu).is_some_and(|p| p.omit.contains(&item))
+    }
+    fn omits_menu(&self, menu: BuiltinMenu) -> bool {
+        self.omit_menus.contains(&menu)
+    }
+}
+
+/// The top-level order that results from `order` over the menus actually built, in their default
+/// sequence (`default`). Pure, so the ordering rules are checkable without a native menu.
+pub fn resolve_order(order: &[MenuSlot], default: &[MenuSlot], mac: bool) -> Vec<MenuSlot> {
+    let mut out: Vec<MenuSlot> = Vec::new();
+    if mac && default.first() == Some(&MenuSlot::App) {
+        out.push(MenuSlot::App);
+    }
+    for slot in order {
+        if default.contains(slot) && !out.contains(slot) {
+            out.push(slot.clone());
+        }
+    }
+    for slot in default {
+        if !out.contains(slot) {
+            out.push(slot.clone());
+        }
+    }
+    out
 }
 
 /// The native items an app may route to itself.
@@ -360,50 +601,92 @@ fn s<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
 }
 
+/// Append a separator unless the menu is empty or already ends in one. `open` is true then.
+fn separator(app: &AppHandle<Wry>, sub: &Submenu<Wry>, open: &mut bool) -> Result<(), String> {
+    if !*open {
+        sub.append(&PredefinedMenuItem::separator(app).map_err(s)?)
+            .map_err(s)?;
+        *open = true;
+    }
+    Ok(())
+}
+
+/// Append app entries as one block: separated from the items before it, and `open` ends false.
+fn block(
+    app: &AppHandle<Wry>,
+    sub: &Submenu<Wry>,
+    entries: &[MenuEntry],
+    open: &mut bool,
+    handles: &mut MenuHandles,
+) -> Result<(), String> {
+    if entries.is_empty() {
+        return Ok(());
+    }
+    add_entries(app, sub, entries, handles)?;
+    *open = matches!(entries.last(), Some(MenuEntry::Separator));
+    Ok(())
+}
+
 pub fn build(app: &AppHandle<Wry>, spec: &MenuSpec) -> Result<BuiltMenu, String> {
     validate(spec)?;
     let mac = cfg!(target_os = "macos");
+    let platform = MenuPlatform::current();
     let mut handles = MenuHandles::default();
     let menu = Menu::new(app).map_err(s)?;
+    // Built in the default sequence, then ordered by `spec.order`.
+    let mut built: Vec<(MenuSlot, Submenu<Wry>)> = Vec::new();
 
     #[cfg(target_os = "macos")]
     {
-        let app_menu = SubmenuBuilder::new(app, &spec.app_name)
-            .about(None)
-            .build()
-            .map_err(s)?;
+        use BuiltinItem as I;
+        use BuiltinMenu as M;
+        let place = spec.placement(M::App);
+        let mut builder = SubmenuBuilder::new(app, &spec.app_name);
+        if !spec.omits(M::App, I::About) {
+            builder = builder.about(None);
+        }
+        let app_menu = builder.build().map_err(s)?;
+        let mut open = app_menu.items().map_err(s)?.is_empty();
+        if let Some(p) = place {
+            block(app, &app_menu, &p.start, &mut open, &mut handles)?;
+        }
         if let Some((id, accel)) = &spec.settings {
-            app_menu
-                .append(&PredefinedMenuItem::separator(app).map_err(s)?)
-                .map_err(s)?;
+            separator(app, &app_menu, &mut open)?;
             add_entries(
                 app,
                 &app_menu,
                 &[MenuEntry::accel(id, "Settings\u{2026}", accel)],
                 &mut handles,
             )?;
+            open = false;
         }
-        app_menu
-            .append(&PredefinedMenuItem::separator(app).map_err(s)?)
-            .map_err(s)?;
-        app_menu
-            .append(&PredefinedMenuItem::services(app, None).map_err(s)?)
-            .map_err(s)?;
-        app_menu
-            .append(&PredefinedMenuItem::separator(app).map_err(s)?)
-            .map_err(s)?;
-        app_menu
-            .append(&PredefinedMenuItem::hide(app, None).map_err(s)?)
-            .map_err(s)?;
-        app_menu
-            .append(&PredefinedMenuItem::hide_others(app, None).map_err(s)?)
-            .map_err(s)?;
-        app_menu
-            .append(&PredefinedMenuItem::show_all(app, None).map_err(s)?)
-            .map_err(s)?;
-        app_menu
-            .append(&PredefinedMenuItem::separator(app).map_err(s)?)
-            .map_err(s)?;
+        if !spec.omits(M::App, I::Services) {
+            separator(app, &app_menu, &mut open)?;
+            app_menu
+                .append(&PredefinedMenuItem::services(app, None).map_err(s)?)
+                .map_err(s)?;
+            open = false;
+        }
+        if !spec.omits(M::App, I::Hide) {
+            separator(app, &app_menu, &mut open)?;
+            app_menu
+                .append(&PredefinedMenuItem::hide(app, None).map_err(s)?)
+                .map_err(s)?;
+            app_menu
+                .append(&PredefinedMenuItem::hide_others(app, None).map_err(s)?)
+                .map_err(s)?;
+            app_menu
+                .append(&PredefinedMenuItem::show_all(app, None).map_err(s)?)
+                .map_err(s)?;
+            open = false;
+        }
+        if let Some(p) = place {
+            if !p.end.is_empty() {
+                separator(app, &app_menu, &mut open)?;
+                block(app, &app_menu, &p.end, &mut open, &mut handles)?;
+            }
+        }
+        separator(app, &app_menu, &mut open)?;
         // Not the predefined quit: that terminates without the shell's ordered quit, so with
         // close-to-tray on a Cmd+Q would hide the window instead of draining. The item routes to
         // `lifecycle::request_quit` (see `ID_QUIT` and `lifecycle::on_menu_event`). An app
@@ -423,27 +706,43 @@ pub fn build(app: &AppHandle<Wry>, spec: &MenuSpec) -> Result<BuiltMenu, String>
                 )
                 .map_err(s)?,
         }
-        menu.append(&app_menu).map_err(s)?;
+        built.push((MenuSlot::App, app_menu));
     }
     #[cfg(not(target_os = "macos"))]
-    {
+    if !spec.omits_menu(BuiltinMenu::File) {
+        use BuiltinItem as I;
+        use BuiltinMenu as M;
+        let place = spec.placement(M::File);
         let file = SubmenuBuilder::new(app, "File").build().map_err(s)?;
+        let mut open = true;
+        if let Some(p) = place {
+            block(app, &file, &p.start, &mut open, &mut handles)?;
+        }
         if let Some((id, accel)) = &spec.settings {
+            separator(app, &file, &mut open)?;
             add_entries(
                 app,
                 &file,
-                &[
-                    MenuEntry::accel(id, "Settings\u{2026}", accel),
-                    MenuEntry::Separator,
-                ],
+                &[MenuEntry::accel(id, "Settings\u{2026}", accel)],
                 &mut handles,
             )?;
+            open = false;
+        }
+        if let Some(p) = place {
+            if !p.end.is_empty() {
+                separator(app, &file, &mut open)?;
+                block(app, &file, &p.end, &mut open, &mut handles)?;
+            }
+        }
+        if !open {
+            separator(app, &file, &mut open)?;
         }
         match override_entry(spec, OverrideRole::CloseWindow, mac) {
             Some(close) => add_entries(app, &file, &[close], &mut handles)?,
-            None => file
+            None if !spec.omits(M::File, I::CloseWindow) => file
                 .append(&PredefinedMenuItem::close_window(app, None).map_err(s)?)
                 .map_err(s)?,
+            None => {}
         }
         // Routed to `lifecycle::request_quit`, as on macOS (see `ID_QUIT`), unless overridden.
         match override_entry(spec, OverrideRole::Quit, mac) {
@@ -461,73 +760,148 @@ pub fn build(app: &AppHandle<Wry>, spec: &MenuSpec) -> Result<BuiltMenu, String>
                 )
                 .map_err(s)?,
         }
-        menu.append(&file).map_err(s)?;
+        built.push((MenuSlot::File, file));
     }
 
-    let edit = SubmenuBuilder::new(app, "Edit").build().map_err(s)?;
-    match override_entry(spec, OverrideRole::Undo, mac) {
-        Some(undo) => add_entries(app, &edit, &[undo], &mut handles)?,
-        None => edit
-            .append(&PredefinedMenuItem::undo(app, None).map_err(s)?)
-            .map_err(s)?,
-    }
-    match override_entry(spec, OverrideRole::Redo, mac) {
-        Some(redo) => add_entries(app, &edit, &[redo], &mut handles)?,
-        None => edit
-            .append(&PredefinedMenuItem::redo(app, None).map_err(s)?)
-            .map_err(s)?,
-    }
-    edit.append(&PredefinedMenuItem::separator(app).map_err(s)?)
-        .map_err(s)?;
-    edit.append(&PredefinedMenuItem::cut(app, None).map_err(s)?)
-        .map_err(s)?;
-    edit.append(&PredefinedMenuItem::copy(app, None).map_err(s)?)
-        .map_err(s)?;
-    edit.append(&PredefinedMenuItem::paste(app, None).map_err(s)?)
-        .map_err(s)?;
-    edit.append(&PredefinedMenuItem::select_all(app, None).map_err(s)?)
-        .map_err(s)?;
-    menu.append(&edit).map_err(s)?;
-
-    #[cfg(target_os = "macos")]
-    {
-        // Fullscreen is the only View verb; reload/zoom are deliberately absent.
-        let view = SubmenuBuilder::new(app, "View")
-            .fullscreen()
-            .build()
-            .map_err(s)?;
-        menu.append(&view).map_err(s)?;
-    }
-
-    for g in &spec.groups {
-        let sub = SubmenuBuilder::new(app, &g.label).build().map_err(s)?;
-        add_entries(app, &sub, &g.entries, &mut handles)?;
-        menu.append(&sub).map_err(s)?;
-    }
-
-    let window = SubmenuBuilder::new(app, "Window")
-        .minimize()
-        .maximize()
-        .build()
-        .map_err(s)?;
-    // Windows/Linux: an overridden Close Window already sits in File (one item per id).
-    let close = override_entry(spec, OverrideRole::CloseWindow, mac);
-    if mac || close.is_none() {
-        window
-            .append(&PredefinedMenuItem::separator(app).map_err(s)?)
-            .map_err(s)?;
-        match close {
-            Some(close) => add_entries(app, &window, &[close], &mut handles)?,
-            None => window
-                .append(&PredefinedMenuItem::close_window(app, None).map_err(s)?)
+    if !spec.omits_menu(BuiltinMenu::Edit) {
+        let place = spec.placement(BuiltinMenu::Edit);
+        let edit = SubmenuBuilder::new(app, "Edit").build().map_err(s)?;
+        let mut open = true;
+        if let Some(p) = place {
+            block(app, &edit, &p.start, &mut open, &mut handles)?;
+            separator(app, &edit, &mut open)?;
+        }
+        match override_entry(spec, OverrideRole::Undo, mac) {
+            Some(undo) => add_entries(app, &edit, &[undo], &mut handles)?,
+            None => edit
+                .append(&PredefinedMenuItem::undo(app, None).map_err(s)?)
                 .map_err(s)?,
         }
+        match override_entry(spec, OverrideRole::Redo, mac) {
+            Some(redo) => add_entries(app, &edit, &[redo], &mut handles)?,
+            None => edit
+                .append(&PredefinedMenuItem::redo(app, None).map_err(s)?)
+                .map_err(s)?,
+        }
+        edit.append(&PredefinedMenuItem::separator(app).map_err(s)?)
+            .map_err(s)?;
+        edit.append(&PredefinedMenuItem::cut(app, None).map_err(s)?)
+            .map_err(s)?;
+        edit.append(&PredefinedMenuItem::copy(app, None).map_err(s)?)
+            .map_err(s)?;
+        edit.append(&PredefinedMenuItem::paste(app, None).map_err(s)?)
+            .map_err(s)?;
+        edit.append(&PredefinedMenuItem::select_all(app, None).map_err(s)?)
+            .map_err(s)?;
+        if let Some(p) = place {
+            if !p.end.is_empty() {
+                edit.append(&PredefinedMenuItem::separator(app).map_err(s)?)
+                    .map_err(s)?;
+                add_entries(app, &edit, &p.end, &mut handles)?;
+            }
+        }
+        built.push((MenuSlot::Edit, edit));
     }
-    menu.append(&window).map_err(s)?;
 
-    let help = SubmenuBuilder::new(app, "Help").build().map_err(s)?;
-    add_entries(app, &help, &spec.help, &mut handles)?;
-    menu.append(&help).map_err(s)?;
+    if !spec.omits_menu(BuiltinMenu::View) {
+        let place = spec.placement(BuiltinMenu::View);
+        let view = SubmenuBuilder::new(app, "View").build().map_err(s)?;
+        let mut open = true;
+        if let Some(p) = place {
+            block(app, &view, &p.start, &mut open, &mut handles)?;
+        }
+        // Fullscreen is the only built-in View verb; reload/zoom are deliberately absent. Only
+        // macOS has the View menu unless an app places its own entries in it.
+        if mac && !spec.omits(BuiltinMenu::View, BuiltinItem::Fullscreen) {
+            separator(app, &view, &mut open)?;
+            view.append(&PredefinedMenuItem::fullscreen(app, None).map_err(s)?)
+                .map_err(s)?;
+            open = false;
+        }
+        if let Some(p) = place {
+            if !p.end.is_empty() {
+                separator(app, &view, &mut open)?;
+                block(app, &view, &p.end, &mut open, &mut handles)?;
+            }
+        }
+        if !view.items().map_err(s)?.is_empty() {
+            built.push((MenuSlot::View, view));
+        }
+    }
+
+    for g in spec.groups.iter().filter(|g| g.applies(platform)) {
+        let sub = SubmenuBuilder::new(app, &g.label).build().map_err(s)?;
+        add_entries(app, &sub, &g.entries, &mut handles)?;
+        built.push((MenuSlot::Group(g.label.clone()), sub));
+    }
+
+    if !spec.omits_menu(BuiltinMenu::Window) {
+        use BuiltinItem as I;
+        use BuiltinMenu as M;
+        let place = spec.placement(M::Window);
+        let window = SubmenuBuilder::new(app, "Window").build().map_err(s)?;
+        let mut open = true;
+        if let Some(p) = place {
+            block(app, &window, &p.start, &mut open, &mut handles)?;
+        }
+        if !spec.omits(M::Window, I::Minimize) {
+            separator(app, &window, &mut open)?;
+            window
+                .append(&PredefinedMenuItem::minimize(app, None).map_err(s)?)
+                .map_err(s)?;
+            open = false;
+        }
+        if !spec.omits(M::Window, I::Maximize) {
+            separator(app, &window, &mut open)?;
+            window
+                .append(&PredefinedMenuItem::maximize(app, None).map_err(s)?)
+                .map_err(s)?;
+            open = false;
+        }
+        // Windows/Linux: an overridden Close Window already sits in File (one item per id), and
+        // File's own Close Window is the native one.
+        let close = override_entry(spec, OverrideRole::CloseWindow, mac);
+        if (mac || close.is_none()) && !spec.omits(M::Window, I::CloseWindow) {
+            separator(app, &window, &mut open)?;
+            match close {
+                Some(close) => add_entries(app, &window, &[close], &mut handles)?,
+                None => window
+                    .append(&PredefinedMenuItem::close_window(app, None).map_err(s)?)
+                    .map_err(s)?,
+            }
+            open = false;
+        }
+        if let Some(p) = place {
+            if !p.end.is_empty() {
+                separator(app, &window, &mut open)?;
+                block(app, &window, &p.end, &mut open, &mut handles)?;
+            }
+        }
+        if !window.items().map_err(s)?.is_empty() {
+            built.push((MenuSlot::Window, window));
+        }
+    }
+
+    if !spec.omits_menu(BuiltinMenu::Help) {
+        let place = spec.placement(BuiltinMenu::Help);
+        let help = SubmenuBuilder::new(app, "Help").build().map_err(s)?;
+        if let Some(p) = place {
+            add_entries(app, &help, &p.start, &mut handles)?;
+        }
+        add_entries(app, &help, &spec.help, &mut handles)?;
+        if let Some(p) = place {
+            add_entries(app, &help, &p.end, &mut handles)?;
+        }
+        built.push((MenuSlot::Help, help));
+    }
+
+    let default: Vec<MenuSlot> = built.iter().map(|(slot, _)| slot.clone()).collect();
+    for slot in resolve_order(&spec.order, &default, mac) {
+        if let Some(at) = built.iter().position(|(have, _)| *have == slot) {
+            let (_, sub) = built.remove(at);
+            menu.append(&sub).map_err(s)?;
+        }
+    }
 
     Ok(BuiltMenu {
         menu,

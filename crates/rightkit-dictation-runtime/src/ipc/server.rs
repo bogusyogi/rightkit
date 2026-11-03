@@ -287,7 +287,7 @@ pub enum Request {
     SetProviderKeys {
         frame: rightkit_dictation_core::engine::SecretString,
     },
-    /// Live L3 policy change (ENG-07); served only under `RIGHTKIT_L3_LIVE_RECONFIGURE=1`.
+    /// Live L3 policy change; this engine answers it with an error and restarts to reconfigure.
     ReconfigureL3 {
         ai_polish_enabled: bool,
         provider_state: String,

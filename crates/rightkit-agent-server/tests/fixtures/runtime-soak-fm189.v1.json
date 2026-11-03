@@ -1,7 +1,0 @@
-{
-  "runId": "acceptance-fm189",
-  "scenarios": ["S0", "S1"],
-  "cancelledWorkers": 1,
-  "completedWorkers": 2,
-  "ownershipViolations": 0
-}

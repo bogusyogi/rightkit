@@ -17,7 +17,6 @@ path = "src/lib.rs"
 # Channel recipe validation (`channel_recipe`): checks a recipe body against the presets a render accepts.
 channel-recipe = ["dep:rightkit-captions", "dep:rightkit-color", "dep:rightkit-audio"]
 default = []
-fake-engine = []
 
 [dependencies]
 rightkit-captions = { version = "0.1.0", path = "../rightkit-captions", optional = true }
@@ -30,19 +29,6 @@ rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "
 thiserror = { version = "2.0" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-job-queue = { version = "0.5.1", default-features = false, features = ["doctor"], path = "../rightkit-job-queue" }
-
-[dev-dependencies]
-blake3 = { version = "1.8" }
-
-[[bin]]
-name = "fake-genright-engine"
-path = "src/bin/fake-genright-engine.rs"
-required-features = ["fake-engine"]
-
-[[test]]
-name = "orchestration"
-path = "tests/orchestration.rs"
-required-features = ["fake-engine"]
 
 # Citationberg is pulled by rightkit-typeset through rightkit-captions; see the vendored fix.
 [patch.crates-io]

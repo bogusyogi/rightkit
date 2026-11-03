@@ -1,6 +1,6 @@
 //! The engine: snapshots with stable ids, the stale-snapshot guard, the
 //! four-tier input ladder, safety gating, and evidence receipts. Generic over
-//! `Platform`; everything here is exercised on every host by `MockPlatform`.
+//! `Platform`.
 
 use crate::admission::{Admission, Admit, EffectKind, EffectRequest, Settled};
 use crate::events::{Counters, DeniedBy, Journal, LifecycleEvent, Metrics};
@@ -11,6 +11,7 @@ use crate::model::*;
 use crate::platform::{InputEvent, Platform};
 use crate::policy::*;
 use crate::redact::{self, Redactor, ShotContext, ShotReport};
+use crate::secret::{FieldOrigin, Secret};
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -1113,7 +1114,9 @@ impl<P: Platform> Automation<P> {
         let secure = label.as_ref().is_some_and(|l| l.2);
         let risk_label: Option<String> = match action {
             Action::MenuPress(p) => p.last().cloned(),
-            Action::Press | Action::Click { .. } => label.as_ref().and_then(|l| l.1.clone()),
+            Action::Press | Action::Click { .. } | Action::Drag { .. } => {
+                label.as_ref().and_then(|l| l.1.clone())
+            }
             _ => None,
         };
         if let Some(l) = risk_label {
@@ -1130,6 +1133,9 @@ impl<P: Platform> Automation<P> {
             )
         {
             return Err(Error::Blocked("target is a secure (password) field".into()));
+        }
+        if let Action::FillSecret { origin, .. } = action {
+            self.check_fill_secret(rc, el.as_ref(), label.as_ref(), origin, opts)?;
         }
         if matches!(action, Action::TypeText(_) | Action::Keys(_)) && el.is_none() {
             // Typing at the focus: refuse when the focused field is secure or a credential field.
@@ -1184,9 +1190,17 @@ impl<P: Platform> Automation<P> {
             eff.target = label
                 .as_ref()
                 .map(|l| format!("{}:{}", l.0, l.1.clone().unwrap_or_default()));
+            if let Action::FillSecret { origin, .. } = action {
+                // The admission hook sees where the secret is going, never the secret.
+                let o = crate::secret::origin_of_url(origin).unwrap_or_else(|| origin.clone());
+                eff.target = Some(format!("{}@{o}", eff.target.unwrap_or_default()));
+            }
+            if matches!(action, Action::FillSecret { .. }) {
+                eff.max_tier = eff.max_tier.min(Tier::Semantic);
+            }
             eff.risk = match action {
                 Action::MenuPress(p) => p.last().and_then(|l| classify_risk(l)),
-                Action::Press | Action::Click { .. } => label
+                Action::Press | Action::Click { .. } | Action::Drag { .. } => label
                     .as_ref()
                     .and_then(|l| l.1.as_deref())
                     .and_then(classify_risk),
@@ -1196,6 +1210,10 @@ impl<P: Platform> Automation<P> {
             eff.lease_epoch = rc.lease.map(|l| l.0);
             if let Some(cap) = self.approve(&eff)? {
                 max_tier = max_tier.min(cap);
+            }
+            if matches!(action, Action::FillSecret { .. }) {
+                // A secret is never typed, pasted or clicked in: semantic write only.
+                max_tier = max_tier.min(Tier::Semantic);
             }
             *settle_req = Some(eff);
         }
@@ -1297,6 +1315,30 @@ impl<P: Platform> Automation<P> {
     }
 
     /// Run a sequence of acts; the kill switch is honoured between steps.
+    /// Write `secret` into the credential field `element` of `snapshot`, through the same gates
+    /// as [`Automation::act`] (kill switch, allowlist, lease fence, freshness guard, admission)
+    /// plus the origin check: `origin` is the page URL or origin the field must belong to, or the
+    /// app id for a native field. See [`Action::FillSecret`] and [`crate::secret`] for what is
+    /// guaranteed about the value (never receipted, never typed, never read back).
+    pub fn fill_secret(
+        &self,
+        snapshot: &str,
+        element: &str,
+        secret: Secret,
+        origin: &str,
+        opts: &ActOptions,
+    ) -> Result<ActOutcome> {
+        self.act(
+            snapshot,
+            Some(element),
+            Action::FillSecret {
+                secret,
+                origin: origin.to_string(),
+            },
+            opts,
+        )
+    }
+
     pub fn act_batch(
         &self,
         steps: &[(String, Option<String>, Action)],
@@ -1376,7 +1418,21 @@ impl<P: Platform> Automation<P> {
                     dy: *dy,
                 }]
             }
-            Action::Focus | Action::MenuPress(_) => {
+            Action::Drag { from, to, steps } => {
+                let from = from
+                    .or(center)
+                    .ok_or_else(|| fail(Error::Unsupported("no point to drag from")))?;
+                let finite = |p: (f64, f64)| p.0.is_finite() && p.1.is_finite();
+                if !finite(from) || !finite(*to) {
+                    return Err(fail(Error::Invalid("drag points must be finite".into())));
+                }
+                vec![InputEvent::Drag {
+                    from,
+                    to: *to,
+                    steps: (*steps).clamp(1, MAX_DRAG_STEPS),
+                }]
+            }
+            Action::Focus | Action::MenuPress(_) | Action::FillSecret { .. } => {
                 return Err(fail(Error::Unsupported("needs a semantic tier")))
             }
         })
@@ -1405,6 +1461,16 @@ impl<P: Platform> Automation<P> {
                     .map(|_| "menu AXPress".to_string())
                     .map_err(TierFail::soft),
                 Action::TypeText(text) => self.semantic_type(pid, el, text),
+                Action::FillSecret { secret, .. } => {
+                    let e = el.ok_or_else(|| TierFail {
+                        error: Error::Invalid("fill_secret needs an element".into()),
+                        stop: true,
+                    })?;
+                    self.p
+                        .secret_write(e, secret)
+                        .map(|_| "secret value write acknowledged (not read back)".to_string())
+                        .map_err(TierFail::soft)
+                }
                 Action::Press | Action::SetValue(_) | Action::Scroll { .. } | Action::Focus => {
                     let e = el.ok_or_else(|| TierFail {
                         error: Error::Invalid(format!("{} needs an element", action.name())),
@@ -1480,9 +1546,14 @@ impl<P: Platform> Automation<P> {
                             std::thread::sleep(Duration::from_millis(35));
                         }
                     }
-                    let unverifiable = evs
-                        .iter()
-                        .any(|e| matches!(e, InputEvent::Click { .. } | InputEvent::Scroll { .. }));
+                    let unverifiable = evs.iter().any(|e| {
+                        matches!(
+                            e,
+                            InputEvent::Click { .. }
+                                | InputEvent::Scroll { .. }
+                                | InputEvent::Drag { .. }
+                        )
+                    });
                     Ok(format!(
                         "{n} event(s) posted to pid {pid}{}",
                         if unverifiable {
@@ -1516,6 +1587,47 @@ impl<P: Platform> Automation<P> {
                 }
             }
         }
+    }
+
+    /// The validation `Action::FillSecret` adds: an element, the freshness guard on, a text-like
+    /// target, and a field origin that matches the one the caller named. Every refusal says
+    /// "credential" so it is receipted as a safety denial, and none repeats any value.
+    fn check_fill_secret(
+        &self,
+        rc: &Receipt,
+        el: Option<&P::El>,
+        label: Option<&(String, Option<String>, bool)>,
+        expected: &str,
+        opts: &ActOptions,
+    ) -> Result<()> {
+        let el = el.ok_or_else(|| Error::Invalid("fill_secret needs an element".into()))?;
+        if opts.guard == Guard::Off {
+            return Err(Error::Blocked(
+                "credential fill needs the freshness guard (Guard::Off is refused)".into(),
+            ));
+        }
+        if let Some((role, _, _)) = label {
+            if !matches!(role.as_str(), "textfield" | "textarea" | "combobox") {
+                return Err(Error::Blocked(
+                    "credential fill target is not a text field".into(),
+                ));
+            }
+        }
+        if expected.trim().is_empty() {
+            return Err(Error::Invalid("fill_secret needs an origin".into()));
+        }
+        let observed = self.p.field_origin(el);
+        if !crate::secret::origin_matches(&observed, expected, &rc.app_id) {
+            return Err(Error::Blocked(match observed {
+                FieldOrigin::Unknown => {
+                    "credential fill refused: the field's origin cannot be read".into()
+                }
+                _ => {
+                    "credential fill refused: the field does not belong to the named origin".into()
+                }
+            }));
+        }
+        Ok(())
     }
 
     /// Tier-1 text insertion: selection-exact native write, confirmed by readback.

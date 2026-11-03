@@ -187,3 +187,9 @@ let sigs = settings.list(&conn, "signature:")?;
 Table and column names are configurable (`.table`, `.columns`), so an existing table and its key strings stay as they are. Keys are free-form (dynamic keys need no registration). The key column must be a primary key or unique. Newer data than the code is never reset: reads return the defaults and every write fails with `Error::NewerSchema` (the `OnRefused::ReadOnlyDefaults` promise). Migrations are the same `Schema` migrations, run over string values.
 
 Without `sql` the crate has no Cargo features. Other dependencies: `serde`, `serde_json` (with `raw_value`), `thiserror`, and `rightkit-fs` (`fs` feature only).
+
+## Manifest, generated tables and change requests
+
+`Manifest::parse(json, source)` reads one JSON list of every setting (`{ "settings": [{ "key", "kind", "default", "protected" }] }`, the document RightKitSwift's `AppSettingsManifest.decode` reads). `generate(Target::Swift | Rust | TypeScript)` writes the key and default tables, `is_current` fails a stale committed file, `check_defaults::<T>()` proves the manifest equals the app's Rust settings type, and `check_protected(&list)` proves the owner path's protected-key list equals the manifest's.
+
+`ChangeRequestQueue` carries a change from a non-owner process (a CLI, a hub) to the owner: `submit(key, value)` leaves an atomic request file, the owner calls `drain(&store, &RequestPolicy::from_manifest(&manifest))` on its own wake, which applies each through `Store::patch` and answers `Applied`, `Adjusted`, `Refused` (protected or undeclared key) or `Expired`; the requester reads the answer with `wait_outcome`. The owner stays the only writer of the settings file. Swift apps use `AppGroupCommandQueue` and `AppSettingsStore` in RightKitSwift.

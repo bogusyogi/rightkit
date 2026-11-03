@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.2 (unpublished)
+
+- **New: native licence vault (`vault::LicenseVault`, issue #858).** The signed licence token is verified and held in Rust and never returned to a webview. `install` verifies a token (signature, app, device id or its hash, time, lifecycle, revocation) before any write and leaves the stored token in place when a new one is refused. `status` returns `LicenseStatus` (state `active|missing|invalid|revoked`, tier, features, expiry, reason) with no token material. `require` returns the verified `Entitlement` to native callers only. `remove` deletes the stored token. Apps keep their own command names and wrappers.
+- Apps that still hand the token to the webview (`secure_update_license_*`, `@rightkit/license` `StoredLicense`) must adopt the vault; the TypeScript contract change is owned by `@rightkit/license`.
+
 ## 0.4.1 (unpublished)
 
 

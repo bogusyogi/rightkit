@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { useDismiss } from "@rightkit/platform-ui/headless";
+import { resolveReturnFocus, trackFocusHistory, useDismiss, type ReturnFocusTarget } from "@rightkit/platform-ui/headless";
 import { useLatest } from "./hooks.js";
 import { anchorPoint, type MenuPlacement } from "./contextmenu.js";
 import { floatingPanelStyle, type FloatingPanelStyle } from "../geometry.js";
@@ -25,6 +25,17 @@ export interface PopoverProps {
   className?: string;
   /** Extra class for the panel region (same as `className`). */
   slots?: SlotClasses<"root">;
+  /** Take focus when the panel opens. Default true. Pass false for a mouse-opened editor panel so the caret and selection stay. */
+  takeFocus?: boolean;
+  /** Close when the window resizes. Default true. */
+  dismissOnResize?: boolean;
+  /** Close on a scroll outside the panel. Default true. A scroll inside the panel never closes it. */
+  dismissOnScroll?: boolean;
+  /**
+   * Where focus goes on close: an element or a function returning one. Falls back to the opener, and when the opener is
+   * `<body>` (WebKit does not focus a clicked button) or gone, to the last focused or pressed element still connected.
+   */
+  returnFocus?: ReturnFocusTarget;
   children: ReactNode;
 }
 
@@ -33,15 +44,20 @@ export interface PopoverProps {
  * closes on Escape or an outside press, and restores focus to the opener when focus was inside the panel. Positioned
  * below or above its anchor (flipped when it would overflow), like `ContextMenu` with `anchor`.
  */
-export function Popover({ anchor, onClose, label, placement = "bottom-start", width = 240, className, slots, children }: PopoverProps) {
+export function Popover({ anchor, onClose, label, placement = "bottom-start", width = 240, className, slots, takeFocus = true, dismissOnResize = true, dismissOnScroll = true, returnFocus, children }: PopoverProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const anchorRef = useRef<Element | null>(anchor);
   anchorRef.current = anchor;
   const onCloseRef = useLatest(onClose);
   const opener = useRef<Element | null>(typeof document !== "undefined" ? document.activeElement : null);
+  const returnFocusRef = useRef(returnFocus);
+  returnFocusRef.current = returnFocus;
+  // Snapshot of earlier focus, taken before this panel moves focus, for when the opener is lost.
+  const history = useRef<HTMLElement[] | null>(null);
+  if (history.current === null && typeof document !== "undefined") history.current = trackFocusHistory(document).slice();
   const [pos, setPos] = useState<FloatingPanelStyle | null>(null);
 
-  useDismiss(() => onCloseRef.current(), { container: panelRef, ignore: [anchorRef], onResize: true, onScroll: true });
+  useDismiss(() => onCloseRef.current(), { container: panelRef, ignore: [anchorRef], onResize: dismissOnResize, onScroll: dismissOnScroll });
 
   // Place from the anchor's rectangle, then re-fit with the panel's real height once it is laid out.
   useLayoutEffect(() => {
@@ -54,13 +70,18 @@ export function Popover({ anchor, onClose, label, placement = "bottom-start", wi
   }, [anchor, placement, width]);
 
   useEffect(() => {
-    panelRef.current?.focus({ preventScroll: true });
-    const restore = opener.current as HTMLElement | null;
+    if (takeFocus) panelRef.current?.focus({ preventScroll: true });
+    const openedWith = opener.current as HTMLElement | null;
+    const panel = panelRef.current;
     return () => {
       // Hand focus back only when it was inside the panel (or lost with it), never from a click elsewhere.
       const active = typeof document !== "undefined" ? document.activeElement : null;
-      if (restore?.isConnected && (!active || active === document.body || panelRef.current?.contains(active))) restore.focus?.({ preventScroll: true });
+      if (active && active !== document.body && !panel?.contains(active)) return;
+      const target = resolveReturnFocus({ returnFocus: returnFocusRef.current, opener: openedWith, history: history.current ?? [], exclude: panel });
+      if (target?.isConnected) target.focus?.({ preventScroll: true });
     };
+    // Focus is taken once, on open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return createPortal(

@@ -6,9 +6,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use rightkit_child_process::{OwnedChild, OwnedCommand, ReapOutcome, WaitOutcome};
-use rightkit_sidecar::{
-    read_json_line_or_oversized, write_json_line, FrameError, Incoming, ReadLimits,
-};
+use rightkit_sidecar::{read_json_line_or_oversized, FrameError, Incoming, ReadLimits};
 use serde_json::{json, Value};
 
 use crate::error::{ErrorOrigin, JobError, JobResult, DELIVERY_UNKNOWN};
@@ -120,6 +118,63 @@ fn encode_raw_request(id: u64, method: &str, raw: &[u8], limit: usize) -> Result
     out.extend_from_slice(PARAMS);
     out.extend_from_slice(raw);
     out.extend_from_slice(b"}\n");
+    Ok(out)
+}
+
+/// Counts the bytes serde_json would write, so the frame buffer can be allocated at its final
+/// size.
+struct CountingWriter(usize);
+
+impl std::io::Write for CountingWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0 += buf.len();
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// The request frame for a `Value` payload; field order matches `encode_raw_request`.
+#[derive(serde::Serialize)]
+struct RequestFrame<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    id: u64,
+    method: &'a str,
+    params: &'a Value,
+}
+
+/// One `request` frame for `params`, serialized straight into a buffer allocated at its final
+/// size: no intermediate encoder buffer, no clone of `params` and no reallocation can leave an
+/// unwiped copy of the frame behind (the writer thread wipes the returned buffer after the
+/// write). The size is counted in a first pass over `params`.
+fn encode_value_request(
+    id: u64,
+    method: &str,
+    params: &Value,
+    limit: usize,
+) -> Result<Vec<u8>, String> {
+    let frame = RequestFrame {
+        kind: "request",
+        id,
+        method,
+        params,
+    };
+    let mut counter = CountingWriter(0);
+    serde_json::to_writer(&mut counter, &frame).map_err(|e| e.to_string())?;
+    let payload = counter.0;
+    if payload > limit {
+        return Err(format!(
+            "request of {payload} bytes exceeds the {limit}-byte frame limit"
+        ));
+    }
+    let mut out = Vec::with_capacity(payload + 1);
+    serde_json::to_writer(&mut out, &frame).map_err(|e| {
+        wipe(&mut out);
+        e.to_string()
+    })?;
+    out.push(b'\n');
     Ok(out)
 }
 
@@ -943,14 +998,7 @@ impl Core {
                 },
             );
         let encoded = match outbound {
-            Outbound::Value(params) => {
-                let frame =
-                    json!({"type": "request", "id": id, "method": method, "params": params});
-                let mut bytes = Vec::new();
-                write_json_line(&mut bytes, &frame, self.frame_limit)
-                    .map(|()| bytes)
-                    .map_err(|e| e.to_string())
-            }
+            Outbound::Value(params) => encode_value_request(id, method, &params, self.frame_limit),
             Outbound::Raw(raw) => encode_raw_request(id, method, raw, self.frame_limit),
         };
         let bytes = match encoded {

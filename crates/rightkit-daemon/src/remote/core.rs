@@ -45,6 +45,15 @@ pub struct Request {
     pub path_and_query: String,
     pub headers: BTreeMap<String, String>,
     pub body: Vec<u8>,
+    /// The path parameters of a pattern public route ([`Daemon::add_public_route_pattern`]):
+    /// `{id}` segments by name, and the rest of the path under `*`. Raw, not percent-decoded.
+    /// Empty for every other route.
+    pub params: BTreeMap<String, String>,
+    /// The accepted socket address of the connection (the TCP peer, so behind a proxy it is the
+    /// proxy). `None` for a request that did not arrive over the daemon's own listener. A peer
+    /// address is a fact about the connection, not a credential: a handler that trusts it
+    /// (a loopback-only page) must also check that the listener is bound where it thinks.
+    pub peer: Option<std::net::SocketAddr>,
 }
 
 impl Request {
@@ -59,12 +68,23 @@ impl Request {
     }
 }
 
+/// A response body that is not JSON: its own content type and bytes (an HTML page, a redirect
+/// target's body, a plain-text challenge echo).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawBody {
+    pub content_type: String,
+    pub bytes: Vec<u8>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Response {
     pub status: u16,
-    /// `Value::Null` means an empty body.
+    /// `Value::Null` means an empty body. Ignored when [`raw`](Self::raw) is set.
     pub body: Value,
     pub headers: Vec<(String, String)>,
+    /// A raw body with its own content type; replaces `body` on the wire
+    /// ([`Response::raw`], rightkit#1082). The adapter adds `X-Content-Type-Options: nosniff`.
+    pub raw: Option<RawBody>,
 }
 
 impl Response {
@@ -73,7 +93,48 @@ impl Response {
             status,
             body,
             headers: Vec::new(),
+            raw: None,
         }
+    }
+
+    /// A JSON response.
+    pub fn json(status: u16, body: Value) -> Self {
+        Self::new(status, body)
+    }
+
+    /// A response with no body.
+    pub fn empty(status: u16) -> Self {
+        Self::new(status, Value::Null)
+    }
+
+    /// A response whose body is `bytes` with `content_type` (for example `text/html;
+    /// charset=utf-8`), not a JSON value. A content type that is not a legal header value is sent
+    /// as `application/octet-stream`.
+    pub fn raw(status: u16, content_type: impl Into<String>, bytes: impl Into<Vec<u8>>) -> Self {
+        Self {
+            raw: Some(RawBody {
+                content_type: content_type.into(),
+                bytes: bytes.into(),
+            }),
+            ..Self::new(status, Value::Null)
+        }
+    }
+
+    /// A redirect (`status` 301, 302, 303, 307 or 308; anything else is sent as 302) to
+    /// `location`, with an empty body.
+    pub fn redirect(status: u16, location: impl Into<String>) -> Self {
+        let status = if matches!(status, 301 | 302 | 303 | 307 | 308) {
+            status
+        } else {
+            302
+        };
+        Self::new(status, Value::Null).with_header("location", location)
+    }
+
+    /// Add a response header (a value that is not a legal header is dropped by the adapter).
+    #[must_use]
+    pub fn with_header(self, k: &str, v: impl Into<String>) -> Self {
+        self.header(k, v)
     }
     fn err(status: u16, code: &str) -> Self {
         Self::new(status, json!({ "error": code }))
@@ -236,9 +297,96 @@ pub type PublicHandler = Arc<dyn Fn(&Request) -> Response + Send + Sync>;
 
 struct PublicRoute {
     method: String,
+    /// The exact path, or the pattern text of a pattern route.
     path: String,
+    /// `Some` for a pattern route ([`Daemon::add_public_route_pattern`]).
+    pattern: Option<Vec<PatternSeg>>,
     body_limit: usize,
     handler: PublicHandler,
+}
+
+/// One segment of a public route pattern.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PatternSeg {
+    Literal(String),
+    /// `{name}`: exactly one non-empty segment.
+    Param(String),
+    /// `*`, last only: the rest of the path (one or more characters, `/` allowed).
+    Rest,
+}
+
+/// Parse a route pattern such as `/l/{id}` or `/review/api/*`.
+fn parse_pattern(pattern: &str) -> Result<Vec<PatternSeg>, &'static str> {
+    if !pattern.starts_with('/') || pattern.contains('?') {
+        return Err("a public route pattern starts with / and has no query string");
+    }
+    if pattern == "/v1" || pattern.starts_with("/v1/") {
+        return Err("public routes may not use the /v1 daemon-api table");
+    }
+    let parts: Vec<&str> = pattern[1..].split('/').collect();
+    let mut out = Vec::new();
+    let mut names: Vec<&str> = Vec::new();
+    for (i, part) in parts.iter().enumerate() {
+        if *part == "*" {
+            if i + 1 != parts.len() {
+                return Err("* ends a pattern");
+            }
+            out.push(PatternSeg::Rest);
+        } else if let Some(name) = part.strip_prefix('{').and_then(|p| p.strip_suffix('}')) {
+            if name.is_empty()
+                || name == "*"
+                || !name
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+            {
+                return Err("a parameter name is lower-case letters, digits and _");
+            }
+            if names.contains(&name) {
+                return Err("a parameter name is used once in a pattern");
+            }
+            names.push(name);
+            out.push(PatternSeg::Param(name.to_string()));
+        } else if part.is_empty() || part.contains(['{', '}', '*']) {
+            return Err("a pattern segment is non-empty text, {name} or a final *");
+        } else {
+            out.push(PatternSeg::Literal((*part).to_string()));
+        }
+    }
+    Ok(out)
+}
+
+/// Match `path` (no query) against a parsed pattern; the parameters on success. A path with an
+/// empty, `.` or `..` segment never matches.
+fn match_pattern(segs: &[PatternSeg], path: &str) -> Option<BTreeMap<String, String>> {
+    let rest = path.strip_prefix('/')?;
+    let parts: Vec<&str> = rest.split('/').collect();
+    if parts
+        .iter()
+        .any(|p| p.is_empty() || *p == "." || *p == "..")
+    {
+        return None;
+    }
+    let has_rest = matches!(segs.last(), Some(PatternSeg::Rest));
+    if (has_rest && parts.len() < segs.len()) || (!has_rest && parts.len() != segs.len()) {
+        return None;
+    }
+    let mut params = BTreeMap::new();
+    for (i, seg) in segs.iter().enumerate() {
+        match seg {
+            PatternSeg::Literal(text) => {
+                if parts[i] != text {
+                    return None;
+                }
+            }
+            PatternSeg::Param(name) => {
+                params.insert(name.clone(), parts[i].to_string());
+            }
+            PatternSeg::Rest => {
+                params.insert("*".to_string(), parts[i..].join("/"));
+            }
+        }
+    }
+    Some(params)
 }
 
 const MAX_ID: usize = 128;
@@ -347,19 +495,70 @@ impl Daemon {
         routes.push(PublicRoute {
             method: method.to_string(),
             path: path.to_string(),
+            pattern: None,
             body_limit,
             handler: Arc::new(handler),
         });
         Ok(())
     }
 
-    /// The body limit and handler of a registered public route for this method and path.
-    fn public_route(&self, method: &str, path: &str) -> Option<(usize, PublicHandler)> {
-        let routes = self.public_routes.lock().unwrap_or_else(|e| e.into_inner());
-        routes
+    /// [`add_public_route`](Self::add_public_route) for a path with parameters or a prefix
+    /// (rightkit#1082): `pattern` is made of literal segments, `{name}` segments (one non-empty
+    /// segment each, lower-case letters, digits and `_`) and an optional final `*` (the rest of
+    /// the path). `/l/{id}` serves `/l/abc`; `/review/api/*` serves `/review/api/jobs/7`. The
+    /// handler reads the captured values from [`Request::params`] (`*` is the key for the rest),
+    /// raw and not percent-decoded; it must validate them. A path with an empty, `.` or `..`
+    /// segment matches no pattern. An exact route always wins over a pattern route, and among
+    /// pattern routes the first one registered that matches serves. The rules of
+    /// `add_public_route` apply: not under `/v1`, no query string in the pattern, the handler is
+    /// the only check, and one method and pattern registers once.
+    pub fn add_public_route_pattern(
+        &self,
+        method: &str,
+        pattern: &str,
+        body_limit: usize,
+        handler: impl Fn(&Request) -> Response + Send + Sync + 'static,
+    ) -> Result<(), &'static str> {
+        let segs = parse_pattern(pattern)?;
+        let mut routes = self.public_routes.lock().unwrap_or_else(|e| e.into_inner());
+        if routes
             .iter()
-            .find(|r| r.method == method && r.path == path)
-            .map(|r| (r.body_limit, r.handler.clone()))
+            .any(|r| r.method == method && r.path == pattern)
+        {
+            return Err("this public route is already registered");
+        }
+        routes.push(PublicRoute {
+            method: method.to_string(),
+            path: pattern.to_string(),
+            pattern: Some(segs),
+            body_limit,
+            handler: Arc::new(handler),
+        });
+        Ok(())
+    }
+
+    /// The body limit, handler and path parameters of a registered public route for this method
+    /// and path: an exact route first, then the first matching pattern route.
+    fn public_route(
+        &self,
+        method: &str,
+        path: &str,
+    ) -> Option<(usize, PublicHandler, BTreeMap<String, String>)> {
+        let routes = self.public_routes.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(r) = routes
+            .iter()
+            .find(|r| r.pattern.is_none() && r.method == method && r.path == path)
+        {
+            return Some((r.body_limit, r.handler.clone(), BTreeMap::new()));
+        }
+        routes.iter().find_map(|r| {
+            let segs = r.pattern.as_ref()?;
+            if r.method != method {
+                return None;
+            }
+            let params = match_pattern(segs, path)?;
+            Some((r.body_limit, r.handler.clone(), params))
+        })
     }
 
     /// Serve `POST /v1/call/{method}` from `calls`. Without it the route answers 404, as a 1.0.0
@@ -738,7 +937,7 @@ impl Daemon {
     /// Largest body the transport should read for this request before the
     /// request is authenticated.
     pub fn body_limit(&self, method: &str, path: &str) -> usize {
-        if let Some((limit, _)) = self.public_route(method, path) {
+        if let Some((limit, _, _)) = self.public_route(method, path) {
             return limit;
         }
         if Self::is_pair_path(path) {
@@ -756,11 +955,13 @@ impl Daemon {
 
     pub fn handle(&self, req: Request) -> Response {
         self.counters.requests.fetch_add(1, Ordering::Relaxed);
-        // Public routes (issue #377) are matched by exact method and path, before any device check.
-        if let Some((limit, handler)) = self.public_route(&req.method, req.path()) {
+        // Public routes (issue #377, #1082) are matched by exact path, then by pattern, before any device check.
+        if let Some((limit, handler, params)) = self.public_route(&req.method, req.path()) {
             if req.body.len() > limit {
                 return Response::err(413, "body_too_large");
             }
+            let mut req = req;
+            req.params = params;
             return handler(&req);
         }
         // Short-code pairing (`/v1/pair`): not in the daemon-api route table, like `/v1/link`.
@@ -951,7 +1152,7 @@ impl Daemon {
             return Err(self.reject(route, "unknown_device", 401, "unauthenticated"));
         };
         if device.revoked {
-            return Err(self.reject(route, "revoked_device", 401, "unauthenticated"));
+            return Err(self.reject(route, "revoked_device", 401, "device_revoked"));
         }
         let key = URL_SAFE_NO_PAD
             .decode(&device.public_key)

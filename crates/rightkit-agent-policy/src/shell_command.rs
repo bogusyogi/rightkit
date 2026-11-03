@@ -6,6 +6,7 @@
 //! parser escalation-only, use this crate's permission types, and deliberately keep
 //! PowerShell fail-closed. See `../THIRD-PARTY-NOTICES`.
 
+use crate::owning_process::OwningProcess;
 use crate::{
     CapabilityClass, PermissionDecision, PermissionEngine, PermissionMode, PermissionVerdict,
     WorkspaceTrust,

@@ -94,7 +94,7 @@ pub fn probe(tools: &Tools, media: &Path) -> Result<VideoInfo> {
     // No deadline and no cancel flag today (old `output()` had neither); kill grace zero.
     let opts = RunOptions::unbounded(CancellationToken::new()).with_kill_grace(Duration::ZERO);
     let out = run_capture_with(
-        &rightkit_ffmpeg::verify_ffprobe_or_development(
+        &rightkit_ffmpeg::verify_ffprobe_handle(
             &tools.ffprobe,
             rightkit_ffmpeg::DECODE_VARIANT,
             Duration::from_secs(30),
@@ -181,13 +181,13 @@ pub fn sample_frames(
             .text(expected.to_string())
             .texts(["-pix_fmt", "rgb24", "-f", "rawvideo", "-"]);
         let mut child = spawn_streaming(
-            &rightkit_ffmpeg::verify_ffmpeg_or_development(
+            &rightkit_ffmpeg::verify_ffmpeg_handle(
                 &tools.ffmpeg,
                 rightkit_ffmpeg::EXPORT_ASS_ZIMG_VARIANT,
                 Duration::from_secs(30),
             )
             .or_else(|_| {
-                rightkit_ffmpeg::verify_ffmpeg_or_development(
+                rightkit_ffmpeg::verify_ffmpeg_handle(
                     &tools.ffmpeg,
                     rightkit_ffmpeg::EXPORT_ASS_VARIANT,
                     Duration::from_secs(30),

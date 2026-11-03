@@ -26,6 +26,7 @@ use super::lock::{OpGuard, OpLock};
 use super::order::{self, Level, LevelGuard};
 use super::persist::{outcome_result, Loaded, RecordStore, Snapshot, Written};
 use super::reader::NativeRefusal;
+use super::release_queue::{PendingReleaseId, PendingReleaseQueue};
 use super::time::{parse_rfc3339, to_ms};
 use super::types::{DeviceIdSource, LicenseClientConfig, PendingLicenseRelease, SecretString};
 use super::view::{
@@ -64,6 +65,8 @@ pub(crate) struct Core {
     invalidation: LicenseInvalidation,
     /// The code of the last native read's refusal (0: the last read was not refused).
     native_refusal: AtomicU8,
+    /// Serialises every call into an app's pending-release queue (`release_queue`).
+    queue: Mutex<()>,
 }
 
 /// The lock held, the item read.
@@ -290,6 +293,7 @@ impl Core {
             dirty: AtomicBool::new(false),
             invalidation,
             native_refusal: AtomicU8::new(0),
+            queue: Mutex::new(()),
             cfg,
         })
     }
@@ -993,21 +997,37 @@ impl Core {
 
     // ---- deactivate -------------------------------------------------------------------
 
+    /// The lock that serialises calls into an app's pending-release queue (poison is ignored: the
+    /// guard protects no data).
+    pub(crate) fn queue_lock(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.queue
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     pub(crate) fn deactivate(&self) -> Result<LicenseView, LicenseError> {
-        self.deactivate_inner(None::<fn(&PendingLicenseRelease) -> Result<(), ()>>)
+        self.deactivate_inner(Handoff::<fn(&PendingLicenseRelease) -> Result<(), ()>>::None)
     }
 
     pub(crate) fn deactivate_with_pending_release(
         &self,
         enqueue: impl FnOnce(&PendingLicenseRelease) -> Result<(), ()>,
     ) -> Result<LicenseView, LicenseError> {
-        self.deactivate_inner(Some(enqueue))
+        self.deactivate_inner(Handoff::Callback(enqueue))
+    }
+
+    pub(crate) fn deactivate_with_queue(
+        &self,
+        queue: &dyn PendingReleaseQueue,
+    ) -> Result<LicenseView, LicenseError> {
+        self.deactivate_inner(Handoff::<fn(&PendingLicenseRelease) -> Result<(), ()>>::Queue(queue))
     }
 
     fn deactivate_inner<F: FnOnce(&PendingLicenseRelease) -> Result<(), ()>>(
         &self,
-        enqueue: Option<F>,
+        handoff: Handoff<'_, F>,
     ) -> Result<LicenseView, LicenseError> {
+        let queued = !matches!(handoff, Handoff::None);
         let Locked {
             guard,
             snap,
@@ -1026,10 +1046,10 @@ impl Core {
                 return Ok(view);
             }
             Loaded::Present(envelope) => envelope.record.clone(),
-            Loaded::Corrupt if enqueue.is_some() => return Err(LicenseError::Verify),
+            Loaded::Corrupt if queued => return Err(LicenseError::Verify),
             Loaded::Corrupt => None,
         };
-        let pending_release = if enqueue.is_some() {
+        let pending_release = if queued {
             match &record {
                 Some(record) => {
                     let lease_id = record
@@ -1062,10 +1082,23 @@ impl Core {
         } else {
             None
         };
-        if let (Some(enqueue), Some(release)) = (enqueue, pending_release.as_ref()) {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| enqueue(release)))
-                .map_err(|_| LicenseError::Store)?
-                .map_err(|_| LicenseError::Store)?;
+        // The row this removal enqueued, when the app's queue hands out ids, and the queue it is in.
+        let mut queue_entry: Option<(&dyn PendingReleaseQueue, PendingReleaseId)> = None;
+        if let Some(release) = pending_release.as_ref() {
+            match handoff {
+                Handoff::None => {}
+                Handoff::Callback(enqueue) => {
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| enqueue(release)))
+                        .map_err(|_| LicenseError::Store)?
+                        .map_err(|_| LicenseError::Store)?;
+                }
+                Handoff::Queue(queue) => {
+                    let id = self
+                        .queue_call(|| queue.enqueue(release))
+                        .map_err(|()| LicenseError::Store)?;
+                    queue_entry = Some((queue, id));
+                }
+            }
         }
         // What the server call below needs, taken before the record goes.
         let release = match &record {
@@ -1082,18 +1115,28 @@ impl Core {
         // frees nothing on the server, so the two never disagree about a licence that is
         // still here.
         let tombstone = Envelope::tombstone()?;
-        let _held = self.commit(guard, &tombstone)?;
+        let _held = match self.commit(guard, &tombstone) {
+            Ok(held) => held,
+            Err(error) => {
+                // A store refusal means the tombstone was not written: the licence is still
+                // active, so the row this removal just queued must not free its seat later. Any
+                // other outcome may have written it, and keeps the row.
+                if matches!(error, LicenseError::Store) {
+                    if let Some((queue, id)) = &queue_entry {
+                        let _ = self.queue_call(|| queue.acknowledge(id));
+                    }
+                }
+                return Err(error);
+            }
+        };
         // Best effort, still under the operation lock: free the seat.
         if let Some(pending) = pending_release {
-            match pending {
-                PendingLicenseRelease::Lease {
-                    lease_id,
-                    device_id_hash,
-                } => {
-                    let _ = self.transport.lease_remove(&device_id_hash, &lease_id);
-                }
-                PendingLicenseRelease::Activation(token) => {
-                    let _ = self.transport.deactivate(token.expose());
+            let settled = self.send_release(&pending);
+            if settled {
+                if let Some((queue, id)) = &queue_entry {
+                    // The row this removal was handed is done. A failed delete leaves it for the
+                    // next drain, which settles it with 404 or 410.
+                    let _ = self.queue_call(|| queue.acknowledge(id));
                 }
             }
         } else {
@@ -1120,6 +1163,24 @@ impl Core {
     // ---- trial ------------------------------------------------------------------------
 
     pub(crate) fn request_trial(&self, email: &str) -> Result<TrialView, LicenseError> {
+        self.request_trial_for(email, None)
+    }
+
+    pub(crate) fn request_trial_for(
+        &self,
+        email: &str,
+        platform: Option<&str>,
+    ) -> Result<TrialView, LicenseError> {
+        // Closed vocabulary: the server picks a trial length per platform, so only the two
+        // known words are sent. Anything else is refused before any request.
+        if let Some(p) = platform {
+            if p != "macos" && p != "windows" {
+                return Ok(TrialView {
+                    accepted: false,
+                    message: MessageCode::TrialRefused,
+                });
+            }
+        }
         let email = email.trim();
         if !plausible_email(email) {
             return Ok(TrialView {
@@ -1129,7 +1190,7 @@ impl Core {
         }
         let level = order::enter(Level::Op);
         let _guard = self.op.acquire(self.cfg.mutation_wait)?;
-        let answer = self.transport.trial(email)?;
+        let answer = self.transport.trial(email, platform)?;
         drop(level);
         match answer {
             TrialAnswer::Accepted => Ok(TrialView {
@@ -1451,6 +1512,14 @@ impl Core {
 }
 
 /// What to tell the server after the local clear.
+/// How a removal hands the release to the app: not at all, through a persist callback, or through
+/// a queue that names its rows.
+enum Handoff<'a, F> {
+    None,
+    Callback(F),
+    Queue(&'a dyn PendingReleaseQueue),
+}
+
 enum Release {
     Lease(String),
     Activation(Zeroizing<String>),

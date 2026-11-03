@@ -53,6 +53,26 @@ fn timeout_secs(d: Duration) -> f32 {
     d.as_secs_f64().min(f64::from(f32::MAX)) as f32
 }
 
+/// Which text-marker range [`El::text_marker_string`] reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextMarkerRange {
+    /// `AXTextMarkerRangeForUIElement` of the element itself: all the element's text.
+    ForElement,
+    /// `AXSelectedTextMarkerRange`: the current selection.
+    Selected,
+}
+
+fn truncate_utf16(s: String, max_units: usize) -> String {
+    let mut units = 0usize;
+    for (i, c) in s.char_indices() {
+        units += c.len_utf16();
+        if units > max_units {
+            return s[..i].to_string();
+        }
+    }
+    s
+}
+
 #[derive(Clone)]
 pub struct El(pub Cf);
 
@@ -612,25 +632,65 @@ impl El {
         self.set_point(r.x, r.y)?;
         self.set_size(r.w, r.h)
     }
-    fn text_marker_string(&self) -> Option<String> {
-        let (k1, k2) = (
-            Cf::string("AXTextMarkerRangeForUIElement"),
-            Cf::string("AXStringForTextMarkerRange"),
-        );
-        unsafe {
-            let mut range: CFTypeRef = std::ptr::null();
-            if AXUIElementCopyParameterizedAttributeValue((self.0).0, k1.0, (self.0).0, &mut range)
-                != 0
-            {
-                return None;
-            }
-            let range = Cf::new(range)?;
-            let mut s: CFTypeRef = std::ptr::null();
-            if AXUIElementCopyParameterizedAttributeValue((self.0).0, k2.0, range.0, &mut s) != 0 {
-                return None;
-            }
-            cf_to_string(Cf::new(s)?.0)
+    /// Parameterized attribute read (`AXUIElementCopyParameterizedAttributeValue`): the retained
+    /// CF result and the raw `AXError` code, with no typing, no Accessibility-grant pre-check
+    /// and no error mapping. `parameter` is the CF object the attribute takes (an element, a
+    /// `CFRange` `AXValue`, a text-marker range). `Ok` only when the call returned
+    /// `kAXErrorSuccess` (0) with a non-null object; otherwise `Err(code)`, where `0` means
+    /// success with no object. The result follows the CF Copy rule: this returns the single
+    /// owned reference and the [`Cf`] releases it on drop; `parameter` is only borrowed and
+    /// stays owned by the caller. Read-only and not gated by the interaction switches, like
+    /// [`El::copy_attribute_raw`]: it changes nothing in the target and posts no event, so it
+    /// works while interaction is disabled. It honours the element's messaging timeout
+    /// ([`El::set_timeout`]).
+    pub fn parameterized_raw(&self, attr: &str, parameter: &Cf) -> std::result::Result<Cf, i32> {
+        let k = Cf::string(attr);
+        let mut out: CFTypeRef = std::ptr::null();
+        let code = unsafe {
+            AXUIElementCopyParameterizedAttributeValue((self.0).0, k.0, parameter.0, &mut out)
+        };
+        // The returned `Cf` (if any) owns the single Copy-rule reference and releases on drop,
+        // so a non-zero code that still produced an object does not leak it.
+        match (code, Cf::new(out)) {
+            (0, Some(c)) => Ok(c),
+            (code, _) => Err(code),
         }
+    }
+    /// Text of a web text-marker range read through `AXStringForTextMarkerRange` (Safari and
+    /// Chromium web views), at most `max_utf16_units` UTF-16 units (cut on a character
+    /// boundary). The element and up to 16 `AXParent` ancestors are tried in order; the first
+    /// non-empty string wins, because web text often lives on a container above the focused
+    /// leaf. Read-only and not gated by the interaction switches, like
+    /// [`El::parameterized_raw`]. `None` when no element yields text.
+    pub fn text_marker_string(
+        &self,
+        range: TextMarkerRange,
+        max_utf16_units: usize,
+    ) -> Option<String> {
+        let mut cur = self.clone();
+        for _ in 0..=16 {
+            if let Some(s) = cur.text_marker_string_here(range) {
+                if !s.is_empty() {
+                    return Some(truncate_utf16(s, max_utf16_units));
+                }
+            }
+            cur = cur.el_attr("AXParent")?;
+        }
+        None
+    }
+    fn text_marker_string_here(&self, range: TextMarkerRange) -> Option<String> {
+        let marker = match range {
+            TextMarkerRange::ForElement => self
+                .parameterized_raw("AXTextMarkerRangeForUIElement", &self.0)
+                .ok()?,
+            TextMarkerRange::Selected => {
+                self.copy_attribute_raw("AXSelectedTextMarkerRange").ok()?
+            }
+        };
+        let s = self
+            .parameterized_raw("AXStringForTextMarkerRange", &marker)
+            .ok()?;
+        cf_to_string(s.0)
     }
     pub fn has_web_area_ancestor(&self) -> bool {
         let mut cur = self.clone();
@@ -866,6 +926,49 @@ pub(super) fn menu_press(app: &El, path: &[String]) -> Result<()> {
     Err(Error::Invalid("empty menu path".into()))
 }
 
+/// Where a field lives: the origin of the nearest `AXWebArea` ancestor (its `AXURL`), or
+/// `Native` when there is none within 64 hops, or `Unknown` when a web area is found but its URL
+/// cannot be read or is not an http(s) URL. Read-only, not gated by the interaction switches.
+pub(super) fn field_origin(el: &El) -> crate::secret::FieldOrigin {
+    use crate::secret::{origin_of_url, FieldOrigin};
+    let mut cur = el.clone();
+    for _ in 0..64 {
+        if cur.str_attr("AXRole").as_deref() == Some("AXWebArea") {
+            let Ok(v) = cur.copy_attribute_raw("AXURL") else {
+                return FieldOrigin::Unknown;
+            };
+            let url = unsafe {
+                if CFGetTypeID(v.0) == CFURLGetTypeID() {
+                    cf_to_string(CFURLGetString(v.0))
+                } else {
+                    cf_to_string(v.0)
+                }
+            };
+            return match url.as_deref().and_then(origin_of_url) {
+                Some(o) => FieldOrigin::Web(o),
+                None => FieldOrigin::Unknown,
+            };
+        }
+        match cur.el_attr("AXParent") {
+            Some(p) => cur = p,
+            None => return FieldOrigin::Native,
+        }
+    }
+    FieldOrigin::Unknown
+}
+
+/// Replace the whole `AXValue` of a secure or credential field. Requires the attribute to be
+/// settable; reads nothing back.
+pub(super) fn secret_write(el: &El, secret: &crate::secret::Secret) -> Result<()> {
+    if unsafe { AXIsProcessTrusted() } == 0 {
+        return Err(Error::PermissionDenied("Accessibility"));
+    }
+    if !el.settable("AXValue") {
+        return Err(Error::Unsupported("AXValue is not settable on this field"));
+    }
+    el.set_str("AXValue", secret.expose())
+}
+
 pub(super) fn field_text(el: &El) -> Option<FieldText> {
     let selection = el.selected_range();
     if let Some(v) = el.raw("AXValue").and_then(|c| cf_to_string(c.0)) {
@@ -877,7 +980,7 @@ pub(super) fn field_text(el: &El) -> Option<FieldText> {
             });
         }
     }
-    el.text_marker_string()
+    el.text_marker_string_here(TextMarkerRange::ForElement)
         .filter(|t| t.len() <= MAX_PROOF_BYTES)
         .map(|t| FieldText {
             text: t,

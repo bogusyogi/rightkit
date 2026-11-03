@@ -9,12 +9,7 @@ const NEG: f32 = f32::NEG_INFINITY;
 /// `current` is the full token list (prompt + sampled); `init_prompt` is the prompt
 /// length (4 in timestamp mode), which is both the SuppressBlank trigger point and
 /// the TimestampRules sampleBegin (= max(transcribeIdx+1, initialPromptIndex)).
-pub(crate) fn apply_filters(
-    logits: &mut [f32],
-    current: &[i32],
-    init_prompt: usize,
-    ts_mode: bool,
-) {
+pub(crate) fn apply_filters(logits: &mut [f32], current: &[i32], init_prompt: usize) {
     // NOTE: WhisperKit's default `suppressTokens` is EMPTY (the non-speech list is an
     // unimplemented item in DecodingOptions), and the cli ships []. Suppressing the 88
     // generation_config ids here corrupted real words (e.g. "metro" → "mê trông"), so
@@ -25,15 +20,8 @@ pub(crate) fn apply_filters(
             logits[t] = NEG;
         }
     }
-    // TimestampRulesFilter — only added when decoding WITH timestamps.
-    if ts_mode {
-        apply_timestamp_rules(logits, &current[init_prompt..]);
-    } else {
-        // no-ts: model is prompted with <|notimestamps|>; forbid timestamps explicitly.
-        for logit in logits.iter_mut().take(VOCAB).skip(TS_BEGIN as usize) {
-            *logit = NEG;
-        }
-    }
+    // TimestampRulesFilter — decoding is always WITH timestamps.
+    apply_timestamp_rules(logits, &current[init_prompt..]);
 }
 
 /// WhisperKit `TimestampRulesFilter` (port of openai/whisper decoding.py): timestamps

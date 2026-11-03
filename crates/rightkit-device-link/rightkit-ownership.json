@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-device-link",
+  "capabilities": [
+    {
+      "capability": "device-link-reliable",
+      "summary": "Reliable ordered delivery between linked devices over a relay: sequence numbers, ACK on handler accept, bounded fragments and buffers, replay after reconnect, skip markers",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: apps call this crate instead of hand-rolling ordering, ACK or replay over a relay.",
+        "Sans-IO: the transport, encryption and queue persistence stay with the caller."
+      ]
+    }
+  ]
+}

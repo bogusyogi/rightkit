@@ -4,17 +4,51 @@
 mod appkit;
 pub mod ax;
 pub mod background;
-mod capture;
+pub(crate) mod capture;
 pub(crate) mod capture_safety;
 mod events;
 mod ffi;
+pub(crate) mod pasteboard;
 
 pub use ffi::Cf;
 
 use crate::model::*;
 use crate::platform::*;
+use crate::proof::FieldText;
 use ax::El;
 use ffi::*;
+use std::path::Path;
+
+/// The top-level window the user is working in: the frontmost app's focused window.
+pub(crate) fn foreground_window() -> Option<WindowInfo> {
+    let pid = appkit::frontmost_pid()?;
+    let id = El::app(pid).ok()?.el_attr("AXFocusedWindow")?.window_id()?;
+    list_windows(false).into_iter().find(|w| w.window_id == id)
+}
+
+/// Every window, front to back, including minimized and other-Space ones.
+pub(crate) fn all_windows() -> Vec<WindowInfo> {
+    list_windows(false)
+}
+
+/// The app id (bundle id) of the process `pid`.
+pub(crate) fn app_id_of(pid: i32) -> Option<String> {
+    appkit::app(pid).map(|a| a.app_id)
+}
+
+/// Move and resize the window `window_id` (a [`WindowInfo::window_id`]) through its
+/// accessibility element: position then size, in points with a top-left origin. Needs the
+/// Accessibility grant. The app may clamp the result; read the frame back to confirm.
+pub(crate) fn place_window(window_id: u64, frame: Rect) -> Result<()> {
+    let w = list_windows(false)
+        .into_iter()
+        .find(|w| w.window_id == window_id)
+        .ok_or_else(|| Error::NotFound(format!("window {window_id}")))?;
+    let app = El::app(w.pid)?;
+    let win = ax::window_root(&app, Some(window_id))
+        .ok_or_else(|| Error::NotFound(format!("accessibility window {window_id}")))?;
+    win.set_frame(frame)
+}
 
 #[derive(Default)]
 pub struct MacPlatform;
@@ -203,11 +237,20 @@ impl Platform for MacPlatform {
     fn native_write(&self, el: &El, text: &str) -> Result<()> {
         ax::native_write(el, text)
     }
+    fn field_origin(&self, el: &El) -> crate::secret::FieldOrigin {
+        ax::field_origin(el)
+    }
+    fn secret_write(&self, el: &El, secret: &crate::secret::Secret) -> Result<()> {
+        ax::secret_write(el, secret)
+    }
 
     fn post(&self, pid: i32, window: Option<u64>, ev: &InputEvent) -> Result<()> {
         // AppKit swallows the first click on an inactive window, so mark the window
         // main/key inside the app (AX) first. This never activates the app.
-        if matches!(ev, InputEvent::Click { .. } | InputEvent::Scroll { .. }) {
+        if matches!(
+            ev,
+            InputEvent::Click { .. } | InputEvent::Scroll { .. } | InputEvent::Drag { .. }
+        ) {
             if let Ok(app) = El::app(pid) {
                 if let Some(w) = ax::window_root(&app, window) {
                     let _ = w.set_bool("AXMain", true);

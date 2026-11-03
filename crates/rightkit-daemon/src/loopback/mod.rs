@@ -54,14 +54,20 @@
 //! relied on either needs the owner to widen the policy explicitly.
 
 mod auth;
+mod client;
 mod http;
 mod presence;
 mod record;
+mod replay;
 
 pub use auth::{
     Authenticated, CapabilityGrant, CapabilitySource, CapabilityVerifier, LoopbackToken,
     OriginPolicy, PatternError, RouteClass, RoutePattern, RouteSpec, TokenError, MAX_TOKEN_LEN,
     MIN_TOKEN_LEN,
+};
+pub use client::{
+    adopt_or_spawn, probe_health, probe_health_repeated, wait_for_claim_winner, LoopbackAdopt,
+    PresenceClient, PresenceError,
 };
 pub use http::{
     percent_decode, write_response, Body, Limits, Method, ParseError, Request, RequestReader,
@@ -71,6 +77,9 @@ pub use presence::{
     iso8601_utc, AttachError, AttachGrant, ClientRecord, Presence, PresenceConfig, MAX_CLIENTS,
 };
 pub use record::{LoopbackRecord, RecordLabels};
+pub use replay::{
+    replay_response, run_replay_stream, ReplayConfig, ReplayCursor, ReplayEvent, KEEPALIVE,
+};
 
 use std::collections::HashMap;
 use std::io;

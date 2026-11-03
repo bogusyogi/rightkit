@@ -397,9 +397,11 @@ pub fn local_platform() -> CalibrationPlatform {
     CalibrationPlatform::Other
 }
 
-pub fn run(models_dir: &std::path::Path, samples: &[f32]) -> CalibrationResult {
-    let collect_diagnostics =
-        std::env::var_os("RIGHTKIT_CALIBRATION_COLLECT_DIAGNOSTICS").is_some();
+pub fn run(
+    models_dir: &std::path::Path,
+    samples: &[f32],
+    collect_diagnostics: bool,
+) -> CalibrationResult {
     run_with_runner(samples, collect_diagnostics, |route| {
         run_route(models_dir, samples, route)
     })
@@ -542,12 +544,11 @@ pub fn run_route(
     #[cfg(target_os = "macos")]
     crate::coreml_asr::clear_calibration_window_stats();
     let started = std::time::Instant::now();
-    let policy = rightkit_dictation_core::dev_var!("RIGHTKIT_AUDIO_CONDITIONING_POLICY")
-        .unwrap_or_else(|_| "default".into());
+    let policy = "default";
     let conditioned = rightkit_dictation_core::audio_conditioning::condition_for_asr(
         samples,
         SAMPLE_RATE as u32,
-        &policy,
+        policy,
     );
     match AsrRuntime::load(models_dir, route.ep()).and_then(|mut model| {
         verify_loaded_route(&model, route)?;

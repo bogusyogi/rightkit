@@ -84,8 +84,8 @@ impl SharedState {
 }
 
 /// The sidecar half of the running runtime, registered once by
-/// `RuntimeApp::open_sidecar`. `None` forever under the Fake runtime (dev/test
-/// mode) — every lock-free facade falls back to the locked path then.
+/// `RuntimeApp::open_sidecar`. `None` until the runtime has been opened — every
+/// lock-free facade falls back to the locked path then.
 static ENGINE_SIDECAR: OnceLock<SidecarHandle> = OnceLock::new();
 
 pub fn register_engine_sidecar(handle: &SidecarHandle) {
@@ -104,60 +104,20 @@ pub fn engine_sidecar() -> Option<&'static SidecarHandle> {
 }
 
 /// Lock-free `RuntimeApp::app_state()` for the sidecar runtime. `None` when
-/// there is no published sidecar handle (Fake mode, or the runtime has not
+/// there is no published sidecar handle (the runtime has not
 /// been opened yet) — callers fall back to `runtime_lock()?.app_state()`.
 pub fn app_state_lock_free() -> Option<AppState> {
     engine_sidecar().map(|sidecar| sidecar.state.get())
 }
 
 /// `true` while `state` is still the authoritative runtime state. With no
-/// authority (`RuntimeApp::Fake` or pre-init) no racing writer exists and
+/// authority (pre-init) no racing writer exists and
 /// emission proceeds, preserving pre-guard behavior. The caller must hold the
 /// emission critical section — pairing this check with the emit is what makes
 /// terminal-write-wins atomic. A bare read without that serialization is the
 /// non-atomic reread the 2026-10-01 review rejected.
 pub fn state_is_current(state: &AppState) -> bool {
     engine_sidecar().is_none_or(|sidecar| sidecar.state.emission_permits(state))
-}
-
-/// Deterministic hook for the emission-ordering regression test: replays the
-/// 2026-10-01 incident interleave (buffered `Recording` superseded by a
-/// committed terminal `Error`) against a real `SharedState` — the same
-/// production primitive and decision the serialized seam consults.
-#[doc(hidden)]
-pub fn state_emission_permitted_for_test() -> bool {
-    let authority = SharedState::new(AppState::Recording {
-        session_id: "9".to_string(),
-    });
-    let stale = AppState::Recording {
-        session_id: "9".to_string(),
-    };
-    let terminal = AppState::Error {
-        message: "capture open".to_string(),
-        last_transcript: None,
-    };
-    // Buffered while still current: permitted.
-    let permitted_while_current = authority.emission_permits(&stale);
-    // Terminal commits; the stale buffered snapshot now attempts emission.
-    authority.set(terminal.clone());
-    let stale_suppressed = !authority.emission_permits(&stale);
-    // The terminal itself is permitted, and a stale Recording for a prior
-    // session cannot emit over a live Recording for a different session.
-    let terminal_permitted = authority.emission_permits(&terminal);
-    authority.set(AppState::Recording {
-        session_id: "10".to_string(),
-    });
-    let session_bound = !authority.emission_permits(&stale);
-    // A cancelled terminal likewise cannot be overwritten.
-    authority.set(AppState::Cancelled {
-        transcript: String::new(),
-    });
-    let cancel_survives = !authority.emission_permits(&stale);
-    permitted_while_current
-        && stale_suppressed
-        && terminal_permitted
-        && session_bound
-        && cancel_survives
 }
 
 /// Lock-free `RuntimeApp::engine_info()` for the sidecar runtime
@@ -170,7 +130,7 @@ pub fn state_emission_permitted_for_test() -> bool {
 /// completed — including restarting a dead sidecar, which can block for the
 /// full model load. That side effect is preserved asynchronously: a dead
 /// sidecar gets a detached `ensure_started` kick while this query returns the
-/// (stale-version) snapshot immediately. `None` for Fake runtime / before
+/// (stale-version) snapshot immediately. `None` before
 /// `APP` init — callers fall back to the locked path.
 pub fn engine_info_lock_free() -> Option<EngineInfoResult> {
     let sidecar = engine_sidecar()?;
@@ -225,7 +185,7 @@ pub fn sidecar_final_wait_expired_lock_free(session_id: &str) -> Option<bool> {
 
 /// Staged prewarm, half 1 (audit §2.1): process spawn + ready-wait + the
 /// `EngineInfo` handshake — the parts that can take the full model-load time —
-/// WITHOUT the global runtime lock. `None` under the Fake runtime.
+/// WITHOUT the global runtime lock. `None` before `APP` init.
 ///
 /// Half 2 is `RuntimeApp::sync_sidecar_runtime_snapshot_if_running` under a
 /// short `runtime_lock()` — it only pushes the cached config/vocab diff.
@@ -233,55 +193,7 @@ pub fn prewarm_handshake_lock_free() -> Option<Result<(), String>> {
     engine_sidecar().map(|sidecar| sidecar.warm_handshake())
 }
 
-/// Production-primitive hook: an expiry bound to Error A must be a no-op once
-/// a new dictation started and a newer Error B replaced it (and once the state
-/// is no longer Error at all); the current error's own generation is permitted.
-#[doc(hidden)]
-pub fn stale_error_expiry_rejected_for_test() -> bool {
-    let err = |m: &str| AppState::Error {
-        message: m.to_string(),
-        last_transcript: None,
-    };
-    let state = SharedState::new(AppState::Armed);
-    state.set(err("a"));
-    let gen_a = state.error_generation();
-    state.set(AppState::Recording {
-        session_id: "2".to_string(),
-    });
-    let rejected_while_recording = !state.terminal_error_recovery_permits(Some(gen_a));
-    state.set(err("b"));
-    let rejected_for_newer_error = !state.terminal_error_recovery_permits(Some(gen_a));
-    let current_permitted = state.terminal_error_recovery_permits(Some(state.error_generation()));
-    let unbound_permitted = state.terminal_error_recovery_permits(None);
-    rejected_while_recording && rejected_for_newer_error && current_permitted && unbound_permitted
-}
-
-/// Generation of the current Error for the pill's expiry timer (`None` under Fake).
+/// Generation of the current Error for the pill's expiry timer (`None` before `APP` init).
 pub fn terminal_error_generation_lock_free() -> Option<u64> {
     engine_sidecar().map(|sidecar| sidecar.state.error_generation())
-}
-
-/// `#[doc(hidden)]` hooks for host-application end-to-end harnesses.
-#[doc(hidden)]
-pub fn shared_state_clone_shares_for_test() -> bool {
-    let state = SharedState::new(AppState::Armed);
-    let mirror = state.clone();
-    state.set(AppState::Recording {
-        session_id: "shared-state-test".to_string(),
-    });
-    matches!(
-        mirror.get(),
-        AppState::Recording { ref session_id } if session_id == "shared-state-test"
-    )
-}
-
-/// Before `APP` init (or under Fake mode) every lock-free facade must return
-/// `None` so callers fall back to the locked path — never a wrong answer.
-#[doc(hidden)]
-pub fn lock_free_facades_absent_for_test() -> bool {
-    engine_sidecar().is_none()
-        && app_state_lock_free().is_none()
-        && engine_info_lock_free().is_none()
-        && prewarm_handshake_lock_free().is_none()
-        && sidecar_is_transcribing_session_lock_free("s").is_none()
 }

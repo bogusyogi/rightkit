@@ -98,12 +98,8 @@ actor HelperSession {
     /// they carry only; a tombstone must also clear the content fields the record already holds,
     /// so absent-but-known fields are sent as `.null`.
     private var knownFields: [String: Set<String>] = [:]
-    /// Memory backend only: lets a test play another device writing to the zone.
-    private let debugWriter: MemoryZone?
-
-    init(transport: any ZoneIO, debugWriter: MemoryZone? = nil) {
+    init(transport: any ZoneIO) {
         self.transport = transport
-        self.debugWriter = debugWriter
     }
 
     /// Returns the response line, plus whether to stop after sending it.
@@ -130,7 +126,6 @@ actor HelperSession {
                 case "prepare": body = try await prepare()
                 case "fetch_changes": body = try await fetchChanges(object)
                 case "fetch_record": body = try await fetchRecord(object)
-                case "debug_write": body = try await debugWrite(object)
                 case "save_records": body = try await saveRecords(object)
                 default: throw WireFailure("transient", "unknown command \(cmd)")
                 }
@@ -214,14 +209,6 @@ actor HelperSession {
         guard let record = try await transport.record(name) else { return ["record": NSNull()] }
         knownFields[name] = Set(record.record.fields.keys)
         return ["record": Self.wire(record)]
-    }
-
-    private func debugWrite(_ request: [String: Any]) async throws -> [String: Any] {
-        guard let debugWriter, let record = request["record"] as? [String: Any],
-              let name = record["name"] as? String, let type = record["type"] as? String
-        else { throw WireFailure("transient", "debug_write unavailable") }
-        await debugWriter.debugWrite(name: name, type: type, fields: try Self.decodeFields(record["fields"] as? [String: Any] ?? [:]))
-        return [:]
     }
 
     private func saveRecords(_ request: [String: Any]) async throws -> [String: Any] {

@@ -263,13 +263,13 @@ pub fn render(
     let run = RunOptions::unbounded(CancellationToken::new())
         .with_kill_grace(Duration::ZERO)
         .with_current_dir(&dir);
-    let result = rightkit_ffmpeg::verify_ffmpeg_or_development(
+    let result = rightkit_ffmpeg::verify_ffmpeg_handle(
         &tools.ffmpeg,
         rightkit_ffmpeg::EXPORT_ASS_ZIMG_VARIANT,
         Duration::from_secs(30),
     )
     .or_else(|_| {
-        rightkit_ffmpeg::verify_ffmpeg_or_development(
+        rightkit_ffmpeg::verify_ffmpeg_handle(
             &tools.ffmpeg,
             rightkit_ffmpeg::EXPORT_ASS_VARIANT,
             Duration::from_secs(30),

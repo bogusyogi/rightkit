@@ -76,18 +76,14 @@ fn model_label(
 
 pub const BUSY_MESSAGE: &str = "Speech model is currently in use by another Orthic Labs app.";
 
-/// Role for this process: `RIGHTKIT_SPEECH_SERVICE_ROLE` (scraperight|cutright|
-/// heardright_shell|heardright_headless) wins; otherwise headless mode is
-/// `HeardRightHeadless` and the app-spawned engine is `HeardRightShell`.
+/// Role for this process: headless mode is `HeardRightHeadless` and the app-spawned engine is
+/// `HeardRightShell`.
 pub fn role_for(headless: bool) -> HostRole {
-    let overridden = rightkit_dictation_core::dev_var!("RIGHTKIT_SPEECH_SERVICE_ROLE")
-        .ok()
-        .and_then(|v| parse_role(&v));
-    overridden.unwrap_or(if headless {
+    if headless {
         HostRole::HeardRightHeadless
     } else {
         HostRole::HeardRightShell
-    })
+    }
 }
 
 pub fn parse_role(value: &str) -> Option<HostRole> {

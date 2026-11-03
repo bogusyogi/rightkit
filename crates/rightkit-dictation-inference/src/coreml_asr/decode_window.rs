@@ -11,22 +11,12 @@ use crate::coreml::{ml_f16, ml_i32, read_f16};
 
 use super::frontend_lookahead_probe::EncodedWindow;
 use super::fused_probe::FusedProbeRow;
-use super::hypothesis_batch::{batch_chunk_size, resolve_hypothesis_batch_config};
+use super::hypothesis_batch::batch_chunk_size;
 use super::model::CoreMlParakeet;
-use super::stats::{argmax, stats};
+use super::stats::argmax;
 use super::window_health::{self, AsrWindowStats, ASR_WINDOW_STATS_UPSTREAM_INPUTS_NEEDED};
 
 type PredictorOutputs = (Vec<f32>, Vec<f32>, Vec<f32>);
-thread_local! { static PROBE_COUNTS: std::cell::Cell<[usize;4]> = const { std::cell::Cell::new([0;4]) }; }
-thread_local! { static FUSED_COUNTS: std::cell::Cell<[usize;2]> = const { std::cell::Cell::new([0;2]) }; }
-/// Fused API invocations & logical fused rows; shared calls count only once.
-pub fn take_fused_probe_counts() -> [usize; 2] {
-    FUSED_COUNTS.with(|v| v.replace([0; 2]))
-}
-/// Logical predictor/joint evaluations followed by their runtime API invocations.
-pub fn take_decoder_probe_counts() -> [usize; 4] {
-    PROBE_COUNTS.with(|v| v.replace([0; 4]))
-}
 
 fn carry_predictor_cache(
     enabled: bool,
@@ -48,8 +38,7 @@ impl CoreMlParakeet {
     /// frame" -- the last token of such a chain carries the real advance.
     /// RNNT has no duration head, so its tokens are 1 frame.
     ///
-    /// Beam width is `self.beam_width` (default 2; see `set_beam_width` /
-    /// `RIGHTKIT_ASR_BEAM_WIDTH`). AT WIDTH 1 THIS IS BIT-IDENTICAL TO THE
+    /// Beam width is `self.beam_width` (default 2; see `set_beam_width`). AT WIDTH 1 THIS IS BIT-IDENTICAL TO THE
     /// PRE-BEAM GREEDY DECODE: `rank_top_k` ranks on the raw
     /// `logit + bias-bonus` sum — the exact arithmetic the retired
     /// `argmax`/`biased_argmax` used — never on the log-softmax `score`
@@ -102,24 +91,7 @@ impl CoreMlParakeet {
         );
         window_health::clear_latest_asr_window_stats();
         let m = &self.meta;
-        // Explicit probes only; unset preserves shipping duration/symbol policy.
-        let probe_cap = rightkit_dictation_core::dev_var!("RIGHTKIT_COREML_DURATION_CAP_PROBE")
-            .ok()
-            .and_then(|v| v.parse::<i64>().ok())
-            .filter(|v| (0..=4).contains(v));
-        let probe_durations: Vec<i64> = m
-            .durations
-            .iter()
-            .map(|&d| probe_cap.map_or(d, |cap| d.min(cap)))
-            .collect();
-        let max_symbols = rightkit_dictation_core::dev_var!("RIGHTKIT_COREML_MAX_SYMBOLS_PROBE")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .filter(|v| (1..=64).contains(v))
-            .unwrap_or(max_symbols);
-        let timesync = rightkit_dictation_core::dev_var!("RIGHTKIT_COREML_PRUNING_PROBE")
-            .as_deref()
-            == Ok("timesync");
+        let durations: &[i64] = &m.durations;
         let pl = m.pred_layers;
         let ph = m.pred_hidden;
         let blank = m.blank_id;
@@ -131,24 +103,13 @@ impl CoreMlParakeet {
         let decode_started = collect_diagnostics.then(std::time::Instant::now);
         let mut predictor_calls = 0usize;
         let mut joint_calls = 0usize;
-        let mut predictor_invocations = 0usize;
         let mut joint_invocations = 0usize;
         let mut joint_batched_invocations = 0usize;
         let mut joint_batched_rows = 0usize;
-        let mut fused_invocations = 0usize;
-        let mut fused_rows = 0usize;
         let mut fused_enabled = self.fused_probe_enabled();
         // Production is fixed at B2; archived evaluators may request their
         // historical cap through the explicit model configuration API.
         let fused_max_rows = self.fused_max_rows;
-        let hypothesis_batch = resolve_hypothesis_batch_config(
-            rightkit_dictation_core::dev_var!("RIGHTKIT_COREML_HYP_BATCH")
-                .ok()
-                .as_deref(),
-            rightkit_dictation_core::dev_var!("RIGHTKIT_COREML_HYP_BATCH_MAX_ROWS")
-                .ok()
-                .as_deref(),
-        );
         let mut blank_steps = 0usize;
         let mut forced_advances = 0usize;
         let mut duration_sum_frames = 0usize;
@@ -213,16 +174,6 @@ impl CoreMlParakeet {
             })?;
             (mel_full, enc_flat)
         };
-        let dbg = rightkit_dictation_core::dev_var!("RIGHTKIT_COREML_DEBUG").is_ok();
-        if dbg && !mel_full.is_empty() {
-            let (mn, mx, sm) = stats(&mel_full);
-            eprintln!(
-                "[dbg] seg={} mel_full.len={} min={mn:.3} max={mx:.3} mean={:.3}",
-                seg.len(),
-                mel_full.len(),
-                sm / mel_full.len() as f32
-            );
-        }
         if enc_flat.len() % 1024 != 0 {
             return Err(format!(
                 "encoder output length {} is not divisible by 1024",
@@ -248,20 +199,11 @@ impl CoreMlParakeet {
 
         // length clamp: only decode frames covering REAL audio (not silence pad).
         let nframes = enc_t.min(((seg.len() as f32) / 160.0 / 8.0).ceil() as usize);
-        if dbg {
-            let (mn, mx, sm) = stats(&enc_flat);
-            eprintln!(
-                "[dbg] enc_flat.len={} enc_t={enc_t} nframes={nframes} min={mn:.3} max={mx:.3} mean={:.3}",
-                enc_flat.len(),
-                sm / enc_flat.len() as f32
-            );
-        }
 
         // fresh decoder state per window, one hypothesis to start. The cache
         // is deliberately scoped to this window: predictor state resets at
         // every production window boundary.
-        let predictor_cache_enabled =
-            rightkit_dictation_core::dev_var_os!("RIGHTKIT_ASR_DISABLE_PREDICTOR_CACHE").is_none();
+        let predictor_cache_enabled = true;
         let root = BeamHyp {
             h: vec![0f32; pl * ph],
             c: vec![0f32; pl * ph],
@@ -272,11 +214,6 @@ impl CoreMlParakeet {
             hits: Vec::new(),
         };
         let mut beam: Vec<(BeamHyp, Option<PredictorOutputs>)> = vec![(root, None)];
-        let mut buckets: std::collections::BTreeMap<
-            usize,
-            Vec<(BeamHyp, Option<PredictorOutputs>)>,
-        > = std::collections::BTreeMap::new();
-        let mut finished = Vec::new();
 
         // Defensive round cap: every round advances some hypothesis's `t` or
         // `sym`, both bounded (`nframes`, `max_symbols`), so this can never
@@ -293,11 +230,7 @@ impl CoreMlParakeet {
                 Vec::with_capacity(beam.len() * width);
             // Evaluate independent eligible rows without changing beam order,
             // frame, state, cache inheritance, duration or emission policy.
-            let mut prepared = if hypothesis_batch.mode.is_batched() || fused_enabled {
-                vec![None; beam.len()]
-            } else {
-                Vec::new()
-            };
+            let mut prepared = vec![None; beam.len()];
             if fused_enabled {
                 let eligible: Vec<_> = beam
                     .iter()
@@ -354,15 +287,11 @@ impl CoreMlParakeet {
                             }
                             predictor_calls += indices.len();
                             joint_calls += indices.len();
-                            predictor_invocations += indices.len();
                             joint_invocations += indices.len();
                             break;
                         }
                     };
                     decoder_model_wall += model_call_started.elapsed();
-                    fused_invocations += 1;
-                    fused_rows += rows.len();
-                    predictor_invocations += 1;
                     joint_invocations += 1;
                     predictor_calls += rows.len();
                     for (&i, out) in indices.iter().zip(outputs) {
@@ -386,11 +315,7 @@ impl CoreMlParakeet {
                     .map(|(p, e)| (p.0.as_slice(), e.as_slice()))
                     .collect();
                 let mut logits = Vec::with_capacity(inputs.len());
-                let chunk = if hypothesis_batch.mode.batches_joint() {
-                    batch_chunk_size(inputs.len(), hypothesis_batch.max_rows)
-                } else {
-                    1
-                };
+                let chunk = batch_chunk_size(inputs.len());
                 for rows in inputs.chunks(chunk) {
                     joint_invocations += 1;
                     let model_call_started = std::time::Instant::now();
@@ -406,7 +331,7 @@ impl CoreMlParakeet {
                 for ((i, p), logits) in cached.into_iter().zip(predictions).zip(logits) {
                     prepared[i] = Some((p, logits));
                 }
-            } else if hypothesis_batch.mode.is_batched() {
+            } else {
                 let eligible: Vec<_> = beam
                     .iter()
                     .enumerate()
@@ -419,18 +344,16 @@ impl CoreMlParakeet {
                     .filter(|&i| !predictor_cache_enabled || beam[i].1.is_none())
                     .collect();
                 let states: Vec<_> = missing.iter().map(|&i| &beam[i].0).collect();
-                let predicted = if hypothesis_batch.mode.batches_predictor() {
-                    let chunk_size = batch_chunk_size(states.len(), hypothesis_batch.max_rows);
+                let predicted = {
+                    let chunk_size = batch_chunk_size(states.len());
                     let mut predicted = Vec::with_capacity(states.len());
                     for (state_chunk, index_chunk) in
                         states.chunks(chunk_size).zip(missing.chunks(chunk_size))
                     {
                         let model_call_started = std::time::Instant::now();
                         if state_chunk.len() > 1 {
-                            predictor_invocations += 1;
                             predicted.extend(self.predict_hypotheses(state_chunk)?);
                         } else {
-                            predictor_invocations += state_chunk.len();
                             predicted.extend(
                                 state_chunk
                                     .iter()
@@ -440,15 +363,6 @@ impl CoreMlParakeet {
                         }
                         decoder_model_wall += model_call_started.elapsed();
                     }
-                    predicted
-                } else {
-                    predictor_invocations += states.len();
-                    let model_call_started = std::time::Instant::now();
-                    let predicted = states
-                        .iter()
-                        .map(|h| self.predict_decoder(h.last_tok, &h.h, &h.c, pl, ph))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    decoder_model_wall += model_call_started.elapsed();
                     predicted
                 };
                 predictor_calls += states.len();
@@ -469,8 +383,8 @@ impl CoreMlParakeet {
                     .zip(&encoders)
                     .map(|(&i, e)| (predictions[i].as_ref().unwrap().0.as_slice(), e.as_slice()))
                     .collect();
-                let logits = if hypothesis_batch.mode.batches_joint() {
-                    let chunk_size = batch_chunk_size(inputs.len(), hypothesis_batch.max_rows);
+                let logits = {
+                    let chunk_size = batch_chunk_size(inputs.len());
                     let mut logits = Vec::with_capacity(inputs.len());
                     for input_chunk in inputs.chunks(chunk_size) {
                         let model_call_started = std::time::Instant::now();
@@ -490,15 +404,6 @@ impl CoreMlParakeet {
                         }
                         decoder_model_wall += model_call_started.elapsed();
                     }
-                    logits
-                } else {
-                    joint_invocations += inputs.len();
-                    let model_call_started = std::time::Instant::now();
-                    let logits = inputs
-                        .iter()
-                        .map(|(g, e)| self.predict_joint(g, e, ph, enc_d))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    decoder_model_wall += model_call_started.elapsed();
                     logits
                 };
                 for (&i, logits) in eligible.iter().zip(logits) {
@@ -526,7 +431,6 @@ impl CoreMlParakeet {
                         Some(cached) if predictor_cache_enabled => cached,
                         _ => {
                             predictor_calls += 1;
-                            predictor_invocations += 1;
                             let model_call_started = std::time::Instant::now();
                             let prediction =
                                 self.predict_decoder(hyp.last_tok, &hyp.h, &hyp.c, pl, ph)?;
@@ -570,7 +474,7 @@ impl CoreMlParakeet {
                 }
                 if collect_diagnostics && m.is_tdt && nd > 0 {
                     let duration_index = argmax(&logits[logits.len() - nd..]);
-                    let duration = probe_durations[duration_index].max(0) as usize;
+                    let duration = durations[duration_index].max(0) as usize;
                     duration_sum_frames = duration_sum_frames.saturating_add(duration);
                     duration_max_frames = duration_max_frames.max(duration);
                     duration_frames_skipped =
@@ -583,7 +487,7 @@ impl CoreMlParakeet {
                         &hyp,
                         &logits,
                         nd,
-                        &probe_durations,
+                        durations,
                         blank,
                         max_symbols,
                         width,
@@ -606,18 +510,6 @@ impl CoreMlParakeet {
                         new_c,
                     )
                 };
-                if dbg && hyp.t < 3 {
-                    if let Some(top) = children.first() {
-                        eprintln!(
-                            "[dbg] t={} sym={} blank={blank} tok={:?} score={:.3} g0={:.3}",
-                            hyp.t,
-                            hyp.sym,
-                            top.hits.last().map(|h| h.0),
-                            top.score,
-                            g.first().copied().unwrap_or(0.0)
-                        );
-                    }
-                }
                 let parent_hit_count = hyp.hits.len();
                 next.extend(children.into_iter().map(|child| {
                     let child_cache = carry_predictor_cache(
@@ -629,23 +521,7 @@ impl CoreMlParakeet {
                     (child, child_cache)
                 }));
             }
-            if timesync {
-                // Same semantics as ONNX time-synchronous search: only paths
-                // reading the same next frame compete; completed paths wait.
-                for row in next {
-                    if row.0.t >= nframes {
-                        finished.push(row);
-                    } else {
-                        buckets.entry(row.0.t).or_default().push(row);
-                    }
-                }
-                beam = buckets
-                    .pop_first()
-                    .map(|(_, rows)| rows)
-                    .unwrap_or_default();
-            } else {
-                beam = next;
-            }
+            beam = next;
             beam.sort_by(|a, b| {
                 b.0.score
                     .partial_cmp(&a.0.score)
@@ -654,41 +530,11 @@ impl CoreMlParakeet {
             beam.truncate(width);
         }
 
-        if timesync {
-            finished.append(&mut beam);
-            for (_, mut rows) in buckets {
-                finished.append(&mut rows);
-            }
-            beam = finished;
-        }
         beam.sort_by(|a, b| {
             b.0.score
                 .partial_cmp(&a.0.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
-        if rightkit_dictation_core::dev_var_os!("RIGHTKIT_ASR_PREDICTOR_DIAGNOSTICS").is_some() {
-            FUSED_COUNTS.with(|v| {
-                let mut c = v.get();
-                c[0] += fused_invocations;
-                c[1] += fused_rows;
-                v.set(c);
-            });
-            PROBE_COUNTS.with(|v| {
-                let mut c = v.get();
-                for (i, n) in [
-                    predictor_calls,
-                    joint_calls,
-                    predictor_invocations,
-                    joint_invocations,
-                ]
-                .into_iter()
-                .enumerate()
-                {
-                    c[i] += n;
-                }
-                v.set(c);
-            });
-        }
         if let Some((best, _)) = beam.into_iter().next() {
             if collect_diagnostics {
                 let mel_health = window_health::tensor_health(&mel_full);
@@ -765,10 +611,7 @@ impl CoreMlParakeet {
                     );
                 }
             }
-            if detailed
-                || rightkit_dictation_core::dev_var_os!("RIGHTKIT_ASR_PREDICTOR_DIAGNOSTICS")
-                    .is_some()
-            {
+            if detailed {
                 eprintln!(
                     "RIGHTKIT_ASR_DECODER_CALLS predictor={predictor_calls} joint={joint_calls} cache={predictor_cache_enabled}"
                 );

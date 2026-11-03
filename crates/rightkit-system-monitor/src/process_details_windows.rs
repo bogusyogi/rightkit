@@ -323,4 +323,5 @@ fn details_with(gpu: Option<gpu::Answer>) -> HashMap<u32, ProcessDetail> {
             })
             .collect()
     })
+    .unwrap_or_default()
 }

@@ -13,7 +13,7 @@ Rust toolchain, cargo-deny, cargo-audit, rustfmt and cargo-about templates.
 
 | Import | Contents |
 |---|---|
-| `@rightkit/config/vite` | `rightkitViteConfig({ port, strictPort, host, plugins, watchIgnored, buildTarget, qa })`, `DEFAULT_WATCH_IGNORED` |
+| `@rightkit/config/vite` | `rightkitViteConfig({ port, strictPort, host, plugins, watchIgnored, buildTarget, qa })` (also sets `define: rightkitQaDefine()`), `rightkitQaDefine()` (`{ __RIGHTKIT_QA__ }`, true only when `RIGHTKIT_BUILD_MODE=dev`), `DEFAULT_WATCH_IGNORED` |
 | `@rightkit/config/eslint` | `rightkitEslintConfig({ js, globals, tseslint, reactHooks, reactRefresh }, { ignores, overrides })`, `RIGHTKIT_ESLINT_RULES` |
 | `@rightkit/config/tsconfig/base.json` | Strict ES2022 + DOM, bundler resolution |
 | `@rightkit/config/tsconfig/react-app.json` | App webview (`noEmit`, `react-jsx`, `vite/client` types) |
@@ -40,6 +40,8 @@ import { rightkitEslintConfig } from "@rightkit/config/eslint";
 
 export default rightkitEslintConfig({ js, globals, tseslint, reactHooks, reactRefresh });
 ```
+
+The one web QA switch is `__RIGHTKIT_QA__` (`declare const __RIGHTKIT_QA__: boolean;`): `rightkitViteConfig` defines it from `RIGHTKIT_BUILD_MODE` (`right-release dev` sets `dev` for every command it runs; a release build leaves it unset, so the define is `false` and QA branches fold away). An app with its own `define` writes `define: { ...rightkitQaDefine() }`. QA code inside `if (__RIGHTKIT_QA__)` carries the string `RIGHTKIT-QA-WEB-COMPILED`; a release bundle that contains the string, the define or a retired flag (`VITE_VIEWRIGHT_BROWSER_QA`, `VITE_RIGHTKIT_BROWSER_QA`, `VITE_RIGHTKIT_QA`, `__RIGHTKIT_MOCK__`) is refused by `@rightkit/release`.
 
 The ESLint preset takes the plugins as arguments, so this package depends on none of them; `vite`
 is an optional peer used only for types.

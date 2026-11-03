@@ -17,7 +17,6 @@ The crate accepts ordered absolute candidates from the app. It validates the pla
 | `directml` | off | `session`, `ort/directml` | Names the DirectML provider explicitly. DirectML is already on for Windows targets. |
 | `tracing`, `download-binaries`, `tls-native`, `copy-dylibs`, `preload-dylibs` | off | `session`, `ort/<same>` | Pass-through ort features, so no crate declares `ort`. |
 | `cuda`, `tensorrt`, `migraphx`, `openvino`, `webgpu`, `nnapi`, `acl`, `armnn`, `azure`, `cann`, `nvrtx`, `onednn`, `qnn`, `rknpu`, `tvm`, `vitis`, `xnnpack` | off | `session`, `ort/<same>` | Pass-through execution-provider features (asr, qts). |
-| `dev-overrides` | off | none | Development and QA builds only. Honors `ORT_DYLIB_PATH` as a developer runtime override and stops `clear_inherited_runtime_for_release` clearing it. Never implied by a build profile (installed dev builds with debug assertions behave like release) and never a default feature; an app enables it only from its QA/test configuration. |
 | `catalog` | off | `rightkit-ffmpeg` | `BindVerification::Catalog` for `bind_installed_runtime`: the runtime file and its companion files are checked against the native-library catalog. Without it only the manifest check exists and no catalog code is pulled. |
 | `provision` | off | `rightkit-ffmpeg`, `rightkit-models` (HTTP, tar, zip) | Build-time `rightkit_onnx::provision` and the `rightkit-onnx-provision` binary. Use it as a build-dependency, never in the shipped app. |
 | `half` | off | `session`, `ort/half`, `half` | Re-exports `half` (f16 tensors), so apps use `rightkit_onnx::half::f16`. |
@@ -38,9 +37,8 @@ add opt-in `<workspace>/tools/bin/<platform runtime filename>` candidates.
 - Added in 0.2.0: `init_environment_with_options` adds deferred C environment
 creation, ort-default telemetry, already-configured tolerance & verbatim loader errors.
 - Added in 0.2.0: `clear_inherited_runtime_for_release` clears inherited
-`ORT_DYLIB_PATH` in release builds & does nothing in debug builds.
-- Added in 0.2.0: `developer_override_candidate(env_name)` reads a non-empty
-app-named override as `RuntimeCandidate` with `CandidateSource::Explicit` in debug only.
+`ORT_DYLIB_PATH` (every build since 0.2.10).
+- Removed in 0.2.10: `developer_override_candidate` and `BindSpec::developer_env`.
 - Added in 0.2.0: `configured_runtime` reports the last successfully bound path,
 falling back to non-empty `ORT_DYLIB_PATH` for doctor readiness reporting.
 
@@ -130,7 +128,6 @@ use rightkit_onnx::{bind_installed_runtime, BindSpec, BindVerification};
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 // Single-threaded startup, before any ORT use.
 let bound = bind_installed_runtime(&BindSpec {
-    developer_env: Some("MYAPP_ORT_DYLIB".into()), // honoured only with `dev-overrides`
     extra_dirs: vec![std::env::temp_dir().join("myapp").join("runtime")], // app data, searched last
     prepend_path: true,
     ..BindSpec::new(BindVerification::Manifest)
@@ -141,8 +138,8 @@ println!("runtime {} ({:?})", bound.report.path.display(), bound.report.source);
 
 `bind_installed_runtime` runs these steps in order; none of them loads the library (ort does, later):
 
-1. `clear_inherited_runtime_for_release()`: an inherited `ORT_DYLIB_PATH` is dropped unless `dev-overrides` is on. Call `bind_installed_runtime` once, single-threaded, at startup: it removes and sets process environment variables, which needs exclusive access to the environment.
-2. Candidates, first regular file wins: the developer override named by `BindSpec::developer_env` (only with `dev-overrides`; a release build ignores the variable and never reads it), then the bundled runtime beside the installed executable (`installed_runtime_candidate`, in `BindSpec::resource_subdir`, `runtime` by default, of `BindSpec::executable` or the current executable), then each of `BindSpec::extra_dirs` (app data; relative directories are skipped). A bundled runtime beats an app-data copy.
+1. `clear_inherited_runtime_for_release()`: an inherited `ORT_DYLIB_PATH` is dropped. Call `bind_installed_runtime` once, single-threaded, at startup: it removes and sets process environment variables, which needs exclusive access to the environment.
+2. Candidates, first regular file wins: the bundled runtime beside the installed executable (`installed_runtime_candidate`, in `BindSpec::resource_subdir`, `runtime` by default, of `BindSpec::executable` or the current executable), then each of `BindSpec::extra_dirs` (app data; relative directories are skipped). A bundled runtime beats an app-data copy.
 3. Verification of the resolved file, **before anything is bound and before any environment variable is written**. `BindVerification::Manifest` checks the `manifest.json` beside the library (`verify_library_in_manifest`). `BindVerification::Catalog` (feature `catalog`) checks the file against this host's `onnxruntime` row of the native-library catalog (`rightkit_ffmpeg::verified_library`; an `approved` or `pinned` row serves, `planned` and `stale-unverified` never do) and every companion file of that row that sits beside it: a companion that is present but not the catalog's (a tampered `DirectML.dll`) is an error, a companion that is absent is listed in the report, because a CPU-only app can run without it; set `BindSpec::require_companions` to refuse the bind instead (`VerificationFailed` with `VerificationFailure::MissingCompanions(..)`, nothing bound).
 4. The existing binding (`configure_runtime_with_options` semantics): the known-bad SME2 refusal surfaces as an error, a different inherited `ORT_DYLIB_PATH` conflicts unless `BindSpec::force_replace` is set, `BindSpec::allow_known_bad_runtime` is the QA opt-out. Then, with `BindSpec::prepend_path`, the runtime's directory goes first on `PATH` so sibling DLLs load, and the binding is recorded for `configured_runtime()`. Windows host proof pending: that directory (and `ORT_DYLIB_PATH`) is the canonical path of the selected file, which `std::fs::canonicalize` returns in verbatim form (`\\?\C:\...`) on Windows; this crate has not run a verbatim `PATH` entry through the loader's DLL search on a Windows host, so a Windows app proves it before relying on `prepend_path`.
 
@@ -325,7 +322,7 @@ Licensed under MIT OR Apache-2.0.
 
 ## Inherited `ORT_DYLIB_PATH`
 
-`configure_runtime()` never trusts a different inherited value. If `ORT_DYLIB_PATH` is already set and does not canonicalise to the candidate `resolve_runtime` selects, it returns `RuntimeError::AlreadyConfigured` and ORT is not initialised. A planted path can therefore stop ORT from starting, but can never load a foreign library. Call `clear_inherited_runtime_for_release()` at process startup, before any thread spawns, runtime binding or ORT use: process environment mutation requires exclusive access. This release-only cleanup is consistent with "inherited ORT_DYLIB_PATH fails closed"; debug builds preserve the variable. Apps can put `developer_override_candidate("APP_ORT_RUNTIME")` first in their candidate list; unset or empty values return `None`, as do all release calls. `RuntimeSelection::source` reports which candidate won.
+`configure_runtime()` never trusts a different inherited value. If `ORT_DYLIB_PATH` is already set and does not canonicalise to the candidate `resolve_runtime` selects, it returns `RuntimeError::AlreadyConfigured` and ORT is not initialised. A planted path can therefore stop ORT from starting, but can never load a foreign library. Call `clear_inherited_runtime_for_release()` at process startup, before any thread spawns, runtime binding or ORT use: process environment mutation requires exclusive access. The cleanup is the same in every build (there is no developer override; removed in 0.2.10). `RuntimeSelection::source` reports which candidate won.
 
 `configured_runtime()` is read-only & prefers the last successful crate binding
 (including missing-mode paths) over later environment changes. Matching inherited

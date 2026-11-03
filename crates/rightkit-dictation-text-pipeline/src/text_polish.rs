@@ -270,17 +270,9 @@ fn should_try_l1_app_polish(input: &str, context: DictationPolishContext) -> boo
 }
 
 fn l3_min_audio_secs() -> f32 {
-    rightkit_dictation_core::dev_var!("RIGHTKIT_L3_MIN_AUDIO_SECS")
-        .ok()
-        .and_then(|value| value.parse::<f32>().ok())
-        .unwrap_or(3.0)
-        .clamp(0.0, 30.0)
+    3.0
 }
 
 fn l3_min_words() -> usize {
-    rightkit_dictation_core::dev_var!("RIGHTKIT_L3_MIN_WORDS")
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .unwrap_or(8)
-        .clamp(1, 200)
+    8
 }

@@ -8,6 +8,8 @@ use core_foundation::string::{CFString, CFStringRef};
 use crate::macos::ax::{system_wide_with, AxOptions, El};
 
 use super::observation::observation_clients;
+use core_foundation::boolean::CFBoolean;
+use core_foundation::dictionary::CFDictionaryRef;
 
 pub(super) type AXUIElementRef = *const std::ffi::c_void;
 

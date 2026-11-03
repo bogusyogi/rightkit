@@ -560,3 +560,8 @@ export {
   type UpdateOverlayModel,
   type UpdateOverlayPhase,
 } from './overlay.js';
+export { updaterTargetForPlatform, type UpdaterTarget } from './target.js';
+export {
+  buildActivationUpdateHeaders,
+  type ActivationUpdateHeaderOptions,
+} from './activation-headers.js';

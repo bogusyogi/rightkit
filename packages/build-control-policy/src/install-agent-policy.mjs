@@ -13,6 +13,18 @@ function quotedHookCommand(node, script) {
   return `${quote(node)} ${quote(script)}`;
 }
 
+/**
+ * Codex runs hook commands through PowerShell on Windows (rightkit#798). PowerShell rejects a quoted string followed by
+ * another string ("Unexpected token"), so the Claude Code form (`"node" "script"`, run by bash) never ran there. The
+ * call operator with single-quoted literals is valid PowerShell for any path, spaces included; an apostrophe inside a
+ * literal is doubled. Other platforms run Codex hooks through a POSIX shell, where the quoted form is right.
+ */
+export function codexHookCommand(node, script, platform = process.platform) {
+  if (platform !== 'win32') return quotedHookCommand(node, script);
+  const literal = (value) => `'${value.replaceAll("'", "''")}'`;
+  return `& ${literal(node)} ${literal(script)}`;
+}
+
 async function readConfig(path) {
   const raw = await readFile(path, 'utf8');
   const config = JSON.parse(raw);
@@ -97,13 +109,15 @@ export async function installAgentPolicyHooks({ home = homedir(), platform = pro
   const codex = await readConfig(codexPath);
   const writeCommand = quotedHookCommand(nodePath, assets.writeLauncher);
   const sessionCommand = quotedHookCommand(nodePath, assets.sessionLauncher);
+  const codexWriteCommand = codexHookCommand(nodePath, assets.writeLauncher, platform);
+  const codexSessionCommand = codexHookCommand(nodePath, assets.sessionLauncher, platform);
 
   if (!claude.config.hooks || typeof claude.config.hooks !== 'object' || Array.isArray(claude.config.hooks)) throw new TypeError('Claude settings.json must contain a hooks object');
   appendHook(claude.config.hooks, 'PreToolUse', { matcher: 'Write|Edit|MultiEdit|Bash' }, writeCommand, policy('write'));
   appendHook(claude.config.hooks, 'SessionStart', {}, sessionCommand, policy('session'));
   if (!codex.config.hooks || typeof codex.config.hooks !== 'object' || Array.isArray(codex.config.hooks)) throw new TypeError('Codex hooks.json must contain a hooks object');
-  appendHook(codex.config.hooks, 'PreToolUse', { matcher: 'Bash|apply_patch|exec_command|functions\\.exec' }, writeCommand, policy('write'));
-  appendHook(codex.config.hooks, 'SessionStart', {}, sessionCommand, policy('session'));
+  appendHook(codex.config.hooks, 'PreToolUse', { matcher: 'Bash|apply_patch|exec_command|functions\\.exec' }, codexWriteCommand, policy('write'));
+  appendHook(codex.config.hooks, 'SessionStart', {}, codexSessionCommand, policy('session'));
 
   // A config that already holds the launcher commands is not rewritten: no reformatting, no new file, nothing for an agent to re-review.
   const claudeChanged = JSON.stringify(claude.config) !== claude.fingerprint;

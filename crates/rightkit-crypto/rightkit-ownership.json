@@ -3,12 +3,12 @@
   "capabilities": [
     {
       "capability": "crypto-primitives",
-      "summary": "Neutral SHA-256, HMAC-SHA256, constant-time compare, base64/base64url, hex, BLAKE3 text hash, canonical JSON and HMAC approval tokens",
+      "summary": "Neutral SHA-256, HMAC (SHA-1/256/512), constant-time compare, base64/base64url, hex, BLAKE3 text hash, canonical JSON, HMAC approval tokens, Ed25519 sign/verify, ECDSA P-256 and RSA PKCS#1 verify, AES-256-GCM and ChaCha20-Poly1305, HKDF-SHA256, PBKDF2, TOTP, system RNG and a zeroizing secret",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
         "Declaration-only: apps call this crate instead of hand-rolling HMAC, constant-time compare, base64 or approval tokens.",
-        "Not a general cryptography suite: no encryption, signatures or key derivation."
+        "Wraps ring for the heavy primitives; apps must not add ring directly for these."
       ]
     }
   ]

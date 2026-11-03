@@ -1,3 +1,5 @@
+import { rgbChannels } from "./color.js";
+
 /** Minimal element surface so this stays testable without a DOM. */
 export interface StyleTarget {
   style: {
@@ -18,18 +20,45 @@ export function assertCustomProperty(name: string): void {
   if (!CUSTOM_PROPERTY.test(name)) throw new Error(`Invalid CSS custom property name: ${JSON.stringify(name)}`);
 }
 
+/** Options for [`applyTokens`]. Both are additive: the default call writes every entry, as before. */
+export interface ApplyTokensOptions {
+  /**
+   * Skip a name whose inline value already equals the new value: no write and no undo entry for it.
+   * Diffing needs `getPropertyValue` on the target; without it every entry is written.
+   */
+  skipUnchanged?: boolean;
+  /**
+   * Colour token names (for example `--ink`) whose space-separated channel companion `<name>-rgb` is also written
+   * (`--ink-rgb: 35 31 26`), for `rgb(var(--ink-rgb) / alpha)`. The named value must be hex (see [`rgbChannels`]).
+   */
+  rgbCompanions?: readonly string[];
+}
+
 /**
  * Set arbitrary CSS custom properties on `root`'s inline style and touch nothing else. Use it for
  * app palettes (theme preset x accent), font stacks, or any token an app owns. `undefined` values are
  * skipped. Returns an undo function that restores the previous inline value of each name it set.
  */
-export function applyTokens(record: Readonly<Record<string, string | undefined>>, root: StyleTarget | null = typeof document === "undefined" ? null : document.documentElement): () => void {
+export function applyTokens(
+  record: Readonly<Record<string, string | undefined>>,
+  root: StyleTarget | null = typeof document === "undefined" ? null : document.documentElement,
+  options: ApplyTokensOptions = {},
+): () => void {
   if (!root) return () => {};
-  const previous = new Map<string, string>();
+  const entries: [string, string][] = [];
   for (const [name, value] of Object.entries(record)) {
-    if (value === undefined) continue;
+    if (value !== undefined) entries.push([name, value]);
+  }
+  for (const name of options.rgbCompanions ?? []) {
+    assertCustomProperty(name);
+    const value = record[name];
+    if (value !== undefined) entries.push([`${name}-rgb`, rgbChannels(value)]);
+  }
+  const previous = new Map<string, string>();
+  for (const [name, value] of entries) {
     assertCustomProperty(name);
     const before = root.style.getPropertyValue?.(name) ?? "";
+    if (options.skipUnchanged && before === value) continue;
     if (!previous.has(name)) previous.set(name, before);
     root.style.setProperty(name, value);
   }
@@ -97,6 +126,8 @@ export function shade(hex: string, amount: number): string {
 /** One app theme preset: a light or dark base palette plus optional accent overrides. */
 export interface TokenPreset {
   id: string;
+  /** Human label for a picker. Default: the id (see [`presetOptions`]). */
+  label?: string;
   mode: "light" | "dark";
   /** Base token values, e.g. `{ "--ink": "#101216", "--paper": "#F2F3F5" }`. */
   tokens: Readonly<Record<string, string>>;
@@ -108,6 +139,30 @@ export interface TokenPreset {
 export function presetTokens(preset: TokenPreset, accentId?: string | null): Record<string, string> {
   const accent = accentId != null ? preset.accents?.[accentId] : undefined;
   return { ...preset.tokens, ...(accent ?? {}) };
+}
+
+/** One entry of a palette picker: a palette id, its label, and the modes its presets cover. */
+export interface PresetOption {
+  id: string;
+  label: string;
+  modes: ("light" | "dark")[];
+}
+
+/**
+ * One picker entry per palette id, in first-seen order. A palette id may carry a dark and a light preset
+ * (see `presetCss` `modeAttribute`); the label comes from the first preset that sets one, else the id.
+ */
+export function presetOptions(presets: readonly TokenPreset[]): PresetOption[] {
+  const byId = new Map<string, PresetOption>();
+  for (const preset of presets) {
+    const existing = byId.get(preset.id);
+    if (existing) {
+      if (!existing.modes.includes(preset.mode)) existing.modes.push(preset.mode);
+      continue;
+    }
+    byId.set(preset.id, { id: preset.id, label: preset.label ?? preset.id, modes: [preset.mode] });
+  }
+  return [...byId.values()];
 }
 
 /**

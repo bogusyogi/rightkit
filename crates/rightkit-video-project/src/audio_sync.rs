@@ -39,13 +39,13 @@ pub struct AudioAlignment {
 /// Decode first audio stream as finite, mono, little-endian f32 PCM.
 pub fn decode_pcm(tools: &MediaTools, file: &Path) -> Result<Vec<f32>, ProjectError> {
     let pcm = rk::decode::decode_pcm_f32(
-        &rk::verify_ffmpeg_or_development(
+        &rk::verify_ffmpeg_handle(
             &tools.ffmpeg,
             rk::EXPORT_ASS_ZIMG_VARIANT,
             crate::tools::VERIFY_TIMEOUT,
         )
         .or_else(|_| {
-            rk::verify_ffmpeg_or_development(
+            rk::verify_ffmpeg_handle(
                 &tools.ffmpeg,
                 rk::EXPORT_ASS_VARIANT,
                 crate::tools::VERIFY_TIMEOUT,

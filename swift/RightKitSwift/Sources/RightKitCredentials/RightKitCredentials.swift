@@ -1,5 +1,8 @@
 import Foundation
 import Security
+#if canImport(LocalAuthentication)
+import LocalAuthentication
+#endif
 
 // Keychain-backed secret store: the Swift counterpart of the Rust owner `rightkit-credentials`.
 // namespace = kSecAttrService, key = kSecAttrAccount. There is no plaintext or file fallback:
@@ -56,9 +59,14 @@ public protocol SecretsBackend: Sendable {
     func update(_ value: Data, namespace: String, key: String, tag: String) throws -> Bool
     /// The non-secret tag stored with the item, read without the secret value. `nil` when the item has no tag or is absent.
     func tag(namespace: String, key: String) throws -> String?
+    /// Whether the item exists, decided without reading the secret value and without any prompt, so an
+    /// item behind a presence check (``PresenceGatedSecretsBackend``) is answered silently. The default
+    /// implementation reads the value with ``get(namespace:key:)``, so existing conformers keep compiling.
+    func exists(namespace: String, key: String) throws -> Bool
 }
 
 public extension SecretsBackend {
+    func exists(namespace: String, key: String) throws -> Bool { try get(namespace: namespace, key: key) != nil }
     func list(namespace: String) throws -> [String] { throw SecretsError.invalid("backend does not support listing") }
     func add(_ value: Data, namespace: String, key: String, tag: String) throws -> Bool {
         throw SecretsError.invalid("backend does not support tags")
@@ -244,6 +252,27 @@ public struct KeychainSecretsBackend: SecretsBackend {
         }
     }
 
+    /// Attributes-only query that may not prompt: an item behind a presence check is reported present
+    /// (`errSecInteractionNotAllowed`) without the secret being read.
+    public func exists(namespace: String, key: String) throws -> Bool {
+        try migrateLegacy(namespace: namespace, key: key)
+        var q = identity(namespace: namespace, key: key)
+        q[kSecReturnAttributes as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
+        #if canImport(LocalAuthentication)
+        let context = LAContext()
+        context.interactionNotAllowed = true
+        q[kSecUseAuthenticationContext as String] = context
+        #endif
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(q as CFDictionary, &item)
+        switch status {
+        case errSecSuccess, errSecInteractionNotAllowed: return true
+        case errSecItemNotFound: return false
+        default: throw SecretsError.keychain(status)
+        }
+    }
+
     /// Attributes-only enumeration of the account names in `namespace` (no secret bytes are read). On
     /// macOS the legacy file keychain is listed too, so items not yet migrated by a per-key operation appear.
     public func list(namespace: String) throws -> [String] {
@@ -332,6 +361,7 @@ private struct DeniedBackend: SecretsBackend {
     func add(_ value: Data, namespace: String, key: String, tag: String) throws -> Bool { throw SecretsError.guarded(variable) }
     func update(_ value: Data, namespace: String, key: String, tag: String) throws -> Bool { throw SecretsError.guarded(variable) }
     func tag(namespace: String, key: String) throws -> String? { throw SecretsError.guarded(variable) }
+    func exists(namespace: String, key: String) throws -> Bool { throw SecretsError.guarded(variable) }
 }
 
 /// Universal guard variable honoured by every app, like the Rust owner.
@@ -344,7 +374,7 @@ public struct SecretsStore: Sendable {
     public let accessGroup: String?
     /// Name of the guard variable that tripped, if any.
     public let guardActive: String?
-    private let backend: SecretsBackend
+    let backend: SecretsBackend
 
     /// - Parameters:
     ///   - namespace: Keychain service name.
@@ -379,7 +409,7 @@ public struct SecretsStore: Sendable {
     /// True when values survive the process (the Keychain, not a guard's memory store).
     public var isDurable: Bool { guardActive == nil && !(backend is MemorySecretsBackend) }
 
-    private func check(_ key: String) throws {
+    func check(_ key: String) throws {
         guard !key.isEmpty else { throw SecretsError.invalid("key is empty") }
     }
 
@@ -394,7 +424,11 @@ public struct SecretsStore: Sendable {
         return s
     }
 
-    public func exists(_ key: String) throws -> Bool { try get(key) != nil }
+    /// Whether the key holds a value. Never reads the value and never prompts, so a presence-gated item
+    /// (``set(_:_:requiringPresence:)``) is answered without the owner check.
+    public func exists(_ key: String) throws -> Bool {
+        try check(key); return try backend.exists(namespace: namespace, key: key)
+    }
 
     /// Create or overwrite. Update-then-add; when a concurrent writer wins the add, update again.
     public func set(_ key: String, _ value: Data) throws {

@@ -980,6 +980,12 @@ pub fn validate(text: &str, template: bool) -> Vec<String> {
     let mut parsed: std::collections::BTreeMap<&str, Vec<Vec<String>>> =
         std::collections::BTreeMap::new();
     for (name, start, end, width) in tables {
+        // The gap map ends where the imported open-items table (rightkit#1495) begins.
+        let end = if name == "gap map" && text.contains("### Imported open items") {
+            "### Imported open items"
+        } else {
+            end
+        };
         let rows = table_rows(text, start, end);
         errors.extend(table_errors(name, &rows, width, template));
         parsed.insert(name, rows);

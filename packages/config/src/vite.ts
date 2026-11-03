@@ -29,12 +29,25 @@ export const DEFAULT_WATCH_IGNORED: readonly string[] = [
   "**/dist/**",
 ];
 
+/**
+ * The one web QA switch (rightkit#1480): `__RIGHTKIT_QA__`, a boolean Vite `define`. It is `true` only when the development lane
+ * produced the bundle (`right-release dev` sets RIGHTKIT_BUILD_MODE=dev in the environment of every command it runs) and `false`
+ * otherwise, so a release bundle constant-folds every `if (__RIGHTKIT_QA__)` branch away. QA code inside such a branch carries the
+ * fixed string `RIGHTKIT-QA-WEB-COMPILED`; `right-release` refuses a release bundle that contains the string, the define or a retired
+ * per-app flag, and checks in the dev lane that the web and native (`qa-native`) halves are produced together. Declare it for
+ * TypeScript with `declare const __RIGHTKIT_QA__: boolean;`.
+ */
+export function rightkitQaDefine(env: Record<string, string | undefined> = process.env): { __RIGHTKIT_QA__: string } {
+  return { __RIGHTKIT_QA__: JSON.stringify(env.RIGHTKIT_BUILD_MODE === "dev") };
+}
+
 /** The Vite settings the desktop apps share. Spread the result into `defineConfig`. */
 export function rightkitViteConfig(options: RightkitViteOptions): UserConfig {
   const qa = options.qa || undefined;
   return {
     plugins: options.plugins ?? [],
     clearScreen: false,
+    define: rightkitQaDefine(),
     ...(qa
       ? {
           optimizeDeps: {

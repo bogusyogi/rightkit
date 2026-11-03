@@ -1,4 +1,4 @@
-//! The app-side half of adapter protocol v1 (D4).
+//! The app-side half of adapter protocol v2 (D4).
 //!
 //! An app's own Rust test adapter links this module: [`Selection::read`] loads what the runner
 //! selected, a [`Reporter`] appends one JSON object per line to the results file, and
@@ -22,8 +22,9 @@ use std::path::{Path, PathBuf};
 pub const ENV_PROTOCOL: &str = "RIGHTKIT_JOURNEYS_PROTOCOL";
 pub const ENV_SELECTION: &str = "RIGHTKIT_JOURNEYS_SELECTION";
 pub const ENV_RESULTS: &str = "RIGHTKIT_JOURNEYS_RESULTS";
-/// Set by the isolation guard; the adapter's `start.isolation.data_dir` must come from it.
-pub const ENV_DATA_DIR: &str = "RIGHTKIT_QA_DATA_DIR";
+/// Set by the runner: the id of the snapshot the run is made under. The adapter's
+/// `start.snapshot_id` must be this value (protocol 2, rightkit#1437).
+pub const ENV_SNAPSHOT_ID: &str = "RIGHTKIT_JOURNEYS_SNAPSHOT_ID";
 
 /// One entry of `selection.json`'s `journeys`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,7 +48,7 @@ pub struct Selection {
 
 impl Selection {
     /// Read the selection named by `RIGHTKIT_JOURNEYS_SELECTION`, after checking
-    /// `RIGHTKIT_JOURNEYS_PROTOCOL` is `1`.
+    /// `RIGHTKIT_JOURNEYS_PROTOCOL` is `2`.
     pub fn read() -> Result<Selection> {
         match std::env::var(ENV_PROTOCOL) {
             Ok(v) if v.trim() == PROTOCOL.to_string() => {}
@@ -123,31 +124,15 @@ impl Selection {
     }
 }
 
-/// `start.isolation`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Isolation {
-    pub data_dir: String,
-    pub guard: String,
-    pub qa_mode: String,
-}
-
-impl Isolation {
-    /// Isolation as the adapter can attest it: `RIGHTKIT_QA_DATA_DIR` is set, non-empty and
-    /// absolute. This is the adapter's own statement, not the guard's verdict; the runner checks
-    /// the directory against the guard and refuses a record that says anything but `passed`.
-    pub fn from_env() -> Result<Isolation> {
-        let dir = std::env::var(ENV_DATA_DIR).unwrap_or_default();
-        if dir.trim().is_empty() || !Path::new(&dir).is_absolute() {
-            return err(format!(
-                "{ENV_DATA_DIR} is unset or not absolute: refusing to report an isolated run"
-            ));
-        }
-        Ok(Isolation {
-            data_dir: dir,
-            guard: "passed".into(),
-            qa_mode: "runtime".into(),
-        })
+/// The snapshot id the adapter attests it runs under: [`ENV_SNAPSHOT_ID`], set by the runner.
+pub fn snapshot_id_from_env() -> Result<String> {
+    let id = std::env::var(ENV_SNAPSHOT_ID).unwrap_or_default();
+    if id.trim().is_empty() {
+        return err(format!(
+            "{ENV_SNAPSHOT_ID} is unset: not started by a journeys runner under a snapshot"
+        ));
     }
+    Ok(id)
 }
 
 impl ArtifactDigest {
@@ -169,7 +154,8 @@ pub struct StartInfo {
     pub adapter: String,
     pub adapter_version: String,
     pub artifacts: Vec<ArtifactDigest>,
-    pub isolation: Isolation,
+    /// [`snapshot_id_from_env`].
+    pub snapshot_id: String,
 }
 
 /// `start` record.
@@ -182,7 +168,7 @@ pub struct StartRecord {
     pub adapter_version: String,
     pub started_at: String,
     pub artifacts: Vec<ArtifactDigest>,
-    pub isolation: Isolation,
+    pub snapshot_id: String,
 }
 
 /// `journey` record.
@@ -373,7 +359,7 @@ impl Reporter {
         Ok(())
     }
 
-    /// First line. Refused when isolation is not `passed` in `runtime` QA mode.
+    /// First line. Refused without a snapshot id.
     pub fn start(&mut self, info: StartInfo) -> Result<()> {
         if self.started {
             return err("start already written");
@@ -381,11 +367,10 @@ impl Reporter {
         if info.adapter.trim().is_empty() || info.adapter_version.trim().is_empty() {
             return err("start needs adapter and adapter_version");
         }
-        if info.isolation.guard != "passed"
-            || info.isolation.qa_mode != "runtime"
-            || info.isolation.data_dir.trim().is_empty()
-        {
-            return err("refusing to report start: isolation must be guard \"passed\", qa_mode \"runtime\" with a data_dir");
+        if info.snapshot_id.trim().is_empty() {
+            return err(
+                "refusing to report start: no snapshot id (the run is not under a snapshot)",
+            );
         }
         for a in &info.artifacts {
             if !is_hex_lower(&a.sha256, 64) || a.role.trim().is_empty() {
@@ -403,7 +388,7 @@ impl Reporter {
             adapter_version: info.adapter_version,
             started_at: now_iso(),
             artifacts: info.artifacts,
-            isolation: info.isolation,
+            snapshot_id: info.snapshot_id,
         });
         self.write(&rec)?;
         self.started = true;

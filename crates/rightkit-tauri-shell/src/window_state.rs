@@ -29,6 +29,17 @@ pub struct MonitorSnapshot {
     pub width: f64,
     pub height: f64,
     pub scale: f64,
+    /// The work area (the monitor less the taskbar, Dock and menu bar), logical pixels. A window
+    /// clamps against this rectangle, so it never opens docked to or under the bar. Defaults to the
+    /// full monitor when absent (an older snapshot).
+    #[serde(default)]
+    pub work_x: f64,
+    #[serde(default)]
+    pub work_y: f64,
+    #[serde(default)]
+    pub work_width: f64,
+    #[serde(default)]
+    pub work_height: f64,
 }
 
 impl MonitorSnapshot {
@@ -39,13 +50,25 @@ impl MonitorSnapshot {
         } else {
             1.0
         };
-        Self {
+        let work = m.work_area();
+        let mut snapshot = Self {
             x: f64::from(m.position().x) / scale,
             y: f64::from(m.position().y) / scale,
             width: f64::from(m.size().width) / scale,
             height: f64::from(m.size().height) / scale,
             scale,
+            work_x: f64::from(work.position.x) / scale,
+            work_y: f64::from(work.position.y) / scale,
+            work_width: f64::from(work.size.width) / scale,
+            work_height: f64::from(work.size.height) / scale,
+        };
+        if snapshot.work_width <= 0.0 || snapshot.work_height <= 0.0 {
+            snapshot.work_x = snapshot.x;
+            snapshot.work_y = snapshot.y;
+            snapshot.work_width = snapshot.width;
+            snapshot.work_height = snapshot.height;
         }
+        snapshot
     }
     fn center(self) -> (f64, f64) {
         (self.x + self.width / 2.0, self.y + self.height / 2.0)

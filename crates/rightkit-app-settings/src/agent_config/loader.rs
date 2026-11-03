@@ -4,6 +4,7 @@ use thiserror::Error;
 
 use crate::agent_config::merge::merge;
 use crate::agent_config::types::HostConfig;
+use std::collections::HashMap;
 
 /// Errors that can occur while loading configuration.
 #[derive(Debug, Error)]

@@ -1,5 +1,5 @@
 use crate::redact::RedactionPolicy;
-use crate::scrub::scrub_value;
+use crate::scrub::{scrub_value_counted, RedactionCounts};
 use crate::store::rotated_path;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -62,6 +62,10 @@ pub struct CollectionStats {
     pub dropped: usize,
     pub error_anchor_found: bool,
     pub rotated_read: bool,
+    /// What key redaction and the value scrub replaced in this source's events, by kind. Counts
+    /// only (issue #793). Omitted from JSON when nothing was redacted.
+    #[serde(default, skip_serializing_if = "RedactionCounts::is_empty")]
+    pub redactions: RedactionCounts,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -78,6 +82,22 @@ pub struct DiagnosticsBundle {
     pub schema_version: u16,
     pub metadata: BundleMetadata,
     pub sources: Vec<SourceDiagnostics>,
+    /// What redaction replaced in `metadata.settings`, by kind (issue #793). Omitted from JSON
+    /// when nothing was redacted.
+    #[serde(default, skip_serializing_if = "RedactionCounts::is_empty")]
+    pub redactions: RedactionCounts,
+}
+
+impl DiagnosticsBundle {
+    /// The redaction summary of the whole bundle: the settings counts plus every source's, by
+    /// kind. Counts only; nothing about the redacted values is recorded.
+    pub fn redaction_summary(&self) -> RedactionCounts {
+        let mut total = self.redactions;
+        for source in &self.sources {
+            total.merge(&source.stats.redactions);
+        }
+        total
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -105,8 +125,11 @@ pub fn prepare_diagnostic_events(events: Vec<Value>, policy: &CollectionPolicy) 
     for event in &mut source.events {
         // Key redaction first, then recursive string scrub: a secret under an
         // innocuous key is caught by the value pass.
-        policy.redaction.redact(event);
-        scrub_value(event);
+        source
+            .stats
+            .redactions
+            .merge(&policy.redaction.redact_value_counted(event));
+        source.stats.redactions.merge(&scrub_value_counted(event));
     }
     PreparedEvents {
         events: source.events,
@@ -119,8 +142,10 @@ pub fn collect_diagnostics(
     mut metadata: BundleMetadata,
     policy: &CollectionPolicy,
 ) -> DiagnosticsBundle {
-    policy.redaction.redact(&mut metadata.settings);
-    scrub_value(&mut metadata.settings);
+    let mut settings_redactions = policy
+        .redaction
+        .redact_value_counted(&mut metadata.settings);
+    settings_redactions.merge(&scrub_value_counted(&mut metadata.settings));
     let mut bundle = DiagnosticsBundle {
         schema_version: DIAGNOSTICS_SCHEMA_VERSION,
         metadata,
@@ -128,12 +153,16 @@ pub fn collect_diagnostics(
             .iter()
             .map(|source| collect_source(source, policy))
             .collect(),
+        redactions: settings_redactions,
     };
     apply_global_event_policy(&mut bundle.sources, policy.max_events);
     for source in &mut bundle.sources {
         for event in &mut source.events {
-            policy.redaction.redact(event);
-            scrub_value(event);
+            source
+                .stats
+                .redactions
+                .merge(&policy.redaction.redact_value_counted(event));
+            source.stats.redactions.merge(&scrub_value_counted(event));
         }
     }
     enforce_bundle_limit(&mut bundle, policy.max_bundle_bytes);

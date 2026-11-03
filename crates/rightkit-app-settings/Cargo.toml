@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-app-settings"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Versioned per-app settings persistence: migrations, typed defaults, atomic writes, corruption recovery, change events."
@@ -32,7 +32,7 @@ dirs = {version = "7", optional = true}
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "sleep: 5 ms file-lock poll bounded by LOCK_WAIT inside one load or save (backend.rs); no thread, task, timer, listener or watcher, the store holds one settings value and its subscriber callbacks (reviewed 2026-10-11); resident-static: PROCESS_WRITERS in src/backend.rs is a Mutex<()> that holds no data and only serialises writers inside one save (reviewed 2026-10-17)"
+continuous_reason = "sleep: 5 ms file-lock poll bounded by LOCK_WAIT inside one load or save (backend.rs); sleep: 50 ms outcome-file poll bounded by the caller's timeout inside one ChangeRequestQueue::wait_outcome call (request.rs), no thread and no background work; no thread, task, timer, listener or watcher, the store holds one settings value and its subscriber callbacks (reviewed 2026-10-11); resident-static: PROCESS_WRITERS in src/backend.rs is a Mutex<()> that holds no data and only serialises writers inside one save (reviewed 2026-10-17)"
 
 # One Cargo workspace and lock per crate (rightkit#1285).
 [workspace]

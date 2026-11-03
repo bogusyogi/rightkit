@@ -38,6 +38,7 @@ use crate::driver_host::cli_runtime::ids::{
     CliAccountProfile, CliProviderCapabilities, CliProviderId, CliTransportKind,
     HarnessRequirements, ProbePolarity, QualificationProbe,
 };
+use crate::driver_host::contracts::NormalizedEvent;
 use crate::driver_host::CodexLaunchOptions;
 
 pub const PROVIDER_ID: &str = "codex";

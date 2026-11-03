@@ -14,3 +14,11 @@
 @import "./views/Shorts.css";
 @import "./views/Media.css";
 @import "./views/FinishedEdit.css";
+
+/* Caption clip surface (CutRight #38): the caption track's clip fill, tuned per mode. */
+:root { --caption-clip: color-mix(in srgb, var(--rk-accent) 18%, transparent); }
+:root:not([data-theme="light"]) { --caption-clip: color-mix(in srgb, var(--rk-accent) 26%, transparent); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --caption-clip: color-mix(in srgb, var(--rk-accent) 26%, transparent); }
+}
+:root[data-theme="dark"] { --caption-clip: color-mix(in srgb, var(--rk-accent) 26%, transparent); }

@@ -13,7 +13,7 @@ use crate::error::{JobError, JobResult, HOST_HANDOFF};
 use crate::lock_queue::{self, Joined, TicketSlot};
 use crate::sched::{Gate, Priority};
 use crate::store::{
-    is_storage_error, now, projected, Artifact, CancelToken, ClaimScope, Event, FlushReport, Job,
+    is_storage_error, projected, Artifact, CancelToken, ClaimScope, Event, FlushReport, Job,
     JobRecord, JobStore, LifecycleEvent, Recovery, Settle, SettleRequest, Settlement,
     SettlementShutdown, Submission, Transition, UnsettledJob, CANCELLED, COMPLETE, FAILED,
 };
@@ -573,7 +573,7 @@ impl JobControl {
             Err(e) if e.code == "job_not_found" => self.publish(&Event {
                 seq: 0,
                 job_id: self.job_id.clone(),
-                at: now(),
+                at: self.store.config().now(),
                 status: job.status.clone(),
                 stage: stage.into(),
                 attempt: job.attempts,
@@ -921,7 +921,7 @@ impl Runner {
             return Ok(None);
         };
         let (recovery, gen) = self.store.run_class(&id)?;
-        if recovery == Recovery::Never && gen > 0 {
+        if recovery.never_reruns() && gen > 0 {
             Ok(self
                 .interrupt(&id)?
                 .map(|job| Scanned::Interrupted(Box::new(job))))
@@ -986,16 +986,26 @@ impl Runner {
                         return Ok(RunOutcome::Restored(self.store.record(job_id)?));
                     }
                     if let Some(t) = self.store.pending_transition(job_id) {
-                        return Ok(RunOutcome::Unsettled(projected(&now, &t)));
+                        return Ok(RunOutcome::Unsettled(projected(
+                            &now,
+                            &t,
+                            self.store.config().now(),
+                        )));
                     }
                 }
             }
         }
         let (recovery, started) = self.store.run_class(job_id)?;
-        let never = recovery == Recovery::Never;
+        let never = recovery.never_reruns();
+        let uncertain = recovery == Recovery::Uncertain;
         if never && started > 0 {
             self.interrupt(job_id)?;
-            return Ok(RunOutcome::Finished(self.store.get(job_id)?));
+            let parked = self.store.get(job_id)?;
+            return Ok(if parked.is_terminal() {
+                RunOutcome::Finished(parked)
+            } else {
+                RunOutcome::Paused(parked)
+            });
         }
         let per_run = self.attempts == AttemptPolicy::PerRun;
         if per_run && job.attempts >= self.max_attempts {
@@ -1064,7 +1074,11 @@ impl Runner {
                         self.store
                             .set_pending_event(job_id, terminal_event(status, SETTLED_BY_HANDLER));
                     }
-                    return Ok(RunOutcome::Unsettled(projected(&job, &t)));
+                    return Ok(RunOutcome::Unsettled(projected(
+                        &job,
+                        &t,
+                        self.store.config().now(),
+                    )));
                 }
                 Err(held) => lock = Some(held),
             }
@@ -1081,6 +1095,11 @@ impl Runner {
             }
             // The handler began; it may already have had effects, so a `Never` job cannot pause
             // for a later re-run.
+            // An `Uncertain` job parks for resolution instead of failing.
+            Err(e) if e.retryable && uncertain => {
+                self.interrupt(job_id)?;
+                Ok(RunOutcome::Paused(self.store.get(job_id)?))
+            }
             Err(e) if e.retryable && never => {
                 let e = JobError::interrupted_by(job_id, &e);
                 let term = self.failure(&e, false);
@@ -1175,7 +1194,11 @@ impl Runner {
                 }
                 Ok(RunOutcome::Finished(now))
             }
-            Settle::Deferred => Ok(RunOutcome::Unsettled(projected(base, &term.transition))),
+            Settle::Deferred => Ok(RunOutcome::Unsettled(projected(
+                base,
+                &term.transition,
+                self.store.config().now(),
+            ))),
         }
     }
 
@@ -1242,7 +1265,7 @@ impl Runner {
         if now.is_terminal() {
             return self.handler_settled(ctl, owner, base, lock);
         }
-        if !self.is_held(&now.status) && self.store.run_class(job_id)?.0 == Recovery::Never {
+        if !self.is_held(&now.status) && self.store.run_class(job_id)?.0.never_reruns() {
             // Recovery would fail it as `interrupted` and lose the pending outcome.
             let e = JobError::handler_pending_unowned(job_id, &now.status);
             let term = self.failure(&e, true);

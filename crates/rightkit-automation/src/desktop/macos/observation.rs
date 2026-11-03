@@ -10,6 +10,9 @@ use objc2_app_kit::{
 use objc2_foundation::{NSNotification, NSObject};
 
 use super::ffi::{ax_app_element, ax_bool, ax_set_bool, AXIsProcessTrusted, AXUIElementRef};
+use super::frontmost::frontmost_pid;
+use objc2::rc::Retained;
+use objc2::runtime::AnyObject;
 
 /// Temporary AX tree observation enabled for Chromium/Electron targets.
 ///

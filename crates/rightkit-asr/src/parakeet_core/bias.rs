@@ -54,12 +54,8 @@ pub fn normalize_phrase_for_bias(phrase: &str) -> String {
 /// Returns `None` if any part of the phrase cannot be represented.
 ///
 /// Uses the process-wide [`VocabIndex`] of `pieces` (perf audit ENG-02), which
-/// returns exactly what [`encode_phrase_greedy_scan`] returns; `RIGHTKIT_ASR_BIAS_CACHE=0`
-/// (test mode only) restores the full-vocabulary scan.
+/// returns exactly what [`encode_phrase_greedy_scan`] returns;
 pub fn encode_phrase_greedy(pieces: &[String], phrase: &str) -> Option<Vec<usize>> {
-    if !bias_cache_enabled() {
-        return encode_phrase_greedy_scan(pieces, phrase);
-    }
     let mut cache = match BIAS_CACHE.lock() {
         Ok(cache) => cache,
         Err(_) => return encode_phrase_greedy_scan(pieces, phrase),
@@ -84,7 +80,7 @@ fn phrase_piece_text(phrase: &str) -> Option<String> {
 
 /// Reference segmentation: scans the WHOLE vocabulary for every greedy step,
 /// O(pieces-per-phrase × |vocab|). Kept as the identity oracle for
-/// [`VocabIndex`] and as the `RIGHTKIT_ASR_BIAS_CACHE=0` path.
+/// [`VocabIndex`] and as the fallback when the cache lock is poisoned.
 pub fn encode_phrase_greedy_scan(pieces: &[String], phrase: &str) -> Option<Vec<usize>> {
     let piece_text = phrase_piece_text(phrase)?;
     let mut remaining = piece_text.as_str();
@@ -187,14 +183,6 @@ struct BiasCacheEntry {
 const BIAS_CACHE_ENTRIES: usize = 4;
 
 static BIAS_CACHE: Mutex<ContextBiasCache> = Mutex::new(ContextBiasCache::new());
-
-/// `RIGHTKIT_ASR_BIAS_CACHE=0` (test mode only) restores the per-decode full rebuild
-/// with the vocabulary scan, for A/B. Release builds always cache.
-fn bias_cache_enabled() -> bool {
-    dev_var!("RIGHTKIT_ASR_BIAS_CACHE")
-        .map(|value| value.trim() != "0")
-        .unwrap_or(true)
-}
 
 impl Default for ContextBiasCache {
     fn default() -> Self {
@@ -299,8 +287,7 @@ impl ContextBias {
     ///
     /// Served from the process-wide [`ContextBiasCache`] (perf audit ENG-02):
     /// every decode used to rebuild this table from scratch. The result equals
-    /// [`ContextBias::from_phrases_uncached`]; `RIGHTKIT_ASR_BIAS_CACHE=0` (test mode
-    /// only) restores the uncached rebuild for A/B.
+    /// [`ContextBias::from_phrases_uncached`].
     pub fn from_phrases<I, S>(pieces: &[String], phrases: I, score: f32) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -308,9 +295,6 @@ impl ContextBias {
     {
         if !(score.is_finite() && score > 0.0) {
             return Self::default();
-        }
-        if !bias_cache_enabled() {
-            return Self::from_phrases_uncached(pieces, phrases, score);
         }
         let phrases: Vec<String> = phrases.into_iter().map(|p| p.as_ref().to_owned()).collect();
         match BIAS_CACHE.lock() {

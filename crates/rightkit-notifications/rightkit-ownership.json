@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-notifications",
+  "capabilities": [
+    {
+      "capability": "notifications",
+      "summary": "Neutral native notifications owner: Client, Notification builder, replace keys, Handle update and close, Permission, Capabilities, activation callback, dock and taskbar badges, without Tauri",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: posting a notification is not an ownership fingerprint.",
+        "Replaces the native delivery code in rightkit-tauri-shell notify.rs once the shell delegates to this crate."
+      ]
+    }
+  ]
+}

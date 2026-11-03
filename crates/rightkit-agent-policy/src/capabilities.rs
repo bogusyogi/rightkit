@@ -32,6 +32,7 @@ pub fn parse_capability(permission_class: Option<&str>) -> CapabilityClass {
         | Some("git_read")
         | Some("git_diff")
         | Some("list_mcp_tools")
+        | Some("list_mcp_sources")
         | Some("list_mcp_resources")
         | Some("read_mcp_resource")
         | Some("todo_write")

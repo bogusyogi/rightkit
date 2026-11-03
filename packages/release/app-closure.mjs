@@ -179,11 +179,11 @@ export function scopeScans(scans, closure, { rustUnits = [], npmUnits = [] } = {
   const closureWorkspaces = new Set(rustUnits.filter((u) => closure.rust.has(u.name)).map((u) => cleanWorkspace(u.cargoDir)));
   const kept = []; const dropped = [];
   for (const s of scans) {
-    const npm = /^(?:tsc|eslint|biome|test:npm):(.+)$/.exec(s.id);
+    const npm = /^(?:tsc|eslint|biome|oxlint|test:npm):(.+)$/.exec(s.id);
     // A cross-target scan id ends in `@<target triple>` (clippy:<crate>@aarch64-apple-darwin, cross-targets.mjs); a crate name never contains `@`.
     const rust = /^(?:clippy|check|check-features|check-dependent|doc|test:rust|test:rust-serial):(.+)$/.exec(s.id);
     const cargoList = CARGO_PACKAGE_LIST.exec(s.id);
-    let include = true;
+    let include = true; let narrowed = null;
     if (s.internal === "refuse" && s.unit?.npm) include = closure.npm.has(s.unit.npm);
     else if (npm) include = closure.npm.has(npm[1]);
     else if (cargoList) {
@@ -192,6 +192,8 @@ export function scopeScans(scans, closure, { rustUnits = [], npmUnits = [] } = {
     }
     else if (CARGO_WORKSPACE_SCAN.test(s.id)) include = closureWorkspaces.has(cleanWorkspace(s.cwd));
     else if (/^pnpm-(?:lockfile|audit)(?::.+)?$/.test(s.id)) include = closureNpmRoots.has(cleanWorkspace(s.cwd));
+    else if (s.id === "feature-coverage") { const crates = (s.crates ?? []).filter((c) => closure.rust.has(c.name)); include = crates.length > 0; narrowed = { ...s, crates }; }
+    else if (/^ghsa-audit(?::.+)?$/.test(s.id)) include = closureWorkspaces.has(cleanWorkspace(s.cwd));
     else if (/^cargo-/.test(s.id)) throw problem(`executing scan ${s.id} has no exact scope owner`);
     else if (Array.isArray(s.batch?.units)) {
       const selected = s.batch.units.filter((n) => closure.rust.has(n));
@@ -201,13 +203,13 @@ export function scopeScans(scans, closure, { rustUnits = [], npmUnits = [] } = {
       include = selected.length === s.batch.units.length;
     }
     else if (rust) { const owner = rust[1].replace(/@[^@:]+$/, ""); const name = names.find((n) => owner === n || owner.startsWith(`${n}:`)); if (!name) throw problem(`scan ${s.id} has no known Rust owner`); include = closure.rust.has(name); }
-    else if (s.class === "B" || ["suite-api", "generated-docs", "test:scripts-ci"].includes(s.id)) include = closure.dirs.includes(".");
+    else if (s.class === "B" || /^swift-typecheck(?::.+)?$/.test(s.id) || ["suite-api", "generated-docs"].includes(s.id)) include = closure.dirs.includes(".");
     else if (s.executes === true || s.kind === "test") {
       if (closure.dirs.includes(".")) include = true;
       else if (typeof s.cwd === "string") include = closure.dependencyDirs.includes(s.cwd);
       else throw problem(`executing scan ${s.id} has no exact scope owner`);
     }
-    const row = include && Array.isArray(s.tscWorkspace) ? { ...s, tscWorkspace: s.tscWorkspace.filter((d) => closure.dependencyDirs.includes(d)) } : s;
+    const row = include && narrowed ? narrowed : include && Array.isArray(s.tscWorkspace) ? { ...s, tscWorkspace: s.tscWorkspace.filter((d) => closure.dependencyDirs.includes(d)) } : s;
     (include ? kept : dropped).push(row);
   }
   return { scans: kept, dropped };

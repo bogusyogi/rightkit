@@ -17,7 +17,8 @@
 //!   disk, a killed process). This crate does not truncate it back: with concurrent appenders
 //!   the length it would restore is not knowable. Readers must tolerate a torn final record, for
 //!   example by writing a trailing newline and ignoring an unterminated last line. Torn-tail
-//!   repair is a domain decision and stays in the app.
+//!   repair for a line-oriented journal is [`crate::journal::JsonlJournal`] (feature `lock`); any
+//!   other format keeps its repair in the app.
 //! - A symlink at `path` is refused ([`FsError::Symlink`]) and so is a name shaped like a temp
 //!   name this crate generates ([`FsError::BadName`]).
 

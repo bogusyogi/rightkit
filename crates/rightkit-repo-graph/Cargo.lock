@@ -1051,10 +1051,11 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "libc",
  "windows",
+ "zeroize",
 ]
 
 [[package]]
@@ -1080,7 +1081,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-db"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "libc",
  "rightkit-fs",
@@ -1091,7 +1092,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-embed"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "objc2",
  "objc2-core-ml",
@@ -1107,7 +1108,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-file-watch"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "notify",
  "rightkit-child-process",
@@ -1117,16 +1118,17 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.10"
+version = "0.4.12"
 dependencies = [
  "libc",
  "sha2",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.8"
+version = "0.3.9"
 dependencies = [
  "getrandom 0.4.3",
  "libc",

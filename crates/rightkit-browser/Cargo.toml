@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-browser"
-version = "0.3.8"
+version = "0.3.9"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared Chrome DevTools Protocol browser runtime for Right Suite: multi-page sessions, named profiles, real CDP input, observations with stale-ref checks."
@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["browser", "cdp", "chrome", "automation", "qa"]
 categories = ["development-tools::testing"]
-include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "third-party/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
 chromiumoxide = { version = "0.9", default-features = false }
@@ -26,6 +26,9 @@ sha2 = "0.11"
 rightkit-models = { path = "../rightkit-models", version = "0.5.3", default-features = false, optional = true }
 rightkit-fs = { path = "../rightkit-fs", version = "0.4.9", default-features = false, features = ["digest", "lock"], optional = true }
 zip = { version = "9", default-features = false, features = ["deflate"], optional = true }
+# Encrypted profile vault (feature `profile-vault`): key from the OS credential store, AEAD via ring.
+rightkit-credentials = { path = "../rightkit-credentials", version = "0.4.6", optional = true }
+rightkit-crypto = { path = "../rightkit-crypto", version = "0.1.2", optional = true }
 
 [target.'cfg(any(target_os = "macos", windows))'.dependencies]
 rightkit-sandbox = { path = "../rightkit-sandbox", version = "0.6.2", default-features = false }
@@ -42,6 +45,15 @@ install = ["dep:rightkit-models", "dep:rightkit-fs", "dep:zip"]
 # `CookieExport`: declared-domain cookie filter, Netscape serialisation and private atomic
 # publication of the cookie artifact through rightkit-fs. Off by default (pulls rightkit-fs only).
 cookie-export = ["dep:rightkit-fs"]
+# `ProfileVault` / `ProfileSpec::Encrypted`: the persistent profile is one authenticated-encrypted
+# file at rest, decrypted to a private working directory for the session and re-sealed and wiped at
+# stop; crash recovery at next start; typed refusal when the credential-store key is unavailable
+# (rightkit#1306). Off by default (pulls rightkit-credentials and rightkit-crypto).
+profile-vault = ["dep:rightkit-credentials", "dep:rightkit-crypto"]
+# `capture` with `AxeSpec`: compiles in the vendored, unmodified axe-core 4.14.0 (MPL-2.0, notice and
+# pinned SHA-256 in third-party/axe-core/) so the shared owner, not each consumer, ships it (#821).
+# Off by default: a consumer that leaves it off ships no MPL-covered file.
+axe = []
 
 [package.metadata.rightkit]
 continuous = "held-resource"
@@ -94,6 +106,20 @@ file = "src/fixture.rs"
 holds = ["task", "memory"]
 scale = "one lease-timer task bounded by the fixture deadline, the event-monitor tasks (EventTasks) and, on Windows, one Fetch-interception task, on top of the BrowserSession, FixtureServer and BrowserPage it owns; Test/QA only"
 release = "Drop (cancels the timer, which runs cleanup_resources; EventTasks aborts its tasks)"
+
+[[package.metadata.rightkit.resources]]
+api = "capture"
+file = "src/capture.rs"
+holds = ["child", "task", "memory"]
+scale = "one BrowserSession (its own Chrome tree, handler and watcher tasks) plus one execution-context listener task per call; ends when the call returns (the task is aborted on drop, the session is stopped with a terminal report and dropped); console lines capped at MAX_CAPTURE_CONSOLE_RECORDS (500), screenshot at 32 MiB, axe result at 4 MiB; fixed per call"
+release = "return of capture() (cancellation and the deadline stop the session first)"
+
+[[package.metadata.rightkit.resources]]
+api = "ProfileVault"
+file = "src/vault.rs"
+holds = ["memory"]
+scale = "while a session owns the vault: one exclusive lock file handle, the 32-byte master key (wiped on drop) and, at open and seal, a streamed one-chunk (1 MiB) plaintext buffer; the plaintext working directory exists only between start and stop; fixed per session, independent of how long it lives"
+release = "Drop (seals, wipes the plaintext tree and releases the lock) or BrowserSession::close"
 
 [[package.metadata.rightkit.resources]]
 api = "now_ms"

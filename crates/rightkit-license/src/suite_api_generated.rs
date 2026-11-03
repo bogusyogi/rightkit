@@ -15,8 +15,10 @@ pub const PUBLIC_INSTALLER_BASE: &str = "https://pub-6c73208d46c245a9b4881d5e02f
 pub const ARTIFACT_PATH_PREFIX: &str = "/{app}";
 pub const APP_ARTIFACT_HOSTS: &[(&str, &[&str])] = &[
     ("coderight", &[GATED_ARTIFACT_HOST, PUBLIC_ARTIFACT_HOST]),
+    ("cutright", &[PUBLIC_ARTIFACT_HOST]),
     ("heardright", &[GATED_ARTIFACT_HOST, PUBLIC_ARTIFACT_HOST]),
     ("mailright", &[GATED_ARTIFACT_HOST, PUBLIC_ARTIFACT_HOST]),
+    ("scraperight", &[GATED_ARTIFACT_HOST, PUBLIC_ARTIFACT_HOST]),
     ("viewright", &[PUBLIC_ARTIFACT_HOST]),
 ];
 pub const LICENSE_PUBLIC_KEY_HEX: &str =

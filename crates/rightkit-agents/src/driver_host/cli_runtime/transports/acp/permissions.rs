@@ -29,6 +29,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::driver_host::cli_runtime::ids::CliProviderId;
 use crate::driver_host::cli_runtime::policy::CliDelegationPolicy;
+use serde_json::Value;
 
 /// Outcome of an ACP permission request. The default is to deny
 /// native tools and allow only the host app MCP calls.

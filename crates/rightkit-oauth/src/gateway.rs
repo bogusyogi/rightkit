@@ -21,9 +21,12 @@
 use std::fmt;
 use std::time::{Duration, SystemTime};
 
-use rightkit_http::{CancelToken, Client, HttpError, Request, Secret};
+#[cfg(feature = "gateway-async")]
+use rightkit_http::AsyncClient;
+use rightkit_http::{CancelToken, Client, HttpError, Request, Response, Secret};
 use serde_json::{Map, Value};
 
+use crate::pkce::validate_verifier;
 use crate::{error_from, provider_or_http, scrub_provider, OAuthError, TokenSet};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -47,6 +50,8 @@ pub struct GatewayExchange {
     refresh_url: Option<String>,
     extra: Vec<(String, String)>,
     timeout: Duration,
+    /// The one non-loopback host the operator allowed over plain `http://` (exact match).
+    insecure_host: Option<String>,
 }
 
 /// A gateway token response: the parsed [`TokenSet`] plus every other field the gateway
@@ -67,9 +72,31 @@ impl fmt::Debug for GatewayTokens {
     }
 }
 
-/// `https://`, or plain `http://` only for an exact loopback host (tests); userinfo refused.
-fn check_endpoint(url: &str, what: &str) -> Result<(), OAuthError> {
+/// `https://`, or plain `http://` only for an exact loopback host (tests) or the one host the
+/// operator allowed with [`GatewayExchange::with_insecure_host`]; userinfo refused.
+fn check_endpoint(url: &str, what: &str, insecure_host: Option<&str>) -> Result<(), OAuthError> {
+    if let (Some(host), Some(rest)) = (insecure_host, url.strip_prefix("http://")) {
+        if endpoint_host(url).is_some_and(|h| h.eq_ignore_ascii_case(host)) {
+            // The same structural checks (userinfo, whitespace, backslash) as for https.
+            return crate::check_endpoint(&format!("https://{rest}"), what);
+        }
+    }
     crate::check_endpoint(url, what)
+}
+
+/// The host of an `http://` or `https://` URL as written: `[::1]` keeps its brackets and a
+/// port is dropped. `None` for any other scheme.
+fn endpoint_host(url: &str) -> Option<&str> {
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..end];
+    if let Some(after) = authority.strip_prefix('[') {
+        let close = after.find(']')?;
+        return Some(&authority[..close + 2]);
+    }
+    Some(authority.split(':').next().unwrap_or(authority))
 }
 
 impl GatewayExchange {
@@ -77,23 +104,54 @@ impl GatewayExchange {
     /// (`127.0.0.1`, `[::1]`, `localhost`), as the crate does elsewhere for tests.
     pub fn new(endpoint: impl Into<String>) -> Result<Self, OAuthError> {
         let url = endpoint.into();
-        check_endpoint(&url, "gateway endpoint")?;
+        check_endpoint(&url, "gateway endpoint", None)?;
         Ok(Self {
             url,
             refresh_url: None,
             extra: Vec::new(),
             timeout: DEFAULT_TIMEOUT,
+            insecure_host: None,
+        })
+    }
+
+    /// Like [`Self::new`], and additionally accepts plain `http://` for `host` when that is
+    /// the endpoint's own host, for a LAN gateway the operator configured. `host` must match
+    /// the endpoint's host exactly (case-insensitive, as written, `[::1]` keeps its
+    /// brackets); no other host is opened to plain http. Off by default: only this
+    /// constructor and [`Self::with_refresh_endpoint`] (for the same host) allow it.
+    pub fn with_insecure_host(
+        endpoint: impl Into<String>,
+        host: impl Into<String>,
+    ) -> Result<Self, OAuthError> {
+        let url = endpoint.into();
+        let host = host.into();
+        if host.is_empty() {
+            return Err(OAuthError::InvalidConfig(
+                "insecure gateway host is empty".into(),
+            ));
+        }
+        check_endpoint(&url, "gateway endpoint", Some(host.as_str()))?;
+        Ok(Self {
+            url,
+            refresh_url: None,
+            extra: Vec::new(),
+            timeout: DEFAULT_TIMEOUT,
+            insecure_host: Some(host),
         })
     }
 
     /// The gateway's refresh endpoint, used by [`Self::refresh`]. Same URL rules as
-    /// [`Self::new`].
+    /// [`Self::new`], and the insecure host allowed at construction applies too.
     pub fn with_refresh_endpoint(
         mut self,
         endpoint: impl Into<String>,
     ) -> Result<Self, OAuthError> {
         let url = endpoint.into();
-        check_endpoint(&url, "gateway refresh endpoint")?;
+        check_endpoint(
+            &url,
+            "gateway refresh endpoint",
+            self.insecure_host.as_deref(),
+        )?;
         self.refresh_url = Some(url);
         Ok(self)
     }
@@ -149,6 +207,61 @@ impl GatewayExchange {
         verifier: &str,
         cancel: Option<&CancelToken>,
     ) -> Result<Value, OAuthError> {
+        let body = self.exchange_body(code, verifier)?;
+        self.post(http, &self.url, body, &[code, verifier], false, cancel)
+    }
+
+    /// [`Self::exchange`] on [`rightkit_http::AsyncClient`] (feature `gateway-async`).
+    #[cfg(feature = "gateway-async")]
+    pub async fn exchange_async(
+        &self,
+        http: &AsyncClient,
+        code: &str,
+        verifier: &str,
+        cancel: Option<&CancelToken>,
+    ) -> Result<TokenSet, OAuthError> {
+        let value = self
+            .exchange_raw_async(http, code, verifier, cancel)
+            .await?;
+        parse_gateway_tokens(&value)
+    }
+
+    /// [`Self::exchange_tokens`] on [`rightkit_http::AsyncClient`] (feature `gateway-async`).
+    #[cfg(feature = "gateway-async")]
+    pub async fn exchange_tokens_async(
+        &self,
+        http: &AsyncClient,
+        code: &str,
+        verifier: &str,
+        cancel: Option<&CancelToken>,
+    ) -> Result<GatewayTokens, OAuthError> {
+        let value = self
+            .exchange_raw_async(http, code, verifier, cancel)
+            .await?;
+        split_tokens(&value, None)
+    }
+
+    /// [`Self::exchange_raw`] on [`rightkit_http::AsyncClient`] (feature `gateway-async`).
+    /// Same checks, same redaction and the same error mapping as the blocking call.
+    #[cfg(feature = "gateway-async")]
+    pub async fn exchange_raw_async(
+        &self,
+        http: &AsyncClient,
+        code: &str,
+        verifier: &str,
+        cancel: Option<&CancelToken>,
+    ) -> Result<Value, OAuthError> {
+        let body = self.exchange_body(code, verifier)?;
+        let request = self.build_request(&self.url, body, &[code, verifier], cancel)?;
+        let response = http
+            .send(&request)
+            .await
+            .map_err(|e| map_send_error(&request, e, false))?;
+        self.parse_response(&request, &response)
+    }
+
+    /// The JSON body of a code exchange, after the code and verifier checks.
+    fn exchange_body(&self, code: &str, verifier: &str) -> Result<Map<String, Value>, OAuthError> {
         if code.is_empty() {
             return Err(OAuthError::InvalidConfig(
                 "authorization code is empty".into(),
@@ -161,7 +274,7 @@ impl GatewayExchange {
         )?;
         body.insert("code".into(), Value::String(code.into()));
         body.insert("code_verifier".into(), Value::String(verifier.into()));
-        self.post(http, &self.url, body, &[code, verifier], false, cancel)
+        Ok(body)
     }
 
     /// Refresh through the gateway's refresh endpoint (see [`Self::with_refresh_endpoint`]):
@@ -177,6 +290,37 @@ impl GatewayExchange {
         extra_fields: &[(&str, &str)],
         cancel: Option<&CancelToken>,
     ) -> Result<GatewayTokens, OAuthError> {
+        let (url, body) = self.refresh_parts(refresh_token, extra_fields)?;
+        let value = self.post(http, url, body, &[refresh_token.expose()], true, cancel)?;
+        split_tokens(&value, Some(refresh_token))
+    }
+
+    /// [`Self::refresh`] on [`rightkit_http::AsyncClient`] (feature `gateway-async`). Same
+    /// body, redaction and `NeedsReauth` rules as the blocking call.
+    #[cfg(feature = "gateway-async")]
+    pub async fn refresh_async(
+        &self,
+        http: &AsyncClient,
+        refresh_token: &Secret,
+        extra_fields: &[(&str, &str)],
+        cancel: Option<&CancelToken>,
+    ) -> Result<GatewayTokens, OAuthError> {
+        let (url, body) = self.refresh_parts(refresh_token, extra_fields)?;
+        let request = self.build_request(url, body, &[refresh_token.expose()], cancel)?;
+        let response = http
+            .send(&request)
+            .await
+            .map_err(|e| map_send_error(&request, e, true))?;
+        let value = self.parse_response(&request, &response)?;
+        split_tokens(&value, Some(refresh_token))
+    }
+
+    /// The refresh URL and JSON body after the configuration and token checks.
+    fn refresh_parts(
+        &self,
+        refresh_token: &Secret,
+        extra_fields: &[(&str, &str)],
+    ) -> Result<(&str, Map<String, Value>), OAuthError> {
         let url = self.refresh_url.as_deref().ok_or_else(|| {
             OAuthError::InvalidConfig("gateway refresh endpoint is not configured".into())
         })?;
@@ -188,8 +332,7 @@ impl GatewayExchange {
             "refresh_token".into(),
             Value::String(refresh_token.expose().into()),
         );
-        let value = self.post(http, url, body, &[refresh_token.expose()], true, cancel)?;
-        split_tokens(&value, Some(refresh_token))
+        Ok((url, body))
     }
 
     /// POST `body` as JSON to `url` and return the response object. `secrets` are scrubbed
@@ -203,6 +346,21 @@ impl GatewayExchange {
         unauthorized_is_reauth: bool,
         cancel: Option<&CancelToken>,
     ) -> Result<Value, OAuthError> {
+        let request = self.build_request(url, body, secrets, cancel)?;
+        let response = http
+            .send(&request)
+            .map_err(|e| map_send_error(&request, e, unauthorized_is_reauth))?;
+        self.parse_response(&request, &response)
+    }
+
+    /// Post `body` as JSON to `url` (no call yet): redacts `secrets` from every error.
+    fn build_request(
+        &self,
+        url: &str,
+        body: Map<String, Value>,
+        secrets: &[&str],
+        cancel: Option<&CancelToken>,
+    ) -> Result<Request, OAuthError> {
         let mut request = Request::post(url).header("Accept", "application/json");
         for secret in secrets {
             request = request.redact_value(*secret);
@@ -214,17 +372,16 @@ impl GatewayExchange {
         if let Some(token) = cancel {
             request = request.cancel(token.clone());
         }
-        let response = http.send(&request).map_err(|e| match e {
-            HttpError::Status { status: 401, .. } if unauthorized_is_reauth => {
-                OAuthError::NeedsReauth
-            }
-            other => provider_or_http(&request, other),
-        })?;
+        Ok(request)
+    }
+
+    /// Parse a gateway response object; an `error` field or a non-object body is refused.
+    fn parse_response(&self, request: &Request, response: &Response) -> Result<Value, OAuthError> {
         let value: Value = response.json()?;
         if let Some(error) = value.get("error").and_then(Value::as_str) {
             // A gateway may answer 200 with an error body; a dead grant is NeedsReauth.
             return Err(scrub_provider(
-                &request,
+                request,
                 error_from(response.status, error, &value),
             ));
         }
@@ -232,6 +389,14 @@ impl GatewayExchange {
             return Err(bad("token response is not a JSON object"));
         }
         Ok(value)
+    }
+}
+
+/// Map a transport failure: a 401 is a dead grant when `unauthorized_is_reauth`.
+fn map_send_error(request: &Request, e: HttpError, unauthorized_is_reauth: bool) -> OAuthError {
+    match e {
+        HttpError::Status { status: 401, .. } if unauthorized_is_reauth => OAuthError::NeedsReauth,
+        other => provider_or_http(request, other),
     }
 }
 

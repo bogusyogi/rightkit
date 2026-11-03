@@ -10,11 +10,6 @@ repository = "https://github.com/bogusyogi/rightkit"
 include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
-# DEVELOPMENT/QA BUILDS ONLY. Honors `ORT_DYLIB_PATH` as a developer runtime override
-# (`developer_override_candidate`) and stops `clear_inherited_runtime_for_release` from clearing it.
-# Never implied by a build profile (a dev profile has debug_assertions on and still gets release behavior)
-# and never a default feature. An app enables it only from its QA/test configuration.
-dev-overrides = []
 # Catalog verification for `bind_installed_runtime` (`BindVerification::Catalog`): the runtime file and
 # its companion files are checked against the native-library catalog. Off by default so runtime builds
 # that only want the manifest check pull no catalog.

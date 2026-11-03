@@ -1,7 +1,7 @@
 //! Drive the real Tauri app through the in-app control server (`embedded`, feature `control`).
 //!
 //! The app is launched hidden or backgrounded with `RIGHTKIT_CONTROL_SERVICE` and an
-//! isolated `RIGHTKIT_SUITE_ROOT`, discovers the `rightkit-daemon` record
+//! `RIGHTKIT_SUITE_ROOT` (the run's control discovery root), discovers the `rightkit-daemon` record
 //! (`service.json`), and talks over the current-user-only socket / named pipe as the
 //! allowlisted app `right-qa`. No TCP. A launch that names a per-run control token file
 //! ([`token::ENV_AUTH_FILE`], ADR-0001 D-e) attaches the token to every order and the app refuses
@@ -118,7 +118,7 @@ impl StopReport {
     /// The first sampled foreground name that belongs to a system permission-dialog agent.
     /// Positive evidence only: `None` does not prove no dialog appeared.
     pub fn permission_dialog(&self) -> Option<String> {
-        crate::userdata::permission_dialog_in(&self.frontmost_states)
+        crate::dialog::permission_dialog_in(&self.frontmost_states)
     }
 }
 
@@ -318,30 +318,25 @@ pub mod token {
     pub fn named_for_launch(
         ws_env: &std::collections::BTreeMap<String, String>,
         spec_env: &[(String, String)],
-    ) -> Option<PathBuf> {
+    ) -> Result<Option<PathBuf>> {
         // A named value is never blanked here: an empty name reaches `read_file` and fails closed.
-        ws_env.get(ENV_AUTH_FILE).map(PathBuf::from).or_else(|| {
-            spec_env
-                .iter()
-                .rev()
-                .find(|(k, _)| k == ENV_AUTH_FILE)
-                .map(|(_, v)| PathBuf::from(v))
-        })
+        let from_ws = ws_env.get(ENV_AUTH_FILE).map(PathBuf::from);
+        let from_spec = spec_env
+            .iter()
+            .rev()
+            .find(|(k, _)| k == ENV_AUTH_FILE)
+            .map(|(_, v)| PathBuf::from(v));
+        match (from_ws, from_spec) {
+            // Two different files cannot both be the launch's token: report it, never pick one.
+            (Some(a), Some(b)) if a != b => err(format!(
+                "the workspace environment names control token file {} and the launch spec names {}; a launch has one {ENV_AUTH_FILE}",
+                a.display(),
+                b.display()
+            )),
+            (Some(a), _) => Ok(Some(a)),
+            (None, b) => Ok(b),
+        }
     }
-
-    /// Leave exactly one [`ENV_AUTH_FILE`] entry in `env`, naming `path`.
-    pub fn set_one(env: &mut Vec<(String, String)>, path: &Path) {
-        env.retain(|(k, _)| k != ENV_AUTH_FILE);
-        env.push((
-            ENV_AUTH_FILE.to_string(),
-            path.to_string_lossy().into_owned(),
-        ));
-    }
-
-    /// Client side, one launch: the token it holds and the file it names to the app (ADR-0001 D-e and
-    /// item 7). A launch that names a token file (`named`) reads it, failing closed on an unusable
-    /// file. A launch that names none (the legacy, non-journeys path) mints a token into `run_root` as
-    /// `control-<stem>.token` and names that file itself. Either way the launch holds a token.
     pub fn for_launch(
         named: Option<&Path>,
         run_root: &Path,
@@ -1444,6 +1439,8 @@ pub fn launch_declared(
     tracker: &Tracker,
     declared_env_keys: &[String],
 ) -> Result<Control> {
+    // The app runs on the owner's real data: only under a verified snapshot (see `snapshot`).
+    crate::snapshot::require_armed()?;
     // An installed app is never driven unless installed-QA mode is on (see `installed`).
     crate::installed::refuse_installed(&spec.binary, "UI app binary")?;
     if !spec.binary.exists() {
@@ -1452,14 +1449,15 @@ pub fn launch_declared(
             spec.binary.display()
         ));
     }
-    // Before anything is created or started: the QA home must be a QA root this runner made, on the
-    // internal disk, and clear of every user-data location (see `userdata`). No opt-out.
-    let guard = crate::userdata::Guard::for_workspace(ws)?;
     let id = new_id().replace('-', "");
     let service = format!("control-{}", &id[..8]);
-    // Isolated per-run suite root: the app's service.json never collides with an installed app's.
-    let suite =
-        Suite::at(ws.home.join(format!("suite-{}", &id[..8]))).map_err(|e| Error(e.to_string()))?;
+    // The run's control discovery root: `ws.env[RIGHTKIT_SUITE_ROOT]`, the same for every launch of
+    // this workspace, so a relaunch inside one journey keeps it and the root a journey reads from
+    // `ws.env` or [`Control::suite_root`] is the one the app got (rightkit#1238). Each launch has its
+    // own service name (`control-<id>`), so its `service.json` never collides with another's. It
+    // holds only the control channel's discovery record; the suite's shared data is the real
+    // per-user root, which no variable redirects.
+    let suite = Suite::at(ws.home.join("suite")).map_err(|e| Error(e.to_string()))?;
     let log_path = ws.evidence_dir.join(format!("app-{}.log", &id[..8]));
     // launchd-started apps cannot open log files on external volumes (`open` fails with
     // -10810), so the live log goes to the system temp dir and is copied into the
@@ -1470,17 +1468,13 @@ pub fn launch_declared(
     fs::create_dir_all(&log_dir)?;
     let raw_log = log_dir.join(format!("app-{}.log", &id[..8]));
     let mut env = launch_env(spec, ws, &suite, &service, declared_env_keys)?;
-    guard.check_dir(&ws.home)?;
-    guard.check_env(&env)?;
-    // The app must be told its isolated data directory; otherwise it resolves its own default.
-    crate::userdata::check_app_data_dir(&guard, &spec.binary, &env)?;
     // D-e: a launch that names a control token file reads the token now (fail closed: an unusable
     // file refuses the launch) and hands the app only the path.
     // ADR-0001 item 7: a launch that names no token file (the legacy path) mints one into the run
     // root, so every launch holds a token and names its file to the app. Nothing is sent without one.
     // N2: the world's file travels in `ws.env` (journeys), so it is named before `spec.env`; a mint
     // happens only when neither names one.
-    let named = token::named_for_launch(&ws.env, &spec.env);
+    let named = token::named_for_launch(&ws.env, &spec.env)?;
     let (auth, auth_file) = token::for_launch(named.as_deref(), &ws.root, &id[..8])?;
     // Exactly one value of the token file reaches the app: whatever `launch_env` copied from the
     // workspace is replaced, never duplicated (a `open --env` pair per value would race).
@@ -1746,11 +1740,11 @@ impl Control {
     /// Fail when a system permission dialog is known to be showing for this app. TODO: the
     /// automation layer cannot enumerate windows by owner (`UserNotificationCenter`,
     /// `CoreServicesUIAgent`), so this is a no-op that returns `Ok` today; see
-    /// [`crate::userdata::live_permission_dialog_check`]. Use
+    /// [`crate::dialog::live_permission_dialog_check`]. Use
     /// [`StopReport::permission_dialog`] for the evidence that does exist.
     pub fn assert_no_permission_dialog(&self) -> Result<()> {
-        match crate::userdata::live_permission_dialog_check(self.pid) {
-            crate::userdata::DialogCheck::Dialog(owner) => err(format!(
+        match crate::dialog::live_permission_dialog_check(self.pid) {
+            crate::dialog::DialogCheck::Dialog(owner) => err(format!(
                 "a system permission dialog ({owner}) appeared for the app under test"
             )),
             _ => Ok(()),
@@ -2144,6 +2138,66 @@ impl Control {
             "click_until `{selector}`: `{done_js}` never became true after {} click(s): {last}",
             attempts.max(1)
         ))
+    }
+
+    /// Pass the suite's first-run legal gate (`@rightkit/legal-ui` `LegalGate`) when it is showing,
+    /// the way a user does: pick `eligibility` (`individual` or the other radio's value) when the
+    /// radios are shown, tick the agreement, press agree, and wait for the gate to go. Returns
+    /// `Ok(true)` when it passed the gate and `Ok(false)` when the gate did not show within
+    /// `wait` (the owner's real data already holds the acceptance, which is the usual case on a
+    /// run under the snapshot: the restore puts the acceptance back as it was). An error means the
+    /// gate showed and could not be passed. The caller chooses `eligibility`; this never guesses
+    /// the owner's answer.
+    pub fn pass_legal_gate(&self, eligibility: &str, wait: Duration) -> Result<bool> {
+        const GATE: &str = "return document.querySelector('.rk-legal-gate__agree') !== null;";
+        if self.wait_eval(GATE, wait).is_err() {
+            return Ok(false);
+        }
+        if eligibility.is_empty()
+            || !eligibility
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
+            return err(format!("not an eligibility value: {eligibility:?}"));
+        }
+        let radio = format!("input[name=\"rk-legal-gate-eligibility\"][value=\"{eligibility}\"]");
+        let step = Duration::from_secs(10);
+        if self.dom(&radio).map(|e| !e.is_empty()).unwrap_or(false) {
+            self.click_until(
+                &radio,
+                &format!(
+                    "return document.querySelector({:?})?.checked === true;",
+                    radio
+                ),
+                3,
+                step,
+            )?;
+        }
+        let tick = ".rk-legal-gate__checkbox-row input";
+        if self.dom(tick).map(|e| !e.is_empty()).unwrap_or(false) {
+            self.click_until(
+                tick,
+                &format!(
+                    "return document.querySelector({:?})?.checked === true;",
+                    tick
+                ),
+                3,
+                step,
+            )?;
+        }
+        self.click_until(
+            ".rk-legal-gate__agree",
+            "return document.querySelector('.rk-legal-gate__agree') === null;",
+            3,
+            step,
+        )?;
+        Ok(true)
+    }
+
+    /// The suite root this launch's control service is discovered under (the value the app got as
+    /// `RIGHTKIT_SUITE_ROOT`). It is the same for every launch of one workspace.
+    pub fn suite_root(&self) -> &Path {
+        self.suite.root()
     }
 
     /// The live app log (stdout and stderr) while the app runs. [`Control::stop`] copies it into

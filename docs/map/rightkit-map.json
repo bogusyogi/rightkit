@@ -4881,8 +4881,7 @@
     "default": [
      "native"
     ],
-    "native": [],
-    "dev-overrides": []
+    "native": []
    },
    "deps": [
     {
@@ -4914,7 +4913,6 @@
     "command",
     "content_digest",
     "decode",
-    "dev_resolve",
     "encoders",
     "handle",
     "loudnorm",
@@ -4923,7 +4921,6 @@
     "quickprobe",
     "runner",
     "staging",
-    "unverified",
     "verify_cache"
    ],
    "private_modules": [

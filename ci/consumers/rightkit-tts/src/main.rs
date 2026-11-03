@@ -13,7 +13,7 @@
 // `invalid_request`) through QtsClient and the free functions, none of which starts a process.
 // Public API only.
 // Does not prove: a rendered utterance by `say` or SAPI, the Qwen3-TTS worker, model loading, the
-// `engine`, `metal`, `vulkan` and `dev-overrides` features, or the model files themselves (the
+// `engine`, `metal` and `vulkan` features, or the model files themselves (the
 // 1.3 GB checkpoint size is never faked).
 // State: a per-process directory under the OS temp directory, removed at the end; process
 // environment variables of the crate are set and cleared. No network, no process spawn, no audio
@@ -710,7 +710,7 @@ fn model_files(scratch: &Path) {
         }
     );
 
-    // Without `dev-overrides` binding the runtime drops an inherited ORT_DYLIB_PATH, and an
+    // Binding the runtime drops an inherited ORT_DYLIB_PATH in every build, and an
     // explicit runtime is exported with its folder first on PATH.
     std::env::set_var("ORT_DYLIB_PATH", "inherited");
     models::bind_ort_runtime(None);

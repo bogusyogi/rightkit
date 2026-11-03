@@ -390,7 +390,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -832,15 +832,16 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "libc",
  "windows",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "getrandom 0.4.3",
  "secret-service",
@@ -853,9 +854,10 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crypto"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "blake3",
+ "ring",
  "serde_json",
 ]
 
@@ -869,16 +871,17 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.10"
+version = "0.4.12"
 dependencies = [
  "libc",
  "sha2",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.8"
+version = "0.3.9"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -930,7 +933,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1077,7 +1080,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

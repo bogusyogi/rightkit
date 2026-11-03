@@ -34,7 +34,7 @@ rightkit-logs = { version = "0.3.7", default-features = false, path = "../rightk
 rightkit-models = { version = "0.5.3", path = "../rightkit-models" }
 rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
 rightkit-browser = { version = "0.3.7", path = "../rightkit-browser", optional = true }
-rightkit-motion = { version = "0.2.0", default-features = false, features = ["encode", "server"], path = "../rightkit-motion", optional = true }
+rightkit-motion = { version = "0.3.0", default-features = false, features = ["encode", "server"], path = "../rightkit-motion", optional = true }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "time"], optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
 

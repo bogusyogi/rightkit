@@ -15,11 +15,16 @@
 //! network-only filter ([`SeccompMode`]); both begin with an architecture check (see
 //! `seccomp.rs`). NOTE: compiled/tested only where a Linux host is available (see matrix.md).
 
+use crate::deny_read::glob_literal_prefix;
 use crate::seccomp::{self, SockFilter};
-use crate::{ConfinementMode, LandlockMode, NetworkPolicy, SandboxPolicy, SeccompMode};
+use crate::{
+    path_is_within, ConfinementMode, DenyReadEntry, LandlockMode, NetworkPolicy, SandboxPolicy,
+    SeccompMode, SystemRoots, UnixSocketPolicy,
+};
+use std::ffi::CString;
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const FS_EXECUTE: u64 = 1 << 0;
 const FS_WRITE_FILE: u64 = 1 << 1;
@@ -63,6 +68,65 @@ const EXEC: u64 = READ | FS_EXECUTE;
 const SYSTEM_EXEC: &[&str] = &[
     "/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/proc", "/dev", "/sys",
 ];
+
+/// The roots Landlock grants read and execute beneath besides the policy's own paths.
+fn system_roots_for(policy: &SandboxPolicy) -> Vec<PathBuf> {
+    match &policy.system_roots {
+        SystemRoots::Default => SYSTEM_EXEC.iter().map(PathBuf::from).collect(),
+        SystemRoots::Minimal(roots) => roots.clone(),
+        SystemRoots::None => Vec::new(),
+    }
+}
+
+/// Landlock only adds allowances, so an exec deny can be honoured only when nothing grants
+/// execution over the denied path. Refuse (never run with the deny silently unenforced) when a
+/// root that grants execution contains, or is contained by, a denied path.
+fn check_deny_exec(
+    policy: &SandboxPolicy,
+    system_roots: &[PathBuf],
+    ruleset_applies: bool,
+) -> io::Result<()> {
+    if policy.deny_exec.is_empty() {
+        return Ok(());
+    }
+    let refuse = |why: String| {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            format!(
+                "deny_exec cannot be enforced under Landlock ({why}); grant narrower exec roots, \
+                 or use macOS Seatbelt"
+            ),
+        ))
+    };
+    if !ruleset_applies {
+        return refuse("Landlock is skipped for a policy that lists no path".into());
+    }
+    if policy.exec_any {
+        return refuse("exec_any grants execution everywhere".into());
+    }
+    let grants: Vec<&Path> = system_roots
+        .iter()
+        .chain(&policy.exec_paths)
+        .chain(&policy.write_paths)
+        .map(PathBuf::as_path)
+        .collect();
+    for entry in &policy.deny_exec {
+        let target = match entry {
+            DenyReadEntry::Path(path) => path.clone(),
+            DenyReadEntry::Glob(pattern) => glob_literal_prefix(pattern),
+        };
+        for root in &grants {
+            if path_is_within(&target, root) || path_is_within(root, &target) {
+                return refuse(format!(
+                    "{} overlaps the exec grant {}",
+                    target.display(),
+                    root.display()
+                ));
+            }
+        }
+    }
+    Ok(())
+}
 
 /// The rights the running ABI can express: ABI 2 adds `REFER`, ABI 3 adds `TRUNCATE`.
 fn supported_rights(abi: u32) -> u64 {
@@ -211,8 +275,8 @@ fn build_ruleset(policy: &SandboxPolicy) -> io::Result<Option<std::fs::File>> {
     // SAFETY: `fd` is a fresh descriptor owned by no other value.
     let ruleset = unsafe { std::fs::File::from_raw_fd(fd as i32) };
     let raw = ruleset.as_raw_fd();
-    for p in SYSTEM_EXEC {
-        add_rule(raw, Path::new(p), EXEC, abi)?;
+    for p in system_roots_for(policy) {
+        add_rule(raw, &p, EXEC, abi)?;
     }
     for p in &policy.read_paths {
         add_rule(raw, p, READ, abi)?;
@@ -245,17 +309,17 @@ fn allowlist_filter() -> io::Result<Vec<SockFilter>> {
 }
 
 #[cfg(target_arch = "x86_64")]
-fn network_only_filter() -> io::Result<Vec<SockFilter>> {
-    seccomp::network_only_program(&seccomp::X86_64_NETWORK)
+fn network_only_filter(deny_unix: bool) -> io::Result<Vec<SockFilter>> {
+    seccomp::network_only_program(&seccomp::X86_64_NETWORK, deny_unix)
 }
 
 #[cfg(target_arch = "aarch64")]
-fn network_only_filter() -> io::Result<Vec<SockFilter>> {
-    seccomp::network_only_program(&seccomp::AARCH64_NETWORK)
+fn network_only_filter(deny_unix: bool) -> io::Result<Vec<SockFilter>> {
+    seccomp::network_only_program(&seccomp::AARCH64_NETWORK, deny_unix)
 }
 
 #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-fn network_only_filter() -> io::Result<Vec<SockFilter>> {
+fn network_only_filter(_deny_unix: bool) -> io::Result<Vec<SockFilter>> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "the network-only seccomp filter is unavailable for this architecture",
@@ -273,10 +337,24 @@ impl Prepared {
         }
         // `deny_read` is not enforceable under Landlock (allow-only): see `deny_read_enforced`.
         let ruleset = build_ruleset(policy)?;
+        check_deny_exec(policy, &system_roots_for(policy), ruleset.is_some())?;
+        if policy.network == NetworkPolicy::Deny {
+            if let UnixSocketPolicy::Allow(paths) = &policy.unix_sockets {
+                if !paths.is_empty() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "UnixSocketPolicy::Allow cannot be enforced on Linux: seccomp cannot \
+                         filter connect() by path; use UnixSocketPolicy::Deny or Local",
+                    ));
+                }
+            }
+        }
+        let deny_unix = matches!(policy.unix_sockets, UnixSocketPolicy::Deny)
+            || matches!(&policy.unix_sockets, UnixSocketPolicy::Allow(paths) if paths.is_empty());
         let seccomp = if policy.network == NetworkPolicy::Deny {
             Some(match policy.seccomp {
                 SeccompMode::Allowlist => allowlist_filter()?,
-                SeccompMode::NetworkOnly => network_only_filter()?,
+                SeccompMode::NetworkOnly => network_only_filter(deny_unix)?,
             })
         } else {
             None

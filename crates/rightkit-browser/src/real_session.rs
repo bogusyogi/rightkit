@@ -706,7 +706,21 @@ pub fn browser_executable(kind: BrowserKind) -> Option<PathBuf> {
             _ => &[],
         }
     };
-    candidates.iter().map(PathBuf::from).find(|p| p.exists())
+    let per_user: &[&str] = if cfg!(windows) {
+        match kind {
+            BrowserKind::Chrome => &[r"Google\Chrome\Application\chrome.exe"],
+            BrowserKind::Edge => &[r"Microsoft\Edge\Application\msedge.exe"],
+            BrowserKind::Brave => &[r"BraveSoftware\Brave-Browser\Application\brave.exe"],
+            _ => &[],
+        }
+    } else {
+        &[]
+    };
+    candidates
+        .iter()
+        .map(PathBuf::from)
+        .chain(crate::config::windows_local_app_candidates(per_user))
+        .find(|p| p.exists())
 }
 
 /// One profile of a Chromium-family browser.

@@ -24,8 +24,6 @@ use rightkit_job_queue::{
 };
 
 use super::env::strip_l3_env;
-#[cfg(feature = "test-mode")]
-use super::env::{pass_lever_env, pass_live_eval_env};
 use super::paths::{binary_identity_suffix, engine_cache_telemetry, resolve_engine_bin};
 use super::protocol::build_request;
 use super::routing::{classify_exit, Claim, EventRouter, ExitKind, KeyGate, Routed};
@@ -100,9 +98,8 @@ pub enum SupervisorEvent {
     /// The sidecar reported it is alive and on the expected protocol
     /// version. Emitted on every successful start.
     Ready { engine_version: String },
-    /// The sidecar process exited unexpectedly. Release builds restart it on the next
-    /// `start_dictation` (`RestartMode::OnDemand`); automatic hot restart exists only in test-mode
-    /// builds, through the dev-only `RIGHTKIT_SIDECAR_AUTORESTART` switch (runtime/app.rs).
+    /// The sidecar process exited unexpectedly. The supervisor restarts it on the next
+    /// `start_dictation` (`RestartMode::OnDemand`).
     Crashed { code: Option<i32> },
     /// The supervisor tried to spawn the sidecar and failed (binary not
     /// found, spawn IO error, no hello, failed key handshake).
@@ -253,10 +250,6 @@ fn build_sidecar_command(bin: &std::path::Path, _config: &crate::SupervisorConfi
     owned.env_allowlist(SIDECAR_ENV_PASSTHROUGH);
     {
         let command = owned.command_mut();
-        // QA build only: forward the owner's `HR_*` levers first, so every explicit set below
-        // overrides a same-named lever (see `env::pass_lever_env`).
-        #[cfg(feature = "test-mode")]
-        pass_lever_env(command);
         let app_data_root = crate::app_paths::app_data_root();
         // A Finder/Dock-launched macOS app runs with cwd="/" (read-only), and the
         // sidecar inherits it. Apple's ANE compiler service writes its compiled-
@@ -271,67 +264,10 @@ fn build_sidecar_command(bin: &std::path::Path, _config: &crate::SupervisorConfi
         // The engine derives its own app-data root, models base and bundled resources
         // (rightkit-dictation-runtime `engine_paths`). The model choice travels in the launch frame
         // (`engine_launch_for`), never in the environment (release switch rule).
-        // Release/normal runs always pin the engine to this process's suite root. A debug engine
-        // refuses to start when an override is set without test-mode (and a test-mode one refuses
-        // to start without an override), so debug builds forward this process's own override
-        // variables verbatim (the allowlist above drops them, on Windows too) and set nothing when
-        // there is none: ordinary debug launches resolve the same default root.
-        #[cfg(feature = "test-mode")]
-        for name in [
-            "RIGHTKIT_SUITE_ROOT",
-            "RIGHT_SUITE_DIR",
-            "ORTHIC_SHARED_DIR",
-        ] {
-            if let Some(value) =
-                std::env::var_os(name).filter(|v| !v.to_string_lossy().trim().is_empty())
-            {
-                command.env(name, value);
-            }
-        }
-        // An isolated app-data root (QA, tests) must reach the engine too: it derives its models
-        // base from it and refuses a launch-frame model directory outside that base.
-        #[cfg(feature = "test-mode")]
-        if rightkit_dictation_core::app_paths::app_data_root_is_explicit_override() {
-            command.env("RIGHTKIT_APP_DATA_DIR", &app_data_root);
-        }
-        // No release pin: without test-mode, RightKit's `suite_root()` reads no override variable
-        // and resolves the per-user default from the account database in both processes, so the
-        // engine lands on the same root with nothing set (rightkit-daemon `Suite::resolve`).
-        // TEMPORARY dogfood payload logging (see
-        // rightkit-dictation-text-pipeline/src/l3_cleanup.rs `log_payload_if_enabled`). Forwarded EXPLICITLY because the
-        // allowlist drops ambient vars by design; OFF for everyone who has not deliberately
-        // set it. Writes the transcript + captured field text to a LOCAL file only.
-        // Remove together with the engine-side instrumentation.
-        // Test-mode only, with the owner-diagnostics forward below: a release build must not
-        // contain these switch names (release switch rule S1), let alone pass them on.
-        #[cfg(feature = "test-mode")]
-        if rightkit_dictation_core::dev_var!("RIGHTKIT_L3_LOG_PAYLOADS").as_deref() == Ok("1") {
-            command.env("RIGHTKIT_L3_LOG_PAYLOADS", "1");
-        }
-        #[cfg(feature = "test-mode")]
-        if rightkit_dictation_core::dev_var!("RIGHTKIT_OWNER_DIAGNOSTICS").is_ok_and(|value| {
-            matches!(
-                value.to_ascii_lowercase().as_str(),
-                "1" | "true" | "on" | "yes"
-            )
-        }) {
-            command.env("RIGHTKIT_OWNER_DIAGNOSTICS", "1");
-            // Optional destination override, forwarded only alongside the enable
-            // flag so it can never take effect on its own. Raw WAV capture is the
-            // heaviest thing this app writes and the default sits on the boot
-            // volume, so an external disk must be selectable. Absolute paths only
-            // — the sidecar's working directory is not the user's shell; the
-            // engine re-checks and falls back rather than guessing.
-            if let Some(dir) =
-                rightkit_dictation_core::dev_var_os!("RIGHTKIT_OWNER_DIAGNOSTICS_DIR")
-            {
-                if std::path::Path::new(&dir).is_absolute() {
-                    command.env("RIGHTKIT_OWNER_DIAGNOSTICS_DIR", dir);
-                } else {
-                    telemetry::log_message("owner_diagnostics_dir_ignored", "reason=not_absolute");
-                }
-            }
-        }
+        // No suite-root or app-data-root variable is forwarded: RightKit's `suite_root()` reads no
+        // override variable and resolves the per-user default from the account database in both
+        // processes, so the engine lands on the same root with nothing set (rightkit-daemon
+        // `Suite::resolve`).
         strip_l3_env(command);
         // The polish policy (cleanup on, cloud consent, provider state) is no longer an
         // environment switch: `prepare_spawn` records it per generation and the shell pushes it in
@@ -339,18 +275,8 @@ fn build_sidecar_command(bin: &std::path::Path, _config: &crate::SupervisorConfi
         // any polish call. BYOK provider keys never enter the sidecar environment either
         // (HR-SEC-001): they go over the private stdin IPC channel with `call_with` once per
         // `Ready` generation (`ensure_ready`), and dependent work is gated until that settles.
-        #[cfg(feature = "test-mode")]
-        pass_live_eval_env(command);
     }
     owned
-}
-
-#[doc(hidden)]
-pub fn build_sidecar_command_for_test(
-    bin: &std::path::Path,
-    config: &crate::SupervisorConfig,
-) -> OwnedCommand {
-    build_sidecar_command(bin, config)
 }
 
 /// What the last spawn resolved, for the `sidecar_started` telemetry line.
@@ -367,7 +293,7 @@ pub(crate) type SharedSpawnNote = Arc<Mutex<Option<SpawnNote>>>;
 fn prepare_spawn(note: &SharedSpawnNote) -> io::Result<OwnedCommand> {
     let Some(bin) = resolve_engine_bin() else {
         let message = format!(
-            "{} binary not found; set RIGHTKIT_ENGINE_BIN",
+            "{} binary not found",
             crate::host::engine_host().binary_stem
         );
         telemetry::log_message("sidecar_spawn_failed", &message);
@@ -406,10 +332,9 @@ impl ExitObserver for CrashDumpObserver {
     }
 }
 
-/// The app's restart policy: crashes restart on the next `start()` (release is always
-/// `OnDemand`: a long dictation on a wedged sidecar is a UI freeze). Hot restart, automatically
-/// after exponential backoff, is test-mode only: its switch, `RIGHTKIT_SIDECAR_AUTORESTART`, is
-/// read through `dev_var!`, which release builds compile out. Replacements that never reach
+/// The app's restart policy: crashes restart on the next `start()` (`OnDemand`: a
+/// long dictation on a wedged sidecar is a UI freeze). `Automatic` hot restart after exponential
+/// backoff is available to a caller that passes `autorestart`. Replacements that never reach
 /// `Ready` stop being retried at backoff speed after `SIDECAR_ABANDON_RETRY_CAP`. A spent budget
 /// is not permanent: `EngineSupervisor::ensure_running` starts a fresh run after
 /// `SIDECAR_ABANDON_COOLDOWN`.

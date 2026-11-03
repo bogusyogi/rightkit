@@ -12,7 +12,8 @@
 /* Fused titlebar: spans the window on the same chrome surface as the sidebar. */
 /* --rk-top-bg defaults to --rk-chrome and --rk-top-border to none; the fallbacks stay in the rules so dark mode still follows the surface. */
 .rk-top { display: flex; align-items: center; height: var(--rk-titlebar-height); flex: none; }
-.rk-top__side { display: flex; align-items: center; width: var(--rk-sidebar-width); flex: none; height: 100%; }
+/* --rk-sidebar-max-viewport is set by AppShell sidebarResizable.maxViewport (a CSS length such as 24vw); unset it never clamps. */
+.rk-top__side { display: flex; align-items: center; width: min(var(--rk-sidebar-width), var(--rk-sidebar-max-viewport, 100vw)); flex: none; height: 100%; }
 .rk-top__lights { width: var(--rk-lights-width); height: 100%; flex: none; }
 .rk-top__drag { flex: 1; align-self: stretch; }
 /* End cluster: its own gap (--rk-top-end-gap, default the bar gap), so it can be spaced apart from the start and caption controls. */
@@ -23,7 +24,7 @@
 .rk-caption__btn { display: flex; align-items: center; justify-content: center; }
 .rk-body { flex: 1; min-height: 0; display: flex; position: relative; }
 .rk-side[hidden] { display: none; }
-.rk-side { width: var(--rk-sidebar-width); flex: none; display: flex; flex-direction: column; min-height: 0; }
+.rk-side { width: min(var(--rk-sidebar-width), var(--rk-sidebar-max-viewport, 100vw)); flex: none; display: flex; flex-direction: column; min-height: 0; }
 .rk-plane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .rk-search { display: flex; align-items: center; flex: none; }
 .rk-search svg { flex: none; }
@@ -138,3 +139,31 @@
 .rk-item-row > .rk-item { flex: 1 1 auto; min-width: 0; }
 .rk-side-resizer { position: absolute; top: 0; bottom: 0; width: 6px; z-index: 2; }
 .rk-shell.is-narrow .rk-side-resizer { display: none; }
+
+/* ---- 0.7.3 additions: layout only ------------------------------------------------------------ */
+/* Titlebar title wrapper as the fill-and-drag element (Titlebar titleFill) and the exported DragRegion. */
+.rk-top__title--fill { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; }
+.rk-drag--fill { flex: 1; min-width: 0; align-self: stretch; }
+/* PageShell side column: work column plus a fixed-width inspector, each scrolling on its own. */
+.rk-page__split { flex: 1; min-height: 0; display: flex; }
+.rk-page__split > .rk-page__scroll { flex: 1; min-width: 0; }
+.rk-page__side { flex: none; width: var(--rk-page-side-width, 320px); min-height: 0; overflow-y: auto; overscroll-behavior: none; }
+/* Collapsed-sidebar rail (AppShell sidebarRail): takes the sidebar column position at --rk-rail-width. */
+.rk-rail { flex: none; display: flex; flex-direction: column; min-height: 0; width: var(--rk-rail-width, 52px); }
+.rk-rail__drag { flex: none; height: var(--rk-titlebar-height); }
+.rk-rail__btn { flex: none; }
+/* Plane drag bar (AppShell planeBar / planeBarRef). */
+.rk-plane__bar { display: flex; align-items: center; flex: none; min-width: 0; }
+/* Controlled resize handle (SidebarResizer / useResizeHandle): placement is the app's. */
+.rk-resizer { position: relative; flex: none; touch-action: none; }
+.rk-resizer[data-orientation="vertical"] { width: 6px; cursor: col-resize; }
+.rk-resizer[data-orientation="horizontal"] { height: 6px; cursor: row-resize; }
+/* RetainedHost nodes lay out as if their children belonged to the claiming element. */
+.rk-retained { display: contents; }
+/* os-windows platform layer: WebView2 falls back to default Segoe UI metrics, so line breaks differ from macOS.
+   Applied from the platform the shell detects (data-platform on the frame) and from html.os-windows for an app that
+   sets the class itself. The scrollbar half is a separate layer. */
+html.os-windows { font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+:where(html.os-windows, .rk-shell[data-platform="windows"]) { font-size-adjust: 0.53; }
+/* Zero specificity (:where) so a product's own font rules and --rk-font-body (applyBodyFont) always win. */
+:where(html.os-windows, .rk-shell[data-platform="windows"]) :where(code, pre, kbd, samp) { font-family: "Cascadia Mono", Consolas, ui-monospace, monospace; }

@@ -7,7 +7,7 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-credentials = { version = "=0.4.5", default-features = false, features = ["db-adapter"] }
+rightkit-credentials = { version = "=0.4.6", default-features = false, features = ["db-adapter"] }
 rightkit-db = { version = "=0.5.3", default-features = false, optional = true }
 
 [features]
@@ -15,5 +15,5 @@ rightkit-db = { version = "=0.5.3", default-features = false, optional = true }
 # credentials crate; the consumer selects the system provider so that build compiles.
 default = ["sqlcipher-system"]
 db-session = ["rightkit-credentials/db-adapter", "dep:rightkit-db", "rightkit-db/encrypted-lifecycle"]
-sqlcipher = ["db-session", "rightkit-db/sqlcipher"]
+sqlcipher = ["db-session", "rightkit-db/sqlcipher-libtomcrypt"]
 sqlcipher-system = ["db-session", "rightkit-db/sqlcipher-system"]

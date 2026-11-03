@@ -7,6 +7,11 @@
 
 pub mod identity;
 pub mod metrics;
+pub mod process;
 
 pub use identity::{current as platform_identity, PlatformIdentity};
 pub use metrics::snapshot as resource_snapshot;
+pub use process::{
+    snapshot_identity as process_snapshot_identity, snapshot_pid as process_snapshot,
+    ProcessIdentity, ProcessSnapshot,
+};

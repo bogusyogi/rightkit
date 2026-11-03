@@ -4,6 +4,8 @@ import Foundation
 struct QueuedFrame {
     let sample: CMSampleBuffer
     let hostNs: UInt64
+    /// Which display of a whole-screen take the frame came from (0 for a window take).
+    var display: Int = 0
 }
 
 /// A bounded hand-off from the ScreenCaptureKit callback to the encode worker. A full queue

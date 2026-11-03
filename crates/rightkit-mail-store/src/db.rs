@@ -53,9 +53,7 @@ pub struct OpenResult {
     pub path: String,
 }
 pub fn open_default() -> Result<OpenResult, String> {
-    // The data folder comes from `data_dir::data_dir_checked`: a test-mode build
-    // run against a bound test root uses that root's folder, a refused test selection is an error, and every
-    // other build uses the real per-user folder and reads no environment.
+    // The data folder comes from `data_dir::data_dir_checked`: the host's real per-user folder.
     let (base, _) = data_dir::data_dir_checked()?;
     rightkit_fs::ensure_private_dir(&base).map_err(|e| format!("create data dir failed: {e}"))?;
     let db_path = base.join(db_file());

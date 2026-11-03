@@ -26,6 +26,10 @@ Do not use it to drive Safari or Firefox, or desktop apps (see `rightkit-automat
 
 `cookie-export` (off by default): `CookieExport`, which keeps the cookies of declared domains and publishes them as a private Netscape `cookies.txt` through `rightkit-fs`; an empty or invalid export never replaces the previous file, and `CookieExport::clear_with` removes the file and then runs a callback so the caller can invalidate an engine authentication snapshot. Build cookies with `NetscapeCookie::new`.
 
+`profile-vault` (off by default): `ProfileVault` and `ProfileSpec::Encrypted`; pulls `rightkit-credentials` and `rightkit-crypto`. See "Encrypted profile".
+
+`axe` (off by default): compiles in the vendored axe-core 4.14.0 for `capture` (see "Capture").
+
 ## Usage
 
 Taken from the crate README and from `LaunchOptions` in `src/config.rs`. Illustrative: it is a `no_run` example.
@@ -87,6 +91,27 @@ The `install` cargo feature adds `install::ensure_chrome_for_testing(&ManagedRoo
 - The caller owns that directory. This mode creates no RightKit profile lock, and shutdown, cancellation, failed launch or drop never removes it.
 - Downloads go to `<profile>/rightkit-downloads` for named and caller-owned profiles, and to `<profile>/downloads` for a temporary profile (`src/session.rs:61`, `:81`, `:89`), or to `LaunchOptions::download_dir` when it is set. The directory is created at launch.
 
+## Encrypted profile (feature `profile-vault`)
+
+`LaunchOptions::default().encrypted_profile(ProfileVault::new(store, root, "agent-login")?)` keeps the persistent login profile as one authenticated-encrypted file, `<root>/<name>.rkvault`, and nothing readable on disk after a clean stop.
+
+- Start: lock the vault (`VaultError::InUse` if open elsewhere), read the key from the OS credential store through `rightkit-credentials` (`VaultError::KeyUnavailable` and nothing touched when it cannot be read), recover a crashed session, decrypt into the private `<root>/<name>.work` directory and point Chrome at it.
+- Stop (`shutdown`, `close`, `cancel`, `Drop`): after Chrome exits, archive and encrypt the tree to a temporary file, replace the vault atomically, then wipe the working directory. `close()` returns `Err` when sealing or wiping failed; the tree then stays and the next start recovers it.
+- Crash recovery: a leftover working directory is sealed into the vault when its state file says `open`, otherwise wiped; the sealed file is never replaced by a partial tree.
+- Key lost: a vault whose key is gone is `VaultError::KeyLost` and untouched; `ProfileVault::discard` is the explicit way to start over. An earlier plaintext `Named` profile is refused with `PlaintextProfilePresent` until `ProfileVault::migrate_plaintext` moves it in.
+- Archive format (version 1, decision record in `src/vault.rs`): header `RKPVAULT | version | cipher | chunk size | profile id | salt`, then 1 MiB AES-256-GCM chunks with the header and a final flag as associated data; key = HKDF-SHA256(credential-store key, per-file salt, profile id). The plaintext stream holds directories and regular files only; Chrome's `Singleton*` files, `rightkit-downloads` and the lock file are skipped; a symlink elsewhere is refused. Downloads go to `<root>/<name>.downloads`, outside the vault.
+- Chrome also uses the real OS keychain now (no `--use-mock-keychain` or `--password-store=basic`).
+- Limits: wiping overwrites files up to 16 MiB then deletes them; on flash or copy-on-write storage that does not guarantee the old blocks are gone, so full-disk encryption remains the defence for a stolen powered-off disk. The master key stays in memory for the session. Not verified live: Keychain prompts on first launch, Windows Credential Manager, behaviour of the macOS fixture sandbox without Keychain access.
+
+## Capture (typed, session-bound)
+
+`capture(CaptureRequest::new(url, CaptureBinding { plan_digest, source_digest, probe_digest, action_digest }, output_root), &CaptureCancellation::new())` launches its own session on a real page and returns a `CaptureReport`: load result (HTTP status), PNG, navigation and paint metrics (unavailable values are `null`), console and exceptions, and with feature `axe` the axe-core violations for the requested tags (`AxeSpec::wcag2_aa()`). Each artifact is written under a private directory with length and SHA-256; `identity` binds them to the browser session id, PID, profile, page, target, frame, loader and main-world context, to the request digest and to the caller's four digests. `cleanup.stop` is the session's `StopReport` (process tree stopped, profile released), present for success, failure, timeout and cancellation alike. `status` is `Complete` only when the page loaded below HTTP 400, every requested observation was whole and cleanup succeeded; otherwise `Incomplete` (with `reasons`), `Failed`, `TimedOut` or `Cancelled`, with whatever was collected.
+
+- Decision (#821, option 2): built on `BrowserSession` and real pages, not `FixtureSession`: a fixture serves a sealed synthetic bundle with no script, while live surfaces are real pages (Adrian: no fixtures or dummy data). No script evaluation is exposed; observations run in an isolated execution world so the page cannot replace them.
+- The default network policy refuses loopback and private hosts; allow a dev server's host in `CaptureRequest::network`.
+- axe-core 4.14.0 is MPL-2.0 and vendored unmodified in `third-party/axe-core/` behind feature `axe`: `NOTICE.md` records the upstream tag, the SHA-256 (`20c09fe157a8a34a30e241aaa1fcdade657734f08ab379ecfbeb7d45cc46e878`, also the `AXE_SHA256` constant checked before every use) and the MPL-2.0 text. The workspace `deny.toml` already allows `MPL-2.0` for unmodified third-party code; the crate's own code stays `MIT OR Apache-2.0`, the same layout as `rightkit-ffmpeg/third-party`.
+- Not covered by the report: the network proxy has no stop receipt (it is dropped with the session), and there is no fixture server in this route.
+
 ## Real session (the user's own sign-ins, with consent)
 
 `BrowserSession::attach_user_browser(consent, root, opts)` opens a visible Chrome or Edge window on a private copy of the user's consented profile, so the agent starts signed in. It never drives the live browser in place (a running profile is locked, and Chrome 136+ ignores a debugging port on the default user-data directory).
@@ -100,7 +125,7 @@ The `install` cargo feature adds `install::ensure_chrome_for_testing(&ManagedRoo
 
 ## Shutdown
 
-`shutdown()` closes gracefully: CDP `Browser.close`, then SIGTERM to the process group, then SIGKILL, each step bounded at 5 s. `Drop` sends SIGTERM, waits up to 5 s, then sends SIGKILL. A temporary profile is removed once Chrome has exited.
+`shutdown_report()` and `cancel_report()` return a `StopReport` (process stopped, profile released, with errors); `close()` is `shutdown()` that fails on either. `shutdown()` closes gracefully: CDP `Browser.close`, then SIGTERM to the process group, then SIGKILL, each step bounded at 5 s. `Drop` sends SIGTERM, waits up to 5 s, then sends SIGKILL. A temporary profile is removed once Chrome has exited.
 
 ## Platform support
 

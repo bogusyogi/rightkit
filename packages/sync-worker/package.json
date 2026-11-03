@@ -8,17 +8,14 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "migrate:local": "node scripts/migrate.mjs --local",
     "migrate:remote": "node scripts/migrate.mjs --remote"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.8.0",
     "@cloudflare/workers-types": "^4.20250900.0",
     "typescript": "^5.7.0",
-    "vitest": "~2.1.9",
     "wrangler": "^4.0.0"
   },
   "repository": {

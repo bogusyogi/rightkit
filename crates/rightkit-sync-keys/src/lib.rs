@@ -15,7 +15,6 @@
 mod error;
 mod key;
 mod manager;
-mod pairing_sas;
 mod provider;
 mod util;
 

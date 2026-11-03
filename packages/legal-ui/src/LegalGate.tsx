@@ -155,6 +155,11 @@ export interface LegalGateProps {
   onError?: (error: unknown) => void;
   /** Rendered below the actions and any error message. Absent by default. */
   footer?: ReactNode;
+  /** Window chrome content along the top (for frameless windows: caption controls on Windows). Absent by default. Rendered like
+   *  `@rightkit/onboarding`'s titlebar, height `var(--rk-onboarding-titlebar-h, 32px)`. */
+  titlebar?: ReactNode;
+  /** Makes the titlebar strip a `data-tauri-drag-region`, so a frameless window can be moved. Default false. */
+  dragRegion?: boolean;
 }
 
 const DEFAULT_AGREE_LABEL = "Agree & continue";
@@ -268,6 +273,8 @@ function ensureStyle(): void {
 .rk-legal-gate__doc p, .rk-legal-gate__doc ul, .rk-legal-gate__doc ol { margin: 0 0 8px; }
 .rk-legal-gate__doc ul, .rk-legal-gate__doc ol { padding-left: 20px; }
 .rk-legal-gate__doc-text { margin: 0; white-space: pre-wrap; font: inherit; }
+.rk-legal-gate__placeholder { background: color-mix(in srgb, currentColor 12%, transparent); border-radius: 3px; padding: 0 2px; color: inherit; }
+.rk-legal-gate__titlebar { position: absolute; inset: 0 0 auto 0; z-index: 2; display: flex; align-items: center; height: var(--rk-onboarding-titlebar-h, 32px); padding: 0 12px; }
 `;
   document.head.appendChild(style);
 }
@@ -315,6 +322,8 @@ export function LegalGate({
   renderError,
   onError,
   footer,
+  titlebar,
+  dragRegion = false,
 }: LegalGateProps): ReactElement {
   const theme = resolveTheme(themeProp);
   const labels = {
@@ -341,6 +350,7 @@ export function LegalGate({
   const { base, suffix } = splitWordmark(appName);
   const tradingNotice = tradingNameNotice === undefined ? dbaLine : tradingNameNotice;
   const canAgree = eligibilityBasis !== null && agreed && !submitting;
+  const hasTitleStrip = !isEmptyNode(titlebar) || dragRegion;
 
   const handleAgree = async (): Promise<void> => {
     if (eligibilityBasis === null || !agreed || submitting) return;
@@ -369,11 +379,15 @@ export function LegalGate({
     flexDirection: "column",
     alignItems: "center",
     boxSizing: "border-box",
-    padding: "28px 36px 24px",
+    padding: hasTitleStrip ? "calc(var(--rk-onboarding-titlebar-h, 32px) + 28px) 36px 24px" : "28px 36px 24px",
+    position: "relative",
   };
 
   return (
     <div className="rk-legal-gate" style={rootStyle}>
+      {hasTitleStrip ? (
+        <div className="rk-legal-gate__titlebar" data-testid="legal-gate-titlebar" {...(dragRegion ? { "data-tauri-drag-region": "" } : {})}>{titlebar}</div>
+      ) : null}
       {/* The lockup band is a flex spacer with the lockup centered inside it, and
           an equal spacer sits below the content — so the lockup lands midway
           between the top edge and the app wordmark at any window height, and the

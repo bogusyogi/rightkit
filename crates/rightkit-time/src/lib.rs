@@ -3,8 +3,11 @@
 //! Also: [`zones`] (local wall time to UTC for a few tabled zones) and [`stamp`] (system-clock
 //! UTC stamps for logs and file names).
 
+pub mod clock;
 pub mod stamp;
 pub mod zones;
+
+pub use clock::{unix_millis_now, unix_millis_with, Clock, SystemClock};
 
 const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS: [&str; 12] = [

@@ -103,16 +103,8 @@ pub(crate) fn worker_main(
     cancel_epoch: Arc<std::sync::atomic::AtomicU64>,
     wait_signal: Arc<WorkerWaitSignal>,
 ) {
-    crate::perf_levers::apply_thread_qos("hr-engine-worker");
-    // ENG-13 (`RIGHTKIT_STARTUP_APP_INDEX=pro`): the app index / shortcut refresh serves only Pro
-    // standalone commands; that mode runs it after the first config push that says Pro
-    // (`perf_levers::prewarm_app_index_if_pro`). Default: every engine start, as shipped.
-    if crate::perf_levers::startup_app_index() == crate::perf_levers::StartupAppIndex::Always {
-        crate::app_launch::prewarm();
-    }
-    // ORT-04 (`RIGHTKIT_PARALLEL_MODEL_LOAD=1`): Silero loads on its own thread, so starting it now
-    // overlaps it with the ASR load. Its 5 s load timeout is only checked when polled.
-    let early_vad = crate::perf_levers::parallel_model_load().then(crate::vad::SpeechVad::new);
+    // The app index / shortcut refresh runs at every engine start.
+    crate::app_launch::prewarm();
     let asr_executor =
         match AsrExecutor::spawn_with_wait_signal(models_dir.clone(), ep, Arc::clone(&wait_signal))
         {
@@ -131,7 +123,7 @@ pub(crate) fn worker_main(
         "worker polish warmup ok in {} ms",
         polish_warm.elapsed().as_millis()
     );
-    let speech_vad = early_vad.unwrap_or_else(crate::vad::SpeechVad::new);
+    let speech_vad = crate::vad::SpeechVad::new();
 
     // Signal ready as soon as the engine itself (ASR + local polish) is
     // resident — the caller of `spawn_worker` blocks on this (`ready_rx.recv()`
@@ -404,43 +396,6 @@ impl Worker {
         self.asr_executor.transcribe_final_result(
             generation,
             audio,
-            &self.cancel_epoch,
-            self.handled_cancel_epoch,
-        )
-    }
-
-    /// ENG-06: queue a dictation final without waiting; see `AsrExecutor::queue_final_result`.
-    #[cfg(target_os = "macos")]
-    fn queue_final_result(
-        &self,
-        generation: u64,
-        audio: Vec<f32>,
-    ) -> Result<
-        std::sync::mpsc::Receiver<
-            Result<rightkit_dictation_inference::TranscriptionResult, String>,
-        >,
-        String,
-    > {
-        self.asr_executor.queue_final_result(
-            generation,
-            audio,
-            &self.cancel_epoch,
-            self.handled_cancel_epoch,
-        )
-    }
-
-    /// ENG-06: wait for a final queued by `queue_final_result`.
-    #[cfg(target_os = "macos")]
-    fn wait_final_result(
-        &self,
-        generation: u64,
-        reply_rx: std::sync::mpsc::Receiver<
-            Result<rightkit_dictation_inference::TranscriptionResult, String>,
-        >,
-    ) -> Result<rightkit_dictation_inference::TranscriptionResult, String> {
-        self.asr_executor.wait_final_result(
-            generation,
-            reply_rx,
             &self.cancel_epoch,
             self.handled_cancel_epoch,
         )

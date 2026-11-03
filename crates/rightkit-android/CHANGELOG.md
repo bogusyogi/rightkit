@@ -3,6 +3,7 @@
 ## 0.3.1 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+- Added `android/sample/` (rightkit#209): the Auto Backup and device-transfer exclusion of `files/rightkit-credentials/` as `res/xml/rightkit_backup_rules.xml`, `res/xml/rightkit_data_extraction_rules.xml` and a manifest fragment wiring both. Not part of the library AAR.
 
 ## 0.3.0 — unpublished staging
 

@@ -14,8 +14,8 @@
 //! <suite-root>/tools/<tool>/<version>/...        (same rules; tools store)
 //! ```
 //!
-//! Suite root: Orthic Labs `shared` directory; `RIGHT_SUITE_DIR` (dev/test) or
-//! `ORTHIC_SHARED_DIR` override it. Readiness requires the *trusted catalog*
+//! Suite root: the per-user Orthic Labs `shared` directory, resolved by
+//! `rightkit_daemon::Suite::resolve`; no environment variable overrides it. Readiness requires the *trusted catalog*
 //! manifest (compiled into the app, per-file SHA-256 + size pins) - a manifest
 //! read from disk never defines its own identity.
 //!
@@ -72,7 +72,7 @@ pub use store::{
     prune_unref_entries_with, register_ref, release_models, resolve_ready_dir,
     retire_speech_models, set_status_at, size_hint_bytes, status_at, status_in, EnsureOptions,
     EntryState, MigrateOutcome, ModelStatus, Progress, ReleaseReport, RetiredPruneReport,
-    SetStatus,
+    SeedOutcome, SetStatus,
 };
 pub use variant::{parakeet_variant_descriptor, VariantDescriptor};
 pub use whisper::{

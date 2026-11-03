@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-models"
-version = "0.5.4"
+version = "0.5.8"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -26,7 +26,7 @@ agent_local_models = ["dep:rightkit-sandbox", "dep:tokio"]
 
 [dependencies]
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["digest", "fs", "lock"] }
-# One suite-root rule for every Right Suite crate: `Suite::resolve`, overrides only with `test-mode`.
+# One suite-root rule for every Right Suite crate: `Suite::resolve`, always the per-user default (no test mode).
 rightkit-daemon = { version = "0.5.1", path = "../rightkit-daemon", default-features = false }
 # Every outbound request goes through rightkit-http: address policy, per-hop redirect vetting.
 rightkit-http = { version = "0.3.9", path = "../rightkit-http", default-features = false }

@@ -9,6 +9,7 @@ use crate::model::{
     TextPosition, Timeline, TitleTemplate, UnderAudio, VideoClip, VideoTrack,
 };
 use crate::time::{MilliDb, Ticks};
+use std::collections::BTreeMap;
 
 /// A user-level edit. Video edits ripple the video track and move narration linked
 /// to the shifted clips; unlinked audio never moves implicitly.

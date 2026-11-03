@@ -7,12 +7,14 @@
 //! mapping of RightKit's `AgentEvent`s onto the host app's durable `NormalizedEvent` (stable event
 //! keys, source offsets, `DriverHostError`).
 use crate::claude as rk;
+use crate::driver_host::cli_runtime::auth::FORBIDDEN_BYOK_ENV_VARS;
 use crate::driver_host::{
     event_key, invalid, stable_event_key, DriverHostError, DriverKind, LaunchSpec, NormalizedEvent,
     NormalizedEventKind, RUN_SCOPED_POLICY,
 };
 use crate::event::{AgentEvent, ParseError, ResultSummary, SessionInit, UnknownPolicy};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

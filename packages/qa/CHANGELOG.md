@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.0 — unpublished
+
+Breaking (rightkit#1437, GATE-CONTRACT GC-A10). Adrian, 2026-11-03: "dev mode, is mine. im the fucking owner, my data. no dummy data, no fucking made up shit. real data. snapshot and restore." and "End to end tests ONLY". 0.6.3 was never published, so its additive entry below ships inside this version. Not compiled or run by the author; the root integration owner runs the typecheck.
+
+- Changed (Adrian, 2026-11-03: no debug assertions): the legacy WDIO contract no longer asks for a compile-error guard outside debug builds and accepts the registration under the `qa-native` feature alone.
+- Changed: the journeys receipt is `rightkit.journeys.receipt/2` and the adapter protocol is 2, as in the Rust `rightkit-qa` 0.10.3. `snapshot` (`snapshot_id`, `manifest_sha256`, `credentials_sha256?`, `roots`, `credentials`, `restore_verified`) replaces `isolation`. The validator refuses (`snapshot`) a receipt with no snapshot id, no data folder or an unverified restore, and a results file whose `start.snapshot_id` differs from the receipt's. `start.snapshot_id` replaces `start.isolation`; `Reporter.start` reads it from `RIGHTKIT_JOURNEYS_SNAPSHOT_ID` and refuses without it; `adapterEnv(files, snapshotId)` sets it. `Isolation` is removed.
+- Changed: a journey's `data` key is optional and may only be `real`; `generated`, `seeded` or anything else is the `data` problem (the `real_data` problem, which refused `real`, is gone).
+- Removed: `runJourneys`, `RunOptions`, `RunResult` and `rightkit-qa-journeys run`. The run needs the snapshot and restore, which only the Rust `rightkit-qa journeys run` does. `JourneysError` moved to the journeys util and is still exported.
+- Removed: `journeys-fixture-adapter.mjs` and its `./journeys-fixture-adapter` export.
+- Removed: the throwaway worlds and the dummy-data guard. `createQaWorkspace`, `withQaWorkspace`, `disposeQaWorkspace`, `pruneAbandonedWorkspaces`, `QaWorkspace` and the redirected home and data folder; `spawnQaApp`, `assertQaLaunchSafe`, `QaLaunchGuard`, `UserDataViolation`, `seedFrom`; the QA home hygiene and root caps in `storage` (`createManagedAppRoot`, `createPersistentAppRoot`, `removeManagedAppRoot`, `cleanQaHomes`, `checkQaRootLimits`, `QaRootOverCapError`, `preflightQaRoot` and their constants). The managed run markers and retention (`createManagedRun`, `finishManagedRun`, `pruneManagedRuns`) stay, without the `appRoot` companion. The permission-dialog helpers moved to `dialog`. `failureArtifacts.allowInsideRunRoot` and the `RIGHTKIT_RUN_ROOT` refusal are gone (nothing deletes a run root now).
+- Added (rightkit#752): `controlCall({ service, method, params, tokenFile, app, bin })`, a Node client of an embedded control server that is already running, through the Rust `rightkit-qa control call` command (the Rust client owns the wire protocol and the token).
+- Removed: the unit tests of the removed code and the Node journeys unit suite that ran against the fixture adapter.
+
+## 0.6.3 — unpublished
+
+Additive: every existing export and default is kept. Covers the packages/qa parts of #1058, #764, #1137, #1088, #674 and #761. Not compiled or run by the author; the owner chat owns the typecheck and the test run.
+
+- #1058 `QaPage`: `onDialog(handler)` answers `Page.javascriptDialogOpening`; `interceptRequests(handler, { urlPattern })` pauses requests through the Fetch domain and returns a remover; `evaluateOnNewDocument` now resolves to a remover (`Page.removeScriptToEvaluateOnNewDocument`); `heapUsage()` (`Runtime.getHeapUsage`); `grantPermissions(names, { origin })` (`Browser.grantPermissions`, scoped to the page's browser context); `emulateMedia({ media, features })`. `QaMouse.wheel` takes `x`, `y` and `modifiers`. `QaKeyboard.insertText(text)` is selector-less.
+- #764 `keyboard.tap` and `keyboard.press` take `text` and `unmodifiedText`, sent on the keyDown only. `keyboard.char(text)` sends a `char` event. `keyboard.imeSetComposition(text, options)` and `keyboard.imeCommit(text)`; `ImeCompositionOptions` and `KeyTextOptions` are exported. `page.performanceMetrics()` enables `Performance` once and returns a name-to-value map.
+- #1137 `focusRingProbeExpression(selector?)` returns page-side source that evaluates to `{ ok, probe, verdict }` for the focused element, for an action list. `waitForHttp` takes `headers`.
+- #1088 Node journeys reader: ids follow `journeys/manifest.rs` (`id_ok`: letters, digits, `.`, `_`, `-`). A native-ui journey may use `runner = "scenario"` when the manifest has `[build]` and `[tests]`. Reads and checks `[build]`, `[budget]`, `[tests]`, `[[bridge]]` and `[plugin]`. Parity is partial: unknown keys at the top level and in journey tables, and `tokens` names, are not checked here.
+- #674 persistent bound dev root: `CreateQaWorkspaceOptions.devRoot` makes the app home `<devRoot>/<appKey>`, kept at disposal (`QaWorkspace.persistent`). The launch guard accepts it only with the same root in the new `GuardOptions.devRoots` (`spawnQaApp`, `assertQaLaunchSafe`); the forbidden-location rules still apply. The `right-release deps --audit` half is in packages/release and is not in this package.
+- #761 `visualBaseline(page, path, options)`, `comparePng` and `decodePng` (`node:zlib`, no new dependency): pixel comparison of a viewport screenshot against a PNG baseline, with `tolerance` and `maxDiffRatio`; `create` and `update` are explicit. The Tauri invoke-mock backend is not in this package.
+
 ## 0.6.2
 
 - Depends on @rightkit/qa-chrome 0.1.12 (the published latest), so apps pinning both no longer fail the registry check on a behind-latest transitive pin (#1284).

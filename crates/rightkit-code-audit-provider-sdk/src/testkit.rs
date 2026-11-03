@@ -3,6 +3,7 @@ use crate::{
     error::{ProviderError, ProviderErrorKind},
     result::{normalize_result, ProviderResult},
 };
+use std::time::Instant;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConformanceCase {

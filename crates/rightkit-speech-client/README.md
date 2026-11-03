@@ -45,6 +45,9 @@ own (`plan_host` finds the installed host). Models are Parakeet and Whisper only
   consumer captures audio itself, then calls `transcribe(path, opts)` and shows the text when the
   job finishes. Capture still follows `capture_ownership` where the host lists it (dictation >
   Pulse conversation > batch). No consumer runs its own recognizer while HeardRight is installed.
+- **Running host only, gated.** An app that must never launch another app and must stay local for
+  anything the host cannot serve calls `transcribe_via_running_host` (0.4.2): another process's host,
+  verbatim advertised, input within one window, else `UseLocal(reason)`; cancel returns at once.
 - **Not covered here:** behaviour with no HeardRight installed comes from each app's existing
   design. iOS has no cross-app socket host, so this routing applies on macOS and Windows.
 

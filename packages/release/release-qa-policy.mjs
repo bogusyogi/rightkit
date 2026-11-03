@@ -36,7 +36,7 @@
 // see ownership-policy-bundle.mjs). CI should set RIGHT_RELEASE_QA_POLICY_BASELINE_REF=origin/main so the baseline
 // is the protected branch rather than the local HEAD.
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
@@ -214,6 +214,21 @@ export function admissionModeFor(policy, app, stage) {
 
 export const approvedRunnerDigests = (policy) => (policy?.approvedRunners ?? []).map((runner) => runner.sha256);
 
+/**
+ * A policy write targets a RightKit checkout, never a package that is installed or pinned: a write inside `node_modules` would mutate an
+ * install, and one inside a trusted-gates root (the managed `.rightkit-managed/trusted-gates/...` pin) would modify the pinned gate's own
+ * files (#1235). The path is resolved through symlinks first, so a link cannot hide the location.
+ */
+export function assertWritablePolicyDir(dir) {
+  let resolved = path.resolve(dir);
+  try { resolved = realpathSync(resolved); } catch { /* a missing directory is refused when the policy file is read */ }
+  const segments = resolved.split(/[\\/]+/).map((segment) => segment.toLowerCase());
+  const refuse = (where) => { throw new QaPolicyError(`QA admission policy writes target a RightKit checkout, not ${where}: ${resolved}; pass --repo <rightkit checkout> or --dir <checkout>/packages/release`); };
+  if (segments.includes("node_modules")) refuse("an installed package (node_modules)");
+  if (segments.includes("trusted-gates") || segments.includes(".rightkit-managed")) refuse("a trusted-gates root");
+  return resolved;
+}
+
 /** Write the policy atomically, apps and runners in a deterministic order. */
 function writePolicy(file, policy) {
   const sorted = {
@@ -245,6 +260,7 @@ export function setAdmissionMode({ app, mode, setBy, stage, dir = here, now = ()
   if (!ADMISSION_MODES.includes(mode)) throw new QaPolicyError("mode must be warn or refuse");
   if (!setBy || !String(setBy).trim()) throw new QaPolicyError("set_by is required");
   if (stage !== undefined && !ADMISSION_STAGES.includes(stage)) throw new QaPolicyError(`stage must be ${ADMISSION_STAGES.join(" or ")}`);
+  assertWritablePolicyDir(dir);
   const file = path.join(dir, QA_ADMISSION_POLICY_FILE);
   const current = parsePolicyText(readFileSync(file, "utf8"), QA_ADMISSION_POLICY_FILE);
   const entry = { mode, since: now().toISOString().slice(0, 10), set_by: String(setBy) };
@@ -292,6 +308,7 @@ export function approveRunner({
     throw new QaPolicyError(`${file} --version reported ${JSON.stringify(output.slice(0, 80))} (exit ${run?.status ?? run?.error?.message ?? "none"}), expected "rightkit-qa ${version}"`);
   }
   if (sha256Of(readRunnerBytes(file)) !== sha256) throw new QaPolicyError(`${file} changed while its version was being checked; nothing was approved`);
+  assertWritablePolicyDir(dir);
   const policyFile = path.join(dir, QA_ADMISSION_POLICY_FILE);
   const current = parsePolicyText(readFileSync(policyFile, "utf8"), QA_ADMISSION_POLICY_FILE);
   const present = current.approvedRunners.find((item) => item.sha256 === sha256 && (item.platform ?? null) === platform);
@@ -308,10 +325,20 @@ export function approveRunner({
  * are test seams: `dir` (the policy directory), `env`, `now`, `spawn`, `versionsFile`, and `program` (the usage name).
  */
 export function main(args, {
-  stdout = (text) => console.log(text), stderr = (text) => console.error(text), dir, env, now, spawn, versionsFile, program = "release-qa-policy.mjs",
+  stdout = (text) => console.log(text), stderr = (text) => console.error(text), dir: injectedDir, env, now, spawn, versionsFile: injectedVersionsFile, program = "release-qa-policy.mjs",
 } = {}) {
   const value = (flag) => { const index = args.indexOf(flag); return index >= 0 ? args[index + 1] : undefined; };
   try {
+    // The policy directory: --dir <dir holding qa-admission-policy.json>, or --repo <RightKit checkout> (its packages/release). `show` may read the
+    // package's own copy; `set` and `approve-runner` write, so they name their checkout explicitly (#1235).
+    if (args.includes("--dir") && args.includes("--repo")) throw new QaPolicyError("give --dir or --repo, not both");
+    for (const flag of ["--dir", "--repo"]) if (args.includes(flag) && !nonEmpty(value(flag))) throw new QaPolicyError(`${flag} needs a value`);
+    const named = args.includes("--dir") ? path.resolve(value("--dir")) : args.includes("--repo") ? path.join(path.resolve(value("--repo")), "packages", "release") : undefined;
+    const dir = named ?? injectedDir;
+    if (named === undefined && injectedDir === undefined && (args[0] === "set" || args[0] === "approve-runner")) {
+      throw new QaPolicyError(`${args[0]} writes the policy: name the RightKit checkout with --repo <checkout> (or --dir <checkout>/packages/release); it never writes the installed package`);
+    }
+    const versionsFile = injectedVersionsFile ?? (named ? path.join(named, "rightkit-versions.json") : undefined);
     if (args[0] === "show") { stdout(JSON.stringify(loadAdmissionPolicy({ dir, env }).policy, null, 2)); return 0; }
     if (args[0] === "set") {
       // A `--stage` with no value must not fall through to the app-level write, which removes the stages.
@@ -325,7 +352,7 @@ export function main(args, {
       stdout(`qa runner approved: ${entry.sha256} rightkit-qa ${entry.version} (${entry.platform ?? "any platform"}, since ${entry.since}, set_by ${entry.set_by})`);
       return 0;
     }
-    stderr(`usage: ${program} show\n       ${program} set --app <app> --mode warn|refuse --set-by <name> [--stage installed]\n       ${program} approve-runner --runner <file> --version <v> --platform mac|win --set-by <name> [--note <text>]`);
+    stderr(`usage: ${program} show [--repo <checkout> | --dir <dir>]\n       ${program} set --repo <checkout> --app <app> --mode warn|refuse --set-by <name> [--stage installed]\n       ${program} approve-runner --repo <checkout> --runner <file> --version <v> --platform mac|win --set-by <name> [--note <text>]\n       (--dir <dir> names the directory holding ${QA_ADMISSION_POLICY_FILE} instead; a write inside node_modules or a trusted-gates root is refused)`);
     return 2;
   } catch (error) {
     stderr(`release-qa-policy: ${error.message}`);

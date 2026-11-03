@@ -81,7 +81,7 @@ pub mod icons;
 
 pub use anim::{Animation, Easing, FrameInfo};
 pub use color::Rgba;
-pub use events::OverlayEvent;
+pub use events::{OverlayEvent, OverlayKey};
 pub use geometry::{
     client_to_logical, device_regions, device_size, hit_test, place_frame, scale_for_dpi,
     DeviceRect, HitRegion, Placement, Size,

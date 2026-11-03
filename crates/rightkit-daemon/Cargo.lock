@@ -345,7 +345,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1246,15 +1246,16 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "libc",
  "windows",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-contracts"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "jsonschema",
  "serde",
@@ -1263,12 +1264,13 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "async-trait",
  "axum",
  "base64",
  "blake3",
+ "core-foundation",
  "form_urlencoded",
  "getrandom 0.4.3",
  "hyper",
@@ -1277,10 +1279,12 @@ dependencies = [
  "rightkit-child-process",
  "rightkit-contracts",
  "rightkit-fs",
+ "rightkit-identity",
  "rightkit-oauth",
  "rightkit-sidecar",
  "ring",
  "rustls",
+ "security-framework",
  "serde",
  "serde_json",
  "subtle",
@@ -1288,19 +1292,21 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "windows",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.10"
+version = "0.4.12"
 dependencies = [
  "libc",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-http"
-version = "0.3.10"
+version = "0.3.11"
 dependencies = [
  "getrandom 0.4.3",
  "reqwest",
@@ -1310,8 +1316,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-identity"
+version = "0.1.1"
+dependencies = [
+ "getrandom 0.4.3",
+ "rightkit-fs",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "rightkit-oauth"
-version = "0.10.1"
+version = "0.10.4"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -1336,7 +1353,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.2"
+version = "0.1.3"
 
 [[package]]
 name = "ring"
@@ -1371,7 +1388,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1428,7 +1445,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1696,7 +1713,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2098,7 +2115,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

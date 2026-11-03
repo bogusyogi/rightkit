@@ -116,7 +116,7 @@ impl TrafficLights {
 }
 
 /// One standard window button's frame in its superview's coordinates (AppKit points, origin at the
-/// bottom-left) and whether it is hidden. QA probe: compiled only with the `qa-probes` feature in a debug-assertions build.
+/// bottom-left) and whether it is hidden. QA probe: compiled only with the `qa-probes` feature.
 #[cfg(feature = "qa-probes")]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct ButtonFrame {
@@ -142,7 +142,7 @@ impl ButtonFrame {
 }
 
 /// The three standard window buttons, read without changing anything. See [`button_frames`].
-/// QA probe: compiled only with the `qa-probes` feature in a debug-assertions build.
+/// QA probe: compiled only with the `qa-probes` feature.
 #[cfg(feature = "qa-probes")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ButtonFrames {
@@ -179,7 +179,7 @@ impl ButtonFrames {
 /// window has no NSWindow or a button, `Timeout` when the main thread does not answer. On every
 /// platform other than macOS it returns [`ShellError::Unsupported`].
 ///
-/// QA probe: compiled only with the `qa-probes` feature in a debug-assertions build (a release build refuses the feature).
+/// QA probe: compiled only with the `qa-probes` feature (a release build must not enable it).
 #[cfg(feature = "qa-probes")]
 pub fn button_frames(window: &WebviewWindow<Wry>) -> Result<ButtonFrames, ShellError> {
     #[cfg(target_os = "macos")]

@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/license",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "packageManager": "pnpm@12.16.1",
   "description": "Native licence invoke client & safe display views for Right Suite apps.",
   "license": "MIT OR Apache-2.0",
@@ -11,20 +11,11 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./testing": {
-      "development": {
-        "types": "./dist/testing.d.ts",
-        "import": "./dist/testing.js"
-      },
-      "default": null
     }
   },
   "files": [
     "dist/index.js",
     "dist/index.d.ts",
-    "dist/testing.js",
-    "dist/testing.d.ts",
     "LICENSE-MIT",
     "LICENSE-APACHE"
   ],
@@ -32,13 +23,11 @@
   "scripts": {
     "build": "tsc",
     "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.5"
+    "typescript": "^7.0.2"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",

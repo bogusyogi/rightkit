@@ -16,6 +16,8 @@ import { assertInstalledQaAdmission, loadQaFloor, QaAdmissionError, qaReceiptPat
 import { platformDirOf, platformOfDir } from "./platform-dir.mjs";
 
 
+const MOBILE_PLATFORMS = new Set(["ios", "android"]);
+
 /** "missing" when no receipt exists; "rejected" for anything else the gate refused (bad receipt, no key, wrong commit). */
 function refusalStatus(error) {
   return /^no installed QA receipt/.test(error.message) ? "missing" : "rejected";
@@ -61,6 +63,19 @@ export const installedQaRecordPath = ({ repoRoot, releaseId, platform }) =>
 
 /** Publication stage (upload, publish-update, github). Records the outcome durably; throws in `refuse` mode. */
 export function admitInstalledQa(opts, { provider, now = () => new Date(), ...hooks } = {}) {
+  // iOS and Android have no installed-QA lane: the qa command takes mac|win only, and qualification is the store's test track
+  // (the CHANGELOG door-platforms entry). Nothing can produce a receipt for them, so no warning names a command that cannot run (#976).
+  if (MOBILE_PLATFORMS.has(opts.platform)) {
+    const record = { status: "not-applicable", reason: `${opts.platform} has no installed QA lane; qualification is the store test track`, checkedAt: now().toISOString(), provider };
+    const file = installedQaRecordPath({ repoRoot: opts.repoRoot, releaseId: opts.manifest.releaseId, platform: opts.platform });
+    try {
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, `${JSON.stringify(record, null, 2)}\n`);
+    } catch (error) {
+      (hooks.warn ?? ((line) => console.error(line)))(`[right-release] could not record the ${opts.platform} QA status at ${file} (${error.message}); release continues.`);
+    }
+    return record;
+  }
   const { loaded, app, mode } = policyContext(opts, hooks, "installed");
   const outcome = admit(() => assertInstalledQaAdmission({ ...opts, afterVerify: hardening("installed", opts, loaded, { ...hooks, now }) }), { ...hooks, mode, app });
   const record = {
@@ -88,6 +103,7 @@ function installedStatus({ repoRoot, releaseId, platformDir }) {
   const published = existsSync(stateDir) && readdirSync(stateDir).some((name) => /^verified-.*\.json$/.test(name));
   if (record) return { uploaded: true, status: record.status, ...(record.reason ? { reason: record.reason } : {}), ...(record.checkedAt ? { checkedAt: record.checkedAt } : {}) };
   if (!published) return { uploaded: false, status: "not-uploaded" };
+  if (MOBILE_PLATFORMS.has(platformDir)) return { uploaded: true, status: "not-applicable", reason: `${platformDir} has no installed QA lane; qualification is the store test track` };
   // Uploaded before outcomes were recorded: fall back to the receipt file the old gate required.
   const receipt = readQaReceipt(qaReceiptPath({ repoRoot, releaseId, platform: platformOfDir(platformDir), stage: "installed" }));
   if (receipt?.status === "passed") return { uploaded: true, status: "passed", reason: "legacy upload; receipt file present, not re-verified" };
@@ -108,7 +124,7 @@ export function auditQa({ repoRoot, since } = {}) {
       rows.push({
         releaseId, platform: platformDir, version: manifest.version ?? null, sealedAt: manifest.sealedAt ?? null, uploaded,
         installed: installedRest,
-        ok: !uploaded || installedRest.status === "passed",
+        ok: !uploaded || installedRest.status === "passed" || installedRest.status === "not-applicable",
       });
     }
   }
@@ -126,7 +142,7 @@ export function formatAuditTable(report) {
     line(header), ...body.map(line),
     "",
     flagged.length
-      ? `${flagged.length} uploaded build(s) lack passing QA:\n${flagged.map((row) => `  ${row.releaseId} ${row.platform}: ${[row.installed.status !== "passed" && `installed ${row.installed.status}${row.installed.reason ? ` (${row.installed.reason})` : ""}`].filter(Boolean).join("; ")}`).join("\n")}`
+      ? `${flagged.length} uploaded build(s) lack passing QA:\n${flagged.map((row) => `  ${row.releaseId} ${row.platform}: ${[row.installed.status !== "passed" && row.installed.status !== "not-applicable" && `installed ${row.installed.status}${row.installed.reason ? ` (${row.installed.reason})` : ""}`].filter(Boolean).join("; ")}`).join("\n")}`
       : "all uploaded builds have passing QA",
   ].join("\n");
 }

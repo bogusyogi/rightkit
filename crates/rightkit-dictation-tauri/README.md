@@ -23,10 +23,9 @@ destination work: freezing the start and stop destinations (`capture_*_destinati
 `HostPin` focus pins) and choosing where the final transcript goes (`deliver_final`). The runtime
 sequences these calls; it never touches an accessibility API itself.
 
-## Environment switches (test-mode builds only)
+## No environment switches
 
-`RIGHTKIT_DICTATION_ENGINE` (`fake` selects the in-process fake engine), `RIGHTKIT_SIDECAR_AUTORESTART`
-and `RIGHTKIT_HISTORY` (`json` selects the plaintext history store).
+The runtime is always the supervised engine sidecar with encrypted history. There is no test mode, no fake engine and no environment selector (rightkit#1437).
 
 ## Not included
 

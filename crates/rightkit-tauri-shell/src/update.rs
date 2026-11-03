@@ -56,6 +56,7 @@
 
 #[cfg(feature = "update-license")]
 mod accepted_keys;
+pub mod managed_install;
 pub mod tauri_transport;
 pub use tauri_transport::{TauriUpdateConfig, TauriUpdateTransport};
 
@@ -146,6 +147,8 @@ pub enum UpdateMessage {
     None,
     Unconfigured,
     Busy,
+    /// An install waits until the app is idle (`UpdateHost::set_busy`). The app supplies the words.
+    Deferred,
     Unresolved,
     NetworkUnavailable,
     Revoked,
@@ -326,6 +329,9 @@ pub enum InstallState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum InstallReason {
+    /// The app is busy with work an install must not interrupt (`UpdateHost::set_busy`). The handle
+    /// stays valid; install again when the app is idle.
+    Deferred,
     NotLicensed,
     Expired,
     Revoked,
@@ -355,6 +361,32 @@ impl From<UpdateRefusal> for InstallReason {
             UpdateRefusal::None => Self::None,
         }
     }
+}
+
+/// Relaunch the app after a completed install (#1132): releases the single-instance claims so the
+/// relaunched process is not refused as a second instance, then restarts. Refused unless an install
+/// has finished on this host, so the renderer cannot restart the app on its own. Never returns on
+/// success.
+/// The app's busy flag for the install gate (#1019). Trusted update-service callers only (the host's
+/// caller gate applies), like the other update commands.
+#[tauri::command]
+pub fn rightkit_update_set_busy(webview: Webview<Wry>, busy: bool) -> Result<(), UpdateHostError> {
+    let host = update_host(&webview, "set_busy")?;
+    host.set_busy(busy);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn rightkit_update_relaunch(webview: Webview<Wry>) -> Result<(), UpdateHostError> {
+    let host = update_host(&webview, "relaunch")?;
+    if !host.install_completed() {
+        return Err(UpdateHostError::new(
+            UpdateErrorCode::Unknown,
+            UpdateMessage::UpdateFailed,
+        ));
+    }
+    crate::single_instance::SingleInstance::destroy();
+    webview.app_handle().restart()
 }
 
 /// The answer to `rightkit_update_install`.
@@ -733,6 +765,10 @@ pub struct UpdatePolicy {
     /// Where `release_status` reads from; none means the host answers `unsupported`. Its host
     /// must pass `hosts` (checked again on every read).
     pub release_status_url: Option<Url>,
+    /// Let an install that a package manager or a store owns (see [`managed_install`]) update itself.
+    /// Default `false`: `UpdateHost::check` refuses it with `unsupported`, because the manager owns the
+    /// files and the self-update would fight it.
+    pub allow_managed_install: bool,
 }
 
 impl UpdatePolicy {
@@ -744,6 +780,7 @@ impl UpdatePolicy {
             max_handles: MAX_HANDLES,
             handle_ttl: DEFAULT_HANDLE_TTL,
             release_status_url: None,
+            allow_managed_install: false,
         }
     }
 
@@ -754,8 +791,14 @@ impl UpdatePolicy {
         let hosts = UpdateHostPolicy::right_suite(app_key)?;
         let status = rightkit_license::suite_api::release_status_url(app_key)
             .map_err(|e| ShellError::Invalid(format!("Right Suite release status: {e}")))?;
-        let status = Url::parse(&status)
+        let mut status = Url::parse(&status)
             .map_err(|_| ShellError::Invalid("Right Suite release status URL".into()))?;
+        // The status endpoint filters by `platform` and answers the latest release across all
+        // platforms without it, so the status read names this host's OS (`darwin` or `windows`,
+        // the updater's platform names without the architecture suffix).
+        let os = current_platform();
+        let os = os.split('-').next().unwrap_or_default().to_owned();
+        status.query_pairs_mut().append_pair("platform", &os);
         Ok(Self::new(hosts).release_status_url(status))
     }
 
@@ -781,6 +824,12 @@ impl UpdatePolicy {
 
     pub fn handle_ttl(mut self, ttl: Duration) -> Self {
         self.handle_ttl = ttl;
+        self
+    }
+
+    /// Allow self-update of a package-manager-managed install (off by default).
+    pub fn allow_managed_install(mut self, allow: bool) -> Self {
+        self.allow_managed_install = allow;
         self
     }
 
@@ -872,6 +921,11 @@ struct HostState {
     consumed: VecDeque<String>,
     last_message: Option<UpdateMessage>,
     failed: bool,
+    /// An install ran to completion on the transport (the installer ended the process or the app
+    /// relaunches). Gates `rightkit_update_relaunch` (#1132).
+    installed: bool,
+    /// The app's busy flag (`UpdateHost::set_busy`, #1019).
+    app_busy: bool,
 }
 
 impl HostState {
@@ -971,6 +1025,13 @@ impl UpdateHost {
 
     /// Check for an update. Starts a new generation: every earlier handle becomes stale.
     pub fn check(&self) -> Result<UpdateCheckView, UpdateHostError> {
+        // A package manager or store owns the files of a managed install: it updates the app, not us.
+        if !self.policy.allow_managed_install && managed_install::detect().is_some() {
+            return Err(UpdateHostError::new(
+                UpdateErrorCode::Unsupported,
+                UpdateMessage::Unsupported,
+            ));
+        }
         {
             let mut state = lock(&self.state);
             if state.phase() != Phase::Idle {
@@ -1009,13 +1070,23 @@ impl UpdateHost {
                 .begin(UpdateRoute::Public)
                 .map_err(|r| UpdateHostError::new(UpdateErrorCode::Unknown, r.message()))?,
         };
-        let found = self
-            .transport
-            .check(&self.authorizer(&metadata_binding))
-            .map_err(|e| {
-                let (code, message) = transport_message(e);
-                UpdateHostError::new(code, message)
-            })?;
+        let check = |binding: &BindingToken| self.transport.check(&self.authorizer(binding));
+        // (#1132) A valid entitlement below the release's tier must still find public patches: the
+        // manifest request refused as tier-ineligible retries on the public route.
+        let found = match check(&metadata_binding) {
+            Err(TransportError::Refused(UpdateRefusal::TierIneligible)) if private.is_ok() => {
+                let public = self
+                    .authority
+                    .begin(UpdateRoute::Public)
+                    .map_err(|r| UpdateHostError::new(UpdateErrorCode::Unknown, r.message()))?;
+                check(&public)
+            }
+            other => other,
+        }
+        .map_err(|e| {
+            let (code, message) = transport_message(e);
+            UpdateHostError::new(code, message)
+        })?;
         let checked_at = now_epoch_ms();
         let none = |refusal: UpdateRefusal| UpdateCheckView {
             available: false,
@@ -1153,6 +1224,18 @@ impl UpdateHost {
     }
 
     /// Cancel the download of `handle_id`. `cancelled: false` when nothing was downloading it.
+    /// Whether an install ran to completion on this host (see `rightkit_update_relaunch`).
+    pub fn install_completed(&self) -> bool {
+        lock(&self.state).installed
+    }
+
+    /// Tell the host the app is busy (`true`) or idle (`false`) (#1019). While busy an install is
+    /// refused as `deferred` and the handle and its staged bytes are kept, so the same handle installs
+    /// after the app clears the flag. A check is unaffected.
+    pub fn set_busy(&self, busy: bool) {
+        lock(&self.state).app_busy = busy;
+    }
+
     pub fn cancel(&self, handle_id: &str) -> CancelResult {
         let state = lock(&self.state);
         let active = state.phase() == Phase::Downloading
@@ -1336,6 +1419,9 @@ impl UpdateHost {
                     UpdateMessage::UpdateRefused,
                 ));
             }
+            if state.app_busy {
+                return Ok(refused(InstallReason::Deferred, UpdateMessage::Deferred));
+            }
             let current = state.generation;
             let Some(entry) = state
                 .handles
@@ -1409,11 +1495,14 @@ impl UpdateHost {
         match self.transport.install(staged) {
             // The installer is running (the app will exit and relaunch): the phase stays
             // `Installing` until the process ends.
-            Ok(()) => Ok(UpdateInstallResult {
-                state: InstallState::Installing,
-                reason: None,
-                message: UpdateMessage::None,
-            }),
+            Ok(()) => {
+                self.finish(|s| s.installed = true);
+                Ok(UpdateInstallResult {
+                    state: InstallState::Installing,
+                    reason: None,
+                    message: UpdateMessage::None,
+                })
+            }
             Err(e) => {
                 let (_, message) = transport_message(e);
                 self.finish(|s| {

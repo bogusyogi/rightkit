@@ -47,15 +47,3 @@ pub fn apply_sidecar_control_tail(
         }
     }
 }
-
-#[doc(hidden)]
-pub fn apply_sidecar_control_tail_for_test(input: &str) -> (bool, String, bool) {
-    let mut transcript = input.to_string();
-    let mut want_enter = false;
-    let action = apply_sidecar_control_tail(&mut transcript, &mut want_enter);
-    (
-        action == SidecarControlTail::Deliver,
-        transcript,
-        want_enter,
-    )
-}

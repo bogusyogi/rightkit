@@ -18,9 +18,9 @@ engine = ["rightkit-tauri-shell/engine"]
 qa = ["dep:rightkit-qa"]
 
 [dependencies]
-# The Tauri 2.12 graph the apps lock (ViewRight src-tauri lock: tauri 2.12.4, tauri-runtime 2.12.2,
-# tauri-runtime-wry 2.12.2, tauri-utils 2.10.2, wry 0.57.0, tao 0.37.1, webview2-com 0.39.1, windows 0.62.2).
-tauri = "=2.12.4"
+# The Tauri 2.12 graph the apps lock (HeardRight moved to tauri 2.12.5, wry 0.57, webview2-com 0.39,
+# windows 0.62; rightkit#1283). The Cargo.lock beside this file follows the pin through the gate's lock patch.
+tauri = "=2.12.5"
 # default-features = false is what drops wv2-0_38; wv2-0_39 is the only generation selected.
 rightkit-tauri-shell = { path = "../../../crates/rightkit-tauri-shell", default-features = false, features = ["wv2-0_39"] }
 # Optional (feature `qa`): default-features = false keeps the crate's wv2-0_38 generation off; `control` pulls tauri.

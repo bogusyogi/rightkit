@@ -87,7 +87,8 @@ pub(crate) fn strip_cross_origin(headers: &mut Vec<(String, String)>, secrets: &
 }
 
 /// Shape and origin rules for one resolved redirect target, on strings only: the URL must be
-/// an absolute http(s) URL without whitespace, control characters or backslashes, must not
+/// an absolute http(s) URL without whitespace, control characters or backslashes, at most
+/// [`crate::netpolicy::MAX_REDIRECT_URL_LEN`] bytes, with a nonzero port, must not
 /// carry userinfo, and, when the request has an approved set, must be at the origin of
 /// `request_url` or in the set. The check the clients and
 /// [`crate::netpolicy::check_redirect_target`] share.
@@ -96,8 +97,14 @@ pub(crate) fn vet_target(
     next_url: &str,
     approved: Option<&ApprovedOrigins>,
 ) -> Result<(), RedirectRefusal> {
+    if next_url.len() > crate::netpolicy::MAX_REDIRECT_URL_LEN {
+        return Err(RedirectRefusal::TooLong);
+    }
     let (next, userinfo) =
         crate::netpolicy::url_origin_parts(next_url).ok_or(RedirectRefusal::Malformed)?;
+    if next.2 == 0 {
+        return Err(RedirectRefusal::Malformed);
+    }
     if userinfo {
         return Err(RedirectRefusal::Credentials);
     }
@@ -109,6 +116,15 @@ pub(crate) fn vet_target(
         return Ok(());
     }
     Err(RedirectRefusal::UnapprovedOrigin)
+}
+
+/// The typed error for a `Location` that is absent or does not resolve: `answering_url` is
+/// the hop that sent the redirect, whose host the error names (the target is unknown).
+pub(crate) fn unusable_location(answering_url: &str) -> crate::error::HttpError {
+    crate::error::HttpError::RedirectRefused {
+        host: host_of(answering_url).unwrap_or_default(),
+        reason: RedirectRefusal::UnusableLocation,
+    }
 }
 
 /// [`vet_target`] for the clients: the refusal as a typed [`crate::error::HttpError`]. The

@@ -269,36 +269,3 @@ pub(crate) fn reject_ui_concepts(value: &Value) -> Result<(), EngineContractErro
         Ok(())
     }
 }
-
-#[derive(Debug, Clone)]
-pub struct FakeEngine {
-    transcript: String,
-}
-
-impl FakeEngine {
-    pub fn fixed_transcript(transcript: impl Into<String>) -> Self {
-        Self {
-            transcript: transcript.into(),
-        }
-    }
-
-    pub fn transcript_final_frame(
-        &self,
-        session_id: &str,
-        request_id: &str,
-        trace_id: &str,
-    ) -> EngineFrame {
-        EngineFrame::base(
-            EngineSchemaName::TranscriptFinal,
-            request_id,
-            Some(session_id.to_string()),
-            trace_id,
-            Some(EnginePayload::TranscriptFinal {
-                text: self.transcript.clone(),
-                confidence: Some(1.0),
-                diagnostics: None,
-            }),
-            None,
-        )
-    }
-}

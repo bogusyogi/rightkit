@@ -16,12 +16,23 @@ use rightkit_db::rusqlite::{self, params, params_from_iter, Connection, Optional
 use serde_json::Value;
 
 use super::{
-    add_event_on, artifact_row, check_fence, init_schema as init_core_schema, now, row, Adoption,
-    Job, JobRecord, LifecycleEvent, NewJob, PruneReport, Recovery, Resolution, Submission,
+    add_event_on, artifact_row, check_fence, init_schema as init_core_schema, row, Adoption, Job,
+    JobRecord, LifecycleEvent, NewJob, PruneReport, Recovery, Resolution, Submission,
     SubmitOptions, Submitted, Transition, CANCELLED, COLS, COMPLETE, FAILED, NCORE,
 };
 use crate::config::{Ext, StatusModel, StoreConfig};
-use crate::error::{JobError, JobResult};
+use crate::error::{JobError, JobResult, JOB_EXISTS};
+
+/// Which jobs [`JobTable::delete`] may remove.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum DeleteMode {
+    /// Only `complete`, `failed` and `cancelled`; any other status is refused with
+    /// `illegal_transition` and nothing is written.
+    #[default]
+    Terminal,
+    /// Whatever the status.
+    AnyStatus,
+}
 
 /// Preconditions of one write: the attempt generation it belongs to and/or the row revision it
 /// was read at. `Expect::default()` (or [`Expect::new`]) checks nothing.
@@ -373,7 +384,7 @@ impl JobTable {
         let id = preset_id
             .map(str::to_string)
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        let t = now();
+        let t = self.cfg.now();
         let mut cols =
             "job_id, request_id, kind, request_json, status, attempts, created_at, updated_at"
                 .to_string();
@@ -414,11 +425,34 @@ impl JobTable {
         names: &[String],
         vals: Vec<rusqlite::types::Value>,
     ) -> JobResult<(JobRecord, Vec<String>)> {
-        let (id, rec) = self.insert_new(tx, n, names, vals, preset_id)?;
+        if let Some(chosen) = &opts.job_id {
+            super::import::check_job_id(chosen)?;
+            let taken = tx
+                .query_row(
+                    &format!("SELECT 1 FROM {} WHERE job_id=?1", self.name()),
+                    [chosen],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_some();
+            if taken {
+                return Err(JobError::new(
+                    JOB_EXISTS,
+                    format!("job {chosen} already exists; nothing was written"),
+                ));
+            }
+        }
+        let (id, rec) =
+            self.insert_new(tx, n, names, vals, preset_id.or(opts.job_id.as_deref()))?;
         let class = match opts.recovery {
             Recovery::Resume => self.cfg.kind_recovery(&n.kind).unwrap_or(Recovery::Resume),
             other => other,
         };
+        if class == Recovery::Uncertain && !self.cfg.statuses.is_held(super::UNCERTAIN) {
+            return Err(JobError::bad_input(
+                "Recovery::Uncertain needs the held `uncertain` status (StatusModel::with_uncertain)",
+            ));
+        }
         if class != Recovery::default() || opts.single_flight.is_some() {
             tx.execute(
                 "INSERT INTO rk_job_meta (job_id, recovery, flight_key) VALUES (?1,?2,?3)",
@@ -448,7 +482,7 @@ impl JobTable {
                     .error(Some(err.to_json_with(self.cfg.includes_retryable())));
                 self.exec(tx, &before, &t)?;
                 add_event_on(
-                    self.name(),
+                    &self.cfg,
                     tx,
                     &old_id,
                     None,
@@ -542,7 +576,7 @@ impl JobTable {
         }
         let mut sets = vec!["updated_at=?2".to_string()];
         let mut vals: Vec<rusqlite::types::Value> =
-            vec![before.job.job_id.clone().into(), now().into()];
+            vec![before.job.job_id.clone().into(), self.cfg.now().into()];
         let mut bind = |sets: &mut Vec<String>, col: &str, v: rusqlite::types::Value| {
             vals.push(v);
             sets.push(format!("{col}=?{}", vals.len()));
@@ -638,7 +672,7 @@ impl JobTable {
         let after = self.exec(conn, &before, t)?;
         let ev = match event {
             Some(e) => Some(add_event_on(
-                self.name(),
+                &self.cfg,
                 conn,
                 job_id,
                 None,
@@ -759,11 +793,33 @@ impl JobTable {
         job_id: &str,
         expect: Expect,
     ) -> JobResult<PruneReport> {
+        self.delete(conn, job_id, DeleteMode::Terminal, expect)
+    }
+
+    /// [`JobTable::delete_terminal`] with a choice of which jobs may go. With
+    /// [`DeleteMode::Terminal`] it is exactly `delete_terminal`. With [`DeleteMode::AnyStatus`]
+    /// the job is removed whatever its status (queued, running, held, a retryable status the app
+    /// named like a failure, or terminal), together with the same crate-owned side rows, in the
+    /// same nested savepoint on the caller's connection, so an erase can run inside the caller's
+    /// own transaction (with foreign-key checks deferred to its commit) and roll back with it.
+    ///
+    /// A non-terminal job is removed, not cancelled: no transition is written and no
+    /// `StoreHook` callback runs. A runner that still holds the job (in this or another process)
+    /// finds it gone: its next fenced write fails and it stops, and nothing it returns is stored.
+    /// Setting an in-process [`CancelToken`](super::CancelToken) for a running job, and removing
+    /// files, stay with the caller, as for `delete_terminal`. `Expect` applies in both modes.
+    pub fn delete(
+        &self,
+        conn: &Connection,
+        job_id: &str,
+        mode: DeleteMode,
+        expect: Expect,
+    ) -> JobResult<PruneReport> {
         atomic(conn, || {
             self.check_expect(conn, job_id, &expect)?;
             let before = self.load(conn, job_id)?;
             self.check_revision(&before, &expect)?;
-            if !before.job.is_terminal() {
+            if mode == DeleteMode::Terminal && !before.job.is_terminal() {
                 return Err(JobError::new(
                     "illegal_transition",
                     format!(
@@ -795,6 +851,9 @@ impl JobTable {
                 [job_id],
             )?;
             conn.execute("DELETE FROM rk_job_meta WHERE job_id=?1", [job_id])?;
+            if self.cfg.outbox {
+                conn.execute("DELETE FROM rk_outbox WHERE job_id=?1", [job_id])?;
+            }
             conn.execute("DELETE FROM rk_job_deleting WHERE job_id=?1", [job_id])?;
             let mut guard = String::new();
             let mut vals: Vec<rusqlite::types::Value> = vec![job_id.to_string().into()];
@@ -878,7 +937,7 @@ impl JobTable {
             let after = self.exec(conn, &before, &Transition::keep().count_attempt())?;
             let attempt = after.job.attempts;
             let key = format!("{job_id}:{attempt}");
-            let t = now();
+            let t = self.cfg.now();
             conn.execute(
                 "INSERT OR REPLACE INTO rk_job_submissions (job_id, attempt, idempotency_key, state, created_at, updated_at) VALUES (?1,?2,?3,'pending',?4,?4)",
                 params![job_id, attempt, key, t],
@@ -917,7 +976,7 @@ impl JobTable {
             let after = self.exec(conn, &before, &t)?;
             conn.execute(
                 "UPDATE rk_job_submissions SET state='accepted', external_id=?3, updated_at=?4 WHERE job_id=?1 AND attempt=?2",
-                params![job_id, after.job.attempts, external_id, now()],
+                params![job_id, after.job.attempts, external_id, self.cfg.now()],
             )?;
             Ok(Some(after))
         })
@@ -951,7 +1010,7 @@ impl JobTable {
             let after = self.exec(conn, &before, &t)?;
             conn.execute(
                 "UPDATE rk_job_submissions SET state='failed', error_json=?3, updated_at=?4 WHERE job_id=?1 AND attempt=?2",
-                params![job_id, before.job.attempts, error.to_json_with(self.cfg.includes_retryable()).to_string(), now()],
+                params![job_id, before.job.attempts, error.to_json_with(self.cfg.includes_retryable()).to_string(), self.cfg.now()],
             )?;
             Ok(Some(after))
         })
@@ -983,10 +1042,10 @@ impl JobTable {
         let after = self.exec_in(conn, &before, &t, true)?;
         conn.execute(
             "UPDATE rk_job_submissions SET error_json=?3, updated_at=?4 WHERE job_id=?1 AND attempt=?2",
-            params![job_id, before.job.attempts, ej.to_string(), now()],
+            params![job_id, before.job.attempts, ej.to_string(), self.cfg.now()],
         )?;
         add_event_on(
-            self.name(),
+            &self.cfg,
             conn,
             job_id,
             None,
@@ -1070,14 +1129,21 @@ impl JobTable {
             ),
         };
         let after = self.exec_in(conn, &before, &t, true)?;
+        if matches!(r, Resolution::Resubmit) {
+            // Running it again is the operator's decision: an uncertain job returns to `resume`.
+            conn.execute(
+                "UPDATE rk_job_meta SET recovery='resume' WHERE job_id=?1 AND recovery='uncertain'",
+                [job_id],
+            )?;
+        }
         if self.cfg.external_id.is_some() {
             conn.execute(
                 "UPDATE rk_job_submissions SET state=?3, updated_at=?4 WHERE job_id=?1 AND attempt=?2",
-                params![job_id, before.job.attempts, sub_state, now()],
+                params![job_id, before.job.attempts, sub_state, self.cfg.now()],
             )?;
         }
         add_event_on(
-            self.name(),
+            &self.cfg,
             conn,
             job_id,
             None,

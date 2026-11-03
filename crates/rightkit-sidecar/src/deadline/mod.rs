@@ -64,6 +64,7 @@ use std::os::windows::io::AsRawHandle;
 use std::io;
 use std::time::Instant;
 
+use crate::length_prefixed::FrameOptions;
 use crate::FrameError;
 
 /// Staging size for one overlapped transfer and for body growth on read.
@@ -91,7 +92,24 @@ pub fn read_frame_deadline<T: AsRawFd + ?Sized>(
     deadline: Instant,
     max_len: usize,
 ) -> Result<Vec<u8>, FrameError> {
-    read_frame_raw(source.as_raw_fd(), deadline, max_len)
+    read_frame_raw(
+        source.as_raw_fd(),
+        deadline,
+        max_len,
+        FrameOptions::default(),
+    )
+}
+
+/// As [`read_frame_deadline`] under [`FrameOptions`]: with `allow_empty`, a declared length of
+/// zero returns an empty body. Everything else is unchanged.
+#[cfg(unix)]
+pub fn read_frame_deadline_opts<T: AsRawFd + ?Sized>(
+    source: &T,
+    deadline: Instant,
+    max_len: usize,
+    opts: FrameOptions,
+) -> Result<Vec<u8>, FrameError> {
+    read_frame_raw(source.as_raw_fd(), deadline, max_len, opts)
 }
 
 /// Reads one length-prefixed frame from `source` and returns its body.
@@ -103,7 +121,24 @@ pub fn read_frame_deadline<T: AsRawHandle + ?Sized>(
     deadline: Instant,
     max_len: usize,
 ) -> Result<Vec<u8>, FrameError> {
-    read_frame_raw(source.as_raw_handle(), deadline, max_len)
+    read_frame_raw(
+        source.as_raw_handle(),
+        deadline,
+        max_len,
+        FrameOptions::default(),
+    )
+}
+
+/// As [`read_frame_deadline`] under [`FrameOptions`]: with `allow_empty`, a declared length of
+/// zero returns an empty body. Everything else is unchanged.
+#[cfg(windows)]
+pub fn read_frame_deadline_opts<T: AsRawHandle + ?Sized>(
+    source: &T,
+    deadline: Instant,
+    max_len: usize,
+    opts: FrameOptions,
+) -> Result<Vec<u8>, FrameError> {
+    read_frame_raw(source.as_raw_handle(), deadline, max_len, opts)
 }
 
 /// Writes `body` to `sink` as one length-prefixed frame.
@@ -118,7 +153,26 @@ pub fn write_frame_deadline<T: AsRawFd + ?Sized>(
     deadline: Instant,
     max_len: usize,
 ) -> Result<(), FrameError> {
-    write_frame_raw(sink.as_raw_fd(), body, deadline, max_len)
+    write_frame_raw(
+        sink.as_raw_fd(),
+        body,
+        deadline,
+        max_len,
+        FrameOptions::default(),
+    )
+}
+
+/// As [`write_frame_deadline`] under [`FrameOptions`]: with `allow_empty`, an empty body is
+/// sent as the four-byte zero length. Everything else is unchanged.
+#[cfg(unix)]
+pub fn write_frame_deadline_opts<T: AsRawFd + ?Sized>(
+    sink: &T,
+    body: &[u8],
+    deadline: Instant,
+    max_len: usize,
+    opts: FrameOptions,
+) -> Result<(), FrameError> {
+    write_frame_raw(sink.as_raw_fd(), body, deadline, max_len, opts)
 }
 
 /// Writes `body` to `sink` as one length-prefixed frame.
@@ -131,7 +185,26 @@ pub fn write_frame_deadline<T: AsRawHandle + ?Sized>(
     deadline: Instant,
     max_len: usize,
 ) -> Result<(), FrameError> {
-    write_frame_raw(sink.as_raw_handle(), body, deadline, max_len)
+    write_frame_raw(
+        sink.as_raw_handle(),
+        body,
+        deadline,
+        max_len,
+        FrameOptions::default(),
+    )
+}
+
+/// As [`write_frame_deadline`] under [`FrameOptions`]: with `allow_empty`, an empty body is
+/// sent as the four-byte zero length. Everything else is unchanged.
+#[cfg(windows)]
+pub fn write_frame_deadline_opts<T: AsRawHandle + ?Sized>(
+    sink: &T,
+    body: &[u8],
+    deadline: Instant,
+    max_len: usize,
+    opts: FrameOptions,
+) -> Result<(), FrameError> {
+    write_frame_raw(sink.as_raw_handle(), body, deadline, max_len, opts)
 }
 
 /// A stream that exchanges deadline-bounded frames.
@@ -212,7 +285,12 @@ fn eof(message: &'static str) -> FrameError {
     FrameError::Io(io::Error::new(io::ErrorKind::UnexpectedEof, message))
 }
 
-fn read_frame_raw(raw: sys::Raw, deadline: Instant, max_len: usize) -> Result<Vec<u8>, FrameError> {
+fn read_frame_raw(
+    raw: sys::Raw,
+    deadline: Instant,
+    max_len: usize,
+    opts: FrameOptions,
+) -> Result<Vec<u8>, FrameError> {
     sys::check_mode(raw)?;
     let mut header = [0u8; 4];
     let mut got = 0usize;
@@ -225,7 +303,7 @@ fn read_frame_raw(raw: sys::Raw, deadline: Instant, max_len: usize) -> Result<Ve
     }
 
     let length = u32::from_be_bytes(header) as usize;
-    if length == 0 {
+    if length == 0 && !opts.allow_empty {
         return Err(FrameError::Io(io::Error::new(
             io::ErrorKind::InvalidData,
             "zero-length frame",
@@ -260,8 +338,9 @@ fn write_frame_raw(
     body: &[u8],
     deadline: Instant,
     max_len: usize,
+    opts: FrameOptions,
 ) -> Result<(), FrameError> {
-    if body.is_empty() {
+    if body.is_empty() && !opts.allow_empty {
         return Err(FrameError::Io(io::Error::new(
             io::ErrorKind::InvalidData,
             "empty frame body",

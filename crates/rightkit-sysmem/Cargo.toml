@@ -1,0 +1,41 @@
+[package]
+name = "rightkit-sysmem"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.0"
+description = "Safe API over the platform memory calls: return free allocator pages to the OS, read physical memory on Windows, and find a window's monitor colour profile."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_sysmem"
+path = "src/lib.rs"
+
+[dependencies]
+
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false

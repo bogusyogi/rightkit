@@ -217,6 +217,15 @@ pub(crate) fn enforce_never_show(app: &AppHandle<Wry>, policy: &ShowPolicy) {
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn enforce_never_show(_app: &AppHandle<Wry>, _policy: &ShowPolicy) {}
 
+/// macOS: start under the Accessory policy (no Dock icon) for an app that starts with no window.
+#[cfg(target_os = "macos")]
+pub(crate) fn enforce_start_accessory(app: &AppHandle<Wry>) {
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn enforce_start_accessory(_app: &AppHandle<Wry>) {}
+
 /// How a launch takes part in single-instance arbitration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstanceMode {
@@ -313,6 +322,13 @@ pub struct ActivationTracker {
 }
 
 impl ActivationTracker {
+    /// A tracker for a process that starts under `accessory` (see `ShellBuilder::start_accessory`).
+    pub fn starting(accessory: bool) -> Self {
+        Self {
+            accessory: AtomicBool::new(accessory),
+        }
+    }
+
     /// The change to apply for `want`, or `None` when it is no change.
     pub fn transition(&self, want: Option<Activation>) -> Option<Activation> {
         match want? {
@@ -503,6 +519,26 @@ pub(crate) fn on_menu_event(app: &AppHandle<Wry>, id: &str) {
     }
 }
 
+/// Whether the app's close hook (see [`crate::ShellBuilder::on_close_requested`]) keeps the window
+/// open for this close request. A label the app approved with `rk_shell_force_close` closes once,
+/// without asking the hook again.
+fn close_vetoed(app: &AppHandle<Wry>, state: &ShellState, label: &str) -> bool {
+    let Some(hook) = state.close_hook.as_ref() else {
+        return false;
+    };
+    {
+        let mut approved = state
+            .close_approved
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(at) = approved.iter().position(|l| l == label) {
+            approved.remove(at);
+            return false;
+        }
+    }
+    !matches!(hook(app, label), crate::CloseDecision::Allow)
+}
+
 /// Feed the idle machine a minimise or restore of the main window (only for a host that asked with
 /// `IdleOptions::start_on_minimize` or `IdleTrigger::Minimised`).
 fn note_minimized_for_idle(app: &AppHandle<Wry>, label: &str) {
@@ -549,19 +585,27 @@ pub(crate) fn run_event(app: &AppHandle<Wry>, event: &RunEvent) {
                 }
             }
             WindowEvent::CloseRequested { api, .. } => {
-                if state.modules.contains(crate::Module::WindowState) {
-                    let _ = state.windows.save_now(app, label);
-                }
-                if *label == state.main_label
-                    && crate::surface::close_hides(app, state.close_to_tray, label)
-                    && !state.exiting.load(Ordering::SeqCst)
-                {
+                // The app's close hook runs first: a vetoed or deferred close changes nothing else.
+                if close_vetoed(app, &state, label) {
                     api.prevent_close();
-                    if let Some(w) = app.get_webview_window(label) {
-                        let _ = w.hide();
+                } else {
+                    if state.modules.contains(crate::Module::WindowState) {
+                        let _ = state.windows.save_now(app, label);
                     }
-                    crate::idle::note_hidden(app, true);
-                    note_visibility(app, Visibility::Hidden);
+                    if *label == state.main_label
+                        && crate::surface::close_hides(app, state.close_to_tray, label)
+                        && !state.exiting.load(Ordering::SeqCst)
+                    {
+                        api.prevent_close();
+                        let destroyed = app
+                            .get_webview_window(label)
+                            .and_then(|w| crate::windows::hide_or_destroy(app, &w).ok())
+                            .unwrap_or(false);
+                        if !destroyed {
+                            crate::idle::note_hidden(app, true);
+                        }
+                        note_visibility(app, Visibility::Hidden);
+                    }
                 }
             }
             // A display was rescaled or moved: shown overlays are brought back where they belong.
@@ -571,7 +615,30 @@ pub(crate) fn run_event(app: &AppHandle<Wry>, event: &RunEvent) {
                     let _ = overlays.monitors_changed(app);
                 }
             }
+            WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }) => {
+                let granted: Vec<String> = paths
+                    .iter()
+                    .filter_map(|p| std::fs::canonicalize(p).ok())
+                    .filter_map(|p| state.broker.grant_normalized(p).ok())
+                    .collect();
+                let scale = app
+                    .get_webview_window(label)
+                    .and_then(|w| w.scale_factor().ok())
+                    .filter(|s| s.is_finite() && *s > 0.0)
+                    .unwrap_or(1.0);
+                let _ = app.emit_to(
+                    label.as_str(),
+                    crate::EVENT_DROP,
+                    serde_json::json!({
+                        "paths": granted,
+                        "x": position.x / scale,
+                        "y": position.y / scale,
+                    }),
+                );
+            }
             WindowEvent::Destroyed => {
+                crate::windows::release_modal(app, label);
+                crate::content_webview::forget(label);
                 if let Some(surfaces) = app.try_state::<crate::surface::SurfaceRegistry>() {
                     surfaces.forget(label);
                 }
@@ -580,8 +647,10 @@ pub(crate) fn run_event(app: &AppHandle<Wry>, event: &RunEvent) {
         },
         RunEvent::ExitRequested { api, code, .. } => {
             // `code == None`: the last window closed. A tray-resident app keeps running.
+            // A `DestroyAndRecreate` host keeps running with no window: its main window comes back on reveal.
             if code.is_none()
-                && crate::surface::close_hides(app, state.close_to_tray, &state.main_label)
+                && (state.destroy_on_close
+                    || crate::surface::close_hides(app, state.close_to_tray, &state.main_label))
                 && !state.exiting.load(Ordering::SeqCst)
             {
                 api.prevent_exit();

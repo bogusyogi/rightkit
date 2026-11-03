@@ -57,7 +57,11 @@
       ],
       "licenseHost": "coderight.cc"
     },
-    "cutright": {},
+    "cutright": {
+      "artifactHosts": [
+        "public"
+      ]
+    },
     "genright": {
       "licenseHost": "heardright.app"
     },
@@ -78,6 +82,10 @@
     "postright": {},
     "pulse": {},
     "scraperight": {
+      "artifactHosts": [
+        "gated",
+        "public"
+      ],
       "licenseHost": "scraperight.cc"
     },
     "viewright": {

@@ -51,7 +51,7 @@ use crate::driver_host::cli_runtime::ids::{
     HarnessRequirements, QualificationProbe, ResumeStrategy,
 };
 use crate::driver_host::cli_runtime::qualification::{
-    DEFAULT_NEGATIVE_PROBES, DEFAULT_POSITIVE_PROBES,
+    now_iso, DEFAULT_NEGATIVE_PROBES, DEFAULT_POSITIVE_PROBES,
 };
 use crate::driver_host::contracts::{NormalizedEvent, NormalizedEventKind};
 

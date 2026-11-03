@@ -22,10 +22,12 @@ pub(crate) static AGENTS: OnceLock<Mutex<Vec<CachedAgent>>> = OnceLock::new();
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Provider {
     Groq,
-    // Built only in test and `test-mode` builds (live-eval provider selection, test rosters); release never routes to it.
+    // Not routed by the product ladder (Groq only); kept for the circuit and health surface.
     #[allow(dead_code)]
     Cerebras,
+    #[allow(dead_code)]
     Nvidia,
+    #[allow(dead_code)]
     OpenRouter,
 }
 

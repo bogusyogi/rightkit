@@ -3,8 +3,9 @@
 //! [`DriveBackend`] implements [`Backend`] over the Drive v3 REST API with the
 //! `https://www.googleapis.com/auth/drive.appdata` scope, on `rightkit-http`'s blocking client.
 //! The data lives in the user's own Drive quota, in the hidden per-app data folder; no service of
-//! ours is involved. Apple platforms use CloudKit instead; the `http` feature (the RightKit sync
-//! service) is parked and `drive` replaces it for Windows, Linux and Android. Call it from the
+//! ours is involved. Apple platforms use CloudKit instead; the `http` feature is the separate client of
+//! the hosted RightKit sync service (`packages/sync-worker`), and `drive` is the own-cloud choice for
+//! Windows, Linux and Android. Call it from the
 //! engine's worker thread, never from an async task.
 //!
 //! # Android

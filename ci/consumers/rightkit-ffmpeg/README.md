@@ -10,4 +10,4 @@ State: none. FFmpeg is never resolved, verified or run; no network, no files, no
 Run only by the CI consumer lane.
 
 Not covered: `verify_ffmpeg`, `verify_ffprobe`, `run_ffmpeg`, the decode and encode paths, digest
-checks of any binary, and the `dev-overrides` feature.
+checks of any binary.

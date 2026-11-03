@@ -13,6 +13,7 @@
 //! only `message_search` and so the new index (via its triggers); the old
 //! index is read-only and stale until the last step swaps the new table in.
 
+use super::fts_text::html_to_text;
 use rightkit_db::rusqlite::{params, Connection, OptionalExtension};
 
 const NEXT: &str = "fts_messages_next";

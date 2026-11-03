@@ -344,7 +344,11 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
     }
     case "discard": {
       const outcome = await runDiscard({ repo }, { run: deps.run });
-      io.stdout(parsed.json ? `${JSON.stringify(outcome, null, 2)}\n` : `right-update discard: ${outcome.exitCode === 0 ? `restored ${outcome.restored.length} file(s)` : outcome.errors.join("; ")}\n`);
+      io.stdout(
+        parsed.json
+          ? `${JSON.stringify(outcome, null, 2)}\n`
+          : `right-update discard: ${outcome.exitCode === 0 ? `restored ${outcome.restored.length} file(s)${outcome.moved.length > 0 ? `, left ${outcome.moved.length} that moved on` : ""}` : outcome.errors.join("; ")}\n${outcome.notes.map((n) => `  note: ${n}\n`).join("")}`,
+      );
       return outcome.exitCode;
     }
     case "run": {

@@ -17,7 +17,6 @@ use serde_json::{json, Value};
 
 use rightkit_transcript_library::net::host_of_url;
 
-use super::overrides;
 use super::state::{CachedAgent, Provider, ProviderSpec, AGENTS};
 
 /// User agent the former `ureq` calls sent explicitly.
@@ -371,24 +370,11 @@ pub(crate) fn timeout_bucket_ms(timeout: Duration) -> u64 {
 }
 
 pub(crate) fn openrouter_provider_preferences(model: &str) -> Option<Value> {
-    let only = overrides::openrouter_provider_only();
-    let order = overrides::openrouter_provider_order();
-    let sort = overrides::openrouter_provider_sort();
-    let only = if only.is_empty() && model.contains("llama-3.3-70b") {
-        vec!["groq".to_string()]
-    } else {
-        only
-    };
     let mut provider = serde_json::Map::new();
     provider.insert("data_collection".to_string(), json!("deny"));
-    if !only.is_empty() {
-        provider.insert("only".to_string(), json!(only));
+    if model.contains("llama-3.3-70b") {
+        provider.insert("only".to_string(), json!(["groq"]));
         provider.insert("allow_fallbacks".to_string(), json!(false));
-    } else if !order.is_empty() {
-        provider.insert("order".to_string(), json!(order));
-    }
-    if let Some(sort) = sort {
-        provider.insert("sort".to_string(), json!(sort));
     }
     Some(Value::Object(provider))
 }

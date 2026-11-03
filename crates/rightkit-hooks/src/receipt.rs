@@ -27,6 +27,14 @@ pub const SCAN_TAIL_BYTES: u64 = 4 * 1024 * 1024;
 /// Wall budget of one scan (Membrane's `CONFIRM_BUDGET`).
 pub const SCAN_BUDGET: Duration = Duration::from_secs(2);
 const RECEIPTS_DIR: &str = "receipts";
+/// Longest receipt id a caller may name.
+pub const MAX_RECEIPT_ID_LEN: usize = 128;
+/// Hook heartbeats older than this are pruned (Pulse's `prune_seen`: 14 days).
+pub const HOOK_SEEN_MAX_AGE: Duration = Duration::from_secs(14 * 24 * 60 * 60);
+/// Most hook heartbeats kept; the oldest go first (Pulse's `prune_seen`: 1000 files).
+pub const HOOK_SEEN_MAX_FILES: usize = 1000;
+/// Longest hook tag stored in a heartbeat.
+pub const HOOK_SEEN_TAG_CHARS: usize = 32;
 /// Marker prefix of the store Membrane reads and writes (`[membrane:<id>]`).
 pub const MEMBRANE_MARKER_PREFIX: &str = "membrane";
 
@@ -127,6 +135,16 @@ fn unix_seconds() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs())
+}
+
+/// Whether `id` may name a receipt: 1 to 128 ASCII letters, digits, `-` or `_`. Generated ids
+/// ([`new_receipt_id`]) are alphanumeric and always pass; a caller may name its own id with `-` or `_`.
+pub fn valid_receipt_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= MAX_RECEIPT_ID_LEN
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 /// A fresh alphanumeric receipt id: nanosecond clock, process id and a per-process counter,
@@ -235,7 +253,7 @@ impl ReceiptStore {
     }
 
     fn path(&self, session: &str, id: &str) -> Option<PathBuf> {
-        if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric()) {
+        if !valid_receipt_id(id) {
             return None;
         }
         Some(
@@ -305,17 +323,39 @@ impl ReceiptStore {
         let Some(name) = session_file_name(session) else {
             return Vec::new();
         };
-        let mut receipts: Vec<Receipt> = std::fs::read_dir(self.root.join(RECEIPTS_DIR).join(name))
+        read_receipt_dir(&self.root.join(RECEIPTS_DIR).join(name))
+    }
+
+    /// Every receipt of every session, oldest first.
+    pub fn list_all(&self) -> Vec<Receipt> {
+        let mut receipts: Vec<Receipt> = std::fs::read_dir(self.root.join(RECEIPTS_DIR))
             .into_iter()
             .flatten()
             .flatten()
-            .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
-            .filter_map(|e| std::fs::read(e.path()).ok())
-            .filter_map(|bytes| serde_json::from_slice::<DiskReceipt>(&bytes).ok())
-            .filter_map(DiskReceipt::into_receipt)
+            .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+            .flat_map(|dir| read_receipt_dir(&dir.path()))
             .collect();
         receipts.sort_by(|a: &Receipt, b| (a.ts, &a.id).cmp(&(b.ts, &b.id)));
         receipts
+    }
+
+    /// Flip to `observed` every `emitted` receipt named `id`, in any session. Returns every
+    /// receipt with that id after the flip, oldest first, so a caller sees which sessions hold it.
+    pub fn mark_observed(&self, id: &str) -> std::io::Result<Vec<Receipt>> {
+        if !valid_receipt_id(id) {
+            return Err(std::io::Error::other(
+                "receipt id is not a valid receipt id",
+            ));
+        }
+        let mut matched: Vec<Receipt> =
+            self.list_all().into_iter().filter(|r| r.id == id).collect();
+        for receipt in matched.iter_mut() {
+            if receipt.level == DeliveryLevel::Emitted {
+                receipt.level = DeliveryLevel::Observed;
+                self.write(receipt)?;
+            }
+        }
+        Ok(matched)
     }
 
     /// Flip to `observed` every `emitted` receipt of `session` and `wire` whose marker is in the
@@ -345,6 +385,148 @@ impl ReceiptStore {
             })
             .count()
     }
+}
+
+/// Every receipt file directly inside `dir`, unparsable files skipped, oldest first.
+fn read_receipt_dir(dir: &Path) -> Vec<Receipt> {
+    let mut receipts: Vec<Receipt> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+        .filter_map(|e| std::fs::read(e.path()).ok())
+        .filter_map(|bytes| serde_json::from_slice::<DiskReceipt>(&bytes).ok())
+        .filter_map(DiskReceipt::into_receipt)
+        .collect();
+    receipts.sort_by(|a: &Receipt, b| (a.ts, &a.id).cmp(&(b.ts, &b.id)));
+    receipts
+}
+
+/// Per-session hook heartbeat: `<dir>/<session>` holds `<unix seconds> <tag>`, one file per
+/// session, written atomically with owner-only permissions and pruned by age and by count.
+#[derive(Clone, Debug)]
+pub struct HookSeen {
+    dir: PathBuf,
+    max_age: Duration,
+    max_files: usize,
+}
+
+impl HookSeen {
+    /// A heartbeat store in `dir` with the default limits ([`HOOK_SEEN_MAX_AGE`],
+    /// [`HOOK_SEEN_MAX_FILES`]).
+    pub fn new(dir: impl Into<PathBuf>) -> Self {
+        Self {
+            dir: dir.into(),
+            max_age: HOOK_SEEN_MAX_AGE,
+            max_files: HOOK_SEEN_MAX_FILES,
+        }
+    }
+
+    /// The same store with other pruning limits.
+    pub fn with_limits(mut self, max_age: Duration, max_files: usize) -> Self {
+        self.max_age = max_age;
+        self.max_files = max_files;
+        self
+    }
+
+    fn path(&self, session: &str) -> Option<PathBuf> {
+        Some(self.dir.join(session_file_name(session)?))
+    }
+
+    /// Record a heartbeat for `session` now, with `tag` cut to 32 alphanumerics, then prune.
+    pub fn write(&self, session: &str, tag: &str) -> std::io::Result<()> {
+        let path = self
+            .path(session)
+            .ok_or_else(|| std::io::Error::other("session is not a file name"))?;
+        std::fs::create_dir_all(&self.dir)?;
+        let tag: String = tag
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .take(HOOK_SEEN_TAG_CHARS)
+            .collect();
+        let tmp = self.dir.join(format!(
+            ".{}.{}.tmp",
+            session_file_name(session).unwrap_or_default(),
+            std::process::id()
+        ));
+        write_owner_only(&tmp, format!("{} {tag}", unix_seconds()).as_bytes())?;
+        std::fs::rename(&tmp, &path)?;
+        self.prune(unix_seconds());
+        Ok(())
+    }
+
+    /// The heartbeat of `session`: its unix seconds and tag.
+    pub fn read(&self, session: &str) -> Option<(u64, String)> {
+        read_seen_file(&self.path(session)?)
+    }
+
+    /// The newest heartbeat across all sessions, in unix seconds.
+    pub fn newest(&self) -> Option<u64> {
+        self.entries()
+            .iter()
+            .filter_map(|path| read_seen_file(path))
+            .map(|(seconds, _)| seconds)
+            .max()
+    }
+
+    /// Heartbeat files in the store, skipping temporary files.
+    fn entries(&self) -> Vec<PathBuf> {
+        std::fs::read_dir(&self.dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.is_file()
+                    && !p
+                        .file_name()
+                        .is_some_and(|n| n.to_string_lossy().starts_with('.'))
+            })
+            .collect()
+    }
+
+    /// Remove heartbeats older than the age limit, then the oldest beyond the count limit.
+    /// An unreadable heartbeat counts as expired. Best effort: removal errors are ignored.
+    fn prune(&self, now: u64) {
+        let cutoff = now.saturating_sub(self.max_age.as_secs());
+        let mut entries: Vec<(u64, PathBuf)> = self
+            .entries()
+            .into_iter()
+            .map(|path| {
+                (
+                    read_seen_file(&path).map_or(0, |(seconds, _)| seconds),
+                    path,
+                )
+            })
+            .collect();
+        entries.sort_by(|a, b| b.0.cmp(&a.0));
+        for (index, (seconds, path)) in entries.iter().enumerate() {
+            if *seconds < cutoff || index >= self.max_files {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+}
+
+/// A heartbeat file's `(unix seconds, tag)`, or `None` when it is not one.
+fn read_seen_file(path: &Path) -> Option<(u64, String)> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let text = text.trim_end();
+    let (seconds, tag) = text.split_once(' ').unwrap_or((text, ""));
+    Some((seconds.parse().ok()?, tag.to_owned()))
+}
+
+/// Create or replace `path` with `bytes`, readable and writable by the owner only.
+fn write_owner_only(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)?.write_all(bytes)
 }
 
 /// The transcript-scan hook: on the chat's own `Stop`, mark emitted receipts `observed`.

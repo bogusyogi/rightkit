@@ -88,7 +88,10 @@ const gateResolveExecutor = (args) => resolveExecutor({ ...args, gateWrappers: t
 import { ALL_UNITS_ERRORS, ALL_UNITS_EXCEPTIONS_FILE, BROKER_EXCEPTIONS_FILE, BROKER_EXCEPTION_ERRORS, CARGO_WORKSPACE_LIST_FILE, CARGO_WORKSPACE_LIST_KEY, RIGHTKIT_IDENTITY_FILE, authorizeAllUnits, authorizeNoBroker, checkCargoWorkspaceList, describeAllUnitsException, describeBrokerException, isRightKitIdentity, unitsOfSelector } from "../broker-exception.mjs";
 import { SIGNING_REFUSAL_CODES, suiteSigningRefusals } from "../suite-signing-policy.mjs";
 import { gitListRustFiles } from "../signing-files.mjs";
-import { LINUX_BROKER_ROUTE, NO_BROKER_ENV, directCargoPath, directPlatform, linuxBrokerDeclared, managedRuntimeClient, realCargoOf } from "../managed-cargo.mjs";
+import { nativeHelpersFromConfig } from "../native-helpers.mjs";
+import { buildCoverageReport, seconds, writeCoverageReport } from "../gate-coverage.mjs";
+import { renderViews, renderViewsOf } from "../render-views.mjs";
+import { LINUX_BROKER_ROUTE, NO_BROKER_ENV, directCargoPath, directPlatform, linuxBrokerDeclared, managedRuntimeClient, realCargoOf, runCargoSync } from "../managed-cargo.mjs";
 import { createBrokerLive } from "../broker-admission.mjs";
 import { bindingOf, compileOutputsRecord, compileReuseProblem, endRun, readReceipt, RECEIPT_SCHEMA, receiptKey, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, STAGE_SOURCES, writeReceipt } from "../gate-stages.mjs";
 import { spawnSync as spawnInherit } from "../background-process.mjs";
@@ -141,7 +144,7 @@ function directCargoBinOf(o) {
   return null;
 }
 
-const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify|release --unit npm:@rightkit/<name>|cargo:rightkit-<name> [--receipt-out <file>] | rightkit-gate --to tool --unit cargo:rightkit-qa|cargo:rightkit-credentials [--no-broker <exception-id>] [--receipt-out <file>] [--commit <rev>] (builds the unit's release binary from the commit and enrols it: cargo:rightkit-qa as the managed rightkit-qa runner, cargo:rightkit-credentials as the managed OS credential provider updater signing runs; Mac and Windows) | rightkit-gate --to check|compile|package|qualify --units-file <json {"units":[<selector>,...]} written for this run> | rightkit-gate --to check|compile|package|qualify --all-units-exception <id> (RightKit only: its unit is named on every run, or every unit by Adrian's entry in ci/all-units-exceptions.json of the commit) | rightkit-gate --to check|compile|package|qualify [--unit <selector>] --no-broker <exception-id> (Mac and Dell only; Adrian's recorded exception in .rightkit/broker-exceptions.json of the commit) | rightkit-gate --to dev|test [--commit <rev>] [-- <right-release args>] | rightkit-gate --to check|compile|package|qualify|dev|test --route [--platform mac|win|ios|android] [--commit <rev>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] | rightkit-gate install-hook | rightkit-gate env-digest | rightkit-gate snapshot [--commit <rev>] [--verify [--env <sha256>]] [--json] | rightkit-gate live-scans --repo <root> | rightkit-gate clippy [<cargo clippy args>] | rightkit-gate env-digest [--snapshot <dir> --commit <sha>] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | rightkit-gate check --commit <sha> --full-a --snapshot <dir> | --version`;
+const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify|release --unit npm:@rightkit/<name>|cargo:rightkit-<name> [--receipt-out <file>] | rightkit-gate --to tool --unit cargo:rightkit-qa|cargo:rightkit-credentials [--no-broker <exception-id>] [--receipt-out <file>] [--commit <rev>] (builds the unit's release binary from the commit and enrols it: cargo:rightkit-qa as the managed rightkit-qa runner, cargo:rightkit-credentials as the managed OS credential provider updater signing runs; Mac and Windows) | rightkit-gate --to check|compile|package|qualify --units-file <json {"units":[<selector>,...]} written for this run> | rightkit-gate --to check|compile|package|qualify --all-units-exception <id> (RightKit only: its unit is named on every run, or every unit by Adrian's entry in ci/all-units-exceptions.json of the commit) | rightkit-gate --to check|compile|package|qualify [--unit <selector>] --no-broker <exception-id> (Mac and Dell only; Adrian's recorded exception in .rightkit/broker-exceptions.json of the commit) | rightkit-gate --to dev|test [--commit <rev>] [-- <right-release args>] | rightkit-gate --to render [--commit <rev>] (builds the app's declared renderViews target from ci/gate.config.json through the carrier, runs it headless and stores the PNGs and a hashed receipt) | rightkit-gate --to check|compile|package|qualify|dev|test --route [--platform mac|win|ios|android] [--commit <rev>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] | rightkit-gate install-hook | rightkit-gate env-digest | rightkit-gate snapshot [--commit <rev>] [--verify [--env <sha256>]] [--json] | rightkit-gate live-scans --repo <root> | rightkit-gate clippy [<cargo clippy args>] | rightkit-gate env-digest [--snapshot <dir> --commit <sha>] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | rightkit-gate check --commit <sha> --full-a --snapshot <dir> | --version`;
 /** The host platform (process.platform) that constructs each platform's artifact; a platform missing here (android) builds on any host. */
 const STAGE_NATIVE_HOST = Object.freeze({ mac: "darwin", ios: "darwin", win: "win32" });
 
@@ -486,25 +489,51 @@ export function pnpmPinOf(packageJsonText) {
 }
 
 /**
- * Class A runs the pnpm it bound, never a pnpm that relaunches another one: a pnpm older than a package's `packageManager` pin switches
- * itself to the pinned version through a nested shell (on Windows `cmd /d /s /c` with ^-escaped text), which the class A launch guard
- * refuses mid-row as an unreadable launch. This compares the pnpm on PATH, asked from a directory with no package.json so it cannot
- * switch, with every pnpm pin of the checked tree BEFORE any class A row launches, and returns a typed problem naming both versions
- * and the fix, or null. Nothing is admitted: the guard keeps refusing any relaunch.
+ * Class A runs the pnpm it bound, never a pnpm that relaunches another one through a shell: on Windows a pnpm older than a package's
+ * `packageManager` pin switches itself to the pinned version through `cmd /d /s /c` with ^-escaped text, which the class A launch guard
+ * refuses mid-row as an unreadable launch. This checks every pnpm pin of the checked tree BEFORE any class A row launches and returns a
+ * typed problem naming both versions and the fix, or null. Nothing is admitted: the guard keeps refusing any relaunch.
+ *
+ * Pins under a declared fixture directory (ci/gate.config.json `fixtures`) are not the repository's own: a fixture's pnpm pin is
+ * evidence content that every other scan skips, so this check skips it too (rightkit#1468).
+ *
+ * Policy for a repository pinned differently from the host default (rightkit#1468): the pnpm on PATH is first asked from a directory
+ * with no package.json (it cannot switch there). When it differs from a pin, the pinned version is probed directly, by running
+ * `pnpm --version` inside the pinning package's own directory, where pnpm's packageManager self-switch (or corepack) resolves the pin;
+ * the pin is admitted only when that probe prints exactly the pinned version. Only when the probe fails does the check refuse, with the
+ * migration path. On Windows the self-switch itself is the refused shell relaunch, so there the pin must equal the neutral version.
  */
-export function pnpmPinProblem({ root, files, spawn = defaultSpawn, readFile = (f) => fs.readFileSync(f, "utf8"), neutralCwd = os.tmpdir() }) {
+export function pnpmPinProblem({ root, files, spawn = defaultSpawn, readFile = (f) => fs.readFileSync(f, "utf8"), neutralCwd = os.tmpdir(), fixtures = [], platform = process.platform }) {
+  const fixtureDirs = fixtures.map((d) => String(d).replace(/\\/g, "/").replace(/\/+$/, "")).filter(Boolean);
+  const underFixture = (f) => fixtureDirs.some((d) => f === d || f.startsWith(`${d}/`));
   const pins = new Map();
-  for (const f of files.filter((x) => /(^|\/)package\.json$/.test(x))) {
+  for (const f of files.filter((x) => /(^|\/)package\.json$/.test(x) && !underFixture(x))) {
     let pin = null; try { pin = pnpmPinOf(readFile(path.join(root, f))); } catch { pin = null; }
     if (pin) pins.set(f, pin);
   }
   if (!pins.size) return null;
   const r = spawn("pnpm", ["--version"], { cwd: neutralCwd, boundedMs: PNPM_PROBE_TIMEOUT_MS });
   const onPath = failed(r) ? "" : text(r).trim();
-  const fix = (pin) => `install the pinned pnpm as the pnpm on PATH (for example \`pnpm self-update ${pin}\`) and run again`;
-  if (!onPath) { const [pin] = new Set(pins.values()); return { code: PNPM_PIN_REFUSAL, message: `${PNPM_PIN_REFUSAL}: cannot read the version of the pnpm on PATH (${r?.error ? r.error.code ?? r.error.message : why(r)}); ${fix(pin)}` }; }
+  const fix = (pin) => `install the pinned pnpm as the pnpm on PATH (for example \`pnpm self-update ${pin}\`), or make the repository's own pin resolvable (corepack enable, network access to the pnpm release), and run again`;
   const bad = [...pins].filter(([, pin]) => pin !== onPath);
   if (!bad.length) return null;
+  if (platform !== "win32") {
+    // One probe per distinct pin, from the first package.json that carries it: the self-switch is per directory.
+    const probed = new Map(); const unresolved = [];
+    for (const [file, pin] of bad) {
+      if (!probed.has(pin)) {
+        const dir = path.join(root, path.dirname(file));
+        const pr = spawn("pnpm", ["--version"], { cwd: dir, boundedMs: PNPM_PROBE_TIMEOUT_MS });
+        probed.set(pin, failed(pr) ? null : text(pr).trim());
+      }
+      if (probed.get(pin) !== pin) unresolved.push([file, pin]);
+    }
+    if (!unresolved.length) return null;
+    const [file, pin] = unresolved[0];
+    const got = probed.get(pin);
+    return { code: PNPM_PIN_REFUSAL, message: `${PNPM_PIN_REFUSAL}: ${file} pins packageManager pnpm@${pin} and the pnpm on PATH is ${onPath || "unreadable"}; running pnpm inside ${path.dirname(file)} to resolve the pin ${got ? `printed ${got}` : "failed"}${unresolved.length > 1 ? ` (${unresolved.length} package.json files differ)` : ""}; ${fix(pin)}` };
+  }
+  if (!onPath) { const [, pin] = bad[0]; return { code: PNPM_PIN_REFUSAL, message: `${PNPM_PIN_REFUSAL}: cannot read the version of the pnpm on PATH (${r?.error ? r.error.code ?? r.error.message : why(r)}); ${fix(pin)}` }; }
   const [file, pin] = bad[0];
   return { code: PNPM_PIN_REFUSAL, message: `${PNPM_PIN_REFUSAL}: the pnpm on PATH is ${onPath} but ${file} pins packageManager pnpm@${pin}${bad.length > 1 ? ` (${bad.length} package.json files differ)` : ""}; a different pnpm relaunches the pinned one through a shell, which class A refuses (RK_CLASS_A_COMPILE_LAUNCH); ${fix(pin)}` };
 }
@@ -944,8 +973,7 @@ const plainRelative = (p) => typeof p === "string" && p !== "" && !path.posix.is
  *   (externalInputs `leavesCrate`: workspace root, current_dir, a bare "..", the manifest directory's parent) keys the scan on the
  *   whole HEAD tree, since its tests may read anything.
  * - An npm package scan (test:npm, tsc, eslint, biome) keys on the package's workspace closure (every dependency that is a workspace
- *   package, whatever its spec, transitively, by package name) and the root npm inputs; test:scripts-ci on scripts/, ci/, .github/, packages/release and the
- *   root install graph. Every other class B scan (generated-docs, swift-build) uses the whole tree.
+ *   package, whatever its spec, transitively, by package name) and the root npm inputs; (the scripts/ci self-test scan no longer exists: Adrian, 2026-11-03, end-to-end tests only). Every other class B scan (generated-docs, swift-build) uses the whole tree.
  * - Class A: pnpm-lockfile and advisory-exceptions are never cached (live answers). cargo-deny, cargo-audit and pnpm-audit are cached by
  *   their inputs and the identity of the advisory data they read (rightkit#1464, ADR-001 C5; advisoryKey below): a Cargo workspace's lock
  *   blob, every Cargo.toml of the commit, the deny and cargo configuration files, and the pinned RustSec commit (cargo-deny and cargo-audit
@@ -961,7 +989,6 @@ const SHARED_NPM_INPUTS = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yam
 // name than the shared list above) is part of a package's key only when the commit has it, so a repository without one keeps the key it had.
 const LINT_CONFIG_NAMES = [...ESLINT_CONFIG_FILES, ...BIOME_CONFIG_FILES];
 // The gate's own test suite reads the CI scripts, the gate config and the release package it imports from.
-const SCRIPTS_CI_INPUTS = ["scripts", "ci", ".github", "packages/release", "package.json", "pnpm-lock.yaml"];
 
 /** ci/shards.json `solo` (crate names that always get an invocation of their own), read from the gated tree; empty when the file is absent or unreadable. */
 function shardSoloOf(o, repo) {
@@ -1109,7 +1136,6 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
           if (unresolved) return whole();
           return canonicalJson({ kind: "npm", id: scan.id, members: members.map((m) => [m.name, m.dir, idOf(m.dir)]), shared: sharedNpmInputs(members) });
         }
-        if (scan.id === "test:scripts-ci") return canonicalJson({ kind: "dirs", id: scan.id, inputs: SCRIPTS_CI_INPUTS.map((p) => [p, idOf(p)]) });
         return whole();
       }
       const keyed = rustUnitKey(unit, scan);
@@ -1452,9 +1478,10 @@ async function runStages(o, args, root, git, io) {
   const to = option("--to");
   // dev and test are door stages like the rest: the same commit-only route (select a commit, sync its snapshot under ownership, class A
   // of the snapshot), then right-release dev|test with the snapshot's app root as its cwd. They have no stage list of their own.
-  const devTest = to === "dev" || to === "test";
+  // render (rightkit#1288) is a door stage of the same family: class A of the snapshot, then the app's declared view-render target built through the carrier and run headless.
+  const devTest = to === "dev" || to === "test" || to === "render";
   let stages = devTest ? [] : stagesTo(to);
-  if (!stages) { o.err(`${tag} --to must be one of ${[...STAGES, "dev", "test"].join(", ")}${to === "tool" ? " (--to tool builds one named tool unit: --to tool --unit cargo:rightkit-qa or --to tool --unit cargo:rightkit-credentials)" : ""}`); return 2; }
+  if (!stages) { o.err(`${tag} --to must be one of ${[...STAGES, "dev", "test", "render"].join(", ")}${to === "tool" ? " (--to tool builds one named tool unit: --to tool --unit cargo:rightkit-qa or --to tool --unit cargo:rightkit-credentials)" : ""}`); return 2; }
   // Every stage the door runs has a row naming where it reads its source from (gate-stages.mjs STAGE_SOURCES, drift-tested in
   // door-stages.test.mjs); a stage added without one is refused rather than run with an unstated source.
   if (!STAGE_SOURCES[to]) { o.err(`${tag} BLOCKED: stage ${to} has no STAGE_SOURCES row naming its source; nothing ran`); return 2; }
@@ -1643,6 +1670,24 @@ async function runStages(o, args, root, git, io) {
   const publisherUploadOnly = to === "release" && !mobile;
   // GB-15: a nested app's Class A runs its executing scans for that app's dependency closure; an app at the repository root is the repository.
   const appScope = appDir === "." ? [] : ["--scope", appDir];
+  // rightkit#1491: an app whose own @rightkit/release is below the host gate's floor (DIRECT_ROUTE_RELEASE_FLOOR) is refused before any compile
+  // on a broker host: its child would carry the non-compiling cargo calls to the broker, which refuses them (GC-A11). The pin is judged from the
+  // commit's package.json before the check stage; the version installed in the snapshot (Class A installs it) before the compile stage.
+  const appPackageJson = () => { const shown = git("show", `${commit}:${appDir === "." ? "" : `${appDir}/`}package.json`); return failed(shown) ? null : text(shown); };
+  const pinFloor = async (installed) => {
+    if (executor.kind !== "broker" || !stages.includes("compile") || !ds) return null;
+    const packageJsonText = appPackageJson();
+    if (packageJsonText === null) return null;
+    const { releasePinFloorProblem } = await import("../release-pin-floor.mjs");
+    let installedVersion = null;
+    if (installed) {
+      for (const dir of new Set([snapshotAppRootOf(ds.path, appDir), ds.path])) {
+        try { installedVersion = JSON.parse(fs.readFileSync(path.join(dir, "node_modules", "@rightkit", "release", "package.json"), "utf8")).version ?? null; break; } catch { /* not installed here */ }
+      }
+    }
+    return releasePinFloorProblem({ packageJsonText, installedVersion, where: appDir === "." ? "package.json" : `${appDir}/package.json` });
+  };
+  const phaseTimings = [];
   for (const stage of stages) {
     if (stage === "check" && publisherUploadOnly && receipt.stages.check?.ok && tierAtLeast(receipt.stages.check.ruleTier ?? "compile", earlyTier)) { o.out(`${tag} [check] already passed (${receipt.stages.check.ruleTier ?? "compile"} tier) for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
     if (stage === "compile" && receipt.stages.compile?.ok) {
@@ -1673,16 +1718,25 @@ async function runStages(o, args, root, git, io) {
     }
     // The start of every stage: the snapshot is exactly tree + dependencies + the ledger of the stages before it (7.08, decision 2 Q1).
     if (ds && !(await openSnapshotStage({ o, ds, root, stage, tag }))) { receipt.stages[stage] = { ok: false, at: new Date().toISOString(), snapshot: { path: ds.path, tree: ds.tree, intactAfter: false }, ownership: ds.own.handle }; save(); o.err(`${tag} --to ${to} stopped before ${stage}: the snapshot is not the commit's bytes plus the ledger; nothing ran`); return 2; }
-    let ok = false; const at = new Date().toISOString(); let extra = {}; let directReceipt = null;
+    let ok = false; const at = new Date().toISOString(); const stageStartedMs = Date.now(); let extra = {}; let directReceipt = null;
     if (stage === "check") {
+      { const problem = await pinFloor(false); if (problem) { o.err(`${tag} BLOCKED: ${problem.message}; no class A row ran and nothing compiled`); return 1; } }
       ok = (await (o.runCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), ...appScope, "--rule-tier", earlyTier], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))(earlyTier)) === 0;
       extra = { ruleTier: earlyTier };
     }
     else if (stage === "compile") {
+      { const problem = await pinFloor(true); if (problem) { o.err(`${tag} BLOCKED: ${problem.message}; nothing compiled`); return 1; } }
       // A Tauri crate with externalBin needs its sidecars in src-tauri/binaries before it compiles (its build script refuses
       // otherwise), so every release config that declares `sidecars` is staged first, through right-release under this door run.
       const sidecarConfigs = sidecarConfigsOf();
       ok = true;
+      // rightkit#1462 (ADR-001 section 7): a run that goes on to package runs the release admission, read-only, before anything compiles: the same rows `right-release build`
+      // runs at its start (files: config and inputs; host: tools, credentials, signing hosts; network: pin freshness against the registries), asked through its own
+      // `--dry-run`, which prints the rows and exits non-zero on a finding before any lock, cache, install or child build exists. A refusal then costs seconds, not a class B.
+      if (stages.includes("package") && !mobile && PLATFORMS.includes(platform)) {
+        o.out(`${tag} [compile] release admission dry-run for ${platform} before any compile (right-release build --platform ${platform} --dry-run)`);
+        if (!await rightRelease(stage, ["build", "--platform", platform, "--dry-run"])) { o.err(`${tag} BLOCKED: [compile] the release admission (pin freshness, host tools, credentials, signing hosts) refused ${platform}; nothing compiled`); ok = false; }
+      }
       // On the snapshot route the sidecars are staged from the snapshot's own config and sources through right-release's source split
       // (the staged files and receipt land beside the sources the compile reads; the caches and build trees stay the checkout's), before
       // `main --all` compiles. A broker host's stage-sidecar child reaches Cargo through the stage's carrier (carried-cargo.mjs).
@@ -1839,9 +1893,12 @@ async function runStages(o, args, root, git, io) {
     }
     receipt.stages[stage] = { ok, at, ...extra };
     save();
-    if (!ok) { o.err(`${tag} --to ${to} stopped at ${stage}: nothing after it ran`); return 1; }
+    // rightkit#1463: each stage's own wall-clock time, and the run's phases in one line at the end.
+    phaseTimings.push(`${stage} ${seconds(Date.now() - stageStartedMs)}${ok ? "" : " (failed)"}`);
+    o.out(`${tag} [${stage}] ${ok ? "passed" : "failed"} in ${seconds(Date.now() - stageStartedMs)}`);
+    if (!ok) { o.err(`${tag} --to ${to} stopped at ${stage}: nothing after it ran; phase timings: ${phaseTimings.join(", ")}`); return 1; }
   }
-  o.out(`${tag} --to ${to} passed: ${stages.join(", ")}`);
+  o.out(`${tag} --to ${to} passed: ${stages.join(", ")}; phase timings: ${phaseTimings.join(", ") || "none ran"}`);
   return 0;
 }
 
@@ -2555,9 +2612,11 @@ export function snapshotRouteRefusal(o) {
 /** The refusal codes a route probe can answer with: the codes the stages themselves print (`BLOCKED: <code>: ...`). */
 export const ROUTE_REFUSAL_CODES = Object.freeze(["RK_TAURI_CONFIG_OVERRIDE", "RK_STAGE_HOST_MISMATCH", "RK_SNAPSHOT_BROKER_UNAVAILABLE", "RK_SNAPSHOT_CARRIER_NOT_WIRED", "RK_BROKER_CAPABILITY_MISSING", "RK_BROKER_UNAVAILABLE",
   // One signing identity per product (rightkit#1303): the Mac and the Dell refuse an unsigned, ad hoc or re-identified test or dev build.
-  ...SIGNING_REFUSAL_CODES]);
+  ...SIGNING_REFUSAL_CODES,
+  // The Mac's shared native helper list (targets.mac.macPackage.nativeHelpers) must validate before a Mac test, dev or package stage runs (rightkit#1308).
+  "NATIVE_HELPERS_INVALID"]);
 /** The stages `--route` can answer for (`release` writes to the publisher and has no route of its own on a host). */
-export const ROUTE_PROBE_STAGES = Object.freeze(["check", "compile", "package", "qualify", "dev", "test"]);
+export const ROUTE_PROBE_STAGES = Object.freeze(["check", "compile", "package", "qualify", "dev", "test", "render"]);
 export const ROUTE_SCHEMA = "rightkit-gate.route/1";
 
 /**
@@ -2675,12 +2734,28 @@ export function routePlan(o, { to, stages, devTest, executor, capabilities = nul
   }
   // One signing identity per product, every build (rightkit#1303): on the Mac and the Dell a test or dev build that would run unsigned, ad hoc or under
   // another identifier is refused here, from the commit's own config, so `--route` and a real run decide alike. Linux and hosted CI are exempt.
-  if (snapshot && appConfig?.config && (devTest || to === "test" || to === "dev")) {
+  if (snapshot && appConfig?.config && (to === "test" || to === "dev")) {
     const [first] = suiteSigningRefusals({ config: appConfig.config, platform: o.platform, env: o.env, to, devPlatform: appConfig.devPlatform ?? null, readFile: appConfig.readFile, listFiles: appConfig.listFiles ?? null });
     if (first) return { route, refusal: refuse(first.code, to, first.message) };
   }
+  // rightkit#1308: the shared native helper list is validated at run time by the Mac qa-sign step (suite-signing -> development-signing), the dev install
+  // (development.mjs) and the Mac package recipe (package-recipe-targets.mjs), where a retired `sharedPackage` refuses NATIVE_HELPERS_INVALID mid-run. The
+  // route says so before anything runs, on a Mac, for a test or dev run (whose platform is mac) and a mac package.
+  if (snapshot && appConfig?.config && o.platform === "darwin") {
+    const macRun = (to === "test" || to === "dev") ? (appConfig.devPlatform ?? "mac") === "mac" : stages.includes("package") && stagePlatform === "mac";
+    if (macRun) {
+      const problem = nativeHelpersRefusalText(appConfig.config);
+      if (problem) return { route, refusal: refuse("NATIVE_HELPERS_INVALID", to, problem) };
+    }
+  }
   if (executor?.kind === "refuse") return { route, refusal: refuse("RK_BROKER_UNAVAILABLE", to, executor.problem) };
   return { route, refusal: null };
+}
+
+/** The message validateNativeHelpers refuses `config.targets.mac.macPackage.nativeHelpers` with (NATIVE_HELPERS_INVALID), or null when the list is absent or valid. */
+export function nativeHelpersRefusalText(config) {
+  try { nativeHelpersFromConfig(config); return null; }
+  catch (error) { if (error?.code === "NATIVE_HELPERS_INVALID") return String(error.message); throw error; }
 }
 
 /**
@@ -2976,6 +3051,35 @@ export function cargoOutputPin({ o, git, root, commit, executor, snapshot, manif
 }
 
 /**
+ * `--to render`'s stage (rightkit#1288): the app's declared `renderViews` target (the commit's ci/gate.config.json, read from the verified snapshot) is built
+ * through the stage's carrier and run headless outside the broker, one case at a time; the images and a hashed receipt are stored under the host's run-output
+ * root (`rightkit-gate-render/<repo>-<commit>-<time>/`). Returns 0 or 1; every refusal is named and nothing is partially passed.
+ */
+export async function runRenderStage({ o, ds, root, appDir, commit, tree, env, pinnedTarget = null, targetDirs = {}, tag = "rightkit-gate:" }) {
+  let gateConfig = null;
+  try { gateConfig = JSON.parse(o.readFile(path.join(ds.path, GATE_CONFIG))); } catch { gateConfig = null; }
+  const declared = renderViewsOf(gateConfig, appDir);
+  if (declared.problems) { for (const p of declared.problems) o.err(`${tag} BLOCKED: [render] ${p}`); o.err(`${tag} nothing compiled`); return 1; }
+  if (declared.none) { o.err(`${tag} BLOCKED: [render] ${appDir === "." ? "the repository" : appDir} declares no renderViews target in ${GATE_CONFIG}; nothing compiled`); return 1; }
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  let outDir;
+  try { outDir = path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-gate-render", `${path.basename(root)}-${commit.slice(0, 12)}-${stamp}-${process.pid}`); }
+  catch (error) { o.err(`${tag} BLOCKED: [render] no run-output root to store the images in (${error.message}); nothing compiled`); return 1; }
+  o.out(`${tag} [render] ${declared.package}:${declared.bin}, ${declared.cases.length} case(s): ${declared.cases.join(", ")}; evidence in ${outDir}`);
+  const result = renderViews({
+    target: declared, snapshotRoot: ds.path, commit, tree, outDir, env, platform: o.platform, arch: process.arch,
+    targetDir: targetDirs[declared.cargoDir] ?? pinnedTarget,
+    runCargo: (cargoArgs, options) => runCargoSync(cargoArgs, { ...options, encoding: "utf8", maxBuffer: 512 * 1024 * 1024 }),
+    runExecutable: (exe, exeArgs, options) => o.spawn(exe, exeArgs, { cwd: options.cwd, env: options.env, boundedMs: options.timeoutMs }),
+    log: (m) => o.out(`${tag} [render] ${m}`),
+  });
+  if (!result.ok) { for (const p of result.problems) o.err(`${tag} BLOCKED: [render] ${p}`); return 1; }
+  for (const c of result.receipt.cases) o.out(`${tag} [render] ${c.name}: ${c.png} ${c.width}x${c.height} sha256 ${c.sha256}`);
+  o.out(`${tag} [render] receipt ${result.receiptFile} (${result.receipt.cases.length} image(s); executable sha256 ${result.receipt.executable.sha256})`);
+  return 0;
+}
+
+/**
  * rightkit-gate --to dev|test [--commit <rev>] [-- <right-release dev|test arguments>]: the local compiles, on a commit like every other
  * stage (docs/GATE-CONTRACT.md "Commit-only build": `--to dev` and `--to test` build a commit; `--worktree` never admits a build). The
  * door has selected the commit and synced its snapshot under ownership (runStages); this runs full class A of that snapshot
@@ -3053,7 +3157,15 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
     // The door's own RightKit runs every sub-step: a dev target's `right-release web-build|stage-sidecar` steps resolve `right-release`
     // on PATH, which found the app's node_modules copy (HeardRight on the Dell, 2026-10-27: the app's 0.6.8 guard refused what the
     // door's 0.6.9 admitted). An installed gate (node_modules/@rightkit/release/bin) has its package's bin shims two levels up.
-    const r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [cli, to, ...passthrough], { cwd: source ? snapshotAppRootOf(ds.path, appDir) : appRoot, env: carriedEnv(carrier, { ...o.env, ...run.env }, { ...doorPath({ ...o, env: { ...o.env, ...carrier.env } }), ...(pin.dir ? { CARGO_TARGET_DIR: pin.dir } : (pinMulti?.env ?? {})) }) });
+    const childEnv = carriedEnv(carrier, { ...o.env, ...run.env }, { ...doorPath({ ...o, env: { ...o.env, ...carrier.env } }), ...(pin.dir ? { CARGO_TARGET_DIR: pin.dir } : (pinMulti?.env ?? {})) });
+    // rightkit#1288: `--to render` builds the app's declared view-render target through the carrier and runs it headless; no right-release child is involved.
+    if (to === "render") {
+      const rendered = ds ? await runRenderStage({ o, ds, root, appDir, commit, tree, env: childEnv, pinnedTarget: pin.dir ?? null, targetDirs: pinMulti?.targetDirs ?? {}, tag }) : (o.err(`${tag} BLOCKED: --to render runs on the snapshot route only; nothing compiled`), 1);
+      const carriedRendered = await carrier.finish({ stage: to });
+      if (ds && !(await closeSnapshotStage({ o, ds, root, stage: to, step: to, tag })).ok) { o.err(`${tag} --to ${to} stopped: the result covers no known bytes`); return 2; }
+      return rendered === 0 && carriedRendered ? 0 : 1;
+    }
+    const r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [cli, to, ...passthrough], { cwd: source ? snapshotAppRootOf(ds.path, appDir) : appRoot, env: childEnv });
     const carriedOk = await carrier.finish({ stage: to });
     if (ds && !(await closeSnapshotStage({ o, ds, root, stage: to, step: to, tag })).ok) { o.err(`${tag} --to ${to} stopped: the result covers no known bytes`); return 2; }
     return r.status === 0 && carriedOk ? 0 : 1;
@@ -3103,7 +3215,7 @@ export function stageArgsProblem(args) {
     if (STAGE_BOOLEAN_FLAGS.includes(a)) continue;
     if (STAGE_VALUE_FLAGS.includes(a)) {
       const value = gate[i + 1];
-      if (value === undefined || value.startsWith("--")) return a === "--to" ? `--to needs a stage (${[...STAGES, "dev", "test"].join("|")})` : `${a} needs a value`;
+      if (value === undefined || value.startsWith("--")) return a === "--to" ? `--to needs a stage (${[...STAGES, "dev", "test", "render"].join("|")})` : `${a} needs a value`;
       if (seen.has(a)) return `${a} was given twice`;
       seen.add(a); i += 1; continue;
     }
@@ -3121,6 +3233,15 @@ export async function main(argv, io = {}) {
     gateFile: fileURLToPath(import.meta.url), ...io,
   };
   const args = [...argv];
+  // rightkit#1463: a run that does work (a door stage, or a class A / full pass) stamps every log line with its UTC time, so phase times no longer have to be
+  // rebuilt from broker receipts. Machine-readable output is never stamped: the --route JSON, a list or baseline, --json, the version, and the one
+  // `verdict deterministic` marker line other tools read.
+  const stampsLines = (args.includes("--to") || args.includes("--full-a") || args.includes("--all"))
+    && !args.some((a) => ["--route", "--list", "--print-baseline", "--json", "--plan", "--version", "-v", "--help", "-h"].includes(a));
+  if (stampsLines) {
+    const stamped = (write) => (m) => write(/^rightkit-gate: verdict deterministic/.test(String(m)) ? m : `${new Date().toISOString()} ${m}`);
+    o.out = stamped(o.out); o.err = stamped(o.err);
+  }
   // The cache bypass is retired (GC-T14; workspace rule: never write or run a no-cache option). Refused by name so an old caller learns why.
   if (args.includes("--no-cache") || (io.env ?? process.env).RK_GATE_CACHE === "0") {
     (io.err ?? console.error)("rightkit-gate: --no-cache and RK_GATE_CACHE=0 are retired: results are reused only under a key naming every input they read, so a changed input always reruns (GC-T14)");
@@ -3926,8 +4047,8 @@ export async function main(argv, io = {}) {
       e2eCrateDirs, swiftPackages,
       rustUnits: rust.units, npmUnits: npm, npmRoots, cargoDir: ".", rustLocks, crateFeatures, crateDependents, externalInputs,
       // B1 (rightkit#1458): compile scans of one Cargo workspace run as one cargo invocation per configuration; ci/shards.json `solo` crates never join one.
-      // Batching is opt-in (RK_GATE_CLASS_B_BATCH=1) until the batch-equivalence run (GATE-CONTRACT GC-I11) shows a batch passes exactly when each crate passes alone: one cargo call unifies the members' features.
-      classBBatching: o.env.RK_GATE_CLASS_B_BATCH === "1", shardSolo: shardSoloOf(o, repo),
+      // Batching is on (RK_GATE_CLASS_B_BATCH=0 turns it off): the batch-equivalence run (GATE-CONTRACT GC-I11; Pulse 3b31b4ca, 2026-11-03) gave the same verdict on all 193 scans batched and per crate.
+      classBBatching: o.env.RK_GATE_CLASS_B_BATCH !== "0", shardSolo: shardSoloOf(o, repo),
       // The broker (or, on a direct host, the gate itself) admits compiles; no separate grant file decides it here.
       localCompile: true,
       exists: o.exists, readFile: o.readFile, platform: o.platform,
@@ -3996,6 +4117,8 @@ export async function main(argv, io = {}) {
     }
     // The result cache keys on the gated commit's object ids; the stdin check above made HEAD the pushed commit.
     let cache = null;
+    // rightkit#1463: the input key each scan was looked up under, for the coverage report (gate-coverage.mjs).
+    const scanKeys = new Map();
     // Full class A on the working tree (the door, and broker admission of the live checkout) caches on the LIVE bytes: every
     // tracked and untracked (not ignored) file is hashed raw, so the door's run and a repeat admission of the same bytes hit the
     // cache, and any edit misses it.
@@ -4047,6 +4170,16 @@ export async function main(argv, io = {}) {
         const installed = sc.installSnapshotDependencies({ checkout, snapshot: snapshotA, ...ct, roots: installRoots, ...(closure ? { packageDirs: npm.filter((u) => closure.npm.has(u.name)).map((u) => u.dir) } : {}), env: o.env, spawn: o.spawn });
         for (const r of installed) o.out(`${tag} ${sc.describeInstall(r)}`);
       } catch (error) { o.err(`${tag} ${error.code === "RK_CHECK_ERROR" ? "RK_CHECK_ERROR" : "BLOCKED"}: ${error.message}`); return error.code === "RK_CHECK_ERROR" ? 2 : 1; }
+    } else if (classAOnly && snapshotA && !planOnly && npmRoots.length) {
+      // A content check (no --full-a) installs nothing, so a package the offline store lacks in one of the commit's pnpm roots showed only at the
+      // compile stage's install (ViewRight workers/waitlist, workerd, rightkit#1488). Every root's lockfile is proved against the store here, with no
+      // install: `pnpm fetch --offline` into a scratch virtual store, the snapshot verified unchanged after.
+      const sc = await import("../snapshot-check.mjs");
+      try {
+        const checkout = fs.realpathSync.native(root);
+        const ct = sc.commitOf(checkout, String(snapshot), o.spawn);
+        for (const r of sc.verifySnapshotStore({ checkout, snapshot: snapshotA, ...ct, roots: npmRoots, tmpRoot: gateTmpRoot({ env: o.env, platform: o.platform, exists: o.exists }), env: o.env, spawn: o.spawn })) o.out(`${tag} ${sc.describeStoreCheck(r)}`);
+      } catch (error) { o.err(`${tag} ${error.code === "RK_CHECK_ERROR" ? "RK_CHECK_ERROR" : "BLOCKED"}: ${error.message}`); return error.code === "RK_CHECK_ERROR" ? 2 : 1; }
     }
     const liveSnapshot = live?.digest ?? null;
     // The environment, installed dependencies included, is bound at the start and compared at the end, so a dependency that
@@ -4057,7 +4190,10 @@ export async function main(argv, io = {}) {
     if (boundFullA) {
       const orphans = orphanedPnpmStores({ root: liveBase, files: live.files });
       if (orphans.length) { o.err(`${tag} BLOCKED: orphaned nested pnpm store(s) ${orphans.join(", ")}: left by a standalone install in a workspace member; they can hold stale dependencies and make concurrent vitest runs clear their shared module cache under each other. Move them aside (or reinstall) and run again.`); return 1; }
-      const pinProblem = pnpmPinProblem({ root: liveBase, files: live.files, spawn: o.spawn, readFile: o.readFile });
+      // ci/gate.config.json `fixtures`: their package.json pins are evidence content, skipped here as every other scan skips them (rightkit#1468).
+      let pinFixtures = [];
+      try { const f = JSON.parse(o.readFile(path.join(liveBase, GATE_CONFIG))).fixtures; if (Array.isArray(f)) pinFixtures = f.filter((d) => typeof d === "string"); } catch { /* no config: no fixtures */ }
+      const pinProblem = pnpmPinProblem({ root: liveBase, files: live.files, spawn: o.spawn, readFile: o.readFile, fixtures: pinFixtures, platform: o.platform });
       if (pinProblem) { o.err(`${tag} BLOCKED: ${pinProblem.message}; no class A row ran`); return 1; }
       try { envAtStart = classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files: live.files, spawn: o.spawn, includeCaches: false }); envStartWithCaches = classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files: live.files, spawn: o.spawn }); cachesAtStart = toolCacheManifest({ root: liveBase, files: live.files }); }
       catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
@@ -4085,7 +4221,7 @@ export async function main(argv, io = {}) {
         // A row field that shapes what the scan checks without changing its id or command is part of its key: a tsc row's tscWorkspace
         // (the sibling packages its check project maps; scopeScans narrows it per scope) changes the verdict on the same tree.
         const rowShape = (scan) => (scan.tscWorkspace ? `:tscws=${createHash("sha256").update(canonicalJson([...scan.tscWorkspace].sort())).digest("hex")}` : "");
-        cache = { ...store, digest: (scan) => { if (/^build-helpers(:|$)/.test(scan.id)) return null; const key = digest(scan); return key === null ? null : `${key}:${environment}${rowShape(scan)}`; } };
+        cache = { ...store, digest: (scan) => { if (/^build-helpers(:|$)/.test(scan.id)) return null; const key = digest(scan); const full = key === null ? null : `${key}:${environment}${rowShape(scan)}`; scanKeys.set(scan.id, full); return full; } };
       } catch { cache = null; }
     }
     if (!classAOnly) {
@@ -4114,7 +4250,7 @@ export async function main(argv, io = {}) {
           // The gate's identity is part of every class B key: a changed check or key logic never reuses an older verdict.
           const rowDigest = buildCacheDigest({ objectId, headTree: treeId, rustUnits: rust.units, npmUnits: npm, cargoDir: ".", rustLocks, crateFeatures, listFiles, readBlob });
           const gateIdentity = gateCodeIdentity();
-          cache = { ...store, digest: (scan) => { const key = rowDigest(scan); return key === null ? null : `${key}:${gateIdentity}`; } };
+          cache = { ...store, digest: (scan) => { const key = rowDigest(scan); const full = key === null ? null : `${key}:${gateIdentity}`; scanKeys.set(scan.id, full); return full; } };
         }
       } catch { cache = null; }
     }
@@ -4140,7 +4276,9 @@ export async function main(argv, io = {}) {
     directTiming.cargoStart = Date.now();
     census?.start();
     const scanResult = await (o.runScans ?? runScans)(plan, {
-      classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], ...(classAEarlier ? { classAEarlier: true } : {}), jobs, testJobs, classBJobs, classBBatching: o.env.RK_GATE_CLASS_B_BATCH === "1", classBPipeline: Math.max(1, Number(o.env.RK_GATE_CLASS_B_PIPELINE ?? 2) || 2), ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
+      // The commit's own files (rightkit#1393): a snapshot is not a git toplevel, so the secret scan needs this list to judge tracked files only and never what a stage wrote there.
+      ...(snapshot ? { trackedFiles: files } : {}),
+      classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], ...(classAEarlier ? { classAEarlier: true } : {}), jobs, testJobs, classBJobs, classBBatching: o.env.RK_GATE_CLASS_B_BATCH !== "0", classBPipeline: Math.max(1, Number(o.env.RK_GATE_CLASS_B_PIPELINE ?? 2) || 2), ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
       ...(census ? { spawn: census.wrapSpawn(defaultSpawnAsync) } : {}),
       // The declared Linux broker route: the scans are planned with the logical `rustright`, which this spawn (and scanSpawn's pass-through below) starts as the
       // executor's validated client, never a PATH lookup (withDeclaredClient).
@@ -4178,7 +4316,7 @@ export async function main(argv, io = {}) {
           return path.join(base, "rightkit-gate-scan-logs", `${path.basename(root)}-${stamp}-${process.pid}`);
         } catch { return null; }
       })(),
-      onResult: (row, p) => o.out(`${tag} [${p.done}/${p.total}] ${(row.cached ? "cached" : row.status).padEnd(7)} ${row.id} (${p.seconds}s)${row.batchedWith ? ` [batch of ${row.batchedWith.units.length}]` : ""}${row.status === "fail" ? ` :: ${String(row.detail ?? "").slice(0, 300)}` : ""}`),
+      onResult: (row, p) => o.out(`${tag} [${p.done}/${p.total}] ${(row.cached ? "cached" : row.status).padEnd(7)} ${row.id} (${p.seconds}s)${row.batchedWith ? ` [batch of ${row.batchedWith.units.length}]` : ""}${row.status === "fail" ? ` :: ${String(row.detail ?? "").slice(0, 300)}` : row.advice ? ` :: ${String(row.advice).slice(0, 300)}` : ""}`),
     });
     directTiming.cargoEnd = Date.now();
     const freshness = census ? census.finish() : null;
@@ -4194,6 +4332,13 @@ export async function main(argv, io = {}) {
     const deferrals = scanDeferrals(scanResult);
     for (const line of deferrals) failures.push(`DEFERRED ${line}`);
     for (const note of scanResult.notes) o.out(`${tag} ${note}`);
+    // rightkit#1463: the per-scan coverage report (hit / ran / skipped, with the cache key and the reason), written beside the scan logs; a cache that never hits shows here.
+    try {
+      const report = buildCoverageReport({ plan, scanResult, keys: scanKeys, classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], commit: snapshotBCommit?.commit ?? snapshotCommitId?.commit ?? hostedCommitA?.commit ?? null, startedAt: new Date(directTiming.cargoStart).toISOString(), endedAt: new Date(directTiming.cargoEnd).toISOString() });
+      const base = gateRunsRoot({ env: o.env, platform: o.platform });
+      const file = (o.writeCoverage ?? writeCoverageReport)({ dir: path.join(base, "rightkit-gate-coverage"), name: `${path.basename(root)}-${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}`, report });
+      o.out(`${tag} coverage report ${file}: ${report.totals.planned} planned scan(s), ${report.totals.hit} hit, ${report.totals.ran} ran, ${report.totals.skipped} skipped; scans took ${seconds(directTiming.cargoEnd - directTiming.cargoStart)}`);
+    } catch (error) { o.out(`${tag} note: the coverage report could not be written (${error.message})`); }
     // What a full class A verdict binds, green or red: the bytes it judged, unchanged from start to end, and the environment it judged
     // in (gate, tools, installed dependencies, tool caches), unchanged too. A verdict whose binding moved covers nothing: a green one is
     // refused and a red one names no reusable deterministic cause (rightkit#1257). Returns { env, notes } or { prefix, problem, exit }.

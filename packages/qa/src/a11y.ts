@@ -361,3 +361,55 @@ export function collectAxNodes(page: QaPage): Promise<AxNode[]> {
     });
   });
 }
+
+// ------------------------------------------------------------ focus, page-side
+
+/**
+ * Page-side source of the focus-ring verdict for the focused element, for an action list or `page.evaluate`
+ * string: one evaluation returns `{ ok, probe, verdict }`. `ok` is true only when an element has focus, it paints
+ * an outline or box-shadow, and it has an accessible name (`aria-label`, text or value). `probe` is the FocusProbe
+ * read from the page; `verdict` carries `visible`, `kind`, `reason` and `name`. With `selector`, `probe.matches`
+ * says whether the focused element matches it. The rules follow `focusRingEvidence` for the browser's computed
+ * style, which always reports colours as `rgb()`/`rgba()`.
+ */
+export function focusRingProbeExpression(selector?: string): string {
+  if (selector !== undefined && typeof selector !== 'string') throw new TypeError('focusRingProbeExpression selector must be a string');
+  return `(() => {
+  const sel = ${JSON.stringify(selector ?? null)};
+  const el = document.activeElement;
+  if (!el || el === document.body || el === document.documentElement) {
+    return { ok: false, probe: { focused: false, matches: null }, verdict: { focused: false, visible: false, kind: 'none', reason: 'no element has keyboard focus', name: null } };
+  }
+  const cs = getComputedStyle(el);
+  let focusVisible = null;
+  try { focusVisible = el.matches(':focus-visible'); } catch (e) { /* unsupported */ }
+  const name = (el.getAttribute('aria-label') || el.innerText || el.value || '').trim().slice(0, 80);
+  const probe = {
+    focused: true, matches: sel ? el.matches(sel) : null, tag: el.tagName.toLowerCase(), id: el.id || null,
+    role: el.getAttribute('role'), name, focusVisible, outlineStyle: cs.outlineStyle, outlineWidth: cs.outlineWidth,
+    outlineColor: cs.outlineColor, outlineOffset: cs.outlineOffset, boxShadow: cs.boxShadow,
+  };
+  const px = (text) => { const m = /^\\s*(-?[\\d.]+)px\\s*$/.exec(text); return m ? Number(m[1]) : null; };
+  const alpha = (text) => {
+    const t = text.trim().toLowerCase();
+    if (t === 'transparent') return 0;
+    const m = /rgba?\\(([^)]*)\\)/.exec(t);
+    if (!m) return 1;
+    const parts = m[1].split(/[\\s,\\/]+/).filter(Boolean);
+    return parts.length === 4 ? Number(parts[3]) : 1;
+  };
+  const outline = !['', 'none', 'hidden'].includes(cs.outlineStyle) && (px(cs.outlineWidth) ?? 0) > 0 && alpha(cs.outlineColor) > 0;
+  const shadowColours = cs.boxShadow.match(/rgba?\\([^)]*\\)/g) || [];
+  const shadow = cs.boxShadow !== '' && cs.boxShadow !== 'none' && [...cs.boxShadow.matchAll(/(-?\\d*\\.?\\d+)px/g)].some((m) => Number(m[1]) !== 0)
+    && (shadowColours.length === 0 || shadowColours.some((c) => alpha(c) > 0));
+  const kind = outline ? 'outline' : shadow ? 'box-shadow' : 'none';
+  const reason = outline ? 'outline ' + cs.outlineStyle + ' ' + cs.outlineWidth + ' ' + cs.outlineColor
+    : shadow ? 'box-shadow ' + cs.boxShadow
+      : "outline is '" + cs.outlineStyle + ' ' + cs.outlineWidth + "' and box-shadow is '" + cs.boxShadow + "'";
+  const visible = kind !== 'none';
+  return {
+    ok: visible && name.length > 0, probe,
+    verdict: { focused: true, visible, kind, reason, name: name || null, focusVisible, tag: probe.tag, id: probe.id, role: probe.role },
+  };
+})()`;
+}

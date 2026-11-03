@@ -28,7 +28,7 @@
 //              `pre` never creates the broker-side parent directory. `verify: [{ app, real }]` requires the real file to equal the
 //              signed app file before and after the build step; `resolve: { manifest, expected }` re-runs cargo metadata and
 //              requires the planned target directory before and after it (a temporary bridge until the broker exposes artifacts).
-import { existsSync as nodeExistsSync, readFileSync, readdirSync as nodeReaddirSync, rmSync as nodeRmSync, statSync as nodeStatSync } from "node:fs";
+import { existsSync as nodeExistsSync, readFileSync, readdirSync as nodeReaddirSync, readlinkSync as nodeReadlinkSync, rmSync as nodeRmSync, statSync as nodeStatSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
@@ -59,7 +59,7 @@ const NATIVE_HELPERS_KEYS = new Set(["app", "helpers", "version", "forceArch", "
 const UNIVERSAL_TRIPLE = "universal-apple-darwin";
 const STAGE_KEYS = new Set(["pre", "post", "verify", "resolve"]);
 const STAGE_ENTRY_KEYS = new Set(["from", "to", "fresh"]);
-const CLEANUP_KEYS = new Set(["remove", "apps", "dmgVolumes"]);
+const CLEANUP_KEYS = new Set(["remove", "apps", "dmgVolumes", "killProcesses"]);
 const APPS_KEYS = new Set(["dir", "remove", "unregister"]);
 const STABILITY_KEYS = new Set(["files", "intervalMs", "checks", "timeoutMs"]);
 const LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
@@ -117,6 +117,12 @@ function validateCleanup(value, errors, bound = []) {
       const dir = insideApp(value.apps.dir, "cleanup.apps.dir", errors, { strict: true, bound });
       if (dir) out.apps = { dir, remove: value.apps.remove === true, unregister: value.apps.unregister === true };
     }
+  }
+  if (value.killProcesses !== undefined) {
+    // Directories (app-relative, strictly inside the app) whose running executables are stopped before the build: a previous build's app or
+    // helper still running from its output folder locks the very files the build rewrites (rightkit#753). Never a name match.
+    if (!Array.isArray(value.killProcesses) || !value.killProcesses.length) errors.push("cleanup.killProcesses must be a non-empty list of relative directories");
+    else out.killProcesses = value.killProcesses.map((item, index) => insideApp(item, `cleanup.killProcesses[${index}]`, errors, { strict: true, bound })).filter(Boolean);
   }
   if (value.dmgVolumes !== undefined) {
     if (!Array.isArray(value.dmgVolumes) || value.dmgVolumes.some(badVolumePrefix)) errors.push("cleanup.dmgVolumes must be a list of non-empty volume name prefixes (no path separators)");
@@ -282,14 +288,58 @@ export function diskImageMountPoints(plistText) {
   return mounts;
 }
 
+/** Running processes as `[{ pid, image }]` (the full path of the executable): `ps` on macOS, /proc on Linux, CIM on Windows. Unreadable rows are dropped. */
+export function listProcessImages({ platform = process.platform, spawnSync = nodeSpawnSync, fs = {} } = {}) {
+  if (platform === "darwin") {
+    const out = spawnSync("ps", ["-axo", "pid=,comm="], { encoding: "utf8", windowsHide: true });
+    if (out?.error || out?.status !== 0) return null;
+    return String(out.stdout ?? "").split("\n").flatMap((line) => { const match = /^\s*(\d+)\s+(\/.*)$/.exec(line); return match ? [{ pid: Number(match[1]), image: match[2].trim() }] : []; });
+  }
+  if (platform === "linux") {
+    const readdir = fs.readdirSync ?? nodeReaddirSync;
+    const readlink = fs.readlinkSync ?? nodeReadlinkSync;
+    let names;
+    try { names = readdir("/proc"); } catch { return null; }
+    return names.filter((name) => /^\d+$/.test(name)).flatMap((name) => { try { return [{ pid: Number(name), image: readlink(`/proc/${name}/exe`) }]; } catch { return []; } });
+  }
+  if (platform === "win32") {
+    const script = 'Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath } | ForEach-Object { "$($_.ProcessId)`t$($_.ExecutablePath)" }';
+    const out = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true });
+    if (out?.error || out?.status !== 0) return null;
+    return String(out.stdout ?? "").split(/\r?\n/).flatMap((line) => { const match = /^(\d+)\t(.+)$/.exec(line.trim()); return match ? [{ pid: Number(match[1]), image: match[2] }] : []; });
+  }
+  return null;
+}
+
+/** Stop every running process whose executable lies strictly inside one of `dirs` (absolute). Returns the pids stopped. Never the current process. */
+export function killProcessesUnder(dirs, { platform = process.platform, log = () => {}, spawnSync = nodeSpawnSync, fs, kill = (pid, signal) => process.kill(pid, signal), sleep = defaultSleep, selfPid = process.pid } = {}) {
+  const fold = (value) => (platform === "win32" ? path.win32.resolve(value).toLowerCase() : path.resolve(value));
+  const inside = (image) => dirs.some((dir) => { const rel = path.relative(fold(dir), fold(image)); return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel); });
+  const images = listProcessImages({ platform, spawnSync, fs });
+  if (!images) { log("recipe-build: cleanup killProcesses skipped (the process list could not be read)"); return []; }
+  const hits = images.filter((item) => item.pid !== selfPid && item.pid !== process.ppid && inside(item.image));
+  for (const { pid, image } of hits) {
+    log(`recipe-build: cleanup stops pid ${pid} (${image})`);
+    try { if (platform === "win32") spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true }); else kill(pid, "SIGTERM"); } catch (error) { if (error?.code !== "ESRCH") log(`recipe-build: cleanup could not stop pid ${pid} (${error?.message})`); }
+  }
+  if (hits.length && platform !== "win32") {
+    sleep(2000);
+    const alive = new Set((listProcessImages({ platform, spawnSync, fs }) ?? []).map((item) => item.pid));
+    for (const { pid } of hits) if (alive.has(pid)) { try { kill(pid, "SIGKILL"); } catch { /* gone */ } }
+  }
+  return hits.map((item) => item.pid);
+}
+
 /**
  * Stale-artifact cleanup, run before the build. Returns what it did: { removed, unregistered, detached }.
  * A failing detach or unregister is logged and skipped: the build's own gates decide pass or fail.
  * Options: appRoot, platform, log, spawnSync, fs ({ existsSync, readdirSync, rmSync }), volumesDir.
  */
 export function runRecipeCleanup(cleanup, { appRoot, platform = process.platform, log = () => {}, spawnSync = nodeSpawnSync, fs = defaultFs, volumesDir = "/Volumes" } = {}) {
-  const result = { removed: [], unregistered: [], detached: [] };
+  const result = { removed: [], unregistered: [], detached: [], killed: [] };
   if (!cleanup) return result;
+  // First: a process still running from an output folder holds its files open, so nothing below (remove, unregister) can finish while it lives.
+  if (cleanup.killProcesses?.length) result.killed = killProcessesUnder(cleanup.killProcesses.map((relative) => path.resolve(appRoot, relative)), { platform, log, spawnSync });
   const tool = (cmd, args) => {
     const run = spawnSync(cmd, args, { stdio: "inherit", windowsHide: true });
     const ok = !(run?.error || run?.status !== 0);

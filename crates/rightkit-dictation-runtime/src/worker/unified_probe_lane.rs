@@ -327,8 +327,7 @@ pub(crate) fn transcribe_probe_buffer_timed(
     if model.requires_timed_control_probe() {
         return model.transcribe_probe_result(buffer);
     }
-    let audio_policy = rightkit_dictation_core::dev_var!("RIGHTKIT_AUDIO_CONDITIONING_POLICY")
-        .unwrap_or_else(|_| "default".into());
+    let audio_policy = "default";
     let conditioned = rightkit_dictation_core::audio_conditioning::condition_for_asr(
         buffer,
         SAMPLE_RATE,
@@ -493,13 +492,11 @@ pub(crate) enum MainAsrJob {
 /// matched 0.3 s within noise at lower power (keep-warm sweep 2026-10-23).
 pub(crate) const KEEP_WARM_IDLE: Duration = Duration::from_millis(500);
 
-/// Keep-warm runs on Windows (DirectML GPU) unless the dev switch turns it off, on battery too:
+/// Keep-warm runs on Windows (DirectML GPU), on battery too:
 /// it only runs while a dictation is recording, and skipping it costs the final pass the GPU
 /// wake-up (228-315 ms after idle; keep-warm sweep 2026-10-23).
 pub(crate) fn keep_warm_enabled() -> bool {
     cfg!(target_os = "windows")
-        && rightkit_dictation_core::dev_var!("RIGHTKIT_ASR_KEEP_WARM_DISABLED")
-            .map_or(true, |v| v.trim() != "1")
 }
 
 /// Shared progress for one file job. `done` advances after each decoded
@@ -668,9 +665,6 @@ pub(crate) struct MainAsrQueueState {
     pub(crate) dictation_active: bool,
     /// Keep-warm passes still owed by a silence burst; any real work runs first.
     pub(crate) keep_warm_burst: u8,
-    /// `RIGHTKIT_ASR_KEEP_WARM_PAUSE_MODE=dense`: back-to-back keep-warm while the speaker pauses.
-    /// Always false under the default pause mode.
-    pub(crate) keep_warm_continuous: bool,
 }
 
 /// Back-to-back keep-warm passes queued when a dictation goes silent.
@@ -806,32 +800,13 @@ impl MainAsrMailbox {
         }
         state.dictation_active = active;
         state.keep_warm_burst = 0;
-        state.keep_warm_continuous = false;
         for work in state.file_works.iter() {
             work.progress
                 .paused
                 .store(active, std::sync::atomic::Ordering::Release);
         }
         drop(state);
-        // A thread idling untimed (`RIGHTKIT_MAIN_ASR_IDLE_WAIT=untimed`) must see a dictation start
-        // for keep-warm; under the default it polls, exactly as before.
-        if !active
-            || crate::perf_levers::main_asr_idle_wait().wake_on_dictation_start(keep_warm_enabled())
-        {
-            self.ready.notify_one();
-        }
-    }
-
-    /// `RIGHTKIT_ASR_KEEP_WARM_PAUSE_MODE=dense`: start or stop back-to-back keep-warm passes for a
-    /// recording dictation. A no-op when nothing changes or no dictation is active.
-    pub(crate) fn set_keep_warm_continuous(&self, on: bool) {
-        let mut state = self.state.lock();
-        if !state.dictation_active || state.keep_warm_continuous == on {
-            return;
-        }
-        state.keep_warm_continuous = on;
-        drop(state);
-        if on {
+        if !active {
             self.ready.notify_one();
         }
     }
@@ -884,9 +859,9 @@ impl MainAsrMailbox {
         // has been idle since now.
         let idle_since = Instant::now();
         let keep_warm = keep_warm_enabled();
-        let keep_warm_idle =
-            crate::perf_levers::keep_warm_idle_override().unwrap_or(KEEP_WARM_IDLE);
-        let untimed_idle = crate::perf_levers::main_asr_idle_wait().untimed_when_idle(keep_warm);
+        let keep_warm_idle = KEEP_WARM_IDLE;
+        // Untimed only where it is output-identical: no keep-warm on this platform/build.
+        let untimed_idle = !keep_warm;
         let mut state = self.state.lock();
         loop {
             // Release only between whole file jobs, never between their windows.
@@ -962,9 +937,6 @@ impl MainAsrMailbox {
             }
             if keep_warm && state.dictation_active && state.keep_warm_burst > 0 {
                 state.keep_warm_burst -= 1;
-                return MainAsrJob::KeepWarm;
-            }
-            if keep_warm && state.dictation_active && state.keep_warm_continuous {
                 return MainAsrJob::KeepWarm;
             }
             if keep_warm && state.dictation_active {
@@ -1232,7 +1204,6 @@ impl AsrExecutor {
                     alive: main_worker_alive,
                     wait_signal: Arc::clone(&main_wait_signal),
                 };
-                crate::perf_levers::apply_thread_qos("hr-main-asr-worker");
                 let mut model = match AsrRuntime::load(&main_models_dir, ep) {
                     Ok(model) => model,
                     Err(error) => {
@@ -1245,8 +1216,7 @@ impl AsrExecutor {
                     let _ = main_ready_tx.send(Err(format!("main ASR warmup: {error}")));
                     return;
                 }
-                let scheduled_enabled = model.uses_scheduled_static15()
-                    && rightkit_dictation_core::dev_var!("RIGHTKIT_SCHEDULED_STATIC15").ok().as_deref() != Some("0");
+                let scheduled_enabled = model.uses_scheduled_static15();
                 let mut control_cleanup_supported = model.supports_control_cleanup();
                 let mut last_model_key = asr_reload_key();
                 let mut scheduled_static = ScheduledStatic15::default();
@@ -1595,19 +1565,10 @@ impl AsrExecutor {
             })
             .map_err(|error| format!("spawn main ASR worker: {error}"))?;
 
-        // ORT-04 / ENG-13 (`RIGHTKIT_PARALLEL_MODEL_LOAD=1`): spawn the KWS worker while the main ASR
-        // is still loading and join both below. Default: wait here first, as shipped. ORT is
-        // initialised in `entry` before any worker exists, so the order carries no init hazard.
-        let parallel_load = crate::perf_levers::parallel_model_load();
-        let recv_main_ready = |rx: &std::sync::mpsc::Receiver<Result<(bool, bool), String>>| {
-            rx.recv()
-                .map_err(|_| "main ASR worker exited before ready".to_string())?
-        };
-        let main_ready_serial = if parallel_load {
-            None
-        } else {
-            Some(recv_main_ready(&main_ready_rx)?)
-        };
+        // Wait for the main ASR to be ready before the KWS worker starts.
+        let (scheduled_static15_enabled, control_cleanup_supported) = main_ready_rx
+            .recv()
+            .map_err(|_| "main ASR worker exited before ready".to_string())??;
 
         let probe_mailbox = Arc::new(ProbeMailbox {
             state: Mutex::default(),
@@ -1629,7 +1590,6 @@ impl AsrExecutor {
                     alive: probe_worker_alive,
                     wait_signal: Arc::clone(&probe_wait_signal),
                 };
-                crate::perf_levers::apply_thread_qos("hr-kws-worker");
                 let mut probe_model = match AsrRuntime::load_probe(&models_dir, ep) {
                     Ok(probe_model) => probe_model,
                     Err(error) => {
@@ -1889,33 +1849,7 @@ impl AsrExecutor {
                     }
                 }
             })
-            .map_err(|error| {
-                if parallel_load {
-                    main_mailbox.push_control(MainAsrControl::Shutdown);
-                }
-                format!("spawn KWS worker: {error}")
-            })?;
-
-        let (scheduled_static15_enabled, control_cleanup_supported) = match main_ready_serial {
-            Some(ready) => ready,
-            None => {
-                let started = Instant::now();
-                match recv_main_ready(&main_ready_rx) {
-                    Ok(ready) => {
-                        tracing::info!(
-                            event = "parallel_model_load",
-                            main_wait_ms = started.elapsed().as_millis() as u64,
-                            "main ASR ready (KWS loading in parallel)"
-                        );
-                        ready
-                    }
-                    Err(error) => {
-                        probe_mailbox.push_control(ProbeControl::Shutdown);
-                        return Err(error);
-                    }
-                }
-            }
-        };
+            .map_err(|error| format!("spawn KWS worker: {error}"))?;
 
         if let Err(error) = probe_ready_rx
             .recv()
@@ -2295,10 +2229,6 @@ impl AsrExecutor {
 
     pub(crate) fn request_keep_warm_burst(&self) {
         self.main_mailbox.request_keep_warm_burst();
-    }
-
-    pub(crate) fn set_keep_warm_continuous(&self, on: bool) {
-        self.main_mailbox.set_keep_warm_continuous(on);
     }
 
     pub(crate) fn shutdown(&self) {

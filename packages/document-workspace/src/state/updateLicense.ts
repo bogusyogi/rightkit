@@ -1,4 +1,4 @@
-﻿import { browserQaLicenseClient, nativeIpc, openExternal } from "@rightkit/document-core/state/tauriBridge";
+﻿import { nativeIpc, openExternal } from "@rightkit/document-core/state/tauriBridge";
 import { createLicenseClient, type LicenseClient } from "@rightkit/license";
 import {
   createPersistedCheckCache,
@@ -70,8 +70,7 @@ for (const legacyKey of ["vr.updateLicense.v1", "vr.deviceId.v1"]) {
 let licenseClientPromise: Promise<LicenseClient> | null = null;
 
 export function getLicenseClient(): Promise<LicenseClient> {
-  licenseClientPromise ??= (async () =>
-    (await browserQaLicenseClient()) ?? createLicenseClient(nativeIpc))();
+  licenseClientPromise ??= Promise.resolve(createLicenseClient(nativeIpc));
   return licenseClientPromise;
 }
 

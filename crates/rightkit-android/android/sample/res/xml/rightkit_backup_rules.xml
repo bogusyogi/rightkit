@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- android:fullBackupContent (API 23-30). Keystore keys never restore on a new device, so a
+     restored credential store would hold entries nothing can decrypt: keep it out of backup. -->
+<full-backup-content>
+    <exclude domain="file" path="rightkit-credentials/" />
+</full-backup-content>

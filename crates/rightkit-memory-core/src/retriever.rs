@@ -8,6 +8,7 @@ use rightkit_embed::cosine_similarity;
 
 #[path = "lexical.rs"]
 mod lexical;
+use crate::quant::QuantizedVector;
 pub use lexical::LexicalHit;
 
 /// Ranks entries in a [`MemoryRegistry`] against a textual query.

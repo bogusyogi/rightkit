@@ -12,6 +12,7 @@ use notify::event::{ModifyKind, RenameMode};
 use notify::{Event, EventKind, RecursiveMode, Watcher};
 
 use crate::sync::{normalize, GrantCheck, DEFAULT_DEBOUNCE, DEFAULT_MAX_WAIT};
+use crate::typed::Translator;
 use crate::{ChangeCoalescer, WatchError, WatchEvent};
 
 /// Mutation categories accepted by [`EventFilter`]. Gaps always pass filters.
@@ -306,7 +307,9 @@ impl<G: GrantCheck> Delivery<G> {
 
     fn push(&mut self, record: WatchEventRecord) {
         self.reconcile_kind = record.raw_kind;
-        let _ = self.coalescer.push_watch_event(&record.event);
+        let _ = self
+            .coalescer
+            .push_watch_record(&record.event, record.raw_kind, None);
         let paths = match &record.event {
             WatchEvent::Create(path) | WatchEvent::Modify(path) | WatchEvent::Delete(path) => {
                 vec![path.clone()]

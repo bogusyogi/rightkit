@@ -98,6 +98,7 @@ check_pkg() { # id dir
 check_pkg "platforms;android-$PLATFORM_API" "platforms/android-$PLATFORM_API"
 check_pkg "build-tools;$BUILD_TOOLS_VERSION" "build-tools/$BUILD_TOOLS_VERSION"
 check_pkg "platform-tools" "platform-tools"
+check_pkg "emulator" "emulator"
 check_pkg "ndk;$NDK_VERSION" "ndk/$NDK_VERSION"
 props="$sdk_root/ndk/$NDK_VERSION/source.properties"
 if [ -f "$props" ] && ! grep -q "Pkg.Revision = $NDK_VERSION" "$props"; then
@@ -113,6 +114,54 @@ if [ "$install" -eq 1 ] && [ -n "$to_install" ]; then
     else
         echo "SKIPPED   SDK package install: needs sdkmanager and accepted licences (see above)"
     fi
+fi
+
+# ---- emulator system image and AVD (rightkit#347) --------------------------------------------
+# One AVD per host: arm64-v8a on Apple silicon, x86_64 elsewhere. Image and AVD live under the SDK root,
+# which must be on D: (internal drives are out of bounds). Licences stay with the person: this step only
+# runs when licences are accepted.
+case "$os:$(uname -m)" in
+    Darwin:arm64|Darwin:aarch64) abi="arm64-v8a" ;;
+    *) abi="x86_64" ;;
+esac
+image="system-images;android-$PLATFORM_API;google_apis;$abi"
+avd_name="rightkit-api$PLATFORM_API-$abi"
+avd_home="$sdk_root/avd"
+case "$sdk_root" in
+    /Volumes/D/*|D:*|d:*) ok "SDK root on D: ($sdk_root)" ;;
+    *) miss "SDK root is not on D: ($sdk_root); pass --sdk-root D:/... or /Volumes/D/... (internal drives are out of bounds)" ;;
+esac
+emulator_bin="$sdk_root/emulator/emulator"
+if [ -x "$emulator_bin" ]; then
+    if ANDROID_AVD_HOME="$avd_home" "$emulator_bin" -list-avds 2>/dev/null | grep -qx "$avd_name"; then
+        ok "AVD $avd_name (image $image)"
+    else
+        miss "AVD $avd_name: create it after the image installs"
+        if [ "$install" -eq 1 ] && [ -n "$sdkmanager" ] && [ "$licences_ok" -eq 1 ]; then
+            if [ ! -d "$sdk_root/system-images/android-$PLATFORM_API/google_apis/$abi" ]; then
+                "$sdkmanager" "--sdk_root=$sdk_root" "$image"
+                did "$image"
+            fi
+            avdmanager=""
+            # shellcheck disable=SC2012  # ls over build-output names this script controls (no spaces); the order of the listing is what is wanted
+            for d in $(ls -1 "$sdk_root/cmdline-tools" | sort -r); do
+                if [ -x "$sdk_root/cmdline-tools/$d/bin/avdmanager" ]; then
+                    avdmanager="$sdk_root/cmdline-tools/$d/bin/avdmanager"; break
+                fi
+            done
+            if [ -n "$avdmanager" ]; then
+                mkdir -p "$avd_home"
+                echo no | ANDROID_AVD_HOME="$avd_home" "$avdmanager" create avd --force \
+                    --name "$avd_name" --package "$image" --device "pixel_7"
+                did "AVD $avd_name"
+                missing=$((missing - 1))
+            else
+                echo "SKIPPED   AVD create: avdmanager missing from cmdline-tools"
+            fi
+        fi
+    fi
+else
+    miss "emulator package (sdkmanager emulator)"
 fi
 
 # ---- rustup targets ----------------------------------------------------------------------------
@@ -147,6 +196,8 @@ echo "Set these in the shell that builds (this script does not change your envir
 echo "  export ANDROID_HOME=\"$sdk_root\""
 echo "  export ANDROID_NDK_HOME=\"$sdk_root/ndk/$NDK_VERSION\""
 echo "  export NDK_HOME=\"\$ANDROID_NDK_HOME\""
+echo "  export ANDROID_AVD_HOME=\"$avd_home\""
+echo "Start the emulator: ANDROID_AVD_HOME=\"$avd_home\" \"$emulator_bin\" -avd $avd_name"
 if [ -n "$jdk" ]; then echo "  export JAVA_HOME=\"$jdk\""; fi
 
 if [ "$missing" -gt 0 ]; then

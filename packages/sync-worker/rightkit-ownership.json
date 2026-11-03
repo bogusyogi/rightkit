@@ -3,7 +3,7 @@
   "capabilities": [
     {
       "capability": "sync-worker",
-      "summary": "Cloudflare Worker implementing the server side of rightkit-sync-http/1 on D1 and R2; declaration-only detection (no precise implementation fingerprint)",
+      "summary": "Cloudflare Worker implementing the server side of rightkit-sync-http/1 on D1 and R2, deployed for HeardRight; the `rightkit-sync` `http` feature is its supported client (rightkit#967); declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

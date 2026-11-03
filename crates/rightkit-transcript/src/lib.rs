@@ -27,7 +27,7 @@ pub use contract::{
     EndSource, ModelRef, Span, Transcript, TranscriptError, Word, ACCEPTED_SCHEMAS, LEGACY_SCHEMA,
     SCHEMA,
 };
-pub use export::{to_plain_text, to_srt, to_timing_json, to_vtt, Newline};
+pub use export::{subtitle_timestamp, to_plain_text, to_srt, to_timing_json, to_vtt, Newline};
 pub use parse::{parse_srt, parse_timing_json, parse_vtt, words_from_cues, ParseError, ParsedCue};
 pub use segment::{
     build_cues, build_cues_with_metrics, cues_from_spans, group_words, normalize_words, wrap_lines,

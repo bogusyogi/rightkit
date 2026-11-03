@@ -19,28 +19,50 @@ pub struct MonoAudio {
 /// Read any PCM/float WAV as mono `f32` (multichannel is averaged).
 pub fn read_wav_mono_f32(path: &Path) -> Result<MonoAudio, AudioError> {
     let reader = hound::WavReader::open(path).map_err(wav_err)?;
-    decode_mono_f32(reader)
+    decode_mono_f32(reader, None)
 }
 
-/// Decode an opened reader to mono `f32`. The sample buffer is sized from the
-/// header's data length (`reader.len()`, total samples across channels), so
-/// it is filled in one pass without regrowth.
+/// Read only the first `seconds` of a WAV as mono `f32` (#740). Decoding stops after
+/// `ceil(seconds * sample_rate)` frames, so the rest of the file is never read. A file
+/// shorter than the prefix returns all of its samples. `seconds` must be finite and positive.
+pub fn read_wav_mono_f32_prefix(path: &Path, seconds: f64) -> Result<MonoAudio, AudioError> {
+    if !seconds.is_finite() || seconds <= 0.0 {
+        return Err(AudioError::Wav(format!(
+            "prefix length must be a positive finite number of seconds, got {seconds}"
+        )));
+    }
+    let reader = hound::WavReader::open(path).map_err(wav_err)?;
+    let frames = (seconds * f64::from(reader.spec().sample_rate)).ceil() as u64;
+    decode_mono_f32(reader, Some(frames))
+}
+
+/// Decode an opened reader to mono `f32`, at most `max_frames` frames when given. The
+/// sample buffer is sized from the header's data length (`reader.len()`, total samples across
+/// channels, capped at the limit), so it is filled in one pass without regrowth.
 fn decode_mono_f32<R: std::io::Read>(
     mut reader: hound::WavReader<R>,
+    max_frames: Option<u64>,
 ) -> Result<MonoAudio, AudioError> {
     let spec = reader.spec();
     let channels = usize::from(spec.channels.max(1));
-    let mut interleaved: Vec<f32> = Vec::with_capacity(reader.len() as usize);
+    let limit = max_frames
+        .map(|f| {
+            usize::try_from(f)
+                .unwrap_or(usize::MAX)
+                .saturating_mul(channels)
+        })
+        .unwrap_or(usize::MAX);
+    let mut interleaved: Vec<f32> = Vec::with_capacity((reader.len() as usize).min(limit));
     match spec.sample_format {
         hound::SampleFormat::Float => {
-            for s in reader.samples::<f32>() {
+            for s in reader.samples::<f32>().take(limit) {
                 interleaved.push(s.map_err(wav_err)?);
             }
         }
         hound::SampleFormat::Int => {
             // Same scale as the writer (and ScrapeRight): full scale is 2^(bits-1) - 1.
             let scale = ((1i64 << (spec.bits_per_sample - 1)) - 1) as f32;
-            for s in reader.samples::<i32>() {
+            for s in reader.samples::<i32>().take(limit) {
                 interleaved.push(s.map_err(wav_err)? as f32 / scale);
             }
         }
@@ -69,7 +91,7 @@ pub fn read_wav_16k_mono(path: &Path) -> Result<Vec<f32>, AudioError> {
             spec.sample_rate, spec.channels
         )));
     }
-    Ok(decode_mono_f32(reader)?.samples)
+    Ok(decode_mono_f32(reader, None)?.samples)
 }
 
 /// Write mono `f32` samples as 16-bit PCM (clamped, scaled by 32767).

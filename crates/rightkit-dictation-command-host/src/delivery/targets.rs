@@ -5,17 +5,11 @@
 use super::*;
 
 pub fn snapshot_target() -> TargetSnapshot {
-    if test_mode() {
-        return TargetSnapshot::test_target();
-    }
     crate::focus::snapshot_current_target()
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub(crate) fn target_ready_for_input(original: &TargetSnapshot) -> bool {
-    if test_mode() {
-        return true;
-    }
     if let Some(evidence) = original.stop_continuity.as_ref() {
         if !original
             .process_id
@@ -55,10 +49,6 @@ fn macos_window_target_matches(_: &TargetSnapshot, _: &TargetSnapshot) -> bool {
 
 #[cfg(target_os = "windows")]
 pub fn restore_and_verify(target: &TargetSnapshot) -> Result<(), DeliveryError> {
-    if test_mode() {
-        let _ = target;
-        return Ok(());
-    }
     use std::{thread, time::Duration};
     use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SetForegroundWindow};
 
@@ -91,10 +81,6 @@ pub fn restore_and_verify(target: &TargetSnapshot) -> Result<(), DeliveryError> 
 
 #[cfg(target_os = "macos")]
 pub fn restore_and_verify(target: &TargetSnapshot) -> Result<(), DeliveryError> {
-    if test_mode() {
-        let _ = target;
-        return Ok(());
-    }
     use std::time::Duration;
 
     let pid = target_process_id(target, "no captured app to restore")?;

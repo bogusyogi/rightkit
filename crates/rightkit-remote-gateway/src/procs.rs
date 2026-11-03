@@ -86,7 +86,13 @@ pub fn list(settings: &Settings, origin: Origin, args: &Value) -> Result<Value> 
         rows.sort_by_key(|(memory, _)| std::cmp::Reverse(*memory));
         let total = rows.len();
         (rows, total)
-    });
+    })
+    .map_err(|e| {
+        Refusal::new(
+            "unavailable",
+            format!("the process table cannot be read ({e})"),
+        )
+    })?;
     let shown: Vec<Value> = rows.into_iter().take(limit).map(|(_, row)| row).collect();
     let returned = shown.len();
     Ok(json!({
@@ -100,7 +106,9 @@ pub fn list(settings: &Settings, origin: Origin, args: &Value) -> Result<Value> 
 
 /// A fresh read of one process: its start time and owner, not the shared table's cached copy.
 fn fresh(pid: u32) -> (Option<u64>, Option<sysinfo::Uid>, Option<u32>) {
-    let mut system = System::new();
+    let Ok(mut system) = System::new() else {
+        return (None, None, None);
+    };
     let id = Pid::from_u32(pid);
     system.refresh_processes_specifics(
         ProcessesToUpdate::Some(&[id]),

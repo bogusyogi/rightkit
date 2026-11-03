@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-search"
-version = "0.4.2"
+version = "0.4.4"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -13,11 +13,16 @@ include = ["src/**", "Cargo.toml", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 default = ["sqlite"]
 # `Param: rusqlite::ToSql` so compiled predicates bind directly.
 sqlite = ["dep:rusqlite"]
+# `grep`: gitignore-aware, budgeted, resumable regex content search over a workspace (CodeRight port).
+workspace-grep = ["dep:ignore", "dep:regex", "dep:sha2"]
 # Cockpit-derived in-memory filename index (substring/extension/size/kind, pagination).
 filename-index = []
 
 [dependencies]
 rusqlite = { version = "0.41", default-features = false, optional = true }
+ignore = { version = "=0.4.33", optional = true }
+regex = { version = "1.13.1", optional = true }
+sha2 = { version = "0.11.1", optional = true }
 
 [package.metadata.rightkit]
 continuous = false

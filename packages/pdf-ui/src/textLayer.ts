@@ -26,3 +26,28 @@ export async function renderPdfTextLayer(
   await textLayer.render();
   return textLayer;
 }
+
+/** The text of a page as the viewer's find reads it: item strings joined by a space. In
+ *  `"streamTextContent"` mode the stream is read to its end, so find sees the same text source the
+ *  text layer renders from. */
+export async function readPdfPageText(page: PDFPageProxy, mode: PdfTextContentMode = "getTextContent"): Promise<string> {
+  const parts: string[] = [];
+  const collect = (items: ReadonlyArray<unknown>) => {
+    for (const item of items) parts.push(typeof item === "object" && item !== null && "str" in item ? String((item as { str: unknown }).str) : "");
+  };
+  if (mode === "streamTextContent") {
+    const reader = page.streamTextContent().getReader();
+    try {
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        collect(chunk.value.items);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  } else {
+    collect((await page.getTextContent()).items);
+  }
+  return parts.join(" ");
+}

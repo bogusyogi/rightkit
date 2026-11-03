@@ -1,9 +1,9 @@
 //! The `start_daemon` and `stop_daemon` steps: run the app's engine as a long-lived listener (a
 //! daemon host), tracked by the scenario, and stop it bounded.
 //!
-//! `start_daemon` launches `<engine> <command...> [<port_flag> 0] <args...>` through the same
-//! isolated-data-directory guard as every engine launch, with the engine environment (the world
-//! marker and ports included), the data-directory variable and the step's `env`, and holds stdin open
+//! `start_daemon` launches `<engine> <command...> [<port_flag> 0] <args...>` on the owner's real
+//! data, under the armed snapshot like every engine launch (`snapshot::require_armed` refuses it
+//! otherwise), with the engine environment (ports included) and the step's `env`, and holds stdin open
 //! (closing stdin is the stop signal). It waits (bounded) for one JSON line on stdout,
 //! `{"event": "<ready_event>", "port": N}`, and fails with the engine's typed error line
 //! (`{"error": {"code", "message"}}`) and its stderr if the process exits first. The process is
@@ -19,7 +19,7 @@
 //! `public_port` (a second plain-HTTP listener: `0` picks a free loopback port and passes
 //! `<public_flag> <port>`; `public_flag` defaults to `--public-port`), `secret_files` (a table of
 //! environment variable to secret value: each value is written to an owner-only file in
-//! `<data dir>/e2e-secrets-<id>/` and the variable is set to the file's path; the value is held, so
+//! `<data dir>/e2e-secrets-<id>/` (the app's real data folder; the snapshot restore removes it) and the variable is set to the file's path; the value is held, so
 //! `engine_log` with `forbid_held` proves it never reached the log), `hold_files` (files whose lines
 //! are held as secrets, for example a private key a plugin step wrote).
 //!
@@ -37,13 +37,13 @@
 //! stdout }` (the daemon's stdout lines after the ready line, at most 20). A daemon still running at
 //! scenario teardown is stopped the same way and reported. A process the daemon left running after it
 //! exited is recorded as a survivor before it is ended, and the scenario is `errored`. `stop_daemon`
-//! unsets `${<id>_port}` and `${<id>_base_url}` (also when the stop fails).
+//! unsets every variable `start_daemon` set for the id (`${<id>_url}`, `${<id>_port}`, `${<id>_pid}`, `${<id>_public_url}`
+//! and `${<id>_public_port}`), also when the stop fails.
 use super::{only, scenario_path, string_table, strings, text, uint};
 use crate::check::select;
 use crate::engine::EngineTarget;
 use crate::process::{settle_exit, terminate_bounded, Tracker};
 use crate::scenario::Ctx;
-use crate::userdata::{check_engine_launch, EngineLaunch};
 use crate::util::{err, tail, Error, Result};
 use rightkit_child_process::{OwnedChild, OwnedCommand, WaitOutcome};
 use rightkit_fs::private::{ensure_private_dir, write_private_file};
@@ -274,7 +274,6 @@ fn startup_failure(
 /// Everything `launch` needs from the scenario.
 struct Launch<'a> {
     engine: &'a EngineTarget,
-    data_dir: &'a Path,
     log_dir: &'a Path,
     tracker: &'a Tracker,
     id: &'a str,
@@ -287,22 +286,12 @@ struct Launch<'a> {
     wait: Duration,
 }
 
-/// Spawn the engine through the guard and tracker, drain its stdout and stderr into the log
+/// Spawn the engine through the tracker, drain its stdout and stderr into the log
 /// directory, and wait for the ready line. The process is gone, forgotten and described on failure.
 fn launch(l: &Launch) -> Result<(Running, u16)> {
-    let launch_env = l.engine.env_for(Some(l.data_dir), l.step_env);
-    // The same guard the engine's own launches pass: no isolated data directory, no launch.
-    check_engine_launch(&EngineLaunch {
-        binary: &l.engine.binary,
-        args: l.argv,
-        data_dir: Some(l.data_dir),
-        data_dir_env: l.engine.data_dir_env.as_deref(),
-        data_dir_arg: l.engine.data_dir_arg.as_deref(),
-        forbidden_args: &l.engine.forbidden_args,
-        env: &launch_env,
-        refusal_probe: l.engine.allow_no_data_dir_for_refusal_probe,
-    })
-    .map_err(|e| Error(format!("rightkit-qa refused the daemon launch: {e}")))?;
+    // The engine runs on the owner's real data: only under a verified snapshot.
+    crate::snapshot::require_armed()?;
+    let launch_env = l.engine.env_for(l.step_env);
     let stderr_log = l.log_dir.join(format!("{}-daemon.stderr.log", l.id));
     let stdout_log = l.log_dir.join(format!("{}-daemon.stdout.log", l.id));
     let open = |path: &Path| {
@@ -469,7 +458,8 @@ pub(super) fn start(ctx: &mut Ctx, p: &Map<String, Value>) -> Result<Value> {
 
     let secrets = string_table(p, "secret_files")?;
     if !secrets.is_empty() {
-        let dir = ctx.data_dir.join(format!("e2e-secrets-{id}"));
+        // In the run's scratch directory, never in the app's real data folder or the evidence.
+        let dir = ctx.ws.home.join(format!("e2e-secrets-{id}"));
         ensure_private_dir(&dir).map_err(|e| Error(format!("create {}: {e}", dir.display())))?;
         for (var, value) in &secrets {
             if var.is_empty() || !var.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
@@ -502,7 +492,6 @@ pub(super) fn start(ctx: &mut Ctx, p: &Map<String, Value>) -> Result<Value> {
     let started = Cell::new(false);
     let launched = launch(&Launch {
         engine: &engine,
-        data_dir: &ctx.data_dir,
         log_dir: &ctx.log_dir,
         tracker: ctx.tracker,
         id: &id,

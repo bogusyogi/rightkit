@@ -3,7 +3,7 @@
 `right-release model promote --authority <app-key> --config <promotion.json>`
 promotes one runtime artifact. Authority uses `RIGHT_SUITE_APP_KEYS` from
 `runtime-artifact-manifest.mjs`: ViewRight, HeardRight, MailRight, ScrapeRight,
-CodeRight, ScreenRight, GenRight & VoiceRight. Authority must equal
+CodeRight, ScreenRight, GenRight, VoiceRight & Ember. Authority must equal
 `manifest.entitlement.appKey`; unknown keys fail with
 `RUNTIME_ARTIFACT_UNKNOWN_APP`, mismatches with
 `RUNTIME_ARTIFACT_AUTHORITY_MISMATCH`. HeardRight uses `--authority heardright`
@@ -34,13 +34,19 @@ characters; pointer paths include `<artifactId>` after `<kind>`. Use
 keys remain content-addressed by digest in both layouts.
 
 Kinds: `asr-model`, `tts-model`, `ocr-model`, `ort-runtime`, `media-runtime`,
-`tokenizer`, `preprocessing`. Model & tokenizer kinds require `pro` entitlement
-with `private-r2` delivery. Public/bundled lanes require corresponding tiers.
+`tokenizer`, `preprocessing`, `image-model`. ASR, TTS, OCR & tokenizer kinds require `pro` entitlement
+with `private-r2` delivery. `image-model` (Ember's denoise, culling & auto-edit models) takes either lane: `private-r2` with `pro`,
+or `public-r2` with the `public` tier (a free model needs no entitlement; the pinned digest, signed envelope & verified load are the same);
+it is never `bundled`. Public/bundled lanes require corresponding tiers.
 `versions.license` must match `provenance.licenseId` after punctuation/case
 normalization. CLI hashes both nonempty files, checks model size & digests,
 then constructs schema-1 manifest with immutable object key, current pointer,
 `promotion.authorityAppKey` & `promotion.evidenceSha256`. Do not put those
 generated fields in config.
+
+## Objects above 300 MiB (#902)
+
+An artifact of 200 MiB or more is uploaded through R2's S3-compatible endpoint as a multipart object (64 MiB parts, SigV4 with `node:crypto` and `fetch`; no S3 client dependency), because `wrangler r2 object put` stops at 300 MiB. Smaller artifacts still use `wrangler r2 object put --remote`. The S3 credentials are derived in memory from `CLOUDFLARE_API_TOKEN` (the token's id is the access key id, the SHA-256 of its value is the secret; `docs/rules/cloudflare-access.md`) and are never printed, logged or written. The upload hashes the bytes it sends and completes the object only when the whole-file sha256 and size equal the evidence. Every artifact is then read back by streaming `GetObject` through a sha256 and a byte counter (`wrangler r2 object get` aborts mid-stream on large objects), and a readback that differs from the evidence fails with `PUBLICATION_REMOTE_MISMATCH`. The order is unchanged: immutable object, then the signed envelope, then the pointer. The private lane still maps to `rightapps-updates` and the public lane to `rightapps-downloads` (promotion configs keep `bucket: rightapps-updates`, as the signed manifest contract requires).
 
 ## Worked GenRight config
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.8
+
+- Removed the test-mode residue (Adrian, 2026-11-03: no test-mode code; real data with snapshot and restore). Deleted `ModelHttpOptions::allow_loopback_for_tests`, `ModelHttp::for_loopback_tests` and `Store::with_loopback_for_tests`, which only a `Mode::Test` could ever enable, and the private `loopback_test_policy`. Removed `suite::paths::SUITE_ROOT_ENV`, `ORTHIC_SHARED_DIR_ENV` and `RIGHTKIT_SUITE_ROOT_ENV`, which named overrides no build reads. The `legacy_suite_root` and `app_data_base` redirect branches are gone; they were unreachable without an override. Doc comments no longer describe a test build. Public behaviour is unchanged. `dev-worker-override` is a development worker allowance, not test mode, and is kept.
+- Added (#741): `suite::store::ModelStatus` and `EntryState` derive `serde::Serialize`, and `suite::catalog::ModelTier` does too, so an app can send a status to its UI as-is.
+- Added (#741): `ModelStore::effective_status(spec, siblings, mode) -> ModelStatus`, a read-only version of the sibling rule in `ModelStore::resolve`. It returns this store's entry when it exists, else the first verified sibling entry when this is the machine-wide store. It registers nothing and writes nothing. The `find_processes` case-insensitive match in the same issue is in `rightkit-child-process`, not this crate.
+- Added (#1099): `ModelStore::seed_from_dir(spec, src_dir) -> Result<SeedOutcome, String>` and `SeedOutcome { NoSource, AlreadyComplete, Seeded }`. It copies only the spec's files into `<id>.staging-<pid>` beside the entry, writes the trusted manifest there, verifies every file at full depth against the catalog pins, and publishes with one rename. A failed copy or verify is never published. A previous entry moves to `<id>.replaced-<pid>` first and is restored if the rename fails. Each run under the entry lock sweeps `<id>.staging-*` and `<id>.replaced-*` leftovers. A missing source returns `NoSource` with no lock or write. Speech models are refused for any app but HeardRight, as in every ensure. Unit tests are not added (Adrian: end-to-end only).
+
+## 0.5.7
+
+- Suite root is always `Suite::resolve()` (the per-user default). Environment overrides and `TEST_CAPABILITY` branch removed, following rightkit-daemon 0.5.3 dropping test mode (Adrian: no test-mode code, real data with snapshot/restore).
+
+## 0.5.6
+
+- `Gpu::vram_mib` (raw MiB from nvidia-smi and wmic) and `Gpu::source` (`nvidia-smi`, `wmic`, `system_profiler`, `metal`) record what each probe reported (#709).
+- `InstallOptions::authorization_host`: the `Authorization` value is sent only to URLs on that host, so a mirror fallback never receives the token (#1164). Unset keeps the previous behaviour. Aggregate progress across files is not included.
+
+
 ## 0.5.4 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

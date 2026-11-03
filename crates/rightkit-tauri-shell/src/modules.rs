@@ -304,6 +304,16 @@ impl ShellPluginBuilder {
         self.build()
     }
 
+    /// Use the lifecycle-only profile, [`ModuleSet::lifecycle_only`], and keep building: the builder
+    /// stays open so `with(Module::..)` can opt webview-policy modules back in (for example
+    /// `Module::NavigationPolicy` for a host that owns its windows but keeps the navigation policy),
+    /// then `build()` installs the plugin. Equivalent to [`ShellPluginBuilder::lifecycle_only`] when
+    /// nothing is added back. The profile replaces the module set, so `with` and `without` calls before
+    /// it are dropped.
+    pub fn lifecycle_host(self) -> Self {
+        self.profile(ModuleSet::lifecycle_only(), true)
+    }
+
     /// Install only the state the broker, stream, recovery, frameless and clipboard commands use.
     /// This replaces any earlier `without` calls: hardening, navigation policy, window restore,
     /// show-on-ready, watchdog and presence are all off.

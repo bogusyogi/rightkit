@@ -34,6 +34,7 @@ use crate::driver_host::cli_runtime::ids::{
     CliAccountProfile, CliAuthMode, CliProviderId, HarnessAttestation, HarnessIsolationMode,
     HarnessRequirements, ProbePolarity, QualificationProbe,
 };
+use crate::driver_host::cli_runtime::registry::CliAdapterRegistry;
 use crate::driver_host::contracts::{NormalizedEvent, NormalizedEventKind};
 
 /// A single probe run. The executor records whether the polarity

@@ -14,6 +14,15 @@
 //! Phases: container platforms `create_container -> poll_status -> publish -> read_permalink -> done`;
 //! simple platforms `create -> read_permalink -> done`.
 //!
+//! After a post is live (`done`), a job whose payload carries `first_comment` moves to the `comment` phase (state
+//! stays `published`, `next_attempt_at` = the delay) and a later step sends the follow-up comment; see `comment.rs`
+//! for the per-platform requests and `reconcile_comment` for a lost answer.
+//!
+//! A 401 on a platform whose expired token a refresh grant can renew (`refresh.rs`: X, TikTok, Pinterest, YouTube;
+//! Bluesky inside its own requests) is refreshed once and the step repeated. A 401 that stays (every other
+//! platform, or a refresh that failed) fails the job `token_expired` and calls `MachineStore::set_reauth_required`
+//! in the transaction that stores the outcome, so the account reads `reauth_required` (#1496).
+//!
 //! Mastodon's `create` makes two requests in one step: the instance limit read (a read: its failures are
 //! retried, never `outcome_unknown`) and then the create. `PublishStepOutput.calls` reports both.
 //!
@@ -71,6 +80,7 @@ use rightkit_http::{Client, Method};
 use serde_json::Value;
 
 use crate::calendar_time as time;
+use crate::comment;
 use crate::http::{self, Reply, RetryAfter, MAX_RETRY_AFTER_SECS};
 use crate::media;
 use crate::platform::{self, Spec};
@@ -79,6 +89,7 @@ use crate::platforms::{
 };
 use crate::protocol::{PublishJob, PublishStepOutput, Scope};
 use crate::quota::{self, PublishQuotaStore};
+use crate::refresh;
 use crate::util::not_found;
 use crate::Fail;
 
@@ -105,6 +116,16 @@ pub trait MachineStore: PublishQuotaStore {
         remote_account: &str,
         except_job: &str,
     ) -> Result<Vec<String>, Fail>;
+    /// Records that the platform refused the account's token (a publish answered `token_expired` and no refresh
+    /// could renew it): the stored account's `connection_state` becomes `reauth_required`, so readiness blocks
+    /// it until the person reconnects (#1496). Called inside the write transaction that stores the job outcome.
+    /// The default does nothing, so a host that has not implemented it still compiles and behaves as before
+    /// (the job still fails `token_expired`); the account's own `token_expires_at` readiness check still applies.
+    /// A host with an account table implements it by calling its `AccountStore` write for (`scope`, `platform`).
+    fn set_reauth_required(&self, scope: &Scope, platform: &str) -> Result<(), Fail> {
+        let _ = (scope, platform);
+        Ok(())
+    }
 }
 
 /// Transient failures tolerated in one phase before the job fails with `retries_exhausted`.
@@ -121,11 +142,26 @@ pub struct Drive {
     pub poll_interval: i64,
     /// Bluesky only: the refresh JWT of the session, from the optional `refresh_token` input. Never stored.
     pub refresh: Option<String>,
-    /// The access JWT minted by a refresh during this command; it replaces `token` for the rest of it.
+    /// X, TikTok, Pinterest and YouTube: what renews an expired access token (see `refresh`). Never stored.
+    pub oauth: Option<crate::refresh::OAuthRefresh>,
+    /// The access token minted by a refresh during this command; it replaces `token` for the rest of it.
     pub access: std::sync::Mutex<Option<String>>,
+    /// The refresh token an OAuth refresh handed back (X and Pinterest rotate it, TikTok may). The host must
+    /// persist it: read it with [`Drive::take_rotated_refresh`] after the command.
+    pub rotated_refresh: std::sync::Mutex<Option<String>>,
     /// The host app's endpoint settings: URLs discovered mid-job (Bluesky's PLC directory and PDS) pass the same
     /// loopback rule as the base URL.
     pub endpoints: http::EndpointSettings,
+}
+
+impl Drive {
+    /// The refresh token a refresh during this command rotated to, once; the host stores it.
+    pub fn take_rotated_refresh(&self) -> Option<String> {
+        self.rotated_refresh
+            .lock()
+            .ok()
+            .and_then(|mut guard| guard.take())
+    }
 }
 
 type Outcome = (&'static str, Option<String>);
@@ -769,6 +805,8 @@ fn stage_a(
     pace: &quota::Pace,
 ) -> Result<Early, Fail> {
     match job.state.as_str() {
+        // A published job whose follow-up comment is still to be sent is not finished.
+        "published" if job.phase == comment::PHASE => {}
         "published" | "failed" | "cancelled" => {
             return Ok(Early::Return(
                 "terminal",
@@ -802,7 +840,22 @@ fn stage_a(
             ));
         }
     }
-    if platform::is_write_phase(&job.phase) {
+    if job.phase == comment::PHASE {
+        // The post is live: a changed approval cannot cancel it, so only the account pause is honoured, by
+        // waiting (nothing is stored, the comment is sent when the account is resumed).
+        if store.account_paused(&job.scope, &job.platform)? == Some(true) {
+            return Ok(Early::Return(
+                "not_due",
+                Some(format!(
+                    "the {} account is paused; the follow-up comment waits",
+                    job.platform
+                )),
+            ));
+        }
+        job.inflight = Some(job.phase.clone());
+        job.next_attempt_at = None;
+        store.save_job(job, stamp)?;
+    } else if platform::is_write_phase(&job.phase) {
         if let Some((code, message)) = gate(store, job)? {
             job.state = "cancelled".to_string();
             job.inflight = None;
@@ -823,13 +876,17 @@ fn stage_a(
     Ok(Early::Send)
 }
 
-/// Records a 429 seen by a reconcile request on the job's account, as a publish 429 is recorded by `step_once`.
+/// Records a 429 seen by a reconcile request on the job's account, as a publish 429 is recorded by `step_once`,
+/// and a 401 as the account needing a reconnect (`MachineStore::set_reauth_required`).
 fn record_reconcile_limit(
     store: &dyn MachineStore,
     job: &PublishJob,
     d: &Drive,
     reply: &Reply,
 ) -> Result<(), Fail> {
+    if matches!(reply, Reply::Unauthorized) {
+        store.write_txn(&mut || store.set_reauth_required(&job.scope, &job.platform))?;
+    }
     if let Reply::RateLimited(after) = reply {
         let until = rate_limit_at(after, d.now, job.attempts).min(d.now + MAX_RETRY_AFTER_SECS);
         store.write_txn(&mut || quota::record_rate_limit(store, job, d.now, until))?;
@@ -841,7 +898,7 @@ fn record_reconcile_limit(
 /// `Idempotency-Key` header: the record key is what makes a repeat harmless. A payload this client
 /// cannot post is `Reply::Invalid`: nothing is sent and the job fails `request_invalid`.
 /// The access token to send: the one a refresh minted during this command, else the command's `token`.
-fn current_token(d: &Drive) -> String {
+pub(crate) fn current_token(d: &Drive) -> String {
     d.access
         .lock()
         .ok()
@@ -1144,7 +1201,7 @@ fn mastodon_create(job: &PublishJob, d: &Drive) -> Sent {
             &d.client,
             Method::Get,
             &format!("{}{}", d.base, mastodon::VERIFY_PATH),
-            &d.token,
+            &current_token(d),
             None,
             None,
         );
@@ -1186,7 +1243,7 @@ fn mastodon_create(job: &PublishJob, d: &Drive) -> Sent {
                 &d.client,
                 Method::Get,
                 &format!("{}{}", d.base, mastodon::INSTANCE_PATH),
-                &d.token,
+                &current_token(d),
                 None,
                 None,
             );
@@ -1225,7 +1282,7 @@ fn mastodon_create(job: &PublishJob, d: &Drive) -> Sent {
             &d.client,
             Method::Post,
             &format!("{}{}", d.base, mastodon::STATUSES_PATH),
-            &d.token,
+            &current_token(d),
             Some(job.idempotency_key.as_str()),
             Some(&prepared.body(&media_ids)),
         ),
@@ -1242,7 +1299,7 @@ fn mastodon_read(job: &PublishJob, d: &Drive) -> Reply {
         &d.client,
         Method::Get,
         &format!("{}{}", d.base, mastodon::read_path(post_id)),
-        &d.token,
+        &current_token(d),
         None,
         None,
     )
@@ -1290,7 +1347,7 @@ fn linkedin_create(job: &PublishJob, d: &Drive) -> Sent {
             &d.client,
             Method::Post,
             &format!("{}{}", d.base, linkedin::POSTS_PATH),
-            &d.token,
+            &current_token(d),
             None,
             Some(&prepared.body()),
             &http::Extra {
@@ -1320,7 +1377,7 @@ fn linkedin_read(job: &PublishJob, d: &Drive) -> Reply {
         &d.client,
         Method::Get,
         &format!("{}{}", d.base, path),
-        &d.token,
+        &current_token(d),
         None,
         None,
         &http::Extra {
@@ -1343,7 +1400,7 @@ fn threads_read_reply(job: &PublishJob, d: &Drive) -> Reply {
         &d.client,
         Method::Get,
         &format!("{}{}", d.base, path),
-        &d.token,
+        &current_token(d),
         None,
         None,
     )
@@ -1366,7 +1423,7 @@ fn threads_send(job: &PublishJob, d: &Drive) -> Sent {
                 &d.client,
                 Method::Get,
                 &format!("{}{}", d.base, path),
-                &d.token,
+                &current_token(d),
                 None,
                 None,
             ),
@@ -1414,7 +1471,7 @@ fn threads_send(job: &PublishJob, d: &Drive) -> Sent {
                     &d.client,
                     Method::Post,
                     &format!("{}{}", d.base, path),
-                    &d.token,
+                    &current_token(d),
                     None,
                     Some(body),
                 )
@@ -1427,7 +1484,7 @@ fn threads_send(job: &PublishJob, d: &Drive) -> Sent {
                 &d.client,
                 Method::Post,
                 &format!("{}{}", d.base, prepared.publish_path()),
-                &d.token,
+                &current_token(d),
                 None,
                 Some(&threads::publish_body(container_id)),
             ),
@@ -1459,7 +1516,7 @@ fn facebook_read_reply(job: &PublishJob, d: &Drive) -> Reply {
         &d.client,
         Method::Get,
         &format!("{}{}", d.base, path),
-        &d.token,
+        &current_token(d),
         None,
         None,
     )
@@ -1497,7 +1554,7 @@ fn facebook_send(job: &PublishJob, d: &Drive) -> Sent {
             &d.client,
             Method::Post,
             &format!("{}{}", d.base, prepared.create_path()),
-            &d.token,
+            &current_token(d),
             None,
             Some(&prepared.create_body()),
         ),
@@ -1527,7 +1584,7 @@ fn x_read_reply(job: &PublishJob, d: &Drive) -> Reply {
         &d.client,
         Method::Get,
         &format!("{}{}", d.base, path),
-        &d.token,
+        &current_token(d),
         None,
         None,
     )
@@ -1573,7 +1630,7 @@ fn x_send(job: &PublishJob, d: &Drive) -> Sent {
             &d.client,
             Method::Post,
             &format!("{}{}", d.base, x::CREATE_PATH),
-            &d.token,
+            &current_token(d),
             None,
             Some(&prepared.body(&media_ids)),
         ),
@@ -1601,7 +1658,7 @@ fn instagram_status_reply(job: &PublishJob, d: &Drive) -> Reply {
         &d.client,
         Method::Get,
         &format!("{}{}", d.base, path),
-        &d.token,
+        &current_token(d),
         None,
         None,
     )
@@ -1620,7 +1677,7 @@ fn instagram_read_reply(job: &PublishJob, d: &Drive) -> Reply {
         &d.client,
         Method::Get,
         &format!("{}{}", d.base, path),
-        &d.token,
+        &current_token(d),
         None,
         None,
     )
@@ -1679,7 +1736,7 @@ fn instagram_send(job: &PublishJob, d: &Drive) -> Sent {
                     &d.client,
                     Method::Post,
                     &format!("{}{}", d.base, prepared.create_path()),
-                    &d.token,
+                    &current_token(d),
                     None,
                     Some(&body),
                 ),
@@ -1694,7 +1751,7 @@ fn instagram_send(job: &PublishJob, d: &Drive) -> Sent {
                 &d.client,
                 Method::Post,
                 &format!("{}{}", d.base, prepared.publish_path()),
-                &d.token,
+                &current_token(d),
                 None,
                 Some(&instagram::publish_body(container_id)),
             ),
@@ -1726,7 +1783,7 @@ fn youtube_send(job: &PublishJob, d: &Drive) -> Sent {
         },
         &d.client,
         &d.base,
-        &d.token,
+        &current_token(d),
     );
     match step {
         youtube::Step::Reply { reply, calls } => Sent::Reply { reply, calls },
@@ -1756,7 +1813,7 @@ fn tiktok_send(job: &PublishJob, d: &Drive) -> Sent {
         },
         &d.client,
         &d.base,
-        &d.token,
+        &current_token(d),
     );
     match step {
         tiktok::Step::Reply { reply, calls } => Sent::Reply { reply, calls },
@@ -1782,7 +1839,7 @@ fn pinterest_send(job: &PublishJob, d: &Drive) -> Sent {
                 &d.client,
                 Method::Get,
                 &format!("{}{}", d.base, path),
-                &d.token,
+                &current_token(d),
                 None,
                 None,
             ),
@@ -1809,7 +1866,7 @@ fn pinterest_send(job: &PublishJob, d: &Drive) -> Sent {
         &d.client,
         Method::Post,
         &format!("{}{}", d.base, pinterest::CREATE_PATH),
-        &d.token,
+        &current_token(d),
         None,
         Some(&prepared.create_body()),
     );
@@ -1865,7 +1922,7 @@ fn linkedin_upload_file(
             &d.client,
             Method::Post,
             &format!("{}{}", d.base, path),
-            &d.token,
+            &current_token(d),
             None,
             Some(body),
             &http::Extra {
@@ -1886,7 +1943,11 @@ fn linkedin_upload_file(
                     &d.client,
                     Method::Put,
                     url,
-                    if with_token { d.token.as_str() } else { "" },
+                    &if with_token {
+                        current_token(d)
+                    } else {
+                        String::new()
+                    },
                     None,
                     Some(("application/octet-stream", bytes[first..=last].to_vec())),
                     &http::Extra {
@@ -1902,7 +1963,11 @@ fn linkedin_upload_file(
                 &d.client,
                 Method::Put,
                 url,
-                if with_token { d.token.as_str() } else { "" },
+                &if with_token {
+                    current_token(d)
+                } else {
+                    String::new()
+                },
                 None,
                 Some(("application/octet-stream", bytes.to_vec())),
                 &http::Extra::NONE,
@@ -2027,7 +2092,7 @@ fn media_upload(job: &PublishJob, d: &Drive) -> Sent {
                     &d.client,
                     Method::Post,
                     &format!("{}{}", d.base, mastodon::MEDIA_PATH),
-                    &d.token,
+                    &current_token(d),
                     None,
                     Some((content_type.as_str(), body)),
                     &http::Extra::NONE,
@@ -2053,7 +2118,7 @@ fn media_upload(job: &PublishJob, d: &Drive) -> Sent {
                             &d.client,
                             Method::Post,
                             &format!("{}{}", d.base, path),
-                            &d.token,
+                            &current_token(d),
                             None,
                             Some(body),
                             &http::Extra {
@@ -2067,7 +2132,11 @@ fn media_upload(job: &PublishJob, d: &Drive) -> Sent {
                             &d.client,
                             Method::Put,
                             url,
-                            if with_token { d.token.as_str() } else { "" },
+                            &if with_token {
+                                current_token(d)
+                            } else {
+                                String::new()
+                            },
                             None,
                             Some((mime, bytes.clone())),
                             &http::Extra::NONE,
@@ -2089,7 +2158,7 @@ fn media_upload(job: &PublishJob, d: &Drive) -> Sent {
                     &d.client,
                     Method::Post,
                     &format!("{}{}", d.base, x::MEDIA_PATH),
-                    &d.token,
+                    &current_token(d),
                     None,
                     Some((content_type.as_str(), body)),
                     &http::Extra::NONE,
@@ -2147,7 +2216,7 @@ fn send_phase(job: &PublishJob, spec: &Spec, d: &Drive) -> Reply {
             &d.client,
             Method::Post,
             &url(spec.create_path(&job.remote_account)),
-            &d.token,
+            &current_token(d),
             Some(key),
             Some(&spec.create_body(&job.payload)),
         ),
@@ -2156,13 +2225,195 @@ fn send_phase(job: &PublishJob, spec: &Spec, d: &Drive) -> Reply {
                 &d.client,
                 Method::Get,
                 &url(spec.read_path(&job.remote_account, id)),
-                &d.token,
+                &current_token(d),
                 None,
                 None,
             ),
             None => Reply::Invalid("read_permalink has no post id".to_string()),
         },
         other => Reply::Invalid(format!("no request exists for phase {other}")),
+    }
+}
+
+/// The comment phase ends with the post untouched: the job stays `published`, goes to `done`, and the reason
+/// is recorded as `last_error_code` (`code`). Outcome `comment_failed`.
+fn end_comment(job: &mut PublishJob, code: &str, message: String) -> Outcome {
+    job.state = "published".to_string();
+    job.phase = "done".to_string();
+    job.attempts = 0;
+    job.inflight = None;
+    job.next_attempt_at = None;
+    set_error(job, code, message.clone());
+    ("comment_failed", Some(format!("{code}: {message}")))
+}
+
+/// Moves a job that just went live to the `comment` phase when its payload carries a follow-up the platform can
+/// post. The delay counts from this step. A follow-up that cannot be posted ends the job at `done` with
+/// `comment_unsupported` or the check's code (the post stays `published`).
+fn schedule_comment(
+    job: &mut PublishJob,
+    d: &Drive,
+    outcome: &'static str,
+    detail: Option<String>,
+) -> Outcome {
+    if comment::text_of(&job.payload).is_none()
+        || job.remote.comment_id.is_some()
+        || job.remote.post_id.is_none()
+    {
+        return (outcome, detail);
+    }
+    let lead = detail.map(|t| format!("{t}; ")).unwrap_or_default();
+    if let Err((code, message)) = comment::check(&job.platform, &job.payload) {
+        let (_, note) = end_comment(job, code, message);
+        return (outcome, Some(format!("{lead}{}", note.unwrap_or_default())));
+    }
+    let delay = comment::delay_secs(&job.payload);
+    job.phase = comment::PHASE.to_string();
+    job.attempts = 0;
+    job.reconciles = 0;
+    job.inflight = None;
+    job.next_attempt_at = Some(time::format_instant(d.now + delay));
+    (
+        outcome,
+        Some(format!(
+            "{lead}the first comment follows after {delay} seconds"
+        )),
+    )
+}
+
+/// A bounded wait of the comment phase: like [`defer`], but the post is live, so the job stays `published`
+/// and gives up (`comment_failed`, `retries_exhausted`) rather than failing.
+fn defer_comment(job: &mut PublishJob, now: i64, at: i64, code: &str, message: String) -> Outcome {
+    job.attempts += 1;
+    job.inflight = None;
+    if job.attempts > MAX_ATTEMPTS {
+        return end_comment(
+            job,
+            "retries_exhausted",
+            format!("{message} (gave up after {MAX_ATTEMPTS} retries)"),
+        );
+    }
+    let at = at.max(now);
+    job.next_attempt_at = Some(time::format_instant(at));
+    set_error(job, code, message.clone());
+    (
+        "waiting",
+        Some(format!(
+            "{code}: {message}; next attempt at {}",
+            time::format_instant(at)
+        )),
+    )
+}
+
+/// The result of the comment write. Success stores the comment id and ends the phase. A certain failure ends it
+/// with the post untouched. An ambiguous one (5xx, a dropped connection, a timeout, an answer with no id) is
+/// `outcome_unknown` at the phase, for `publish.reconcile`; the comment is never repeated blind.
+fn apply_comment(job: &mut PublishJob, reply: Reply, d: &Drive) -> Outcome {
+    match reply {
+        Reply::Ok(body) => match comment::created_id(&job.platform, &body) {
+            Some(id) => {
+                job.remote.comment_id = Some(id.clone());
+                job.state = "published".to_string();
+                job.phase = "done".to_string();
+                job.attempts = 0;
+                job.inflight = None;
+                job.next_attempt_at = None;
+                clear_error(job);
+                ("published", Some(format!("first comment posted ({id})")))
+            }
+            None => unknown(
+                job,
+                "bad_response",
+                "the comment response carried no id; a comment may exist".to_string(),
+            ),
+        },
+        Reply::Unauthorized => end_comment(
+            job,
+            "token_expired",
+            "the platform rejected the token while posting the first comment; the post is live and the comment was not posted".to_string(),
+        ),
+        Reply::RateLimited(after) => {
+            let at = rate_limit_at(&after, d.now, job.attempts);
+            defer_comment(job, d.now, at, "rate_limited", "rate limited during comment".to_string())
+        }
+        Reply::Transport {
+            connect_phase: true,
+            message,
+        } => {
+            let at = d.now + backoff_secs(job.attempts + 1);
+            defer_comment(
+                job,
+                d.now,
+                at,
+                "connect_failed",
+                format!("could not connect during comment: {message}"),
+            )
+        }
+        Reply::ServerError(status) => unknown(
+            job,
+            "ambiguous_response",
+            format!("HTTP {status} on comment; the platform may have applied it"),
+        ),
+        Reply::Transport { message, .. } => unknown(
+            job,
+            "connection_lost",
+            format!("the connection failed after the comment request was sent: {message}"),
+        ),
+        Reply::Timeout => unknown(
+            job,
+            "timeout",
+            "the comment request timed out after it was sent".to_string(),
+        ),
+        Reply::Rejected { status, message } => end_comment(
+            job,
+            "comment_rejected",
+            format!("HTTP {status} on comment: {message}"),
+        ),
+        Reply::Invalid(message) => end_comment(job, "request_invalid", message),
+    }
+}
+
+/// Stage 2: the request(s) of this step for the job's platform and phase.
+fn dispatch(job: &PublishJob, spec: &Spec, d: &Drive) -> Sent {
+    if job.phase == comment::PHASE {
+        let reply = comment::send(job, d);
+        let calls = if matches!(reply, Reply::Invalid(_)) {
+            0
+        } else {
+            1
+        };
+        return Sent::Reply { reply, calls };
+    }
+    if needs_media_upload(job) {
+        media_upload(job, d)
+    } else if job.platform == mastodon::PLATFORM && job.phase == "create" {
+        mastodon_create(job, d)
+    } else if job.platform == linkedin::PLATFORM && job.phase == "create" {
+        linkedin_create(job, d)
+    } else if let Some(directory) = (job.platform == bluesky::PLATFORM)
+        .then(|| bluesky::plc_directory(&job.payload.settings))
+        .flatten()
+    {
+        bluesky_resolved_send(job, d, &directory)
+    } else if job.platform == threads::PLATFORM {
+        threads_send(job, d)
+    } else if job.platform == instagram::PLATFORM {
+        instagram_send(job, d)
+    } else if job.platform == facebook::PLATFORM {
+        facebook_send(job, d)
+    } else if job.platform == x::PLATFORM {
+        x_send(job, d)
+    } else if job.platform == youtube::PLATFORM {
+        youtube_send(job, d)
+    } else if job.platform == tiktok::PLATFORM {
+        tiktok_send(job, d)
+    } else if job.platform == pinterest::PLATFORM {
+        pinterest_send(job, d)
+    } else {
+        Sent::Reply {
+            reply: send_phase(job, spec, d),
+            calls: 1,
+        }
     }
 }
 
@@ -2200,37 +2451,27 @@ pub fn step_once(
             format!("no platform spec for {}", job.platform),
         )
     })?;
-    let sent = if needs_media_upload(&job) {
-        media_upload(&job, d)
-    } else if job.platform == mastodon::PLATFORM && job.phase == "create" {
-        mastodon_create(&job, d)
-    } else if job.platform == linkedin::PLATFORM && job.phase == "create" {
-        linkedin_create(&job, d)
-    } else if let Some(directory) = (job.platform == bluesky::PLATFORM)
-        .then(|| bluesky::plc_directory(&job.payload.settings))
-        .flatten()
-    {
-        bluesky_resolved_send(&job, d, &directory)
-    } else if job.platform == threads::PLATFORM {
-        threads_send(&job, d)
-    } else if job.platform == instagram::PLATFORM {
-        instagram_send(&job, d)
-    } else if job.platform == facebook::PLATFORM {
-        facebook_send(&job, d)
-    } else if job.platform == x::PLATFORM {
-        x_send(&job, d)
-    } else if job.platform == youtube::PLATFORM {
-        youtube_send(&job, d)
-    } else if job.platform == tiktok::PLATFORM {
-        tiktok_send(&job, d)
-    } else if job.platform == pinterest::PLATFORM {
-        pinterest_send(&job, d)
-    } else {
+    let mut sent = dispatch(&job, spec, d);
+    // A 401 means the request was not applied. A platform whose expired token a refresh grant can renew gets one
+    // refresh and the same step once more (Bluesky refreshes inside its own requests).
+    let mut extra_calls = 0;
+    if matches!(
+        &sent,
         Sent::Reply {
-            reply: send_phase(&job, spec, d),
-            calls: 1,
+            reply: Reply::Unauthorized,
+            ..
+        } | Sent::Before {
+            reply: Reply::Unauthorized,
+            ..
         }
-    };
+    ) && refresh::supports(&job.platform)
+    {
+        let (renewed, made) = refresh::refresh(&job.platform, d);
+        extra_calls += made;
+        if renewed {
+            sent = dispatch(&job, spec, d);
+        }
+    }
     // A 429 (or the platform's equivalent, already normalised into `Reply::RateLimited`) on any request of
     // this step is the platform telling the account to wait: remember the instant, computed by the same
     // rule as the job's own wait and held to the same 24 h clamp.
@@ -2248,7 +2489,12 @@ pub fn step_once(
     // A step that refused locally sent nothing, so its first write (counted by `before_write` above) is
     // un-counted in the same transaction that stores the refusal.
     let refused_locally = matches!(sent, Sent::Refused { .. });
+    let phase_before = job.phase.clone();
     let (outcome, detail, calls) = match sent {
+        Sent::Reply { reply, calls } if phase_before == comment::PHASE => {
+            let (outcome, detail) = apply_comment(&mut job, reply, d);
+            (outcome, detail, calls)
+        }
         Sent::Reply { reply, calls } => {
             let (outcome, detail) = apply(&mut job, reply, d);
             (outcome, detail, calls)
@@ -2270,11 +2516,30 @@ pub fn step_once(
             code,
             message,
             calls,
+        } if phase_before == comment::PHASE => {
+            let (outcome, detail) = end_comment(&mut job, code, message);
+            (outcome, detail, calls)
+        }
+        Sent::Refused {
+            code,
+            message,
+            calls,
         } => {
             let (outcome, detail) = fail(&mut job, code, message);
             (outcome, detail, calls)
         }
     };
+    let calls = calls + extra_calls;
+    // A token the platform refused (and no refresh could renew) leaves the account needing a reconnect.
+    let reauth = job.last_error_code.as_deref() == Some("token_expired")
+        && matches!(job.state.as_str(), "failed" | "published");
+    // A post that just went live with a follow-up comment to send moves to the `comment` phase.
+    let (outcome, detail) =
+        if phase_before == "read_permalink" && job.state == "published" && job.phase == "done" {
+            schedule_comment(&mut job, d, outcome, detail)
+        } else {
+            (outcome, detail)
+        };
     let detail = if job.platform == pinterest::PLATFORM && job.state == "published" {
         Some(match detail {
             Some(text) => format!("{text}; {}", pinterest::TRIAL_VISIBILITY_NOTE),
@@ -2290,6 +2555,9 @@ pub fn step_once(
         }
         if let Some(until) = limited_until {
             quota::record_rate_limit(store, &job, d.now, until)?;
+        }
+        if reauth {
+            store.set_reauth_required(&job.scope, &job.platform)?;
         }
         Ok(())
     })?;
@@ -2509,7 +2777,7 @@ fn reconcile_mastodon(
         &d.client,
         Method::Post,
         &format!("{}{}", d.base, mastodon::STATUSES_PATH),
-        &d.token,
+        &current_token(d),
         Some(job.idempotency_key.as_str()),
         Some(&prepared.body(&media_ids)),
     );
@@ -2931,6 +3199,157 @@ fn reconcile_instagram(
     }
 }
 
+/// Ends a reconciled comment as posted: the comment id is stored and the job is `published` at `done`.
+fn adopt_comment(
+    store: &dyn MachineStore,
+    mut job: PublishJob,
+    stamp: &str,
+    id: String,
+    calls: i64,
+) -> Result<PublishStepOutput, Fail> {
+    job.remote.comment_id = Some(id.clone());
+    job.state = "published".to_string();
+    job.phase = "done".to_string();
+    job.attempts = 0;
+    job.inflight = None;
+    job.next_attempt_at = None;
+    clear_error(&mut job);
+    store_job(store, &mut job, stamp)?;
+    Ok(output(
+        job,
+        "reconciled_adopted",
+        Some(format!("adopted comment {id}")),
+        calls,
+    ))
+}
+
+/// Reconcile for a job that is `outcome_unknown` at phase `comment`: the post is live and only the follow-up
+/// comment's answer was lost. Nothing is posted blind.
+///
+/// - Mastodon: the comment was sent with `Idempotency-Key: <job key>:comment`, so repeating the SAME request
+///   inside the key's window returns the first status if it was applied and creates the single status if not.
+///   Past the window nothing is sent.
+/// - Facebook, Instagram, LinkedIn: the live post's comments are READ and the one whose text is the job's
+///   `first_comment` (on LinkedIn also authored by the job's actor) is adopted (`reconciled_adopted`). None found
+///   returns the job to the comment phase once (`reconciled_requeued`; the second time `reconcile_exhausted`);
+///   several are left for a person (`reconcile_ambiguous`).
+/// - X (and any platform with no read): nothing is sent (`reconcile_failed`); a person looks at the post's replies
+///   and records what they saw with `publish.resolve_unknown` (the comment id when it is there, or `not_posted`).
+fn reconcile_comment(
+    store: &dyn MachineStore,
+    mut job: PublishJob,
+    d: &Drive,
+    stamp: &str,
+) -> Result<PublishStepOutput, Fail> {
+    let failed = |job: PublishJob, why: String, calls: i64| {
+        Ok(output(job, "reconcile_failed", Some(why), calls))
+    };
+    if job.remote.post_id.is_none() || comment::text_of(&job.payload).is_none() {
+        return failed(
+            job,
+            "the job has no live post or no first comment to settle; nothing was sent".to_string(),
+            0,
+        );
+    }
+    if job.platform == mastodon::PLATFORM {
+        let since = time::parse_instant(&job.updated_at, "updated_at")?;
+        if d.now - since > mastodon::KEY_WINDOW_SECS {
+            return failed(
+                job,
+                format!(
+                    "the comment was last attempted more than {} seconds ago, so its Idempotency-Key may have expired and repeating it could comment twice; check the post's replies by hand, then record what you saw with publish.resolve_unknown",
+                    mastodon::KEY_WINDOW_SECS
+                ),
+                0,
+            );
+        }
+        let reply = comment::send(&job, d);
+        record_reconcile_limit(store, &job, d, &reply)?;
+        let adopted = match &reply {
+            Reply::Ok(body) => comment::created_id(&job.platform, body),
+            _ => None,
+        };
+        return match adopted {
+            Some(id) => adopt_comment(store, job, stamp, id, 1),
+            None => {
+                let why = match &reply {
+                    Reply::Ok(_) => {
+                        "the repeated comment answered with no usable status id".to_string()
+                    }
+                    other => describe(other),
+                };
+                failed(
+                    job,
+                    format!("the repeated comment did not return a status ({why}); the job stays outcome_unknown"),
+                    1,
+                )
+            }
+        };
+    }
+    let Some(reply) = comment::list(&job, d) else {
+        return failed(
+            job,
+            "this platform has no read of a post's comments built, so a lost comment answer cannot be searched for; nothing was sent and the job stays outcome_unknown. Check the post's replies by hand, then record what you saw with publish.resolve_unknown"
+                .to_string(),
+            0,
+        );
+    };
+    record_reconcile_limit(store, &job, d, &reply)?;
+    let calls = if matches!(reply, Reply::Invalid(_)) {
+        0
+    } else {
+        1
+    };
+    let Reply::Ok(body) = &reply else {
+        return failed(
+            job,
+            format!(
+                "the post's comments could not be read ({}); the job stays outcome_unknown",
+                describe(&reply)
+            ),
+            calls,
+        );
+    };
+    let mut found = comment::matching(&job, body);
+    match found.len() {
+        1 => {
+            let id = found.remove(0);
+            adopt_comment(store, job, stamp, id, calls)
+        }
+        0 => {
+            let (outcome, code, message) = if job.reconciles >= 1 {
+                (
+                    "reconcile_exhausted",
+                    "reconcile_exhausted",
+                    "the one safe retry of the comment was already used and its outcome is still unknown; check the post's replies by hand".to_string(),
+                )
+            } else {
+                job.reconciles += 1;
+                job.state = "published".to_string();
+                job.attempts = 0;
+                (
+                    "reconciled_requeued",
+                    "reconciled_retry",
+                    "no matching comment found on the post; queued for one safe retry of the comment".to_string(),
+                )
+            };
+            job.inflight = None;
+            job.next_attempt_at = None;
+            set_error(&mut job, code, message.clone());
+            store_job(store, &mut job, stamp)?;
+            Ok(output(job, outcome, Some(message), calls))
+        }
+        n => {
+            let message = format!(
+                "{n} comments on the post match this job's first comment; none was adopted. Check the post's replies by hand"
+            );
+            set_error(&mut job, "reconcile_ambiguous", message.clone());
+            store_job(store, &mut job, stamp)?;
+            Ok(output(job, "reconcile_ambiguous", Some(message), calls))
+        }
+    }
+}
+
 /// `publish.reconcile`. Reads the platform's recent posts for the job's account and looks for this
 /// job's post: first by the idempotency key (when the platform reports one), else by caption
 /// fingerprint among posts no other job owns. Exactly one match is adopted (its id is stored and the
@@ -2965,6 +3384,9 @@ pub fn reconcile_once(
             0,
             "a container is not a post, so there is nothing to find",
         );
+    }
+    if job.phase == comment::PHASE {
+        return reconcile_comment(store, job, d, &stamp);
     }
     if job.platform == bluesky::PLATFORM {
         return reconcile_bluesky(store, job, d, &stamp);
@@ -3019,7 +3441,7 @@ pub fn reconcile_once(
         )
     })?;
     let url = format!("{}{}", d.base, spec.recent_path(&job.remote_account));
-    let reply = http::send(&d.client, Method::Get, &url, &d.token, None, None);
+    let reply = http::send(&d.client, Method::Get, &url, &current_token(d), None, None);
     record_reconcile_limit(store, &job, d, &reply)?;
     let body = match reply {
         Reply::Ok(body) => body,

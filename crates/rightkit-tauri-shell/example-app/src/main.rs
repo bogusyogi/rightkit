@@ -87,10 +87,10 @@ fn main() {
         .app_name("RkShellExample")
         .deep_link_scheme("rkshell-example")
         .menu(MenuSpec {
-            groups: vec![MenuGroup {
-                label: "Demo".into(),
-                entries: vec![MenuEntry::accel("demo.ping", "Ping", "CmdOrCtrl+Shift+P")],
-            }],
+            groups: vec![MenuGroup::new(
+                "Demo",
+                vec![MenuEntry::accel("demo.ping", "Ping", "CmdOrCtrl+Shift+P")],
+            )],
             help: vec![MenuEntry::item("help.docs", "Documentation")],
             settings: Some(("app.settings".into(), "CmdOrCtrl+,".into())),
             ..Default::default()

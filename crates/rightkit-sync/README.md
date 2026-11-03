@@ -10,7 +10,6 @@ Generic cloud sync engine for Right Suite apps. It owns change cursors, tombston
 
 - `API.md` (in this crate): adapter traits, the shared wire contract, the helper protocol, and per-app migration. Read it before changing record or conflict behavior.
 - `helper::{CloudKitHelper, HelperBackend, HelperAuth}`: the macOS CloudKit backend, over the Swift `rightkit-cloudkit-helper` (`swift/RightKitSwift` at the RightKit root). `HelperAuth` is defined in `src/helper/mod.rs`.
-- `MemoryBackend` (`src/memory.rs`) and the `rightkit-sync-fake-helper` binary (`src/bin/rightkit-sync-fake-helper.rs`): a reference zone and protocol fake for tests. The fake-helper binary and its end-to-end test live in the repository only; the published package ships `MemoryBackend` but not the binary.
 
 ## Features
 
@@ -19,7 +18,9 @@ Generic cloud sync engine for Right Suite apps. It owns change cursors, tombston
 | `helper` | yes | the `helper` module: the CloudKit helper-process backend (`rightkit-sync-helper/1`). No dependency of its own; turn it off on hosts without a helper (Android). |
 | `process-usage` | yes | `SyncStatus::process` and the `rightkit-child-process` dependency. Turn it off on Android. The pass counters in `SyncStatus::metrics` stay. |
 | `cipher` | no | `cipher::{RecordCipher, EncryptingBackend, KeyProvider, StaticKeys, CipherKey}`: end-to-end encryption of record payloads (ChaCha20-Poly1305, HKDF-SHA256 from `ring`; `zeroize`). |
-| `http` | no | **Parked** (the RightKit sync service is not being built; do not enable it in apps). `http::{HttpBackend, HttpAuth, TokenSource}`: blocking client of the `rightkit-sync-http/1` protocol (`HTTP-PROTOCOL.md`), over `rightkit-http`'s blocking client. |
+| `http` | no | **Supported** (ruling rightkit#967): the hosted sync service is live, `packages/sync-worker` is deployed for HeardRight and is its reference server. Apps may enable it for the hosted service, and a later self-hosted deployment of the same Worker uses the same protocol. `http::{HttpBackend, HttpAuth, TokenSource}`: blocking client of the `rightkit-sync-http/1` protocol (`HTTP-PROTOCOL.md`), over `rightkit-http`'s blocking client. |
+| `vault` | no | The `vault` module (implies `cipher`): conditional-object vault sync for password-vault data, which the last-writer-wins engine and its plaintext `pending_apply` cannot carry. See "Conditional-object vault" below. |
+| `vault-s3` | no | `vault::s3::S3ConditionalStore`: Cloudflare R2 and S3-compatible buckets, Signature V4 over `rightkit-http`; adds `vault` and `rightkit-http`. |
 | `drive` | no | The non-Apple backend (CloudKit is the Apple one): `drive::{DriveBackend, DriveAuth, DriveTokenSource, FnToken, DriveConfig}`, own-cloud sync through the user's Google Drive `appDataFolder` (scope `drive.appdata`), over `rightkit-http`'s blocking client. See "Google Drive backend" below. |
 
 Always: `serde`, `serde_json`, and `rightkit-fs` (`fs` feature, for the durable ledger write, `src/storage.rs`). The record wire encoding (`wire`) is shared by the helper and HTTP protocols.
@@ -38,7 +39,13 @@ Every deletion an encrypting client applies is authenticated: a tombstone the se
 - a tombstone overwritten inside the window leaves a live record on the server, so a device with a reset ledger can see a deleted item again (devices holding the tombstone ignore it);
 - two devices creating one new record name at once are reduced by listing again after the create (smallest Drive file id wins, the other creator deletes its file and conflicts); if Drive's listing has not yet indexed the rival file both survive and the engine's duplicate reduction ranks them by `updatedAt`.
 
-The exact analysis, the Drive endpoints used and the error mapping (401 to `Unavailable`, 403 rate limits, 429 and 5xx to `RetryAfter`, 404 to absent or `ZoneMissing`, other 4xx to `Unavailable`) are in the `drive` module docs. Removals seen in the change feed are never turned into deletions (a user clearing the app's hidden Drive data must not delete local data); a removed zone folder yields `ZoneMissing` and the engine republishes local items. What goes into a record (transcripts only? attachments?) and the per-record size cap (`DriveConfig::max_record_bytes`, 1 MiB) are decided by the app. Tests run against an in-process fake (`tests/common/fake_drive.rs`, `tests/drive_backend.rs`, `tests/drive_two_engines.rs`); Drive's real behaviour has not been exercised.
+The exact analysis, the Drive endpoints used and the error mapping (401 to `Unavailable`, 403 rate limits, 429 and 5xx to `RetryAfter`, 404 to absent or `ZoneMissing`, other 4xx to `Unavailable`) are in the `drive` module docs. Removals seen in the change feed are never turned into deletions (a user clearing the app's hidden Drive data must not delete local data); a removed zone folder yields `ZoneMissing` and the engine republishes local items. What goes into a record (transcripts only? attachments?) and the per-record size cap (`DriveConfig::max_record_bytes`, 1 MiB) are decided by the app. Drive's real behaviour has not been exercised.
+
+## Conditional-object vault (feature `vault`)
+
+A password vault must never lose a secret edited on two devices. `vault::Vault` is a separate module, not a change to the record engine: it syncs one whole, sealed vault through an object store that documents atomic conditional writes (R2 and S3 document `If-Match` and `If-None-Match` on `PutObject` with strong consistency; Drive is excluded). The vault is a set of immutable sealed state objects, uploaded create-only (`If-None-Match: *`), and one sealed head that names the current one and is replaced only with `If-Match` (`If-None-Match: *` on the first write). A refused head write means another writer won: the loser re-reads, runs a three-way merge of base, local and remote, and writes again; after an uncertain write (timeout, transport error) the head is read back before deciding; retries are bounded (`VaultConfig::max_attempts`, default 8) and the call never sleeps. The consumer supplies the `MergePolicy` that decides what "the same secret edited twice" means (`KeepBoth` keeps the local value under the name and the remote value under `<name>.conflict-<8 hex>`; an edit against a deletion keeps the edit). The local ledger is sealed with the vault key, so it holds no plaintext, and everything in the bucket is sealed with `cipher::RecordCipher` (vault id as zone, object key as record name). A head older than one the device saw, a head that forks, or a head that vanished after it was seen is an error, never a fresh vault.
+
+**Provider contract.** A `ConditionalStore` must make `put_if_absent` and `put_if_match` atomic against every other writer of the key, return a new ETag after every write, and give reads after a successful write the written value. `MemoryConditionalStore` is the in-process reference; `S3ConditionalStore` (feature `vault-s3`) is the R2/S3 adapter (no write retries inside the HTTP layer, a write that returns no ETag counts as unknown). Unreferenced state objects that lost a race stay in the bucket; expire them with a lifecycle rule. The two-writer race against a real bucket is `tests/vault_race_real_bucket.rs` (`#[ignore]`, needs `RIGHTKIT_VAULT_S3_*`); it has not been run.
 
 ## Scheduling and Android (WorkManager)
 
@@ -60,17 +67,16 @@ The exact analysis, the Drive endpoints used and the error mapping (401 to `Unav
 - macOS: the CloudKit helper backend. The helper is a separate Swift binary.
 - Android: the `drive` backend (no cfgs in this crate; see "Scheduling and Android"). Not built for an Android target yet.
 - Windows: `cfg(windows)` process handling in `src/helper/process.rs`.
-- The engine, `MemoryBackend`, and the fake helper (repository only) are portable Rust.
+- The engine is portable Rust.
 
 Published version: see `INDEX.md` at the repository root. Changes are recorded in `CHANGELOG.md`.
 
 ## Example
 
-Illustrative; not compiled as a doctest. For compiled usage, see `tests/convergence.rs` (engine behavior) and, in the repository only, `tests/helper_e2e.rs` (helper protocol through the fake helper).
+Illustrative; not compiled as a doctest. For compiled usage, see, in the repository only, `tests/helper_e2e.rs` (the helper protocol against the real CloudKit container, `#[ignore]`d).
 
 ```rust,ignore
-// Build a sync engine over MemoryBackend in tests, or over CloudKitHelper
-// in the app's macOS host, and drive it with the app's record mapper.
+// Build a sync engine over CloudKitHelper in the app's macOS host, and drive it with the app's record mapper.
 ```
 
 ## Runtime budget

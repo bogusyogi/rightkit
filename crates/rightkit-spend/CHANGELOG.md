@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.2.2 (unpublished)
+
+Issue #422 (approved budgets). Migration 5, `spend-approved-budgets`: tables `spend_approved_budgets`, `spend_approved_reports`, `spend_approved_audit`; purely additive.
+
+- **Approved budgets.** `create_approved_budget(id, scope, period, currency, limit_micro)` (and `_in`) makes an unapproved budget with a fresh allowance; `approve_budget(&SealKey, id, approver, expected_bind)` (and `_in`) records the owner's approval bound to `approval_bind(..)` / `ApprovedBudget::approval_bind()` (a budget that changed since is `ApprovalChanged`) and seals it; `reserve_approved(..)` re-verifies the seal in constant time before reserving and refuses `NotApproved` / `SealInvalid` (also when the allowance limit was raised above the approved limit); `verify_budget_seal`, `approved_budget`, `approved_budgets`.
+- **Seal and key custody (decision D4).** The seal is `rightkit_crypto::hmac_sha256` over a length-prefixed encoding of id, scope, period, currency, limit, approval time and approver. The key never lives in the ledger database: `SealKey::from_keychain(service, account)` (feature `keychain`, `rightkit-credentials`, refused when the store is guarded or not durable) or `SealKey::from_bytes` for an app that holds it elsewhere. `SealKey` zeroes on drop and prints nothing.
+- **Approval identity.** An app-supplied principal string, sealed and audited; the app proves the owner approved by presenting the bind value. No signed token.
+- **Append-only audit and idempotent reports.** `spend_approved_audit` (create, approve, report) and `spend_approved_reports` refuse update and delete by trigger; an approved budget row never changes. `report_approved_spend(key, budget_id, report_id, reservation_id, actual)` commits once per report id (replay returns `replayed`, any difference is `ReportConflict`); `approved_audit(budget_id, limit)` reads the trail.
+- New `SpendError` variants (`non_exhaustive`): `BudgetNotFound`, `ApprovedBudgetConflict`, `NotApproved`, `ApprovalChanged`, `SealInvalid`, `SealKeyUnavailable`, `ReportConflict`. New dependencies: `rightkit-crypto`, `zeroize`, optional `rightkit-credentials`.
+
+Issues #806, #1084 (caller-connection reads, paginated reservation listing, reservation lookup by request id, per-route totals by state, overrun refusal names its reservation, caller commit reason, external-id idempotent commit). Additive except one field: `SpendError::OverrunUnacknowledged` gained `reservation_id` (the oldest unacknowledged overrun); no crate in this repository matches that variant by its full field list.
+
+- **Caller-connection reads.** `allowance_on`, `reservation_on`, `reservation_by_request_on`, `report_on` and `reservations_on` take the caller's `&Connection`, so inside a caller transaction they see its uncommitted rows; a rollback removes them from the next read. `report` now delegates to `report_on`.
+- **Reservation lookup.** `reservation_by_request(request_id)` (and `_on`) reads a reservation by its request id.
+- **Paginated listing.** `reservations(scope, period, open_only, after, limit)` returns a `ReservationPage { reservations, next }`, oldest first. `open_only = true` lists `reserved` and `in_flight` only. `after` is the previous page's `next`; `limit` is clamped to 1..=1000; an invalid cursor is `BadInput`.
+- **Route totals by state.** `route_totals_by_state(scope, period)` (and `_on`) returns `RouteStateTotal { route_id, state, count, estimated_micro, committed_micro }` per (route, state), ordered by route then state.
+- **Overrun refusal.** `SpendError::OverrunUnacknowledged { count, reservation_id }`: `reservation_id` is the oldest overrun no acknowledgement covers.
+- **Commit reason.** `commit_with_reason(id, actual, reason)` records the caller's reason in place of the derived overrun reason.
+- **External-id commit.** `commit_idempotent(id, actual, external_id)` stores the id on the commit (migration 4, `spend-commit-external-id`: column `commit_external_id` and a unique index on `(scope, commit_external_id)`). The same id and actual on the same reservation replays with `replayed = true`; the id on another reservation, or the same reservation with another actual, is `RequestMismatch`.
+
 ## 0.2.1 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

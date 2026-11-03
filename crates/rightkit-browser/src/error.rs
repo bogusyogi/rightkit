@@ -59,6 +59,14 @@ pub enum BrowserError {
     /// The requested real-session mode does not exist for this browser.
     #[error("unsupported: {0}")]
     Unsupported(String),
+    /// The encrypted profile vault refused or failed (key unavailable, corrupt, in use,
+    /// plaintext left behind). See [`crate::VaultError`].
+    #[cfg(feature = "profile-vault")]
+    #[error("profile vault: {0}")]
+    Vault(#[from] crate::vault::VaultError),
+    /// Chrome's process tree did not stop cleanly when the session was closed.
+    #[error("browser did not stop cleanly: {0}")]
+    Stop(String),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
 }

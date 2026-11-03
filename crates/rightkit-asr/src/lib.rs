@@ -50,24 +50,6 @@
 //! - Channels: Mono (stereo will be converted automatically)
 //! - Bit Depth: 16-bit PCM or 32-bit float
 
-// Test-only environment switches: read only in this crate's own tests and `test-mode` builds;
-// a release build gets `Err(NotPresent)` / `None` and does not contain the name.
-#[allow(unused_macros)]
-macro_rules! dev_var {
-    ($name:expr) => {{
-        let value: ::std::result::Result<::std::string::String, ::std::env::VarError> =
-            ::std::result::Result::Err(::std::env::VarError::NotPresent);
-        value
-    }};
-}
-#[allow(unused_macros)]
-macro_rules! dev_var_os {
-    ($name:expr) => {{
-        let value: ::std::option::Option<::std::ffi::OsString> = ::std::option::Option::None;
-        value
-    }};
-}
-
 mod audio;
 mod config;
 mod decoder;

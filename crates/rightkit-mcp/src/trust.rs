@@ -138,11 +138,13 @@ impl TrustStore {
 
     /// As [`TrustStore::try_load`], for a file that may hold another store's records.
     ///
-    /// A file with a `records` array loads as a `TrustStore` (`migrate` is not called; a record
-    /// that does not parse is `InvalidData`). Any other JSON document is passed whole to
-    /// `migrate`: `Some(records)` becomes
-    /// the store (timestamped now), `None` means the format is not recognised and the result is
-    /// `InvalidData`, so the caller never saves an empty store over decisions it could not read.
+    /// A document that parses as a native `TrustStore` (a `records` array of native records)
+    /// loads as one, and `migrate` is not called. Any other document, including one with a
+    /// `records` array whose records do not parse natively (another store's camelCase records),
+    /// is passed whole to `migrate`: `Some(records)` becomes the store (timestamped now). When
+    /// `migrate` returns `None` the native parse error is returned as `InvalidData` for a
+    /// `records` document, or `InvalidData` "not recognised" for any other, so the caller never
+    /// saves an empty store over decisions it could not read.
     /// A missing file is an empty store, an unreadable one an `io::Error`, as in `try_load`.
     /// Nothing is written; call [`TrustStore::save`] to persist the migrated store.
     pub fn try_load_migrating(
@@ -159,11 +161,17 @@ impl TrustStore {
         let invalid =
             |error: serde_json::Error| std::io::Error::new(std::io::ErrorKind::InvalidData, error);
         let document: serde_json::Value = serde_json::from_str(&text).map_err(invalid)?;
-        if document
+        let has_records = document
             .get("records")
-            .is_some_and(serde_json::Value::is_array)
-        {
-            return serde_json::from_value(document).map_err(invalid);
+            .is_some_and(serde_json::Value::is_array);
+        if has_records {
+            match Self::deserialize(&document) {
+                Ok(store) => return Ok(store),
+                Err(native_error) => match migrate(&document) {
+                    Some(imported) => return Ok(Self::from_imported(imported)),
+                    None => return Err(invalid(native_error)),
+                },
+            }
         }
         let imported = migrate(&document).ok_or_else(|| {
             std::io::Error::new(
@@ -171,6 +179,10 @@ impl TrustStore {
                 "trust store format not recognised",
             )
         })?;
+        Ok(Self::from_imported(imported))
+    }
+
+    fn from_imported(imported: Vec<ImportedTrust>) -> Self {
         let mut store = Self::default();
         for record in imported {
             store.set_fingerprint(
@@ -180,7 +192,7 @@ impl TrustStore {
                 record.approved,
             );
         }
-        Ok(store)
+        store
     }
 
     /// As [`TrustStore::try_load`], but every failure is an empty store.

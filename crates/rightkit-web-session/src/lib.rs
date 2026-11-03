@@ -33,6 +33,7 @@ use rightkit_owner_approvals::admin_sig::{self, Nonces};
 use rightkit_remote_gateway::settings::Settings;
 
 pub use driver::{Frame, supported};
+use std::collections::HashMap;
 
 /// A request waits this long for the owner.
 pub const REQUEST_TTL_MS: u64 = 10 * 60 * 1000;

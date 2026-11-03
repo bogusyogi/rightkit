@@ -3,6 +3,11 @@
 All notable changes to `rightkit-tts`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.2.5 (unpublished)
+
+- Removed: the `dev-overrides` feature (and its forward to `rightkit-onnx`). An inherited `ORT_DYLIB_PATH` is stripped from the worker and never read in every build. Adrian, 2026-11-03: "dev mode, is mine. im the fucking owner, my data. no dummy data, no fucking made up shit. real data. snapshot and restore."
+- Declares the `rightkit-tts-worker` helper in `[[package.metadata.rightkit.helpers]]` (build features, bundle location, override variable, signing), so an app and the release tooling know the worker must be built, bundled and signed; Cargo never builds a dependency's `[[bin]]` (rightkit#1346 item 3). No source change.
+
 ## 0.2.4 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

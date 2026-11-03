@@ -16,6 +16,8 @@
 //! - [`jobs`]: the [`jobs::PublishJobStore`] trait the host implements over its job table.
 //! - [`accounts`]: connected platform accounts, readiness, pause and disconnect over an [`accounts::AccountStore`].
 //! - [`deletion`]: deletion requests and the Meta callback over a [`deletion::DeletionStore`].
+//! - [`comment`]: the delayed `first_comment` follow-up phase and its per-platform requests.
+//! - [`refresh`]: OAuth refresh of an expired access token, per platform.
 //! - [`machine`]: the publish phase machine (`step_once`, `reconcile_once`) over a [`machine::MachineStore`].
 //! - [`resolve`]: a person closes an `outcome_unknown` job by hand.
 //! - [`calendar_time`]: UTC instants and local-time conversion for the supported zones.
@@ -27,6 +29,7 @@
 pub mod accounts;
 pub mod api_versions;
 pub mod calendar_time;
+pub mod comment;
 pub mod deletion;
 pub mod http;
 pub mod jobs;
@@ -37,6 +40,7 @@ pub mod platforms;
 pub mod protocol;
 pub mod quota;
 pub mod redact;
+pub mod refresh;
 pub mod resolve;
 pub mod util;
 pub mod wire;

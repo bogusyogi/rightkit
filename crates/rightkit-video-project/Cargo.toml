@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-video-project"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Video project layer for Right Suite apps: project files, sources and their integrity, revisions on the timeline, render jobs, and portable project bundles."
@@ -25,7 +25,7 @@ thiserror = { version = "2.0" }
 rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "lock", "json", "blake3"], path = "../rightkit-fs" }
 rightkit-child-process = { version = "0.5.7", default-features = false, path = "../rightkit-child-process" }
 rightkit-audio = { version = "0.3.1", default-features = false, path = "../rightkit-audio" }
-rightkit-ffmpeg = { version = "0.2.13", default-features = false, features = ["native"], path = "../rightkit-ffmpeg" }
+rightkit-ffmpeg = { version = "0.2.16", default-features = false, features = ["native"], path = "../rightkit-ffmpeg" }
 
 # rightkit-typeset's citationberg 0.7.0 pins quick-xml 0.38.4 (RUSTSEC-2026-0194, RUSTSEC-2026-0195); a [patch] does not reach
 # dependents, so every workspace that links rightkit-typeset carries the same vendored fix (vendor/citationberg/VENDORED.md).

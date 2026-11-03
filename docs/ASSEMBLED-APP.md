@@ -42,7 +42,7 @@ assembly: { mac: {
   },
   nested: [                              // optional. Built apps nested into the outer bundle
     { built: "tauri", manifestPath: "hub/src-tauri/Cargo.toml", productName: "Pulse", to: "Contents/Helpers/Pulse.app" },
-    // also accepted: bundleDirectory (relative) instead of manifestPath. Dev reads <target>/<triple>/debug/bundle/macos, release .../release/...
+    // also accepted: bundleDirectory (relative) instead of manifestPath. Dev and release both read <target>/<triple>/release/bundle/macos (the dev copy is the release build plus `qa-native`, GC-A07; no debug profile exists)
   ],
   helpers: [                             // optional. Loose executables, chmod 755. `to` defaults to Contents/Helpers/<name>
     { product: "PulseHelper" },          // from the xcodebuild Products folder (beside the outer app)
@@ -84,7 +84,7 @@ assembly: { mac: {
 
 ## 2. Dev install (mac): `development.targets.mac.install`
 
-`build` stays as today (hub web build, `stage-sidecar`, `tauri build --debug --no-sign`). After it, `kind: "assembled-app"` runs:
+`build` stays as today (hub web build, `stage-sidecar`, `tauri build --no-sign` on the release profile, GC-A07). After it, `kind: "assembled-app"` runs:
 xcodegen + xcodebuild (DerivedData from `rustright storage xcode-args`, the broker storage owner; fallback `.right-release/assembled-app/DerivedData`) ->
 assemble in a private temp dir -> sign inside-out with the Developer ID (`signMacosDevelopmentBundle`) -> verify the STAGED bundle
 (`/usr/bin/codesign --verify --strict --deep`, `require`, launchd `BundleProgram`, `assert*`) -> assert the designated requirement equals
@@ -181,7 +181,7 @@ assembly: { win: {
 
 ```js
 development: { targets: { win: {
-  build: [ /* unchanged: web-build, stage-sidecar, tauri build --debug (hub) */ ],
+  build: [ /* unchanged: web-build, stage-sidecar, tauri build --no-sign, release profile (hub) */ ],
   install: {
     kind: "assembled-app",
     installDirectory: "%LOCALAPPDATA%/Programs/Pulse",  // required. Absolute after expanding %LOCALAPPDATA% / %PROGRAMFILES%; never a drive root

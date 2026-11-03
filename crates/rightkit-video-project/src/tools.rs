@@ -26,12 +26,10 @@ pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 fn require_approved(path: &Path) -> Result<(), ProjectError> {
     use rightkit_ffmpeg as rk;
     let result = if path.file_stem().is_some_and(|stem| stem == "ffprobe") {
-        rk::verify_ffprobe_or_development(path, rk::DECODE_VARIANT, VERIFY_TIMEOUT).map(|_| ())
+        rk::verify_ffprobe_handle(path, rk::DECODE_VARIANT, VERIFY_TIMEOUT).map(|_| ())
     } else {
-        rk::verify_ffmpeg_or_development(path, rk::EXPORT_ASS_ZIMG_VARIANT, VERIFY_TIMEOUT)
-            .or_else(|_| {
-                rk::verify_ffmpeg_or_development(path, rk::EXPORT_ASS_VARIANT, VERIFY_TIMEOUT)
-            })
+        rk::verify_ffmpeg_handle(path, rk::EXPORT_ASS_ZIMG_VARIANT, VERIFY_TIMEOUT)
+            .or_else(|_| rk::verify_ffmpeg_handle(path, rk::EXPORT_ASS_VARIANT, VERIFY_TIMEOUT))
             .map(|_| ())
     };
     result.map_err(|e| {
@@ -39,20 +37,12 @@ fn require_approved(path: &Path) -> Result<(), ProjectError> {
     })
 }
 
-fn env_override(_var: &str) -> Option<PathBuf> {
-    None
-}
-
 impl MediaTools {
     /// The catalog-verified (or, in a development build, development) ffmpeg handle.
     pub(crate) fn ffmpeg_handle(&self) -> Result<rk::FfmpegHandle, ProjectError> {
-        rk::verify_ffmpeg_or_development(&self.ffmpeg, rk::EXPORT_ASS_ZIMG_VARIANT, VERIFY_TIMEOUT)
+        rk::verify_ffmpeg_handle(&self.ffmpeg, rk::EXPORT_ASS_ZIMG_VARIANT, VERIFY_TIMEOUT)
             .or_else(|_| {
-                rk::verify_ffmpeg_or_development(
-                    &self.ffmpeg,
-                    rk::EXPORT_ASS_VARIANT,
-                    VERIFY_TIMEOUT,
-                )
+                rk::verify_ffmpeg_handle(&self.ffmpeg, rk::EXPORT_ASS_VARIANT, VERIFY_TIMEOUT)
             })
             .map_err(|e| ProjectError::MediaToolMissing(e.to_string()))
     }
@@ -72,55 +62,30 @@ impl MediaTools {
         )?)
     }
 
-    /// Resolves both tools from the bundle (and, with test-mode, the env overrides).
-    /// A bundled tool must be the LGPL build RightKit's catalog approves on every host; a
-    /// test-mode override is a development binary and is not checked.
+    /// Resolves both tools from the bundle. A bundled tool must be the LGPL build RightKit's
+    /// catalog approves on every host.
     pub fn resolve(resource_dir: Option<&Path>) -> Result<Self, ProjectError> {
-        let ffmpeg_override = env_override("RIGHTKIT_FFMPEG");
-        let ffprobe_override = env_override("RIGHTKIT_FFPROBE");
-        let (check_ffmpeg, check_ffprobe) = (ffmpeg_override.is_none(), ffprobe_override.is_none());
-        let tools = Self::resolve_with(resource_dir, ffmpeg_override, ffprobe_override)?;
+        let tools = Self {
+            ffmpeg: pick("ffmpeg", resource_dir)?,
+            ffprobe: pick("ffprobe", resource_dir)?,
+        };
         // Every host verifies: the shipped app is LGPL catalog builds only, so a bundled file that is not
         // the approved build (a GPL or system ffmpeg dropped into `runtime/`) is refused here, never run.
-        if check_ffmpeg {
-            require_approved(&tools.ffmpeg)?;
-        }
-        if check_ffprobe {
-            require_approved(&tools.ffprobe)?;
-        }
+        require_approved(&tools.ffmpeg)?;
+        require_approved(&tools.ffprobe)?;
         Ok(tools)
-    }
-
-    /// Resolution with explicit overrides (testable without touching the environment).
-    pub(crate) fn resolve_with(
-        resource_dir: Option<&Path>,
-        ffmpeg_override: Option<PathBuf>,
-        ffprobe_override: Option<PathBuf>,
-    ) -> Result<Self, ProjectError> {
-        Ok(Self {
-            ffmpeg: pick("ffmpeg", resource_dir, ffmpeg_override)?,
-            ffprobe: pick("ffprobe", resource_dir, ffprobe_override)?,
-        })
     }
 }
 
-fn pick(
-    name: &str,
-    resource_dir: Option<&Path>,
-    override_path: Option<PathBuf>,
-) -> Result<PathBuf, ProjectError> {
-    let path = match override_path {
-        Some(p) => p,
-        None => {
-            let dir = resource_dir.ok_or_else(|| {
-                ProjectError::MediaToolMissing(format!(
-                    "{name} not found: the engine is not running from an app bundle"
-                ))
-            })?;
-            dir.join("runtime")
-                .join(format!("{name}{}", std::env::consts::EXE_SUFFIX))
-        }
-    };
+fn pick(name: &str, resource_dir: Option<&Path>) -> Result<PathBuf, ProjectError> {
+    let dir = resource_dir.ok_or_else(|| {
+        ProjectError::MediaToolMissing(format!(
+            "{name} not found: the engine is not running from an app bundle"
+        ))
+    })?;
+    let path = dir
+        .join("runtime")
+        .join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
     if path.is_file() {
         Ok(path)
     } else {

@@ -92,17 +92,18 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.6.5"
+version = "0.6.7"
 dependencies = [
  "windows",
 ]
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "libc",
  "windows",
+ "zeroize",
 ]
 
 [[package]]
@@ -122,11 +123,12 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.10"
+version = "0.4.12"
 dependencies = [
  "libc",
  "sha2",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]
@@ -161,7 +163,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-overlay"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "serde",
  "windows-sys",
@@ -169,7 +171,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.2"
+version = "0.1.3"
 
 [[package]]
 name = "rightkit-win-ui"
@@ -405,6 +407,12 @@ checksum = "3949bd5b99cafdf1c7ca86b43ca564028dfe27d66958f2470940f73d86d75b37"
 dependencies = [
  "windows-link",
 ]
+
+[[package]]
+name = "zeroize"
+version = "1.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
 
 [[package]]
 name = "zmij"

@@ -15,6 +15,7 @@
 //! System32 rejection). Nothing here loads a library by itself.
 
 use rightkit_models::Store;
+use rightkit_onnx::RuntimeError;
 use std::path::{Path, PathBuf};
 
 /// Where a resolved model directory came from.

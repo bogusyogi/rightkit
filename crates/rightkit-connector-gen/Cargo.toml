@@ -1,0 +1,53 @@
+[package]
+name = "rightkit-connector-gen"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+license = "MIT OR Apache-2.0"
+description = "Generate workflow-automation connectors (n8n node, Zapier app, Make app) from an engine contract: one operation per engine method posting its params to the app's HTTP bridge. std only."
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["n8n", "zapier", "make", "connector", "automation"]
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[dependencies]
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "pure code generation: renders connector source text from a caller-built description; spawns no continuous work"
+
+# One Cargo workspace and lock per crate (rightkit#1285).
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

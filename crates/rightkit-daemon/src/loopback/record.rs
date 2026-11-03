@@ -18,7 +18,10 @@
 
 use std::path::Path;
 
+use rightkit_child_process::AdoptedIdentity;
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroU32;
+use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LoopbackRecord {

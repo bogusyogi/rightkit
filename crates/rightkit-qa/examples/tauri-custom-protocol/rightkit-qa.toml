@@ -16,7 +16,6 @@ default_tier = "fast"
 [engine]
 package = "postright-engine"
 build = ["rustright", "cargo", "build", "-p", "postright-engine"]
-data_dir_env = "POSTRIGHT_APP_DATA"        # the scenario's isolated dir; the UI gets the same one
 
 [ui]
 mode = "hidden"
@@ -37,3 +36,8 @@ cargo_toml = "src-tauri/Cargo.toml"
 rust_sources = ["src-tauri/src/lib.rs"]
 package_json = "package.json"
 workspace_root = "src-tauri"
+
+# Real data, snapshot and restore (rightkit#1437): required. The run refuses to start while the app runs.
+[snapshot]
+app_name = "PostRight"
+process_names = ["PostRight"]

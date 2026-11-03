@@ -31,6 +31,9 @@ public struct LLMClient: Sendable {
     /// One completion from one route.
     public func complete(_ request: ChatRequest, route: LLMRoute) async throws -> ChatCompletion {
         let provider = route.provider
+        guard provider.wire == .openAICompatible else {
+            throw LLMError.invalidRequest("provider \(provider.id) does not speak the OpenAI chat protocol; use LLMAgentClient")
+        }
         var key: String?
         if provider.requiresCredential {
             do { key = try credentials.credential(provider: provider.id) } catch { throw LLMError.missingCredential(provider: provider.id) }

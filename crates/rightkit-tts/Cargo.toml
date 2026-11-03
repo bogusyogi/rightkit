@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-tts"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 rust-version = "1.98.0"
 publish = true
@@ -28,10 +28,6 @@ client = ["dep:rightkit-onnx", "dep:rightkit-child-process", "dep:rightkit-fs", 
 engine = ["client", "dep:qts", "dep:libc"]
 metal = ["engine", "qts/metal"]
 vulkan = ["engine", "qts/vulkan"]
-# DEVELOPMENT/QA BUILDS ONLY. Honors an inherited `ORT_DYLIB_PATH` as a developer ONNX Runtime override
-# (client spawn, `bind_ort_runtime`, `find_onnxruntime`). Forwards to `rightkit-onnx/dev-overrides` when the
-# client is on. Never implied by a build profile, never a default feature.
-dev-overrides = ["rightkit-onnx?/dev-overrides"]
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"], optional = true }
@@ -53,6 +49,21 @@ required-features = ["engine"]
 
 [package.metadata.rightkit]
 continuous = "held-resource"
+
+# Helper executables an app must build, bundle and sign (rightkit#1346 items 3 and 4): Cargo never builds a
+# dependency's [[bin]], so an app that enables `required_when_feature` builds this binary itself (package
+# rightkit-tts, features `build_features`, bin `name`), ships it beside its own executable (also searched:
+# <data>/runtime/qts and the RIGHTKIT_TTS_WORKER override) and signs it with the app identity. Release tooling
+# checks the bundle against this declaration.
+[[package.metadata.rightkit.helpers]]
+name = "rightkit-tts-worker"
+kind = "cargo-bin"
+required_when_feature = "client"
+build_features = ["engine"]
+platforms = ["macos", "windows", "linux"]
+bundle_path = "beside-app-executable"
+env_override = "RIGHTKIT_TTS_WORKER"
+sign = true
 
 [[package.metadata.rightkit.resources]]
 api = "QtsClient::synthesize"

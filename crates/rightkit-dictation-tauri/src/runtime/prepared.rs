@@ -29,7 +29,6 @@ impl CancelSource {
 }
 
 pub enum RuntimeApp {
-    Fake(DictationController<crate::host::HostDelivery, crate::host::HostHistory>),
     Engine(EngineRuntime),
 }
 

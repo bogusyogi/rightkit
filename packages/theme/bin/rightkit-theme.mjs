@@ -3,8 +3,9 @@
 //   generate <brand.json> --out <file.css> [--format suite|tailwind|both] [--check] [--allow-contrast-failures]
 //   contrast <brand.json>
 //   tokens   <file...>            hard-coded colour scan
+//   suite-defaults <shell.css>    drift check: SUITE_DEFAULTS and SUITE_MOTION against react-shell's shell.css
 // Machine output: one JSON line per command on stdout; human detail on stderr. Exit 1 on any failure.
-import { checkBrandFile, generateFile, scanFiles, checkGeneratedCss } from "../dist/node.js";
+import { checkBrandFile, generateFile, scanFiles, checkGeneratedCss, checkSuiteDefaultsFile } from "../dist/node.js";
 
 const [cmd, ...rest] = process.argv.slice(2);
 const VALUE_FLAGS = new Set(["--out", "--format"]);
@@ -49,8 +50,13 @@ try {
     for (const f of findings.slice(0, 80)) process.stderr.write(`${f.file}:${f.line} ${f.value}  ${f.text}\n`);
     if (findings.length) fail("hardcoded_colors", { count: findings.length, findings: findings.slice(0, 80) });
     out({ event: "tokens_ok", ok: true, files: positional.length });
+  } else if (cmd === "suite-defaults") {
+    if (!positional[0]) fail("usage", { usage: "rightkit-theme suite-defaults <shell.css>" });
+    const problems = checkSuiteDefaultsFile(positional[0]);
+    if (problems.length) fail("suite_defaults_drift", { problems });
+    out({ event: "suite_defaults_ok", ok: true, shell: positional[0] });
   } else {
-    fail("usage", { usage: "rightkit-theme generate|contrast|tokens ..." });
+    fail("usage", { usage: "rightkit-theme generate|contrast|tokens|suite-defaults ..." });
   }
 } catch (e) {
   fail("error", { message: e instanceof Error ? e.message : String(e) });

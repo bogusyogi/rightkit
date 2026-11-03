@@ -16,6 +16,7 @@ use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Map, Value};
+use std::path::Path;
 
 pub type Event = Value;
 

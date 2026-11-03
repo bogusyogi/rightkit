@@ -458,7 +458,10 @@ pub fn quit_bundle(bundle_id: &str) -> Result<(), String> {
 }
 
 fn running_roots() -> HashSet<PathBuf> {
-    let mut system = System::new();
+    // No process table from the OS reads as no running app roots.
+    let Ok(mut system) = System::new() else {
+        return HashSet::new();
+    };
     system.refresh_processes_specifics(
         ProcessesToUpdate::All,
         true,

@@ -474,6 +474,10 @@ pub struct AddressPolicy {
     allow: Vec<AllowRule>,
     /// First-party hosts allowed to resolve to non-public addresses.
     private_ok: Vec<String>,
+    /// Per-host path-prefix scopes (see [`AddressPolicy::first_party_path_prefix`]): normalized
+    /// host and the decoded segments of one allowed prefix, `None` for a prefix the segment
+    /// rules refused (it admits nothing).
+    path_prefixes: Vec<(String, Option<Vec<String>>)>,
     /// Follow an HTTPS to HTTP redirect (refused by default).
     allow_downgrade: bool,
     /// Accept non-canonical IPv4 host spellings (refused by default).
@@ -537,6 +541,14 @@ impl fmt::Debug for AddressPolicy {
                     .collect::<Vec<_>>(),
             )
             .field("private_resolution_hosts", &self.private_ok)
+            .field(
+                "path_prefix_hosts",
+                &self
+                    .path_prefixes
+                    .iter()
+                    .map(|(h, _)| h)
+                    .collect::<Vec<_>>(),
+            )
             .field("allow_insecure_redirects", &self.allow_downgrade)
             .field("allow_legacy_ipv4", &self.allow_legacy_ipv4)
             .field("refuse_mixed_loopback", &self.refuse_mixed)
@@ -554,6 +566,7 @@ impl AddressPolicy {
             deny_if: Vec::new(),
             allow: Vec::new(),
             private_ok: Vec::new(),
+            path_prefixes: Vec::new(),
             allow_downgrade: false,
             allow_legacy_ipv4: false,
             refuse_mixed: false,
@@ -571,6 +584,79 @@ impl AddressPolicy {
         Self {
             mode: Mode::FirstParty(hosts.iter().map(|h| normalize_host(h)).collect()),
             ..Self::public_web()
+        }
+    }
+
+    /// Confine a first-party `host` to one path prefix, for an API that shares its host with
+    /// pages the app must not reach (`/api` on a host that also serves `/admin`). The host is
+    /// added to the first-party list when it is not there (and the policy becomes first-party
+    /// when it was public-web). Call it again for more prefixes on the same host; a request
+    /// is admitted when its path is inside any of them. A host with no prefix keeps the whole
+    /// host.
+    ///
+    /// `prefix` is an absolute path such as `/api/v1`. Matching is by decoded path segment,
+    /// the rule [`CredentialScope`] uses: `/api` admits `/api` and `/api/users` and refuses
+    /// `/apievil`, any `.` or `..` segment (raw or percent-encoded), a segment that decodes
+    /// to text containing `/` or `\`, and any backslash. A `prefix` those rules refuse admits
+    /// nothing, so the host is unreachable rather than open. The check runs on the first
+    /// request and on every redirect hop in both clients, and in
+    /// [`AddressPolicy::check_url_path`] for other transports; a refused URL is
+    /// [`crate::HttpError::AddressDenied`] and nothing is sent. The query and fragment are
+    /// not part of the match.
+    pub fn first_party_path_prefix(mut self, host: impl Into<String>, prefix: &str) -> Self {
+        let host = normalize_host(&host.into());
+        if let Mode::FirstParty(hosts) = &mut self.mode {
+            if !hosts.contains(&host) {
+                hosts.push(host.clone());
+            }
+        } else {
+            self.mode = Mode::FirstParty(vec![host.clone()]);
+        }
+        let segments = if prefix.starts_with('/') && !prefix.contains(['?', '#', '\\']) {
+            credential_path_segments(prefix)
+        } else {
+            None
+        };
+        self.path_prefixes.push((host, segments));
+        self
+    }
+
+    /// Path-scope check for one absolute URL under [`AddressPolicy::first_party_path_prefix`]:
+    /// `Ok` when the host has no prefix scope or the URL's path is inside one. Other
+    /// transports call it next to [`AddressPolicy::resolve_vetted`] (which sees a host, not a
+    /// path). The clients run it themselves on every hop.
+    pub fn check_url_path(&self, url: &str) -> Result<(), HttpError> {
+        self.check_path(url).map_err(HttpError::from)
+    }
+
+    pub(crate) fn check_path(&self, url: &str) -> Result<(), AddressDenial> {
+        if self.path_prefixes.is_empty() {
+            return Ok(());
+        }
+        let Some(parts) = url_authority_parts(url) else {
+            return Ok(());
+        };
+        if !self.path_prefixes.iter().any(|(h, _)| *h == parts.host) {
+            return Ok(());
+        }
+        let path = parts.tail.split(['?', '#']).next().unwrap_or("");
+        let inside = credential_path_segments(path).is_some_and(|segments| {
+            self.path_prefixes.iter().any(|(h, prefix)| {
+                *h == parts.host
+                    && prefix
+                        .as_ref()
+                        .is_some_and(|p| segments.len() >= p.len() && segments[..p.len()] == p[..])
+            })
+        });
+        if inside {
+            Ok(())
+        } else {
+            Err(denial(
+                &parts.host,
+                None,
+                None,
+                "path is outside the first-party path scope",
+            ))
         }
     }
 
@@ -665,6 +751,18 @@ impl AddressPolicy {
             pred: Arc::new(pred),
         });
         self
+    }
+
+    /// Let the one host named in `url` reach any address it resolves to, such as an operator
+    /// configured LAN, tunnel or CGNAT endpoint. Only that host is pinned; every other host
+    /// keeps the policy it had. The denials that `allow_if` never overrides (link-local,
+    /// metadata, `deny_ranges`, `deny_if`) still apply. A `url` with no parsable host leaves
+    /// the policy unchanged.
+    pub fn allow_host_of(self, url: &str) -> Self {
+        match host_of_url(url) {
+            Some(host) => self.allow_if(vec![host], |_| true),
+            None => self,
+        }
     }
 
     /// Like [`AddressPolicy::allow_if`], but `pred` applies to every host: any name may reach
@@ -1445,9 +1543,19 @@ pub enum RedirectRefusal {
     /// The target's authority carries userinfo (`user:pass@host`).
     Credentials,
     /// The target is not a shape this check accepts: another scheme, no host, a bad port, or
-    /// whitespace, control characters or a backslash anywhere in the URL.
+    /// whitespace, control characters or a backslash anywhere in the URL, or port 0.
     Malformed,
+    /// The answering response had no usable `Location`: absent, empty, or not resolvable to
+    /// an absolute http(s) URL. Returned by the clients; [`check_redirect_target`] reports
+    /// this case as [`RedirectRefusal::Malformed`].
+    UnusableLocation,
+    /// The resolved target is longer than [`MAX_REDIRECT_URL_LEN`] bytes.
+    TooLong,
 }
+
+/// Longest resolved redirect target, in bytes, either client follows. A longer target is
+/// refused with [`RedirectRefusal::TooLong`] before anything is sent to it.
+pub const MAX_REDIRECT_URL_LEN: usize = 8192;
 
 impl fmt::Display for RedirectRefusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -1456,6 +1564,8 @@ impl fmt::Display for RedirectRefusal {
             Self::SchemeDowngrade => "redirect from https to http",
             Self::Credentials => "redirect target carries credentials",
             Self::Malformed => "redirect target is malformed",
+            Self::UnusableLocation => "redirect response has no usable Location",
+            Self::TooLong => "redirect target is too long",
         })
     }
 }
@@ -1716,4 +1826,42 @@ fn normalize_url_host(raw: &str) -> Result<String, UrlPolicyError> {
         return Err(UrlPolicyError::NoHost);
     }
     Ok(host.to_string())
+}
+
+/// The host of an `http` or `https` URL as written: scheme, userinfo, port and path are
+/// removed, and IPv6 literals lose their brackets. `None` when no non-empty host is present.
+fn host_of_url(url: &str) -> Option<String> {
+    let rest = url.trim();
+    let rest = match rest.find("://") {
+        Some(i)
+            if rest[..i]
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'-' || b == b'.') =>
+        {
+            &rest[i + 3..]
+        }
+        Some(_) => return None,
+        None => rest,
+    };
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..authority_end];
+    let authority = match authority.rfind('@') {
+        Some(at) => &authority[at + 1..],
+        None => authority,
+    };
+    let host = if let Some(bracketed) = authority.strip_prefix('[') {
+        let end = bracketed.find(']')?;
+        &bracketed[..end]
+    } else {
+        match authority.rfind(':') {
+            Some(colon) => &authority[..colon],
+            None => authority,
+        }
+    };
+    let host = host.trim_end_matches('.');
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_string())
+    }
 }

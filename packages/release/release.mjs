@@ -13,6 +13,10 @@ import { validateRightKitCargoContract } from "./cargo-contract.mjs";
 import { assertCargoProfileContract } from "./cargo-profile-contract.mjs";
 import { assertQaAdoption, assertQaBackdoorContract } from "./qa-contract.mjs";
 import { assertLegalReleaseContract } from "./legal-contract.mjs";
+import { assertSecurityPolicy } from "./security-policy.mjs";
+import { refreshRuntimeManifests, validateRuntimeManifestPaths } from "./runtime-manifest-refresh.mjs";
+import { assertStageReceiptGuard, validateStageReceiptConfig } from "./stage-receipt.mjs";
+import { assertPluginMatchesApp } from "./plugin-delivery.mjs";
 import { DECLARED_UNRELATED_POLICY, declaredUnrelatedRefusal, releaseArtifactPaths } from "./hosted-workflow-policy.mjs";
 import { assertNativeIosPrepareHasManifest, assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
 import { gitRootOf, isSnapshotSource, resolveReleaseSource, sourceRootOf } from "./release-source-identity.mjs";
@@ -96,6 +100,9 @@ let rightKitVerifiedNpm = new Map();
 const FORBIDDEN_RIGHTKIT_SPEC = /^(?:git|file|link|workspace):|github|github\.com/i;
 const WINDOWS_NSIS_SIGNING_CONTRACT = "windows-raw-exe-authenticode-before-nsis-v1";
 const WINDOWS_PORTABLE_SIGNING_CONTRACT = "windows-raw-exe-authenticode-before-portable-v1";
+// A native multi-exe payload (no Tauri bundle) packed by its own NSIS script (rightkit#428, #871): every payload file is Authenticode-signed first,
+// the installer is assembled from the signed bytes (`right-release nsis-pack`), each signed file is proved embedded, then the installer is signed.
+const WINDOWS_PAYLOAD_SIGNING_CONTRACT = "windows-payload-authenticode-before-nsis-v1";
 const DEFAULT_NOTARIZATION_TIMEOUT_MS = 30 * 60 * 1000;
 
 // Apple Developer ID and notary secrets: the only secrets the signing jobs of the managed release chain
@@ -367,7 +374,10 @@ await check("split-artifact-paths", ["target"], () => {
 const legalCheck = await check("legal-contract", [], () => (config.legal
   ? assertLegalReleaseContract(root, config.legal, config.app ?? path.basename(root), opts.platform)
   : null));
+// CSP and Tauri capability drift (#1136): files only, the same row in the doctor and the build.
+await check("security-policy", [], () => (config.security ? assertSecurityPolicy(root, config.security, config.app ?? path.basename(root)) : null));
 const legalContract = legalCheck.ok ? legalCheck.value : null;
+let runtimeManifests = []; // validated sign.runtimeManifests: refreshed after nested/sidecar signing, before the app is sealed (rightkit#722)
 let macSigning; // validated macOS sign.prePackageFiles / sign.nestedCode (mac only)
 let mediaSidecarConfig = null; // validated targets.<mac|win>.mediaSidecar (rightkit-ffmpeg decode sidecar)
 let externalBinConfig = null; // validated targets.<mac|win>.externalBin (generic Tauri externalBin sidecars, #270)
@@ -390,11 +400,24 @@ if (!rejectBlocked("target-checks", ["target"], "the target checks (signed, medi
       try { externalBinConfig = validateExternalBinConfig(target.externalBin, { platform: opts.platform, reservedNames: mediaSidecarConfig?.tools ?? [] }); } catch (error) { throw new Error(`${app} ${opts.platform} ${error.message}`); }
     });
   }
+  if (target.sign?.runtimeManifests !== undefined) {
+    if (opts.platform !== "mac" && opts.platform !== "win") reject("runtime-manifests", `${app} ${opts.platform} does not support sign.runtimeManifests (mac and win only)`);
+    else await check("runtime-manifests", [], () => { try { runtimeManifests = validateRuntimeManifestPaths(target.sign.runtimeManifests); } catch (error) { throw new Error(`${app} ${opts.platform} ${error.message}`); } });
+  }
+  if (target.plugin !== undefined) {
+    // The app's agent plugin ships with it and carries exactly the app's version (rightkit#1442).
+    await check("plugin", [], () => { try { assertPluginMatchesApp({ root, plugin: target.plugin, version: config.version }); } catch (error) { throw new Error(`${app} ${opts.platform} ${error.message}`); } });
+  }
+  if (target.sign?.stageReceipt !== undefined) {
+    if (opts.platform !== "mac" && opts.platform !== "win") reject("stage-receipt-guard", `${app} ${opts.platform} does not support sign.stageReceipt (mac and win only)`);
+    else await check("stage-receipt-guard", [], () => { try { validateStageReceiptConfig(target.sign.stageReceipt); } catch (error) { throw new Error(`${app} ${opts.platform} ${error.message}`); } });
+  }
   if (opts.platform === "win") {
     const isNsis = target.signingContract === WINDOWS_NSIS_SIGNING_CONTRACT;
     const isPortable = target.signingContract === WINDOWS_PORTABLE_SIGNING_CONTRACT;
+    const isPayload = target.signingContract === WINDOWS_PAYLOAD_SIGNING_CONTRACT;
     const isMsix = target.signingContract === MSIX_SIGNING_CONTRACT;
-    if (!isNsis && !isPortable && !isMsix) reject("win-signing-contract", `${app} win must declare signingContract: ${WINDOWS_NSIS_SIGNING_CONTRACT}, ${WINDOWS_PORTABLE_SIGNING_CONTRACT} or ${MSIX_SIGNING_CONTRACT}`);
+    if (!isNsis && !isPortable && !isPayload && !isMsix) reject("win-signing-contract", `${app} win must declare signingContract: ${WINDOWS_NSIS_SIGNING_CONTRACT}, ${WINDOWS_PAYLOAD_SIGNING_CONTRACT}, ${WINDOWS_PORTABLE_SIGNING_CONTRACT} or ${MSIX_SIGNING_CONTRACT}`);
     if (isMsix) {
       await check("win-msix", [], () => assertValidMsixTarget(target, app));
     } else {
@@ -409,6 +432,12 @@ if (!rejectBlocked("target-checks", ["target"], "the target checks (signed, medi
       }
       if (isNsis && !target.sign?.files?.length) reject("win-nsis-sign-files", `${app} win NSIS must declare sign.files for installer signing`);
       if (isNsis && rawFiles?.length && target.sign?.files?.length && rawFiles.some((file) => target.sign.files.includes(file))) reject("win-distinct-files", `${app} win raw EXE and installer signing files must be distinct`);
+      if (isPayload) {
+        if (!target.package?.cmd) reject("win-payload-package", `${app} win payload must declare package (the NSIS packing command, for example right-release nsis-pack)`);
+        if (!target.sign?.files?.length) reject("win-payload-sign-files", `${app} win payload must declare sign.files for installer signing`);
+        else if (rawFiles?.some((file) => target.sign.files.includes(file))) reject("win-distinct-files", `${app} win payload files and installer signing files must be distinct`);
+        if (rawFiles?.length && new Set(rawFiles.map((file) => path.basename(String(file)).toLowerCase())).size !== rawFiles.length) reject("win-payload-names", `${app} win payload sign.prePackageFiles must have distinct file names (each is proved embedded in the installer by its name)`);
+      }
       if (isPortable && target.sign?.files?.length) reject("win-portable-sign-files", `${app} win portable release must sign every executable through sign.prePackageFiles and omit sign.files`);
     }
   }
@@ -613,7 +642,7 @@ let prePackScanned = false; // set once a pre-pack payload scan has seen a nativ
 // prebuild-gates.mjs so `doctor --gates` runs the exact same code in the same order. They read the expanded target (and the
 // iOS spec), so a failed one of those blocks them.
 const prebuildBlocker = ["target", ...(opts.platform === "ios" ? ["ios-target"] : [])].find((name) => failedChecks.has(name));
-const { findings: prebuildFindings, devtoolsAllowance, inventoryText: releaseSwitchInventoryText } = prebuildBlocker
+const { findings: prebuildFindings, devtoolsAllowance, inventoryText: releaseSwitchInventoryText, presenceAccepted: releasePresenceAccepted } = prebuildBlocker
   ? { findings: [{ name: "prebuild-gates", detail: `BLOCKED by ${prebuildBlocker}` }], devtoolsAllowance: { mode: "denied" }, inventoryText: null }
   : evaluatePrebuildGates({ root, config, target, platform: opts.platform, iosSpec, nativeIos, nativeAssembly, nativeFinalizer, strict: !opts.dryRun });
 if (problems.length || prebuildFindings.length) {
@@ -674,6 +703,8 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
   const externalPlan = await prepareExternalBin(root);
   await runCommand(target.prePackage, root);
   for (const file of rawFiles) await mustExist(file, `missing raw EXE signing artifact: ${file}`);
+  // Opt-in (sign.stageReceipt): the staged files and every hand-assembled payload copy must still be the bytes the stage receipt recorded, and the receipt a release one.
+  if (target.sign?.stageReceipt && !opts.dryRun) { try { assertStageReceiptGuard({ root, config: target.sign.stageReceipt, mode: "release" }); } catch (error) { fail(error.message); } }
   const sidecarPre = sidecarPlan && !opts.dryRun ? verifyStagedSidecars(sidecarPlan) : [];
   const externalPre = externalPlan && !opts.dryRun ? verifyExternalBins(externalPlan) : [];
   const sidecarFiles = [...sidecarPre, ...externalPre].map((file) => file.stagedPath);
@@ -690,6 +721,10 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
     console.log(`right-release: bundle marker ${receipt.bundle} ${receipt.alreadyPatched ? "already applied" : "applied"} at offset ${receipt.offset} in ${path.basename(receipt.file)}`);
   }
   await signWindows([...rawFiles, ...sidecarFiles], "raw-exe", root);
+  // Re-signed runtime files changed bytes: re-describe the bundled runtime manifest(s) before the installer wraps them (rightkit#722).
+  if (runtimeManifests.length && !opts.dryRun) {
+    try { refreshRuntimeManifests({ base: root, manifests: runtimeManifests, log: (line) => console.log(line) }); } catch (error) { fail(error.message); }
+  }
   if (sidecarPlan && !opts.dryRun) {
     const signed = Object.fromEntries(sidecarPre.map((file) => [file.tool, sidecarFileEvidence(file.stagedPath)]));
     writeMediaSidecarReceipt(root, buildMediaSidecarReceipt(sidecarPlan, sidecarPre, signed));
@@ -717,6 +752,8 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
   // Resolve after prePackage: with storage governance the artifact may live only in RIGHT_RELEASE_ARTIFACT_DIR.
   const signingEntries = macSigning.entries.map((entry) => ({ ...entry, file: resolveReleaseArtifactPath(root, entry.file) }));
   for (const { file } of signingEntries) await mustExist(file, `missing macOS Developer ID signing artifact: ${file}`);
+  // Opt-in (sign.stageReceipt): refuse a dev receipt or a drifted staged / hand-assembled file before anything is signed.
+  if (target.sign?.stageReceipt && !opts.dryRun) { try { assertStageReceiptGuard({ root, config: target.sign.stageReceipt, mode: "release" }); } catch (error) { fail(error.message); } }
   assertNoQaControlBinaries("macOS signing set", signingEntries.map(({ file }) => file), { requireBinary: true, prePack: true });
   // The DMG is built from the .app (notarize.app / the signing set); a compressed DMG cannot be scanned afterwards.
   if (target.notarize.app) {
@@ -800,6 +837,18 @@ for (const rel of target.artifacts ?? []) {
 }
 
 if (nativeFinalization) await completeNativeFinalization(nativeFinalization, { root, target, nativeAssembly });
+
+if (opts.platform === "win" && target.signingContract === WINDOWS_PAYLOAD_SIGNING_CONTRACT) {
+  const files = target.sign.files.map((p) => resolveReleaseArtifactPath(root, p));
+  for (const file of files) await mustExist(file, `missing signing artifact: ${file}`);
+  await verifyWindowsPayloadEmbedding({ root, target, files });
+  await signWindows(files, "installer", root);
+  if (target.postSign) await runCommands(target.postSign, root);
+  if (target.updater?.artifacts?.length) {
+    const updaterFiles = [...new Set(target.updater.artifacts.map((artifact) => resolveReleaseArtifactPath(root, artifact.file)))];
+    await run("node", [SIGN_UPDATER, ...(opts.dryRun ? ["--dry-run"] : []), ...updaterFiles.flatMap((file) => ["--file", file])], root);
+  }
+}
 
 if (opts.platform === "win" && target.signingContract === WINDOWS_NSIS_SIGNING_CONTRACT) {
   const files = target.sign.files.map((p) => resolveReleaseArtifactPath(root, p));
@@ -888,7 +937,7 @@ function assertNoQaControlBinaries(label, files, { requireBinary = false, prePac
   try {
     const stats = assertNoQaControl(files, label, { requireBinary, allowContentOnlyDevtools: devtoolsAllowance.mode === "content-only" });
     // D4 binary layer, same inputs: no test-mode marker and no S1-S4 selector name in any native binary.
-    assertNoReleaseSwitches({ binaryPaths: files, devtools: devtoolsAllowance, inventoryText: releaseSwitchInventoryText ?? undefined, appForbid: config.releaseSwitches?.forbid ?? [], requireBinary: false }, `${label} (release switches)`);
+    assertNoReleaseSwitches({ binaryPaths: files, devtools: devtoolsAllowance, inventoryText: releaseSwitchInventoryText ?? undefined, appForbid: config.releaseSwitches?.forbid ?? [], requireBinary: false, presenceAccepted: releasePresenceAccepted ?? [] }, `${label} (release switches)`);
     if (prePack && stats.binaries > 0) prePackScanned = true;
     for (const opaque of stats.opaque) {
       console.log(`right-release: ${label}: ${opaque.kind.toUpperCase()} payload is compressed and cannot be scanned (${opaque.file}); the raw payload was scanned before packing`);
@@ -1188,11 +1237,14 @@ async function runInstall(pm, cwd) {
   else fail(`unsupported package manager: ${pm}`);
 }
 
-async function runPackageScript(pm, script, cwd) {
-  if (script === false) return;
+async function runPackageScript(pm, script, cwd, options = {}) {
+  if (script === false) return null;
   // A package script (a check or a web build) goes through the one door (build-launch.mjs): a broker job on a managed host.
   const target = buildLaunch(pm, ["run", script], { cwd, exists: existsSync });
-  await run(target.command, target.args, cwd, target.env ?? {});
+  const output = await run(target.command, target.args, cwd, target.env ?? {}, options.captureStdout ? { captureStdout: true } : {});
+  if (!options.captureStdout || opts.dryRun) return null; // a dry run captures nothing, so it asserts nothing (release-checks.mjs)
+  if (output) process.stdout.write(output); // the captured output is still the build log
+  return output;
 }
 
 // A hook may be one command object or an ordered array of them (e.g. create-mac-updater then lsclean).
@@ -1865,6 +1917,12 @@ async function signMacos(entries, root, phase = "signing", nestedCode = [], nest
     await run("node", macSignInvocation(nested, nestedReceipt), root);
     verifyMacosSigningSettings(nestedReceipt, nested);
   }
+  // The re-signed nested runtime binaries changed bytes: re-describe the bundled runtime manifest(s) BEFORE the app seal (rightkit#722).
+  if (runtimeManifests.length && !opts.dryRun) {
+    const apps = entries.filter((entry) => /\.app\/?$/.test(entry.file));
+    if (!apps.length) fail("sign.runtimeManifests needs a .app entry in sign.prePackageFiles to resolve its paths against");
+    try { for (const entry of apps) refreshRuntimeManifests({ base: entry.file, manifests: runtimeManifests, log: (line) => console.log(line) }); } catch (error) { fail(error.message); }
+  }
   const args = macSignInvocation(entries, receipt, opts.dryRun ? ["--dry-run"] : []);
   if (!opts.dryRun && existsSync(receipt)) unlinkSync(receipt);
   console.log("right-release: signing macOS Developer ID files");
@@ -1992,6 +2050,39 @@ async function verifyWindowsEmbedding({ root, target, files, markers }) {
     embedded,
     verifiedAt: new Date().toISOString(),
   }, null, 2)}\n`);
+}
+
+/**
+ * Multi-file counterpart of verifyWindowsEmbedding (payload contract): every signed payload file is still byte-identical to its signing
+ * receipt row, still Authenticode-valid, and the file extracted back out of each installer matches it byte for byte.
+ */
+async function verifyWindowsPayloadEmbedding({ root, target, files }) {
+  if (opts.dryRun) {
+    console.log("dry-run: verify the installer embeds every signed payload file");
+    return;
+  }
+  const payloadFiles = target.sign.prePackageFiles.map((p) => resolveDeclaredPath(root, p));
+  const rawReceiptPath = windowsReceiptPath(root, "raw-exe");
+  let rawReceipt;
+  try { rawReceipt = JSON.parse(readFileSync(rawReceiptPath, "utf8")); } catch { fail(`missing payload signing receipt: ${rawReceiptPath}`); }
+  const embedded = [];
+  for (const file of payloadFiles) {
+    const signedSha256 = rawReceipt.files?.find((item) => path.resolve(item.file) === file)?.after?.sha256;
+    if (!signedSha256) fail(`payload signing receipt does not record a signed digest for ${file}`);
+    await mustExist(file, `signed payload file disappeared before packaging completed: ${file}`);
+    const currentSha256 = createHash("sha256").update(readFileSync(file)).digest("hex");
+    if (currentSha256 !== signedSha256) fail(`packaging rewrote the signed payload file ${file}: signed sha256 ${signedSha256}, on-disk sha256 ${currentSha256}. Its Authenticode signature is now invalid.`);
+    await run("node", [SIGN_WINDOWS, "--verify-only", file], root);
+    for (const installer of files) {
+      let receipt;
+      try { receipt = verifyNsisEmbeddedBinary({ installer, entryName: path.basename(file), expectedSha256: signedSha256 }); } catch (error) { fail(error.message); }
+      console.log(`right-release: ${path.basename(installer)} embeds the signed ${receipt.entry} (sha256 ${receipt.sha256.slice(0, 16)}…)`);
+      embedded.push(receipt);
+    }
+  }
+  const receiptPath = windowsReceiptPath(root, "embedding");
+  mkdirSync(path.dirname(receiptPath), { recursive: true });
+  writeFileSync(receiptPath, `${JSON.stringify({ schema: 1, payload: payloadFiles, embedded, verifiedAt: new Date().toISOString() }, null, 2)}\n`);
 }
 
 function verifyWindowsReceipt(receipt, files, phase) {

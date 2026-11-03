@@ -127,8 +127,7 @@ impl<'a> GrantSession<'a> {
 
 /// Stable random per-install device id for model grants, kept in the calling
 /// app's own data folder (`<data dir>/<app_dir>/model-device-id`, never in the
-/// shared store). The data dir is [`crate::suite::paths::app_data_base`], so a `test-mode`
-/// build with a suite-root override writes under that root, never the real per-user folder.
+/// shared store). The data dir is [`crate::suite::paths::app_data_base`].
 pub fn device_id_get_or_create(app_dir: &str) -> Result<String, String> {
     let dir: PathBuf = crate::suite::paths::app_data_base()
         .ok_or("no app data dir")?

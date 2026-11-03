@@ -3,6 +3,7 @@
 //! the scan (see [`Kind`]). Node has no aggregate bound. Every acquisition waits at most
 //! `acquire_timeout`, so a saturated host refuses instead of queueing without limit.
 
+use std::collections::HashMap;
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 

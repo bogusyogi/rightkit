@@ -78,7 +78,6 @@ pub fn build_router(state: DaemonState) -> Router {
         .merge(local_model_routes())
         .merge(crate::hooks::hook_routes())
         .route("/internal/takeover", post(takeover_handler))
-        .route("/internal/license-snapshot", post(license_snapshot_handler))
         .route("/instructions", get(get_instructions_handler))
         .route(
             "/context/discovery",
@@ -139,21 +138,6 @@ pub fn build_router(state: DaemonState) -> Router {
 async fn takeover_handler(State(state): State<DaemonState>) -> StatusCode {
     let _ = state.shutdown_tx.send(true);
     StatusCode::NO_CONTENT
-}
-
-/// The licence owner's snapshot delivery (behind the per-launch bearer token): the body is one
-/// `rightkit_credentials::handoff` Reply frame, the response the owner's Ack frame. The daemon
-/// never reads the owner's credential store; it verifies what the owner hands it. `409` when this
-/// daemon runs no licence gate (no licence directory at launch, or a test build).
-async fn license_snapshot_handler(
-    State(state): State<DaemonState>,
-    body: axum::body::Bytes,
-) -> Result<Vec<u8>, StatusCode> {
-    let gate = state.license_gate.as_ref().ok_or(StatusCode::CONFLICT)?;
-    gate.deliver(&body).map_err(|error| match error {
-        crate::license::DeliveryError::Malformed => StatusCode::BAD_REQUEST,
-        crate::license::DeliveryError::Ack => StatusCode::INTERNAL_SERVER_ERROR,
-    })
 }
 
 async fn api_not_found() -> StatusCode {

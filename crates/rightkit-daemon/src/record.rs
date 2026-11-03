@@ -56,9 +56,24 @@ pub struct ServiceRecord {
     /// HeardRight's name for `version`; mirrored so either reader works.
     #[serde(default)]
     pub engine_version: String,
+    /// Last heartbeat of the host (ms since epoch), rewritten by
+    /// [`ticker::spawn_record_heartbeat`](crate::ticker::spawn_record_heartbeat) so a reader tells
+    /// a live host from a dead one without connecting (rightkit#404). Zero when the host never
+    /// beats; a reader then falls back to pid liveness.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub heartbeat_ms: u64,
+    /// The host's coarse state (`"ready"`, `"draining"`, ...), whatever the host publishes with
+    /// its heartbeat. Empty when it publishes none. A label, never content.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub state: String,
 }
 
 impl ServiceRecord {
+    /// Milliseconds since this host last beat, as of `now_ms`; `None` when it never beat.
+    pub fn heartbeat_age_ms(&self, now_ms: u64) -> Option<u64> {
+        (self.heartbeat_ms != 0).then(|| now_ms.saturating_sub(self.heartbeat_ms))
+    }
+
     /// The host version, from whichever field the writer used.
     pub fn host_version(&self) -> &str {
         if self.version.is_empty() {
@@ -165,9 +180,33 @@ pub fn clear_takeover_if_owner(suite: &Suite, service: &str, pid: u32) {
 /// Atomic, durable, owner-only replace (`rightkit_fs::atomic_write_private`: unique temp file in
 /// the same directory, `fsync`, rename, directory `fsync`). The parent directory must exist.
 pub fn write_atomic(path: &Path, body: &[u8]) -> std::io::Result<()> {
+    write_atomic_with(path, body, true)
+}
+
+/// [`write_atomic`] with the durability chosen: `durable` `true` is `write_atomic` (`fsync` of the
+/// file and its directory), `false` still writes a temp file and renames it over the target, so a
+/// reader never sees a partial record, but skips the `fsync`s. Use `false` only for a record that
+/// is rewritten unchanged on a timer and rebuilt from the process's own state, such as a
+/// heartbeat (rightkit#1035); a crash can then lose that rewrite, never corrupt the record. Both
+/// share the bounded retry of Windows' transient "Access is denied" when a reader holds the
+/// target open.
+pub fn write_atomic_with(path: &Path, body: &[u8], durable: bool) -> std::io::Result<()> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
     loop {
-        match rightkit_fs::atomic_write_private(path, body) {
+        let written = if durable {
+            rightkit_fs::atomic_write_private(path, body)
+        } else {
+            rightkit_fs::atomic_write_with(
+                path,
+                rightkit_fs::AtomicOptions {
+                    private: true,
+                    create_parents: false,
+                    durable: false,
+                },
+                |f| std::io::Write::write_all(f, body),
+            )
+        };
+        match written {
             Ok(()) => return Ok(()),
             // Windows refuses to rename over a file another process has open without delete
             // sharing (the incumbent host and clients poll these records), failing transiently

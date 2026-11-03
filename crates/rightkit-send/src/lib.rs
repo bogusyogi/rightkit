@@ -11,6 +11,7 @@
 
 #[cfg(all(feature = "bonjour", target_os = "macos"))]
 mod bonjour;
+pub mod commands;
 #[cfg(all(feature = "multicast", not(target_os = "ios")))]
 pub mod discovery;
 mod error;
@@ -19,6 +20,7 @@ mod policy;
 pub mod proto;
 mod receive;
 pub mod send;
+pub mod transport;
 pub mod trust;
 mod workers;
 
@@ -27,7 +29,7 @@ pub use net::Identity;
 pub use policy::Policy;
 pub use send::{Entry, Peer, SendItem};
 use trust::normalize;
-pub use trust::{TrustEntry, TrustState};
+pub use trust::{Admission, TrustEntry, TrustState, TrustStore, TrustSubject};
 use workers::{Stopper, Worker};
 
 use proto::DeviceInfo;
@@ -39,6 +41,11 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+/// The Bonjour service type this crate advertises and browses: Pulse's identity (Pulse #251). The
+/// `bonjour` feature registers exactly this type (`bonjour.rs`); a host that browses or declares it
+/// elsewhere (iOS `NSBonjourServices`, an NWBrowser) names this constant's value.
+pub const SERVICE_TYPE: &str = "_pulse-send._tcp";
 
 /// What the host configures. Every string here is the host's own choice: the
 /// crate never names a product.

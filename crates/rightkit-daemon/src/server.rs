@@ -53,6 +53,22 @@ pub enum ServiceEvent {
     PeerRejected {
         reason: String,
     },
+    /// A connection was closed unread because its peer process could not be identified although
+    /// it exists (rightkit#1287): on Windows, a client at a higher integrity level than the host
+    /// (an elevated client of a medium-integrity host). Process facts only, never request
+    /// content, so a journal names the program and a host can tell the user to run it without
+    /// administrator rights.
+    ///
+    /// * `pid` is the kernel-reported process id.
+    /// * `image` is its executable path, when readable.
+    /// * `kind` is the stable [`PeerFailureKind`](crate::PeerFailureKind).
+    /// * `reason` is the OS error text.
+    PeerUnidentified {
+        pid: Option<u32>,
+        image: Option<std::path::PathBuf>,
+        kind: crate::PeerFailureKind,
+        reason: String,
+    },
     /// The Unix connection table ([`HostOptions::max_connections`]) is full and a connection was
     /// refused. Emitted once per fill: on the first refusal after the table became full, and again
     /// only after the live count has dropped below the limit and the table has refilled. Counts and
@@ -415,6 +431,8 @@ struct Shared {
     handshake_timeout: Option<Duration>,
     /// Failed-authentication limiter (issue #504), shared by every connection.
     fails: Mutex<crate::fail_limit::FailLimiter>,
+    /// Request, latency and connection-table counters (rightkit#1280).
+    metrics: crate::metrics::Metrics,
 }
 
 /// Forgets a connection's failure-limiter entry when its thread ends, however it ends.
@@ -648,6 +666,16 @@ impl Hosted {
             process: rightkit_child_process::process_usage().ok(),
         }
     }
+    /// Request, latency, in-flight and connection-table counters, read now (rightkit#1280): per
+    /// method the request count, a latency histogram, error codes and requests per minute, plus the
+    /// in-flight maximum and the connection table's occupancy, peak and cap. Counts and
+    /// durations, never request content.
+    pub fn metrics(&self) -> crate::metrics::HostMetrics {
+        self.shared.metrics.snapshot(
+            self.shared.inflight.load(Ordering::SeqCst),
+            self.shared.live_conns.load(Ordering::SeqCst),
+        )
+    }
     /// Block until the host has released (clean shutdown or takeover).
     pub fn wait_released(&self, timeout: Duration) -> bool {
         let g = self
@@ -794,6 +822,8 @@ fn start_host(
         engine_version: cfg.version.clone(),
         started_ms: now_ms(),
         process_started_ms: crate::discovery::own_start_ms().unwrap_or(0),
+        heartbeat_ms: 0,
+        state: String::new(),
     };
     if let Err(e) = write_atomic(
         &record_path(suite, &cfg.service),
@@ -831,6 +861,11 @@ fn start_host(
         pre_handshake: Arc::new(AtomicUsize::new(0)),
         handshake_timeout: options.handshake_timeout,
         fails: Mutex::new(crate::fail_limit::FailLimiter::new()),
+        metrics: crate::metrics::Metrics::new(if cfg!(unix) {
+            options.max_connections
+        } else {
+            options.max_pipe_instances as usize
+        }),
     });
     takeover_watch::register(
         takeover_path(&shared.suite, &shared.cfg.service),
@@ -893,6 +928,7 @@ fn accept_loop(s: Arc<Shared>) {
                 // by the pipe-instance cap, so only Unix refuses here.
                 let table = ConnSlot(s.live_conns.clone());
                 let live = s.live_conns.fetch_add(1, Ordering::SeqCst) + 1;
+                s.metrics.note_connections(live);
                 let slot = if !cfg!(unix) || live <= s.max_connections {
                     // Room again: the next time the table fills is a new episode.
                     full_reported = false;
@@ -903,6 +939,7 @@ fn accept_loop(s: Arc<Shared>) {
                         Some(slot) => slot,
                         None => {
                             (conn.shutdown)();
+                            s.metrics.note_refused();
                             s.event(ServiceEvent::PeerRejected {
                                 reason: format!(
                                     "connection limit of {} reached",
@@ -940,6 +977,16 @@ fn accept_loop(s: Arc<Shared>) {
             Ok(Accepted::Rejected(reason)) => {
                 if !s.stop.load(Ordering::SeqCst) {
                     s.event(ServiceEvent::PeerRejected { reason });
+                }
+            }
+            Ok(Accepted::Unidentified(refusal)) => {
+                if !s.stop.load(Ordering::SeqCst) {
+                    s.event(ServiceEvent::PeerUnidentified {
+                        pid: refusal.pid,
+                        image: refusal.image,
+                        kind: refusal.kind,
+                        reason: refusal.reason,
+                    });
                 }
             }
             Ok(Accepted::Vanished) => {}
@@ -1389,7 +1436,9 @@ fn serve_conn(s: Arc<Shared>, conn: Conn, mut pre: PreHandshake) {
                 }
             })
         };
-        s.inflight.fetch_add(1, Ordering::SeqCst);
+        let depth = s.inflight.fetch_add(1, Ordering::SeqCst) + 1;
+        s.metrics.note_inflight(depth);
+        let started = Instant::now();
         let done = AtomicBool::new(false);
         let result = std::thread::scope(|sc| {
             // Parked, not slept: the scope joins this thread, so a plain 40 ms sleep added up to
@@ -1413,6 +1462,11 @@ fn serve_conn(s: Arc<Shared>, conn: Conn, mut pre: PreHandshake) {
             r
         });
         s.inflight.fetch_sub(1, Ordering::SeqCst);
+        s.metrics.record(
+            &method,
+            started.elapsed(),
+            result.as_ref().err().map(|e| e.code.as_str()),
+        );
         if cx.peer_closed() {
             break;
         }

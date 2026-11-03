@@ -1,7 +1,7 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { spawnSync } from "./background-process.mjs";
 import { directPlatform, gateNoBroker, linuxBrokerDeclared, managedRuntimeClient, runCargoSync } from "./managed-cargo.mjs";
 
 const SKIP_DIRECTORIES = new Set([".audit", ".cache", ".git", ".claude", ".right-release", ".worktrees", "node_modules", "target", "vendor"]);
@@ -157,36 +157,22 @@ function assertNoRightKitOverrides(parsed, label, source) {
   }
 }
 
-// `tomllib` is Python 3.11+. Windows pins `py -3.11`, but a bare `python3` on macOS is the system
-// 3.9, which has no tomllib — so every app's release:doctor died on a stock Mac, and reported the
-// manifest as invalid TOML when the real problem was the interpreter. Probe for one that can.
-let tomlRunner;
-function resolveTomlRunner() {
-  if (tomlRunner) return tomlRunner;
-  const probe = "import sys,tomllib";
-  const candidates =
-    process.platform === "win32"
-      ? [["py", ["-3.11"]], ["py", ["-3"]], ["python", []]]
-      : [["python3.13", []], ["python3.12", []], ["python3.11", []], ["python3", []]];
-  for (const [command, prefix] of candidates) {
-    const check = spawnSync(command, [...prefix, "-c", probe], { encoding: "utf8", windowsHide: true });
-    if (check.status === 0) {
-      tomlRunner = { command, prefix };
-      return tomlRunner;
-    }
-  }
-  throw new Error(
-    "no Python with tomllib found (needs 3.11+). Install one, or put it on PATH: the release " +
-      "contract reads Cargo manifests through it.",
-  );
-}
-
+// Manifests and .cargo/config files are parsed in-process with smol-toml (a dependency of this package), so the same table
+// results on win32, darwin and linux and no host Python is read or spawned (#919). smol-toml loads on first parse, like
+// rightkit-registry-resolver, so a CI job whose closure only imports this module needs no install.
+let smolTomlParse;
 function readToml(file, label) {
-  const script = "import json,pathlib,sys,tomllib; json.dump(tomllib.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')),sys.stdout,default=str)";
-  const { command, prefix } = resolveTomlRunner();
-  const result = spawnSync(command, [...prefix, "-c", script, file], { encoding: "utf8", windowsHide: true });
-  if (result.status !== 0) throw new Error(`${label} is not valid TOML: ${String(result.stderr ?? "").trim()}`);
-  return JSON.parse(result.stdout);
+  let text;
+  try {
+    text = readFileSync(file, "utf8");
+  } catch (error) {
+    throw new Error(`${label} could not be read: ${error.message}`);
+  }
+  try {
+    return (smolTomlParse ??= createRequire(import.meta.url)("smol-toml").parse)(text);
+  } catch (error) {
+    throw new Error(`${label} is not valid TOML: ${error.message}`);
+  }
 }
 
 // Not product code: SwiftPM `.build` (dependency checkouts and build products), throwaway probe dirs (`*-probe`, `pdfprobe2`), `tmp`, and

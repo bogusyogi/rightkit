@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.2 (unpublished)
+
+- **Watcher counters in `Status` (rightkit#1282).** `RootStatus::watch: WatchCounters { dropped, coalesced, overflow }` per root, cumulative since `Index::open` (reset only on restart). `dropped`: platform drop reports; `coalesced`: repeated paths inside a delivered batch plus drop reports absorbed into an already wanted rescan; `overflow`: drop reports plus must-scan-subdirectories notices. Same names and meaning as `rightkit_file_watch::WatchMetrics`; this index reads the platform feed itself and has no `rightkit-file-watch` watcher, so the counts are taken here and no dependency was added. A drop report that names no root counts on every root. `RootStatus` gains a field (struct literals outside the crate must add `watch`).
+- **Ignore-aware walk (rightkit#417).** New `walk` module: `Walk`, `WalkEntry`, `WalkOptions`. Reads `.gitignore` per directory as it descends (git semantics: last match wins, anchored and directory-only patterns, `**`, bracket classes), always skips `.git`, reports but never follows symbolic links, and visits names in order. Hidden names are skipped unless `include_hidden` is set. Std-only: no new dependency.
+
 ## 0.6.1 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

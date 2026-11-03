@@ -1072,15 +1072,16 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "libc",
  "windows",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-contracts"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "jsonschema",
  "serde",
@@ -1089,7 +1090,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "getrandom 0.4.3",
  "secret-service",
@@ -1102,7 +1103,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-record"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
  "blake3",
  "hmac-sha256",

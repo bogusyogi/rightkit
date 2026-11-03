@@ -324,16 +324,9 @@ fn whisper_language_id(code: String) -> Option<i32> {
 }
 
 /// Resolve `whisper-cli.exe`. Order: packaged app resources (`<exe_dir>/runtime/`,
-/// the production layout `package.ps1` stages into `resources/runtime`), then the
-/// dev fallback under the repo's local whisper.cpp Vulkan build. Mirrors the
+/// the production layout `package.ps1` stages into `resources/runtime`). Mirrors the
 /// ONNX runtime DLL resolution order in `main.rs::configure_ort_dylib`.
 fn resolve_whisper_cli() -> Option<PathBuf> {
-    if let Some(env) = rightkit_dictation_core::dev_var_os!("RIGHTKIT_WHISPER_CLI") {
-        let p = PathBuf::from(env);
-        if p.exists() {
-            return Some(p);
-        }
-    }
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()));
@@ -360,14 +353,8 @@ fn resolve_whisper_cli() -> Option<PathBuf> {
 /// Resolve the model file: `<models_dir>/whisper-win/*.{bin,gguf}` — first
 /// match found. whisper.cpp models are GGML `.bin` files (`ggml-*.bin`);
 /// `.gguf` is accepted too in case the published archive ever switches
-/// formats. `RIGHTKIT_WHISPER_GGUF` overrides for QA/dev.
+/// formats.
 fn resolve_whisper_model(models_dir: &Path) -> Option<PathBuf> {
-    if let Some(env) = rightkit_dictation_core::dev_var_os!("RIGHTKIT_WHISPER_GGUF") {
-        let p = PathBuf::from(env);
-        if p.exists() {
-            return Some(p);
-        }
-    }
     let dir = models_dir.join("whisper-win");
     let entries = std::fs::read_dir(&dir).ok()?;
     entries.filter_map(|e| e.ok()).map(|e| e.path()).find(|p| {

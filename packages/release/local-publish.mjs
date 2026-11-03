@@ -20,6 +20,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { locateBrokerClient, spawnBrokerClient } from "./broker-client.mjs";
 import { runCargoAsync, runCargoSync, spawnCollect } from "./managed-cargo.mjs";
 import { localBuildGranted, LOCAL_BUILD_FILE } from "./execution-policy.mjs";
 import { GATE_SCHEMA, MAX_CARGO_JOBS, defaultEvidencePath, enforcePublicationGate, publishGatedTarball } from "./publication-gate.mjs";
@@ -47,11 +48,29 @@ const STEP_TIMEOUT_MS = 30 * 60 * 1000;
 export const BROKER_COMPILED_ONLY = /^rustright: compiled, ready for testing\b/m;
 
 /**
- * Run the test executables a broker-compiled `cargo test` step listed, outside the broker (GC-A08), with the run arguments after its `--`.
- * The listing must have finished and name at least one test executable; every executable must sit inside the compile's output directory
- * (the carried receipt's, else cargo metadata's target directory). Returns runTestBinaries' { status, code?, detail?, results }.
+ * The test executables the broker signed for the compile job `requestId` (receipt.testExecutables, ADR-001 C2, rightkit#1454), read from
+ * the broker's status of that job exactly as the gate's class B rows read it. { listed: false } when the receipt carries no such field (an
+ * older broker: containment only, as class B); otherwise { listed: true, testExecutables, reason } where a null list names the broker's reason.
  */
-export async function runCompiledTests({ unit, step, result, cwd, env, scans }) {
+export function brokerTestListOf(requestId, { run = spawnSync, platform = process.platform, env = process.env, readFile } = {}) {
+  const r = spawnBrokerClient(run, locateBrokerClient({ platform, env, probe: run }), ["status", requestId], { encoding: "utf8", timeout: 60_000, windowsHide: true, shell: false, maxBuffer: 64 * 1024 * 1024 }, { platform, readFile });
+  if (r.error || r.status !== 0) throw new Error(`the broker cannot report job ${requestId} (rustright status failed)`);
+  let doc;
+  try { doc = JSON.parse(r.stdout); } catch { throw new Error(`the broker's status of job ${requestId} is not JSON`); }
+  const receipt = doc?.receipt ?? doc;
+  if (receipt?.id !== requestId) throw new Error(`the broker's status is not for job ${requestId}`);
+  return Object.hasOwn(receipt, "testExecutables") ? { listed: true, testExecutables: receipt.testExecutables, reason: receipt.testExecutablesReason ?? null } : { listed: false };
+}
+
+/**
+ * Run the test executables a broker-compiled test step listed, outside the broker (GC-A08), with the run arguments after its `--`.
+ * The listing must have finished and name at least one test executable; every executable must sit inside the compile's output directory
+ * (the carried receipt's, else the workspace's target directory) and, as in the gate's class B rows, be in the broker's signed test
+ * executable list for that compile with the same sha256 (signedTestExecutableProblems; rightkit#1500). A compile that carries no broker job
+ * id cannot show its list and runs nothing. Doctests are out of scope: the broker's test build compiles none and end-to-end tests are the
+ * only tests (Adrian, 2026-11-03), so a doctest never stops a publish. Returns runTestBinaries' { status, code?, detail?, results }.
+ */
+export async function runCompiledTests({ unit, step, result, cwd, env, scans, readTestList = brokerTestListOf, platform = process.platform }) {
   const ds = scans ?? await import("./deterministic-scans.mjs");
   const { resolveTargetRoot } = await import("./cargo-target.mjs");
   const listing = ds.parseTestListing(`${result.stdout ?? ""}`);
@@ -60,6 +79,12 @@ export async function runCompiledTests({ unit, step, result, cwd, env, scans }) 
   const outputDir = typeof result.outputDir === "string" ? result.outputDir : resolveTargetRoot(path.join(cwd, "Cargo.toml"), { env });
   const contained = ds.containTestExecutables(listing.binaries, { boundDirs: [outputDir] });
   if (contained.problems.length) return { status: "fail", code: "TEST_EXECUTABLE_OUTSIDE_OUTPUT", detail: `${unit}: ${contained.problems.slice(0, 5).join("; ")}; nothing was run`, results: null };
+  if (typeof result.requestId !== "string" || result.requestId === "") return { status: "fail", code: "TEST_EXECUTABLE_UNSIGNED", detail: `${unit}: the compile carries no broker job id, so the broker's signed test executable list cannot be read; nothing was run`, results: null };
+  let signed;
+  try { signed = readTestList(result.requestId, { env, platform }); }
+  catch (error) { return { status: "fail", code: "TEST_EXECUTABLE_UNSIGNED", detail: `${unit}: ${error.message}; nothing was run`, results: null }; }
+  const unsigned = signed.listed ? ds.signedTestExecutableProblems(contained.accepted, signed.testExecutables, signed.reason, platform) : [];
+  if (unsigned.length) return { status: "fail", code: "TEST_EXECUTABLE_UNSIGNED", detail: `${unit}: ${unsigned.slice(0, 5).join("; ")}; nothing was run`, results: null };
   const sep = step.args.indexOf("--");
   const runArgs = sep >= 0 ? step.args.slice(sep + 1) : [];
   const scan = { id: `test:${unit}`, runOutside: { args: runArgs } };
@@ -401,12 +426,12 @@ export { CROSS_TARGETS, ZIG_TARGETS, CROSS_CC_ENV, crossTargetsFor, crossCompile
 /** The CI gate's commands for one unit (scripts/ci/gate.mjs npmGate/rustGate), mirrored exactly. */
 export function localTestPlan({ kind, unit, dir, config, manifest, batch = false, platform = "darwin" }) {
   if (kind === "npm") {
-    if (!manifest?.scripts?.test) refuse(`${unit} has no test script; --local never publishes an untested package`);
+    // End-to-end tests only (Adrian, 2026-11-03): an npm unit with no test script has no test step, as a crate with no test qualifies on its other steps.
     return {
       id: `npm:${dir}`, featureLabels: ["default"],
       steps: [
         { command: "pnpm", args: ["-r", "--workspace-concurrency=1", "run", "build"], test: false },
-        { command: "pnpm", args: ["--dir", dir, "run", "test"], test: true },
+        ...(manifest?.scripts?.test ? [{ command: "pnpm", args: ["--dir", dir, "run", "test"], test: true }] : []),
       ],
     };
   }
@@ -774,10 +799,8 @@ async function* publishUnitStages(parsed, deps, batch) {
     }
     steps.push(row);
   }
-  const verdict = judgeUnit({ name: unit, steps: steps.map((s) => ({ ...s, unit: plan.id })), allowNoTests: kind === "cargo", allowIgnored: ignoredAllowed ? [unit] : [], allowMissingAssets: isAssetGated ? [unit] : [] });
+  const verdict = judgeUnit({ name: unit, steps: steps.map((s) => ({ ...s, unit: plan.id })), allowNoTests: true, allowIgnored: ignoredAllowed ? [unit] : [], allowMissingAssets: isAssetGated ? [unit] : [] });
   if (verdict.status === "fail" || steps.some((s) => s.failed > 0)) refuse(`${plan.id} not qualified: ${verdict.problems.join("; ") || "failed tests reported"}`);
-  // End-to-end tests only (Adrian, 2026-11-03): a crate with no test of its own publishes; an npm unit still needs its test script to run.
-  if (kind !== "cargo" && !(verdict.executed > 0)) refuse(`${plan.id} executed no test`);
   log(`[right-release] ${plan.id}: ${verdict.executed} passed, 0 failed, ${verdict.skipped} skipped, ${verdict.ignored} ignored${isAssetGated ? " (asset-gated: RIGHTKIT_REQUIRE_ASSETS=0, skips recorded)" : ""}`);
   const packageEnv = yield { stage: "compile", kind, name: unit, version, commit: head, brokerRequests: brokerRequests.splice(0) };
   if (packageEnv) Object.assign(env, testEnv({ env: packageEnv }, isAssetGated));

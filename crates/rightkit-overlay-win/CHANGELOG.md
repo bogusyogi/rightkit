@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.3 (unpublished)
+
+- #914: `OverlayHandle::present(&PaintCtx)` publishes a frame the caller drew with `UpdateLayeredWindow` (premultiplied BGRA, the format `PaintCtx` already uses) at the window's current position and device size. The pixels are copied at call time and sent to the owner thread through the command queue; the painter does not run for that frame, and the next repaint replaces it. The frame must be exactly the window's device size, and nothing is presented while the window is hidden.
+- #1318: opt-in edit mode, `OverlayHandle::set_focusable(bool)`. On: the window clears `WS_EX_NOACTIVATE` (via `rightkit_overlay::windows::apply_style`), is activated and given keyboard focus with `SetForegroundWindow` and `SetFocus` when visible (or on the next `show`), and reports the new `OverlayEvent::Char(char)`, `OverlayEvent::Key(OverlayKey)` (`Enter`, `Escape`, `Backspace`, from `WM_KEYDOWN`) and `OverlayEvent::Focus(bool)` (from `WM_SETFOCUS` / `WM_KILLFOCUS`). Off, the default: the configured no-activate style is restored and nothing of the above is reported. Surrogate pairs are joined into one `char`; other control characters are not reported as `Char`.
+- Not compiled in this pass: source-level only; the integration owner runs the gate. The crate uses only Win32 items in features already enabled in `Cargo.toml`, so no feature was added.
+
+## 0.1.2 (unpublished)
+
+- #914: `PaintCtx::from_pixels(width_px, height_px, dpi, pixels) -> Option<PaintCtx>` takes an existing premultiplied BGRA buffer (`None` unless its length is the clamped surface), `PaintCtx::pixels_mut()` writes the canvas in place, and `PaintCtx: Clone` copies the pixels, scale and clip (text and glass caches rebuild in the copy). The present call for UpdateLayeredWindow, which #914 lists as ideal, is not included.
+- Source-level only: not compiled in this pass; the integration owner runs the gate.
+
 ## 0.1.1 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

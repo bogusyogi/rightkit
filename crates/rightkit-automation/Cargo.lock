@@ -307,7 +307,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rightkit-automation"
-version = "0.6.5"
+version = "0.6.7"
 dependencies = [
  "core-foundation",
  "core-graphics",
@@ -322,32 +322,37 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "libc",
  "windows",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
+ "core-foundation",
  "getrandom",
  "rightkit-child-process",
  "rightkit-fs",
  "rightkit-sidecar",
+ "security-framework",
  "serde",
  "serde_json",
  "subtle",
  "windows",
+ "windows-sys",
 ]
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.10"
+version = "0.4.12"
 dependencies = [
  "libc",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]
@@ -358,6 +363,29 @@ dependencies = [
  "serde",
  "serde_json",
  "windows-sys",
+]
+
+[[package]]
+name = "security-framework"
+version = "3.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7f4bc775c73d9a02cde8bf7b2ec4c9d12743edf609006c7facc23998404cd1d"
+dependencies = [
+ "bitflags",
+ "core-foundation",
+ "core-foundation-sys",
+ "libc",
+ "security-framework-sys",
+]
+
+[[package]]
+name = "security-framework-sys"
+version = "2.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ce2691df843ecc5d231c0b14ece2acc3efb62c0a398c7e1d875f3983ce020e3"
+dependencies = [
+ "core-foundation-sys",
+ "libc",
 ]
 
 [[package]]
@@ -575,6 +603,12 @@ checksum = "3949bd5b99cafdf1c7ca86b43ca564028dfe27d66958f2470940f73d86d75b37"
 dependencies = [
  "windows-link",
 ]
+
+[[package]]
+name = "zeroize"
+version = "1.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
 
 [[package]]
 name = "zmij"

@@ -27,7 +27,7 @@ use crate::api_permissions::enforce_trusted_source_authority;
 // responsibility apiece (CLI profile/route resolution, the Codex model
 // catalogue protocol, and driver/capability JSON Schemas); the glob
 // re-exports below put every item back into this module's namespace so the
-// rest of this file, and its `#[cfg(test)]` module, keep calling them
+// rest of this file keeps calling them
 // unqualified exactly as before the split. Route paths, methods, JSON
 // schemas, status mapping, lease headers, and driver-host calls are
 // unchanged — only the item's source file moved.

@@ -44,6 +44,8 @@ use crate::remote::signing::{
     H_SIGNATURE, H_TIMESTAMP,
 };
 use crate::remote::util::{hex, random_bytes, Clock, SystemClock};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use ring::rand::SystemRandom;
 
 /// Headers `send` owns: framing and the device credentials.
 const RESERVED_HEADERS: [&str; 8] = [

@@ -7,6 +7,7 @@
 //! | `http` | `http.rs` | one plain-HTTP request to a daemon's public listener (loopback) |
 //! | `engine_log` | `engine_log.rs` | wait for an event in a JSON-lines log, forbid text in it |
 //! | `start_daemon`, `stop_daemon` | `daemon.rs` | run the engine as a long-lived listener, tracked, stopped bounded |
+//! | `mic_play` | `mic_play.rs` | play one of the owner's recordings as the app's microphone input |
 //! | `mock_admin` | `mock_admin.rs` | one request to an `/__admin/` path of the scenario's mock |
 //! | `secret_absent` | `secret_absent.rs` | prove a secret reached no result, no file and no `cli` step log |
 //!
@@ -44,6 +45,7 @@ use std::time::Duration;
 mod daemon;
 mod engine_log;
 mod http;
+mod mic_play;
 mod mock_admin;
 mod secret_absent;
 pub mod spawn;
@@ -51,8 +53,9 @@ pub mod spawn;
 pub use crate::plugin::is_errored;
 
 /// The step kinds the runner implements itself. A plugin may not declare any of them.
-pub const BUILTIN_KINDS: [&str; 6] = [
+pub const BUILTIN_KINDS: [&str; 7] = [
     "http",
+    "mic_play",
     "engine_log",
     "start_daemon",
     "stop_daemon",
@@ -132,6 +135,7 @@ impl StepState {
 pub fn dispatch(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
     match kind {
         "http" => http::run(ctx, p),
+        "mic_play" => mic_play::run(ctx, p),
         "engine_log" => engine_log::run(ctx, p),
         "start_daemon" => daemon::start(ctx, p),
         "stop_daemon" => daemon::stop(ctx, p),
@@ -151,9 +155,9 @@ fn call_timeout(p: &Map<String, Value>) -> Duration {
 }
 
 /// The environment every process of the plugin starts with: the world workspace's isolation
-/// (HOME, TMP/TEMP, APPDATA/LOCALAPPDATA, XDG dirs, the app's data-dir variable: the same set the UI
-/// launch gets), then the world's own variables (marker, ports, tokens). A plugin and the children
-/// it spawns never run on the real user profile.
+/// (run id, scratch and evidence dirs: the same set the UI launch gets), then the scenario slot's own
+/// variables (marker, ports, tokens). A plugin and the children it spawns run on the real profile,
+/// protected by the journey run's snapshot and restore.
 fn world_env(ctx: &Ctx) -> Vec<(String, String)> {
     let mut env: Vec<(String, String)> = ctx
         .ws
@@ -178,7 +182,6 @@ fn with_plugin<R>(ctx: &mut Ctx, f: impl FnOnce(&mut Plugin, &SpawnEnv) -> R) ->
         let env = SpawnEnv {
             tracker: ctx.tracker,
             engine: ctx.engine.as_ref(),
-            data_dir: &ctx.data_dir,
             log_dir: &ctx.log_dir,
             extra_env: &world,
             ui_binary: ctx.ui_binary.as_deref(),
@@ -261,7 +264,6 @@ pub fn setup(ctx: &mut Ctx, sc: &Scenario) -> Result<()> {
         let env = SpawnEnv {
             tracker: ctx.tracker,
             engine: ctx.engine.as_ref(),
-            data_dir: &ctx.data_dir,
             log_dir: &ctx.log_dir,
             extra_env: &world,
             ui_binary: ctx.ui_binary.as_deref(),

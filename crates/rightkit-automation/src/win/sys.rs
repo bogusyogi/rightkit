@@ -4,6 +4,7 @@
 use crate::keys::{self, Chord, Key, Named};
 use crate::model::*;
 use crate::platform::{ClipSnapshot, InputEvent};
+use std::time::Duration;
 use windows::core::{BOOL, PCWSTR, PWSTR};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
@@ -292,6 +293,33 @@ pub fn post(pid: i32, window: Option<u64>, ev: &InputEvent) -> Result<()> {
             }
             Ok(())
         }
+        InputEvent::Drag { from, to, steps } => {
+            // Messages go to the child under the start point; its client coordinates are the
+            // start's plus the screen offset travelled (a drag stays inside that control).
+            let (child, cx, cy) = deepest_child_at(top, from.0 as i32, from.1 as i32);
+            let at = |t: f64| {
+                lparam(
+                    cx + ((to.0 - from.0) * t).round() as i32,
+                    cy + ((to.1 - from.1) * t).round() as i32,
+                )
+            };
+            post_msg(child, WM_MOUSEMOVE, 0, at(0.0))?;
+            sleep(20);
+            post_msg(child, WM_LBUTTONDOWN, 1, at(0.0))?;
+            sleep(30);
+            let steps = (*steps).clamp(1, MAX_DRAG_STEPS);
+            let mut moved = Ok(());
+            for i in 1..=steps {
+                moved = post_msg(child, WM_MOUSEMOVE, 1, at(f64::from(i) / f64::from(steps)));
+                if moved.is_err() {
+                    break;
+                }
+                sleep(10);
+            }
+            // Always release so the target never keeps a stuck capture.
+            let up = post_msg(child, WM_LBUTTONUP, 0, at(1.0));
+            moved.and(up)
+        }
         InputEvent::Scroll { x, y, dy, .. } => {
             let (child, _, _) = deepest_child_at(top, *x as i32, *y as i32);
             let delta = (-dy * 120.0).round() as i32 as i16 as u16 as usize;
@@ -457,6 +485,36 @@ pub fn foreground_send(ev: &InputEvent) -> Result<()> {
                 let _ = unsafe { SetCursorPos(saved.x, saved.y) };
             }
             Ok(())
+        }
+        InputEvent::Drag { from, to, steps } => {
+            let mut saved = POINT::default();
+            let had = unsafe { GetCursorPos(&mut saved) }.is_ok();
+            let result = (|| -> Result<()> {
+                unsafe { SetCursorPos(from.0 as i32, from.1 as i32) }
+                    .map_err(|e| Error::Platform(i64::from(e.code().0), "SetCursorPos"))?;
+                sleep(20);
+                send(&[mouse(MOUSEEVENTF_LEFTDOWN, 0)])?;
+                // From here the button is down: every exit below releases it.
+                sleep(30);
+                let steps = (*steps).clamp(1, MAX_DRAG_STEPS);
+                let mut moved = Ok(());
+                for i in 1..=steps {
+                    let t = f64::from(i) / f64::from(steps);
+                    let (x, y) = (from.0 + (to.0 - from.0) * t, from.1 + (to.1 - from.1) * t);
+                    moved = unsafe { SetCursorPos(x.round() as i32, y.round() as i32) }
+                        .map_err(|e| Error::Platform(i64::from(e.code().0), "SetCursorPos"));
+                    if moved.is_err() {
+                        break;
+                    }
+                    sleep(12);
+                }
+                let up = send(&[mouse(MOUSEEVENTF_LEFTUP, 0)]);
+                moved.and(up)
+            })();
+            if had {
+                let _ = unsafe { SetCursorPos(saved.x, saved.y) };
+            }
+            result
         }
         InputEvent::Scroll { x, y, dy, .. } => {
             let mut saved = POINT::default();
@@ -881,6 +939,15 @@ pub fn process_alive(pid: i32) -> bool {
 
 /// Move and resize a top-level window to `r` (physical pixels, the space [`window_rect`] reports)
 /// without changing its z-order or activating it.
+/// [`set_window_frame`] after restoring a maximized window (a maximized window ignores a size
+/// change, so it is un-maximized first).
+pub fn place_window(h: isize, r: Rect) -> Result<()> {
+    if unsafe { IsZoomed(hwnd(h)) }.as_bool() {
+        let _ = unsafe { ShowWindow(hwnd(h), SW_RESTORE) };
+    }
+    set_window_frame(h, r)
+}
+
 pub fn set_window_frame(h: isize, r: Rect) -> Result<()> {
     unsafe {
         SetWindowPos(

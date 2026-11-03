@@ -106,36 +106,30 @@ pub fn init_windows_ort() -> crate::onnx_tdt::Result<()> {
 
 pub(crate) fn windows_shared_pool_active() -> crate::onnx_tdt::Result<bool> {
     let shared = *ENVIRONMENT.get_or_init(|| {
-        if dev_var!("RIGHTKIT_ONNX_LEGACY_ENV_EXPERIMENT").as_deref() == Ok("1") {
-            return false;
-        }
         let result = (|| -> std::result::Result<bool, String> {
-            if dev_var!("RIGHTKIT_ONNX_GLOBAL_POOL_ACTIVE_EXPERIMENT").as_deref()
-                != Ok("1")
-            {
-                // Runtime is bound by the app entry (rightkit_onnx::configure_runtime).
-                let path = configured_runtime()
-                    .ok_or("ORT runtime is not configured; bind it before engine startup")?;
-                let selection = RuntimeSelection {
-                    path,
-                    source: CandidateSource::Explicit,
-                    diagnostics: Vec::new(),
-                };
-                // Deferred: commits options only (telemetry off, shared pool 1 inter / windows_cpu_threads intra,
-                // no spin). The C environment is materialized below through rightkit_onnx::ort_environment().
-                init_environment_with_options(
-                    &selection,
-                    &EnvironmentInitOptions {
-                        global_pool: Some(GlobalPool {
-                            intra_threads: windows_cpu_threads(),
-                            inter_threads: 1,
-                            spin: false,
-                        }),
-                        defer_initialization: true,
-                        ..EnvironmentInitOptions::default()
-                    },
-                )?;
-            }
+            // Runtime is bound by the app entry (rightkit_onnx::configure_runtime).
+            let path = configured_runtime()
+                .ok_or("ORT runtime is not configured; bind it before engine startup")?;
+            let selection = RuntimeSelection {
+                path,
+                source: CandidateSource::Explicit,
+                diagnostics: Vec::new(),
+            };
+            // Deferred: commits options only (telemetry off, shared pool 1 inter / windows_cpu_threads intra,
+            // no spin). The C environment is materialized below through rightkit_onnx::ort_environment().
+            init_environment_with_options(
+                &selection,
+                &EnvironmentInitOptions {
+                    global_pool: Some(GlobalPool {
+                        intra_threads: windows_cpu_threads(),
+                        inter_threads: 1,
+                        spin: false,
+                    }),
+                    defer_initialization: true,
+                    ..EnvironmentInitOptions::default()
+                },
+            )?;
+
             // Materialize the one process environment through RightKit (ort rc.14 owns a single
             // Environment; building one directly is refused). On failure sessions use private pools.
             rightkit_onnx::ort_environment()

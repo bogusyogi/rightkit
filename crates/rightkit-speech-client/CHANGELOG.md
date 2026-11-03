@@ -5,6 +5,8 @@ version is `0.x`, a minor bump may carry breaking changes.
 
 ## 0.4.2 (unpublished)
 
+- Added `transcribe_via_running_host(suite_root, ServiceRoute, &CancelToken, TranscribeOptions) -> RouteOutcome` (#1098): the gated service route. Uses a running host only when it is another process, speaks this protocol major, the input fits one window (`audio_ms <= window_ms`) and the host advertises file transcription and verbatim; submits with verbatim on; never launches a host or requests a takeover; any failure after the gate returns `UseLocal(LocalReason::SubmitFailed)` so the caller falls back to local; cancel returns `Cancelled` within about 25 ms even while the connect is blocked (worker thread, caller never waits on it). `LocalReason` is typed with a `Display` for logs. The routing contract of #979 (HeardRight first, consumer mic records locally and submits through `transcribe`) is unchanged; ScrapeRight adopts this entry point. Not compiled here.
+
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 
 ## 0.4.1 — unpublished staging

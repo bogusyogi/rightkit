@@ -1,6 +1,6 @@
 # @rightkit/pdf-ui
 
-Brand-neutral, read-only PDF viewer for Right Suite apps, built on pdf.js. `PdfViewer` takes bytes, a URL or an async byte loader. It provides bounded canvas rendering, text selection, outline and thumbnails, zoom, rotation, page navigation and find. It does not mount a pdf.js annotation layer, so pages carry no clickable links; `createPdfLinkService` and `isSafeExternalUrl` are exported for a host that mounts its own, and only http(s) and mailto URLs reach the host's `openExternal`.
+Brand-neutral, read-only PDF viewer for Right Suite apps, built on pdf.js. `PdfViewer` takes bytes, a URL or an async byte loader. It provides bounded canvas rendering, text selection, outline and thumbnails, zoom, rotation, page navigation and find. By default it mounts no pdf.js annotation layer, so pages carry no clickable links; set `annotationLayer` to mount one, or use the exported `createPdfLinkService` and `isSafeExternalUrl` in a layer of your own. Only http(s) and mailto URLs reach the host's `openExternal`.
 
 | Item | Value |
 |---|---|
@@ -13,7 +13,7 @@ Brand-neutral, read-only PDF viewer for Right Suite apps, built on pdf.js. `PdfV
 
 | Import | Contents |
 |---|---|
-| `@rightkit/pdf-ui` | `PdfViewer`, `PdfPasswordCancelledError`, `renderPageLimit`, `PdfSearchContext`, `usePdfSearch`, `createPdfLinkService`, `isSafeExternalUrl`, `configurePdfJs`, `ensurePdfWorker`, `pdfWasmUrl`, `acquirePdfRenderKeepalive`, `boundedCanvasDpr`, `clampScale`, `highlightSpan`, `viewportRotation`, `withTimeout`, `ZOOM_MIN`, `ZOOM_MAX`, `findLiteralMatches`, `findRegexMatches`, `regexPatternError`, `thumbnailWindow`, `attachPasswordHandler`, `createLoadTimer`, `MAX_PASSWORD_ATTEMPTS`, `pdfDocumentInit`, `pdfTextContentSource`, `renderPdfTextLayer`; types |
+| `@rightkit/pdf-ui` | `PdfViewer`, `PdfPasswordCancelledError`, `renderPageLimit`, `PdfSearchContext`, `usePdfSearch`, `createPdfLinkService`, `isSafeExternalUrl`, `configurePdfJs`, `ensurePdfWorker`, `pdfWasmUrl`, `acquirePdfRenderKeepalive`, `boundedCanvasDpr`, `clampScale`, `highlightSpan`, `viewportRotation`, `withTimeout`, `ZOOM_MIN`, `ZOOM_MAX`, `findLiteralMatches`, `findRegexMatches`, `regexPatternError`, `thumbnailWindow`, `attachPasswordHandler`, `createLoadTimer`, `MAX_PASSWORD_ATTEMPTS`, `pdfDocumentInit`, `pdfTextContentSource`, `readPdfPageText`, `renderPdfTextLayer`, `PdfPasswordPrompt`, `createPdfRangeTransport`, `pdfRangeDocumentInit`, `PdfHttpRangeTransport`, `formatPdfRangeHeader`, `parseContentRangeTotal`, `PDF_RANGE_CHUNK_SIZE`; types |
 | `@rightkit/pdf-ui/styles.css` | Stylesheet. Import once in the app. |
 
 Dependency: `pdfjs-dist` `^6.3.289`.
@@ -35,9 +35,21 @@ Encrypted PDFs: pass `onPassword={(reason, attempt) => askUser(reason)}`. `reaso
 
 `maxRenderPages={n}` renders only the first `n` pages; the rest stay empty placeholders and thumbnails and find stop at the cap. Default: unlimited.
 
-`PdfSource` is `{ kind: "bytes", data }`, `{ kind: "url", url }` or `{ kind: "loader", load() }`.
+`PdfSource` is `{ kind: "bytes", data }`, `{ kind: "url", url }`, `{ kind: "loader", load() }` or `{ kind: "range", url, headers?, chunkSize? }`. A `range` source opens a large PDF by fetching only the byte ranges pdf.js asks for; the server must answer `Range` with `206` and a matching `Content-Range`, or the load fails through `onError` with the reason.
 
 `documentOptions={{ wasmUrl, cMapUrl, standardFontDataUrl }}` passes pdf.js `getDocument` options beside the source. `url`, `data` and `range` cannot be overridden. It is read when loading starts; changing it does not reload an open document.
+
+### Viewer options (all off by default)
+
+| Prop | Effect |
+|---|---|
+| `passwordPrompt` | Built-in password dialog (`PdfPasswordPrompt`) for an encrypted PDF; `onPassword` wins when both are set. |
+| `textContentMode="streamTextContent"` | Text layer and find read the page text stream instead of `getTextContent()`. |
+| `unloadOffscreenPages` | Frees pages beyond 150% of the viewport height and renders them again on return (render band 50%). |
+| `annotationLayer` | pdf.js annotation layer with the package link service: clickable links; no form widgets. |
+| `searchLayer` | Marks find matches in the text layer, the active one stronger. |
+| `pageLayers(context)` | Host layer on every rendered page (for example an editor); return a cleanup. The viewer stays read-only. |
+| `regexFind` | "Regex" checkbox in the find bar (bounded, see `regexPatternError`). |
 
 ### Find UI owned by the host
 
@@ -48,6 +60,8 @@ Hide the built-in bar with `findBar={false}`, render your controls in the `toolb
 - `pdfDocumentInit(data, documentOptions?)`: the `getDocument` init the viewer sends.
 - `attachPasswordHandler(task, getHandler, timer?)` and `createLoadTimer(ms, message)`: the password flow and the load timer (its clock stops while the user is asked for a password).
 - `pdfTextContentSource(page, mode?)` and `renderPdfTextLayer(page, container, viewport, mode?)`: the text layer, from `getTextContent` (default) or `streamTextContent` (`"streamTextContent"`).
+- `createPdfRangeTransport(url, { headers?, chunkSize?, signal? })` and `pdfRangeDocumentInit(transport, documentOptions?, chunkSize?)`: the range transport and its `getDocument` init.
+- `readPdfPageText(page, mode?)`: the page text find searches.
 - `highlightSpan(span, query, { matchCase, wholeWord, markBg, markActiveBg, activeOccurrence })`: find marks in a text-layer span. Without the colour options it uses the package colours.
 
 ## Known issues

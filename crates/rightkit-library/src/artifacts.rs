@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::path_policy::normalize_lossy;
+use std::time::Instant;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GalleryResponse {

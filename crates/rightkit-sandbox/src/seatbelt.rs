@@ -8,7 +8,7 @@
 //! no `pre_exec`.
 
 use crate::deny_read::{glob_to_deny_regex, plan_deny_read_paths};
-use crate::{ConfinementMode, DenyReadEntry, NetworkPolicy, SandboxPolicy};
+use crate::{ConfinementMode, DenyReadEntry, NetworkPolicy, SandboxPolicy, UnixSocketPolicy};
 use std::collections::HashSet;
 use std::ffi::{CString, OsString};
 use std::net::{Ipv4Addr, SocketAddr};
@@ -350,6 +350,16 @@ const WRITE_ONLY_DEV: &[&str] = &[
 /// Pure string construction apart from path resolution. Nothing in it hides a file from reads;
 /// add [`SandboxPolicy::deny_read()`] rules (see [`profile_for`]) for secrets.
 pub fn write_only_profile(write_paths: &[PathBuf], network: NetworkPolicy) -> String {
+    write_only_profile_with(write_paths, network, &UnixSocketPolicy::Local)
+}
+
+/// As [`write_only_profile`], with the unix-socket reach of a network-denied profile chosen by
+/// `sockets` (issue #943). [`UnixSocketPolicy::Local`] is [`write_only_profile`] exactly.
+pub fn write_only_profile_with(
+    write_paths: &[PathBuf],
+    network: NetworkPolicy,
+    sockets: &UnixSocketPolicy,
+) -> String {
     let mut p = String::from("(version 1)\n(allow default)\n(deny file-write*)\n");
     p.push_str("(allow file-write*\n");
     for fixed in WRITE_ONLY_TEMP {
@@ -367,9 +377,106 @@ pub fn write_only_profile(write_paths: &[PathBuf], network: NetworkPolicy) -> St
     }
     p.push_str(")\n");
     if network == NetworkPolicy::Deny {
-        p.push_str("(deny network-outbound)\n(allow network-outbound (remote unix-socket))\n");
+        p.push_str("(deny network-outbound)\n");
+        p.push_str(&unix_socket_rules(sockets));
     }
     p
+}
+
+/// The unix-socket allows that follow a `(deny network-outbound)`. Anything not allowed here
+/// stays denied, because the deny precedes these rules and nothing later widens it.
+fn unix_socket_rules(sockets: &UnixSocketPolicy) -> String {
+    match sockets {
+        UnixSocketPolicy::Local => String::from("(allow network-outbound (remote unix-socket))\n"),
+        UnixSocketPolicy::Deny => String::new(),
+        UnixSocketPolicy::Allow(paths) => {
+            let mut seen: HashSet<PathBuf> = HashSet::new();
+            let mut out = String::new();
+            for path in paths {
+                for candidate in [path.clone(), resolve_for_profile(path)] {
+                    if seen.insert(candidate.clone()) {
+                        out.push_str(&format!(
+                            "(allow network-outbound (remote unix-socket (path-literal {})))\n",
+                            quote(&candidate)
+                        ));
+                    }
+                }
+            }
+            out
+        }
+    }
+}
+
+/// `deny_exec` rules: for every path its configured and resolved spelling, for every glob a
+/// regex over the resolved prefix, each covering everything below. Emitted after all allows (the
+/// last matching rule decides in SBPL), so they win over `exec_any` and the system roots.
+fn deny_exec_rules(entries: &[DenyReadEntry]) -> String {
+    let mut out = String::new();
+    let mut seen_paths: HashSet<PathBuf> = HashSet::new();
+    let mut seen_regexes: HashSet<String> = HashSet::new();
+    for entry in entries {
+        match entry {
+            DenyReadEntry::Path(path) => {
+                for candidate in [path.clone(), resolve_for_profile(path)] {
+                    if seen_paths.insert(candidate.clone()) {
+                        out.push_str(&format!(
+                            "(deny process-exec* (subpath {}))\n",
+                            quote(&candidate)
+                        ));
+                    }
+                }
+            }
+            DenyReadEntry::Glob(pattern) => {
+                let resolved = resolve_glob_prefix(pattern);
+                for spelling in [pattern.as_str(), resolved.as_str()] {
+                    let regex = glob_to_deny_regex(spelling);
+                    if seen_regexes.insert(regex.clone()) {
+                        out.push_str(&format!("(deny process-exec* (regex #\"{regex}\"))\n"));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// `file-read-metadata` for a Strict profile that does not grant it everywhere: the root itself,
+/// the system locations the profile reads, every granted root, and the ancestors of those roots
+/// (a path walk stats each ancestor). Both the configured and the resolved spelling are named.
+fn scoped_metadata_rules(policy: &SandboxPolicy, system: &[&str]) -> String {
+    let mut out = String::from("(allow file-read-metadata (literal \"/\"))\n");
+    let mut subpaths: Vec<PathBuf> = system.iter().map(|dir| PathBuf::from(*dir)).collect();
+    for dir in SYSTEM_EXEC {
+        subpaths.push(PathBuf::from(*dir));
+    }
+    for root in policy
+        .read_paths
+        .iter()
+        .chain(&policy.write_paths)
+        .chain(&policy.exec_paths)
+    {
+        subpaths.push(root.clone());
+        subpaths.push(resolve_for_profile(root));
+    }
+    let mut seen_sub: HashSet<PathBuf> = HashSet::new();
+    let mut seen_lit: HashSet<PathBuf> = HashSet::new();
+    for root in &subpaths {
+        if seen_sub.insert(root.clone()) {
+            out.push_str(&format!(
+                "(allow file-read-metadata (subpath {}))\n",
+                quote(root)
+            ));
+        }
+        for ancestor in root.ancestors().skip(1) {
+            if ancestor.parent().is_some() && seen_lit.insert(ancestor.to_path_buf()) {
+                out.push_str(&format!(
+                    "(allow file-read-metadata (literal {}))\n",
+                    quote(ancestor)
+                ));
+            }
+        }
+    }
+    out
 }
 
 /// A glob with its literal leading directory realpath-resolved (`/tmp/x/*` -> `/private/tmp/x/*`),
@@ -436,8 +543,10 @@ fn deny_read_rules(entries: &[DenyReadEntry]) -> std::io::Result<String> {
 pub fn try_profile_for(policy: &SandboxPolicy) -> std::io::Result<String> {
     let deny = deny_read_rules(&policy.deny_read)?;
     if policy.mode == ConfinementMode::WriteOnly {
-        let mut p = write_only_profile(&policy.write_paths, policy.network);
+        let mut p =
+            write_only_profile_with(&policy.write_paths, policy.network, &policy.unix_sockets);
         p.push_str(&deny);
+        p.push_str(&deny_exec_rules(&policy.deny_exec));
         return Ok(p);
     }
     let mut p = String::from("(version 1)\n(import \"bsd.sb\")\n(deny default)\n(allow process-fork)\n(allow signal (target self))\n(allow sysctl-read)\n");
@@ -457,14 +566,28 @@ pub fn try_profile_for(policy: &SandboxPolicy) -> std::io::Result<String> {
     match policy.network {
         NetworkPolicy::Allow => p.push_str("(allow network*)\n"),
         NetworkPolicy::Deny => {
-            p.push_str("(deny network-outbound)\n(allow network-outbound (remote unix-socket))\n")
+            p.push_str("(deny network-outbound)\n");
+            p.push_str(&unix_socket_rules(&policy.unix_sockets));
         }
     }
-    for dir in SYSTEM_READ {
+    // Under `allow_global_metadata(false)` the blanket reads of /Applications and /etc go too.
+    let system_read: Vec<&str> = SYSTEM_READ
+        .iter()
+        .copied()
+        .filter(|dir| {
+            !policy.restrict_metadata || !matches!(*dir, "/Applications" | "/etc" | "/private/etc")
+        })
+        .collect();
+    for dir in &system_read {
         p.push_str(&format!("(allow file-read* (subpath \"{dir}\"))\n"));
     }
     // Root directory entries and metadata are needed for path walking.
-    p.push_str("(allow file-read-metadata)\n(allow file-read* (literal \"/\"))\n");
+    if policy.restrict_metadata {
+        p.push_str(&scoped_metadata_rules(policy, &system_read));
+        p.push_str("(allow file-read* (literal \"/\"))\n");
+    } else {
+        p.push_str("(allow file-read-metadata)\n(allow file-read* (literal \"/\"))\n");
+    }
     for r in &policy.read_paths {
         p.push_str(&format!(
             "(allow file-read* (subpath {}))\n",
@@ -475,8 +598,13 @@ pub fn try_profile_for(policy: &SandboxPolicy) -> std::io::Result<String> {
         let r = quote(&resolve_for_profile(w));
         p.push_str(&format!("(allow file-read* file-write* (subpath {r}))\n"));
     }
-    p.push_str("(allow file-read* file-write* file-ioctl (regex #\"^/dev/(null|zero|tty|ttys[0-9]+|dtracehelper|urandom|random)$\"))\n");
+    if policy.restrict_tty {
+        p.push_str("(allow file-read* file-write* file-ioctl (regex #\"^/dev/(null|zero|dtracehelper|urandom|random)$\"))\n");
+    } else {
+        p.push_str("(allow file-read* file-write* file-ioctl (regex #\"^/dev/(null|zero|tty|ttys[0-9]+|dtracehelper|urandom|random)$\"))\n");
+    }
     p.push_str(&deny);
+    p.push_str(&deny_exec_rules(&policy.deny_exec));
     Ok(p)
 }
 

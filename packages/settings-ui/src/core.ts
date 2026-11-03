@@ -3,10 +3,11 @@
 export * from "./types.js";
 export * from "./backends.js";
 export * from "./useSettings.js";
-export { SettingsGroup, SettingRow, ProgressBar, formatBytes } from "./primitives.js";
-export type { SettingRowProps, SettingsGroupProps } from "./primitives.js";
+export * from "./preferences.js";
+export { SettingsGroup, SettingRow, ProgressBar, formatBytes, SelectControl, PathControl, IndexProgressLine } from "./primitives.js";
+export type { SettingRowProps, SettingsGroupProps, SelectControlProps, PathControlProps, IndexProgressLineProps } from "./primitives.js";
 export { SettingsPanel, SectionFrame, mergeSections, orderSections, searchSections, revealSetting } from "./SettingsPanel.js";
-export type { SettingsPanelProps, NavItemState, SearchMode } from "./SettingsPanel.js";
+export type { SettingsPanelProps, NavItemState, SearchMode, SettingsClassNames } from "./SettingsPanel.js";
 export {
   SettingsSearchProvider,
   SettingsItem,

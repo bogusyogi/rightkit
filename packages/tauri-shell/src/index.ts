@@ -32,7 +32,41 @@ export const EVENTS = {
   openPaths: 'rightkit-shell://open-paths',
   /** WebView2 refused the print UI after `print()` had returned (Windows). Payload: the error text. */
   printError: 'rightkit-shell://print-error',
+  /** A native file drop on the window (#995). Payload `{ paths, x, y }`: broker-granted paths and the drop position in logical (CSS) pixels. */
+  drop: 'rightkit-shell://drop',
 } as const;
+
+/** A native file drop (#995). `paths` are granted by the host's path broker; `x` and `y` are CSS pixels of the window. */
+export interface DropEvent {
+  paths: string[];
+  x: number;
+  y: number;
+}
+
+/**
+ * Where a drop must land for a handler to run: `'window'` (the whole window), the id of an element marked
+ * `data-rk-dropzone="<id>"`, or an element. An element zone matches when the drop position is inside that
+ * element and no nearer `data-rk-dropzone` element holds it.
+ */
+export type DropZone = 'window' | string | Element;
+
+const dropEvent = (payload: unknown): DropEvent | null => {
+  if (payload === null || typeof payload !== 'object') return null;
+  const { paths, x, y } = payload as Record<string, unknown>;
+  if (!Array.isArray(paths) || !paths.every((p) => typeof p === 'string')) return null;
+  if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return { paths: paths as string[], x, y };
+};
+
+const dropMatches = (zone: DropZone, e: DropEvent): boolean => {
+  if (zone === 'window') return true;
+  if (typeof document === 'undefined') return false;
+  const hit = document.elementFromPoint(e.x, e.y);
+  if (!hit) return false;
+  if (typeof zone !== 'string') return zone.contains(hit);
+  const nearest = hit.closest('[data-rk-dropzone]');
+  return nearest !== null && nearest.getAttribute('data-rk-dropzone') === zone;
+};
 
 /**
  * Window surface command (`rk_shell_set_surface`). The surface ids are native config
@@ -800,6 +834,21 @@ export function createShell(transport: ShellTransport = tauriTransport(), option
       /** Grant and drain the queued paths and switch the host to live delivery. Call once after subscribing with `onOpen`. */
       ready: () => invoke<string[]>('rk_shell_open_paths_ready'),
       onOpen: (h: (e: { paths: string[] }) => void) => listen<{ paths: string[] }>(EVENTS.openPaths, h),
+    },
+
+    /**
+     * Native file drops (#995). `onDrop('window', h)` hears every drop on the window; `onDrop(id, h)` or
+     * `onDrop(element, h)` hears a drop whose position is over that `data-rk-dropzone` element. The handler
+     * gets the broker-granted paths and the drop position in logical pixels. A drop with no granted path is
+     * not delivered. A string zone other than `'window'` needs a DOM.
+     */
+    onDrop: async (zone: DropZone, handler: (e: DropEvent) => void): Promise<Unlisten> => {
+      if (zone === '') throw typed('invalid', 'drop zone id must not be empty');
+      if (typeof zone === 'string' && zone !== 'window' && typeof document === 'undefined') throw typed('unsupported', 'element drop zones need a DOM');
+      return listen<unknown>(EVENTS.drop, (payload) => {
+        const e = dropEvent(payload);
+        if (e && e.paths.length > 0 && dropMatches(zone, e)) handler(e);
+      });
     },
 
     /** Default-handler registration for the file groups the app declared natively. The groups are never renderer input; only their ids are. */

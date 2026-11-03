@@ -48,6 +48,7 @@ export const STAGE_SOURCES = Object.freeze({
   release: { compiles: false, packages: false, source: "publisher", basis: "--to release runs only in the trusted publisher on hosted CI with its normal checkout (docs/GATE-CONTRACT.md), and only uploads sealed bytes" },
   dev: { compiles: true, packages: false, source: "snapshot" },
   test: { compiles: true, packages: false, source: "snapshot" },
+  render: { compiles: true, packages: false, source: "snapshot" },
   stage: { compiles: false, packages: false, source: "sealed", basis: "stage packs the sealed directory and its receipt into the publisher's draft release; it compiles nothing" },
   // Row 7.06a: a unit stage builds the selected commit's snapshot on every host (runUnitSnapshot); hosted CI keeps its runner checkout, which is the commit.
   "unit:check": { compiles: false, packages: false, source: "snapshot" },

@@ -34,14 +34,6 @@
 //!   switched and the file deleted by another process between the check and the add, and the add
 //!   would then store the secret in the new default. Creation is refused until it can be bound to
 //!   its destination. Reads and deletes still work on it.
-//! * Throwaway test keychains (`IsolatedKeychain`, and `KeychainBackend::open_isolated_file`,
-//!   which accepts only a fixture this crate made): writes are allowed, but ONLY in this crate's
-//!   own unit tests and when the non-default `isolated-test-keychain` feature is enabled
-//!   (the end-to-end suite and the CLI's `--isolated-keychain` enable it). Without that feature
-//!   neither item is compiled, so a production build has NO write path to an explicit keychain:
-//!   no file name, path or content makes one writable. The residual risk of the test build, that
-//!   the fixture file is deleted in the instant between the pre-write checks and the add, would
-//!   put a fixture secret in the default keychain; it exists only where that secret is fake.
 //!
 //! Before every write the destination is also checked to be a valid keychain reference whose
 //! file exists, and unlocked (a locked one is `Error::InteractionRequired` when the call is
@@ -64,25 +56,12 @@ use std::sync::{Arc, Mutex};
 
 type OSStatus = i32;
 
-// `SecKeychainCreate`, `SecKeychainDelete` and `SecKeychainLock` serve only the throwaway test
-// keychain, which is compiled out of production builds.
-#[cfg_attr(not(feature = "isolated-test-keychain"), allow(dead_code))]
 #[link(name = "Security", kind = "framework")]
 extern "C" {
     fn SecKeychainSetUserInteractionAllowed(allowed: u8) -> OSStatus;
     fn SecKeychainGetUserInteractionAllowed(allowed: *mut u8) -> OSStatus;
-    fn SecKeychainCreate(
-        path: *const c_char,
-        pw_len: u32,
-        pw: *const c_void,
-        prompt: u8,
-        access: *const c_void,
-        out: *mut *mut c_void,
-    ) -> OSStatus;
     fn SecKeychainOpen(path: *const c_char, out: *mut *mut c_void) -> OSStatus;
     fn SecKeychainCopyDomainDefault(domain: i32, out: *mut *mut c_void) -> OSStatus;
-    fn SecKeychainDelete(kc: *mut c_void) -> OSStatus;
-    fn SecKeychainLock(kc: *mut c_void) -> OSStatus;
     fn SecKeychainUnlock(kc: *mut c_void, pw_len: u32, pw: *const c_void, use_pw: u8) -> OSStatus;
     fn SecKeychainAddGenericPassword(
         kc: *mut c_void,
@@ -172,17 +151,15 @@ enum Target {
         handle: Arc<Handle>,
         identity: String,
     },
-    /// One explicit keychain file. `fixture` is true only for a throwaway test keychain, the one
-    /// kind of explicit keychain that may be written to, and only code compiled for tests or the
-    /// `isolated-test-keychain` feature ever sets it (see the module docs).
-    File { handle: Arc<Handle>, fixture: bool },
+    /// One explicit keychain file: read and delete only, never written (see the module docs).
+    File { handle: Arc<Handle> },
 }
 
 impl Target {
     /// True when a write must be refused, because the native add's fallback could put the secret
     /// in a different keychain than the explicit one requested.
     fn write_is_refused(&self) -> bool {
-        matches!(self, Target::File { fixture: false, .. })
+        matches!(self, Target::File { .. })
     }
 }
 
@@ -291,7 +268,7 @@ impl Native for Os {
 
 /// Check the destination, then add. Every check happens BEFORE the add, because the add itself
 /// falls back to the default keychain when the requested one is unusable (module docs).
-/// `refuse_write` is true for an explicit keychain that is not a test fixture: such a write is
+/// `refuse_write` is true for an explicit keychain: such a write is
 /// refused unconditionally (a default-keychain check would still race a concurrent change of the
 /// default and deletion of the file).
 fn add_checked<N: Native>(
@@ -333,53 +310,12 @@ impl KeychainBackend {
     /// Open an existing keychain file; ONLY that file is searched. Reads and deletes work on it.
     /// A write is ALWAYS refused with `Error::Unavailable`, even when this keychain is the current
     /// default (see the module docs: the OS add falls back to the default keychain if this file
-    /// goes missing, and no check made before the add can exclude that). For a throwaway test
-    /// keychain use `Self::open_isolated_file`.
+    /// goes missing, and no check made before the add can exclude that).
     pub fn open_file(path: &Path, password: Option<&str>) -> Result<Self> {
-        Self::open_file_with(path, password, false)
+        Self::open_file_with(path, password)
     }
 
-    #[cfg(feature = "isolated-test-keychain")]
-    /// Open a throwaway test keychain file (one made by [`IsolatedKeychain`]) for reading AND
-    /// writing. Compiled only under the non-default `isolated-test-keychain` feature; a production
-    /// build has no write path to an explicit
-    /// keychain at all. Only a file under the OS temp directory is accepted. Test fixtures only: if the
-    /// file were deleted in the instant between the pre-write checks and the add, the OS would
-    /// store the fixture secret in the default keychain.
-    pub fn open_isolated_file(path: &Path, password: Option<&str>) -> Result<Self> {
-        // Only a fixture this crate made: `IsolatedKeychain::create` names the directory
-        // `rightkit-secrets-test-<hex>` and the file `isolated.keychain-db`.
-        let shaped = path
-            .file_name()
-            .is_some_and(|n| n == "isolated.keychain-db")
-            && path
-                .parent()
-                .and_then(|d| d.file_name())
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with("rightkit-secrets-test-"));
-        if !shaped {
-            return Err(Error::Invalid {
-                what: "path",
-                reason: "not a keychain made by IsolatedKeychain::create".into(),
-            });
-        }
-        let temp = std::env::temp_dir()
-            .canonicalize()
-            .map_err(|e| Error::Io(e.to_string()))?;
-        let canonical = path.canonicalize().map_err(|_| Error::Invalid {
-            what: "path",
-            reason: "cannot be resolved".into(),
-        })?;
-        if !canonical.starts_with(&temp) {
-            return Err(Error::Invalid {
-                what: "path",
-                reason: "an isolated keychain must be under the temp directory".into(),
-            });
-        }
-        Self::open_file_with(path, password, true)
-    }
-
-    fn open_file_with(path: &Path, password: Option<&str>, fixture: bool) -> Result<Self> {
+    fn open_file_with(path: &Path, password: Option<&str>) -> Result<Self> {
         let c = CString::new(path.to_string_lossy().as_bytes()).map_err(|_| Error::Invalid {
             what: "path",
             reason: "NUL".into(),
@@ -397,7 +333,7 @@ impl KeychainBackend {
             }
         }
         Ok(Self {
-            target: Target::File { handle: h, fixture },
+            target: Target::File { handle: h },
         })
     }
     /// The keychain this call operates on; always a concrete keychain, never null.
@@ -677,92 +613,5 @@ pub fn user_interaction_allowed() -> Result<bool> {
         Err(map("get_interaction", st))
     } else {
         Ok(v != 0)
-    }
-}
-
-#[cfg(feature = "isolated-test-keychain")]
-/// A throw-away keychain file used by end-to-end tests so they never see the user's real items.
-/// It is never added to the search list; only its own handle is passed to the OS. Deleted on drop.
-pub struct IsolatedKeychain {
-    path: PathBuf,
-    dir: PathBuf,
-    password: String,
-    handle: Arc<Handle>,
-}
-
-#[cfg(feature = "isolated-test-keychain")]
-impl IsolatedKeychain {
-    pub fn create() -> Result<Self> {
-        let mut rnd = [0u8; 12];
-        getrandom::fill(&mut rnd).map_err(|_| Error::Unavailable("OS CSPRNG failed".into()))?;
-        let hex: String = rnd.iter().map(|b| format!("{b:02x}")).collect();
-        let dir = std::env::temp_dir().join(format!("rightkit-secrets-test-{hex}"));
-        std::fs::create_dir_all(&dir).map_err(|e| Error::Io(e.to_string()))?;
-        let path = dir.join("isolated.keychain-db");
-        let password = format!("pw-{hex}");
-        let c = CString::new(path.to_string_lossy().as_bytes()).unwrap();
-        let mut kc: *mut c_void = null_mut();
-        let st = unsafe {
-            SecKeychainCreate(
-                c.as_ptr(),
-                password.len() as u32,
-                password.as_ptr().cast(),
-                0,
-                null(),
-                &mut kc,
-            )
-        };
-        if st != 0 || kc.is_null() {
-            let _ = std::fs::remove_dir_all(&dir);
-            return Err(map("create_keychain", st));
-        }
-        Ok(Self {
-            path,
-            dir,
-            password,
-            handle: Arc::new(Handle(kc)),
-        })
-    }
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-    /// The test keychain's password (needed by a child process that opens the same file).
-    pub fn password(&self) -> &str {
-        &self.password
-    }
-    pub fn backend(&self) -> KeychainBackend {
-        KeychainBackend {
-            target: Target::File {
-                handle: self.handle.clone(),
-                fixture: true,
-            },
-        }
-    }
-    pub fn lock(&self) -> Result<()> {
-        match unsafe { SecKeychainLock(self.handle.0) } {
-            0 => Ok(()),
-            s => Err(map("lock", s)),
-        }
-    }
-    pub fn unlock(&self) -> Result<()> {
-        match unsafe {
-            SecKeychainUnlock(
-                self.handle.0,
-                self.password.len() as u32,
-                self.password.as_ptr().cast(),
-                1,
-            )
-        } {
-            0 => Ok(()),
-            s => Err(map("unlock", s)),
-        }
-    }
-}
-
-#[cfg(feature = "isolated-test-keychain")]
-impl Drop for IsolatedKeychain {
-    fn drop(&mut self) {
-        unsafe { SecKeychainDelete(self.handle.0) };
-        let _ = std::fs::remove_dir_all(&self.dir);
     }
 }

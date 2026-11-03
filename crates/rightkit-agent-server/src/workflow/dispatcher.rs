@@ -956,47 +956,6 @@ pub struct NodeDispatchContext {
     pub iteration_index: Option<u64>,
 }
 
-impl NodeDispatchContext {
-    /// Test-only empty context. Production construction happens in
-    /// `NodeExecutor::build_dispatch_context` after durable authority lookup.
-    pub fn for_test() -> Self {
-        use rightkit_workflow::control_plane::context::{ContextBudget, ContextBuilder};
-        use rightkit_workflow::control_plane::domain::{NodeId, RunId};
-        use rightkit_workflow::control_plane::ids::Prefix;
-
-        let manifest = ContextBuilder::new("v1")
-            .with_provenance(
-                RunId::new(Prefix::WorkflowRun, "test"),
-                NodeId::new(Prefix::NodeRun, "test"),
-                0,
-            )
-            .with_budget(ContextBudget::unbounded())
-            .build()
-            .expect("test context manifest");
-        Self {
-            run_input: Value::Object(Default::default()),
-            node_outputs: HashMap::new(),
-            workspace_root: String::new(),
-            prompt_trust: rightkit_agent_engine_protocol::ContentTrust::User,
-            manifest,
-            compiled_plan: CompiledPlan {
-                entry_node: "test".into(),
-                nodes: Vec::new(),
-                effective_capabilities:
-                    rightkit_workflow::control_plane::domain::CapabilitySet::empty(),
-            },
-            version_id: "wfv_test".into(),
-            iteration_index: None,
-        }
-    }
-}
-
-impl Default for NodeDispatchContext {
-    fn default() -> Self {
-        Self::for_test()
-    }
-}
-
 /// Async executor contract for provider calls, waits, & effects.
 #[async_trait]
 pub trait ExecuteNode: Send + Sync {

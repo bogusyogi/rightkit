@@ -27,11 +27,30 @@
 //! engine takes on the owner's word, which is why the transport must authenticate the owner
 //! (same app, same user, signed path) before [`EngineSnapshotCell::apply`].
 //!
-//! The ledger must be the file ledger: an owner that configured
-//! `LicenseClientConfig::with_credential_clock` keeps its anti-rollback ledger in the credential
-//! store, which an engine cannot read, so such an app moves to the file ledger before it adopts
-//! the snapshot.
+//! # Where the anti-rollback mark comes from
+//!
+//! An owner that keeps its ledger as the file in the licence directory (the default) leaves the
+//! engine to read that file ([`EngineEntitlements::suite_snapshot`], [`OwnerLedgerReader`]).
+//!
+//! An owner that configured `LicenseClientConfig::with_credential_clock` keeps the ledger in the
+//! credential store, which an engine must not read. It sends the mark inside the snapshot instead
+//! (rightkit#1477): a fourth value, [`SNAPSHOT_CLOCK_STATE`] (`licence.clock-state`, the ledger's
+//! own JSON, [`ClockState::encode`]), built by `LicenseClient::engine_snapshot_with_clock` from the
+//! owner's real ledger whichever store holds it. The engine verifies with
+//! [`EngineEntitlements::suite_snapshot_with_mark`], whose ledger is the delivered mark
+//! ([`SnapshotLedgerReader`]): it refuses a wall clock behind that mark exactly as it refuses one
+//! behind the file ledger, refuses a ledger the owner says exists but did not deliver, and drops
+//! every write, so the owner stays the one writer.
+//!
+//! The mark is taken on the owner's word, like the device binding, and under the same transport
+//! authentication. What a forged snapshot could do with it is hand the engine a mark that is too
+//! low, which only weakens rollback detection inside that engine and grants nothing on its own: the
+//! token still has to verify under the suite key, for this app and device, unexpired and not on
+//! the denylist. A mark that is too high only makes the engine stricter. The mark is as fresh as
+//! the last delivery, so the owner sends it again after every change and when the engine asks.
+//! An engine that asks for the three legacy names keeps the three-value snapshot unchanged.
 
+use std::convert::Infallible;
 use std::fmt;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -54,6 +73,19 @@ pub const SNAPSHOT_DEVICE: &str = "licence.device";
 pub const SNAPSHOT_CLOCK: &str = "licence.clock";
 /// Every name of the snapshot. An engine asks for exactly these.
 pub const SNAPSHOT_NAMES: [&str; 3] = [SNAPSHOT_TOKEN, SNAPSHOT_DEVICE, SNAPSHOT_CLOCK];
+/// The owner's anti-rollback ledger itself ([`ClockState::encode`]), for an owner whose ledger is
+/// not a file the engine can open. Present only in the four-name snapshot.
+pub const SNAPSHOT_CLOCK_STATE: &str = "licence.clock-state";
+/// The names of the snapshot that carries the mark. An engine on [`SnapshotLedgerReader`] asks for
+/// exactly these.
+pub const SNAPSHOT_NAMES_WITH_CLOCK: [&str; 4] = [
+    SNAPSHOT_TOKEN,
+    SNAPSHOT_DEVICE,
+    SNAPSHOT_CLOCK,
+    SNAPSHOT_CLOCK_STATE,
+];
+/// The most bytes a delivered ledger may have; a real one is under 200.
+const MAX_CLOCK_STATE_BYTES: usize = 1024;
 /// The owner's ledger exists, so a missing ledger in the engine is a refusal.
 pub const CLOCK_INITIALIZED: &str = "initialized";
 /// The owner has not initialised its ledger yet.
@@ -99,6 +131,8 @@ enum Held {
         token: Zeroizing<String>,
         device: Zeroizing<String>,
         clock_initialized: bool,
+        /// The owner's ledger as delivered in the four-name snapshot; `None` for the three-name one.
+        clock_state: Option<ClockState>,
     },
 }
 
@@ -181,8 +215,24 @@ impl EngineSnapshotCell {
                 let device = text_of(snapshot.get(SNAPSHOT_DEVICE))
                     .map(str::trim)
                     .filter(|device| !device.is_empty());
-                match (token, device) {
-                    (Some(token), Some(device)) => (
+                // An absent entry is "not delivered" (the three-name snapshot); a failed read or an
+                // undecodable ledger refuses, so a mark the owner meant to send never goes missing.
+                let clock_state = match snapshot.get(SNAPSHOT_CLOCK_STATE) {
+                    None | Some(Entry::Absent) => Ok(None),
+                    Some(Entry::ReadFailed(_)) => Err(SnapshotError::OwnerReadFailed),
+                    Some(entry) => text_of(Some(entry))
+                        .map(str::trim)
+                        .filter(|text| !text.is_empty() && text.len() <= MAX_CLOCK_STATE_BYTES)
+                        .and_then(|text| ClockState::decode(text).ok())
+                        .map(Some)
+                        .ok_or(SnapshotError::Malformed),
+                };
+                match (token, device, clock_state) {
+                    (_, _, Err(SnapshotError::OwnerReadFailed)) => (
+                        Held::Unavailable(OWNER_READ_FAILED),
+                        Err(SnapshotError::OwnerReadFailed),
+                    ),
+                    (Some(token), Some(device), Ok(clock_state)) => (
                         Held::Present {
                             token: Zeroizing::new(token.to_owned()),
                             device: Zeroizing::new(device.to_owned()),
@@ -190,6 +240,7 @@ impl EngineSnapshotCell {
                             // ledger then refuses, which is the stricter reading.
                             clock_initialized: text_of(snapshot.get(SNAPSHOT_CLOCK))
                                 != Some(CLOCK_FRESH),
+                            clock_state,
                         },
                         Ok(()),
                     ),
@@ -221,6 +272,14 @@ impl EngineSnapshotCell {
         match &*self.held() {
             Held::Present { device, .. } => Ok(device.to_string()),
             _ => Err("no device binding in the licence snapshot".to_owned()),
+        }
+    }
+
+    /// The owner's delivered ledger, if the snapshot carried one.
+    fn clock_state(&self) -> Option<ClockState> {
+        match &*self.held() {
+            Held::Present { clock_state, .. } => clock_state.clone(),
+            _ => None,
         }
     }
 
@@ -272,6 +331,71 @@ impl EngineEntitlementsConfig {
     /// ([`crate::suite_api::LICENSE_PUBLIC_KEY`]), so the engine carries no key of its own.
     pub fn suite_snapshot(app: impl Into<String>, cell: &EngineSnapshotCell) -> Self {
         Self::from_snapshot(crate::suite_api::LICENSE_PUBLIC_KEY, app, cell)
+    }
+}
+
+/// The owner's anti-rollback ledger as the engine received it in the four-name snapshot
+/// ([`SNAPSHOT_CLOCK_STATE`]): every read is the delivered mark (nothing delivered reads as no
+/// ledger, which refuses when the owner said the ledger exists) and every write is dropped. For
+/// an owner whose ledger lives in the credential store (rightkit#1477); an owner on the file
+/// ledger uses [`OwnerLedgerReader`].
+#[derive(Debug, Clone)]
+pub struct SnapshotLedgerReader(EngineSnapshotCell);
+
+impl SnapshotLedgerReader {
+    /// A reader of the mark `cell` holds.
+    pub fn new(cell: &EngineSnapshotCell) -> Self {
+        Self(cell.clone())
+    }
+}
+
+impl ClockStore for SnapshotLedgerReader {
+    type Error = Infallible;
+
+    fn load(&self) -> Result<Option<ClockState>, Self::Error> {
+        Ok(self.0.clock_state())
+    }
+
+    fn save(&self, _: &ClockState) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn compare_and_save(
+        &self,
+        _: Option<&ClockState>,
+        _: &ClockState,
+    ) -> Result<bool, Self::Error> {
+        Ok(true)
+    }
+}
+
+impl EngineEntitlements<AntiRollbackClock<SnapshotLedgerReader>> {
+    /// A verifier over a snapshot configuration ([`EngineEntitlementsConfig::from_snapshot`]) whose
+    /// anti-rollback mark is the one in the snapshot ([`SnapshotLedgerReader`]), so the engine
+    /// opens no ledger file and never reads the owner's credential store. Refuses with `Clock`
+    /// when the process clock cannot be read.
+    pub fn from_snapshot_with_mark(
+        cfg: EngineEntitlementsConfig,
+        cell: &EngineSnapshotCell,
+    ) -> Result<Self, EngineEntitlementError> {
+        let wall = system_now_unix()
+            .map_err(|e| EngineEntitlementError::Clock(ClockRefusal::Unavailable(e)))?;
+        Ok(Self::with_clock(
+            cfg,
+            AntiRollbackClock::new(
+                SnapshotLedgerReader::new(cell),
+                ProcessAnchor::process(wall),
+            ),
+        ))
+    }
+
+    /// The whole engine side for an owner on the credential-store ledger: the suite key, `app` and
+    /// the snapshot in `cell`, mark included.
+    pub fn suite_snapshot_with_mark(
+        app: impl Into<String>,
+        cell: &EngineSnapshotCell,
+    ) -> Result<Self, EngineEntitlementError> {
+        Self::from_snapshot_with_mark(EngineEntitlementsConfig::suite_snapshot(app, cell), cell)
     }
 }
 

@@ -476,11 +476,48 @@ fn checked_zip32(value: u64) -> io::Result<()> {
 }
 
 /// Read archives produced by [`write_zip`], checking record bounds, sizes & every CRC.
-/// Loads archive & entry contents into memory. This verifier supports only this writer's
-/// STORED, UTF-8, no-extra/comment, single-disk format; other formats return `InvalidData`.
-/// Malformed or truncated archives return errors without indexing outside input.
+/// Loads archive & entry contents into memory (about twice the archive size). This verifier
+/// supports only this writer's STORED, UTF-8, no-extra/comment, single-disk format; other formats
+/// return `InvalidData`. Malformed or truncated archives return errors without indexing outside
+/// input.
+///
+/// **Entry names are untrusted.** They are returned exactly as stored: they may be absolute, hold
+/// `..` components, `\` separators, a drive prefix or control characters. Preventing a zip-slip
+/// write is the caller's responsibility; check each name (for example with
+/// [`StoredZipWriter`]'s name rules, or [`crate::contain::contain_lenient`] against the extraction
+/// root) before joining it to a path. For an archive from a source you do not control use
+/// [`read_zip_limited`], which bounds the memory this call takes.
 pub fn read_zip(path: &Path) -> io::Result<Vec<(String, Vec<u8>)>> {
     let data = std::fs::read(path)?;
+    parse_zip(&data)
+}
+
+/// [`read_zip`] for an archive that may be hostile: refuses with `InvalidData` an archive file
+/// larger than `max_bytes` before holding more than `max_bytes` of it in memory. Because every
+/// entry is STORED, the entries' total size is below the archive's, so this one cap bounds the
+/// total of the returned contents too (memory is at most about `2 * max_bytes`). The names it
+/// returns are untrusted exactly as for [`read_zip`].
+pub fn read_zip_limited(path: &Path, max_bytes: u64) -> io::Result<Vec<(String, Vec<u8>)>> {
+    let file =
+        File::open(path).map_err(|e| io_context(format!("opening {}", path.display()), e))?;
+    let mut data = Vec::new();
+    // Read one byte past the cap so a file that grows after any size check is still caught.
+    file.take(max_bytes.saturating_add(1))
+        .read_to_end(&mut data)
+        .map_err(|e| io_context(format!("reading {}", path.display()), e))?;
+    if data.len() as u64 > max_bytes {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "{} is larger than the {max_bytes} byte limit for a zip",
+                path.display()
+            ),
+        ));
+    }
+    parse_zip(&data)
+}
+
+fn parse_zip(data: &[u8]) -> io::Result<Vec<(String, Vec<u8>)>> {
     let bad = || io::Error::new(io::ErrorKind::InvalidData, "invalid STORED zip");
     let u16at = |o: usize| -> io::Result<usize> {
         let bytes: [u8; 2] = data

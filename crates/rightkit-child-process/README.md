@@ -11,13 +11,23 @@ It contains no app protocol, probe implementation, or business message.
 
 ## Features
 
-One optional feature, off by default: `tokio` (adds `tokio` with `process` and `time`): `NoWindow` for `tokio::process::Command`, `tokio_support::{command, lead_session, terminate_tree, terminate_process_group, terminate_session}`. Platform dependencies: `libc` (Unix) and `windows` 0.62 (Windows). Also without the feature: `NoWindow` for `std::process::Command`, `OutputCapture` / `read_bounded` (byte-exact bounded capture of a stream).
+One optional feature, off by default: `tokio` (adds `tokio` with `process`, `rt` and `time`): `NoWindow` for `tokio::process::Command`, `tokio_support::{command, lead_session, terminate_tree, terminate_process_group, terminate_session}`, and `OwnedCommand::spawn_tokio` returning an `OwnedTokioChild` (contained spawn with tokio stdio, `async wait`, `async terminate_tree`, staged kill on drop). Platform dependencies: `libc` (Unix) and `windows` 0.62 (Windows). Also without the feature: `NoWindow` for `std::process::Command`, `OutputCapture` / `read_bounded` (byte-exact bounded capture of a stream).
 
 ## Platform support
 
 - Unix: children lead a new process group (or a session with `UnixContainment::Session`). Termination signals the group, under the identity rule below. `kill_on_parent_exit` is Linux and macOS (see below).
 - Windows: children are created suspended, assigned to a Job Object, then resumed. Termination uses the Job Object.
 - The crate has `cfg(unix)`, `cfg(windows)`, `cfg(target_os = "macos")`, and `cfg(target_os = "linux")` branches across `src/owned.rs`, `src/process_handle.rs`, `src/unix_child.rs`, `src/exit_watch.rs`, `src/identity.rs`, `src/process_unix.rs`, `src/process_windows.rs`, and `src/spawn_windows.rs`.
+
+## Resource usage, journal and console additions
+
+- `process_usage_of(pid)` / `process_usage_of_identity` return a `PidUsage` (resident, private bytes, CPU, wake-ups, disk, `thread_count`) for another process; `SoakSampler` and `run_soak` write one NDJSON line per sample.
+- `OwnedChild::resource_usage()`, `wait_with_usage()` and `RunOutput::usage` give a reaped child's CPU time and peak resident set (`ChildUsage`).
+- `WorkerJournal`, `OwnedCommand::spawn_journaled` and `recover_journal` persist worker identities so a restarted program can adopt or terminate the survivors of a crash; a recycled pid never matches.
+- `AdoptedIdentity::request_close()` asks a process to quit (`SIGTERM`; on Windows `WM_CLOSE` to its top-level windows, `CloseRequest::NoWindow` when it has none); `quit_gracefully` uses it.
+- `OwnedCommand::windows_new_console()` gives the child its own console window.
+- `ProcessQuery::exe_ignore_case` and `exe_name_ignore_case` match the executable without regard to case.
+- For `rightkit-pty`: `unix_controlling_terminal`, `pre_exec_last` (Unix) and `windows_pseudoconsole` (Windows).
 
 Published version: see `INDEX.md` at the repository root. Release notes: `CHANGELOG.md`.
 

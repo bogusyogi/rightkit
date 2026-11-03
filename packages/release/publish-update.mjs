@@ -8,6 +8,7 @@ import { pruneReleaseObjects } from "./prune-r2.mjs";
 import { loadReleaseToken } from "./release-token.mjs";
 import { registerRightAppsRelease } from "./rightapps-register.mjs";
 import { recordPublishedVersion } from "./artifact-storage.mjs";
+import { retainAfterPublish } from "./publish-retention.mjs";
 import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
@@ -188,8 +189,8 @@ if (githubLane) {
   } catch (error) {
     fail(error.message);
   }
-  if (!dryRun) recordPublishedVersion({ app: config.app, version: versionForStorage, platform, configPath, releaseId });
-  process.exit(0);
+  if (!dryRun) { recordPublishedVersion({ app: config.app, version: versionForStorage, platform, configPath, releaseId }); retainPublished(); }
+  process.exit(process.exitCode ?? 0);
 }
 
 if (tier === "patch") {
@@ -252,7 +253,7 @@ if (tier === "patch") {
     }
   }
   if (!artifacts.length) {
-    console.log(`${dryRun ? "[dry-run] " : ""}NO patch updater artifacts; skipping patch manifest registration`);
+    console.log(`${dryRun ? "[dry-run] " : ""}NO patch updater artifacts; installers uploaded, patch manifest NOT registered: the registration route needs exactly one updater artifact and non-empty platforms, so an installer-only app has no client feed yet (README "Client update feed for private (R2) apps", #854)`);
     await pruneReleaseObjects({
       app: config.app,
       platform: platform === "mac" ? "mac" : "windows",
@@ -263,8 +264,8 @@ if (tier === "patch") {
       },
       retainPreviousVersions: installers.some((artifact) => artifact.versionedKey) ? 1 : 0,
     });
-    if (!dryRun) recordPublishedVersion({ app: config.app, version: versionForStorage, platform, configPath, releaseId });
-    process.exit(0);
+    if (!dryRun) { recordPublishedVersion({ app: config.app, version: versionForStorage, platform, configPath, releaseId }); retainPublished(); }
+    process.exit(process.exitCode ?? 0);
   }
   const version = config.version || target.updater.version;
   if (!version) fail(`${config.app} config must expose version or targets.${platform}.updater.version`);
@@ -302,8 +303,8 @@ if (tier === "patch") {
     },
     retainPreviousVersions: installers.some((artifact) => artifact.versionedKey) ? 1 : 0,
   });
-  if (!dryRun) recordPublishedVersion({ app: config.app, version: versionForStorage, platform, configPath, releaseId });
-  process.exit(0);
+  if (!dryRun) { recordPublishedVersion({ app: config.app, version: versionForStorage, platform, configPath, releaseId }); retainPublished(); }
+  process.exit(process.exitCode ?? 0);
 }
 
 const platforms = {};
@@ -372,7 +373,7 @@ await pruneReleaseObjects({
     private: [...registrations.keys()],
   },
 });
-if (!dryRun) recordPublishedVersion({ app: config.app, version: versionForStorage, platform, configPath, releaseId });
+if (!dryRun) { recordPublishedVersion({ app: config.app, version: versionForStorage, platform, configPath, releaseId }); retainPublished(); }
 
 function fileMetadata(file) {
   const artifact = verifiedArtifact(file);
@@ -427,6 +428,12 @@ async function register(route, body) {
   } catch (error) {
     fail(error.message);
   }
+}
+
+// After the remote bytes were verified and the version recorded: bound the sealed and state folders by count and age, loudly (rightkit#763).
+function retainPublished() {
+  try { retainAfterPublish({ root: git(["rev-parse", "--show-toplevel"]), keep: { releaseId }, log: (line) => console.log(line) }); }
+  catch (error) { console.error(`publish-update: published, but ${error.message}`); process.exitCode = 1; }
 }
 
 function fail(message) {

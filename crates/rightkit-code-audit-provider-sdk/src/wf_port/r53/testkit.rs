@@ -7,6 +7,7 @@
 
 use serde_json::{Map, Value};
 
+use super::canonical::canonical_json;
 use super::contracts::PROVIDER_STATUS;
 
 /// Port of `stableId(namespace, value)`. Note the JS body is

@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { childEnv, loadSealed, sha, tarEntry, integrity, loadApprovedArtifacts } from './upload.mjs';
 import { isWithin } from './registry-consumer.mjs';
 import { validateContext, validateManifestPins, pnpmInvocation, spawnPnpm } from './npm-consumer.mjs';
+import { FIRST_PARTY_TRUST_POLICY_EXCLUDE } from '../../packages/release/app-check.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export const RUNNER_FILE = 'scripts/ci/npm-recipe-consumer.mjs';
@@ -200,7 +201,12 @@ export function scratchWorkspace(entry, name) {
   validateRecipeEntry(entry, name);
   const pins = Object.entries(entry.closure.install).filter(([dep]) => NAME.test(dep)).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
   const exceptions = [FIRST_PARTY_AGE_EXCLUDE, ...closureAgeExceptions(entry, name)];
-  return `packages: []\nminimumReleaseAgeExclude:\n${exceptions.map(spec => `  - ${JSON.stringify(spec)}\n`).join('')}${pins.length ? `overrides:\n${pins.map(([dep, version]) => `  ${JSON.stringify(dep)}: ${JSON.stringify(version)}\n`).join('')}` : 'overrides: {}\n'}`;
+  // The one sanctioned trustPolicyExclude (rightkit#1472, #1476): a local-route publish carries no provenance, so under
+  // `trustPolicy: no-downgrade` the next version of an owned package follows versions that had it. One name selector for the whole scope,
+  // never a per-version list: pnpm 11.12's trustPolicyExclude is parsed by the same createPackageVersionPolicy as minimumReleaseAgeExclude
+  // (dist/pnpm.mjs createExcludePolicy), so the `@rightkit/*` selector above works here too. Class A refuses any other @rightkit entry in a
+  // consumer (packages/release/app-check.mjs trust-policy-exclude, G24).
+  return `packages: []\nminimumReleaseAgeExclude:\n${exceptions.map(spec => `  - ${JSON.stringify(spec)}\n`).join('')}trustPolicyExclude:\n  - ${JSON.stringify(FIRST_PARTY_TRUST_POLICY_EXCLUDE)}\n${pins.length ? `overrides:\n${pins.map(([dep, version]) => `  ${JSON.stringify(dep)}: ${JSON.stringify(version)}\n`).join('')}` : 'overrides: {}\n'}`;
 }
 
 /** No config or policy mutation is admitted, including pnpm-generated minimumReleaseAgeExclude entries. */

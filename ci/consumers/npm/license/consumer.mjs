@@ -1,6 +1,5 @@
 import { validateInstalledArtifact } from './provenance.mjs';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -10,7 +9,6 @@ const recipeId = 'license-native-client-views-consumer';
 const result = { recipeId, schemaVersion: 1, ok: false, host: { platform: process.platform, arch: process.arch, node: process.version }, artifact: null, scenarios: [], errors: [], nativeHostQualified: false };
 const failure = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error) });
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
-const fixtureDir = path.dirname(fileURLToPath(import.meta.url));
 const secret = 'fixture-private-licence-token-never-surfaces';
 
 // Synthetic views only: nothing here is a real licence, key or device.
@@ -51,16 +49,14 @@ try {
     catch (error) { entry.error = failure(error); throw error; }
   }
 
-  await run('export-surface-exact-and-testing-blocked-by-default', async () => {
+  await run('export-surface-exact', async () => {
     assert.deepEqual(Object.keys(license).sort(), ['LICENSE_MESSAGES', 'LicenseClientError', 'createLicenseClient', 'hasAllFeatures', 'hasAnyFeature', 'hasFeature', 'isLicensed', 'isPro', 'licenseMessage', 'lifecycleGrantsAccess', 'lifecycleNeedsOnlineRefresh', 'satisfiesRequirement', 'tier', 'tierAtLeast']);
-    assert.deepEqual(Object.keys(manifest.exports), ['.', './testing']);
-    assert.equal(manifest.exports['./testing'].default, null);
-    assert.deepEqual(Object.keys(manifest.exports['./testing']), ['development', 'default']);
+    assert.deepEqual(Object.keys(manifest.exports), ['.']);
     let code = null;
     try { import.meta.resolve('@rightkit/license/testing'); } catch (error) { code = error.code; }
-    assert.equal(code, 'ERR_PACKAGE_PATH_NOT_EXPORTED', 'the mock must not resolve without the development condition');
+    assert.equal(code, 'ERR_PACKAGE_PATH_NOT_EXPORTED', 'there is no testing export');
     assert.equal(Object.isFrozen(LICENSE_MESSAGES), true);
-    return { rootExports: 14, testingResolvesByDefault: false };
+    return { rootExports: 14, testingExport: false };
   });
 
   await run('status-projects-safe-view-and-drops-unknown-fields', async () => {
@@ -198,52 +194,7 @@ try {
     return { codes: 27 };
   });
 
-  await run('testing-mock-resolves-only-under-development-condition', async () => {
-    const script = `
-      import assert from 'node:assert/strict';
-      const testing = await import('@rightkit/license/testing');
-      const { createLicenseMock, RIGHTKIT_LICENSE_TESTING_DO_NOT_SHIP } = testing;
-      const keys = Object.keys(testing).sort();
-      const mock = createLicenseMock();
-      const lifecycles = [];
-      const stop = await mock.client.onChange(next => lifecycles.push(next.lifecycle));
-      const first = await mock.client.status();
-      const activated = await mock.client.activate('fixture-key');
-      const refreshed = await mock.client.refresh();
-      const deactivated = await mock.client.deactivate();
-      const accepted = await mock.client.requestTrial('person@example.invalid');
-      const refused = await mock.client.requestTrial('no-at-sign');
-      stop();
-      await mock.client.activate('after-stop');
-      let unsupported = null;
-      try { await mock.bridge.invoke('rightkit_license_nope'); } catch (error) { unsupported = error.code; }
-      let blankKey = null;
-      try { await mock.bridge.invoke('rightkit_license_activate', { key: '' }); } catch (error) { blankKey = [error.code, error.reason]; }
-      process.stdout.write(JSON.stringify({
-        keys, sentinel: mock.sentinel === RIGHTKIT_LICENSE_TESTING_DO_NOT_SHIP, tagged: Object.getOwnPropertyDescriptor(mock.bridge.invoke, RIGHTKIT_LICENSE_TESTING_DO_NOT_SHIP)?.value === true,
-        first: [first.lifecycle, first.revisionState], activated: [activated.lifecycle, activated.tier, activated.licenseIdSuffix], refreshed: refreshed.outcome,
-        deactivated: [deactivated.lifecycle, deactivated.revisionState], accepted, refused, lifecycles, unsupported, blankKey,
-      }));
-    `;
-    const child = spawnSync(process.execPath, ['--conditions=development', '--input-type=module', '-e', script], { cwd: fixtureDir, encoding: 'utf8', timeout: 30_000, env: { ...process.env, NODE_OPTIONS: '' } });
-    assert.equal(child.status, 0, `development-condition child failed: ${child.stderr}`);
-    const mock = JSON.parse(child.stdout.trim());
-    assert.deepEqual(mock.keys, ['RIGHTKIT_LICENSE_TESTING_DO_NOT_SHIP', 'createLicenseMock']);
-    assert.equal(mock.sentinel, true);
-    assert.equal(mock.tagged, true);
-    assert.deepEqual(mock.first, ['unlicensed', 'none']);
-    assert.deepEqual(mock.activated, ['active', 'pro', 'MOCK']);
-    assert.equal(mock.refreshed, 'refreshed');
-    assert.deepEqual(mock.deactivated, ['unlicensed', 'tombstone']);
-    assert.deepEqual(mock.accepted, { accepted: true, message: 'trialRequested' });
-    assert.deepEqual(mock.refused, { accepted: false, message: 'trialRefused' });
-    assert.deepEqual(mock.lifecycles, ['active', 'unlicensed'], 'change events stop after the unsubscribe');
-    assert.equal(mock.unsupported, 'unsupported');
-    assert.deepEqual(mock.blankKey, ['rejected', 'keyNotAccepted']);
-    return { condition: 'development', mockCommands: 5, eventsBeforeStop: mock.lifecycles.length };
-  });
-
-  assert.equal(result.scenarios.length, 8);
+  assert.equal(result.scenarios.length, 7);
   result.ok = true;
 } catch (error) {
   result.errors.push(failure(error));

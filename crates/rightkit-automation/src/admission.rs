@@ -6,6 +6,7 @@
 //! the outcome afterwards. With no hook installed every validated effect is admitted.
 
 use crate::model::*;
+use crate::policy::ResultKind;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EffectKind {

@@ -1,7 +1,7 @@
-//! `rightkit.journeys.receipt/1` (D5): the receipt types and [`validate_receipt`].
+//! `rightkit.journeys.receipt/2` (D5): the receipt types and [`validate_receipt`].
 //!
 //! [`validate_receipt`] never believes the receipt's `verdict`. It recomputes counts and verdict
-//! from the journeys, the provenance bindings, the isolation record, the adapter exit and (when
+//! from the journeys, the provenance bindings, the snapshot record, the adapter exit and (when
 //! supplied) the adapter's own `results.jsonl`, the manifest and the evidence files. A receipt is
 //! accepted only when [`Validation::passed`] is true: no problem found, recomputed verdict
 //! `passed` and claimed verdict `passed`. Anything that could not be checked because an input was
@@ -13,8 +13,8 @@
 //! A receipt that declares `"runner": "rightkit-qa"` must also carry the sections that make it
 //! checkable without trusting the runner: the build record binding (`build_record`), the step
 //! timing (`timing`, derived from each journey's `steps`), per journey the engine starts, the
-//! survivors, the tokens held and the world the scenario ran in (`world`: the actual launch
-//! environment and paths, never an assertion), and, when a budget applies, the budget verdicts.
+//! survivors, the tokens held and the launch the scenario made (`launch`: the actual launch
+//! environment and control endpoint, never an assertion), and, when a budget applies, the budget verdicts.
 //! [`validate_receipt`] recomputes every one of them from the other fields and from the manifest;
 //! a missing section is `truth_missing` (incomplete), a section that disagrees with its inputs is a
 //! named failure. A receipt without a `runner` field predates this and is validated as before, but
@@ -125,12 +125,26 @@ pub struct Launched {
     pub sha256: String,
 }
 
+/// The snapshot and restore the run was made under (rightkit#1437): the journeys ran on the owner's
+/// real data, and the restore was verified against the manifest before this receipt was written.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReceiptIsolation {
-    pub data_dir: String,
-    pub guard: String,
-    pub qa_mode: String,
-    pub real_data_touched: bool,
+pub struct ReceiptSnapshot {
+    pub snapshot_id: String,
+    /// sha256 of the snapshot's `manifest.json`, the one the live data was verified against.
+    pub manifest_sha256: String,
+    /// sha256 of the credential snapshot, when the app declares credential items.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credentials_sha256: Option<String>,
+    /// Data folders restored and verified.
+    pub roots: u32,
+    /// Credential items restored and verified.
+    pub credentials: u32,
+    /// The Android app's data dir (`[snapshot.android]`) was restored and its listing verified.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub android: bool,
+    /// The restore ran and every folder and item matched the manifest. Always `true` in a receipt
+    /// that passes.
+    pub restore_verified: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -175,9 +189,9 @@ pub struct ReceiptJourney {
     /// manifest declares for it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tokens_held: Option<Vec<Token>>,
-    /// The sandbox the scenario ran in, as the launch actually set it up.
+    /// The launch the scenario made, as the runner recorded it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub world: Option<JourneyWorld>,
+    pub launch: Option<JourneyLaunch>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -208,7 +222,7 @@ pub struct Receipt {
     pub mapping: Option<FileRef>,
     pub build: Build,
     pub launched: Vec<Launched>,
-    pub isolation: ReceiptIsolation,
+    pub snapshot: ReceiptSnapshot,
     pub adapter: AdapterRun,
     pub selection: ReceiptSelection,
     pub journeys: Vec<ReceiptJourney>,
@@ -346,7 +360,7 @@ pub fn validate_receipt(r: &Receipt, o: &ValidateOptions<'_>) -> Validation {
     check_formats(r, &mut p);
     let counts = check_journeys(r, &mut p);
     check_provenance(r, o, &mut p);
-    check_isolation_and_adapter(r, &mut p);
+    check_snapshot_and_adapter(r, &mut p);
     check_results(r, o, &counts, &mut p);
     check_manifest_binding(r, o, &mut p, &mut unchecked);
     check_evidence(r, o, &mut p, &mut unchecked);
@@ -744,30 +758,46 @@ fn check_provenance(r: &Receipt, o: &ValidateOptions<'_>, p: &mut Vec<Problem>) 
     }
 }
 
-/// Rules 6 and 7 (except the results hash, checked with the results) plus host binding.
-fn check_isolation_and_adapter(r: &Receipt, p: &mut Vec<Problem>) {
-    let iso = &r.isolation;
-    if iso.guard != "passed" {
+/// Rules 6 and 7 (except the results hash, checked with the results) plus host binding. Rule 6 is
+/// the snapshot: the journeys ran on the real data, and the restore was verified.
+fn check_snapshot_and_adapter(r: &Receipt, p: &mut Vec<Problem>) {
+    let snap = &r.snapshot;
+    if snap.snapshot_id.trim().is_empty() {
+        add(p, code::SNAPSHOT, None, "no snapshot id recorded");
+    }
+    if !is_hex_lower(&snap.manifest_sha256, 64) {
         add(
             p,
-            code::ISOLATION,
+            code::SNAPSHOT,
             None,
-            format!("isolation guard is {:?}, not \"passed\"", iso.guard),
+            "snapshot.manifest_sha256 is not 64 lowercase hex digits",
         );
     }
-    if iso.qa_mode != "runtime" {
+    if let Some(c) = &snap.credentials_sha256 {
+        if !is_hex_lower(c, 64) {
+            add(
+                p,
+                code::SNAPSHOT,
+                None,
+                "snapshot.credentials_sha256 is not 64 lowercase hex digits",
+            );
+        }
+    }
+    if snap.roots == 0 && !snap.android {
         add(
             p,
-            code::ISOLATION,
+            code::SNAPSHOT,
             None,
-            format!("qa_mode is {:?}, not \"runtime\"", iso.qa_mode),
+            "the snapshot covers no data folder",
         );
     }
-    if iso.real_data_touched {
-        add(p, code::ISOLATION, None, "real user data was touched");
-    }
-    if iso.data_dir.trim().is_empty() {
-        add(p, code::ISOLATION, None, "no isolated data_dir recorded");
+    if !snap.restore_verified {
+        add(
+            p,
+            code::SNAPSHOT,
+            None,
+            "the restore of the real data was not verified against the snapshot manifest",
+        );
     }
     // Nothing launched is NO_LAUNCH (incomplete); the adapter never ran, so its exit code says nothing.
     if r.adapter.exit_code != 0 && !r.launched.is_empty() {
@@ -942,7 +972,7 @@ fn check_results(r: &Receipt, o: &ValidateOptions<'_>, counts: &Counts, p: &mut 
         }
     }
 
-    // start: protocol, isolation, artifact digests.
+    // start: protocol, snapshot, artifact digests.
     if let Some(s) = starts.first() {
         if s.protocol != PROTOCOL {
             add(
@@ -952,15 +982,12 @@ fn check_results(r: &Receipt, o: &ValidateOptions<'_>, counts: &Counts, p: &mut 
                 format!("start.protocol is {}", s.protocol),
             );
         }
-        if s.isolation.guard != "passed"
-            || s.isolation.qa_mode != "runtime"
-            || s.isolation.data_dir.trim().is_empty()
-        {
+        if s.snapshot_id.trim().is_empty() || s.snapshot_id != r.snapshot.snapshot_id {
             add(
                 p,
-                code::ISOLATION,
+                code::SNAPSHOT,
                 None,
-                "start.isolation is not guard passed, qa_mode runtime",
+                "start.snapshot_id is not the id of the snapshot the run was made under",
             );
         }
         for a in &s.artifacts {
@@ -1265,7 +1292,7 @@ pub const COLD_STEP_KINDS: [&str; 3] = ["cold_cli", "restart", "kill"];
 /// Problem codes added by the truthful-receipt rules. The older rules keep their codes in [`code`];
 /// the rules of this change are listed together. Rules that reuse an older code (`source_mismatch`,
 /// `artifact_mismatch`, `artifact_not_from_build`, `build_record_stale`, `build_not_attested`,
-/// `qa_marker_missing`, `isolation`, `host_mismatch`, `evidence_mismatch`) say so at the rule.
+/// `qa_marker_missing`, `snapshot`, `host_mismatch`, `evidence_mismatch`) say so at the rule.
 pub mod truth_code {
     /// A section a `rightkit-qa` receipt must carry is absent (verdict `incomplete`).
     pub const TRUTH_MISSING: &str = "truth_missing";
@@ -1556,45 +1583,30 @@ pub struct ControlAuth {
     pub token_less_refused: bool,
 }
 
-/// The sandbox one scenario ran in, recorded from the launch the runner actually made: the world's
-/// paths, how the app was told its data directory, and the isolation-relevant environment as set.
-/// Every path is text so a receipt can be checked on another host.
+/// The launch one scenario made, recorded from what the runner actually did: its control endpoint,
+/// port range, process marker and the `RIGHTKIT_*` part of the launch environment. The app runs on
+/// the owner's real data, so there is no data directory or home here. Every path is text so a
+/// receipt can be checked on another host.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct JourneyWorld {
+pub struct JourneyLaunch {
     pub run_root: String,
-    pub dir: String,
-    pub data_dir: String,
-    pub home: String,
-    pub temp: String,
     pub control_socket: String,
     pub control_token_file: String,
     pub port_start: u16,
     pub port_end: u16,
-    /// The world marker D-c puts in every process environment of the world.
+    /// The marker D-c puts in every process environment of the scenario.
     pub marker: EnvMarker,
-    /// Environment variable through which the app was told its data directory.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub data_dir_env: Option<String>,
-    /// Flag through which the app was told its data directory (`--data-dir <dir>` or `--data-dir=<dir>`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub data_dir_arg: Option<String>,
-    /// The arguments the app was started with (checked for `data_dir_arg`).
-    #[serde(default)]
-    pub args: Vec<String>,
-    /// The launch environment as set, reduced by [`isolation_env`] (isolation keys, `RIGHTKIT_*`
-    /// keys and the marker). Never a credential: the launch refuses those.
+    /// The launch environment as set, reduced by [`launch_env`] (`RIGHTKIT_*` keys and the marker).
+    /// Never a credential: the launch refuses those.
     pub env: BTreeMap<String, String>,
     /// How the control token was handled; present for every scenario that drove an app.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub control_auth: Option<ControlAuth>,
 }
 
-/// What the runner knows about one launch beyond the world: input of [`JourneyWorld::from_world`].
+/// What the runner knows about one launch beyond the scenario slot: input of [`JourneyLaunch::from_world`].
 #[derive(Debug, Clone, Default)]
 pub struct LaunchFacts<'a> {
-    pub data_dir_env: Option<&'a str>,
-    pub data_dir_arg: Option<&'a str>,
-    pub args: &'a [String],
     /// The full environment the child was given.
     pub env: &'a [(String, String)],
     pub control_auth: Option<ControlAuth>,
@@ -1604,47 +1616,27 @@ fn text(p: &Path) -> String {
     p.to_string_lossy().into_owned()
 }
 
-impl JourneyWorld {
-    /// The record of `world` (as written into `scenario.json`) and the launch made in it.
+impl JourneyLaunch {
+    /// The record of the scenario slot `world` (as written into `scenario.json`) and the launch made in it.
     pub fn from_world(world: &World, run_root: &Path, facts: LaunchFacts<'_>) -> Self {
-        JourneyWorld {
+        JourneyLaunch {
             run_root: text(run_root),
-            dir: text(&world.dir),
-            data_dir: text(&world.data_dir),
-            home: text(&world.home),
-            temp: text(&world.temp),
             control_socket: text(&world.control_socket),
             control_token_file: text(&world.control_token_file),
             port_start: world.port_start,
             port_end: world.port_end,
             marker: world.env_marker.clone(),
-            data_dir_env: facts.data_dir_env.map(str::to_string),
-            data_dir_arg: facts.data_dir_arg.map(str::to_string),
-            args: facts.args.to_vec(),
-            env: isolation_env(facts.env, &world.env_marker.name),
+            env: launch_env(facts.env, &world.env_marker.name),
             control_auth: facts.control_auth,
         }
     }
 }
 
-/// An environment key that names a directory the app keeps state in: the same rule the launch
-/// guard applies (`userdata::engine_dirs_violation`).
-fn is_isolation_key(key: &str) -> bool {
-    let up = key.to_ascii_uppercase();
-    ["DATA", "HOME", "PROFILE", "CONFIG"]
-        .iter()
-        .any(|w| up.contains(w))
-        || matches!(
-            up.as_str(),
-            "APPDATA" | "LOCALAPPDATA" | "TMPDIR" | "TEMP" | "TMP"
-        )
-}
-
-/// The part of a launch environment a receipt records: isolation keys, `RIGHTKIT_*` keys and the
-/// world marker. The last value of a repeated key wins, as with `Command::env`.
-pub fn isolation_env(env: &[(String, String)], marker_name: &str) -> BTreeMap<String, String> {
+/// The part of a launch environment a receipt records: `RIGHTKIT_*` keys and the scenario marker.
+/// The last value of a repeated key wins, as with `Command::env`.
+pub fn launch_env(env: &[(String, String)], marker_name: &str) -> BTreeMap<String, String> {
     env.iter()
-        .filter(|(k, _)| k == marker_name || k.starts_with("RIGHTKIT_") || is_isolation_key(k))
+        .filter(|(k, _)| k == marker_name || k.starts_with("RIGHTKIT_"))
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect()
 }
@@ -1941,13 +1933,13 @@ fn check_truthful(
     let window_bound = o.manifest.is_some_and(|(m, _)| m.budget.is_some());
     check_budget(r, p, unchecked, required, window_bound);
     check_journey_truth(r, o, p);
-    check_worlds(r, o, p, required);
+    check_launches(r, o, p, required);
 }
 
 /// Every section a `rightkit-qa` receipt must carry. A journey that never ran (`missing`) has none.
 /// A journey the manifest runs through an adapter (`runner = "adapter"`) executes inside the
 /// adapter's own process: the runner cannot see its steps or its engine starts, so those two are
-/// not required of it (survivors, tokens and the world still are).
+/// not required of it (survivors, tokens and the launch still are).
 fn check_sections_present(r: &Receipt, o: &ValidateOptions<'_>, p: &mut Vec<Problem>) {
     let mut miss = |id: Option<&str>, what: &str| {
         add(
@@ -1992,8 +1984,8 @@ fn check_sections_present(r: &Receipt, o: &ValidateOptions<'_>, p: &mut Vec<Prob
         if j.tokens_held.is_none() {
             miss(id, "tokens_held (an empty list when none)");
         }
-        if j.world.is_none() {
-            miss(id, "world (the launch the scenario ran in)");
+        if j.launch.is_none() {
+            miss(id, "launch (the launch the scenario made)");
         }
     }
 }
@@ -2398,6 +2390,20 @@ fn check_journey_truth(r: &Receipt, o: &ValidateOptions<'_>, p: &mut Vec<Problem
             if let Some(problem) = engine_start_problem(e, steps) {
                 add(p, truth_code::ENGINE_STARTS, id, problem);
             }
+            // A receipt that reaches these checks was written by this runner, which carries the
+            // per-kind counts whenever an engine started. Without them only the step rule applies,
+            // and that rule lets a `kill` with no replacement earn an allowed start (rightkit#942 N4).
+            if e.total > 0 && e.counts.is_none() {
+                add(
+                    p,
+                    truth_code::ENGINE_STARTS,
+                    id,
+                    format!(
+                        "{} engine start(s) recorded without the per-kind counts: a current-version receipt must carry engine-starts counts whenever an engine started",
+                        e.total
+                    ),
+                );
+            }
         }
         if let Some(held) = &j.tokens_held {
             let mut seen = BTreeSet::new();
@@ -2488,26 +2494,11 @@ fn same_path(a: &str, b: &str) -> bool {
     }
 }
 
-/// Value of the last `flag <value>` / `flag=<value>` in `args`.
-fn arg_value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
-    let mut found = None;
-    for (i, a) in args.iter().enumerate() {
-        if a == flag {
-            found = args.get(i + 1).map(String::as_str);
-        } else if let Some(v) = a.strip_prefix(flag).and_then(|r| r.strip_prefix('=')) {
-            found = Some(v);
-        }
-    }
-    found
-}
-
-/// Isolation from the launch the runner actually made: every world path under the run root, the
-/// data directory the app was told is the one recorded, the isolation-relevant environment points
-/// into the run root, no two scenarios share a world, and the control token is owner-only and
-/// enforced.
-fn check_worlds(r: &Receipt, o: &ValidateOptions<'_>, p: &mut Vec<Problem>, required: bool) {
+/// The launch the runner actually made: the control endpoint under the run root, a usable port
+/// range, a process marker that is in the recorded environment and unique to the scenario, and the
+/// control token owner-only and enforced.
+fn check_launches(r: &Receipt, o: &ValidateOptions<'_>, p: &mut Vec<Problem>, required: bool) {
     let mut markers: BTreeSet<&str> = BTreeSet::new();
-    let mut data_dirs: Vec<(&str, &str)> = vec![];
     let mut roots: Vec<&str> = vec![];
     for j in &r.journeys {
         let id = Some(j.id.as_str());
@@ -2515,7 +2506,7 @@ fn check_worlds(r: &Receipt, o: &ValidateOptions<'_>, p: &mut Vec<Problem>, requ
             .manifest
             .and_then(|(m, _)| m.journey.iter().find(|x| x.id == j.id))
             .map(|x| x.surface.as_str());
-        let Some(w) = &j.world else {
+        let Some(w) = &j.launch else {
             continue;
         };
         if !roots.iter().any(|x| same_path(x, &w.run_root)) {
@@ -2524,27 +2515,23 @@ fn check_worlds(r: &Receipt, o: &ValidateOptions<'_>, p: &mut Vec<Problem>, requ
         if components(&w.run_root, looks_windows(&w.run_root)).is_none_or(|c| c.is_empty()) {
             add(
                 p,
-                code::ISOLATION,
+                code::SNAPSHOT,
                 id,
-                format!("world.run_root {:?} is not an absolute path", w.run_root),
+                format!("launch.run_root {:?} is not an absolute path", w.run_root),
             );
             continue;
         }
         for (label, path) in [
-            ("dir", &w.dir),
-            ("data_dir", &w.data_dir),
-            ("home", &w.home),
-            ("temp", &w.temp),
             ("control_socket", &w.control_socket),
             ("control_token_file", &w.control_token_file),
         ] {
             if !path_under(&w.run_root, path) {
                 add(
                     p,
-                    code::ISOLATION,
+                    code::SNAPSHOT,
                     id,
                     format!(
-                        "world.{label} {path:?} is not under the run root {:?}",
+                        "launch.{label} {path:?} is not under the run root {:?}",
                         w.run_root
                     ),
                 );
@@ -2553,24 +2540,24 @@ fn check_worlds(r: &Receipt, o: &ValidateOptions<'_>, p: &mut Vec<Problem>, requ
         if w.port_start < crate::worker::MIN_WORLD_PORT || w.port_start > w.port_end {
             add(
                 p,
-                code::ISOLATION,
+                code::SNAPSHOT,
                 id,
                 format!(
-                    "world port range {}-{} is invalid",
+                    "launch port range {}-{} is invalid",
                     w.port_start, w.port_end
                 ),
             );
         }
         if w.marker.name.is_empty() || w.marker.value.trim().is_empty() {
-            add(p, code::ISOLATION, id, "world marker is empty");
+            add(p, code::SNAPSHOT, id, "launch marker is empty");
         } else {
             if w.env.get(&w.marker.name) != Some(&w.marker.value) {
                 add(
                     p,
-                    code::ISOLATION,
+                    code::SNAPSHOT,
                     id,
                     format!(
-                        "the world marker {} is not in the launch environment the receipt records",
+                        "the launch marker {} is not in the launch environment the receipt records",
                         w.marker.name
                     ),
                 );
@@ -2578,82 +2565,9 @@ fn check_worlds(r: &Receipt, o: &ValidateOptions<'_>, p: &mut Vec<Problem>, requ
             if !markers.insert(w.marker.value.as_str()) {
                 add(
                     p,
-                    code::ISOLATION,
+                    code::SNAPSHOT,
                     id,
-                    "two scenarios carry the same world marker: they shared a world",
-                );
-            }
-        }
-        if let Some((_, other)) = data_dirs.iter().find(|(d, _)| same_path(d, &w.data_dir)) {
-            add(
-                p,
-                code::ISOLATION,
-                id,
-                format!("scenario shares its data directory with journey {other}"),
-            );
-        }
-        data_dirs.push((w.data_dir.as_str(), j.id.as_str()));
-        let mut told = false;
-        if let Some(name) = &w.data_dir_env {
-            told = true;
-            match w.env.get(name) {
-                Some(v) if same_path(v, &w.data_dir) => {}
-                Some(v) => add(
-                    p,
-                    code::ISOLATION,
-                    id,
-                    format!("the app was told its data directory through {name}={v:?}, not the recorded {:?}", w.data_dir),
-                ),
-                None => add(
-                    p,
-                    code::ISOLATION,
-                    id,
-                    format!("the launch environment has no {name}, the variable the data directory went through"),
-                ),
-            }
-        }
-        if let Some(flag) = &w.data_dir_arg {
-            told = true;
-            match arg_value(&w.args, flag) {
-                Some(v) if same_path(v, &w.data_dir) => {}
-                Some(v) => add(
-                    p,
-                    code::ISOLATION,
-                    id,
-                    format!("the app was started with {flag} {v:?}, not the recorded data directory {:?}", w.data_dir),
-                ),
-                None => add(
-                    p,
-                    code::ISOLATION,
-                    id,
-                    format!("the app's arguments do not carry {flag}"),
-                ),
-            }
-        }
-        if !told {
-            add(
-                p,
-                code::ISOLATION,
-                id,
-                "no record of how the app was told its data directory (data_dir_env or data_dir_arg)",
-            );
-        }
-        for (k, v) in &w.env {
-            let names_a_dir = is_isolation_key(k)
-                || k == "RIGHTKIT_SUITE_ROOT"
-                || k == crate::control::token::ENV_AUTH_FILE;
-            if names_a_dir
-                && components(v, looks_windows(v)).is_some()
-                && !path_under(&w.run_root, v)
-            {
-                add(
-                    p,
-                    code::ISOLATION,
-                    id,
-                    format!(
-                        "launch environment {k}={v:?} points outside the run root {:?}",
-                        w.run_root
-                    ),
+                    "two scenarios carry the same launch marker: they shared a slot",
                 );
             }
         }
@@ -2664,7 +2578,7 @@ fn check_worlds(r: &Receipt, o: &ValidateOptions<'_>, p: &mut Vec<Problem>, requ
                         p,
                         truth_code::CONTROL_AUTH,
                         id,
-                        "the control token file is not the world's control_token_file",
+                        "the control token file is not the launch's control_token_file",
                     );
                 }
                 if !a.owner_only {
@@ -2705,7 +2619,7 @@ fn check_worlds(r: &Receipt, o: &ValidateOptions<'_>, p: &mut Vec<Problem>, requ
                         p,
                         truth_code::CONTROL_AUTH,
                         id,
-                        "a native-ui journey drives the app's control server: its world must record the control token handling",
+                        "a native-ui journey drives the app's control server: its launch must record the control token handling",
                     );
                 }
             }
@@ -2714,23 +2628,10 @@ fn check_worlds(r: &Receipt, o: &ValidateOptions<'_>, p: &mut Vec<Problem>, requ
     if roots.len() > 1 {
         add(
             p,
-            code::ISOLATION,
+            code::SNAPSHOT,
             None,
             "the journeys record different run roots",
         );
-    }
-    if let Some(root) = roots.first() {
-        if !r.isolation.data_dir.trim().is_empty() && !path_under(root, &r.isolation.data_dir) {
-            add(
-                p,
-                code::ISOLATION,
-                None,
-                format!(
-                    "isolation.data_dir {:?} is not under the run root {root:?} the launches record",
-                    r.isolation.data_dir
-                ),
-            );
-        }
     }
 }
 

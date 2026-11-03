@@ -255,16 +255,9 @@ impl SidecarHandle {
 }
 
 pub fn build_history_store() -> Result<Box<dyn HistoryStore>, String> {
-    // The RIGHTKIT_HISTORY=json escape hatch is debug-only: a release build must
-    // never let an env var downgrade encrypted history to plaintext JSON. In release,
-    // json_only is driven solely by whether Pass 3 (encrypted history) is enabled.
-    #[cfg(feature = "test-mode")]
-    let env_json_only = std::env::var("RIGHTKIT_HISTORY")
-        .map(|v| v.eq_ignore_ascii_case("json"))
-        .unwrap_or(false);
-    #[cfg(not(feature = "test-mode"))]
-    let env_json_only = false;
-    let json_only = env_json_only || !crate::host::host().encrypted_history_enabled();
+    // No environment variable can downgrade encrypted history to plaintext JSON: json_only is
+    // driven solely by whether Pass 3 (encrypted history) is enabled.
+    let json_only = !crate::host::host().encrypted_history_enabled();
     let mut store: Box<dyn HistoryStore> = if json_only {
         crate::host::host().open_json_history()?
     } else {
@@ -277,7 +270,7 @@ pub fn build_history_store() -> Result<Box<dyn HistoryStore>, String> {
                 );
                 return Err(format!(
                     "encrypted history init failed: {err}. \
-                     Set RIGHTKIT_HISTORY=json only for explicit dev/debug fallback."
+                     Plaintext JSON history is never a fallback."
                 ));
             }
         }

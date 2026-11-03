@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0 (unpublished)
+
+Breaking: the trust store is public and keyed by a subject, and the crate gains a transport layer (rightkit#407; Pulse replaces `core/src/localsend` and the mesh re-implementation of the send rules in `engine/src/share_mesh.rs`).
+
+- Added: `transport` module. `Transport` (peers, `send_small`, `send_file`, `path_of`) is what a host implements for a channel that is not LocalSend's HTTPS (a device mesh). `Sender` sends text and files over it (Deny gate, one text as one small item, files as a chunked manifest, an announce and one stream per file named `b<16 hex>/<path>`); `Receiver` applies the receive rules (trust admission, unproven limits from `Policy`, the whole manifest approved once, each stream accepted only for a name in it, once, at no more than its declared size, bounded manifest storage, expiry of unstarted and stalled batches, text replay suppression). `strict_relative` refuses, never rewrites, names with `..`, absolute or UNC paths, backslashes, control or bidi characters, and on Windows reserved device names, trailing dots or spaces and `<>:"|?*`. The small-item wire (`Small`, tag `t`: `text`, `manifest`, `batch`) is the one Pulse's mesh already speaks. Not carried: Pulse's agent-chat quota and disk-reserve rules, LAN twin binding, hub log lines (those stay in the host; a batch's `agent` tag is passed through untouched).
+- Added: `TrustSubject`, the generic trust key (lowercase, 1 to 128 characters, no whitespace or control characters): `TrustSubject::tls_fingerprint` for a LocalSend peer, `TrustSubject::new` for any other proven identifier such as a mesh `dev_<32 hex>` id. It is stored in the record's existing `fingerprint` field, so every stored trust file and the Swift SendKit layout read unchanged. `TrustEntry::subject()`.
+- Changed (breaking): `trust::TrustStore` is `pub` (it was crate-private), so a host can keep a mesh trust file with the same Allow, Ask and Deny records, `set_label`, `forget`, default state and unreadable-file hold. Its keyed methods take `impl AsRef<str>` (a `&str`, a `String` or a `TrustSubject`). New `TrustStore::admission(subject, proven) -> Admission`: Deny refuses, Allow accepts only from a proven peer, everything else asks. `Admission` is exported.
+- Added: `commands` module, a JSON command surface over `Service` (`invoke`, `COMMANDS`) for a Tauri host to register as one command; no webview dependency. Used by `@rightkit/send-ui`.
+- Added: `SERVICE_TYPE` (`_pulse-send._tcp`), the Bonjour type registered and browsed by the `bonjour` feature, exported for hosts that declare it elsewhere (Pulse #251).
+- Added: `Error` variants `InvalidSubject`, `TextTooLarge`, `NameRefused`, `ItemFailed`, `FileFailed`, `UnknownCommand`, `BadArguments` (the enum is `non_exhaustive`).
+- Not built or run: written without compiling; the next gate run is the first compile. End-to-end proof needs Pulse's mesh transport carrying a real send between two devices.
+
 ## 0.3.1 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

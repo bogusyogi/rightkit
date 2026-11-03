@@ -211,8 +211,7 @@ pub enum TokenPlanError {
 pub const TOKEN_PLAN_SERVICE: &str = "rightkit-agent-token-plan";
 
 /// Store/load a [`TokenPlanCredential`] through any [`KeyStoreBackend`] —
-/// the real OS keychain ([`crate::agent_providers::keystore::OsKeyStore`]) or the in-memory
-/// test fake ([`crate::agent_providers::keystore::InMemoryKeyStore`]) — the same seam
+/// the real OS keychain ([`crate::agent_providers::keystore::OsKeyStore`]) — the same seam
 /// provider API keys already use.
 pub struct TokenPlanStore;
 

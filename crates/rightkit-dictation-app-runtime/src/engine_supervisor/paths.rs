@@ -4,23 +4,11 @@
 use std::path::Path;
 use std::path::PathBuf;
 
-/// Path resolution: the sidecar binary lives next to the shell binary in
-/// the installed build, and at `../rightkit-dictation-engine/target/<profile>/` in
-/// dev. `RIGHTKIT_ENGINE_BIN` overrides for QA / custom layouts.
+/// Path resolution: the sidecar binary lives next to the shell binary in the installed build
+/// (or in the macOS bundle's `Resources`). No environment variable and no source-checkout path
+/// redirects it, so the shipped app cannot be pointed at an arbitrary binary that would inherit
+/// its TCC grants.
 pub fn resolve_engine_bin() -> Option<std::path::PathBuf> {
-    // QA/dev override only — gated to debug builds. A shipped (release) app
-    // always resolves the sidecar relative to `current_exe`, so it can't be
-    // redirected to an arbitrary binary that would inherit its TCC grants.
-    // Defense-in-depth: even in debug builds, reject a relative override
-    // path — a relative path like \".\" or \"../malicious\" could silently
-    // resolve to something unintended and inherit the app's TCC / mic /
-    // accessibility grants (ra-029, SECURITY.md §1).
-    #[cfg(feature = "test-mode")]
-    if let Some(path) =
-        resolve_engine_override(rightkit_dictation_core::dev_var_os!("RIGHTKIT_ENGINE_BIN"))
-    {
-        return Some(path);
-    }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
             let sibling = parent.join(engine_bin_name());
@@ -36,32 +24,7 @@ pub fn resolve_engine_bin() -> Option<std::path::PathBuf> {
             }
         }
     }
-    #[cfg(feature = "test-mode")]
-    {
-        // Dev: look for the freshly built sidecar. Caller can override via
-        // `RIGHTKIT_ENGINE_BIN` if a different layout is in use.
-        let sidecar_dir =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../rightkit-dictation-engine/target");
-        for profile in ["debug", "release"] {
-            let dev = sidecar_dir.join(profile).join(engine_bin_name());
-            if dev.exists() {
-                return Some(dev);
-            }
-        }
-    }
     None
-}
-
-#[cfg(feature = "test-mode")]
-fn resolve_engine_override(value: Option<std::ffi::OsString>) -> Option<PathBuf> {
-    let path = PathBuf::from(value?);
-    path.is_absolute().then_some(path)
-}
-
-#[doc(hidden)]
-#[cfg(feature = "test-mode")]
-pub fn resolve_engine_override_for_test(value: Option<std::ffi::OsString>) -> Option<PathBuf> {
-    resolve_engine_override(value)
 }
 
 use crate::host::engine_bin_name;

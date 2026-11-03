@@ -25,14 +25,17 @@ mod limits;
 mod names;
 mod query;
 mod store;
+mod walk;
 
 pub use config::*;
 pub use error::{Error, Result};
 pub use index::{
     Change, ChangeBatch, ChangeKind, EntryKind, Hit, Index, Item, RescanDeferral, RollupUpdate,
-    RootStatus, SearchOptions, SizeInfo, SortKey, Status, StorageStatus, WriteBudgetStatus,
+    RootStatus, SearchOptions, SizeInfo, SortKey, Status, StorageStatus, WatchCounters,
+    WriteBudgetStatus,
 };
 pub use query::Query;
+pub use walk::{Walk, WalkEntry, WalkOptions};
 
 /// macOS typed FSEvents watcher (0.2.0). See [`FsEventsWatcher`].
 #[cfg(target_os = "macos")]

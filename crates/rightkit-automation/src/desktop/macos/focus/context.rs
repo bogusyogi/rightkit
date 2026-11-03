@@ -14,7 +14,9 @@ use super::super::ffi::{
     ax_string_bounded, ax_system_element, bounded_proof_string, AXIsProcessTrusted, AXUIElementRef,
     AXUIElementSetMessagingTimeout, AX_MESSAGING_TIMEOUT_SECONDS,
 };
+use super::super::frontmost::frontmost;
 use super::pin::{focus_pin_running_identity_matches, FocusPin};
+use core_foundation::string::CFString;
 
 /// Accessibility snapshot of the focused text field — on-device context that
 /// grounds app-aware polish in what the user is actually writing. Uses the AX

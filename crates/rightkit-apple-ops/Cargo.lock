@@ -1264,29 +1264,33 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "libc 0.2.191",
  "windows",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
+ "core-foundation",
  "getrandom 0.4.3",
  "rightkit-child-process",
  "rightkit-fs",
  "rightkit-sidecar",
+ "security-framework",
  "serde",
  "serde_json",
  "subtle",
  "windows",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "rightkit-db"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "libc 0.2.191",
  "rightkit-fs",
@@ -1307,16 +1311,17 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.10"
+version = "0.4.12"
 dependencies = [
  "libc 0.2.191",
  "sha2",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-job-queue"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "rightkit-child-process",
  "rightkit-db",

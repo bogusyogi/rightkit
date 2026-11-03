@@ -96,7 +96,7 @@ const TRUSTED_COVERAGE = Object.freeze({
       "engine": "not activated or qualified by these rows; EngineHost sidecar/presence/supervisor requires separate held-resource workload",
       "license,update,update-license,overlay,pdf-host": "not activated or qualified by these rows; final adapter owners must classify extra held-resource work versus focused stateless command qualification",
       "content-devtools": "enabled only in native-host rows to register ContentWebview and exercise settings/secrets ACL refusal; DevTools inspection is not qualified and needs its own allowed-app native qualification",
-      "dev-overrides,qa-probes": "development-only; excluded from published runtime workload",
+      "qa-probes": "development-only; excluded from published runtime workload",
     }),
     workloads: Object.freeze([
       Object.freeze({ id: "native-shell-wv2-0_38", features: "wv2-0_38", noDefaultFeatures: true, bench: "budget_native", trailing: Object.freeze([]), env: Object.freeze([]), intervalMs: 1000, description: "CI isolated native Wry shell, 0.38 binding: paired bare/watchdog children, 5 s settling, then 30 s observation" }),

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{id::HostId, require_version, ContractError};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -7,7 +7,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const RECIPE_ID = 'qa-public-exports-pure';
-const EXPECTED_VERSION = '0.6.2';
+const EXPECTED_VERSION = '0.7.0';
 const SPECIFIERS = ['@rightkit/qa', '@rightkit/qa/chrome', '@rightkit/qa/ts-hooks', '@rightkit/qa/ts-register'];
 const result = {
   recipeId: RECIPE_ID, schemaVersion: 1, ok: false,
@@ -118,8 +118,7 @@ try {
     assert.throws(() => root.assertNativeQaContract(bad), /legacy WDIO QA contract failed/);
     const good = {
       cargoToml: 'tauri-plugin-wdio-webdriver = { version = "1", optional = true }\nqa-native = ["dep:tauri-plugin-wdio-webdriver"]\n',
-      rustSource: '#[cfg(all(not(debug_assertions), feature = "qa-native"))]\ncompile_error!("qa-native is debug only");\n'
-        + '#[cfg(all(debug_assertions, feature = "qa-native"))]\ntauri_plugin_wdio_webdriver::init();\n// RIGHTKIT_QA_NATIVE\n',
+      rustSource: '#[cfg(feature = "qa-native")]\ntauri_plugin_wdio_webdriver::init();\n// RIGHTKIT_QA_NATIVE\n',
       packageScripts: {},
     };
     const acceptedIssues = root.validateLegacyWdioQaContract(good);

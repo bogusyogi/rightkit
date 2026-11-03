@@ -9,7 +9,7 @@ use crate::engine::{build_engine, EngineTarget};
 use crate::evidence::{Bundle, Check, CheckStatus, RunStatus};
 use crate::lock::{self, LockOptions};
 use crate::plugin::PluginSpec;
-use crate::pool::{self, HomeTemplate, Job, Pool, SpecInputs, WorldPlan};
+use crate::pool::{self, Job, Pool, SpecInputs, WorldPlan};
 use crate::process::{sweep_registries, Tracker};
 use crate::scenario::{
     discover, requirement_gate, resolve_run_kind, run_step, scenario_kind, tier_selected,
@@ -275,9 +275,6 @@ fn engine_target_for(cfg: &QaConfig, binary: PathBuf, tier: &str) -> EngineTarge
     env.push(("RIGHTKIT_QA_MUTE".into(), "1".into()));
     EngineTarget {
         env,
-        data_dir_env: cfg.engine.data_dir_env.clone(),
-        data_dir_arg: cfg.engine.data_dir_arg.clone(),
-        forbidden_args: cfg.engine.forbidden_args.clone(),
         ..EngineTarget::new(binary)
     }
 }
@@ -340,7 +337,7 @@ fn ui_binary(cfg: &QaConfig, opts: &SuiteOptions, tracker: &Tracker) -> Result<O
             Ok(Some(found.path))
         }
         // A found-but-not-QA build fails closed with its instructive message.
-        Err(err) if err.0.contains("test-mode/control build") => Err(err),
+        Err(err) if err.0.contains("QA control build") => Err(err),
         Err(err) => {
             eprintln!("[qa] dev-build resolver: {err}; falling back to ui.binaries");
             // Same rule as every other source: launch from the fixed stash, not from `target/`.
@@ -428,7 +425,24 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// A run on the owner's real data (rightkit#1437): snapshot before anything launches, restore and
+/// verify when the run ends in any way. `[snapshot]` is required.
 fn run_suite_at(
+    cfg: &QaConfig,
+    opts: &SuiteOptions,
+    managed_override: Option<&Path>,
+    policy: RunPolicy,
+) -> Result<SuiteReport> {
+    let snapshot = cfg.require_snapshot()?;
+    let managed_root = managed_override
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| crate::storage::managed_root(None));
+    let armed = crate::snapshot::arm(&cfg.app, snapshot, &managed_root)?;
+    let result = run_suite_inner(cfg, opts, managed_override, policy);
+    crate::snapshot::finish(armed, result)
+}
+
+fn run_suite_inner(
     cfg: &QaConfig,
     opts: &SuiteOptions,
     managed_override: Option<&Path>,
@@ -635,7 +649,6 @@ fn run_suite_at(
             pool::host_pool_size(&cfg.host, jobs.len(), serial)
         };
         let plan = WorldPlan::new(run_id.clone(), ws.home.clone(), &cfg.host, jobs.len())?;
-        let template = HomeTemplate::capture(&ws.home)?;
         println!("[qa] pool: {} worker(s) ({})", size.workers, size.reason);
         let env = RunEnv {
             cfg,
@@ -644,7 +657,6 @@ fn run_suite_at(
             engine: engine.as_ref(),
             ui: ui.as_deref(),
             ws: &ws,
-            template: Some(&template),
             bundle: &bundle,
             tier: &tier,
             plugin: opts.plugin.as_ref(),
@@ -817,9 +829,6 @@ struct RunEnv<'a> {
     engine: Option<&'a EngineTarget>,
     ui: Option<&'a Path>,
     ws: &'a QaWorkspace,
-    /// How a world home is built. `Some` in the runner; `None` in a worker, which is handed a world
-    /// the runner already built ([`run_spec`]).
-    template: Option<&'a HomeTemplate>,
     bundle: &'a Mutex<Bundle>,
     /// The run's tier, in the engine's environment ([`engine_target_for`]).
     tier: &'a str,
@@ -888,12 +897,9 @@ fn run_scenario(
     conclude(env, sc, world, started, executed)
 }
 
-/// Build the world's workspace (its directories, binding and environment). The runner's step.
+/// Build the scenario slot's workspace (its directories, control token and environment). The runner's step.
 fn prepare_world(env: &RunEnv<'_>, spec: &ScenarioSpec, world: &World) -> Result<QaWorkspace> {
-    let template = env
-        .template
-        .ok_or_else(|| Error("no home template: only the runner builds a scenario world".into()))?;
-    pool::world_workspace(env.ws, template, world, &spec.grants)
+    pool::world_workspace(env.ws, world, &spec.grants)
 }
 
 /// [`execute`] behind a panic guard: a panic kills what the scenario's tracker holds and is
@@ -1018,6 +1024,7 @@ fn worker_runtime(
         "plugin": env.plugin.map(plugin_json),
         "workspace": {
             "root": wsw.root.to_string_lossy(),
+            "home": wsw.home.to_string_lossy(),
             "evidenceDir": wsw.evidence_dir.to_string_lossy(),
             "captureDir": wsw.capture_dir.to_string_lossy(),
             "env": wsw.env,
@@ -1278,8 +1285,7 @@ pub fn run_spec(spec: &ScenarioSpec) -> Result<WorkerOutcome> {
     let ws = QaWorkspace {
         run_id: spec.run_id.clone(),
         root: wpath("root")?,
-        home: spec.world.home.clone(),
-        data_dir: spec.world.data_dir.clone(),
+        home: wpath("home")?,
         evidence_dir: wpath("evidenceDir")?,
         capture_dir: wpath("captureDir")?,
         env: wsv
@@ -1316,7 +1322,6 @@ pub fn run_spec(spec: &ScenarioSpec) -> Result<WorkerOutcome> {
         engine: engine.as_ref(),
         ui: ui.as_deref(),
         ws: &ws,
-        template: None,
         bundle: &bundle,
         tier: &tier,
         plugin: plugin.as_ref(),
@@ -1520,19 +1525,13 @@ fn execute(
         None => ui_launched.then_some(false),
     };
     let mut launch_env = match &ctx.engine {
-        Some(e) => e.env_for(Some(&ctx.data_dir), &[]),
-        None => {
-            let mut v: Vec<(String, String)> = ctx
-                .ws
-                .env
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
-            if let Some(var) = &ctx.cfg.engine.data_dir_env {
-                v.push((var.clone(), ctx.data_dir.to_string_lossy().into()));
-            }
-            v
-        }
+        Some(e) => e.env_for(&[]),
+        None => ctx
+            .ws
+            .env
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect(),
     };
     // N2: the receipt records the token file the app was actually handed (the launch picked it),
     // not the world's copy in the workspace environment. One value only.
@@ -1545,11 +1544,6 @@ fn execute(
     }
     let engine_path = ctx.engine.as_ref().map(|e| e.binary.clone());
     let ui_path = ctx.ui_binary.clone();
-    let (data_dir, data_dir_env, data_dir_arg) = (
-        ctx.data_dir.clone(),
-        ctx.cfg.engine.data_dir_env.clone(),
-        ctx.cfg.engine.data_dir_arg.clone(),
-    );
     let torn = ctx.finish();
     let total_starts = torn.engine_starts.total();
     let by_env = {
@@ -1569,11 +1563,8 @@ fn execute(
         binaries.extend(ui_path);
     }
     let launch = (!binaries.is_empty()).then(|| WorkerLaunch {
-        data_dir,
-        data_dir_env,
-        data_dir_arg,
         args: vec![],
-        env: crate::journeys::receipt::isolation_env(&launch_env, &world.env_marker.name)
+        env: crate::journeys::receipt::launch_env(&launch_env, &world.env_marker.name)
             .into_iter()
             .collect(),
         binaries,

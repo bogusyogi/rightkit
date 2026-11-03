@@ -22,6 +22,10 @@ use super::super::observation::{
     RunningApplicationIdentityMiss, PENDING_OBSERVATION_HOLD,
 };
 use super::context::{focused_descendant, focused_window_for_pid, secure_state_for_roles};
+use core_foundation::boolean::CFBoolean;
+use core_foundation::dictionary::CFDictionary;
+use core_foundation::string::CFString;
+use std::time::Duration;
 
 pub(in crate::desktop::macos) fn ax_raise_app(pid: i32) -> bool {
     unsafe {

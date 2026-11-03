@@ -149,8 +149,8 @@ export function changedConfigCrates(previous, next) {
  * and has been explicitly allowed not to.
  *
  * Nothing is skipped silently. A crate whose `config.rust[name].os` omits `host` throws unless
- * `allowHostExclusion` names it; an npm package without a `test` script throws unless `allowNoTest`
- * names it; an allow entry naming a unit that is not in `units` throws.
+ * `allowHostExclusion` names it; an npm package without a `test` script qualifies without being named in
+ * `allowNoTest` (end-to-end tests only), and a name given there must lack a `test` script; an allow entry naming a unit that is not in `units` throws.
  */
 export function selectUnits({ registry, units, members = [], packages = [], lock = null, host = null, config = {}, allowHostExclusion = [], allowNoTest = [], allowIgnored = [], allowMissingAssets = [], assetGated = {} }) {
   if (!Array.isArray(units) || units.length === 0) throw new Error("no units named");
@@ -190,8 +190,7 @@ export function selectUnits({ registry, units, members = [], packages = [], lock
     if (unknown.length) throw new Error(`unknown npm package(s): ${unknown.join(", ")}`);
     if (allowHostExclusion.length) throw new Error("allow_host_exclusion applies to crates only");
     const noTest = unique.filter((name) => !byName.get(name).scripts?.test);
-    const refused = noTest.filter((name) => !allowNoTest.includes(name));
-    if (refused.length) throw new Error(`${refused.join(", ")} has no test script, so nothing would verify it; name each in allow_no_test`);
+    // End-to-end tests only (Adrian, 2026-11-03): a package with no test script qualifies without being named in allow_no_test.
     const unused = allowNoTest.filter((name) => !noTest.includes(name));
     if (unused.length) throw new Error(`allow_no_test names ${unused.join(", ")}, which has a test script`);
     return { rust: { all: false, test: [], check: [] }, npm: { all: false, test: unique.filter((n) => !noTest.includes(n)).map((name) => byName.get(name).dir) }, excluded: [], noTest };

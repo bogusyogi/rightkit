@@ -84,6 +84,7 @@ mod journal;
 mod learning;
 // The gate is attached by release builds.
 mod license;
+mod license_ipc;
 mod main_runtime;
 mod mcp_server;
 mod membrane_binding;

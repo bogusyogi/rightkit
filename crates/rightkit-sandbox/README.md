@@ -13,18 +13,18 @@ Shared sandbox, PTY, process-tree, and resource-authority primitives for Right S
 
 **Use it** when an app must run untrusted or semi-trusted commands with filesystem and network limits, needs a PTY whose input cannot be replayed after a lease change, or must bound how many child processes it starts.
 
-**Do not use it** as a general container or VM. It confines a process; it does not isolate the kernel. Sandboxed PTYs are macOS-only (see Platform support).
+**Do not use it** as a general container or VM. It confines a process; it does not isolate the kernel. Sandboxed PTYs are macOS and Linux only (see Platform support).
 
 ## Features
 
-`pty` (default): `Sandbox::spawn_pty`, `PtySession`, `PtySize`, `PtyError`, and the lease-epoch input fence, over `portable-pty`. With `default-features = false` those items and `portable-pty` are gone. Other dependencies: `rightkit-child-process`, `libc` (Unix), and `windows` (Windows).
+`pty` (default): `Sandbox::spawn_pty`, `PtySession`, `PtySize`, `PtyError`, and the lease-epoch input fence, over `rightkit-pty` (the one PTY implementation: POSIX PTY and ConPTY, owned process tree, staged kill; rightkit#557). `PtySession` stays synchronous: each session runs the terminal's async streams on a private one-worker tokio runtime, so callers need no runtime. `PtySession::wait_exit` returns `std::process::ExitStatus`. With `default-features = false` those items, `rightkit-pty` and the runtime are gone. Other dependencies: `rightkit-child-process`, `libc` (Unix), and `windows` (Windows).
 
 ## Platform support
 
 | Capability | macOS | Linux | Windows |
 |---|---|---|---|
 | `Sandbox::spawn` (confined child) | Seatbelt | Landlock + seccomp | AppContainer in a kill-on-close Job Object |
-| `Sandbox::spawn_pty` with a policy | Yes | Returns `PtyError::Sandbox(SandboxError::Unsupported)` | Returns `PtyError::Sandbox(SandboxError::Unsupported)` |
+| `Sandbox::spawn_pty` with a policy | Yes (Seatbelt wraps the argv) | Yes (Landlock + seccomp applied through `PtyCommand::pre_exec_last`) | Returns `PtyError::Sandbox(SandboxError::Unsupported)` |
 | `Sandbox::spawn_pty` without a policy | Yes | Yes | Yes |
 | Windows ancestor-ACE lease and sweep | No | No | Yes (`windows_ancestors.rs`, `windows_appcontainer.rs`) |
 | `confine_command` (caller-owned command) | Seatbelt | Landlock + seccomp | `Unsupported` (an AppContainer is set at process creation) |
@@ -72,6 +72,10 @@ let output = child.wait_with_output(std::time::Duration::from_secs(30))?;
 ## macOS (`WriteOnly`, `exec_any`, `from_profile`)
 
 `ConfinementMode::WriteOnly` builds `seatbelt::write_only_profile`: default-allow, `(deny file-write*)`, then writes allowed under `write_paths` (realpath-resolved), `/private/tmp`, `/private/var/folders`, `/private/var/tmp`, `/tmp` and a few `/dev` nodes; with the network denied, outbound is denied and unix sockets stay allowed. `exec_any` emits `(allow process*)` and grants execution only: the image still needs a read grant. `seatbelt::Prepared::from_profile(String)` applies a profile you built, as is. `try_profile_for` and `try_wrap_argv` return the error when a profile cannot be built; `profile_for` and `wrap_argv` keep their signatures and, if a `deny_read` entry cannot be planned, return a profile that denies everything. Nothing in this section was run on a Mac; `exec_any` against real vendor drivers is unverified.
+
+## Narrowing options (0.6.4)
+
+All opt-in, defaults unchanged. `system_roots(SystemRoots::Minimal(roots) | None)` limits the implicit Linux system roots (`/proc`, `/etc`, `/sys` are no longer readable unless listed; `system_roots_enforced()` is `true` on Linux only). `allow_tty(false)` and `allow_global_metadata(false)` narrow the macOS Strict profile (terminal nodes; metadata, `/Applications` and `/etc`). `deny_exec_path` / `deny_exec_glob` deny execution (macOS `(deny process-exec* ...)`; Linux only where no exec grant overlaps, otherwise `Unsupported`; Windows `Unsupported`; `deny_exec_enforced()`). `unix_sockets(UnixSocketPolicy::Deny | Allow(paths))` controls unix-socket reach when the network is denied (`Allow` is macOS only; Linux refuses it). See CHANGELOG 0.6.4 for the decisions behind each default.
 
 ## Secrets and denial reports
 

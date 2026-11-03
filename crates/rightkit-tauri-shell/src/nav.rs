@@ -90,6 +90,11 @@ pub enum WindowOpenDecision {
     },
     /// An allow-listed popup (OAuth) that may become an in-app child window.
     Popup,
+    /// A non-web scheme (for example `zoom:`) that needs the person's consent before the system
+    /// handles it. The shell does not open it; an app with a consent surface may confirm it.
+    ProtocolConsent {
+        scheme: String,
+    },
     Deny,
 }
 
@@ -97,7 +102,8 @@ pub enum WindowOpenDecision {
 pub struct NavPolicy {
     /// Extra hosts served in place, e.g. an app's own `https://app.example` surface.
     pub internal_hosts: Vec<String>,
-    /// Allow `localhost` / loopback (Vite dev server). Defaults on only with the `dev-overrides` feature.
+    /// Allow `localhost` / loopback http(s) as internal. Off in every build: no Cargo feature turns it
+    /// on. An app that must reach a local server sets it in its own code.
     pub allow_loopback: bool,
     /// ViewRight-style broker host. `https://<host>/?target=<url>` navigates nothing and asks the
     /// shell to open `target` externally (only when `target` has an external scheme).
@@ -107,6 +113,10 @@ pub struct NavPolicy {
     /// Extra schemes the host serves as its own content, loaded in place like `tauri:` (a custom
     /// protocol registered by the app). Empty by default; add with [`NavPolicy::with_internal_scheme`].
     pub internal_schemes: Vec<String>,
+    /// The app's pinned server origin (`scheme://host[:port]`). When set, a popup opens only from a
+    /// page on this origin; any other opener's popup request leaves for the system browser. Set with
+    /// [`NavPolicy::pinned_origin`].
+    pub pinned_origin: Option<String>,
 }
 
 /// Schemes no host may mark internal: web and script schemes would let the webview load the world,
@@ -143,10 +153,11 @@ impl Default for NavPolicy {
     fn default() -> Self {
         Self {
             internal_hosts: Vec::new(),
-            allow_loopback: cfg!(feature = "dev-overrides"),
+            allow_loopback: false,
             broker_host: None,
             popup_origins: OAUTH_POPUP_ORIGINS.iter().map(|s| s.to_string()).collect(),
             internal_schemes: Vec::new(),
+            pinned_origin: None,
         }
     }
 }
@@ -184,6 +195,13 @@ pub fn origin_of(url: &Url) -> Option<String> {
 }
 
 impl NavPolicy {
+    /// This policy with the app's pinned server origin (`scheme://host[:port]`, canonical form, as
+    /// [`origin_of`] writes it). Popups open only from that origin; see [`NavPolicy::pinned_origin`].
+    pub fn pinned_origin(mut self, origin: impl Into<String>) -> Self {
+        self.pinned_origin = Some(origin.into());
+        self
+    }
+
     /// This policy with `scheme` also loaded in place (see [`NavPolicy::internal_schemes`]). Errors
     /// on a malformed scheme or a web, script or file scheme. The built-in set is unchanged.
     pub fn with_internal_scheme(mut self, scheme: &str) -> Result<Self, String> {
@@ -239,7 +257,8 @@ impl NavPolicy {
     /// Decide a page-initiated `window.open` / `target=_blank`.
     /// `popup_shaped` is true for a sized popup request; only those from a trusted opener to an
     /// allow-listed HTTPS origin become windows, everything else leaves for the browser. A non-web
-    /// scheme is `Deny`; ask [`NavPolicy::protocol_consent_scheme`] whether it needs person consent.
+    /// scheme that needs person consent is `ProtocolConsent`; every other non-web scheme is `Deny`.
+    /// The app's [`NavPolicy::pinned_origin`] is used by the shell's window-open hook, not here.
     pub fn decide_window_open(
         &self,
         url: &Url,
@@ -261,7 +280,10 @@ impl NavPolicy {
         pinned_origin: Option<&str>,
     ) -> WindowOpenDecision {
         if !EXTERNAL_SCHEMES.contains(&url.scheme()) {
-            return WindowOpenDecision::Deny;
+            return match self.protocol_consent_scheme(url) {
+                Some(scheme) => WindowOpenDecision::ProtocolConsent { scheme },
+                None => WindowOpenDecision::Deny,
+            };
         }
         if popup_shaped && url.scheme() == "https" {
             let target = origin_of(url);

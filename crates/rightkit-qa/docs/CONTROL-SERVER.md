@@ -26,7 +26,7 @@ Do not use it for a web page that a headless browser can drive (see `rightkit-br
 
 | Feature | Default | Pulls in | Enables |
 |---|---|---|---|
-| `control` | no | `tauri` 2, `rightkit-daemon/test-mode` | QA ONLY, NEVER SHIPPED. The embedded Tauri control server (`embedded`) and the `InApp` client (`in_app`). Same marker as the old `rightkit-qa-driver/qa-control`. |
+| `control` | no | `tauri` 2 | QA ONLY, NEVER SHIPPED. The embedded Tauri control server (`embedded`) and the `InApp` client (`in_app`). Same marker as the old `rightkit-qa-driver/qa-control`. |
 | `wv2-0_38` | no | `windows` 0.61, `webview2-com` 0.38 (Windows only) | WebView2 types for Tauri 2.11 (wry 0.55). Use with `control`. |
 | `wv2-0_39` | no | `windows` 0.62, `webview2-com` 0.39 (Windows only) | WebView2 types for Tauri 2.12 and later. Use with `control`. |
 | `browser` | no | `rightkit-browser`, `tokio` | Chrome (CDP) targets. |

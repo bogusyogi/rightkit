@@ -13,6 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use crate::stream::StreamEvent;
 use async_trait::async_trait;
 use futures_util::Stream;
 use tokio_util::sync::CancellationToken;

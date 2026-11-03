@@ -27,36 +27,18 @@ const STDERR_SETTLE: Duration = Duration::from_millis(2);
 /// Most waits of [`STDERR_SETTLE`] for one read: a hard stop for an engine that never stops writing.
 const STDERR_SETTLE_POLLS: u32 = 100;
 
-/// An engine binary and how to launch it without touching real user data.
-///
-/// Every launch (`cli`, `run`, `start_sidecar`) must name an isolated data directory, or it is
-/// refused before the process starts with a [`crate::userdata::UserDataViolation`] (rule
-/// `no-isolated-data-dir`). A directory is named when the caller's `CliOptions::data_dir` reaches
-/// the engine through `data_dir_env`, or `data_dir_env` is set in the launch environment, or
-/// `data_dir_arg` appears in the arguments, and the directory passes
-/// [`crate::userdata::check_engine_dirs`]. A `data_dir` on a target that declares neither is not
-/// named: the engine would never see it.
+/// An engine binary and how to launch it. The engine runs on the owner's real data (rightkit#1437):
+/// it is told no data directory, because the journey run snapshots and restores the real folders
+/// ([`crate::snapshot`]).
 #[derive(Debug, Clone)]
 pub struct EngineTarget {
     pub binary: PathBuf,
     /// Env applied to every engine process (e.g. `GENRIGHT_NO_KEYCHAIN=1`).
     pub env: Vec<(String, String)>,
-    /// Env var that receives the per-scenario data dir (e.g. `GENRIGHT_APP_DATA`).
-    pub data_dir_env: Option<String>,
-    /// Flag the engine takes its data dir under (e.g. `--data-dir`). Declaring it lets a caller
-    /// name the isolated directory in the launch arguments; the harness only judges the value.
-    pub data_dir_arg: Option<String>,
-    /// Flags that select the real library (e.g. `--use-user-library`). A launch whose arguments
-    /// contain one, as `flag` or `flag=value`, is refused. Empty by default; the product declares
-    /// its own, this crate hard-codes none.
-    pub forbidden_args: Vec<String>,
-    /// Set by [`EngineTarget::allow_no_data_dir_for_refusal_probe`]; read it as a warning label.
-    pub allow_no_data_dir_for_refusal_probe: bool,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct CliOptions {
-    pub data_dir: Option<PathBuf>,
     pub env: Vec<(String, String)>,
     /// Appended as `--input <json>` the way the engine CLI contract expects.
     pub input: Option<Value>,
@@ -81,120 +63,29 @@ impl CliResult {
 }
 
 impl EngineTarget {
-    /// A target with no environment, no data-dir variable or flag, and no deny list. Such a target
-    /// cannot be launched until it declares `data_dir_env` or `data_dir_arg` (or the probe
-    /// opt-out is used).
+    /// A target with no environment.
     pub fn new(binary: impl Into<PathBuf>) -> Self {
         Self {
             binary: binary.into(),
             env: Vec::new(),
-            data_dir_env: None,
-            data_dir_arg: None,
-            forbidden_args: Vec::new(),
-            allow_no_data_dir_for_refusal_probe: false,
         }
     }
 
-    /// Env var that receives the data dir (e.g. `GENRIGHT_APP_DATA`).
-    pub fn with_data_dir_env(mut self, var: &str) -> Self {
-        self.data_dir_env = Some(var.into());
-        self
-    }
-
-    /// Flag the engine takes its data dir under (e.g. `--data-dir`).
-    pub fn with_data_dir_arg(mut self, flag: &str) -> Self {
-        self.data_dir_arg = Some(flag.into());
-        self
-    }
-
-    /// Flags that select the real library; a launch carrying one is refused.
-    pub fn forbid_args(mut self, flags: &[&str]) -> Self {
-        self.forbidden_args = flags.iter().map(|f| (*f).to_owned()).collect();
-        self
-    }
-
-    /// Let launches of this target name no data directory, ONLY to assert the engine's own
-    /// refusal to run without one. Use it on a dedicated clone of the target, never on the target
-    /// that runs real scenarios. A second barrier is still required: on Unix the launch
-    /// environment (`CliOptions::env` or the target's `env`) must redirect `HOME` into a QA
-    /// directory, and `XDG_DATA_HOME` / `XDG_CONFIG_HOME` too wherever they are set or inherited;
-    /// on Windows the Known Folder API ignores the environment, so the launch is refused
-    /// whatever the caller passes. See [`crate::userdata::check_engine_launch`].
-    pub fn allow_no_data_dir_for_refusal_probe(mut self) -> Self {
-        self.allow_no_data_dir_for_refusal_probe = true;
-        self
-    }
-
-    /// The guard every launch path runs before it spawns anything.
-    fn check_launch(&self, args: &[String], opts: &CliOptions) -> Result<()> {
-        let env = self.env_for(opts.data_dir.as_deref(), &opts.env);
-        crate::userdata::check_engine_launch(&crate::userdata::EngineLaunch {
-            binary: &self.binary,
-            args,
-            data_dir: opts.data_dir.as_deref(),
-            data_dir_env: self.data_dir_env.as_deref(),
-            data_dir_arg: self.data_dir_arg.as_deref(),
-            forbidden_args: &self.forbidden_args,
-            env: &env,
-            refusal_probe: self.allow_no_data_dir_for_refusal_probe,
-        })?;
-        Ok(())
-    }
-
-    /// Bind this target to one scenario's test-mode root: `RIGHTKIT_UNDER_TEST=1` and
-    /// `RIGHTKIT_QA_DATA_DIR=<scenario_dir>`. They go last and replace any earlier value of the same
-    /// variable, so the ordinary config env cannot unbind them. A step's own `env` is applied after
-    /// this by [`EngineTarget::env_for`] and still wins, so a scenario can set or override either
-    /// variable to test a refusal. The scenario directory carries the runner binding
-    /// ([`crate::workspace::QaWorkspace::scenario_dir`]); the binding is not proof of the runner.
-    ///
-    /// A target that opted into [`EngineTarget::allow_no_data_dir_for_refusal_probe`] is left alone:
-    /// the probe asserts the engine's own refusal to run without a data directory, and a bound
-    /// test-mode root would hand it one.
-    pub(crate) fn bind_test_mode(&mut self, scenario_dir: &Path) {
-        if self.allow_no_data_dir_for_refusal_probe {
-            return;
-        }
-        let same = |a: &str, b: &str| {
-            if cfg!(windows) {
-                a.eq_ignore_ascii_case(b)
-            } else {
-                a == b
-            }
-        };
-        self.env
-            .retain(|(k, _)| !same(k, "RIGHTKIT_UNDER_TEST") && !same(k, "RIGHTKIT_QA_DATA_DIR"));
-        self.env.push(("RIGHTKIT_UNDER_TEST".into(), "1".into()));
-        self.env.push((
-            "RIGHTKIT_QA_DATA_DIR".into(),
-            scenario_dir.to_string_lossy().into(),
-        ));
-    }
-
-    /// The environment of one launch: the target's env (with a scenario's test-mode binding), the
-    /// data-dir variable, then the caller's own pairs, which win. `cli`, `start_sidecar` and the
-    /// launch guard all read it from here.
-    pub(crate) fn env_for(
-        &self,
-        data_dir: Option<&Path>,
-        extra: &[(String, String)],
-    ) -> Vec<(String, String)> {
+    /// The environment of one launch: the target's env, then the caller's own pairs, which win.
+    pub(crate) fn env_for(&self, extra: &[(String, String)]) -> Vec<(String, String)> {
         let mut env = self.env.clone();
-        if let (Some(var), Some(dir)) = (&self.data_dir_env, data_dir) {
-            env.push((var.clone(), dir.to_string_lossy().into()));
-        }
         env.extend(extra.iter().cloned());
         env
     }
 
     pub fn cli(&self, args: &[String], opts: &CliOptions, tracker: &Tracker) -> Result<CliResult> {
+        crate::snapshot::require_armed()?;
         if !self.binary.exists() {
             return err(format!(
                 "engine binary not found: {}",
                 self.binary.display()
             ));
         }
-        self.check_launch(args, opts)?;
         let mut argv = args.to_vec();
         if let Some(input) = &opts.input {
             argv.push("--input".into());
@@ -204,7 +95,7 @@ impl EngineTarget {
             &self.binary.to_string_lossy(),
             &argv,
             &RunOptions {
-                env: self.env_for(opts.data_dir.as_deref(), &opts.env),
+                env: self.env_for(&opts.env),
                 timeout: opts.timeout,
                 label: format!("engine {}", args.join(" ")),
                 ..Default::default()
@@ -482,7 +373,7 @@ impl Sidecar {
         tracker: &Tracker,
         spill: Option<&Path>,
     ) -> Result<Self> {
-        engine.check_launch(&["--stdio".to_string()], opts)?;
+        crate::snapshot::require_armed()?;
         let spill_file = match spill {
             Some(path) => Some(std::fs::File::create(path).map_err(|e| {
                 Error(format!(
@@ -497,7 +388,7 @@ impl Sidecar {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        for (k, v) in engine.env_for(opts.data_dir.as_deref(), &opts.env) {
+        for (k, v) in engine.env_for(&opts.env) {
             cmd.env(k, v);
         }
         let mut owned = OwnedCommand::from_command(cmd);

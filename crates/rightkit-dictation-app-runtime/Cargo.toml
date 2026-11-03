@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-dictation-app-runtime"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Dictation app runtime: the shell-side engine supervisor (spawn, launch frame, health, restart, sidecar logs) and engine process handle for a dictation app."
@@ -13,9 +13,6 @@ include = ["src/**", "data/**", "examples/**", "build.rs", "README.md", "CHANGEL
 name = "rightkit_dictation_app_runtime"
 path = "src/lib.rs"
 
-[features]
-test-mode = ["rightkit-daemon/test-mode", "rightkit-dictation-core/test-mode", "rightkit-dictation-models/test-mode"]
-
 [dependencies]
 rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core" }
 rightkit-transcript-library = { version = "0.1.0", path = "../rightkit-transcript-library" }
@@ -27,10 +24,6 @@ rightkit-logs = { version = "0.3.7", default-features = false, path = "../rightk
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 rightkit-job-queue = { version = "0.5.1", default-features = false, features = ["supervisor"], path = "../rightkit-job-queue" }
-
-[[example]]
-name = "shared_store_smoke"
-required-features = ["test-mode"]
 
 [workspace]
 

@@ -1,16 +1,11 @@
-//! One handle for "catalog-verified, else a development binary", and the one-call resolver.
+//! One handle for a catalog-verified binary, and the one-call resolver.
 //!
-//! An app that ships its own ffmpeg wants one value to pass to every call: the verified handle
-//! when the bundled file is an approved build, and otherwise a development binary, but only in a
-//! development build. [`ToolHandle`] is that value. It implements [`FfmpegBinary`], so every run,
-//! probe, decode and encoder call takes it directly, and [`ToolHandle::is_verified`] lets the app
-//! say which one it has.
-//!
-//! The fallback obeys the crate's policy (see [`MediaError::is_not_in_catalog`]). A development
-//! handle is produced only when the verification error means "not in the catalog" (a digest that
-//! is not the row's, or no approved row for this platform), the file exists, and the build allows
-//! unverified binaries (`dev-overrides`). Every other error, and every release build, returns the
-//! catalog error unchanged. A release build never runs an unverified binary through this module.
+//! An app that ships its own ffmpeg wants one value to pass to every call. [`ToolHandle`] is that
+//! value: it holds a binary that matched its approved catalog row (content digest and LGPL build
+//! probe). It implements [`FfmpegBinary`], so every run, probe, decode and encoder call takes it
+//! directly. There is no development fallback and no unverified binary in any build: a file that
+//! does not verify returns the catalog error unchanged (Adrian, 2026-11-03: "dev mode, is mine ...
+//! real data.").
 
 use std::{
     env,
@@ -20,19 +15,15 @@ use std::{
 
 use crate::{
     bundled::{verify_bundled_ffmpeg, verify_bundled_ffprobe},
-    external_bin_path, resolve_unverified, tauri_target_triple, BuildMode, DevFfmpeg, FfmpegBinary,
-    MediaError, Tool, UnverifiedRequest, VerifiedFfmpeg, VerifiedFfprobe,
+    external_bin_path, tauri_target_triple, FfmpegBinary, MediaError, Tool, VerifiedFfmpeg,
+    VerifiedFfprobe,
 };
 
-/// A binary the app may run: catalog-verified, or a development binary the catalog does not list.
-// Resolved once per app session and passed by reference; boxing the verified handle buys nothing.
-#[allow(clippy::large_enum_variant)]
+/// A binary the app may run: one that matched its approved catalog row.
 #[derive(Clone, Debug)]
 pub enum ToolHandle<V> {
     /// Matched its approved catalog row (content digest and LGPL build probe).
     Verified(V),
-    /// Not in the catalog. Produced only in a development build; labelled by its variant name.
-    Development(DevFfmpeg),
 }
 
 /// [`ToolHandle`] for `ffmpeg`.
@@ -42,7 +33,7 @@ pub type FfmpegHandle = ToolHandle<VerifiedFfmpeg>;
 pub type FfprobeHandle = ToolHandle<VerifiedFfprobe>;
 
 impl<V> ToolHandle<V> {
-    /// `true` only for a catalog-verified binary.
+    /// Always `true`: a handle exists only for a catalog-verified binary.
     pub fn is_verified(&self) -> bool {
         matches!(self, Self::Verified(_))
     }
@@ -52,64 +43,39 @@ impl<V: FfmpegBinary> FfmpegBinary for ToolHandle<V> {
     fn ffmpeg_path(&self) -> &Path {
         match self {
             Self::Verified(verified) => verified.ffmpeg_path(),
-            Self::Development(dev) => dev.ffmpeg_path(),
         }
     }
 }
 
-/// The handle decision for one binary from its catalog verification result, under `mode`.
-///
-/// `verified` is the outcome of verifying `path` against the catalog (for example
-/// [`verify_bundled_ffmpeg`]). Returns `Verified` on success. On failure it returns a
-/// `Development` handle for `path` only when the error is not-in-catalog, `path` is a file, and
-/// `mode` is [`BuildMode::Development`]; otherwise it returns the error unchanged.
-pub fn verified_or_development_in<V>(
-    verified: Result<V, MediaError>,
-    path: &Path,
-    mode: BuildMode,
-) -> Result<ToolHandle<V>, MediaError> {
-    match verified {
-        Ok(handle) => Ok(ToolHandle::Verified(handle)),
-        Err(error)
-            if error.is_not_in_catalog() && mode == BuildMode::Development && path.is_file() =>
-        {
-            Ok(ToolHandle::Development(DevFfmpeg::mode_gated(path)))
-        }
-        Err(error) => Err(error),
-    }
-}
-
-/// [`verified_or_development_in`] under the build's own mode ([`BuildMode::from_build_features`]).
-pub fn verified_or_development<V>(
-    verified: Result<V, MediaError>,
-    path: &Path,
-) -> Result<ToolHandle<V>, MediaError> {
-    verified_or_development_in(verified, path, BuildMode::from_build_features())
+/// The handle for one binary from its catalog verification result: `Verified` on success, the
+/// error unchanged on failure.
+fn verified_handle<V>(verified: Result<V, MediaError>) -> Result<ToolHandle<V>, MediaError> {
+    verified.map(ToolHandle::Verified)
 }
 
 /// Verify the `ffmpeg` at `path` against the approved `variant` row for this host, and return
-/// its handle, with the development fallback described in the module docs.
-pub fn verify_ffmpeg_or_development(
+/// its handle.
+pub fn verify_ffmpeg_handle(
     path: &Path,
     variant: &str,
     timeout: Duration,
 ) -> Result<FfmpegHandle, MediaError> {
-    verified_or_development(verify_bundled_ffmpeg(path, variant, timeout), path)
+    verified_handle(verify_bundled_ffmpeg(path, variant, timeout))
 }
 
-/// [`verify_ffmpeg_or_development`] for an `ffprobe`.
-pub fn verify_ffprobe_or_development(
+/// [`verify_ffmpeg_handle`] for an `ffprobe`.
+pub fn verify_ffprobe_handle(
     path: &Path,
     variant: &str,
     timeout: Duration,
 ) -> Result<FfprobeHandle, MediaError> {
-    verified_or_development(verify_bundled_ffprobe(path, variant, timeout), path)
+    verified_handle(verify_bundled_ffprobe(path, variant, timeout))
 }
 
 /// Where a bundled tool may sit, in lookup order, without touching the filesystem: first beside
 /// the application executable (`<tool>` or `<tool>.exe`), then in `src-tauri/binaries` as
 /// `<tool>-<target-triple>[.exe]`, under the executable's directory and each of its ancestors
-/// (the development checkout layout). The triple list is empty for a host RightKit does not
+/// (the checkout layout). The triple list is empty for a host RightKit does not
 /// name, which leaves only the beside-the-executable candidate.
 pub fn bundled_tool_candidates(tool: Tool, exe: &Path, os: &str, arch: &str) -> Vec<PathBuf> {
     bundled_tool_candidates_with_dirs(tool, exe, os, arch, &[])
@@ -170,9 +136,7 @@ fn is_plain_relative(dir: &Path) -> bool {
 
 /// Options for the one-call resolver. The default keeps the documented order (bundled first).
 ///
-/// The crate reads no application environment variable itself: an app that wants a development
-/// override (for example its own `GENRIGHT_FFMPEG`) reads the variable and passes the path in
-/// through [`ResolveOptions::override_first`].
+/// The crate reads no application environment variable itself.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ResolveOptions {
     override_first: Option<PathBuf>,
@@ -194,8 +158,7 @@ impl ResolveOptions {
     }
 
     /// Try `path` before any bundled candidate. It must be a file and pass the same verification
-    /// as a bundled one (catalog digest and build probe, with the development fallback of
-    /// [`verified_or_development_in`]). When it does not, it is skipped, the reason is recorded in
+    /// as a bundled one (catalog digest and build probe). When it does not, it is skipped, the reason is recorded in
     /// [`HandleResolution::skipped`], and resolution continues in the normal order.
     #[must_use]
     pub fn override_first(mut self, path: impl Into<PathBuf>) -> Self {
@@ -259,8 +222,7 @@ impl ResolveOptions {
 /// on a host where only `decode` is approved). Any other error (the build probe failed, I/O,
 /// the wrong tool, an ambiguous row) says something a different variant cannot fix, and is
 /// returned at once. When every variant fails this way, the first variant's error is returned,
-/// so a development fallback (which applies only to a not-in-catalog error) is not offered for a
-/// pending row. An empty `variants` list is [`MediaError::MissingMetadata`].
+/// so a pending row is reported as pending. An empty `variants` list is [`MediaError::MissingMetadata`].
 pub fn verify_first_of<V, S: AsRef<str>>(
     path: &Path,
     variants: &[S],
@@ -309,30 +271,16 @@ pub struct HandleResolution<V> {
 /// 1. The first existing bundled candidate for `tool` on this host (see
 ///    [`bundled_tool_candidates_with_dirs`], with [`ResolveOptions::bundle_dirs`]) is verified
 ///    against the approved `variant` row, or against each of [`ResolveOptions::variants`] in
-///    order when that list is not empty ([`verify_first_of`]). The development fallback of
-///    [`verified_or_development_in`] applies only after every variant failed not-in-catalog.
-/// 2. With no bundled file, a development build (`mode == Development`) resolves `dev` (its
-///    configured path, environment variable, or `PATH` when enabled) and returns it as a
-///    `Development` handle. Every other build returns [`MediaError::ArtifactNotFound`].
-///
-/// `dev.tool` must be `tool`, or the call returns [`MediaError::WrongTool`].
-#[allow(clippy::too_many_arguments)]
+///    order when that list is not empty ([`verify_first_of`]).
+/// 2. With no bundled file, [`MediaError::ArtifactNotFound`].
 fn resolve_handle<V>(
     tool: Tool,
     exe: &Path,
     variant: &str,
-    dev: &UnverifiedRequest,
-    mode: BuildMode,
     options: &ResolveOptions,
     verify: impl Fn(&Path, &str, Duration) -> Result<V, MediaError>,
     timeout: Duration,
 ) -> Result<HandleResolution<V>, MediaError> {
-    if dev.tool != tool {
-        return Err(MediaError::WrongTool {
-            expected: tool,
-            found: dev.tool,
-        });
-    }
     let variants: Vec<&str> = match options.variant_list() {
         [] => vec![variant],
         listed => listed.iter().map(String::as_str).collect(),
@@ -340,11 +288,7 @@ fn resolve_handle<V>(
     let mut skipped = Vec::new();
     if let Some(path) = options.override_path() {
         let outcome = if path.is_file() {
-            verified_or_development_in(
-                verify_first_of(path, &variants, timeout, &verify),
-                path,
-                mode,
-            )
+            verified_handle(verify_first_of(path, &variants, timeout, &verify))
         } else {
             Err(MediaError::OverrideMissing {
                 path: path.to_owned(),
@@ -365,33 +309,20 @@ fn resolve_handle<V>(
             .into_iter()
             .find(|candidate| candidate.is_file())
     {
-        let handle = verified_or_development_in(
-            verify_first_of(&path, &variants, timeout, &verify),
-            &path,
-            mode,
-        )?;
+        let handle = verified_handle(verify_first_of(&path, &variants, timeout, &verify))?;
         return Ok(HandleResolution { handle, skipped });
-    }
-    if mode == BuildMode::Development {
-        let found = resolve_unverified(dev, mode)?;
-        return Ok(HandleResolution {
-            handle: ToolHandle::Development(DevFfmpeg::mode_gated(found.path())),
-            skipped,
-        });
     }
     Err(MediaError::ArtifactNotFound)
 }
 
 /// `resolve_handle` for `ffmpeg`: bundled beside `exe` (or in `src-tauri/binaries`), verified
-/// against the `variant` row, else (development builds only) the `dev` request.
+/// against the `variant` row.
 pub fn resolve_ffmpeg_handle(
     exe: &Path,
     variant: &str,
-    dev: &UnverifiedRequest,
-    mode: BuildMode,
     timeout: Duration,
 ) -> Result<FfmpegHandle, MediaError> {
-    resolve_ffmpeg_handle_with(exe, variant, dev, mode, &ResolveOptions::default(), timeout)
+    resolve_ffmpeg_handle_with(exe, variant, &ResolveOptions::default(), timeout)
         .map(|resolution| resolution.handle)
 }
 
@@ -400,8 +331,6 @@ pub fn resolve_ffmpeg_handle(
 pub fn resolve_ffmpeg_handle_with(
     exe: &Path,
     variant: &str,
-    dev: &UnverifiedRequest,
-    mode: BuildMode,
     options: &ResolveOptions,
     timeout: Duration,
 ) -> Result<HandleResolution<VerifiedFfmpeg>, MediaError> {
@@ -409,8 +338,6 @@ pub fn resolve_ffmpeg_handle_with(
         Tool::Ffmpeg,
         exe,
         variant,
-        dev,
-        mode,
         options,
         verify_bundled_ffmpeg,
         timeout,
@@ -421,11 +348,9 @@ pub fn resolve_ffmpeg_handle_with(
 pub fn resolve_ffprobe_handle(
     exe: &Path,
     variant: &str,
-    dev: &UnverifiedRequest,
-    mode: BuildMode,
     timeout: Duration,
 ) -> Result<FfprobeHandle, MediaError> {
-    resolve_ffprobe_handle_with(exe, variant, dev, mode, &ResolveOptions::default(), timeout)
+    resolve_ffprobe_handle_with(exe, variant, &ResolveOptions::default(), timeout)
         .map(|resolution| resolution.handle)
 }
 
@@ -433,8 +358,6 @@ pub fn resolve_ffprobe_handle(
 pub fn resolve_ffprobe_handle_with(
     exe: &Path,
     variant: &str,
-    dev: &UnverifiedRequest,
-    mode: BuildMode,
     options: &ResolveOptions,
     timeout: Duration,
 ) -> Result<HandleResolution<VerifiedFfprobe>, MediaError> {
@@ -442,8 +365,6 @@ pub fn resolve_ffprobe_handle_with(
         Tool::Ffprobe,
         exe,
         variant,
-        dev,
-        mode,
         options,
         verify_bundled_ffprobe,
         timeout,

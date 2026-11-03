@@ -32,14 +32,29 @@
 //!   handle (overlapped I/O on Windows), and report [`FrameError::TimedOut`]
 //!   with the bytes already transferred. [`DeadlineFramed`] owns the stream.
 //!   Available on Unix and Windows only. The blocking API above is unchanged.
+//! - With the `tokio` feature, [`tokio_io`] reads and writes the same JSON lines over
+//!   `tokio::io::AsyncBufRead` and `AsyncWrite` with the same bounds, resynchronisation and
+//!   errors (see [`read_json_line_async`]).
 
 #[cfg(any(unix, windows))]
 pub mod deadline;
 pub mod length_prefixed;
+#[cfg(feature = "tokio")]
+pub mod tokio_io;
 pub mod wire;
 
 #[cfg(any(unix, windows))]
-pub use deadline::{read_frame_deadline, write_frame_deadline, DeadlineFramed};
+pub use deadline::{
+    read_frame_deadline, read_frame_deadline_opts, write_frame_deadline, write_frame_deadline_opts,
+    DeadlineFramed,
+};
+pub use length_prefixed::FrameOptions;
+#[cfg(feature = "tokio")]
+pub use tokio_io::{
+    read_json_line_async, read_json_line_async_opts, read_json_line_or_oversized_async_opts,
+    write_encoded_line_async, write_encoded_line_flush_async, write_json_line_async,
+    write_json_line_flush_async,
+};
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::time::Instant;
@@ -490,19 +505,22 @@ where
     match next_line(reader, buffer, limit, opts, observe)? {
         None => Ok(None),
         Some(Line::Oversized(over)) => Ok(Some(Incoming::Oversized(over))),
-        Some(Line::Frame) => {
-            if std::str::from_utf8(buffer.as_slice()).is_err() {
-                return Err(FrameError::InvalidUtf8 { len: buffer.len() });
-            }
-            match serde_json::from_slice::<T>(buffer.as_slice()) {
-                Ok(value) => {
-                    buffer.clear();
-                    Ok(Some(Incoming::Frame(value)))
-                }
-                // The raw line stays in `buffer` for the caller.
-                Err(err) => Err(FrameError::Json(err)),
-            }
+        Some(Line::Frame) => decode_line(buffer).map(|value| Some(Incoming::Frame(value))),
+    }
+}
+
+/// Decode the frame line left in `buffer`. On success `buffer` is cleared; on invalid UTF-8
+/// or a JSON failure the raw line stays in `buffer` for the caller.
+fn decode_line<T: DeserializeOwned>(buffer: &mut Vec<u8>) -> Result<T, FrameError> {
+    if std::str::from_utf8(buffer.as_slice()).is_err() {
+        return Err(FrameError::InvalidUtf8 { len: buffer.len() });
+    }
+    match serde_json::from_slice::<T>(buffer.as_slice()) {
+        Ok(value) => {
+            buffer.clear();
+            Ok(value)
         }
+        Err(err) => Err(FrameError::Json(err)),
     }
 }
 
@@ -616,19 +634,10 @@ fn next_line_inner<R: BufRead>(
     let cap = limit.saturating_add(1);
     'line: loop {
         buffer.clear();
-        let mut overflow: Option<Oversized> = None;
-        let mut discarded = 0usize;
-        // Every byte consumed for this line, terminator included.
-        let mut raw = 0usize;
-        let mut terminator = Terminator::None;
-        // The last payload byte seen for this line, to tell CRLF from LF at the newline.
-        let mut last_content: Option<u8> = None;
+        let mut scan = LineScan::new();
         loop {
             if limits.deadline.is_some_and(|d| Instant::now() >= d) {
-                return Err(FrameError::Io(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "json frame deadline exceeded",
-                )));
+                return Err(deadline_error());
             }
             let chunk = match reader.fill_buf() {
                 Ok(c) => c,
@@ -636,74 +645,165 @@ fn next_line_inner<R: BufRead>(
                 Err(err) => return Err(FrameError::Io(err)),
             };
             if chunk.is_empty() {
-                // EOF: a final unterminated line is still a frame.
-                if let Some(over) = overflow {
-                    observe(ReceivedLine {
-                        raw_len: raw,
-                        terminator,
-                    });
-                    return Ok(Some(Line::Oversized(over)));
+                match scan.at_eof(buffer, observe) {
+                    AtEof::Done(line) => return Ok(line),
+                    AtEof::Finish => break,
                 }
-                if buffer.is_empty() {
-                    return Ok(None);
-                }
-                break;
             }
-            let newline = chunk.iter().position(|b| *b == b'\n');
-            let take = newline.map_or(chunk.len(), |i| i + 1);
-            raw = raw.saturating_add(take);
-            let content = &chunk[..newline.unwrap_or(take)];
-            if let Some(byte) = content.last() {
-                last_content = Some(*byte);
-            }
-            if newline.is_some() {
-                terminator = if last_content == Some(b'\r') {
-                    Terminator::CrLf
-                } else {
-                    Terminator::Lf
-                };
-            }
-            if let Some(over) = overflow.as_mut() {
-                discarded = discarded.saturating_add(take);
-                over.bytes = over.bytes.saturating_add(content.len());
-            } else if buffer.len() + content.len() > cap {
-                let seen = buffer.len() + content.len();
-                let mut head = std::mem::take(buffer);
-                head.truncate(OVERSIZE_HEAD_BYTES);
-                let room = OVERSIZE_HEAD_BYTES - head.len();
-                head.extend_from_slice(&content[..room.min(content.len())]);
-                overflow = Some(Oversized {
-                    limit,
-                    head,
-                    bytes: seen,
-                });
-                discarded = take;
-            } else {
-                buffer.extend_from_slice(content);
-            }
+            let (take, ended) = scan.absorb(chunk, buffer, limit, cap);
             reader.consume(take);
-            if newline.is_some() {
+            if ended {
                 break;
             }
-            if overflow.is_some() && discarded > limits.max_discard {
-                return Err(FrameError::Io(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!(
-                        "json frame exceeded {limit}-byte limit and no newline within {} bytes",
-                        limits.max_discard
-                    ),
-                )));
-            }
+            scan.check_discard(limit, &limits)?;
         }
+        match scan.finish(buffer, limit, opts, observe)? {
+            Finished::Skip => continue 'line,
+            Finished::Done(line) => return Ok(Some(line)),
+        }
+    }
+}
+
+/// The error for a read that passed its [`ReadLimits::deadline`] between chunks.
+fn deadline_error() -> FrameError {
+    FrameError::Io(io::Error::new(
+        io::ErrorKind::TimedOut,
+        "json frame deadline exceeded",
+    ))
+}
+
+/// What a line reader does at the end of the stream.
+enum AtEof {
+    /// Return this result now: clean end of stream, or an oversized line cut by the end.
+    Done(Option<Line>),
+    /// A final unterminated line is buffered; finish it as a frame.
+    Finish,
+}
+
+/// What a finished line means to the reader loop.
+enum Finished {
+    /// A skipped blank line: read the next one.
+    Skip,
+    Done(Line),
+}
+
+/// The state of one line while its chunks arrive. The blocking readers and the tokio readers
+/// share it, so both have the same resynchronisation, limit, discard and observer semantics.
+struct LineScan {
+    overflow: Option<Oversized>,
+    discarded: usize,
+    /// Every byte consumed for this line, terminator included.
+    raw: usize,
+    terminator: Terminator,
+    /// The last payload byte seen for this line, to tell CRLF from LF at the newline.
+    last_content: Option<u8>,
+}
+
+impl LineScan {
+    fn new() -> Self {
+        Self {
+            overflow: None,
+            discarded: 0,
+            raw: 0,
+            terminator: Terminator::None,
+            last_content: None,
+        }
+    }
+
+    /// The reader reported an empty chunk: the stream ended.
+    fn at_eof(&mut self, buffer: &[u8], observe: &mut dyn FnMut(ReceivedLine)) -> AtEof {
+        // EOF: a final unterminated line is still a frame.
+        if let Some(over) = self.overflow.take() {
+            observe(ReceivedLine {
+                raw_len: self.raw,
+                terminator: self.terminator,
+            });
+            return AtEof::Done(Some(Line::Oversized(over)));
+        }
+        if buffer.is_empty() {
+            return AtEof::Done(None);
+        }
+        AtEof::Finish
+    }
+
+    /// Takes one buffered chunk into the line: stores its content, or drains it once the line
+    /// is oversized. Returns how many bytes of `chunk` the reader must consume, and whether
+    /// the line's newline was among them.
+    fn absorb(
+        &mut self,
+        chunk: &[u8],
+        buffer: &mut Vec<u8>,
+        limit: usize,
+        cap: usize,
+    ) -> (usize, bool) {
+        let newline = chunk.iter().position(|b| *b == b'\n');
+        let take = newline.map_or(chunk.len(), |i| i + 1);
+        self.raw = self.raw.saturating_add(take);
+        let content = &chunk[..newline.unwrap_or(take)];
+        if let Some(byte) = content.last() {
+            self.last_content = Some(*byte);
+        }
+        if newline.is_some() {
+            self.terminator = if self.last_content == Some(b'\r') {
+                Terminator::CrLf
+            } else {
+                Terminator::Lf
+            };
+        }
+        if let Some(over) = self.overflow.as_mut() {
+            self.discarded = self.discarded.saturating_add(take);
+            over.bytes = over.bytes.saturating_add(content.len());
+        } else if buffer.len() + content.len() > cap {
+            let seen = buffer.len() + content.len();
+            let mut head = std::mem::take(buffer);
+            head.truncate(OVERSIZE_HEAD_BYTES);
+            let room = OVERSIZE_HEAD_BYTES - head.len();
+            head.extend_from_slice(&content[..room.min(content.len())]);
+            self.overflow = Some(Oversized {
+                limit,
+                head,
+                bytes: seen,
+            });
+            self.discarded = take;
+        } else {
+            buffer.extend_from_slice(content);
+        }
+        (take, newline.is_some())
+    }
+
+    /// Called after a chunk without the newline: a peer that never sends one is cut off once
+    /// the discard bound is passed.
+    fn check_discard(&self, limit: usize, limits: &ReadLimits) -> Result<(), FrameError> {
+        if self.overflow.is_some() && self.discarded > limits.max_discard {
+            return Err(FrameError::Io(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "json frame exceeded {limit}-byte limit and no newline within {} bytes",
+                    limits.max_discard
+                ),
+            )));
+        }
+        Ok(())
+    }
+
+    /// The line is complete (newline, or a final unterminated line): observe it, then decide
+    /// whether it is a frame, an oversized line, a blank line to skip, or an empty-line error.
+    fn finish(
+        self,
+        buffer: &mut Vec<u8>,
+        limit: usize,
+        opts: ReadOptions,
+        observe: &mut dyn FnMut(ReceivedLine),
+    ) -> Result<Finished, FrameError> {
         // Observed before any skip or rejection decision, so keep-alive activity sees
         // blank lines too.
         observe(ReceivedLine {
-            raw_len: raw,
-            terminator,
+            raw_len: self.raw,
+            terminator: self.terminator,
         });
-        if let Some(over) = overflow {
+        if let Some(over) = self.overflow {
             buffer.clear();
-            return Ok(Some(Line::Oversized(over)));
+            return Ok(Finished::Done(Line::Oversized(over)));
         }
         let mut end = buffer.len();
         if end > 0 && buffer[end - 1] == b'\r' {
@@ -711,29 +811,29 @@ fn next_line_inner<R: BufRead>(
         }
         if end == 0 {
             if opts.skip_empty_lines {
-                continue 'line;
+                return Ok(Finished::Skip);
             }
             buffer.clear();
             return Err(FrameError::EmptyLine);
         }
         if opts.skip_whitespace_only_lines && is_blank_line(&buffer[..end], opts.whitespace) {
-            continue 'line;
+            return Ok(Finished::Skip);
         }
         let counted = match opts.limit_counts {
             LimitCounts::Payload => end,
-            LimitCounts::RawLineBytes => raw,
+            LimitCounts::RawLineBytes => self.raw,
         };
         if counted > limit {
             let head = buffer[..end.min(OVERSIZE_HEAD_BYTES)].to_vec();
             buffer.clear();
-            return Ok(Some(Line::Oversized(Oversized {
+            return Ok(Finished::Done(Line::Oversized(Oversized {
                 limit,
                 head,
                 bytes: counted,
             })));
         }
         buffer.truncate(end);
-        return Ok(Some(Line::Frame));
+        Ok(Finished::Done(Line::Frame))
     }
 }
 

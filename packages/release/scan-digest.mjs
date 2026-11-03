@@ -43,15 +43,21 @@ export const rustScanId = Object.freeze({
 });
 
 /**
- * A crate's compile feature plan exactly as CI's gate runs it (ci/gate.config.json rust.<crate>): `lintSets` (clippy; default
- * features when none), whether a default `check` is needed (no lint set covers default features), and the `checkSets` that
- * remain (none when a lint set already uses --all-features).
+ * A crate's compile feature plan (ci/gate.config.json rust.<crate>): `lintSets` (clippy; the declared sets, default features when none,
+ * and default plus --all-features for a crate that declares none but has Cargo features, `autoAllFeatures`), `baseSets` (the declared sets
+ * alone: tests, rustdoc and the other-OS-target lints), whether a default `check` is needed (no lint set covers default features), and the
+ * `checkSets` that remain (none when a lint set already uses --all-features).
  */
 export function rustCratePlan(own = {}) {
-  const lintSets = Array.isArray(own?.featureSets) && own.featureSets.length ? own.featureSets : [[]];
+  const declaredSets = Array.isArray(own?.featureSets) && own.featureSets.length ? own.featureSets : [[]];
+  // rightkit#1231 (feature-coverage.mjs effectiveCrateFeatures): a crate with no declared `featureSets` whose Cargo.toml declares features is linted with its default
+  // features and with --all-features, so feature-gated code is never left unlinted. Its tests, the rustdoc check and the other-OS-target lints keep the declared
+  // (here: default) sets, `baseSets`: more configurations than the declared ones would double every test run and cross-compile features nobody declared.
+  const auto = own?.autoAllFeatures === true && !(Array.isArray(own?.featureSets) && own.featureSets.length);
+  const lintSets = auto ? [[], ["--all-features"]] : declaredSets;
   const defaultCheck = !lintSets.some((set) => set.length === 0);
   const checkSets = (lintSets.some((set) => set.includes("--all-features")) ? [] : (Array.isArray(own?.checkFeatureSets) ? own.checkFeatureSets : [["--all-features"]])).filter((set) => set.length);
-  return { lintSets, defaultCheck, checkSets };
+  return { lintSets, baseSets: declaredSets, defaultCheck, checkSets };
 }
 
 // ---- Clippy batching (GATE-CONTRACT §1 "Clippy route & batching"; item 8 rows 8.6, 8.8, 8.15) -----------------------------------------
@@ -134,7 +140,7 @@ export function requiredScanIds({ units, crateFeatures = {}, exists, includeTest
   const clippyEntries = [];
   for (const name of units) {
     const own = crateFeatures?.[name] ?? {};
-    const { lintSets, defaultCheck, checkSets } = rustCratePlan(own);
+    const { lintSets, baseSets, defaultCheck, checkSets } = rustCratePlan(own);
     if (perCrate) {
       for (const id of ["cargo-metadata", "cargo-deny", "cargo-audit"]) ids.add(`${id}:${name}`);
       if (exists(`crates/${name}/.rightkit/advisory-exceptions.json`)) ids.add(`advisory-exceptions:${name}`);
@@ -147,9 +153,9 @@ export function requiredScanIds({ units, crateFeatures = {}, exists, includeTest
     else lintSets.forEach((_set, i) => ids.add(rustScanId.clippy(name, lintSets.length, i)));
     if (exists(`crates/${name}/src/lib.rs`)) ids.add(rustScanId.doc(name));
     if (includeTests) {
-      lintSets.forEach((_set, i) => {
-        ids.add(rustScanId.testRust(name, lintSets.length, i));
-        if (own.alsoSerial) ids.add(rustScanId.testRustSerial(name, lintSets.length, i));
+      baseSets.forEach((_set, i) => {
+        ids.add(rustScanId.testRust(name, baseSets.length, i));
+        if (own.alsoSerial) ids.add(rustScanId.testRustSerial(name, baseSets.length, i));
       });
     }
   }

@@ -1,6 +1,7 @@
 //! Typed client errors. Every refusal the daemon can return maps to an
 //! [`ErrorCode`]; transport and local failures have their own variants.
 
+use serde_json::Value;
 use std::fmt;
 
 /// The `error` code of a daemon refusal. Mirrors the codes the server returns
@@ -8,9 +9,13 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ErrorCode {
-    /// 401: missing, malformed, expired, replayed or badly signed credentials, an unknown or
-    /// revoked device, or a bad or expired enrolment code.
+    /// 401: missing, malformed, expired, replayed or badly signed credentials, an unknown
+    /// device, or a bad or expired enrolment code. A revoked device is
+    /// [`DeviceRevoked`](Self::DeviceRevoked).
     Unauthenticated,
+    /// 401: the device was revoked by its owner. Distinct from [`Unauthenticated`](Self::Unauthenticated)
+    /// so a client stops retrying and tells the user to enrol again (rightkit#306, PostRight#190).
+    DeviceRevoked,
     /// 403: the device lacks the scope the route needs (the role gate).
     Forbidden,
     /// 400: malformed body or credentials for this route.
@@ -58,6 +63,7 @@ impl ErrorCode {
     pub fn from_code(code: &str) -> Self {
         match code {
             "unauthenticated" => Self::Unauthenticated,
+            "device_revoked" => Self::DeviceRevoked,
             "forbidden" => Self::Forbidden,
             "bad_request" => Self::BadRequest,
             "not_found" => Self::NotFound,

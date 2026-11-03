@@ -54,7 +54,7 @@ export function safeImageHref(href?: string): string | undefined {
 
 const FORBIDDEN_TAGS = ["script", "style", "iframe", "object", "embed", "form", "base", "meta", "link", "template", "svg", "math", "canvas"];
 /** Every attribute that can carry a URL. Anything but `href`/`src` is never admitted. */
-const URI_ATTRIBUTES = new Set(["href", "src", "srcset", "poster", "action", "formaction", "xlink:href", "background", "data", "ping", "cite", "longdesc", "manifest"]);
+export const URI_ATTRIBUTES = new Set(["href", "src", "srcset", "poster", "action", "formaction", "xlink:href", "background", "data", "ping", "cite", "longdesc", "manifest"]);
 
 /** Shared image resolution for the React and HTML-string renderers: image policy, then the host
  * hook for relative sources. Returns `undefined` when the image must be dropped. */

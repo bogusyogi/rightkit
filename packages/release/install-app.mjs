@@ -23,11 +23,11 @@ export class InstallAppError extends Error {
   }
 }
 
-const VALUE_FLAGS = new Set(["--dmg", "--zip", "--app", "--app-name", "--bundle-id", "--dest", "--installer", "--exe", "--payload", "--payload-manifest"]);
+const VALUE_FLAGS = new Set(["--dmg", "--zip", "--app", "--app-name", "--bundle-id", "--dest", "--installer", "--exe", "--payload", "--payload-manifest", "--plugin-dir", "--plugin-app"]);
 const BOOL_FLAGS = new Set(["--relaunch", "--no-relaunch", "--json", "--dev", "--recover"]);
 
 export function parseArgs(argv) {
-  const opts = { dmg: null, zip: null, app: null, installer: null, exe: null, payload: [], payloadManifest: null, dev: false, appName: null, bundleId: null, dest: "/Applications", relaunch: null, json: false, recover: false };
+  const opts = { pluginDir: null, pluginApp: null, dmg: null, zip: null, app: null, installer: null, exe: null, payload: [], payloadManifest: null, dev: false, appName: null, bundleId: null, dest: "/Applications", relaunch: null, json: false, recover: false };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     if (VALUE_FLAGS.has(flag)) {
@@ -43,6 +43,8 @@ export function parseArgs(argv) {
       else if (flag === "--exe") opts.exe = value;
       else if (flag === "--payload") opts.payload.push(value);
       else if (flag === "--payload-manifest") opts.payloadManifest = value;
+      else if (flag === "--plugin-dir") opts.pluginDir = value;
+      else if (flag === "--plugin-app") opts.pluginApp = value;
       else opts.dest = value;
     } else if (BOOL_FLAGS.has(flag)) {
       if (flag === "--json") opts.json = true;
@@ -179,8 +181,17 @@ export function trashName(appName, now = new Date()) {
 
 // --- orchestration --------------------------------------------------------
 
-const realExecFile = (cmd, args) => new Promise((resolve, reject) => {
-  nodeExecFile(cmd, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
+// The environment an installed app is launched with (rightkit#690): HOME is the account's home from the password database
+// (getpwuid via os.userInfo), never the invoking shell's HOME (an agent shell in a second Claude profile has a profile HOME), and
+// CLAUDE_CONFIG_DIR is dropped so the app never inherits a Claude profile it was not started from.
+export function launchEnvironment(base = process.env, { home = os.userInfo().homedir } = {}) {
+  const environment = { ...base, HOME: home };
+  delete environment.CLAUDE_CONFIG_DIR;
+  return environment;
+}
+
+const realExecFile = (cmd, args, options = {}) => new Promise((resolve, reject) => {
+  nodeExecFile(cmd, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, windowsHide: true, ...options }, (error, stdout, stderr) => {
     if (error) { error.stdout = stdout; error.stderr = stderr; reject(error); } else resolve({ stdout, stderr });
   });
 });
@@ -645,7 +656,9 @@ export async function installApp(opts, deps = {}) {
     if (relaunch) {
       failedStage = "relaunch";
       // By the installed path, never by bundle id: Launch Services may resolve the id to another registered copy (rightkit#1225).
-      await run("/usr/bin/open", ["-g", "-j", installed]);
+      // HOME from the password database and no CLAUDE_CONFIG_DIR, so the app never runs with an agent profile's folders (rightkit#690).
+      const launchEnv = launchEnvironment(env);
+      await execFile("/usr/bin/open", ["-g", "-j", "--env", `HOME=${launchEnv.HOME}`, installed], { env: launchEnv });
       event("relaunched", { bundleId, installed });
     }
     const result = { ok: true, app: appName, installed, bundleId, teamId: newTeam, previous: null, swap: swapMode, relaunched: relaunch, ...(dev ? { dev: true } : {}) };
@@ -746,6 +759,19 @@ async function quitApp(run, kill, sleep, app) {
   return { pids, killed: remaining };
 }
 
+/**
+ * The plugin half of the install transaction (rightkit#1442): after the app is in place, register its plugin from the INSTALLED app's plugin folder in every
+ * Claude config root and read the version back. `--plugin-dir` is that folder inside the installed app (`--plugin-app` names the app slug, default: the plugin's
+ * own name). A failure here is reported as the install's failure: the app is installed, the plugin is not current.
+ */
+async function installAppPlugin(opts, emit, deps = {}) {
+  const { registerAppPlugin, readPluginManifest } = await import("./plugin-delivery.mjs");
+  const pluginDir = path.resolve(opts.pluginDir);
+  const manifest = readPluginManifest(pluginDir);
+  const result = registerAppPlugin({ app: opts.pluginApp ?? manifest.name, pluginDir, version: manifest.version, ...(deps.pluginDeps ?? {}), log: () => {} });
+  emit({ event: "plugin-registered", plugin: result.plugin, version: result.version, roots: result.roots.map((item) => item.root) });
+}
+
 export async function main(argv = process.argv.slice(2), io = {}) {
   const stdout = io.stdout || ((s) => console.log(s));
   const stderr = io.stderr || ((s) => console.error(s));
@@ -774,8 +800,10 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     }
     if (opts.recover) await recoverApp(opts, { ...io.deps, emit });
     else await installApp(opts, { ...io.deps, emit });
+    if (opts.pluginDir && !opts.recover) await installAppPlugin(opts, emit, io.deps);
     return 0;
   } catch (error) {
+    if (error?.code === "RK_PLUGIN_DELIVERY") { stderr(`install-app: the app is installed but its plugin is not current: ${error.message}`); return 1; }
     if (error instanceof InstallAppWindowsError) { stderr(`install-app: ${error.code}: ${error.message}`); return error.code === "unsupported" ? 3 : 1; }
     return error.code === "unsupported" ? 3 : 1;
   }

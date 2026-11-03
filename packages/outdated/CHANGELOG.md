@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.1 (unpublished)
+
+rightkit#1267 (open items: undeclared manifests, native sources and toolchains).
+
+- New, coverage scan (`coverageEntries`, run by `checkSources`): every `Cargo.toml`, `package.json`, `Package.swift`, `project.yml`, `rust-toolchain.toml` and Gradle build or settings file that no source declares becomes an `unknown` row of kind `coverage`. `check` exits 1 until the file is declared or held with a reason. Build output, `node_modules`, hidden directories and `vendor` are not entered.
+- New source kind `native`: `{ name, pin, repo }` judges a native library or tool built from source at a pinned version against the highest release tag of `repo`.
+- New source kind `toolchain`: `{ file }` judges `rust-toolchain.toml` (`channel`, against `rust-lang/rust` tags) or `package.json` (`packageManager`, against the npm registry). A non-pinned channel is `unknown`.
+- `apply` never rewrites `coverage`, `native` or `toolchain` rows; they are listed as skipped.
+- **Fixed: a crate pinned by several workspace members is rewritten in all of them at once (rightkit#1429).** `apply` grouped nothing: it rewrote one `Cargo.toml` per row and ran a lock update per row, so a sibling member's exact pin (`=0.3.5`) made the resolver refuse the new version and every row rolled back. Cargo rows are now grouped by crate and target version; every member's pin is rewritten (edits verified in memory first), then each affected `Cargo.lock` is updated once through `rustright cargo update -p <crate> --precise <version>`, all in one transaction. A failure restores every member and lockfile and fails the whole group. Each member row still reports its own manifest and the lockfile(s) it shares.
+- **Fixed: `discard` clears a report whose files moved on (rightkit#1429).** It refused ("changed after apply") and the stale report then blocked every later `apply`. Files that still hold the digest `apply` wrote are restored from HEAD; files that no longer match (edited, or the apply was committed outside right-update) are left untouched and listed under `moved`; the apply-report, gate-report and staged candidates are cleared either way. `DiscardOutcome` gains `moved` and `notes`.
+- **Fixed: a gate step must go through `rightkit-gate` (rightkit#1429).** `gate` (and so `run`) spawned any manifest gate command, including `cargo`, `pnpm` or `swift` build commands outside the gate. A gate whose command is not `rightkit-gate ...` or `node <path>/rightkit-gate.mjs ...` now fails without being spawned, naming the command (`gateRouteProblem`, exported). Manifests whose gates run tools directly must move them behind `rightkit-gate`.
+- **Fixed: `apply` regenerates every lockfile a pin change touches, in the same transaction (rightkit#1340).** Cargo (`Cargo.lock`) and pnpm (`pnpm-lock.yaml`) already were; SwiftPM now runs `swift package resolve` beside the `Package.swift` and the regenerated `Package.resolved` is part of the row's files (before, the row only noted that it was not refreshed). A `project.yml`-only project with no `Package.swift` beside it still notes that no resolved file was refreshed. The manifest has no Gradle or Python source kind, so there is no pin change that could touch a `gradle.lockfile` or a Python lock yet. Written from code, not compiled or run.
+- Not run here: no compile or type check was run in this pass (gate pending).
+
 ## 0.3.0
 
 rightkit#1267 (Adrian, 2026-10-29: "document it as an issue, a decision and fix and publish asap").

@@ -3,17 +3,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { isInt, isObj, isSha, isStr, problem, type Obj, type Problem } from './util.js';
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 export const ENV_PROTOCOL = 'RIGHTKIT_JOURNEYS_PROTOCOL';
 export const ENV_SELECTION = 'RIGHTKIT_JOURNEYS_SELECTION';
 export const ENV_RESULTS = 'RIGHTKIT_JOURNEYS_RESULTS';
+/** Set by the runner: the id of the snapshot of the owner's real data the run is made under. */
+export const ENV_SNAPSHOT_ID = 'RIGHTKIT_JOURNEYS_SNAPSHOT_ID';
 
 export const JOURNEY_STATUSES = ['passed', 'failed', 'skipped', 'errored'] as const;
 export type JourneyStatus = (typeof JOURNEY_STATUSES)[number];
 export const EVIDENCE_KINDS = ['log', 'screenshot', 'report', 'trace'] as const;
 
 export interface Selection {
-  protocol: 1;
+  protocol: 2;
   run_id: string;
   nonce: string;
   app: string;
@@ -39,21 +41,17 @@ export interface ArtifactDigest {
   path: string;
   sha256: string;
 }
-export interface Isolation {
-  data_dir: string;
-  guard: 'passed';
-  qa_mode: 'runtime';
-}
 export interface StartRecord {
   type: 'start';
-  protocol: 1;
+  protocol: 2;
   run_id: string;
   nonce: string;
   adapter: string;
   adapter_version: string;
   started_at: string;
   artifacts: ArtifactDigest[];
-  isolation: Isolation;
+  /** The snapshot the run is made under; equals the receipt's `snapshot.snapshot_id`. */
+  snapshot_id: string;
 }
 export interface JourneyRecord {
   type: 'journey';
@@ -78,7 +76,7 @@ export interface EndRecord {
 
 export function newSelection(input: Omit<Selection, 'protocol' | 'run_id' | 'nonce'> & { run_id?: string; nonce?: string }): Selection {
   return {
-    protocol: 1,
+    protocol: 2,
     run_id: input.run_id ?? randomUUID(),
     nonce: input.nonce ?? randomBytes(16).toString('hex'),
     app: input.app,
@@ -104,10 +102,11 @@ export function writeRunFiles(runRoot: string, selection: Selection): RunFiles {
   return { selectionPath, resultsPath };
 }
 
-/** The protocol environment of D4. Isolation variables come from the guard and are added by the caller. */
-export function adapterEnv(files: RunFiles): Record<string, string> {
+/** The protocol environment (protocol 2). `snapshotId` is the id of the snapshot the run is made under. */
+export function adapterEnv(files: RunFiles, snapshotId: string): Record<string, string> {
   return {
     [ENV_PROTOCOL]: String(PROTOCOL_VERSION),
+    [ENV_SNAPSHOT_ID]: snapshotId,
     [ENV_SELECTION]: path.resolve(files.selectionPath),
     [ENV_RESULTS]: path.resolve(files.resultsPath),
   };
@@ -117,7 +116,7 @@ export function readSelection(file: string): Selection {
   const raw: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
   if (
     !isObj(raw) ||
-    raw.protocol !== 1 ||
+    raw.protocol !== 2 ||
     !isStr(raw.run_id) ||
     !isStr(raw.nonce) ||
     !isStr(raw.app) ||
@@ -210,26 +209,22 @@ export function parseResults(text: string, selection: Pick<Selection, 'run_id' |
     }
     if (i === 0 && r.type !== 'start') add('protocol_violation', null, 'first record must be start');
     if (r.type === 'start') {
-      const iso = isObj(r.isolation) ? r.isolation : null;
       const arts = Array.isArray(r.artifacts) ? r.artifacts : null;
       if (
         i !== 0 ||
         res.start ||
-        r.protocol !== 1 ||
+        r.protocol !== 2 ||
         !isStr(r.adapter) ||
         !isStr(r.adapter_version) ||
         !isStr(r.started_at) ||
         !RFC3339.test(r.started_at) ||
         !arts ||
         !arts.every((a) => isObj(a) && isStr(a.role) && isStr(a.path) && isSha(a.sha256)) ||
-        !iso ||
-        !isStr(iso.data_dir)
+        !isStr(r.snapshot_id) ||
+        r.snapshot_id.trim() === ''
       ) {
         add('protocol_violation', null, `${where}: malformed or repeated start record`);
         continue;
-      }
-      if (iso.guard !== 'passed' || iso.qa_mode !== 'runtime') {
-        add('isolation', null, `${where}: start.isolation must be guard "passed" and qa_mode "runtime"`);
       }
       res.start = r as unknown as StartRecord;
     } else if (r.type === 'journey') {
@@ -314,8 +309,11 @@ export class Reporter {
     fs.appendFileSync(this.resultsPath, `${JSON.stringify({ ...record, run_id: this.selection.run_id, nonce: this.selection.nonce })}\n`);
   }
 
-  start(input: { adapter: string; adapter_version: string; artifacts: ArtifactDigest[]; isolation: Isolation }): void {
-    this.write({ type: 'start', protocol: 1, ...input, started_at: new Date().toISOString() });
+  /** The snapshot id comes from `RIGHTKIT_JOURNEYS_SNAPSHOT_ID`, set by the runner; an adapter started outside a snapshot cannot report start. */
+  start(input: { adapter: string; adapter_version: string; artifacts: ArtifactDigest[] }, env: NodeJS.ProcessEnv = process.env): void {
+    const snapshotId = env[ENV_SNAPSHOT_ID]?.trim();
+    if (!snapshotId) throw new Error(`${ENV_SNAPSHOT_ID} is unset: not started by a journeys runner under a snapshot`);
+    this.write({ type: 'start', protocol: PROTOCOL_VERSION, ...input, snapshot_id: snapshotId, started_at: new Date().toISOString() });
   }
 
   journey(report: JourneyReport): void {

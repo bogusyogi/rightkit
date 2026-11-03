@@ -4,7 +4,7 @@ import type { Manifest } from './manifest.js';
 import { parseResults, unitsConsistent, readEvidence, type ParsedResults, type Units } from './protocol.js';
 import { isHex, isInt, isObj, isSha, isStr, problem, sha256File, sha256Text, type Obj, type Problem } from './util.js';
 
-export const RECEIPT_SCHEMA = 'rightkit.journeys.receipt/1';
+export const RECEIPT_SCHEMA = 'rightkit.journeys.receipt/2';
 export const RECEIPT_STATUSES = ['passed', 'failed', 'skipped', 'errored', 'missing'] as const;
 export type ReceiptStatus = (typeof RECEIPT_STATUSES)[number];
 export type Verdict = 'passed' | 'failed' | 'incomplete';
@@ -14,6 +14,19 @@ export interface ReceiptArtifact {
   path: string;
   size: number;
   sha256: string;
+}
+export interface ReceiptSnapshot {
+  snapshot_id: string;
+  /** sha256 of the snapshot's manifest.json, the one the live data was verified against. */
+  manifest_sha256: string;
+  credentials_sha256?: string;
+  /** Data folders restored and verified. */
+  roots: number;
+  /** Credential items restored and verified. */
+  credentials: number;
+  /** The Android app's data dir was restored and its listing verified. */
+  android?: boolean;
+  restore_verified: boolean;
 }
 export interface ReceiptJourney {
   id: string;
@@ -58,8 +71,9 @@ export interface Receipt {
     artifacts: (ReceiptArtifact & { produced_by: 'broker_receipt' | 'build_output' })[];
   };
   launched: ReceiptArtifact[];
-  isolation: { data_dir: string; guard: 'passed'; qa_mode: 'runtime'; real_data_touched: false };
-  adapter: { name: string; version: string; protocol: 1; argv: string[]; exit_code: number; results_sha256: string };
+  /** The snapshot and verified restore of the owner's real data the run was made under (rightkit#1437). */
+  snapshot: ReceiptSnapshot;
+  adapter: { name: string; version: string; protocol: 2; argv: string[]; exit_code: number; results_sha256: string };
   selection: { ids: string[]; platform: string; tier: string };
   journeys: ReceiptJourney[];
   counts: Counts;
@@ -139,9 +153,11 @@ function shapeProblems(r: Obj): Problem[] {
     bad('build invalid');
   }
   if (!Array.isArray(r.launched) || !r.launched.every((a) => isObj(a) && isStr(a.role) && isStr(a.path) && isInt(a.size) && isSha(a.sha256))) bad('launched invalid');
-  if (!isObj(r.isolation) || !isStr(r.isolation.data_dir)) bad('isolation invalid');
+  const snap = r.snapshot;
+  if (!isObj(snap) || !isStr(snap.snapshot_id) || !isSha(snap.manifest_sha256) || !isInt(snap.roots) || !isInt(snap.credentials) || typeof snap.restore_verified !== 'boolean' || (snap.android !== undefined && typeof snap.android !== 'boolean')) bad('snapshot invalid');
+  else if (snap.credentials_sha256 !== undefined && !isSha(snap.credentials_sha256)) bad('snapshot.credentials_sha256 invalid');
   const a = r.adapter;
-  if (!isObj(a) || !isStr(a.name) || !isStr(a.version) || a.protocol !== 1 || !Array.isArray(a.argv) || typeof a.exit_code !== 'number' || !isSha(a.results_sha256)) bad('adapter invalid');
+  if (!isObj(a) || !isStr(a.name) || !isStr(a.version) || a.protocol !== 2 || !Array.isArray(a.argv) || typeof a.exit_code !== 'number' || !isSha(a.results_sha256)) bad('adapter invalid');
   const sel = r.selection;
   if (!isObj(sel) || !Array.isArray(sel.ids) || !sel.ids.every(isStr) || !isStr(sel.platform) || !isStr(sel.tier)) bad('selection invalid');
   if (!Array.isArray(r.journeys)) bad('journeys must be an array');
@@ -267,7 +283,7 @@ export function validateReceipt(input: unknown, opts: ValidateReceiptOptions = {
       for (const [role] of startBy) {
         if (!r.launched.some((l) => l.role === role)) add('artifact_mismatch', null, `adapter reported ${role} but the runner did not launch-measure it`);
       }
-      if (parsed.start.isolation.data_dir !== r.isolation.data_dir) add('isolation', null, 'start.isolation.data_dir differs from the receipt');
+      if (parsed.start.snapshot_id !== r.snapshot.snapshot_id) add('snapshot', null, 'start.snapshot_id is not the id of the snapshot the run was made under');
       if (parsed.start.adapter !== r.adapter.name || parsed.start.adapter_version !== r.adapter.version) {
         add('protocol_violation', null, 'start record adapter name or version differs from the receipt');
       }
@@ -313,11 +329,11 @@ export function validateReceipt(input: unknown, opts: ValidateReceiptOptions = {
   }
   if (r.source.dirty && opts.requireClean) add('dirty_source', null, 'source tree was dirty; release signoff requires a clean tree');
 
-  // Rule 6: isolation.
-  const iso = r.isolation as Obj;
-  if (iso.guard !== 'passed' || iso.qa_mode !== 'runtime' || iso.real_data_touched !== false) {
-    add('isolation', null, 'isolation must be guard "passed", qa_mode "runtime" and real_data_touched false');
-  }
+  // Rule 6: snapshot. The journeys ran on the owner's real data, and the restore was verified.
+  const snap = r.snapshot;
+  if (snap.snapshot_id.trim() === '') add('snapshot', null, 'no snapshot id recorded');
+  if (snap.roots === 0 && snap.android !== true) add('snapshot', null, 'the snapshot covers no data folder');
+  if (!snap.restore_verified) add('snapshot', null, 'the restore of the real data was not verified against the snapshot manifest');
 
   // Rule 7: adapter exit and evidence digests.
   // Nothing launched is no_launch (incomplete); the adapter never ran, so its exit code says nothing.

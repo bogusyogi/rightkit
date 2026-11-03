@@ -18,6 +18,9 @@
 //! - `cli` feature: `provider::cli::CliProvider` drives an installed, signed-in
 //!   assistant CLI (Claude Code, Codex) as a bounded child process; no API key.
 //!   `provider::cli::CancelHandle` kills a running call's process tree mid-run.
+//! - Per physical attempt observer ([`attempt`]: `SubmissionReceipt` and retry notices) and
+//!   separate retry budgets ([`attempt::separate_budget_retry`]); image calls classed for retry
+//!   and billing ([`generation::ImageFailureClass`]); o200k token counts with feature `tokens`.
 //! - Credentials come from a [`credentials::CredentialSource`]; production wiring
 //!   uses `rightkit-credentials` through the `SecretStore` trait.
 
@@ -26,6 +29,7 @@ pub mod agent_providers;
 #[cfg(feature = "agent_router")]
 pub mod agent_router;
 pub mod anthropic;
+pub mod attempt;
 pub mod breaker;
 pub mod cache;
 pub mod catalogue;
@@ -41,9 +45,12 @@ pub mod pricing;
 pub mod provider;
 pub mod raw;
 pub mod reassembler;
+#[cfg(feature = "tokens")]
+pub mod tokens;
 pub mod tools;
 pub mod types;
 
+pub use attempt::{separate_budget_retry, AttemptNotice, SubmissionReceipt};
 pub use catalogue::{
     CatalogueError, CatalogueRow, PriceCatalogue, PriceComponent, PriceKind, PriceUnit,
     Qualification,
@@ -51,6 +58,7 @@ pub use catalogue::{
 pub use credentials::{CredentialSource, SecretStoreCredentials, StaticCredentials};
 pub use error::{Attempt, LlmError};
 pub use failover::{FailoverChain, FailoverEvent, FailoverOn, FailoverPolicy, Route};
+pub use generation::{classify_image_error, ImageFailure, ImageFailureClass};
 pub use image::{Frame, ImageSource};
 pub use pricing::{Match as PriceMatch, ModelPrice, PriceError, PriceOverride, PriceTable};
 pub use provider::Provider;

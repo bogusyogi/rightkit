@@ -6,6 +6,7 @@
 pub mod cli;
 pub mod continuity;
 pub mod live_state;
+pub mod open_items;
 pub mod pointer;
 
 pub use cli::{run, RunEnv};

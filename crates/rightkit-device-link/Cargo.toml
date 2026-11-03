@@ -1,0 +1,53 @@
+[package]
+name = "rightkit-device-link"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+license = "MIT OR Apache-2.0"
+description = "Reliable ordered message delivery between linked devices over a relay: sequence numbers, cumulative ACK on handler accept, bounded fragments and buffers, replay after reconnect, skip markers, version fail-closed. Sans-IO, std only."
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["device-link", "reliable", "relay", "ordered-delivery"]
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[dependencies]
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "sans-IO protocol state machines the caller drives with frames and a caller-supplied clock value; spawns no thread and runs no timer"
+
+# One Cargo workspace and lock per crate (rightkit#1285).
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

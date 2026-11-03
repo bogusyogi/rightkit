@@ -2,6 +2,7 @@
 //! or production-only pruning. Port of `ownership-lockfiles.mjs`.
 
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
 use serde_json::{Map, Value};
 

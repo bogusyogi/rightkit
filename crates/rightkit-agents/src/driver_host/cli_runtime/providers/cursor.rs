@@ -52,6 +52,7 @@ use crate::driver_host::cli_runtime::qualification::{
     now_iso as now_iso_label, DEFAULT_NEGATIVE_PROBES, DEFAULT_POSITIVE_PROBES,
 };
 use crate::driver_host::contracts::{NormalizedEvent, NormalizedEventKind};
+use std::path::PathBuf;
 
 pub const PROVIDER_ID: &str = "cursor";
 pub const DISPLAY_NAME: &str = "Cursor";

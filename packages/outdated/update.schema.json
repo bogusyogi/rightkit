@@ -13,7 +13,7 @@
     },
     "gates": {
       "type": "array",
-      "description": "Repository gates run by `right-update gate`, in order. Each must exit 0.",
+      "description": "Repository gates run by `right-update gate`, in order. Each must exit 0 and each command must be a `rightkit-gate` invocation (`rightkit-gate ...` or `node <path>/rightkit-gate.mjs ...`); any other command fails without being spawned.",
       "items": { "$ref": "#/$defs/gate" }
     },
     "policy": {

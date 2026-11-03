@@ -13,12 +13,6 @@ include = ["src/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LIC
 name = "rightkit_memory"
 path = "src/lib.rs"
 
-# Test double for the membrane CLI, used by tests/membrane_fake_binary.rs.
-[[bin]]
-name = "fake-membrane"
-path = "src/bin/fake_membrane.rs"
-test = false
-
 [features]
 agent_host = ["dep:axum", "dep:rightkit-agent-engine-runtime-resources", "dep:rightkit-agent-policy", "dep:rightkit-agent-tools", "dep:rightkit-app-settings", "dep:tracing"]
 
@@ -37,9 +31,6 @@ rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 async-trait = "0.1"
 tokio-util = "0.7"
 tokio = { version = "1", features = ["rt", "time", "macros"] }
-
-[dev-dependencies]
-tempfile = "3"
 
 [workspace]
 

@@ -79,6 +79,9 @@ extern "C" {
         len: CFIndex,
         dir: u8,
     ) -> CFTypeRef;
+    pub fn CFURLGetTypeID() -> c_ulong;
+    /// The URL's string form. A Get-rule result: borrowed from the URL, not owned.
+    pub fn CFURLGetString(url: CFTypeRef) -> CFTypeRef;
     pub fn CFRunLoopRunInMode(mode: CFTypeRef, secs: c_double, ret: u8) -> c_int;
     pub static kCFRunLoopDefaultMode: CFTypeRef;
     pub static kCFBooleanTrue: CFTypeRef;

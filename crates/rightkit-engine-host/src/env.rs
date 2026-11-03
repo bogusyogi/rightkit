@@ -1,6 +1,6 @@
 //! The engine's view of its own process environment: operating system, executable location, the
 //! app's data root and the user's home. Fields are public and injectable, so a host builds it from
-//! its own resolution (app ids, test-mode roots) and tests build it from any inputs.
+//! its own resolution (app ids, data roots).
 
 use std::path::{Path, PathBuf};
 

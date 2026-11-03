@@ -53,15 +53,25 @@ impl Table {
 
 /// Runs `read` on the process table after refreshing it. Callers are serialised, so two listings
 /// never run at once and a second caller reuses the first one's refresh when it follows closely.
-pub fn with_processes<R>(read: impl FnOnce(&System) -> R) -> R {
-    static TABLE: OnceLock<Mutex<Table>> = OnceLock::new();
-    let table = TABLE.get_or_init(|| {
-        Mutex::new(Table {
-            system: System::new(),
-            refreshed: None,
+/// Fails when the OS refuses sysinfo its system tables (sysinfo 0.40 `System::new`).
+pub fn with_processes<R>(read: impl FnOnce(&System) -> R) -> Result<R, crate::SamplerError> {
+    static TABLE: OnceLock<Result<Mutex<Table>, String>> = OnceLock::new();
+    let table = TABLE
+        .get_or_init(|| {
+            System::new()
+                .map(|system| {
+                    Mutex::new(Table {
+                        system,
+                        refreshed: None,
+                    })
+                })
+                .map_err(|error| error.to_string())
         })
-    });
+        .as_ref()
+        .map_err(|message| {
+            crate::SamplerError::from(sysinfo::Error::Other(message.clone().into()))
+        })?;
     let mut table = table.lock().unwrap_or_else(PoisonError::into_inner);
     table.refresh();
-    read(&table.system)
+    Ok(read(&table.system))
 }

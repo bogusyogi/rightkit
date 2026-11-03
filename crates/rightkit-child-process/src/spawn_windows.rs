@@ -28,10 +28,10 @@ use windows::{
             CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess,
             InitializeProcThreadAttributeList, ResumeThread, TerminateProcess,
             UpdateProcThreadAttribute, WaitForSingleObject, CREATE_BREAKAWAY_FROM_JOB,
-            CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT,
+            CREATE_NEW_CONSOLE, CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT,
             EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_CREATION_FLAGS,
-            PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, STARTF_USESTDHANDLES,
-            STARTUPINFOEXW,
+            PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+            PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, STARTF_USESTDHANDLES, STARTUPINFOEXW,
         },
     },
 };
@@ -240,7 +240,9 @@ struct AttributeStorage {
     _bytes: [u8; 16],
 }
 impl Attributes {
-    fn new(handles: &[HANDLE]) -> io::Result<Self> {
+    /// With `pseudoconsole` (an `HPCON`) the one attribute is the pseudoconsole and there is no
+    /// handle list: a ConPTY child gets its console from the pseudoconsole and inherits nothing.
+    fn new(handles: &[HANDLE], pseudoconsole: Option<isize>) -> io::Result<Self> {
         let mut bytes = 0;
         let _ = unsafe { InitializeProcThreadAttributeList(None, 1, None, &mut bytes) };
         if bytes == 0 {
@@ -254,16 +256,30 @@ impl Attributes {
             _storage: storage,
             list,
         };
-        unsafe {
-            UpdateProcThreadAttribute(
-                list,
-                0,
-                PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
-                Some(handles.as_ptr().cast()),
-                std::mem::size_of_val(handles),
-                None,
-                None,
-            )
+        match pseudoconsole {
+            // The attribute value is the HPCON itself, not a pointer to it.
+            Some(hpcon) => unsafe {
+                UpdateProcThreadAttribute(
+                    list,
+                    0,
+                    PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE as usize,
+                    Some(hpcon as usize as *const std::ffi::c_void),
+                    std::mem::size_of::<isize>(),
+                    None,
+                    None,
+                )
+            },
+            None => unsafe {
+                UpdateProcThreadAttribute(
+                    list,
+                    0,
+                    PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
+                    Some(handles.as_ptr().cast()),
+                    std::mem::size_of_val(handles),
+                    None,
+                    None,
+                )
+            },
         }
         .map_err(os_error)?;
         Ok(attributes)
@@ -362,13 +378,26 @@ pub(crate) fn spawn(
     handles: &[usize],
     detached: bool,
     hidden: bool,
+    new_console: bool,
     priority: crate::ProcessPriority,
     env_cleared: bool,
     cleanup_timeout: Option<Duration>,
     in_job_fallback: bool,
+    pseudoconsole: Option<isize>,
 ) -> io::Result<(WindowsChild, bool)> {
     if env_cleared {
         config.inherit_environment = false;
+    }
+    // A ConPTY child gets its console and its standard handles from the pseudoconsole: no
+    // handle inheritance, no standard handle in the startup information, and neither a hidden
+    // nor a new console (the pseudoconsole is the console). The standard streams of `config`
+    // are replaced with NUL here, so nothing in this process is wired to the child.
+    let pty = pseudoconsole.is_some();
+    let (hidden, new_console) = (hidden && !pty, new_console && !pty);
+    if pty {
+        config.stdin = WindowsStdio::Null;
+        config.stdout = WindowsStdio::Null;
+        config.stderr = WindowsStdio::Null;
     }
     let environment = environment(command, config.inherit_environment)?;
     let program = resolve_program(command, &environment)?;
@@ -401,29 +430,39 @@ pub(crate) fn spawn(
     let (stdin, parent_stdin) = stdio(config.stdin, 0)?;
     let (stdout, parent_stdout) = stdio(config.stdout, 1)?;
     let (stderr, parent_stderr) = stdio(config.stderr, 2)?;
-    let mut handles: Vec<_> = handles
-        .iter()
-        .map(|handle| HANDLE(*handle as RawHandle))
-        .collect();
-    handles.extend([
-        HANDLE(stdin.as_raw_handle()),
-        HANDLE(stdout.as_raw_handle()),
-        HANDLE(stderr.as_raw_handle()),
-    ]);
+    let mut handles: Vec<_> = if pty {
+        Vec::new()
+    } else {
+        handles
+            .iter()
+            .map(|handle| HANDLE(*handle as RawHandle))
+            .collect()
+    };
+    if !pty {
+        handles.extend([
+            HANDLE(stdin.as_raw_handle()),
+            HANDLE(stdout.as_raw_handle()),
+            HANDLE(stderr.as_raw_handle()),
+        ]);
+    }
     handles.sort_unstable_by_key(|handle| handle.0 as usize);
     handles.dedup();
     let _lock = spawn_guard();
     let mut inheritable = Inheritable::new(&handles)?;
-    let attributes = Attributes::new(&handles)?;
+    let attributes = Attributes::new(&handles, pseudoconsole)?;
     let mut startup = STARTUPINFOEXW::default();
     startup.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
-    startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
-    startup.StartupInfo.hStdInput = HANDLE(stdin.as_raw_handle());
-    startup.StartupInfo.hStdOutput = HANDLE(stdout.as_raw_handle());
-    startup.StartupInfo.hStdError = HANDLE(stderr.as_raw_handle());
+    if !pty {
+        startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+        startup.StartupInfo.hStdInput = HANDLE(stdin.as_raw_handle());
+        startup.StartupInfo.hStdOutput = HANDLE(stdout.as_raw_handle());
+        startup.StartupInfo.hStdError = HANDLE(stderr.as_raw_handle());
+    }
     startup.lpAttributeList = attributes.list;
     let mut flags = CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT;
-    if hidden {
+    if new_console {
+        flags |= CREATE_NEW_CONSOLE;
+    } else if hidden {
         flags |= CREATE_NO_WINDOW;
     }
     if detached {
@@ -441,7 +480,7 @@ pub(crate) fn spawn(
                 Some(PWSTR(line.as_mut_ptr())),
                 None,
                 None,
-                true,
+                !pty,
                 flags,
                 Some(env_block.as_ptr().cast()),
                 PCWSTR(cwd.as_ref().map_or(std::ptr::null(), |cwd| cwd.as_ptr())),
@@ -460,7 +499,7 @@ pub(crate) fn spawn(
                 let retry_flags = CREATE_SUSPENDED
                     | CREATE_UNICODE_ENVIRONMENT
                     | EXTENDED_STARTUPINFO_PRESENT
-                    | crate::process_windows::in_job_detached_flags(hidden, priority);
+                    | crate::process_windows::in_job_detached_flags(hidden, new_console, priority);
                 create(retry_flags, &mut retry_line)?;
                 stayed_in_parent_job = true;
             }

@@ -33,6 +33,10 @@ use crate::backend::{
 use crate::error::{Code, RecordError, Result};
 use crate::process::ProcessBackend;
 
+mod screen;
+
+pub use screen::MacScreen;
+
 /// File name of the helper binary.
 pub const HELPER_BINARY: &str = "rightkit-record-macos-helper";
 /// Environment variable naming the helper binary.

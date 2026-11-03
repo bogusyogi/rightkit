@@ -12,31 +12,43 @@
 //!    but a new `FileKey` -> [`Resolution::Replaced`] (the ledger is rebound);
 //! 4. otherwise [`Resolution::Missing`].
 //!
-//! The ledger is one JSON file written atomically under a cross-process lock, so any number of
-//! processes can track and resolve concurrently. Donors: HeardRight/ScrapeRight/ViewRight file
-//! grants and clipboard delivery, which each keyed files by path.
+//! The ledger ([`IdentityStore`], feature `json`) is one JSON file written atomically under a
+//! cross-process lock, so any number of processes can track and resolve concurrently. Without
+//! `json` (feature `fs` alone) the identity types are still here: [`StableId`], [`Fingerprint`],
+//! [`Tracked`], [`Resolution`], [`SearchLimits`], [`track_path`] and the ledger-free [`locate`],
+//! so an app that keeps its own records can resolve a moved or replaced file. Donors:
+//! HeardRight/ScrapeRight/ViewRight file grants and clipboard delivery, which each keyed files by
+//! path.
 
+#[cfg(feature = "json")]
 use crate::atomic::atomic_write_private;
 use crate::error::{FsError, Result};
 pub use crate::file_key::FileKey;
+#[cfg(feature = "json")]
 use crate::lock::{FileLock, LockOptions};
-use serde::{Deserialize, Serialize};
+#[cfg(feature = "json")]
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+#[cfg(feature = "json")]
+use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(feature = "json")]
 const LEDGER_FILE: &str = "identity-ledger.json";
+#[cfg(feature = "json")]
 const LOCK_FILE: &str = "identity-ledger.lock";
 const SAMPLE: u64 = 64 * 1024;
+#[cfg(feature = "json")]
 const LEDGER_VERSION: u32 = 1;
 
 pub type StableId = String;
 
 /// Cheap content fingerprint: size plus FNV-1a over the first and last 64 KiB. Only ever used to
 /// shortlist a replaced or copied file; never as proof of identity on its own.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
 pub struct Fingerprint {
     pub size: u64,
     pub sample_hash: u64,
@@ -73,7 +85,8 @@ impl Fingerprint {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "json", derive(serde::Serialize, serde::Deserialize))]
 pub struct Tracked {
     pub id: StableId,
     pub key: FileKey,
@@ -117,17 +130,84 @@ impl Default for SearchLimits {
     }
 }
 
-#[derive(Default, Serialize, Deserialize)]
+/// Start tracking `path` without a ledger: a fresh [`StableId`] bound to the file's identity and
+/// fingerprint now. The caller keeps the returned [`Tracked`] and later passes it to [`locate`].
+pub fn track_path(path: &Path) -> Result<Tracked> {
+    let abs = absolute(path)?;
+    let key = FileKey::of_path(&abs)?;
+    let fingerprint = Fingerprint::of_path(&abs)?;
+    Ok(Tracked {
+        id: new_id()?,
+        key,
+        last_path: abs,
+        fingerprint,
+        tracked_at_ms: now_ms(),
+    })
+}
+
+/// Find where the file `tracked` lives now, with no ledger and no write: the last known path
+/// first, then a bounded walk of `roots` (never following symlinks) for the same [`FileKey`], then
+/// a same-size, same-fingerprint file ([`Resolution::Replaced`]). The caller records the answer.
+pub fn locate(tracked: &Tracked, roots: &[PathBuf], limits: &SearchLimits) -> Result<Resolution> {
+    // 1. Same file, same place.
+    if let Ok(key) = FileKey::of_path(&tracked.last_path) {
+        if key == tracked.key {
+            return Ok(Resolution::Unchanged(tracked.last_path.clone()));
+        }
+    }
+
+    // 2. Same file (by filesystem identity), new place; remember size-matching candidates.
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    let mut moved: Option<PathBuf> = None;
+    let mut budget = limits.max_entries;
+    for root in roots {
+        walk(root, 0, limits.max_depth, &mut budget, &mut |path, meta| {
+            if FileKey::of_meta(meta, path) == Some(tracked.key) {
+                moved = Some(path.to_path_buf());
+                return true;
+            }
+            if meta.len() == tracked.fingerprint.size && candidates.len() < 64 {
+                candidates.push(path.to_path_buf());
+            }
+            false
+        });
+        if moved.is_some() {
+            break;
+        }
+    }
+    if let Some(path) = moved {
+        return Ok(Resolution::Moved(path));
+    }
+
+    // 3. Replaced or copied: the old path itself first, then same-size candidates.
+    let mut shortlist = Vec::new();
+    if tracked.last_path.is_file() {
+        shortlist.push(tracked.last_path.clone());
+    }
+    shortlist.extend(candidates);
+    for path in shortlist {
+        if Fingerprint::of_path(&path).ok() == Some(tracked.fingerprint) {
+            return Ok(Resolution::Replaced(path));
+        }
+    }
+    Ok(Resolution::Missing)
+}
+
+#[cfg(feature = "json")]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Ledger {
     version: u32,
     entries: BTreeMap<StableId, Tracked>,
 }
 
+/// The persistent ledger of tracked files (feature `json`).
+#[cfg(feature = "json")]
 pub struct IdentityStore {
     dir: PathBuf,
     limits: SearchLimits,
 }
 
+#[cfg(feature = "json")]
 impl IdentityStore {
     /// `dir` is the app's state directory; the ledger and its lock live inside it.
     pub fn open(dir: &Path) -> Result<Self> {
@@ -249,58 +329,16 @@ impl IdentityStore {
         let tracked = self
             .lookup(id)?
             .ok_or_else(|| FsError::UnknownId(id.to_string()))?;
-
-        // 1. Same file, same place.
-        if let Ok(key) = FileKey::of_path(&tracked.last_path) {
-            if key == tracked.key {
-                return Ok(Resolution::Unchanged(tracked.last_path));
+        let resolution = locate(&tracked, roots, &self.limits)?;
+        match &resolution {
+            Resolution::Moved(path) => self.update_path(id, path, None)?,
+            Resolution::Replaced(path) => {
+                let key = FileKey::of_path(path)?;
+                self.update_path(id, path, Some(key))?;
             }
+            Resolution::Unchanged(_) | Resolution::Missing => {}
         }
-
-        // 2. Same file (by filesystem identity), new place; remember size-matching candidates.
-        let mut candidates: Vec<PathBuf> = Vec::new();
-        let mut moved: Option<PathBuf> = None;
-        let mut budget = self.limits.max_entries;
-        for root in roots {
-            walk(
-                root,
-                0,
-                self.limits.max_depth,
-                &mut budget,
-                &mut |path, meta| {
-                    if FileKey::of_meta(meta, path) == Some(tracked.key) {
-                        moved = Some(path.to_path_buf());
-                        return true;
-                    }
-                    if meta.len() == tracked.fingerprint.size && candidates.len() < 64 {
-                        candidates.push(path.to_path_buf());
-                    }
-                    false
-                },
-            );
-            if moved.is_some() {
-                break;
-            }
-        }
-        if let Some(path) = moved {
-            self.update_path(id, &path, None)?;
-            return Ok(Resolution::Moved(path));
-        }
-
-        // 3. Replaced or copied: the old path itself first, then same-size candidates.
-        let mut shortlist = Vec::new();
-        if tracked.last_path.is_file() {
-            shortlist.push(tracked.last_path.clone());
-        }
-        shortlist.extend(candidates);
-        for path in shortlist {
-            if Fingerprint::of_path(&path).ok() == Some(tracked.fingerprint) {
-                let key = FileKey::of_path(&path)?;
-                self.update_path(id, &path, Some(key))?;
-                return Ok(Resolution::Replaced(path));
-            }
-        }
-        Ok(Resolution::Missing)
+        Ok(resolution)
     }
 
     fn update_path(&self, id: &str, path: &Path, new_key: Option<FileKey>) -> Result<()> {

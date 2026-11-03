@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/qa",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "description": "Shared QA evidence, ownership, browser helpers, and release-backdoor guards for Right Suite apps.",
   "license": "MIT OR Apache-2.0",
   "packageManager": "pnpm@12.16.1",
@@ -23,7 +23,6 @@
       "types": "./dist/journeys/index.d.ts",
       "import": "./dist/journeys/index.js"
     },
-    "./journeys-fixture-adapter": "./journeys-fixture-adapter.mjs",
     "./ts-register": "./ts-register.mjs",
     "./ts-hooks": "./ts-hooks.mjs"
   },
@@ -31,7 +30,6 @@
     "dist",
     "ts-register.mjs",
     "ts-hooks.mjs",
-    "journeys-fixture-adapter.mjs",
     "README.md",
     "LICENSE-MIT",
     "LICENSE-APACHE"
@@ -40,17 +38,14 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "pnpm --filter @rightkit/qa-chrome build && pnpm run build && vitest run && node --test public-storage.test.mjs ts-register.test.mjs",
-    "test:adoption-contract": "pnpm run build && vitest run --config vitest.adoption.config.ts"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@rightkit/qa-chrome": "0.1.12"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.5"
+    "typescript": "^7.0.2"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",
@@ -67,10 +62,7 @@
         "rightkit-qa-journeys": [
           "--help"
         ]
-      },
-      "skipImport": [
-        "./journeys-fixture-adapter"
-      ]
+      }
     }
   }
 }

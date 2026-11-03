@@ -8,10 +8,6 @@
 //! resources) and installed here once. Every former `RIGHTKIT_*` path read goes through an accessor in
 //! this module.
 //!
-//! Test and `test-mode` builds keep the old environment overrides through
-//! `rightkit_dictation_core::dev_var_os!`, which is compiled out of release builds, so the names are
-//! absent from a release binary.
-//!
 //! The model CHOICE (backend alias, shared-store variant directory, load-check flag) is not a
 //! path the engine can derive: it is what the shell decided for this launch. It arrives in the
 //! launch frame (first stdin line, `rightkit_dictation_core::engine::launch`), validated and installed by
@@ -50,44 +46,31 @@ pub fn installed() -> Option<&'static EnginePaths> {
     INSTALLED.get()
 }
 
-fn dev_override(value: Option<std::ffi::OsString>) -> Option<PathBuf> {
-    value.filter(|value| !value.is_empty()).map(PathBuf::from)
-}
-
-/// Models base directory: test-mode override, else the installed root.
+/// Models base directory: the installed root.
 pub fn models_base_dir() -> Option<PathBuf> {
-    dev_override(rightkit_dictation_core::dev_var_os!("RIGHTKIT_MODELS_DIR"))
-        .or_else(|| installed().map(|paths| paths.models_base.clone()))
+    installed().map(|paths| paths.models_base.clone())
 }
 
-/// Bundled KWS directory: test-mode override, else the installed root.
+/// Bundled KWS directory: the installed root.
 pub fn kws_dir() -> Option<PathBuf> {
-    dev_override(rightkit_dictation_core::dev_var_os!("RIGHTKIT_KWS_DIR"))
-        .or_else(|| installed().map(|paths| paths.kws_dir.clone()))
+    installed().map(|paths| paths.kws_dir.clone())
 }
 
-/// Bundled ffmpeg: test-mode override, else the installed root.
+/// Bundled ffmpeg: the installed root.
 pub fn ffmpeg_path() -> Option<PathBuf> {
-    dev_override(rightkit_dictation_core::dev_var_os!("RIGHTKIT_FFMPEG_PATH"))
-        .or_else(|| installed().and_then(|paths| paths.ffmpeg.clone()))
+    installed().and_then(|paths| paths.ffmpeg.clone())
 }
 
-/// Compiled CoreML model cache directory: test-mode override, else the installed root.
+/// Compiled CoreML model cache directory: the installed root.
 #[cfg(target_os = "macos")]
 pub fn coreml_compiled_cache_dir() -> Option<PathBuf> {
-    dev_override(rightkit_dictation_core::dev_var_os!(
-        "RIGHTKIT_COREML_COMPILED_CACHE_DIR"
-    ))
-    .or_else(|| installed().map(|paths| paths.coreml_compiled_cache.clone()))
+    installed().map(|paths| paths.coreml_compiled_cache.clone())
 }
 
-/// Whisper CoreML bundle fallback: test-mode override, else the installed root.
+/// Whisper CoreML bundle fallback: the installed root.
 #[cfg(target_os = "macos")]
 pub fn whisper_coreml_dir() -> Option<PathBuf> {
-    dev_override(rightkit_dictation_core::dev_var_os!(
-        "RIGHTKIT_WHISPER_COREML_MODEL"
-    ))
-    .or_else(|| installed().map(|paths| paths.whisper_coreml_dir.clone()))
+    installed().map(|paths| paths.whisper_coreml_dir.clone())
 }
 
 /// What the shell decided for this launch.
@@ -124,9 +107,7 @@ pub fn install_launch(launch: rightkit_dictation_core::engine::launch::EngineLau
 }
 
 /// THE ONE READ of the launch model choice: the pinned Parakeet role, else the installed launch
-/// frame. Test and `test-mode` builds that were started without a frame (engine tests driving
-/// stdin directly) may still pass the choice through the environment; release builds never read
-/// it there.
+/// frame. A process started without a frame has made no choice.
 pub fn launch_model_choice() -> LaunchModelChoice {
     if PARAKEET_PINNED.load(Ordering::SeqCst) {
         let dir = PINNED_DIR.get().cloned().flatten();
@@ -151,11 +132,7 @@ pub fn launch_model_choice() -> LaunchModelChoice {
             load_check: launch.load_check,
         };
     }
-    choice_without_frame()
-}
-
-/// Release: no frame means no choice was made for this process; the persisted setting decides
-/// the backend and the engine derives the Parakeet directory.
-fn choice_without_frame() -> LaunchModelChoice {
+    // No frame means no choice was made for this process; the persisted setting decides the
+    // backend and the engine derives the Parakeet directory.
     LaunchModelChoice::default()
 }

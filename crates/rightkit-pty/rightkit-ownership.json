@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-pty",
+  "capabilities": [
+    {
+      "capability": "managed-pty",
+      "summary": "Async managed PTY child: owned tree, resize, bounded acknowledged input, canonical EOF, staged cancel; POSIX PTY and ConPTY; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

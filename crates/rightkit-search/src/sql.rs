@@ -4,6 +4,7 @@
 //! adds negation for every operator and real OR groups over operators.
 
 use crate::ast::Syntax;
+use crate::fts::{check_limit, Bm25Weights, FtsError};
 use crate::terms::{OpTerm, Query};
 use crate::values::{now_ms, parse_date_ms, parse_relative_ms, parse_size_bytes};
 use std::fmt;
@@ -265,6 +266,43 @@ pub struct Compiled {
 impl Compiled {
     pub fn select(&self, select_from: &str) -> String {
         format!("{select_from} WHERE {}", self.where_sql)
+    }
+
+    /// A select whose own FROM table carries the free-text MATCH, so `snippet()`, `bm25()` and
+    /// `rank` are reachable in the select list and the ORDER BY. The outer MATCH is the
+    /// positive expression [`Compiled::fts_match`]; `where_sql` is appended as the remaining
+    /// predicate, and its own placeholders follow. Bind `fts_match` first, then `params` in
+    /// order. `None` when the query has no free-text predicate (nothing to rank).
+    /// `fts_table` is the FTS5 table name and `select_list` the columns and expressions.
+    pub fn ranked_select(&self, select_list: &str, fts_table: &str) -> Option<String> {
+        self.fts_match.as_ref()?;
+        Some(format!(
+            "SELECT {select_list} FROM {fts_table} WHERE {fts_table} MATCH ? AND {} ORDER BY rank",
+            self.where_sql
+        ))
+    }
+
+    /// [`Compiled::ranked_select`] with a weighted BM25 score: `ORDER BY bm25(...)` ascending
+    /// (lower is the better match), bounded to `limit` rows. The MATCH and the binding order are
+    /// those of `ranked_select`. `weights` must carry one weight per column of `fts_table`, in
+    /// its column order; the count is not checkable here. `Ok(None)` when the query has no
+    /// free-text predicate to rank.
+    pub fn ranked_bm25_select(
+        &self,
+        select_list: &str,
+        fts_table: &str,
+        weights: &Bm25Weights,
+        limit: usize,
+    ) -> Result<Option<String>, FtsError> {
+        if self.fts_match.is_none() {
+            return Ok(None);
+        }
+        check_limit(limit)?;
+        let score = weights.score_sql(fts_table)?;
+        Ok(Some(format!(
+            "SELECT {select_list} FROM {fts_table} WHERE {fts_table} MATCH ? AND {} ORDER BY {score} LIMIT {limit}",
+            self.where_sql
+        )))
     }
 }
 

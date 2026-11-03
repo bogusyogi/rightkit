@@ -18,10 +18,12 @@
 //!   Windows refuses with error 5, 32 or 33 while a scanner or indexer holds the file.
 //! - [`lease`] (feature `fs`): [`Lease`], a pid + heartbeat-TTL lease file with stale-holder takeover
 //!   (not an OS lock): `try_acquire`, `renew`, `release`, `peek`.
+//! - [`toolchain_lease`] (feature `toolchain-lease`): [`ToolchainLease`], a digest-bound immutable seal of
+//!   toolchain trees (hash once, freeze with the OS immutable flag, replay by metadata only).
 //! - [`migrate`] (feature `fs`): [`migrate_dir`] (also `AppDirs::migrate_dir`), a directory move that
 //!   never shows a half-migrated destination (rename, or copy to a sibling then rename).
 //! - [`app_dirs`] (feature `app-dirs`): [`AppDirs`], one resolver for an app's data, local, cache and
-//!   home folders, with a dev namespace and test isolation.
+//!   home folders, with a dev namespace.
 //! - [`digest`] (features `digest` / `blake3`): SHA-256 / BLAKE3 of bytes or files, & lowercase hex.
 //! - [`plain`]: [`canonicalize_plain`], `std::fs::canonicalize` without the Windows verbatim drive prefix.
 //! - [`contain`](mod@contain): [`is_within`], [`contain()`](contain::contain), [`contain_lenient`] and [`Roots`], path containment that
@@ -31,7 +33,11 @@
 //! - [`names`]: [`sanitize_file_name`] for names that come from outside, [`numbered_candidates`], and with feature `fs`
 //!   [`create_unique_file`] / [`create_download_file`].
 //! - [`publish_dir`](mod@publish_dir) (feature `fs`): [`publish_dir()`](publish_dir::publish_dir), an atomic directory replace.
-//! - [`trash`] (feature `fs`): [`move_to_trash`], and `trash::{list, lookup, restore}` (macOS and Windows).
+//! - [`trash`] (feature `fs`): [`move_to_trash`], and `trash::{list, lookup, restore}` (macOS, Windows and Linux).
+//! - [`journal`] (feature `lock`): [`JsonlJournal`], an append journal that cuts a torn tail back.
+//! - [`retention`], [`confined_copy`], [`rename_case`], [`owned_temp`], [`malware_scan`] (feature `fs`):
+//!   a bounded set with all-or-nothing retirement, a link-refusing confined tree copy, a case-only
+//!   rename, a temp for an external writer with a sweep, and an OS malware-scanner verdict.
 //! - [`zip`]: [`StoredZipWriter`], a deterministic stored-method ZIP writer, and [`crc32`]; also
 //!   `zip::{write_zip, read_zip, crc_table, crc32_update}` for archives built from files on disk.
 //! - [`private`]: owner-only files and directories (0600/0700, Windows DACL).
@@ -39,7 +45,8 @@
 //!   replace refused (access denied, sharing violation).
 //! - [`state`]: [`StateDir`], a descriptor-pinned state directory (`O_NOFOLLOW`, fd-relative
 //!   `*at` operations) that a swapped or symlinked path cannot redirect.
-//! - [`identity`] (feature `json`): stable file identity across renames and atomic replacement.
+//! - [`identity`] (feature `fs`; the ledger [`IdentityStore`] needs `json`): stable file identity
+//!   across renames and atomic replacement.
 //! - [`clone`]: macOS `clonefile(2)` with `CLONE_NOFOLLOW`; [`clone_file_nofollow`] never falls
 //!   back to a byte copy, [`clone_or_link_or_copy_nofollow`] tries clone, hard link, then copy.
 //! - [`swap`]: macOS `renamex_np(RENAME_SWAP)`; atomically exchanges two paths ([`swap_paths`]).
@@ -54,6 +61,8 @@ pub mod append;
 pub mod atomic;
 #[cfg(feature = "fs")]
 pub mod clone;
+#[cfg(feature = "fs")]
+pub mod confined_copy;
 pub mod contain;
 #[cfg(any(feature = "digest", feature = "blake3"))]
 pub mod digest;
@@ -63,17 +72,23 @@ pub mod error;
 pub mod file_key;
 #[cfg(feature = "fs")]
 pub mod handle;
-#[cfg(feature = "json")]
+#[cfg(feature = "fs")]
 pub mod identity;
+#[cfg(feature = "lock")]
+pub mod journal;
 #[cfg(feature = "fs")]
 pub mod lease;
 #[cfg(feature = "lock")]
 pub mod lock;
 #[cfg(feature = "fs")]
+pub mod malware_scan;
+#[cfg(feature = "fs")]
 pub mod migrate;
 pub mod names;
 #[cfg(feature = "fs")]
 pub mod netfs;
+#[cfg(feature = "fs")]
+pub mod owned_temp;
 pub mod plain;
 #[cfg(feature = "fs")]
 pub mod private;
@@ -84,13 +99,21 @@ pub mod profile_home;
 #[cfg(feature = "fs")]
 pub mod publish_dir;
 #[cfg(feature = "fs")]
+pub mod rename_case;
+#[cfg(feature = "fs")]
 pub mod replaced;
+#[cfg(feature = "fs")]
+pub mod retention;
+#[cfg(feature = "fs")]
+pub mod secret_file;
 #[cfg(feature = "fs")]
 pub mod space;
 #[cfg(feature = "fs")]
 pub mod state;
 #[cfg(feature = "fs")]
 pub mod swap;
+#[cfg(feature = "toolchain-lease")]
+pub mod toolchain_lease;
 #[cfg(feature = "transaction")]
 pub mod transaction;
 #[cfg(feature = "fs")]
@@ -131,6 +154,8 @@ pub use clone::{
     clone_file_nofollow, clone_or_link_or_copy_nofollow, clone_or_link_or_copy_nofollow_with,
     CloneError, CloneOptions, CloneOutcome,
 };
+#[cfg(feature = "fs")]
+pub use confined_copy::{copy_tree_confined, ConfinedCopy};
 pub use contain::{contain, contain_lenient, is_within, ContainError, Roots};
 #[cfg(feature = "fs")]
 pub use contain::{open_confined, ConfinedOptions};
@@ -141,11 +166,17 @@ pub use file_key::FileKey;
 #[cfg(feature = "fs")]
 pub use handle::{final_path, link_count, open_read_nofollow, ReadOptions};
 #[cfg(feature = "json")]
-pub use identity::{IdentityStore, Resolution, StableId, Tracked};
+pub use identity::IdentityStore;
+#[cfg(feature = "fs")]
+pub use identity::{Resolution, SearchLimits, StableId, Tracked};
+#[cfg(feature = "lock")]
+pub use journal::{JsonlJournal, OpenReport};
 #[cfg(feature = "fs")]
 pub use lease::{Acquire, Lease, LeaseInfo, LeaseOptions, Staleness};
 #[cfg(feature = "lock")]
 pub use lock::{probe_owner, with_lock, FileLock, LockKind, LockOptions, LockOwner};
+#[cfg(feature = "fs")]
+pub use malware_scan::{scan_file, ScanVerdict};
 #[cfg(feature = "fs")]
 pub use migrate::{migrate_dir, MigrateMethod, Migrated};
 #[cfg(feature = "fs")]
@@ -156,6 +187,8 @@ pub use names::{
 };
 #[cfg(feature = "fs")]
 pub use netfs::is_network_filesystem;
+#[cfg(feature = "fs")]
+pub use owned_temp::{sweep_owned_temps, OwnedTemp};
 pub use plain::{canonicalize_plain, plain_path};
 #[cfg(feature = "fs")]
 pub use private::{
@@ -163,15 +196,28 @@ pub use private::{
     write_private_executable, write_private_file, write_private_text,
 };
 #[cfg(feature = "fs")]
-pub use publish_dir::{publish_dir, DirPublishMethod, PublishedDir};
+pub use publish_dir::{
+    pending_retained, publish_dir, publish_dir_retaining, publish_dir_with, DirPublishMethod,
+    DirPublishPolicy, PublishedDir, RetainedPublish,
+};
+#[cfg(feature = "fs")]
+pub use rename_case::rename_case_only;
 #[cfg(feature = "fs")]
 pub use replaced::{open_replaced, read_replaced, read_to_string_replaced};
+#[cfg(feature = "fs")]
+pub use retention::{quarantine, quarantine_hidden, Retention, RetentionReport};
+#[cfg(feature = "fs")]
+pub use secret_file::{read_secret_file, SecretFileError};
 #[cfg(feature = "fs")]
 pub use space::free_bytes;
 #[cfg(feature = "fs")]
 pub use state::{DirEntry, EntryKind, EntryStat, StateDir, StateOptions};
 #[cfg(feature = "fs")]
 pub use swap::{is_swap_unsupported, swap_paths};
+#[cfg(feature = "toolchain-lease")]
+pub use toolchain_lease::{
+    Enforcement, LeaseEvidence, RootEvidence, SealSpec, ToolchainLease, VerifyReport,
+};
 #[cfg(feature = "transaction")]
 pub use transaction::{
     recover_transactions, recover_transactions_with, CommittedReport, ExpectedPrior,
@@ -182,7 +228,7 @@ pub use transaction::{
 #[cfg(feature = "fs")]
 pub use trash::{move_to_trash, TrashEntry, TrashIdentity};
 #[cfg(feature = "fs")]
-pub use tree::{copy_tree, CopyOptions};
+pub use tree::{copy_tree, remove_tree, CopyOptions, RemoveOptions, RemoveReport};
 #[cfg(all(feature = "fs", feature = "digest"))]
 pub use verified::{copy_verified, copy_verified_with_progress, VerifiedCopy};
 #[cfg(all(feature = "fs", any(feature = "digest", feature = "blake3")))]

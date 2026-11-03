@@ -25,7 +25,7 @@ import { spawnSync } from "./background-process.mjs";
 export const SCAN_TOOLS_SCHEMA = "rightkit.scan-tools/1";
 export const SCAN_TOOLS_DIR = "scan-tools";
 /** The analyzers class A accepts only from an enrolment (deterministic-scans.mjs TRUSTED_SCAN_TOOLS; kept in step by the tests). */
-export const SCAN_TOOL_NAMES = Object.freeze(["actionlint", "shellcheck", "cargo-deny", "cargo-audit"]);
+export const SCAN_TOOL_NAMES = Object.freeze(["actionlint", "shellcheck", "oxlint", "cargo-deny", "cargo-audit"]);
 export const SCAN_TOOL_PLATFORMS = Object.freeze(["darwin", "win32", "linux"]);
 
 export class ScanToolEnrolmentError extends Error {

@@ -38,12 +38,15 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
+use super::workspace::harness_denied_env_vars;
 use crate::driver_host::cli_runtime::adapter::CliLaunchSpec;
+use crate::driver_host::cli_runtime::ids::CliProviderId;
 use crate::driver_host::cli_runtime::policy::{
     resolve_child_runtime, CliDelegationPolicy, DelegateTaskRequest, DelegationError,
     RegisteredProviders, RuntimeResolution,
 };
 use crate::driver_host::{ClaudeLaunchOptions, RUN_SCOPED_POLICY};
+use std::path::Path;
 
 /// The tool name of the the host app MCP gateway — the only tool surface
 /// an admitted launch exposes.

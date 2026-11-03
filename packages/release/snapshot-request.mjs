@@ -474,6 +474,28 @@ export function verifySnapshotEvidenceIdentity(evidence, { commit, tree = commit
 }
 
 export const NESTED_CHILD_FIELDS = Object.freeze(["requestId", "parentRequestId", "shim", "argv", "cwd", "exitCode", "status", "outputDir"]);
+/**
+ * Fields a nested child may also carry (rightkit#1418): `declaredInputDigests`, the digests of the snapshot's declared inputs the BROKER signs from
+ * the child's own admission and binds at its exit, as it does for a top-level compile. Optional until the broker signs them (rustright, nested compile
+ * children); when present it is well formed here and compared strictly by the gate (declaredInputDigestProblems, verifyBrokerLedger).
+ */
+export const NESTED_CHILD_OPTIONAL_FIELDS = Object.freeze(["declaredInputDigests"]);
+const DIGEST_ENTRY_KEYS = (d) => { const k = Object.keys(d).sort().join(); return (k === "path,sha256" && typeof d.sha256 === "string" && /^[0-9a-f]{64}$/.test(d.sha256)) || (k === "absent,path" && d.absent === true); };
+
+/**
+ * The problems of a nested child's signed `declaredInputDigests` against the gate's own truth, `[]` when they hold: `gateInputs` are the snapshot's
+ * declared input paths in declaration order, `policy` is `{ produced: Set, current: one digest per declared input }` as verifySnapshotReceipt takes it.
+ * Each entry must be the gate's digest of that input at the end of the stage unless the stage itself produced the input: an input swapped for the
+ * child and restored before the stage ended is seen as the child's differing digest (a child that read B while the stage ends with A).
+ */
+export function declaredInputDigestProblems(signed, { gateInputs, policy }) {
+  if (!Array.isArray(signed) || signed.length !== gateInputs.length || !signed.every((d, i) => isObject(d) && d.path === gateInputs[i] && DIGEST_ENTRY_KEYS(d))) return ["its signed declaredInputDigests are not the snapshot's declared inputs in declaration order, each exactly { path, sha256 } or { path, absent: true }"];
+  const { produced, current } = policy ?? {};
+  if (!(produced instanceof Set) || !Array.isArray(current) || current.length !== gateInputs.length) return ["the gate has no end-of-stage digest of the declared inputs to compare it with"];
+  const problems = [];
+  signed.forEach((d, i) => { if (!produced.has(gateInputs[i]) && !same(d, current[i])) problems.push(`its signed declaredInputDigests entry for ${gateInputs[i]} is not the gate's own digest of that input at the end of the stage, and the stage did not change it`); });
+  return problems;
+}
 /** The most children a root job's list may carry (rustright#190: the broker's cap; a refused child is never listed). */
 export const NESTED_CHILDREN_CAP = 8192;
 
@@ -497,7 +519,8 @@ export function verifyNestedChildren(evidence, receipt, { snapshotPath, checkout
   const ids = new Set();
   return list.map((child, index) => {
     const where = `nestedChildren[${index}]`;
-    if (!isObject(child) || Object.keys(child).sort().join() !== [...NESTED_CHILD_FIELDS].sort().join()) fail("nested", `${where} is not exactly { ${NESTED_CHILD_FIELDS.join(", ")} }`);
+    if (!isObject(child) || !NESTED_CHILD_FIELDS.every((k) => Object.hasOwn(child, k)) || !Object.keys(child).every((k) => NESTED_CHILD_FIELDS.includes(k) || NESTED_CHILD_OPTIONAL_FIELDS.includes(k))) fail("nested", `${where} is not exactly { ${NESTED_CHILD_FIELDS.join(", ")} } (plus optionally ${NESTED_CHILD_OPTIONAL_FIELDS.join(", ")})`);
+    if (child.declaredInputDigests !== undefined && (!Array.isArray(child.declaredInputDigests) || !child.declaredInputDigests.every((d) => isObject(d) && typeof d.path === "string" && DIGEST_ENTRY_KEYS(d)))) fail("nested", `${where} declaredInputDigests is not a list of { path, sha256 } or { path, absent: true }`);
     if (typeof child.requestId !== "string" || !child.requestId || child.requestId === jobId || ids.has(child.requestId)) fail("nested", `${where} has no request id of its own`);
     const name = `${where} (${child.requestId})`;
     // The parent is the job the request named: this job, or a child listed before it (admission order; depth >= 2, rustright#190 ad9ecb37).
@@ -517,7 +540,7 @@ export function verifyNestedChildren(evidence, receipt, { snapshotPath, checkout
       if (inside(out, checkout, platform) || inside(out, canon(checkout), platform)) fail("nested", `${name} output directory ${out} is inside the checkout`);
       if (!isInsideGenerationTarget(out, outputRoots, platform)) fail("nested", `${name} output directory ${out} is not inside a managed generation target under ${outputRoots.join(", ")}`);
     }
-    return { requestId: child.requestId, parentRequestId: child.parentRequestId, shim: child.shim, argv: [...child.argv], cwd: child.cwd, exitCode: 0, status: child.status, outputDir: out };
+    return { requestId: child.requestId, parentRequestId: child.parentRequestId, shim: child.shim, argv: [...child.argv], cwd: child.cwd, exitCode: 0, status: child.status, outputDir: out, ...(child.declaredInputDigests !== undefined ? { declaredInputDigests: child.declaredInputDigests.map((d) => ({ ...d })) } : {}) };
   });
 }
 

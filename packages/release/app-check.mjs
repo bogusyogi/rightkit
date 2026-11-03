@@ -27,6 +27,13 @@
 //                         the LinkProbes control fixture is the one sanctioned import)
 //   e2e-under-cargo-test G22 `cargo test|run|nextest` (also as `rustright cargo`, or the retired `rightkit`) that runs an end-to-end
 //                         crate (rightkit-qa driver modules) in the broker without --no-run: it holds the compile slot for the whole run
+//   scratch-checkout G23  (compile tier) a script under scripts/, packages/release/ or ci/ that runs `git clone`, `git worktree add`, a checkout
+//                         outside the repository, or `git archive` beside a build command, unless named in ci/gate.config.json
+//                         scratchCheckoutAllowlist with an issue link and a reason (rightkit#1221)
+//   trust-policy-exclude G24 (release tier) a pnpm trustPolicyExclude entry for @rightkit/* other than the one generated selector "@rightkit/*"
+//                         (a per-version or hand-written entry; rightkit#1476)
+//   commit-citations G28  (release tier) a commit this push adds that cites no issue, or changes code without a `Contract: <file>#<section>`
+//                         line (rightkit#1268); no baseline excuses it
 //
 // Suite trust roots (lane C3; logic in suite-trust-roots.mjs). The licence and updater public keys have one owner,
 // contracts/right-suite-api.v1.json (generated into suite-api.generated.mjs):
@@ -84,7 +91,9 @@
 //      tracks it and is not empty; `added` and `sunset` are real dates, YYYY-MM-DD, UTC; `added` is not later than today; `sunset`
 //      is not before `added` and at most 90 days (APP_BASELINE_MAX_DAYS) after it. So an entry silences its finding for at most 90
 //      days, the date it counts from cannot be pushed into the future, and renewing one means editing it in a commit. An entry past
-//      its sunset date is no longer tolerated and fails as EXPIRED, with its finding; else
+//      its sunset date is no longer tolerated and fails as EXPIRED, with its finding. An entry that grew the baseline (absent at the
+//      merge-base with origin/main) needs `approvedBy`, a person and never an agent, and an issue link, else it fails as UNAPPROVED
+//      (rightkit#1251; with no origin/main to anchor to the run prints a NOTE and cannot judge growth); else
 //   3. RightKit's central ci/app-check-baseline.json ({ known: { "<repo>": ["<identity>", ...] } }), only when this module is loaded
 //      from a RightKit checkout; an installed package has none (its entries keep their own contract: identities only, no dates).
 // --print-baseline prints the current identities for a person to paste; the check never writes any baseline.
@@ -380,6 +389,30 @@ function braceBlock(text, open) {
   return "";
 }
 
+/** `block` ("{ ... }") with every nested {...} blanked, so a regular expression over it sees the block's own keys only. */
+function ownKeys(block) {
+  let depth = 0;
+  let out = "";
+  for (const ch of block) {
+    if (ch === "{") { depth += 1; out += depth === 1 ? ch : " "; }
+    else if (ch === "}") { depth -= 1; out += depth === 0 ? ch : " "; }
+    else out += depth === 1 || ch === "\n" ? ch : " ";
+  }
+  return out;
+}
+
+/** Whether the array literal that encloses `offset` holds a standalone "--" argument before it (a command line's program separator). */
+function afterProgramSeparator(text, offset) {
+  let depth = 0;
+  let start = -1;
+  for (let i = offset - 1; i >= 0; i--) {
+    const ch = text[i];
+    if (ch === "]") depth += 1;
+    else if (ch === "[") { if (depth === 0) { start = i; break; } depth -= 1; }
+  }
+  return start >= 0 && /(["'])--\1\s*[,\]]/.test(text.slice(start, offset));
+}
+
 /** Profile names a Cargo manifest defines ([profile.<name>] and [profile.<name>.package...]). */
 const cargoProfiles = (text) => new Set([...String(text ?? "").matchAll(/^\s*\[profile\.("[^"]+"|[A-Za-z0-9_-]+)/gm)].map((m) => m[1].replaceAll('"', "")));
 const BUILTIN_PROFILES = new Set(["dev", "release", "test", "bench"]);
@@ -423,15 +456,23 @@ function releaseConfig({ root, files }) {
         if (key === "profile" && (parent === "winPackage" || parent === "macPackage") && typeof value === "string") profiles.push([value, text.indexOf(JSON.stringify(value))]);
       }
     } else {
-      for (const m of text.matchAll(/\bprovider\s*:\s*(["'`])([^"'`]+)\1/g)) if (!RELEASE_PROVIDERS.has(m[2])) badProvider(m[2], m.index);
+      // Only a `distribution` block's own provider is a publish-update provider; a nested object (windows.bootstrap.provider, the
+      // bootstrap-installer channel) and a provider outside the block are not (rightkit#1290), exactly as the JSON branch reads it.
+      for (const d of text.matchAll(/\bdistribution\s*[:=]\s*\{/g)) {
+        const open = d.index + d[0].length - 1;
+        const own = ownKeys(braceBlock(text, open));
+        for (const m of own.matchAll(/\bprovider\s*:\s*(["'`])([^"'`]+)\1/g)) if (!RELEASE_PROVIDERS.has(m[2])) badProvider(m[2], open + m.index);
+      }
       for (const m of text.matchAll(/\bupdater\s*:\s*\{/g)) {
         const block = braceBlock(text, m.index + m[0].length - 1);
         const key = /\bkeyFile\s*:\s*([^,\n}]+)/.exec(block);
         if (key) keyFile(key[1].trim(), m.index + key.index);
       }
     }
-    profiles.push(...[...text.matchAll(/(["'])--profile\1\s*,\s*(["'])([^"']+)\2/g)].map((m) => [m[3], m.index])
-      .concat([...text.matchAll(/(["'])--profile=([^"']+)\1/g)].map((m) => [m[2], m.index]))
+    // `--profile` after a standalone "--" argument belongs to the program cargo runs (xtask), not to cargo (rightkit#1290).
+    const cargoArgument = (offset) => !afterProgramSeparator(text, offset);
+    profiles.push(...[...text.matchAll(/(["'])--profile\1\s*,\s*(["'])([^"']+)\2/g)].filter((m) => cargoArgument(m.index)).map((m) => [m[3], m.index])
+      .concat([...text.matchAll(/(["'])--profile=([^"']+)\1/g)].filter((m) => cargoArgument(m.index)).map((m) => [m[2], m.index]))
       .concat([...text.matchAll(/\bPROFILE\s*(?:\?\?|\|\|)\s*(["'])([^"']+)\1/g)].map((m) => [m[2], m.index])));
     if (profiles.length) {
       const defined = profilesFor(root, files, dirOf(file));
@@ -1098,6 +1139,170 @@ function e2eUnderCargoTest({ root, files }) {
   return out;
 }
 
+// G28 (rightkit#1268, GATE-CONTRACT [GC-T19]): every pushed commit cites its issue and, for a code or behaviour change, its contract section.
+// Adrian, 2026-10-29: "No changes happen without a contract and issues on GitHub." The commits judged are the ones this push adds: those in
+// RK_PUSH_BEFORE..<commit> when CI names the push's previous tip (the plan job's preflight does), else those between the merge-base with
+// origin/main and <commit> (what a local run is about to push). A commit already on origin/main, a tree (--worktree), or a repository with no
+// origin/main and no named push range has nothing pending, so nothing is judged. The message must cite an issue (`#N`, `owner/repo#N` or a
+// GitHub issue URL); with RK_VERIFY_ISSUES=1 and a readable `gh`, each cited issue must exist. A commit that changes code or behaviour (any
+// non-documentation file) must also carry a `Contract: <file>#<section>` line naming a file of that commit whose text holds the section
+// (a bracketed clause id such as GC-A07, or a heading). The finding has no identity: a baseline cannot excuse a missing citation.
+const CITES_ISSUE = /#\d+\b|github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+/;
+const CONTRACT_LINE = /^Contract:[ \t]*(\S+?)#(\S.*?)[ \t]*$/m;
+/** `#N`, `repo#N` or `owner/repo#N` in a message (the Contract line's `file#section` is not read: its section is not a number). */
+const ISSUE_REFS = /((?:[\w.-]+\/)?[\w.-]*)#(\d+)\b/g;
+/** Files whose change is documentation, a lock or a data record, never code or behaviour: a commit of only these needs no contract line. */
+const NOT_CODE = /(?:\.(?:md|mdx|txt|lock|svg|png|jpe?g|gif|ico|webp|pdf)$|(?:^|\/)(?:docs|\.github\/ISSUE_TEMPLATE)\/|(?:^|\/)(?:CHANGELOG|README|LICENSE[^/]*|NOTICE|CODEOWNERS|INDEX)(?:\.[a-z]+)?$|(?:^|\/)(?:pnpm-lock\.yaml|package-lock\.json|Cargo\.lock|Package\.resolved)$)/i;
+
+/** The non-merge commits this push adds (oldest first), or [] when none are pending or there is no anchor. */
+function pendingCommits(repo, commit, env = process.env) {
+  try {
+    if (git(["cat-file", "-t", commit], { cwd: repo }).trim() !== "commit") return [];
+    const named = String(env.RK_PUSH_BEFORE ?? "").trim();
+    let base = null;
+    if (/^[0-9a-f]{40,64}$/.test(named) && !/^0+$/.test(named)) { try { git(["cat-file", "-e", `${named}^{commit}`], { cwd: repo }); base = named; } catch { base = null; } }
+    base ??= git(["merge-base", commit, "origin/main"], { cwd: repo }).trim();
+    if (!base) return [];
+    return git(["rev-list", "--no-merges", "--reverse", `${base}..${commit}`], { cwd: repo }).split("\n").filter(Boolean);
+  } catch { return []; }
+}
+
+/** The `gh` reading of one cited issue: null when it exists, else why not. Only asked when RK_VERIFY_ISSUES=1. */
+function issueMissing(ref, repoFallback, env) {
+  // `owner/repo#N` names its repository; `repo#N` borrows the owner of GITHUB_REPOSITORY; `#N` is that repository.
+  const owner = String(repoFallback ?? "").split("/")[0];
+  const slug = ref.repo.includes("/") ? ref.repo : ref.repo && owner ? `${owner}/${ref.repo}` : ref.repo ? "" : String(repoFallback ?? "");
+  if (!slug) return `${ref.repo}#${ref.number}: no repository to look it up in (set GITHUB_REPOSITORY)`;
+  const r = spawnSync("gh", ["api", `repos/${slug}/issues/${ref.number}`, "--jq", ".number"], { encoding: "utf8", env: gitEnv(env.GH_TOKEN ? { GH_TOKEN: env.GH_TOKEN } : {}), timeout: 30_000 });
+  return !r.error && r.status === 0 && String(r.stdout).trim() === String(ref.number) ? null : `${slug}#${ref.number} could not be read on GitHub (it must exist)`;
+}
+
+function commitCitations({ repo, commit, env = process.env }) {
+  const out = [];
+  const verify = env.RK_VERIFY_ISSUES === "1";
+  for (const sha of pendingCommits(repo, commit, env)) {
+    const message = git(["log", "-1", "--format=%B", sha], { cwd: repo });
+    const subject = message.split("\n", 1)[0].slice(0, 90);
+    const add = (problem, fix) => out.push({ problem: `commit ${sha.slice(0, 12)} (${subject}) ${problem}`, fix });
+    const issues = [...message.matchAll(ISSUE_REFS)].map((m) => ({ repo: m[1], number: m[2] }));
+    if (!CITES_ISSUE.test(message)) { add("cites no issue", "add the issue it serves to the message: `#N` (this repository) or `owner/repo#N`; file the issue first if none exists"); continue; }
+    if (verify) for (const ref of issues) { const why = issueMissing(ref, env.GITHUB_REPOSITORY, env); if (why) add(`cites an issue that does not resolve: ${why}`, "cite an existing issue of the owning repository"); }
+    const files = git(["diff-tree", "-r", "--root", "--no-commit-id", "--name-only", "-z", sha], { cwd: repo }).split("\0").filter(Boolean);
+    if (!files.some((f) => !NOT_CODE.test(f))) continue;
+    const cite = CONTRACT_LINE.exec(message);
+    if (!cite) { add("changes code or behaviour but has no `Contract: <file>#<section>` line", "add a line `Contract: docs/<CONTRACT>.md#<clause id or heading>` naming the contract section the change serves"); continue; }
+    let text = null;
+    try { text = git(["cat-file", "-p", `${sha}:${cite[1]}`], { cwd: repo }); } catch { text = null; }
+    const section = cite[2];
+    const slug = (h) => h.toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, "").trim().replace(/\s+/g, "-");
+    const found = text !== null && (text.includes(`[${section}]`) || text.split("\n").some((l) => /^#{1,6}\s/.test(l) && (slug(l.replace(/^#{1,6}\s+/, "")) === section.toLowerCase() || l.replace(/^#{1,6}\s+/, "").trim() === section)));
+    if (text === null) add(`cites the contract file ${cite[1]}, which that commit does not hold`, "name a contract file of the repository");
+    else if (!found) add(`cites ${cite[1]}#${section}, but that file has no clause [${section}] or heading of that name`, "name an existing clause id (as written in brackets, e.g. GC-A07) or heading of the contract file");
+  }
+  return out;
+}
+
+// G23 (rightkit#1221): no scratch checkout. Adrian's standing rule: no worktree, clone or branch for a build; the primary checkout, warm cache,
+// one build per host. The release canary cloned every app twice per run and ran cold, and nobody caught it because the rule was prose. A script
+// under scripts/ (any directory of that name, so an app's too), packages/release/ or ci/ must not invoke `git clone`, `git worktree add`, a
+// checkout into a path outside the repository (`checkout-index --prefix=<dir>`, `--work-tree=<dir> checkout`), or `git archive` in a file that
+// also runs a build, test, install, check, clippy, run or pack command (the extracted tree is built). A file may be named in the repository's own
+// ci/gate.config.json `scratchCheckoutAllowlist`: [{ "file", "issue", "reason" }], each with an issue link and a reason. Test fixtures under
+// ci/consumers are exempt as fixtures. A call is read from its literal argument list on one line (`"git", [..., "clone"`, `git(repo, "clone"`,
+// `git clone` in a shell script); comments are not read.
+const SCRATCH_SCOPE = /(^|\/)scripts\/|^packages\/release\/|^ci\//;
+const SCRATCH_FIXTURES = /^ci\/consumers\//;
+const SCRATCH_SCRIPT = /\.(?:sh|bash|zsh|ps1|psm1|bat|cmd|mjs|cjs|js|py)$/i;
+const gitVerb = (verb) => new RegExp(`(?:["']git["']\\s*,\\s*\\[[^\\]\\n]*["']${verb}["']|\\bgit\\s*\\([^\\n]*?["']${verb}["']|(?:^|[\\s;&|(])git\\s+(?:-\\S+\\s+)*${verb}\\b)`);
+const SCRATCH_CLONE = gitVerb("clone");
+const SCRATCH_ARCHIVE = gitVerb("archive");
+const SCRATCH_WORKTREE = /(?:["']git["']\s*,\s*\[[^\]\n]*["']worktree["']\s*,\s*["']add["']|\bgit\s*\([^\n]*?["']worktree["']\s*,\s*["']add["']|(?:^|[\s;&|(])git\s+(?:-\S+\s+)*worktree\s+add\b)/;
+const SCRATCH_OUTSIDE = new RegExp(`checkout-${"index"}\\b[^\\n]*--${"prefix"}|--work-tree[^\\n]*["'\\s]checkout["'\\s]|["']checkout["'][^\\n]*--work-tree`);
+const SCRATCH_BUILD = /["'](?:cargo|pnpm|npm|xcodebuild|swift|tauri)["']\s*,\s*\[[^\]\n]*["'](?:build|test|install|check|clippy|run|pack)["']|\b(?:cargo|pnpm|npm)\s+(?:build|test|install|check|clippy|run)\b/;
+/** A script line without its comment: a whole-line `//`, `#`, `*` or `/*` comment is blank, and so is a trailing ` // ...`. */
+const codeLine = (line) => (/^\s*(?:\/\/|#|\*|\/\*)/.test(line) ? "" : line.replace(/\s\/\/\s.*$/, ""));
+const SCRATCH_FIX = "build in the primary checkout through the gate (one warm build per app per host); if the file is the gate's own export, add it to scratchCheckoutAllowlist in ci/gate.config.json with its issue link and reason";
+
+function scratchCheckout({ root, files }) {
+  const out = [];
+  const allowed = new Set();
+  const list = readJson(root, "ci/gate.config.json")?.scratchCheckoutAllowlist;
+  if (list !== undefined) {
+    if (!Array.isArray(list)) out.push({ file: "ci/gate.config.json", subject: "allowlist", problem: "ci/gate.config.json scratchCheckoutAllowlist must be a list of { file, issue, reason }", fix: 'write [{ "file": "<path>", "issue": "<owner/repo#N>", "reason": "<why>" }]' });
+    else list.forEach((entry, i) => {
+      const ok = entry && typeof entry === "object" && typeof entry.file === "string" && entry.file && typeof entry.issue === "string" && ISSUE_LINK.test(entry.issue) && typeof entry.reason === "string" && entry.reason.trim();
+      if (ok) allowed.add(entry.file);
+      else out.push({ file: "ci/gate.config.json", subject: `allowlist[${i}]`, problem: `ci/gate.config.json scratchCheckoutAllowlist[${i}] needs a file, an issue link (#N, owner/repo#N or a GitHub issue URL) and a non-empty reason`, fix: "give the entry its issue link and reason, or remove it" });
+    });
+  }
+  for (const file of files) {
+    if (!scanned(file) || !SCRATCH_SCOPE.test(file) || SCRATCH_FIXTURES.test(file) || !SCRATCH_SCRIPT.test(file) || allowed.has(file)) continue;
+    const text = readText(root, file);
+    if (text === null) continue;
+    const lines = text.split("\n").map(codeLine);
+    const hit = (re) => lines.findIndex((l) => re.test(l)) + 1;
+    const report = (kind, line, what) => out.push({ file, subject: kind, problem: `${file}:${line} ${what}`, fix: SCRATCH_FIX });
+    let at;
+    if ((at = hit(SCRATCH_CLONE))) report("git-clone", at, "runs `git clone`: a clone is a cold, separate checkout (Adrian: no clone, worktree or branch for a build; primary checkout, warm cache)");
+    if ((at = hit(SCRATCH_WORKTREE))) report("git-worktree", at, "runs `git worktree add`: a worktree is a second checkout (Adrian: no clone, worktree or branch for a build)");
+    if ((at = hit(SCRATCH_OUTSIDE))) report("git-checkout-outside", at, "checks files out into a path outside the repository (an index checkout with a prefix directory, or a separate --work-tree)");
+    if ((at = hit(SCRATCH_ARCHIVE)) && hit(SCRATCH_BUILD)) report("git-archive-then-build", at, `runs \`git archive\` and, in the same file (line ${hit(SCRATCH_BUILD)}), a build, test, install, check, clippy, run or pack command: the extracted tree is built cold`);
+  }
+  return out;
+}
+
+// G24 (rightkit#1476, decided in #1472): RightKit's own packages are published from the local route without provenance, and an owned package
+// is exempt from the provenance requirement exactly as it is from the 24-hour age wait. Where an app turns on pnpm `trustPolicy: no-downgrade`,
+// the one sanctioned exemption is the name selector `@rightkit/*` in `trustPolicyExclude` (pnpm 11.12 parses trustPolicyExclude with the same
+// createPackageVersionPolicy as minimumReleaseAgeExclude, which already takes `@rightkit/*`), written by the consumer generator
+// (scripts/ci/npm-recipe-consumer.mjs). A per-version entry (`@rightkit/release@0.6.27 || 0.6.28 || 0.6.28`, hand-written, and already garbled
+// in apps), a single exact version, a bare package name or a repeated selector is refused. Read from pnpm-workspace.yaml and package.json `pnpm`.
+export const FIRST_PARTY_TRUST_POLICY_EXCLUDE = "@rightkit/*";
+
+/** The scalar items of a top-level YAML list `key` (block or flow form), with their 1-based lines, or null when the key is absent. */
+function yamlTopList(text, key) {
+  const lines = String(text ?? "").split(/\r?\n/);
+  const keyed = new RegExp(`^${key}\\s*:`);
+  const at = lines.findIndex((l) => keyed.test(l));
+  if (at < 0) return null;
+  const unquote = (s) => { const t = s.trim().replace(/\s+#.*$/, ""); const m = /^(["'])(.*)\1$/.exec(t); return m ? m[2] : t; };
+  const rest = lines[at].slice(lines[at].indexOf(":") + 1).replace(/\s+#.*$/, "").trim();
+  const items = [];
+  if (rest.startsWith("[")) {
+    let flow = rest;
+    for (let i = at + 1; !flow.includes("]") && i < lines.length; i++) flow += ` ${lines[i].trim()}`;
+    const end = flow.indexOf("]");
+    for (const item of flow.slice(1, end < 0 ? undefined : end).split(",")) if (unquote(item)) items.push({ value: unquote(item), line: at + 1 });
+    return items;
+  }
+  for (let i = at + 1; i < lines.length; i++) {
+    if (!lines[i].trim() || /^\s*#/.test(lines[i])) continue;
+    const m = /^\s*-\s+(.*)$/.exec(lines[i]);
+    if (!m) break;
+    if (unquote(m[1])) items.push({ value: unquote(m[1]), line: i + 1 });
+  }
+  return items;
+}
+
+function trustPolicyExclude({ root, files }) {
+  const out = [];
+  for (const file of files) {
+    if (!scanned(file)) continue;
+    let items = null;
+    if (/(^|\/)pnpm-workspace\.ya?ml$/.test(file)) items = yamlTopList(readText(root, file), "trustPolicyExclude");
+    else if (/(^|\/)package\.json$/.test(file)) { const v = readJson(root, file)?.pnpm?.trustPolicyExclude; items = Array.isArray(v) ? v.filter((x) => typeof x === "string").map((value) => ({ value, line: 1 })) : null; }
+    if (!items) continue;
+    let sanctioned = 0;
+    for (const { value, line } of items) {
+      if (!/^\s*@rightkit/.test(value)) continue;
+      if (value.trim() === FIRST_PARTY_TRUST_POLICY_EXCLUDE && ++sanctioned === 1) continue;
+      const again = value.trim() === FIRST_PARTY_TRUST_POLICY_EXCLUDE;
+      out.push({ file, subject: `${again ? "repeat:" : ""}${value.trim().slice(0, 100)}`, problem: `${file}:${line} trustPolicyExclude entry ${JSON.stringify(value)} ${again ? "repeats the sanctioned selector" : `is not the sanctioned form "${FIRST_PARTY_TRUST_POLICY_EXCLUDE}"`}: a per-version or per-name entry for an owned package is refused (rightkit#1476; owned packages carry no provenance requirement, rightkit#1472)`, fix: `replace every @rightkit entry of trustPolicyExclude with the single generated selector ${JSON.stringify(FIRST_PARTY_TRUST_POLICY_EXCLUDE)} (scripts/ci/npm-recipe-consumer.mjs writes it)` });
+    }
+  }
+  return out;
+}
+
 export const RULES = Object.freeze([
   { id: "eol-policy", gap: "G04", run: eolPolicy },
   { id: "file-url", gap: "G12", run: fileUrls },
@@ -1112,6 +1317,9 @@ export const RULES = Object.freeze([
   { id: "switches-inventory", gap: "G20", run: switchesInventory },
   { id: "speech-link", gap: "G21", run: speechLink },
   { id: "e2e-under-cargo-test", gap: "G22", run: e2eUnderCargoTest },
+  { id: "scratch-checkout", gap: "G23", run: scratchCheckout },
+  { id: "trust-policy-exclude", gap: "G24", run: trustPolicyExclude },
+  { id: "commit-citations", gap: "G28", run: ({ repo, commit }) => commitCitations({ repo, commit }) },
   { id: "suite-key-literal", gap: "C3-04", run: ({ root, files }) => suiteKeyLiteral(root, files) },
   { id: "suite-updater-key", gap: "C3-14", run: ({ root, files }) => suiteUpdaterKey(root, files) },
   { id: "engine-record-store", gap: "C3-05", run: ({ root, files }) => engineRecordStore(root, files) },
@@ -1137,6 +1345,8 @@ export const TIERS = Object.freeze(["compile", "release"]);
 export const COMPILE_TIER_IDS = Object.freeze(new Set([
   "eol-policy", "file-url", "retired-alias", "qa-platform", "test-harness", "scenario-skip", "release-config", "skip-checks",
   "qa-dev-server", "ffmpeg-release-escape", "switches-inventory", "speech-link", "e2e-under-cargo-test",
+  // rightkit#1221 asks for a compile-tier rule: the primary-checkout rule is Adrian's standing one, and a script that clones is refused before any compile.
+  "scratch-checkout",
 ]));
 /** The tier a rule runs from: compile for the 0.6.6 set, release for everything added since. */
 export const tierOf = (rule) => (COMPILE_TIER_IDS.has(rule.id) ? "compile" : "release");
@@ -1269,12 +1479,69 @@ export function runRules({ root, commit, files, repo = process.cwd(), only = nul
 export const APP_BASELINE_FILE = ".rightkit/app-check-baseline.json";
 export const CENTRAL_BASELINE_FILE = "ci/app-check-baseline.json";
 
-/** The identities RightKit's central baseline lists for `repoKey`; throws on a file that is not { known: { <key>: [string] } }. */
-export function baselineKnown(text, repoKey) {
+/**
+ * The entries RightKit's central baseline lists for `repoKey`, as [{ id, issue?, approvedBy? }]; throws on a file that is not
+ * { known: { <key>: [entry] } }. An entry is an identity string (the original form: it carries no approver) or { id, issue, approvedBy }
+ * (the form an entry added since the merge-base with origin/main must take: see baselineGrowth, rightkit#1251).
+ */
+export function baselineKnownEntries(text, repoKey) {
   if (text === null) return [];
   const known = JSON.parse(text)?.known;
-  if (!known || typeof known !== "object" || Array.isArray(known) || !Object.values(known).every((v) => Array.isArray(v) && v.every((id) => typeof id === "string"))) throw new Error('expected { "known": { "<repo>": ["<identity>", ...] } }');
-  return known[repoKey] ?? [];
+  const entryOk = (e) => typeof e === "string" || (e && typeof e === "object" && !Array.isArray(e) && typeof e.id === "string" && (e.issue === undefined || typeof e.issue === "string") && (e.approvedBy === undefined || typeof e.approvedBy === "string"));
+  if (!known || typeof known !== "object" || Array.isArray(known) || !Object.values(known).every((v) => Array.isArray(v) && v.every(entryOk))) throw new Error('expected { "known": { "<repo>": ["<identity>" | { "id": "<identity>", "issue": "<repo#number>", "approvedBy": "<person>" }, ...] } }');
+  return (known[repoKey] ?? []).map((e) => (typeof e === "string" ? { id: e } : { id: e.id, issue: e.issue, approvedBy: e.approvedBy }));
+}
+
+/** The identities RightKit's central baseline lists for `repoKey`; throws on a file that is not { known: { <key>: [entry] } }. */
+export const baselineKnown = (text, repoKey) => baselineKnownEntries(text, repoKey).map((e) => e.id);
+
+// Baseline growth (rightkit#1251): an entry added since the merge-base with origin/main is a new silence, and a silence needs an
+// anchor that is not the finding's own author: the person who approved it and the issue that tracks it.
+/** An issue reference an added entry may cite: #N, repo#N, owner/repo#N, or a GitHub issue URL. */
+const ISSUE_LINK = /#\d+\b|github\.com\/[\w.-]+\/[\w.-]+\/(?:issues|pull)\/\d+/;
+/** Names that are agents, not a person: an agent cannot approve its own baseline entry. */
+const AGENT_APPROVER = /^\s*(?:claude|codex|legion|agent|ai|bot|orchestrator|oracle|sage|alchemist|gpt|assistant|copilot)\b/i;
+export const BASELINE_GROWTH_RULE = "a baseline entry added since the merge-base with origin/main needs approvedBy (the person who approved the silence, never an agent) and an issue link (#N, owner/repo#N or a GitHub issue URL)";
+
+/**
+ * The baseline file as it stood at the merge-base of `rev` and origin/main, read from the git repository at `dir`:
+ * { anchor: <sha>, text: <string | null: the file did not exist there> }, or { anchor: null, why } when there is no such anchor
+ * (no origin/main ref, or no common history). A tree (a captured worktree) is anchored through HEAD.
+ */
+export function baselineAtMergeBase(dir, rev, file) {
+  try {
+    const tip = git(["cat-file", "-t", rev], { cwd: dir }).trim() === "commit" ? rev : "HEAD";
+    const anchor = git(["merge-base", tip, "origin/main"], { cwd: dir }).trim();
+    if (!anchor) return { anchor: null, why: "git merge-base printed nothing" };
+    let text = null;
+    try { text = git(["cat-file", "blob", `${anchor}:${file}`], { cwd: dir }); } catch { text = null; }
+    return { anchor, text };
+  } catch (error) { return { anchor: null, why: error.message.split("\n")[0] }; }
+}
+
+/** The identities a baseline text lists at the merge-base: an app file's known[].id, or the central file's known[repoKey]. */
+function baselineIdsOf(text, { repoKey, app }) {
+  if (text === null) return new Set();
+  try {
+    const known = JSON.parse(text)?.known;
+    if (app) return new Set(Array.isArray(known) ? known.map((e) => e?.id).filter((id) => typeof id === "string") : []);
+    return new Set(baselineKnownEntries(text, repoKey).map((e) => e.id));
+  } catch { return new Set(); }
+}
+
+/** The entries that grew the baseline without an approver and an issue link: [{ id, problem }]. `before` is baselineAtMergeBase's text. */
+export function baselineGrowth(entries, beforeText, { repoKey, app }) {
+  const before = baselineIdsOf(beforeText, { repoKey, app });
+  const out = [];
+  for (const entry of entries) {
+    if (before.has(entry.id)) continue;
+    const missing = [];
+    if (typeof entry.approvedBy !== "string" || !entry.approvedBy.trim()) missing.push("approvedBy");
+    else if (AGENT_APPROVER.test(entry.approvedBy)) missing.push(`approvedBy (${JSON.stringify(entry.approvedBy)} is an agent, not a person)`);
+    if (typeof entry.issue !== "string" || !ISSUE_LINK.test(entry.issue)) missing.push("an issue link");
+    if (missing.length) out.push({ id: entry.id, problem: `needs ${missing.join(" and ")}` });
+  }
+  return out;
 }
 
 /** The longest an app baseline entry may stay tolerated: its sunset is at most this many days after its own `added` date. */
@@ -1315,9 +1582,10 @@ export function appBaselineEntries(text, { today = new Date().toISOString().slic
     if (sunset < added) throw new Error(`${at}.sunset ${sunset} is before added ${added}; ${APP_BASELINE_RULE}`);
     const latest = addDays(added, APP_BASELINE_MAX_DAYS);
     if (sunset > latest) throw new Error(`${at}.sunset ${sunset} is more than ${APP_BASELINE_MAX_DAYS} days after added ${added} (the latest is ${latest}); ${APP_BASELINE_RULE}`);
+    if (entry.approvedBy !== undefined && typeof entry.approvedBy !== "string") throw new Error(`${at}.approvedBy must be the name of the person who approved ${entry.id}`);
     if (seen.has(entry.id)) throw new Error(`${at} repeats ${entry.id}`);
     seen.add(entry.id);
-    return { id: entry.id, issue: entry.issue, added, sunset };
+    return { id: entry.id, issue: entry.issue, added, sunset, ...(entry.approvedBy !== undefined ? { approvedBy: entry.approvedBy } : {}) };
   });
 }
 
@@ -1358,7 +1626,7 @@ function loadBaseline({ explicit, root, central, repoKey, today }) {
     // any other shape): sniffing its shape would let an app write the central { known: { "<repo>": [...] } } form, which carries
     // no dates, and silence a finding for good.
     if (fromApp || (text !== null && Array.isArray(JSON.parse(text)?.known))) return { entries: appBaselineEntries(text, { today }), listedIn: `${APP_BASELINE_FILE} known`, listedFile: APP_BASELINE_FILE };
-    return { entries: baselineKnown(text, repoKey).map((id) => ({ id })), listedIn: `${CENTRAL_BASELINE_FILE} known["${repoKey}"]`, listedFile: CENTRAL_BASELINE_FILE };
+    return { entries: baselineKnownEntries(text, repoKey), listedIn: `${CENTRAL_BASELINE_FILE} known["${repoKey}"]`, listedFile: CENTRAL_BASELINE_FILE };
   } catch (error) { throw Object.assign(new Error(error.message), { file }); }
 }
 
@@ -1376,8 +1644,10 @@ function loadBaseline({ explicit, root, central, repoKey, today }) {
 export function runAppCheck({ repo, mode = "commit", commit, only = null, baseline, printBaseline = false, rules = RULES, tier = null, label = "check", repoKey, central = rightkitCheckout(), now = new Date(), refuse = [], snapshot = null } = {}) {
   const lines = [];
   const errLines = [];
+  // An ownership finding is excused only by a ratified ruling (appAmendments, with approvedBy), never by a baseline (rightkit#1299).
+  refuse = [...new Set([...refuse, ...RATIFICATION_ONLY])];
   if (tier !== null && !TIERS.includes(tier)) { errLines.push(`${label}: --rule-tier must be compile or release, not ${JSON.stringify(tier)}`); return { findings: [], known: [], stale: [], expired: [], found: [], exitCode: 2, lines, text: "", errLines, errText: errLines.join("\n") }; }
-  const finish = (exitCode, extra = {}) => ({ findings: [], known: [], stale: [], expired: [], found: [], ...extra, exitCode, lines, text: lines.join("\n"), errLines, errText: errLines.join("\n") });
+  const finish = (exitCode, extra = {}) => ({ findings: [], known: [], stale: [], expired: [], unapproved: [], found: [], ...extra, exitCode, lines, text: lines.join("\n"), errLines, errText: errLines.join("\n") });
   const unknown = only?.filter((id) => !rules.some((r) => r.id === id)) ?? [];
   if (unknown.length) { errLines.push(`${label}: unknown rule(s): ${unknown.join(", ")} (see --list)`); return finish(2); }
   // --only is a view over the whole set. Otherwise the tier decides which rules run: the compile tier by default over the registry, or
@@ -1436,17 +1706,29 @@ export function runAppCheck({ repo, mode = "commit", commit, only = null, baseli
     const fresh = [...applied.fresh.map((f) => (f.identity && lapsed.has(f.identity) ? { ...f, problem: `${f.problem} (its baseline entry expired: sunset ${lapsed.get(f.identity).sunset}; ${APP_BASELINE_EXPIRY_RULE})` } : f)), ...refused];
     const known = applied.known.filter((f) => !refuse.includes(f.rule));
     const { stale } = applied;
+    // Growth (rightkit#1251): an entry added since the merge-base with origin/main needs approvedBy and an issue link. An explicit
+    // --baseline file is a caller's own and has no anchor; the app's file is anchored in the checked repository, the central file in
+    // the RightKit checkout. With no origin/main to anchor to, the run says so rather than pass silently.
+    let unapproved = [];
+    if (!baseline && listed.entries.length) {
+      const app = listed.listedFile === APP_BASELINE_FILE;
+      const dir = app ? repo : central;
+      const anchored = dir ? baselineAtMergeBase(dir, app ? checked : "HEAD", listed.listedFile) : { anchor: null, why: "no RightKit checkout holds the central baseline" };
+      if (anchored.anchor === null) lines.push(`NOTE baseline growth was not checked: no merge-base with origin/main (${anchored.why}); ${BASELINE_GROWTH_RULE}`);
+      else unapproved = baselineGrowth(listed.entries, anchored.text, { repoKey: key, app }).map((g) => ({ ...g, anchor: anchored.anchor }));
+    }
     for (const f of fresh) {
       lines.push(`FAIL ${f.rule} (${f.gap}): ${f.problem}`);
       if (f.fix) lines.push(`     fix: ${f.fix}`);
     }
     for (const f of known) lines.push(`KNOWN ${f.rule}: ${f.problem}`);
     for (const id of stale) lines.push(`STALE baseline entry ${id}: no longer found in ${key}; remove it from ${listed.listedIn}`);
+    for (const g of unapproved) lines.push(`UNAPPROVED baseline entry ${g.id}: added since the merge-base with origin/main (${g.anchor.slice(0, 12)}) and ${g.problem}; ${BASELINE_GROWTH_RULE}; or fix the finding and drop the entry from ${listed.listedIn}`);
     for (const e of expired) lines.push(`EXPIRED baseline entry ${e.id}: sunset ${e.sunset} has passed (${e.issue}); ${APP_BASELINE_EXPIRY_RULE}${e.added ? ` (${e.added})` : ""}; fix the finding and remove the entry from ${listed.listedIn}`);
     const ruleCount = only ? only.length : rules.length;
     const seconds = ((Date.now() - started) / 1000).toFixed(1);
-    const problems = fresh.length + stale.length + expired.length;
-    const result = { findings: fresh, known, stale, expired, found };
+    const problems = fresh.length + stale.length + expired.length + unapproved.length;
+    const result = { findings: fresh, known, stale, expired, unapproved, found };
     if (problems) {
       lines.push(`${label}: ${problems} problem(s) in ${checked.slice(0, 12)} (${ruleCount} rules, ${tierLabel}, ${seconds}s${known.length ? `, ${known.length} known` : ""}). Each would refuse later in CI or publication; fix and commit, then push.`);
       return finish(1, result);
@@ -1475,8 +1757,8 @@ export const CHECKED_COMMANDS = new Map([
   ["release", "commit"], ["build", "commit"], ["package", "commit"], ["dev", "worktree"], ["qa", "commit"], ["upload", "commit"],
   ["publish", "commit"], ["publish-update", "commit"], ["github", "commit"], ["doctor", "worktree"],
   ["sign-windows", "commit"], ["sign-updater", "commit"], ["create-mac-updater", "commit"],
-  ["test", "worktree"], ["web-build", "commit"], ["swift-package", "commit"], ["recipe-build", "commit"], ["assemble-app", "commit"], ["stage-sidecar", "worktree"], ["sign-candidate", "commit"],
-  ["addon build", "commit"], ["sign-dev-artifact", "worktree"],
+  ["test", "worktree"], ["web-build", "commit"], ["swift-package", "commit"], ["recipe-build", "commit"], ["assemble-app", "commit"], ["stage-sidecar", "worktree"], ["stage-xcframework", "worktree"], ["sign-candidate", "commit"],
+  ["addon build", "commit"], ["sign-dev-artifact", "worktree"], ["direct-release finalize", "commit"],
 ]);
 
 /** The key of CHECKED_COMMANDS an invocation matches, or null: `<command> <subcommand>` when that pair is listed, else the command. */
@@ -1491,9 +1773,13 @@ export function checkedCommandOf(args) {
  * says (no switches inventory: the release-switches scan has nothing to prove against), so tolerating one only moves the failure
  * minutes into the build. */
 export const BUILD_REFUSES = Object.freeze(["switches-inventory"]);
+/** Rules no baseline excuses at any door (rightkit#1299, GATE-CONTRACT [GC-T19]): an ownership finding (OW-05, OW-06) is excused only by a
+ * ratified ruling in RightKit (appAmendments.<app> in ownership-mandatory-set.json, each entry with approvedBy), the only path to an app's
+ * exception ledger being accepted. Both are release-tier rules: the dev and test doors do not run them, qualify and release do. */
+export const RATIFICATION_ONLY = Object.freeze(["mandatory-foundation", "ownership-exceptions"]);
 
 /** The checked commands that qualify, sign, ship or upload: they owe the release tier (every rule). The rest owe the compile tier. */
-export const RELEASE_TIER_COMMANDS = Object.freeze(new Set(["release", "upload", "publish", "publish-update", "github", "sign-windows", "sign-updater", "create-mac-updater", "sign-candidate"]));
+export const RELEASE_TIER_COMMANDS = Object.freeze(new Set(["release", "upload", "publish", "publish-update", "github", "sign-windows", "sign-updater", "create-mac-updater", "sign-candidate", "direct-release finalize"]));
 /** `qa --stage installed` qualifies the sealed build and owes the release tier; any other `qa` stage owes the compile tier (`qa --stage source` is refused, GATE-CONTRACT GC-A07). */
 export const tierForCommand = (name, args = []) => (name === "qa" ? (args.includes("installed") ? "release" : "compile") : RELEASE_TIER_COMMANDS.has(name) ? "release" : "compile");
 
@@ -1536,6 +1822,7 @@ export const UNCHECKED_COMMANDS = new Map([
   ["qualify", "qualifies RightKit crates; preflight and the hosted scans check RightKit"],
   ["inventory", "reports registry drift"],
   ["model", "promotes a runtime model artifact"],
+  ["provision-model", "fetches the pinned model bytes a config declares into its resource directory and verifies each against its pin; reads no app source and compiles nothing"],
   ["addon", "every form but `addon build` (which is checked) compiles nothing: doctor validates the config, upload ships only what `addon build` sealed at HEAD, adopt verifies a downloaded add-on against a lock"],
   ["lsclean", "host LaunchServices cleanup"],
   ["generate-dmg-background", "generates an image"],

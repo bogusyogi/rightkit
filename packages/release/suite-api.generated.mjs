@@ -60,11 +60,18 @@ export const APP_ARTIFACT_HOSTS = {
     "rightapps-license-gate.adrdsouza.workers.dev",
     "pub-6c73208d46c245a9b4881d5e02f6b618.r2.dev"
   ],
+  "cutright": [
+    "pub-6c73208d46c245a9b4881d5e02f6b618.r2.dev"
+  ],
   "heardright": [
     "rightapps-license-gate.adrdsouza.workers.dev",
     "pub-6c73208d46c245a9b4881d5e02f6b618.r2.dev"
   ],
   "mailright": [
+    "rightapps-license-gate.adrdsouza.workers.dev",
+    "pub-6c73208d46c245a9b4881d5e02f6b618.r2.dev"
+  ],
+  "scraperight": [
     "rightapps-license-gate.adrdsouza.workers.dev",
     "pub-6c73208d46c245a9b4881d5e02f6b618.r2.dev"
   ],
@@ -81,7 +88,11 @@ export const RIGHT_SUITE_API_CONTRACT = {
       ],
       "licenseHost": "coderight.cc"
     },
-    "cutright": {},
+    "cutright": {
+      "artifactHosts": [
+        "public"
+      ]
+    },
     "genright": {
       "licenseHost": "heardright.app"
     },
@@ -102,6 +113,10 @@ export const RIGHT_SUITE_API_CONTRACT = {
     "postright": {},
     "pulse": {},
     "scraperight": {
+      "artifactHosts": [
+        "gated",
+        "public"
+      ],
       "licenseHost": "scraperight.cc"
     },
     "viewright": {

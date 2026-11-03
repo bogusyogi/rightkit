@@ -21,9 +21,8 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { appendLedger, readLedger, SCAN_TOKEN_ENV, UNSCOPED } from "./cargo-ledger.mjs";
-import { SHIM_MAP_SCHEMA, locateWorkspaceByWalk, readOnlyCargo } from "./cargo-target-shim.mjs";
+import { SHIM_MAP_SCHEMA, directCargoShape, locateWorkspaceByWalk } from "./cargo-target-shim.mjs";
 import { directCargoPath } from "./managed-cargo.mjs";
-import { carriedScanRefusal } from "./snapshot-metadata.mjs";
 import { BROKER_REFUSAL_STATUS, carryBrokerAdapter, carryBrokerCargo, verifyBrokerLedger } from "./snapshot-broker.mjs";
 import { splitCarriedArgs } from "./snapshot-request.mjs";
 
@@ -93,8 +92,7 @@ export function runCarriedCargo(args, options = {}, { map, spawn = spawnSync, er
   // --locked/--frozen, `deny ... check`, `audit --db <dir> --no-fetch`), and only when the first word is the subcommand itself (no
   // `+toolchain` or global option in front). Anything else still carries, and the broker refuses it: a direct call never writes the
   // snapshot (no `fmt` without --check, no lock rewrite, no `deny init`, no `audit fix`).
-  const directShape = /^[a-z]/.test(words[0] ?? "") && readOnlyCargo(words) && carriedScanRefusal(words) === null
-    && (words[0] !== "package" || (words.includes("--list") && (words.includes("--locked") || words.includes("--frozen"))));
+  const directShape = directCargoShape(words);
   if (directShape) {
     const realCargo = directCargoBin(env);
     if (!realCargo) return refuse("RK_CARGO_DIRECT_MISSING", `\`cargo ${words.join(" ")}\` compiles nothing and runs directly (GC-A11), but no cargo was found on the broker's toolchain or PATH`);

@@ -15,9 +15,8 @@
 //! binary = { darwin = "target/debug/genright-engine", windows = "target/debug/genright-engine.exe" }
 //! package = "genright-engine"
 //! build = ["rustright", "cargo", "build", "-p", "genright-engine"]
-//! data_dir_env = "GENRIGHT_APP_DATA"     # required: a launch with no isolated data dir is refused
-//! # data_dir_arg = "--data-dir"          # or name the dir in the step's arguments
-//! # forbidden_args = ["--use-user-library"]   # flags that select the real library: refused
+//! # No data_dir_env, data_dir_arg or forbidden_args: the engine runs on the owner's real data
+//! # under the `[snapshot]` snapshot and restore (rightkit#1437), and is told no data directory.
 //!
 //! [ui]
 //! binaries = { darwin = "target/debug/genright", windows = "target/debug/genright.exe" }
@@ -76,16 +75,14 @@ pub struct EngineConfig {
     pub package: Option<String>,
     #[serde(default)]
     pub build: Vec<String>,
-    /// Env var that receives the per-scenario data dir. Required for any engine step: a launch
-    /// that names no isolated data directory is refused (see `userdata::check_engine_launch`).
-    pub data_dir_env: Option<String>,
-    /// Flag the engine takes its data dir under (e.g. `--data-dir`), when a step names the
-    /// isolated directory in its arguments instead of through `data_dir_env`.
-    pub data_dir_arg: Option<String>,
-    /// Flags that select the real library (e.g. `--use-user-library`); a step whose arguments
-    /// contain one is refused.
+    /// Removed (rightkit#1437): the engine runs on the owner's real data and is told no data
+    /// directory. Present only so a config that still names one is refused with a clear message.
     #[serde(default)]
-    pub forbidden_args: Vec<String>,
+    data_dir_env: Option<toml::Value>,
+    #[serde(default)]
+    data_dir_arg: Option<toml::Value>,
+    #[serde(default)]
+    forbidden_args: Option<toml::Value>,
     #[serde(default)]
     pub env: BTreeMap<String, String>,
 }
@@ -181,6 +178,26 @@ pub struct AudioConfig {
     /// Also mute the macOS system output for the run (restored afterwards).
     #[serde(default)]
     pub system_mute: bool,
+    /// `[audio.mic]`: the `mic_play` step (see [`MicConfig`]).
+    #[serde(default)]
+    pub mic: Option<MicConfig>,
+}
+
+/// `[audio.mic]` in `rightkit-qa.toml` (rightkit#1451): play the owner's recording as the app's
+/// microphone input through a virtual loopback device the owner installed.
+///
+/// ```toml
+/// [audio.mic]
+/// recordings = "/Volumes/D/owner-recordings/heardright"  # the owner's own recordings; nothing else may play
+/// device = "BlackHole 2ch"                              # the virtual loopback device the app's input is set to
+/// # player = "/opt/homebrew/bin/sox"                    # else `sox` on PATH
+/// ```
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct MicConfig {
+    pub recordings: String,
+    pub device: String,
+    pub player: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -339,6 +356,123 @@ struct Raw {
     /// `[plugin]`: the app's step plugin for a `run --qualifying` (see [`PluginConfig`]).
     #[serde(default)]
     plugin: Option<PluginConfig>,
+    /// `[snapshot]`: the real data a journey run snapshots and restores (see [`SnapshotConfig`]).
+    #[serde(default)]
+    snapshot: Option<SnapshotConfig>,
+}
+
+/// `[snapshot]` in `rightkit-qa.toml` (rightkit#1437, GATE-CONTRACT GC-A10): what `journeys run`
+/// copies before it launches the installed dev app and puts back afterwards. Adrian, 2026-11-03:
+/// "dev mode, is mine. im the fucking owner, my data. no dummy data, no fucking made up shit.
+/// real data. snapshot and restore."
+///
+/// ```toml
+/// [snapshot]
+/// app_name = "ViewRight"               # data, config and local folders through rightkit-fs AppDirs
+/// # flat = true                        # `<base>/<name>` with no `Orthic Labs` folder
+/// # include_cache = true               # also the cache folder (re-creatable, off by default)
+/// # extra_paths = ["/abs/other/folder"]
+/// process_names = ["ViewRight"]        # the app's image names: the run refuses while one is running
+///
+/// [[snapshot.credentials]]             # real OS store items, by the app's namespace
+/// service = "app.orthic.viewright"
+/// accounts = ["license-device-id", "provider-key"]
+/// # windows_target = "keyring-compat"  # or "slash" (default); windows_prefix = "ViewRight"
+/// ```
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SnapshotConfig {
+    /// The installed folder name under `Orthic Labs` (`AppId::new`).
+    pub app_name: Option<String>,
+    /// `AppId::without_org`: `<base>/<name>`.
+    #[serde(default)]
+    pub flat: bool,
+    #[serde(default)]
+    pub include_cache: bool,
+    /// Further folders or single files to snapshot: absolute, or `~/...` under the account home. A
+    /// file that is absent before the run is deleted again by the restore. An absent entry is a
+    /// file when its last component has an extension; end it with `/` to make it a folder.
+    #[serde(default)]
+    pub extra_paths: Vec<String>,
+    /// Image names of the app and its helpers (`ViewRight`, `viewright.exe`): the run refuses
+    /// to start while any is running. Required, because a snapshot of a running app is not one.
+    #[serde(default)]
+    pub process_names: Vec<String>,
+    #[serde(default)]
+    pub credentials: Vec<CredentialSetConfig>,
+    /// Also snapshot the suite shared folder (`Orthic Labs/shared`: the shared model store, the
+    /// service records and whatever else the suite's apps keep there). Declare it when the app reads
+    /// or writes the shared folder. Every suite app that can touch it must be in `process_names`.
+    #[serde(default)]
+    pub suite_shared: bool,
+    /// An Android app: its package data on the device or emulator.
+    #[serde(default)]
+    pub android: Option<AndroidSnapshotConfig>,
+}
+
+/// `[snapshot.android]`: the package whose private data dir the snapshot copies and restores with
+/// `adb` and `run-as` (a debuggable dev build).
+///
+/// ```toml
+/// [snapshot.android]
+/// package = "app.orthic.viewright.dev"   # a test package: its last segment is dev, qa, test or debug
+/// serial = "emulator-5554"                # required: no "the only attached device" shortcut
+/// # segments = ["staging"]                # other last segments to accept
+/// # adb = "/path/to/adb"                  # else ANDROID_HOME or ANDROID_SDK_ROOT
+/// ```
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AndroidSnapshotConfig {
+    pub package: String,
+    pub serial: String,
+    #[serde(default)]
+    pub segments: Vec<String>,
+    pub adb: Option<String>,
+}
+
+/// One credential namespace in `[[snapshot.credentials]]`.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CredentialSetConfig {
+    pub service: String,
+    pub accounts: Vec<String>,
+    /// `slash` (default) or `keyring-compat`.
+    pub windows_target: Option<String>,
+    pub windows_prefix: Option<String>,
+}
+
+impl SnapshotConfig {
+    pub fn validate(&self) -> Result<()> {
+        let named = self
+            .app_name
+            .as_deref()
+            .is_some_and(|n| !n.trim().is_empty());
+        let host_roots = named || !self.extra_paths.is_empty() || self.suite_shared;
+        if !host_roots && self.android.is_none() {
+            return err(
+                "[snapshot] needs app_name, extra_paths, suite_shared or android: it names no data",
+            );
+        }
+        if host_roots && self.process_names.iter().all(|n| n.trim().is_empty()) {
+            return err("[snapshot].process_names is required: the run refuses to start while the app runs, and cannot know which processes are the app");
+        }
+        if let Some(android) = &self.android {
+            crate::snapshot_android::validate(android)?;
+        }
+        for p in &self.extra_paths {
+            if !Path::new(p).is_absolute() && !p.starts_with("~/") && !p.starts_with("~\\") {
+                return err(format!(
+                    "[snapshot].extra_paths entry {p:?} is neither absolute nor home-relative (~/...)"
+                ));
+            }
+        }
+        for c in &self.credentials {
+            if c.service.trim().is_empty() || c.accounts.is_empty() {
+                return err("[[snapshot.credentials]] needs a service and at least one account");
+            }
+        }
+        Ok(())
+    }
 }
 
 fn dot() -> String {
@@ -374,11 +508,32 @@ pub struct QaConfig {
     pub default_tier: String,
     pub config_path: PathBuf,
     pub plugin: Option<PluginConfig>,
+    /// `[snapshot]`: when declared, `journeys run` snapshots and restores this real data around the run.
+    pub snapshot: Option<SnapshotConfig>,
 }
 
 pub const TIERS: [&str; 3] = ["fast", "local-models", "paid"];
 
 impl QaConfig {
+    /// The `[snapshot]` of this config, or an error that names the config to add. QA runs on the
+    /// owner's real data (Adrian, 2026-11-03: "real data. snapshot and restore."), so a run with no
+    /// snapshot is refused.
+    pub fn require_snapshot(&self) -> Result<&SnapshotConfig> {
+        match &self.snapshot {
+            Some(s) => Ok(s),
+            None => err(format!(
+                "{} has no [snapshot]: QA runs on the owner's real data and must snapshot and restore it. Add to the config:\n[snapshot]\napp_name = \"<the installed folder name>\"\nprocess_names = [\"<the app's process name>\"]\n(plus [[snapshot.credentials]] for the app's keychain items); see the README, \"Snapshot and restore of the real data\".",
+                self.config_path.display()
+            )),
+        }
+    }
+
+    /// The app's real data folder: the first folder the `[snapshot]` resolves (`AppDirs` data, else
+    /// the first of `extra_paths`). Scenarios and steps read the app's logs and state from here.
+    pub fn real_data_dir(&self) -> Result<PathBuf> {
+        crate::snapshot::app_data_dir(self.require_snapshot()?)
+    }
+
     pub fn load(path: &Path) -> Result<Self> {
         let text = std::fs::read_to_string(path)
             .map_err(|e| Error(format!("cannot read {}: {e}", path.display())))?;
@@ -415,6 +570,15 @@ impl QaConfig {
         validate_tier_list(&default_tier)?;
         raw.host.validate()?;
         raw.run_tests.validate()?;
+        if let Some(s) = &raw.snapshot {
+            s.validate()?;
+        }
+        if raw.engine.data_dir_env.is_some()
+            || raw.engine.data_dir_arg.is_some()
+            || raw.engine.forbidden_args.is_some()
+        {
+            return err("[engine] data_dir_env, data_dir_arg and forbidden_args were removed (rightkit#1437): QA runs on the owner's real data, protected by [snapshot]; delete them");
+        }
         Ok(Self {
             scenario_dirs: raw.scenarios.iter().map(|s| app_root.join(s)).collect(),
             app,
@@ -429,6 +593,7 @@ impl QaConfig {
             default_tier,
             config_path: path.to_path_buf(),
             plugin: raw.plugin,
+            snapshot: raw.snapshot,
         })
     }
 

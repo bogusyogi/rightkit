@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-decimal",
+  "capabilities": [
+    {
+      "capability": "decimal-compare",
+      "summary": "Exact decimal parse and lt/le/eq/ge/gt comparison of decimal strings with no floats, for metric thresholds",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: apps call this crate instead of comparing decimal strings through f64.",
+        "No arithmetic, rounding, currency or exponent parsing."
+      ]
+    }
+  ]
+}

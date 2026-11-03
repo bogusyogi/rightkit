@@ -98,9 +98,9 @@ Journeys J-002 and J-003 drive the first run (gate, receipt, settings, licence s
 
 ## Data root
 
-`rke2e_protocol::app_data_root()` is the one data root for the shell and the engine. It goes through `rightkit_daemon::mode`: a
-release build resolves the product directory and nothing in the environment can move it; only a `test-mode` build (QA) binds it to
-the scenario's isolated directory, through `RIGHTKIT_QA_DATA_DIR`. The shell keeps window state under `shell/`, logs under `logs/` and
+`rke2e_protocol::app_data_root()` is the one data root for the shell and the engine. It goes through `rightkit_daemon::mode`:
+every build resolves the product directory from the account database and nothing in the environment can move it. QA runs on that
+real data under rightkit-qa's snapshot and restore (`[snapshot]` in `rightkit-qa.toml`). The shell keeps window state under `shell/`, logs under `logs/` and
 crash reports under `crashes/`; the engine keeps its own files beside them. The shell passes no app-specific variable to the engine.
 
 ## QA, journeys and what never ships
@@ -108,8 +108,8 @@ crash reports under `crashes/`; the engine keeps its own files beside them. The 
 - `journeys.toml` declares the app's proof: J-001 (the engine answers its command table as a sidecar and as a CLI) and J-002 (the app
   launches hidden, supervises its engine and answers the doctor call from the window). `pnpm test:e2e` builds the frontend and runs
   `rightkit-qa journeys run`.
-- The QA build is the `qa-native` feature of `src-tauri` (control server, test-mode data root, `RKE2E_ENGINE_BIN`) and `test-mode` of
-  the engine. They are off by default, `right-release` refuses to seal a release or update whose graph or binary carries them, and
+- The QA build is the `qa-native` feature of `src-tauri` (control server, `RKE2E_ENGINE_BIN`) of
+  `src-tauri`. It is off by default, `right-release` refuses to seal a release or update whose graph or binary carries them, and
   `switches.json` records that the environment reads exist only behind `qa-native`. A new environment read needs an entry there.
 - Rust tests must be tagged (`// rk-test: pure` for logic with no process, `contract` for a real child process behind a contract); a
   test never launches the app itself. `journeys.toml` `[tests] untagged_baseline = 0`.

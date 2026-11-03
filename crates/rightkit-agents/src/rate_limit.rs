@@ -6,14 +6,27 @@
 //! [`RateLimitState::probe_failed`], and a vendor that reports no limits through
 //! [`RateLimitState::mark_unsupported`].
 //!
-//! Rules: observed data replaces `NoData`, `ProbeFailed` and `Unsupported`; a failed probe
-//! keeps the last known snapshot; `mark_unsupported` never overwrites a known snapshot.
+//! Rules (aligned with the CodeRight `RateLimitState`, issue #346, whose tests pin them):
+//! - observed data replaces every other state;
+//! - a failed probe keeps the last known snapshot, but does not replace `Unsupported`;
+//! - `mark_unsupported` replaces every state, including `Known`.
+//!
+//! The type serialises as camelCase JSON tagged by `state`, for the host API.
+
+use serde::{Deserialize, Serialize};
+
+use crate::event::RateLimitInfo;
 
 /// The facts one rate-limit report carried.
 pub type RateLimitSnapshot = RateLimitInfo;
 
 /// What the host knows about a vendor's rate limits.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "state",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum RateLimitState {
     /// Nothing has been observed or probed yet.
     #[default]
@@ -35,8 +48,12 @@ impl RateLimitState {
         *self = RateLimitState::Known { snapshot };
     }
 
-    /// Record a failed probe, keeping the last known snapshot.
+    /// Record a failed probe, keeping the last known snapshot. An `Unsupported` vendor stays
+    /// unsupported: a failed probe says nothing about whether limits exist.
     pub fn probe_failed(&mut self, message: impl Into<String>) {
+        if matches!(self, RateLimitState::Unsupported { .. }) {
+            return;
+        }
         let last_known = self.snapshot().cloned();
         *self = RateLimitState::ProbeFailed {
             message: message.into(),
@@ -44,11 +61,8 @@ impl RateLimitState {
         };
     }
 
-    /// Record that the vendor reports no limits. A known snapshot is kept.
+    /// Record that the vendor reports no limits. Replaces any state, a known snapshot too.
     pub fn mark_unsupported(&mut self, reason: impl Into<String>) {
-        if matches!(self, RateLimitState::Known { .. }) {
-            return;
-        }
         *self = RateLimitState::Unsupported {
             reason: reason.into(),
         };

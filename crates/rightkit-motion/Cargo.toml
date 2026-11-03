@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-motion"
-version = "0.2.2"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -27,6 +27,9 @@ encode = ["dep:rightkit-ffmpeg", "dep:image"]
 # Loopback HTTP host for an HTML composition project (`project_server`): serves the project, injects the
 # deterministic runtime and swaps remote GSAP for a caller-supplied copy. Adds `rightkit-http` (path decoding).
 server = ["dep:rightkit-http"]
+# `browser_source::BrowserFrameSource`: a `render::FrameSource` over a managed Chrome page (rightkit-browser) that
+# loads a `project_server` composition: runtime seek, paint wait, CDP PNG capture (alpha with omit-background).
+browser-source = ["encode", "server", "dep:rightkit-browser", "dep:tokio"]
 # Engine command handlers (`cmd`): `media.thumbnail` and `contactsheet.make` over a video project.
 engine-commands = ["dep:rightkit-engine-host", "dep:rightkit-video-project", "dep:rightkit-ffmpeg", "dep:rightkit-cache", "dep:rightkit-fs", "dep:chrono"]
 
@@ -43,6 +46,8 @@ thiserror = "2"
 rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg", default-features = false, optional = true }
 image = { version = "0.25", default-features = false, features = ["png"], optional = true }
 rightkit-http = { version = "0.3.9", path = "../rightkit-http", default-features = false, optional = true }
+rightkit-browser = { version = "0.3.9", path = "../rightkit-browser", optional = true }
+tokio = { version = "1", default-features = false, features = ["rt", "time"], optional = true }
 
 [package.metadata.rightkit]
 continuous = false

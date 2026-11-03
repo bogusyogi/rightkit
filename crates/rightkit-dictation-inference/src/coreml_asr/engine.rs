@@ -22,20 +22,9 @@ use super::model::{
     TimedTok,
 };
 
-/// Resolve the decode beam width: `RIGHTKIT_ASR_BEAM_WIDTH` env override (clamped
-/// to `1..=8`, unparseable values fall back to the default) else `2`. Width 2
-/// keeps one alternative hypothesis alive so multi-token context bias can
-/// recover names that greedy decoding drops. Read once per `load()` so tests
-/// need no rebuild — set the env var and relaunch.
-fn resolve_beam_width() -> (usize, &'static str) {
-    match rightkit_dictation_core::dev_var!("RIGHTKIT_ASR_BEAM_WIDTH")
-        .ok()
-        .and_then(|raw| raw.trim().parse::<usize>().ok())
-    {
-        Some(parsed) => (parsed.clamp(1, 8), "env"),
-        None => (2, "default"),
-    }
-}
+/// The decode beam width: `2`. Width 2 keeps one alternative hypothesis alive so
+/// multi-token context bias can recover names that greedy decoding drops.
+const DEFAULT_BEAM_WIDTH: usize = 2;
 
 type DecoderJointOutputs = (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>);
 type PredictorOutputs = (Vec<f32>, Vec<f32>, Vec<f32>);
@@ -47,13 +36,7 @@ impl CoreMlParakeet {
         let meta = PipelineMeta::from_dir(dir)?;
         let global_compute = crate::settings::asr_compute_profile();
         let encoder_setting = crate::settings::asr_encoder_compute();
-        // Read-only, opt-in stage placement probe. Encoder & persisted settings
-        // stay unchanged; invalid/unset values use normal product configuration.
-        let decoder_setting =
-            rightkit_dictation_core::dev_var!("RIGHTKIT_COREML_DECODER_PROFILE_PROBE")
-                .ok()
-                .filter(|v| matches!(v.as_str(), "cpu_only" | "cpu_gpu" | "neural_engine"))
-                .unwrap_or_else(crate::settings::asr_decoder_compute);
+        let decoder_setting = crate::settings::asr_decoder_compute();
         let encoder_profile = if encoder_setting == "inherit" {
             global_compute.as_str()
         } else {
@@ -136,8 +119,8 @@ impl CoreMlParakeet {
             .collect();
 
         let win_samples = (meta.window_sec * 16_000.0) as usize;
-        let (beam_width, beam_source) = resolve_beam_width();
-        eprintln!("asr_beam_width width={beam_width} source={beam_source}");
+        let beam_width = DEFAULT_BEAM_WIDTH;
+        eprintln!("asr_beam_width width={beam_width} source=default");
         tracing::info!(
             encoder_compute,
             decoder_compute,
@@ -261,9 +244,8 @@ impl CoreMlParakeet {
         max_rows: usize,
     ) -> Result<(), String> {
         if enabled && self.fused_probe.is_none() {
-            self.fused_probe = Some(
-                FusedProbe::load_from_env()?
-                    .ok_or("evaluator fused graph requires RIGHTKIT_COREML_FUSED_PROBE_DIR")?,
+            return Err(
+                "evaluator fused graph requires the validated production fused graph".into(),
             );
         }
         self.evaluator_fused_enabled = Some(enabled);
@@ -317,30 +299,6 @@ impl CoreMlParakeet {
     /// does not disclose actual per-inference device placement.
     pub fn configured_compute_route(&self) -> (&str, &str) {
         (&self.encoder_compute, &self.decoder_compute)
-    }
-
-    /// Prepare candidate-only frontend lookahead after model load and before
-    /// measured decode. The environment switch is read here, so evaluators
-    /// may set it after loading without changing ordinary runtime startup.
-    /// Returns `true` only when a worker is retained.
-    pub fn prepare_frontend_lookahead(&mut self, memory_gate: MemoryGate) -> Result<bool, String> {
-        if self.frontend_lookahead.is_some() {
-            return Ok(true);
-        }
-        let config = FrontendLookaheadConfig::from_env(memory_gate);
-        if !config.enabled {
-            return Ok(false);
-        }
-        self.frontend_lookahead = FrontendLookaheadProbe::spawn(
-            &self.bundle_dir,
-            &self.encoder_profile,
-            &self.meta,
-            config,
-        )?;
-        if self.frontend_lookahead.is_some() {
-            self.frontend_lookahead_last_stats = None;
-        }
-        Ok(self.frontend_lookahead.is_some())
     }
 
     pub fn prepare_frontend_lookahead_evaluator(

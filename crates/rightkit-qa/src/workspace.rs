@@ -1,8 +1,9 @@
-//! An isolated, reliably removable home for one QA run: own data dir (so the app
-//! takes its own single-instance lock), own evidence dir, retrying disposal that
-//! reports what it could not remove, and a sweep for crashed runs.
+//! The run-owned scratch directory of one QA run: evidence and capture dirs, staged app bundles,
+//! the control channel's suite root, retrying disposal that reports what it could not remove, and a
+//! sweep for crashed runs. It is NOT the app's home or data folder: the app runs on the owner's real
+//! data, protected by the journey run's snapshot and restore ([`crate::snapshot`], rightkit#1437).
 use crate::storage;
-use crate::util::{new_id, require_text, Result};
+use crate::util::{require_text, Result};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -13,12 +14,13 @@ pub struct QaWorkspace {
     pub run_id: String,
     /// Managed run root: `<managed>/runs/<app>/<run-id>`.
     pub root: PathBuf,
-    /// Owned app home on internal system temp storage.
+    /// The run's scratch directory (`<managed run>/app`), where the runner stages launches and writes
+    /// logs. The launched app never gets it as HOME or as a data folder.
     pub home: PathBuf,
-    pub data_dir: PathBuf,
     pub evidence_dir: PathBuf,
     pub capture_dir: PathBuf,
-    /// Environment that points an app at this workspace (profile isolation).
+    /// Environment every launch carries: run id, evidence and capture dirs, the control channel's
+    /// suite root. No HOME, profile, data-dir or temp redirection.
     pub env: BTreeMap<String, String>,
 }
 
@@ -100,37 +102,21 @@ fn create_impl(
     let root = crate::util::plain_path(&managed.root);
     // Generic managed storage creates this directory; QA profiles belong only in home.
     fs::remove_dir(root.join("data"))?;
-    let data_dir = home.join("data");
     let evidence_dir = root.join("evidence");
     let capture_dir = root.join("captures");
-    let tmp_dir = home.join("tmp");
-    let cache_dir = home.join("cache");
-    fs::create_dir_all(&data_dir)?;
     fs::create_dir_all(&evidence_dir)?;
     fs::create_dir_all(&capture_dir)?;
-    fs::create_dir_all(&tmp_dir)?;
-    fs::create_dir_all(&cache_dir)?;
     fs::create_dir_all(home.join("evidence"))?;
     fs::create_dir_all(home.join("captures"))?;
-    create_profile_dirs(&home)?;
     let mut env = BTreeMap::new();
-    // Test-mode activation & its bound root travel together (M20/M21): the root is the bound
-    // home itself (it carries `.rightkit-app.json`), never `home/data`. A test-capable app
-    // validates the pair & derives its children from that decision; either half alone refuses.
-    env.insert("RIGHTKIT_UNDER_TEST".into(), "1".into());
     env.insert("RIGHTKIT_QA_NATIVE".into(), "1".into());
     env.insert("RIGHTKIT_QA_RUN_ID".into(), run_id.clone());
     env.insert("RIGHTKIT_RUN_ROOT".into(), home.to_string_lossy().into());
+    // The control channel's discovery record only: no build reads this variable for its own data.
     env.insert(
         "RIGHTKIT_SUITE_ROOT".into(),
         home.join("suite").to_string_lossy().into(),
     );
-    env.insert("HOME".into(), home.to_string_lossy().into());
-    env.insert("USERPROFILE".into(), home.to_string_lossy().into());
-    env.insert("APPDATA".into(), data_dir.to_string_lossy().into());
-    env.insert("LOCALAPPDATA".into(), data_dir.to_string_lossy().into());
-    env.insert("XDG_CACHE_HOME".into(), cache_dir.to_string_lossy().into());
-    env.insert("RIGHTKIT_QA_DATA_DIR".into(), home.to_string_lossy().into());
     env.insert(
         "RIGHTKIT_QA_EVIDENCE_DIR".into(),
         home.join("evidence").to_string_lossy().into(),
@@ -139,22 +125,7 @@ fn create_impl(
         "RIGHTKIT_QA_CAPTURE_DIR".into(),
         home.join("captures").to_string_lossy().into(),
     );
-    env.insert("TMPDIR".into(), tmp_dir.to_string_lossy().into());
-    env.insert("TMP".into(), tmp_dir.to_string_lossy().into());
-    env.insert("TEMP".into(), tmp_dir.to_string_lossy().into());
     env.insert("RIGHTKIT_QA_MUTE".into(), "1".into());
-    env.insert("XDG_DATA_HOME".into(), data_dir.to_string_lossy().into());
-    env.insert("XDG_CONFIG_HOME".into(), data_dir.to_string_lossy().into());
-    env.insert(
-        "WEBVIEW2_USER_DATA_FOLDER".into(),
-        data_dir.join("webview2").to_string_lossy().into(),
-    );
-    let key: String = app_key
-        .to_uppercase()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect();
-    env.insert(format!("{key}_DATA_DIR"), data_dir.to_string_lossy().into());
     // Every directory an exported variable points at must exist: apps and
     // frameworks treat a missing one as "unknown path".
     for value in env.values() {
@@ -167,57 +138,10 @@ fn create_impl(
         run_id,
         root,
         home,
-        data_dir,
         evidence_dir,
         capture_dir,
         env,
     })
-}
-
-/// Create the per-user directories that platform known-folder lookups resolve
-/// under the isolated profile. On Windows `SHGetKnownFolderPath` expands the
-/// registry's `%USERPROFILE%\AppData\Local` against the overridden
-/// USERPROFILE and fails (Tauri "unknown path", `dirs::cache_dir` None) when the
-/// result is absent, even though LOCALAPPDATA itself points elsewhere.
-fn create_profile_dirs(home: &Path) -> Result<()> {
-    let relative: &[&str] = if cfg!(windows) {
-        &[
-            "AppData/Local",
-            "AppData/Local/Temp",
-            "AppData/LocalLow",
-            "AppData/Roaming",
-            "Desktop",
-            "Documents",
-            "Downloads",
-            "Music",
-            "Pictures",
-            "Videos",
-        ]
-    } else if cfg!(target_os = "macos") {
-        &[
-            "Library/Application Support",
-            "Library/Caches",
-            "Library/Preferences",
-            "Library/Logs",
-            "Desktop",
-            "Documents",
-            "Downloads",
-        ]
-    } else {
-        &[
-            ".local/share",
-            ".local/state",
-            ".config",
-            ".cache",
-            "Desktop",
-            "Documents",
-            "Downloads",
-        ]
-    };
-    for dir in relative {
-        fs::create_dir_all(home.join(dir))?;
-    }
-    Ok(())
 }
 
 impl QaWorkspace {
@@ -263,28 +187,6 @@ impl QaWorkspace {
             })?;
         }
         Ok(())
-    }
-    /// A fresh per-scenario directory inside the isolated data dir. It is private to the user, like
-    /// a home, and carries a runner binding (`.rightkit-app.json`) with the home's `app`, `runRoot`
-    /// and `runId` plus the scenario `name`, so a test-capable app can be given it as its bound
-    /// root. The binding is bookkeeping, not proof of the runner: rightkit-fs checks only that its
-    /// `app` equals the app's id.
-    pub fn scenario_dir(&self, name: &str) -> Result<PathBuf> {
-        let safe: String = name
-            .chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() || c == '-' {
-                    c
-                } else {
-                    '_'
-                }
-            })
-            .collect();
-        let dir = self.data_dir.join(format!("{safe}-{}", &new_id()[..8]));
-        rightkit_fs::private::ensure_private_dir(&dir)
-            .map_err(|e| crate::util::Error(format!("cannot create private scenario dir: {e}")))?;
-        storage::write_scenario_binding(&self.home, &dir, name)?;
-        Ok(dir)
     }
 }
 

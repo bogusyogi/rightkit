@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-db"
-version = "0.5.4"
+version = "0.5.5"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite apps."
@@ -9,15 +9,19 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["sqlite", "sqlcipher", "wal", "database"]
 categories = ["database"]
-include = ["src/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "build.rs", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 default = []
 bundled = ["rusqlite/bundled"]
 # Prepared-statement cache (`prepare_cached`) through the rusqlite re-export. Off by default since 0.4.0.
 statement-cache = ["rusqlite/cache"]
-# SQLCipher with vendored OpenSSL (the same crypto provider on every OS).
-sqlcipher = ["cipher", "rusqlite/bundled-sqlcipher-vendored-openssl"]
+# SQLCipher built on LibTomCrypt, with no OpenSSL anywhere in the graph (rightkit#1447). The provider off Apple:
+# `build.rs` compiles sqlcipher-src's SQLCipher and LibTomCrypt into one static `sqlcipher` library, and
+# libsqlite3-sys (`sqlcipher` plus its bundled bindings, no bundled build) links it. SQLCipher 4's on-disk
+# format is provider independent, so a database written under OpenSSL opens unchanged (proven on the Dell
+# with a real HeardRight database, rightkit#1447). Replaces the removed `sqlcipher` (vendored OpenSSL) feature.
+sqlcipher-libtomcrypt = ["cipher", "rusqlite/sqlcipher", "dep:libsqlite3-sys", "dep:cc", "dep:sqlcipher-src"]
 # SQLCipher with the system crypto provider (CommonCrypto on Apple, libcrypto elsewhere).
 # Use it where existing encrypted databases were created with system crypto; switching the
 # provider is not a silent refactor.
@@ -26,7 +30,7 @@ sqlcipher-system = ["cipher", "rusqlite/bundled-sqlcipher"]
 cipher = []
 # The encrypted-store lifecycle (`rightkit_db::encrypted_lifecycle`): `ProtectedKeyStore`, `StoreTransition`,
 # `EncryptedStore`, `rotate_key`, `recover_rotation`, backup/restore quiescence and `relocate`. It adds no
-# dependency, and never one on rightkit-credentials or rightkit-daemon. It must be combined with `sqlcipher`
+# dependency, and never one on rightkit-credentials or rightkit-daemon. It must be combined with `sqlcipher-libtomcrypt`
 # or `sqlcipher-system`; alone it fails to compile rather than run against an unencrypted build.
 encrypted-lifecycle = []
 hooks = ["rusqlite/hooks"]
@@ -37,6 +41,13 @@ rusqlite = { version = "0.41", default-features = false, features = ["backup"] }
 rightkit-fs = { version = "0.4.10", path = "../rightkit-fs", default-features = false, features = ["fs", "lock", "transaction"] }
 thiserror = "2"
 zeroize = "1.9"
+# Only for `sqlcipher-libtomcrypt`: names the -sys crate so its `sqlcipher` link (against the library build.rs makes) is in the graph.
+libsqlite3-sys = { version = "0.39.1", default-features = false, features = ["bundled_bindings"], optional = true }
+
+[build-dependencies]
+cc = { version = "1.2", optional = true }
+# Exact, like libsqlite3-sys's own requirement: the SQLCipher/LibTomCrypt sources are the ones proven in rightkit#1447.
+sqlcipher-src = { version = "=419.0.6", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

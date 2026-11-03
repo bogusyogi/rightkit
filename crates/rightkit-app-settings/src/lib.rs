@@ -5,7 +5,9 @@ pub mod agent_config;
 mod atomic;
 mod backend;
 mod document;
+mod manifest;
 mod options;
+mod request;
 mod secret;
 #[cfg(feature = "sql")]
 mod sql;
@@ -17,11 +19,13 @@ pub use sql::{SqlError, SqlSettings};
 pub use atomic::{atomic_write, atomic_write_with};
 pub use backend::{Edit, FileBackend, KeyLayout, SettingsBackend, Stored};
 pub use document::{Document, DocumentState};
+pub use manifest::{Kind, Manifest, ManifestError, Mismatch, Setting, Target};
 pub use options::{
     DefaultsProvider, FileFormat, FlatMigration, KeyOrder, KeyValidator, NullMeans, OnCorrupt,
     OnRefused, QuarantineName, ReadOptions, ReplaceMode, SharingRetry, StoreOptions, Validator,
     WriteSecurity,
 };
+pub use request::{ChangeRequest, ChangeRequestQueue, RequestOutcome, RequestPolicy};
 pub use rightkit_fs::PublicationDurability;
 pub use secret::{Presence, SecretProbe, SecretRef};
 pub use store::{

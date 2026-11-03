@@ -102,8 +102,7 @@ pub struct RawOutput {
     pub code: Option<i32>,
 }
 
-/// Runs one `genright-engine` command. Swappable so tests can drive the fake
-/// engine (a real process) or an in-memory stand-in.
+/// Runs one `genright-engine` command.
 pub trait Runner: Send + Sync {
     fn run(&self, words: &[&str], input: Option<&str>) -> Result<RawOutput>;
 }
@@ -113,8 +112,6 @@ pub trait Runner: Send + Sync {
 pub struct ProcessRunner {
     engine: PathBuf,
     timeout: Duration,
-    #[cfg(feature = "fake-engine")]
-    env: Vec<(String, String)>,
 }
 
 impl ProcessRunner {
@@ -122,20 +119,11 @@ impl ProcessRunner {
         Self {
             engine: engine.into(),
             timeout: Duration::from_secs(60),
-            #[cfg(feature = "fake-engine")]
-            env: Vec::new(),
         }
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
-        self
-    }
-
-    /// Extra environment for the child (used by tests).
-    #[cfg(feature = "fake-engine")]
-    pub fn with_env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.env.push((key.into(), value.into()));
         self
     }
 
@@ -167,10 +155,6 @@ impl Runner for ProcessRunner {
             })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        #[cfg(feature = "fake-engine")]
-        for (k, v) in &self.env {
-            cmd.command_mut().env(k, v);
-        }
         let mut child = cmd.spawn().map_err(|source| Error::Spawn {
             path: self.engine.clone(),
             source,

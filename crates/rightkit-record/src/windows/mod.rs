@@ -10,7 +10,10 @@
 pub mod emit;
 mod gpu;
 mod mf;
+mod screen;
 mod window;
+
+pub use screen::WindowsScreen;
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

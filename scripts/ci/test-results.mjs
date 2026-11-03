@@ -114,8 +114,8 @@ export const UNIT_STATUSES = ["pass", "allowed-skips"];
  * never ran is not qualified). The totals (executed, ignored, skipped) are a summary only. An ignored or
  * skipped test fails unless the request names the unit (allowIgnored for `#[ignore]`/runner skips counted as
  * ignored, allowMissingAssets for SKIP markers and runner-skipped tests); naming it never hides the counts.
- * `allowNoTests` (Rust units, end-to-end tests only: Adrian, 2026-11-03): a test command that ran no test and reported no failure,
- * skip or ignore qualifies.
+ * `allowNoTests` (every unit, end-to-end tests only: Adrian, 2026-11-03): a unit with no test command, or a test command that ran no test and
+ * reported no failure, skip or ignore, qualifies. A failed test never qualifies: a row with failures is judged by the failure counts the caller refuses on.
  */
 export function judgeUnit({ name, steps, allowIgnored = [], allowMissingAssets = [], requiredCommands = undefined, allowNoTests = false }) {
   const tests = steps.filter((s) => s.isTest);
@@ -123,7 +123,7 @@ export function judgeUnit({ name, steps, allowIgnored = [], allowMissingAssets =
   const executed = sum("executed"); const ignored = sum("ignored"); const skipped = sum("skipped");
   const problems = [];
   const rows = tests.map((s, i) => ({ command: s.command ?? `test command ${i + 1}`, executed: s.executed ?? 0, ignored: s.ignored ?? 0, skipped: s.skipped ?? 0, qualified: (s.executed ?? 0) > 0 || (allowNoTests && !(s.failed > 0) && !(s.skipped > 0) && !(s.ignored > 0)) }));
-  if (tests.length === 0) problems.push("no test step ran");
+  if (tests.length === 0) { if (!allowNoTests) problems.push("no test step ran"); }
   else for (const row of rows) {
     if (!row.qualified) problems.push(`required test command \`${row.command}\` executed no test (${row.skipped} skipped, ${row.ignored} ignored; no runner summary reported a positive passed count)`);
   }

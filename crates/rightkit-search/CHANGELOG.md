@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.4
+
+- **Added: exact-term MATCH builder and weighted BM25 projection (#851).** `fts::exact_or_match(terms)` builds one FTS5 MATCH from exact quoted terms joined by `OR` (no prefix matching; punctuation-only terms skipped). `Bm25Weights::new(&[f64])` validates per-column weights, and `Compiled::ranked_bm25_select(select_list, fts_table, &weights, limit)` ranks by `bm25(...)` ascending and bounds the rows (`limit` 1 to 100000). Weights must match the FTS table's column count.
+- **Added: FTS5 schema management (#418).** `fts::Fts5Table` generates `CREATE VIRTUAL TABLE IF NOT EXISTS ... USING fts5(...)` (tokenizer, external content table and content rowid), the `'rebuild'` statement, the drop statements, and the three insert/delete/update sync triggers for an external-content table. Names are checked as plain identifiers; nothing is interpolated unchecked.
+- **Added: in-memory BM25 ranker (#418).** `bm25::Bm25Index` ranks caller documents (Okapi BM25, `k1` 1.2 and `b` 0.75 by default; `with_parameters` to change). Insert, remove and search; equal scores sort by id.
+- **Added (feature `workspace-grep`): workspace regex search (#580).** `grep::grep_page(&GrepRequest, &AtomicBool)` walks a root that honours `.gitignore` and `.ignore` (also outside git), with an optional override glob; modes content (with context lines), files-with-matches and count; per-page budgets for results, files, bytes and a deadline; statuses Complete, Truncated, Cancelled and Deadline. Binary files and files over `max_file_bytes` are skipped and counted. The cursor is versioned and bound by SHA-256 to root, pattern, glob, case mode, mode and context; a cursor whose file has gone returns `CursorStale`.
+
+## 0.4.3
+
+- `Compiled::ranked_select(select_list, fts_table)`: a select with the free-text MATCH in the outer query, so `snippet()`, `bm25()` and `rank` work (#1133). Bind `fts_match` first, then `params`.
+
 ## 0.4.2 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

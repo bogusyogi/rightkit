@@ -32,3 +32,7 @@ Published version: see `INDEX.md` at the repository root. Release history is in 
 ## Example
 
 Not an app-facing API. The crate has a bindings-stamp test (`tests/bindings_match.rs`) and two unit smoke tests in `src/lib.rs`, and no examples. Use it through `rightkit-tts-qwen`.
+
+## Supported targets
+
+Checked-in bindings exist for `aarch64-apple-darwin` and `x86_64-pc-windows-msvc` only; the list is `supported_targets` in `[package.metadata.rightkit]`. Any other target stops in `build.rs` and the message lists these. Adding one means generating `bindings-<target>.rs` with `--features regenerate-bindings` on a host with libclang and extending `supported_targets`.

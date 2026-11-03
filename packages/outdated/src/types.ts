@@ -127,7 +127,29 @@ export interface ToolSource {
   policy?: Policy;
 }
 
-export type Source = CargoSource | PnpmSource | SwiftpmSource | RightkitSource | ToolSource;
+/**
+ * A native library or tool built from source at a pinned upstream version (rightkit#1267). Its latest version is the highest
+ * release tag of `repo`.
+ */
+export interface NativeSource {
+  kind: "native";
+  /** Entry name shown in reports; holds name it. */
+  name: string;
+  /** The pinned upstream version the build uses. */
+  pin: string;
+  /** GitHub `owner/repo` whose release tags name the upstream versions. */
+  repo: string;
+  policy?: Policy;
+}
+
+/** A toolchain pin (rightkit#1267): `rust-toolchain.toml` `channel`, or `package.json` `packageManager`. */
+export interface ToolchainSource {
+  kind: "toolchain";
+  file: "rust-toolchain.toml" | "package.json";
+  policy?: Policy;
+}
+
+export type Source = CargoSource | PnpmSource | SwiftpmSource | RightkitSource | ToolSource | NativeSource | ToolchainSource;
 
 export interface UpdateManifest {
   schemaVersion: typeof SCHEMA_VERSION;
@@ -148,7 +170,8 @@ export interface PlatformReport {
 
 export interface CheckEntry {
   name: string;
-  kind: Source["kind"];
+  /** `coverage` marks a manifest or toolchain file no source declares (rightkit#1267): always unknown until declared or held. */
+  kind: Source["kind"] | "coverage";
   /** The manifest or source the entry came from. */
   source: string;
   pinned: string | null;

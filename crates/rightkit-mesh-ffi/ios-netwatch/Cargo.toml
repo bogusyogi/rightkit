@@ -1,0 +1,24 @@
+[package]
+# Same name and version as the crates.io crate so the FFI workspace's [patch.crates-io] replaces it for iroh, iroh-relay and portmapper.
+name = "netwatch"
+version = "0.19.3"
+edition = "2024"
+rust-version = "1.98.0"
+description = "RightKit's own iOS implementation of the slice of netwatch that iroh, iroh-relay and portmapper call (no netdev, no routing socket)"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+name = "netwatch"
+path = "src/lib.rs"
+
+[dependencies]
+atomic-waker = "1.1.2"
+ipnet = "2"
+libc = "0.2.139"
+n0-future = "0.3.2"
+n0-watcher = "1.0.0"
+noq-udp = "1.0.0"
+socket2 = { version = "0.6", features = ["all"] }
+tokio = { version = "1", features = ["rt", "net", "time", "sync"] }
+tracing = "0.1"

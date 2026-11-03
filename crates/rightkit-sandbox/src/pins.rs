@@ -18,6 +18,7 @@
 
 use crate::deny_read::{lexical_path_key, path_is_within, secret_roots, user_profile_root};
 use crate::{Sandbox, SandboxError};
+use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 

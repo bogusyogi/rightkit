@@ -1,0 +1,47 @@
+[package]
+name = "rightkit-now-playing"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+license = "MIT OR Apache-2.0"
+description = "Now-playing and media-keys owner: publishes playback state and receives media-key and transport commands (SMTC on Windows, Now Playing on macOS, MPRIS on Linux) for native playback."
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["media", "now-playing", "media-keys", "mpris"]
+categories = ["multimedia", "os"]
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[dependencies]
+# One backend per OS behind souvlaki: SMTC (Windows), MPNowPlayingInfoCenter and MPRemoteCommandCenter
+# (macOS), MPRIS (Linux). The zbus backend avoids a system libdbus link on Linux.
+souvlaki = { version = "0.8.3", default-features = false, features = ["use_zbus"] }
+thiserror = "2"
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "Registers once with the OS media session and forwards commands to a callback; no polling loop of its own, no network, spawns no thread of its own (the backend owns its event delivery)."
+
+# One Cargo workspace and lock per crate (rightkit#1285).
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

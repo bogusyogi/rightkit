@@ -6,7 +6,7 @@ import { prepareAndVerifyPdfSave } from "./pdfSave.js";
 import type { PdfCommitResult, PdfEditCommand, PdfPageGraph, PdfSavePlan } from "./pdfEditModel.js";
 // New PDF-edit backend commands (docs/PDF-EDITOR-NOW.md §10.1-§10.3), imported by name from
 // tauriBridge.ts against the frozen type contract in pdfEditModel.ts.
-import { preparePdfSave, commitPdfSave, qaReloadPdfBytes } from "../../state/tauriBridge.js";
+import { preparePdfSave, commitPdfSave } from "../../state/tauriBridge.js";
 import { logError, logEvent } from "../../state/diagnostics.js";
 import type { usePdfEditSession } from "./usePdfEditSession.js";
 import type { usePdfEditor } from "./usePdfEditor.js";
@@ -266,25 +266,12 @@ export function usePdfSavePlan({
             // disposing the stale task until React has committed this fresh `pdfDoc`, so pages
             // still rendering off the old document mid-swap can't crash against a destroyed worker.
             //
-            // Browser QA has no such revocable token: `url` there is a static `data:` URL captured
-            // once at document-open time, so re-fetching it would always reload the ORIGINAL
-            // pre-edit bytes — silently discarding every annotation just committed, and (worse)
-            // breaking a second save's incremental-update prefix check against the QA disk's
-            // now-updated bytes. `qaReloadPdfBytes` resolves to `null` outside QA mode, so this is a
             // Native reloads bind URL identity to committed revision below so WKWebView cannot
             // hand the next edit session cached pre-commit bytes.
-            const qaBytes = await qaReloadPdfBytes(documentPath);
-            // `.slice()`: pdf.js's worker transport can transfer (detach) the backing ArrayBuffer
-            // of `data` — `qaBytes` is a live reference into the QA disk's stored bytes (never
-            // copied on read, so later saves keep seeing the same array), so handing it over
-            // directly would corrupt that entry the moment this load transfers it. Same convention
-            // `handleRecomposePreview` above already uses for its own `data:` load.
             const freshTask = pdfjs.getDocument(
-              qaBytes
-                ? pdfDocumentInit(qaBytes.slice(), { wasmUrl: pdfWasmUrl() })
-                : pdfDocumentInit(withPdfRevisionCacheBust(url, result.revision.documentSha256), {
-                    wasmUrl: pdfWasmUrl(),
-                  }),
+              pdfDocumentInit(withPdfRevisionCacheBust(url, result.revision.documentSha256), {
+                wasmUrl: pdfWasmUrl(),
+              }),
             );
             const fresh = await freshTask.promise;
             // A user can mutate annotation storage while fresh bytes are loading. Check again
@@ -350,13 +337,10 @@ export function usePdfSavePlan({
     if (!reloadRequiredRef.current || reloadPendingNewerEditsRef.current || !url) return false;
     setSaveLocked?.(true);
     try {
-      const qaBytes = await qaReloadPdfBytes(documentPath);
       const freshTask = pdfjs.getDocument(
-        qaBytes
-          ? pdfDocumentInit(qaBytes.slice(), { wasmUrl: pdfWasmUrl() })
-          : pdfDocumentInit(withPdfRevisionCacheBust(url, sourceShaRef.current ?? "retry"), {
-              wasmUrl: pdfWasmUrl(),
-            }),
+        pdfDocumentInit(withPdfRevisionCacheBust(url, sourceShaRef.current ?? "retry"), {
+          wasmUrl: pdfWasmUrl(),
+        }),
       );
       const fresh = await freshTask.promise;
       replaceDocument(fresh, freshTask);

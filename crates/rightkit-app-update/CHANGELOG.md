@@ -1,0 +1,9 @@
+# Changelog
+
+## 0.1.0 (unreleased)
+
+New crate for #448 (HeardRight's tauri-plugin-updater and tauri-plugin-http cutover; boot probation requested by the CodeRight owner chat, narrowed by decision D1 of #771).
+
+- `BootProbation`: failed-boot detection after an update. One atomically written camelCase JSON sentinel (the record `@rightkit/app-update`'s `createBootProbation` keeps): `begin(from, to, install_path)`, `evaluate_boot(current)` -> `BootDecision::{None, Probation, ReinstallRequired(BootFailure), Stale}`, `report_stage(name)` (a `boot_stage` command: the last stage a failed boot reached), `acknowledge_healthy()` (a `boot_ok` command). More than `max_boot_attempts` (default 2) unacknowledged starts is a failure; the guidance is reinstall. No payload backup, no `.previous` copy, no rollback helper. A sentinel that does not parse is cleared and reads as `Stale`.
+- `FetchBridge`, `FetchPolicy`, `FetchRequest`, `FetchResponse`, `FetchError`: a webview `fetch` executed through rightkit-http on a first-party client (exact https hosts, optional path prefixes through `AddressPolicy::first_party_path_prefix`, address classes vetted, no retry, bounded request and response). Redirects are followed up to 5 hops inside the allowlist. Non-2xx statuses are answers; errors are a closed code with fixed text, never the transport's own message. Cookie, `Host`, `Content-Length` and other connection-level request headers are refused; `Set-Cookie` is never returned.
+- Decision: update check with request headers, minisign verification, download and install are already owned by `rightkit-tauri-shell` (`update` feature: `UpdateHost`, `RequestAuthorizer`, `TauriUpdateTransport` over `tauri-plugin-updater`), and the renderer never holds a header or token (`@rightkit/app-update/native`), so this crate does not add a second updater. Registering the fetch bridge as a Tauri command stays with the shell host; the JavaScript export is `@rightkit/tauri`.

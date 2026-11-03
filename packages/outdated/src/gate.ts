@@ -67,7 +67,28 @@ function safeName(name: string): string {
   return name.replace(/[^A-Za-z0-9._-]/g, "_");
 }
 
+const GATE_ENTRY = "rightkit-gate";
+const stem = (arg: string): string => path.basename(arg.replace(/\\/g, "/")).replace(/\.(exe|cmd|bat|mjs|js)$/i, "").toLowerCase();
+
+/**
+ * Why a gate command is not a `rightkit-gate` invocation, or null when it is. Every build, check and test of a repository runs through
+ * `rightkit-gate` (Class A first); a gate that runs a build tool directly is a build outside the gate (rightkit#1429). The command is
+ * `rightkit-gate ...`, or `node <path>/rightkit-gate.mjs ...`.
+ */
+export function gateRouteProblem(def: GateDef): string | null {
+  const [first, second] = def.command;
+  const direct = first !== undefined && stem(first) === GATE_ENTRY;
+  const viaNode = first !== undefined && stem(first) === "node" && second !== undefined && stem(second) === GATE_ENTRY;
+  if (direct || viaNode) return null;
+  return `gate ${def.name} runs ${first ?? "(nothing)"} directly: a gate step must go through ${GATE_ENTRY} (command ${GATE_ENTRY} ... or node <path>/${GATE_ENTRY}.mjs ...)`;
+}
+
 async function runGateDef(repo: string, runDir: string, def: GateDef, run: RunFn): Promise<GateResult> {
+  const routeProblem = gateRouteProblem(def);
+  if (routeProblem) {
+    // Nothing is spawned: a build outside the gate is refused, not run and then judged.
+    return { name: def.name, ok: false, exitCode: null, signal: null, timedOut: false, durationMs: 0, stdoutPath: "", stderrPath: "", detail: routeProblem };
+  }
   const stdoutPath = path.join(runDir, "gates", `${safeName(def.name)}.stdout.log`);
   const stderrPath = path.join(runDir, "gates", `${safeName(def.name)}.stderr.log`);
   const cwd = def.cwd ? path.join(repo, ...def.cwd.split(/[\\/]/)) : repo;

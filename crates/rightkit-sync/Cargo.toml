@@ -9,8 +9,7 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["sync", "cloudkit", "tombstone", "offline"]
 categories = ["data-structures"]
-# The protocol fake and its process-level E2E test are repository-only fixtures.
-include = ["src/**", "!src/bin/**", "benches/*.rs", "README.md", "API.md", "HTTP-PROTOCOL.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "benches/*.rs", "README.md", "API.md", "HTTP-PROTOCOL.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 default = ["helper", "process-usage"]
@@ -24,13 +23,20 @@ process-usage = ["dep:rightkit-child-process"]
 cipher = ["dep:ring", "dep:zeroize"]
 # `http` module: blocking `HttpBackend` and `HttpAuth` for the `rightkit-sync-http/1` protocol,
 # over `rightkit-http`'s blocking client (ureq, platform verifier).
-# PARKED 2026-10-16: the RightKit sync service is parked (own-cloud sync instead). The feature is kept
-# for the record and is not a supported backend; do not enable it in apps.
+# Supported (rightkit#967 ruling): `packages/sync-worker` is deployed for HeardRight and serves this protocol,
+# so the feature is the client of the hosted sync service. Run it behind `cipher::EncryptingBackend`.
 http = ["dep:rightkit-http", "rightkit-fs/digest"]
 # `drive` module: blocking `DriveBackend` and `DriveAuth` over the Google Drive v3 REST API and the
 # `drive.appdata` scope (own-cloud sync: the user's own Drive quota, no service of ours). The
-# non-Apple backend (CloudKit is the Apple one); `http` is parked. Same `rightkit-http` client.
+# non-Apple own-cloud backend (CloudKit is the Apple one); `http` is the hosted-service client. Same `rightkit-http` client.
 drive = ["dep:rightkit-http", "rightkit-fs/digest"]
+
+# `vault` module: conditional-object vault sync (immutable sealed state objects, one head swapped with
+# If-Match, a three-way merge policy, an encrypted ledger) for password-vault data that cannot use the
+# last-writer-wins record engine (rightkit#966). Needs the same sealing as `cipher`.
+vault = ["cipher"]
+# `vault::s3::S3ConditionalStore`: the Cloudflare R2 / S3-compatible store (Signature V4 over rightkit-http).
+vault-s3 = ["vault", "dep:rightkit-http"]
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
@@ -46,14 +52,13 @@ name = "budget"
 harness = false
 required-features = ["process-usage"]
 
-[[bin]]
-name = "rightkit-sync-fake-helper"
-path = "src/bin/rightkit-sync-fake-helper.rs"
-required-features = ["helper"]
-
 [[test]]
 name = "helper_e2e"
 required-features = ["helper"]
+
+[[test]]
+name = "vault_race_real_bucket"
+required-features = ["vault-s3"]
 
 # One Cargo workspace and lock per crate (rightkit#1285).
 [workspace]

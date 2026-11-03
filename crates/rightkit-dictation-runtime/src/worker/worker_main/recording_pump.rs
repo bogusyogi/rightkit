@@ -41,24 +41,8 @@ impl Worker {
                 session.voice_ema = session.voice_ema * 0.6 + chunk_level(&chunk) * 0.4;
                 let silence_burst =
                     session.ingest(&chunk, &mut self.speech_vad, self.decision_clock.now());
-                match crate::perf_levers::keep_warm_pause_mode() {
-                    crate::perf_levers::KeepWarmPauseMode::Today => {
-                        if silence_burst {
-                            self.asr_executor.request_keep_warm_burst();
-                        }
-                    }
-                    crate::perf_levers::KeepWarmPauseMode::Dense => {
-                        let silence = session
-                            .speech
-                            .terminal_silences
-                            .active_silence
-                            .as_ref()
-                            .map_or(0, |run| run.len());
-                        self.asr_executor.set_keep_warm_continuous(
-                            crate::perf_levers::DENSE_KEEP_WARM_SILENCE_SAMPLES.contains(&silence),
-                        );
-                    }
-                    crate::perf_levers::KeepWarmPauseMode::Off => {}
+                if silence_burst {
+                    self.asr_executor.request_keep_warm_burst();
                 }
                 if session.last_level_emit.elapsed() >= Duration::from_millis(100) {
                     session.last_level_emit = Instant::now();
@@ -284,10 +268,7 @@ impl Worker {
                 session.last_command_probe_samples,
                 session.last_cmd_check,
                 decision_now,
-            )
-            // ENG-03 (`RIGHTKIT_OPENING_PROBES`, default `on`): `pro` skips the decode for users whose
-            // result `classify_streaming` always discards. Phase timing is unchanged.
-            && crate::perf_levers::opening_probes().allows(crate::settings::is_pro);
+            );
         let pending_control_prefix = session.pending_control_prefix_since.is_some();
         let tail_due = tail_probe_due(session.buffer.len(), audio_arrived_this_loop);
         let reload_ready = self.reload_ready_generation == Some(self.recording_generation);

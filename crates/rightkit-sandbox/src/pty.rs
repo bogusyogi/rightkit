@@ -1,7 +1,9 @@
 //! Managed PTY with lease-epoch input fencing.
 //!
-//! PTY transport follows CodeRight `managed_pty.rs` (portable-pty, slave closed after
-//! spawn, session leader so the tree is one group). The lease follows PTY-002 from
+//! PTY transport is `rightkit-pty` (rightkit#557): one implementation of the pseudo-terminal,
+//! the owned process tree (session leader on Unix, Job Object on Windows) and the staged kill.
+//! This module adds the synchronous surface on top: a private one-worker tokio runtime per
+//! session drives the terminal's async streams, so callers need no runtime of their own. The lease follows PTY-002 from
 //! `background_shell/process_model.rs`: every input write carries `(epoch, sequence)`;
 //! a stale epoch or out-of-order sequence is rejected; a reattach fences the epoch
 //! forward and refuses to resume silently while input is unacknowledged.
@@ -9,12 +11,16 @@
 //! (`[acked, next)` is the unacknowledged range) and a successful write is NOT an
 //! implicit acknowledgement, so the range is never permanently non-empty.
 
-use crate::{process_tree, EnvPolicy, Reservation, SandboxError};
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty};
+use crate::{EnvPolicy, Reservation, SandboxError};
+use rightkit_child_process::TerminationOptions;
+use rightkit_pty::{PtyChild, PtyCommand, PtyWriter};
 use std::ffi::OsString;
-use std::io::{Read, Write};
-use std::sync::{Arc, Condvar, Mutex};
+use std::future::Future;
+use std::path::PathBuf;
+use std::process::ExitStatus;
+use std::sync::{mpsc, Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
+use tokio::io::AsyncReadExt;
 
 /// Terminal dimensions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,18 +127,32 @@ struct Output {
     eof: bool,
 }
 
+/// How the child is confined once the terminal exists.
+pub(crate) enum Confinement {
+    /// Already wrapped into the argv (macOS Seatbelt) or not confined.
+    None,
+    /// Landlock and seccomp applied in the forked child as the last step before `exec`.
+    #[cfg(target_os = "linux")]
+    Linux(crate::linux::Prepared),
+}
+
 /// A running PTY child. Dropping it kills the whole process tree and releases the reservation.
 pub struct PtySession {
-    master: Box<dyn MasterPty + Send>,
-    writer: Mutex<Box<dyn Write + Send>>,
-    child: Mutex<Box<dyn Child + Send + Sync>>,
+    rt: Option<tokio::runtime::Runtime>,
+    child: Mutex<Option<PtyChild>>,
+    writer: Mutex<Option<PtyWriter>>,
     pid: u32,
     lease: Mutex<Lease>,
     output: Arc<(Mutex<Output>, Condvar)>,
     _reservation: Reservation,
 }
 
+fn io_other(message: &str) -> std::io::Error {
+    std::io::Error::other(message.to_string())
+}
+
 impl PtySession {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn spawn(
         program: OsString,
         args: Vec<OsString>,
@@ -140,57 +160,63 @@ impl PtySession {
         env: &EnvPolicy,
         extra_env: &[(String, String)],
         size: PtySize,
+        confinement: Confinement,
         reservation: Reservation,
     ) -> Result<Self, PtyError> {
-        let pair = native_pty_system()
-            .openpty(portable_pty::PtySize {
-                rows: size.rows.max(1),
-                cols: size.cols.max(1),
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(|e| PtyError::Io(std::io::Error::other(e.to_string())))?;
-        let mut cb = CommandBuilder::new(&program);
-        cb.args(&args);
-        if let Some(c) = cwd {
-            cb.cwd(c);
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .thread_name("rightkit-sandbox-pty")
+            .enable_all()
+            .build()?;
+        let mut command = PtyCommand::from_argv(std::iter::once(program).chain(args))?;
+        command.size(to_pty_size(size));
+        if let Some(cwd) = cwd {
+            command.current_dir(cwd);
         }
         if !env.inherit {
-            cb.env_clear();
-            for k in &env.keep {
-                if let Some(v) = std::env::var_os(k) {
-                    cb.env(k, v);
+            command.owned_mut().command_mut().env_clear();
+            for key in &env.keep {
+                if let Some(value) = std::env::var_os(key) {
+                    command.env(key, value);
                 }
             }
         }
-        for (k, v) in env.set.iter() {
-            cb.env(k, v);
+        for (key, value) in env.set.iter() {
+            command.env(key, value);
         }
-        for (k, v) in extra_env {
-            cb.env(k, v);
+        for (key, value) in extra_env {
+            command.env(key, value);
         }
-        let reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|e| PtyError::Io(std::io::Error::other(e.to_string())))?;
-        let writer = pair
-            .master
-            .take_writer()
-            .map_err(|e| PtyError::Io(std::io::Error::other(e.to_string())))?;
-        let child = pair
-            .slave
-            .spawn_command(cb)
-            .map_err(|e| PtyError::Io(std::io::Error::other(e.to_string())))?;
-        // Holding the slave open would keep the master from ever seeing EOF.
-        drop(pair.slave);
-        let pid = child.process_id().unwrap_or(0);
+        match confinement {
+            Confinement::None => {}
+            #[cfg(target_os = "linux")]
+            Confinement::Linux(prepared) => {
+                // SAFETY: `Prepared::apply` performs only syscalls (the same contract the
+                // non-PTY spawn path relies on), and it was prepared in the parent.
+                unsafe {
+                    command.pre_exec_last(move || prepared.apply());
+                }
+            }
+        }
+        // The terminal registers with the reactor of the runtime that is current at spawn.
+        let mut child = {
+            let _enter = rt.enter();
+            command.spawn()?
+        };
+        let pid = child.id();
+        let reader = child
+            .take_reader()?
+            .ok_or_else(|| io_other("the pty reader was already taken"))?;
+        let writer = child
+            .take_writer()?
+            .ok_or_else(|| io_other("the pty writer was already taken"))?;
         let output: Arc<(Mutex<Output>, Condvar)> = Arc::default();
         let out2 = output.clone();
-        std::thread::spawn(move || {
+        rt.spawn(async move {
             let mut reader = reader;
             let mut chunk = [0u8; 4096];
             loop {
-                let n = match reader.read(&mut chunk) {
+                let n = match reader.read(&mut chunk).await {
                     Ok(0) | Err(_) => break,
                     Ok(n) => n,
                 };
@@ -209,9 +235,9 @@ impl PtySession {
             cv.notify_all();
         });
         Ok(Self {
-            master: pair.master,
-            writer: Mutex::new(writer),
-            child: Mutex::new(child),
+            rt: Some(rt),
+            child: Mutex::new(Some(child)),
+            writer: Mutex::new(Some(writer)),
             pid,
             lease: Mutex::new(Lease {
                 epoch: 1,
@@ -222,6 +248,25 @@ impl PtySession {
             output,
             _reservation: reservation,
         })
+    }
+
+    /// Runs `future` on the session's runtime and blocks for its result. Safe to call from any
+    /// thread, including one that belongs to another tokio runtime.
+    fn run<T, F>(&self, future: F) -> std::io::Result<T>
+    where
+        T: Send + 'static,
+        F: Future<Output = T> + Send + 'static,
+    {
+        let rt = self
+            .rt
+            .as_ref()
+            .ok_or_else(|| io_other("the pty runtime has stopped"))?;
+        let (tx, rx) = mpsc::channel();
+        rt.spawn(async move {
+            let _ = tx.send(future.await);
+        });
+        rx.recv()
+            .map_err(|_| io_other("the pty runtime stopped before the operation finished"))
     }
 
     pub fn id(&self) -> u32 {
@@ -288,6 +333,8 @@ impl PtySession {
     }
 
     /// Write input fenced by `(epoch, sequence)`. Nothing reaches the child on rejection.
+    /// Blocks until the terminal has accepted every byte (a program that does not read its
+    /// input holds the call).
     pub fn write_input(
         &self,
         epoch: u64,
@@ -310,24 +357,32 @@ impl PtySession {
                 got: sequence,
             });
         }
-        {
-            let mut w = self.writer.lock().unwrap_or_else(|e| e.into_inner());
-            w.write_all(bytes)?;
-            w.flush()?;
-        }
+        // The lease lock is held for the whole write, so writes stay in sequence order and the
+        // writer is always present here.
+        let mut writer = self
+            .writer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+            .ok_or_else(|| io_other("the pty writer is busy"))?;
+        let data = bytes.to_vec();
+        let outcome = self.run(async move {
+            let result = writer.write_input(&data).await;
+            (writer, result)
+        });
+        let (writer, result) = outcome?;
+        *self.writer.lock().unwrap_or_else(|e| e.into_inner()) = Some(writer);
+        result?;
         l.next += 1;
         Ok(l.snap())
     }
 
     pub fn resize(&self, size: PtySize) -> std::io::Result<()> {
-        self.master
-            .resize(portable_pty::PtySize {
-                rows: size.rows.max(1),
-                cols: size.cols.max(1),
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(|e| std::io::Error::other(e.to_string()))
+        let mut guard = self.child.lock().unwrap_or_else(|e| e.into_inner());
+        let child = guard
+            .as_mut()
+            .ok_or_else(|| io_other("the pty child is being stopped"))?;
+        child.resize(to_pty_size(size))
     }
 
     /// Retained output (bounded to 1 MiB, oldest bytes dropped).
@@ -361,19 +416,16 @@ impl PtySession {
     }
 
     /// Wait for the child to exit; `None` on timeout.
-    pub fn wait_exit(
-        &self,
-        timeout: Duration,
-    ) -> std::io::Result<Option<portable_pty::ExitStatus>> {
+    pub fn wait_exit(&self, timeout: Duration) -> std::io::Result<Option<ExitStatus>> {
         let deadline = Instant::now() + timeout;
         loop {
-            if let Some(s) = self
-                .child
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .try_wait()?
             {
-                return Ok(Some(s));
+                let mut guard = self.child.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(child) = guard.as_mut() {
+                    if let Some(status) = child.try_wait()? {
+                        return Ok(Some(status));
+                    }
+                }
             }
             if Instant::now() >= deadline {
                 return Ok(None);
@@ -382,20 +434,46 @@ impl PtySession {
         }
     }
 
-    /// Kill the child and all descendants (session group plus ppid enumeration).
+    /// Kill the child and all descendants: the staged kill of the owned tree (SIGTERM to the
+    /// group, 200 ms grace, SIGKILL, then every other process group of the session; on Windows
+    /// the Job Object is terminated).
     pub fn kill_tree(&self) -> std::io::Result<()> {
-        if self.pid != 0 {
-            let _ = process_tree::kill_tree(self.pid, Duration::from_millis(200));
+        let taken = self.child.lock().unwrap_or_else(|e| e.into_inner()).take();
+        let Some(mut child) = taken else {
+            return Ok(());
+        };
+        let options = TerminationOptions::default().with_grace(Duration::from_millis(200));
+        let outcome = self.run(async move {
+            let result = child.cancel(options).await;
+            (child, result)
+        });
+        match outcome {
+            Ok((child, result)) => {
+                *self.child.lock().unwrap_or_else(|e| e.into_inner()) = Some(child);
+                result.map(|_| ())
+            }
+            Err(error) => Err(error),
         }
-        let mut c = self.child.lock().unwrap_or_else(|e| e.into_inner());
-        let _ = c.kill();
-        let _ = c.wait();
-        Ok(())
     }
+}
+
+fn to_pty_size(size: PtySize) -> rightkit_pty::PtySize {
+    rightkit_pty::PtySize::new(size.rows.max(1), size.cols.max(1))
 }
 
 impl Drop for PtySession {
     fn drop(&mut self) {
         let _ = self.kill_tree();
+        self.writer
+            .get_mut()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        self.child
+            .get_mut()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        if let Some(rt) = self.rt.take() {
+            rt.shutdown_background();
+        }
     }
 }

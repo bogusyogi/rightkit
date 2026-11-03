@@ -86,6 +86,20 @@ pub struct WindowSpec {
     /// `Some(false)` creates the window and leaves it hidden (no reveal, no focus); the app shows it
     /// later with its own call. Default: revealed on open, as before.
     pub visible: Option<bool>,
+    /// Whether the user may maximize the window. Default: maximizable, as before.
+    pub maximizable: Option<bool>,
+    /// Whether the user may minimize the window. Default: minimizable, as before.
+    pub minimizable: Option<bool>,
+    /// A transparent webview background. Default: opaque, as before.
+    pub transparent: Option<bool>,
+    /// Background colour `[r, g, b, a]` painted before the first page paint (no white flash).
+    /// Default: the platform's own background, as before.
+    pub background_color: Option<[u8; 4]>,
+    /// A modal child of `parent`: the parent is disabled while this window lives, and re-enabled and
+    /// refocused when it is destroyed (also after a crash). Needs `parent`. Default: not modal.
+    pub modal: Option<bool>,
+    /// A one-shot payload the new window takes once with `rk_shell_take_payload`. Default: none.
+    pub payload: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -168,21 +182,115 @@ pub fn correct_offscreen(
             d(a).total_cmp(&d(b))
         })
         .expect("non-empty monitors");
-    let min_x = target.x - (width - CLAMP_MARGIN_X).max(0.0);
-    let max_x = target.x + target.width - CLAMP_MARGIN_X;
-    let max_y = target.y + target.height - CLAMP_MARGIN_Y;
+    // Clamp against the work area (#1022): a window never lands under the taskbar or menu bar.
+    let (wx, wy, ww, wh) = (
+        target.work_x,
+        target.work_y,
+        target.work_width,
+        target.work_height,
+    );
+    let min_x = wx - (width - CLAMP_MARGIN_X).max(0.0);
+    let max_x = wx + ww - CLAMP_MARGIN_X;
+    let max_y = wy + wh - CLAMP_MARGIN_Y;
     (
         if min_x <= max_x {
             x.clamp(min_x, max_x)
         } else {
-            target.x
+            wx
         },
-        if target.y <= max_y {
-            y.clamp(target.y, max_y)
-        } else {
-            target.y
-        },
+        if wy <= max_y { y.clamp(wy, max_y) } else { wy },
     )
+}
+
+/// How [`fit_to_work_area`] treats a window (#1022).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WorkAreaFit {
+    /// Shrink a window larger than the work area to fit it.
+    pub shrink_to_fit: bool,
+    /// A bottom edge within this many logical pixels of the work area's bottom (the taskbar) is
+    /// re-centred vertically instead of left docked to the bar.
+    pub recenter_within_px: f64,
+    /// Leave a maximised window alone.
+    pub skip_maximized: bool,
+}
+
+impl Default for WorkAreaFit {
+    fn default() -> Self {
+        Self {
+            shrink_to_fit: true,
+            recenter_within_px: 32.0,
+            skip_maximized: true,
+        }
+    }
+}
+
+/// The window rectangle before and after a fit, and the work area it was fitted to, as
+/// `[x, y, width, height]` logical pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct FitOutcome {
+    pub from: [f64; 4],
+    pub to: [f64; 4],
+    pub work: [f64; 4],
+}
+
+/// Fit the live window `label` inside its monitor's work area (#1022): size no larger than the work
+/// area (when `shrink_to_fit`), x and y clamped inside it, and a bottom edge within
+/// `recenter_within_px` of the work area's bottom re-centred vertically. A maximised window is left
+/// alone when `skip_maximized`. The window is moved only when the rectangle changes.
+pub fn fit_to_work_area(
+    app: &AppHandle<Wry>,
+    label: &str,
+    fit: WorkAreaFit,
+) -> Result<FitOutcome, String> {
+    let window = app
+        .get_webview_window(label)
+        .ok_or_else(|| format!("unknown window {label}"))?;
+    let monitor = window
+        .current_monitor()
+        .map_err(|e| e.to_string())?
+        .ok_or("window is on no monitor")?;
+    let snapshot = crate::window_state::MonitorSnapshot::from_monitor(&monitor);
+    let scale = snapshot.scale;
+    let position = window.outer_position().map_err(|e| e.to_string())?;
+    let size = window.outer_size().map_err(|e| e.to_string())?;
+    let from = [
+        f64::from(position.x) / scale,
+        f64::from(position.y) / scale,
+        f64::from(size.width) / scale,
+        f64::from(size.height) / scale,
+    ];
+    let work = [
+        snapshot.work_x,
+        snapshot.work_y,
+        snapshot.work_width,
+        snapshot.work_height,
+    ];
+    let mut to = from;
+    let maximized = window.is_maximized().unwrap_or(false);
+    if !(fit.skip_maximized && maximized) {
+        let [wx, wy, ww, wh] = work;
+        let [x, y, mut width, mut height] = from;
+        if fit.shrink_to_fit {
+            width = width.min(ww);
+            height = height.min(wh);
+        }
+        let x = x.clamp(wx, (wx + ww - width).max(wx));
+        let mut y = y.clamp(wy, (wy + wh - height).max(wy));
+        let bottom = y + height;
+        if (wy + wh - bottom).abs() <= fit.recenter_within_px {
+            y = wy + (wh - height) / 2.0;
+        }
+        to = [x, y, width, height];
+    }
+    if to != from {
+        window
+            .set_size(tauri::LogicalSize::new(to[2], to[3]))
+            .map_err(|e| e.to_string())?;
+        window
+            .set_position(tauri::LogicalPosition::new(to[0], to[1]))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(FitOutcome { from, to, work })
 }
 
 fn dim(v: Option<f64>, default: f64, min: f64) -> f64 {
@@ -202,21 +310,54 @@ pub fn builder<'a>(
     let state = app.state::<ShellState>();
     let nav = Arc::clone(&state.nav);
     let opener = Arc::clone(&state.opener);
+    let router = state.new_window_router.clone();
+    let consent = state.protocol_consent.clone();
     let (opener_app, opener_label) = (app.clone(), label.to_owned());
     let b = WebviewWindowBuilder::new(app, label, url)
         .visible(false)
         .on_new_window(move |url, features| {
+            // The app's router first: a request it handled never reaches the shell's policy.
+            if router.as_ref().is_some_and(|route| route(url.as_str())) {
+                return NewWindowResponse::Deny;
+            }
             // The opening page: this window's current URL. Unknown (the window is not registered yet)
             // defers to the origin allow-list.
             let from = opener_app
                 .get_webview_window(&opener_label)
                 .and_then(|w| w.url().ok());
-            match nav.decide_window_open(&url, features.size().is_some(), from.as_ref()) {
+            let decision = nav.decide_window_open_pinned(
+                &url,
+                features.size().is_some(),
+                from.as_ref(),
+                nav.pinned_origin.as_deref(),
+            );
+            match decision {
                 WindowOpenDecision::External { url } => {
                     let _ = open_checked(opener.as_ref(), &url);
                     NewWindowResponse::Deny
                 }
                 WindowOpenDecision::Popup => NewWindowResponse::Allow,
+                // Consent for a non-web scheme is an app surface (see `nav::WindowOpenDecision`):
+                // without one the shell refuses it. With one, only a page of the pinned origin
+                // may ask, and the dialog runs off this thread; the new window is refused either
+                // way and an allowed link is handed to the system opener.
+                WindowOpenDecision::ProtocolConsent { scheme } => {
+                    if let Some(consent) = consent.clone() {
+                        if crate::consent::consent_surface(
+                            nav.pinned_origin.as_deref(),
+                            from.as_ref(),
+                        ) == crate::consent::ConsentSurface::Prompt
+                        {
+                            let (opener, target) = (Arc::clone(&opener), url.to_string());
+                            std::thread::spawn(move || {
+                                if consent.confirm(&scheme) {
+                                    let _ = opener.open(&target);
+                                }
+                            });
+                        }
+                    }
+                    NewWindowResponse::Deny
+                }
                 WindowOpenDecision::Deny => NewWindowResponse::Deny,
             }
         });
@@ -231,6 +372,26 @@ pub fn builder<'a>(
 
 /// Create (or reveal) a secondary window described by `spec`.
 /// Whether [`open`] reveals the window it creates. Only `visible: Some(false)` keeps it hidden.
+/// Re-enable and refocus the parent of a modal child that was destroyed (#1050). Called on the
+/// child's `Destroyed` event, so a crashed or force-closed child releases its parent too.
+pub(crate) fn release_modal(app: &AppHandle<Wry>, child_label: &str) {
+    let state = app.state::<ShellState>();
+    state
+        .payloads
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(child_label);
+    let parent = state
+        .modal_children
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(child_label);
+    if let Some(parent) = parent.and_then(|p| app.get_webview_window(&p)) {
+        let _ = parent.set_enabled(true);
+        let _ = parent.set_focus();
+    }
+}
+
 pub fn opens_visible(spec: &WindowSpec) -> bool {
     spec.visible != Some(false)
 }
@@ -280,6 +441,18 @@ pub fn open(app: &AppHandle<Wry>, spec: &WindowSpec) -> Result<String, String> {
     if let Some(s) = spec.shadow {
         b = b.shadow(s);
     }
+    if let Some(m) = spec.maximizable {
+        b = b.maximizable(m);
+    }
+    if let Some(m) = spec.minimizable {
+        b = b.minimizable(m);
+    }
+    if let Some(t) = spec.transparent {
+        b = b.transparent(t);
+    }
+    if let Some([r, g, bl, a]) = spec.background_color {
+        b = b.background_color(tauri::window::Color(r, g, bl, a));
+    }
     if let Some(raw) = spec.parent.as_deref() {
         let parent_label = safe_label(raw).ok_or("invalid parent window label")?;
         let parent = app
@@ -301,9 +474,30 @@ pub fn open(app: &AppHandle<Wry>, spec: &WindowSpec) -> Result<String, String> {
         let (x, y) = correct_offscreen(x, y, width, height, &monitors);
         b = b.position(x, y);
     }
+    // A one-shot payload waits for the window to take it (`rk_shell_take_payload`).
+    if let Some(payload) = spec.payload.clone() {
+        app.state::<ShellState>()
+            .payloads
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(label.clone(), payload);
+    }
     let window = b
         .build()
         .map_err(|e| format!("create window {label}: {e}"))?;
+    // A modal child disables its parent until the child is destroyed (`release_modal`).
+    if spec.modal == Some(true) {
+        if let Some(parent_label) = spec.parent.as_deref().and_then(safe_label) {
+            if let Some(parent) = app.get_webview_window(&parent_label) {
+                let _ = parent.set_enabled(false);
+                app.state::<ShellState>()
+                    .modal_children
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(label.clone(), parent_label);
+            }
+        }
+    }
     let _ = app.emit(
         EVENT_WINDOW,
         serde_json::json!({"label": label, "kind": "created"}),
@@ -317,6 +511,39 @@ pub fn open(app: &AppHandle<Wry>, spec: &WindowSpec) -> Result<String, String> {
         )?;
     }
     Ok(label)
+}
+
+/// Make this app the frontmost application (macOS: `NSApplication activateIgnoringOtherApps:`, which
+/// brings a background app forward when an open-document Apple event or a second launch arrives,
+/// where `set_focus` alone does not). A no-op on other platforms. The reveal paths call it; an app
+/// may call it too.
+pub fn activate_app(app: &AppHandle<Wry>) {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app.run_on_main_thread(activate_native);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn activate_native() {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+    let Some(class) = AnyClass::get(c"NSApplication") else {
+        return;
+    };
+    // SAFETY: `sharedApplication` and `activateIgnoringOtherApps:` are long-standing NSApplication
+    // selectors, called on the main thread (dispatched by `activate_app`) on the shared instance.
+    unsafe {
+        let shared: *mut AnyObject = msg_send![class, sharedApplication];
+        if shared.is_null() {
+            return;
+        }
+        let _: () = msg_send![shared, activateIgnoringOtherApps: true];
+    }
 }
 
 /// The window calls one reveal makes, so every path is testable (and recordable) without a window.
@@ -394,7 +621,10 @@ impl RevealTarget for WindowReveal<'_> {
     }
     fn app_show(&mut self) {
         #[cfg(target_os = "macos")]
-        let _ = self.app.show();
+        {
+            let _ = self.app.show();
+            activate_app(self.app);
+        }
     }
     fn unminimize(&mut self) -> Result<(), String> {
         self.w.unminimize().map_err(|e| e.to_string())
@@ -413,11 +643,34 @@ impl RevealTarget for WindowReveal<'_> {
         {
             dispatch_native(self.w, order_back_native)
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(windows)]
+        {
+            show_without_activation(self.w)
+        }
+        #[cfg(not(any(target_os = "macos", windows)))]
         {
             Err("background native ordering is unimplemented on this platform".into())
         }
     }
+}
+
+/// Windows: show the window without activating it (`SW_SHOWNOACTIVATE`), so a background reveal
+/// (a hidden QA launch, a background start) brings the window up without taking focus. Calls
+/// user32 directly, so no Windows-crate feature is needed.
+#[cfg(windows)]
+fn show_without_activation(w: &WebviewWindow<Wry>) -> Result<(), String> {
+    const SW_SHOWNOACTIVATE: i32 = 4;
+    #[link(name = "user32")]
+    extern "system" {
+        fn ShowWindow(hwnd: *mut std::ffi::c_void, cmd: i32) -> i32;
+    }
+    let hwnd = w.hwnd().map_err(|e| e.to_string())?;
+    // SAFETY: `hwnd` is the live top-level window Tauri created for `w`; ShowWindow only changes its
+    // visibility and takes no ownership of it.
+    unsafe {
+        ShowWindow(hwnd.0, SW_SHOWNOACTIVATE);
+    }
+    Ok(())
 }
 
 /// Bring `w` up as the guard allows for `source`. The only function that touches a window for a
@@ -548,18 +801,85 @@ pub fn reveal(app: &AppHandle<Wry>, label: Option<&str>) {
 pub fn reveal_with(app: &AppHandle<Wry>, label: Option<&str>, source: RevealSource) {
     let main = app.state::<ShellState>().main_label.clone();
     let label = label.unwrap_or(&main);
-    if let Some(w) = app.get_webview_window(label) {
+    if let Some(w) = app
+        .get_webview_window(label)
+        .or_else(|| ensure_main(app, label))
+    {
         reveal_window(app, &w, source);
     }
 }
 
+/// The main window, recreated when a `DestroyAndRecreate` host closed it (#414). `None` for any other
+/// label or host, or when the window cannot be built (the caller then reveals nothing, as before).
+fn ensure_main(app: &AppHandle<Wry>, label: &str) -> Option<WebviewWindow<Wry>> {
+    let state = app.state::<ShellState>();
+    if !state.destroy_on_close || label != state.main_label {
+        return None;
+    }
+    let config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|w| w.label == label)
+        .cloned();
+    let (url, width, height, title) = match config {
+        Some(c) => (c.url.clone(), c.width, c.height, c.title.clone()),
+        None => (
+            WebviewUrl::App("index.html".into()),
+            1200.0,
+            760.0,
+            state.app_name.clone(),
+        ),
+    };
+    let window = builder(app, label, url)
+        .title(title)
+        .inner_size(width, height)
+        .build()
+        .ok()?;
+    let _ = app.emit(
+        EVENT_WINDOW,
+        serde_json::json!({"label": label, "kind": "created"}),
+    );
+    Some(window)
+}
+
+/// Hide `window`, or destroy it when the shell runs `WebviewLifecycle::DestroyOnHide` and it is the
+/// main window (#955). Returns `true` when it was destroyed: the caller then skips what only a
+/// live hidden webview needs (the idle controller). The main window's geometry is saved first,
+/// because a destroy raises no close request.
+pub(crate) fn hide_or_destroy(
+    app: &AppHandle<Wry>,
+    window: &WebviewWindow<Wry>,
+) -> tauri::Result<bool> {
+    let state = app.state::<ShellState>();
+    if state.destroy_on_hide && window.label() == state.main_label {
+        if state.modules.contains(crate::Module::WindowState) {
+            let _ = state.windows.save_now(app, window.label());
+        }
+        window.destroy()?;
+        return Ok(true);
+    }
+    window.hide()?;
+    Ok(false)
+}
+
 /// Hide when visible and focused-or-visible, otherwise reveal (tray left-click behaviour).
 pub fn toggle(app: &AppHandle<Wry>, label: &str) {
+    if app.get_webview_window(label).is_none() {
+        // A destroyed main window (`DestroyAndRecreate`) comes back on the tray click.
+        if let Some(w) = ensure_main(app, label) {
+            reveal_window(app, &w, RevealSource::Tray);
+        }
+        return;
+    }
     if let Some(w) = app.get_webview_window(label) {
         if w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false) {
-            let _ = w.hide();
+            let destroyed = hide_or_destroy(app, &w).unwrap_or(false);
             if w.label() == app.state::<ShellState>().main_label {
-                crate::idle::note_hidden(app, false);
+                if !destroyed {
+                    crate::idle::note_hidden(app, false);
+                }
                 crate::lifecycle::note_visibility(app, crate::lifecycle::Visibility::Hidden);
             }
         } else {

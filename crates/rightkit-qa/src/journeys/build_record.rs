@@ -315,6 +315,18 @@ pub fn validate_build_command(command: &[String]) -> Result<Vec<String>> {
             ));
         }
     }
+    for var in [
+        "CARGO_TARGET_DIR",
+        "CARGO_BUILD_TARGET_DIR",
+        "CARGO_BUILD_BUILD_DIR",
+    ] {
+        if std::env::var_os(var).is_some_and(|v| !v.is_empty()) {
+            return Err(coded(
+                code::BUILD_NOT_ATTESTED,
+                format!("{var} is set: the broker owns the target directory, so the build lane refuses a run that redirects it"),
+            ));
+        }
+    }
     let mut format_value: Option<String> = None;
     let mut i = 3;
     while i < words.len() {
@@ -324,6 +336,29 @@ pub fn validate_build_command(command: &[String]) -> Result<Vec<String>> {
                 return Err(coded(
                     code::BUILD_NOT_ATTESTED,
                     format!("{banned} is refused: the broker owns the target directory"),
+                ));
+            }
+        }
+        // `--config build.target-dir=...` moves the target directory the same way `--target-dir` does.
+        let config_value = if a == "--config" {
+            words.get(i + 1).map(String::as_str)
+        } else {
+            a.strip_prefix("--config=")
+        };
+        if let Some(v) = config_value {
+            let key = v
+                .split('=')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase();
+            if matches!(
+                key.as_str(),
+                "build.target-dir" | "build.target_dir" | "build.build-dir" | "build.build_dir"
+            ) {
+                return Err(coded(
+                    code::BUILD_NOT_ATTESTED,
+                    format!("--config {v:?} is refused: the broker owns the target directory"),
                 ));
             }
         }
@@ -1253,7 +1288,7 @@ pub fn record_build(req: &RecordRequest) -> Result<BuildRecord> {
             return Err(coded(
                 code::QA_MARKER_MISSING,
                 format!(
-                    "{} (role {:?}) does not carry the QA control marker; it is not a test-mode/control build",
+                    "{} (role {:?}) does not carry the QA control marker; it is not a QA control build",
                     exe.display(),
                     spec.role
                 ),

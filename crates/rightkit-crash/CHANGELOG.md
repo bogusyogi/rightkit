@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.8 (unpublished)
+
+- Support bundle redaction counts (#793): `BundleManifest::redactions` (`rightkit_logs::RedactionCounts`, per kind) is the merge of the diagnostics collection (settings and log events), `summary.json` and every app section, counted with `rightkit_logs::scrub_value_counted`; the same counts are written to `redactions.json` in the bundle root (counts only; the name is reserved against `ExtraFile`). Requires `rightkit-logs` 0.3.9.
+- Removed the `rightkit-logs` `testing` dev-dependency and the `MockServer` upload test from `tests/crash_e2e.rs` (Adrian: no mocks, e2e against real endpoints only). No replacement upload e2e was written: no real crash endpoint is configured for this crate to test against.
+
+- Added `admit_crash_artifacts(crash_dir, staging, include_native_dumps) -> AdmittedCrashArtifacts` (#1028): the support bundle's crash admission rules as a public function an app calls for its own archive. Scrubbed reports (`crash_*.json`, pending and `submitted/`), `dump_*` copies, `sample_*` re-scrubbed with the withheld marker on failure. Failure rule: an unreadable or non-report file is skipped; a file that cannot be written into staging fails the call naming it. `build_support_bundle` now uses it internally (same output). Added `build_support_bundle_with_extras(options, sections, &BundleExtras)` with `ExtraFile` (raw files copied into the bundle root, names validated, no collisions), `root_dir_name`, and switches to omit `diagnostics.json`, `summary.json` or the `crash/` folder; `BundleExtras::default()` is the existing layout. Additive; `SupportBundleOptions` is unchanged. Not compiled here.
+
+- Added `CaughtPanicScope::enter()` (#794): an RAII guard. While it lives on a thread, the panic hook records no crash report and writes no notice for panics that thread catches (`catch_unwind`, or a blocking join's `JoinError`). Hold it only around the catch on that thread; it does not follow a task across `.await`.
+- Added `build_support_bundle_with_sections(options, &[(name, Value)])` (#793). Each app section is scrubbed, written to `sections/<name>.json`, SHA-256 digested (via `rightkit-crypto`, new dependency) and listed in `sections/index.json` and `BundleManifest::sections` (`SectionDigest`). Names are validated and must be unique. `build_support_bundle` is unchanged (passes no sections). Not done: a per-kind redaction-count summary, because `rightkit-logs` `scrub_value` returns no counts; that needs `rightkit-logs` to expose counts first.
+
 ## 0.3.7 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

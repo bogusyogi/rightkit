@@ -5,6 +5,29 @@ import {
   RIGHTKIT_LOGS_WRITE_COMMAND,
 } from '@rightkit/logs';
 
+export {
+  TauriCommandError,
+  declaredTauriCommandNames,
+  defineTauriCommands,
+  missingTauriHandlers,
+  tauriHandlerCommandNames,
+} from './commands.js';
+export {
+  NATIVE_FETCH_MESSAGES,
+  NativeFetchError,
+  RIGHTKIT_FETCH_COMMAND,
+  createNativeFetch,
+} from './fetch.js';
+export type { NativeFetchErrorCode, NativeFetchOptions } from './fetch.js';
+export type {
+  DefineTauriCommandsConfig,
+  TauriCommandClient,
+  TauriCommandEntry,
+  TauriCommandFn,
+  TauriCommandMap,
+  TauriCommandSpec,
+} from './commands.js';
+
 export type Invoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
 export interface RightKitTauriCommands {

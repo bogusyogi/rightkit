@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-now-playing",
+  "capabilities": [
+    {
+      "capability": "now-playing",
+      "summary": "Now-playing state publication and media-key / transport command intake for native playback over souvlaki (SMTC, Now Playing, MPRIS), with the one-owner rule enforced: a web view that plays media owns the keys through the page's media session",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: media-session registration is not an ownership fingerprint.",
+        "rightkit-automation::media_keys::send_media_key only sends keys; this crate publishes state and receives commands."
+      ]
+    }
+  ]
+}

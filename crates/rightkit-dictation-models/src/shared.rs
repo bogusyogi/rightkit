@@ -294,8 +294,7 @@ pub fn is_verified_active() -> bool {
 /// Ultra's store directory when the activation record names it, read cheaply: one small file, one
 /// size-level store check, no hash and no lock. `None` for a missing, torn or foreign record, a
 /// store entry that is not Ready, and a path that is not the one the record names. The record
-/// file is checked before `models_root()` is called, which fails closed in a test-mode build
-/// without a suite override.
+/// file is checked before `models_root()` is called,.
 fn recorded_dir() -> Option<PathBuf> {
     let spec = crate::ultra_model::spec();
     // The app activates only the id it pins (same guard as `prepare_at`).
@@ -355,19 +354,6 @@ fn note_record_rejected(reason: &str) {
 /// the state after an integrity failure. Only a later successful [`prepare`] lifts it.
 pub fn deactivate() {
     set_activation(Activation::Denied);
-}
-
-/// Test-only: forget everything this process knows about the shared copy.
-#[cfg(feature = "test-mode")]
-pub fn reset_activation_for_tests() {
-    set_activation(Activation::Unset);
-    REJECTION_LOGGED.store(false, Ordering::Relaxed);
-}
-
-/// Test-only: mark `dir` as verified in this process, as a successful prepare would.
-#[cfg(feature = "test-mode")]
-pub fn activate_for_tests(dir: &Path) {
-    set_activation(Activation::Active(dir.to_path_buf()));
 }
 
 /// Called before the first resident load, under the shell's idle guard.
@@ -552,32 +538,18 @@ fn prepare_variant_checked(
     // ensure_ready's verified branch registers our ref atomically without any
     // network request or download grant. Migration may already have done so.
     if !loaded.get() {
-        // ENG-04 (`RIGHTKIT_MODEL_VERIFY=receipt`, test-mode): an unchanged stat receipt from the last
-        // full verification skips the hash and only registers the ref. Default: full, as shipped.
-        let receipt =
-            crate::verify_receipt::policy() == crate::verify_receipt::VerifyPolicy::Receipt;
-        if receipt && crate::verify_receipt::matches(&status.dir, spec) {
-            store::refs::register(&store::paths::model_refs_dir_at(root), APP_ID, spec.id)
-                .map_err(PrepareFailure::other)?;
-            crate::telemetry::log_message("shared_model_verify", "policy=receipt result=hit");
-        } else {
-            store::ensure_ready(
-                &http_client(),
-                root,
-                spec,
-                &store::EnsureOptions {
-                    seed_dir: None,
-                    authorization: None,
-                    app_id: APP_ID,
-                },
-                |_| {},
-            )
-            .map_err(PrepareFailure::integrity)?;
-            if receipt {
-                crate::verify_receipt::record(&status.dir, spec);
-                crate::telemetry::log_message("shared_model_verify", "policy=receipt result=full");
-            }
-        }
+        store::ensure_ready(
+            &http_client(),
+            root,
+            spec,
+            &store::EnsureOptions {
+                seed_dir: None,
+                authorization: None,
+                app_id: APP_ID,
+            },
+            |_| {},
+        )
+        .map_err(PrepareFailure::integrity)?;
     }
     // Completed migration also tested this path; existing/shared-only copies
     // still need the exact same production load check before selection, unless a load of this

@@ -195,6 +195,26 @@ pub struct RootStatus {
     pub path: PathBuf,
     pub readable: bool,
     pub error: Option<String>,
+    /// Change-feed health counters of this root (see [`WatchCounters`]).
+    pub watch: WatchCounters,
+}
+
+/// Cumulative change-feed counters of one root, numbers an app can sample to graph watcher
+/// health (rightkit#1282). They count from `Index::open` and reset only on restart. The names and
+/// meaning match `rightkit_file_watch::WatchMetrics` (`dropped_total`, `coalesced_total`,
+/// `overflow_total`); this index reads the platform feed itself, so they are counted here rather
+/// than read from a `rightkit-file-watch` watcher. A drop report that names no root counts on
+/// every root.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WatchCounters {
+    /// Events the platform reported as dropped (user-space or kernel buffer overflow).
+    pub dropped: u64,
+    /// Events merged instead of acted on: a repeated path inside one delivered batch, or a drop
+    /// report absorbed into a rescan that was already wanted.
+    pub coalesced: u64,
+    /// Notices that the feed can no longer be trusted for a subtree: every dropped report plus
+    /// every must-scan-subdirectories notice (each forces a rescan or re-list).
+    pub overflow: u64,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -324,6 +344,8 @@ struct Shared {
     subs: Mutex<Vec<Sub>>,
     last_event_id: AtomicU64,
     status: Mutex<Status>,
+    /// Change-feed counters, one per entry of `roots`, in the same order.
+    watch_counters: Mutex<Vec<WatchCounters>>,
     fingerprint: u64,
     /// Bytes written to the state files, rolling hour (see `Config::write_budget`).
     budget: Mutex<WriteBudget>,
@@ -432,6 +454,18 @@ fn under_excluded_entry(store: &Store, path: &[u8]) -> bool {
 fn within_dir(path: &[u8], dir: &[u8]) -> bool {
     let d = trim_trailing_slash(dir);
     path.starts_with(&d) && (path.len() == d.len() || path[d.len()] == b'/')
+}
+
+/// Index of the longest root that contains `path`, if any.
+fn root_index(roots: &[PathBuf], path: &[u8]) -> Option<usize> {
+    let mut best: Option<(usize, usize)> = None;
+    for (i, r) in roots.iter().enumerate() {
+        let r = pb(r);
+        if !path.is_empty() && within_dir(path, &r) && best.is_none_or(|(_, len)| r.len() > len) {
+            best = Some((i, r.len()));
+        }
+    }
+    best.map(|(i, _)| i)
 }
 
 fn trim_trailing_slash(p: &[u8]) -> Vec<u8> {
@@ -807,6 +841,7 @@ impl Index {
             cfg.relist_max_interval,
             opened_at,
         ));
+        let watch_root_count = roots.len();
         let shared = Arc::new(Shared {
             store: RwLock::new(store),
             gate,
@@ -819,6 +854,7 @@ impl Index {
             subs: Mutex::new(Vec::new()),
             last_event_id: AtomicU64::new(resumed.unwrap_or(start_id)),
             status: Mutex::new(status),
+            watch_counters: Mutex::new(vec![WatchCounters::default(); watch_root_count]),
             fingerprint: fp,
             budget: Mutex::new(budget),
             commits_deferred: AtomicU64::new(0),
@@ -937,11 +973,22 @@ impl Index {
             (st.resident_bytes.mapped + st.resident_bytes.heap) as f64 / st.entries as f64
         };
         st.last_event_id = self.shared.last_event_id.load(Ordering::Relaxed);
+        let counters = self
+            .shared
+            .watch_counters
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         st.roots = self
             .shared
             .roots
             .iter()
-            .map(|r| root_status(&*self.shared.backend, &store, r))
+            .enumerate()
+            .map(|(i, r)| {
+                let mut root = root_status(&*self.shared.backend, &store, r);
+                root.watch = counters.get(i).copied().unwrap_or_default();
+                root
+            })
             .collect();
         st.unreadable_dirs.clear();
         st.unreadable_count = 0;
@@ -1400,6 +1447,7 @@ fn root_status(backend: &dyn Backend, store: &Store, r: &Path) -> RootStatus {
         path: r.to_path_buf(),
         readable: !unreadable,
         error,
+        watch: WatchCounters::default(),
     }
 }
 
@@ -1507,13 +1555,27 @@ impl Worker {
         let mut seen: HashSet<Vec<u8>> = HashSet::new();
         let mut subtrees: Vec<Vec<u8>> = Vec::new();
         let mut max_id = sh.last_event_id.load(Ordering::Relaxed);
+        let mut counted = vec![WatchCounters::default(); sh.roots.len()];
         for ev in events {
             if ev.id != 0 {
                 max_id = max_id.max(ev.id);
             }
             if ev.flags & (EV_USER_DROPPED | EV_KERNEL_DROPPED) != 0 {
                 // Only marks a rescan wanted; it runs below when the cooldown allows.
+                let before = self.rescans.coalesced();
                 self.rescans.request();
+                let absorbed = self.rescans.coalesced() > before;
+                // A drop report may name no root: it then concerns every root.
+                let owner = root_index(&sh.roots, &ev.path);
+                for (i, c) in counted.iter_mut().enumerate() {
+                    if owner.is_none() || owner == Some(i) {
+                        c.dropped += 1;
+                        c.overflow += 1;
+                        if absorbed {
+                            c.coalesced += 1;
+                        }
+                    }
+                }
                 continue;
             }
             if self.under_state_dir(&ev.path) {
@@ -1526,10 +1588,26 @@ impl Worker {
             while p.len() > 1 && p.last() == Some(&b'/') {
                 p.pop();
             }
+            let owner = root_index(&sh.roots, &p);
             if ev.flags & (EV_MUST_SCAN_SUBDIRS | EV_ROOT_CHANGED | EV_MOUNT | EV_UNMOUNT) != 0 {
+                if ev.flags & EV_MUST_SCAN_SUBDIRS != 0 {
+                    if let Some(i) = owner {
+                        counted[i].overflow += 1;
+                    }
+                }
                 subtrees.push(p);
             } else if seen.insert(p.clone()) {
                 dirs.push(p);
+            } else if let Some(i) = owner {
+                counted[i].coalesced += 1;
+            }
+        }
+        if counted.iter().any(|c| *c != WatchCounters::default()) {
+            let mut totals = sh.watch_counters.lock().unwrap_or_else(|e| e.into_inner());
+            for (total, c) in totals.iter_mut().zip(&counted) {
+                total.dropped += c.dropped;
+                total.coalesced += c.coalesced;
+                total.overflow += c.overflow;
             }
         }
         let now = Instant::now();

@@ -72,6 +72,44 @@ pub enum LoopbackPolicy {
     Exempt,
 }
 
+/// Which system locations (`/usr /bin /sbin /lib /lib64 /etc /proc /dev /sys`) the Linux Landlock
+/// ruleset grants read and execute beneath, besides the policy's own paths (issue #703).
+///
+/// With `/proc` readable, a confined child opens `/proc/<pid>/environ` of every same-user
+/// process, including the one that launched it; `/etc` and `/sys` widen the read surface the
+/// same way. A tier that needs only a few roots names them. Enforced by the Linux backend only
+/// (see [`crate::system_roots_enforced`]): on macOS the Seatbelt profile imports `bsd.sb`, which
+/// owns those locations, and Windows has no such roots.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum SystemRoots {
+    /// The historical set above. Unchanged behaviour.
+    #[default]
+    Default,
+    /// Read and execute beneath only these absolute roots (for example `/usr`, `/lib`, `/lib64`,
+    /// `/bin`, `/etc/ssl`). Nothing else is implied.
+    Minimal(Vec<PathBuf>),
+    /// No implicit system root at all: the policy's own paths are the whole filesystem view.
+    None,
+}
+
+/// Unix-domain socket reach of a child whose network is denied (issue #943). Applies only with
+/// [`NetworkPolicy::Deny`]; with `Allow` the network rule already covers local sockets.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum UnixSocketPolicy {
+    /// Local unix sockets stay reachable, as before this option existed (macOS
+    /// `(allow network-outbound (remote unix-socket))`; Linux seccomp lets `AF_UNIX` through
+    /// under [`SeccompMode::NetworkOnly`]).
+    #[default]
+    Local,
+    /// No unix-socket connection. macOS drops the allow after the network deny; Linux denies
+    /// `socket`/`socketpair` for `AF_UNIX` as well (the allowlist already omits them).
+    Deny,
+    /// macOS only: connect to exactly these socket paths and no others. Linux cannot filter a
+    /// `connect` by path in seccomp, so the launch is refused with `SandboxError::Unsupported`;
+    /// Windows ignores unix sockets (the AppContainer network rules decide).
+    Allow(Vec<PathBuf>),
+}
+
 /// One `deny_read` entry: an exact path (and everything below it) or a glob.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DenyReadEntry {
@@ -151,6 +189,19 @@ pub struct SandboxPolicy {
     pub landlock: LandlockMode,
     /// Windows loopback exemption for network-enabled containers.
     pub loopback: LoopbackPolicy,
+    /// Linux: which implicit system roots Landlock grants. Default [`SystemRoots::Default`].
+    pub system_roots: SystemRoots,
+    /// macOS Strict profile: `true` removes write and ioctl on `/dev/tty` and `/dev/ttys*`
+    /// (issue #711). Default `false` (unchanged). See [`SandboxPolicy::allow_tty()`].
+    pub restrict_tty: bool,
+    /// macOS Strict profile: `true` scopes `file-read-metadata` to the granted roots and drops the
+    /// blanket reads of `/Applications` and `/etc` (issue #711). Default `false` (unchanged). See
+    /// [`SandboxPolicy::allow_global_metadata()`].
+    pub restrict_metadata: bool,
+    /// Paths and globs the child can never execute. See [`SandboxPolicy::deny_exec()`].
+    pub deny_exec: Vec<DenyReadEntry>,
+    /// Unix-socket reach when the network is denied. Default [`UnixSocketPolicy::Local`].
+    pub unix_sockets: UnixSocketPolicy,
 }
 
 impl SandboxPolicy {
@@ -231,10 +282,94 @@ impl SandboxPolicy {
         self
     }
 
+    /// Sets which implicit system roots the Linux backend grants (issue #703).
+    pub fn system_roots(mut self, roots: SystemRoots) -> Self {
+        self.system_roots = roots;
+        self
+    }
+    /// macOS Strict profile: whether the child may write to and `ioctl` the terminals `/dev/tty`
+    /// and `/dev/ttys*`. Default `true` (unchanged; PTY children and interactive tools need it).
+    /// `false` leaves write and ioctl only on `/dev/null`, `zero`, `dtracehelper`, `urandom` and
+    /// `random`, so a confined child cannot reach another terminal (issue #711).
+    pub fn allow_tty(mut self, allow: bool) -> Self {
+        self.restrict_tty = !allow;
+        self
+    }
+    /// macOS Strict profile: whether `file-read-metadata` is granted everywhere and `/Applications`
+    /// and `/etc` are readable. Default `true` (unchanged). `false` grants metadata only on the
+    /// granted roots and the ancestors of those roots (path walking needs them), and drops the
+    /// blanket reads of `/Applications` and `/etc`/`/private/etc` (list a read root, for example
+    /// `/etc/ssl`, when a tool needs it; `bsd.sb` still serves `localtime`, `hosts` and
+    /// `resolv.conf`) (issue #711).
+    pub fn allow_global_metadata(mut self, allow: bool) -> Self {
+        self.restrict_metadata = !allow;
+        self
+    }
+    /// Denies executing `path` and everything below it (issue #943). macOS: a
+    /// `(deny process-exec*)` rule after every allow, so it wins over `exec_any` and the system
+    /// roots. Linux: Landlock only adds allowances, so a deny is enforced by there being no
+    /// exec grant over the path; a path inside (or containing) any root that grants execution
+    /// (the implicit system roots, `exec_paths`, `write_paths`, or `exec_any`) cannot be carved
+    /// out, and the launch is refused with `SandboxError::Unsupported` rather than run with the
+    /// deny unenforced. Windows: not supported, the launch is refused with
+    /// `SandboxError::Unsupported`. Check [`crate::deny_exec_enforced`].
+    pub fn deny_exec_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.deny_exec.push(DenyReadEntry::Path(path.into()));
+        self
+    }
+    /// As [`SandboxPolicy::deny_exec_path()`] for an absolute glob (same grammar as
+    /// [`SandboxPolicy::deny_read_glob()`]).
+    pub fn deny_exec_glob(mut self, pattern: impl Into<String>) -> Self {
+        self.deny_exec.push(DenyReadEntry::Glob(pattern.into()));
+        self
+    }
+    /// Sets the unix-socket reach for a network-denied policy (issue #943).
+    pub fn unix_sockets(mut self, policy: UnixSocketPolicy) -> Self {
+        self.unix_sockets = policy;
+        self
+    }
+
     pub(crate) fn validate(&self) -> Result<(), SandboxError> {
         validate_named_capabilities(&self.named_capabilities)?;
         for entry in &self.deny_read {
             entry.validate()?;
+        }
+        for entry in &self.deny_exec {
+            entry.validate().map_err(|error| match error {
+                SandboxError::InvalidPolicy(message) => {
+                    SandboxError::InvalidPolicy(message.replacen("deny_read", "deny_exec", 1))
+                }
+                other => other,
+            })?;
+        }
+        if cfg!(windows) && !self.deny_exec.is_empty() {
+            return Err(SandboxError::Unsupported(
+                "deny_exec is not supported on Windows: an AppContainer has no exec deny; \
+                 grant narrower exec roots instead"
+                    .into(),
+            ));
+        }
+        if let SystemRoots::Minimal(roots) = &self.system_roots {
+            for root in roots {
+                let text = root.to_string_lossy();
+                if !root.is_absolute() || text.contains('\0') {
+                    return Err(SandboxError::InvalidPolicy(format!(
+                        "system root must be absolute and NUL-free: {}",
+                        text.escape_debug()
+                    )));
+                }
+            }
+        }
+        if let UnixSocketPolicy::Allow(paths) = &self.unix_sockets {
+            for path in paths {
+                let text = path.to_string_lossy();
+                if !path.is_absolute() || text.contains(['\0', '"', '\\']) {
+                    return Err(SandboxError::InvalidPolicy(format!(
+                        "unix socket path must be absolute, NUL-free and free of quotes and backslashes: {}",
+                        text.escape_debug()
+                    )));
+                }
+            }
         }
         for p in self
             .read_paths

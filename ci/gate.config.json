@@ -197,7 +197,7 @@
         [
           "--no-default-features",
           "--features",
-          "wv2-0_38,engine,dev-overrides,qa-probes"
+          "wv2-0_38,engine,qa-probes"
         ],
         [
           "--no-default-features",
@@ -242,12 +242,16 @@
         [
           "--features",
           "os-auth"
+        ],
+        [
+          "--features",
+          "protected-key"
         ]
       ],
       "checkFeatureSets": [
         [
           "--features",
-          "db-adapter,os-auth,settings-probe,rightkit-db/sqlcipher"
+          "db-adapter,os-auth,settings-probe,rightkit-db/sqlcipher-libtomcrypt"
         ],
         [
           "--features",
@@ -271,7 +275,7 @@
         ],
         [
           "--features",
-          "sqlcipher,statement-cache,encrypted-lifecycle"
+          "sqlcipher-libtomcrypt,statement-cache,encrypted-lifecycle"
         ]
       ],
       "checkFeatureSets": [
@@ -413,10 +417,6 @@
         [
           "--features",
           "catalog"
-        ],
-        [
-          "--features",
-          "catalog,dev-overrides"
         ]
       ],
       "quietTests": true
@@ -463,6 +463,38 @@
       "allowIgnored": "five live-provider and bench tests (l3_cleanup/tests/more.rs, text_polish/bench.rs) are #[ignore] on purpose: they call real model providers with real API keys and run by hand with --ignored"
     }
   },
+  "scratchCheckoutAllowlist": [
+    {
+      "file": "packages/release/rustright-stage.mjs",
+      "issue": "bogusyogi/rightkit#1465",
+      "reason": "Stages a RustRight broker runtime on a host: the cutover reads its source from a clone pinned to exactly the approved commit so the primary checkout moving on cannot change what the cutover installs. It builds nothing there; it is a host install step, never an app build."
+    },
+    {
+      "file": "packages/release/standalone-clone-verify.mjs",
+      "issue": "bogusyogi/rightkit#1221",
+      "reason": "Clones each published app on purpose to prove it builds standalone, with no sibling RightKit checkout: a release-qualification step, never a dev build. Allowlisted pending Adrian's ruling on whether it may stay."
+    },
+    {
+      "file": "packages/release/publish-local-npm.mjs",
+      "issue": "bogusyogi/rightkit#1221",
+      "reason": "Local npm publish packs from `git archive` of the exact commit and installs offline from the commit's own lockfile: the sealed bytes of a publication, not a development build; it is never the app's warm build tree."
+    },
+    {
+      "file": "scripts/ci/publish.mjs",
+      "issue": "bogusyogi/rightkit#1221",
+      "reason": "The CI publish route exports the exact HEAD with `git archive` to pack and verify the sealed bytes on a clean runner: a publication step, never a development build."
+    },
+    {
+      "file": "scripts/ci/exports-import-effects.mjs",
+      "issue": "bogusyogi/rightkit#1221",
+      "reason": "Exports one commit or tree into a scratch directory with a private index to import-check the publishable closure (read-only evidence under the class A launch guard); it builds nothing there."
+    },
+    {
+      "file": "scripts/ci/source-gate.test.mjs",
+      "issue": "bogusyogi/rightkit#1221",
+      "reason": "Test of the exports-import-effects export: it reproduces the export with the same index checkout into a scratch fixture directory."
+    }
+  ],
   "fixtures": [
     "ci/consumers",
     "crates/rightkit-qa/examples",

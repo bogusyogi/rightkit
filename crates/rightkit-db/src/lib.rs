@@ -1,8 +1,8 @@
 // Unsafe is confined to the host-name FFI in `host`.
 #![deny(unsafe_code)]
 
-#[cfg(all(feature = "sqlcipher", feature = "sqlcipher-system"))]
-compile_error!("rightkit-db features `sqlcipher` and `sqlcipher-system` are mutually exclusive; enable exactly one");
+#[cfg(all(feature = "sqlcipher-libtomcrypt", feature = "sqlcipher-system"))]
+compile_error!("rightkit-db features `sqlcipher-libtomcrypt` and `sqlcipher-system` are mutually exclusive; enable exactly one");
 
 use rusqlite::config::DbConfig;
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
@@ -30,7 +30,7 @@ mod restore;
 mod unreadable;
 
 #[cfg(all(feature = "encrypted-lifecycle", not(feature = "cipher")))]
-compile_error!("rightkit-db feature `encrypted-lifecycle` needs a SQLCipher backend; also enable `sqlcipher` or `sqlcipher-system`");
+compile_error!("rightkit-db feature `encrypted-lifecycle` needs a SQLCipher backend; also enable `sqlcipher-libtomcrypt` or `sqlcipher-system`");
 
 /// The encrypted-store lifecycle: key selection, rotation, recovery, restore and relocation behind
 /// one cross-process guard. Needs `encrypted-lifecycle` and a SQLCipher backend.
@@ -77,7 +77,7 @@ pub type Result<T> = std::result::Result<T, DbError>;
 pub enum DbError {
     #[error("SQLite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
-    #[error("a SQLCipher key requires the rightkit-db `sqlcipher` or `sqlcipher-system` feature")]
+    #[error("a SQLCipher key requires the rightkit-db `sqlcipher-libtomcrypt` or `sqlcipher-system` feature")]
     SqlcipherFeatureRequired,
     #[error("SQLCipher key contains characters that are unsafe for PRAGMA interpolation")]
     InvalidSqlcipherKey,
@@ -107,6 +107,10 @@ pub enum DbError {
     ReadOnlyNotEffective(String),
     #[error("database path has no file name")]
     InvalidDatabasePath,
+    /// The store path is a symbolic link (a dangling one included) and was refused before SQLite
+    /// could create or open its target. Carries the path as given.
+    #[error("store path {0} is a symbolic link; refusing to open it")]
+    SymlinkedStorePath(String),
     #[error("database is at schema v{current}, newer than this build understands (v{max}) and not forward compatible")]
     NewerDatabase { current: i64, max: i64 },
     #[error("invalid migration list: {0}")]
@@ -358,7 +362,9 @@ impl DbOptions {
 
     fn open_existing_at(&self, path: &Path, access: OpenFlags) -> Result<Connection> {
         let key = self.key_pragma_value()?;
-        let conn = Connection::open_with_flags(
+        let writable = access.contains(OpenFlags::SQLITE_OPEN_READ_WRITE);
+        let _pin = pin_store_path(path, writable, false)?;
+        let conn = open_store(
             path,
             access | OpenFlags::SQLITE_OPEN_URI | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
@@ -406,7 +412,8 @@ impl DbOptions {
     fn open_pool_read_only(&self, cache_kib: Option<u32>) -> Result<Connection> {
         let path = self.effective_path();
         let key = self.key_pragma_value()?;
-        let conn = Connection::open_with_flags(
+        let _pin = pin_store_path(&path, false, false)?;
+        let conn = open_store(
             &path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
@@ -468,7 +475,11 @@ impl DbOptions {
         let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
             | OpenFlags::SQLITE_OPEN_CREATE
             | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-        let conn = Connection::open_with_flags(path, flags)?;
+        // The store file is refused as a link at the open itself, never by a check before it:
+        // `open_store` passes SQLITE_OPEN_NOFOLLOW, and on Windows `pin_store_path` holds the file
+        // so the path cannot be swapped in between. The pin lives until the connection is open.
+        let _pin = pin_store_path(path, true, true)?;
+        let conn = open_store(path, flags)?;
         // A failed open drops `conn`. A default close checkpoints and then deletes the `-wal` and
         // `-shm`, which destroys the evidence quarantine promises to keep (and rewrites a valid but
         // corrupt main file). Suppress that until the open has fully succeeded. This is a plain
@@ -541,6 +552,99 @@ pub fn open_existing_writer(path: impl AsRef<Path>) -> Result<Connection> {
 /// Default-options private in-memory database.
 pub fn open_in_memory() -> Result<Connection> {
     DbOptions::new(":memory:").open_in_memory()
+}
+
+/// Open the store file through SQLite with `SQLITE_OPEN_NOFOLLOW`, so a link at the store file's own
+/// name is refused by SQLite (dangling links included: neither the link nor its target is created or
+/// opened). SQLite's `NOFOLLOW` check is by path resolution, and it counts a link in any directory on
+/// the path too (macOS `/var` is one), so on Unix the parent directory is canonicalized first and
+/// only the file name is left to the check. SQLite's Unix VFS also opens the final component with
+/// `O_NOFOLLOW`, so a link swapped in after SQLite's check still fails the open itself. A failed open
+/// whose path is a link is [`DbError::SymlinkedStorePath`]; any other failure keeps SQLite's error.
+fn open_store(path: &Path, flags: OpenFlags) -> Result<Connection> {
+    let target = store_open_target(path);
+    Connection::open_with_flags(&target, flags | OpenFlags::SQLITE_OPEN_NOFOLLOW).map_err(|error| {
+        if std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink()) {
+            DbError::SymlinkedStorePath(path.display().to_string())
+        } else {
+            DbError::Sqlite(error)
+        }
+    })
+}
+
+/// The path handed to SQLite: on Unix the canonical parent joined with the file name, so that
+/// `NOFOLLOW` judges only the store file; elsewhere, or when the parent cannot be resolved (SQLite
+/// then reports the missing directory itself), the path as given.
+#[cfg(unix)]
+fn store_open_target(path: &Path) -> PathBuf {
+    match (path.parent(), path.file_name()) {
+        (Some(dir), Some(name)) if !dir.as_os_str().is_empty() => std::fs::canonicalize(dir)
+            .map(|dir| dir.join(name))
+            .unwrap_or_else(|_| path.to_path_buf()),
+        _ => path.to_path_buf(),
+    }
+}
+
+#[cfg(not(unix))]
+fn store_open_target(path: &Path) -> PathBuf {
+    path.to_path_buf()
+}
+
+/// Windows has no `O_NOFOLLOW`: SQLite's Windows VFS opens a link's target. The store file is
+/// therefore opened here as the reparse point itself, refused if it is a link, and the handle is
+/// held (without delete sharing, so the path cannot be renamed or deleted and replaced) until the
+/// connection is open. Unix needs no pin: [`open_store`] and SQLite's own `O_NOFOLLOW` do the work.
+/// `write` and `create` mirror the SQLite open; a writable open that the OS refuses falls back to a
+/// read-only pin, as SQLite does for a read-only file.
+#[cfg(windows)]
+fn pin_store_path(path: &Path, write: bool, create: bool) -> Result<Option<std::fs::File>> {
+    use std::os::windows::fs::OpenOptionsExt;
+    /// Open the reparse point itself instead of following it.
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    const FILE_SHARE_READ: u32 = 0x1;
+    const FILE_SHARE_WRITE: u32 = 0x2;
+    let open = |write: bool, create: bool| {
+        std::fs::OpenOptions::new()
+            .read(true)
+            .write(write)
+            .create(create)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)
+    };
+    let file = match open(write, create) {
+        Ok(file) => file,
+        Err(error) if write && error.kind() == std::io::ErrorKind::PermissionDenied => {
+            match open(false, false) {
+                Ok(file) => file,
+                Err(error) => return pin_error(path, error),
+            }
+        }
+        Err(error) => return pin_error(path, error),
+    };
+    let meta = file
+        .metadata()
+        .map_err(|e| rightkit_fs::FsError::io(path, e))?;
+    if meta.file_type().is_symlink() {
+        return Err(DbError::SymlinkedStorePath(path.display().to_string()));
+    }
+    Ok(Some(file))
+}
+
+/// A missing file or directory is left to SQLite, which reports it (or creates the file) as it always
+/// has; any other failure to open the store file is an error.
+#[cfg(windows)]
+fn pin_error(path: &Path, error: std::io::Error) -> Result<Option<std::fs::File>> {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        Ok(None)
+    } else {
+        Err(rightkit_fs::FsError::io(path, error).into())
+    }
+}
+
+#[cfg(not(windows))]
+fn pin_store_path(_path: &Path, _write: bool, _create: bool) -> Result<Option<std::fs::File>> {
+    Ok(None)
 }
 
 fn harden_sidecars(db: &Path) -> Result<()> {

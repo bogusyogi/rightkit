@@ -1,8 +1,12 @@
 //! Loopback HTTP host for one Motion composition project (feature `server`; donor: GenRight
 //! `genright-engine/src/motion_server.rs`). Managed headless Chrome
 //! (`rightkit-browser`) loads the project from `http://127.0.0.1:<port>/<entry>`; this server
-//! serves the project files, injects the deterministic runtime into the entry page, swaps the GSAP
-//! CDN script for the caller-supplied copy (so renders are reproducible), and takes `/__hf/log` posts.
+//! serves the project files, injects the caller's page runtime into the entry page, swaps remote
+//! script URLs for caller-supplied copies (so renders are reproducible), and takes `/__hf/log` posts.
+//!
+//! The app owns the policy ([`Injection`]: its runtime script and its script swaps);
+//! [`serve`] returns a [`Handle`] with the page URL, the posted logs and `shutdown`.
+//! [`Injection::deterministic`] is the Motion default (the bundled `hf-runtime.js` plus a GSAP swap).
 //!
 //! It binds 127.0.0.1 only, answers only requests whose `Host` is its own origin (a DNS-rebinding
 //! guard), and never serves a path outside the project directory (lexically or through a link).
@@ -39,19 +43,112 @@ impl Reply {
     }
 }
 
-/// What the router needs to answer: the project and its entry page.
+/// Replace remote script URLs with a copy the server hosts, so a render never depends on a CDN.
+#[derive(Clone, Debug)]
+pub struct ScriptSwap {
+    /// A remote `http(s)` URL is swapped when its lowercase text contains this (lowercase) text...
+    pub url_contains: String,
+    /// ...and ends with this (lowercase) text.
+    pub url_ends_with: String,
+    /// The path the copy is served at, under `/__hf/` (for example `/__hf/gsap.js`).
+    pub route: String,
+    /// The script bytes the route serves. The caller supplies them (a library's licence is not this
+    /// crate's).
+    pub body: Arc<str>,
+}
+
+impl ScriptSwap {
+    /// The GSAP swap: any `gsap.min.js` on any CDN becomes `/__hf/gsap.js`.
+    pub fn gsap(body: Arc<str>) -> Self {
+        Self {
+            url_contains: "gsap".to_string(),
+            url_ends_with: "gsap.min.js".to_string(),
+            route: "/__hf/gsap.js".to_string(),
+            body,
+        }
+    }
+}
+
+/// The app's page policy: the runtime injected into the entry page and the script swaps applied to
+/// every served HTML page.
+#[derive(Clone, Debug, Default)]
+pub struct Injection {
+    /// Script source served at `/__hf/runtime.js` and referenced first in the entry page's `<head>`.
+    /// `None` injects nothing and serves no runtime.
+    pub runtime: Option<Arc<str>>,
+    /// Remote script URLs to replace with hosted copies.
+    pub swaps: Vec<ScriptSwap>,
+}
+
+impl Injection {
+    /// Motion's deterministic runtime ([`RUNTIME_JS`]) and, when given, the GSAP swap.
+    pub fn deterministic(gsap_js: Option<Arc<str>>) -> Self {
+        Self {
+            runtime: Some(Arc::from(RUNTIME_JS)),
+            swaps: gsap_js.map(ScriptSwap::gsap).into_iter().collect(),
+        }
+    }
+
+    fn validate(&self) -> std::io::Result<()> {
+        for swap in &self.swaps {
+            if !swap.route.starts_with("/__hf/") || swap.route == "/__hf/runtime.js" {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!(
+                        "script swap route `{}` must be a /__hf/ path other than runtime.js",
+                        swap.route
+                    ),
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// What the router needs to answer: the project, its entry page and the app's page policy.
 pub struct Project {
     /// The project folder.
     pub dir: PathBuf,
     /// The entry page, relative to `dir`.
     pub entry: String,
-    /// The GSAP build served at `/__hf/gsap.js` in place of any remote GSAP URL, so renders are
-    /// reproducible. The caller supplies it (GSAP is not bundled: its licence is not this
-    /// crate's); `None` leaves remote GSAP URLs as they are.
-    pub gsap_js: Option<Arc<str>>,
+    /// The runtime and script swaps (see [`Injection`]).
+    pub injection: Injection,
+}
+
+/// A running project host: where to point the browser, what the page logged, and how to stop it.
+pub struct Handle {
+    /// The entry page's URL, `http://127.0.0.1:<port>/<entry>`.
+    pub url: String,
+    server: ProjectServer,
+}
+
+impl Handle {
+    /// The loopback port.
+    pub fn port(&self) -> u16 {
+        self.server.port()
+    }
+
+    /// Page `console`-style log lines the runtime posted (capped).
+    pub fn logs(&self) -> Vec<String> {
+        self.server.logs()
+    }
+
+    /// Stop accepting connections and join the accept thread. Also done on drop.
+    pub fn shutdown(&mut self) {
+        self.server.shutdown();
+    }
+}
+
+/// Bind 127.0.0.1 on a free port and serve `dir` with `entry` as the entry page under the app's
+/// [`Injection`] policy.
+pub fn serve(dir: PathBuf, entry: String, injection: Injection) -> std::io::Result<Handle> {
+    let server = ProjectServer::start_with(dir, entry, injection)?;
+    let url = server.url(&server.entry());
+    Ok(Handle { url, server })
 }
 
 pub struct ProjectServer {
+    entry: String,
     port: u16,
     stop: Arc<AtomicBool>,
     logs: Arc<Mutex<Vec<String>>>,
@@ -60,8 +157,15 @@ pub struct ProjectServer {
 
 impl ProjectServer {
     /// Bind 127.0.0.1 on a free port and serve `dir` with `entry` as the entry page; `gsap_js`
-    /// is the GSAP build to serve in place of remote GSAP URLs (see [`Project::gsap_js`]).
+    /// is the GSAP build to serve in place of remote GSAP URLs (see [`Injection::deterministic`]).
     pub fn start(dir: PathBuf, entry: String, gsap_js: Option<Arc<str>>) -> std::io::Result<Self> {
+        Self::start_with(dir, entry, Injection::deterministic(gsap_js))
+    }
+
+    /// Like [`ProjectServer::start`], with the app's own [`Injection`] policy.
+    pub fn start_with(dir: PathBuf, entry: String, injection: Injection) -> std::io::Result<Self> {
+        injection.validate()?;
+        let entry_name = entry.clone();
         let listener = TcpListener::bind(("127.0.0.1", 0))?;
         listener.set_nonblocking(true)?;
         let port = listener.local_addr()?.port();
@@ -70,7 +174,7 @@ impl ProjectServer {
         let project = Arc::new(Project {
             dir,
             entry,
-            gsap_js,
+            injection,
         });
         let accept = {
             let (stop, logs) = (Arc::clone(&stop), Arc::clone(&logs));
@@ -94,6 +198,7 @@ impl ProjectServer {
                 })?
         };
         Ok(Self {
+            entry: entry_name,
             port,
             stop,
             logs,
@@ -103,6 +208,11 @@ impl ProjectServer {
 
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    /// The entry page this server was started with, relative to the project folder.
+    pub fn entry(&self) -> String {
+        self.entry.clone()
     }
 
     pub fn url(&self, entry: &str) -> String {
@@ -241,9 +351,8 @@ pub fn route(
     let path = rightkit_http::percent_decode_component(raw_path);
     if let Some(op) = path.strip_prefix("/__hf/") {
         return match op {
-            "runtime.js" => Reply::new(200, "text/javascript", RUNTIME_JS.as_bytes().to_vec()),
-            "gsap.js" => match &project.gsap_js {
-                Some(gsap) => Reply::new(200, "text/javascript", gsap.as_bytes().to_vec()),
+            "runtime.js" => match &project.injection.runtime {
+                Some(runtime) => Reply::new(200, "text/javascript", runtime.as_bytes().to_vec()),
                 None => Reply::new(404, "text/plain", Vec::new()),
             },
             "log" | "loaded" | "ready" => {
@@ -255,7 +364,15 @@ pub fn route(
                 }
                 Reply::new(200, "text/plain", Vec::new())
             }
-            _ => Reply::new(404, "text/plain", Vec::new()),
+            _ => match project
+                .injection
+                .swaps
+                .iter()
+                .find(|swap| swap.route == path)
+            {
+                Some(swap) => Reply::new(200, "text/javascript", swap.body.as_bytes().to_vec()),
+                None => Reply::new(404, "text/plain", Vec::new()),
+            },
         };
     }
     if method != "GET" && method != "HEAD" {
@@ -283,12 +400,12 @@ pub fn route(
     let mime = mime_for(&file);
     if mime == "text/html" {
         let text = String::from_utf8_lossy(&bytes);
-        let mut html = if project.gsap_js.is_some() {
-            swap_gsap_cdn(&text)
-        } else {
+        let mut html = if project.injection.swaps.is_empty() {
             text.into_owned()
+        } else {
+            swap_scripts(&text, &project.injection.swaps)
         };
-        if rel == project.entry {
+        if rel == project.entry && project.injection.runtime.is_some() {
             html = inject_runtime(&html);
         }
         return Reply::new(200, mime, html.into_bytes());
@@ -380,6 +497,11 @@ fn mime_for(path: &Path) -> &'static str {
 
 /// Replace remote GSAP URLs (any version on any CDN) with the served copy (`/__hf/gsap.js`).
 pub fn swap_gsap_cdn(html: &str) -> String {
+    swap_scripts(html, &[ScriptSwap::gsap(Arc::from(""))])
+}
+
+/// Replace every remote `http(s)` URL that matches a [`ScriptSwap`] with that swap's route.
+pub fn swap_scripts(html: &str, swaps: &[ScriptSwap]) -> String {
     let mut out = String::with_capacity(html.len());
     let mut rest = html;
     loop {
@@ -397,10 +519,12 @@ pub fn swap_gsap_cdn(html: &str) -> String {
         let url = &tail[..end];
         let lower = url.to_ascii_lowercase();
         out.push_str(&rest[..pos]);
-        if lower.contains("gsap") && lower.ends_with("gsap.min.js") {
-            out.push_str("/__hf/gsap.js");
-        } else {
-            out.push_str(url);
+        match swaps
+            .iter()
+            .find(|swap| lower.contains(&swap.url_contains) && lower.ends_with(&swap.url_ends_with))
+        {
+            Some(swap) => out.push_str(&swap.route),
+            None => out.push_str(url),
         }
         rest = &tail[end..];
     }

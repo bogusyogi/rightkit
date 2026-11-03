@@ -32,7 +32,9 @@ use super::{Daemon, Request, Response};
 use crate::remote::pairing::{
     pairing_code, pairing_commit, CODE_DIGITS, MAX_LABEL_CHARS, NONCE_BYTES,
 };
+use crate::remote::state::Device;
 use crate::remote::util::{ct_eq, hex, random_bytes, sha256_hex, unhex};
+use std::collections::BTreeMap;
 
 /// How a pairing window is opened. Defaults are small on purpose.
 #[derive(Debug, Clone)]

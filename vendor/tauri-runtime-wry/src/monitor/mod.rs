@@ -5,11 +5,11 @@
 use tauri_runtime::dpi::PhysicalRect;
 
 #[cfg(any(
-  target_os = "linux",
-  target_os = "dragonfly",
-  target_os = "freebsd",
-  target_os = "netbsd",
-  target_os = "openbsd"
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
 ))]
 mod linux;
 #[cfg(target_os = "macos")]
@@ -18,20 +18,20 @@ mod macos;
 mod windows;
 
 pub trait MonitorExt {
-  /// Get the work area of this monitor
-  ///
-  /// ## Platform-specific:
-  ///
-  /// - **Android / iOS**: Unsupported.
-  fn work_area(&self) -> PhysicalRect<i32, u32>;
+    /// Get the work area of this monitor
+    ///
+    /// ## Platform-specific:
+    ///
+    /// - **Android / iOS**: Unsupported.
+    fn work_area(&self) -> PhysicalRect<i32, u32>;
 }
 
 #[cfg(mobile)]
 impl MonitorExt for tao::monitor::MonitorHandle {
-  fn work_area(&self) -> PhysicalRect<i32, u32> {
-    PhysicalRect {
-      size: self.size(),
-      position: self.position(),
+    fn work_area(&self) -> PhysicalRect<i32, u32> {
+        PhysicalRect {
+            size: self.size(),
+            position: self.position(),
+        }
     }
-  }
 }

@@ -1,8 +1,7 @@
 #if os(macOS)
 // Zone I/O the helper needs: the shared transport's account/zone/subscription calls plus a change-tag
 // aware fetch and a conditional save (`.ifServerRecordUnchanged`), which RightKitCloudSync's
-// transport does not expose. `CloudKitZone` talks to CloudKit; `MemoryZone` is the deterministic
-// in-process zone used by the protocol E2E tests (it can also simulate a concurrent writer).
+// transport does not expose. `CloudKitZone` talks to the real CloudKit container.
 
 import Foundation
 import RightKitCloudSync
@@ -12,8 +11,7 @@ import CloudKit
 
 struct ZoneRecord: Sendable {
     var record: SyncRecord
-    /// Opaque server change tag: `CKRecord` system fields (base64) on CloudKit, a sequence number in
-    /// memory. Handed to Rust with every fetched record and returned with the next conditional save.
+    /// Opaque server change tag: `CKRecord` system fields (base64). Handed to Rust with every fetched record and returned with the next conditional save.
     var changeTag: String?
 }
 
@@ -50,100 +48,6 @@ protocol ZoneIO: Sendable {
     func record(_ name: String) async throws -> ZoneRecord?
     /// `conditional`: each write must match the server's change tag (no tag = must not exist yet).
     func save(_ writes: [ZoneWrite], conditional: Bool) async throws -> [String: ZoneSave]
-}
-
-// MARK: - Memory
-
-actor MemoryZone: ZoneIO {
-    private struct Cursor: Codable { var epoch: Int; var seq: Int }
-    private var records: [String: (seq: Int, record: SyncRecord)] = [:]
-    private var log: [(seq: Int, name: String, deleted: Bool)] = []
-    private var seq = 0
-    private var epoch = 0
-    private var zoneExists = false
-    private var account: String
-    private var pageSize: Int
-
-    init(account: String, pageSize: Int) {
-        self.account = account
-        self.pageSize = max(1, pageSize)
-    }
-
-    func accountState() async throws -> SyncAccountState { .available }
-    func accountIdentity() async throws -> String? { account }
-    func prepareZone() async throws { zoneExists = true }
-    func ensureSubscription() async throws {}
-
-    func fetchChanges(since: Data?) async throws -> ZonePage {
-        guard zoneExists else { throw SyncTransportError.zoneNotFound }
-        var after = 0
-        if let since {
-            guard let c = try? JSONDecoder().decode(Cursor.self, from: since), c.epoch == epoch else {
-                throw SyncTransportError.changeTokenExpired
-            }
-            after = c.seq
-        }
-        var latest: [String: (seq: Int, deleted: Bool)] = [:]
-        for e in log where e.seq > after { latest[e.name] = (e.seq, e.deleted) }
-        let ordered = latest.sorted { $0.value.seq < $1.value.seq }
-        let page = Array(ordered.prefix(pageSize))
-        let more = ordered.count > page.count
-        let cursor = more ? (page.last?.value.seq ?? seq) : seq
-        var out: [ZoneRecord] = []
-        var deleted: [String] = []
-        for (name, event) in page {
-            if event.deleted { deleted.append(name) } else if let r = records[name] {
-                out.append(ZoneRecord(record: r.record, changeTag: String(r.seq)))
-            }
-        }
-        let token = try JSONEncoder().encode(Cursor(epoch: epoch, seq: cursor))
-        return ZonePage(records: out, deleted: deleted, token: token, moreComing: more,
-                        failed: [], failedRetryAfter: nil, undecodable: [])
-    }
-
-    func record(_ name: String) async throws -> ZoneRecord? {
-        records[name].map { ZoneRecord(record: $0.record, changeTag: String($0.seq)) }
-    }
-
-    func save(_ writes: [ZoneWrite], conditional: Bool) async throws -> [String: ZoneSave] {
-        guard zoneExists else { throw SyncTransportError.zoneNotFound }
-        var out: [String: ZoneSave] = [:]
-        for w in writes {
-            let current = records[w.recordName]
-            if conditional {
-                let serverTag = current.map { String($0.seq) }
-                if serverTag != w.changeTag {
-                    if serverTag == nil { out[w.recordName] = .failed(.unknownItem) } else {
-                        out[w.recordName] = .conflict(current.map { ZoneRecord(record: $0.record, changeTag: String($0.seq)) })
-                    }
-                    continue
-                }
-            }
-            put(name: w.recordName, type: w.recordType, fields: w.fields)
-            out[w.recordName] = .saved
-        }
-        return out
-    }
-
-    /// Simulates another device writing: replaces/creates the record, bumping its change tag.
-    func debugWrite(name: String, type: String, fields: [String: SyncValue]) {
-        zoneExists = true
-        put(name: name, type: type, fields: fields)
-    }
-
-    private func put(name: String, type: String, fields: [String: SyncValue]) {
-        var record = records[name]?.record ?? SyncRecord(recordName: name, recordType: type, createdAt: Date())
-        for (key, value) in fields {
-            switch value {
-            case .null, .strings([]): record.fields[key] = nil
-            default: record.fields[key] = value
-            }
-        }
-        record.modifiedAt = Date()
-        seq += 1
-        records[name] = (seq, record)
-        log.append((seq, name, false))
-    }
 }
 
 // MARK: - CloudKit

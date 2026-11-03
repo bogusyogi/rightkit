@@ -9,6 +9,11 @@ import RecordWire
 suppressCrashDialogs()
 _ = NSApplication.shared  // connects to the window server for ScreenCaptureKit; never activated, no UI
 
+// Whole-screen mode (rightkit#443): `screens` and `capture-screen` do not speak the window protocol.
+if let mode = CommandLine.arguments.dropFirst().first, mode == "screens" || mode == "capture-screen" {
+    ScreenCommand.run(Array(CommandLine.arguments.dropFirst()))
+}
+
 let server = Server()
 
 // SIGTERM (rightkit-child-process termination): finalize the take, then exit.

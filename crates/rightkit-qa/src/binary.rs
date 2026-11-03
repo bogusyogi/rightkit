@@ -196,7 +196,7 @@ pub fn resolve(q: &BinaryQuery) -> Result<ResolvedBinary> {
 
 fn not_qa_message(path: &Path) -> String {
     format!(
-        "found {} but it isn't a test-mode/control build; run the suite with --build-ui or build with the app's QA feature",
+        "found {} but it isn't a QA control build; run the suite with --build-ui or build with the app's QA feature",
         path.display()
     )
 }
@@ -629,7 +629,7 @@ impl std::fmt::Display for LaunchRefusal {
             ),
             LaunchRefusal::MarkerMissing { path } => write!(
                 f,
-                "{} does not carry the QA control marker; it is not a test-mode/control build",
+                "{} does not carry the QA control marker; it is not a QA control build",
                 path.display()
             ),
         }

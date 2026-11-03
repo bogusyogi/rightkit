@@ -2,18 +2,18 @@
 //!
 //! Donor: CodeRight `notifications.rs` (per-target sound cooldown, `navigate_path || title` key,
 //! non-negative badge, foreground attention cue, Do-Not-Disturb suppression through
-//! [`crate::presence`]). The delivery itself is a direct OS call instead of a plugin:
-//! `UNUserNotificationCenter` on macOS, which also gives the read-back used by QA
-//! ([`delivered`], [`authorization`]); a WinRT toast on Windows (the backend
-//! `tauri-plugin-notification` uses). Other platforms report `unsupported`; nothing is faked.
+//! [`crate::presence`]). The delivery itself is `rightkit-notifications` (#958), the neutral owner
+//! usable without Tauri: `UNUserNotificationCenter` on macOS, WinRT toasts on Windows and
+//! freedesktop notifications on Linux. This module keeps only the shell's policy around it: the
+//! sound cooldown, Do-Not-Disturb, the QA-quiet rules, and the
+//! typed request and result shapes. The delivered-notification read-back QA uses is `Client::delivered` of the
+//! neutral crate.
 //!
 //! Windows: a toast is attributed to an AppUserModelID (AUMID). An installed app owns one through
 //! its Start-menu shortcut (Tauri's NSIS/MSI installers set it to the bundle `identifier`); the
 //! shell passes `tauri.conf.json`'s `identifier` as the default and [`set_app_id`] overrides it.
 //! An unpackaged dev build has no AUMID, so toasts fall back to PowerShell's and carry its
-//! name and icon. Windows exposes neither a per-app permission prompt nor a delivered-toast
-//! read-back through this backend: [`authorization`] reports `authorized` and [`delivered`] is
-//! empty; [`clear_delivered`] is a no-op.
+//! name and icon. [`delivered`] is empty on Windows and Linux.
 //!
 //! Notification settings that apps persist (sound on/off, sound name, per-category toggles —
 //! HeardRight and MailRight keep these in their own stores) arrive on every request; the shell owns
@@ -167,46 +167,6 @@ pub fn resolve_app_id(configured: Option<&str>) -> String {
         .to_owned()
 }
 
-/// Windows toast sounds by their short name; anything else (including macOS names such as
-/// `Glass`) maps to the default toast sound.
-pub fn windows_sound(name: &str) -> &'static str {
-    match name.trim().to_ascii_lowercase().as_str() {
-        "im" => "IM",
-        "mail" => "Mail",
-        "reminder" => "Reminder",
-        "sms" => "SMS",
-        _ => "Default",
-    }
-}
-
-/// Everything a Windows toast needs, built without touching the OS.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ToastPayload {
-    pub app_id: String,
-    pub title: String,
-    pub body: String,
-    /// `None` is silent.
-    pub sound: Option<&'static str>,
-}
-
-pub fn toast_payload(
-    req: &NotificationRequest,
-    plan: &NotificationPlan,
-    app_id: Option<&str>,
-    quiet: bool,
-) -> ToastPayload {
-    ToastPayload {
-        app_id: resolve_app_id(app_id),
-        title: req.title.trim().to_owned(),
-        body: req.body.trim().to_owned(),
-        sound: plan
-            .sound_name
-            .as_deref()
-            .filter(|_| !quiet)
-            .map(windows_sound),
-    }
-}
-
 /// What happened to a request.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -297,98 +257,37 @@ pub fn status(state: &NotificationState) -> NotifyStatus {
     }
 }
 
-#[cfg(target_os = "macos")]
 mod platform {
-    use std::sync::mpsc;
-    use std::time::Duration;
-
-    use block2::RcBlock;
-    use objc2::rc::Retained;
-    use objc2::runtime::Bool;
-    use objc2_foundation::{NSArray, NSBundle, NSError, NSString};
-    use objc2_user_notifications::{
-        UNAuthorizationOptions, UNAuthorizationStatus, UNMutableNotificationContent,
-        UNNotification, UNNotificationInterruptionLevel, UNNotificationRequest,
-        UNNotificationSettings, UNNotificationSound, UNUserNotificationCenter,
-    };
+    use rightkit_notifications::{Client, Error, Notification, Permission, Sound};
 
     use super::{DeliveredNotification, NotificationPlan, NotificationRequest};
     use crate::error::ShellError;
 
-    pub const SUPPORTED: bool = true;
-    const REPLY: Duration = Duration::from_secs(10);
-    /// Authorization shows a system prompt on first use; give the person time to answer it.
-    const PROMPT: Duration = Duration::from_secs(60);
+    pub const SUPPORTED: bool = cfg!(any(target_os = "macos", windows, target_os = "linux"));
 
-    /// UserNotifications raises an Objective-C exception for a process without an app bundle.
-    fn center() -> Result<Retained<UNUserNotificationCenter>, ShellError> {
-        let bundle = NSBundle::mainBundle();
-        if bundle.bundleIdentifier().is_none() || !bundle.bundlePath().to_string().ends_with(".app")
-        {
-            return Err(ShellError::Unsupported(
-                "native notifications need an app bundle (.app) with a bundle identifier".into(),
-            ));
-        }
-        Ok(UNUserNotificationCenter::currentNotificationCenter())
+    /// The client for the AUMID the shell resolved (configured, else the bundle identifier).
+    fn client() -> Client {
+        Client::new(&super::app_id())
     }
 
-    fn settings(
-        center: &Retained<UNUserNotificationCenter>,
-    ) -> Result<UNAuthorizationStatus, ShellError> {
-        let (tx, rx) = mpsc::channel();
-        let block = RcBlock::new(move |s: std::ptr::NonNull<UNNotificationSettings>| {
-            // SAFETY: the OS passes a live settings object for the duration of the callback.
-            let _ = tx.send(unsafe { s.as_ref() }.authorizationStatus());
-        });
-        center.getNotificationSettingsWithCompletionHandler(&block);
-        rx.recv_timeout(REPLY)
-            .map_err(|_| ShellError::Timeout("notification settings did not answer".into()))
+    fn shell_error(e: Error) -> ShellError {
+        match e {
+            Error::Unsupported(m) => ShellError::Unsupported(m),
+            Error::PermissionDenied(m) => ShellError::PermissionDenied(m),
+            Error::Timeout(m) => ShellError::Timeout(m),
+            Error::Backend(m) => ShellError::Other(m),
+        }
     }
 
     pub fn authorization() -> Result<String, ShellError> {
-        Ok(match settings(&center()?)? {
-            UNAuthorizationStatus::Authorized => "authorized",
-            UNAuthorizationStatus::Denied => "denied",
-            UNAuthorizationStatus::NotDetermined => "not-determined",
-            UNAuthorizationStatus::Provisional => "provisional",
-            UNAuthorizationStatus::Ephemeral => "ephemeral",
-            _ => "unknown",
+        Ok(match client().permission().map_err(shell_error)? {
+            Permission::Granted => "authorized",
+            Permission::Denied => "denied",
+            Permission::NotDetermined => "not-determined",
+            Permission::Provisional => "provisional",
+            _ => "unsupported",
         }
         .to_owned())
-    }
-
-    fn ensure_authorized(center: &Retained<UNUserNotificationCenter>) -> Result<(), ShellError> {
-        let status = settings(center)?;
-        if status == UNAuthorizationStatus::NotDetermined {
-            if crate::lifecycle::qa_background() {
-                return Err(ShellError::PermissionDenied("notification authorization is not determined; background QA never opens a permission dialog".into()));
-            }
-            let (tx, rx) = mpsc::channel();
-            let block = RcBlock::new(move |granted: Bool, _err: *mut NSError| {
-                let _ = tx.send(granted.as_bool());
-            });
-            center.requestAuthorizationWithOptions_completionHandler(
-                UNAuthorizationOptions::Alert
-                    | UNAuthorizationOptions::Sound
-                    | UNAuthorizationOptions::Badge,
-                &block,
-            );
-            let granted = rx.recv_timeout(PROMPT).map_err(|_| {
-                ShellError::Timeout("notification permission prompt was not answered".into())
-            })?;
-            if !granted {
-                return Err(denied());
-            }
-            return Ok(());
-        }
-        match status {
-            UNAuthorizationStatus::Denied => Err(denied()),
-            _ => Ok(()),
-        }
-    }
-
-    fn denied() -> ShellError {
-        ShellError::PermissionDenied("notifications are not allowed for this app; enable them in System Settings > Notifications".into())
     }
 
     pub fn post(
@@ -396,147 +295,51 @@ mod platform {
         req: &NotificationRequest,
         plan: &NotificationPlan,
     ) -> Result<(), ShellError> {
-        let center = center()?;
-        ensure_authorized(&center)?;
-        let content = UNMutableNotificationContent::new();
-        content.setTitle(&NSString::from_str(&req.title));
-        content.setBody(&NSString::from_str(&req.body));
-        content.setThreadIdentifier(&NSString::from_str(&plan.key));
-        let quiet_qa = crate::lifecycle::qa_background();
-        if quiet_qa {
-            content.setInterruptionLevel(UNNotificationInterruptionLevel::Passive);
-            content.setSound(None);
-        } else if let Some(name) = &plan.sound_name {
-            content.setSound(Some(&UNNotificationSound::soundNamed(&NSString::from_str(
-                name,
-            ))));
-        }
-        let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
-            &NSString::from_str(id),
-            &content,
-            None,
-        );
-        let (tx, rx) = mpsc::channel();
-        let block = RcBlock::new(move |err: *mut NSError| {
-            // SAFETY: a non-null error pointer is a live NSError for the duration of the callback.
-            let msg = (!err.is_null()).then(|| unsafe { &*err }.localizedDescription().to_string());
-            let _ = tx.send(msg);
-        });
-        center.addNotificationRequest_withCompletionHandler(&request, Some(&block));
-        match rx
-            .recv_timeout(REPLY)
-            .map_err(|_| ShellError::Timeout("notification center did not answer".into()))?
-        {
-            None => Ok(()),
-            Some(m) => Err(ShellError::Other(format!("show notification: {m}"))),
-        }
-    }
-
-    pub fn delivered() -> Result<Vec<DeliveredNotification>, ShellError> {
-        let center = center()?;
-        let (tx, rx) = mpsc::channel();
-        let block = RcBlock::new(move |list: std::ptr::NonNull<NSArray<UNNotification>>| {
-            // SAFETY: the OS passes a live array for the duration of the callback.
-            let list = unsafe { list.as_ref() };
-            let mut out = Vec::new();
-            for i in 0..list.count() {
-                let n = list.objectAtIndex(i);
-                let r = n.request();
-                let c = r.content();
-                out.push(DeliveredNotification {
-                    id: r.identifier().to_string(),
-                    title: c.title().to_string(),
-                    body: c.body().to_string(),
-                    thread: c.threadIdentifier().to_string(),
-                });
-            }
-            let _ = tx.send(out);
-        });
-        center.getDeliveredNotificationsWithCompletionHandler(&block);
-        rx.recv_timeout(REPLY)
-            .map_err(|_| ShellError::Timeout("delivered notifications did not answer".into()))
-    }
-
-    pub fn clear(ids: &[String]) -> Result<(), ShellError> {
-        let center = center()?;
-        if ids.is_empty() {
-            center.removeAllDeliveredNotifications();
-        } else {
-            let strings: Vec<Retained<NSString>> =
-                ids.iter().map(|s| NSString::from_str(s)).collect();
-            center.removeDeliveredNotificationsWithIdentifiers(&NSArray::from_retained_slice(
-                &strings,
+        let client = client();
+        let quiet = crate::lifecycle::qa_background();
+        if quiet && matches!(client.permission(), Ok(Permission::NotDetermined)) {
+            return Err(ShellError::PermissionDenied(
+                "notification authorization is not determined; background QA never opens a permission dialog".into(),
             ));
         }
+        // Background QA posts silently; otherwise the planned sound, if any.
+        let sound = match (&plan.sound_name, quiet) {
+            (Some(name), false) => Sound::Named(name.clone()),
+            _ => Sound::Silent,
+        };
+        let notification = Notification::new(req.title.trim())
+            .body(req.body.trim())
+            .key(id)
+            .thread(plan.key.as_str())
+            .sound(sound);
+        client.send(&notification).map(|_| ()).map_err(shell_error)
+    }
+
+    /// Withdraw delivered notifications by id; an empty list withdraws all of this app's.
+    pub fn clear(ids: &[String]) -> Result<(), ShellError> {
+        if ids.is_empty() {
+            return client().close_all().map_err(shell_error);
+        }
+        let client = client();
+        for id in ids {
+            client.close(id).map_err(shell_error)?;
+        }
         Ok(())
-    }
-}
-
-#[cfg(windows)]
-mod platform {
-    use tauri_winrt_notification::{Sound, Toast};
-
-    use super::{DeliveredNotification, NotificationPlan, NotificationRequest};
-    use crate::error::ShellError;
-
-    pub const SUPPORTED: bool = true;
-
-    /// Windows has no per-app permission prompt; Focus Assist is the user's, not read here.
-    pub fn authorization() -> Result<String, ShellError> {
-        Ok("authorized".into())
-    }
-
-    pub fn post(
-        _: &str,
-        req: &NotificationRequest,
-        plan: &NotificationPlan,
-    ) -> Result<(), ShellError> {
-        let quiet = crate::lifecycle::qa_background();
-        let p = super::toast_payload(req, plan, Some(&super::app_id()), quiet);
-        let sound = p.sound.map(|n| match n {
-            "IM" => Sound::IM,
-            "Mail" => Sound::Mail,
-            "Reminder" => Sound::Reminder,
-            "SMS" => Sound::SMS,
-            _ => Sound::Default,
-        });
-        Toast::new(&p.app_id)
-            .title(&p.title)
-            .text1(&p.body)
-            .sound(sound)
-            .show()
-            .map_err(|e| ShellError::Other(format!("show toast: {e}")))
     }
 
     pub fn delivered() -> Result<Vec<DeliveredNotification>, ShellError> {
-        Ok(Vec::new())
-    }
-
-    pub fn clear(_: &[String]) -> Result<(), ShellError> {
-        Ok(())
-    }
-}
-
-#[cfg(not(any(target_os = "macos", windows)))]
-mod platform {
-    use super::{DeliveredNotification, NotificationPlan, NotificationRequest};
-    use crate::error::ShellError;
-
-    pub const SUPPORTED: bool = false;
-
-    fn unsupported() -> ShellError {
-        ShellError::Unsupported("native notifications are implemented for macOS and Windows".into())
-    }
-    pub fn authorization() -> Result<String, ShellError> {
-        Ok("unsupported".into())
-    }
-    pub fn post(_: &str, _: &NotificationRequest, _: &NotificationPlan) -> Result<(), ShellError> {
-        Err(unsupported())
-    }
-    pub fn delivered() -> Result<Vec<DeliveredNotification>, ShellError> {
-        Err(unsupported())
-    }
-    pub fn clear(_: &[String]) -> Result<(), ShellError> {
-        Err(unsupported())
+        client()
+            .delivered()
+            .map(|list| {
+                list.into_iter()
+                    .map(|n| DeliveredNotification {
+                        id: n.key,
+                        title: n.title,
+                        body: n.body,
+                        thread: n.thread,
+                    })
+                    .collect()
+            })
+            .map_err(shell_error)
     }
 }

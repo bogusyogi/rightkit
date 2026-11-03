@@ -72,24 +72,6 @@ pub struct WorkflowRunRow {
     pub title: String,
 }
 
-impl WorkflowRunRow {
-    /// Convenience constructor with sensible defaults for fields the
-    /// caller may not have. Useful in tests.
-    pub fn for_test(id: &str, lifecycle_phase: &str) -> Self {
-        Self {
-            id: id.to_string(),
-            workflow_id: "wfd_test".to_string(),
-            workflow_version_id: "wfv_test".to_string(),
-            lifecycle_phase: lifecycle_phase.to_string(),
-            lifecycle_revision: 0,
-            started_at_unix_ms: 0,
-            last_updated_at_unix_ms: 0,
-            terminal_at_unix_ms: None,
-            title: format!("workflow run {id}"),
-        }
-    }
-}
-
 // ─── MCP Tasks types ─────────────────────────────────────────────────────────
 
 /// The closed set of MCP task statuses. Mirrors the v1 MCP Tasks

@@ -4,6 +4,7 @@
 //!
 //! This module only reads. Nothing here writes a trust file or an exception record.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -17,6 +18,7 @@ use crate::gitio;
 use crate::json::{field, is_hex64, items, str_of, truthy};
 use crate::keyauth::AuthorityEnv;
 use crate::keylog::{parse_public_key, PublicKey};
+use crate::scan::TrustLoaderFn;
 
 const WINDOWS_TRUSTED_SIDS: [&str; 2] = ["S-1-5-18", "S-1-5-32-544"];
 const TRUSTED_INSTALLER: &str = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464";

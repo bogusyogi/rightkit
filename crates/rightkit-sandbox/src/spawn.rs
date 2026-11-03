@@ -385,7 +385,7 @@ impl Sandbox {
 
     #[cfg(feature = "pty")]
     /// Spawn under a PTY with lease-epoch input fencing. With `policy`, the child is
-    /// confined (macOS only today; other platforms fail closed). Reserves a
+    /// confined (macOS and Linux; other platforms fail closed). Reserves a
     /// `BackgroundProcess` slot for the session's lifetime.
     pub fn spawn_pty(
         &self,
@@ -398,6 +398,8 @@ impl Sandbox {
             .authority
             .reserve(ResourceKind::BackgroundProcess)
             .map_err(|d| PtyError::Sandbox(d.into()))?;
+        #[allow(unused_mut)]
+        let mut confinement = crate::pty::Confinement::None;
         let (program, args) = match policy {
             None => (command.program.clone(), command.args.clone()),
             Some(p) => {
@@ -408,10 +410,18 @@ impl Sandbox {
                     crate::seatbelt::try_wrap_argv(&p, &command.program, &command.args)
                         .map_err(|e| PtyError::Sandbox(e.into()))?
                 }
-                #[cfg(not(target_os = "macos"))]
+                #[cfg(target_os = "linux")]
+                {
+                    let p = with_pins(p);
+                    confinement = crate::pty::Confinement::Linux(
+                        crate::linux::Prepared::new(&p).map_err(|e| PtyError::Sandbox(e.into()))?,
+                    );
+                    (command.program.clone(), command.args.clone())
+                }
+                #[cfg(not(any(target_os = "macos", target_os = "linux")))]
                 {
                     return Err(PtyError::Sandbox(SandboxError::Unsupported(
-                        "sandboxed PTY is implemented for macOS only".into(),
+                        "sandboxed PTY is implemented for macOS and Linux only".into(),
                     )));
                 }
             }
@@ -427,6 +437,7 @@ impl Sandbox {
             &env,
             &command.env,
             size,
+            confinement,
             reservation,
         )
     }

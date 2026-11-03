@@ -251,18 +251,49 @@ export function useCommands(commands: readonly Command[]): void {
   }, [registry, signature, latest]);
 }
 
-/** Register shortcuts for the lifetime of the calling component. */
+// Provider-free shortcuts (#755): one registry for the page, listening on `window` while any component uses it.
+let standaloneRegistry: ShortcutRegistry | null = null;
+let standaloneUsers = 0;
+let standaloneDetach: (() => void) | null = null;
+function useStandaloneRegistry(): ShortcutRegistry {
+  standaloneRegistry ??= createShortcutRegistry();
+  return standaloneRegistry;
+}
+function acquireStandalone(registry: ShortcutRegistry): () => void {
+  if (standaloneUsers === 0) standaloneDetach = registry.attach(window);
+  standaloneUsers += 1;
+  return () => {
+    standaloneUsers -= 1;
+    if (standaloneUsers === 0) {
+      standaloneDetach?.();
+      standaloneDetach = null;
+    }
+  };
+}
+
+/**
+ * Register shortcuts for the lifetime of the calling component. Inside `ShellProvider` they join the shell's
+ * registry (palette, help and rebinding see them). Outside one they run on a page-wide registry that listens on
+ * `window` while any component uses it, so a small window needs no provider to bind keys.
+ */
 export function useShortcuts(defs: readonly ShortcutDef[]): void {
-  const { registry } = useShell();
+  const ctx = useShellOptional();
+  const fallback = useStandaloneRegistry();
+  const registry = ctx ? ctx.registry : fallback;
+  const standalone = !ctx;
   const latest = useLatest(defs);
   const signature = defs.map((d) => [d.id, typeof d.chord === "string" ? d.chord : d.chord.join("|"), d.label, d.group ?? ""].join("\u0000")).join("\u0001");
   useEffect(() => {
+    const release = standalone ? acquireStandalone(registry) : null;
     const find = (id: string) => (latest.current ?? []).find((x) => x.id === id);
     const offs = (latest.current ?? []).map((d) =>
       registry.register({ ...d, run: (e) => find(d.id)?.run(e), when: d.when ? () => find(d.id)?.when?.() ?? true : undefined }),
     );
-    return () => offs.forEach((off) => off());
-  }, [registry, signature, latest]);
+    return () => {
+      offs.forEach((off) => off());
+      release?.();
+    };
+  }, [registry, standalone, signature, latest]);
 }
 
 /** `const toast = useToast(); toast("Saved", "success")`. */

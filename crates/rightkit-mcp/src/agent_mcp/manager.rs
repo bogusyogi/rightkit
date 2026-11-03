@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use crate::agent_mcp::error::McpError;
+use crate::session_status::{EngineConnection, EngineSource};
 use crate::{parse_qualified_name, sanitize_tool_name};
 
 fn canonical_read_tool(tool: &str) -> Option<&'static str> {
@@ -33,6 +34,16 @@ struct RegistryEntry {
     original: String,
     normalized: String,
     def: McpToolDef,
+}
+
+/// What the last completed tool listing of one server returned. Kept so the connection state
+/// can be read later without contacting the server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ListingOutcome {
+    /// The listing succeeded with this many exposed tools.
+    Listed { tools: usize },
+    /// The listing returned an error (the error text is not kept).
+    Failed,
 }
 
 /// Authenticated identity of the single canonical Membrane installation used
@@ -94,6 +105,9 @@ pub struct McpManager {
     tool_name_filter: Option<McpToolNameFilter>,
     /// Last `tools_list_changed_seq` observed per server (A067).
     list_changed_seen: Mutex<HashMap<String, u64>>,
+    /// Outcome of the last completed tool listing per server; read by
+    /// [`McpManager::connection_states`].
+    listing_outcomes: Mutex<HashMap<String, ListingOutcome>>,
 }
 
 /// Include/exclude glob selection over qualified MCP tool names.
@@ -207,6 +221,7 @@ impl McpManager {
             inflight_listings: Mutex::new(HashMap::new()),
             tool_name_filter: None,
             list_changed_seen: Mutex::new(HashMap::new()),
+            listing_outcomes: Mutex::new(HashMap::new()),
         }
     }
 
@@ -248,8 +263,65 @@ impl McpManager {
         names
     }
 
+    fn record_listing(&self, server: &str, outcome: ListingOutcome) {
+        self.listing_outcomes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(server.to_string(), outcome);
+    }
+
+    fn forget_listing(&self, server: &str) {
+        self.listing_outcomes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(server);
+    }
+
+    /// The connection state of every registered server, read from what the manager already
+    /// holds. It never starts a server, lists tools, calls a tool, or reads a URL, header or
+    /// token, and it carries no error text.
+    ///
+    /// A server whose listing is still running is `Starting`; one whose last completed listing
+    /// returned tools is `Connected { tools }` (zero tools stays `Connected { tools: 0 }`); one
+    /// whose last listing errored is `Failed`; one that has not been listed yet is `Starting`
+    /// (it connects lazily on first use). The manager has no per-server disabled switch and
+    /// its error type carries no sign-in kind, so it never reports `Disabled` or `NeedsAuth`.
+    /// Servers are sorted by name.
+    pub fn connection_states(&self) -> Vec<EngineSource> {
+        let starting = self.starting_servers();
+        let outcomes = self
+            .listing_outcomes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let mut sources: Vec<EngineSource> = self
+            .transports
+            .keys()
+            .map(|name| {
+                let connection = if starting.contains(name) {
+                    EngineConnection::Starting
+                } else {
+                    match outcomes.get(name) {
+                        Some(ListingOutcome::Listed { tools }) => {
+                            EngineConnection::Connected { tools: *tools }
+                        }
+                        Some(ListingOutcome::Failed) => EngineConnection::Failed,
+                        None => EngineConnection::Starting,
+                    }
+                };
+                EngineSource {
+                    name: name.clone(),
+                    connection,
+                }
+            })
+            .collect();
+        sources.sort_by(|a, b| a.name.cmp(&b.name));
+        sources
+    }
+
     /// Register a transport under a logical server name.
     pub fn register(&mut self, server_name: &str, transport: Arc<dyn McpTransport>) {
+        self.forget_listing(server_name);
         for servers in self.scope_servers.values_mut() {
             servers.remove(server_name);
         }
@@ -282,6 +354,7 @@ impl McpManager {
         let removed = servers.len();
         for server in servers {
             self.transports.remove(&server);
+            self.forget_listing(&server);
             self.channel_permissions.remove(&server);
             self.trust_policies.remove(&server);
             self.pool_leases.remove(&server);
@@ -534,6 +607,7 @@ impl McpManager {
         transport: Arc<dyn McpTransport>,
         lease: rightkit_agent_engine_runtime_resources::Lease<Arc<dyn McpTransport>>,
     ) {
+        self.forget_listing(server_name);
         self.transports.insert(server_name.to_string(), transport);
         if let Ok(mut reg) = self.registry.lock() {
             reg.clear();
@@ -684,7 +758,22 @@ impl McpManager {
             tokio::spawn(async move { transport.list_tools().await })
         });
         match tokio::time::timeout(self.startup_bound, &mut handle).await {
-            Ok(joined) => joined.unwrap_or_else(|e| Err(McpError::Serde(e.to_string()))),
+            Ok(joined) => {
+                let listing = joined.unwrap_or_else(|e| Err(McpError::Serde(e.to_string())));
+                match &listing {
+                    Ok(tools) => self.record_listing(
+                        server,
+                        ListingOutcome::Listed {
+                            tools: tools
+                                .iter()
+                                .filter(|tool| self.is_tool_exposed(server, tool))
+                                .count(),
+                        },
+                    ),
+                    Err(_) => self.record_listing(server, ListingOutcome::Failed),
+                }
+                listing
+            }
             Err(_) => {
                 self.inflight_listings
                     .lock()
@@ -766,8 +855,20 @@ impl McpManager {
         .await;
         for (server, listing) in listings {
             let tools = match listing {
-                Some(Ok(t)) => t,
+                Some(Ok(t)) => {
+                    self.record_listing(
+                        server,
+                        ListingOutcome::Listed {
+                            tools: t
+                                .iter()
+                                .filter(|tool| self.is_tool_exposed(server, tool))
+                                .count(),
+                        },
+                    );
+                    t
+                }
                 Some(Err(e)) => {
+                    self.record_listing(server, ListingOutcome::Failed);
                     eprintln!("[mcp] list_tools failed for server '{server}': {e}");
                     continue;
                 }

@@ -10,7 +10,7 @@
 //! * every failed run is kept;
 //! * of the passing runs, the newest per app and kind is kept and the others are deleted;
 //! * a run in which nothing executed (outcome `skipped`) holds no evidence and is deleted;
-//! * a run whose owner asked to keep its data ([`KEEP_DATA_FILE`], written by [`mark_keep_data`])
+//! * a run whose owner asked to keep its data (the marker's `keep_until`, written by [`mark_keep_data`], at most [`KEEP_DATA_MAX`])
 //!   is kept whatever its outcome, and does not count as the newest passing run.
 //!
 //! The pass runs right after each job ends ([`prune_runs_after_job`], called by the suite and by
@@ -34,7 +34,7 @@ const LOCK_WAIT: Duration = Duration::from_secs(10);
 
 // The keep-data request is defined once, in `storage`, because the count/age prune there honours
 // it too.
-pub use crate::storage::{mark_keep_data, run_keeps_data, KEEP_DATA_FILE};
+pub use crate::storage::{mark_keep_data, release_keep_data, run_keeps_data, KEEP_DATA_MAX};
 
 /// What one retention pass did. With `dry_run` the `removed` entries are what would go.
 #[derive(Debug, Default, Clone)]
@@ -237,6 +237,12 @@ fn prune_app(
             report
                 .kept
                 .push((dir, "kept data (the run's owner asked to keep it)".into()));
+            continue;
+        }
+        if crate::storage::in_active_gate_run(&marker) {
+            report
+                .kept
+                .push((dir, "belongs to the active batch run".into()));
             continue;
         }
         let outcome = marker.outcome;

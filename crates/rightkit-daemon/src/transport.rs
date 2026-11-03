@@ -5,6 +5,7 @@
 use crate::host_identity::{HostConnectError, HostExpectation, HostProcess};
 use crate::suite::Suite;
 use std::io::{self, Read, Write};
+#[cfg(windows)]
 use std::os::windows::io::IntoRawHandle;
 use std::sync::Arc;
 
@@ -16,6 +17,10 @@ pub enum Accepted {
     /// The peer failed OS-level authentication and was closed unread. The reason is the
     /// typed peer error, content-free.
     Rejected(String),
+    /// The peer could not be identified although its process exists, for example a client at a
+    /// higher integrity level than this host (Windows). Closed unread. Carries the pid, the
+    /// image path and a stable kind so the host can name the program (rightkit#1287).
+    Unidentified(crate::peer::PeerRefusal),
     /// The peer left before it could be identified (a probe, or the shutdown wake-up).
     /// Closed; not worth a rejection event.
     Vanished,
@@ -252,7 +257,10 @@ mod imp {
         match verify(&s) {
             Ok(peer) => wrap(s).map(|conn| Accepted::Conn(Conn { peer, ..conn })),
             Err(e) if e.peer_gone() => Ok(Accepted::Vanished),
-            Err(e) => Ok(Accepted::Rejected(e.to_string())),
+            Err(e) => Ok(match e.refusal() {
+                Some(refusal) => Accepted::Unidentified(refusal),
+                None => Accepted::Rejected(e.to_string()),
+            }),
         }
     }
 
@@ -664,6 +672,8 @@ mod imp {
                     pipe.cancel();
                     if e.peer_gone() {
                         Ok(Accepted::Vanished)
+                    } else if let Some(refusal) = e.refusal() {
+                        Ok(Accepted::Unidentified(refusal))
                     } else {
                         Ok(Accepted::Rejected(e.to_string()))
                     }

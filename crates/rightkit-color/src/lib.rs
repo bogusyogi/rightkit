@@ -97,12 +97,12 @@ pub(crate) fn run_media_capture(
     use rightkit_ffmpeg as rk;
     let timeout = Duration::from_secs(30);
     if exe.file_stem().is_some_and(|stem| stem == "ffprobe") {
-        let binary = rk::verify_ffprobe_or_development(exe, rk::DECODE_VARIANT, timeout)
+        let binary = rk::verify_ffprobe_handle(exe, rk::DECODE_VARIANT, timeout)
             .map_err(|e| ColorError::Process(e.to_string()))?;
         run_capture_with(&binary, cmd, opts).map_err(run_error)
     } else {
-        let binary = rk::verify_ffmpeg_or_development(exe, rk::EXPORT_ASS_ZIMG_VARIANT, timeout)
-            .or_else(|_| rk::verify_ffmpeg_or_development(exe, rk::EXPORT_ASS_VARIANT, timeout))
+        let binary = rk::verify_ffmpeg_handle(exe, rk::EXPORT_ASS_ZIMG_VARIANT, timeout)
+            .or_else(|_| rk::verify_ffmpeg_handle(exe, rk::EXPORT_ASS_VARIANT, timeout))
             .map_err(|e| ColorError::Process(e.to_string()))?;
         run_capture_with(&binary, cmd, opts).map_err(run_error)
     }

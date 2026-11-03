@@ -120,6 +120,11 @@ pub struct OverlayStyle {
     /// A window that is not click-through still passes the pointer through fully transparent
     /// pixels, so give a hit zone a faint alpha to make it catch the pointer.
     pub click_through: bool,
+    /// The window is excluded from screen capture (`SetWindowDisplayAffinity` with
+    /// `WDA_EXCLUDEFROMCAPTURE`), so screenshots and recordings do not show it. `false` leaves the
+    /// window's current affinity alone; clear an exclusion with
+    /// [`windows::set_capture_excluded`]`(hwnd, false)`.
+    pub exclude_from_capture: bool,
 }
 
 impl OverlayStyle {
@@ -128,6 +133,7 @@ impl OverlayStyle {
         topmost: true,
         takes_focus: false,
         click_through: false,
+        exclude_from_capture: false,
     };
     /// A topmost drawing surface the pointer passes through (a radial menu drawn over the app
     /// whose clicks are read some other way).
@@ -135,12 +141,14 @@ impl OverlayStyle {
         topmost: true,
         takes_focus: false,
         click_through: true,
+        exclude_from_capture: false,
     };
     /// A topmost panel that takes the keyboard while it is open (a launcher).
     pub const KEYBOARD: Self = Self {
         topmost: true,
         takes_focus: true,
         click_through: false,
+        exclude_from_capture: false,
     };
 
     /// The extended style a window should have for this behaviour, given the one it has now.
@@ -307,6 +315,89 @@ pub fn is_foreign_fullscreen_overhang(
     !own_pid && style_has_no_frame(style) && fills_monitor(window, monitor)
 }
 
+/// Window classes of the shell's own overlays: the Alt-Tab and Task View hosts (borderless,
+/// monitor-sized, and not a program's full-screen window) and the desktop and taskbar windows.
+/// [`FullScreenProbe::default`] ignores them.
+pub const SHELL_OVERLAY_CLASSES: &[&str] = &[
+    "MultitaskingViewFrame",
+    "XamlExplorerHostIslandWindow",
+    "ForegroundStaging",
+    "TaskListThumbnailWnd",
+    "TaskListOverlayWnd",
+    "Progman",
+    "WorkerW",
+    "Shell_TrayWnd",
+    "Shell_SecondaryTrayWnd",
+];
+
+/// What a full-screen check on the foreground window reads. Hosts pass [`FullScreenProbe::default`]
+/// unless the app has its own helper processes (`own_pids`) or its own tolerance.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FullScreenProbe {
+    /// Helper or sidecar processes of this app. A foreground window owned by one of them, or by
+    /// this process, never counts.
+    pub own_pids: Vec<u32>,
+    /// Window class names that never count (compared without ASCII case).
+    pub ignore_classes: Vec<String>,
+    /// Also count the foreground window when `SHQueryUserNotificationState` reports an exclusive
+    /// Direct3D full-screen, a presentation or a Store app, even if its frame or bounds are not
+    /// exactly the monitor.
+    pub use_shell_notification_state: bool,
+    /// How far, in pixels, an edge of the window may fall short of the monitor edge and still
+    /// count as covering it.
+    pub edge_tolerance_px: i32,
+}
+
+impl Default for FullScreenProbe {
+    fn default() -> Self {
+        Self {
+            own_pids: Vec::new(),
+            ignore_classes: SHELL_OVERLAY_CLASSES
+                .iter()
+                .map(|class| (*class).to_string())
+                .collect(),
+            use_shell_notification_state: true,
+            edge_tolerance_px: 2,
+        }
+    }
+}
+
+/// True when `window` covers `monitor` on every edge, each edge allowed to fall short by
+/// `tolerance_px`. A window that overhangs the monitor covers it. Both rectangles must be finite
+/// and the monitor non-empty; a negative tolerance counts as zero.
+pub fn covers_monitor_within(window: WorkArea, monitor: WorkArea, tolerance_px: i32) -> bool {
+    let tolerance = f64::from(tolerance_px.max(0));
+    [
+        window.left,
+        window.top,
+        window.right,
+        window.bottom,
+        monitor.left,
+        monitor.top,
+        monitor.right,
+        monitor.bottom,
+    ]
+    .into_iter()
+    .all(f64::is_finite)
+        && monitor.right > monitor.left
+        && monitor.bottom > monitor.top
+        && window.left <= monitor.left + tolerance
+        && window.top <= monitor.top + tolerance
+        && window.right >= monitor.right - tolerance
+        && window.bottom >= monitor.bottom - tolerance
+}
+
+/// Why a native overlay or listener window was not created.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowCreateError {
+    /// The class name is empty or holds a NUL.
+    InvalidClassName,
+    /// `CreateWindowExW` failed.
+    CreateFailed,
+    /// Native window creation is Windows-only; this target has none.
+    Unavailable,
+}
+
 /// Whether two rectangles share any area. Touching edges do not count as overlap.
 pub fn rects_overlap(a: WorkArea, b: WorkArea) -> bool {
     a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
@@ -382,18 +473,28 @@ pub mod windows {
         GetMonitorInfoW, MonitorFromPoint, MonitorFromWindow, HMONITOR, MONITORINFO,
         MONITOR_DEFAULTTONEAREST,
     };
+    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CallWindowProcW, DefWindowProcW, EnumWindows, GetDesktopWindow, GetForegroundWindow,
-        GetShellWindow, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsIconic,
-        IsWindowVisible, SetWindowLongPtrW, SetWindowPos, GWLP_WNDPROC, GWL_EXSTYLE, GWL_STYLE,
-        HWND_TOPMOST, MA_NOACTIVATE, SWP_FRAMECHANGED, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE,
-        SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, WM_MOUSEACTIVATE, WM_NCDESTROY, WNDPROC,
-        WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    use windows_sys::Win32::UI::Shell::{
+        SHQueryUserNotificationState, QUNS_APP, QUNS_BUSY, QUNS_PRESENTATION_MODE,
+        QUNS_RUNNING_D3D_FULL_SCREEN,
     };
-    use windows_sys::Win32::UI::WindowsAndMessaging::{CreateWindowExW, WS_POPUP};
+    use windows_sys::Win32::UI::WindowsAndMessaging::WS_POPUP;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CallWindowProcW, CreateWindowExW, DefWindowProcW, DestroyWindow, EnumWindows,
+        GetClassNameW, GetDesktopWindow, GetForegroundWindow, GetShellWindow, GetWindowLongPtrW,
+        GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
+        SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos, GWLP_WNDPROC, GWL_EXSTYLE,
+        GWL_STYLE, HWND_MESSAGE, HWND_TOPMOST, MA_NOACTIVATE, SWP_FRAMECHANGED, SWP_HIDEWINDOW,
+        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
+        WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WM_MOUSEACTIVATE, WM_NCDESTROY, WNDPROC, WS_EX_APPWINDOW,
+        WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    };
 
-    use crate::{ex_style, MonitorPlacement, OverlayRect, OverlayStyle, WorkArea};
+    use crate::{
+        ex_style, FullScreenProbe, MonitorPlacement, OverlayRect, OverlayStyle, WindowCreateError,
+        WorkArea,
+    };
 
     static ORIGINAL_WNDPROCS: OnceLock<Mutex<HashMap<isize, isize>>> = OnceLock::new();
 
@@ -588,21 +689,28 @@ pub mod windows {
     /// Give `hwnd` the extended style of `style` (see [`OverlayStyle::ex_style`]). Returns
     /// whether the style changed. This sets the style bits only: a window that must not
     /// activate on a mouse click also needs [`make_noactivate`], and the z-order is set by
-    /// [`show_noactivate`] or [`reassert_topmost`].
+    /// [`show_noactivate`] or [`reassert_topmost`]. `style.exclude_from_capture` is applied
+    /// through [`set_capture_excluded`] when set; a `false` flag leaves the affinity alone.
     pub fn apply_style(hwnd: isize, style: OverlayStyle) -> bool {
         if hwnd == 0 {
             return false;
         }
-        let hwnd = hwnd as HWND;
-        let current = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) };
-        write_ex_style(hwnd, current, style.ex_style(current as u32))
+        let hwnd_native = hwnd as HWND;
+        let current = unsafe { GetWindowLongPtrW(hwnd_native, GWL_EXSTYLE) };
+        let changed = write_ex_style(hwnd_native, current, style.ex_style(current as u32));
+        if style.exclude_from_capture {
+            set_capture_excluded(hwnd, true);
+        }
+        changed
     }
 
     /// Creates a hidden, topmost, non-activating tool window of `style` at `rect` **without**
     /// `WS_EX_LAYERED` (`WS_POPUP`, no taskbar button). Show it with [`show_noactivate`]. The
     /// caller registers `class_name` with `hinstance` first. Returns the handle, or `0` when it
-    /// cannot be made: an empty name or one with an interior NUL, `style.click_through` (that
-    /// needs a layered window), or a failed `CreateWindowExW`.
+    /// cannot be made: an empty name or one with an interior NUL, `style.click_through` (click-through
+    /// needs a layered window: use [`create_layered_overlay_window`]), a failed `CreateWindowExW`,
+    /// or a failed capture exclusion when `style.exclude_from_capture` is set (the window is
+    /// destroyed).
     pub fn create_overlay_window(
         hinstance: isize,
         class_name: &str,
@@ -613,11 +721,31 @@ pub mod windows {
         if style.click_through || class_name.is_empty() {
             return 0;
         }
+        create_popup(
+            hinstance,
+            class_name,
+            title,
+            rect,
+            style.unlayered_ex_style(0),
+            style.exclude_from_capture,
+        )
+    }
+
+    /// The `WS_POPUP` creation shared by [`create_overlay_window`] and
+    /// [`create_layered_overlay_window`]. Returns `0` when the window cannot be made or cannot be
+    /// excluded from capture as asked.
+    fn create_popup(
+        hinstance: isize,
+        class_name: &str,
+        title: &str,
+        rect: OverlayRect,
+        ex: u32,
+        exclude_from_capture: bool,
+    ) -> isize {
         let (Some(class_name), Some(title)) = (wide(class_name), wide(title)) else {
             return 0;
         };
-        let ex = style.unlayered_ex_style(0);
-        unsafe {
+        let hwnd = unsafe {
             CreateWindowExW(
                 ex,
                 class_name.as_ptr(),
@@ -631,8 +759,106 @@ pub mod windows {
                 std::ptr::null_mut(),
                 hinstance as HINSTANCE,
                 std::ptr::null(),
-            ) as isize
+            )
+        };
+        if hwnd.is_null() {
+            return 0;
         }
+        let raw = hwnd as isize;
+        if exclude_from_capture && !set_capture_excluded(raw, true) {
+            unsafe {
+                DestroyWindow(hwnd);
+            }
+            return 0;
+        }
+        raw
+    }
+
+    /// Creates a hidden, topmost, non-activating tool window of `style` at `rect` **with**
+    /// `WS_EX_LAYERED`. Use it for a window the caller paints with per-pixel alpha
+    /// (`UpdateLayeredWindow` with `ULW_ALPHA`) before it is shown: a layered window that has no
+    /// pixels does not paint, which is why [`create_overlay_window`] leaves the bit out.
+    ///
+    /// `style.click_through` is created only when `pixel_alpha_empty_hit_regions` is true. That
+    /// flag is the caller's assertion of both facts: the window is per-pixel-alpha layered and it
+    /// has no hit regions. Then `WS_EX_TRANSPARENT` passes every pointer event through the
+    /// window. A layered window with hit regions must instead clip its shape to them (see
+    /// [`set_click_through`] for the run-time switch), and a click-through layered window with
+    /// hit regions is refused, returning `0`, because `WS_EX_TRANSPARENT` would also pass the
+    /// clicks meant for those regions (the `#361` case).
+    pub fn create_layered_overlay_window(
+        hinstance: isize,
+        class_name: &str,
+        title: &str,
+        rect: OverlayRect,
+        style: OverlayStyle,
+        pixel_alpha_empty_hit_regions: bool,
+    ) -> isize {
+        if class_name.is_empty() || (style.click_through && !pixel_alpha_empty_hit_regions) {
+            return 0;
+        }
+        create_popup(
+            hinstance,
+            class_name,
+            title,
+            rect,
+            style.ex_style(0),
+            style.exclude_from_capture,
+        )
+    }
+
+    /// Creates a message-only window (parent `HWND_MESSAGE`) of class `class_name`, for a listener
+    /// such as a clipboard-format listener. It is never shown and has no z-order or geometry. The
+    /// caller registers `class_name`, with its window procedure, on this process's module first,
+    /// and destroys the window with `DestroyWindow`.
+    pub fn create_message_only_window(class_name: &str) -> Result<isize, WindowCreateError> {
+        if class_name.is_empty() {
+            return Err(WindowCreateError::InvalidClassName);
+        }
+        let Some(class_name) = wide(class_name) else {
+            return Err(WindowCreateError::InvalidClassName);
+        };
+        let title = [0u16];
+        // SAFETY: a null name returns the handle of the calling process's executable module.
+        let hinstance = unsafe { GetModuleHandleW(std::ptr::null()) };
+        // SAFETY: every pointer is valid for the call: the class and title are NUL-terminated.
+        let hwnd = unsafe {
+            CreateWindowExW(
+                0,
+                class_name.as_ptr(),
+                title.as_ptr(),
+                0,
+                0,
+                0,
+                0,
+                0,
+                HWND_MESSAGE,
+                std::ptr::null_mut(),
+                hinstance as HINSTANCE,
+                std::ptr::null(),
+            )
+        };
+        if hwnd.is_null() {
+            Err(WindowCreateError::CreateFailed)
+        } else {
+            Ok(hwnd as isize)
+        }
+    }
+
+    /// Excludes `hwnd` from screen capture (`WDA_EXCLUDEFROMCAPTURE`) or restores normal capture
+    /// (`WDA_NONE`). Returns whether Windows accepted the affinity. Windows applies it only to a
+    /// window of the calling process.
+    pub fn set_capture_excluded(hwnd: isize, excluded: bool) -> bool {
+        if hwnd == 0 {
+            return false;
+        }
+        let affinity = if excluded {
+            WDA_EXCLUDEFROMCAPTURE
+        } else {
+            WDA_NONE
+        };
+        // SAFETY: `hwnd` is the caller's window handle; the call only reads it.
+        unsafe { SetWindowDisplayAffinity(hwnd as HWND, affinity) != 0 }
     }
 
     /// NUL-terminated UTF-16 copy of `text`, or `None` when it contains a NUL.
@@ -812,6 +1038,91 @@ pub mod windows {
             crate::is_foreign_borderless_fullscreen(style, area(rect), monitor.bounds, own)
         }
     }
+
+    /// The class name of `hwnd`, or an empty string when it cannot be read.
+    fn class_name_of(hwnd: HWND) -> String {
+        let mut buffer = [0u16; 256];
+        // SAFETY: the buffer is valid for `buffer.len()` UTF-16 units, as the count argument says.
+        let len = unsafe { GetClassNameW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32) };
+        if len <= 0 {
+            return String::new();
+        }
+        String::from_utf16_lossy(&buffer[..len as usize])
+    }
+
+    /// True when `SHQueryUserNotificationState` reports an exclusive Direct3D full-screen, a
+    /// presentation mode, a busy full-screen state or a Store app. The state is process-wide; the
+    /// caller ties it to the foreground window and to the monitor.
+    fn shell_reports_fullscreen() -> bool {
+        let mut state: i32 = 0;
+        // SAFETY: `state` is a valid out-parameter for the call.
+        let hr = unsafe { SHQueryUserNotificationState(&mut state) };
+        hr >= 0
+            && matches!(
+                state,
+                QUNS_BUSY | QUNS_RUNNING_D3D_FULL_SCREEN | QUNS_PRESENTATION_MODE | QUNS_APP
+            )
+    }
+
+    /// True when the foreground window is a full-screen window of another program on `monitor`
+    /// (`monitor` is that monitor's bounds in screen pixels, for example
+    /// [`MonitorPlacement::bounds`]). The foreground window counts when all hold:
+    ///
+    /// - it is visible, not minimised, and neither the desktop nor the shell window;
+    /// - it belongs to neither this process nor a pid in `probe.own_pids`;
+    /// - its class is not in `probe.ignore_classes` (Alt-Tab and Task View hosts are borderless and
+    ///   monitor-sized, so they are excluded this way);
+    /// - it overlaps `monitor`, so a full-screen program on another monitor does not count; and
+    /// - either it covers `monitor` on every edge within `probe.edge_tolerance_px`
+    ///   ([`covers_monitor_within`]), or `probe.use_shell_notification_state` is set and
+    ///   `SHQueryUserNotificationState` reports a busy full-screen, Direct3D full-screen,
+    ///   presentation or Store-app state.
+    ///
+    /// Unlike [`foreground_is_borderless_fullscreen`] this does not require a borderless style, so a
+    /// full-screen window that keeps a caption still counts. The non-Windows stub returns `false`.
+    pub fn foreground_fullscreen_on(monitor: WorkArea, probe: &FullScreenProbe) -> bool {
+        unsafe {
+            let foreground = GetForegroundWindow();
+            if foreground.is_null()
+                || foreground == GetDesktopWindow()
+                || foreground == GetShellWindow()
+                || IsWindowVisible(foreground) == 0
+                || IsIconic(foreground) != 0
+            {
+                return false;
+            }
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(foreground, &mut pid);
+            if crate::is_own_pid(pid, std::process::id(), &probe.own_pids) {
+                return false;
+            }
+            let class = class_name_of(foreground);
+            if probe
+                .ignore_classes
+                .iter()
+                .any(|ignored| ignored.eq_ignore_ascii_case(&class))
+            {
+                return false;
+            }
+            let mut rect = RECT {
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+            };
+            if GetWindowRect(foreground, &mut rect) == 0 {
+                return false;
+            }
+            let window = area(rect);
+            if !crate::rects_overlap(window, monitor) {
+                return false;
+            }
+            if crate::covers_monitor_within(window, monitor, probe.edge_tolerance_px) {
+                return true;
+            }
+            probe.use_shell_notification_state && shell_reports_fullscreen()
+        }
+    }
 }
 
 #[cfg(not(windows))]
@@ -857,6 +1168,32 @@ pub mod windows {
         false
     }
     pub fn foreground_is_borderless_fullscreen(_own_pids: &[u32]) -> bool {
+        false
+    }
+    /// Full-screen verdicts come from the host on macOS: the host's per-overlay callback supplies
+    /// the verdict (see CHANGELOG 0.2.1), so this crate's stub is always `false`.
+    pub fn foreground_fullscreen_on(
+        _monitor: crate::WorkArea,
+        _probe: &crate::FullScreenProbe,
+    ) -> bool {
+        false
+    }
+    pub fn create_layered_overlay_window(
+        _hinstance: isize,
+        _class_name: &str,
+        _title: &str,
+        _rect: crate::OverlayRect,
+        _style: crate::OverlayStyle,
+        _pixel_alpha_empty_hit_regions: bool,
+    ) -> isize {
+        0
+    }
+    pub fn create_message_only_window(
+        _class_name: &str,
+    ) -> Result<isize, crate::WindowCreateError> {
+        Err(crate::WindowCreateError::Unavailable)
+    }
+    pub fn set_capture_excluded(_hwnd: isize, _excluded: bool) -> bool {
         false
     }
 }

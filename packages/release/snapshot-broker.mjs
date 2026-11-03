@@ -27,7 +27,7 @@ import { removeCarrier, sweepSnapshotRequests } from "./carrier-census.mjs";
 import { DEFAULT_RETRY_WINDOW_MS, RETRYABLE_OUTCOME_CODES, clientGuardMs, diagnoseControlReply, drainFrames, operationDeadlineEnv, operationOutcomeInOutput, overCapProblem, refusalInCapturedOutput, retryPauseMs, sleepSync } from "./broker-wire.mjs";
 import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend, markCarriedUnsent } from "./ownership-mark.mjs";
 import {
-  MANAGED_RUST_ENVIRONMENT_KEYS, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, declaredInputDigestsOf, isCallHandleOf, lockedArgv, observedEnvOf, readDeclaredInputs, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest,
+  MANAGED_RUST_ENVIRONMENT_KEYS, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, declaredInputDigestProblems, declaredInputDigestsOf, isCallHandleOf, lockedArgv, observedEnvOf, readDeclaredInputs, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest,
 } from "./snapshot-request.mjs";
 
 /**
@@ -790,6 +790,13 @@ export async function verifyBrokerLedger(entries, sb, { seen = { nonces: new Set
         for (const child of verified.nestedChildren) {
           if (seen.ids.has(child.requestId)) throw new SnapshotRequestError("replay", `nested child ${child.requestId} was reported twice in this stage`);
           seen.ids.add(child.requestId);
+          // rightkit#1418: a nested compile child that signs its own declared-input digests is compared strictly, like a top-level compile: an input swapped
+          // for the child and restored before the stage ends is refused. (A child with none is not yet signed by the broker; that half is the broker's.)
+          if (child.declaredInputDigests !== undefined) {
+            if (!inputPolicy) throw new SnapshotRequestError("evidence", `nested child ${child.requestId} signs declared-input digests but the gate holds no end-of-stage digest of the declared inputs to compare them with`);
+            const bad = declaredInputDigestProblems(child.declaredInputDigests, { gateInputs: readDeclaredInputs(sb.snapshot.path), policy: inputPolicy });
+            if (bad.length) throw new SnapshotRequestError("evidence", `nested child ${child.requestId} (${child.argv.join(" ")}): ${bad[0]}`);
+          }
         }
       }
     } catch (error) { problems.push(`${call} (from ${e.cwd}): the gate's own verification of the broker's receipt failed (${error.code ?? "error"}: ${error.message})`); }

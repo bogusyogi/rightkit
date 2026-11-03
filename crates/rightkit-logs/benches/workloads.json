@@ -5,8 +5,7 @@
   "coverage": {
     "default": "http and detached API",
     "tracing": "tracing writer",
-    "log-bridge": "compiled in detached workload; no additional background worker",
-    "testing": "test-only; excluded"
+    "log-bridge": "compiled in detached workload; no additional background worker"
   },
   "workloads": [
     {

@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-app-settings = { version = "=0.3.2" }
+rightkit-app-settings = { version = "=0.3.3" }

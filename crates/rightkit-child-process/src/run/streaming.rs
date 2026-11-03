@@ -14,6 +14,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
+use zeroize::Zeroizing;
 
 /// How long the killed tree's leader gets to be reaped before the call fails with `TimedOut`
 /// (a process in an uninterruptible state cannot be reaped by any means).
@@ -221,7 +222,7 @@ pub fn run_streaming(
     // writer's `Drop` cancels it with its bound, and the child's `Drop` kills the tree.
     let writer = match (options.input.as_deref(), child.take_stdin()) {
         (Some(bytes), Some(stdin)) => Some(
-            StdinWriter::spawn(stdin, bytes.to_vec())
+            StdinWriter::spawn(stdin, Zeroizing::new(bytes.to_vec()))
                 .map_err(|error| stop_after_failure(&mut child, RunnerPhase::Setup, error))?,
         ),
         _ => None,

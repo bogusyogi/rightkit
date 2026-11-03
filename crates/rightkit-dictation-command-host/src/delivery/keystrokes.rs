@@ -1,13 +1,10 @@
 // Paste / Enter keystroke posts (SendInput on Windows, CGEvent combos on
-// macOS). Every variant short-circuits to success in test mode.
+// macOS).
 
 use super::*;
 
 #[cfg(target_os = "windows")]
 pub(crate) fn send_paste_keystroke() -> Result<(), DeliveryError> {
-    if test_mode() {
-        return Ok(());
-    }
     if rightkit_automation::desktop::windows::send_paste_keystroke_after_hotkey() {
         Ok(())
     } else {
@@ -20,9 +17,6 @@ pub(crate) fn send_paste_keystroke() -> Result<(), DeliveryError> {
 
 #[cfg(target_os = "macos")]
 pub(crate) fn send_paste_keystroke() -> Result<(), DeliveryError> {
-    if test_mode() {
-        return Ok(());
-    }
     if !crate::macos_input::accessibility_trusted(false) {
         return Err(DeliveryError::new(
             "E_ACCESSIBILITY",
@@ -41,9 +35,6 @@ pub(crate) fn send_paste_keystroke() -> Result<(), DeliveryError> {
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub(crate) fn send_paste_keystroke() -> Result<(), DeliveryError> {
-    if test_mode() {
-        return Ok(());
-    }
     Err(DeliveryError::new(
         "E_UNSUPPORTED",
         "paste is unsupported on this platform",
@@ -52,9 +43,6 @@ pub(crate) fn send_paste_keystroke() -> Result<(), DeliveryError> {
 
 #[cfg(target_os = "windows")]
 pub fn send_enter_keystroke() -> Result<(), DeliveryError> {
-    if test_mode() {
-        return Ok(());
-    }
     if rightkit_automation::desktop::windows::send_enter_keystroke() {
         Ok(())
     } else {
@@ -67,9 +55,6 @@ pub fn send_enter_keystroke() -> Result<(), DeliveryError> {
 
 #[cfg(target_os = "macos")]
 pub fn send_enter_keystroke() -> Result<(), DeliveryError> {
-    if test_mode() {
-        return Ok(());
-    }
     if !crate::macos_input::accessibility_trusted(false) {
         return Err(DeliveryError::new(
             "E_ACCESSIBILITY",
@@ -88,9 +73,6 @@ pub fn send_enter_keystroke() -> Result<(), DeliveryError> {
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn send_enter_keystroke() -> Result<(), DeliveryError> {
-    if test_mode() {
-        return Ok(());
-    }
     Err(DeliveryError::new(
         "E_UNSUPPORTED",
         "send Enter is unsupported on this platform",

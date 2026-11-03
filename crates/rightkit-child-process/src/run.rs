@@ -30,6 +30,7 @@ use std::{
     thread::JoinHandle,
     time::{Duration, Instant},
 };
+use zeroize::Zeroizing;
 
 /// How long to wait for a pipe to end after the child has exited, before returning what was
 /// captured (a grandchild that inherited the pipe can keep it open). A capture that fails to
@@ -161,6 +162,13 @@ pub struct RunOutput {
     pub status: ExitStatus,
     /// True when the deadline passed and the tree was terminated.
     pub timed_out: bool,
+    /// The leader's pid, recorded at launch (before any wait), for a process ledger that names
+    /// the child.
+    pub pid: u32,
+    /// CPU time and peak memory of the leader (and, on Unix, the descendants it waited for),
+    /// read when it was reaped; `None` when the host did not report it or the leader was
+    /// reaped by other code (rightkit#1281).
+    pub usage: Option<crate::ChildUsage>,
     pub stdout: CapturedOutput,
     pub stderr: CapturedOutput,
 }
@@ -197,7 +205,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    run_inner(program, args, Some(input.to_vec()), options)
+    run_inner(program, args, Some(Zeroizing::new(input.to_vec())), options)
 }
 
 /// Runs `program` with `args` to completion or until `options.timeout`, then returns its status
@@ -217,7 +225,7 @@ where
 fn run_inner<I, S>(
     program: impl AsRef<OsStr>,
     args: I,
-    input: Option<Vec<u8>>,
+    input: Option<Zeroizing<Vec<u8>>>,
     options: &RunOptions,
 ) -> io::Result<RunOutput>
 where
@@ -268,12 +276,34 @@ pub fn run_command(
     input: Option<&[u8]>,
     options: &RunOptions,
 ) -> io::Result<RunOutput> {
-    run_owned(command, input.map(<[u8]>::to_vec), options)
+    run_owned(
+        command,
+        input.map(|bytes| Zeroizing::new(bytes.to_vec())),
+        options,
+    )
+}
+
+/// Spawns `command`, waits up to `timeout` for it to exit, and returns its status. At the
+/// deadline the whole tree is terminated (bounded) and `Ok(None)` is returned. Output is not
+/// captured: use [`run`] or [`run_command_capture`] for that. The child's stdio is the
+/// command's own.
+pub fn status_with_timeout(
+    command: OwnedCommand,
+    timeout: Duration,
+) -> io::Result<Option<ExitStatus>> {
+    let mut child = command.spawn()?;
+    match child.wait_timeout(timeout)? {
+        Some(status) => Ok(Some(status)),
+        None => {
+            child.terminate_tree_bounded(RUNNER_REAP_WAIT)?;
+            Ok(None)
+        }
+    }
 }
 
 fn run_owned(
     command: OwnedCommand,
-    input: Option<Vec<u8>>,
+    input: Option<Zeroizing<Vec<u8>>>,
     options: &RunOptions,
 ) -> io::Result<RunOutput> {
     run_captured(
@@ -297,12 +327,28 @@ pub fn run_command_capture(
     input: Option<&[u8]>,
     options: &CaptureOptions,
 ) -> io::Result<RunOutput> {
-    run_captured(command, input.map(<[u8]>::to_vec), options)
+    run_captured(
+        command,
+        input.map(|bytes| Zeroizing::new(bytes.to_vec())),
+        options,
+    )
+}
+
+/// [`run_command_capture`] with the stdin payload taken by value: a secret (for example a
+/// password written to `sudo -S`) is wiped as soon as the writer finishes, and on every error
+/// path, because the buffer is a [`Zeroizing`] owned by the writer thread. The caller's own
+/// copy, if any, is the caller's to wipe.
+pub fn run_command_capture_secret_stdin(
+    command: OwnedCommand,
+    input: Zeroizing<Vec<u8>>,
+    options: &CaptureOptions,
+) -> io::Result<RunOutput> {
+    run_captured(command, Some(input), options)
 }
 
 fn run_captured(
     mut command: OwnedCommand,
-    input: Option<Vec<u8>>,
+    input: Option<Zeroizing<Vec<u8>>>,
     options: &CaptureOptions,
 ) -> io::Result<RunOutput> {
     // Recorded, not applied to `Command` here: `spawn` applies it to the std `Command` and to a
@@ -317,6 +363,7 @@ fn run_captured(
     let mut child = command
         .spawn()
         .map_err(|error| failure(RunnerPhase::Spawn, LeaderTermination::NotStarted, error))?;
+    let pid = child.id();
     // Written concurrently with the output drains below; closing stdin when the writer is done
     // is the EOF. Spawn failure returns before any wait is armed. If an early `?` return skips
     // `finish`, `StdinWriter`'s `Drop` cancels the writer with the same bound.
@@ -379,9 +426,12 @@ fn run_captured(
     stderr_failure?;
     writer_result
         .map_err(|error| failure(RunnerPhase::Stdin, LeaderTermination::Confirmed, error))?;
+    let usage = child.resource_usage().ok().flatten();
     Ok(RunOutput {
         status,
         timed_out,
+        pid,
+        usage,
         stdout: stdout_output,
         stderr: stderr_output,
     })
@@ -486,7 +536,9 @@ struct StdinWriter {
 }
 
 impl StdinWriter {
-    fn spawn(stdin: ChildStdin, bytes: Vec<u8>) -> io::Result<Self> {
+    /// The payload is owned by the writer thread and wiped when the thread ends, on success or
+    /// failure (`Zeroizing`'s drop).
+    fn spawn(stdin: ChildStdin, bytes: Zeroizing<Vec<u8>>) -> io::Result<Self> {
         let state = Arc::new(WriterState::new());
         let (sender, done) = mpsc::channel();
         let shared = Arc::clone(&state);

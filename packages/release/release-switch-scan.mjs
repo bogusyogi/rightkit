@@ -36,18 +36,30 @@
 //         "channel": "env",                               // env | argv | settings | preference | frontend
 //         "anchor": "src/test_mode.rs:97",                // where it is read (informational)
 //         "compiledOut": "feature:test-mode",             // required for S1-S4: feature:<name> | cfg:test |
-//                                                         // cfg:debug_assertions | swift:DEBUG (read exists only there)
+//                                                         // cfg:debug_assertions | swift:<CONDITION> (every read sits inside
+//                                                         // a matching `#if <CONDITION>` branch, checked; #1169)
+//         "releasePresence": { "mechanism": "scrub", "owner": "app", "anchor": "src/env.rs:54" },   // optional (S1-S4): the
+//                                                         // name stays in release binaries only because release code scrubs,
+//                                                         // clears or sets it; see `releasePresenceFindings` (#937)
 //         "valueType": "bool",                            // required for S6: bool | int | enum
 //         "userGesture": true,                            // required for S5: chosen by a user gesture
 //         "note": "free text" } ],
-//     "dynamicReads": [ { "file": "src/x.rs", "reason": "..." } ]   // optional: files allowed a non-literal read
+//     "dynamicReads": [ { "file": "src/x.rs", "reason": "..." } ],  // optional: files allowed a non-literal read
+//     "buildConstants": [ { "name": "CUTRIGHT_LICENSE_PUBLIC_KEY_HEX", "channel": "option_env", "buildTimeOnly": true } ]
+//                                                         // optional: builder-supplied compile-time constants that stay in
+//                                                         // release (`option_env!`/`env!`/`import.meta.env.VITE_*`), never read
+//                                                         // at run time (#1009)
 //   }
+//
+// Names the operating system or Cargo supply (`osProvided` and Cargo's own variables in the registry) are not selectors and
+// need no entry (#1045).
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, lstatSync, openSync, readFileSync, readSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { featuresInTokens, resolveCargoManifestPath, scriptTarget, tokenize } from "./qa-build-features.mjs";
-import { isNativeBinaryHeader } from "./qa-control-scan.mjs";
+import { QA_CONTROL_MARKER, isNativeBinaryHeader } from "./qa-control-scan.mjs";
+import { buildScriptRefs, cfgPredicateOf, rustCfgGatedRanges, rustFileGates, cfgImplies, swiftConditionEnclosed } from "./release-switch-cfg.mjs";
 import { nodeHostTriple } from "./stage-sidecar-command.mjs";
 import { WIN_PACKAGE_DEFAULT_TRIPLE } from "./win-package-recipe.mjs";
 
@@ -56,10 +68,18 @@ const CHUNK = 4 * 1024 * 1024;
 const FORBIDDEN_CLASSES = new Set(["S1", "S2", "S3", "S4"]);
 const CLASSES = new Set(["S1", "S2", "S3", "S4", "S5", "S6"]);
 const CHANNELS = new Set(["env", "argv", "settings", "preference", "frontend"]);
-// `swift:DEBUG`: the read sits inside `#if DEBUG`, which an Xcode Release configuration compiles out.
-const COMPILED_OUT = /^(feature:[A-Za-z0-9_-]+|cfg:test|cfg:debug_assertions|swift:DEBUG)$/;
+// `swift:<CONDITION>`: the read sits inside `#if <CONDITION>`, a Swift compilation condition the Release build does not define
+// (`DEBUG`, or the app's own, e.g. `PULSE_QA`); the source walk confirms the enclosure and the project's Release settings.
+const COMPILED_OUT = /^(feature:[A-Za-z0-9_-]+|cfg:test|cfg:debug_assertions|swift:[A-Za-z_][A-Za-z0-9_]*)$/;
+const SWIFT_COMPILED_OUT = /^swift:([A-Za-z_][A-Za-z0-9_]*)$/;
+const PRESENCE_MECHANISMS = new Set(["scrub", "clear", "set"]);
+const PRESENCE_OWNERS = new Set(["crate", "app"]);
+const BUILD_CONSTANT_CHANNELS = new Set(["option_env", "env", "vite-define"]);
 
 export const REGISTRY = JSON.parse(readFileSync(new URL("./release-switch-registry.json", import.meta.url), "utf8"));
+// The web QA define and its retired spellings are deny names in every native binary too (the web bundle has its own scan, qa-control-scan.mjs).
+REGISTRY.denyNames = [...REGISTRY.denyNames, ...[REGISTRY.webQa.define, ...REGISTRY.webQa.retired].map((name) => ({ name, class: "S1" }))];
+const OS_PROVIDED = new Set(REGISTRY.osProvided);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Layer 1: feature closure.
@@ -318,12 +338,39 @@ export function parseInventory(text, label = "switches.json") {
     if (!CHANNELS.has(entry.channel)) bad(`${where}: \`channel\` must be one of ${[...CHANNELS].join(", ")}`);
     if (FORBIDDEN_CLASSES.has(entry.class)) {
       if (typeof entry.compiledOut !== "string" || !COMPILED_OUT.test(entry.compiledOut)) {
-        issues.push({ layer: "inventory", rule: "not-compiled-out", file: label, reason: `not-compiled-out: ${where} is class ${entry.class} and must declare \`compiledOut\` as feature:<name>, cfg:test, cfg:debug_assertions or swift:DEBUG (release builds may not contain it)` });
+        issues.push({ layer: "inventory", rule: "not-compiled-out", file: label, reason: `not-compiled-out: ${where} is class ${entry.class} and must declare \`compiledOut\` as feature:<name>, cfg:test, cfg:debug_assertions or swift:<CONDITION> (release builds may not contain it)` });
+      }
+      if (entry.releasePresence !== undefined) {
+        const presence = entry.releasePresence;
+        if (!presence || typeof presence !== "object" || Array.isArray(presence)) bad(`${where}: \`releasePresence\` must be { mechanism, owner, anchor }`);
+        else {
+          if (!PRESENCE_MECHANISMS.has(presence.mechanism)) bad(`${where}: releasePresence.mechanism must be one of ${[...PRESENCE_MECHANISMS].join(", ")}`);
+          if (!PRESENCE_OWNERS.has(presence.owner)) bad(`${where}: releasePresence.owner must be crate or app`);
+          if (presence.owner === "app" && !/^[^:\s][^:]*:[1-9][0-9]*$/.test(presence.anchor ?? "")) bad(`${where}: releasePresence.anchor must be <path>:<line> where release code scrubs, clears or sets the name (owner app)`);
+          if (SWIFT_COMPILED_OUT.test(entry.compiledOut ?? "")) bad(`${where}: releasePresence is proven for Rust cfg/feature enclosures only; a swift:<CONDITION> entry cannot carry it`);
+        }
       }
     } else if (entry.class === "S6") {
       if (!["bool", "int", "enum"].includes(entry.valueType)) bad(`${where}: class S6 needs a bounded \`valueType\` (bool, int or enum)`);
     } else if (entry.class === "S5") {
       if (entry.userGesture !== true) bad(`${where}: class S5 needs \`userGesture: true\` (chosen by a picker, saved preference or the user's own argument)`);
+    }
+    if (entry.releasePresence !== undefined && !FORBIDDEN_CLASSES.has(entry.class)) bad(`${where}: releasePresence applies to S1-S4 entries only`);
+  }
+  if (doc.buildConstants !== undefined) {
+    if (!Array.isArray(doc.buildConstants)) bad("`buildConstants` must be an array");
+    else {
+      const denied = new Set(REGISTRY.denyNames.map((d) => d.name));
+      for (const constant of doc.buildConstants) {
+        const where = `build constant \`${constant?.name}\``;
+        if (typeof constant?.name !== "string" || !constant.name) { bad("every build constant needs a `name`"); continue; }
+        if (names.has(constant.name)) bad(`${where} is also listed under switches (a name is either a switch or a build constant)`);
+        names.add(constant.name);
+        if (!BUILD_CONSTANT_CHANNELS.has(constant.channel)) bad(`${where}: \`channel\` must be one of ${[...BUILD_CONSTANT_CHANNELS].join(", ")}`);
+        if (constant.buildTimeOnly !== true) bad(`${where}: \`buildTimeOnly: true\` is required (the builder supplies it when compiling and no caller can supply it at run time)`);
+        if (constant.channel === "vite-define" && !/^VITE_/.test(constant.name)) bad(`${where}: a vite-define constant is a \`VITE_*\` name`);
+        if (denied.has(constant.name)) bad(`${where} is a deny-listed selector name; a selector cannot be declared a build constant`);
+      }
     }
   }
   return { doc, issues };
@@ -340,6 +387,13 @@ const TEST_FILE = /(\.test\.|\.spec\.|_tests?\.rs$|^tests?\.rs$)/;
 const CARGO_COMPILE_TIME = /\b(?:option_)?env!\(\s*"([^"]+)"/g;
 // Variables Cargo sets for every build script and crate compilation (the Cargo book, "Environment variables Cargo sets for crates").
 const CARGO_SET = /^(CARGO|CARGO_(PKG_[A-Z_]+|MANIFEST_DIR|MANIFEST_PATH|CRATE_NAME|BIN_NAME|BIN_EXE_[A-Za-z0-9_-]+|PRIMARY_PACKAGE|TARGET_TMPDIR|RUSTC_CURRENT_DIR)|OUT_DIR)$/;
+// Variables Cargo sets only for a build script (the Cargo book, "Environment variables Cargo sets for build scripts"): not selectors
+// when read by `build.rs` with `env::var`/`var_os`, whatever the build is (#1045). Anywhere else these names are ordinary reads.
+const CARGO_BUILD_SCRIPT_SET = /^(OUT_DIR|TARGET|HOST|PROFILE|DEBUG|OPT_LEVEL|NUM_JOBS|RUSTC|RUSTC_WRAPPER|RUSTC_WORKSPACE_WRAPPER|RUSTC_LINKER|RUSTDOC|CARGO_ENCODED_RUSTFLAGS|CARGO_MAKEFLAGS|CARGO_CFG_[A-Z0-9_]+|CARGO_FEATURE_[A-Z0-9_]+|CARGO_MANIFEST_LINKS|DEP_[A-Z0-9_]+)$/;
+// Vite inlines `import.meta.env.VITE_*` while building: a compile-time channel, like `env!`/`option_env!`.
+const IMPORT_META_ENV_DOT = /import\.meta\.env\.([A-Za-z_][A-Za-z0-9_]*)/g;
+const IMPORT_META_ENV_INDEX = /import\.meta\.env\[\s*["']([^"']+)["']\s*\]/g;
+const COMPILE_TIME_READS = new Set([CARGO_COMPILE_TIME, IMPORT_META_ENV_DOT, IMPORT_META_ENV_INDEX]);
 // Reads of a literal name; group 1 is the name.
 const LITERAL_READS = [
   /\b(?:std::)?env::var(?:_os)?\(\s*"([^"]+)"\s*\)/g,
@@ -347,8 +401,8 @@ const LITERAL_READS = [
   /\bgetenv\(\s*"([^"]+)"\s*\)/g,
   /process\.env\.([A-Za-z_][A-Za-z0-9_]*)/g,
   /process\.env\[\s*["']([^"']+)["']\s*\]/g,
-  /import\.meta\.env\.([A-Za-z_][A-Za-z0-9_]*)/g,
-  /import\.meta\.env\[\s*["']([^"']+)["']\s*\]/g,
+  IMPORT_META_ENV_DOT,
+  IMPORT_META_ENV_INDEX,
   /environment\[\s*"([^"]+)"\s*\]/g,
   // clap: `#[arg(env = "X")]`, `#[clap(env = "X")]`, `Arg::new(..).env("X")`.
   /\benv\s*=\s*"([^"]+)"/g,
@@ -385,14 +439,88 @@ function* walkSource(root, skipAbs = new Set()) {
   }
 }
 
+// `releaseSwitches.envHelpers`: macros or functions whose first literal argument is an environment variable name (`dev_var!("X")`,
+// `env_string("X")`). A literal first argument is a read of that name; any other first argument is a non-literal (dynamic) read.
+// The definition (`fn env_string(name: &str)`) is not a call.
+export function envHelperPatterns(envHelpers, problems = []) {
+  if (envHelpers === undefined) return { literal: [], dynamic: [] };
+  if (!Array.isArray(envHelpers) || !envHelpers.every((name) => typeof name === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(name))) {
+    problems.push({ layer: "inventory", rule: "inventory-invalid", file: "releaseSwitches.envHelpers", reason: "inventory-invalid: releaseSwitches.envHelpers must be an array of macro or function names ([A-Za-z_][A-Za-z0-9_]*)" });
+    return { literal: [], dynamic: [] };
+  }
+  return {
+    literal: envHelpers.map((name) => new RegExp(`(?<![\\w$])${name}\\s*!?\\s*\\(\\s*"([^"]+)"`, "g")),
+    dynamic: envHelpers.map((name) => new RegExp(`(?<!\\bfn\\s+)(?<![\\w$])${name}\\s*!?\\s*\\(\\s*[^")\\s]`, "g")),
+  };
+}
+
+// Xcode and SwiftPM project files, for the Swift Release-configuration check.
+function* walkProjectFiles(root, skipAbs = new Set()) {
+  const stack = [root];
+  while (stack.length) {
+    const dir = stack.pop();
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) { if (!skipDir(entry.name) && !skipAbs.has(full)) stack.push(full); continue; }
+      if (entry.isFile() && (entry.name === "project.pbxproj" || entry.name === "Package.swift" || /\.xcconfig$/.test(entry.name))) yield full;
+    }
+  }
+}
+
+const settingTokens = (value) => String(value).split(/[\s,()"']+/).filter(Boolean);
+
+// `swift:<CONDITION>` is a claim that a Release build does not define CONDITION. The source walk confirms every read is inside
+// `#if CONDITION`; this confirms the project does not define CONDITION for Release: an Xcode `buildSettings` block of a
+// configuration named like Release (or an .xcconfig line for it, or one that names no configuration), or a SwiftPM `.define("X")`
+// that is not limited to `.when(configuration: .debug)`. A condition that only a separate QA build adds on the command line
+// (`xcodebuild SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) PULSE_QA'`) is not in any project file and passes.
+function swiftReleaseConditionFindings(walkRoots, skipAbs, sourceRoot, conditions) {
+  if (conditions.size === 0) return [];
+  const out = [];
+  const flag = (file, condition, what) => out.push({ layer: "inventory", rule: "not-compiled-out", file: path.relative(sourceRoot, file), reason: `not-compiled-out: swift:${condition} is declared compiled out of release builds, but ${what}` });
+  for (const file of walkRoots.flatMap((root) => [...walkProjectFiles(root, skipAbs)])) {
+    let text;
+    try { text = readFileSync(file, "utf8"); } catch { continue; }
+    const base = path.basename(file);
+    if (base === "project.pbxproj") {
+      for (const block of text.matchAll(/buildSettings = \{([\s\S]*?)\n\s*\};\s*name = ([^;\n]+);/g)) {
+        if (!/release/i.test(block[2])) continue;
+        for (const setting of block[1].matchAll(/SWIFT_ACTIVE_COMPILATION_CONDITIONS(?:\[[^\]]*\])?\s*=\s*(\([^)]*\)|"[^"]*"|[^;]+);/g)) {
+          const tokens = settingTokens(setting[1]);
+          for (const condition of conditions) if (tokens.includes(condition)) flag(file, condition, `the ${block[2].trim()} build configuration defines it in SWIFT_ACTIVE_COMPILATION_CONDITIONS`);
+        }
+      }
+    } else if (base === "Package.swift") {
+      for (const call of text.matchAll(/\.define\(\s*"([A-Za-z_][A-Za-z0-9_]*)"([^\n]*)\)/g)) {
+        if (conditions.has(call[1]) && !/\.debug\b/.test(call[2])) flag(file, call[1], "Package.swift defines it for every configuration (limit it with `.when(configuration: .debug)`)");
+      }
+    } else {
+      for (const setting of text.matchAll(/^\s*SWIFT_ACTIVE_COMPILATION_CONDITIONS(\[[^\]]*\])?\s*=\s*([^\n]*)/gm)) {
+        const applies = setting[1] ? /release/i.test(setting[1]) : !/debug/i.test(base);
+        if (!applies) continue;
+        const tokens = settingTokens(setting[2]);
+        for (const condition of conditions) if (tokens.includes(condition)) flag(file, condition, `${base} defines it in SWIFT_ACTIVE_COMPILATION_CONDITIONS for Release`);
+      }
+    }
+  }
+  return out;
+}
+
 function lineOf(text, index) { let n = 1; for (let i = 0; i < index; i += 1) if (text.charCodeAt(i) === 10) n += 1; return n; }
 
 // inventoryText: contents of switches.json. Returns findings only.
-export function sourceSwitchFindings({ sourceRoot, sourceRoots, inventoryText, inventoryLabel = "switches.json", extraDeny = [], skipRoots = [] }) {
+export function sourceSwitchFindings({ sourceRoot, sourceRoots, inventoryText, inventoryLabel = "switches.json", extraDeny = [], skipRoots = [], envHelpers }) {
   const { doc, issues } = parseInventory(inventoryText, inventoryLabel);
   const findings = [...issues];
+  const helpers = envHelperPatterns(envHelpers, findings);
   if (!doc || !Array.isArray(doc.switches)) return findings;
   const registered = new Set(doc.switches.map((s) => s.name));
+  const entries = new Map(doc.switches.filter((s) => typeof s?.name === "string").map((s) => [s.name, s]));
+  const constants = new Set((Array.isArray(doc.buildConstants) ? doc.buildConstants : []).filter((c) => typeof c?.name === "string").map((c) => c.name));
+  const swiftConditions = new Set();
   const dynamicAllowed = new Set((doc.dynamicReads ?? []).map((d) => path.normalize(d.file)));
   const reads = new Set();
   const denyFlags = [...REGISTRY.denyNames, ...extraDeny.map((n) => ({ name: typeof n === "string" ? n : n.name }))].map((d) => d.name).filter((n) => n.startsWith("-"));
@@ -405,7 +533,8 @@ export function sourceSwitchFindings({ sourceRoot, sourceRoots, inventoryText, i
     try { text = readFileSync(file, "utf8"); } catch { continue; }
     const rel = path.relative(sourceRoot, file);
     const bare = BARE_IMPORT.test(text) && /\.rs$/.test(file);
-    for (const pattern of bare ? [...LITERAL_READS, BARE_LITERAL] : LITERAL_READS) {
+    const buildScript = path.basename(file) === "build.rs";
+    for (const pattern of [...LITERAL_READS, ...helpers.literal, ...(bare ? [BARE_LITERAL] : [])]) {
       pattern.lastIndex = 0;
       for (let m = pattern.exec(text); m; m = pattern.exec(text)) {
         const name = m[1];
@@ -413,12 +542,28 @@ export function sourceSwitchFindings({ sourceRoot, sourceRoots, inventoryText, i
         // `env!`/`option_env!` of a name Cargo itself sets at compile time (CARGO_PKG_VERSION, CARGO_MANIFEST_DIR, ...) is
         // not a switch: no caller can choose it. Any other compile-time name is still a read the builder could set.
         if (pattern === CARGO_COMPILE_TIME && CARGO_SET.test(name)) continue;
+        // A build script reads what Cargo sets for it (OUT_DIR, TARGET, PROFILE, CARGO_CFG_*, CARGO_FEATURE_*): not a selector either (#1045).
+        if (buildScript && (CARGO_SET.test(name) || CARGO_BUILD_SCRIPT_SET.test(name))) continue;
+        // The operating system's own variables (HOME, APPDATA, LOCALAPPDATA, PATH, ...; registry `osProvided`) select nothing the app can be told.
+        if (OS_PROVIDED.has(name) && !registered.has(name)) continue;
+        // A builder-supplied build-time constant is read only through a compile-time channel; a run-time read of it is a switch (#1009).
+        if (constants.has(name)) {
+          reads.add(name);
+          if (!COMPILE_TIME_READS.has(pattern)) findings.push({ layer: "inventory", rule: "build-constant-runtime-read", file: `${rel}:${lineOf(text, m.index)}`, reason: `build-constant-runtime-read: \`${name}\` is declared a builder-supplied build-time constant (buildConstants) but is read at run time here; read it with option_env!/env! or import.meta.env, or register it as a switch` });
+          continue;
+        }
         reads.add(name);
+        const entry = entries.get(name);
+        const swift = entry && FORBIDDEN_CLASSES.has(entry.class) ? SWIFT_COMPILED_OUT.exec(entry.compiledOut ?? "") : null;
+        if (swift) {
+          if (!/\.swift$/.test(file)) findings.push({ layer: "inventory", rule: "not-compiled-out", file: `${rel}:${lineOf(text, m.index)}`, reason: `not-compiled-out: \`${name}\` is declared compiledOut ${entry.compiledOut} (a Swift condition) but is read in a file that is not Swift` });
+          else if (!swiftConditionEnclosed(text, m.index, swift[1])) findings.push({ layer: "inventory", rule: "not-compiled-out", file: `${rel}:${lineOf(text, m.index)}`, reason: `not-compiled-out: \`${name}\` is declared compiledOut ${entry.compiledOut} but this read is not inside an \`#if ${swift[1]}\` branch (\`#else\`, \`||\` and \`!\` do not count)` });
+        }
         if (!registered.has(name)) findings.push({ layer: "inventory", rule: "unregistered-read", file: `${rel}:${lineOf(text, m.index)}`, reason: `unregistered-read: \`${name}\` is read here but is not listed in ${inventoryLabel}` });
       }
     }
     if (!dynamicAllowed.has(path.normalize(rel))) {
-      for (const pattern of bare ? [...DYNAMIC_READS, BARE_DYNAMIC] : DYNAMIC_READS) {
+      for (const pattern of [...DYNAMIC_READS, ...helpers.dynamic, ...(bare ? [BARE_DYNAMIC] : [])]) {
         pattern.lastIndex = 0;
         for (let m = pattern.exec(text); m; m = pattern.exec(text)) {
           findings.push({ layer: "inventory", rule: "dynamic-read", file: `${rel}:${lineOf(text, m.index)}`, reason: `dynamic-read: an environment read with a non-literal name cannot be inventoried; list the file under \`dynamicReads\` in ${inventoryLabel} with a reason, or use a literal name` });
@@ -433,7 +578,112 @@ export function sourceSwitchFindings({ sourceRoot, sourceRoots, inventoryText, i
       }
     }
   }
+  // Every swift:<CONDITION> entry is checked against the project's Release settings whether or not a read was found (a declaration that
+  // nothing in the tree reads is still a claim about the build).
+  for (const entry of doc.switches) {
+    const swift = FORBIDDEN_CLASSES.has(entry?.class) ? SWIFT_COMPILED_OUT.exec(entry.compiledOut ?? "") : null;
+    if (swift) swiftConditions.add(swift[1]);
+  }
+  findings.push(...swiftReleaseConditionFindings(walkRoots, skipAbs, sourceRoot, swiftConditions));
   return findings;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Release presence (#937): a name that release code only scrubs, clears or sets.
+
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const ownerNameMatches = (pattern, name) => (pattern.endsWith("*") ? name.startsWith(pattern.slice(0, -1)) : pattern === name);
+const treeHasCrate = (treeText, crate) => typeof treeText === "string" && new RegExp(`(^|[^A-Za-z0-9_-])${escapeRegExp(crate)} v[0-9]`, "m").test(treeText);
+const PRESENCE_CALL = { scrub: /(?:env_remove|remove_var|env_clear|scrub\w*|clear\w*|retain)/, clear: /(?:env_remove|remove_var|env_clear|scrub\w*|clear\w*|retain)/, set: /(?:set_var|\.envs?\s*\(|\bset\w*\s*\()/ };
+
+// Does the app anchor `<path>:<line>` show the name inside a call of the claimed mechanism (a window of two lines either side)?
+function presenceAnchorProblem(sourceRoot, entry) {
+  const presence = entry.releasePresence;
+  if (!sourceRoot) return "has no source root to read its anchor from";
+  const [rel, line] = [presence.anchor.slice(0, presence.anchor.lastIndexOf(":")), Number(presence.anchor.slice(presence.anchor.lastIndexOf(":") + 1))];
+  const base = path.resolve(sourceRoot);
+  const abs = path.resolve(base, rel);
+  if (!within(base, abs)) return `anchor ${presence.anchor} escapes the app root`;
+  let lines;
+  try { lines = readFileSync(abs, "utf8").split(/\r?\n/); } catch { return `anchor ${presence.anchor}: the file does not exist`; }
+  if (line > lines.length) return `anchor ${presence.anchor}: the file has only ${lines.length} lines`;
+  const window = lines.slice(Math.max(0, line - 3), line + 2).join("\n");
+  if (!window.includes(`"${entry.name}"`)) return `anchor ${presence.anchor} does not show the literal "${entry.name}" within two lines`;
+  if (!PRESENCE_CALL[presence.mechanism].test(window)) return `anchor ${presence.anchor} shows the name but no ${presence.mechanism} call (${PRESENCE_CALL[presence.mechanism].source})`;
+  return null;
+}
+
+/**
+ * `enclosingCfgFindings`: for each { name, compiledOut } (feature:<n>, cfg:test or cfg:debug_assertions), every literal read of
+ * the name in the scanned source must sit inside an item or statement under an attribute `#[cfg(<predicate>)]` (or inside a file
+ * its parent declares `#[cfg(<predicate>)] mod x;`). `cfg!()`, a runtime `if`, a read in a TypeScript or other file and a read the
+ * attribute does not reach are `read-not-gated`. Findings carry `name`.
+ */
+export function enclosingCfgFindings({ sourceRoot, sourceRoots, skipRoots = [], entries, envHelpers }) {
+  const findings = [];
+  const wanted = new Map(entries.map((entry) => [entry.name, entry]));
+  if (wanted.size === 0) return findings;
+  const helpers = envHelperPatterns(envHelpers);
+  const walkRoots = Array.isArray(sourceRoots) && sourceRoots.length ? sourceRoots : [sourceRoot];
+  const skipAbs = new Set((skipRoots ?? []).map((dir) => path.resolve(sourceRoot, dir)));
+  const files = walkRoots.flatMap((root) => [...walkSource(root, skipAbs)]).map((file) => { try { return { file, text: readFileSync(file, "utf8") }; } catch { return null; } }).filter(Boolean);
+  const gates = rustFileGates(files.filter(({ file }) => /\.rs$/.test(file)));
+  for (const { file, text } of files) {
+    const rust = /\.rs$/.test(file);
+    const rel = path.relative(sourceRoot, file);
+    const ranges = new Map();
+    for (const pattern of [...LITERAL_READS, ...helpers.literal, ...(rust && BARE_IMPORT.test(text) ? [BARE_LITERAL] : [])]) {
+      pattern.lastIndex = 0;
+      for (let m = pattern.exec(text); m; m = pattern.exec(text)) {
+        const entry = wanted.get(m[1]);
+        if (!entry) continue;
+        const predicate = cfgPredicateOf(entry.compiledOut);
+        let gated = false;
+        if (rust && predicate) {
+          if (!ranges.has(predicate)) ranges.set(predicate, rustCfgGatedRanges(text, predicate));
+          gated = ranges.get(predicate).some(([start, end]) => m.index >= start && m.index < end) || (gates.get(file) ?? []).some((expr) => cfgImplies(expr, predicate));
+        }
+        if (!gated) findings.push({ layer: "binary", rule: "read-not-gated", name: entry.name, file: `${rel}:${lineOf(text, m.index)}`, reason: `read-not-gated: \`${entry.name}\` is declared with releasePresence, but this read is not inside an item under \`#[cfg(${predicate ?? entry.compiledOut})]\` (\`cfg!()\`, a runtime branch and non-Rust files are not enclosures), so release code can read it` });
+      }
+    }
+  }
+  return findings;
+}
+
+/**
+ * The S1-S4 names whose `releasePresence` claim holds, so the binary layer may let them stay in a release binary, plus the
+ * findings for the claims that do not. A claim holds when (1) its owner is in the tree (`owner: crate`: the registry
+ * `presenceOwners` entry for the name and mechanism names a crate the resolved `cargo tree` contains) or the app's own anchor
+ * shows the name in a scrub, clear or set call (`owner: app`), AND (2) `enclosingCfgFindings` finds no read of it outside a
+ * `#[cfg(<compiledOut>)]` enclosure. Anything else keeps the name in the deny set.
+ */
+export function releasePresenceFindings({ inventoryText, treeText, sourceRoot, sourceRoots, skipRoots, envHelpers }) {
+  const accepted = new Set(); const findings = [];
+  const { doc, issues } = parseInventory(inventoryText);
+  if (!doc || issues.length || !Array.isArray(doc.switches)) return { accepted, findings };
+  const claims = doc.switches.filter((entry) => FORBIDDEN_CLASSES.has(entry.class) && entry.releasePresence && COMPILED_OUT.test(entry.compiledOut ?? ""));
+  if (claims.length === 0) return { accepted, findings };
+  const unproven = (entry, why) => findings.push({ layer: "binary", rule: "release-presence-unproven", file: "switches.json", reason: `release-presence-unproven: \`${entry.name}\` ${why}; its name stays denied in release binaries` });
+  const proven = [];
+  for (const entry of claims) {
+    const presence = entry.releasePresence;
+    if (presence.owner === "crate") {
+      const owner = REGISTRY.presenceOwners.find((candidate) => ownerNameMatches(candidate.name, entry.name) && candidate.mechanism === presence.mechanism);
+      if (!owner) unproven(entry, `claims owner crate but the registry names no presenceOwners entry that ${presence.mechanism}s it`);
+      else if (!treeHasCrate(treeText, owner.crate)) unproven(entry, `claims owner crate \`${owner.crate}\`, which is not in the resolved cargo tree`);
+      else proven.push(entry);
+    } else {
+      const problem = presenceAnchorProblem(sourceRoot, entry);
+      if (problem) unproven(entry, problem); else proven.push(entry);
+    }
+  }
+  if (proven.length === 0) return { accepted, findings };
+  if (!sourceRoot) { for (const entry of proven) unproven(entry, "has no source root to prove its reads are cfg-gated"); return { accepted, findings }; }
+  const gate = enclosingCfgFindings({ sourceRoot, sourceRoots, skipRoots, entries: proven, envHelpers });
+  const ungated = new Set(gate.map((finding) => finding.name));
+  for (const entry of proven) if (!ungated.has(entry.name)) accepted.add(entry.name);
+  findings.push(...gate);
+  return { accepted, findings };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -523,16 +773,77 @@ export function scanSwitchPaths(paths, { denyMap = denyNamesFor() } = {}) {
   return { findings, receipt: { files, binaries: files.length } };
 }
 
+// Which of `names` occur (Latin-1 or UTF-16LE) in at least one native binary under `paths`. Same matcher as the release scan.
+export function binaryNamesPresent(paths, names) {
+  const present = new Set(); let binaries = 0;
+  const visit = (target) => {
+    let st;
+    try { st = lstatSync(target); } catch { return; }
+    if (st.isSymbolicLink()) return;
+    if (st.isDirectory()) { for (const name of readdirSync(target).sort()) visit(path.join(target, name)); return; }
+    if (!st.isFile()) return;
+    const fd = openSync(target, "r");
+    try {
+      const head = Buffer.alloc(4);
+      const got = readSync(fd, head, 0, 4, 0);
+      if (!isNativeBinaryHeader(head.subarray(0, got))) return;
+      binaries += 1;
+      const scanner = new SwitchScanner(new Map(names.map((name) => [name, "S1"])));
+      const buffer = Buffer.alloc(CHUNK);
+      for (;;) {
+        const read = readSync(fd, buffer, 0, CHUNK, null);
+        if (read === 0) break;
+        scanner.push(buffer.subarray(0, read));
+      }
+      for (const name of names) if (scanner.hits.has(name)) present.add(name);
+    } finally { closeSync(fd); }
+  };
+  for (const target of paths) visit(target);
+  return { present, binaries };
+}
+
+/**
+ * The dev-build self-check (the `--expect-present` of ViewRight's retired scan, #397): a dev binary is built WITH the QA surface, so
+ * the strings the release scan refuses must be there. If the dev binary lacks one (a renamed or stripped marker), the release scan
+ * could not see it in a release binary either, and would pass silently. `expect` defaults to the QA control marker, which every dev
+ * copy carries (GATE-CONTRACT GC-A07); an app lists more with `releaseSwitches.devSelfCheck.expectPresent`.
+ */
+export function devExpectPresentFindings({ binaryPaths, expect = [QA_CONTROL_MARKER] }) {
+  const { present, binaries } = binaryNamesPresent(binaryPaths, expect);
+  if (binaries === 0) return [{ layer: "binary", rule: "unscannable", file: binaryPaths.join(", "), reason: "unscannable: no Mach-O, PE or ELF file found in the dev build; the dev self-check cannot run" }];
+  return expect.filter((name) => !present.has(name)).map((name) => ({ layer: "binary", rule: "dev-expect-absent", file: binaryPaths.join(", "), reason: `dev-expect-absent: the dev binary does not contain \`${name}\`; a scan for it in a release binary could not tell a clean build from a renamed or stripped marker` }));
+}
+
+/**
+ * `releaseSwitches.devSelfCheck`: absent means the default (the QA control marker must be in the dev binary); `{ expectPresent: [names] }` adds
+ * names; `{ optOut: "<reason>" }` skips the check for an app whose dev build has no QA control server (a reason is required, and it is
+ * printed on every dev build). Returns { expect } or { skip: reason }; anything else throws.
+ */
+export function devSelfCheckSettings(value) {
+  if (value === undefined) return { expect: [QA_CONTROL_MARKER] };
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    if (typeof value.optOut === "string" && value.optOut.trim() && value.expectPresent === undefined) return { skip: value.optOut.trim() };
+    if (value.optOut === undefined && Array.isArray(value.expectPresent) && value.expectPresent.length > 0 && value.expectPresent.every((name) => typeof name === "string" && name)) return { expect: [...new Set([QA_CONTROL_MARKER, ...value.expectPresent])] };
+  }
+  throw new Error('releaseSwitches.devSelfCheck must be { "expectPresent": ["<string>", ...] } or { "optOut": "<why this dev build has no QA surface>" }');
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Combined gate.
 
 // Every layer is optional input; a layer given no input is skipped, except that `requireBinary` fails a scan that
 // found no native binary. `bypass: ["feature-closure"]` exists only for the negative fixtures that prove the binary
 // layer independently; release.mjs never passes it.
-export function releaseSwitchFindings({ treeText, commands = [], sourceRoot, sourceRoots, skipRoots, inventoryText, binaryPaths = [], appForbid = [], requireBinary = true, bypass = [], remoteHost, remoteLoopback, devtools } = {}) {
+export function releaseSwitchFindings({ treeText, commands = [], sourceRoot, sourceRoots, skipRoots, inventoryText, binaryPaths = [], appForbid = [], requireBinary = true, bypass = [], remoteHost, remoteLoopback, devtools, envHelpers, presenceAccepted = [] } = {}) {
   const findings = [];
   const bypassed = new Set(bypass);
+  // A name whose releasePresence claim is proven (owner in the tree or anchored scrub, every read cfg-gated) may stay in a release binary.
+  // `presenceAccepted` carries the result of an earlier full-source run (the pre-build gate) to a binary-only run.
+  const presence = sourceRoot && inventoryText != null ? releasePresenceFindings({ inventoryText, treeText, sourceRoot, sourceRoots, skipRoots, envHelpers }) : { accepted: new Set(), findings: [] };
+  const presentOk = new Set([...presenceAccepted, ...presence.accepted]);
+  findings.push(...presence.findings);
   const denyMap = denyNamesFor({ appForbid: [...appForbid, ...(inventoryText != null ? inventoryDenyNames(inventoryText) : [])] });
+  for (const name of presentOk) denyMap.delete(name);
   if (!bypassed.has("feature-closure")) {
     if (treeText != null) {
       findings.push(...featureClosureFindings(treeText, { allowDevtools: devtools?.mode === "content-only" }));
@@ -541,7 +852,7 @@ export function releaseSwitchFindings({ treeText, commands = [], sourceRoot, sou
     }
     for (const argv of commands) findings.push(...commandSwitchFindings(argv, { allowDevtools: devtools?.mode === "content-only" }));
   }
-  if (sourceRoot && inventoryText != null) findings.push(...sourceSwitchFindings({ sourceRoot, sourceRoots, skipRoots, inventoryText, extraDeny: appForbid }));
+  if (sourceRoot && inventoryText != null) findings.push(...sourceSwitchFindings({ sourceRoot, sourceRoots, skipRoots, inventoryText, extraDeny: appForbid, envHelpers }));
   let receipt = { files: [], binaries: 0 };
   if (binaryPaths.length) {
     const scanned = scanSwitchPaths(binaryPaths, { denyMap });
@@ -575,16 +886,19 @@ export function localCrateDirsFromTree(treeText, root) {
 }
 
 const NON_SHIPPED_SKIP = new Set(["node_modules", "target", ".git"]);
-function hasPackageJson(dir, depth = 0) {
+function hasMarkerFile(dir, marker, depth = 0) {
   if (depth > 6) return false;
   let entries;
   try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return false; }
   for (const entry of entries) {
-    if (entry.isFile() && entry.name === "package.json") return true;
-    if (entry.isDirectory() && !entry.isSymbolicLink() && !NON_SHIPPED_SKIP.has(entry.name) && hasPackageJson(path.join(dir, entry.name), depth + 1)) return true;
+    if (entry.isFile() && entry.name === marker) return true;
+    if (entry.isDirectory() && !entry.isSymbolicLink() && !NON_SHIPPED_SKIP.has(entry.name) && hasMarkerFile(path.join(dir, entry.name), marker, depth + 1)) return true;
   }
   return false;
 }
+const hasPackageJson = (dir) => hasMarkerFile(dir, "package.json");
+// A desktop Swift package (Package.swift) is compiled code, never tooling, whether or not a build script reaches it (#939).
+const hasSwiftPackage = (dir) => hasMarkerFile(dir, "Package.swift");
 const within = (outer, inner) => inner === outer || inner.startsWith(outer + path.sep);
 
 const readJsonSafe = (file) => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return null; } };
@@ -621,9 +935,10 @@ function commandRefs(base, commands, scripts) {
 // and tsconfig.json name. Quoted strings in vite.config are read as paths when they exist under the root (root, publicDir, build input).
 function rootFrontendDirs(base) {
   const dirs = new Set();
-  const add = (rel) => {
+  const typeChecked = new Set();
+  const add = (rel, into = dirs) => {
     const abs = path.resolve(base, rel);
-    if (abs !== base && within(base, abs) && existsSync(abs)) dirs.add(abs);
+    if (abs !== base && within(base, abs) && existsSync(abs)) into.add(abs);
   };
   add("src"); add("public");
   for (const m of readTextSafe(path.join(base, "index.html")).matchAll(/\b(?:src|href)\s*=\s*["']([^"'#?]+)["']/g)) if (!/^[a-z][a-z0-9+.-]*:|^\/\//i.test(m[1])) add(m[1].replace(/^\//, ""));
@@ -633,9 +948,53 @@ function rootFrontendDirs(base) {
   }
   const ts = readTextSafe(path.join(base, "tsconfig.json"));
   for (const m of ts.matchAll(/"(?:include|files)"\s*:\s*\[([^\]]*)\]/g)) {
-    for (const q of m[1].matchAll(/"([^"]+)"/g)) add(q[1].split(/[*?{[]/)[0].replace(/\/$/, "") || ".");
+    for (const q of m[1].matchAll(/"([^"]+)"/g)) add(q[1].split(/[*?{[]/)[0].replace(/\/$/, "") || ".", typeChecked);
   }
-  return dirs;
+  // `tsconfig.json` `include`/`files` only say what `tsc` type-checks (MailRight's `scripts/`), not what a bundle contains (#1070): those
+  // directories are protected only when the frontend import graph reaches them (`frontendImportGraph`), never by being listed.
+  return { dirs, typeChecked };
+}
+
+// Source files the frontend build starts from: scripts named by the root `index.html`, `src/main.*` and `src/index.*`, and files named by quoted
+// strings in `vite.config.*` (build input).
+function frontendEntryFiles(base) {
+  const entries = new Set();
+  const addFile = (rel) => {
+    const abs = path.resolve(base, String(rel).replace(/^\//, ""));
+    if (within(base, abs) && JS_SOURCE.test(abs) && existsSync(abs)) entries.add(abs);
+  };
+  for (const m of readTextSafe(path.join(base, "index.html")).matchAll(/<script\b[^>]*\bsrc\s*=\s*["']([^"'#?]+)["']/gi)) if (!/^[a-z][a-z0-9+.-]*:|^\/\//i.test(m[1])) addFile(m[1]);
+  for (const stem of ["main", "index"]) for (const ext of ["ts", "tsx", "js", "jsx", "mjs"]) addFile(`src/${stem}.${ext}`);
+  for (const entry of readdirSafe(base)) {
+    if (!/^vite\.config\./.test(entry)) continue;
+    for (const m of readTextSafe(path.join(base, entry)).matchAll(/["'`]([^"'`\n]+)["'`]/g)) addFile(m[1]);
+  }
+  return entries;
+}
+
+const JS_SOURCE = /\.(?:[cm]?[jt]s|[jt]sx|vue|svelte)$/;
+const IMPORT_SPEC = /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*|\bnew\s+URL\s*\(\s*)["']([^"']+)["']/g;
+const RESOLVE_EXT = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".svelte", ".json"];
+
+// Every file the frontend build reaches through relative imports (`./x`, `../scripts/x.ts`, `import("./x")`, `new URL("./x", import.meta.url)`)
+// from its entry files. Aliased and bare imports are not followed (the walk cannot resolve tsconfig `paths` or Vite `alias`).
+function frontendImportGraph(base) {
+  const seen = new Set();
+  const queue = [...frontendEntryFiles(base)];
+  const exists = (file) => { try { return lstatSync(file).isFile(); } catch { return false; } };
+  while (queue.length && seen.size < 20000) {
+    const file = queue.pop();
+    if (seen.has(file)) continue;
+    seen.add(file);
+    for (const m of readTextSafe(file).matchAll(IMPORT_SPEC)) {
+      if (!m[1].startsWith(".")) continue;
+      const target = path.resolve(path.dirname(file), m[1].replace(/[?#].*$/, ""));
+      const stripped = target.replace(/\.(?:[cm]?js|jsx)$/, "");
+      const found = [target, ...RESOLVE_EXT.map((e) => target + e), ...RESOLVE_EXT.map((e) => stripped + e), ...RESOLVE_EXT.map((e) => path.join(target, `index${e}`))].find(exists);
+      if (found && within(base, found) && !seen.has(found)) queue.push(found);
+    }
+  }
+  return seen;
 }
 function readdirSafe(dir) { try { return readdirSync(dir); } catch { return []; } }
 
@@ -644,8 +1003,8 @@ function readdirSafe(dir) { try { return readdirSync(dir); } catch { return []; 
  * An exclusion list: whatever is not declared is still scanned. Each entry is refused (`inventory-invalid`) when the dir is missing,
  * absolute, escapes the root, is a symlink or the root itself, has an empty reason, contains or sits inside a local crate of the release
  * cargo tree, contains or sits inside `src-tauri` or the Tauri `frontendDist` bundle, or contains or sits inside a package that has a
- * `package.json` (a frontend build input), overlaps the root frontend (`src/`, `public/`, directories named by `index.html`, `vite.config.*` or
- * `tsconfig.json`, when the root has a `package.json`), or contains a file named by a `src-tauri/tauri.conf.json` `before*Command` or a root
+ * `package.json` (a frontend build input) or a `Package.swift`, contains or sits inside a path a Cargo build script compiles or watches (`buildScriptRefs`), overlaps the root frontend (`src/`, `public/`, directories named by `index.html` or
+ * `vite.config.*`, when the root has a `package.json`; a directory only `tsconfig.json` names is refused when the frontend import graph reaches it), or contains a file named by a `src-tauri/tauri.conf.json` `before*Command` or a root
  * `package.json` `build*` script or by the release recipe's own commands (`recipeCommands`; followed through `run <script>`), which run during the release build.
  * Returns { findings, roots } where `roots` are the validated root-relative dirs, empty if any entry was refused.
  */
@@ -664,7 +1023,11 @@ export function validateNonShipped({ root, treeText, nonShipped, recipeCommands 
     if (typeof dist === "string" && !/^[a-z][a-z0-9+.-]*:\/\//i.test(dist)) protectedDirs.push(path.resolve(base, "src-tauri", dist));
   } catch { /* no readable tauri.conf.json: nothing extra to protect */ }
   const pkg = readJsonSafe(path.join(base, "package.json"));
-  const frontendDirs = pkg ? rootFrontendDirs(base) : new Set();
+  const frontend = pkg ? rootFrontendDirs(base) : { dirs: new Set(), typeChecked: new Set() };
+  const frontendDirs = frontend.dirs;
+  let importGraph;  // built once, only when a declared directory is one tsc type-checks
+  const buildScriptDirs = [...new Set([base, path.join(base, "src-tauri"), ...localCrateDirsFromTree(treeText, base)])];
+  const buildScripts = buildScriptRefs(buildScriptDirs);
   const scripts = pkg?.scripts && typeof pkg.scripts === "object" ? pkg.scripts : {};
   const hookObj = readJsonSafe(path.join(base, "src-tauri", "tauri.conf.json"))?.build ?? {};
   const commands = [
@@ -691,11 +1054,23 @@ export function validateNonShipped({ root, treeText, nonShipped, recipeCommands 
       if (within(abs, guarded) || within(guarded, abs)) { bad(label, `dir \`${dir}\` overlaps shipped code (${path.relative(base, guarded) || "."}: a local crate of the release cargo tree, src-tauri or the frontend bundle); it cannot be declared non-shipped`); return; }
     }
     if (hasPackageJson(abs)) { bad(label, `dir \`${dir}\` contains a package.json (a possible frontend build input); it cannot be declared non-shipped`); return; }
+    if (hasSwiftPackage(abs)) { bad(label, `dir \`${dir}\` contains a Package.swift (a desktop Swift package is compiled code); it cannot be declared non-shipped`); return; }
+    for (let up = path.dirname(abs); within(base, up) && up !== base; up = path.dirname(up)) {
+      if (existsSync(path.join(up, "Package.swift"))) { bad(label, `dir \`${dir}\` sits inside a Swift package (${path.relative(base, up)}/Package.swift); it cannot be declared non-shipped`); return; }
+    }
+    const scriptRef = [...buildScripts].find((r) => within(abs, r) || within(r, abs));
+    if (scriptRef) { bad(label, `dir \`${dir}\` contains or sits inside a path a Cargo build script compiles or watches (${path.relative(base, scriptRef).split(path.sep).join("/")}: build.rs itself, include!/include_str!/include_bytes!, cc::Build file/include or cargo:rerun-if-changed); it cannot be declared non-shipped`); return; }
     for (let up = path.dirname(abs); within(base, up) && up !== base; up = path.dirname(up)) {
       if (existsSync(path.join(up, "package.json"))) { bad(label, `dir \`${dir}\` sits inside a package (${path.relative(base, up)}/package.json: a possible frontend build input); it cannot be declared non-shipped`); return; }
     }
     const guardedBy = [...frontendDirs].find((g) => within(abs, g) || within(g, abs));
     if (guardedBy) { bad(label, `dir \`${dir}\` overlaps the app's root frontend (${path.relative(base, guardedBy)}: src/, public/ or a directory named by index.html, vite.config or tsconfig); it cannot be declared non-shipped`); return; }
+    const typeChecked = [...frontend.typeChecked].find((g) => within(abs, g) || within(g, abs));
+    if (typeChecked) {
+      importGraph ??= frontendImportGraph(base);
+      const reached = [...importGraph].find((file) => within(abs, file));
+      if (reached) { bad(label, `dir \`${dir}\` is type-checked by tsconfig.json and the frontend import graph reaches ${path.relative(base, reached).split(path.sep).join("/")}, so a bundle contains it; it cannot be declared non-shipped`); return; }
+    }
     const buildRef = [...buildRefs].find((r) => within(abs, r) || within(r, abs));
     if (buildRef) { bad(label, `dir \`${dir}\` contains or sits inside a build-time input (${path.relative(base, buildRef).split(path.sep).join("/")}: named by a tauri.conf.json before*Command or a package.json build script, which runs during the release build); it cannot be declared non-shipped`); return; }
     if (typeof reason === "string" && reason.trim() !== "") roots.push(path.relative(base, abs));

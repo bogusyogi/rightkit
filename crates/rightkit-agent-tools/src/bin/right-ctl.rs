@@ -75,11 +75,25 @@ fn print(v: &Value) {
     println!("{v}");
 }
 
+/// `control_toolbox`, with each app's profile moved to its loopback HTTP endpoint when
+/// `RIGHT_CTL_HTTP_<APP>` names one (rightkit#795).
+fn ctl_toolbox(suite: &Suite, apps: &[&str]) -> Result<Toolbox, ToolError> {
+    let mut tb = Toolbox::new();
+    for app in apps {
+        add_app(
+            &mut tb,
+            suite,
+            AppProfile::for_app(app).with_http_from_env()?,
+        )?;
+    }
+    Ok(tb)
+}
+
 /// Toolbox for `run`: control tools for `apps`, plus desktop and browser.
 fn full_toolbox(suite: &Suite, apps: &[String]) -> Result<Toolbox, ToolError> {
     let names: Vec<&str> = apps.iter().map(String::as_str).collect();
     #[allow(unused_mut)]
-    let mut tb = control_toolbox(suite, &names)?;
+    let mut tb = ctl_toolbox(suite, &names)?;
     #[cfg(all(feature = "automation", any(target_os = "macos", windows)))]
     {
         let policy = rightkit_automation::Policy::new(
@@ -244,7 +258,7 @@ fn main() -> ExitCode {
     if argv.len() < 2 {
         return usage();
     }
-    let mut tb = match control_toolbox(&suite, &[&app]) {
+    let mut tb = match ctl_toolbox(&suite, &[&app]) {
         Ok(t) => t,
         Err(e) => return fail(&e),
     };

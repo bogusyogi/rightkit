@@ -174,7 +174,7 @@ pub fn run() {
                     .join("logs")
                     .join("rightkit-renderer.events.jsonl"),
             );
-            logs.build = if cfg!(debug_assertions) {
+            logs.build = if cfg!(feature = "qa-native") {
                 "debug"
             } else {
                 "release"
@@ -200,15 +200,4 @@ pub fn run() {
                 }
             }
         });
-}
-
-#[cfg(all(test, not(feature = "qa-native")))]
-mod engine_override_tests {
-    use super::engine_override;
-
-    // rk-test: pure
-    #[test]
-    fn a_build_without_qa_native_never_honours_an_engine_override() {
-        assert_eq!(engine_override(), None);
-    }
 }

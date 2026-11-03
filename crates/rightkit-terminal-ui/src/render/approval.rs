@@ -336,13 +336,6 @@ impl ApprovalOverlay {
             .collect()
     }
 
-    /// Mark the current request as already drawn, as a render would.
-    /// Host-level tests have no frame to draw into.
-    #[doc(hidden)]
-    pub fn arm_for_tests(&mut self) {
-        self.armed = true;
-    }
-
     /// Name the redirect option after the active model.
     pub fn set_model_label(&mut self, model: Option<String>) {
         self.model_label = model.map(|m| sanitize(&m)).filter(|m| !m.trim().is_empty());

@@ -78,7 +78,26 @@ export function runOutdated(argv, { fromDir = here(), cwd = process.cwd(), env =
   });
 }
 
+const MANIFEST_COMMANDS = new Set(["check", "apply", "gate", "land", "discard", "run"]);
+
+/** The explanation `update <command>` gives when the repository has no .rightkit/update.json, or null when it has one (or the command reads none). */
+export function missingManifestMessage(argv, { cwd = process.cwd(), fromDir = here() } = {}) {
+  if (!MANIFEST_COMMANDS.has(argv[0])) return null;
+  const repoFlag = argv.findIndex((arg) => arg === "--repo" || arg.startsWith("--repo="));
+  const repo = path.resolve(cwd, repoFlag < 0 ? "." : argv[repoFlag] === "--repo" ? (argv[repoFlag + 1] ?? ".") : argv[repoFlag].slice("--repo=".length));
+  if (existsSync(path.join(repo, ".rightkit", "update.json"))) return null;
+  const outdated = findOutdatedPackage(fromDir);
+  const schema = outdated === null ? "the schema shipped as update.schema.json in @rightkit/outdated" : path.join(outdated, "update.schema.json");
+  return `${repo} has no .rightkit/update.json, which \`update ${argv[0]}\` reads. Create it first (the "Manifest" section of the @rightkit/outdated README; schema: ${schema}), or move the pins by hand: set each @rightkit/* pin in package.json and each rightkit-* crate in the crate manifest to the exact latest version the refusal lists, then refresh pnpm-lock.yaml and the crate lock.`;
+}
+
 export async function main(argv = process.argv.slice(2)) {
+  const missing = missingManifestMessage(argv);
+  if (missing !== null) {
+    console.error(`right-release update: ${missing}`);
+    process.exitCode = 2;
+    return;
+  }
   try {
     process.exitCode = await runOutdated(argv);
   } catch (error) {

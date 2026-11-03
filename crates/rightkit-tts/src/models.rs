@@ -469,14 +469,11 @@ pub fn verify_mode(dir: &Path, mode: Mode, full: bool) -> Result<(), String> {
     verify_files(dir, &expects, full)
 }
 
-/// Bind the ONNX Runtime a worker process loads. Builds without the `dev-overrides` feature never inherit
-/// `ORT_DYLIB_PATH`; with it the variable stays a developer override. An explicit runtime sets `ORT_DYLIB_PATH` and its
-/// directory goes first on `PATH`, so the DLLs beside it load on Windows; that holds in every build
-/// and whatever the environment held. Call single-threaded, before the engine loads.
+/// Bind the ONNX Runtime a worker process loads. An inherited `ORT_DYLIB_PATH` is never kept. An explicit
+/// runtime sets `ORT_DYLIB_PATH` and its directory goes first on `PATH`, so the DLLs beside it load on
+/// Windows. Call single-threaded, before the engine loads.
 pub fn bind_ort_runtime(explicit: Option<&Path>) {
-    if !cfg!(feature = "dev-overrides") {
-        std::env::remove_var("ORT_DYLIB_PATH");
-    }
+    std::env::remove_var("ORT_DYLIB_PATH");
     if let Some(path) = explicit {
         std::env::set_var("ORT_DYLIB_PATH", path);
         rightkit_onnx::prepend_runtime_dir_to_path(path);
@@ -487,22 +484,12 @@ pub fn runtime_lib_name() -> &'static str {
     rightkit_onnx::runtime_filename()
 }
 
-/// Developer override for ONNX Runtime: `ORT_DYLIB_PATH` is read only with the `dev-overrides` feature, the same
-/// gate `rightkit-onnx` applies to its developer override. Other builds never consult it.
-fn developer_env_runtime() -> Option<PathBuf> {
-    if cfg!(feature = "dev-overrides") {
-        env_nonempty("ORT_DYLIB_PATH")
-    } else {
-        None
-    }
-}
-
-/// First regular, non-system ONNX Runtime among `developer` then `runtime/` and the exe directory
+/// First regular, non-system ONNX Runtime among `runtime/` and the exe directory
 /// beside the running exe, then `<dir>/<runtime file>` for each absolute directory in `dirs`.
 /// Reads no environment itself. Windows-ML copies under `System32` are skipped.
-fn select_runtime(developer: Option<PathBuf>, dirs: Vec<PathBuf>) -> Option<PathBuf> {
+fn select_runtime(dirs: Vec<PathBuf>) -> Option<PathBuf> {
     let name = rightkit_onnx::runtime_filename();
-    let mut candidates: Vec<PathBuf> = developer.into_iter().collect();
+    let mut candidates: Vec<PathBuf> = Vec::new();
     if let Some(exe_dir) = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(Path::to_path_buf))
@@ -521,8 +508,7 @@ fn select_runtime(developer: Option<PathBuf>, dirs: Vec<PathBuf>) -> Option<Path
 }
 
 /// Find ONNX Runtime for a worker of `model_dir` under the caller's data root: the directory
-/// beside the model folder's parent `runtime/`, then `<data>/runtime/qts`. Only a debug build
-/// honours `ORT_DYLIB_PATH` (see `developer_env_runtime`).
+/// beside the model folder's parent `runtime/`, then `<data>/runtime/qts`. `ORT_DYLIB_PATH` is never consulted.
 pub fn find_onnxruntime_in(data_root: Option<&Path>, model_dir: Option<&Path>) -> Option<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
     if let Some(parent) = model_dir.and_then(Path::parent) {
@@ -531,7 +517,7 @@ pub fn find_onnxruntime_in(data_root: Option<&Path>, model_dir: Option<&Path>) -
     if let Ok(root) = data_root_in(data_root) {
         dirs.push(root.join("runtime").join("qts"));
     }
-    select_runtime(developer_env_runtime(), dirs)
+    select_runtime(dirs)
 }
 
 /// Find ONNX Runtime (>= 1.24, `api-24`) for the default model folder and data root. See

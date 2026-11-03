@@ -24,6 +24,7 @@ use crate::protocol::{
     MetricImportValue, Scope,
 };
 use crate::Fail;
+use std::collections::BTreeSet;
 
 /// Methods that write. A dry run reports them and writes nothing.
 pub const WRITE_METHODS: &[&str] = &["metric_import.commit"];

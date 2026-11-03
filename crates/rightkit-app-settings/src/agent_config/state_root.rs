@@ -87,8 +87,8 @@ pub fn state_root() -> Option<PathBuf> {
     cache.entry(key).or_insert_with(|| open(&suite)).clone()
 }
 
-/// Whether this process runs against an isolated root. Always `false` now that the test-mode
-/// override is removed; kept so callers that stay inside the state root keep compiling.
+/// Whether this process's state root comes from the environment (an explicit suite root) instead
+/// of the per-user default.
 pub fn state_root_is_isolated() -> bool {
     process_suite().is_ok_and(|suite| suite.env_derived())
 }

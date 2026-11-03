@@ -9,9 +9,15 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use std::fmt;
 use std::io::Read;
+use std::path::Path;
+use std::time::Duration;
 
 /// Largest hook payload read from stdin (Pulse's `STDIN_CAP`).
 pub const STDIN_CAP: u64 = 4 * 1024 * 1024;
+/// Longest wait for the first byte of a hook payload (Pulse's `read_hook_payload`).
+pub const STDIN_FIRST_BYTE: Duration = Duration::from_secs(2);
+/// Longest quiet gap between chunks of a hook payload (Pulse's `read_hook_payload`).
+pub const STDIN_QUIET: Duration = Duration::from_millis(400);
 
 /// Which harness sent the hook. The harness is chosen by the registration (Pulse's
 /// `claude-hook` / `codex-hook`), not sniffed from the payload.
@@ -223,6 +229,62 @@ impl HookEvent {
         let value: Value =
             serde_json::from_slice(bytes).map_err(|e| ParseError::Malformed(e.to_string()))?;
         Self::from_value(wire, value)
+    }
+
+    /// Read the hook payload from stdin under Pulse's deadlines and parse it: see
+    /// [`HookEvent::from_reader_deadline`] with [`STDIN_FIRST_BYTE`] and [`STDIN_QUIET`].
+    pub fn from_stdin(wire: Wire) -> Result<Self, ParseError> {
+        Self::from_reader_deadline(wire, std::io::stdin(), STDIN_FIRST_BYTE, STDIN_QUIET)
+    }
+
+    /// Read at most [`STDIN_CAP`] bytes from `reader` on a helper thread, and parse what arrived
+    /// before a deadline. The first byte must arrive within `first_byte`, and then the input
+    /// must not go quiet for longer than `quiet` between chunks (Pulse's `read_hook_payload`).
+    /// Input that ends or stalls is parsed as it stands, so a stalled host never blocks the hook.
+    /// A read still stalled when this returns stays on its detached thread; the hook process
+    /// exits after one event.
+    pub fn from_reader_deadline(
+        wire: Wire,
+        reader: impl Read + Send + 'static,
+        first_byte: Duration,
+        quiet: Duration,
+    ) -> Result<Self, ParseError> {
+        use std::sync::mpsc::{channel, RecvTimeoutError};
+        // Ok(Some(chunk)) for data, Ok(None) at end of input, Err for a failed read.
+        let (tx, rx) = channel::<Result<Option<Vec<u8>>, String>>();
+        std::thread::spawn(move || {
+            let mut reader = reader;
+            let mut buf = [0u8; 8192];
+            loop {
+                let message = match reader.read(&mut buf) {
+                    Ok(0) => Ok(None),
+                    Ok(n) => Ok(Some(buf[..n].to_vec())),
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(e) => Err(e.to_string()),
+                };
+                let done = !matches!(message, Ok(Some(_)));
+                if tx.send(message).is_err() || done {
+                    break;
+                }
+            }
+        });
+        let mut raw = Vec::new();
+        let mut wait = first_byte;
+        loop {
+            match rx.recv_timeout(wait) {
+                Ok(Ok(Some(chunk))) => {
+                    raw.extend_from_slice(&chunk);
+                    if raw.len() as u64 > STDIN_CAP {
+                        return Err(ParseError::TooLarge);
+                    }
+                    wait = quiet;
+                }
+                Ok(Ok(None)) => break,
+                Ok(Err(e)) => return Err(ParseError::Io(e)),
+                Err(RecvTimeoutError::Timeout) | Err(RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        Self::from_slice(wire, &raw)
     }
 
     /// Read at most [`STDIN_CAP`] bytes and parse. Larger input is [`ParseError::TooLarge`].

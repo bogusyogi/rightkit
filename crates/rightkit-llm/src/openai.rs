@@ -74,6 +74,17 @@ impl OpenAiCompatProvider {
         self.observer = Some(Arc::new(f));
         self
     }
+    /// Report every physical HTTP attempt of this provider to `f` (#658): one
+    /// [`crate::attempt::AttemptNotice`] per attempt, including the terminal one, with a
+    /// `SubmissionUnknown` receipt where the request may have reached the server. Replaces an
+    /// observer the provider's client already had, so call it after the client is built.
+    pub fn with_attempt_observer(
+        mut self,
+        f: impl Fn(&crate::attempt::AttemptNotice<'_>) + Send + Sync + 'static,
+    ) -> Self {
+        self.client = crate::attempt::observe_attempts(self.client, f);
+        self
+    }
     /// Keep the provider's raw response for non-streaming calls: status, request id and up to
     /// `max_body_bytes` of the body (0 keeps status and request id only). The observer gets it
     /// in [`CallRecord::raw`], and a `Truncated` or `Malformed` error carries it

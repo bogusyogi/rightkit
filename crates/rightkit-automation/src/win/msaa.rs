@@ -4,7 +4,10 @@
 //! no global input is used.
 
 use crate::model::*;
+use std::ffi::c_void;
+use std::mem::ManuallyDrop;
 use windows::core::Interface;
+use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_MULTITHREADED};
 use windows::Win32::System::Variant::{VARIANT, VARIANT_0, VARIANT_0_0, VARIANT_0_0_0, VT_I4};
 use windows::Win32::UI::Accessibility::{AccessibleObjectFromWindow, IAccessible};

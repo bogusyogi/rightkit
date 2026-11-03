@@ -55,7 +55,7 @@ The transport proves the program that answered runs as you. It does not prove wh
 
 `Client::connect(suite, service, app)`:
 
-1. `suite` is whatever the caller built. `Suite::resolve()` takes it from the environment: `RIGHTKIT_SUITE_ROOT`, then `RIGHT_SUITE_DIR`, then `ORTHIC_SHARED_DIR`, then the per-user default derived from `HOME` (macOS), `XDG_DATA_HOME` or `HOME` (Linux), `LOCALAPPDATA` (Windows).
+1. `suite` is whatever the caller built. `Suite::resolve()` is `Suite::per_user_default()` (0.5.3): the account database, never the environment.
 2. It reads `<suite>/runtime/<service>/service.json` with no owner, mode or liveness check, and rejects a different `protocol_major`.
 3. It connects to the record's `endpoint` exactly as written (a Unix socket path, a pipe name). It does not recompute it.
 4. After the connect, and before any byte: Unix compares the peer's uid with its own (`getpeereid`/`SO_PEERCRED`); Windows compares the pipe server process's token SID with its own.
@@ -118,7 +118,7 @@ No Security.framework call is made by this crate. The macOS code-signature team 
 
 `ClientConfig::ignore_env_overrides(true)` makes the suite root come only from `Suite::per_user_default()`: the home directory from the account database (`getpwuid_r(geteuid())`), never `HOME`, and none of `RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR`, `ORTHIC_SHARED_DIR`, `XDG_DATA_HOME`, `LOCALAPPDATA`. A suite handed in from `Suite::resolve()` (see `Suite::env_derived()`) is refused under the switch, so the switch cannot be defeated by passing the environment in. On Windows the root is `<local app data>\Orthic Labs\shared` with the folder from `SHGetKnownFolderPath(FOLDERID_LocalAppData)`, which reads the profile's registry, never `%LOCALAPPDATA%`.
 
-* Release builds of an app and of its command-line engine set `ignore_env_overrides(true)`. QA builds and isolated test runs do not, because they depend on `RIGHTKIT_SUITE_ROOT`.
+* Release builds of an app and of its command-line engine set `ignore_env_overrides(true)`. Since 0.5.3 the switch changes nothing: no build reads `RIGHTKIT_SUITE_ROOT` or any other override.
 * Hosts read no environment variable themselves: `host()` takes the `Suite` the app built. The same switch for a host is `Suite::resolve_ignoring_env_overrides(true)` (or `Suite::per_user_default()`), and a host and its hardened clients must resolve the same way. On Linux that means a user who moved `XDG_DATA_HOME` is hosted at `~/.local/share` by a hardened host, not at their `XDG_DATA_HOME`.
 * The switch and the expectation are independent. With the switch off, a redirected client still refuses the impostor it is redirected to, because it is not the app.
 
@@ -207,13 +207,9 @@ An application route that needs no device signature (a provider webhook, a callb
 
 `stop::StopSource` is the one trigger for a host's stop: `stop_on_signals` (SIGINT and SIGTERM on Unix, the console control handler on Windows; a 50 ms watcher thread turns the signal into a trigger) and `stop_on_stdin_close` both feed it, and `StopToken` is what the host's threads wait on. `ticker::spawn_ticker` runs a closure every interval until the stop, and `ticker::spawn_heartbeat` writes a `{pid, updated_ms, state}` record atomically to a path on the same schedule.
 
-## Per-app QA inputs (`test_selector!`)
+## No test mode
 
-`test_selector!(mode, "RIGHTKIT_<APP>_<NAME>")` is the only reader for a QA input that belongs to one app, such as which data source a QA build uses. It returns the variable's value in a `test-mode` build during a test run and `None` otherwise; a release build expands it to `None` and the name is not in the binary. Read it this way and never with `std::env::var`, which a release build would still honour. Keep the `RIGHTKIT_` prefix, because a macOS QA launch passes only `RIGHTKIT_*` keys, and declare the key in the app's `switches.json` as a QA switch. A scenario sets the input with the `[inputs]` table (`rightkit-qa`, "Per-app QA inputs"); the harness refuses a key it uses itself or one that names a credential.
-
-## Build-tool guard (`suite`)
-
-`suite::refuse_build_tool_real_data(&suite)` returns an error when the build tool's runtime environment is present and the suite is neither `Suite::per_run_temp` nor under the system temporary directory. It is opt-in: call it at the start of a test or dev run; it is not called from `Suite::resolve`. A QA run whose suite is in a validated test root outside the temporary directory calls `suite::refuse_build_tool_real_data_for_mode(&suite, &mode)` with the `Mode` from `mode::decide`; only a `Mode::Test` and a suite inside its root pass.
+There is no test mode, no `test-mode` feature, no `Mode::Test`, no `test_selector!` and no override selector (rightkit-daemon 0.5.3; rightkit#1437). Adrian, 2026-11-03: "dev mode, is mine. im the fucking owner, my data. no dummy data, no fucking made up shit. real data. snapshot and restore." Every build resolves the real per-user roots from the account database and reads no environment. QA runs against the real data under the snapshot and restore of `rightkit-qa`.
 
 ## Listener (`transport`)
 

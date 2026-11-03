@@ -33,8 +33,11 @@ use serde_json::{json, Value};
 use super::frame::{
     c2s_line, open_s2c, DEAD_AFTER_SECS, HEARTBEAT_SECS, H_LINK_ID, H_LINK_KEY, MAX_LINE,
 };
+use crate::record::write_atomic;
 use crate::remote::client::{DeviceKey, DeviceSession, Error, ErrorCode, Refusal};
 use crate::remote::util::{hex, random_bytes, unhex};
+use std::fs::OpenOptions;
+use std::thread::JoinHandle;
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())

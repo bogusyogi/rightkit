@@ -3,7 +3,6 @@ import { documentFormatEntries } from "../../documents/documentFormats.js";
 import {
   fileAssociationStatus,
   inTauri,
-  isBrowserQaMode,
   openFileAssociationSettings,
   setFileAssociationDefaults,
 } from "../../state/tauriBridge.js";
@@ -92,7 +91,7 @@ export function FileAssociationsBlock() {
   const [notice, setNotice] = useState("");
   const mac = isMac();
   const windows = isWindows();
-  const available = (mac || windows) && (inTauri() || isBrowserQaMode());
+  const available = (mac || windows) && inTauri();
   const allSelected = allFormatsSelected(selected);
   const extensionCounts = useMemo(
     () =>

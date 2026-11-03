@@ -188,5 +188,18 @@ export function buildHooksFiles(cliCommand, { hookArgs, events = DEFAULT_PUSH_EV
     `exec ${bin} ${args}`,
     "",
   ].join("\n");
-  return { manifest, shimName: shim, script };
+  // The Windows twin of the shim (rightkit#428): a batch launcher with the same contract. It runs the tool with the hook's stdin and stays silent and
+  // successful when the tool is absent, so a Windows computer without it never sees a hook error. A Codex hooks file names it through `commandWindows`
+  // (`"%PLUGIN_ROOT%\\hooks\\${windowsShim}" ${args}`); the Claude `command` above keeps the sh shim.
+  const windowsShim = `run-${bin}.cmd`;
+  const windowsScript = [
+    "@echo off",
+    `rem Run \`${bin} ${args}\` with the hook's stdin. Silent and successful when ${bin} is absent.`,
+    `where ${bin} >nul 2>nul`,
+    "if errorlevel 1 exit /b 0",
+    `${bin} ${args}`,
+    "exit /b %ERRORLEVEL%",
+    "",
+  ].join("\r\n");
+  return { manifest, shimName: shim, script, windowsShimName: windowsShim, windowsScript };
 }

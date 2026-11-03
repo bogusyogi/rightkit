@@ -64,8 +64,8 @@ pub struct Scenario {
     pub kind: Option<RunKind>,
     /// Environment this scenario hands the app on `ui_launch`: an `[inputs]` table (or
     /// `inputs = { .. }`) of string values placed before the first `[[step]]`. This is how a
-    /// scenario sets a per-app QA input, the variable an app reads with
-    /// `rightkit_daemon::test_selector!(mode, "RIGHTKIT_<APP>_<NAME>")`. [`Scenario::load`] refuses
+    /// scenario sets a per-app QA input, the `RIGHTKIT_<APP>_<NAME>` variable an app reads itself
+    /// behind its own QA feature (the daemon has no `test_selector!` since 0.5.3). [`Scenario::load`] refuses
     /// the file unless each key is `RIGHTKIT_` plus upper-case words (at most 64 bytes), is not a
     /// name the harness or the daemon's mode decision uses (`RESERVED_INPUT_KEYS`) and names no
     /// credential, and each value is at most 1024 bytes with no NUL, CR or LF. Applied after the
@@ -140,8 +140,7 @@ const INPUT_VALUE_MAX: usize = 1024;
 
 /// Names a scenario may not set through `inputs`, because the harness or the daemon's mode
 /// decision sets or reads them itself. Constants where an owner exports one; the rest are spelled
-/// where they are set (`workspace::create`, `control::launch`, `EngineTarget::bind_test_mode`,
-/// `suite`, `rightkit_fs::app_dirs`) and listed here by hand, with a test that keeps the workspace
+/// where they are set (`workspace::create`, `control::launch`, `suite`, `rightkit_fs::app_dirs`) and listed here by hand, with a test that keeps the workspace
 /// and world keys inside the list. A name missing here is still refused at launch when the harness
 /// has already given the app a different value for it.
 const RESERVED_INPUT_KEYS: &[&str] = &[
@@ -150,8 +149,6 @@ const RESERVED_INPUT_KEYS: &[&str] = &[
     control::token::ENV_AUTH_FILE,
     crate::pool::WORLD_MARKER_ENV,
     crate::pool::ENV_WORLD_DIR,
-    crate::pool::ENV_WORLD_DATA,
-    crate::pool::ENV_WORLD_HOME,
     crate::pool::ENV_WORLD_TEMP,
     crate::pool::ENV_PORT_START,
     crate::pool::ENV_PORT_END,
@@ -165,9 +162,7 @@ const RESERVED_INPUT_KEYS: &[&str] = &[
     "RIGHTKIT_QA_FOCUS",
     "RIGHTKIT_QA_BACKGROUND",
     "RIGHTKIT_QA_PACE_MS",
-    // Test-mode activation and the roots the daemon's mode decision and `rightkit-fs` read.
-    "RIGHTKIT_UNDER_TEST",
-    crate::journeys::adapter::ENV_DATA_DIR,
+    // The runner's own roots.
     "RIGHTKIT_QA_HOME",
     rightkit_daemon::ENV_SUITE_ROOT,
     "RIGHTKIT_RUN_ROOT",
@@ -566,31 +561,39 @@ pub struct Ctx<'a> {
     step_no: usize,
 }
 
+/// A directory name for one scenario of one run: the scenario's name made path-safe, and a short
+/// unique suffix.
+fn scenario_slug(name: &str) -> String {
+    let safe: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!("{safe}-{}", &crate::util::new_id()[..8])
+}
+
 impl<'a> Ctx<'a> {
     pub fn new(
         cfg: &'a QaConfig,
-        mut engine: Option<EngineTarget>,
+        engine: Option<EngineTarget>,
         ui_binary: Option<PathBuf>,
         ws: &'a QaWorkspace,
         tracker: &'a Tracker,
         scenario: &str,
     ) -> Result<Self> {
-        let data_dir = ws.scenario_dir(scenario)?;
-        // This scenario's copy of the engine target carries the test-mode pair after the ordinary
-        // config env, so the cli, the sidecar and any custom step that clones `ctx.engine.env` all
-        // hand the engine the bound scenario directory (rightkit-fs checks the binding at the root).
-        if let Some(e) = engine.as_mut() {
-            e.bind_test_mode(&data_dir);
-        }
-        let log_dir = ws
-            .evidence_dir
-            .join(data_dir.file_name().unwrap_or_default());
+        // The app's real data folder (rightkit#1437): scenarios read its logs and state from here,
+        // and the journey run snapshots and restores it. `[snapshot]` is required.
+        let data_dir = cfg.real_data_dir()?;
+        let slug = scenario_slug(scenario);
+        let log_dir = ws.evidence_dir.join(&slug);
         std::fs::create_dir_all(&log_dir)?;
         // Templates passed through ui_command/ui_eval must never name managed storage.
-        let app_evidence_dir = ws
-            .home
-            .join("evidence")
-            .join(data_dir.file_name().unwrap_or_default());
+        let app_evidence_dir = ws.home.join("evidence").join(&slug);
         std::fs::create_dir_all(&app_evidence_dir)?;
         let mut vars = BTreeMap::new();
         // Every path a scenario can expand goes through `scenario_path_text`, so text such as
@@ -901,7 +904,7 @@ fn env_pairs(p: &Map<String, Value>) -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 /// The environment a `ui_launch` hands the app, from the lowest layer to the highest: the
-/// config's `[ui] env` and `[env]`, the isolated data dir under `data_dir_env`, the scenario's
+/// config's `[ui] env` and `[env]`, the scenario's
 /// `inputs`, the window the in-app control server drives (`[ui] window_label` in
 /// [`control::WINDOW_LABEL_ENV`], not the process label of the launch spec), then the step's own
 /// `env`. A later layer replaces an earlier value for the same key, so a step can override an
@@ -909,7 +912,6 @@ fn env_pairs(p: &Map<String, Value>) -> Vec<(String, String)> {
 /// refuses a second, different value for a key it has already taken.
 fn ui_launch_env(
     cfg: &QaConfig,
-    data_dir: &Path,
     inputs: &BTreeMap<String, String>,
     step_env: Vec<(String, String)>,
 ) -> Vec<(String, String)> {
@@ -919,12 +921,6 @@ fn ui_launch_env(
         .iter()
         .chain(&cfg.env)
         .map(|(k, v)| (k.clone(), v.clone()))
-        .chain(
-            cfg.engine
-                .data_dir_env
-                .iter()
-                .map(|var| (var.clone(), data_dir.to_string_lossy().into())),
-        )
         .chain(inputs.iter().map(|(k, v)| (k.clone(), v.clone())))
         .chain([(
             control::WINDOW_LABEL_ENV.to_string(),
@@ -942,7 +938,6 @@ fn ui_launch_env(
 }
 fn cli_opts(ctx: &Ctx, p: &Map<String, Value>) -> CliOptions {
     CliOptions {
-        data_dir: Some(ctx.data_dir.clone()),
         env: env_pairs(p),
         input: pv(p, "input").cloned(),
         timeout: Some(dur(p, "timeout_s", 120.0)),
@@ -1213,7 +1208,6 @@ impl Ctx<'_> {
     ) -> Result<ParityReport> {
         let args: Vec<String> = command.split_whitespace().map(String::from).collect();
         let opts = CliOptions {
-            data_dir: Some(self.data_dir.clone()),
             env,
             input,
             timeout: Some(timeout),
@@ -1470,7 +1464,7 @@ fn exec(
                 None => ctx.ui_binary.clone().ok_or_else(|| Error("no UI binary configured: set [ui].binaries, pass --ui-binary, or `binary` on the step".into()))?,
             };
             let mode = Mode::parse(&ps_opt(p, "mode").unwrap_or_else(|| ctx.cfg.ui.mode.clone()))?;
-            let env = ui_launch_env(ctx.cfg, &ctx.data_dir, inputs, env_pairs(p));
+            let env = ui_launch_env(ctx.cfg, inputs, env_pairs(p));
             let focus = pv(p, "focus")
                 .and_then(Value::as_bool)
                 .unwrap_or(ctx.cfg.ui.focus);

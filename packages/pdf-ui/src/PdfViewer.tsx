@@ -17,8 +17,11 @@ import { ensurePdfWorker } from "./pdfJs.js";
 import { boundedCanvasDpr, clampScale, renderPageLimit, viewportRotation, withTimeout } from "./shared.js";
 import { attachPasswordHandler, createLoadTimer, type PdfPasswordHandler } from "./password.js";
 import { pdfDocumentInit, type PdfDocumentOptions } from "./loader.js";
-import { renderPdfTextLayer } from "./textLayer.js";
-import { createRegexSearcher, findLiteralMatches } from "./searchUtils.js";
+import { createPdfRangeTransport, pdfRangeDocumentInit, type PdfHttpRangeTransport } from "./rangeTransport.js";
+import { PdfPasswordPrompt } from "./PdfPasswordPrompt.js";
+import { readPdfPageText, renderPdfTextLayer, type PdfTextContentMode } from "./textLayer.js";
+import { createRegexSearcher, findLiteralMatches, findRegexMatches } from "./searchUtils.js";
+import { highlightSpan } from "./shared.js";
 import type {
   OutlineNode,
   PdfDocumentInfo,
@@ -69,7 +72,57 @@ export interface PdfViewerProps {
    *  checked, the query is a regular expression, bounded by `regexPatternError`; a refused or invalid
    *  pattern finds nothing. */
   regexFind?: boolean;
+  /** Where the text layer and find read page text from: `"getTextContent"` (default) or
+   *  `"streamTextContent"` (a stream the pdf.js TextLayer consumes chunk by chunk; some WebKit builds
+   *  only finish a stream-backed layer). Find reads the same source. Read when a page renders. */
+  textContentMode?: PdfTextContentMode;
+  /** Free the rasters of pages that scrolled well out of view (past 150% of the viewport height) and
+   *  render again when they come back; pages render within 50%. Off by default: rendered pages stay
+   *  until the zoom or rotation changes. Pages with a `pageLayers` layer have it cleaned up on unload. */
+  unloadOffscreenPages?: boolean;
+  /** Mount pdf.js's AnnotationLayer above the text layer, so links in the document are clickable
+   *  (external ones go to `adapters.openExternal` after the http(s)/mailto check; internal ones and
+   *  the page actions navigate). Form widgets are not rendered. Off by default. */
+  annotationLayer?: boolean;
+  /** Highlight find matches in the rendered text layer (`<mark>`, the active match in the stronger
+   *  colour). Off by default: find then only counts and scrolls. A match that spans two text-layer
+   *  runs is counted but not highlighted. */
+  searchLayer?: boolean;
+  /** Mount a host-owned layer (for example an editing surface) on every rendered page, after the
+   *  text and annotation layers. Called with the page's slot element; return a cleanup function (or a
+   *  promise of one) to run when the page is unloaded, re-rendered or the document closes. The
+   *  viewer never edits; this is the only extension point for a layer that does. */
+  pageLayers?: PdfPageLayerMount;
+  /** Show the built-in password dialog when an encrypted PDF needs a password. Ignored when
+   *  `onPassword` is set (the host's dialog wins). Cancelling reports a `PdfPasswordCancelledError`
+   *  through `onError`. Off by default. */
+  passwordPrompt?: boolean;
 }
+
+/** Context handed to `PdfViewerProps.pageLayers`. */
+export interface PdfPageLayerContext {
+  pageNumber: number;
+  /** The page's container; the canvas and the viewer's layers are already in it. */
+  slot: HTMLElement;
+  page: PDFPageProxy;
+  /** The viewport the page was rendered with (rotation and scale applied). */
+  viewport: PageViewport;
+}
+
+export type PdfPageLayerMount = (context: PdfPageLayerContext) => void | (() => void) | Promise<void | (() => void)>;
+
+// pdf.js AnnotationLayer takes a struct-tree layer; this viewer builds no accessibility tree.
+const NULL_STRUCT_TREE_LAYER = {
+  async getAriaAttributes(): Promise<Map<string, string> | undefined> {
+    return undefined;
+  },
+};
+
+const RENDER_ROOT_MARGIN = "700px 0px";
+// With unloading on, the render band is narrower than the unload band: a page renders within 50% of
+// the viewport and is freed only after leaving 150%, so reversing near the edge does not churn rasters.
+const UNLOAD_RENDER_ROOT_MARGIN = "50% 0px";
+const UNLOAD_ROOT_MARGIN = "150% 0px";
 
 interface PageState {
   width: number;
@@ -93,11 +146,12 @@ function sourceKey(source: PdfSource): string {
   const revision = "revision" in source && source.revision !== undefined ? String(source.revision) : "";
   // Structured tuple: arbitrary URL/revision text can never collide through a delimiter.
   if (source.kind === "url") return JSON.stringify(["url", source.url, revision]);
+  if (source.kind === "range") return JSON.stringify(["range", source.url, source.chunkSize ?? null, source.headers ? Object.entries(source.headers) : null, revision]);
   if (source.kind === "loader") return JSON.stringify(["loader", identityOf(source.load), revision]);
   return JSON.stringify(["bytes", identityOf(source.data.buffer), source.data.byteOffset, source.data.byteLength, revision]);
 }
 
-async function loadSource(source: PdfSource): Promise<Uint8Array | string> {
+async function loadSource(source: Exclude<PdfSource, { kind: "range" }>): Promise<Uint8Array | string> {
   if (source.kind === "url") return source.url;
   if (source.kind === "bytes") return new Uint8Array(source.data);
   const bytes = await source.load();
@@ -132,17 +186,29 @@ function usePdfDocument(source: PdfSource, onError?: (error: Error) => void, onL
     let task: ReturnType<typeof pdfjs.getDocument> | null = null;
     let flow: { failure: Error | null } | null = null;
     let timer: ReturnType<typeof createLoadTimer> | null = null;
+    let transport: PdfHttpRangeTransport | null = null;
+    const abort = new AbortController();
     setLoading(true);
     onLoadingChange?.(true);
     ensurePdfWorker();
     void (async () => {
       try {
-        const data = await loadSource(source);
-        if (cancelled) return;
-        task = pdfjs.getDocument(pdfDocumentInit(data, optionsRef.current));
+        let init;
+        if (source.kind === "range") {
+          transport = await createPdfRangeTransport(source.url, { headers: source.headers, chunkSize: source.chunkSize, signal: abort.signal });
+          if (cancelled) return;
+          init = pdfRangeDocumentInit(transport, optionsRef.current, source.chunkSize);
+        } else {
+          const data = await loadSource(source);
+          if (cancelled) return;
+          init = pdfDocumentInit(data, optionsRef.current);
+        }
+        const loadTask = pdfjs.getDocument(init);
+        task = loadTask;
+        transport?.setFailureHandler(() => { void loadTask.destroy(); });
         timer = createLoadTimer(PAGE_LOAD_TIMEOUT, "PDF document load timed out");
-        if (unlockRef.current) flow = attachPasswordHandler(task, () => unlockRef.current, timer);
-        const next = await Promise.race([task.promise, timer.promise]);
+        if (unlockRef.current) flow = attachPasswordHandler(loadTask, () => unlockRef.current, timer);
+        const next = await Promise.race([loadTask.promise, timer.promise]);
         if (cancelled) {
           void next.cleanup();
           return;
@@ -150,7 +216,7 @@ function usePdfDocument(source: PdfSource, onError?: (error: Error) => void, onL
         setDocument(next);
       } catch (value) {
         if (cancelled) return;
-        const error = flow?.failure ?? (value instanceof Error ? value : new Error(String(value)));
+        const error = flow?.failure ?? transport?.failure ?? (value instanceof Error ? value : new Error(String(value)));
         onError?.(error);
       } finally {
         timer?.clear();
@@ -162,6 +228,8 @@ function usePdfDocument(source: PdfSource, onError?: (error: Error) => void, onL
     })();
     return () => {
       cancelled = true;
+      abort.abort();
+      transport?.abort();
       setDocument((previous) => {
         if (previous) void previous.cleanup();
         return null;
@@ -189,6 +257,12 @@ export function PdfViewer({
   maxRenderPages,
   truncationNotice,
   documentOptions,
+  textContentMode = "getTextContent",
+  unloadOffscreenPages = false,
+  annotationLayer = false,
+  searchLayer = false,
+  pageLayers,
+  passwordPrompt = false,
 }: PdfViewerProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -196,7 +270,40 @@ export function PdfViewer({
   const pageRefs = useRef(new Map<number, PageState>());
   const pdfRef = useRef<PDFDocumentProxy | null>(null);
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
-  const { document: pdfDocument, loading } = usePdfDocument(source, onError, onLoadingChange, onPassword, documentOptions);
+  const [passwordRequest, setPasswordRequest] = useState<{ retry: boolean; resolve: (password: string | null) => void } | null>(null);
+  const promptPassword = useCallback<PdfPasswordHandler>(
+    (reason) => new Promise<string | null>((resolve) => setPasswordRequest({ retry: reason === "incorrect", resolve })),
+    [],
+  );
+  const { document: pdfDocument, loading } = usePdfDocument(source, onError, onLoadingChange, onPassword ?? (passwordPrompt ? promptPassword : undefined), documentOptions);
+  useEffect(() => {
+    if (loading || !passwordRequest) return;
+    // The load ended (unlocked, failed or was replaced) while the dialog was open.
+    passwordRequest.resolve(null);
+    setPasswordRequest(null);
+  }, [loading, passwordRequest]);
+  // Pages that have started rendering (or failed), so one page renders once per raster generation.
+  const liveRef = useRef(new Set<number>());
+  // Bumped when a page is torn down, so an in-flight render of an older generation stops.
+  const generationRef = useRef(new Map<number, number>());
+  const layerCleanupRef = useRef(new Map<number, () => void>());
+  const optionsRef = useRef({ textContentMode, unloadOffscreenPages, annotationLayer, searchLayer, pageLayers });
+  optionsRef.current = { textContentMode, unloadOffscreenPages, annotationLayer, searchLayer, pageLayers };
+  const linkServiceRef = useRef<ReturnType<typeof createPdfLinkService> | null>(null);
+  const committedFindRef = useRef<{ query: string; options: PdfSearchOptions; active: { page: number; occurrence: number } | null } | null>(null);
+
+  const teardownPage = useCallback((pageNumber: number) => {
+    generationRef.current.set(pageNumber, (generationRef.current.get(pageNumber) ?? 0) + 1);
+    const cleanup = layerCleanupRef.current.get(pageNumber);
+    layerCleanupRef.current.delete(pageNumber);
+    try { cleanup?.(); } catch { /* a host layer's cleanup must not stop the viewer */ }
+    liveRef.current.delete(pageNumber);
+    slotsRef.current.get(pageNumber)?.replaceChildren();
+  }, []);
+  const teardownAll = useCallback(() => {
+    for (const pageNumber of new Set([...slotsRef.current.keys(), ...liveRef.current, ...layerCleanupRef.current.keys()])) teardownPage(pageNumber);
+  }, [teardownPage]);
+  useEffect(() => teardownAll, [teardownAll]);
   const [numPages, setNumPages] = useState(0);
   const [page, setPage] = useState(Math.max(1, initialView?.page ?? 1));
   const [scale, setScale] = useState(initialView?.scale ?? 1);
@@ -227,6 +334,9 @@ export function PdfViewer({
     void pdfDocument.getOutline().then((items) => setOutline((items ?? []) as OutlineNode[])).catch(() => setOutline(null));
     void pdfDocument.getOutline().then((items) => onDocumentInfo?.({ numPages: pdfDocument.numPages, hasOutline: Boolean(items?.length) })).catch(() => onDocumentInfo?.({ numPages: pdfDocument.numPages, hasOutline: false }));
   }, [pdfDocument, onDocumentInfo]);
+
+  // A different (or closed) document: nothing rendered for the old one stays, host layers included.
+  useEffect(() => { teardownAll(); }, [pdfDocument, teardownAll]);
 
   const firstSize = useMemo<Size | null>(() => {
     const first = pageRefs.current.get(1);
@@ -276,11 +386,34 @@ export function PdfViewer({
     const actions: PdfLinkActions = { goToDest, goToPage, currentPage: () => page, pagesCount: () => numPages, openExternal: adapters?.openExternal };
     return createPdfLinkService(actions);
   }, [adapters?.openExternal, goToDest, goToPage, numPages, page]);
+  linkServiceRef.current = linkService;
+
+  // Marks the committed find query in one page's text layer. The active match is the page's
+  // `occurrence`-th hit in text-layer order (a hit split across two runs is not drawn).
+  const highlightPage = useCallback((pageNumber: number, textLayer: Element | null) => {
+    if (!textLayer) return;
+    const committed = committedFindRef.current;
+    const query = committed?.query ?? "";
+    const options = committed?.options ?? { matchCase: false, wholeWord: false };
+    const active = committed?.active && committed.active.page === pageNumber ? committed.active.occurrence : undefined;
+    let running = 0;
+    for (const span of textLayer.querySelectorAll<HTMLElement>("span")) {
+      const text = span.textContent ?? "";
+      const count = !query ? 0 : options.regex ? findRegexMatches(text, query, options).length : findLiteralMatches(text, query, options).length;
+      const local = active !== undefined && active >= running && active < running + count ? active - running : undefined;
+      highlightSpan(span, query, { ...options, activeOccurrence: local });
+      running += count;
+    }
+  }, []);
 
   const renderPage = useCallback(async (pageNumber: number, slot: HTMLDivElement) => {
     if (!pdf || pageNumber > renderLimit) return;
+    const generation = generationRef.current.get(pageNumber) ?? 0;
+    const stale = () => (generationRef.current.get(pageNumber) ?? 0) !== generation;
+    const live = optionsRef.current;
     try {
       const pdfPage = await pdf.getPage(pageNumber);
+      if (stale()) return;
       const pageRotation = viewportRotation(pdfPage.rotate, rotation);
       const viewport = pdfPage.getViewport({ scale, rotation: pageRotation });
       const cssViewport = pdfPage.getViewport({ scale: 1, rotation: pageRotation });
@@ -298,15 +431,69 @@ export function PdfViewer({
       slot.append(canvas);
       const context = canvas.getContext("2d", { alpha: false });
       if (!context) throw new Error("PDF canvas is unavailable");
-      await withTimeout(pdfPage.render({ canvas: canvas as HTMLCanvasElement, canvasContext: context, viewport, transform: dpr === 1 ? undefined : [dpr, 0, 0, dpr, 0, 0] }).promise, PAGE_LOAD_TIMEOUT, `Page ${pageNumber} render timed out`);
+      const renderTask = pdfPage.render({ canvas: canvas as HTMLCanvasElement, canvasContext: context, viewport, transform: dpr === 1 ? undefined : [dpr, 0, 0, dpr, 0, 0] });
+      // A page torn down mid-render cancels the raster instead of letting it finish unseen.
+      layerCleanupRef.current.set(pageNumber, () => renderTask.cancel());
+      await withTimeout(renderTask.promise, PAGE_LOAD_TIMEOUT, `Page ${pageNumber} render timed out`);
+      if (stale()) return;
       const textLayer = document.createElement("div");
       textLayer.className = "textLayer";
       slot.append(textLayer);
-      await renderPdfTextLayer(pdfPage, textLayer, viewport);
-      // AnnotationLayer is optional in pdf.js builds. Text links remain safe through the exported
-      // link service; hosts can mount pdf.js's full AnnotationLayer when form widgets are needed.
+      await renderPdfTextLayer(pdfPage, textLayer, viewport, live.textContentMode);
+      if (stale()) return;
+      if (live.searchLayer) highlightPage(pageNumber, textLayer);
+      if (live.annotationLayer) {
+        const annotations = await pdfPage.getAnnotations({ intent: "display" });
+        if (stale()) return;
+        const service = linkServiceRef.current;
+        if (annotations.length > 0 && service) {
+          const annotationDiv = document.createElement("div");
+          annotationDiv.className = "annotationLayer";
+          slot.append(annotationDiv);
+          // pdf.js sizes its layers from these variables; the full web viewer sets them on the page.
+          slot.style.setProperty("--scale-factor", String(viewport.scale));
+          slot.style.setProperty("--total-scale-factor", String(viewport.scale));
+          const layerViewport = viewport.clone({ dontFlip: true });
+          const layer = new pdfjs.AnnotationLayer({
+            div: annotationDiv,
+            accessibilityManager: null,
+            annotationCanvasMap: null,
+            annotationEditorUIManager: null,
+            page: pdfPage,
+            viewport: layerViewport,
+            structTreeLayer: NULL_STRUCT_TREE_LAYER,
+            commentManager: null,
+            linkService: service as never,
+            annotationStorage: pdf.annotationStorage,
+          });
+          await layer.render({
+            annotations,
+            div: annotationDiv,
+            page: pdfPage,
+            viewport: layerViewport,
+            linkService: service as never,
+            renderForms: false,
+            imageResourcesPath: "",
+          });
+          if (stale()) return;
+        }
+      }
+      let hostCleanup: (() => void) | undefined;
+      if (live.pageLayers) {
+        const mounted = await live.pageLayers({ pageNumber, slot, page: pdfPage, viewport });
+        if (typeof mounted === "function") hostCleanup = mounted;
+        if (stale()) {
+          try { hostCleanup?.(); } catch { /* host cleanup must not stop the viewer */ }
+          return;
+        }
+      }
+      const release = live.unloadOffscreenPages;
+      layerCleanupRef.current.set(pageNumber, () => {
+        try { hostCleanup?.(); } finally { if (release) pdfPage.cleanup(); }
+      });
       setRenderedPages((old) => new Set(old).add(pageNumber));
     } catch (value) {
+      if (stale()) return;
       const error = value instanceof Error ? value : new Error(String(value));
       pageRefs.current.set(pageNumber, { width: 612, height: 792, rotation, error: error.message });
       slot.replaceChildren();
@@ -315,39 +502,66 @@ export function PdfViewer({
       message.textContent = `Page ${pageNumber} could not render: ${error.message}`;
       slot.append(message);
     }
-  }, [linkService, pdf, renderLimit, rotation, scale]);
+  }, [highlightPage, pdf, renderLimit, rotation, scale]);
 
   useEffect(() => {
     if (!pdf || !scrollRef.current) return;
+    const root = scrollRef.current;
+    const unload = optionsRef.current.unloadOffscreenPages;
     const observer = new IntersectionObserver((entries) => {
       for (const entry of entries) {
-        if (entry.isIntersecting) {
-          const pageNumber = Number((entry.target as HTMLElement).dataset.page);
-          if (Number.isFinite(pageNumber) && pageNumber <= renderLimit && !pageRefs.current.has(pageNumber)) void renderPage(pageNumber, entry.target as HTMLDivElement);
-        }
+        if (!entry.isIntersecting) continue;
+        const pageNumber = Number((entry.target as HTMLElement).dataset.page);
+        if (!Number.isFinite(pageNumber) || pageNumber > renderLimit || liveRef.current.has(pageNumber)) continue;
+        liveRef.current.add(pageNumber);
+        void renderPage(pageNumber, entry.target as HTMLDivElement);
       }
-    }, { root: scrollRef.current, rootMargin: "700px 0px" });
-    for (const slot of slotsRef.current.values()) observer.observe(slot);
-    return () => observer.disconnect();
-  }, [numPages, pdf, renderLimit, renderPage]);
+    }, { root, rootMargin: unload ? UNLOAD_RENDER_ROOT_MARGIN : RENDER_ROOT_MARGIN });
+    // The unload band is wider than the render band: a page is freed only once it has left it.
+    const unloadObserver = unload ? new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) continue;
+        const pageNumber = Number((entry.target as HTMLElement).dataset.page);
+        if (Number.isFinite(pageNumber) && liveRef.current.has(pageNumber)) teardownPage(pageNumber);
+      }
+    }, { root, rootMargin: UNLOAD_ROOT_MARGIN }) : null;
+    for (const slot of slotsRef.current.values()) {
+      observer.observe(slot);
+      unloadObserver?.observe(slot);
+    }
+    return () => { observer.disconnect(); unloadObserver?.disconnect(); };
+  }, [numPages, pdf, renderLimit, renderPage, teardownPage, unloadOffscreenPages]);
 
   // A lowered cap un-renders pages that are now past it (they fall back to empty placeholders).
   useEffect(() => {
-    for (const [pageNumber, slot] of slotsRef.current) {
-      if (pageNumber > renderLimit) { slot.replaceChildren(); pageRefs.current.delete(pageNumber); }
+    for (const pageNumber of slotsRef.current.keys()) {
+      if (pageNumber > renderLimit) { teardownPage(pageNumber); pageRefs.current.delete(pageNumber); }
     }
-  }, [renderLimit]);
+  }, [renderLimit, teardownPage]);
 
   useEffect(() => {
     if (!pdf) return;
     pageRefs.current.clear();
     setRenderedPages(new Set());
-    for (const slot of slotsRef.current.values()) slot.replaceChildren();
-  }, [pdf, rotation, scale]);
+    teardownAll();
+  }, [pdf, rotation, scale, teardownAll]);
+
+  // Match marks follow the committed query and the active match on every page that is rendered.
+  const [committedFind, setCommittedFind] = useState<{ query: string; options: PdfSearchOptions } | null>(null);
+  useEffect(() => {
+    if (!searchLayer) return;
+    const active = activeMatch >= 0 ? matches[activeMatch] : undefined;
+    let occurrence = 0;
+    if (active) for (let index = 0; index < activeMatch; index++) if (matches[index]?.page === active.page) occurrence++;
+    committedFindRef.current = committedFind ? { ...committedFind, active: active ? { page: active.page, occurrence } : null } : null;
+    for (const [pageNumber, slot] of slotsRef.current) {
+      if (liveRef.current.has(pageNumber)) highlightPage(pageNumber, slot.querySelector(".textLayer"));
+    }
+  }, [activeMatch, committedFind, highlightPage, matches, searchLayer]);
 
   const find = useCallback(async (nextQuery = query): Promise<PdfSearchResult> => {
     if (!pdf || !nextQuery) {
-      setMatches([]); setActiveMatch(-1); return { count: 0, activeIndex: -1 };
+      setMatches([]); setActiveMatch(-1); setCommittedFind(null); return { count: 0, activeIndex: -1 };
     }
     const found: Array<{ page: number; index: number }> = [];
     let timedOut = false;
@@ -355,8 +569,7 @@ export function PdfViewer({
     try {
     for (let pageNumber = 1; pageNumber <= Math.min(pdf.numPages, renderLimit); pageNumber++) {
       try {
-        const content = await pdf.getPage(pageNumber).then((p) => p.getTextContent());
-        let text = content.items.map((item) => "str" in item ? item.str : "").join(" ");
+        let text = await readPdfPageText(await pdf.getPage(pageNumber), optionsRef.current.textContentMode);
         if (text.length > MAX_TEXT) text = text.slice(0, MAX_TEXT);
         let hits;
         if (searcher) {
@@ -372,6 +585,7 @@ export function PdfViewer({
     } finally {
       searcher?.dispose();
     }
+    setCommittedFind({ query: nextQuery, options: findOptions });
     setMatches(found);
     setActiveMatch(found.length ? 0 : -1);
     if (found[0]) goToPage(found[0].page);
@@ -436,6 +650,11 @@ export function PdfViewer({
         </div>
       </div>
     </div>
+    {passwordRequest && <PdfPasswordPrompt
+      retry={passwordRequest.retry}
+      onSubmit={(password) => { setPasswordRequest(null); passwordRequest.resolve(password); }}
+      onCancel={() => { setPasswordRequest(null); passwordRequest.resolve(null); }}
+    />}
   </div></PdfSearchContext.Provider>;
 }
 

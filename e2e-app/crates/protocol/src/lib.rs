@@ -18,8 +18,8 @@ pub const JOB_KIND_ECHO: &str = "echo";
 pub const APP: AppId = AppId::new("rke2e");
 
 /// The release-or-test decision, made once per process. Every binary of the app reaches it before it opens a
-/// store, a log or a credential (`app_data_root` calls it). A build without the `test-mode` feature always decides
-/// "release" and reads no override at all; a half-configured test run exits with status 2 and one line.
+/// store, a log or a credential (`app_data_root` calls it). Every build decides "release": the real
+/// per-user roots, with no override read from the environment (QA runs on the real data under rightkit-qa's snapshot and restore).
 pub fn init() -> &'static Mode {
     mode::init_or_exit(&APP)
 }

@@ -15,6 +15,7 @@ mod capture;
 mod cues;
 mod preflight;
 mod protocol;
+mod route;
 mod stage;
 
 pub use capture::{
@@ -24,6 +25,7 @@ pub use capture::{
 };
 pub use cues::{parse_srt_cues, Cue};
 pub use preflight::preflight_file;
+pub use route::{transcribe_via_running_host, LocalReason, RouteOutcome, ServiceRoute};
 pub use stage::{StageInput, DEFAULT_STAGE_LIMIT_BYTES};
 
 use stage::{host_could_not_read, prepare, StageRoots, Staged};

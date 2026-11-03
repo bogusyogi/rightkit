@@ -3083,6 +3083,7 @@ const PRODUCTION_RENDER_CLASSES: &[(&str, RenderClass)] = &[
     ("context7", RenderClass::Network),
     ("mcp_call", RenderClass::Network),
     ("list_mcp_tools", RenderClass::Network),
+    ("list_mcp_sources", RenderClass::Network),
     ("list_mcp_resources", RenderClass::Network),
     ("read_mcp_resource", RenderClass::Network),
     ("mcp_auth", RenderClass::Network),

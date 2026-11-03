@@ -20,6 +20,14 @@ import { closeSync, lstatSync, openSync, readFileSync, readSync, readdirSync } f
 import path from "node:path";
 import { inflateRawSync } from "node:zlib";
 
+// The web QA switch (rightkit#1480): one Vite define `__RIGHTKIT_QA__`, true only when RIGHTKIT_BUILD_MODE=dev (`rightkitQaDefine()` in
+// @rightkit/config), and one fixed string the web QA code carries, `RIGHTKIT-QA-WEB-COMPILED`. Both, and the four retired per-app flags, live
+// in release-switch-registry.json (`webQa`) so the release-switch scan and this scan read one list.
+const WEB_QA = JSON.parse(readFileSync(new URL("./release-switch-registry.json", import.meta.url), "utf8")).webQa;
+export const WEB_QA_MARKER = WEB_QA.marker;
+export const WEB_QA_DEFINE = WEB_QA.define;
+export const WEB_QA_RETIRED = Object.freeze([...WEB_QA.retired]);
+
 // Keep identical to `QA_CONTROL_MARKER` in crates/rightkit-qa/src/embedded/mod.rs.
 export const QA_CONTROL_MARKER = "RIGHTKIT-QA-CONTROL-SERVER-PRESENT";
 // Keep identical to `DEV_INSPECT_MARKER` in crates/rightkit-tauri-shell/src/devtools.rs (a `#[used]` static compiled only
@@ -391,6 +399,12 @@ export const WEB_MOCK_MARKERS = Object.freeze([
   { id: "isBrowserQaMode", pattern: /isBrowserQaMode/ },
   { id: "MockDataSource", pattern: /MockDataSource/ },
   { id: "qa-build-flag", pattern: /\bVITE_[A-Z0-9_]*_QA\b/ },
+
+  // The one web QA switch (#1480): the marker the QA code carries, the define itself (a release build folds it to `false`, so the name
+  // must be gone) and the retired per-app spellings.
+  { id: "web-qa-marker", pattern: new RegExp(WEB_QA_MARKER) },
+  { id: "web-qa-define", pattern: new RegExp(`\\b${WEB_QA_DEFINE}\\b`) },
+  ...WEB_QA_RETIRED.map((name) => ({ id: `web-qa-retired ${name}`, pattern: new RegExp(`\\b${name}\\b`) })),
 
   // @rightkit/license/testing (M12): its sentinel value, and the subpath a bundle that kept the import still names.
   { id: "license-testing-sentinel", pattern: /\bRIGHTKIT_LICENSE_TESTING_DO_NOT_SHIP\b/ },

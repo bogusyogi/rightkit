@@ -95,6 +95,11 @@ export interface ContextMenuProps {
    */
   autoFocus?: boolean;
   /**
+   * Same switch as `autoFocus`, named for the Popover option: `false` opens the menu without taking focus, so a
+   * mouse-opened editor menu keeps the caret and selection. Wins over `autoFocus` when both are given. Default true.
+   */
+  takeFocus?: boolean;
+  /**
    * Keyboard model. `"menu"` (default): roving highlight with arrows, Home, End, Enter, Space and Tab
    * handled by the component. `"escape-only"`: the component handles only Escape (close, focus
    * restored), sets no highlight and captures no other key anywhere, so Tab, arrows, Space and Enter
@@ -141,13 +146,15 @@ export function ContextMenu({
   itemAs = "div",
   renderItem,
   showLead = true,
-  autoFocus = true,
+  autoFocus: autoFocusProp = true,
+  takeFocus,
   initialHighlight = "first",
   keyboard = "menu",
   exitMs = 0,
   exitClassName = "is-closing",
   onExitStart,
 }: ContextMenuProps) {
+  const autoFocus = takeFocus ?? autoFocusProp;
   // Shortcut labels are drawn for the shell's platform; outside a provider `Kbd` falls back to the host.
   const shellPlatform = useShellOptional()?.platform;
   const { x, y } = anchor

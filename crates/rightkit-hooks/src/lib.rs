@@ -20,9 +20,9 @@ pub use dispatch::{
     compose_reply, dispatch, run, run_with, Decision, DispatchOptions, DispatchResult, FnModule,
     HookModule, ModuleContext, ModuleOutput, ModuleResult, Status,
 };
-pub use event::{EventKind, HookEvent, ParseError, Wire, STDIN_CAP};
+pub use event::{EventKind, HookEvent, ParseError, Wire, STDIN_CAP, STDIN_FIRST_BYTE, STDIN_QUIET};
 pub use output::{OutputError, Reply};
 pub use receipt::{
-    marker, new_receipt_id, scan_transcript_tail, tag_context, DeliveryLevel, ObserveModule,
-    Receipt, ReceiptStore,
+    marker, new_receipt_id, scan_transcript_tail, tag_context, valid_receipt_id, DeliveryLevel,
+    HookSeen, ObserveModule, Receipt, ReceiptStore, HOOK_SEEN_MAX_AGE, HOOK_SEEN_MAX_FILES,
 };

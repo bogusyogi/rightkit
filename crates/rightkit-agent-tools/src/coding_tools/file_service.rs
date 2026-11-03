@@ -2854,14 +2854,6 @@ fn hash_file_contents(path: &Path) -> Result<[u8; 32], String> {
     Ok(hasher.finalize_bytes().into())
 }
 
-/// Observe a path's current authoritative revision.
-///
-/// Exposed so a consumer crate can construct a journal fixture with genuine
-/// pre-images rather than fabricated ones.
-pub fn observe_revision_for_tests(path: &Path) -> Result<FileRevision, String> {
-    revision(path)
-}
-
 fn revision(path: &Path) -> Result<FileRevision, String> {
     let metadata = std::fs::metadata(path)
         .map_err(|error| format!("inspect '{}': {error}", path.display()))?;

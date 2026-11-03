@@ -1084,6 +1084,14 @@ mod native_windows {
     }
 }
 
+/// The placement whose bounds hold the centre of `rect` (the same coordinates [`monitors_of`] reports).
+fn monitor_holding(monitors: &[MonitorPlacement], rect: OverlayRect) -> Option<&MonitorPlacement> {
+    let (cx, cy) = center_of(rect);
+    monitors.iter().find(|m| {
+        cx >= m.bounds.left && cx < m.bounds.right && cy >= m.bounds.top && cy < m.bounds.bottom
+    })
+}
+
 fn monitors_of(app: &AppHandle<Wry>) -> Vec<MonitorPlacement> {
     let to_area = |pos: &PhysicalPosition<i32>, size: &PhysicalSize<u32>| WorkArea {
         left: f64::from(pos.x),
@@ -1212,6 +1220,39 @@ impl OverlayService {
         for id in self.host.ids() {
             let _ = self.host.set_foreground_fills_monitor(&id, fills);
         }
+    }
+
+    /// Per-overlay full-screen verdict (#1021): each overlay gets the verdict for the monitor it is on
+    /// now, so a full-screen program on another monitor does not hide it. `verdict` is evaluated once
+    /// per overlay with that monitor's placement. An overlay on no known monitor gets `false`.
+    pub fn refresh_full_screen_with(
+        &self,
+        app: &AppHandle<Wry>,
+        verdict: impl Fn(&MonitorPlacement) -> bool,
+    ) {
+        let monitors = monitors_of(app);
+        for id in self.host.ids() {
+            let fills = self
+                .host
+                .state(&id)
+                .and_then(|s| s.rect)
+                .and_then(|rect| monitor_holding(&monitors, rect))
+                .is_some_and(&verdict);
+            let _ = self.host.set_foreground_fills_monitor(&id, fills);
+        }
+    }
+
+    /// [`OverlayService::refresh_full_screen_with`] with the Windows probe (#1021): the foreground
+    /// window must cover the overlay's own monitor, and this app's own windows, Alt-Tab and Task View
+    /// hosts never count. The non-Windows answer is `false` (see the `rightkit-overlay` CHANGELOG).
+    pub fn refresh_full_screen_per_monitor(&self, app: &AppHandle<Wry>) {
+        let probe = rightkit_overlay::FullScreenProbe {
+            own_pids: vec![std::process::id()],
+            ..Default::default()
+        };
+        self.refresh_full_screen_with(app, |m| {
+            rightkit_overlay::windows::foreground_fullscreen_on(m.bounds, &probe)
+        });
     }
 
     pub fn covering(&self, id: &str) -> Result<Option<String>, OverlayError> {

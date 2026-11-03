@@ -102,6 +102,23 @@ impl ProcessHandle {
         self.creation_time_ticks
     }
 
+    /// CPU time and peak memory of the child, once it has exited and was reaped (Unix: by this
+    /// crate, through any handle of the same child; Windows: once the process has exited). `None`
+    /// before that, and on Unix when something else in the process reaped the child.
+    pub fn resource_usage(&self) -> io::Result<Option<crate::ChildUsage>> {
+        #[cfg(unix)]
+        {
+            Ok(lock_child(&self.child).reaped_usage())
+        }
+        #[cfg(windows)]
+        {
+            if self.windows_wait(0)?.is_none() {
+                return Ok(None);
+            }
+            Ok(crate::ChildUsage::from_exited_process(&self.handle))
+        }
+    }
+
     pub fn try_wait(&self) -> io::Result<Option<ExitStatus>> {
         #[cfg(unix)]
         {

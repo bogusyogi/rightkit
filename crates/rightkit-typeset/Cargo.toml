@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-typeset"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -39,6 +39,18 @@ typst-assets = { version = "0.15", features = ["fonts"], optional = true }
 [package.metadata.rightkit]
 continuous = false
 continuous_reason = "one-shot Typst compile and render per call over caller-provided source and fonts, no I/O loop; no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src (checked by runtime-budgets.mjs)"
+
+# Patches every consuming app workspace must declare (a [patch.crates-io] applies only in the workspace that writes
+# it, so a published rightkit-typeset does not carry it; rightkit#1346 item 7). The fork cannot be depended on under a
+# RightKit name: typst and hayagriva name `citationberg` themselves, so only a patch replaces it. Release tooling
+# checks the app's manifest and lock against this entry.
+[[package.metadata.rightkit.consumer_patches]]
+crate = "citationberg"
+registry_version = "0.7.0"
+source = "vendor/citationberg"
+requires = { "quick-xml" = ">=0.41" }
+advisories = ["RUSTSEC-2026-0194", "RUSTSEC-2026-0195"]
+remove_when = "upstream citationberg releases with quick-xml >= 0.41"
 
 # One Cargo workspace and lock per crate (rightkit#1285).
 [workspace]

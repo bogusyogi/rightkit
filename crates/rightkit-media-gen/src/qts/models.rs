@@ -171,16 +171,13 @@ pub fn bundled_onnxruntime_path() -> Option<PathBuf> {
     rightkit_onnx::installed_runtime_candidate(&exe, "runtime").map(|c| c.path)
 }
 
-/// macOS candidates: the debug-only `ORT_DYLIB_PATH` developer override, then the bundled copy.
+/// macOS candidates: the bundled copy.
 /// ONNX Runtime is never read from app data here: a library downloaded at run time keeps its
 /// ad hoc signature and cannot pass library validation in the hardened engine.
 #[cfg(target_os = "macos")]
 fn onnxruntime_candidates() -> Vec<rightkit_onnx::RuntimeCandidate> {
     use rightkit_onnx::{CandidateSource, RuntimeCandidate};
     let mut candidates = Vec::new();
-    if let Some(candidate) = rightkit_onnx::developer_override_candidate("ORT_DYLIB_PATH") {
-        candidates.push(candidate);
-    }
     if let Some(path) = bundled_onnxruntime_path() {
         candidates.push(RuntimeCandidate::new(path, CandidateSource::Bundled));
     }
@@ -192,9 +189,6 @@ fn onnxruntime_candidates() -> Vec<rightkit_onnx::RuntimeCandidate> {
     use rightkit_onnx::{CandidateSource, RuntimeCandidate};
     let name = runtime_lib_name();
     let mut candidates = Vec::new();
-    if let Some(candidate) = rightkit_onnx::developer_override_candidate("ORT_DYLIB_PATH") {
-        candidates.push(candidate);
-    }
     if let Some(exe_dir) = std::env::current_exe()
         .ok()
         .and_then(|e| e.parent().map(Path::to_path_buf))

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.2.4
+
+Wave 2 batch w2-01 (CodeRight port): issues #567, #571, #695, #706, #707, #1117, #1118, #1292.
+Source-level only: nothing here was compiled or run; the gate is the first compile.
+
+- Build fixes: `event.rs` imports `BTreeMap` and `rate_limit.rs` imports `RateLimitInfo`; `claude.rs` imports `Receiver` for `answer_can_use_tool`. These were missing at 0.2.3 (#571).
+- #567: `claude::ClaudeExtras` gains `mcp_config` (`--mcp-config`, refused when empty or starting with `-`), `strict_mcp_config` (`--strict-mcp-config`) and `account: Option<ClaudeAccount>`. `ClaudeAccount::{OAuthToken, ApiKey}` sets one credential variable and removes the other (`claude::launch_env`); `SessionConfig` applies it to Claude sessions. The credential is redacted in `Debug`. Empty credentials are refused by `build_args_with`.
+- #571: `AgentEvent::ApprovalRequested` gains `tool_use_id`, `agent_id` and `blocked_path` (Claude `can_use_tool` fields, unverified wire placement; Codex sets `tool_use_id` from `itemId`). Breaking for exhaustive struct patterns; use `..`. `answer_can_use_tool` keeps the `Receiver` form; `answer_can_use_tool_async` (feature `driver_host` or `agent_host`) takes a `tokio::sync::oneshot::Receiver`. Both fail closed with `NO_ANSWER_MESSAGE` on no receiver, timeout or dropped sender.
+- #695: `Session::spawn_with(config, launcher)` where `launcher: FnOnce(Command) -> io::Result<OwnedChild>` receives the prepared command and returns the started child, so a host can confine the CLI. `Session::spawn` delegates to it. An async twin is not included: #1117's acceptance is the `Session` surface with a sandbox launcher.
+- #706: Claude frame builders (`user_turn_frame`, `interrupt_frame`, `permission_*_frame`, `initialize_frame`, `set_model_frame`, `set_permission_mode_frame`) return frames without a line break; the writer adds it. Breaking for callers that appended their own. `next_request_id_with(prefix, kind)` keeps a host's id shape. `try_parse_control_response` returns a `ParseError` for a missing `response`, `request_id`, or subtype, and for an unknown subtype; `parse_control_response` is unchanged. `ClaudeAccountIdentity` reads `account` or `accountInfo` and adds `subscription_type`, `token_source`, `api_key_source` (breaking for struct literals). `InterruptReceipt` adds `pending` (the queued messages as sent). Under `UnknownPolicy::FailClosed`, a `system` message without a subtype, or an `init` without a session id, is refused; a required payload key counts only when non-null.
+- #707: `rate_limit::RateLimitState` now serialises as camelCase JSON tagged by `state` and takes CodeRight's rules: observed data wins; `probe_failed` leaves `Unsupported` alone; `mark_unsupported` replaces every state, `Known` included. `driver_host::RateLimitState` delegates to it and inherits the same rules.
+- #1117: `SessionExtras` gains `env_clear` and `env_allow`: an empty environment with only the allowed names inherited from this process. `Session::steer(text) -> Result<bool>`: Claude queues the text for the running turn; Codex sends `turn/steer` (`threadId`, `expectedTurnId`, `input`; unverified against a live run) and returns `false` with nothing sent when no turn is active.
+- #1118: Codex maps `mcpServer/startupStatus/updated` to `AgentEvent::McpStartup`, `account/rateLimits/updated` to `AgentEvent::RateLimitWindows` (primary and secondary: used percent, window minutes, reset time), `turn/plan/updated` to `AgentEvent::PlanUpdated`. `turn/completed` and `turn/failed` emit `ResultDetail` with the failure text before `Result`. Finished `commandExecution`, `mcpToolCall`, `dynamicToolCall` and `fileChange` items emit `ToolResultContent` with their output text. Codex field names follow the pinned 0.161.0 snapshot; unverified against a live run.
+- #1292: new module `tasks`: `TaskBoard` folds `AgentEvent`s (Claude `TaskCreate`, `TaskUpdate`, `TodoWrite`, `update_plan`; Codex `PlanUpdated`; subagent start and finish) into one task list with blockers and explicit `assign`. `idle_lanes()` returns `Observation::Known` only once the session has started, a task list was reported, and the host set the capacity with `set_capacity`; otherwise `Observation::Unknown`, never idle.
+- `AgentEvent` gains variants `RateLimitWindows`, `McpStartup`, `PlanUpdated`; the enum is `non_exhaustive`, so exhaustive matches outside the crate need a wildcard arm.
+
+## 0.2.3
+
+- `find_binaries` skips empty and relative `PATH` entries, so a CLI planted in the working directory is not found (#704).
+- `session::BYOK_ENV_VARS` covers the CodeRight `FORBIDDEN_BYOK_ENV_VARS` set: Bedrock, Vertex, AWS, Google, OpenAI base and org, xAI, Cursor, OpenRouter, MiniMax, TinyFish and host secrets (#705).
+
 ## Unreleased
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

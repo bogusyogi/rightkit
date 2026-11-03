@@ -6,7 +6,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { CARGO_METADATA_ARGS, cargoPackageArgs, localTestPlan, npmPackArgs, qualifyFmtArgs } from "./local-publish.mjs";
 import { SWAP_HELPER_CARGO_ARGS, SWAP_HELPER_METADATA_ARGS, SWAP_HELPER_PACKAGE } from "./swap-helper-bundle.mjs";
-import { carriedRequestOf } from "./snapshot-request.mjs";
+import { carriedRequestOf, lockedArgv, splitCarriedArgs } from "./snapshot-request.mjs";
+import { directCargoShape } from "./cargo-target-shim.mjs";
 
 /** Stands for the one argument that is a fresh absolute scratch path (`pnpm pack --pack-destination <mkdtemp>`). */
 export const ANY_ABSOLUTE_PATH = Object.freeze({ anyAbsolutePath: true });
@@ -20,7 +21,10 @@ const PNPM = (...argvs) => ({ kind: "adapter", adapter: "rightkit-pnpm", argvs }
 const CARGO = (cwd, ...argvs) => {
   const carried = argvs.map((argv) => carriedRequestOf(argv, cwd) ?? { argv, cwd });
   if (new Set(carried.map((c) => c.cwd)).size !== 1) throw new Error(`the spellings of one cargo command run in different directories: ${argvs.map((a) => a.join(" ")).join(" | ")}`);
-  return { kind: "cargo", argvs: carried.map((c) => c.argv), cwd: carried[0].cwd };
+  // GC-A11: a command of the direct shape (directCargoShape, the one list carried-cargo.mjs runs by) compiles nothing and runs directly,
+  // so it makes no broker job and no signed receipt: the row is `direct`, the stage owes its recorded direct ledger entry instead.
+  const direct = carried.every((c) => directCargoShape(c.argv));
+  return { kind: "cargo", argvs: carried.map((c) => c.argv), cwd: carried[0].cwd, ...(direct ? { direct: true } : {}) };
 };
 
 /** Readable name of an expected command (scratch paths shown as <scratch>). */
@@ -90,15 +94,40 @@ export function requestIs(payload, row, { checkout = null } = {}) {
 }
 
 /**
- * Assigns each job (`{ id, payload }`) to a distinct command of the stage. Returns { assigned: Map(id -> row), unmatched: [id...],
+ * Assigns each job (`{ id, payload }`) to a distinct command of the stage that runs in the broker (a `direct` row has none). Returns { assigned: Map(id -> row), unmatched: [id...],
  * missing: [row...] }: a job that is none of the commands is unmatched; a command no job covers is missing.
  */
 export function assignJobs(rows, jobs, options = {}) {
-  const free = rows.map((row) => ({ row, taken: false }));
+  // A direct row (GC-A11) is never a broker job: it is neither matched to a receipt nor reported missing; directRowsNotRun checks it.
+  const free = rows.filter((row) => row.direct !== true).map((row) => ({ row, taken: false }));
   const assigned = new Map(), unmatched = [];
   for (const job of jobs) {
     const slot = free.find((s) => !s.taken && requestIs(job.payload, s.row, options));
     if (slot) { slot.taken = true; assigned.set(job.id, slot.row); } else unmatched.push(job.id);
   }
   return { assigned, unmatched, missing: free.filter((s) => !s.taken).map((s) => s.row) };
+}
+
+/**
+ * The direct rows (GC-A11) of a stage that the carrier's ledger does not show as run, each with why. `entries` are the stage's ledger
+ * records (cargo-ledger.mjs readLedger). A direct row is satisfied by a record of a direct call (`direct: true`, status `ran`) with exit 0
+ * whose cargo words, locked as the stage's are, are one of the row's spellings and whose directory (the process cwd, or the
+ * `--manifest-path` directory) is the row's `cwd` of the checkout the stage ran in. One record satisfies one row.
+ */
+export function directRowsNotRun(rows, entries) {
+  const pool = (entries ?? []).filter((e) => e?.direct === true && e.status === "ran");
+  const problems = [];
+  for (const row of rows.filter((r) => r.direct === true)) {
+    const matching = pool.filter((e) => {
+      const split = splitCarriedArgs(Array.isArray(e.argv) ? e.argv : []);
+      if (split.refusal) return false;
+      const dir = posixOf(split.manifestPath === null ? e.cwd : path.resolve(String(e.cwd), path.dirname(split.manifestPath)));
+      const words = lockedArgv(split.words);
+      return row.argvs.some((argv) => argv.length === words.length && argv.every((w, i) => w === words[i])) && (row.cwd === "." ? dir !== "" : dir.endsWith(`/${row.cwd}`) || dir === row.cwd);
+    });
+    const ran = matching.find((e) => e.exit === 0);
+    if (ran) { pool.splice(pool.indexOf(ran), 1); continue; }
+    problems.push({ row, why: matching.length ? `ran with exit ${matching[0].exit}` : "has no recorded direct run" });
+  }
+  return problems;
 }

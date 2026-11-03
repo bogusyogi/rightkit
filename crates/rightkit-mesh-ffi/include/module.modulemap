@@ -1,0 +1,4 @@
+module RightKitMeshFFI {
+    header "rightkit_mesh_ffi.h"
+    export *
+}

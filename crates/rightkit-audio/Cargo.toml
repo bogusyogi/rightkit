@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-audio"
-version = "0.3.2"
+version = "0.3.4"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared audio for Right Suite apps: typed FFmpeg filter graphs, loudness gates, room tone, ducking, WAV I/O, and cpal capture with resample/downmix/recovery."
@@ -48,6 +48,15 @@ windows-core = { version = "0.62.2", optional = true }
 
 [package.metadata.rightkit]
 continuous = "held-resource"
+
+# Permissions an app that enables a feature must declare (rightkit#1346 item 5). The release tooling checks each
+# entry against the app's Info.plist keys and signing entitlements for the features the app enables.
+[[package.metadata.rightkit.permissions]]
+feature = "capture"
+platform = "macos"
+info_plist = ["NSMicrophoneUsageDescription"]
+entitlements = ["com.apple.security.device.audio-input"]
+reason = "cpal opens the default input device, which macOS gates behind the microphone privacy prompt and, under the hardened runtime, the audio-input entitlement"
 
 [[package.metadata.rightkit.resources]]
 api = "CaptureSession::open_paused"

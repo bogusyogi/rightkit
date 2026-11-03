@@ -2,31 +2,16 @@
 autotests = false
 autobins = false
 name = "rightkit-agent-server"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Agent server host: HTTP/daemon API routes, CLI and interactive-session runtime, session hosting and orchestration glue for coding-agent applications"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [workspace]
-
-[[bin]]
-name = "coderight"
-path = "src/bin/coderight.rs"
-required-features = ["e2e-harness"]
-
-[[bin]]
-name = "ops004_driver_fixture"
-path = "src/bin/ops004_driver_fixture.rs"
-required-features = ["e2e-harness"]
-
-[[test]]
-name = "e2e"
-path = "tests/e2e/main.rs"
-required-features = ["e2e-harness"]
 
 [lib]
 name = "rightkit_agent_server"
@@ -34,8 +19,6 @@ path = "src/lib.rs"
 
 [features]
 default = []
-# Builds the black-box test binaries and enables the end-to-end tests (they also need a product skill host).
-e2e-harness = []
 qualification = ["rightkit-agent-engine-core/qualification"]
 fastembed = ["rightkit-onnx/session", "rightkit-agent-tools/coding_tools-embeddings"]
 
@@ -117,10 +100,3 @@ libc = { version = "0.2" }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
-
-[dev-dependencies]
-base64 = { version = "0.23" }
-rightkit-app-settings = { version = "0.3.1", path = "../rightkit-app-settings", features = ["agent_config"] }
-tiny_http = { version = "0.12" }
-portable-pty = { version = "0.9" }
-vt100 = { version = "0.18" }

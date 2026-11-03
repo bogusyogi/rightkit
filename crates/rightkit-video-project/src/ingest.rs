@@ -329,7 +329,7 @@ pub fn probe_deep(tools: &MediaTools, file: &Path) -> Result<DeepProbe, ProjectE
         .map(|s| s.index)
         .and_then(|index| {
             rk::probe::probe_packets(
-                &rk::verify_ffprobe_or_development(
+                &rk::verify_ffprobe_handle(
                     &tools.ffprobe,
                     rk::DECODE_VARIANT,
                     crate::tools::VERIFY_TIMEOUT,

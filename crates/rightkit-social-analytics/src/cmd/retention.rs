@@ -30,6 +30,7 @@ use rightkit_engine_host::project::{
     analysis_dir, bad, clip_ranges, io_err, load_transcript, read_json,
     renders_list as m_renders_list, write_json,
 };
+use rightkit_transcript::Transcript;
 
 const SCHEMA: &str = "cutright.retention.v1";
 const REQ_SCHEMA: &str = "cutright.render-request.v1";

@@ -14,6 +14,7 @@
 
 use crate::event::{EventKind, HookEvent, ParseError, Wire};
 use crate::output::Reply;
+use serde_json::Value;
 use std::io::{Read, Write};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};

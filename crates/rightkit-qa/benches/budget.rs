@@ -48,21 +48,25 @@ fn main() {
     let idle_s: u64 = args.get(1).and_then(|v| v.parse().ok()).unwrap_or(30);
 
     let before = process_usage().expect("process usage");
-    // The guard refuses an engine launch that names no isolated data directory, even for this
-    // synthetic engine, which reads and writes nothing: give it a scratch directory under the temp root.
+    // Every engine launch needs an armed snapshot (rightkit#1437). This synthetic engine reads and
+    // writes nothing, so the snapshot covers an empty scratch folder under the temp root.
     let scratch = std::env::temp_dir().join(format!("rightkit-qa-budget-{}", std::process::id()));
-    std::fs::create_dir_all(&scratch).expect("scratch data dir");
-    let target = EngineTarget::new(std::env::current_exe().unwrap())
-        .with_data_dir_env("RIGHTKIT_QA_BUDGET_DATA");
+    std::fs::create_dir_all(&scratch).expect("scratch folder");
+    let snapshot_cfg = rightkit_qa::config::SnapshotConfig {
+        extra_paths: vec![scratch.to_string_lossy().into_owned()],
+        process_names: vec!["rightkit-qa-budget-engine-never-running".into()],
+        ..Default::default()
+    };
+    let _armed = rightkit_qa::snapshot::arm(
+        "qa-budget",
+        &snapshot_cfg,
+        &rightkit_qa::storage::managed_root(None),
+    )
+    .expect("snapshot of the scratch folder");
+    let target = EngineTarget::new(std::env::current_exe().unwrap());
     let tracker = Tracker::new();
     let mut sidecar = target
-        .start_sidecar(
-            &CliOptions {
-                data_dir: Some(scratch.clone()),
-                ..Default::default()
-            },
-            &tracker,
-        )
+        .start_sidecar(&CliOptions::default(), &tracker)
         .expect("sidecar");
     let started = Instant::now();
     for i in 0..commands {

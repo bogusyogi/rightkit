@@ -1,0 +1,10 @@
+{
+  "_comment": "The pinned Oxlint for the class A oxlint:<package> scans (rightkit#1402; PINNED_SCAN_TOOLS in packages/release/deterministic-scans.mjs holds the same version). A host enrols the unpacked binary through scan-tool-enrolment (tool oxlint, its absolute path, the file's sha256 and this version); a class A run on a host where it is not enrolled fails TOOL_UNTRUSTED, never skips. Digests are the archives' sha256 as GitHub's release API reports them for https://github.com/oxc-project/oxc/releases/tag/oxlint_v1.89.0.",
+  "version": "1.89.0",
+  "platforms": {
+    "linux-x64": { "archive": "oxlint-x86_64-unknown-linux-gnu.tar.gz", "sha256": "88492c336807a34062fa540416fe75037c04bcce1ed77824e3db3aaec215949a" },
+    "darwin-arm64": { "archive": "oxlint-aarch64-apple-darwin.tar.gz", "sha256": "fa4349f33b24221e2d303ace66de3dac2ff756eab48126b2cb58429ed36bccbc" },
+    "darwin-x64": { "archive": "oxlint-x86_64-apple-darwin.tar.gz", "sha256": "198261cfb91c0f0387c55642ba5c2c4aa2c3cf9593188f86187c759f280bae88" },
+    "win32-x64": { "archive": "oxlint-x86_64-pc-windows-msvc.zip", "sha256": "50be9b3d180a48f2a33fb9ab6d92383c6464d38e4df347b08b1bce6b999c8c15" }
+  }
+}

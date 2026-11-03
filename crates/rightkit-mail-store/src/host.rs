@@ -1,6 +1,7 @@
 //! The host seams of the mail store: identity, secret key storage, the data folder and the build
 //! channel. A host registers one [`MailStoreHost`] at start-up with [`set_host`]; the store reads
 //! nothing from the environment itself.
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
 /// How the data folder was chosen.

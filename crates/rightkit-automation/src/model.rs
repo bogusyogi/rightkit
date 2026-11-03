@@ -53,7 +53,6 @@ pub struct FrontApp {
 pub enum PlatformKind {
     MacOs,
     Windows,
-    Mock,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -240,7 +239,32 @@ pub enum Action {
     },
     Focus,
     MenuPress(Vec<String>),
+    /// Press the left button at `from` (the element's centre, else the window centre, when
+    /// `None`), move to `to` in `steps` evenly spaced moves with the button held, and release
+    /// at `to`. Screen points in the same space as [`Action::Click`]. It goes through the same
+    /// gates as every other effect (kill switch, allowlist, lease, freshness guard, risk
+    /// label of the element at the start, admission) and only the pointer tiers can run it
+    /// (targeted, foreground): there is no semantic or in-app form.
+    Drag {
+        from: Option<(f64, f64)>,
+        to: (f64, f64),
+        steps: u32,
+    },
+    /// Write `secret` into a password, card or other credential field: the one owned route
+    /// past the engine's refusal to type credentials (see [`crate::secret`]). Needs an element,
+    /// the freshness guard on, and `origin`, the page URL (or origin) the field must belong to,
+    /// or for a native field the app id. The engine reads where the field lives and refuses on
+    /// any mismatch or when it cannot tell. Tier 1 only: never keystrokes, never the clipboard.
+    /// The receipt records the action name and outcome, never the value.
+    FillSecret {
+        secret: crate::secret::Secret,
+        origin: String,
+    },
 }
+
+/// Most intermediate moves one [`Action::Drag`] may carry; `steps` above it is clamped and
+/// `0` becomes `1` (a single move straight to the target).
+pub const MAX_DRAG_STEPS: u32 = 200;
 
 impl Action {
     pub fn name(&self) -> &'static str {
@@ -253,6 +277,8 @@ impl Action {
             Action::Scroll { .. } => "scroll",
             Action::Focus => "focus",
             Action::MenuPress(_) => "menu_press",
+            Action::Drag { .. } => "drag",
+            Action::FillSecret { .. } => "fill_secret",
         }
     }
     /// Text payload, for redaction.

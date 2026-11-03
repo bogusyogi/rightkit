@@ -519,6 +519,8 @@ fn fit_for_resources(
                 name: String::new(),
                 vram_gb: Some(gb(mb)),
                 unified: false,
+                vram_mib: None,
+                source: None,
                 backends: Vec::new(),
             })
             .into_iter()

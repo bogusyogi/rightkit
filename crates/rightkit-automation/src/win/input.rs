@@ -14,6 +14,7 @@
 //! *physical* input can fall between them. It does not stop other injectors. UIPI blocks
 //! injection into a higher-integrity foreground window and the secure desktop.
 
+use super::sys;
 use crate::model::Result;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 
@@ -60,7 +61,8 @@ pub fn is_extended_vk(vk: u16) -> bool {
 pub struct RawKey {
     /// Virtual-key code. With `by_scan` it is carried but the system ignores it.
     pub vk: u16,
-    /// Hardware scan code (`wScan`). 0 lets the system derive it from `vk`.
+    /// Hardware scan code (`wScan`). 0 with a virtual key fills it from `vk` (MAPVK_VK_TO_VSC)
+    /// when the item is sent.
     pub scan: u16,
     pub up: bool,
     /// `KEYEVENTF_EXTENDEDKEY`.
@@ -190,7 +192,16 @@ impl RawInput {
                 if k.by_scan {
                     flags |= KEYEVENTF_SCANCODE;
                 }
-                keyboard(k.vk, k.scan, flags, extra_info)
+                // SendInput does not derive wScan from wVk: a window that maps keys by scan
+                // code (WezTerm) would receive 0. Fill it from the virtual key unless the
+                // caller named a scan code. The extended bit stays with KEYEVENTF_EXTENDEDKEY.
+                let scan = if !k.by_scan && k.scan == 0 && k.vk != 0 {
+                    let vsc = unsafe { MapVirtualKeyW(u32::from(k.vk), MAPVK_VK_TO_VSC) };
+                    (vsc & 0xFF) as u16
+                } else {
+                    k.scan
+                };
+                keyboard(k.vk, scan, flags, extra_info)
             }
             RawInput::Unicode { unit, up } => {
                 let mut flags = KEYEVENTF_UNICODE;

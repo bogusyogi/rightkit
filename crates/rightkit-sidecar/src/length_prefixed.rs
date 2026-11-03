@@ -4,7 +4,9 @@
 //! one-request/one-response exchanges.
 //!
 //! Rules (all enforced before any body byte is read or written):
-//! - A zero length is malformed ([`FrameError::Io`] of kind `InvalidData`).
+//! - A zero length is malformed ([`FrameError::Io`] of kind `InvalidData`), unless the caller
+//!   opts in with [`FrameOptions::allow_empty`] on a byte-level function (a protocol in which
+//!   an empty body is a valid frame). The default is unchanged.
 //! - A length above `limit` is [`FrameError::TooLarge`]. The body is **not**
 //!   consumed, so the stream is no longer on a frame boundary: the caller must
 //!   close the connection (unlike JSON lines, there is no resynchronisation).
@@ -20,6 +22,16 @@ use std::time::{Duration, Instant};
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::FrameError;
+
+/// Policy for the byte-level frame functions (`*_bytes`, `*_bytes_deadline` and their `_opts`
+/// forms). The default is the behaviour of the functions without options.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FrameOptions {
+    /// Treat a zero-length body as a valid frame. Default `false`: a zero length on read and an
+    /// empty body on write are `FrameError::Io` of kind `InvalidData`. With `true`, an empty
+    /// body is written as the four-byte length `0` and a length of `0` reads as an empty `Vec`.
+    pub allow_empty: bool,
+}
 
 /// Serialize `value` and write it as one length-prefixed frame. Nothing is
 /// written when the encoding is empty or exceeds `limit`.
@@ -38,7 +50,18 @@ pub fn write_frame_bytes<W: Write>(
     body: &[u8],
     limit: usize,
 ) -> Result<(), FrameError> {
-    if body.is_empty() {
+    write_frame_bytes_opts(writer, body, limit, FrameOptions::default())
+}
+
+/// As [`write_frame_bytes`] under [`FrameOptions`]. With `allow_empty`, an empty body is
+/// written as a zero length prefix.
+pub fn write_frame_bytes_opts<W: Write>(
+    writer: &mut W,
+    body: &[u8],
+    limit: usize,
+    opts: FrameOptions,
+) -> Result<(), FrameError> {
+    if body.is_empty() && !opts.allow_empty {
         return Err(FrameError::Io(io::Error::new(
             io::ErrorKind::InvalidData,
             "empty frame body",
@@ -60,6 +83,16 @@ pub fn read_frame_bytes<R: Read>(
     reader: &mut R,
     limit: usize,
 ) -> Result<Option<Vec<u8>>, FrameError> {
+    read_frame_bytes_opts(reader, limit, FrameOptions::default())
+}
+
+/// As [`read_frame_bytes`] under [`FrameOptions`]. With `allow_empty`, a zero length is
+/// `Ok(Some(Vec::new()))`; a clean end of stream between frames is still `Ok(None)`.
+pub fn read_frame_bytes_opts<R: Read>(
+    reader: &mut R,
+    limit: usize,
+    opts: FrameOptions,
+) -> Result<Option<Vec<u8>>, FrameError> {
     let mut len = [0u8; 4];
     let mut filled = 0;
     while filled < 4 {
@@ -72,7 +105,7 @@ pub fn read_frame_bytes<R: Read>(
         }
     }
     let len = u32::from_be_bytes(len) as usize;
-    if len == 0 {
+    if len == 0 && !opts.allow_empty {
         return Err(FrameError::Io(io::Error::new(
             io::ErrorKind::InvalidData,
             "zero-length frame",
@@ -169,6 +202,19 @@ pub fn read_frame_bytes_deadline<R: Read>(
     deadline: Instant,
     ready: Ready<'_>,
 ) -> Result<Vec<u8>, FrameError> {
+    read_frame_bytes_deadline_opts(reader, limit, deadline, ready, FrameOptions::default())
+}
+
+/// As [`read_frame_bytes_deadline`] under [`FrameOptions`]. With `allow_empty`, a declared
+/// length of zero returns an empty `Vec` (the four header bytes are consumed); every other
+/// rule and error is unchanged.
+pub fn read_frame_bytes_deadline_opts<R: Read>(
+    reader: &mut R,
+    limit: usize,
+    deadline: Instant,
+    ready: Ready<'_>,
+    opts: FrameOptions,
+) -> Result<Vec<u8>, FrameError> {
     let mut header = [0u8; 4];
     match fill_deadline(reader, &mut header, deadline, &mut *ready) {
         Ok(_) => {}
@@ -178,7 +224,7 @@ pub fn read_frame_bytes_deadline<R: Read>(
         Err(ReadStop::Failed(e)) => return Err(FrameError::Io(e)),
     }
     let length = u32::from_be_bytes(header) as usize;
-    if length == 0 {
+    if length == 0 && !opts.allow_empty {
         return Err(FrameError::Io(io::Error::new(
             io::ErrorKind::InvalidData,
             "zero-length frame",
@@ -220,7 +266,27 @@ pub fn write_frame_bytes_deadline<W: Write>(
     deadline: Instant,
     ready: Ready<'_>,
 ) -> Result<(), FrameError> {
-    if body.is_empty() {
+    write_frame_bytes_deadline_opts(
+        writer,
+        body,
+        limit,
+        deadline,
+        ready,
+        FrameOptions::default(),
+    )
+}
+
+/// As [`write_frame_bytes_deadline`] under [`FrameOptions`]. With `allow_empty`, an empty
+/// body is sent as the four-byte zero length; every other rule and error is unchanged.
+pub fn write_frame_bytes_deadline_opts<W: Write>(
+    writer: &mut W,
+    body: &[u8],
+    limit: usize,
+    deadline: Instant,
+    ready: Ready<'_>,
+    opts: FrameOptions,
+) -> Result<(), FrameError> {
+    if body.is_empty() && !opts.allow_empty {
         return Err(FrameError::Io(io::Error::new(
             io::ErrorKind::InvalidData,
             "empty frame body",

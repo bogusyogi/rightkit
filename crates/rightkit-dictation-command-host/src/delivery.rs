@@ -23,10 +23,3 @@ pub use deliver::{
     copy_fallback_record, copy_text, deliver_text, deliver_text_with_enter, paste_text,
 };
 pub use targets::{restore_and_verify, snapshot_target};
-
-pub(crate) fn test_mode() -> bool {
-    // Switch class S1: the variable's name exists only in test and `test-mode` builds.
-    {
-        false
-    }
-}

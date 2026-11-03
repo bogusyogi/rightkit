@@ -323,6 +323,8 @@ pub fn render(
         quality: job.quality,
         audio: job.audio.clone(),
         output: job.output.clone(),
+        vp9_crf: None,
+        audio_codec: None,
     })?;
     let alpha = job.encoder.kind.has_alpha();
     let poster_at = poster_frame(total);

@@ -76,30 +76,6 @@ impl FrontendLookaheadConfig {
             output_backings,
         }
     }
-
-    /// Candidate-arm environment switch. No environment value enables this
-    /// unless it is exactly `1`, and memory facts still must be supplied by the
-    /// caller.
-    pub fn from_env(memory_gate: MemoryGate) -> Self {
-        let enabled = rightkit_dictation_core::dev_var!("RIGHTKIT_COREML_FRONTEND_LOOKAHEAD")
-            .as_deref()
-            == Ok("1");
-        let max_memory_bytes =
-            rightkit_dictation_core::dev_var!("RIGHTKIT_COREML_FRONTEND_LOOKAHEAD_MAX_BYTES")
-                .ok()
-                .and_then(|value| value.parse::<usize>().ok())
-                .unwrap_or(8 * 1024 * 1024);
-        Self {
-            enabled,
-            max_memory_bytes,
-            memory_gate: Some(memory_gate),
-            output_backings: rightkit_dictation_core::dev_var!(
-                "RIGHTKIT_COREML_OUTPUT_BACKING_PROBE"
-            )
-            .as_deref()
-                == Ok("1"),
-        }
-    }
 }
 
 /// Run a macOS probe tool under RightKit process ownership (`rightkit_child_process::run`)

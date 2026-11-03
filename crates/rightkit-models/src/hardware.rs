@@ -29,6 +29,13 @@ pub struct Gpu {
     pub unified: bool,
     #[serde(default)]
     pub backends: Vec<String>,
+    /// The probe's raw VRAM value in MiB, when the probe reported one. `vram_gb` is rounded to
+    /// 0.1 GB, so a 16376 MiB card reads back as 16 GB only through this field.
+    #[serde(default)]
+    pub vram_mib: Option<u64>,
+    /// Which probe reported this GPU: `nvidia-smi`, `wmic`, `system_profiler` or `metal`.
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -663,6 +670,8 @@ fn detect_gpus() -> Vec<Gpu> {
                         .and_then(|s| s.split_whitespace().next())
                         .and_then(|s| s.parse().ok()),
                     unified: vendor.contains("apple") || std::env::consts::ARCH == "aarch64",
+                    vram_mib: None,
+                    source: Some("system_profiler".into()),
                     backends: vec!["metal".into()],
                 });
             }
@@ -673,6 +682,8 @@ fn detect_gpus() -> Vec<Gpu> {
             name: "Apple Silicon (unified)".into(),
             vram_gb: None,
             unified: true,
+            vram_mib: None,
+            source: Some("metal".into()),
             backends: vec!["metal".into()],
         });
     }
@@ -727,6 +738,8 @@ fn detect_gpus() -> Vec<Gpu> {
                 name,
                 vram_gb: mems.get(i).copied().map(round1),
                 unified: false,
+                vram_mib: None,
+                source: None,
                 backends: if nv {
                     vec!["cuda".into(), "vulkan".into()]
                 } else {
@@ -784,6 +797,8 @@ fn apply_nvidia_smi(gpus: &mut Vec<Gpu>) {
                 name,
                 vram_gb: Some(vram),
                 unified: false,
+                vram_mib: None,
+                source: None,
                 backends: vec!["cuda".into(), "vulkan".into()],
             }),
         }

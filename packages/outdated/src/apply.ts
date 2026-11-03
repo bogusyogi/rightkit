@@ -2,7 +2,8 @@
 //
 // Safety shape: every row is a small transaction over a known file set. The files are
 // snapshotted, edited, verified, and restored if anything fails. Breaking bumps and
-// held rows are reported, never applied. Nothing here commits, pushes or publishes.
+// held rows are reported, never applied. Every lockfile a pin change touches is regenerated in the same transaction (cargo, pnpm, SwiftPM),
+// and a crate pinned by several workspace members is rewritten in all of them at once. Nothing here commits, pushes or publishes.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -162,70 +163,98 @@ function lockedVersions(lockText: string, name: string): string[] {
   }
 }
 
-async function applyCargo(ctx: Ctx, entry: CheckEntry, newRequirement: string, full: string): Promise<RowResult> {
-  const manifestRel = entry.source;
-  const dirRel = path.posix.dirname(manifestRel);
-  const lockRel = findUp(ctx.repo, dirRel, "Cargo.lock");
-  // A standalone crate with no lock yet gets one next to its manifest.
-  const files = [manifestRel, lockRel ?? (dirRel === "." ? "Cargo.lock" : `${dirRel}/Cargo.lock`)];
-  const commands: string[][] = [];
-  const notes: string[] = [];
+/** One dependency row of a crate that is rewritten together with every other member that pins it. */
+interface CargoMember {
+  entry: CheckEntry;
+  newRequirement: string;
+}
+
+/**
+ * Apply one crate's new version to every workspace member that pins it, as one transaction (rightkit#1429). Members share exact pins
+ * (`=0.3.5`), so the resolver cannot take one member to the new version while a sibling still pins the old one: every member's pin is
+ * rewritten first, then each affected lockfile is updated once. Returns one result per member, in order; a failure rolls every
+ * member and lockfile back and fails them all.
+ */
+async function applyCargoGroup(ctx: Ctx, members: CargoMember[], full: string): Promise<RowResult[]> {
+  const name = members[0].entry.name;
+  const manifests = [...new Set(members.map((m) => m.entry.source))];
+  // The lockfile of each manifest: the nearest Cargo.lock above it. A standalone crate with no lock yet is left without one.
+  const lockOf = new Map<string, string | null>(manifests.map((rel) => [rel, findUp(ctx.repo, path.posix.dirname(rel), "Cargo.lock")]));
+  const locks = [...new Set([...lockOf.values()].filter((l): l is string => l !== null))];
+  const files = [...manifests, ...locks];
   const argvFor = (pkg: string) => ["rustright", "cargo", "update", "-p", pkg, "--precise", full];
-  commands.push(argvFor(entry.name));
+  const missingLock = manifests.some((rel) => lockOf.get(rel) === null);
+  const lockNote = "no Cargo.lock found; lockfile not refreshed";
+  const each = (fn: (m: CargoMember) => RowResult): RowResult[] => members.map(fn);
 
   if (ctx.dryRun) {
-    return {
-      change: { kind: "cargo", name: entry.name, source: manifestRel, before: entry.pinned!, after: newRequirement, latest: entry.latest!, status: "planned", files: files.map((p) => ({ path: p, sha256Before: sha256File(toAbs(ctx.repo, p)), sha256After: null })), commands: lockRel ? commands : [], notes: lockRel ? notes : ["no Cargo.lock found; lockfile not refreshed"] },
-    };
+    return each((m) => {
+      const lockRel = lockOf.get(m.entry.source) ?? null;
+      const planned = [m.entry.source, ...(lockRel ? [lockRel] : [])];
+      return {
+        change: { kind: "cargo", name, source: m.entry.source, before: m.entry.pinned!, after: m.newRequirement, latest: m.entry.latest!, status: "planned", files: planned.map((p) => ({ path: p, sha256Before: sha256File(toAbs(ctx.repo, p)), sha256After: null })), commands: lockRel ? [argvFor(name)] : [], notes: lockRel ? [] : [lockNote] },
+      };
+    });
   }
 
   const tx = new Transaction(ctx, files);
   const conflicts = tx.conflicts();
-  if (conflicts.length > 0) return { failed: `refusing to edit files with uncommitted changes: ${conflicts.join(", ")}` };
+  if (conflicts.length > 0) return each(() => ({ failed: `refusing to edit files with uncommitted changes: ${conflicts.join(", ")}` }));
   try {
-    const manifestAbs = toAbs(ctx.repo, manifestRel);
-    const original = fs.readFileSync(manifestAbs, "utf8");
-    const edited = replaceCargoVersion(original, entry.name, entry.pinned!, newRequirement);
-    if (edited.count === 0) throw new Error(`could not locate version "${entry.pinned}" for ${entry.name} in ${manifestRel}`);
-    verifyCargoEdit(original, edited.text, entry.name, entry.pinned!, newRequirement);
-    fs.writeFileSync(manifestAbs, edited.text);
+    // Every member's pin is rewritten in memory first and written only when all edits verified.
+    const texts = new Map<string, string>();
+    for (const m of members) {
+      const original = texts.get(m.entry.source) ?? fs.readFileSync(toAbs(ctx.repo, m.entry.source), "utf8");
+      const edited = replaceCargoVersion(original, name, m.entry.pinned!, m.newRequirement);
+      if (edited.count === 0) throw new Error(`could not locate version "${m.entry.pinned}" for ${name} in ${m.entry.source}`);
+      verifyCargoEdit(original, edited.text, name, m.entry.pinned!, m.newRequirement);
+      texts.set(m.entry.source, edited.text);
+    }
+    for (const [rel, text] of texts) fs.writeFileSync(toAbs(ctx.repo, rel), text);
 
-    const lockAlready = lockRel !== null && lockHasVersion(fs.readFileSync(toAbs(ctx.repo, lockRel), "utf8"), entry.name, full);
-    if (lockAlready) {
-      // An earlier row already moved the lockfile to this exact version.
-      commands.length = 0;
-      notes.push(`${lockRel} already locks ${entry.name} ${full}`);
-    } else if (lockRel) {
-      const cwd = path.dirname(manifestAbs);
-      let result = await ctx.run(argvFor(entry.name), { cwd, timeoutMs: LOCK_TIMEOUT_MS });
+    const commands: string[][] = [];
+    const notes: string[] = [];
+    if (missingLock) notes.push(lockNote);
+    // One lock update per lockfile (per workspace), run from the first member that uses it.
+    for (const lockRel of locks) {
+      const cwd = path.dirname(toAbs(ctx.repo, manifests.find((rel) => lockOf.get(rel) === lockRel)!));
+      if (lockHasVersion(fs.readFileSync(toAbs(ctx.repo, lockRel), "utf8"), name, full)) {
+        // An earlier row already moved the lockfile to this exact version.
+        notes.push(`${lockRel} already locks ${name} ${full}`);
+        continue;
+      }
+      commands.push(argvFor(name));
+      let result = await ctx.run(argvFor(name), { cwd, timeoutMs: LOCK_TIMEOUT_MS });
       if (result.code !== 0 && /ambiguous/i.test(result.stderr)) {
         // More than one locked version of the crate: pick the one in the same compatibility line.
         const lockText = fs.readFileSync(toAbs(ctx.repo, lockRel), "utf8");
         const newMajor = full.split(".")[0];
-        const candidates = lockedVersions(lockText, entry.name).filter((v) => v.split(".")[0] === newMajor);
+        const candidates = lockedVersions(lockText, name).filter((v) => v.split(".")[0] === newMajor);
         if (candidates.length === 1) {
-          const spec = `${entry.name}@${candidates[0]}`;
+          const spec = `${name}@${candidates[0]}`;
           commands.push(argvFor(spec));
           result = await ctx.run(argvFor(spec), { cwd, timeoutMs: LOCK_TIMEOUT_MS });
         }
       }
       if (result.code !== 0) {
         const why = result.error ?? (result.timedOut ? "timed out" : result.stderr.trim().split("\n").slice(-6).join(" | ") || `exit ${result.code}`);
-        throw new Error(`rustright cargo update failed: ${why}`);
+        throw new Error(`rustright cargo update failed in ${lockRel}: ${why}`);
       }
-      const lockText = fs.readFileSync(toAbs(ctx.repo, lockRel), "utf8");
-      if (!lockHasVersion(lockText, entry.name, full)) throw new Error(`${lockRel} does not contain ${entry.name} ${full} after the update`);
-    } else {
-      notes.push("no Cargo.lock found; lockfile not refreshed");
+      if (!lockHasVersion(fs.readFileSync(toAbs(ctx.repo, lockRel), "utf8"), name, full)) throw new Error(`${lockRel} does not contain ${name} ${full} after the update`);
     }
     const changes = tx.changes();
     for (const f of changes) ctx.touched.add(f.path);
-    return {
-      change: { kind: "cargo", name: entry.name, source: manifestRel, before: entry.pinned!, after: newRequirement, latest: entry.latest!, status: "applied", files: changes, commands: lockRel ? commands : [], notes },
-    };
+    return each((m) => {
+      const lockRel = lockOf.get(m.entry.source) ?? null;
+      const rowFiles = changes.filter((f) => f.path === m.entry.source || f.path === lockRel);
+      return {
+        change: { kind: "cargo", name, source: m.entry.source, before: m.entry.pinned!, after: m.newRequirement, latest: m.entry.latest!, status: "applied", files: rowFiles, commands: lockRel ? commands : [], notes: lockRel ? notes.filter((n) => n !== lockNote) : [lockNote] },
+      };
+    });
   } catch (error) {
     tx.restore();
-    return { failed: errorText(error) };
+    const reason = errorText(error);
+    return each(() => ({ failed: reason }));
   }
 }
 
@@ -329,21 +358,26 @@ async function applySwiftpm(ctx: Ctx, entry: CheckEntry, newRequirement: string)
   const sibling = path.posix.basename(manifestRel) === "Package.swift" ? "project.yml" : "Package.swift";
   const siblingRel = dirRel === "." ? sibling : `${dirRel}/${sibling}`;
   const rels = [manifestRel, ...(fs.existsSync(toAbs(ctx.repo, siblingRel)) ? [siblingRel] : [])];
-  const resolvedRel = findUp(ctx.repo, dirRel, "Package.resolved");
-  const notes = resolvedRel ? [`${resolvedRel} was not refreshed; run swift package resolve in a build lane`] : [];
+  // `swift package resolve` writes Package.resolved next to the Package.swift it runs in. A project.yml-only project has no Package.swift
+  // to resolve here: its pins live in the generated Xcode project, which is regenerated by its own lane.
+  const packageRel = path.posix.basename(manifestRel) === "Package.swift" ? manifestRel : fs.existsSync(toAbs(ctx.repo, siblingRel)) ? siblingRel : null;
+  const resolvedRel = packageRel ? (path.posix.dirname(packageRel) === "." ? "Package.resolved" : `${path.posix.dirname(packageRel)}/Package.resolved`) : findUp(ctx.repo, dirRel, "Package.resolved");
+  const resolveArgv = ["swift", "package", "resolve"];
+  const notes = packageRel ? [] : resolvedRel ? [`${resolvedRel} was not refreshed: ${manifestRel} has no Package.swift beside it to resolve`] : [];
 
   const edit = (rel: string, text: string) =>
     path.posix.basename(rel) === "Package.swift"
       ? replaceSwiftPackageVersion(text, entry.name, entry.pinned!, newRequirement)
       : replaceProjectYmlVersion(text, entry.name, entry.pinned!, newRequirement);
 
+  const files = packageRel && resolvedRel ? [...rels, resolvedRel] : rels;
   if (ctx.dryRun) {
     return {
-      change: { kind: "swiftpm", name: entry.name, source: manifestRel, before: entry.pinned!, after: newRequirement, latest: entry.latest!, status: "planned", files: rels.map((p) => ({ path: p, sha256Before: sha256File(toAbs(ctx.repo, p)), sha256After: null })), commands: [], notes },
+      change: { kind: "swiftpm", name: entry.name, source: manifestRel, before: entry.pinned!, after: newRequirement, latest: entry.latest!, status: "planned", files: files.map((p) => ({ path: p, sha256Before: sha256File(toAbs(ctx.repo, p)), sha256After: null })), commands: packageRel ? [resolveArgv] : [], notes },
     };
   }
 
-  const tx = new Transaction(ctx, rels);
+  const tx = new Transaction(ctx, files);
   const conflicts = tx.conflicts();
   if (conflicts.length > 0) return { failed: `refusing to edit files with uncommitted changes: ${conflicts.join(", ")}` };
   try {
@@ -356,10 +390,16 @@ async function applySwiftpm(ctx: Ctx, entry: CheckEntry, newRequirement: string)
       total += result.count;
     }
     if (total === 0) throw new Error(`no edits made for ${entry.name}`);
+    const commands: string[][] = [];
+    if (packageRel) {
+      // The lockfile is regenerated in the same transaction, so the commit carries the matching Package.resolved.
+      commands.push(resolveArgv);
+      await runChecked(ctx, resolveArgv, path.dirname(toAbs(ctx.repo, packageRel)), LOCK_TIMEOUT_MS);
+    }
     const changes = tx.changes();
     for (const f of changes) ctx.touched.add(f.path);
     return {
-      change: { kind: "swiftpm", name: entry.name, source: manifestRel, before: entry.pinned!, after: newRequirement, latest: entry.latest!, status: "applied", files: changes, commands: [], notes },
+      change: { kind: "swiftpm", name: entry.name, source: manifestRel, before: entry.pinned!, after: newRequirement, latest: entry.latest!, status: "applied", files: changes, commands, notes },
     };
   } catch (error) {
     tx.restore();
@@ -541,6 +581,18 @@ export async function runApply(options: ApplyOptions, deps: ApplyDeps = {}): Pro
   if (!dryRun) ensureStateDir(repo);
 
   const toolSources = new Map(manifest.sources.filter((s): s is ToolSource => s.kind === "tool").map((s) => [s.name, s]));
+  // Cargo rows that will be applied, grouped by crate and target version: every member that pins a crate is rewritten together.
+  const cargoGroups = new Map<string, { full: string; members: CargoMember[] }>();
+  for (const entry of rows) {
+    if (entry.status !== "outdated" || entry.kind !== "cargo" || entry.policy === "held" || entry.policy === "agent-pr") continue;
+    const decision = decideBump(entry.pinned ?? "", entry.latest ?? "");
+    if (decision.action !== "apply" || decision.newRequirement === entry.pinned) continue;
+    const key = `${entry.name}@${decision.fullVersion}`;
+    const group = cargoGroups.get(key) ?? { full: decision.fullVersion!, members: [] };
+    group.members.push({ entry, newRequirement: decision.newRequirement! });
+    cargoGroups.set(key, group);
+  }
+  const cargoResults = new Map<CheckEntry, RowResult>();
   for (const entry of rows) {
     if (entry.status !== "outdated") continue;
     if (entry.policy === "held") {
@@ -553,6 +605,12 @@ export async function runApply(options: ApplyOptions, deps: ApplyDeps = {}): Pro
     }
     if (entry.kind === "rightkit") {
       report.skipped.push(unapplied(entry, "rightkit sources are updated through right-release, not right-update"));
+      continue;
+    }
+
+    if (entry.kind === "coverage" || entry.kind === "native" || entry.kind === "toolchain") {
+      // Undeclared files, native builds and toolchain pins are judged by `check` only; right-update never rewrites them (rightkit#1267).
+      report.skipped.push(unapplied(entry, `${entry.kind} rows are not rewritten by right-update`));
       continue;
     }
 
@@ -574,8 +632,14 @@ export async function runApply(options: ApplyOptions, deps: ApplyDeps = {}): Pro
         report.skipped.push(unapplied(entry, "new requirement equals the current one"));
         continue;
       }
-      if (entry.kind === "cargo") result = await applyCargo(ctx, entry, decision.newRequirement!, decision.fullVersion!);
-      else if (entry.kind === "pnpm") result = await applyPnpm(ctx, entry, decision.newRequirement!, decision.fullVersion!);
+      if (entry.kind === "cargo") {
+        if (!cargoResults.has(entry)) {
+          const group = cargoGroups.get(`${entry.name}@${decision.fullVersion}`)!;
+          const results = await applyCargoGroup(ctx, group.members, group.full);
+          group.members.forEach((m, i) => cargoResults.set(m.entry, results[i]));
+        }
+        result = cargoResults.get(entry)!;
+      } else if (entry.kind === "pnpm") result = await applyPnpm(ctx, entry, decision.newRequirement!, decision.fullVersion!);
       else result = await applySwiftpm(ctx, entry, decision.newRequirement!);
     }
 

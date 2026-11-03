@@ -10,6 +10,7 @@ use std::sync::{Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use crate::{WatchEvent, WatchEventRecord, WatchMetrics};
+use std::collections::VecDeque;
 
 /// A queued record with the private FSEvents event id it advances the cursor to.
 #[derive(Debug, Clone)]
@@ -45,6 +46,8 @@ struct Inner {
     overflow: u64,
     error: u64,
     dropped: u64,
+    /// Records merged into an identical unread tail instead of being queued.
+    coalesced: u64,
     /// Records counted in `queued` that a clear removed before anyone received them.
     evicted: u64,
 }
@@ -129,6 +132,7 @@ impl BoundedQueue {
                     && tail.record == entry.record
                 {
                     tail.id = tail.id.max(entry.id);
+                    inner.coalesced += 1;
                     return;
                 }
             }
@@ -259,6 +263,7 @@ impl BoundedQueue {
             overflow_total: inner.overflow,
             error_total: inner.error,
             dropped_total: inner.dropped,
+            coalesced_total: inner.coalesced,
             queue_capacity: self.capacity as u64,
         }
     }

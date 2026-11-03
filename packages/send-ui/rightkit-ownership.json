@@ -1,0 +1,15 @@
+{
+  "package": "@rightkit/send-ui",
+  "capabilities": [
+    {
+      "capability": "send-ui",
+      "summary": "Nearby sharing UI for rightkit-send: devices, incoming requests, transfers and per-device trust.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

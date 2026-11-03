@@ -572,6 +572,53 @@ impl StateDir {
         self.dir.entries(limit)
     }
 
+    // Crate-internal handle-relative operations without the per-entry directory flush and without
+    // the name-length cap, for the tree walkers (`tree::remove_tree`, `confined_copy`). Every name
+    // is a single component taken from a listing of this pinned directory.
+
+    /// Every direct child with its kind, no cap.
+    pub(crate) fn raw_entries(&self) -> Result<Vec<DirEntry>> {
+        self.dir.entries(usize::MAX)
+    }
+
+    /// Stat a child without following it.
+    pub(crate) fn raw_stat(&self, name: &str) -> Result<Option<EntryStat>> {
+        check_name(name, PLATFORM_NAME_LIMIT)?;
+        self.dir.stat(name)
+    }
+
+    /// Pin an existing child directory (never through a link; need not be private). A missing
+    /// child is the caller's race to handle: it is reported by `raw_stat` first.
+    pub(crate) fn raw_open_child(&self, name: &str) -> Result<StateDir> {
+        check_name(name, PLATFORM_NAME_LIMIT)?;
+        Ok(Self {
+            dir: self.dir.child(name, self.options.sync, true)?,
+            path: self.path.join(name),
+            options: self.options.clone(),
+            shared: true,
+        })
+    }
+
+    pub(crate) fn raw_unlink(&self, name: &str) -> Result<()> {
+        check_name(name, PLATFORM_NAME_LIMIT)?;
+        self.dir.unlink(name)
+    }
+
+    pub(crate) fn raw_remove_dir(&self, name: &str) -> Result<()> {
+        check_name(name, PLATFORM_NAME_LIMIT)?;
+        self.dir.remove_dir(name)
+    }
+
+    pub(crate) fn raw_remove_link(&self, name: &str) -> Result<()> {
+        check_name(name, PLATFORM_NAME_LIMIT)?;
+        self.dir.remove_link(name)
+    }
+
+    /// Best-effort flush of this directory's entries.
+    pub(crate) fn raw_sync(&self) {
+        let _ = self.dir.sync(self.options.sync);
+    }
+
     /// Inspect the pinned directory without deleting ambiguous temporary-looking entries.
     /// Generated-name syntax, PID death, and age prove no ownership: imported records may have
     /// exactly these names. `max_age` is ignored for compatibility. Returns zero.

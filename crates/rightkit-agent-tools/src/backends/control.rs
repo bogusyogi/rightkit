@@ -4,6 +4,7 @@
 //! own typed commands (`command{name,args}`), all over the user-only socket/pipe
 //! with the service's per-app request allowlist on the far side.
 
+use super::http::HttpEndpoint;
 use crate::exposure::{self, GENERIC_READ_METHODS};
 use crate::spec::*;
 use rightkit_daemon::{Client, ServiceError, Suite};
@@ -70,6 +71,10 @@ pub struct AppProfile {
     /// Dictation apps (HeardRight) also refuse the dictation, delivery and history names
     /// ([`exposure::forbidden_with`]). Other apps keep those words.
     pub dictation: bool,
+    /// Loopback HTTP endpoint for an app whose control surface is not a `control-<app>` pipe
+    /// service (rightkit#795). `None` (the default) uses the pipe service named by `service`.
+    /// Every other part of the profile applies to both transports unchanged.
+    pub http: Option<HttpEndpoint>,
 }
 
 impl AppProfile {
@@ -82,6 +87,7 @@ impl AppProfile {
             commands: CommandPolicy::Any,
             sensitive: false,
             dictation: false,
+            http: None,
         }
     }
 
@@ -101,6 +107,7 @@ impl AppProfile {
             commands: CommandPolicy::Only(commands),
             sensitive: true,
             dictation: false,
+            http: None,
         }
     }
 
@@ -135,6 +142,44 @@ impl AppProfile {
             .with_dictation_rules(),
             _ => Self::standard(app),
         }
+    }
+
+    /// Reach this app over its loopback HTTP control endpoint instead of the `control-<app>` pipe
+    /// service. The methods, command policy and exposure rules are the profile's, as before.
+    pub fn with_http(mut self, endpoint: HttpEndpoint) -> Self {
+        self.http = Some(endpoint);
+        self
+    }
+
+    /// `RIGHT_CTL_HTTP_<APP>` (app upper-cased, non-alphanumerics as `_`) = `ip:port[/path]` selects
+    /// the loopback HTTP transport for `app`; `RIGHT_CTL_HTTP_<APP>_TOKEN_FILE` names the bearer-token
+    /// file. Unset leaves the profile on the pipe service. A value that is not a loopback endpoint is an error.
+    pub fn with_http_from_env(self) -> Result<Self, ToolError> {
+        let key: String = self
+            .app
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() {
+                    c.to_ascii_uppercase()
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let Some(spec) = std::env::var(format!("RIGHT_CTL_HTTP_{key}"))
+            .ok()
+            .filter(|v| !v.is_empty())
+        else {
+            return Ok(self);
+        };
+        let mut endpoint = HttpEndpoint::parse(&spec)?;
+        if let Some(f) = std::env::var(format!("RIGHT_CTL_HTTP_{key}_TOKEN_FILE"))
+            .ok()
+            .filter(|v| !v.is_empty())
+        {
+            endpoint = endpoint.with_token_file(f);
+        }
+        Ok(self.with_http(endpoint))
     }
 
     pub fn with_methods(mut self, methods: &[&str]) -> Self {
@@ -314,6 +359,13 @@ impl Tool for ControlTool {
             )),
             _ => None,
         };
+        if let Some(endpoint) = &self.profile.http {
+            return endpoint.call(
+                &self.method,
+                params,
+                long.unwrap_or(Duration::from_secs(30)),
+            );
+        }
         if let Some(t) = long {
             let client =
                 Client::connect_with(&self.suite, &self.profile.service, CLIENT_APP, Some(t))

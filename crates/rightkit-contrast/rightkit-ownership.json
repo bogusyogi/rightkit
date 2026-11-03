@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-contrast",
+  "capabilities": [
+    {
+      "capability": "color-contrast",
+      "summary": "WCAG relative luminance, contrast ratio and readable ink on a background for sRGB colours",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: apps call this crate (or RightKitUI.RightKitContrast, or @rightkit/theme) instead of hand-rolling a luminance threshold.",
+        "A luminance on gamma-encoded channels is not WCAG luminance; use is_light or readable_on."
+      ]
+    }
+  ]
+}

@@ -74,40 +74,13 @@ fn absolute(p: PathBuf) -> Result<PathBuf, SuiteError> {
     Ok(p)
 }
 
-#[cfg(feature = "test-mode")]
-fn env_nonempty(k: &str) -> Option<String> {
-    std::env::var(k).ok().filter(|v| !v.trim().is_empty())
-}
-
 impl Suite {
-    /// `RIGHTKIT_SUITE_ROOT` if set, else the platform per-user default
-    /// (`~/Library/Application Support/Orthic Labs/shared`, `%LOCALAPPDATA%\Orthic Labs\shared`).
-    /// Errors, never guesses, when the environment does not name an absolute root.
-    ///
-    /// Everything here comes from the environment, which is chosen by whoever launches the
-    /// process: `RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR` and `ORTHIC_SHARED_DIR` redirect the root
-    /// anywhere, and `HOME` (macOS, Linux), `XDG_DATA_HOME` (Linux) and `LOCALAPPDATA` (Windows)
-    /// redirect the default. That is right for tests and isolated dev profiles and wrong for a
-    /// release build that talks to its installed app: use [`Suite::per_user_default`] or
-    /// [`Suite::resolve_ignoring_env_overrides`] there. The returned suite reports
-    /// [`Suite::env_derived`] `true`.
-    ///
-    /// **Release builds (without the `test-mode` feature) read no override switch at all**: this
-    /// returns [`Suite::per_user_default`] (account database / known-folder table), reports
-    /// [`Suite::env_derived`] `false` because nothing came from the environment, and the binary
-    /// contains no code that reads the variables above. The environment paragraph applies only
-    /// to a build that compiles `test-mode`.
+    /// The real per-user suite root, always [`Suite::per_user_default`]: no environment variable
+    /// (`RIGHTKIT_SUITE_ROOT`, `HOME`, `LOCALAPPDATA` or any other) redirects it, in any build.
+    /// There is no test mode (Adrian, 2026-11-03: "dev mode, is mine ... real data. snapshot and
+    /// restore."); QA protects the real data with the `rightkit-qa` snapshot and restore.
     pub fn resolve() -> Result<Suite, SuiteError> {
-        #[cfg(feature = "test-mode")]
-        {
-            let mut suite = Self::resolve_from_env()?;
-            suite.env_derived = true;
-            Ok(suite)
-        }
-        #[cfg(not(feature = "test-mode"))]
-        {
-            Self::per_user_default()
-        }
+        Self::per_user_default()
     }
 
     /// The per-user default suite root from the operating system's account database, never from
@@ -130,71 +103,17 @@ impl Suite {
         Suite::at(absolute(base)?.join(SUITE_DIR_NAME).join(SHARED_DIR_NAME))
     }
 
-    /// One switch for hosts and clients: with `ignore_env_overrides` the root is
-    /// [`Suite::per_user_default`], otherwise [`Suite::resolve`]. A release build passes `true`,
-    /// a QA build `false`; wire the flag to a cargo feature in the
-    /// app, not to the environment.
-    ///
-    /// **Deprecated.** This is one boolean the caller must remember to pass; nothing checks that it
-    /// did, and a build that passes `false` still contains the code that reads the override
-    /// variables. [`crate::mode::roots`] with a [`crate::mode::Mode`] from [`crate::mode::decide`]
-    /// replaces it: a release build (without the `test-mode` feature) reads no override selector at
-    /// all, and a test-capable build fails closed on a validated test root. Kept, unchanged, for
-    /// existing HeardRight and CodeRight callers.
-    #[deprecated(
-        since = "0.1.6",
-        note = "use rightkit_daemon::mode::{decide, roots}: release builds read no override selector, test builds fail closed on a validated TestRoot"
-    )]
-    ///
-    /// Without the `test-mode` feature the flag is ignored: this is an alias of
-    /// [`Suite::per_user_default`] and reads no environment.
+    /// Kept for existing callers: the flag is ignored, because no build reads an override
+    /// variable any more. An alias of [`Suite::per_user_default`].
+    #[deprecated(since = "0.1.6", note = "use rightkit_daemon::mode::{decide, roots}")]
     pub fn resolve_ignoring_env_overrides(ignore_env_overrides: bool) -> Result<Suite, SuiteError> {
-        #[cfg(feature = "test-mode")]
-        {
-            if ignore_env_overrides {
-                Self::per_user_default()
-            } else {
-                Self::resolve()
-            }
-        }
-        #[cfg(not(feature = "test-mode"))]
-        {
-            let _ = ignore_env_overrides;
-            Self::per_user_default()
-        }
+        let _ = ignore_env_overrides;
+        Self::per_user_default()
     }
 
-    /// Whether the root was derived from the environment ([`Suite::resolve`]). A suite from
-    /// [`Suite::at`], [`Suite::per_user_default`] or [`Suite::per_run_temp`] is not.
+    /// Whether the root was derived from the environment. Always `false`: no constructor reads one.
     pub fn env_derived(&self) -> bool {
         self.env_derived
-    }
-
-    #[cfg(feature = "test-mode")]
-    fn resolve_from_env() -> Result<Suite, SuiteError> {
-        // Legacy aliases used by existing apps' isolated test runs (HeardRight e2e_engine).
-        for key in [ENV_SUITE_ROOT, "RIGHT_SUITE_DIR", "ORTHIC_SHARED_DIR"] {
-            if let Some(v) = env_nonempty(key) {
-                return Suite::at(v);
-            }
-        }
-        let base = if cfg!(windows) {
-            env_nonempty("LOCALAPPDATA")
-                .map(PathBuf::from)
-                .ok_or_else(|| SuiteError::NoRoot("LOCALAPPDATA is not set".into()))?
-        } else if cfg!(target_os = "macos") {
-            env_nonempty("HOME")
-                .map(|h| PathBuf::from(h).join("Library").join("Application Support"))
-                .ok_or_else(|| SuiteError::NoRoot("HOME is not set".into()))?
-        } else {
-            env_nonempty("XDG_DATA_HOME")
-                .map(PathBuf::from)
-                .or_else(|| {
-                    env_nonempty("HOME").map(|h| PathBuf::from(h).join(".local").join("share"))
-                })
-                .ok_or_else(|| SuiteError::NoRoot("neither XDG_DATA_HOME nor HOME is set".into()))?
-        };
-        Suite::at(absolute(base)?.join(SUITE_DIR_NAME).join(SHARED_DIR_NAME))
     }
 
     /// An explicit absolute root (isolated dev profiles, tests).
@@ -469,67 +388,6 @@ pub(crate) fn passwd_home_dir() -> Result<PathBuf, SuiteError> {
 
 /// The longest service name `host` accepts, in bytes.
 pub const MAX_SERVICE_NAME_LEN: usize = 48;
-
-/// Environment variables the build tool sets on the processes it starts (`run` and `test`). Their
-/// presence means the process is a development run, not an installed app.
-const BUILD_TOOL_ENV: &[&str] = &["CARGO", "CARGO_MANIFEST_DIR"];
-
-/// Refuse a development run that the build tool started against the real suite root (issue #384).
-///
-/// Call it at the start of a test or a dev run that reaches a service. When the build tool's
-/// environment is present and `suite` is neither a [`Suite::per_run_temp`] suite nor under the
-/// system temporary directory, it returns [`SuiteError::Insecure`] and the caller must not
-/// proceed; the fix is an isolated suite (`Suite::per_run_temp` or `RIGHTKIT_SUITE_ROOT` pointing
-/// at a temporary directory). An unresolvable root is already an error from [`Suite::resolve`].
-/// It does nothing for an installed app, which the build tool does not start.
-///
-/// A QA run whose suite sits in a validated test root that is not under the temporary directory
-/// (macOS: the QA home is under the user's home) uses [`refuse_build_tool_real_data_for_mode`].
-pub fn refuse_build_tool_real_data(suite: &Suite) -> Result<(), SuiteError> {
-    refuse_build_tool_real_data_inner(suite, None, build_tool_env_present())
-}
-
-/// [`refuse_build_tool_real_data`] for a run whose [`crate::mode::Mode`] came from
-/// [`crate::mode::decide`]. A suite inside the test root of a [`crate::mode::Mode::Test`] is
-/// accepted: `decide` already proved that root is bound to the app, private and disjoint from the
-/// real per-user data. `Mode::Test` exists only in a `test-mode` build and only `decide` makes
-/// one, so no environment variable or flag can grant this. A [`crate::mode::Mode::Release`], or a
-/// suite outside the test root (a forged or unrelated suite), gets the plain rule.
-pub fn refuse_build_tool_real_data_for_mode(
-    suite: &Suite,
-    mode: &crate::mode::Mode,
-) -> Result<(), SuiteError> {
-    refuse_build_tool_real_data_inner(suite, Some(mode), build_tool_env_present())
-}
-
-fn build_tool_env_present() -> bool {
-    BUILD_TOOL_ENV.iter().any(|k| std::env::var_os(k).is_some())
-}
-
-/// The rule with the build-tool signal and the mode passed in, so tests need no `set_var`.
-fn refuse_build_tool_real_data_inner(
-    suite: &Suite,
-    mode: Option<&crate::mode::Mode>,
-    build_tool: bool,
-) -> Result<(), SuiteError> {
-    if !build_tool || suite._temp.is_some() {
-        return Ok(());
-    }
-    let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    let root = canon(&suite.root);
-    if root.starts_with(canon(&std::env::temp_dir())) {
-        return Ok(());
-    }
-    if let Some(test) = mode.and_then(crate::mode::Mode::test_root) {
-        if root.starts_with(canon(test.path())) {
-            return Ok(());
-        }
-    }
-    Err(SuiteError::Insecure(format!(
-        "a build-tool run may not use the real suite root {}; use Suite::per_run_temp or an isolated RIGHTKIT_SUITE_ROOT",
-        suite.root.display()
-    )))
-}
 
 /// Whether `s` is a service name `host` accepts: non-empty, at most [`MAX_SERVICE_NAME_LEN`] bytes,
 /// and only ASCII lowercase letters, digits and `-`. This is the single rule `host` enforces.

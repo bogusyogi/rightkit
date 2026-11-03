@@ -17,15 +17,23 @@
 #[cfg(feature = "app-lock")]
 pub mod app_lock;
 pub mod associations;
-pub mod autostart;
+// Runtime-neutral capabilities split out of this crate (#956), re-exported at their old paths.
+pub use rightkit_autostart::{autostart, login_item};
+pub use rightkit_deep_link::deep_link;
+pub use rightkit_instance::{instance, single_instance};
+pub use rightkit_presence::presence;
+/// Cross-process wake-up signals (Darwin notifications, Windows named events) for a native companion
+/// (#867): `post`, `Watcher`, `Lease`, `LeaseMonitor`.
+pub use rightkit_signal as signal;
 pub mod b64;
 pub mod broker;
 pub mod caller_gate;
 pub mod clipboard;
 pub mod commands;
+pub mod consent;
+pub mod content_webview;
 #[cfg(feature = "crash")]
 pub mod crash_commands;
-pub mod deep_link;
 pub mod devtools;
 #[cfg(feature = "engine")]
 pub mod engine;
@@ -35,11 +43,7 @@ pub mod harden;
 #[cfg(feature = "host-services")]
 pub mod host;
 pub mod idle;
-pub mod instance;
-mod legacy_hold;
-mod legacy_instance;
 pub mod lifecycle;
-pub mod login_item;
 #[cfg(feature = "logs")]
 pub mod logs_commands;
 pub mod menu;
@@ -54,14 +58,13 @@ pub mod os_settings;
 pub mod overlay_host;
 #[cfg(feature = "pdf-host")]
 pub mod pdf_host;
-pub mod presence;
 pub mod preview;
 pub mod print;
 pub mod quit;
 pub mod recovery;
-pub mod single_instance;
 pub mod site;
 pub mod startup_cache;
+pub mod startup_error;
 pub mod stream;
 pub mod surface;
 pub mod tray;
@@ -96,6 +99,7 @@ pub use associations::{AssociationGroup, AssociationSpec};
 pub use autostart::{AutostartMigration, AutostartOptions, LegacyAutostartNames, MacosBackend};
 pub use broker::PathBroker;
 pub use clipboard::{ClipboardItem, ClipboardOptions, ClipboardPolicy, ImagePreference};
+pub use content_webview::{ContentProfile, ContentWebviewSpec};
 pub use devtools::{ContentWebview, DevToolsError, DevToolsGate, DevToolsPolicy, WebviewDecision};
 pub use error::ShellError;
 pub use harden::{Hardening, HardeningScript};
@@ -104,7 +108,10 @@ pub use idle::{
     IdleTransitionKind, IdleTrigger,
 };
 pub use login_item::LoginItemStatus;
-pub use menu::{MenuEntry, MenuGroup, MenuItemState, MenuOverride, MenuSpec, OverrideRole};
+pub use menu::{
+    BuiltinItem, BuiltinMenu, MenuEntry, MenuGroup, MenuItemState, MenuOverride, MenuPlacement,
+    MenuPlatform, MenuSlot, MenuSpec, OverrideRole,
+};
 pub use modules::{Module, ModuleSet, ShellPlugin, ShellPluginBuilder};
 pub use nav::{NavDecision, NavPolicy};
 pub use open_paths::EVENT_OPEN_PATHS;
@@ -135,12 +142,53 @@ pub const EVENT_SECOND_INSTANCE: &str = "rightkit-shell://second-instance";
 pub const EVENT_STALL: &str = "rightkit-shell://stall";
 pub const EVENT_ENGINE: &str = "rightkit-shell://engine";
 pub const EVENT_WINDOW: &str = "rightkit-shell://window";
+/// A drop on a window (#746, #995): `{ paths, x, y }`. `paths` are the dropped files the path broker
+/// has granted to the window (a drop is a person's choice, so it is a grant); `x` and `y` are the drop
+/// position in logical pixels of the window, for the renderer to map onto its own drop zones.
+pub const EVENT_DROP: &str = "rightkit-shell://drop";
+/// A snapshot for the renderer (#746): `{ seq, snapshot }`. `seq` rises by one per emitted snapshot,
+/// process-wide, so a renderer that takes the highest `seq` never applies a stale or partial state.
+pub const EVENT_SNAPSHOT: &str = "rightkit-shell://snapshot";
+
+static SNAPSHOT_SEQ: Mutex<u64> = Mutex::new(0);
+
+/// Emit `snapshot` to the window `label` as `{ seq, snapshot }` (#746, see [`EVENT_SNAPSHOT`]). The
+/// sequence number is taken and the event emitted under one lock, so the events leave in `seq` order
+/// and a renderer never sees a state older than one it has applied.
+pub fn emit_snapshot(
+    app: &AppHandle<Wry>,
+    label: &str,
+    snapshot: serde_json::Value,
+) -> tauri::Result<()> {
+    use tauri::Emitter;
+    let mut seq = SNAPSHOT_SEQ.lock().unwrap_or_else(|e| e.into_inner());
+    *seq += 1;
+    app.emit_to(
+        label,
+        EVENT_SNAPSHOT,
+        serde_json::json!({"seq": *seq, "snapshot": snapshot}),
+    )
+}
 pub const EVENT_IDLE: &str = "rightkit-shell://idle";
 pub const EVENT_PRESENCE: &str = "rightkit-shell://presence";
 /// Emitted instead of exiting when the host opted into [`ShellBuilder::quit_drain`].
 pub const EVENT_QUIT_REQUESTED: &str = "rightkit-shell://quit-requested";
 
 type MenuCallback = Arc<dyn Fn(&AppHandle<Wry>, &str) + Send + Sync>;
+type CloseHook = Arc<dyn Fn(&AppHandle<Wry>, &str) -> CloseDecision + Send + Sync>;
+type NewWindowRouter = Arc<dyn Fn(&str) -> bool + Send + Sync>;
+
+/// The app's answer to a window close request (see [`ShellBuilder::on_close_requested`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloseDecision {
+    /// Let the close proceed under the shell's own rules (window-state save, close-to-tray).
+    Allow,
+    /// Keep the window open. The close request is refused; the person may ask again.
+    Prevent,
+    /// Keep the window open because the app will close it itself, once its work is done, with
+    /// `rk_shell_force_close`. Same effect as `Prevent` in the shell.
+    Defer,
+}
 type PresenceCallback = Arc<dyn Fn(&AppHandle<Wry>, PresenceState) + Send + Sync>;
 type VisibilityCallback = Arc<dyn Fn(&AppHandle<Wry>, lifecycle::Visibility) + Send + Sync>;
 type RevealDecider = lifecycle::RevealDecider<AppHandle<Wry>>;
@@ -156,6 +204,28 @@ pub enum CloseBehavior {
     /// Like `HideToTray`, and on macOS the app also drops to an Accessory app (no Dock icon, no menu
     /// bar) while hidden and returns to Regular when revealed. On other platforms it is `HideToTray`.
     HideToBackground,
+    /// Closing the main window destroys it and the app keeps running (#414): a tray or menu-bar
+    /// host reveals it again by recreating the main window from the app's `tauri.conf.json` entry
+    /// with the shell's window policy. The renderer's state is lost with the window; the app keeps
+    /// what it needs in its own store.
+    DestroyAndRecreate,
+}
+
+/// What hiding the main window does to its webview (#955).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WebviewLifecycle {
+    /// Hiding keeps the window and its webview alive (the default). WebView2 keeps its browser
+    /// process tree resident while hidden; the idle controller may suspend it.
+    #[default]
+    KeepAlive,
+    /// Hiding the main window (a close request that hides, the tray toggle, `rk_shell_window`
+    /// `hide`) destroys it instead, so the webview and its WebView2 processes can end, and the next
+    /// reveal recreates it from the app's `tauri.conf.json` entry with the shell's window policy.
+    /// It implies [`CloseBehavior::DestroyAndRecreate`]'s keep-running rule: the app does not exit
+    /// when the last window is gone. The renderer's state is lost with the window; the app keeps
+    /// what it needs in its own store. The window's saved geometry is written before it goes.
+    /// Whether the WebView2 process tree really exits is a Windows measurement (#955).
+    DestroyOnHide,
 }
 
 /// Everything the shell shares at runtime (managed Tauri state).
@@ -172,7 +242,23 @@ pub struct ShellState {
     pub close_to_tray: bool,
     /// `CloseBehavior::HideToBackground`: hide and reveal also change the macOS activation policy.
     pub hide_to_background: bool,
+    /// `CloseBehavior::DestroyAndRecreate`: closing the main window destroys it, the process keeps running.
+    pub destroy_on_close: bool,
+    /// `WebviewLifecycle::DestroyOnHide`: hiding the main window destroys it.
+    pub destroy_on_hide: bool,
     pub on_visibility: Option<VisibilityCallback>,
+    /// The app's close hook (see [`ShellBuilder::on_close_requested`]).
+    pub close_hook: Option<CloseHook>,
+    /// The app's `NewWindowRequested` router (see [`ShellBuilder::on_new_window`]).
+    pub new_window_router: Option<NewWindowRouter>,
+    /// The app's consent setup for non-web link schemes (see [`ShellBuilder::protocol_consent`]).
+    pub protocol_consent: Option<Arc<consent::ProtocolConsent>>,
+    /// Labels the app approved to close through `rk_shell_force_close`; each is let through once.
+    pub close_approved: Mutex<Vec<String>>,
+    /// Modal child label to the parent label it disabled (see `WindowSpec::modal`).
+    pub modal_children: Mutex<HashMap<String, String>>,
+    /// One-shot payloads waiting for their window (see `WindowSpec::payload`).
+    pub payloads: Mutex<HashMap<String, serde_json::Value>>,
     pub(crate) activation: lifecycle::ActivationTracker,
     /// The host's window-visibility policy, obeyed by [`lifecycle::reveal_mode`].
     pub show_policy: lifecycle::ShowPolicy,
@@ -235,8 +321,14 @@ pub struct ShellBuilder {
     single_instance: bool,
     close_to_tray: bool,
     hide_to_background: bool,
+    destroy_on_close: bool,
+    webview_lifecycle: WebviewLifecycle,
     on_visibility: Option<VisibilityCallback>,
+    close_hook: Option<CloseHook>,
+    new_window_router: Option<NewWindowRouter>,
+    protocol_consent: Option<Arc<consent::ProtocolConsent>>,
     never_show: bool,
+    start_accessory: bool,
     never_show_env: Vec<String>,
     never_show_env_values: Vec<(String, String)>,
     reveal_on_reopen: bool,
@@ -298,8 +390,14 @@ impl Shell {
             single_instance: true,
             close_to_tray: false,
             hide_to_background: false,
+            destroy_on_close: false,
+            webview_lifecycle: WebviewLifecycle::KeepAlive,
             on_visibility: None,
+            close_hook: None,
+            new_window_router: None,
+            protocol_consent: None,
             never_show: false,
+            start_accessory: false,
             never_show_env: Vec::new(),
             never_show_env_values: Vec::new(),
             reveal_on_reopen: true,
@@ -412,8 +510,17 @@ impl ShellBuilder {
     /// hidden on macOS and is reachable from wherever the host reveals it (a menu-bar item, a
     /// notch, a hotkey, a second launch).
     pub fn close_behavior(mut self, behavior: CloseBehavior) -> Self {
-        self.close_to_tray = behavior != CloseBehavior::Quit;
+        self.close_to_tray = matches!(
+            behavior,
+            CloseBehavior::HideToTray | CloseBehavior::HideToBackground
+        );
         self.hide_to_background = behavior == CloseBehavior::HideToBackground;
+        self.destroy_on_close = behavior == CloseBehavior::DestroyAndRecreate;
+        self
+    }
+    /// What hiding the main window does to its webview (#955). See [`WebviewLifecycle`].
+    pub fn webview_lifecycle(mut self, lifecycle: WebviewLifecycle) -> Self {
+        self.webview_lifecycle = lifecycle;
         self
     }
     /// Called after the main window is hidden (close, tray toggle) or revealed (tray, second launch,
@@ -433,6 +540,14 @@ impl ShellBuilder {
     /// to Prohibited at plugin setup, before any window exists. Absolute: it beats `show_on_ready`,
     /// `second_instance_reveal` and every other visibility option. Default off. See also
     /// [`ShellBuilder::never_show_env`]. The host's own direct window calls are outside the shell.
+    /// Start under the macOS Accessory policy (no Dock icon, no menu bar) for an app that starts with
+    /// no window and shows its main window later. The shell applies the policy at setup and treats it
+    /// as the current policy, so the first foreground reveal makes the app Regular, as usual. Off by
+    /// default; a no-op off macOS.
+    pub fn start_accessory(mut self, on: bool) -> Self {
+        self.start_accessory = on;
+        self
+    }
     pub fn never_show(mut self, on: bool) -> Self {
         self.never_show = on;
         self
@@ -598,6 +713,34 @@ impl ShellBuilder {
         f: impl Fn(&AppHandle<Wry>, &[String], &str) + Send + Sync + 'static,
     ) -> Self {
         self.on_second_instance = Some(Arc::new(f));
+        self
+    }
+    /// Let the app veto or defer a window close (for example while work is unsaved). `f` runs first in
+    /// every close request, before the window-state save and close-to-tray: [`CloseDecision::Allow`]
+    /// lets the close proceed, `Prevent` and `Defer` keep the window open. A deferred window is closed
+    /// by the app with `rk_shell_force_close`, which the hook does not see again.
+    pub fn on_close_requested(
+        mut self,
+        f: impl Fn(&AppHandle<Wry>, &str) -> CloseDecision + Send + Sync + 'static,
+    ) -> Self {
+        self.close_hook = Some(Arc::new(f));
+        self
+    }
+    /// Hand a page's `window.open` / `target=_blank` request to the app first (#1053). `f` gets the
+    /// URL; returning `true` means the app handled it (it opens the link itself, or shows its own
+    /// window) and the shell refuses the new window. `false` leaves the request to the shell's
+    /// popup and navigation policy.
+    pub fn on_new_window(mut self, f: impl Fn(&str) -> bool + Send + Sync + 'static) -> Self {
+        self.new_window_router = Some(Arc::new(f));
+        self
+    }
+    /// Confirm a page's request to open a non-web scheme (`zoom:`, `ms-settings:`; #640) with the
+    /// native three-choice dialog: Deny, Allow once, Always allow. A remembered grant opens the link
+    /// without asking; a request from a page other than the pinned origin is refused without a
+    /// dialog. Without this call such requests are refused, as before. The consent words and the
+    /// grant storage are the app's ([`consent::ProtocolConsent`]).
+    pub fn protocol_consent(mut self, consent: consent::ProtocolConsent) -> Self {
+        self.protocol_consent = Some(Arc::new(consent));
         self
     }
     pub fn on_menu(mut self, f: impl Fn(&AppHandle<Wry>, &str) + Send + Sync + 'static) -> Self {
@@ -857,13 +1000,19 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
         }
     });
     if modules.contains(Module::NavigationPolicy) {
-        plugin = plugin.on_navigation(move |_webview, url| match nav_hook.decide(url) {
-            NavDecision::Allow => true,
-            NavDecision::External { url } => {
-                let _ = opener::open_checked(opener_hook.as_ref(), &url);
-                false
+        plugin = plugin.on_navigation(move |webview, url| {
+            // A remote-origin content window is governed by its own spec (origin allow-list).
+            if content_webview::is_content(webview.label()) {
+                return true;
             }
-            NavDecision::Block => false,
+            match nav_hook.decide(url) {
+                NavDecision::Allow => true,
+                NavDecision::External { url } => {
+                    let _ = opener::open_checked(opener_hook.as_ref(), &url);
+                    false
+                }
+                NavDecision::Block => false,
+            }
         });
     }
     plugin = plugin
@@ -1039,6 +1188,9 @@ fn setup(
     // 0. Never-show: Prohibited before arbitration, menus, tray or any window exists.
     let show_policy = show_policy_of(&cfg);
     lifecycle::enforce_never_show(app, &show_policy);
+    if cfg.start_accessory {
+        lifecycle::enforce_start_accessory(app);
+    }
     // 1. Single-instance arbitration, before anything heavy.
     let mut single = String::from("disabled");
     let mode = lifecycle::instance_mode(
@@ -1197,9 +1349,18 @@ fn setup(
         opener,
         frameless: cfg.frameless && cfg.modules.contains(Module::Frameless),
         close_to_tray: cfg.close_to_tray,
+        destroy_on_close: cfg.destroy_on_close
+            || cfg.webview_lifecycle == WebviewLifecycle::DestroyOnHide,
+        destroy_on_hide: cfg.webview_lifecycle == WebviewLifecycle::DestroyOnHide,
         hide_to_background: cfg.hide_to_background,
         on_visibility: cfg.on_visibility.clone(),
-        activation: Default::default(),
+        close_hook: cfg.close_hook.clone(),
+        new_window_router: cfg.new_window_router.clone(),
+        protocol_consent: cfg.protocol_consent.clone(),
+        close_approved: Mutex::new(Vec::new()),
+        modal_children: Mutex::new(HashMap::new()),
+        payloads: Mutex::new(HashMap::new()),
+        activation: lifecycle::ActivationTracker::starting(cfg.start_accessory),
         show_policy,
         quit: Arc::new(quit::QuitGate::new(cfg.quit_drain)),
         windows: Arc::new(window_state::WindowStateStore::new(state_dir)),
@@ -1395,6 +1556,11 @@ macro_rules! handler {
             $crate::commands::rk_shell_ready,
             $crate::commands::rk_shell_status,
             $crate::commands::rk_shell_window,
+            $crate::commands::rk_shell_set_fullscreen,
+            $crate::commands::rk_shell_force_close,
+            $crate::commands::rk_shell_take_payload,
+            $crate::commands::rk_shell_pick_file,
+            $crate::commands::rk_shell_pick_folder,
             $crate::commands::rk_shell_open_window,
             $crate::commands::rk_shell_set_tray,
             $crate::commands::rk_shell_set_menu_item_enabled,
@@ -1422,6 +1588,7 @@ macro_rules! handler {
             $crate::commands::rk_shell_idle_status,
             $crate::commands::rk_shell_idle_note,
             $crate::commands::rk_shell_path_require,
+            $crate::commands::rk_shell_reveal,
             $crate::commands::rk_shell_path_revoke,
             $crate::commands::rk_shell_path_grant_recent,
             $crate::commands::rk_shell_path_regrant_saved,
@@ -1514,12 +1681,24 @@ macro_rules! __rk_handler_app_lock {
 #[cfg(feature = "license")]
 macro_rules! __rk_handler_license {
     ($($cmd:tt)*) => {
-        $crate::__rk_handler_update![
+        $crate::__rk_handler_app_update![
             $crate::host::license::rightkit_license_status,
             $crate::host::license::rightkit_license_activate,
             $crate::host::license::rightkit_license_refresh,
             $crate::host::license::rightkit_license_deactivate,
             $crate::host::license::rightkit_license_request_trial,
+            $crate::host::license::rightkit_license_link_request,
+            $crate::host::license::rightkit_license_link_redeem,
+            $crate::host::license::rightkit_license_retry_pending_releases,
+            $crate::host::account::rightkit_account_status,
+            $crate::host::account::rightkit_account_refresh,
+            $crate::host::account::rightkit_account_request_sign_in,
+            $crate::host::account::rightkit_account_complete_sign_in,
+            $crate::host::account::rightkit_account_sign_out,
+            $crate::host::account::rightkit_account_list_devices,
+            $crate::host::account::rightkit_account_rename_device,
+            $crate::host::account::rightkit_account_remove_device,
+            $crate::host::account::rightkit_account_delete,
             $($cmd)*
         ]
     };
@@ -1531,8 +1710,33 @@ macro_rules! __rk_handler_license {
 #[cfg(not(feature = "license"))]
 macro_rules! __rk_handler_license {
     ($($cmd:tt)*) => {
-        $crate::__rk_handler_update![$($cmd)*]
+        $crate::__rk_handler_app_update![$($cmd)*]
     };
+}
+
+/// Prepends the boot probation and fetch commands (feature `app-update`).
+#[doc(hidden)]
+#[macro_export]
+#[cfg(feature = "app-update")]
+macro_rules! __rk_handler_app_update {
+    ($($cmd:tt)*) => {
+        $crate::__rk_handler_update![
+            $crate::host::app_update::rightkit_boot_status,
+            $crate::host::app_update::rightkit_boot_stage,
+            $crate::host::app_update::rightkit_boot_ok,
+            $crate::host::app_update::rightkit_boot_begin,
+            $crate::host::app_update::rightkit_app_update_fetch,
+            $($cmd)*
+        ]
+    };
+}
+
+/// Passes the list on unchanged (feature `app-update` off).
+#[doc(hidden)]
+#[macro_export]
+#[cfg(not(feature = "app-update"))]
+macro_rules! __rk_handler_app_update {
+    ($($cmd:tt)*) => { $crate::__rk_handler_update![$($cmd)*] };
 }
 
 /// Prepends the update commands (feature `update`).
@@ -1548,6 +1752,8 @@ macro_rules! __rk_handler_update {
             $crate::update::rightkit_update_download,
             $crate::update::rightkit_update_install,
             $crate::update::rightkit_update_cancel,
+            $crate::update::rightkit_update_relaunch,
+            $crate::update::rightkit_update_set_busy,
             $($cmd)*
         ]
     };

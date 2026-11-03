@@ -1,6 +1,6 @@
 # rightkit-crypto
 
-Neutral hashing, MAC and encoding primitives so apps stop hand-rolling them. Not yet published (0.1.0). Catalog capability: `crypto-primitives` (to be added by the lead).
+Neutral hashing, MAC, signature, AEAD, key-derivation and encoding primitives so apps stop hand-rolling them. Not yet published (0.1.0). Catalog capability: `crypto-primitives` (to be added by the lead).
 
 - `sha256(data) -> [u8; 32]`, `hmac_sha256(key, msg) -> [u8; 32]` (in-crate, RFC 4231 vectors in tests).
 - `ct_eq(a, b) -> bool`: constant time over equal lengths; unequal lengths return false.
@@ -11,8 +11,15 @@ Neutral hashing, MAC and encoding primitives so apps stop hand-rolling them. Not
 
 ## Not here
 
-LLM token counting belongs to `rightkit-llm` and the ignore-aware repo walk to `rightkit-fs` (#417). No encryption, signatures or key derivation.
+LLM token counting belongs to `rightkit-llm` and the ignore-aware repo walk to `rightkit-fs` (#417). Not a TLS, certificate or X.509 library.
 
 ## Dependencies
 
-`blake3` and `serde_json`, both at versions already in the workspace lockfile. SHA-256, HMAC, base64 and compare are implemented in-crate.
+`blake3`, `serde_json` and `ring` 0.17.14 (the version rightkit-mesh, rightkit-daemon and rightkit-context-runtime already use). SHA-256, HMAC-SHA256, base64 and compare are implemented in-crate.
+
+## 0.1.2 additions (#845, #1172)
+
+- Signatures: `Ed25519Signer` (`generate`, `from_pkcs8`, `from_seed`, `public_key`, `sign`), `ed25519_verify`, `ecdsa_p256_verify(pub, msg, sig, EcdsaEncoding::{Asn1, Fixed})`, `rsa_pkcs1_sha256_verify` (2048 to 8192 bit PKCS#1 `RSAPublicKey`). Verify returns `bool`.
+- `aead::{seal, open}` with `Cipher::{Aes256Gcm, ChaCha20Poly1305}`: `nonce || ciphertext || tag`, fresh random nonce per call; `seal_with_nonce` / `open_with_nonce` for protocols that fix the nonce.
+- `hkdf_sha256`, `pbkdf2_derive` / `pbkdf2_verify` (`Pbkdf2Hash::{Sha256, Sha512}`), `hmac(HmacAlgorithm::{Sha1, Sha256, Sha512}, key, msg)`, `totp(secret, algorithm, digits, period, unix) -> (code, seconds_left)` (RFC 4226/6238), `random_fill` / `random_bytes`.
+- `Secret`: wiped on drop, `Debug` prints the length only, no `Clone`. `CryptoError` is opaque.

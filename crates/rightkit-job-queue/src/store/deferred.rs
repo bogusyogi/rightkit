@@ -31,8 +31,8 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use super::{
-    is_storage_error, now, DeleteOptions, DeleteReport, JobStore, NewJob, Settlement,
-    SubmitOptions, Submitted,
+    is_storage_error, DeleteOptions, DeleteReport, JobStore, NewJob, Settlement, SubmitOptions,
+    Submitted,
 };
 use crate::config::Ext;
 use crate::error::{JobError, JobResult};
@@ -206,11 +206,14 @@ impl JobStore {
                 return Ok(Admitted::Held(held));
             }
         }
-        let job_id = uuid::Uuid::new_v4().to_string();
+        let job_id = opts
+            .job_id
+            .clone()
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         match self.submit_with_id(n, ext, opts, Some(&job_id)) {
             Ok(done) => Ok(Admitted::Stored(done)),
             Err(e) if is_storage_error(&e) => {
-                let accepted_at = now();
+                let accepted_at = self.cfg.now();
                 let op = Op::Admit {
                     job_id: job_id.clone(),
                     new: n.clone(),

@@ -32,7 +32,7 @@
 //!
 //! ## Owner-to-engine snapshot (features `engine-snapshot`, `client`)
 //! An engine process never reads the owner's credential store. The owner hands it the signed token,
-//! its device binding and a ledger flag as one `rightkit_credentials::handoff` snapshot
+//! its device binding and a ledger flag (and, for an owner on the credential-store clock, the ledger's high-water mark: `engine_snapshot_with_clock`, `EngineEntitlements::suite_snapshot_with_mark`) as one `rightkit_credentials::handoff` snapshot
 //! (`LicenseClient::engine_snapshot`, `answer_engine_request`); the engine keeps it in an
 //! `EngineSnapshotCell` and verifies it again with `EngineEntitlements::from_snapshot` under the
 //! suite key ([`suite_api::LICENSE_PUBLIC_KEY`]). See the `engine_snapshot` module docs.
@@ -105,10 +105,11 @@ pub use client::{
     AccountClientConfig, AccountCommandError, AccountDeletion, AccountDeviceView, AccountError,
     AccountErrorCode, AccountRejectReason, AccountSessionClient, AccountStatusView, BridgePlatform,
     ClientClockError, ClientClockStore, ClientNativeEntitlementSource, CommandCode, CommandError,
-    DeleteAccountConfirmation, DeletionRefusal, DeviceIdError, DeviceIdSource, LegacySource,
-    LicenseClient, LicenseClientConfig, LicenseError, LicenseInvalidation, LicenseMode,
-    LicenseSetup, LicenseView, LinkCodeView, LinkRequestOutcome, MessageCode, NativeRefusal,
-    PendingLicenseRelease, RefreshView, RefreshViewOutcome, RejectReason, RevisionState,
+    DeleteAccountConfirmation, DeletionRefusal, DeviceIdError, DeviceIdSource, DrainReport,
+    LegacySource, LicenseClient, LicenseClientConfig, LicenseError, LicenseInvalidation,
+    LicenseMode, LicenseSetup, LicenseView, LinkCodeView, LinkRequestOutcome, MessageCode,
+    NativeRefusal, PendingLicenseRelease, PendingReleaseEntry, PendingReleaseId,
+    PendingReleaseQueue, RefreshView, RefreshViewOutcome, RejectReason, RevisionState,
     SecretString, TrialView, ViewKind, ViewStage, ViewStatus, ACCOUNT_SESSION_TTL_SECS,
     DEFAULT_RECORD_ACCOUNT, DEFAULT_SESSION_ACCOUNT, ENGINE_BUSY_TEXT, ENGINE_STORE_TEXT,
     ENGINE_UNRESOLVED_TEXT,
@@ -142,8 +143,9 @@ pub use engine::{
 };
 #[cfg(feature = "engine-snapshot")]
 pub use engine_snapshot::{
-    EngineSnapshotCell, OwnerLedgerReader, SnapshotError, CLOCK_FRESH, CLOCK_INITIALIZED,
-    DEFAULT_CLOCK_FILE, SNAPSHOT_CLOCK, SNAPSHOT_DEVICE, SNAPSHOT_NAMES, SNAPSHOT_TOKEN,
+    EngineSnapshotCell, OwnerLedgerReader, SnapshotError, SnapshotLedgerReader, CLOCK_FRESH,
+    CLOCK_INITIALIZED, DEFAULT_CLOCK_FILE, SNAPSHOT_CLOCK, SNAPSHOT_CLOCK_STATE, SNAPSHOT_DEVICE,
+    SNAPSHOT_NAMES, SNAPSHOT_NAMES_WITH_CLOCK, SNAPSHOT_TOKEN,
 };
 pub use file_store::{
     ClosureClockStore, ClosureClockStoreError, CrossProcessLock, FileClockStore,

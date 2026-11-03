@@ -142,7 +142,7 @@ pub fn cut_preset(name: &str) -> Result<crate::cuts::Preset, ProjectError> {
 fn decode_16k_mono(ffmpeg: &Path, source: &Path) -> Result<Vec<f32>, String> {
     use rightkit_ffmpeg::decode::{decode_pcm_f32, DecodeOptions};
     use rightkit_ffmpeg::runner::RunError;
-    use rightkit_ffmpeg::verify_ffmpeg_or_development;
+    use rightkit_ffmpeg::verify_ffmpeg_handle;
 
     if !ffmpeg.is_file() {
         return Err(format!(
@@ -154,12 +154,9 @@ fn decode_16k_mono(ffmpeg: &Path, source: &Path) -> Result<Vec<f32>, String> {
         return Err(format!("source {} does not exist", source.display()));
     }
     let timeout = std::time::Duration::from_secs(10);
-    let binary =
-        verify_ffmpeg_or_development(ffmpeg, rightkit_ffmpeg::EXPORT_ASS_ZIMG_VARIANT, timeout)
-            .or_else(|_| {
-                verify_ffmpeg_or_development(ffmpeg, rightkit_ffmpeg::EXPORT_ASS_VARIANT, timeout)
-            })
-            .map_err(|e| format!("ffmpeg verification failed: {e}"))?;
+    let binary = verify_ffmpeg_handle(ffmpeg, rightkit_ffmpeg::EXPORT_ASS_ZIMG_VARIANT, timeout)
+        .or_else(|_| verify_ffmpeg_handle(ffmpeg, rightkit_ffmpeg::EXPORT_ASS_VARIANT, timeout))
+        .map_err(|e| format!("ffmpeg verification failed: {e}"))?;
     let options = DecodeOptions {
         sample_rate: 16_000,
         channels: 1,

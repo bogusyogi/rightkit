@@ -291,6 +291,20 @@ pub struct AudioInput {
     pub volume: f64,
 }
 
+/// Audio codec the caller may choose for the mixed track (#803). `None` in [`EncodeSpec`]
+/// keeps the default: PCM for ProRes, AAC otherwise.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AudioCodec {
+    /// AAC at 192 kbit/s. H.264 and MPEG-4 output only.
+    Aac,
+    /// libopus at 128 kbit/s. VP9 alpha output only; the build must list `libopus`.
+    Opus,
+}
+
+/// Highest libvpx VP9 `-crf` value.
+pub const VP9_CRF_MAX: u32 = 63;
+
 /// Everything the ffmpeg command depends on.
 #[derive(Clone, Debug)]
 pub struct EncodeSpec {
@@ -303,6 +317,11 @@ pub struct EncodeSpec {
     pub quality: Quality,
     pub audio: Vec<AudioInput>,
     pub output: PathBuf,
+    /// Caller VP9 alpha `-crf`, 0 to [`VP9_CRF_MAX`] (#803, GenRight parity). `None` uses
+    /// [`Quality::vp9_crf`]. VP9 alpha output only.
+    pub vp9_crf: Option<u32>,
+    /// Caller audio codec (see [`AudioCodec`]). `None` keeps the default.
+    pub audio_codec: Option<AudioCodec>,
 }
 
 fn even(v: u32) -> u32 {
@@ -320,12 +339,36 @@ pub fn build_command(spec: &EncodeSpec) -> Result<FfmpegCommand, RenderError> {
     if spec.fps == 0 {
         return Err(RenderError::InvalidInput("fps must be at least 1".into()));
     }
-    if spec.encoder.kind == EncoderKind::Vp9Alpha && !spec.audio.is_empty() {
+    let kind = spec.encoder.kind;
+    if let Some(crf) = spec.vp9_crf {
+        if kind != EncoderKind::Vp9Alpha {
+            return Err(RenderError::InvalidInput(
+                "vp9_crf applies to VP9 alpha output only".into(),
+            ));
+        }
+        if crf > VP9_CRF_MAX {
+            return Err(RenderError::InvalidInput(format!(
+                "vp9_crf must be 0 to {VP9_CRF_MAX}, got {crf}"
+            )));
+        }
+    }
+    match (kind, spec.audio_codec) {
+        (_, None) | (EncoderKind::Vp9Alpha, Some(AudioCodec::Opus)) => {}
+        (EncoderKind::H264 | EncoderKind::Mpeg4, Some(AudioCodec::Aac)) => {}
+        _ => {
+            return Err(RenderError::InvalidInput(
+                "audio codec is not valid for this output".into(),
+            ))
+        }
+    }
+    if kind == EncoderKind::Vp9Alpha
+        && !spec.audio.is_empty()
+        && spec.audio_codec != Some(AudioCodec::Opus)
+    {
         return Err(RenderError::InvalidInput(
-            "VP9 alpha output is video-only; render audio separately".into(),
+            "VP9 alpha output needs audio_codec Opus (libopus) to carry audio".into(),
         ));
     }
-    let kind = spec.encoder.kind;
     let (w, h) = if kind == EncoderKind::ProRes4444 {
         (spec.width.max(1), spec.height.max(1))
     } else {
@@ -382,11 +425,12 @@ pub fn build_command(spec: &EncodeSpec) -> Result<FfmpegCommand, RenderError> {
     c.text("-map").text("[v]");
     if !spec.audio.is_empty() {
         c.texts(["-map", "[aout]"]);
-        if kind == EncoderKind::ProRes4444 {
-            c.texts(["-c:a", "pcm_s16le"]);
-        } else {
-            c.texts(["-c:a", "aac", "-b:a", "192k"]);
-        }
+        match spec.audio_codec {
+            Some(AudioCodec::Opus) => c.texts(["-c:a", "libopus", "-b:a", "128k"]),
+            Some(AudioCodec::Aac) => c.texts(["-c:a", "aac", "-b:a", "192k"]),
+            None if kind == EncoderKind::ProRes4444 => c.texts(["-c:a", "pcm_s16le"]),
+            None => c.texts(["-c:a", "aac", "-b:a", "192k"]),
+        };
     }
     c.texts(["-c:v", spec.encoder.name]);
     match kind {
@@ -421,7 +465,9 @@ pub fn build_command(spec: &EncodeSpec) -> Result<FfmpegCommand, RenderError> {
                 "-b:v".to_string(),
                 "0".into(),
                 "-crf".into(),
-                spec.quality.vp9_crf().to_string(),
+                spec.vp9_crf
+                    .unwrap_or_else(|| spec.quality.vp9_crf())
+                    .to_string(),
                 "-pix_fmt".into(),
                 pix_fmt.into(),
                 "-auto-alt-ref".into(),

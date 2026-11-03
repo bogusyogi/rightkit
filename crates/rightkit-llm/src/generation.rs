@@ -23,6 +23,7 @@ use rightkit_http::{Client, Request};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::attempt::{observe_attempts, AttemptNotice};
 use crate::credentials::CredentialSource;
 use crate::error::LlmError;
 
@@ -38,6 +39,10 @@ pub struct ImageRequest {
     pub size: Option<String>,
     /// Ask for a URL result instead of base64. Default `false`.
     pub want_url: bool,
+    /// Provider quality tier such as `low`, `medium`, `high` or `auto`. Omitted when `None`.
+    pub quality: Option<String>,
+    /// Encoded output format such as `png`, `jpeg` or `webp`. Omitted when `None`.
+    pub output_format: Option<String>,
 }
 
 impl ImageRequest {
@@ -47,11 +52,25 @@ impl ImageRequest {
             prompt: prompt.into(),
             size: None,
             want_url: false,
+            quality: None,
+            output_format: None,
         }
     }
 
     pub fn with_size(mut self, size: impl Into<String>) -> Self {
         self.size = Some(size.into());
+        self
+    }
+
+    /// Set the provider quality tier (#1004). Sent as `quality` only when set.
+    pub fn with_quality(mut self, quality: impl Into<String>) -> Self {
+        self.quality = Some(quality.into());
+        self
+    }
+
+    /// Set the encoded output format (#1004). Sent as `output_format` only when set.
+    pub fn with_output_format(mut self, format: impl Into<String>) -> Self {
+        self.output_format = Some(format.into());
         self
     }
 
@@ -113,10 +132,58 @@ impl ImageGenerationClient {
     }
 
     /// Cap the response body at `limit` bytes. A larger answer fails with the HTTP layer's
-    /// size error.
+    /// size error. GenRight's `gpt-image-2` `b64_json` answers need up to 256 MiB.
     pub fn with_max_response_bytes(mut self, limit: usize) -> Self {
         self.max_response_bytes = limit;
         self
+    }
+
+    /// Report every physical attempt of this client to `observer` (#658 surface on the images
+    /// route): a [`crate::attempt::SubmissionReceipt`] per attempt and a retry notice when
+    /// another attempt follows. Call it after building the client; it replaces an observer the
+    /// client already had.
+    pub fn with_attempt_observer(
+        mut self,
+        observer: impl Fn(&AttemptNotice<'_>) + Send + Sync + 'static,
+    ) -> Self {
+        self.client = observe_attempts(self.client, observer);
+        self
+    }
+
+    /// Check the credential against the endpoint without generating an image. The images route
+    /// has no free call, so this lists models (`GET {base}/models`), as
+    /// [`crate::openai::OpenAiCompatProvider::validate_credential`] does. A 401 or 403 is
+    /// [`LlmError::Auth`]; a missing credential is [`LlmError::MissingCredential`]. Nothing
+    /// generated is billed.
+    pub fn probe_key(&self) -> Result<(), LlmError> {
+        let credential = self
+            .credentials
+            .credential(&self.id)?
+            .ok_or_else(|| LlmError::MissingCredential(self.id.clone()))?;
+        let secret = credential.expose().to_string();
+        let http = Request::get(format!("{}/models", self.base_url.trim_end_matches('/')))
+            .header("Accept", "application/json")
+            .bearer(secret.as_str());
+        let resp = self.client.send(&http).map_err(|e| {
+            match LlmError::from_http(e, Some(secret.as_str())) {
+                LlmError::Status { status, message } if matches!(status, 401 | 403) => {
+                    LlmError::Auth { status, message }
+                }
+                other => other,
+            }
+        })?;
+        resp.json::<Value>()
+            .map(|_| ())
+            .map_err(|e| LlmError::Malformed(e.to_string()))
+    }
+
+    /// As [`ImageGenerationClient::generate`], with the failure classed for the caller's retry
+    /// and billing decisions (see [`ImageFailureClass`]).
+    pub fn generate_classified(&self, req: &ImageRequest) -> Result<GeneratedImage, ImageFailure> {
+        self.generate(req).map_err(|error| ImageFailure {
+            class: classify_image_error(&error),
+            error,
+        })
     }
 
     /// Generate one image. A missing credential is [`LlmError::MissingCredential`] and is
@@ -149,6 +216,70 @@ impl ImageGenerationClient {
             .json()
             .map_err(|e| LlmError::Malformed(e.to_string()))?;
         parse_response(&v)
+    }
+}
+
+/// What a failed image call means for retrying and billing (#1004).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageFailureClass {
+    /// Nothing was sent or nothing was done: a connect failure, a `408`, `425` or `429` without
+    /// a quota or billing message. Safe to retry.
+    Retryable,
+    /// The request may have been received and possibly billed: a failure after sending, a `5xx`,
+    /// or a 2xx answer that cannot be read. Do not replay it blindly.
+    AmbiguousMayBeBilled,
+    /// The provider refused for billing: a `402`, or a `429` that names quota or billing.
+    Billing,
+    /// The credential is missing or refused: `401`, `403` or `407`, or no credential.
+    Auth,
+    /// The request is wrong or the route refuses it (other `4xx`, invalid request).
+    Other,
+}
+
+/// A failed image call with its class.
+#[derive(Debug)]
+pub struct ImageFailure {
+    pub class: ImageFailureClass,
+    pub error: LlmError,
+}
+
+/// Class of an image call's error. The classes are decided from the error alone: a connect
+/// failure is safe to retry, and anything after the request was sent may already be billed.
+pub fn classify_image_error(error: &LlmError) -> ImageFailureClass {
+    use rightkit_http::{HttpError, Phase};
+    match error.root() {
+        LlmError::MissingCredential(_) | LlmError::Auth { .. } => ImageFailureClass::Auth,
+        LlmError::InvalidRequest(_) => ImageFailureClass::Other,
+        LlmError::Status { status, message } => {
+            let quota = {
+                let lower = message.to_ascii_lowercase();
+                lower.contains("quota") || lower.contains("billing")
+            };
+            match *status {
+                401 | 403 | 407 => ImageFailureClass::Auth,
+                402 => ImageFailureClass::Billing,
+                429 if quota => ImageFailureClass::Billing,
+                408 | 425 | 429 => ImageFailureClass::Retryable,
+                500..=599 => ImageFailureClass::AmbiguousMayBeBilled,
+                _ => ImageFailureClass::Other,
+            }
+        }
+        LlmError::Http(HttpError::Transport { connect_phase, .. }) => {
+            if *connect_phase {
+                ImageFailureClass::Retryable
+            } else {
+                ImageFailureClass::AmbiguousMayBeBilled
+            }
+        }
+        LlmError::Http(HttpError::Timeout { phase, .. }) => {
+            if *phase == Phase::Connect {
+                ImageFailureClass::Retryable
+            } else {
+                ImageFailureClass::AmbiguousMayBeBilled
+            }
+        }
+        LlmError::Malformed(_) => ImageFailureClass::AmbiguousMayBeBilled,
+        _ => ImageFailureClass::Other,
     }
 }
 
@@ -219,6 +350,12 @@ fn build_body(req: &ImageRequest) -> Value {
     }
     if req.want_url {
         body["response_format"] = json!("url");
+    }
+    if let Some(quality) = &req.quality {
+        body["quality"] = json!(quality);
+    }
+    if let Some(format) = &req.output_format {
+        body["output_format"] = json!(format);
     }
     body
 }

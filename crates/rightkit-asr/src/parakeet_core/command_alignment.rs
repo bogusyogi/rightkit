@@ -44,11 +44,7 @@ impl AlignEncoderReuse {
     }
 
     pub fn from_env() -> Self {
-        Self::parse(
-            dev_var!("RIGHTKIT_CONTROL_ALIGN_ENCODER_REUSE")
-                .ok()
-                .as_deref(),
-        )
+        Self::Off
     }
 }
 

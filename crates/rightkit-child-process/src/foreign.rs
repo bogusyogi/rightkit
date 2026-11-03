@@ -116,6 +116,23 @@ pub enum SignalResult {
     IdentityMismatch,
 }
 
+/// The outcome of [`AdoptedIdentity::request_close`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CloseRequest {
+    /// The identity matched and the process was asked to quit. Windows: `windows` top-level
+    /// windows of the process were posted `WM_CLOSE` (always at least one). Unix: `SIGTERM`
+    /// was sent and `windows` is 0.
+    Requested { windows: usize },
+    /// Windows only: the process owns no top-level window, so there is nothing to post a close
+    /// request to. Nothing was sent; the caller decides whether to escalate to
+    /// [`AdoptedSignal::Force`].
+    NoWindow,
+    /// No process has the pid any more.
+    Gone,
+    /// The pid names a different process; nothing was sent.
+    IdentityMismatch,
+}
+
 /// The result of [`sweep`], as pids.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SweepReport {
@@ -249,14 +266,36 @@ impl AdoptedIdentity {
         }
     }
 
-    /// Identity-pinned graceful quit: one `Graceful` signal to exactly this process, then at
-    /// most `timeout` of waiting for it to be confirmed gone. Never escalates; a target that
-    /// stays up yields `Ok(false)`. A pid that changed hands is never signalled.
+    /// Identity-pinned graceful quit: one close request to exactly this process
+    /// ([`request_close`](Self::request_close): `SIGTERM` on Unix, `WM_CLOSE` to its top-level
+    /// windows on Windows), then at most `timeout` of waiting for it to be confirmed gone. Never
+    /// escalates; a target that stays up, or a Windows process with no window to ask, yields
+    /// `Ok(false)`. A pid that changed hands is never signalled.
     pub fn quit_gracefully(&self, timeout: Duration) -> io::Result<bool> {
-        match self.signal(AdoptedSignal::Graceful)? {
-            SignalResult::Gone | SignalResult::IdentityMismatch => self.confirmed_gone(),
-            SignalResult::Delivered => self.wait_confirmed_gone(timeout),
+        match self.request_close()? {
+            CloseRequest::Gone | CloseRequest::IdentityMismatch => self.confirmed_gone(),
+            CloseRequest::NoWindow => Ok(false),
+            CloseRequest::Requested { .. } => self.wait_confirmed_gone(timeout),
         }
+    }
+
+    /// Asks the process to quit, only if the pid still names the remembered process, without
+    /// forcing it. Unix: `SIGTERM`. Windows: `PostMessageW(hwnd, WM_CLOSE, 0, 0)` to every
+    /// top-level window whose owning process is this one, found with `EnumWindows`, so an
+    /// application with a message loop (a desktop app) runs its normal close path; the
+    /// identity is proved and the windows are listed while one handle pins the pid. A Windows
+    /// process with no top-level window reports [`CloseRequest::NoWindow`] and is left alone:
+    /// [`AdoptedSignal::Graceful`] on Windows is still `TerminateProcess` (kept for existing
+    /// callers), so a caller that wants the close request first calls this and escalates to
+    /// `signal(AdoptedSignal::Force)` itself. Never signals this process (`InvalidInput`).
+    pub fn request_close(&self) -> io::Result<CloseRequest> {
+        if self.pid() == std::process::id() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "refusing to signal this process",
+            ));
+        }
+        sys::request_close(self)
     }
 
     /// Sends `signal` only if the pid still names the remembered process. Never signals this
@@ -332,6 +371,58 @@ impl AdoptedIdentity {
             }
         }
         // The root must have stayed itself for the whole scan.
+        if self.verify()? != IdentityCheck::Same {
+            return Ok(Vec::new());
+        }
+        Ok(found)
+    }
+
+    /// Stops this process and its descendants, deepest first, through the identity-checked
+    /// [`sweep`]: a graceful request, `grace`, then a forced stop for what remains. Each member is
+    /// verified before any signal, so a recycled pid is refused, never signalled. The returned
+    /// report lists `survivors` when a member is still present after the forced stop. This
+    /// process's own pid is refused with `InvalidInput`.
+    ///
+    /// The member list is read once, before the first signal. A process that starts a new child
+    /// after that read is not included; the caller decides whether that matters.
+    pub fn terminate_tree(&self, grace: Duration) -> io::Result<SweepReport> {
+        if self.pid() == std::process::id() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "refusing to terminate the current process tree",
+            ));
+        }
+        let mut targets = self.descendants()?;
+        targets.reverse();
+        targets.push(self.clone());
+        sweep(&targets, grace)
+    }
+
+    /// The direct children of this process (one level, not the whole tree), each with its own
+    /// identity. Same rules as [`descendants`](Self::descendants): empty when this process is
+    /// gone or replaced, and a child that started before this process is refused.
+    pub fn children(&self) -> io::Result<Vec<AdoptedIdentity>> {
+        if self.verify()? != IdentityCheck::Same {
+            return Ok(Vec::new());
+        }
+        let pairs = sys::process_pairs()?;
+        let mut found: Vec<AdoptedIdentity> = Vec::new();
+        for &(child, claimed_parent) in &pairs {
+            if claimed_parent != self.pid() || child == self.pid() {
+                continue;
+            }
+            let (Some(pid), Ok(Some(seen))) = (NonZeroU32::new(child), sys::read(child)) else {
+                continue;
+            };
+            if seen.parent.is_some_and(|actual| actual != self.pid()) || seen.start < self.start {
+                continue; // the pid changed hands since the table was read
+            }
+            found.push(AdoptedIdentity {
+                pid,
+                start: seen.start,
+                exe: seen.exe,
+            });
+        }
         if self.verify()? != IdentityCheck::Same {
             return Ok(Vec::new());
         }
@@ -738,6 +829,16 @@ mod sys {
     }
 
     #[cfg(unix)]
+    pub(super) fn request_close(identity: &AdoptedIdentity) -> io::Result<super::CloseRequest> {
+        use super::{CloseRequest, Delivery};
+        Ok(match signal(identity, Delivery::Graceful)? {
+            SignalResult::Delivered => CloseRequest::Requested { windows: 0 },
+            SignalResult::Gone => CloseRequest::Gone,
+            SignalResult::IdentityMismatch => CloseRequest::IdentityMismatch,
+        })
+    }
+
+    #[cfg(unix)]
     pub(super) fn signal(
         identity: &AdoptedIdentity,
         signal: super::Delivery,
@@ -827,14 +928,16 @@ mod sys {
 
     #[cfg(windows)]
     mod windows_impl {
-        use super::super::{AdoptedIdentity, SignalResult, StartToken};
+        use super::super::{AdoptedIdentity, CloseRequest, SignalResult, StartToken};
         use super::Seen;
         use crate::process_windows::os_error;
         use std::{io, path::PathBuf};
         use windows::{
             core::PWSTR,
             Win32::{
-                Foundation::{CloseHandle, ERROR_INVALID_PARAMETER, FILETIME, HANDLE},
+                Foundation::{
+                    CloseHandle, ERROR_INVALID_PARAMETER, FILETIME, HANDLE, HWND, LPARAM, WPARAM,
+                },
                 System::{
                     Diagnostics::ToolHelp::{
                         CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
@@ -845,6 +948,9 @@ mod sys {
                         WaitForSingleObject, PROCESS_ACCESS_RIGHTS, PROCESS_NAME_WIN32,
                         PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
                     },
+                },
+                UI::WindowsAndMessaging::{
+                    EnumWindows, GetWindowThreadProcessId, PostMessageW, WM_CLOSE,
                 },
             },
         };
@@ -957,6 +1063,67 @@ mod sys {
             Ok(SignalResult::Delivered)
         }
 
+        /// What the `EnumWindows` callback reads and writes through its `LPARAM`.
+        struct CloseScan {
+            pid: u32,
+            posted: usize,
+        }
+
+        /// `EnumWindows` callback: posts `WM_CLOSE` to a top-level window owned by `scan.pid`.
+        /// Always continues the enumeration (returns TRUE).
+        unsafe extern "system" fn post_close(hwnd: HWND, lparam: LPARAM) -> windows::core::BOOL {
+            // SAFETY: `lparam` is the address of the `CloseScan` that `request_close` keeps
+            // alive, and exclusively borrowed, for the whole `EnumWindows` call.
+            let scan = unsafe { &mut *(lparam.0 as *mut CloseScan) };
+            let mut owner = 0u32;
+            // SAFETY: `hwnd` is a window handle the system just enumerated; the output is valid.
+            unsafe { GetWindowThreadProcessId(hwnd, Some(&mut owner)) };
+            if owner == scan.pid
+                // SAFETY: PostMessageW takes plain values; a window destroyed meanwhile fails.
+                && unsafe { PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)) }.is_ok()
+            {
+                scan.posted += 1;
+            }
+            true.into()
+        }
+
+        pub(in super::super) fn request_close(
+            identity: &AdoptedIdentity,
+        ) -> io::Result<CloseRequest> {
+            let access = PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE;
+            let Some(process) = open(identity.pid(), access)? else {
+                return Ok(CloseRequest::Gone);
+            };
+            // While this handle is open the pid names this process object and cannot be reused,
+            // so the proof and the window listing below concern the same process.
+            let Some(seen) = observe(&process)? else {
+                return Ok(CloseRequest::Gone);
+            };
+            if !identity.matches(&seen) {
+                return Ok(CloseRequest::IdentityMismatch);
+            }
+            let mut scan = CloseScan {
+                pid: identity.pid(),
+                posted: 0,
+            };
+            // SAFETY: the callback matches WNDENUMPROC; `scan` outlives the call and is passed
+            // by address, read back only after the call returns.
+            unsafe {
+                EnumWindows(
+                    Some(post_close),
+                    LPARAM(&mut scan as *mut CloseScan as isize),
+                )
+            }
+            .map_err(os_error)?;
+            Ok(if scan.posted == 0 {
+                CloseRequest::NoWindow
+            } else {
+                CloseRequest::Requested {
+                    windows: scan.posted,
+                }
+            })
+        }
+
         pub(in super::super) fn process_pairs() -> io::Result<Vec<(u32, u32)>> {
             // SAFETY: a snapshot request takes plain values.
             let snapshot = Owned(
@@ -980,7 +1147,7 @@ mod sys {
     }
 
     #[cfg(windows)]
-    pub(super) use windows_impl::{process_pairs, read, signal};
+    pub(super) use windows_impl::{process_pairs, read, request_close, signal};
 
     #[cfg(not(any(unix, windows)))]
     pub(super) fn read(_pid: u32) -> io::Result<Option<Seen>> {
@@ -988,6 +1155,10 @@ mod sys {
     }
     #[cfg(not(any(unix, windows)))]
     pub(super) fn signal(_: &AdoptedIdentity, _: super::Delivery) -> io::Result<SignalResult> {
+        Err(io::Error::from(io::ErrorKind::Unsupported))
+    }
+    #[cfg(not(any(unix, windows)))]
+    pub(super) fn request_close(_: &AdoptedIdentity) -> io::Result<super::CloseRequest> {
         Err(io::Error::from(io::ErrorKind::Unsupported))
     }
     #[cfg(not(any(unix, windows)))]

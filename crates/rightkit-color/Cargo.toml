@@ -19,7 +19,7 @@ path = "src/lib.rs"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 thiserror = { version = "2.0" }
-rightkit-ffmpeg = { version = "0.2.13", default-features = false, features = ["native"], path = "../rightkit-ffmpeg" }
+rightkit-ffmpeg = { version = "0.2.16", default-features = false, features = ["native"], path = "../rightkit-ffmpeg" }
 rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs"], path = "../rightkit-fs" }
 
 [workspace]

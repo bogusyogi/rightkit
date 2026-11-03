@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-dictation-tauri"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Dictation runtime for a desktop shell: recording state machine over the engine sidecar, history sequencing, transcribe watchdog and start-sequence liveness, behind a host trait."
@@ -12,10 +12,6 @@ include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE
 [lib]
 name = "rightkit_dictation_tauri"
 path = "src/lib.rs"
-
-[features]
-# Compiles the test-only switches (`dev_var!`) and the runtime-lock depth assertions. Never in a release build.
-test-mode = ["rightkit-dictation-core/test-mode", "rightkit-dictation-app-runtime/test-mode"]
 
 [dependencies]
 serde_json = "1"

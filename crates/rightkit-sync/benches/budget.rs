@@ -1,6 +1,9 @@
 //! Runtime budget for rightkit-sync (macOS and Windows).
 //!
-//! Scenario, through the public engine API (`SyncEngine::run_pass`) over `MemoryBackend`:
+//! Scenario, through the public engine API (`SyncEngine::run_pass`) over the real CloudKit helper
+//! and the app's real CloudKit container (a fresh zone `rk-budget-<pid>-<time>` of the private
+//! database, so a run never touches the app's own zones; the helper offers no zone delete, so the
+//! empty-of-meaning zone of a run remains until it is removed in the CloudKit console):
 //! * a zone of 100,000 `Note` records is seeded in the backend; the device's local store
 //!   starts empty, so the first pass is a full pull of all 100,000 records;
 //! * then `PASSES` steady-state passes (default 100). Each pass edits 100 remote records
@@ -13,12 +16,24 @@
 //! `SyncEngine::metrics()`, and the size of the ledger document that every durable write
 //! serializes in full.
 //!
+//! Needs a Development-signed `rightkit-cloudkit-helper` that holds the container entitlement and a
+//! signed-in iCloud account (the credentials are the OS account's, read by the helper from the system
+//! keychain). It FAILS, never skips, when the inputs are missing:
+//!
+//! ```text
+//! RIGHTKIT_CLOUDKIT_HELPER=<signed rightkit-cloudkit-helper>      (else swift/RightKitSwift/.build)
+//! RIGHTKIT_CLOUDKIT_CONTAINER=iCloud.<the app's real container id>
+//! RIGHTKIT_CLOUDKIT_SUBSCRIPTION=<subscription id the app uses>
+//! ```
+//!
 //! Run: `rustright cargo bench -p rightkit-sync --bench budget`
 //! Optional: `-- <records> <passes> <edits_per_side_per_pass>` (defaults 100000, 100, 100); a fourth argument sets the idle seconds (default 30).
 
 use rightkit_child_process::{observe_idle, process_usage, BudgetLabels, ProcessUsage};
+use rightkit_sync::helper::{CloudKitHelper, HelperConfig};
 use rightkit_sync::*;
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -116,6 +131,49 @@ fn remote_record(id: &str, text: &str, created: i64, updated: i64) -> RawRecord 
     r
 }
 
+fn swift_helper() -> PathBuf {
+    if let Ok(p) = std::env::var("RIGHTKIT_CLOUDKIT_HELPER") {
+        return PathBuf::from(p);
+    }
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../swift/RightKitSwift/.build");
+    ["release", "debug"]
+        .iter()
+        .map(|c| base.join(c).join("rightkit-cloudkit-helper"))
+        .find(|p| p.exists())
+        .expect("rightkit-cloudkit-helper not found: build it or set RIGHTKIT_CLOUDKIT_HELPER")
+}
+
+fn real_config(zone: &str) -> HelperConfig {
+    let need = |name: &str| {
+        std::env::var(name).unwrap_or_else(|_| panic!("{name} must be set for this bench"))
+    };
+    HelperConfig::new(swift_helper())
+        .arg("--container")
+        .arg(need("RIGHTKIT_CLOUDKIT_CONTAINER"))
+        .arg("--zone")
+        .arg(zone)
+        .arg("--subscription")
+        .arg(need("RIGHTKIT_CLOUDKIT_SUBSCRIPTION"))
+}
+
+/// Write `records` to the real zone in `max_batch` chunks; every record must be accepted.
+fn save_all(backend: &dyn Backend, records: Vec<RawRecord>) {
+    let chunk = backend.max_batch().max(1);
+    for batch in records.chunks(chunk) {
+        let outcomes = backend
+            .save_records(batch, SavePolicy::Overwrite)
+            .expect("the real zone accepts the batch");
+        for outcome in outcomes {
+            assert!(
+                outcome.result.is_ok(),
+                "save of {} failed: {:?}",
+                outcome.record_name,
+                outcome.result
+            );
+        }
+    }
+}
+
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -134,31 +192,45 @@ fn main() {
     let idle_s: u64 = args.get(3).and_then(|v| v.parse().ok()).unwrap_or(30);
     let half = n / 2;
 
-    let backend = MemoryBackend::new();
-    let t = Instant::now();
-    for i in 0..n {
-        let id = format!("n{i:06}");
-        let r = remote_record(
-            &id,
-            &format!("seed {i}"),
-            1_000 + i as i64,
-            1_000 + i as i64,
-        );
-        backend.put_record(r);
-    }
-    println!(
-        "seeded {} remote records in {:.1?}",
-        backend.record_count(),
-        t.elapsed()
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let helper = CloudKitHelper::new(
+        real_config(&format!("rk-budget-{}-{nanos}", std::process::id())),
+        Arc::new(NullObserver),
     );
+    helper
+        .auth()
+        .availability()
+        .expect("the real iCloud account and container are available");
+    let backend = helper.backend();
+    backend.prepare().expect("create the real zone");
+    let t = Instant::now();
+    let seed: Vec<RawRecord> = (0..n)
+        .map(|i| {
+            remote_record(
+                &format!("n{i:06}"),
+                &format!("seed {i}"),
+                1_000 + i as i64,
+                1_000 + i as i64,
+            )
+        })
+        .collect();
+    save_all(&backend, seed);
+    println!("seeded {n} remote records in {:.1?}", t.elapsed());
 
     let local = Local::default();
     let mut engine = SyncEngineBuilder::new(
         Arc::new(NoteMapper),
         Arc::new(backend.clone()),
         Arc::new(local.clone()),
-        Box::new(MemoryStorage::default()),
+        Box::new(FileStorage::new(std::env::temp_dir().join(format!(
+            "rk-sync-budget-ledger-{}.json",
+            std::process::id()
+        )))),
     )
+    .auth(Arc::new(helper.auth()))
     .build()
     .unwrap();
     let before = usage();
@@ -190,16 +262,18 @@ fn main() {
     let mut not_synced = 0u64;
     let mut pending_max = 0u64;
     for p in 0..passes {
-        for k in 0..edits {
-            let i = (p * edits + k) % half;
-            let id = format!("n{i:06}");
-            backend.put_record(remote_record(
-                &id,
-                &format!("remote {p}"),
-                1_000 + i as i64,
-                now_ms(),
-            ));
-        }
+        let remote_edits: Vec<RawRecord> = (0..edits)
+            .map(|k| {
+                let i = (p * edits + k) % half;
+                remote_record(
+                    &format!("n{i:06}"),
+                    &format!("remote {p}"),
+                    1_000 + i as i64,
+                    now_ms(),
+                )
+            })
+            .collect();
+        save_all(&backend, remote_edits);
         for k in 0..edits {
             let i = half + (p * edits + k) % half;
             let id = format!("n{i:06}");
@@ -259,8 +333,9 @@ fn main() {
                 scale: n,
                 what:
                     "records in the ledger after bidirectional passes, engine idle between passes",
-                scope: "synthetic"
+                scope: "real"
             }
         )
     );
+    helper.shutdown();
 }

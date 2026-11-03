@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- android:dataExtractionRules (API 31+): cloud backup and device-to-device transfer. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="rightkit-credentials/" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="rightkit-credentials/" />
+    </device-transfer>
+</data-extraction-rules>

@@ -55,8 +55,6 @@ the patch, a host must apply it or the DOCX pane shows the editor's built-in too
 
 ## Host configuration (environment and state)
 
-- `VITE_RIGHTKIT_BROWSER_QA=1` at build time enables browser-QA fixtures. A host's QA build sets
-  it; release builds leave it unset.
 - The ProseMirror packages used here (`prosemirror-view` and `prosemirror-transform`) are pinned exactly in the
   dependent packages. A host must not install a second copy of either, or plugin keys break.
 

@@ -88,8 +88,6 @@ pub enum Error {
     WaitTimeout { job_id: String },
     #[error("waiting for job {job_id} was cancelled")]
     WaitCancelled { job_id: String },
-    #[error("injected failure at {0}")]
-    Injected(&'static str),
     #[error("io error at {path}: {source}")]
     Io {
         path: PathBuf,

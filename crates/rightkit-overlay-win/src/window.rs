@@ -137,6 +137,13 @@ pub(crate) enum Command {
     StopAnimation,
     SetHitRegions(Vec<HitRegion>),
     ReassertTopmost,
+    /// A caller-drawn frame: `width * height` premultiplied BGRA pixels in device pixels.
+    Present {
+        width: u32,
+        height: u32,
+        pixels: Vec<u32>,
+    },
+    SetFocusable(bool),
     Close,
 }
 
@@ -230,6 +237,8 @@ fn coalesce(queue: &mut Vec<Command>, command: Command) -> Option<Command> {
             | (SetClamp(_), SetClamp(_))
             | (SetHitRegions(_), SetHitRegions(_))
             | (SetPainter(_), SetPainter(_))
+            | (SetFocusable(_), SetFocusable(_))
+            | (Present { .. }, Present { .. })
             | (Animate(_), Animate(_)) => Merge::Replace,
             (Invalidate, Invalidate)
             | (Show, Show)
@@ -407,6 +416,40 @@ impl OverlayHandle {
     /// when the config is not topmost.
     pub fn reassert_topmost(&self) {
         self.post(Command::ReassertTopmost);
+    }
+
+    /// Publishes a frame the caller drew, at the window's current position, with
+    /// `UpdateLayeredWindow`. The painter does not run for it, and the next repaint (an
+    /// `invalidate`, a frame change or an animation frame) replaces it.
+    ///
+    /// The pixels are copied at call time. They must be exactly the window's current device size
+    /// (its logical size times the scale of the monitor it is on), so a canvas made for that size
+    /// with `PaintCtx::from_pixels` or `PaintCtx::offscreen` works. A different size is not
+    /// presented, because `UpdateLayeredWindow` would resize the window under the placement.
+    /// Nothing is presented while the window is hidden.
+    pub fn present(&self, ctx: &PaintCtx) {
+        if self.shared.closed.load(Ordering::Acquire) {
+            return;
+        }
+        let (width, height) = ctx.pixel_size();
+        self.post(Command::Present {
+            width,
+            height,
+            pixels: ctx.pixels().to_vec(),
+        });
+    }
+
+    /// Turns edit mode on or off. On: the window stops being no-activate, is activated and takes
+    /// keyboard focus (when visible), and then reports [`OverlayEvent::Char`],
+    /// [`OverlayEvent::Key`] and [`OverlayEvent::Focus`]. Off (the default): the window is
+    /// no-activate again, as configured, and reports none of them.
+    ///
+    /// Activation is best effort: Windows may refuse foreground activation to a process the user
+    /// did not last interact with, in which case the window gets `Focus` only once it is
+    /// activated by the user. Leaving edit mode does not move focus away from the window; it is
+    /// lost when another window is activated, which reports `Focus(false)`.
+    pub fn set_focusable(&self, focusable: bool) {
+        self.post(Command::SetFocusable(focusable));
     }
 
     /// Closes the window. The owner thread ends after sending `OverlayEvent::Closed`.

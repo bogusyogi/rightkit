@@ -421,6 +421,24 @@ impl CallbackListener {
         cancel: Option<&CancelToken>,
         allowed_origin: &str,
     ) -> Result<Value, OAuthError> {
+        self.wait_post_json_with(timeout, cancel, allowed_origin, |_| Ok(()))
+    }
+
+    /// Like [`Self::wait_post_json`], with a caller `validate` run on the posted object
+    /// before the reply is sent (#700). The browser is acknowledged `200 {"ok":true}` only
+    /// when `validate` returns `Ok`; an `Err(reason)` is answered `400` with that static text
+    /// and the wait continues, so a page never sees success for a body the caller then
+    /// discards. `validate` runs only after the `state` check has passed.
+    pub fn wait_post_json_with<F>(
+        self,
+        timeout: Duration,
+        cancel: Option<&CancelToken>,
+        allowed_origin: &str,
+        validate: F,
+    ) -> Result<Value, OAuthError>
+    where
+        F: Fn(&Value) -> Result<(), &'static str>,
+    {
         check_timeout(timeout)?;
         check_origin(allowed_origin)?;
         let deadline = Instant::now() + timeout;
@@ -451,7 +469,8 @@ impl CallbackListener {
                     HttpPoll::Request(request) => {
                         busy = true;
                         let conn = pending.swap_remove(i);
-                        let outcome = self.handle_post(conn.stream, &request, allowed_origin);
+                        let outcome =
+                            self.handle_post(conn.stream, &request, allowed_origin, &validate);
                         if let Some(outcome) = outcome {
                             return outcome;
                         }
@@ -470,6 +489,7 @@ impl CallbackListener {
         stream: TcpStream,
         request: &HttpRequest,
         allowed_origin: &str,
+        validate: &dyn Fn(&Value) -> Result<(), &'static str>,
     ) -> Option<Result<Value, OAuthError>> {
         let (path, _) = request
             .target
@@ -548,6 +568,10 @@ impl CallbackListener {
                 "Invalid or missing state.",
                 &cors,
             );
+            return None;
+        }
+        if let Err(reason) = validate(&value) {
+            respond(stream, "400 Bad Request", reason, &cors);
             return None;
         }
         respond_typed(stream, "200 OK", "application/json", "{\"ok\":true}", &cors);

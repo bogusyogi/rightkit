@@ -3,6 +3,7 @@
 ## 0.7.1 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+- `tests/gated_paths.rs` keeps only the real-binary policy test; the in-process gate unit tests are removed.
 
 ## 0.7.0
 

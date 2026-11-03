@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-automation"
-version = "0.6.5"
+version = "0.6.7"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts."
@@ -52,13 +52,16 @@ windows = { version = "0.62", features = [
   "Win32_System_JobObjects",
   "Win32_System_Com",
   "Win32_System_DataExchange",
+  "Win32_System_LibraryLoader",
   "Win32_System_Memory",
   "Win32_System_Ole",
   "Win32_System_Threading",
   "Win32_System_Variant",
   "Win32_UI_Accessibility",
   "Win32_UI_HiDpi",
+  "Win32_UI_Input_Ime",
   "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }
 
@@ -95,7 +98,7 @@ objc2-foundation = { version = "0.3", optional = true }
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "sleep: fixed settle and key-delay pauses inside one automation action (engine.rs, delivery.rs, macos/events.rs, macos/appkit.rs, win/sys.rs); thread-spawn: FocusWatch sampler (focus.rs) started and joined by finish() around one action, caller-bounded but it has no Drop stop so a forgotten finish() would leak a sampler; element store is capped at STORE_CAP 8; offscreen.rs: resident-static ACTIVE is one Mutex<Option<Active>> holding at most the single current offscreen session (install refuses a second; cleared by end), and launch_offscreen spawns the driven app as a child owned by OffscreenLaunch (killed by end() and on Drop, and on a failed launch) and polls its report file with 50 ms sleeps until the caller timeout; macos/background.rs: waited short-lived lsappinfo, open, pgrep and screencapture children plus fixed event pauses; control/lease_store.rs: one small atomic file write per lease state change; no listener, timer or watcher (reviewed 2026-10-11, moved-in code reviewed 2026-10-15)"
+continuous_reason = "sleep: fixed settle and key-delay pauses inside one automation action (engine.rs, delivery.rs, macos/events.rs, macos/appkit.rs, win/sys.rs); thread-spawn: FocusWatch sampler (focus.rs) started and joined by finish() around one action, caller-bounded but it has no Drop stop so a forgotten finish() would leak a sampler; element store is capped at STORE_CAP 8; offscreen.rs: resident-static ACTIVE is one Mutex<Option<Active>> holding at most the single current offscreen session (install refuses a second; cleared by end), and launch_offscreen spawns the driven app as a child owned by OffscreenLaunch (killed by end() and on Drop, and on a failed launch) and polls its report file with 50 ms sleeps until the caller timeout; clipboard.rs / win/clip.rs: ClipboardWatcher owns one message-only listener window and its thread, stopped and joined by Drop (a macOS watcher is one polling thread of 100 ms NSPasteboard changeCount reads, stopped and joined by Drop), so none outlives its handle; macos/background.rs: waited short-lived lsappinfo, open, pgrep and screencapture children plus fixed event pauses; control/lease_store.rs: one small atomic file write per lease state change; no listener, timer or watcher (reviewed 2026-10-11, moved-in code reviewed 2026-10-15)"
 
 # One Cargo workspace and lock per crate (rightkit#1285).
 [workspace]

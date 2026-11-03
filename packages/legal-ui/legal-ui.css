@@ -30,3 +30,6 @@
 .rk-legal-gate__doc p, .rk-legal-gate__doc ul, .rk-legal-gate__doc ol { margin: 0 0 8px; }
 .rk-legal-gate__doc ul, .rk-legal-gate__doc ol { padding-left: 20px; }
 .rk-legal-gate__doc-text { margin: 0; white-space: pre-wrap; font: inherit; }
+.rk-legal-gate__placeholder { background: color-mix(in srgb, currentColor 12%, transparent); border-radius: 3px; padding: 0 2px; color: inherit; }
+/* Window chrome strip (LegalGate titlebar / dragRegion). Height is app-tunable, as in @rightkit/onboarding. */
+.rk-legal-gate__titlebar { position: absolute; inset: 0 0 auto 0; z-index: 2; display: flex; align-items: center; height: var(--rk-onboarding-titlebar-h, 32px); padding: 0 12px; }

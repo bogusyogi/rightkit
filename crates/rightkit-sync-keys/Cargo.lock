@@ -782,7 +782,7 @@ checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "getrandom",
  "secret-service",
@@ -794,6 +794,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-fs"
+version = "0.4.12"
+dependencies = [
+ "libc",
+ "thiserror",
+ "zeroize",
+]
+
+[[package]]
+name = "rightkit-identity"
+version = "0.1.1"
+dependencies = [
+ "getrandom",
+ "rightkit-fs",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "rightkit-sync-keys"
 version = "0.1.0"
 dependencies = [
@@ -801,6 +821,7 @@ dependencies = [
  "getrandom",
  "hkdf",
  "rightkit-credentials",
+ "rightkit-identity",
  "sha2",
  "thiserror",
  "x25519-dalek",

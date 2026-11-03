@@ -1237,6 +1237,52 @@ pub fn percent_decode_component(input: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// A malformed percent escape or non-UTF-8 result from [`percent_decode_strict`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PercentError {
+    /// A `%` not followed by two hex digits. `offset` is the byte index of the `%`.
+    BadEscape { offset: usize },
+    /// The decoded bytes are not valid UTF-8.
+    InvalidUtf8,
+}
+
+impl std::fmt::Display for PercentError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PercentError::BadEscape { offset } => {
+                write!(f, "malformed percent escape at byte {offset}")
+            }
+            PercentError::InvalidUtf8 => f.write_str("percent-decoded bytes are not UTF-8"),
+        }
+    }
+}
+
+impl std::error::Error for PercentError {}
+
+/// Strict decoding of untrusted URL text (deep links, markdown file links, LSP file URIs).
+/// `%XX` escapes are decoded and `+` is kept as written. A `%` without two hex digits and
+/// decoded bytes that are not UTF-8 are errors, never passed through.
+pub fn percent_decode_strict(input: &str) -> Result<String, PercentError> {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hi = bytes.get(i + 1).and_then(|b| (*b as char).to_digit(16));
+            let lo = bytes.get(i + 2).and_then(|b| (*b as char).to_digit(16));
+            match (hi, lo) {
+                (Some(h), Some(l)) => out.push((h * 16 + l) as u8),
+                _ => return Err(PercentError::BadEscape { offset: i }),
+            }
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).map_err(|_| PercentError::InvalidUtf8)
+}
+
 pub fn form_encode(pairs: &[(&str, &str)]) -> String {
     pairs
         .iter()
@@ -2046,9 +2092,8 @@ impl Client {
                 });
             }
             hops += 1;
-            let next_url = redirect::resolve_location(&url, location).ok_or_else(|| {
-                HttpError::InvalidRequest("redirect with an unusable Location".into())
-            })?;
+            let next_url = redirect::resolve_location(&url, location)
+                .ok_or_else(|| redirect::unusable_location(&url))?;
             if let (Some(from), Some(to), Some(host)) = (
                 redirect::scheme_of(&url),
                 redirect::scheme_of(&next_url),
@@ -2139,6 +2184,9 @@ impl Client {
             request.uri().host().unwrap_or(""),
             redirect_hop,
         )?;
+        self.config
+            .address_policy
+            .check_path(&request.uri().to_string())?;
         let (via_proxy, hop_proxy) = self.vet_proxied_destination(request.uri())?;
         let _scope = ViaProxy::enter(via_proxy);
         let mut configured = self.agent.configure_request(request);

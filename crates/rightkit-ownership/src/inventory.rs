@@ -311,12 +311,17 @@ fn is_stage_header(candidate: &[u8]) -> bool {
         && parts[2].as_bytes()[0].is_ascii_digit()
 }
 
+/// Lists the inventory of `app_root`. With `read_bodies` false, clean committed blobs are
+/// keyed by their index oid and sized with `cat-file --batch-check`; their bodies are not
+/// read. The digests, sizes and coverage are identical either way, so the admission probe
+/// can authenticate a cache hit from the git listings alone.
 pub fn git_listed_inventory(
     app_root: &Path,
     relevant: &dyn Fn(&str) -> bool,
     protected_paths: &[String],
     max_file_bytes: &dyn Fn(&str) -> u64,
     repository_root: &Path,
+    read_bodies: bool,
 ) -> Inventory {
     let root = paths::resolve(app_root);
     let one = |coverage: Cov| Inventory {
@@ -493,9 +498,16 @@ pub fn git_listed_inventory(
         GIT_TIMEOUT,
         MAX_BLOB_BATCH_BYTES,
     )
-    .and_then(|sizes| read_blobs(&root, &safe_root, &blob_oids, &sizes, MAX_BLOB_BATCH_BYTES));
-    let fetched = match fetched {
-        Ok(map) => map,
+    .and_then(|sizes| {
+        let bodies = if read_bodies {
+            read_blobs(&root, &safe_root, &blob_oids, &sizes, MAX_BLOB_BATCH_BYTES)?
+        } else {
+            HashMap::new()
+        };
+        Ok((sizes, bodies))
+    });
+    let (sizes, fetched) = match fetched {
+        Ok(pair) => pair,
         Err(error) => {
             return one(Cov::new(
                 ".",
@@ -503,6 +515,11 @@ pub fn git_listed_inventory(
             ))
         }
     };
+    let known_size: HashMap<&str, u64> = blob_oids
+        .iter()
+        .map(String::as_str)
+        .zip(sizes.iter().copied())
+        .collect();
     for rel in &relevant_rels {
         let entry = entries.get_mut(rel).expect("relevant entry");
         let Some(oid) = entry.stages.first().map(|s| s.oid.clone()) else {
@@ -511,11 +528,11 @@ pub fn git_listed_inventory(
         if dirty.contains(rel) || entry.over_limit {
             continue;
         }
-        let Some(bytes) = fetched.get(&oid) else {
+        let Some(&size) = known_size.get(oid.as_str()) else {
             continue;
         };
-        entry.clean_blob_size = Some(bytes.len() as u64);
-        if bytes.len() as u64 > entry.max_file_bytes {
+        entry.clean_blob_size = Some(size);
+        if size > entry.max_file_bytes {
             entry.over_limit = true;
             coverage.push(Cov::new(rel.clone(), "file-over-size-limit"));
         }
@@ -597,6 +614,17 @@ pub fn git_listed_inventory(
         } else if is_relevant {
             if !is_dirty && oid.as_ref().is_some_and(|o| fetched.contains_key(o)) {
                 bytes = oid.as_ref().and_then(|o| fetched.get(o)).cloned();
+            } else if !is_dirty
+                && oid
+                    .as_ref()
+                    .is_some_and(|o| known_size.contains_key(o.as_str()))
+            {
+                // Clean blob without its body (admission probe): keyed by the index oid, the
+                // same digest and cache key as the body-reading path above.
+                if let Some(oid) = &oid {
+                    digest = Some(format!("git:{oid}"));
+                    cache_key = Some(format!("gitblob:{oid}"));
+                }
             } else if is_dirty {
                 let too_big = stat
                     .as_ref()
@@ -706,8 +734,25 @@ pub struct Content {
 
 /// Git-listed content inventory; clean inputs use their blob IDs.
 pub fn content_inventory(app_root: &Path) -> Content {
-    let mut inventory =
-        git_listed_inventory(app_root, &|_| true, &[], &|_| 64 * 1024 * 1024, app_root);
+    content_inventory_with(app_root, true)
+}
+
+/// The admission probe's content digest: [`content_inventory`] with clean blob bodies not
+/// read. It equals `content_inventory(app_root).digest` for the same tree, so a cache hit
+/// costs only the git listings; bodies are read when a scan actually needs them.
+pub fn content_inventory_keyed(app_root: &Path) -> Content {
+    content_inventory_with(app_root, false)
+}
+
+fn content_inventory_with(app_root: &Path, read_bodies: bool) -> Content {
+    let mut inventory = git_listed_inventory(
+        app_root,
+        &|_| true,
+        &[],
+        &|_| 64 * 1024 * 1024,
+        app_root,
+        read_bodies,
+    );
     listed_coverage(&mut inventory);
     let mut files: Vec<(&str, Option<u64>, &str)> = inventory
         .files

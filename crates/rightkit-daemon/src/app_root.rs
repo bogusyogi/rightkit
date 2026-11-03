@@ -111,6 +111,10 @@ pub enum AppRootError {
     Overlap(PathBuf),
     /// Post-copy verification found a difference.
     VerifyFailed(PathBuf),
+    /// The folder the peer process resolved is not this app root
+    /// ([`AppRoot::verify_peer_dir`]). Names neither path: a handshake mismatch must not become
+    /// a way to read where the other process looks.
+    PeerDirMismatch,
     Suite(SuiteError),
     Io(io::Error),
 }
@@ -138,6 +142,12 @@ impl fmt::Display for AppRootError {
             Self::Collision(p) => write!(f, "destination differs from source: {}", p.display()),
             Self::Overlap(p) => write!(f, "source and destination overlap: {}", p.display()),
             Self::VerifyFailed(p) => write!(f, "verification failed: {}", p.display()),
+            Self::PeerDirMismatch => {
+                write!(
+                    f,
+                    "the peer process uses a different data folder than this one"
+                )
+            }
             Self::Suite(e) => write!(f, "{e}"),
             Self::Io(e) => write!(f, "{e}"),
         }
@@ -742,6 +752,23 @@ impl AppRoot {
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// Child-side (or parent-side) check that two processes resolved the same data folder
+    /// (rightkit#989): `peer` is the folder the other process sent in its handshake, and it must
+    /// be this app root, by file identity (device and inode on Unix; the canonical path compared
+    /// without case on Windows), so a different spelling, a symlink or a case variant of the same
+    /// folder passes and another folder does not. A path that does not exist or cannot be
+    /// resolved is a mismatch. The refusal, [`AppRootError::PeerDirMismatch`], names neither
+    /// path. The handshake payload that carries `peer` stays app code.
+    pub fn verify_peer_dir(&self, peer: &Path) -> Result<(), AppRootError> {
+        let ours = fs::canonicalize(&self.root)?;
+        let theirs = fs::canonicalize(peer).map_err(|_| AppRootError::PeerDirMismatch)?;
+        if same_directory(&ours, &theirs) {
+            Ok(())
+        } else {
+            Err(AppRootError::PeerDirMismatch)
+        }
     }
 
     /// `<app root>/<rel>` without creating anything. `rel` must be relative and made only of
@@ -2211,4 +2238,22 @@ fn read_full(f: &mut File, buf: &mut [u8]) -> io::Result<usize> {
         }
     }
     Ok(n)
+}
+
+/// Do two canonical directory paths name one directory? Unix: the same device and inode.
+/// Windows: the same path ignoring ASCII case (the canonical form resolves links and `..`).
+fn same_directory(a: &Path, b: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        match (fs::metadata(a), fs::metadata(b)) {
+            (Ok(x), Ok(y)) => x.dev() == y.dev() && x.ino() == y.ino(),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        a.to_string_lossy()
+            .eq_ignore_ascii_case(&b.to_string_lossy())
+    }
 }

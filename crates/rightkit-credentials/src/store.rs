@@ -1,5 +1,3 @@
-#[cfg(feature = "memory-backend")]
-use crate::backend::MemoryBackend;
 use crate::backend::{system_backend, Backend, ConditionalDelete, Interaction};
 use crate::error::{Error, Result};
 use crate::namespace::{check_target, Namespace};
@@ -51,33 +49,13 @@ fn base64_standard(bytes: &[u8]) -> String {
 /// Universal guard variable honoured by every app (in addition to the app's own variables).
 pub const UNIVERSAL_GUARD_ENV: &str = "RIGHTKIT_NO_KEYCHAIN";
 
-/// What a tripped guard does. Neither touches the OS credential store.
+/// What a tripped guard does. It never touches the OS credential store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GuardMode {
-    /// Swap in a process-wide in-memory store (e.g. an app guard such as `MYAPP_NO_KEYCHAIN`).
-    /// Volatile: values vanish on exit. A test capability only: the in-memory store
-    /// (`MemoryBackend`) is compiled only under the non-default `memory-backend` feature, so
-    /// builds with that feature honour it; a build without it contains no such store and never
-    /// selects it, whether the guard was tripped by the environment or forced from code with
-    /// [`Config::guard_when`], and behaves as [`GuardMode::Deny`] instead (see
-    /// `effective_guard_mode`).
-    Memory,
     /// Every operation fails with [`Error::Guarded`] (e.g. an app guard such as `MYAPP_DISABLE_OS_KEYCHAIN`).
+    /// The in-memory swap (`GuardMode::Memory`) is removed (rightkit-credentials 0.4.6): Adrian,
+    /// 2026-11-03, "no dummy data, no fucking made up shit. real data. snapshot and restore."
     Deny,
-}
-
-/// The mode a tripped guard actually gets. The volatile memory store is a test capability
-/// and is excluded from release: a release binary never swaps the durable OS store for
-/// process memory (keys minted there vanish on exit and strand encrypted data), whether an
-/// environment variable or caller code asked for it. A tripped guard in release is `Deny`, so
-/// it still fails closed and touches no OS store. Builds with debug assertions keep the
-/// configured mode.
-fn effective_guard_mode(mode: GuardMode, release: bool) -> GuardMode {
-    if release {
-        GuardMode::Deny
-    } else {
-        mode
-    }
 }
 
 #[derive(Clone)]
@@ -98,7 +76,7 @@ impl Config {
             namespace,
             interaction: Interaction::NonInteractive,
             guard_envs: Vec::new(),
-            guard_mode: GuardMode::Memory,
+            guard_mode: GuardMode::Deny,
             forced_guard: false,
             timeout: None,
             backend: None,
@@ -144,7 +122,7 @@ impl Config {
     /// under the user's profile), and EVERY process that rotates the same credential must use the
     /// same directory, for example the app's per-user runtime or state directory. A durable (OS)
     /// store refuses to rotate without it, because a process-local lock cannot exclude an
-    /// abort/rebegin in another process; memory and test backends do not need it.
+    /// abort/rebegin in another process; an injected non-durable backend does not need it.
     pub fn rotation_lock_dir(mut self, dir: impl Into<PathBuf>) -> Self {
         self.rotation_lock_dir = Some(dir.into());
         self
@@ -369,11 +347,10 @@ fn abandon(ticket: &(TargetKey, u64)) {
 }
 
 impl Store {
-    /// Resolve guards and the backend. Infallible: a tripped guard yields a memory or denying
-    /// store, never the OS store.
+    /// Resolve guards and the backend. Infallible: a tripped guard yields a denying store, never the
+    /// OS store.
     pub fn open(cfg: Config) -> Store {
-        // Either an env trip or a caller-forced guard; in release neither may select the memory
-        // store (`effective_guard_mode`).
+        // Either an env trip or a caller-forced guard.
         let tripped = cfg
             .guard_envs
             .iter()
@@ -387,31 +364,12 @@ impl Store {
             Interaction::Interactive => Duration::from_secs(90),
         });
         let (backend, guard): (Arc<dyn Backend>, _) = match tripped {
-            Some(name) => {
-                match effective_guard_mode(cfg.guard_mode, !cfg!(feature = "memory-backend")) {
-                    #[cfg(feature = "memory-backend")]
-                    GuardMode::Memory => (
-                        // A caller-injected memory backend is its own volatile store and never the OS
-                        // store, so it stays isolated; otherwise the guard shares one process-wide map.
-                        cfg.backend
-                            .filter(|b| b.name() == "memory")
-                            .unwrap_or_else(|| MemoryBackend::process_wide() as Arc<dyn Backend>),
-                        Some((name, GuardMode::Memory)),
-                    ),
-                    // The volatile store is not compiled into a release build: the mode resolves to
-                    // Deny there (`effective_guard_mode` already maps it, this arm only completes
-                    // the match).
-                    #[cfg(not(feature = "memory-backend"))]
-                    GuardMode::Memory => (
-                        Arc::new(Denied(name.clone())),
-                        Some((name, GuardMode::Deny)),
-                    ),
-                    GuardMode::Deny => (
-                        Arc::new(Denied(name.clone())),
-                        Some((name, GuardMode::Deny)),
-                    ),
-                }
-            }
+            Some(name) => match cfg.guard_mode {
+                GuardMode::Deny => (
+                    Arc::new(Denied(name.clone())),
+                    Some((name, GuardMode::Deny)),
+                ),
+            },
             None => (cfg.backend.unwrap_or_else(system_backend), None),
         };
         Store {
@@ -705,7 +663,7 @@ impl Store {
     }
 
     /// Whether this store keeps what it is given beyond the process: no guard is active and the
-    /// backend says it is [`Backend::durable`]. A guarded store is memory or deny and never
+    /// backend says it is [`Backend::durable`]. A guarded store denies and is never
     /// durable. Destructive migration requires it of its destination.
     pub fn is_durable(&self) -> bool {
         self.guard.is_none() && self.backend.durable()

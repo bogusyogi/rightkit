@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 
+// The role table mirrors @rightkit/legal src/core.ts (REQUIRED_ROLES, OSS_REQUIRED_ROLES, assertLegalManifest): this package cannot import
+// @rightkit/legal without a dependency cycle (legal declares release as an optional peer, #972), so the two lists are kept identical here.
+// A manifest declares `profile: "proprietary"` (the default) or `"oss"`; every role stays a valid document role, but an oss manifest is
+// required to carry only privacy_notice and third_party_notices (#1043).
 const REQUIRED_ROLES = new Set([
   "license",
   "eula",
@@ -10,6 +14,7 @@ const REQUIRED_ROLES = new Set([
   "privacy_notice",
   "third_party_notices",
 ]);
+const OSS_REQUIRED_ROLES = new Set(["privacy_notice", "third_party_notices"]);
 const AGREEMENT_ROLES = new Set(["license", "eula", "acceptable_use", "product_schedule"]);
 const SHA256 = /^[a-f0-9]{64}$/i;
 const APP_KEY = /^[a-z][a-z0-9-]{1,63}$/;
@@ -69,6 +74,9 @@ export function assertLegalReleaseContract(root, legal, appName, platform) {
   if (typeof manifest.acceptanceVersion !== "string" || !manifest.acceptanceVersion.trim()) {
     fail(appName, "manifest acceptanceVersion is required");
   }
+  if (manifest.profile !== undefined && manifest.profile !== "proprietary" && manifest.profile !== "oss") {
+    fail(appName, "manifest profile must be proprietary or oss");
+  }
   if (!Array.isArray(manifest.documents)) fail(appName, "manifest documents must be an array");
 
   const seen = new Set();
@@ -108,7 +116,7 @@ export function assertLegalReleaseContract(root, legal, appName, platform) {
     }
     resolvedDocuments.push({ ...document, absolutePath: realFile });
   }
-  for (const role of REQUIRED_ROLES) {
+  for (const role of manifest.profile === "oss" ? OSS_REQUIRED_ROLES : REQUIRED_ROLES) {
     if (!seen.has(role)) fail(appName, `missing required document role: ${role}`);
   }
 
@@ -160,6 +168,7 @@ export function assertLegalReleaseContract(root, legal, appName, platform) {
   return {
     appKey: manifest.appKey,
     acceptanceVersion: manifest.acceptanceVersion,
+    profile: manifest.profile ?? "proprietary",
     manifestPath,
     manifestSha256: sha256(manifestBytes),
     documents: resolvedDocuments,

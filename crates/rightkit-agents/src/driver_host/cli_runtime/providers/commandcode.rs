@@ -53,6 +53,7 @@ use crate::driver_host::cli_runtime::qualification::{
 use crate::driver_host::cli_runtime::transports::resumable_ndjson::{
     CommandCodeDialect, ResumableNdjsonDialect, ResumableNdjsonRequest,
 };
+use crate::driver_host::contracts::NormalizedEvent;
 
 pub const PROVIDER_ID: &str = "commandcode";
 pub const DISPLAY_NAME: &str = "Command Code";

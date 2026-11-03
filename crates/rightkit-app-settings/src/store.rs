@@ -282,8 +282,9 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
     }
 
     /// Open the file at `path` for reading only. Creates nothing (no directory, lock, or backup),
-    /// never waits for a writer's lock, and refuses `update` and `patch`. Migrations and defaults
-    /// apply in memory only.
+    /// never waits for a writer's lock, and refuses `update` and `patch`. The flat-file migration
+    /// ([`StoreOptions::flat_migration`]), defaults and repair apply in memory only: the value is
+    /// the migrated file, every re-read applies the migration again, and nothing is written.
     pub fn open_read_only(path: impl AsRef<Path>, options: StoreOptions) -> Result<Self, Error> {
         let path = path.as_ref().to_path_buf();
         let backend = FileBackend::from_options(path.clone(), &options);
@@ -348,6 +349,13 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
             }
             refused = true;
             snapshot = None;
+        }
+        // A read-only store applies the app's flat migration in memory, so its value matches what a
+        // writer would store. Nothing is marked for rewrite and nothing is written.
+        if read_only {
+            if let Some(stored) = snapshot.take() {
+                snapshot = Some(in_memory_migrate(stored, flat_migration.as_ref(), format)?);
+            }
         }
         // Flat files have no version, so the app's hook runs here, once, before defaults and
         // repair. Never in read-only mode: that must not diverge from, or write, the file.
@@ -467,10 +475,47 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
         lock(&self.inner).revision
     }
 
+    /// The committed settings and the revision they were read at, from one backend load. A
+    /// caller that saves back the revision it edited gets a consistent pair even when another
+    /// process writes between two calls: [`Store::get`] and [`Store::revision`] are two reads,
+    /// this is one. A read failure, or a file this build must not read (newer schema), is an
+    /// `Err`; it does not fall back to the last known value. Writes nothing and leaves the cache
+    /// as it is.
+    pub fn snapshot(&self) -> Result<(T, u64), Error> {
+        let snapshot = self.backend.load()?;
+        if let Some(s) = snapshot.as_ref() {
+            if let Some(found) = self.newer(s) {
+                return Err(Error::NewerSchema {
+                    found,
+                    supported: self.schema.version,
+                });
+            }
+        }
+        let snapshot = match snapshot {
+            Some(s) if self.read_only => Some(in_memory_migrate(
+                s,
+                self.flat_migration.as_ref(),
+                self.format,
+            )?),
+            other => other,
+        };
+        let loaded = decode::<T>(
+            snapshot.as_ref(),
+            &self.schema,
+            self.defaults.as_ref(),
+            self.fill_optional,
+        )?;
+        Ok((loaded.value, loaded.revision))
+    }
+
     /// Lock-free read of the committed document. `None` when the document is missing, is a
     /// backup fallback (the last known value is kept), or is not this schema's version.
     fn peek(&self) -> Option<Loaded<T>> {
-        let snapshot = self.backend.load().ok().flatten()?;
+        let mut snapshot = self.backend.load().ok().flatten()?;
+        if self.read_only {
+            snapshot =
+                in_memory_migrate(snapshot, self.flat_migration.as_ref(), self.format).ok()?;
+        }
         if snapshot.needs_rewrite {
             return None;
         }
@@ -516,6 +561,11 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
             let Some(snapshot) = snapshot else {
                 g.stamp = stamp;
                 return Ok(Change { keys: Vec::new() });
+            };
+            let snapshot = if self.read_only {
+                in_memory_migrate(snapshot, self.flat_migration.as_ref(), self.format)?
+            } else {
+                snapshot
             };
             if snapshot.needs_rewrite
                 || snapshot.version.is_some_and(|v| v != self.schema.version)
@@ -807,6 +857,21 @@ struct Loaded<T> {
 
 /// Decodes a backend document: applies migrations, then repairs typed fields. A missing document
 /// decodes to the defaults provider's object, or to `T::default()` (dirty, so it is written).
+/// A flat document with the app's migration applied in memory, for a read-only store. Only an
+/// unversioned flat document runs it, as the open does for a writer. The stored document is not
+/// marked for rewrite, so nothing is written.
+fn in_memory_migrate(
+    mut stored: Stored,
+    migrate: Option<&FlatMigration>,
+    format: FileFormat,
+) -> Result<Stored, Error> {
+    if let (Some(migrate), FileFormat::Flat, None) = (migrate, format, stored.version) {
+        let (migrated, _changed) = migrate(sorted_keys(&stored.values))?;
+        stored.values = migrated;
+    }
+    Ok(stored)
+}
+
 fn decode<T: Serialize + DeserializeOwned + Default>(
     snapshot: Option<&Stored>,
     schema: &Schema,

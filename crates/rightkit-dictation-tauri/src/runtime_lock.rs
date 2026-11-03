@@ -27,31 +27,11 @@ impl std::ops::DerefMut for RuntimeLockGuard {
     }
 }
 
-impl Drop for RuntimeLockGuard {
-    fn drop(&mut self) {
-        #[cfg(feature = "test-mode")]
-        RUNTIME_LOCK_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
-    }
-}
-
-#[cfg(feature = "test-mode")]
-thread_local! {
-    static RUNTIME_LOCK_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
-}
-
 pub static BACKEND_TRANSITION_GATE: OnceLock<Mutex<()>> = OnceLock::new();
 
 pub fn with_backend_transition<T>(
     operation: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {
-    #[cfg(feature = "test-mode")]
-    RUNTIME_LOCK_DEPTH.with(|depth| {
-        assert_eq!(
-            depth.get(),
-            0,
-            "backend transition gate acquired while runtime_lock is held"
-        );
-    });
     let gate = BACKEND_TRANSITION_GATE.get_or_init(|| Mutex::new(()));
     let _guard = match gate.lock() {
         Ok(guard) => guard,
@@ -67,14 +47,6 @@ pub fn with_backend_transition<T>(
 }
 
 pub fn assert_ui_dispatch_unlocked(_context: &str) {
-    #[cfg(feature = "test-mode")]
-    RUNTIME_LOCK_DEPTH.with(|depth| {
-        assert_eq!(
-            depth.get(),
-            0,
-            "{_context} attempted while runtime_lock is held"
-        );
-    });
     crate::pill_dispatch_queue::assert_not_locked();
 }
 
@@ -83,7 +55,7 @@ pub fn runtime_lock_for_commands() -> Result<RuntimeLockGuard, String> {
 }
 
 // LOCK ORDER (outermost first). Never acquire an earlier lock while holding a later one:
-//   1. BACKEND_TRANSITION_GATE        (never while runtime_lock is held; debug-asserted)
+//   1. BACKEND_TRANSITION_GATE        (never while runtime_lock is held)
 //   2. HISTORY_PREWARM_GATE           (held only across the slow SQLCipher first open;
 //                                      released BEFORE runtime_lock is taken, never nested with it)
 //   3. runtime_lock (APP mutex)       (must not perform the slow first open; see below)
@@ -102,21 +74,6 @@ static HISTORY_PREWARMED_GEN: std::sync::atomic::AtomicU64 =
 /// reentrant, so the caller never holds runtime_lock here.
 pub fn prewarm_history_outside_runtime_lock() {
     use std::sync::atomic::Ordering;
-    #[cfg(feature = "test-mode")]
-    RUNTIME_LOCK_DEPTH.with(|depth| {
-        assert_eq!(
-            depth.get(),
-            0,
-            "history prewarm attempted while runtime_lock is held"
-        );
-    });
-    // Engine selector (S3): read only in test-mode builds (`dev_var!` is compiled out otherwise).
-    if rightkit_dictation_core::dev_var!("RIGHTKIT_DICTATION_ENGINE")
-        .map(|v| v.to_ascii_lowercase().contains("fake"))
-        .unwrap_or(false)
-    {
-        return;
-    }
     let generation = crate::runtime::history_storage_generation();
     if HISTORY_PREWARMED_GEN.load(Ordering::Acquire) == generation {
         return;
@@ -149,11 +106,7 @@ pub fn runtime_lock() -> Result<RuntimeLockGuard, String> {
     match APP.get_or_init(|| RuntimeApp::open_default().map(Mutex::new)) {
         Ok(runtime) => runtime
             .lock()
-            .map(|guard| {
-                #[cfg(feature = "test-mode")]
-                RUNTIME_LOCK_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
-                RuntimeLockGuard { guard }
-            })
+            .map(|guard| RuntimeLockGuard { guard })
             .map_err(|err| format!("runtime lock poisoned: {err}")),
         Err(err) => Err(err.clone()),
     }
@@ -219,21 +172,6 @@ pub fn watchdog_progress_event(
         EngineEvent::RecordingLevel { .. } | EngineEvent::WakeFired { .. } => return false,
     };
     session_id == tracked
-}
-
-pub fn watchdog_progress_event_for_test(
-    since: &Option<(String, Instant)>,
-    event: &crate::engine_process::EngineEvent,
-) -> bool {
-    watchdog_progress_event(since, event)
-}
-
-pub fn transcribe_watchdog_due_for_test(
-    state: &AppState,
-    since: &mut Option<(String, Instant)>,
-    now: Instant,
-) -> Option<String> {
-    transcribe_watchdog_due(state, since, now)
 }
 
 /// One watchdog tick (fired when the consumer loop's recv times out). If the
@@ -318,7 +256,6 @@ pub fn watchdog_tick(since: &mut TranscribeWatchdogSince, emit_observed: impl Fn
                 observed.push(state.clone())
             });
         } else {
-            // Fake runtime: no sidecar to revoke.
             let prepared = runtime.force_recover_to_armed(|state| observed.push(state.clone()));
             drop(runtime);
             if let Some(prepared) = prepared {

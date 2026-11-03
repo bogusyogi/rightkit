@@ -13,7 +13,7 @@ import { PrivacySection } from "./sections/PrivacySection.js";
 import { ThemeSection } from "@rightkit/document-core/settings/sections/ThemeSection";
 import { TypographySection } from "@rightkit/document-core/settings/sections/TypographySection";
 import { isMac, isWindows } from "@rightkit/document-core/platform";
-import { inTauri, isBrowserQaMode } from "@rightkit/document-core/state/tauriBridge";
+import { inTauri } from "@rightkit/document-core/state/tauriBridge";
 import { hostAppName } from "../appName.js";
 
 const SETTINGS_MODAL_SLOTS = {
@@ -93,7 +93,7 @@ function Body({ subtitle, children }: { subtitle?: string; children: ReactNode }
 }
 
 function viewRightSections(onHistoryPurged?: () => void): SettingsSection[] {
-  const showFileAssociations = (isMac() || isWindows()) && (inTauri() || isBrowserQaMode());
+  const showFileAssociations = (isMac() || isWindows()) && inTauri();
   return [
     {
       id: "about",

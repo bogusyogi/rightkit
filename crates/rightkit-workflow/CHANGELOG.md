@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3 (unreleased)
+
+- Removed test-only code: `WorkflowRunRow::for_test` (Adrian, 2026-11-03: "make sure no debug assertions in their respective apps/ repos"; "My decision was no unit tests. Only e2e."; "dev mode, is mine. im the fucking owner, my data. no dummy data ... real data. snapshot and restore."). Release behaviour unchanged.
+
 ## 0.2.2 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

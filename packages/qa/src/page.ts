@@ -4,25 +4,41 @@ import { CdpClient, TimeoutError, validateTimeout, type CdpParams, type QaConnec
 import { QaKeyboard } from './keyboard.js';
 import { QaMouse } from './mouse.js';
 export { TimeoutError, type QaConnectOptions } from './cdp.js';
-export { QaKeyboard, type KeyTapOptions } from './keyboard.js';
+export { QaKeyboard, type ImeCompositionOptions, type KeyTapOptions, type KeyTextOptions } from './keyboard.js';
 export { QaMouse, type MouseButton, type MouseButtonOptions, type MouseDragOptions, type MouseMoveOptions, type MousePosition, type MouseWheelOptions } from './mouse.js';
+
+/** A JavaScript dialog the page opened (`alert`, `confirm`, `prompt` or `beforeunload`). */
+export interface DialogInfo { type: string; message: string; defaultPrompt: string; url: string }
+/** How to answer a dialog. Default: accept, with no prompt text. */
+export interface DialogAnswer { accept?: boolean; promptText?: string }
+export type DialogHandler = (dialog: DialogInfo) => DialogAnswer | void | Promise<DialogAnswer | void>;
+/** A request the page is about to send, paused for `interceptRequests`. */
+export interface InterceptedRequest { requestId: string; url: string; method: string; headers: Record<string, string>; postData?: string; resourceType: string }
+/**
+ * What to do with a paused request: `continue` (optionally with replaced headers or postData), `fail`
+ * (network error), or `fulfill` with a synthetic response. Returning nothing continues the request.
+ */
+export type RequestDecision =
+  | { action: 'continue'; headers?: Record<string, string>; postData?: string }
+  | { action: 'fail'; reason?: string }
+  | { action: 'fulfill'; status?: number; headers?: Record<string, string>; body?: string | Buffer };
+export type RequestHandler = (request: InterceptedRequest) => RequestDecision | void | Promise<RequestDecision | void>;
+export interface InterceptOptions { /** URL pattern for Fetch.enable; default every request. */ urlPattern?: string }
+/** `Runtime.getHeapUsage`: bytes of the page's JavaScript heap. */
+export interface HeapUsage { usedSize: number; totalSize: number; embedderHeapUsedSize: number; backingStorageSize: number }
+export interface PermissionOptions { /** Origin the grant applies to; default every origin of the browser context. */ origin?: string }
+export interface MediaEmulation { /** `screen` or `print`; an empty string clears the media emulation. */ media?: 'screen' | 'print' | ''; /** `prefers-color-scheme` and similar media features. */ features?: Array<{ name: string; value: string }> }
 
 export interface NavigationOptions { waitUntil?: 'load' | 'domcontentloaded' | 'networkidle0'; timeout?: number }
 export interface ViewportOptions { width: number; height: number; deviceScaleFactor?: number; mobile?: boolean }
 /** Where a timed-out wait writes its screenshot and JSON state dump. */
 export interface FailureArtifactOptions {
   /**
-   * Absolute directory, created if missing. Must lie outside RIGHTKIT_RUN_ROOT, which
-   * disposeQaWorkspace deletes, unless allowInsideRunRoot is set.
+   * Absolute directory, created if missing.
    */
   directory: string;
   /** Short name used in the file names and the dump. Default 'wait'. */
   label?: string;
-  /**
-   * Opt-in: the directory may lie inside RIGHTKIT_RUN_ROOT. These files are deleted with the
-   * workspace by disposeQaWorkspace; copy them out before dispose. Default false.
-   */
-  allowInsideRunRoot?: boolean;
   /**
    * Host state to embed in the JSON dump under `extra` (bounded to 64 KiB, cut off after 1 s). A
    * throw, a timeout or an unserialisable result is recorded under `extraError` and never masks the
@@ -179,23 +195,14 @@ function exceptionEntry(event: CdpParams): ConsoleEntry {
     timestamp: typeof event.timestamp === 'number' ? event.timestamp : Date.now(),
   };
 }
-/**
- * Validates a failureArtifacts option before any CDP work: absolute, and never inside
- * RIGHTKIT_RUN_ROOT (the workspace home that disposeQaWorkspace deletes).
- */
+/** Validates a failureArtifacts option before any CDP work: the directory is absolute. */
 function failureTarget(options: FailureArtifactOptions | undefined): FailureTarget | undefined {
   if (!options) return undefined;
-  const { directory, label, extra, allowInsideRunRoot } = options;
+  const { directory, label, extra } = options;
   if (typeof directory !== 'string' || !path.isAbsolute(directory)) throw new Error('failureArtifacts.directory must be an absolute path');
   if (label !== undefined && typeof label !== 'string') throw new Error('failureArtifacts.label must be a string');
   if (extra !== undefined && typeof extra !== 'function') throw new Error('failureArtifacts.extra must be a function');
   const resolved = path.resolve(directory);
-  const runRoot = process.env.RIGHTKIT_RUN_ROOT;
-  if (runRoot && !allowInsideRunRoot) {
-    const relative = path.relative(path.resolve(runRoot), resolved);
-    const inside = relative === '' || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`));
-    if (inside) throw new Error('failureArtifacts.directory must be outside RIGHTKIT_RUN_ROOT: disposeQaWorkspace deletes that tree');
-  }
   return { directory: resolved, label: (label ?? 'wait').replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 60) || 'wait', extra };
 }
 let failureSequence = 0;
@@ -494,6 +501,8 @@ export class QaPage {
   private consoleBuffer: ConsoleEntry[] = [];
   private userAgentBaseline?: string;
   private userAgentOverridden = false;
+  /** Count of live `interceptRequests` registrations on this page. */
+  private interceptors = 0;
   private get objectGroup() { return `qa-elements-${this.generation}`; }
   /**
    * @internal Use QaBrowserSession.newPage(), attachPage() or connectPage(). `owned` pages are closed on close(); attached
@@ -735,9 +744,128 @@ export class QaPage {
   async setViewport(options: ViewportOptions): Promise<void> {
     await this.send('Emulation.setDeviceMetricsOverride', { ...options, deviceScaleFactor: options.deviceScaleFactor ?? 1, mobile: options.mobile ?? false });
   }
-  async evaluateOnNewDocument<Args extends unknown[]>(fn: PageFunction<Args, unknown> | string, ...args: Args): Promise<void> {
+  /**
+   * Runs `fn` (or the source string) before any page script on every new document. Resolves to a remover that
+   * stops the script from running on later documents; the documents it already ran in are not changed.
+   */
+  async evaluateOnNewDocument<Args extends unknown[]>(fn: PageFunction<Args, unknown> | string, ...args: Args): Promise<() => Promise<void>> {
     const source = typeof fn === 'string' ? fn : `(${functionSource(fn)})(...${JSON.stringify(args)})`;
-    await this.send('Page.addScriptToEvaluateOnNewDocument', { source });
+    const { identifier } = await this.send('Page.addScriptToEvaluateOnNewDocument', { source });
+    return async () => { await this.send('Page.removeScriptToEvaluateOnNewDocument', { identifier }); };
+  }
+  /**
+   * Answers each JavaScript dialog the page opens through `handler`. Without a handler answer, the dialog is
+   * accepted. A handler that throws dismisses the dialog and records the error in the console buffer. Returns
+   * an unsubscribe function; dialogs opened after it are handled by the browser's default behaviour.
+   */
+  onDialog(handler: DialogHandler): () => void {
+    if (typeof handler !== 'function') throw new Error('onDialog needs a handler function');
+    return this.on('Page.javascriptDialogOpening', (event) => {
+      const dialog: DialogInfo = { type: String(event.type ?? ''), message: String(event.message ?? ''), defaultPrompt: String(event.defaultPrompt ?? ''), url: String(event.url ?? '') };
+      void (async () => {
+        let answer: DialogAnswer = {};
+        try {
+          answer = ((await handler(dialog)) as DialogAnswer | undefined) ?? {};
+        } catch (error) {
+          this.recordConsole({ type: 'error', text: `onDialog handler failed: ${error instanceof Error ? error.message : String(error)}`, timestamp: Date.now() });
+          answer = { accept: false };
+        }
+        await this.send('Page.handleJavaScriptDialog', { accept: answer.accept ?? true, promptText: answer.promptText }).catch(() => {});
+      })();
+    });
+  }
+  /**
+   * Pauses every request whose URL matches `urlPattern` (default all) and answers it through `handler` with the
+   * Fetch domain. Resolves to a remover that stops interception; the last remover disables the Fetch domain.
+   */
+  async interceptRequests(handler: RequestHandler, options: InterceptOptions = {}): Promise<() => Promise<void>> {
+    if (typeof handler !== 'function') throw new Error('interceptRequests needs a handler function');
+    const urlPattern = options.urlPattern ?? '*';
+    if (typeof urlPattern !== 'string' || !urlPattern) throw new Error('interceptRequests urlPattern must be a non-empty string');
+    const off = this.on('Fetch.requestPaused', (event) => {
+      const request: InterceptedRequest = {
+        requestId: String(event.requestId), url: String(event.request?.url ?? ''), method: String(event.request?.method ?? 'GET'),
+        headers: (event.request?.headers ?? {}) as Record<string, string>, postData: event.request?.postData, resourceType: String(event.resourceType ?? ''),
+      };
+      void (async () => {
+        let decision: RequestDecision | undefined;
+        try {
+          decision = (await handler(request)) as RequestDecision | undefined;
+        } catch (error) {
+          this.recordConsole({ type: 'error', text: `interceptRequests handler failed: ${error instanceof Error ? error.message : String(error)}`, timestamp: Date.now() });
+          decision = { action: 'fail', reason: 'Failed' };
+        }
+        const requestId = request.requestId;
+        try {
+          if (!decision || decision.action === 'continue') {
+            const overrides: CdpParams = { requestId };
+            if (decision?.headers) overrides.headers = Object.entries(decision.headers).map(([name, value]) => ({ name, value }));
+            if (decision?.postData !== undefined) overrides.postData = Buffer.from(decision.postData).toString('base64');
+            await this.send('Fetch.continueRequest', overrides);
+          } else if (decision.action === 'fail') {
+            await this.send('Fetch.failRequest', { requestId, errorReason: decision.reason ?? 'Failed' });
+          } else if (decision.action === 'fulfill') {
+            const body = decision.body === undefined ? '' : Buffer.from(decision.body).toString('base64');
+            await this.send('Fetch.fulfillRequest', {
+              requestId, responseCode: decision.status ?? 200,
+              responseHeaders: Object.entries(decision.headers ?? {}).map(([name, value]) => ({ name, value })), body,
+            });
+          } else {
+            throw new Error(`unknown interception action: ${(decision as { action: string }).action}`);
+          }
+        } catch (error) {
+          this.recordConsole({ type: 'error', text: `interception of ${request.url} failed: ${error instanceof Error ? error.message : String(error)}`, timestamp: Date.now() });
+        }
+      })();
+    });
+    this.interceptors += 1;
+    try {
+      await this.send('Fetch.enable', { patterns: [{ urlPattern, requestStage: 'Request' }] });
+    } catch (error) {
+      off(); this.interceptors -= 1;
+      throw error;
+    }
+    let removed = false;
+    return async () => {
+      if (removed) return;
+      removed = true;
+      off();
+      this.interceptors -= 1;
+      if (this.interceptors === 0) await this.send('Fetch.disable');
+    };
+  }
+  /** Heap of the page's JavaScript runtime, in bytes (`Runtime.getHeapUsage`). */
+  async heapUsage(): Promise<HeapUsage> {
+    const usage = await this.send('Runtime.getHeapUsage');
+    return { usedSize: Number(usage.usedSize), totalSize: Number(usage.totalSize), embedderHeapUsedSize: Number(usage.embedderHeapUsedSize), backingStorageSize: Number(usage.backingStorageSize) };
+  }
+  /**
+   * Grants browser permissions (for example `geolocation`, `clipboard-read`, `notifications`) to this page's
+   * browser context, optionally only for `origin`. Replaces nothing: a later grant adds to the earlier ones.
+   */
+  async grantPermissions(permissions: string[], options: PermissionOptions = {}): Promise<void> {
+    if (!Array.isArray(permissions) || permissions.length === 0 || permissions.some((p) => typeof p !== 'string' || !p)) throw new Error('grantPermissions needs a non-empty array of permission names');
+    const { targetInfo } = await this.client.send('Target.getTargetInfo', { targetId: this.targetId });
+    const params: CdpParams = { permissions };
+    if (options.origin !== undefined) params.origin = options.origin;
+    if (targetInfo?.browserContextId) params.browserContextId = targetInfo.browserContextId;
+    await this.client.send('Browser.grantPermissions', params);
+  }
+  /** Emulates CSS media type and media features (for example prefers-color-scheme) for this page until changed. */
+  async emulateMedia(options: MediaEmulation = {}): Promise<void> {
+    const media = options.media ?? '';
+    if (media !== '' && media !== 'screen' && media !== 'print') throw new Error("emulateMedia media must be 'screen', 'print' or ''");
+    const features = options.features ?? [];
+    if (!Array.isArray(features) || features.some((f) => typeof f?.name !== 'string' || typeof f?.value !== 'string')) throw new Error('emulateMedia features must be {name, value} strings');
+    await this.send('Emulation.setEmulatedMedia', { media, features });
+  }
+  private performanceEnabled?: Promise<void>;
+  /** Metrics from `Performance.getMetrics` as a name-to-value map. The Performance domain is enabled on first use. */
+  async performanceMetrics(): Promise<Record<string, number>> {
+    this.performanceEnabled ??= this.send('Performance.enable').then(() => undefined, (error) => { this.performanceEnabled = undefined; throw error; });
+    await this.performanceEnabled;
+    const { metrics } = await this.send('Performance.getMetrics');
+    return Object.fromEntries((metrics as Array<{ name: string; value: number }>).map((m) => [m.name, Number(m.value)]));
   }
   private async run(fn: Function | string, args: unknown[], returnByValue: boolean, timeout = this.client.timeout): Promise<CdpParams> {
     const deadline = Date.now() + timeout;

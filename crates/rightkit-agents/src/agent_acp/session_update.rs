@@ -7,6 +7,7 @@
 //! plan over ACP; message + tool-call updates are the load-bearing ones a
 //! real ACP client renders).
 
+use crate::agent_acp::ContentBlock;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

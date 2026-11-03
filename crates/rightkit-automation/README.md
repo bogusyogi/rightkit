@@ -25,6 +25,10 @@ act       ->  kill switch -> allowlist -> lease fence -> freshness -> secure/cre
 | Allowlist, deny list, kill switch, risk classes, credential gates | `src/policy.rs` |
 | Screenshot redaction, PNG decode | `src/redact.rs`, `src/png.rs` |
 | Sensitive input checks (card, IBAN, SSN and other checksums; credential, submit labels) | `src/sensitive.rs` |
+| Gated drag (`Action::Drag`) and owner-confirmed secret fill (`Action::FillSecret`, `Automation::fill_secret`; origin-checked, tier 1 only, never receipted) | `src/engine.rs`, `src/secret.rs` |
+| Screen-region capture (`screen::capture_region`, refuses on a secure surface), the user's foreground window and window placement (`foreign`), clipboard raw formats and change listener (`clipboard`, private content withheld) | `src/screen.rs`, `src/foreign.rs`, `src/clipboard.rs` |
+| Windows IME composition (`win::ime`: compose, commit, cancel, candidate rectangle), TaskDialog click, MSAA default action, `WM_DROPFILES` target (`win::dropfiles`) | `src/win/` |
+| macOS parameterized AX reads and web text-marker strings | `macos::ax` (`El::parameterized_raw`, `El::text_marker_string`, `TextMarkerRange`) |
 | Text delivery with read-back proof | `src/delivery.rs`, `src/proof.rs` |
 | Fail-closed app-data root | `src/paths.rs` (feature `paths`, via `rightkit-daemon::Suite`) |
 | Tier 2 channel contract | `src/in_app.rs` (`InApp` trait; implemented by the caller, no server here) |

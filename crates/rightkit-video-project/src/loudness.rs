@@ -87,17 +87,13 @@ fn loudness_error(
 
 /// The editing ffmpeg for a measuring pass: the zimg build if this host has it, else the ASS one.
 fn measure_binary(ffmpeg: &Path) -> Result<rk::FfmpegHandle, ProjectError> {
-    rk::verify_ffmpeg_or_development(
+    rk::verify_ffmpeg_handle(
         ffmpeg,
         rk::EXPORT_ASS_ZIMG_VARIANT,
         crate::tools::VERIFY_TIMEOUT,
     )
     .or_else(|_| {
-        rk::verify_ffmpeg_or_development(
-            ffmpeg,
-            rk::EXPORT_ASS_VARIANT,
-            crate::tools::VERIFY_TIMEOUT,
-        )
+        rk::verify_ffmpeg_handle(ffmpeg, rk::EXPORT_ASS_VARIANT, crate::tools::VERIFY_TIMEOUT)
     })
     .map_err(|e| ProjectError::MediaToolMissing(e.to_string()))
 }

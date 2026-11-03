@@ -52,6 +52,7 @@ mod app_root;
 /// Approval workflow mechanics: request binding, verified decisions, one execution claim,
 /// audit before effect (PK07-4).
 pub mod approval;
+mod attach;
 pub mod chunk;
 mod client;
 pub mod contract;
@@ -60,32 +61,40 @@ mod error;
 pub mod event_log;
 mod fail_limit;
 mod host_identity;
+mod incumbent;
+pub mod install;
 pub mod lifecycle;
 #[cfg(feature = "link")]
 pub mod link;
 /// Loopback-only HTTP host with a bearer token (`remote-loopback` feature, not `remote`).
 #[cfg(feature = "remote-loopback")]
 pub mod loopback;
+pub mod metrics;
 pub mod mode;
 mod peer;
+mod peer_signature;
 pub mod private;
 mod record;
 mod registration;
 #[cfg(feature = "relay")]
 pub mod relay;
+pub mod reload;
 /// Daemon host (`remote` feature) and device client (`link` feature); see the module docs.
 #[cfg(any(feature = "remote", feature = "link"))]
 pub mod remote;
 mod root_cutover;
 mod server;
 mod service;
+mod shutdown;
 pub mod stop;
 mod suite;
 pub mod supervisor;
 mod takeover_watch;
 pub mod ticker;
 mod transport;
+pub mod wake;
 
+pub use attach::{attach_or_fallback, Attached};
 pub use client::{Client, ClientConfig, ClientPool, RetryPolicy, DEFAULT_DEADLINE};
 pub use discovery::{
     adopt_or_spawn, discover_apps_in, discover_apps_in_with, discover_macos, discover_macos_with,
@@ -117,6 +126,7 @@ pub use error::{
 };
 pub use fail_limit::FailLimiter;
 pub use host_identity::{HostExpectation, HostIdentityError, HostIdentityReason, HostProcess};
+pub use incumbent::{stop_incumbent, IncumbentError, IncumbentStop};
 pub use lifecycle::{
     DaemonLifecycle, LifecycleError, Provenance, ERROR_NOT_OWNED, ERROR_RESTART_EXHAUSTED,
     ERROR_SESSION_RELEASED, ERROR_STALE_GENERATION,
@@ -125,10 +135,18 @@ pub use lifecycle::{
 pub use peer::verify_peer_is_current_user;
 #[cfg(windows)]
 pub use peer::{
-    current_user_sid, owner_only_security_attributes, verify_pipe_peer_is_current_user,
+    current_user_sid, owner_only_security_attributes, owner_only_security_attributes_with,
+    pipe_security_attributes, verify_pipe_peer_is_current_user, verify_pipe_peer_is_sid,
     verify_pipe_server_is_current_user, OwnerOnlySecurityAttributes,
 };
-pub use peer::{PeerError, PeerIdentity};
+pub use peer::{
+    AclEntry, IntegrityLabel, PeerError, PeerFailureKind, PeerIdentity, PeerRefusal,
+    ACCESS_GENERIC_ALL, ACCESS_PIPE_OWNER_RW,
+};
+pub use peer_signature::{
+    verify_authenticode, verify_peer, AuthenticodeSigner, PeerPolicy, SignatureError,
+    SigningIdentity, LICENSE_SNAPSHOT_METHOD,
+};
 pub use record::{
     clear_takeover_if_owner, read_live_record, read_record, read_takeover, record_path,
     takeover_path, try_read_live_record, try_read_record, try_read_takeover, write_atomic,
@@ -149,9 +167,10 @@ pub use server::{
     DEFAULT_MAX_CONNECTIONS, DEFAULT_RESERVED_SLOTS, DEFAULT_WRITE_TIMEOUT,
 };
 pub use service::{BuildError, Service, ServiceBuilder};
+pub use shutdown::{OrderedShutdown, PhaseOutcome, PhaseReport, ShutdownReport};
 pub use suite::{
-    refuse_build_tool_real_data, refuse_build_tool_real_data_for_mode, valid_service_name, Suite,
-    SuiteError, ENV_SUITE_ROOT, MAX_SERVICE_NAME_LEN, SHARED_DIR_NAME, SUITE_DIR_NAME,
+    valid_service_name, Suite, SuiteError, ENV_SUITE_ROOT, MAX_SERVICE_NAME_LEN, SHARED_DIR_NAME,
+    SUITE_DIR_NAME,
 };
 pub use transport::{
     endpoint_candidates, endpoint_for, find_live_endpoint, open_stream, open_stream_expecting,

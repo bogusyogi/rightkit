@@ -1,5 +1,7 @@
 //! Vendor-neutral agent events.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -66,6 +68,47 @@ pub struct RateLimitInfo {
     pub utilization: Option<f64>,
     pub overage_status: Option<String>,
     pub error_code: Option<String>,
+}
+
+/// One Codex rate-limit window: the used share, the window length and the reset time.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RateLimitWindow {
+    /// Percent of the window already used, as Codex reports it (0 to 100).
+    pub used_percent: f64,
+    /// Length of the window in minutes, when Codex reports it.
+    pub window_minutes: Option<u64>,
+    /// Unix seconds at which the window resets, when Codex reports it.
+    pub resets_at: Option<u64>,
+}
+
+/// The `account/rateLimits/updated` snapshot: the primary and the secondary window.
+/// Unverified: the key names follow the Codex app-server schema snapshot pinned in `codex`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RateLimitWindows {
+    pub primary: Option<RateLimitWindow>,
+    pub secondary: Option<RateLimitWindow>,
+    pub plan_type: Option<String>,
+}
+
+/// One MCP server startup report (Codex `mcpServer/startupStatus/updated`). `status` is the
+/// vendor's word (`starting`, `ready`, `failed`, `cancelled`); a host that needs the MCP
+/// gateway up decides on it, and a `failed` report carries `error`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpStartup {
+    pub name: String,
+    pub status: String,
+    pub error: Option<String>,
+}
+
+/// One step of a plan the agent reports (Codex `turn/plan/updated`, Claude `TodoWrite`
+/// rendered as a plan by the host). `status` is `pending`, `in_progress` or `completed`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanStep {
+    pub step: String,
+    pub status: String,
 }
 
 /// Outcome of one control request sent to the CLI.
@@ -173,6 +216,15 @@ pub enum AgentEvent {
         id: String,
         tool: String,
         input: Value,
+        /// The tool call the request belongs to (Claude `can_use_tool`), when the CLI names it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_use_id: Option<String>,
+        /// The subagent that asked, when the request came from one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_id: Option<String>,
+        /// The path the CLI reports as blocked, when the request is about a path.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        blocked_path: Option<String>,
     },
     ApprovalResolved {
         id: String,
@@ -193,6 +245,14 @@ pub enum AgentEvent {
     ResultDetail(ResultSummary),
     /// A rate-limit report from the vendor, or a rejected usage limit.
     RateLimit(RateLimitInfo),
+    /// Codex `account/rateLimits/updated`: the primary and secondary windows.
+    RateLimitWindows(RateLimitWindows),
+    /// Codex `mcpServer/startupStatus/updated`.
+    McpStartup(McpStartup),
+    /// The agent's current plan (Codex `turn/plan/updated`). Each report replaces the last.
+    PlanUpdated {
+        plan: Vec<PlanStep>,
+    },
     /// The CLI answered a control request this host sent.
     ControlResponse(ControlResponse),
     Stderr {

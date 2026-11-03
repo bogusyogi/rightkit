@@ -1,0 +1,65 @@
+[package]
+name = "rightkit-pty"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.0"
+description = "Async managed PTY child for Right Suite apps: owned tree, resize, bounded input, EOF, staged cancel, ConPTY and POSIX PTY."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["pty", "conpty", "terminal", "process", "tokio"]
+categories = ["os"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "thread-spawn: Windows only, one `rightkit-pty-read` and one `rightkit-pty-write` bridge thread per PtyChild between the blocking ConPTY pipes and tokio (src/windows.rs), each ending with its pipe or its dropped stream, plus one short thread that closes the pseudoconsole after the child exits or the child is dropped; Unix starts no thread; detached-child: spawning and owning the PTY child is this crate's purpose, every child is a rightkit-child-process OwnedChild (process group or session on Unix, Job Object on Windows) torn down with a bounded staged kill; task-spawn/runtime-builder: none of its own runtime, `wait` and `cancel` use the caller's runtime blocking pool (spawn_blocking, one task per call, ending with the call); no listener, resident cache or model (reviewed 2026-11-03); event-loop: none, Unix registers the pty master with the caller's tokio reactor through AsyncFd, one descriptor per child, closed when the last stream and the child are dropped; resident-static: none"
+
+[lib]
+name = "rightkit_pty"
+path = "src/lib.rs"
+
+[dependencies]
+rightkit-child-process = { version = "0.5.9", path = "../rightkit-child-process", features = ["tokio"] }
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "time"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Console", "Win32_System_Pipes"] }
+
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

@@ -18,6 +18,11 @@ export interface LicenseClientLike {
   status?(): Promise<LicenseView>;
   /** Optional. When present and the view needs verification, the section offers "Verify purchase". */
   refresh?(): Promise<RefreshView>;
+  /**
+   * Optional. Subscribes to licence changes made elsewhere (`createLicenseClient` has it). Each change replaces `license`
+   * without firing `onChange`. Resolves the unsubscribe function.
+   */
+  onChange?(callback: (view: LicenseView) => void, onError?: (error: unknown) => void): Promise<() => void>;
 }
 
 /** Lifecycles where a purchase check can help: the licence needs a server verification or refresh. */
@@ -160,7 +165,8 @@ export function useLicenseSection(options: UseLicenseSectionOptions): UseLicense
       setActivating(true);
       setError(null);
       try {
-        const view = await client.activate(key);
+        // The key is trimmed here, so a pasted key with spaces or a line break is sent as the key itself.
+        const view = await client.activate(key.trim());
         if (mounted.current) {
           apply(view);
           if (view.status !== "active") {
@@ -224,6 +230,33 @@ export function useLicenseSection(options: UseLicenseSectionOptions): UseLicense
       if (mounted.current) setVerifying(false);
     }
   }, [client, apply]);
+  // External changes (another window, the native licence watcher) replace the view; they do not fire `onChange`.
+  useEffect(() => {
+    const subscribe = client.onChange;
+    if (!subscribe) return;
+    let live = true;
+    let off: (() => void) | undefined;
+    void subscribe.call(
+      client,
+      (view) => {
+        if (!mounted.current) return;
+        reads.current += 1;
+        setLicense(view);
+        setLoaded(true);
+      },
+      () => {},
+    ).then(
+      (u) => {
+        if (live) off = u;
+        else u();
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+      off?.();
+    };
+  }, [client]);
   const canVerify = typeof client.refresh === "function" && license !== null && VERIFY_LIFECYCLES.includes(license.lifecycle);
 
   return {

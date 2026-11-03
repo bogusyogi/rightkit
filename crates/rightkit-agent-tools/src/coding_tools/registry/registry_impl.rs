@@ -617,6 +617,11 @@ impl ToolRegistry {
                 || Some(Box::new(crate::coding_tools::mcp_tools::ListMcpToolsTool)),
             ),
             (
+                "list_mcp_sources",
+                || true,
+                || Some(Box::new(crate::coding_tools::mcp_tools::ListMcpSourcesTool)),
+            ),
+            (
                 "mcp_call",
                 || true,
                 || Some(Box::new(crate::coding_tools::mcp_tools::McpCallTool)),
@@ -953,6 +958,7 @@ impl ToolRegistry {
             "ask_user",
             "exit_plan_mode",
             "list_mcp_tools",
+            "list_mcp_sources",
             "mcp_call",
             "list_mcp_resources",
             "read_mcp_resource",
@@ -1044,6 +1050,7 @@ impl ToolRegistry {
         if !mobile.allow_mcp_mobile {
             for name in [
                 "list_mcp_tools",
+                "list_mcp_sources",
                 "mcp_call",
                 "list_mcp_resources",
                 "read_mcp_resource",
@@ -1127,9 +1134,8 @@ pub(crate) fn tool_category(name: &str) -> &'static str {
         "browser_fetch" | "web_search" | "recursive_fetch" | "github" => "web",
         "browser_open" | "browser_read" | "browser_act" | "browser_screenshot"
         | "browser_console" | "browser_close" => "browser",
-        "list_mcp_tools" | "mcp_call" | "list_mcp_resources" | "read_mcp_resource" | "mcp_auth" => {
-            "mcp"
-        }
+        "list_mcp_tools" | "list_mcp_sources" | "mcp_call" | "list_mcp_resources"
+        | "read_mcp_resource" | "mcp_auth" => "mcp",
         "spawn_subagent" | "send_message" | "team_create" | "team_delete" | "followup_subagent"
         | "wait_for_subagents" | "interrupt_subagent" => "agents",
         "task_create" | "task_update" | "task_get" | "task_list" | "task_output" | "task_stop"
@@ -1228,6 +1234,7 @@ pub(crate) const BUILTIN_CAPABILITY_META: &[(&str, &str, bool)] = &[
     ("kill_shell", "Terminate a background shell started with shell(run_in_background=true).", false),
     ("list_files", "List workspace files (gitignore-aware, default 500, hard max 5000). Bare glob '*.rs' matches filename; path glob 'src/**/*.rs' matches full path. Fail: path escapes workspace root.", true),
     ("list_mcp_resources", "List the resources available from a configured MCP server. Use read_mcp_resource to fetch the content of a specific resource by URI.", true),
+    ("list_mcp_sources", "Report the state of each MCP tool source in this session: ready, no-tools, failed, or pending (still starting or not connected yet), with the tool count. It reads state the session already holds; it does not start a server, call a tool, or show a URL, header or token. Use it to tell a server that is not connected from one that has no tools. Call list_mcp_tools for the tools themselves.", true),
     ("list_mcp_tools", "List the tools available from configured MCP servers, with their qualified names and descriptions. Call mcp_call to invoke one.", true),
     ("lsp", "Semantic code navigation. Ops: status, workspace_symbols(query), goto_definition(path,line,character), references(path,line,character), hover(path,line,character), diagnostics(path). Reuses one live language server per workspace. Definition and hover can use a local fallback; workspace symbols, references and diagnostics require a real server. Line is 1-based to match read_file output.", true),
     ("mcp_auth", "Authorize an MCP server by storing its credentials in ~/.rightkit/mcp-auth/<server>.json (owner-only via rightkit-fs). Supported auth_type values: 'bearer', 'api_key'. Returns 'Authorized MCP server: {server}' on success.", false),

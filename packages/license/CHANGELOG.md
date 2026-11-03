@@ -1,3 +1,13 @@
+# 0.3.1 (unpublished)
+
+Additive. Existing exports and wire behaviour are unchanged. Not compiled; each call needs the native command it names.
+
+- Removed (breaking, Adrian, 2026-11-03: no dummy data, no test helpers): the `@rightkit/license/testing` export (`createLicenseMock`, `RIGHTKIT_LICENSE_TESTING_DO_NOT_SHIP`) and `dist/testing.*`. Browser QA runs against the real installed build and the real native licence commands. The release scans that refuse the sentinel stay.
+- Issue #1130: `createLicenseClient` gains `requestLink()` (`rightkit_license_link_request`, answers `issued` with `code` and `expiresAt`, `notLeased` or `notActiveLeaseHolder`) and `redeemLink(code, deviceLabel?)` (`rightkit_license_link_redeem`, answers the new `LicenseView`). Type `LinkRequestView`.
+- Issue #1036: `retryPendingReleases()` (`rightkit_license_retry_pending_releases`) answers `{ attempted, settled, kept, acknowledgeFailed }` (`PendingReleaseDrain`), the counts of one native drain of the app's queued releases. Rejects as `unsupported` when the host has no queue.
+- Issue #1032 (reconciled with `rightkit-tauri-shell`): `AccountErrorCode` also carries `forbidden` and `unsupported`, the host refusals of a window the policy does not trust and of an app with no account service. Commands and DTO casing verified against `host::account` and `AccountSessionClient`.
+- Issue #1032: `createAccountClient({ invoke })` over the nine `rightkit_account_*` commands (`status`, `refresh`, `request_sign_in`, `complete_sign_in`, `sign_out`, `list_devices`, `rename_device`, `remove_device`, `delete`): `status()`, `refresh()`, `requestSignIn(email)`, `completeSignIn(code)`, `signOut()`, `listDevices()`, `renameDevice(device, label)`, `removeDevice(device)`, `deleteAccount({ confirmed: true })`. Views `AccountStatusView`, `AccountDeviceView`, `AccountDeletionView`; failures are `AccountClientError` with a closed `code` and `reason` and fixed text (`ACCOUNT_MESSAGES`). No token reaches the renderer. The shell must register `ServiceId::ACCOUNT` and the commands.
+
 # 0.3.0
 
 - Breaking: use native invoke/listen client & safe LicenseView DTOs; credentials, persistence & lifecycle evaluation stay native.

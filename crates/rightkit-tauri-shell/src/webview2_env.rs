@@ -1,11 +1,15 @@
 //! WebView2 profile environment: the user-data folder and extra browser arguments an app gives its
 //! WebView2 engine (Orthic-Labs/rightkit#386).
 //!
-//! WebView2 reads `WEBVIEW2_USER_DATA_FOLDER` and `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` from the
-//! process environment when it creates its environment, the first time a webview is made. So
-//! [`apply`] must run during startup, before any window exists; a later call changes nothing for an
-//! environment that already exists. Everything here is pure except [`apply`], which sets the two
-//! variables for this process only and never removes an existing value.
+//! WebView2 reads `WEBVIEW2_USER_DATA_FOLDER`, `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` and
+//! `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER` from the process environment, and they win over the API
+//! parameters the app passes. So [`apply`] must run during startup, before any window exists; a later
+//! call changes nothing for an environment that already exists. Everything here is pure except
+//! [`apply`], which sets the variables for this process only. On Windows it first scrubs an inherited
+//! value of those loader variables that the profile does not set (an inherited browser-arguments value
+//! could open a remote-debugging port, an inherited executable folder could load another browser), in
+//! every build; no Cargo feature keeps inherited values. A profile that calls
+//! [`ProfileEnv::keep_existing_user_data_folder`] keeps a launcher-chosen user data folder.
 //!
 //! Donor: ViewRight's profile environment (`lib.rs:178-208` at its HEAD). That source is not in this
 //! checkout, so the surface here is the shell's own: [`ProfileEnv`] with a validated, typed view of
@@ -22,6 +26,17 @@ use crate::ShellError;
 pub const ENV_USER_DATA_FOLDER: &str = "WEBVIEW2_USER_DATA_FOLDER";
 /// Environment variable WebView2 reads for extra Chromium arguments (space separated).
 pub const ENV_ADDITIONAL_BROWSER_ARGUMENTS: &str = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
+/// Environment variable WebView2 reads for the folder that holds the browser it loads.
+pub const ENV_BROWSER_EXECUTABLE_FOLDER: &str = "WEBVIEW2_BROWSER_EXECUTABLE_FOLDER";
+/// Environment variable WebView2 reads for the first-paint background, `AARRGGBB` hex.
+pub const ENV_DEFAULT_BACKGROUND_COLOR: &str = "WEBVIEW2_DEFAULT_BACKGROUND_COLOR";
+/// The loader variables an inherited value of which the shell removes on Windows before it applies
+/// the profile.
+const LOADER_VARIABLES: [&str; 3] = [
+    ENV_USER_DATA_FOLDER,
+    ENV_ADDITIONAL_BROWSER_ARGUMENTS,
+    ENV_BROWSER_EXECUTABLE_FOLDER,
+];
 /// Most extra arguments one profile may carry.
 pub const MAX_ARGUMENTS: usize = 16;
 /// Longest accepted extra argument, in bytes.
@@ -45,6 +60,11 @@ pub struct ProfileEnv {
     pub user_data_folder: Option<PathBuf>,
     /// Extra Chromium arguments, each starting with `--`.
     pub additional_browser_args: Vec<String>,
+    /// First-paint background `[r, g, b, a]`. `None` leaves WebView2's default (white).
+    pub background_color: Option<[u8; 4]>,
+    /// Keep a user data folder that is already set in the environment (a QA launcher chose it)
+    /// instead of replacing it with this profile's folder.
+    pub keep_existing_user_data_folder: bool,
 }
 
 impl ProfileEnv {
@@ -64,6 +84,19 @@ impl ProfileEnv {
         self.additional_browser_args.push(argument.into());
         self
     }
+
+    /// Paint the first frame in `color` (`[r, g, b, a]`), so a hidden window does not paint white
+    /// before the page loads. `None` keeps WebView2's default.
+    pub fn default_background_color(mut self, color: Option<[u8; 4]>) -> Self {
+        self.background_color = color;
+        self
+    }
+
+    /// Keep a user data folder already set in the environment instead of this profile's folder.
+    pub fn keep_existing_user_data_folder(mut self, keep: bool) -> Self {
+        self.keep_existing_user_data_folder = keep;
+        self
+    }
 }
 
 /// The `(variable, value)` pairs [`apply`] would set, after validation. Pure: nothing is set.
@@ -81,14 +114,43 @@ pub fn plan(env: &ProfileEnv) -> Result<Vec<(&'static str, String)>, ShellError>
             checked_arguments(&env.additional_browser_args)?,
         ));
     }
+    if let Some([r, g, b, a]) = env.background_color {
+        out.push((
+            ENV_DEFAULT_BACKGROUND_COLOR,
+            format!("{a:02X}{r:02X}{g:02X}{b:02X}"),
+        ));
+    }
     Ok(out)
 }
 
-/// Validate `env` and set the WebView2 variables for this process. Call during startup, before any
-/// thread reads the environment (the variables are process-wide). A value the profile does not
-/// set is left alone. Validation runs for the whole profile before anything is set.
+/// Validate `env`, create its user data folder, then set the WebView2 variables for this process.
+/// Call during startup, before any thread reads the environment (the variables are process-wide).
+/// Validation runs for the whole profile before anything is set or created. On Windows an inherited
+/// loader variable the profile does not set is removed (see the module documentation).
 pub fn apply(env: &ProfileEnv) -> Result<(), ShellError> {
-    for (name, value) in plan(env)? {
+    let mut entries = plan(env)?;
+    let inherited_folder = std::env::var_os(ENV_USER_DATA_FOLDER).filter(|v| !v.is_empty());
+    let keep_folder = env.keep_existing_user_data_folder && inherited_folder.is_some();
+    if keep_folder {
+        entries.retain(|(name, _)| *name != ENV_USER_DATA_FOLDER);
+    }
+    if let Some(folder) = &env.user_data_folder {
+        if !keep_folder {
+            std::fs::create_dir_all(folder).map_err(|e| {
+                ShellError::Io(format!("create user data folder {}: {e}", folder.display()))
+            })?;
+        }
+    }
+    if cfg!(windows) {
+        for name in LOADER_VARIABLES {
+            let kept = entries.iter().any(|(set, _)| *set == name)
+                || (keep_folder && name == ENV_USER_DATA_FOLDER);
+            if !kept {
+                std::env::remove_var(name);
+            }
+        }
+    }
+    for (name, value) in entries {
         std::env::set_var(name, value);
     }
     Ok(())

@@ -24,6 +24,14 @@ const commands = new Map([
   ["sign-candidate", "sign-candidate.mjs"],
   ["engine-locate", "engine-locator.mjs"],
   ["stage-sidecar", "stage-sidecar-command.mjs"],
+  ["nsis-template", "nsis-upgrade-template.mjs"],
+  ["nsis-pack", "nsis-pack.mjs"],
+  ["rustright-stage", "rustright-stage.mjs"],
+  ["plugin-install", "plugin-delivery.mjs"],
+  ["linux-publish", "linux-publish.mjs"],
+  ["install-channels", "install-channels.mjs"],
+  ["stage-xcframework", "stage-xcframework.mjs"],
+  ["session-run", "interactive-session-run.mjs"],
   ["assemble-app", "assemble-app-command.mjs"],
   ["init", "init-command.mjs"],
   ["pe", "pe-content.mjs"],
@@ -36,6 +44,7 @@ const commands = new Map([
   ["web-build", "web-build.mjs"],
   ["build-helpers", "build-helpers-command.mjs"],
   ["license-notices", "npm-license-notices.mjs"],
+  ["provision-model", "provision-model-bundle.mjs"],
   ["toolchain", "toolchain-swift.mjs"],
   ["github", "github-release.mjs"],
   ["cargo-target", "cargo-target.mjs"],
@@ -58,13 +67,13 @@ const args = process.argv.slice(2);
 const first = args[0];
 // The commands that compile, package, sign, ship or inspect a release run the app check (../app-check.mjs, CHECKED_COMMANDS) in this
 // process before they start a child. A red check prints its findings and exits 1; there is no flag that skips it.
-const WORKTREE_COMPILES = new Set(["dev", "test", "stage-sidecar"]);
+const WORKTREE_COMPILES = new Set(["dev", "test", "stage-sidecar", "stage-xcframework"]);
 // The commands that run inside a source split (source-split.mjs): the door's snapshot of a commit, with the checkout kept for the git
 // context and every output. build, package, release and qa take their identity from release-source-identity.mjs (row 7.04): the selected
 // commit's objects plus the door's verified snapshot, never the checkout's HEAD, status or branch (each re-proves it through
 // assertReleaseSource). `upload` does so for the mobile platforms (the host's store upload); a desktop upload, publish and the signing
 // commands still read the checkout's HEAD and refuse under a split rather than run on the wrong bytes.
-const SPLIT_COMMANDS = new Set(["dev", "test", "stage-sidecar", "web-build", "build", "package", "release", "qa"]);
+const SPLIT_COMMANDS = new Set(["dev", "test", "stage-sidecar", "stage-xcframework", "web-build", "build", "package", "release", "qa"]);
 const MOBILE_UPLOAD = (argv) => argv.some((a, i) => (a === "--platform" && ["ios", "android"].includes(argv[i + 1])) || a === "--platform=ios" || a === "--platform=android");
 async function requireGreenCheck() {
   const { guardCommand, checkedCommandOf, checkModeFor, appDirectory } = await import("../app-check.mjs");
@@ -120,6 +129,7 @@ try {
   if (githubBuildCommands.has(first)
     || first?.startsWith("-")
     || (first === "addon" && args[1] === "build")
+    || (first === "direct-release" && args[1] === "finalize")
     || (first === "dmg" && args[1] === "build")
     || first === "qualify"
     || (first === "publish" && ["cargo", "swift"].includes(args[1]))) {
@@ -226,6 +236,8 @@ if (first === "--version" || first === "-v") {
   run("model-promote.mjs", rest.slice(1));
 } else if (first === "addon") {
   run("addon-command.mjs", args.slice(1));
+} else if (first === "direct-release") {
+  run("direct-release-command.mjs", args.slice(1));
 } else if (first === "lsclean") {
   runBinary("bash", [path.join(packageRoot, "lsclean.sh"), ...args.slice(1)]);
 } else if (first === "generate-dmg-background") {
@@ -297,6 +309,14 @@ Commands:
   pe digest <file> [--algorithm sha256|sha384|sha512] [--json] | pe imports <file> [--allow dll,...] [--allow-file <path>]  Signature-independent PE content digest; import-closure check
   icons ico|icns --out <file> --frame <PNG>... [--dir <folder>]  Pack hand-tuned per-size PNG frames into an ICO or ICNS
   init --name <Product Name> --id <reverse.dns.bundle.id> [--slug <lowercase>] [--dir <root>] [--dry-run]  Rename the desktop app template into a real app, in place
+  stage-xcframework --crate <dir> --targets <triple,...> --headers <dir> --out <Name.xcframework>  Build a Rust staticlib crate through the broker and assemble an iOS xcframework
+  install-channels --facts <facts.json> --out <dir> [--check]  Generate install.sh, install.ps1, the Homebrew cask and the winget manifests from the verified release facts
+  linux-publish publish --app <slug> --out-dir <dir> --approve <manifest sha256> [--dry-run] | presign --app <slug> --version <v> --arch <x86_64|aarch64> [--expires <s>]  Private Linux R2 publication and one-artifact presigned URLs
+  plugin-install --app <slug> --plugin-dir <installed plugin folder> [--version <v>] [--claude-root <dir>]...  Register the installed app's Claude plugin in every Claude config root and read the version back
+  rustright-stage [--repo <rustright checkout>] [--scratch <dir>] [--cutover [--apply] [--config-next <file>]]  Stage the gate-compiled RustRight broker build (sign, stage, approve, write the cutover); rustright-install cutover only for the swap
+  session-run [--state-dir <dir>] [--timeout-ms <n>] -- <command> [args...]  Windows: run one command in the signing user's interactive logon session (one-shot task, hidden)
+  nsis-pack --script <installer.nsi> --payload <dir> --output <Setup.exe> [--define NAME=VALUE]...  Pack a signed multi-exe payload with makensis (signingContract windows-payload-authenticode-before-nsis-v1)
+  nsis-template --from <Tauri stock installer.nsi> --out <template.nsi>  Derive the in-place-upgrade NSIS template the Windows release contract requires
   stage-sidecar [--config <file>] [--target <triple>] [--json]  Stage declarative sidecars into src-tauri/binaries (Tauri externalBin naming)
   assemble-app --platform mac|win [--profile release|dev] [--build] [--out <dir>] | --verify-staged [--signed] | --package  Assemble the declared composite app (assembly.<platform>) for production packaging; the same definition installs through dev
   recipe-build --plan <json> | --plan-file <path> [--app-root <dir>]  Run a package recipe: prepare steps, the Tauri build, postBuild steps (argv, no shell, fail closed)
@@ -390,6 +410,8 @@ Commands:
   model promote --authority <app-key> --config <file> [--dry-run]
                                                       Sign and promote one runtime/model artifact
   addon doctor|build|upload|adopt <options>           Manage a signed headless add-on
+  provision-model [--config <file>] [--id <bundle>] [--dry-run]  Fetch each modelBundles entry's pinned files into its dest, verifying size and sha256 (resumable; nothing unpinned)
+  direct-release finalize [--config <file>] [--output-dir <dir>] [--dry-run]  Zip, signed release manifest, install.ps1 bootstrap, publication plan for a direct (non-store) release, from the config's directRelease block (checked; uploads nothing)
   apple profile renew [--config <file>] [--profile <file>] [--dry-run]
                                                       Renew macOS profile for current Keychain signer
   signing-agent install|uninstall|status              Manage invisible Aqua-session signing service

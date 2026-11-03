@@ -62,11 +62,25 @@ const VERSION_PROBES = Object.freeze([["-V"], ["--version"], ["-vV"], ["-Vv"], [
 const CARRIED_SHAPE = new Set(["metadata", "deny", "audit", "fmt"]);
 // GATE-CONTRACT GC-A11 (Adrian, 2026-11-02): a cargo call that compiles nothing never goes to the broker; in broker mode these run directly
 // with the host's real toolchain cargo (map.realCargo), each into its own scratch target, never carried (rustright a2972f0 refuses them).
+// The oldest @rightkit/release an app may pin and still run a compile stage on a broker host: the direct route for these calls arrived in
+// 0.6.34 (rightkit#1491); an older app-side right-release child carries its `metadata` and `fmt --check` calls to the broker, which refuses
+// them. It moves with the GC-A11 contract text above, and release-pin-floor.mjs reads it before any compile.
+export const DIRECT_ROUTE_RELEASE_FLOOR = "0.6.34";
 export const READ_ONLY_DIRECT = Object.freeze(new Set(["metadata", "fetch", "tree", "pkgid", "verify-project", "read-manifest", "locate-project", "deny", "audit", "fmt"]));
 /** Whether an argv compiles nothing: a READ_ONLY_DIRECT subcommand, or `cargo package --list` (lists files, builds nothing). */
 export function readOnlyCargo(args) {
   const sub = cargoSubcommandOf(args);
   return READ_ONLY_DIRECT.has(sub) || (sub === "package" && args.includes("--list"));
+}
+/**
+ * Whether a cargo call of a snapshot stage runs directly (GC-A11) instead of being carried to the broker: the first word is the subcommand
+ * itself (no `+toolchain` or global option in front), it compiles nothing, it is one of carriedScanRefusal's exact non-writing shapes, and a
+ * `package` call is `--list` with `--locked` or `--frozen`. The ONE definition of that shape: carried-cargo.mjs runs a call by it and
+ * stage-commands.mjs (via it) tells the receipt collection and the hosted admission to expect no broker receipt for such a command.
+ */
+export function directCargoShape(words) {
+  return /^[a-z]/.test(words?.[0] ?? "") && readOnlyCargo(words) && carriedScanRefusal(words) === null
+    && (words[0] !== "package" || (words.includes("--list") && (words.includes("--locked") || words.includes("--frozen"))));
 }
 /** The cargo subcommand of an argv (after a +toolchain and global options), or null. */
 export function cargoSubcommandOf(args) {

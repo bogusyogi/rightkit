@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4 — unpublished staging
+
+- Issue #995: `shell.onDrop(zone, handler)` over `rightkit-shell://drop` (`EVENTS.drop`). `zone` is `'window'` (every drop, the ViewRight window-level case), the id of a `data-rk-dropzone="<id>"` element, or an element; the handler gets `{ paths, x, y }` (broker-granted paths, logical-pixel position). Element zones match by hit-testing the drop position; a drop with no granted path is not delivered. New types `DropEvent`, `DropZone`. Additive, Breaking: none. Needs a host from the rightkit-tauri-shell version that emits the drop event. Not compiled.
+
 ## 0.1.2 — unpublished staging
 
 - Repairs shared Tauri command adapter behavior.

@@ -6,7 +6,7 @@
 //!
 //! The rule: the server is compiled only behind an explicit `qa-native` cargo feature.
 //! `qa-native` is off by default and only dev lanes enable it. A dev build may contain the
-//! server (it may use a release-derived profile, so `debug_assertions` is not required).
+//! server (it may use a release-derived profile).
 //! A release or update build must not contain it; `right-release` refuses to seal one that does.
 //!
 //! [`validate`] judges a [`ContractInput`] (Cargo.toml, Rust source, package scripts).
@@ -59,13 +59,9 @@ pub struct ContractInput<'a> {
     pub backend: Backend,
 }
 
-/// Compiled-in gates that accept a registration: the feature alone (the current rule), or
-/// the older debug-only form. Matched against whitespace-free source text.
-const QA_NATIVE_GATES: [&str; 3] = [
-    r#"#[cfg(feature="qa-native")]"#,
-    r#"#[cfg(all(debug_assertions,feature="qa-native"))]"#,
-    r#"#[cfg(all(feature="qa-native",debug_assertions))]"#,
-];
+/// Compiled-in gate that accepts a registration: the `qa-native` feature alone. Matched against
+/// whitespace-free source text.
+const QA_NATIVE_GATES: [&str; 1] = [r#"#[cfg(feature="qa-native")]"#];
 
 /// Feature items that switch on rightkit-tauri-shell developer inspection. None may be reachable from
 /// `default`: a release build must never contain it (`packages/release` refuses it as well).

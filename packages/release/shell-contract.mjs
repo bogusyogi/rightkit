@@ -18,6 +18,7 @@
 //   devtools-declaration       SC-R7  the five sites of the content-only DevTools declaration disagree
 //   shell-lifecycle-external   SC-R8  lifecycle_only next to an external-URL window (no hardening, no navigation policy)
 //   legal-receipt-native       SC-R9  legal acceptance stamped with the webview clock instead of the native receipt service
+//   autostart-owner            SC-R10 an app registering login launch itself (the Run key, auto-launch, tauri-plugin-autostart) instead of through the shell's autostart service
 //
 // An app is every tracked tauri.conf.json outside node_modules/, vendor/ and target/. Targets are `base` plus each tauri.<platform>.conf.json:
 // Tauri merges a platform file into the base by JSON Merge Patch (RFC 7396: objects merge, arrays replace, null deletes), and a platform
@@ -1056,6 +1057,36 @@ const legalReceiptNative = perApp(({ app, root }) => {
   return out;
 });
 
+// ---- R10 autostart-owner -----------------------------------------------------------------------------------------------------
+// Login launch has ONE owner, rightkit-tauri-shell's autostart service (rightkit#1227): it registers the declared install path only and refuses a
+// current_exe under a build target directory, the managed root or any other non-install location. An app that writes the Windows Run key itself,
+// or drives the auto-launch / tauri-plugin-autostart crates directly, registers whatever path it happens to run from, so a dev or test run from the
+// broker's target directory leaves a login entry that the next build or clean deletes or replaces. Detected from the app's committed Rust only.
+const AUTOSTART_PATTERNS = [
+  { subject: "run-key-write", pattern: /CurrentVersion(?:\\\\|\\|\/)Run(?:Once)?\b/, what: "writes the HKCU ...\\CurrentVersion\\Run key itself" },
+  { subject: "auto-launch-crate", pattern: /\bauto_launch\s*::|\bAutoLaunch(?:Builder)?\b/, what: "drives the auto-launch crate directly" },
+  { subject: "autostart-plugin", pattern: /\btauri_plugin_autostart\b/, what: "installs tauri-plugin-autostart directly" },
+];
+const autostartOwner = perApp(({ app, root }) => {
+  const out = [];
+  for (const file of app.rustFiles) {
+    const text = readText(root, file);
+    if (text === null) continue;
+    const lines = text.split("\n");
+    for (const { subject, pattern, what } of AUTOSTART_PATTERNS) {
+      const index = lines.findIndex((line) => !/^\s*\/\//.test(line) && pattern.test(line));
+      if (index < 0) continue;
+      out.push({
+        file,
+        subject,
+        problem: `${file}:${index + 1} ${what}: it registers the path it is running from, so a run from a build target directory leaves a login entry that points at a file the next build or clean replaces`,
+        fix: "register login launch through rightkit-tauri-shell's autostart service (it registers the declared install path only and refuses a build-target, managed-root or other non-install executable); delete this registration",
+      });
+    }
+  }
+  return out;
+});
+
 export const SHELL_CONTRACT_RULES = Object.freeze([
   { id: "shell-window-hidden", gap: "SC-R1", run: shellWindowHidden },
   { id: "shell-plugin-order", gap: "SC-R2", run: shellPluginOrder },
@@ -1066,4 +1097,5 @@ export const SHELL_CONTRACT_RULES = Object.freeze([
   { id: "devtools-declaration", gap: "SC-R7", run: devtoolsDeclaration },
   { id: "shell-lifecycle-external", gap: "SC-R8", run: shellLifecycleExternal },
   { id: "legal-receipt-native", gap: "SC-R9", run: legalReceiptNative },
+  { id: "autostart-owner", gap: "SC-R10", run: autostartOwner },
 ]);

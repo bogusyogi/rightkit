@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.3 (unpublished)
+
+- Docs: `state_root_is_isolated` says what it checks (the state root comes from the environment); no behaviour change.
+Issue #423 (cross-language manifest and parity check, change-request queue; BOM option shipped earlier, Swift store already in RightKitSwift `AppSettingsStore`). Additive.
+
+- **Manifest and codegen.** `Manifest::parse(json, source)` reads the same `{ "settings": [{ key, kind, default, protected }] }` document RightKitSwift's `AppSettingsManifest.decode` reads (plus documentation fields `label`, `section`, `note`; unknown fields are errors). `Manifest::generate(Target::{Swift, Rust, TypeScript})` returns deterministic source text (`GeneratedSettings` for Swift, `keys` / `PROTECTED_KEYS` / `DEFAULTS_JSON` for Rust, `settingsManifest` / `SettingKey` for TypeScript); an app runs it from its own `build.rs` or release step. `Manifest::is_current(target, existing)` detects a stale committed file.
+- **Parity.** `Manifest::check_defaults::<T>()` compares the manifest with the app's Rust settings type (`T::default()`): key set, kind and default. `Manifest::check_protected(&[..])` compares the protected keys with the list the owner path enforces. Both return `Vec<Mismatch>`; empty means parity.
+- **Change requests.** `ChangeRequestQueue` (`submit`, `pending`, `outcome`, `wait_outcome`, `drain`), `ChangeRequest`, `RequestOutcome` (`Applied { revision }`, `Adjusted { value }`, `Refused { reason }`, `Expired`) and `RequestPolicy` (`from_manifest`, `protect`, `only`, `ttl`): a requester leaves an atomic request file, the owner drains the directory through `Store::patch`, so the owner stays the only writer. Protected and undeclared keys are refused; a request older than the policy lifetime (default 60 s) is dropped unapplied.
+- Decision: the manifest format is the JSON RightKitSwift already decodes (one shared document, no second TOML dialect); the generators live in this crate as pure functions rather than a script, so the tooling home is the settings owner.
+
+Issues #1025 (read-only migration and replace-tolerant reads), #1100 (value and revision from one read). Additive: `Store::snapshot` is new; `open_read_only` now runs the flat migration in memory.
+
+- **Read-only migration (#1025).** `Store::open_read_only` runs the `flat_migration` hook on the parsed flat object before defaults and repair, and returns the migrated value. Every re-read of a read-only store (`get`, `revision`, `poll_external`) applies it again, so a later stamp change does not return the unmigrated file. Nothing is written: no lock, no `.bak`, no commit, and `needs_rewrite` and the pending commit stay unset. The `open_read_only` doc and the `flat_migration` doc now say this; they previously said the opposite.
+- **Replace-tolerant reads (#1025).** The file backend reads through `rightkit_fs::read_replaced` and `rightkit_fs::open_replaced`, so on Windows a reader retries an `ERROR_ACCESS_DENIED` or `ERROR_SHARING_VIOLATION` open while a writer's atomic replace is in flight. Elsewhere the reads are unchanged.
+- **Value and revision from one read (#1100).** `Store::snapshot() -> Result<(T, u64), Error>` loads the document once and returns the typed value with its revision, for every format including flat files. A read failure is an `Err`, not the last known value, and a newer-schema file is `NewerSchema`. It writes nothing and leaves the cache as it is.
+
 ## 0.3.2 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

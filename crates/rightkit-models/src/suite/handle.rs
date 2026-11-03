@@ -17,6 +17,7 @@ use crate::suite::manifest::VerifyMode;
 use crate::suite::store::{
     ensure_ready_recorded, prune_retired, release_models, retire_speech_models, status_at,
     status_in, EnsureOptions, EntryState, ModelStatus, Progress, ReleaseReport, RetiredPruneReport,
+    SeedOutcome,
 };
 use crate::suite::{paths, refs};
 
@@ -149,7 +150,7 @@ pub fn sibling_parakeet_dirs() -> Vec<PathBuf> {
 }
 
 impl ModelStore {
-    /// The machine-wide shared store (`ORTHIC_SHARED_DIR` overrides the root).
+    /// The machine-wide shared store (the per-user Orthic Labs `shared` root).
     pub fn shared(app_id: impl Into<String>) -> Self {
         Self {
             models_root: paths::models_root(),
@@ -219,6 +220,34 @@ impl ModelStore {
     /// additionally re-hashes every file.
     pub fn status(&self, spec: &ModelSpec, mode: VerifyMode) -> ModelStatus {
         status_at(&self.models_root, spec, mode)
+    }
+
+    /// Read-only readiness at the directory apps should load from: this store's entry when it is
+    /// present, else, when this store is the machine-wide one and the entry is missing, the first
+    /// of `siblings` (other apps' entry dirs) that verifies at `mode`. The same rule as
+    /// [`ModelStore::resolve`], but nothing is registered and nothing is written. `dir` in the
+    /// result is the directory that holds the files, or this store's own entry when none verifies.
+    pub fn effective_status(
+        &self,
+        spec: &ModelSpec,
+        siblings: &[PathBuf],
+        mode: VerifyMode,
+    ) -> ModelStatus {
+        let own = status_at(&self.models_root, spec, mode);
+        if own.state != EntryState::Missing || self.models_root != paths::models_root() {
+            return own;
+        }
+        siblings
+            .iter()
+            .map(|dir| status_in(dir.clone(), spec, mode))
+            .find(|status| status.state == EntryState::Ready)
+            .unwrap_or(own)
+    }
+
+    /// Seed `spec` from a bundled copy in `src_dir` with no download. Verified staging, then one
+    /// rename; see [`crate::suite::store::SeedOutcome`]. Uses this store's root and app id.
+    pub fn seed_from_dir(&self, spec: &ModelSpec, src_dir: &Path) -> Result<SeedOutcome, String> {
+        crate::suite::store::seed_from_dir_at(&self.models_root, spec, src_dir, &self.app_id)
     }
 
     pub fn parakeet_status(&self, mode: VerifyMode) -> ModelStatus {

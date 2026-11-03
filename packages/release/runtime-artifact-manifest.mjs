@@ -9,7 +9,10 @@ export const RUNTIME_ARTIFACT_KINDS = Object.freeze([
   "media-runtime",
   "tokenizer",
   "preprocessing",
+  // Ember's own trained image models (denoise, culling, auto-edit) (#1161): delivered through the same pinned-digest lane, public and free.
+  "image-model",
 ]);
+// The apps that may promote runtime artifacts (the Right Suite apps plus Ember, a public and free app with its own models).
 export const RIGHT_SUITE_APP_KEYS = Object.freeze([
   "viewright",
   "heardright",
@@ -19,6 +22,7 @@ export const RIGHT_SUITE_APP_KEYS = Object.freeze([
   "screenright",
   "genright",
   "voiceright",
+  "ember",
 ]);
 
 const TARGET_OSES = new Set(["windows", "darwin", "linux", "ios", "any"]);
@@ -121,6 +125,11 @@ export function validateRuntimeArtifactManifest(value) {
   if (["asr-model", "tts-model", "ocr-model", "tokenizer"].includes(value.artifactKind)
       && (value.distribution.delivery !== "private-r2" || value.entitlement.tier !== "pro")) {
     fail("model artifacts must use private-r2 with Pro entitlement");
+  }
+  // An image model is the free lane's artifact: private-r2 with Pro entitlement or public-r2 with the public tier (no entitlement), never bundled
+  // here; the pinned digest and verified load apply to both lanes alike (#1161).
+  if (value.artifactKind === "image-model" && value.distribution.delivery === "bundled") {
+    fail("image-model artifacts are delivered from R2: private-r2 with Pro entitlement or public-r2 with the public tier");
   }
 
   assertPlainObject(value.target, "target");

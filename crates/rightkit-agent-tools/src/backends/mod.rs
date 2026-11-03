@@ -5,6 +5,7 @@ pub mod control;
 pub mod demo;
 #[cfg(feature = "automation")]
 pub mod desktop;
+pub mod http;
 #[cfg(feature = "speech")]
 pub mod speech;
 #[cfg(feature = "browser")]

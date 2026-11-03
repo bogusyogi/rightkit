@@ -24,13 +24,9 @@ export function validateLegacyWdioQaContract(input: LegacyWdioQaContractInput): 
   }
 
   const compactRust = input.rustSource.replace(/\s+/g, ' ');
-  if (!/cfg\s*\(\s*all\s*\(\s*not\s*\(\s*debug_assertions\s*\)\s*,\s*feature\s*=\s*"qa-native"\s*\)\s*\)/.test(compactRust)
-      || !/compile_error!/.test(compactRust)) {
-    issues.push('Rust must compile_error when qa-native is enabled outside debug builds');
-  }
-  if (!/cfg\s*\(\s*all\s*\(\s*debug_assertions\s*,\s*feature\s*=\s*"qa-native"\s*\)\s*\)/.test(compactRust)
+  if (!/cfg\s*\(\s*feature\s*=\s*"qa-native"\s*\)/.test(compactRust)
       || !/tauri_plugin_wdio_webdriver::init/.test(compactRust)) {
-    issues.push('WebDriver plugin registration must require debug_assertions and qa-native');
+    issues.push('WebDriver plugin registration must require the qa-native feature');
   }
   if (!/RIGHTKIT_QA_NATIVE/.test(compactRust)) {
     issues.push('WebDriver plugin registration must also require the RIGHTKIT_QA_NATIVE runtime flag');

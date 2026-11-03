@@ -20,6 +20,7 @@
 
 #![forbid(unsafe_code)]
 
+mod canonical;
 mod error;
 #[cfg(feature = "schema")]
 pub mod fixtures;
@@ -36,6 +37,7 @@ use serde::de::DeserializeOwned;
 #[cfg(feature = "schema")]
 use serde_json::Value;
 
+pub use canonical::{canonical_value_string, to_canonical_string, CanonicalError};
 pub use error::ContractError;
 pub use review::{eyes_gate, EyesGate, EYES_APPROVAL_REQUIRED};
 pub use version::{negotiate, Version};

@@ -4,6 +4,7 @@
 //! validation and sequencing boundary shared by storage adapters.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 pub const ABSORBED_SCHEMA_VERSION: u32 = 1;
 

@@ -21,9 +21,6 @@
     "tracker.mjs"
   ],
   "sideEffects": false,
-  "scripts": {
-    "test": "node --test *.test.mjs"
-  },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
     "access": "public"

@@ -33,16 +33,8 @@ impl LeaseWait {
     }
 }
 
-fn lease_wait_window_for(value: Option<&str>) -> Duration {
-    Duration::from_secs(value.and_then(|v| v.parse::<u64>().ok()).unwrap_or(120))
-}
-
 pub(crate) fn lease_wait_window() -> Duration {
-    lease_wait_window_for(
-        rightkit_dictation_core::dev_var!("RIGHTKIT_MODEL_LEASE_WAIT_SECS")
-            .ok()
-            .as_deref(),
-    )
+    Duration::from_secs(120)
 }
 
 pub(crate) fn lease_wait_active() -> bool {

@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/theme",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Brand file to CSS tokens generator for Right Suite apps: light/dark/system, derived dark accent, WCAG contrast and hard-coded-colour checks, runtime brand application.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -28,11 +28,14 @@
     "./node": {
       "types": "./dist/node.d.ts",
       "import": "./dist/node.js"
-    }
+    },
+    "./wordmark.css": "./wordmark.css"
   },
   "files": [
     "dist",
     "bin",
+    "fonts",
+    "wordmark.css",
     "README.md",
     "LICENSE-MIT",
     "LICENSE-APACHE",
@@ -40,16 +43,13 @@
   ],
   "sideEffects": false,
   "devDependencies": {
-    "@rightkit/qa-chrome": "workspace:*",
     "@types/node": "^26.6.6",
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.5"
+    "typescript": "^7.0.2"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "pnpm --filter \"@rightkit/theme^...\" run build && pnpm run build && vitest run"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",

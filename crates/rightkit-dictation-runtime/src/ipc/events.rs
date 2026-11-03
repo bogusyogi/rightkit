@@ -14,7 +14,6 @@ pub(crate) fn spawn_worker_event_pump(
     std::thread::Builder::new()
         .name("hr-engine-worker-events".to_string())
         .spawn(move || loop {
-            crate::perf_levers::apply_thread_qos_once("hr-engine-worker-events");
             let event = {
                 let rx = worker_rx.lock();
                 rx.recv()
@@ -167,9 +166,7 @@ pub(crate) fn spawn_worker_event_pump(
                             stop_target,
                         }),
                     );
-                    // ENG-18: `RIGHTKIT_AUTOSTOP_DRAIN_MS` (test-mode, default 60) for A/B; a release
-                    // build always drains 60 ms.
-                    let drain = crate::perf_levers::autostop_drain();
+                    let drain = std::time::Duration::from_millis(60);
                     tracing::info!(
                         drain_ms = drain.as_millis() as u64,
                         "autostop begin: draining shell PTT hook before command dispatch"

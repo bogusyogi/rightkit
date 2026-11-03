@@ -19,7 +19,7 @@ pub(crate) mod gdi;
 
 mod backdrop;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::mem::size_of;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::Ordering;
@@ -44,23 +44,24 @@ use windows_sys::Win32::UI::HiDpi::{
     SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT,
+    ReleaseCapture, SetCapture, SetFocus, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT, VK_BACK,
+    VK_ESCAPE, VK_RETURN,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     DefWindowProcW, DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, GetWindowLongPtrW,
     IsWindow, KillTimer, LoadCursorW, PeekMessageW, PostMessageW, PostQuitMessage,
-    RegisterClassExW, SetTimer, SetWindowLongPtrW, SetWindowPos, TranslateMessage,
-    UnregisterClassW, GWLP_USERDATA, HWND_TOP, IDC_ARROW, MA_NOACTIVATE, MSG, PM_REMOVE,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, WM_APP, WM_CANCELMODE,
-    WM_CAPTURECHANGED, WM_CLOSE, WM_DESTROY, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_ERASEBKGND,
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_PAINT, WM_QUIT,
-    WM_SETTINGCHANGE, WM_TIMER, WM_WTSSESSION_CHANGE, WNDCLASSEXW, WTS_CONSOLE_CONNECT,
-    WTS_CONSOLE_DISCONNECT, WTS_REMOTE_CONNECT, WTS_REMOTE_DISCONNECT, WTS_SESSION_LOCK,
-    WTS_SESSION_UNLOCK,
+    RegisterClassExW, SetForegroundWindow, SetTimer, SetWindowLongPtrW, SetWindowPos,
+    TranslateMessage, UnregisterClassW, GWLP_USERDATA, HWND_TOP, IDC_ARROW, MA_NOACTIVATE, MSG,
+    PM_REMOVE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, WM_APP, WM_CANCELMODE,
+    WM_CAPTURECHANGED, WM_CHAR, WM_CLOSE, WM_DESTROY, WM_DISPLAYCHANGE, WM_DPICHANGED,
+    WM_ERASEBKGND, WM_KEYDOWN, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEACTIVATE,
+    WM_MOUSEMOVE, WM_PAINT, WM_QUIT, WM_SETFOCUS, WM_SETTINGCHANGE, WM_TIMER, WM_WTSSESSION_CHANGE,
+    WNDCLASSEXW, WTS_CONSOLE_CONNECT, WTS_CONSOLE_DISCONNECT, WTS_REMOTE_CONNECT,
+    WTS_REMOTE_DISCONNECT, WTS_SESSION_LOCK, WTS_SESSION_UNLOCK,
 };
 
 use crate::anim::{Animation, FrameInfo};
-use crate::events::{EventQueue, OverlayEvent};
+use crate::events::{EventQueue, OverlayEvent, OverlayKey};
 use crate::geometry::{
     client_to_logical, copy_rows, device_regions, hit_test, place_frame, plan_backing,
     scale_for_dpi, Backing, HitRegion, Placement, Size,
@@ -196,6 +197,10 @@ struct Owner {
     state: RefCell<State>,
     /// `WM_WTSSESSION_CHANGE` registration succeeded (so it must be undone).
     session_registered: bool,
+    /// Edit mode (`OverlayHandle::set_focusable`): the window takes activation and keyboard input.
+    focusable: Cell<bool>,
+    /// The high UTF-16 unit of a surrogate pair still waiting for its low unit (0 when none).
+    high_surrogate: Cell<u16>,
     /// Keeps the window class registered; declared last so it is released after the window is
     /// destroyed (fields drop after `Drop::drop` has run).
     _class: ClassRef,
@@ -333,6 +338,7 @@ impl Owner {
                 topmost: config.topmost,
                 takes_focus: !config.noactivate,
                 click_through: false,
+                exclude_from_capture: false,
             };
             let raw = rk::create_overlay_window(
                 hinstance as isize,
@@ -357,6 +363,7 @@ impl Owner {
                 topmost: config.topmost,
                 takes_focus: !config.noactivate,
                 click_through: config.style.click_through,
+                exclude_from_capture: config.style.exclude_from_capture,
             };
             rk::apply_style(raw, effective);
             let applied = backdrop::apply(hwnd, config.backdrop);
@@ -391,6 +398,8 @@ impl Owner {
                     session_locked: false,
                 }),
                 session_registered,
+                focusable: Cell::new(false),
+                high_surrogate: Cell::new(0),
                 _class: class,
             });
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, &*owner as *const Owner as isize);
@@ -435,6 +444,9 @@ impl Owner {
                 self.state.borrow_mut().visible = true;
                 self.render_present();
                 self.show_window();
+                if self.focusable.get() {
+                    self.activate_for_edit();
+                }
                 self.apply_region();
                 self.resample();
             }
@@ -477,6 +489,12 @@ impl Owner {
                     rk::reassert_if_needed(self.hwnd as isize);
                 }
             }
+            Command::Present {
+                width,
+                height,
+                pixels,
+            } => self.present_external(width, height, &pixels),
+            Command::SetFocusable(focusable) => self.set_focusable(focusable),
             Command::Close => {
                 // SAFETY: destroys this thread own window; WM_DESTROY then ends the loop.
                 unsafe {
@@ -682,6 +700,124 @@ impl Owner {
             if state.painter.is_none() {
                 state.painter = painter;
             }
+        }
+    }
+
+    /// Publishes a caller-drawn frame (`OverlayHandle::present`) at the window's current device
+    /// position. Nothing is presented while the window is hidden or when the frame is not exactly
+    /// the window's device size.
+    fn present_external(&self, width: u32, height: u32, pixels: &[u32]) {
+        let placement = {
+            let state = self.state.borrow();
+            match (state.visible, state.placement) {
+                (true, Some(placement)) => placement,
+                _ => return,
+            }
+        };
+        if i64::from(width) != i64::from(placement.device.width)
+            || i64::from(height) != i64::from(placement.device.height)
+        {
+            return;
+        }
+        let (w, h) = (width as usize, height as usize);
+        // The same DIB policy as `render_present`: grow-only with hysteresis.
+        let surface = {
+            let mut state = self.state.borrow_mut();
+            let current = state.surface.as_ref().map(|s| (s.width, s.height));
+            match plan_backing(current, (w, h)) {
+                Backing::Keep => state.surface.take(),
+                Backing::Rebuild { width, height } => {
+                    state.surface = None;
+                    Surface::new(width, height).or_else(|| Surface::new(w, h))
+                }
+            }
+        };
+        let Some(mut surface) = surface else {
+            return;
+        };
+        let stride = surface.width;
+        if copy_rows(surface.pixels_mut(), stride, pixels, w, h) {
+            present(
+                self.hwnd,
+                &surface,
+                placement.device.x,
+                placement.device.y,
+                w,
+                h,
+            );
+        }
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            state.surface = Some(surface);
+        }
+    }
+
+    /// Edit mode on or off. The no-activate style follows the request; turning it on while the
+    /// window is visible activates it so it takes the keystrokes. Turning it off restores the
+    /// configured style and drops any half-read surrogate pair.
+    fn set_focusable(&self, focusable: bool) {
+        let was = self.focusable.replace(focusable);
+        if !focusable {
+            self.high_surrogate.set(0);
+        }
+        // `takes_focus` is the inverse of WS_EX_NOACTIVATE; the config keeps its own default.
+        rk::apply_style(
+            self.hwnd as isize,
+            OverlayStyle {
+                topmost: self.config.topmost,
+                takes_focus: focusable || !self.config.noactivate,
+                click_through: self.config.style.click_through,
+                exclude_from_capture: self.config.style.exclude_from_capture,
+            },
+        );
+        if focusable && !was && self.is_visible() {
+            self.activate_for_edit();
+        }
+    }
+
+    /// Brings the window to the front and gives it keyboard focus. Best effort: Windows may refuse
+    /// the foreground request, and `SetFocus` only applies to the foreground thread's windows.
+    fn activate_for_edit(&self) {
+        // SAFETY: both calls take this thread's own window handle; a refused request just fails.
+        unsafe {
+            SetForegroundWindow(self.hwnd);
+            SetFocus(self.hwnd);
+        }
+    }
+
+    /// Queues an event for the subscribers. Dropped only if the state is borrowed by an outer call,
+    /// which the re-entrancy rule keeps from happening for these messages.
+    fn report(&self, event: OverlayEvent) {
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            state.events.push(event);
+        }
+    }
+
+    /// Reports one `WM_CHAR` unit in edit mode. Control characters (Enter, Backspace, Escape, Tab)
+    /// are left to `WM_KEYDOWN`, so each key is reported once. A character outside the Basic
+    /// Multilingual Plane arrives as a surrogate pair; the high unit waits for its low unit.
+    fn on_char(&self, unit: u16) {
+        let high = self.high_surrogate.replace(0);
+        let ch = match (high, unit) {
+            (_, 0xD800..=0xDBFF) => {
+                self.high_surrogate.set(unit);
+                return;
+            }
+            (0, 0xDC00..=0xDFFF) => return,
+            (high, 0xDC00..=0xDFFF) => {
+                let code =
+                    0x1_0000 + ((u32::from(high) - 0xD800) << 10) + (u32::from(unit) - 0xDC00);
+                match char::from_u32(code) {
+                    Some(ch) => ch,
+                    None => return,
+                }
+            }
+            _ => match char::from_u32(u32::from(unit)) {
+                Some(ch) => ch,
+                None => return,
+            },
+        };
+        if !ch.is_control() {
+            self.report(OverlayEvent::Char(ch));
         }
     }
 
@@ -934,7 +1070,9 @@ impl Owner {
                 self.on_display_change();
                 0
             }
-            WM_MOUSEACTIVATE if self.config.noactivate => MA_NOACTIVATE as LRESULT,
+            WM_MOUSEACTIVATE if self.config.noactivate && !self.focusable.get() => {
+                MA_NOACTIVATE as LRESULT
+            }
             WM_ERASEBKGND => 1,
             WM_PAINT => {
                 // The contents come from UpdateLayeredWindow; there is nothing to paint here.
@@ -985,6 +1123,23 @@ impl Owner {
                         PostMessageW(hwnd, WM_APP_DISPLAY, 0, 0);
                     }
                 }
+                // SAFETY: default handling of the same message.
+                unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+            }
+            WM_KEYDOWN if self.focusable.get() => match edit_key(wparam) {
+                Some(key) => {
+                    self.report(OverlayEvent::Key(key));
+                    0
+                }
+                // SAFETY: default handling of a key this window does not edit with.
+                None => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
+            },
+            WM_CHAR if self.focusable.get() => {
+                self.on_char(wparam as u16);
+                0
+            }
+            WM_SETFOCUS | WM_KILLFOCUS if self.focusable.get() => {
+                self.report(OverlayEvent::Focus(msg == WM_SETFOCUS));
                 // SAFETY: default handling of the same message.
                 unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
             }
@@ -1067,6 +1222,16 @@ unsafe extern "system" fn overlay_wndproc(
     })) {
         Ok(result) => result,
         Err(_) => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
+    }
+}
+
+/// The editing key a `WM_KEYDOWN` virtual-key code is reported as in edit mode, if it is one.
+fn edit_key(wparam: WPARAM) -> Option<OverlayKey> {
+    match wparam as u16 {
+        VK_RETURN => Some(OverlayKey::Enter),
+        VK_ESCAPE => Some(OverlayKey::Escape),
+        VK_BACK => Some(OverlayKey::Backspace),
+        _ => None,
     }
 }
 

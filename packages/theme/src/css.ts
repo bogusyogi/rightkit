@@ -83,23 +83,32 @@ export function tailwindThemeCss(tokens: Readonly<Record<string, string>>, optio
 export interface PresetCssOptions {
   /** Attribute on `:root` that selects the preset. Default `data-palette`. */
   attribute?: string;
+  /** Attribute that selects the mode, for example `data-theme`. A `mode: "light"` preset adds `[<modeAttribute>="light"]`. Default: none. */
+  modeAttribute?: string;
 }
 
 /**
  * One `:root[data-palette="<id>"]` block per preset, holding its base tokens (`presetTokens(preset)`). Accent
  * overrides are not emitted; apply them at runtime with `applyTokens(presetTokens(preset, accentId))`. Ids and
  * the attribute must be plain identifiers, and every token name must be a custom property.
+ *
+ * With `modeAttribute` (for example `data-theme`) a `mode: "light"` preset selects
+ * `:root[data-palette="<id>"][data-theme="light"]`, so one palette id can carry a dark and a light preset; a dark
+ * preset keeps the plain `:root[data-palette="<id>"]` selector. Without it every preset uses the plain selector.
  */
 export function presetCss(presets: readonly TokenPreset[], options: PresetCssOptions = {}): string {
   const attribute = options.attribute ?? "data-palette";
   if (!/^[A-Za-z][A-Za-z0-9-]*$/.test(attribute)) throw new Error(`Invalid preset attribute: ${JSON.stringify(attribute)}`);
+  const modeAttribute = options.modeAttribute;
+  if (modeAttribute !== undefined && !/^[A-Za-z][A-Za-z0-9-]*$/.test(modeAttribute)) throw new Error(`Invalid preset mode attribute: ${JSON.stringify(modeAttribute)}`);
   return presets.map((preset) => {
     if (!/^[A-Za-z0-9_-]+$/.test(preset.id)) throw new Error(`Invalid preset id: ${JSON.stringify(preset.id)}`);
     const vars = Object.entries(preset.tokens).map(([k, v]) => {
       assertCustomProperty(k);
       return `  ${k}: ${v};`;
     });
-    return `:root[${attribute}="${preset.id}"] {\n${vars.join("\n")}\n}\n`;
+    const mode = modeAttribute !== undefined && preset.mode === "light" ? `[${modeAttribute}="light"]` : "";
+    return `:root[${attribute}="${preset.id}"]${mode} {\n${vars.join("\n")}\n}\n`;
   }).join("\n");
 }
 

@@ -27,6 +27,7 @@ use crate::driver_host::cli_runtime::ids::{
     CliAccountProfile, CliAuthMode, CliProviderCapabilities, CliProviderId, CliTransportKind,
     HarnessRequirements, QualificationProbe,
 };
+use crate::driver_host::contracts::NormalizedEvent;
 
 pub fn native_profile_hash(profile: &CliAccountProfile) -> String {
     let mut hash = rightkit_fs::digest::Sha256Hasher::new();

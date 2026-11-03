@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-system-monitor = { version = "=0.1.1" }
+rightkit-system-monitor = { version = "=0.2.0" }
 

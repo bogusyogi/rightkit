@@ -209,15 +209,13 @@ pub struct WhisperCoreMl {
     vocab: WhisperVocab,
     /// ORT-14 (output-identical): reuse decoder input buffers across windows,
     /// let CoreML write decoder outputs into reusable backings, and copy the
-    /// per-token KV update as raw f16 bits. `RIGHTKIT_WHISPER_COREML_CACHE_REUSE=0`
-    /// (test-mode) restores the per-window allocation path for A/B.
+    /// per-token KV update as raw f16 bits.
     cache_reuse: bool,
     decoder_inputs: RefCell<Option<DecoderInputs>>,
 }
 
 impl WhisperCoreMl {
     /// Load the WhisperKit `.mlmodelc` bundle dir + the Whisper tokenizer.
-    /// `RIGHTKIT_WHISPER_TOKENIZER` overrides the bundled tokenizer path for QA only.
     pub fn load(model_dir: &Path) -> Result<Self, String> {
         // MelSpectrogram.mlmodelc is intentionally NOT loaded — the mel is computed in
         // Rust (canonical whisper log_mel), which beat the WK mel stage on the ANE.
@@ -228,15 +226,11 @@ impl WhisperCoreMl {
         // 0.23.2 exactly (parity test in vocab.rs), without the crate.
         let vocab = WhisperVocab::from_file(&tok_path)
             .map_err(|e| format!("load tokenizer {}: {e}", tok_path.display()))?;
-        let cache_reuse = rightkit_dictation_core::dev_var!("RIGHTKIT_WHISPER_COREML_CACHE_REUSE")
-            .as_deref()
-            != Ok("0");
-        if cache_reuse {
-            // Logits + both KV updates land in per-stage reusable arrays
-            // instead of fresh CoreML allocations every token. Each step reads
-            // its outputs fully before the next prediction overwrites them.
-            decoder.enable_output_backings();
-        }
+        let cache_reuse = true;
+        // Logits + both KV updates land in per-stage reusable arrays
+        // instead of fresh CoreML allocations every token. Each step reads
+        // its outputs fully before the next prediction overwrites them.
+        decoder.enable_output_backings();
         tracing::info!(
             target: "rightkit_dictation_inference::whisper_coreml::timing",
             cache_reuse,
@@ -382,7 +376,6 @@ impl WhisperCoreMl {
         // Timestamp mode (WhisperKit default `withoutTimestamps=false`): the initial
         // timestamp <|0.00|> is FORCED via the prompt (not sampled — matches the
         // disabled in-filter init-ts path in WhisperKit's TimestampRulesFilter).
-        let ts_mode = rightkit_dictation_core::dev_var!("RIGHTKIT_WHISPER_NOTS").is_err();
         // AUTO (-1): seed the prompt with English as a placeholder; the real
         // language is read from the SOT-step prediction at ti==0 below and
         // written back into prompt[1] before it is forced at ti==1.
@@ -392,12 +385,8 @@ impl WhisperCoreMl {
         } else {
             lang_tok
         };
-        let mut prompt: Vec<i32> = if ts_mode {
-            vec![SOT, prompt_lang, TRANSCRIBE, TS_BEGIN]
-        } else {
-            vec![SOT, prompt_lang, TRANSCRIBE, NO_TS]
-        };
-        // 4 (SOT, lang, transcribe, <|0.00|> | <|notimestamps|>)
+        let mut prompt: Vec<i32> = vec![SOT, prompt_lang, TRANSCRIBE, TS_BEGIN];
+        // 4 (SOT, lang, transcribe, <|0.00|>)
         let init_prompt = prompt.len();
         // Decoder inputs are mutated in place each step (CoreML reads at
         // predict time). `current` is the full token list (prompt + sampled),
@@ -509,7 +498,7 @@ impl WhisperCoreMl {
             // steps just prefill the KV cache with the forced prompt.
             if ti >= init_prompt - 1 {
                 let mut logits = read_f16(&outs[0]); // [1,1,VOCAB]
-                apply_filters(&mut logits, &current, init_prompt, ts_mode);
+                apply_filters(&mut logits, &current, init_prompt);
                 let sampled = argmax(&logits) as i32;
                 if sampled == EOT {
                     logits_time += logits_started.elapsed();
@@ -551,27 +540,6 @@ impl WhisperCoreMl {
             total_ms = decode_started.elapsed().as_secs_f64() * 1000.0,
             "whisper decoder stages"
         );
-        if rightkit_dictation_core::dev_var!("RIGHTKIT_WHISPER_DUMP").is_ok() {
-            let s: String = current[init_prompt..]
-                .iter()
-                .map(|&t| {
-                    if t >= TS_BEGIN {
-                        format!("⟨{:.2}⟩", (t - TS_BEGIN) as f32 * 0.02)
-                    } else {
-                        self.vocab.id_to_token(t as u32).unwrap_or_default()
-                    }
-                })
-                .collect();
-            let n_ts = current[init_prompt..]
-                .iter()
-                .filter(|&&t| t >= TS_BEGIN)
-                .count();
-            eprintln!(
-                "[dump] {} sampled, {} timestamps:\n{s}",
-                current.len() - init_prompt,
-                n_ts
-            );
-        }
         // keep only sampled text tokens (drop the prompt and all timestamps ≥ TS_BEGIN)
         let toks = current[init_prompt..]
             .iter()

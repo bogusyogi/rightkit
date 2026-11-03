@@ -2,7 +2,7 @@
 
 Portable overlay state, geometry, work-area clamping, hover & hit testing, plus Windows native style/window primitives. Callers supply their overlay kind & native presentation policy. Crate owns no event loop, timer or rendering content.
 
-`OverlayModel<Kind>` retains caller-owned kind without interpreting it. Use any serializable/deserializable identity, including app enum with existing serde wire names. Native hosts explicitly select `OverlayStyle`, fullscreen policy & platform window level. Windows PASSIVE remains topmost/no-activate/toolwindow; click-through creation remains refused because unlayered native creator cannot provide that behavior.
+`OverlayModel<Kind>` retains caller-owned kind without interpreting it. Use any serializable/deserializable identity, including app enum with existing serde wire names. Native hosts explicitly select `OverlayStyle`, fullscreen policy & platform window level. Windows PASSIVE remains topmost/no-activate/toolwindow; click-through creation stays refused by the unlayered creator; `windows::create_layered_overlay_window` creates click-through only when the caller asserts a per-pixel-alpha window with empty hit regions.
 
 ```rust
 use rightkit_overlay::{OverlayEvent, OverlayModel, Rect, WorkArea};

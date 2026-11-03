@@ -1,0 +1,75 @@
+[package]
+name = "rightkit-gpu"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.0"
+description = "Shared wgpu device context for Right Suite apps: per-OS backend policy, a crash sentinel around device creation, adapter pick and limits, an exit gate for in-flight GPU work, and a device-memory budget that adapts to out-of-memory."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["wgpu", "gpu", "device", "compute"]
+categories = ["graphics"]
+include = ["src/**", "README.md", "CHANGELOG.md", "NOTICE", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[package.metadata.rightkit]
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "GpuContext::create"
+file = "src/context.rs"
+holds = ["memory"]
+scale = "one wgpu instance, adapter, device and queue per context the app creates (an app creates one); the driver holds device memory until the context is dropped"
+release = "drop of the GpuContext; GpuGate::begin_shutdown and wait_idle end in-flight work first"
+static_note = "MARKER (one Mutex-guarded sentinel path and a counter) and GATE (one Mutex and Condvar) are single values, not collections; they cannot grow"
+
+[[package.metadata.rightkit.resources]]
+api = "MemoryBudget::admit"
+file = "src/budget.rs"
+holds = ["thread"]
+scale = "a caller waiting in admit blocks its own thread on a Condvar with a 100 ms timeout; the queue holds one ticket per waiting caller"
+release = "the Permit drop, or admit returning None when the caller's stop closure turns true"
+
+[dependencies]
+log = "0.4"
+rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+
+# Native only: Metal, Vulkan and DX12 through wgpu. The browser build keeps its own path (WebGPU needs async device creation).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "metal", "vulkan", "dx12", "wgsl"] }
+pollster = "1"
+
+# One Cargo workspace and lock per crate (rightkit#1285).
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

@@ -52,7 +52,7 @@ pub enum SpecSource {
 /// The grouping is data on the spec, never a model's position in a list: code that asks for
 /// "what this install needs" asks for [`ModelTier::Base`], and an optional download is offered
 /// separately.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 pub enum ModelTier {
     /// Every install needs it (the base set: [`base_catalog`], and [`catalog`]).
     Base,

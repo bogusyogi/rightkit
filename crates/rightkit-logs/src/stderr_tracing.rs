@@ -82,3 +82,19 @@ pub fn install_stderr_tracing(default_filter: &str) -> io::Result<()> {
         .try_init()
         .map_err(|error| io::Error::other(error.to_string()))
 }
+
+/// Warn-and-continue form of [`install_stderr_tracing`] (issue #750): when a global subscriber is
+/// already installed, one line goes to stderr and the call returns `false`; otherwise `true`.
+pub fn install_stderr_tracing_or_noop(default_filter: &str) -> bool {
+    match install_stderr_tracing(default_filter) {
+        Ok(()) => true,
+        Err(error) => {
+            let mut err = io::stderr();
+            let _ = writeln!(
+                err,
+                "[rightkit-logs] stderr tracing not installed ({error})"
+            );
+            false
+        }
+    }
+}

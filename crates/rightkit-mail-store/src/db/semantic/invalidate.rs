@@ -17,6 +17,7 @@
 use rightkit_db::rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 
+use super::index::hash_text;
 use super::storage;
 
 fn vec_table_exists(conn: &Connection) -> Result<bool, String> {

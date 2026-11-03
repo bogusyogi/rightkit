@@ -3,8 +3,7 @@
 //! A model that is already present is a presence check that no-ops. When it is
 //! ABSENT and a `<subdir>.manifest.json` is shipped beside the models, this
 //! downloads each required file to the models dir and sha256-verifies it
-//! (atomic temp → rename). `RIGHTKIT_MODEL_BASE_URL` can repoint the manifest's base
-//! URL in test-mode builds only; release builds ignore it.
+//! (atomic temp → rename). The manifest's `base_url` is used as shipped.
 //!
 //! No manifest ships today, so the download branch stays dormant and an absent
 //! model is an error.
@@ -22,8 +21,7 @@ use std::time::Duration;
 pub const REQUIRED_FILES: &[&str] = &["config.json", "vocab.txt"];
 
 /// Resolve the models base dir — app-data ONLY, the single model location on
-/// every machine. `RIGHTKIT_APP_DATA_DIR` (via `app_paths`) moves the app-data root for
-/// QA isolation; there is deliberately no dev/staged-model or `RIGHTKIT_MODELS_DIR`
+/// every machine. There is deliberately no dev/staged-model or `RIGHTKIT_MODELS_DIR`
 /// escape hatch here (that env is only the shell→sidecar channel, see
 /// `model_paths::resolve_models_base`).
 pub fn models_base() -> PathBuf {
@@ -91,18 +89,14 @@ pub struct ManifestFile {
     pub sha256: String,
 }
 
-/// Load `<base>/<subdir>.manifest.json` if present. `RIGHTKIT_MODEL_BASE_URL`
-/// overrides the manifest's `base_url` (lets a build/CI point at a mirror).
+/// Load `<base>/<subdir>.manifest.json` if present.
 pub fn load_manifest(base: &Path, subdir: &str) -> Result<Option<ModelManifest>, String> {
     let p = base.join(format!("{subdir}.manifest.json"));
     if !p.is_file() {
         return Ok(None);
     }
-    let mut m: ModelManifest = serde_json::from_slice(&fs::read(&p).map_err(|e| e.to_string())?)
+    let m: ModelManifest = serde_json::from_slice(&fs::read(&p).map_err(|e| e.to_string())?)
         .map_err(|e| format!("parse {}: {e}", p.display()))?;
-    if let Some(env) = rightkit_dictation_core::dev_var_os!("RIGHTKIT_MODEL_BASE_URL") {
-        m.base_url = env.to_string_lossy().to_string();
-    }
     Ok(Some(m))
 }
 

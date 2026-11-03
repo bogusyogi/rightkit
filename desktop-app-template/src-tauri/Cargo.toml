@@ -59,8 +59,8 @@ rightkit-qa = { version = "=0.9.1", default-features = false, optional = true }
 [features]
 default = []
 # QA and dev only, never in `default`: registers rightkit-qa's control server (launched hidden by `rightkit-qa journeys run`)
-# and compiles the data-root test capability. `right-release` fails any release or update build whose graph or binary carries it.
+# `right-release` fails any release or update build whose graph or binary carries it.
 # rightkit-qa/wv2-0_39 selects the WebView2 generation of Tauri 2.12 (Windows); macOS ignores it.
-qa-native = ["dep:rightkit-qa", "rightkit-qa/control", "rightkit-qa/wv2-0_39", "rightapp-protocol/test-mode"]
+qa-native = ["dep:rightkit-qa", "rightkit-qa/control", "rightkit-qa/wv2-0_39"]
 # Tauri's embedded-frontend mode (`tauri build` selects it). A QA UI build names it too: a hidden run has no dev server.
 custom-protocol = ["tauri/custom-protocol"]

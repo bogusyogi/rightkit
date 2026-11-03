@@ -177,11 +177,8 @@ impl Tool for CloudflareTool {
             _ => return ToolResult::error(format!("Unsupported Cloudflare action: {action}")),
         };
 
-        let mut url = crate::coding_tools::context::local_provider_mock_base("cloudflare")
-            .unwrap_or_else(|| {
-                url::Url::parse("https://api.cloudflare.com/client/v4/")
-                    .expect("Cloudflare API base URL is valid")
-            });
+        let mut url = url::Url::parse("https://api.cloudflare.com/client/v4/")
+            .expect("Cloudflare API base URL is valid");
         {
             let mut segments = url
                 .path_segments_mut()

@@ -146,8 +146,13 @@ fn is_same(job: &PublishJob, wanted: &Wanted) -> bool {
     stored.decision == decision
         && stored.resolved_by == wanted.resolved_by
         && stored.note == wanted.note
-        && job.remote.post_id == wanted.remote_id
-        && job.remote.permalink == wanted.permalink
+        && ((job.remote.post_id == wanted.remote_id
+            && job.remote.permalink == wanted.permalink)
+            // A resolution of a lost follow-up comment (#1497): the post id is the post's, the comment id (or
+            // its absence, for `not_posted`) is what the person recorded.
+            || (job.remote.post_id.is_some()
+                && job.remote.comment_id == wanted.remote_id
+                && wanted.permalink.is_none()))
 }
 
 /// `publish.resolve_unknown`. Order: input shape, author, note, scope, job, an already stored resolution
@@ -225,6 +230,51 @@ pub fn resolve_unknown(store: &dyn PublishJobStore, input: Value) -> Result<Valu
                 job.updated_at
             ),
         ));
+    }
+
+    // A job unsure at its follow-up `comment` phase has a live post: the person's answer is about the COMMENT.
+    // `posted` records the comment's id; `not_posted` closes the follow-up with no comment. The post stays
+    // `published` either way, and the job is finished (`done`).
+    if job.phase == "comment" {
+        if req.permalink.is_some() {
+            return Err(bad(
+                "permalink belongs to a post: a comment resolution takes only the comment's remote_id",
+            ));
+        }
+        let comment_id = wanted.remote_id.as_deref().unwrap_or_default();
+        if posted
+            && (comment_id.len() > MAX_TEXT || !comment_id.bytes().all(|b| b.is_ascii_graphic()))
+        {
+            return Err(bad(
+                "remote_id must be the comment's id: printable characters, at most 512",
+            ));
+        }
+        job.inflight = None;
+        job.next_attempt_at = None;
+        job.state = "published".to_string();
+        job.phase = "done".to_string();
+        job.attempts = 0;
+        if posted {
+            job.remote.comment_id = wanted.remote_id.clone();
+            job.last_error_code = None;
+            job.last_error_message = None;
+        } else {
+            job.last_error_code = Some("comment_not_posted".to_string());
+            job.last_error_message = Some(format!(
+                "{} checked the post and recorded that the first comment was not posted; the follow-up is closed and the post stays published",
+                wanted.resolved_by
+            ));
+        }
+        job.resolution = Some(PublishResolution {
+            decision: req.decision.clone(),
+            resolved_by: wanted.resolved_by.clone(),
+            resolved_at: stamp.clone(),
+            note: wanted.note.clone(),
+            remote_id_entered_by_hand: posted,
+        });
+        store.save_job(&mut job, &stamp)?;
+        output = Some(PublishResolveUnknownOutput { job, applied: true });
+        return Ok(());
     }
 
     if let Some(known) = job.remote.post_id.as_deref() {

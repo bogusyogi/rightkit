@@ -91,17 +91,13 @@ pub fn spawn_ffmpeg(
     policy: StdioPolicy,
 ) -> io::Result<OwnedChild> {
     rk::runner::spawn_streaming(
-        &rk::verify_ffmpeg_or_development(
+        &rk::verify_ffmpeg_handle(
             ffmpeg,
             rk::EXPORT_ASS_ZIMG_VARIANT,
             crate::tools::VERIFY_TIMEOUT,
         )
         .or_else(|_| {
-            rk::verify_ffmpeg_or_development(
-                ffmpeg,
-                rk::EXPORT_ASS_VARIANT,
-                crate::tools::VERIFY_TIMEOUT,
-            )
+            rk::verify_ffmpeg_handle(ffmpeg, rk::EXPORT_ASS_VARIANT, crate::tools::VERIFY_TIMEOUT)
         })
         .map_err(std::io::Error::other)?,
         cmd,
@@ -170,17 +166,13 @@ pub fn run_ffmpeg(
         .with_kill_grace(KILL_GRACE);
     options.on_progress = Some(&mut forward);
     let run = rk::run_with_progress(
-        &rk::verify_ffmpeg_or_development(
+        &rk::verify_ffmpeg_handle(
             ffmpeg,
             rk::EXPORT_ASS_ZIMG_VARIANT,
             crate::tools::VERIFY_TIMEOUT,
         )
         .or_else(|_| {
-            rk::verify_ffmpeg_or_development(
-                ffmpeg,
-                rk::EXPORT_ASS_VARIANT,
-                crate::tools::VERIFY_TIMEOUT,
-            )
+            rk::verify_ffmpeg_handle(ffmpeg, rk::EXPORT_ASS_VARIANT, crate::tools::VERIFY_TIMEOUT)
         })
         .map_err(|e| ProjectError::MediaToolMissing(e.to_string()))?,
         cmd,

@@ -1,9 +1,12 @@
 //! The per-OS backend contract. The engine (ids, freshness guard, tier ladder,
-//! safety, evidence, delivery) is generic over this trait and tested against
-//! `mock::MockPlatform` on every host; `macos` and `windows` implement it with
+//! safety, evidence, delivery) is generic over this trait; `macos` and `windows` implement it with
 //! the real accessibility, event, capture, and clipboard APIs.
 
+use crate::keys::Chord;
 use crate::model::*;
+use crate::proof::FieldText;
+use crate::secret::{FieldOrigin, Secret};
+use std::path::Path;
 
 /// A low-level input event for tiers 3 and 4.
 #[derive(Debug, Clone, PartialEq)]
@@ -22,6 +25,13 @@ pub enum InputEvent {
         y: f64,
         dx: f64,
         dy: f64,
+    },
+    /// Left button down at `from`, `steps` evenly spaced moves with it held (the last lands on
+    /// `to`), button up at `to`. `steps` is already within `1..=MAX_DRAG_STEPS`.
+    Drag {
+        from: (f64, f64),
+        to: (f64, f64),
+        steps: u32,
     },
 }
 
@@ -75,6 +85,18 @@ pub trait Platform: Send + Sync + 'static {
     /// native text control, not web/rich-editor content, value readable.
     fn native_write_capable(&self, el: &Self::El) -> bool;
     fn native_write(&self, el: &Self::El, text: &str) -> Result<()>;
+
+    // ---- secret fill (`Action::FillSecret`)
+    /// Where the field lives: the web origin of its document, a native control, or unknown.
+    /// Read-only. The default is `Unknown`, which the engine refuses.
+    fn field_origin(&self, _el: &Self::El) -> FieldOrigin {
+        FieldOrigin::Unknown
+    }
+    /// Write `secret` into the field's value through the accessibility API, replacing the whole
+    /// value. Never keystrokes or the clipboard. Does not read the value back.
+    fn secret_write(&self, _el: &Self::El, _secret: &Secret) -> Result<()> {
+        Err(Error::Unsupported("no secret write on this platform"))
+    }
 
     // ---- tier 3: targeted events (never the global queue)
     fn post(&self, pid: i32, window: Option<u64>, ev: &InputEvent) -> Result<()>;

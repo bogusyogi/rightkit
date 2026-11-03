@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.5 (unpublished)
+
+- Removed (Adrian, 2026-11-03: end-to-end tests only; a built harness page on a dev server is not end to end): the real-browser tests against a harness page, their harness, `test/` (harness, fixture media), the `test:browser` script and the devDependencies `@rightkit/qa-chrome` and `esbuild`. Nothing shipped changes.
+
+- Issue #714: `MediaThumbnail` (`MediaThumbnailProps`, `DEFAULT_MEDIA_THUMBNAIL_LABELS`): a non-interactive tile preview. A video shows its own frame (muted, metadata only, seeked to `frameAt`), or its `poster`; an audio item shows its `poster` or a glyph; an optional `durationLabel` sits on the tile. It has no controls and takes no focus, and it resolves paths through `adapters.resolveSrc`. Additive.
+- Issue #716: `MaskPainter` (forwardRef; `exportPng(options?)`, `hasMask()`, `clear()`) paints a brush or erase mask over an image on a canvas at the image's natural size, with a size slider and a clear action. `exportMaskPng(canvas, { transparentEdit? })`, `maskPixels` and `maskHasPaint` are the pure helpers: the default export is opaque white on painted pixels and opaque black elsewhere; `transparentEdit: true` makes painted pixels transparent. No dependency added. Additive.
+- Issue #1242: `useVoiceCall({ events, commands })` is the headless state hook (phases idle, connecting, listening, user-speaking, agent-thinking, agent-speaking, muted, error, ended; partial and final transcript lines; `MAX_VOICE_CALL_LINES` kept), with `reduceVoiceCall`, `initialVoiceCallState` and `voiceCallPhase`. `VoiceCallBar` is the themed view: mute, hang up, an optional input device select, a `settings` slot in a disclosure, and a transcript that folds out and is an aria-live region. The host feeds events from rightkit-speech-client through `events` and performs capture through `commands`; the package adds no capture path. Owner: media-ui, as the issue proposes. Additive.
+- Stylesheet: `.rk-media-thumb*`, `.rk-mask*` and `.rk-vc*` rules, all in `:where()`, with a reduced-motion rule. Not compiled.
+
 ## 0.3.4
 
 - Fix (regression in 0.3.3): with the image stage focused (any click on the image focuses it), Left/Right no longer paged through the folder, because the stage consumed every arrow key. The stage now handles arrow keys only while the image can pan (zoomed past fit); at fit they are left unhandled, so folder paging receives them as in 0.3.2.

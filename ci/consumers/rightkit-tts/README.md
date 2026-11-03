@@ -50,8 +50,8 @@ What it proves, in plain sentences, through the public API only:
   `worker_pid`.
 
 What it deliberately does not prove: speech rendered by `say` or SAPI (the recipe never asks for a
-non-blank utterance on Windows or macOS), the Qwen3-TTS worker and the `engine`, `metal`, `vulkan`
-and `dev-overrides` features, real model files (the 1.3 GB checkpoint size is never faked, so the
+non-blank utterance on Windows or macOS), the Qwen3-TTS worker and the `engine`, `metal` and `vulkan`
+features, real model files (the 1.3 GB checkpoint size is never faked, so the
 positive size check is not exercised), ONNX Runtime, and any audio output. No worker or runtime file
 is ever executed or loaded: the worker and runtime placeholders are empty or tiny files that only
 have to exist.

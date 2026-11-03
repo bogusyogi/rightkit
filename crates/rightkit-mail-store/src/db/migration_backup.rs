@@ -5,7 +5,9 @@
 //! through `MigrateOptions`, see `migrations::migrate_with`). This file keeps
 //! the free-space probe and the check that reopens the copy with the key
 //! (same schema version, same message count).
+use super::free_space;
 use rightkit_db::rusqlite::Connection;
+use rightkit_db::DbOptions;
 use std::path::{Path, PathBuf};
 
 /// Backups kept per database file, newest first (the one just made counts).

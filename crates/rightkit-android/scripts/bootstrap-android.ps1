@@ -89,6 +89,7 @@ $wanted = @(
     @{ Id = "platforms;android-$($pins['PLATFORM_API'])"; Dir = "platforms\android-$($pins['PLATFORM_API'])" },
     @{ Id = "build-tools;$($pins['BUILD_TOOLS_VERSION'])"; Dir = "build-tools\$($pins['BUILD_TOOLS_VERSION'])" },
     @{ Id = 'platform-tools'; Dir = 'platform-tools' },
+    @{ Id = 'emulator'; Dir = 'emulator' },
     @{ Id = "ndk;$ndk"; Dir = "ndk\$ndk" }
 )
 $toInstall = @()
@@ -114,6 +115,46 @@ if ($Install -and $toInstall.Count -gt 0) {
         Write-Host 'SKIPPED  SDK package install: needs sdkmanager and accepted licences (see above)'
     }
 }
+
+# ---- emulator system image and AVD (rightkit#347) --------------------------------------------
+# One AVD per host: x86_64 on this Windows machine. Image and AVD live under the SDK root, which must be on
+# D: (internal drives are out of bounds). Licences stay with the person: install runs only when accepted.
+$abi = 'x86_64'
+$image = "system-images;android-$($pins['PLATFORM_API']);google_apis;$abi"
+$avdName = "rightkit-api$($pins['PLATFORM_API'])-$abi"
+$avdHome = Join-Path $SdkRoot 'avd'
+if ($SdkRoot -match '^[Dd]:') { Report-Ok "SDK root on D: ($SdkRoot)" }
+else { Report-Missing "SDK root is not on D: ($SdkRoot); pass -SdkRoot D:\... (internal drives are out of bounds)" }
+$emulatorBin = Join-Path $SdkRoot 'emulator\emulator.exe'
+if (Test-Path -LiteralPath $emulatorBin) {
+    $env:ANDROID_AVD_HOME = $avdHome
+    $avds = @(& $emulatorBin -list-avds 2>$null)
+    if ($avds -contains $avdName) { Report-Ok "AVD $avdName (image $image)" }
+    else {
+        Report-Missing "AVD $avdName: create it after the image installs"
+        $licOk = Test-Path -LiteralPath (Join-Path $SdkRoot 'licenses\android-sdk-license')
+        if ($Install -and $sdkmanager -and $licOk) {
+            if (-not (Test-Path -LiteralPath (Join-Path $SdkRoot "system-images\android-$($pins['PLATFORM_API'])\google_apis\$abi"))) {
+                & $sdkmanager "--sdk_root=$SdkRoot" $image
+                if ($LASTEXITCODE -ne 0) { throw "sdkmanager failed ($LASTEXITCODE) for $image" }
+                Report-Did $image
+            }
+            $avdmanager = $null
+            foreach ($d in @(Get-ChildItem -LiteralPath (Join-Path $SdkRoot 'cmdline-tools') -Directory -ErrorAction SilentlyContinue |
+                             Sort-Object Name -Descending)) {
+                $p = Join-Path $d.FullName 'bin\avdmanager.bat'
+                if (Test-Path -LiteralPath $p) { $avdmanager = $p; break }
+            }
+            if ($avdmanager) {
+                New-Item -ItemType Directory -Force -Path $avdHome | Out-Null
+                'no' | & $avdmanager create avd --force --name $avdName --package $image --device 'pixel_7'
+                if ($LASTEXITCODE -ne 0) { throw "avdmanager create avd failed ($LASTEXITCODE)" }
+                Report-Did "AVD $avdName"
+                [void]$script:missing.Remove("AVD $avdName: create it after the image installs")
+            } else { Write-Host 'SKIPPED  AVD create: avdmanager missing from cmdline-tools' }
+        }
+    }
+} else { Report-Missing 'emulator package (sdkmanager emulator)' }
 
 # ---- rustup targets ----------------------------------------------------------------------------
 if (Get-Command rustup -ErrorAction SilentlyContinue) {
@@ -151,6 +192,8 @@ Write-Host 'Set these in the shell that builds (this script does not change your
 Write-Host "  `$env:ANDROID_HOME     = '$SdkRoot'"
 Write-Host "  `$env:ANDROID_NDK_HOME = '$(Join-Path $SdkRoot "ndk\$ndk")'"
 Write-Host "  `$env:NDK_HOME         = `$env:ANDROID_NDK_HOME"
+Write-Host "  `$env:ANDROID_AVD_HOME = '$avdHome'"
+Write-Host "Start the emulator: & '$emulatorBin' -avd $avdName"
 if ($jdk) { Write-Host "  `$env:JAVA_HOME        = '$jdk'" }
 
 if ($script:missing.Count -gt 0) {

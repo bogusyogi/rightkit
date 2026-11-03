@@ -9,11 +9,11 @@ mod windows;
 // DO NOT pass in untrusted input
 #[cfg_attr(not(windows), allow(unused))]
 pub fn error(err: &'static str) {
-  #[cfg(windows)]
-  windows::error(err);
+    #[cfg(windows)]
+    windows::error(err);
 
-  #[cfg(not(windows))]
-  {
-    unimplemented!("Error dialog is not implemented for this platform");
-  }
+    #[cfg(not(windows))]
+    {
+        unimplemented!("Error dialog is not implemented for this platform");
+    }
 }

@@ -133,8 +133,10 @@ pub fn tool_render_class(name: &str) -> ToolRenderClass {
         "search" | "tool_search" => ToolRenderClass::Search,
         "web_search" | "browser_fetch" | "browser_open" | "browser_read" | "browser_act"
         | "browser_screenshot" | "browser_console" | "browser_close" | "recursive_fetch"
-        | "github" | "context7" | "mcp_call" | "list_mcp_tools" | "list_mcp_resources"
-        | "read_mcp_resource" | "mcp_auth" | "cloudflare" => ToolRenderClass::Network,
+        | "github" | "context7" | "mcp_call" | "list_mcp_tools" | "list_mcp_sources"
+        | "list_mcp_resources" | "read_mcp_resource" | "mcp_auth" | "cloudflare" => {
+            ToolRenderClass::Network
+        }
         _ => ToolRenderClass::Generic,
     }
 }

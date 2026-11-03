@@ -22,6 +22,7 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
+use std::collections::HashMap;
 
 /// Most clients held at once (a bound the CodeRight contract does not state).
 pub const MAX_CLIENTS: usize = 256;

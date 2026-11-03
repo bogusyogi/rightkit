@@ -12,7 +12,9 @@
 //                                     [--amendment v2.1] [--enforce] [--json]
 //
 // App-side declaration (optional): <app>/rightkit-mandatory.json
-//   { "profile": "desktop", "notApplicable": { "M16": "reason text" },
+//   { "app": "<name>", "profile": "desktop", "notApplicable": { "M16": "reason text" | { "reason": "...", "issue": "owner/rightkit#n", "expires": "YYYY-MM-DD" } },
+//     (a not-applicable row holds only when appAmendments.<app>.notApplicable.<row> in ownership-mandatory-set.json carries the same reason, the
+//      amendment is not status "proposed", and a declared `expires` has not passed; otherwise it is a problem and the row still applies)
 //     "M22": { "role": "client|host|both|absent", "entrypoints": ["src-tauri/src/agent.rs#register_tools"] } }
 //
 // PK17.scanner (report only, never enforcement): rows M21, M23, M24 and M25 stay `ownerPending` and never fail, but each lists its
@@ -280,20 +282,70 @@ export function validateApplicabilityRecord(id, raw, { spec, root }) {
   return result;
 }
 
+const REAL_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const isRealDate = (text) => typeof text === "string" && REAL_DATE.test(text) && new Date(`${text}T00:00:00Z`).toISOString().slice(0, 10) === text;
+const todayOf = (now) => (now instanceof Date ? now : new Date()).toISOString().slice(0, 10);
+
+/**
+ * One declared not-applicable value. The string form is the bare reason; the object form is `{ reason, issue, expires }`
+ * (the issue that tracks the declaration, and the last UTC day it holds, YYYY-MM-DD). Returns `{ reason, issue, expires }`
+ * with null for an absent issue or expiry, or `{ problem }` when the value cannot be read.
+ */
+export function notApplicableEntry(id, value) {
+  const reason = typeof value === "string" ? value : value && typeof value === "object" && !Array.isArray(value) ? value.reason : undefined;
+  if (typeof reason !== "string" || reason.trim().length < 10) return { problem: `${id}: N/A declaration needs a reason (>= 10 chars); ignored` };
+  if (typeof value === "string") return { reason: reason.trim(), issue: null, expires: null };
+  const extra = Object.keys(value).filter((key) => key !== "reason" && key !== "issue" && key !== "expires");
+  if (extra.length) return { problem: `${id}: N/A declaration has unknown key(s) ${extra.join(", ")}; ignored` };
+  if (value.issue !== undefined && (typeof value.issue !== "string" || !value.issue.trim())) return { problem: `${id}: N/A declaration issue must be a non-empty string; ignored` };
+  if (value.expires !== undefined && !isRealDate(value.expires)) return { problem: `${id}: N/A declaration expires must be a real YYYY-MM-DD date; ignored` };
+  return { reason: reason.trim(), issue: value.issue?.trim() ?? null, expires: value.expires ?? null };
+}
+
 export function loadAppDeclaration(root, data) {
   const file = path.join(root, data.appDeclarationFile);
-  if (!existsSync(file)) return { profile: data.defaultProfile, notApplicable: {}, records: {}, problems: [] };
+  if (!existsSync(file)) return { app: null, profile: data.defaultProfile, notApplicable: {}, notApplicableDetail: {}, records: {}, problems: [] };
   const problems = [];
   let doc = {};
   try { doc = JSON.parse(readFileSync(file, "utf8")); } catch (error) { problems.push(`${data.appDeclarationFile} unparseable: ${error.message}`); }
   const notApplicable = {};
-  for (const [id, reason] of Object.entries(doc.notApplicable ?? {})) {
-    if (typeof reason === "string" && reason.trim().length >= 10) notApplicable[id] = reason.trim();
-    else problems.push(`${id}: N/A declaration needs a reason (>= 10 chars); ignored`);
+  const notApplicableDetail = {};
+  for (const [id, value] of Object.entries(doc.notApplicable ?? {})) {
+    const entry = notApplicableEntry(id, value);
+    if (entry.problem) { problems.push(entry.problem); continue; }
+    notApplicable[id] = entry.reason;
+    notApplicableDetail[id] = { issue: entry.issue, expires: entry.expires };
   }
   const records = {};
   for (const id of Object.keys(data.applicabilityRecords ?? {})) if (doc && typeof doc === "object" && Object.hasOwn(doc, id)) records[id] = doc[id];
-  return { profile: doc.profile ?? data.defaultProfile, notApplicable, records, problems };
+  const app = typeof doc?.app === "string" && doc.app.trim() ? doc.app.trim() : null;
+  return { app, profile: doc.profile ?? data.defaultProfile, notApplicable, notApplicableDetail, records, problems };
+}
+
+/**
+ * Split a declaration's not-applicable rows into those a ratified ruling covers and those it does not. A ruling is
+ * `appAmendments.<app>.notApplicable.<row>` for the app the declaration names, in the declared profile, with the reason copied
+ * verbatim. An amendment marked `"status": "proposed"` is a draft and ratifies nothing. A declared `expires` that has passed
+ * un-ratifies the row. Each unratified row is returned with the reason it is not covered.
+ */
+export function ratifyNotApplicable(declaration, { data, now } = {}) {
+  const today = todayOf(now);
+  const amendment = declaration.app && data?.appAmendments ? data.appAmendments[declaration.app] : undefined;
+  const proposed = amendment?.status === "proposed";
+  const live = amendment && !proposed && amendment.profile === declaration.profile && amendment.notApplicable && typeof amendment.notApplicable === "object" ? amendment.notApplicable : {};
+  const ratified = {}, unratified = {};
+  for (const [id, reason] of Object.entries(declaration.notApplicable)) {
+    const expires = declaration.notApplicableDetail?.[id]?.expires ?? null;
+    const ruling = live[id];
+    const why = !declaration.app ? `${data.appDeclarationFile} names no "app"`
+      : !amendment ? `appAmendments has no entry for "${declaration.app}"`
+      : proposed ? `appAmendments.${declaration.app} is a proposal (status "proposed"), not a ratified ruling`
+      : typeof ruling !== "string" || ruling.trim() !== reason.trim() ? `appAmendments.${declaration.app} (profile ${amendment.profile}) has no ruling for ${id} with this reason verbatim for profile ${declaration.profile}`
+      : expires && expires < today ? `the declaration expired on ${expires} (today ${today}, UTC)`
+      : null;
+    if (why) unratified[id] = why; else ratified[id] = reason;
+  }
+  return { ratified, unratified };
 }
 
 // A pending row's `profile` is one profile name, a list of profile names, or "all" (repository-wide: every profile, including future ones).
@@ -302,12 +354,18 @@ export function pendingAppliesTo(row, active) {
 }
 
 // `declaration` replaces the one read from root (the app check passes the declaration with its unratified not-applicable rows removed).
-export function checkApp(root, { data = loadData(), profile, amendments = [], declaration: override = null } = {}) {
+export function checkApp(root, { data = loadData(), profile, amendments = [], declaration: override = null, now } = {}) {
   const name = path.basename(root);
   if (!existsSync(root) || !statSync(root).isDirectory()) return { app: name, root, scanned: false, profile: profile ?? data.defaultProfile, owners: [], pending: [], notApplicable: [], problems: ["app root missing"], violations: 0 };
-  const declaration = override ?? loadAppDeclaration(root, data);
+  let declaration = override ?? loadAppDeclaration(root, data);
   const active = profile ?? declaration.profile;
   const problems = [...declaration.problems];
+  // A caller that passes its own declaration has already ratified it; otherwise a not-applicable row holds only with a ratified ruling.
+  if (!override) {
+    const { ratified, unratified } = ratifyNotApplicable(declaration, { data, now });
+    for (const [id, why] of Object.entries(unratified)) problems.push(`${id}: notApplicable.${id} is not a ratified ruling (${why}); the row still applies`);
+    declaration = { ...declaration, notApplicable: ratified };
+  }
   if (!data.profiles[active]) problems.push(`unknown profile "${active}"`);
   const rows = data.rows.filter((r) => r.profile === active).map((r) => ({ ...r, owners: [...r.owners] }));
   for (const key of amendments) {

@@ -78,6 +78,11 @@
 //! a row read back with [`Ledger::cap_audit`]. A stored limit that is not a finite non-negative
 //! number reads as 0, so the allowance refuses every non-zero reservation (fail closed).
 //!
+//! Approved budgets: [`Ledger::create_approved_budget`], [`Ledger::approve_budget`] (owner
+//! approval bound to [`approval_bind`], sealed with a [`SealKey`] kept in the OS credential
+//! store), [`Ledger::reserve_approved`], idempotent [`Ledger::report_approved_spend`] and an
+//! append-only [`Ledger::approved_audit`]; see the `approved` module docs.
+//!
 //! The ledger lives in the app's SQLite file under `spend_*` tables; its schema version is kept
 //! in the table `rightkit_spend_meta`, so the app's own `user_version` is untouched. The daemon
 //! single-writer policy is the app's: this crate serialises writers only through SQLite.
@@ -93,11 +98,13 @@ use rightkit_db::{migrate, MigrateOptions, Migration, VersionStorage};
 
 pub use rightkit_db::rusqlite;
 
+mod approved;
 mod audit;
 mod budget;
 mod group;
 mod reconcile;
 mod scope;
+pub use approved::{approval_bind, ApprovedAudit, ApprovedBudget, ReportOutcome, SealKey};
 pub use audit::CapAudit;
 pub use budget::{Budget, BudgetKind, BudgetSpend};
 pub use group::{Cap, DeviceAllowance, GroupOutcome};
@@ -127,8 +134,9 @@ pub enum SpendError {
     },
     #[error("limit {limit_micro} is below the spend already held or committed ({spent_micro})")]
     AllowanceBelowSpend { limit_micro: i64, spent_micro: i64 },
-    #[error("{count} overrun(s) await acknowledgement before this allowance reserves again")]
-    OverrunUnacknowledged { count: i64 },
+    /// `reservation_id` is the oldest overrun still unacknowledged on the allowance.
+    #[error("{count} overrun(s) await acknowledgement before this allowance reserves again (oldest: {reservation_id})")]
+    OverrunUnacknowledged { count: i64, reservation_id: String },
     #[error("allowance revision is {actual}, expected {expected}")]
     RevisionConflict { expected: i64, actual: i64 },
     #[error("allowance exists: an expected revision is required to change it")]
@@ -165,6 +173,32 @@ pub enum SpendError {
         #[source]
         cause: Box<SpendError>,
     },
+    /// No approved budget with this id.
+    #[error("no approved budget {budget_id:?}")]
+    BudgetNotFound { budget_id: String },
+    /// The approved budget exists with other facts than the call named.
+    #[error("approved budget {budget_id:?} already exists with different facts")]
+    ApprovedBudgetConflict { budget_id: String },
+    /// The budget was not approved yet, so nothing may be reserved against it.
+    #[error("approved budget {budget_id:?} is not approved")]
+    NotApproved { budget_id: String },
+    /// The budget changed since the owner approved it; nothing was approved.
+    #[error(
+        "approved budget {budget_id:?} is not the one the owner approved; nothing was approved"
+    )]
+    ApprovalChanged { budget_id: String },
+    /// The stored seal does not verify under this key, or the allowance limit was raised above
+    /// the approved limit. Nothing was reserved.
+    #[error("the seal of approved budget {budget_id:?} does not verify; nothing was done")]
+    SealInvalid { budget_id: String },
+    /// The seal key could not be obtained. The text never holds key material.
+    #[error("seal key unavailable: {0}")]
+    SealKeyUnavailable(String),
+    /// The report id was already recorded with another budget, reservation or actual.
+    #[error(
+        "report {report_id:?} was already recorded with a different budget, reservation or actual"
+    )]
+    ReportConflict { report_id: String },
     /// The invoice reference is already recorded with another provider, period or total.
     #[error("invoice reference {invoice_ref:?} is already recorded with a different provider, period or total")]
     InvoiceConflict { invoice_ref: String },
@@ -385,6 +419,25 @@ pub struct RouteTotal {
     pub committed_micro: i64,
 }
 
+/// Per-route totals for one state, from [`Ledger::route_totals_by_state`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RouteStateTotal {
+    pub route_id: String,
+    pub state: ReservationState,
+    pub count: i64,
+    pub estimated_micro: i64,
+    /// Actuals of committed reservations; zero in every other state.
+    pub committed_micro: i64,
+}
+
+/// One page of reservations, oldest first, from [`Ledger::reservations`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReservationPage {
+    pub reservations: Vec<Reservation>,
+    /// Pass as `after` to read the next page; `None` on the last page.
+    pub next: Option<String>,
+}
+
 /// An allowance's accounting, derived from its reservations.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Report {
@@ -559,7 +612,69 @@ const MIGRATIONS: &[Migration] = &[
     Migration::sql(1, "spend-ledger", SCHEMA_V1),
     Migration::sql(2, "spend-account-currency-unknown", SCHEMA_V2),
     Migration::sql(3, "spend-caps-groups-budgets-reconcile", SCHEMA_V3),
+    Migration::sql(4, "spend-commit-external-id", SCHEMA_V4),
+    Migration::sql(5, "spend-approved-budgets", SCHEMA_V5),
 ];
+
+/// Approved budgets, their append-only audit and the idempotent spend-report log. An approved
+/// budget row never changes again; the audit and the report log refuse update and delete.
+const SCHEMA_V5: &str = "
+CREATE TABLE spend_approved_budgets (
+    id TEXT PRIMARY KEY,
+    scope TEXT NOT NULL,
+    period TEXT NOT NULL,
+    currency TEXT NOT NULL,
+    limit_micro INTEGER NOT NULL CHECK (limit_micro > 0),
+    created_at INTEGER NOT NULL,
+    approved_at INTEGER,
+    approved_by TEXT,
+    seal TEXT,
+    UNIQUE (scope, period),
+    FOREIGN KEY (scope, period) REFERENCES spend_allowances (scope, period),
+    CHECK ((approved_at IS NULL) = (approved_by IS NULL) AND (approved_at IS NULL) = (seal IS NULL))
+);
+CREATE TRIGGER spend_approved_budgets_frozen BEFORE UPDATE ON spend_approved_budgets
+    WHEN OLD.approved_at IS NOT NULL OR NEW.id IS NOT OLD.id OR NEW.scope IS NOT OLD.scope
+        OR NEW.period IS NOT OLD.period OR NEW.currency IS NOT OLD.currency
+        OR NEW.limit_micro IS NOT OLD.limit_micro OR NEW.created_at IS NOT OLD.created_at
+    BEGIN SELECT RAISE(ABORT, 'an approved budget never changes'); END;
+CREATE TRIGGER spend_approved_budgets_no_delete BEFORE DELETE ON spend_approved_budgets
+    BEGIN SELECT RAISE(ABORT, 'approved budgets are never deleted'); END;
+CREATE TABLE spend_approved_reports (
+    report_id TEXT PRIMARY KEY,
+    budget_id TEXT NOT NULL REFERENCES spend_approved_budgets (id),
+    reservation_id TEXT NOT NULL,
+    actual_micro INTEGER NOT NULL CHECK (actual_micro >= 0),
+    reported_at INTEGER NOT NULL
+);
+CREATE TRIGGER spend_approved_reports_no_update BEFORE UPDATE ON spend_approved_reports
+    BEGIN SELECT RAISE(ABORT, 'spend reports are append-only'); END;
+CREATE TRIGGER spend_approved_reports_no_delete BEFORE DELETE ON spend_approved_reports
+    BEGIN SELECT RAISE(ABORT, 'spend reports are append-only'); END;
+CREATE TABLE spend_approved_audit (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    at INTEGER NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('create', 'approve', 'report')),
+    budget_id TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    detail TEXT NOT NULL
+);
+CREATE TRIGGER spend_approved_audit_no_update BEFORE UPDATE ON spend_approved_audit
+    BEGIN SELECT RAISE(ABORT, 'the approved-budget audit is append-only'); END;
+CREATE TRIGGER spend_approved_audit_no_delete BEFORE DELETE ON spend_approved_audit
+    BEGIN SELECT RAISE(ABORT, 'the approved-budget audit is append-only'); END;
+";
+
+/// The external request id a commit was keyed by ([`Ledger::commit_idempotent`]). Unique per
+/// scope among committed rows, so a repeated dispatch actual replays instead of re-settling.
+const SCHEMA_V4: &str = "
+ALTER TABLE spend_reservations ADD COLUMN commit_external_id TEXT;
+CREATE UNIQUE INDEX spend_reservations_commit_external ON spend_reservations (scope, commit_external_id)
+    WHERE commit_external_id IS NOT NULL;
+";
+
+/// Largest page [`Ledger::reservations`] returns.
+const MAX_PAGE: usize = 1000;
 
 const ALLOWANCE_COLUMNS: &str =
     "scope, period, limit_micro, reserved_micro, committed_micro, revision, updated_at";
@@ -787,6 +902,83 @@ impl Ledger {
         find_reservation(&self.conn, reservation_id)
     }
 
+    /// One reservation by its request id, if any.
+    pub fn reservation_by_request(&self, request_id: &str) -> Result<Option<Reservation>> {
+        find_by_request(&self.conn, request_id)
+    }
+
+    /// [`Ledger::allowance`] on the caller's connection. Reads need no open transaction; on a
+    /// connection inside the caller's transaction they see its uncommitted rows.
+    pub fn allowance_on(
+        &self,
+        conn: &Connection,
+        scope: &str,
+        period: &str,
+    ) -> Result<Option<Allowance>> {
+        get_allowance(conn, scope, period)
+    }
+
+    /// [`Ledger::reservation`] on the caller's connection (see [`Ledger::allowance_on`]).
+    pub fn reservation_on(
+        &self,
+        conn: &Connection,
+        reservation_id: &str,
+    ) -> Result<Option<Reservation>> {
+        find_reservation(conn, reservation_id)
+    }
+
+    /// [`Ledger::reservation_by_request`] on the caller's connection (see [`Ledger::allowance_on`]).
+    pub fn reservation_by_request_on(
+        &self,
+        conn: &Connection,
+        request_id: &str,
+    ) -> Result<Option<Reservation>> {
+        find_by_request(conn, request_id)
+    }
+
+    /// One page of an allowance's reservations, oldest first: every state, or only the open
+    /// ones (`reserved`, `in_flight`) when `open_only`. Pass the previous page's `next` as
+    /// `after`; `limit` is clamped to 1..=1000. Reads on this ledger's connection.
+    pub fn reservations(
+        &self,
+        scope: &str,
+        period: &str,
+        open_only: bool,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<ReservationPage> {
+        self.reservations_on(&self.conn, scope, period, open_only, after, limit)
+    }
+
+    /// [`Ledger::reservations`] on the caller's connection (see [`Ledger::allowance_on`]).
+    pub fn reservations_on(
+        &self,
+        conn: &Connection,
+        scope: &str,
+        period: &str,
+        open_only: bool,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<ReservationPage> {
+        reservations_page(conn, scope, period, open_only, after, limit)
+    }
+
+    /// Totals per route and state for one allowance: the count, estimates and committed
+    /// actuals of each (route, state) pair, ordered by route then state.
+    pub fn route_totals_by_state(&self, scope: &str, period: &str) -> Result<Vec<RouteStateTotal>> {
+        self.route_totals_by_state_on(&self.conn, scope, period)
+    }
+
+    /// [`Ledger::route_totals_by_state`] on the caller's connection (see [`Ledger::allowance_on`]).
+    pub fn route_totals_by_state_on(
+        &self,
+        conn: &Connection,
+        scope: &str,
+        period: &str,
+    ) -> Result<Vec<RouteStateTotal>> {
+        route_totals_by_state_rows(conn, scope, period)
+    }
+
     /// Hold `estimate_micro` against the allowance before a paid call, with no account and no
     /// currency. Idempotent on `request_id`: the same request id with the same scope, period,
     /// route, price version and estimate returns the stored reservation (`replayed`) and
@@ -895,7 +1087,43 @@ impl Ledger {
     /// Committing a committed reservation with the same actual returns it unchanged, or is
     /// [`SpendError::InvalidTransition`] in strict mode.
     pub fn commit(&mut self, reservation_id: &str, actual_micro: i64) -> Result<Outcome> {
-        self.run(|conn, ctx| commit_impl(conn, ctx, reservation_id, actual_micro))
+        self.run(|conn, ctx| commit_impl(conn, ctx, reservation_id, actual_micro, None, None))
+    }
+
+    /// [`Ledger::commit`] recording a caller-chosen `reason` on the reservation. It replaces the
+    /// reason the ledger would otherwise derive for an overrun.
+    pub fn commit_with_reason(
+        &mut self,
+        reservation_id: &str,
+        actual_micro: i64,
+        reason: &str,
+    ) -> Result<Outcome> {
+        self.run(|conn, ctx| {
+            commit_impl(conn, ctx, reservation_id, actual_micro, Some(reason), None)
+        })
+    }
+
+    /// [`Ledger::commit`] keyed by an external request id (for example the provider's dispatch
+    /// id). The id is stored with the commit and is unique per scope: repeating the same call
+    /// returns the committed reservation with `replayed` and writes nothing. The same id on a
+    /// different reservation, or the same reservation with a different actual, is
+    /// [`SpendError::RequestMismatch`].
+    pub fn commit_idempotent(
+        &mut self,
+        reservation_id: &str,
+        actual_micro: i64,
+        external_id: &str,
+    ) -> Result<Outcome> {
+        self.run(|conn, ctx| {
+            commit_impl(
+                conn,
+                ctx,
+                reservation_id,
+                actual_micro,
+                None,
+                Some(external_id),
+            )
+        })
     }
 
     /// [`Ledger::commit`] inside the caller's transaction ([`Ledger::begin`]).
@@ -906,7 +1134,7 @@ impl Ledger {
         actual_micro: i64,
     ) -> Result<Outcome> {
         self.run_in(tx, |conn, ctx| {
-            commit_impl(conn, ctx, reservation_id, actual_micro)
+            commit_impl(conn, ctx, reservation_id, actual_micro, None, None)
         })
     }
 
@@ -1088,7 +1316,7 @@ impl Ledger {
         actual_micro: i64,
     ) -> Result<Outcome> {
         self.run_on(conn, |conn, ctx| {
-            commit_impl(conn, ctx, reservation_id, actual_micro)
+            commit_impl(conn, ctx, reservation_id, actual_micro, None, None)
         })
     }
 
@@ -1156,12 +1384,18 @@ impl Ledger {
 
     /// Accounting for one allowance, derived from its reservations.
     pub fn report(&self, scope: &str, period: &str) -> Result<Report> {
-        let allowance = require_allowance(&self.conn, scope, period)?;
+        self.report_on(&self.conn, scope, period)
+    }
+
+    /// [`Ledger::report`] on the caller's connection (see [`Ledger::allowance_on`]), so the
+    /// figures include the caller's uncommitted rows.
+    pub fn report_on(&self, conn: &Connection, scope: &str, period: &str) -> Result<Report> {
+        let allowance = require_allowance(conn, scope, period)?;
         let sql = format!(
             "SELECT {RESERVATION_COLUMNS} FROM spend_reservations WHERE scope = ?1 AND period = ?2 \
              ORDER BY seq"
         );
-        let mut stmt = self.conn.prepare(&sql)?;
+        let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params![scope, period], reservation_from_row)?;
         let all = rows.collect::<std::result::Result<Vec<_>, _>>()?;
 
@@ -1175,7 +1409,7 @@ impl Ledger {
             count_expired: 0,
             over_reservations: 0,
             billed_unknown: 0,
-            unacknowledged_overruns: unacknowledged_overruns(&self.conn, scope, period)?,
+            unacknowledged_overruns: unacknowledged_overruns(conn, scope, period)?,
             open_micro: 0,
             forecast_micro: 0,
             measured_micro: 0,
@@ -1390,7 +1624,10 @@ fn reserve_core(
     if ctx.gate {
         let unacked = unacknowledged_overruns(conn, scope, period)?;
         if unacked > 0 {
-            return Err(SpendError::OverrunUnacknowledged { count: unacked });
+            return Err(SpendError::OverrunUnacknowledged {
+                count: unacked,
+                reservation_id: oldest_unacknowledged_overrun(conn, scope, period)?,
+            });
         }
     }
     let mut remaining = allowance.remaining_micro();
@@ -1464,13 +1701,43 @@ fn commit_impl(
     ctx: &Ctx,
     reservation_id: &str,
     actual_micro: i64,
+    caller_reason: Option<&str>,
+    external_id: Option<&str>,
 ) -> Result<Outcome> {
     if actual_micro < 0 {
         return Err(SpendError::BadInput("actual_micro is negative".into()));
     }
+    if let Some(reason) = caller_reason {
+        non_empty("reason", reason)?;
+    }
     let res = require_reservation(conn, reservation_id)?;
+    if let Some(ext) = external_id {
+        non_empty("external_id", ext)?;
+        let claimed: Option<i64> = conn
+            .query_row(
+                "SELECT seq FROM spend_reservations WHERE scope = ?1 AND commit_external_id = ?2",
+                params![res.scope, ext],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(claim) = claimed {
+            if claim == seq_of(reservation_id)?
+                && res.state == ReservationState::Committed
+                && res.committed_micro == Some(actual_micro)
+            {
+                return outcome(conn, res, true);
+            }
+            return Err(SpendError::RequestMismatch {
+                request_id: ext.to_owned(),
+            });
+        }
+    }
     match res.state {
-        ReservationState::Committed if !ctx.strict && res.committed_micro == Some(actual_micro) => {
+        ReservationState::Committed
+            if !ctx.strict
+                && external_id.is_none()
+                && res.committed_micro == Some(actual_micro) =>
+        {
             return outcome(conn, res, true)
         }
         ReservationState::Reserved | ReservationState::InFlight => {}
@@ -1493,7 +1760,7 @@ fn commit_impl(
         .ok_or(SpendError::Overflow)?;
     let after = cas_totals(conn, &allowance, reserved, committed, ctx.now)?;
     let over = actual_micro > res.estimate_micro;
-    let reason = if !over {
+    let derived = if !over {
         None
     } else if after.remaining_micro() >= 0 {
         Some("overrun taken from the allowance".to_owned())
@@ -1503,16 +1770,18 @@ fn commit_impl(
             after.remaining_micro()
         ))
     };
+    let reason = caller_reason.map(str::to_owned).or(derived);
     conn.execute(
         "UPDATE spend_reservations SET state = 'committed', committed_micro = ?2, \
-         over_reservation = ?3, settled_at = ?4, reason = ?5 \
+         over_reservation = ?3, settled_at = ?4, reason = ?5, commit_external_id = ?6 \
          WHERE seq = ?1 AND state IN ('reserved', 'in_flight')",
         params![
             seq_of(reservation_id)?,
             actual_micro,
             i64::from(over),
             ctx.now,
-            reason
+            reason,
+            external_id
         ],
     )?;
     let res = require_reservation(conn, reservation_id)?;
@@ -1886,6 +2155,90 @@ fn unacknowledged_overruns(conn: &Connection, scope: &str, period: &str) -> Resu
         params![scope, period],
         |row| row.get(0),
     )?)
+}
+
+/// The id of the oldest overrun on the allowance that no acknowledgement covers.
+fn oldest_unacknowledged_overrun(conn: &Connection, scope: &str, period: &str) -> Result<String> {
+    let seq: i64 = conn.query_row(
+        "SELECT r.seq FROM spend_reservations r WHERE r.scope = ?1 AND r.period = ?2 \
+         AND r.over_reservation = 1 AND NOT EXISTS (SELECT 1 FROM spend_overrun_acks a WHERE a.seq = r.seq) \
+         ORDER BY r.seq LIMIT 1",
+        params![scope, period],
+        |row| row.get(0),
+    )?;
+    Ok(format!("res-{seq:08}"))
+}
+
+fn reservations_page(
+    conn: &Connection,
+    scope: &str,
+    period: &str,
+    open_only: bool,
+    after: Option<&str>,
+    limit: usize,
+) -> Result<ReservationPage> {
+    non_empty("scope", scope)?;
+    non_empty("period", period)?;
+    let limit = limit.clamp(1, MAX_PAGE);
+    let after_seq = match after {
+        Some(cursor) => seq_of(cursor)
+            .map_err(|_| SpendError::BadInput(format!("invalid page cursor {cursor:?}")))?,
+        None => 0,
+    };
+    let state_filter = if open_only {
+        "AND state IN ('reserved', 'in_flight')"
+    } else {
+        ""
+    };
+    let sql = format!(
+        "SELECT {RESERVATION_COLUMNS} FROM spend_reservations \
+         WHERE scope = ?1 AND period = ?2 AND seq > ?3 {state_filter} ORDER BY seq LIMIT ?4"
+    );
+    let fetch = i64::try_from(limit + 1).map_err(|_| SpendError::Overflow)?;
+    let mut stmt = conn.prepare(&sql)?;
+    let mut reservations = stmt
+        .query_map(
+            params![scope, period, after_seq, fetch],
+            reservation_from_row,
+        )?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let next = if reservations.len() > limit {
+        reservations.truncate(limit);
+        reservations.last().map(|r| r.reservation_id.clone())
+    } else {
+        None
+    };
+    Ok(ReservationPage { reservations, next })
+}
+
+fn route_totals_by_state_rows(
+    conn: &Connection,
+    scope: &str,
+    period: &str,
+) -> Result<Vec<RouteStateTotal>> {
+    let mut stmt = conn.prepare(
+        "SELECT route_id, state, COUNT(*), COALESCE(SUM(estimated_micro), 0), \
+         COALESCE(SUM(committed_micro), 0) FROM spend_reservations \
+         WHERE scope = ?1 AND period = ?2 GROUP BY route_id, state ORDER BY route_id, state",
+    )?;
+    let rows = stmt.query_map(params![scope, period], |row| {
+        let state_text: String = row.get(1)?;
+        let state = ReservationState::parse(&state_text).ok_or_else(|| {
+            rusqlite::Error::FromSqlConversionFailure(
+                1,
+                rusqlite::types::Type::Text,
+                format!("unknown reservation state {state_text:?}").into(),
+            )
+        })?;
+        Ok(RouteStateTotal {
+            route_id: row.get(0)?,
+            state,
+            count: row.get(2)?,
+            estimated_micro: row.get(3)?,
+            committed_micro: row.get(4)?,
+        })
+    })?;
+    Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
 }
 
 fn outcome(conn: &Connection, reservation: Reservation, replayed: bool) -> Result<Outcome> {

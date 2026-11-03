@@ -14,7 +14,6 @@ pub mod entry;
 pub mod ipc;
 pub mod owner_diagnostics;
 /// Test-mode perf levers (2026-10-29 audit); release builds compile them to their defaults.
-pub(crate) mod perf_levers;
 pub mod runtime;
 pub mod speech_service;
 pub mod windows_audio_lifecycle;

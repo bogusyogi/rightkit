@@ -40,3 +40,23 @@
 .rk-onboarding__titlebar { position: absolute; inset: 0 0 auto 0; z-index: 2; display: flex; align-items: center; height: var(--rk-onboarding-titlebar-h, 32px); padding: 0 12px; }
 .rk-onboarding__hint { color: var(--rk-ink-2, #6b655c); font-size: 12px; text-align: right; }
 .rk-onboarding__intro { margin-bottom: 12px; color: var(--rk-ink-2, #6b655c); }
+/* Density (HeardRight: onboarding too tall). compact: rail 188px, main 18px top, content 8px. */
+.rk-onboarding--compact { grid-template-columns: 188px minmax(0, 1fr); }
+.rk-onboarding--compact .rk-onboarding__main { padding-top: 18px; }
+.rk-onboarding--compact .rk-onboarding__content { padding: 8px 0; }
+/* macOS traffic lights: the rail and the titlebar strip start past them (lights-top: rail top; lights width from shell.css). */
+.rk-onboarding--lights .rk-onboarding__rail { padding-top: var(--rk-onboarding-lights-top, 40px); }
+.rk-onboarding--lights .rk-onboarding__titlebar { padding-left: calc(var(--rk-lights-width, 72px) + 6px); }
+.rk-onboarding--lights .rk-onboarding__brand--card { padding-left: calc(var(--rk-lights-width, 72px) + 6px); }
+/* card frame (HeardRight v5 mock): one centred card, the app name on top, a dot pager and no rail. */
+.rk-onboarding--card { display: flex; flex-direction: column; align-items: stretch; }
+.rk-onboarding--card .rk-onboarding__main--card { flex: 1; display: flex; flex-direction: column; align-items: center; max-width: none; width: 100%; padding: 0 clamp(24px, 5vw, 56px) 24px; }
+.rk-onboarding__brand--card { align-self: stretch; padding: 18px 20px; font-size: 18px; font-weight: 900; letter-spacing: -.03em; }
+.rk-onboarding__frame { display: flex; flex-direction: column; flex: 1; width: min(860px, 100%); min-height: 0; padding-top: 24px; }
+.rk-onboarding--card .rk-onboarding__content { flex: 1; }
+.rk-onboarding--card footer .rk-onboarding__hint { flex: none; }
+.rk-onboarding__dots { display: flex; align-items: center; justify-content: center; gap: 10px; flex: 1; }
+.rk-onboarding__dot { width: 10px; height: 10px; padding: 0; border: 0; border-radius: 999px; background: var(--rk-line-strong, rgba(35,31,26,.18)); cursor: pointer; transition: width .2s ease, background .2s ease; }
+.rk-onboarding__dot.is-done { background: var(--rk-ok, #1e7f3c); }
+.rk-onboarding__dot.is-active { width: 42px; background: var(--rk-accent, #7040c4); }
+.rk-onboarding__dot:disabled { cursor: not-allowed; }

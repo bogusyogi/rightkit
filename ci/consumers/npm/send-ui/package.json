@@ -1,0 +1,13 @@
+{
+  "name": "rightkit-send-ui-wire-and-markup-consumer",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.16.1",
+  "scripts": {
+    "qualify": "node consumer.mjs"
+  },
+  "dependencies": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  }
+}

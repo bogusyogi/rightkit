@@ -68,21 +68,111 @@ export interface SettingRowProps {
    * one element. Default false.
    */
   bareControl?: boolean;
+  /**
+   * Pro-gated row: the control is disabled (its controls sit in a disabled `fieldset`) and the label carries `lockedLabel`.
+   * Default false.
+   */
+  locked?: boolean;
+  /** Badge text for a `locked` row. Default "Pro". */
+  lockedLabel?: ReactNode;
 }
 
-export function SettingRow({ id, label, description, children, stacked, keywords, searchText, className, lead, titleClassName, hintClassName, bareControl = false }: SettingRowProps) {
+export function SettingRow({ id, label, description, children, stacked, keywords, searchText, className, lead, titleClassName, hintClassName, bareControl = false, locked = false, lockedLabel }: SettingRowProps) {
   const { visible, mark } = useRowSearch({ id, label, description, keywords, searchText });
   if (!visible) return null;
   const hasLead = lead !== undefined && lead !== null && lead !== false;
+  const control = locked ? <fieldset className="rk-sr__lock-fs" disabled>{children}</fieldset> : children;
   return (
-    <div className={cx("rk-sr", stacked && "rk-sr--stacked", hasLead && "rk-sr--lead", className)} data-setting-id={id}>
+    <div className={cx("rk-sr", stacked && "rk-sr--stacked", hasLead && "rk-sr--lead", locked && "rk-sr--locked", className)} data-setting-id={id} data-locked={locked ? "true" : undefined}>
       {hasLead ? <div className="rk-sr__lead">{lead}</div> : null}
       <div className="rk-sr__text">
-        <div className={cx("rk-sr__label", titleClassName)}>{mark(label)}</div>
+        <div className={cx("rk-sr__label", titleClassName)}>
+          {mark(label)}
+          {locked ? <> <span className="rk-sr__lock">{lockedLabel ?? "Pro"}</span></> : null}
+        </div>
         {description ? <div className={cx("rk-sr__desc", hintClassName)}>{mark(description)}</div> : null}
       </div>
-      {children ? (bareControl ? children : <div className="rk-sr__control">{children}</div>) : null}
+      {children ? (bareControl ? control : <div className="rk-sr__control">{control}</div>) : null}
     </div>
+  );
+}
+
+/** Native select for a settings row (value and options are the app's). */
+export interface SelectControlProps {
+  id?: string;
+  /** Accessible name of the select. */
+  label: string;
+  value: string;
+  options: ReadonlyArray<{ value: string; label: string; disabled?: boolean }>;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}
+
+export function SelectControl({ id, label, value, options, onChange, disabled = false }: SelectControlProps) {
+  return (
+    <select id={id} className="rk-input rk-settings__select" aria-label={label} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
+      {options.map((o) => (
+        <option key={o.value} value={o.value} disabled={o.disabled}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/**
+ * Path picker for a settings row: shows the chosen path (read-only) and a button that calls `onPick` (the app opens its own
+ * file or folder dialog). `onClear`, when given, adds a Clear button.
+ */
+export interface PathControlProps {
+  id?: string;
+  /** Accessible name of the path display. */
+  label: string;
+  value: string | null;
+  /** Shown while no path is chosen. Default "Not set". */
+  placeholder?: string;
+  /** Default "Choose…". */
+  pickLabel?: string;
+  onPick: () => void | Promise<void>;
+  onClear?: () => void;
+  disabled?: boolean;
+}
+
+export function PathControl({ id, label, value, placeholder = "Not set", pickLabel = "Choose…", onPick, onClear, disabled = false }: PathControlProps) {
+  return (
+    <div className="rk-sr__inline rk-path">
+      <output id={id} className="rk-path__value" aria-label={label}>{value || placeholder}</output>
+      <button type="button" className="rk-btn rk-btn--sm rk-btn--secondary" disabled={disabled} onClick={() => void onPick()}>
+        {pickLabel}
+      </button>
+      {onClear && value ? (
+        <button type="button" className="rk-btn rk-btn--sm rk-btn--ghost" disabled={disabled} onClick={onClear}>
+          Clear
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** Index progress line: a progress bar and count while indexing, or the idle sentence otherwise. */
+export interface IndexProgressLineProps {
+  done: number;
+  total: number;
+  running: boolean;
+  /** Shown when not running. Default "Index is up to date." */
+  idle?: ReactNode;
+  /** Prefix of the running line. Default "Indexing". */
+  runningLabel?: string;
+}
+
+export function IndexProgressLine({ done, total, running, idle = "Index is up to date.", runningLabel = "Indexing" }: IndexProgressLineProps) {
+  if (!running) return <span role="status">{idle}</span>;
+  const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+  return (
+    <span role="status" className="rk-index-progress">
+      {`${runningLabel} ${done.toLocaleString()} of ${total.toLocaleString()} (${pct}%)`}
+      <ProgressBar value={pct / 100} label={`${runningLabel} progress`} />
+    </span>
   );
 }
 

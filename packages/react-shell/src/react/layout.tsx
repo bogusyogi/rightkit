@@ -1,15 +1,25 @@
 import {
+  createContext,
+  forwardRef,
+  useCallback,
+  useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
   type ButtonHTMLAttributes,
   type CSSProperties,
   type ElementType,
+  type HTMLAttributes,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactElement,
   type ReactNode,
+  type Ref,
+  type RefCallback,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   createWindowControlLabels,
   createWindowControls,
@@ -26,7 +36,7 @@ import { THEME_CHOICES, type ThemeChoice } from "../theme.js";
 import { useMediaQuery, usePersistedState } from "./hooks.js";
 import { ContextMenu, type MenuItem } from "./contextmenu.js";
 import { ShellProvider, useCommands, useShellOptional, useShortcuts, useTheme, type ShellProviderProps } from "./provider.js";
-import { IconButton, cx } from "./ui.js";
+import { IconButton, cx, type IconButtonProps } from "./ui.js";
 import type { SlotClasses } from "./slots.js";
 
 export interface ShellLabels {
@@ -183,6 +193,17 @@ export interface TitlebarProps {
   /** Width of the start cluster. Defaults to the sidebar width in the fused layout, auto otherwise. */
   startWidth?: number | string;
   title?: ReactNode;
+  /**
+   * Ref to the title wrapper element: a portal target for product content (`createPortal(node, el)`). The wrapper is
+   * rendered, and is itself a drag region, whenever `title`, `titleRef` or `titleFill` is set.
+   */
+  titleRef?: Ref<HTMLDivElement>;
+  /**
+   * Make the title wrapper the flexible fill-and-drag element: it takes the free width of the bar (the separate
+   * `rk-top__drag` spacer is dropped) and carries `data-tauri-drag-region` itself, so portalled or product content
+   * in it needs no drag region of its own. Default false.
+   */
+  titleFill?: boolean;
   /** Right cluster, left of the caption buttons. */
   end?: ReactNode;
   windowControls?: WindowControlAdapter;
@@ -215,11 +236,33 @@ export interface TitlebarProps {
 }
 
 /**
+ * Props that make an element a native window drag region. Tauri starts a drag only when the pressed element itself
+ * carries the attribute (an ancestor's attribute does not count), so spread these on every element that fills the
+ * bar and should move the window: `<div {...dragRegionProps} />`.
+ */
+export const dragRegionProps = { "data-tauri-drag-region": true } as const;
+
+export interface DragRegionProps extends HTMLAttributes<HTMLElement> {
+  /** Element type. Default `"div"`. */
+  as?: ElementType;
+  /** Fill the free width and full height of the flex row it sits in (flex 1, stretched, `min-width: 0`). Default false. */
+  fill?: boolean;
+}
+
+/**
+ * An element that drags the window. Use it for product header content outside a `Titlebar` (a mini window's own
+ * header) and for spacers inside one. Children that are interactive (buttons, inputs) keep their own behaviour.
+ */
+export const DragRegion = forwardRef<HTMLElement, DragRegionProps>(function DragRegion({ as: Root = "div", fill = false, className, ...rest }, ref) {
+  return <Root ref={ref} className={cx("rk-drag", fill && "rk-drag--fill", className)} {...dragRegionProps} {...rest} />;
+});
+
+/**
  * Drag-region titlebar usable in ANY layout. macOS reserves space for the native traffic lights
  * (Overlay title bar); Windows/Linux draw caption buttons from the adapter. Heights, paddings and
  * widths are `--rk-titlebar-*` / `--rk-lights-width` / `--rk-caption-*` tokens (see the README recipe).
  */
-export function Titlebar({ start, startWidth, title, end, windowControls, windowControlLabels, captionGlyphs, maximized, captionButtonClasses, captionTitles, blurCaptionOnClick, as: Root = "header", platform: platformProp, className, slots }: TitlebarProps) {
+export function Titlebar({ start, startWidth, title, titleRef, titleFill, end, windowControls, windowControlLabels, captionGlyphs, maximized, captionButtonClasses, captionTitles, blurCaptionOnClick, as: Root = "header", platform: platformProp, className, slots }: TitlebarProps) {
   const detected = usePlatform();
   // The provider's platform wins over host detection: one injected platform for the whole shell.
   const provided = useShellOptional()?.platform;
@@ -232,8 +275,8 @@ export function Titlebar({ start, startWidth, title, end, windowControls, window
         {caps.nativeTrafficLights ? <span className={cx("rk-top__lights", slots?.lights)} data-tauri-drag-region /> : null}
         {start}
       </div>
-      {title ? <div className={cx("rk-top__title", slots?.title)} data-tauri-drag-region>{title}</div> : null}
-      <div className={cx("rk-top__drag", slots?.drag)} data-tauri-drag-region />
+      {title || titleRef || titleFill ? <div ref={titleRef} className={cx("rk-top__title", titleFill && "rk-top__title--fill", slots?.title)} data-tauri-drag-region>{title}</div> : null}
+      {titleFill ? null : <div className={cx("rk-top__drag", slots?.drag)} data-tauri-drag-region />}
       {end ? <div className={cx("rk-top__end", slots?.end)} data-tauri-drag-region>{end}</div> : null}
       {caps.customCaptionButtons && windowControls ? <CaptionControls adapter={windowControls} labels={windowControlLabels} className={slots?.caption} glyphs={captionGlyphs} maximized={maximized} buttonClasses={captionButtonClasses} titles={captionTitles} blurOnClick={blurCaptionOnClick} /> : null}
     </Root>
@@ -517,16 +560,25 @@ export interface PageShellProps {
   maxWidth?: number;
   /** Set false when the page manages its own scrolling (editors, canvases). */
   scroll?: boolean;
+  /**
+   * Side column (inspector) beside the work column, full height under the header band, scrolling on its own. Omit for
+   * the single-column page, unchanged.
+   */
+  side?: ReactNode;
+  /** Width of the side column: a number is px, a string any CSS length. Sets `--rk-page-side-width` (default 320px). */
+  sideWidth?: number | string;
+  /** Accessible name of the side column. Default "Inspector". */
+  sideLabel?: string;
   className?: string;
   children: ReactNode;
 }
 
-/** Standard page body: optional fixed header band, title block, scroll region. */
-export function PageShell({ title, subtitle, actions, header, maxWidth = 1100, scroll = true, className, children }: PageShellProps) {
+/** Standard page body: optional fixed header band, title block, scroll region, optional side column. */
+export function PageShell({ title, subtitle, actions, header, maxWidth = 1100, scroll = true, side, sideWidth, sideLabel = "Inspector", className, children }: PageShellProps) {
   const style = maxWidth ? ({ maxWidth } as CSSProperties) : undefined;
-  return (
-    <div className="rk-page">
-      {header != null ? <div className="rk-page__band"><div className="rk-page__container" style={style}>{header}</div></div> : null}
+  const hasSide = side != null && side !== false;
+  const sideStyle = sideWidth !== undefined ? ({ "--rk-page-side-width": typeof sideWidth === "number" ? `${sideWidth}px` : sideWidth } as CSSProperties) : undefined;
+  const work = (
       <div className={`rk-page__scroll${scroll ? "" : " is-fixed"}`}>
         <div className={`rk-page__container${className ? ` ${className}` : ""}`} style={style}>
           {title || subtitle || actions ? (
@@ -541,6 +593,18 @@ export function PageShell({ title, subtitle, actions, header, maxWidth = 1100, s
           {children}
         </div>
       </div>
+  );
+  return (
+    <div className="rk-page">
+      {header != null ? <div className="rk-page__band"><div className="rk-page__container" style={style}>{header}</div></div> : null}
+      {hasSide ? (
+        <div className="rk-page__split" style={sideStyle}>
+          {work}
+          <aside className="rk-page__side" aria-label={sideLabel}>{side}</aside>
+        </div>
+      ) : (
+        work
+      )}
     </div>
   );
 }
@@ -551,10 +615,35 @@ export interface AppShellProps {
   onNavigate: (id: string) => void;
   /** Titlebar heading, usually the active view title. */
   title?: ReactNode;
-  /** Titlebar right cluster (status pills, actions), left of caption controls. */
+  /**
+   * Titlebar right cluster (status pills, actions), left of caption controls. The wrapper element is itself a window
+   * drag region, so the empty space around product controls moves the window; interactive children keep their own
+   * clicks. Put product controls here instead of replacing the whole titlebar.
+   */
   titlebarEnd?: ReactNode;
-  /** Titlebar cluster over the sidebar column, after the traffic lights. */
+  /**
+   * Titlebar cluster over the sidebar column, after the traffic lights. Same drag behaviour as `titlebarEnd`: the
+   * wrapper is a drag region, product content needs no `data-tauri-drag-region` of its own.
+   */
   titlebarStart?: ReactNode;
+  /** Ref to the default titlebar's title wrapper (portal target for product titlebar content). See `TitlebarProps.titleRef`. */
+  titleRef?: Ref<HTMLDivElement>;
+  /** Make the default titlebar's title wrapper the fill-and-drag element. See `TitlebarProps.titleFill`. */
+  titleFill?: boolean;
+  /**
+   * Bar at the top of the content plane that is a window drag region (the reader-plane drag bar). Its content, if any,
+   * renders inside it; `planeBarRef` exposes the element as a portal target for a product toolbar. Omit both for no bar.
+   */
+  planeBar?: ReactNode;
+  planeBarRef?: Ref<HTMLDivElement>;
+  /**
+   * Rendered in the sidebar column position while the sidebar is collapsed and the window is not narrow (an icon rail).
+   * The column takes `sidebarRailWidth`; with `titlebar={false}` it also carries a drag-region band the height of the
+   * titlebar. Use `RailButton` for its buttons.
+   */
+  sidebarRail?: ReactNode;
+  /** Width of the collapsed rail: a number is px, a string any CSS length. Default 52. */
+  sidebarRailWidth?: number | string;
   /** Replace the whole titlebar; `false` removes it (the app draws its own). */
   titlebar?: ReactNode | false;
   /** Replace the whole sidebar column; `false` removes it (sidebar-less layout inside the frame). */
@@ -591,9 +680,10 @@ export interface AppShellProps {
   /**
    * Drag handle on the sidebar's right edge. Pointer drag and Left/Right arrows (Shift for larger steps; Home and End
    * for the limits) resize it. `min` defaults to 160 and `max` to 420 px. `storageKey` remembers the width across
-   * reloads. `true` enables the handle with the defaults.
+   * reloads. `maxViewport` is a CSS length (for example `24vw`) the width never exceeds: the sidebar and the titlebar's
+   * sidebar column use `min(var(--rk-sidebar-width), maxViewport)`. `true` enables the handle with the defaults.
    */
-  sidebarResizable?: boolean | { min?: number; max?: number; storageKey?: string };
+  sidebarResizable?: boolean | { min?: number; max?: number; storageKey?: string; maxViewport?: string };
   /** Called with the width in px when a resize ends (pointer up or key press). */
   onSidebarWidthChange?: (px: number) => void;
   className?: string;
@@ -601,15 +691,15 @@ export interface AppShellProps {
   shell?: Omit<ShellProviderProps, "children" | "bridge" | "platform">;
   /**
    * Extra classes per region: `root` (frame, same as `className`), `titlebar` (default titlebar),
-   * `sidebar`, `sidebarFoot`, `body` (the row under the titlebar) and `plane` (the content surface).
+   * `sidebar`, `sidebarFoot`, `body` (the row under the titlebar), `plane` (the content surface), `planeBar` and `rail`.
    */
-  slots?: SlotClasses<"root" | "titlebar" | "sidebar" | "sidebarFoot" | "body" | "plane">;
+  slots?: SlotClasses<"root" | "titlebar" | "sidebar" | "sidebarFoot" | "body" | "plane" | "planeBar" | "rail">;
   children: ReactNode;
 }
 
-function normalizeResize(value: true | { min?: number; max?: number; storageKey?: string }): { min: number; max: number; storageKey?: string } {
+function normalizeResize(value: true | { min?: number; max?: number; storageKey?: string; maxViewport?: string }): { min: number; max: number; storageKey?: string; maxViewport?: string } {
   const o = value === true ? {} : value;
-  return { min: o.min ?? 160, max: o.max ?? 420, storageKey: o.storageKey };
+  return { min: o.min ?? 160, max: o.max ?? 420, storageKey: o.storageKey, maxViewport: o.maxViewport };
 }
 
 function clampWidth(px: number, limits: { min: number; max: number }): number {
@@ -669,9 +759,21 @@ function ShellLayout(props: AppShellProps) {
     props.onSidebarWidthChange?.(next);
   };
   const style = shownWidth !== null
-    ? ({ "--rk-sidebar-width": `${shownWidth}px` } as CSSProperties)
+    ? ({ "--rk-sidebar-width": `${shownWidth}px`, ...(resize?.maxViewport ? { "--rk-sidebar-max-viewport": resize.maxViewport } : {}) } as CSSProperties)
     : props.sidebarWidth ? ({ "--rk-sidebar-width": `${props.sidebarWidth}px` } as CSSProperties) : undefined;
   const sideHidden = collapsed;
+  const railWidth = props.sidebarRailWidth ?? 52;
+  const railWidthCss = typeof railWidth === "number" ? `${railWidth}px` : railWidth;
+  const showRail = props.sidebarRail != null && hasSidebar && sideHidden && !narrow;
+  const rail = showRail ? (
+    <aside className={cx("rk-rail", props.slots?.rail)} aria-label={labels.sections} style={{ width: railWidthCss }}>
+      {props.titlebar === false ? <div className="rk-rail__drag" data-tauri-drag-region /> : null}
+      {props.sidebarRail}
+    </aside>
+  ) : null;
+  const planeBar = props.planeBar != null || props.planeBarRef ? (
+    <div ref={props.planeBarRef} className={cx("rk-plane__bar", props.slots?.planeBar)} data-rk-plane-bar data-tauri-drag-region>{props.planeBar}</div>
+  ) : null;
   const toggle = hasSidebar && sidebarToggle ? (
     <IconButton label={labels.toggleSidebar} pressed={!sideHidden} onClick={() => setCollapsed(!collapsed)} className="rk-top__toggle">
       <SidebarIcon />
@@ -700,14 +802,16 @@ function ShellLayout(props: AppShellProps) {
   );
 
   return (
-    <AppFrame platform={platform} className={cx("rk-shell--fused", sideHidden && "is-collapsed", narrow && "is-narrow", !hasSidebar && "no-sidebar", props.className, props.slots?.root)} style={style}>
+    <AppFrame platform={platform} className={cx("rk-shell--fused", sideHidden && "is-collapsed", showRail && "has-rail", narrow && "is-narrow", !hasSidebar && "no-sidebar", props.className, props.slots?.root)} style={showRail ? ({ ...style, "--rk-rail-width": railWidthCss } as CSSProperties) : style}>
       {props.titlebar === false ? null : props.titlebar !== undefined ? (
         props.titlebar
       ) : (
         <Titlebar
           start={<>{toggle}{props.titlebarStart}</>}
-          startWidth={sideHidden || !hasSidebar ? "auto" : undefined}
+          startWidth={showRail ? railWidthCss : sideHidden || !hasSidebar ? "auto" : undefined}
           title={props.title}
+          titleRef={props.titleRef}
+          titleFill={props.titleFill}
           end={props.titlebarEnd}
           windowControls={adapter}
           windowControlLabels={props.windowControlLabels}
@@ -717,6 +821,7 @@ function ShellLayout(props: AppShellProps) {
       )}
       <div className={cx("rk-body", props.slots?.body)}>
         {hasSidebar ? props.sidebar ?? defaultSidebar : null}
+        {rail}
         {resize && shownWidth !== null && hasSidebar && !sideHidden ? (
           <div
             role="separator"
@@ -728,7 +833,7 @@ function ShellLayout(props: AppShellProps) {
             tabIndex={0}
             className="rk-side-resizer"
             data-rk-resizer
-            style={{ left: shownWidth - 3 }}
+            style={{ left: resize.maxViewport ? `calc(min(var(--rk-sidebar-width), var(--rk-sidebar-max-viewport)) - 3px)` : shownWidth - 3 }}
             onPointerDown={(event) => {
               event.currentTarget.setPointerCapture?.(event.pointerId);
               dragging.current = { startX: event.clientX, startWidth: shownWidth, last: shownWidth };
@@ -761,7 +866,7 @@ function ShellLayout(props: AppShellProps) {
             }}
           />
         ) : null}
-        <Plane className={props.slots?.plane}>{props.children}</Plane>
+        <Plane className={props.slots?.plane}>{planeBar}{props.children}</Plane>
       </div>
     </AppFrame>
   );
@@ -782,4 +887,280 @@ export function AppShell(props: AppShellProps) {
       {layout}
     </ShellProvider>
   );
+}
+
+export type RailTooltipSide = "right" | "left" | "top" | "bottom";
+
+export interface RailButtonProps extends Omit<IconButtonProps, "pressed"> {
+  /** Side the tooltip opens on, exposed as `data-rk-tooltip-side`. Default `"right"` (the rail sits on the left). */
+  tooltipSide?: RailTooltipSide;
+  /** Sets `aria-expanded`, for a rail button that opens a menu or panel. */
+  expanded?: boolean;
+  /** Sets `aria-current="page"` and the `is-active` class, for the rail button of the current destination. */
+  current?: boolean;
+}
+
+/**
+ * Icon button for the `AppShell` `sidebarRail` slot: an `IconButton` (label is the accessible name and tooltip) with
+ * the tooltip side and the `aria-expanded` / `aria-current` states a rail needs.
+ */
+export const RailButton = forwardRef<HTMLButtonElement, RailButtonProps>(function RailButton({ tooltipSide = "right", expanded, current, className, ...rest }, ref) {
+  return (
+    <IconButton
+      ref={ref}
+      className={cx("rk-rail__btn", current && "is-active", className)}
+      aria-expanded={expanded}
+      aria-current={current ? "page" : undefined}
+      data-rk-tooltip-side={tooltipSide}
+      {...rest}
+    />
+  );
+});
+
+export interface ResizeHandleOptions {
+  /** Current size in px (width for a vertical handle, height for a horizontal one). Controlled: the handle never stores it. */
+  width: number;
+  /** Called with the new clamped, rounded size on every pointer move and key press. */
+  onWidthChange: (px: number) => void;
+  /** Called once with the final size when a pointer drag ends. */
+  onWidthCommit?: (px: number) => void;
+  min: number;
+  max: number;
+  /** Arrow-key step in px; Shift multiplies it by 4. Default 8. */
+  step?: number;
+  /**
+   * The edge of the resized panel the handle sits on. `"end"` (right edge of a left sidebar, bottom edge of a top
+   * panel) grows the panel when dragged away from it toward the end; `"start"` (left edge of a right dock, top edge of
+   * a bottom dock) grows it when dragged toward the start. Default `"end"`.
+   */
+  edge?: "start" | "end";
+  /** `"vertical"` is a vertical bar resizing a width; `"horizontal"` a horizontal bar resizing a height. Default `"vertical"`. */
+  orientation?: "vertical" | "horizontal";
+  disabled?: boolean;
+  /** Accessible name. Default "Resize". */
+  label?: string;
+}
+
+const clampSize = (px: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(px)));
+
+/**
+ * Props for a separator that resizes a panel by pointer and keyboard (Left/Right or Up/Down by `step`, Shift for
+ * larger steps, Home and End for the limits). Fully controlled and storage-free: the app owns the size, so it can be
+ * remembered per project or reset when the project changes. Spread the result on an element you place yourself.
+ */
+export function useResizeHandle({ width, onWidthChange, onWidthCommit, min, max, step = 8, edge = "end", orientation = "vertical", disabled, label = "Resize" }: ResizeHandleOptions) {
+  const drag = useRef<{ start: number; startSize: number; last: number } | null>(null);
+  const vertical = orientation === "vertical";
+  // Sign of the size change per unit of pointer or key movement toward the end of the axis.
+  const sign = edge === "end" ? 1 : -1;
+  const axis = (event: { clientX: number; clientY: number }) => (vertical ? event.clientX : event.clientY);
+  const finish = (event: ReactPointerEvent<HTMLElement>) => {
+    const d = drag.current;
+    drag.current = null;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    if (d) onWidthCommit?.(d.last);
+  };
+  return {
+    role: "separator" as const,
+    "aria-orientation": vertical ? ("vertical" as const) : ("horizontal" as const),
+    "aria-label": label,
+    "aria-valuemin": min,
+    "aria-valuemax": max,
+    "aria-valuenow": clampSize(width, min, max),
+    "aria-disabled": disabled || undefined,
+    tabIndex: disabled ? -1 : 0,
+    "data-rk-resizer": "",
+    "data-edge": edge,
+    "data-orientation": orientation,
+    onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+      if (disabled || event.button !== 0) return;
+      event.preventDefault();
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      const startSize = clampSize(width, min, max);
+      drag.current = { start: axis(event), startSize, last: startSize };
+    },
+    onPointerMove: (event: ReactPointerEvent<HTMLElement>) => {
+      const d = drag.current;
+      if (!d) return;
+      const next = clampSize(d.startSize + sign * (axis(event) - d.start), min, max);
+      if (next === d.last) return;
+      d.last = next;
+      onWidthChange(next);
+    },
+    onPointerUp: finish,
+    onPointerCancel: finish,
+    onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
+      if (disabled) return;
+      const amount = event.shiftKey ? step * 4 : step;
+      const toward = vertical ? "ArrowRight" : "ArrowDown";
+      const away = vertical ? "ArrowLeft" : "ArrowUp";
+      let next: number | null = null;
+      if (event.key === toward) next = width + sign * amount;
+      else if (event.key === away) next = width - sign * amount;
+      else if (event.key === "Home") next = min;
+      else if (event.key === "End") next = max;
+      if (next === null) return;
+      event.preventDefault();
+      const clamped = clampSize(next, min, max);
+      if (clamped !== clampSize(width, min, max)) onWidthChange(clamped);
+    },
+  };
+}
+
+export interface SidebarResizerProps extends ResizeHandleOptions {
+  className?: string;
+  style?: CSSProperties;
+}
+
+/**
+ * Controlled resize handle for sidebars and docks (see `useResizeHandle`). Renders a separator you position with
+ * `className` or `style`; by default it is a 6px bar with the matching resize cursor.
+ */
+export function SidebarResizer({ className, style, ...options }: SidebarResizerProps) {
+  const props = useResizeHandle(options);
+  return <div {...props} className={cx("rk-resizer", className)} style={style} />;
+}
+
+type RetainedSnapshot = { scroll: Array<[Element, number, number]>; focus: HTMLElement | null };
+
+type MovableParent = Element & { moveBefore?: (node: Node, child: Node | null) => void };
+
+function captureRetained(node: HTMLElement): RetainedSnapshot {
+  const scroll: Array<[Element, number, number]> = [];
+  const walker = document.createTreeWalker(node, NodeFilter.SHOW_ELEMENT);
+  for (let el = walker.nextNode() as Element | null; el; el = walker.nextNode() as Element | null) {
+    if (el.scrollTop !== 0 || el.scrollLeft !== 0) scroll.push([el, el.scrollTop, el.scrollLeft]);
+  }
+  const active = document.activeElement;
+  return { scroll, focus: active instanceof HTMLElement && node.contains(active) ? active : null };
+}
+
+function restoreRetained(snapshot: RetainedSnapshot | null) {
+  if (!snapshot) return;
+  for (const [el, top, left] of snapshot.scroll) {
+    el.scrollTop = top;
+    el.scrollLeft = left;
+  }
+  const { focus } = snapshot;
+  if (focus && focus.isConnected && document.activeElement !== focus) focus.focus({ preventScroll: true });
+}
+
+/** One DOM node per key, owned for the life of the host; the claiming element is where the node currently sits. */
+class RetainedRegistry {
+  private nodes = new Map<string, HTMLElement>();
+  private pending = new Map<string, RetainedSnapshot>();
+
+  node(key: string): HTMLElement {
+    let node = this.nodes.get(key);
+    if (!node) {
+      node = document.createElement("div");
+      node.className = "rk-retained";
+      node.style.display = "contents";
+      node.setAttribute("data-rk-retained", key);
+      this.nodes.set(key, node);
+    }
+    return node;
+  }
+
+  claim(key: string, target: HTMLElement) {
+    const node = this.node(key);
+    if (node.parentNode === target) return;
+    const snapshot = this.pending.get(key) ?? (node.isConnected ? captureRetained(node) : null);
+    this.pending.delete(key);
+    let moved = false;
+    const parent = target as MovableParent;
+    // moveBefore keeps focus, scroll, iframes and playing media only when both ends are connected.
+    if (typeof parent.moveBefore === "function" && node.isConnected && target.isConnected) {
+      try {
+        parent.moveBefore(node, null);
+        moved = true;
+      } catch {
+        moved = false;
+      }
+    }
+    if (!moved) {
+      target.appendChild(node);
+      restoreRetained(snapshot);
+    }
+  }
+
+  /** The claiming element is about to go away: record scroll and focus while the node is still attached. */
+  release(key: string, target: HTMLElement | null) {
+    const node = this.nodes.get(key);
+    if (!node || !target || node.parentNode !== target) return;
+    if (node.isConnected) this.pending.set(key, captureRetained(node));
+  }
+
+  prune(keys: ReadonlySet<string>) {
+    for (const [key, node] of this.nodes) {
+      if (keys.has(key)) continue;
+      node.remove();
+      this.nodes.delete(key);
+      this.pending.delete(key);
+    }
+  }
+}
+
+const RetainedContext = createContext<RetainedRegistry | null>(null);
+
+export interface RetainedHostProps {
+  /**
+   * The retained content by key. Each entry is rendered once, into a node the host owns, and stays mounted (state,
+   * scroll position, focus, decoded images) while the geometry around it changes. Render the geometry shells as
+   * `children` and claim each node with `useRetainedSlot(key)` or `<RetainedSlot slotKey={key} />`.
+   */
+  slots: Readonly<Record<string, ReactNode>>;
+  children?: ReactNode;
+}
+
+/**
+ * Keeps stateful subtrees mounted while the layout that holds them changes. The host renders each slot into a
+ * persistent DOM node through a React portal; whichever geometry currently renders a claim element for that key
+ * receives the node. When the claim moves the node is moved, not re-created: with `Element.moveBefore` where the
+ * engine has it (focus and scroll intact), otherwise a guarded `appendChild` that restores scroll offsets and focus.
+ * A key with no claim keeps its node, detached, and its children stay mounted.
+ */
+export function RetainedHost({ slots, children }: RetainedHostProps) {
+  const registry = useRef<RetainedRegistry | null>(null);
+  if (registry.current === null && typeof document !== "undefined") registry.current = new RetainedRegistry();
+  const reg = registry.current;
+  const keys = Object.keys(slots);
+  const keySignature = keys.join("\u0000");
+  useEffect(() => {
+    reg?.prune(new Set(keySignature ? keySignature.split("\u0000") : []));
+  }, [reg, keySignature]);
+  return (
+    <RetainedContext.Provider value={reg}>
+      {children}
+      {reg ? keys.map((key) => createPortal(slots[key], reg.node(key), key)) : null}
+    </RetainedContext.Provider>
+  );
+}
+
+/**
+ * Ref callback that claims the retained node for `key` into the element it is attached to. Put it on the element of
+ * the current geometry that should contain that content. Must be used under a `RetainedHost`.
+ */
+export function useRetainedSlot(key: string): RefCallback<HTMLElement> {
+  const registry = useContext(RetainedContext);
+  const current = useRef<HTMLElement | null>(null);
+  if (!registry && typeof document !== "undefined") throw new Error("useRetainedSlot must be used inside a RetainedHost");
+  return useCallback(
+    (element: HTMLElement | null) => {
+      if (element) {
+        current.current = element;
+        registry?.claim(key, element);
+      } else {
+        registry?.release(key, current.current);
+        current.current = null;
+      }
+    },
+    [registry, key],
+  );
+}
+
+/** An element that receives the retained content for `slotKey`. Renders a `div` (or `as`) that lays out like any container; the retained node inside it is `display: contents`. */
+export function RetainedSlot({ slotKey, as: Root = "div", className, style }: { slotKey: string; as?: ElementType; className?: string; style?: CSSProperties }) {
+  const ref = useRetainedSlot(slotKey);
+  return <Root ref={ref} className={className} style={style} data-rk-retained-slot={slotKey} />;
 }

@@ -1,9 +1,9 @@
 [package]
 name = "rightkit-dictation-core"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 rust-version = "1.98.0"
-description = "Dictation core: engine wire protocol and validation, provider key handoff, recording session state machine and controller, wake word state, mic selection and audio conditioning."
+description = "Dictation core: engine wire protocol and validation, provider key handoff, recording session state machine, wake word state, mic selection and audio conditioning."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
@@ -12,11 +12,6 @@ include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE
 [lib]
 name = "rightkit_dictation_core"
 path = "src/lib.rs"
-
-[features]
-# Compiles the test-only switches (`dev_var!`, `RIGHTKIT_APP_DATA_DIR`, the test-binary data root).
-# Never enable it in a release build.
-test-mode = []
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

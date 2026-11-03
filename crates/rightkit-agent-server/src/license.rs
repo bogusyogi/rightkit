@@ -8,11 +8,15 @@
 //! and its own app identity. The snapshot is not a verdict: the daemon accepts no verdict, feature
 //! list, licence key or raw device id from its caller, not by environment, not by argument.
 //!
-//! * Delivery: the owner POSTs the snapshot as one `rightkit_credentials::handoff` Reply frame
-//!   (octet stream, `RKHO`) to `/internal/license-snapshot`, behind the daemon's per-launch bearer
-//!   token (the daemon's existing owner channel), at launch and after every licence change. The
-//!   daemon applies it to an [`EngineSnapshotCell`] as a whole replacement and answers the owner's
-//!   Ack frame ([`LicenseGate::deliver`]).
+//! * Delivery: the owner calls the `license.snapshot` method (`rightkit_daemon::LICENSE_SNAPSHOT_METHOD`)
+//!   of this daemon's private IPC service (`license_ipc`), at launch and after every licence
+//!   change, with one `rightkit_credentials::handoff` Reply frame (`RKHO`) base64-encoded in the
+//!   `frame` parameter. The daemon identifies the peer process before it reads a byte of the frame
+//!   (same user, the owner's executable pinned by pid and start time, and its code signature; see
+//!   [`OwnerLocator`] and [`LicenseGate::deliver_from_owner`]), applies the snapshot to an
+//!   [`EngineSnapshotCell`] as a whole replacement and answers the owner's Ack frame in `ack`. The
+//!   loopback HTTP route `/internal/license-snapshot`, which only had the per-launch bearer token,
+//!   is retired (rightkit#1501).
 //! * Fail closed: until the first delivery the gate is not Pro, and an owner read failure or a
 //!   malformed snapshot leaves it not Pro until the next good delivery.
 //! * Verification: `EngineEntitlements::from_snapshot` (signature against the suite key, app,
@@ -22,8 +26,10 @@
 //!   (the cell's generation), so a refresh, revocation, deactivation or new activation needs no
 //!   daemon restart.
 //!
-//! The only launch locator is the licence directory (non-secret, for the ledger). It is read once
-//! at process start and removed from the daemon's own environment ([`capture_launch_locators`]);
+//! The launch locators are the licence directory (non-secret, for the ledger) and the owner's
+//! identity ([`OwnerLocator`]: its executable path and signing identity, also non-secret). They are
+//! read once at process start and removed from the daemon's own environment
+//! ([`capture_launch_locators`]);
 //! child processes and `${VAR}` expansion additionally refuse any licence-named variable
 //! (`rightkit_app_settings::agent_config::licence_env`).
 
@@ -37,6 +43,7 @@ use rightkit_app_settings::agent_config::licence_env::{is_licence_env_name, ENV_
 use rightkit_credentials::handoff::{
     receive_snapshot_delivery, write_message, Limits, Message, SnapshotDelivery,
 };
+use rightkit_daemon::{PeerPolicy, SigningIdentity};
 use rightkit_license::{
     system_now_unix, AntiRollbackClock, ClockRefusal, EngineEntitlements, EngineEntitlementsConfig,
     EngineSnapshotCell, Entitlement, OwnerLedgerReader, ProcessAnchor, TrustedClock,
@@ -52,12 +59,78 @@ const DENIAL_TTL: Duration = Duration::from_secs(5);
 
 // ---- launch locators ---------------------------------------------------------------------------
 
-/// Where the owner's anti-rollback ledger lives. Nothing here is secret, and no credential
-/// namespace or account is passed: the daemon never opens the owner's store.
+/// The environment names of the owner identity locators. Both carry the licence prefix, so
+/// [`capture_launch_locators`] removes them with the rest and no child process sees them.
+const ENV_OWNER_EXE: &str = "RIGHTKIT_LICENSE_OWNER_EXE";
+const ENV_OWNER_MAC_TEAM: &str = "RIGHTKIT_LICENSE_OWNER_TEAM";
+const ENV_OWNER_WINDOWS_SIGNER: &str = "RIGHTKIT_LICENSE_OWNER_SIGNER";
+
+/// Who the licence owner is, as the owner told this daemon at launch (non-secret): its executable
+/// and the code-signing identity that must sign it. The snapshot is accepted only from a process
+/// that is that executable AND signed by that identity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnerLocator {
+    /// The owner's executable (absolute).
+    pub executable: PathBuf,
+    /// macOS: the Apple Developer team identifier that signs the owner.
+    pub mac_team_id: Option<String>,
+    /// Windows: the common name of the Authenticode signer of the owner.
+    pub windows_signer: Option<String>,
+}
+
+impl OwnerLocator {
+    /// The owner named by `lookup`: an absolute executable path and at least one signing identity,
+    /// or `None`. A missing identity is `None` and never an unsigned owner, so without a full
+    /// locator no delivery is accepted and the daemon stays Free.
+    pub fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Option<Self> {
+        let value = |name: &str| {
+            lookup(name)
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        };
+        let executable = PathBuf::from(value(ENV_OWNER_EXE)?);
+        if !executable.is_absolute() {
+            return None;
+        }
+        let mac_team_id = value(ENV_OWNER_MAC_TEAM);
+        let windows_signer = value(ENV_OWNER_WINDOWS_SIGNER);
+        if mac_team_id.is_none() && windows_signer.is_none() {
+            return None;
+        }
+        Some(Self {
+            executable,
+            mac_team_id,
+            windows_signer,
+        })
+    }
+
+    /// The peer policy this owner implies: its executable, signed by its identity. `None` when the
+    /// locator names no signing identity.
+    pub fn policy(&self) -> Option<PeerPolicy> {
+        let mut identities = Vec::new();
+        if let Some(team) = &self.mac_team_id {
+            identities.push(SigningIdentity::MacTeamId(team.clone()));
+        }
+        if let Some(name) = &self.windows_signer {
+            identities.push(SigningIdentity::WindowsCommonName(name.clone()));
+        }
+        let mut identities = identities.into_iter();
+        let mut policy = PeerPolicy::signed_by(identities.next()?);
+        for identity in identities {
+            policy = policy.or_signed_by(identity);
+        }
+        Some(policy.only_executable(self.executable.clone()))
+    }
+}
+
+/// Where the owner's anti-rollback ledger lives, and who the owner is. Nothing here is secret, and
+/// no credential namespace or account is passed: the daemon never opens the owner's store.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LicenseLocators {
     /// `<app data>/license`: holds the clock ledger the owner writes and the daemon reads.
     pub license_dir: PathBuf,
+    /// The owner that may deliver the snapshot; `None` means no delivery is accepted.
+    pub owner: Option<OwnerLocator>,
 }
 
 impl LicenseLocators {
@@ -69,6 +142,7 @@ impl LicenseLocators {
             .filter(|value| !value.is_empty())?;
         Some(Self {
             license_dir: PathBuf::from(dir),
+            owner: OwnerLocator::from_lookup(&lookup),
         })
     }
 }
@@ -131,13 +205,16 @@ struct GateState {
     verdict: Option<Verdict>,
 }
 
-/// Why [`LicenseGate::deliver`] kept nothing.
+/// Why [`LicenseGate::deliver_from_owner`] kept nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeliveryError {
     /// The bytes are not exactly one handoff Reply frame.
     Malformed,
     /// The Ack could not be encoded.
     Ack,
+    /// The delivering process is not the owner: its identity could not be established or does
+    /// not match the owner's executable and signing identity. Nothing was applied.
+    Unauthenticated,
 }
 
 /// The daemon's licence gate: the verified Pro features of the owner's snapshot, live.
@@ -193,12 +270,35 @@ impl LicenseGate {
         }
     }
 
+    /// As [`deliver`](Self::deliver), over a transport that identifies its peer (the daemon's
+    /// private IPC): the process on the other end must be the owner. `owner` names its executable
+    /// and carries the code-signing verifier; see `HostExpectation::with_verifier`.
+    pub fn deliver_from_owner(
+        &self,
+        cx: &rightkit_daemon::contract::CallContext,
+        owner: &rightkit_daemon::HostExpectation,
+        frame: &[u8],
+    ) -> Result<Vec<u8>, DeliveryError> {
+        // The process behind this private-IPC connection must be the owner binary (same user, the
+        // owner's executable, pinned by pid and start time, and `owner`'s signing verifier) before
+        // a byte of the frame is read. Refused deliveries change nothing.
+        cx.verify_peer_executable(owner).map_err(|error| {
+            eprintln!("[license] licence snapshot delivery refused: {error}");
+            DeliveryError::Unauthenticated
+        })?;
+        self.deliver(frame)
+    }
+
     /// Accept the owner's snapshot: `frame` is exactly one handoff Reply frame. Replaces
     /// everything the gate holds and returns the owner's Ack frame. The caller must have
-    /// authenticated the owner (the daemon's bearer token) first. A frame that does not decode
+    /// authenticated the owner first; this is private to the crate for that reason, and the only
+    /// caller is [`deliver_from_owner`](Self::deliver_from_owner). A frame that does not decode
     /// leaves the gate as it was. A snapshot the cell refuses (owner read failure, malformed) is
     /// still acknowledged, and leaves the gate not Pro.
-    pub fn deliver(&self, frame: &[u8]) -> Result<Vec<u8>, DeliveryError> {
+    ///
+    /// There is no bearer-only delivery any more (rightkit#1501): the loopback HTTP route is
+    /// retired and the transport that remains identifies its peer.
+    fn deliver(&self, frame: &[u8]) -> Result<Vec<u8>, DeliveryError> {
         let mut cursor = Cursor::new(frame);
         let SnapshotDelivery { id, snapshot } =
             receive_snapshot_delivery(&mut cursor, &Limits::default())

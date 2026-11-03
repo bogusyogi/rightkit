@@ -394,54 +394,22 @@ impl FrameScorer for SileroVad {
 
 /// Session options for the shared scorer: the app's 1/1 threads and kept warm-up state.
 /// Windows asks for an independent pool with spinning off; elsewhere the app sets none of
-/// the three, so the session keeps the ORT defaults. The `RIGHTKIT_VAD_ORT_*` probe variables
-/// override each knob for experiments.
+/// the three, so the session keeps the ORT defaults.
 fn session_options() -> rightkit_vad::SileroOptions {
     let windows = cfg!(target_os = "windows");
-    let threads = |specific: &str| {
-        ort_probe_threads(specific)
-            .or_else(|| ort_probe_threads("RIGHTKIT_VAD_ORT_THREADS"))
-            .unwrap_or(1)
-    };
-    let spinning = |name: &str| match ort_probe_bool(name) {
-        Some(true) => rightkit_vad::Spinning::On,
-        Some(false) => rightkit_vad::Spinning::Off,
-        None if windows => rightkit_vad::Spinning::Off,
-        None => rightkit_vad::Spinning::RuntimeDefault,
+    let spinning = if windows {
+        rightkit_vad::Spinning::Off
+    } else {
+        rightkit_vad::Spinning::RuntimeDefault
     };
     rightkit_vad::SileroOptions {
-        intra_threads: threads("RIGHTKIT_VAD_ORT_INTRA_THREADS"),
-        inter_threads: threads("RIGHTKIT_VAD_ORT_INTER_THREADS"),
+        intra_threads: 1,
+        inter_threads: 1,
         warmup: rightkit_vad::Warmup::KeepState,
-        own_thread_pool: Some(
-            ort_probe_bool("RIGHTKIT_VAD_ORT_INDEPENDENT_POOL").unwrap_or(windows),
-        ),
-        intra_op_spinning: spinning("RIGHTKIT_VAD_ORT_INTRA_SPINNING"),
-        inter_op_spinning: spinning("RIGHTKIT_VAD_ORT_INTER_SPINNING"),
+        own_thread_pool: Some(windows),
+        intra_op_spinning: spinning,
+        inter_op_spinning: spinning,
         ..rightkit_vad::SileroOptions::default()
-    }
-}
-
-fn ort_probe_threads(name: &str) -> Option<usize> {
-    let value = rightkit_dictation_core::dev_var!(name).ok()?;
-    match value.parse::<usize>() {
-        Ok(threads) if threads > 0 => Some(threads),
-        _ => {
-            tracing::warn!("ignoring invalid {name}={value:?}; expected a positive integer");
-            None
-        }
-    }
-}
-
-fn ort_probe_bool(name: &str) -> Option<bool> {
-    let value = rightkit_dictation_core::dev_var!(name).ok()?;
-    match value.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "on" | "yes" => Some(true),
-        "0" | "false" | "off" | "no" => Some(false),
-        _ => {
-            tracing::warn!("ignoring invalid {name}={value:?}; expected 0/1 or true/false");
-            None
-        }
     }
 }
 
@@ -524,12 +492,6 @@ fn init_ort() -> Result<(), String> {
 }
 
 fn default_model_path() -> Option<PathBuf> {
-    if let Some(path) =
-        rightkit_dictation_core::dev_var_os!("RIGHTKIT_VAD_MODEL").map(PathBuf::from)
-    {
-        // A .onnx file or a .mlmodelc directory — either backend.
-        return path.exists().then_some(path);
-    }
     model_path_candidates()
         .into_iter()
         .find(|candidate| candidate.is_file())
@@ -540,14 +502,10 @@ fn model_path_candidates() -> Vec<PathBuf> {
 }
 
 fn ort_dylib_path() -> Option<PathBuf> {
-    // The runtime the engine bound at startup (rightkit-onnx records it; a test-mode
-    // build may name another with the dev override). An invalid path must not suppress
-    // The app-bundled runtime: ort's dynamic loader can otherwise recurse while
-    // formatting its load error.
-    if let Some(path) = rightkit_dictation_core::dev_var_os!("RIGHTKIT_VAD_ORT_DYLIB")
-        .map(PathBuf::from)
-        .or_else(rightkit_onnx::configured_runtime)
-    {
+    // The runtime the engine bound at startup (rightkit-onnx records it). An invalid path
+    // must not suppress the app-bundled runtime: ort's dynamic loader can otherwise recurse
+    // while formatting its load error.
+    if let Some(path) = rightkit_onnx::configured_runtime() {
         if path.is_file() {
             return Some(path);
         }

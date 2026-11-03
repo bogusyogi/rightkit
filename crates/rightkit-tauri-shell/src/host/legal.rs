@@ -210,6 +210,68 @@ pub struct LegalManifest {
 }
 
 impl LegalManifest {
+    /// Build the manifest from the bundled `@rightkit/legal` manifest JSON (#1138): the document set
+    /// is every entry of `documents`, and `documents_hash` is the SHA-256 hex of the material
+    /// documents' lines, `role|id|version|sha256` (lower-case digest), sorted by role and joined with
+    /// newlines. That is `materialDigestInput` / `materialAcceptanceDigest` in `@rightkit/legal`, so
+    /// the native receipt service and the webview agree on the digest. `version` is the acceptance
+    /// version the app requires.
+    pub fn from_json(version: impl Into<String>, json: &str) -> Result<Self, HostError> {
+        use sha2::{Digest, Sha256};
+        let bad = |what: &str| HostError::invalid(format!("the legal manifest {what}"));
+        let value: serde_json::Value =
+            serde_json::from_str(json).map_err(|_| bad("is not JSON"))?;
+        let entries = value
+            .get("documents")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| bad("has no documents array"))?;
+        let text = |v: &serde_json::Value, key: &str| {
+            v.get(key)
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        };
+        let mut documents = Vec::with_capacity(entries.len());
+        let mut material: Vec<(String, String)> = Vec::new();
+        for entry in entries {
+            let declared = DeclaredDocument {
+                id: text(entry, "id"),
+                role: text(entry, "role"),
+                title: text(entry, "title"),
+                url: text(entry, "url"),
+                version: text(entry, "version"),
+                sha256: text(entry, "sha256"),
+                treatment: text(entry, "treatment"),
+                material: entry.get("material").and_then(serde_json::Value::as_bool),
+            };
+            if entry.get("material").and_then(serde_json::Value::as_bool) == Some(true) {
+                let line = format!(
+                    "{}|{}|{}|{}",
+                    declared.role.clone().unwrap_or_default(),
+                    declared.id.clone().unwrap_or_default(),
+                    declared.version.clone().unwrap_or_default(),
+                    declared
+                        .sha256
+                        .clone()
+                        .unwrap_or_default()
+                        .to_ascii_lowercase(),
+                );
+                material.push((declared.role.clone().unwrap_or_default(), line));
+            }
+            documents.push(declared);
+        }
+        material.sort_by(|a, b| a.0.cmp(&b.0));
+        let input = material
+            .into_iter()
+            .map(|(_, line)| line)
+            .collect::<Vec<_>>()
+            .join("\n");
+        let digest: String = Sha256::digest(input.as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        Self::new(version, digest, documents)
+    }
+
     /// `version` and `documents_hash` are what the app requires; `documents` is the exact set the
     /// gate shows, in order.
     pub fn new(

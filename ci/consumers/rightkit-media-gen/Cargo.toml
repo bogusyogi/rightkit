@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-media-gen = { version = "=0.1.0" }
+rightkit-media-gen = { version = "=0.1.1" }
 

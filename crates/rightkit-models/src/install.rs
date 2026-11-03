@@ -112,6 +112,10 @@ pub struct InstallOptions {
     pub platform: Platform,
     /// `Authorization` header value for gated hosts.
     pub authorization: Option<String>,
+    /// When set, `authorization` is sent only to URLs whose host equals this one (case-insensitive,
+    /// brackets and trailing dot ignored), so a mirror fallback never receives the token. `None`
+    /// sends it on every URL of the install, as before.
+    pub authorization_host: Option<String>,
     /// Stable immutable identity for rotating signed download URLs. Only used
     /// with SHA-256-pinned files; path & digest also bind resume metadata.
     pub resume_identity: Option<String>,
@@ -159,6 +163,7 @@ impl Default for InstallOptions {
             quant: None,
             platform: Platform::current(),
             authorization: None,
+            authorization_host: None,
             resume_identity: None,
             max_download_redirects: 10,
             cancel: Arc::new(AtomicBool::new(false)),
@@ -1061,7 +1066,9 @@ impl Store {
                         part_path: part,
                         dest_path,
                         expected_sha256: f.sha256.as_deref(),
-                        authorization: opts.authorization.as_deref(),
+                        authorization: opts.authorization.as_deref().filter(|_| {
+                            authorization_host_matches(url, opts.authorization_host.as_deref())
+                        }),
                         cancelled: stop,
                     },
                     identity.as_deref(),
@@ -1421,4 +1428,14 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<(PathBuf, String)>) -> Result<()>
         }
     }
     Ok(())
+}
+
+/// Whether `authorization` may be sent to `url`: always when no host is pinned, otherwise only
+/// when the URL's host is that host.
+fn authorization_host_matches(url: &str, pinned: Option<&str>) -> bool {
+    let Some(pinned) = pinned else {
+        return true;
+    };
+    let pinned = pinned.trim_matches(['[', ']']).trim_end_matches('.');
+    crate::http::url_host_port(url).is_some_and(|(host, _)| host.eq_ignore_ascii_case(pinned))
 }

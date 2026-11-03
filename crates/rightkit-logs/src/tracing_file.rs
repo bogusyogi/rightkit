@@ -233,6 +233,22 @@ pub fn install_tracing(config: TracingFileConfig) -> io::Result<TracingGuard> {
     Ok(guard)
 }
 
+/// Warn-and-continue form of [`install_tracing`] (issue #750). When the install fails (an invalid
+/// prefix or filter, an unusable directory, or a global subscriber that is already installed) one
+/// line is written to stderr and a no-op guard is returned: it writes nothing, counts every line
+/// it is handed as dropped, and its [`TracingGuard::clear`] returns an error. The caller never
+/// has to match an `Err` it would only ignore. [`install_tracing`] is unchanged.
+pub fn install_tracing_or_noop(config: TracingFileConfig) -> TracingGuard {
+    let dir = config.dir.clone();
+    match install_tracing(config) {
+        Ok(guard) => guard,
+        Err(error) => {
+            report(&dir, &error);
+            detached().1
+        }
+    }
+}
+
 /// A file layer for apps that compose their own subscriber, such as one that also writes
 /// stderr. Opens today's file and applies retention before it returns. Setup failures are
 /// reported on stderr and retried on the next write, so this never fails the caller.

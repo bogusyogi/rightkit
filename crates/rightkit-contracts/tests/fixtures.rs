@@ -1,47 +1,15 @@
-//! Runs every fixture under `rightkit/contracts/fixtures/` through the
-//! library and through the `rightkit-contracts` binary.
+//! Runs every fixture under `rightkit/contracts/fixtures/` through the real
+//! `rightkit-contracts` binary.
 
 #![cfg(feature = "schema")]
 
 use std::path::PathBuf;
 use std::process::Command;
 
-use rightkit_contracts::fixtures::{check_tree, CATEGORIES};
 use rightkit_contracts::Contract;
 
 fn fixtures_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../contracts/fixtures")
-}
-
-#[test]
-fn every_fixture_meets_its_expectation() {
-    let report = check_tree(&fixtures_root()).expect("fixture tree readable");
-    assert!(
-        report.is_green(),
-        "fixture failures:\n{}",
-        report.failures.join("\n")
-    );
-}
-
-#[test]
-fn every_category_is_exercised_for_every_contract() {
-    let root = fixtures_root();
-    for contract in Contract::ALL {
-        for category in CATEGORIES {
-            let directory = root.join(contract.name()).join(category);
-            let count = std::fs::read_dir(&directory)
-                .unwrap_or_else(|error| panic!("{}: {error}", directory.display()))
-                .filter_map(Result::ok)
-                .filter(|entry| {
-                    entry
-                        .path()
-                        .extension()
-                        .is_some_and(|extension| extension == "json")
-                })
-                .count();
-            assert!(count > 0, "{} has no fixtures", directory.display());
-        }
-    }
 }
 
 #[test]

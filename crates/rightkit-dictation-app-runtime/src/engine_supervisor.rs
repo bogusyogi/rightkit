@@ -12,9 +12,8 @@
 // Crash recovery: if the sidecar exits unexpectedly, RightKit's restart policy
 // restarts it on the next `start_dictation` request (`RestartMode::OnDemand`); that is
 // the release behaviour (a long dictation on a wedged sidecar would be a UI freeze).
-// Hot restart (`RestartMode::Automatic`, bounded backoff) is test-mode only: its switch,
-// `RIGHTKIT_SIDECAR_AUTORESTART=1`, is read through `dev_var!`, which release builds
-// compile out. A spent restart budget is retried after `SIDECAR_ABANDON_COOLDOWN`.
+// There is no hot restart switch. A spent restart budget is retried after
+// `SIDECAR_ABANDON_COOLDOWN`.
 //
 // Module layout: `supervisor` owns `EngineSupervisor`/`SupervisorEvent` and
 // the the app policy around the RightKit supervisor, `wire` owns the
@@ -38,22 +37,13 @@ mod wire;
 // explicit `pub use` surface below is consumed (in-crate and by src-tauri via
 // `pub use rightkit_dictation_app_runtime::engine_supervisor`).
 
-#[cfg(feature = "test-mode")]
-pub use env::pass_live_eval_env_for_test;
-#[cfg(feature = "test-mode")]
-pub use env::{l3_env_keys_for_test, strip_l3_env_for_test};
 pub use final_wait::{
     final_transcript_timeout, FINAL_TRANSCRIPT_TIMEOUT_MAX, FINAL_TRANSCRIPT_TIMEOUT_MIN,
 };
 pub use paths::resolve_engine_bin;
-#[cfg(feature = "test-mode")]
-pub use paths::resolve_engine_override_for_test;
 pub use protocol::build_request;
 pub use revocation::{classify_revocation_reply, RevocationOutcome};
-pub use supervisor::{
-    advertises_live_l3, build_sidecar_command_for_test, l3_policy_value, EngineSupervisor,
-    SupervisorEvent,
-};
+pub use supervisor::{advertises_live_l3, l3_policy_value, EngineSupervisor, SupervisorEvent};
 
 /// Whether the engine behind a dictation start holds none of the shell's pushed state (Pro flag,
 /// vocabulary, AI-polish policy): this start spawned it (`start_result` is the engine version,

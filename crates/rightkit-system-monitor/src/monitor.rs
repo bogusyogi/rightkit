@@ -201,17 +201,23 @@ fn is_virtual_interface(name: &str) -> bool {
 /// Aggregate sysinfo's per-interface counters without allowing integer wrap.
 /// Loopback and virtual interfaces are left out so traffic is not counted twice.
 pub fn read_network_counters() -> Observation<NetworkCounters> {
-    let networks = Networks::new_with_refreshed_list();
+    let networks = match Networks::new_with_refreshed_list() {
+        Ok(networks) => networks,
+        Err(error) => {
+            return Observation::unavailable(format!(
+                "OS refused the network interface list: {error}"
+            ));
+        }
+    };
     if networks
-        .list()
         .keys()
-        .all(|name| is_virtual_interface(name))
+        .all(|name| is_virtual_interface(&name.to_string_lossy()))
     {
         return Observation::unavailable("OS reported no physical network interfaces");
     }
     let mut counters = NetworkCounters::default();
     for (name, data) in &networks {
-        if is_virtual_interface(name) {
+        if is_virtual_interface(&name.to_string_lossy()) {
             continue;
         }
         // `received`/`transmitted` are refresh deltas. Lifetime totals are

@@ -1,4 +1,5 @@
-//! Recursive directory copy that refuses to overwrite by default and keeps symlinks as symlinks.
+//! Recursive directory copy that refuses to overwrite by default and keeps symlinks as symlinks,
+//! and [`remove_tree`], a recursive remove that never follows a link.
 //!
 //! [`copy_tree`] copies a file, a symlink or a directory tree to a destination that does not exist
 //! yet. It is not atomic as a whole: a failure part-way leaves the entries already copied in place and
@@ -17,6 +18,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, SystemTime};
 
 /// How [`copy_tree`] treats existing destinations and symlinks. Both fields are explicit: there is
 /// no default, because either choice can lose or silently keep data.
@@ -299,5 +301,200 @@ fn map_exists(dst: &Path, error: io::Error, no_overwrite: bool) -> FsError {
         FsError::AlreadyExists(dst.to_path_buf())
     } else {
         FsError::io(dst, error)
+    }
+}
+
+/// How [`remove_tree`] behaves.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct RemoveOptions {
+    /// Retain the whole tree unless `path`'s own modification time is at least this old. Only
+    /// `path` itself is looked at, not its descendants. A modification time that cannot be read,
+    /// or that is in the future, counts as recent, so the tree is retained.
+    pub min_age: Option<Duration>,
+    /// Remove everything inside `path` and keep `path` itself (an empty directory is left). With
+    /// this set `path` must be a directory.
+    pub contents_only: bool,
+}
+
+impl RemoveOptions {
+    /// No age guard, `path` itself removed too.
+    pub const fn new() -> Self {
+        Self {
+            min_age: None,
+            contents_only: false,
+        }
+    }
+
+    /// Retain the tree unless `path` was last modified at least `age` ago.
+    pub const fn min_age(mut self, age: Duration) -> Self {
+        self.min_age = Some(age);
+        self
+    }
+
+    /// Keep `path` itself and remove only what is inside it.
+    pub const fn contents_only(mut self, contents_only: bool) -> Self {
+        self.contents_only = contents_only;
+        self
+    }
+}
+
+/// What [`remove_tree`] did.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct RemoveReport {
+    /// Entries removed: files, links (as themselves) and directories.
+    pub removed: usize,
+    /// The summed length of the regular files removed. A file that has other hard links frees its
+    /// space only when the last name goes, but its length is counted here.
+    pub bytes_freed: u64,
+    /// Entries that could not be removed (an error on one of them), plus one when the whole tree
+    /// was kept because it was too recent. A directory is not attempted, and not counted again,
+    /// when something inside it was retained.
+    pub retained: usize,
+}
+
+/// Remove the file or directory tree at `path`, never following a symlink, junction or reparse
+/// point.
+///
+/// * `path` itself may be reached through links in its parent chain (the caller named it); the
+///   tree below it is walked with directory handles pinned without following links
+///   ([`crate::StateDir`] machinery: `O_NOFOLLOW` and fd-relative `unlinkat` on Unix, handle-relative
+///   deletes on Windows), so a link swapped in during the walk is removed as itself or refused,
+///   and its target is never entered. A link as `path` is refused with [`FsError::Symlink`]; a
+///   link inside the tree is removed as the link.
+/// * A missing `path` is an empty report, not an error.
+/// * [`RemoveOptions::min_age`] guards a tree something may still be producing.
+/// * A child that cannot be removed is counted in [`RemoveReport::retained`] and does not stop its
+///   siblings. A directory that is not owned by the current user cannot be pinned and is retained.
+/// * Windows: each delete is retried on a sharing or lock violation (error 5, 32 or 33) with the
+///   crate's bounded schedule ([`crate::transient`]). A read-only file is refused by the delete and
+///   retained; the attribute is not cleared.
+/// * No per-entry directory flush is made; removal is not made durable.
+pub fn remove_tree(path: &Path, options: &RemoveOptions) -> Result<RemoveReport> {
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| FsError::BadName(path.display().to_string()))?;
+    let parent = match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => PathBuf::from("."),
+    };
+    let real_parent = match crate::plain::canonicalize_plain(&parent) {
+        Ok(p) => p,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(RemoveReport::default()),
+        Err(e) => return Err(FsError::io(&parent, e)),
+    };
+    let pinned = crate::state::StateDir::open_shared(&real_parent)?;
+    let stat = match pinned.raw_stat(name)? {
+        Some(stat) => stat,
+        None => return Ok(RemoveReport::default()),
+    };
+    if stat.kind == crate::state::EntryKind::Symlink {
+        return Err(FsError::Symlink(path.to_path_buf()));
+    }
+    let is_dir = stat.kind == crate::state::EntryKind::Dir;
+    if options.contents_only && !is_dir {
+        return Err(FsError::NotADirectory(path.to_path_buf()));
+    }
+    let mut report = RemoveReport::default();
+    if let Some(min_age) = options.min_age {
+        if !is_old_enough(path, min_age) {
+            report.retained = 1;
+            return Ok(report);
+        }
+    }
+    if is_dir {
+        let dir = pinned.raw_open_child(name)?;
+        remove_children(&dir, &mut report)?;
+        if !options.contents_only && report.retained == 0 {
+            match crate::transient::retry_transient_fs(|| pinned.raw_remove_dir(name)) {
+                Ok(()) => report.removed += 1,
+                Err(_) => report.retained += 1,
+            }
+        }
+        dir.raw_sync();
+    } else {
+        match crate::transient::retry_transient_fs(|| pinned.raw_unlink(name)) {
+            Ok(()) => {
+                report.removed += 1;
+                report.bytes_freed += stat.size;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    pinned.raw_sync();
+    Ok(report)
+}
+
+/// `path`'s own modification time is at least `min_age` in the past.
+fn is_old_enough(path: &Path, min_age: Duration) -> bool {
+    let Ok(meta) = fs::symlink_metadata(path) else {
+        return false;
+    };
+    let Ok(modified) = meta.modified() else {
+        return false;
+    };
+    match SystemTime::now().duration_since(modified) {
+        Ok(age) => age >= min_age,
+        Err(_) => false,
+    }
+}
+
+/// Remove every child of `dir`. Only a failure to list `dir` itself is an error; a child that
+/// cannot be removed is counted.
+fn remove_children(dir: &crate::state::StateDir, report: &mut RemoveReport) -> Result<()> {
+    for entry in dir.raw_entries()? {
+        remove_entry(dir, &entry, report);
+    }
+    Ok(())
+}
+
+fn remove_entry(
+    dir: &crate::state::StateDir,
+    entry: &crate::state::DirEntry,
+    report: &mut RemoveReport,
+) {
+    use crate::state::EntryKind;
+    let name = entry.name.as_str();
+    match entry.kind {
+        EntryKind::Dir => {
+            let before = report.retained;
+            let Ok(child) = dir.raw_open_child(name) else {
+                report.retained += 1;
+                return;
+            };
+            if remove_children(&child, report).is_err() {
+                report.retained += 1;
+                return;
+            }
+            drop(child);
+            if report.retained != before {
+                return;
+            }
+            match crate::transient::retry_transient_fs(|| dir.raw_remove_dir(name)) {
+                Ok(()) => report.removed += 1,
+                Err(_) => report.retained += 1,
+            }
+        }
+        EntryKind::Symlink => {
+            match crate::transient::retry_transient_fs(|| dir.raw_remove_link(name)) {
+                Ok(()) => report.removed += 1,
+                Err(_) => report.retained += 1,
+            }
+        }
+        EntryKind::File | EntryKind::Other => {
+            let size = match dir.raw_stat(name) {
+                Ok(Some(stat)) if stat.kind == EntryKind::File => stat.size,
+                _ => 0,
+            };
+            match crate::transient::retry_transient_fs(|| dir.raw_unlink(name)) {
+                Ok(()) => {
+                    report.removed += 1;
+                    report.bytes_freed += size;
+                }
+                Err(_) => report.retained += 1,
+            }
+        }
     }
 }

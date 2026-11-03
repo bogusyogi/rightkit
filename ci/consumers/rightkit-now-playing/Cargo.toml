@@ -1,0 +1,10 @@
+[package]
+name = "rightkit-now-playing-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-now-playing = { version = "=0.1.0" }

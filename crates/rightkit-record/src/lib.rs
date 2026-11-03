@@ -26,7 +26,6 @@ pub mod backend;
 mod bundle;
 pub mod clock;
 pub mod error;
-pub mod fake;
 pub mod hash;
 pub mod media;
 pub mod plan;
@@ -35,6 +34,8 @@ pub mod protocol;
 pub mod reader;
 pub mod recorder;
 pub mod redact;
+pub mod rkv;
+pub mod screen;
 pub mod support;
 pub mod verify;
 
@@ -69,6 +70,12 @@ pub use reader::{BundleReader, ClockMap, CursorAsset, CursorAssetsStatus, Source
 pub use recorder::{Doctor, Outcome, Recorder, StateSupport, Status, StopReason};
 pub use redact::{
     FieldMode, FixedKeySource, HashKey, KeyHandle, KeySource, RedactionPolicy, SecretsKeySource,
+};
+pub use rkv::{LosslessReader, LosslessWriter, RawFrame};
+pub use screen::{
+    default_backend, list_monitors, Marker, MonitorInfo, ScreenBackend, ScreenEvent,
+    ScreenFinished, ScreenFrame, ScreenReader, ScreenRecorder, ScreenSpec, ScreenStart, ScreenTake,
+    ScreenTarget,
 };
 pub use support::Support;
 pub use verify::{VerifyOptions, VerifyReport};

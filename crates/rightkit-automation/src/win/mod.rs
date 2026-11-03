@@ -4,9 +4,13 @@
 
 pub mod bounded;
 pub(crate) mod capture_safety;
+pub(crate) mod clip;
 pub mod dialog;
+pub mod dropfiles;
+pub mod ime;
 pub mod input;
 pub mod msaa;
+pub(crate) mod region;
 mod sys;
 pub mod uia;
 
@@ -14,6 +18,7 @@ use crate::model::*;
 use crate::platform::*;
 use uia::El;
 
+use crate::proof::FieldText;
 pub use bounded::{
     mutation_circuit_open, reset_mutation_circuit, with_deadline, with_deadline_mutation,
     with_deadline_security,
@@ -22,6 +27,7 @@ pub use input::{
     is_extended_vk, send_input_batch, send_input_batch_with, vk, ModifierSnapshot, RawInput,
     RawKey, RawMouse, RawMouseButton, SendOptions,
 };
+use std::path::Path;
 
 /// Move and resize the top-level window `window_id` (the `window_id` of a [`WindowInfo`], an
 /// `HWND`) to `frame`, in physical pixels with a top-left origin, without activating it or
@@ -30,6 +36,29 @@ pub use input::{
 /// the Windows counterpart of the macOS `ax::El::set_frame`.
 pub fn set_window_frame(window_id: u64, frame: Rect) -> Result<()> {
     sys::set_window_frame(window_id as isize, frame)
+}
+
+/// The top-level window the user is working in: the OS foreground window, as a [`WindowInfo`].
+pub(crate) fn foreground_window() -> Option<WindowInfo> {
+    let id = sys::frontmost()?.window_id?;
+    sys::list_windows(false)
+        .into_iter()
+        .find(|w| w.window_id == id)
+}
+
+/// Every top-level window, front to back, including minimized ones.
+pub(crate) fn all_windows() -> Vec<WindowInfo> {
+    sys::list_windows(false)
+}
+
+/// The app id (lowercase exe file name) of the process `pid`.
+pub(crate) fn app_id_of(pid: i32) -> Option<String> {
+    sys::process_info(pid).map(|p| p.0)
+}
+
+/// Move and resize a top-level window, restoring it first when maximized.
+pub(crate) fn place_window(window_id: u64, frame: Rect) -> Result<()> {
+    sys::place_window(window_id as isize, frame)
 }
 
 /// Windows backend. Every process it launches is owned: it lives in a kill-on-close
@@ -161,6 +190,12 @@ impl Platform for WinPlatform {
     }
     fn native_write(&self, el: &El, text: &str) -> Result<()> {
         uia::native_write(el, text)
+    }
+    fn field_origin(&self, el: &El) -> crate::secret::FieldOrigin {
+        uia::field_origin(el)
+    }
+    fn secret_write(&self, el: &El, secret: &crate::secret::Secret) -> Result<()> {
+        uia::secret_write(el, secret)
     }
 
     fn post(&self, pid: i32, window: Option<u64>, ev: &InputEvent) -> Result<()> {

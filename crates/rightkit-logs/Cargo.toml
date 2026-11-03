@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-logs"
-version = "0.3.8"
+version = "0.3.9"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Privacy-safe local JSONL logging and diagnostics for Right Suite desktop apps."
@@ -16,14 +16,14 @@ default = ["http"]
 # HTTPS transport for the consented outbox uploader. Without it the crate has no
 # network dependency and callers supply their own `Transport`.
 http = ["dep:ureq"]
-# Loopback mock ingest server for app e2e tests.
-testing = []
 # Daily-rolling JSONL file logs for `tracing`: `install_tracing`, `tracing_layer`,
 # and the diagnostics helpers that collect the daily files.
 tracing = ["dep:tracing", "dep:tracing-subscriber"]
 # Forward `log`-crate records (for example from dependencies and apps that use `log::`) into
 # `tracing`, so they reach the `install_tracing` file logs: `init_log_bridge`.
 log-bridge = ["tracing", "dep:tracing-log"]
+# `scrub::redact_key_tokens`: stable salted tokens for `key=value` pairs in text lines (rightkit#520).
+token-hash = ["dep:rightkit-crypto"]
 agent_telemetry = ["rightkit-fs/lock", "rightkit-fs/json", "rightkit-fs/digest", "rightkit-fs/transaction", "dep:rightkit-crypto", "dep:thiserror", "dep:tracing"]
 
 [dependencies]

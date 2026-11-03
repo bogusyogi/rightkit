@@ -16,6 +16,9 @@ use crate::error::{JobError, JobResult};
 
 pub const QUEUED: &str = "queued";
 pub const RUNNING: &str = "running";
+/// The standard held status of an outcome nobody can vouch for: the effect may have happened.
+/// Declare it with `StatusModel::with_uncertain`; it is where a `Recovery::Uncertain` job parks.
+pub const UNCERTAIN: &str = "uncertain";
 pub const COMPLETE: &str = "complete";
 pub const FAILED: &str = "failed";
 pub const CANCELLED: &str = "cancelled";
@@ -37,8 +40,10 @@ pub use deferred::{
     Admitted, DeferredFlush, DeferredKind, DeferredOp, DeleteLater, ProvisionalJob,
     MAX_DEFERRED_OPS,
 };
+mod outbox;
+pub use outbox::{OutboxEntry, MAX_OUTBOX_READ, OUTBOX_CURSOR_TABLE, OUTBOX_TABLE, OWNER_TABLE};
 mod table;
-pub use table::{Expect, JobTable};
+pub use table::{DeleteMode, Expect, JobTable};
 mod query;
 pub use query::{JobCursor, JobOrder, JobPage, JobQuery, DEFAULT_QUERY_LIMIT, MAX_QUERY_LIMIT};
 mod settle;
@@ -125,19 +130,34 @@ pub enum Recovery {
     /// that must not repeat: uninstall, cleanup apply, package upgrades. A job that never began
     /// an attempt still runs normally.
     Never,
+    /// As [`Recovery::Never`] (never handed to a handler a second time once an attempt began),
+    /// but a lost runner, or a retryable handler error, parks the job in the held
+    /// [`UNCERTAIN`] status instead of failing it: the effect may or may not have happened, and
+    /// an operator or an outside receipt check settles it with [`JobStore::resolve`]
+    /// (`Adopt`: it did happen; `Abandon`: it did not and the job is given up; `Resubmit`: it did
+    /// not, run it again, which also returns the job to `Recovery::Resume`). Needs
+    /// `StatusModel::with_uncertain`; a submit with this class on a store without it is refused
+    /// with `bad_input`.
+    Uncertain,
 }
 
 impl Recovery {
+    /// True when a started job of this class is never handed to a handler again.
+    pub(crate) fn never_reruns(self) -> bool {
+        matches!(self, Recovery::Never | Recovery::Uncertain)
+    }
     fn as_str(self) -> &'static str {
         match self {
             Recovery::Resume => "resume",
             Recovery::Never => "never",
+            Recovery::Uncertain => "uncertain",
         }
     }
     /// An unknown stored value (written by a newer version) reads as the safe class.
     fn parse(s: &str) -> Self {
         match s {
             "resume" => Recovery::Resume,
+            "uncertain" => Recovery::Uncertain,
             _ => Recovery::Never,
         }
     }
@@ -233,6 +253,12 @@ pub struct SubmitOptions {
     pub single_flight: Option<String>,
     /// Prune terminal jobs in the submit transaction, before the new job is inserted.
     pub prune: Option<PrunePolicy>,
+    /// The id the new job gets, instead of a generated one (a persisted, derived id such as one
+    /// computed from a calendar entry's revision). A plain portable path component (the lock
+    /// directory and the scratch layout use it as a file name), else `bad_input`. An id that is
+    /// already stored is refused with `job_exists` and nothing is written; a repeated
+    /// `request_id` still returns the existing job (`deduplicated`) first.
+    pub job_id: Option<String>,
 }
 
 impl SubmitOptions {
@@ -250,6 +276,11 @@ impl SubmitOptions {
     }
     pub fn prune(mut self, p: PrunePolicy) -> Self {
         self.prune = Some(p);
+        self
+    }
+    /// Give the new job this id: see [`SubmitOptions::job_id`].
+    pub fn job_id(mut self, id: impl Into<String>) -> Self {
+        self.job_id = Some(id.into());
         self
     }
 }
@@ -891,7 +922,7 @@ impl JobStore {
             Transition::to(FAILED).error(Some(error.to_json_with(self.cfg.includes_retryable())));
         let after = self.exec(&tx, &rec, &t)?;
         add_event_on(
-            self.jt(),
+            &self.cfg,
             &tx,
             &id,
             None,
@@ -945,23 +976,97 @@ impl JobStore {
         if before.job.is_terminal() || self.cfg.statuses.is_held(&before.job.status) {
             return Ok(None);
         }
-        let err = JobError::interrupted(job_id);
-        let t = Transition::to(FAILED).error(Some(err.to_json_with(self.cfg.includes_retryable())));
+        let class: Option<String> = tx
+            .query_row(
+                "SELECT recovery FROM rk_job_meta WHERE job_id=?1",
+                [job_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let uncertain = class.as_deref().map(Recovery::parse) == Some(Recovery::Uncertain);
+        let (err, to, stage) = if uncertain {
+            (JobError::uncertain(job_id), UNCERTAIN, "uncertain")
+        } else {
+            (JobError::interrupted(job_id), FAILED, "interrupted")
+        };
+        let t = Transition::to(to).error(Some(err.to_json_with(self.cfg.includes_retryable())));
         let after = self.exec(&tx, &before, &t)?;
         let ev = add_event_on(
-            self.jt(),
+            &self.cfg,
             &tx,
             job_id,
             None,
-            "interrupted",
+            stage,
             None,
             None,
             Some(&err.message),
         )?;
         tx.commit()?;
         drop(conn);
-        self.settle(job_id, false);
+        if !uncertain {
+            self.settle(job_id, false);
+        }
         Ok(Some((after.job, ev)))
+    }
+
+    /// Claim the next owner epoch (`StoreConfig::owner_epochs`) in one committed transaction and
+    /// return it; see [`JobTable::claim_owner_epoch`]. Call it once when the process that owns
+    /// the store starts, before any runner leases a job: every attempt of an older owner is
+    /// fenced out with `stale_attempt`.
+    pub fn claim_owner_epoch(&self) -> JobResult<i64> {
+        let mut conn = self.c();
+        let tx = write_txn(&mut conn)?;
+        let epoch = self.table.claim_owner_epoch(&tx)?;
+        tx.commit()?;
+        Ok(epoch)
+    }
+
+    /// The current owner epoch (0 before the first claim).
+    pub fn owner_epoch(&self) -> JobResult<i64> {
+        self.table.owner_epoch(&self.c())
+    }
+
+    /// Append an outbox event in its own transaction (`StoreConfig::outbox`). To commit it with
+    /// other writes, use [`JobTable::outbox_append`] on your own transaction.
+    pub fn outbox_append(
+        &self,
+        topic: &str,
+        job_id: Option<&str>,
+        payload: &Value,
+    ) -> JobResult<i64> {
+        let mut conn = self.c();
+        let tx = write_txn(&mut conn)?;
+        let seq = self.table.outbox_append(&tx, topic, job_id, payload)?;
+        tx.commit()?;
+        Ok(seq)
+    }
+
+    /// Entries past `after`, oldest first; see [`JobTable::outbox_read`].
+    pub fn outbox_read(&self, after: i64, limit: usize) -> JobResult<Vec<OutboxEntry>> {
+        self.table.outbox_read(&self.c(), after, limit)
+    }
+
+    /// Entries `consumer` has not yet published; see [`JobTable::outbox_pending`].
+    pub fn outbox_pending(&self, consumer: &str, limit: usize) -> JobResult<Vec<OutboxEntry>> {
+        self.table.outbox_pending(&self.c(), consumer, limit)
+    }
+
+    /// Record `consumer` as published up to `seq`; see [`JobTable::outbox_advance`].
+    pub fn outbox_advance(&self, consumer: &str, seq: i64) -> JobResult<i64> {
+        let mut conn = self.c();
+        let tx = write_txn(&mut conn)?;
+        let at = self.table.outbox_advance(&tx, consumer, seq)?;
+        tx.commit()?;
+        Ok(at)
+    }
+
+    /// Remove what every consumer has published; see [`JobTable::outbox_prune`].
+    pub fn outbox_prune(&self) -> JobResult<usize> {
+        let mut conn = self.c();
+        let tx = write_txn(&mut conn)?;
+        let n = self.table.outbox_prune(&tx)?;
+        tx.commit()?;
+        Ok(n)
     }
 
     /// The in-memory cancel flag of `job_id` (created on first use). [`JobStore::cancel`], a
@@ -1091,6 +1196,9 @@ impl JobStore {
                 [id],
             )?;
             conn.execute("DELETE FROM rk_job_meta WHERE job_id=?1", [id])?;
+            if self.cfg.outbox {
+                conn.execute("DELETE FROM rk_outbox WHERE job_id=?1", [id])?;
+            }
             conn.execute("DELETE FROM rk_job_deleting WHERE job_id=?1", [id])?;
         }
         for id in &doomed {
@@ -1326,7 +1434,7 @@ impl JobStore {
                 self.jt(),
                 self.table.rev_bump()
             ),
-            params![job_id, now()],
+            params![job_id, self.cfg.now()],
         )?;
         let next = generation + 1;
         tx.commit()?;
@@ -1441,7 +1549,7 @@ impl JobStore {
                 self.jt(),
                 self.table.rev_bump()
             ),
-            params![job_id, now()],
+            params![job_id, self.cfg.now()],
         )?;
         tx.commit()?;
         Ok(())
@@ -1478,7 +1586,7 @@ impl JobStore {
                 error
                     .to_json_with(self.cfg.includes_retryable())
                     .to_string(),
-                now()
+                self.cfg.now()
             ],
         )?;
         tx.commit()?;
@@ -1815,7 +1923,7 @@ impl JobStore {
                     self.jt(),
                     self.table.rev_bump()
                 ),
-                params![job_id, consumer, now()],
+                params![job_id, consumer, self.cfg.now()],
             )?;
         }
         self.get(job_id)
@@ -1847,7 +1955,7 @@ impl JobStore {
         let tx = write_txn(&mut conn)?;
         check_fence(self.jt(), &tx, job_id, Some(generation))?;
         self.flush_pending_in(&tx, job_id)?;
-        let ev = add_event_on(self.jt(), &tx, job_id, None, stage, None, progress, message)?;
+        let ev = add_event_on(&self.cfg, &tx, job_id, None, stage, None, progress, message)?;
         tx.commit()?;
         drop(conn);
         self.after_write();
@@ -1901,7 +2009,7 @@ impl JobStore {
             let tx = write_txn(&mut conn)?;
             check_fence(self.jt(), &tx, job_id, Some(generation))?;
             self.flush_pending_in(&tx, job_id)?;
-            let ev = add_event_on(self.jt(), &tx, job_id, None, stage, None, progress, message)?;
+            let ev = add_event_on(&self.cfg, &tx, job_id, None, stage, None, progress, message)?;
             tx.commit()?;
             Ok(ev)
         })();
@@ -1984,7 +2092,7 @@ impl JobStore {
             return Ok(());
         }
         add_event_on(
-            self.jt(),
+            &self.cfg,
             conn,
             job_id,
             None,
@@ -2035,14 +2143,7 @@ impl JobStore {
         let conn = self.c();
         self.flush_pending_in(&conn, job_id)?;
         add_event_on(
-            self.jt(),
-            &conn,
-            job_id,
-            status,
-            stage,
-            attempt,
-            progress,
-            message,
+            &self.cfg, &conn, job_id, status, stage, attempt, progress, message,
         )
     }
 
@@ -2160,7 +2261,7 @@ impl JobStore {
                 "INSERT OR REPLACE INTO {} ({}, job_id, path, sha256, bytes, mime, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
                 n.table, n.id_column
             ),
-            params![a.artifact_id, a.job_id, a.path, a.sha256, a.bytes, a.mime, now()],
+            params![a.artifact_id, a.job_id, a.path, a.sha256, a.bytes, a.mime, self.cfg.now()],
         )?;
         Ok(())
     }
@@ -2226,7 +2327,7 @@ fn check_fence(table: &str, conn: &Connection, job_id: &str, fence: Option<i64>)
 // restate them at each call site.
 #[allow(clippy::too_many_arguments)]
 fn add_event_on(
-    table: &str,
+    cfg: &StoreConfig,
     conn: &Connection,
     job_id: &str,
     status: Option<&str>,
@@ -2235,6 +2336,7 @@ fn add_event_on(
     progress: Option<f64>,
     message: Option<&str>,
 ) -> JobResult<Event> {
+    let table = cfg.jobs_table.as_str();
     let (row_status, row_attempt): (String, i64) = conn
         .query_row(
             &format!("SELECT status, attempts FROM {table} WHERE job_id=?1"),
@@ -2245,7 +2347,7 @@ fn add_event_on(
         .ok_or_else(|| JobError::new("job_not_found", format!("no such job: {job_id}")))?;
     let status = status.map(String::from).unwrap_or(row_status);
     let attempt = attempt.unwrap_or(row_attempt);
-    let at = now();
+    let at = cfg.now();
     conn.execute(
         "INSERT INTO job_events (job_id, at, status, stage, attempt, progress, message) VALUES (?1,?2,?3,?4,?5,?6,?7)",
         params![job_id, at, status, stage, attempt, progress, message],
@@ -2358,6 +2460,12 @@ CREATE INDEX IF NOT EXISTS {t}_job ON {t}(job_id);",
     conn.execute_batch(delete::DELETING_SCHEMA)?;
     if cfg.external_id.is_some() {
         conn.execute_batch(SUBMISSIONS_SCHEMA)?;
+    }
+    if cfg.owner_epochs {
+        conn.execute_batch(outbox::OWNER_SCHEMA)?;
+    }
+    if cfg.outbox {
+        conn.execute_batch(outbox::OUTBOX_SCHEMA)?;
     }
     // Columns later schemas (or the other app's schema) may lack.
     let mut wanted: Vec<(String, String, String)> = vec![

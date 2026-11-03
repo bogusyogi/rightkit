@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2 (unpublished)
+
+- Declares the consumer `citationberg` patch in `[[package.metadata.rightkit.consumer_patches]]` (crate, source, required quick-xml, advisories, removal condition) so release tooling can check consumer manifests and locks; README gives the patch for an app outside the RightKit tree (a git source pinned to a RightKit commit) next to the in-tree path, and records why the fork cannot be published and depended on under a RightKit name: typst and hayagriva name `citationberg` themselves (rightkit#1346 item 7). No source change.
+
 ## 0.1.1 (unpublished)
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 

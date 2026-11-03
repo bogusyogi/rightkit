@@ -51,8 +51,12 @@ use super::{sweep, sys, AdoptedIdentity, SweepReport};
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ProcessQuery {
     exe: Option<PathBuf>,
+    exe_prefix: Option<PathBuf>,
+    exe_ignore_case: Option<String>,
+    exe_name_ignore_case: Option<String>,
     args_exact: Vec<OsString>,
     args_containing: Vec<String>,
+    args_containing_ci: Vec<String>,
 }
 
 impl ProcessQuery {
@@ -63,6 +67,30 @@ impl ProcessQuery {
     /// The process runs exactly this executable (compared case-insensitively on Windows).
     pub fn exe(mut self, path: impl Into<PathBuf>) -> Self {
         self.exe = Some(path.into());
+        self
+    }
+
+    /// The process runs exactly this executable path, compared without regard to case on every
+    /// host (`to_lowercase` on both sides; `/` and `\` are not interchangeable here, as on
+    /// Windows they are for [`ProcessQuery::exe`]). For a file system that ignores case, which
+    /// the Unix compare of [`ProcessQuery::exe`] does not.
+    pub fn exe_ignore_case(mut self, path: impl AsRef<Path>) -> Self {
+        self.exe_ignore_case = Some(path.as_ref().to_string_lossy().to_lowercase());
+        self
+    }
+
+    /// The process's executable file name equals `name`, without regard to case on every host
+    /// (`"scraperight.exe"` matches `ScrapeRight.exe`): the "is the other app running" check.
+    /// The name is a file name, not a path.
+    pub fn exe_name_ignore_case(mut self, name: impl AsRef<str>) -> Self {
+        self.exe_name_ignore_case = Some(name.as_ref().to_lowercase());
+        self
+    }
+
+    /// The process's executable lies under this directory (whole path components, compared
+    /// case-insensitively on Windows). Combines with [`ProcessQuery::exe`] when both are set.
+    pub fn exe_prefix(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.exe_prefix = Some(dir.into());
         self
     }
 
@@ -80,9 +108,23 @@ impl ProcessQuery {
         self
     }
 
+    /// As [`ProcessQuery::arg_containing`], but the needle matches regardless of ASCII or Unicode
+    /// case in the argument (`to_lowercase` on both sides).
+    pub fn arg_containing_ignore_case(mut self, needle: impl Into<String>) -> Self {
+        self.args_containing_ci.push(needle.into().to_lowercase());
+        self
+    }
+
     fn validate(&self) -> io::Result<()> {
         let invalid = |message: &'static str| io::Error::new(io::ErrorKind::InvalidInput, message);
-        if self.exe.is_none() && self.args_exact.is_empty() && self.args_containing.is_empty() {
+        if self.exe.is_none()
+            && self.exe_prefix.is_none()
+            && self.exe_ignore_case.is_none()
+            && self.exe_name_ignore_case.is_none()
+            && self.args_exact.is_empty()
+            && self.args_containing.is_empty()
+            && self.args_containing_ci.is_empty()
+        {
             return Err(invalid("a process query needs at least one criterion"));
         }
         if self
@@ -91,6 +133,30 @@ impl ProcessQuery {
             .is_some_and(|path| path.as_os_str().is_empty())
         {
             return Err(invalid("the executable path of a process query is empty"));
+        }
+        if self
+            .exe_prefix
+            .as_ref()
+            .is_some_and(|dir| dir.as_os_str().is_empty())
+        {
+            return Err(invalid(
+                "the executable directory of a process query is empty",
+            ));
+        }
+        if self.exe_ignore_case.as_ref().is_some_and(String::is_empty) {
+            return Err(invalid("the executable path of a process query is empty"));
+        }
+        if self
+            .exe_name_ignore_case
+            .as_ref()
+            .is_some_and(|name| name.is_empty() || name.contains(['/', '\\']))
+        {
+            return Err(invalid(
+                "the executable name of a process query is empty or contains a path separator",
+            ));
+        }
+        if self.args_containing_ci.iter().any(String::is_empty) {
+            return Err(invalid("an argument substring of a process query is empty"));
         }
         if self.args_exact.iter().any(|token| token.is_empty()) {
             return Err(invalid("an argument token of a process query is empty"));
@@ -102,7 +168,39 @@ impl ProcessQuery {
     }
 
     fn needs_args(&self) -> bool {
-        !self.args_exact.is_empty() || !self.args_containing.is_empty()
+        !self.args_exact.is_empty()
+            || !self.args_containing.is_empty()
+            || !self.args_containing_ci.is_empty()
+    }
+
+    /// Whether an executable (`seen`, `None` when unreadable) satisfies the exact and prefix
+    /// executable criteria. `wanted_exe` is the exact path's candidates, when one is set.
+    fn exe_accepts(&self, wanted_exe: Option<&[PathBuf]>, seen: Option<&Path>) -> bool {
+        if let Some(wanted) = wanted_exe {
+            if !seen.is_some_and(|path| exe_matches(path, wanted)) {
+                return false;
+            }
+        }
+        if let Some(dir) = &self.exe_prefix {
+            if !seen.is_some_and(|path| exe_under(path, dir)) {
+                return false;
+            }
+        }
+        if let Some(wanted) = &self.exe_ignore_case {
+            if !seen.is_some_and(|path| path.to_string_lossy().to_lowercase() == *wanted) {
+                return false;
+            }
+        }
+        if let Some(wanted) = &self.exe_name_ignore_case {
+            let name_matches = seen.is_some_and(|path| {
+                path.file_name()
+                    .is_some_and(|name| name.to_string_lossy().to_lowercase() == *wanted)
+            });
+            if !name_matches {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -257,14 +355,8 @@ fn inspect(
         return Ok(None);
     };
     // Cheap rejection first: the executable is already in hand.
-    if let Some(wanted) = wanted_exe {
-        if !first
-            .exe
-            .as_deref()
-            .is_some_and(|seen| exe_matches(seen, wanted))
-        {
-            return Ok(None);
-        }
+    if !query.exe_accepts(wanted_exe, first.exe.as_deref()) {
+        return Ok(None);
     }
     if !me.owns(pid)? {
         return Ok(None);
@@ -288,14 +380,8 @@ fn inspect(
     if last.start != first.start {
         return Ok(None);
     }
-    if let Some(wanted) = wanted_exe {
-        if !last
-            .exe
-            .as_deref()
-            .is_some_and(|seen| exe_matches(seen, wanted))
-        {
-            return Ok(None);
-        }
+    if !query.exe_accepts(wanted_exe, last.exe.as_deref()) {
+        return Ok(None);
     }
     Ok(Some(MatchedProcess {
         identity: AdoptedIdentity {
@@ -316,6 +402,32 @@ fn args_match(query: &ProcessQuery, args: &[OsString]) -> bool {
             args.iter()
                 .any(|arg| arg.to_string_lossy().contains(needle.as_str()))
         })
+        && query.args_containing_ci.iter().all(|needle| {
+            args.iter().any(|arg| {
+                arg.to_string_lossy()
+                    .to_lowercase()
+                    .contains(needle.as_str())
+            })
+        })
+}
+
+/// Whether `seen` lies under the directory `dir`, by whole path components. Windows compares
+/// the components case-insensitively, as the file system does.
+fn exe_under(seen: &Path, dir: &Path) -> bool {
+    let parts = |path: &Path| -> Vec<String> {
+        path.components()
+            .map(|component| {
+                let text = component.as_os_str().to_string_lossy();
+                if cfg!(windows) {
+                    text.to_lowercase()
+                } else {
+                    text.into_owned()
+                }
+            })
+            .collect()
+    };
+    let dir = parts(dir);
+    !dir.is_empty() && parts(seen).starts_with(&dir)
 }
 
 /// The wanted path as given, and on Unix also resolved (the OS reports resolved paths).

@@ -12,6 +12,7 @@
     "isolated-test-keychain",
     "demo",
     "dev-overrides",
+    "webview-automation",
     "qa-probes",
     "qa-env",
     "dev-worker-override",
@@ -124,6 +125,10 @@
     {
       "name": "--demo",
       "class": "S1"
+    },
+    {
+      "name": "TAURI_WEBVIEW_AUTOMATION",
+      "class": "S1"
     }
   ],
   "conditionalForbiddenFeatures": {
@@ -131,5 +136,59 @@
       "devtools",
       "content-devtools"
     ]
-  }
+  },
+  "webQa": {
+    "marker": "RIGHTKIT-QA-WEB-COMPILED",
+    "define": "__RIGHTKIT_QA__",
+    "retired": [
+      "VITE_VIEWRIGHT_BROWSER_QA",
+      "VITE_RIGHTKIT_BROWSER_QA",
+      "VITE_RIGHTKIT_QA",
+      "__RIGHTKIT_MOCK__"
+    ]
+  },
+  "osProvided": [
+    "HOME",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "PROGRAMDATA",
+    "ALLUSERSPROFILE",
+    "PATH",
+    "PATHEXT",
+    "SystemRoot",
+    "SYSTEMROOT",
+    "SystemDrive",
+    "windir",
+    "WINDIR",
+    "COMSPEC",
+    "ProgramFiles",
+    "ProgramFiles(x86)",
+    "ProgramW6432",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "USER",
+    "USERNAME",
+    "LOGNAME",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_STATE_HOME",
+    "XDG_RUNTIME_DIR"
+  ],
+  "presenceOwners": [
+    {
+      "name": "ORT_DYLIB_PATH",
+      "mechanism": "clear",
+      "crate": "rightkit-onnx"
+    },
+    {
+      "name": "WEBVIEW2_*",
+      "mechanism": "set",
+      "crate": "rightkit-tauri-shell"
+    }
+  ]
 }

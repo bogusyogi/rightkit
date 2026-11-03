@@ -1,9 +1,9 @@
 //! Android journeys: an `adb`-backed launcher for an emulator or a USB device (feature `android`).
 //!
-//! One [`AndroidSession`] installs the app's **test** APK, starts it with test-mode extras, records
+//! One [`AndroidSession`] installs the app's dev APK, starts it, records
 //! logcat for the app's pid into the run directory, optionally forwards the app's in-app control
-//! server (dev builds only) to a loopback port, and at teardown force-stops and uninstalls the
-//! package. Every `adb` call is bounded (an overrunning call is killed, the same rule as the
+//! server (dev builds only) to a loopback port, and at teardown force-stops the package (and removes it
+//! only when this session installed it fresh and the config asks). Every `adb` call is bounded (an overrunning call is killed, the same rule as the
 //! kill helpers in [`crate::process`], #134), so a stalled `adb` is a failed step, never a hang.
 //!
 //! ## Isolation
@@ -31,6 +31,7 @@ use crate::util::{err, Error, Result};
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs::File;
+use std::io::Read;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -50,8 +51,6 @@ pub const TEARDOWN_TIMEOUT: Duration = Duration::from_secs(20);
 const LOGCAT_REAP: Duration = Duration::from_secs(2);
 const POLL: Duration = Duration::from_millis(250);
 
-/// The boolean extra every launch carries so the app starts in its test mode.
-pub const TEST_MODE_EXTRA: &str = "rightkit.qa.test_mode";
 /// Last package-name segments that mark a package as a test build.
 pub const TEST_PACKAGE_SEGMENTS: [&str; 4] = ["dev", "qa", "test", "debug"];
 
@@ -287,11 +286,13 @@ pub struct AndroidConfig {
     pub apk: PathBuf,
     /// Activity class: `.MainActivity` or fully qualified.
     pub activity: String,
-    /// Launch extras; starts with [`TEST_MODE_EXTRA`] `= true`.
+    /// Launch extras; empty by default (there is no test mode, rightkit#1437).
     pub extras: Vec<(String, Extra)>,
     /// `install -g`: grant every runtime permission the manifest requests (microphone).
     pub grant_permissions: bool,
-    /// Uninstall the package at teardown (only if this session installed it).
+    /// Uninstall the package at teardown, only when this session installed it fresh (the package was
+    /// not on the device before). Never when it was already installed: an uninstall deletes the app's
+    /// data, which is the owner's real data.
     pub uninstall_at_teardown: bool,
     /// The in-app control server to forward, for a dev build that serves one.
     pub control: Option<RemoteEndpoint>,
@@ -321,9 +322,10 @@ impl AndroidConfig {
             package,
             apk: apk.into(),
             activity: activity.to_string(),
-            extras: vec![(TEST_MODE_EXTRA.to_string(), Extra::Bool(true))],
+            extras: vec![],
             grant_permissions: true,
-            uninstall_at_teardown: true,
+            // Uninstalling deletes the app's data, which is the owner's real data (rightkit#1437).
+            uninstall_at_teardown: false,
             control: None,
             adb: None,
         })
@@ -613,6 +615,19 @@ pub trait AdbRunner: Send + Sync {
     fn run(&self, args: &[String], timeout: Duration) -> Result<AdbOutput>;
     /// Start `adb <args>` with its standard output written to `out` (logcat).
     fn spawn_to_file(&self, args: &[String], out: File) -> Result<Box<dyn LogcatProc>>;
+    /// One bounded call whose standard output is written to `out` (a binary stream such as
+    /// `exec-out run-as <pkg> tar -cf -`), with no copy held in memory. The returned
+    /// [`AdbOutput::stdout`] is empty. A runner that cannot do it says so.
+    fn run_to_file(&self, args: &[String], out: File, timeout: Duration) -> Result<AdbOutput> {
+        let _ = (args, out, timeout);
+        err("this adb runner cannot stream a command's output to a file")
+    }
+    /// One bounded call whose standard input is read from `input` (a binary stream such as
+    /// `shell run-as <pkg> tar -xf -`). A runner that cannot do it says so.
+    fn run_from_file(&self, args: &[String], input: File, timeout: Duration) -> Result<AdbOutput> {
+        let _ = (args, input, timeout);
+        err("this adb runner cannot stream a file to a command's input")
+    }
 }
 
 /// The real runner: one `adb` executable.
@@ -671,6 +686,14 @@ impl AdbRunner for ProcessRunner {
         }
     }
 
+    fn run_to_file(&self, args: &[String], out: File, timeout: Duration) -> Result<AdbOutput> {
+        run_streamed(&self.adb, args, None, Some(out), timeout)
+    }
+
+    fn run_from_file(&self, args: &[String], input: File, timeout: Duration) -> Result<AdbOutput> {
+        run_streamed(&self.adb, args, Some(input), None, timeout)
+    }
+
     fn spawn_to_file(&self, args: &[String], out: File) -> Result<Box<dyn LogcatProc>> {
         let mut cmd = Command::new(&self.adb);
         #[cfg(windows)]
@@ -687,6 +710,76 @@ impl AdbRunner for ProcessRunner {
             .map_err(|e| Error(format!("could not start {}: {e}", self.adb.display())))?;
         Ok(Box::new(ChildLog { child, done: false }))
     }
+}
+
+fn drain<R: Read + Send + 'static>(stream: Option<R>) -> Option<std::thread::JoinHandle<Vec<u8>>> {
+    stream.map(|mut s| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = s.read_to_end(&mut buf);
+            buf
+        })
+    })
+}
+
+/// One `adb` call with a file as its standard input or output. Standard error (and standard
+/// output when no file takes it) is read into memory. An overrunning call is killed.
+fn run_streamed(
+    adb: &Path,
+    args: &[String],
+    stdin: Option<File>,
+    stdout: Option<File>,
+    timeout: Duration,
+) -> Result<AdbOutput> {
+    let mut cmd = Command::new(adb);
+    cmd.args(args);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    cmd.stdin(match stdin {
+        Some(f) => Stdio::from(f),
+        None => Stdio::null(),
+    });
+    cmd.stdout(match stdout {
+        Some(f) => Stdio::from(f),
+        None => Stdio::piped(),
+    });
+    cmd.stderr(Stdio::piped());
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| Error(format!("could not run {}: {e}", adb.display())))?;
+    let out_h = drain(child.stdout.take());
+    let err_h = drain(child.stderr.take());
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(st)) => break st,
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return err(format!(
+                        "adb {} did not finish within {}s and was killed",
+                        args.join(" "),
+                        timeout.as_secs()
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => return err(format!("could not wait for {}: {e}", adb.display())),
+        }
+    };
+    Ok(AdbOutput {
+        success: status.success(),
+        stdout: out_h
+            .map(|h| h.join().unwrap_or_default())
+            .unwrap_or_default(),
+        stderr: err_h
+            .map(|h| h.join().unwrap_or_default())
+            .unwrap_or_default(),
+    })
 }
 
 /// `adb devices -l` through `runner`.
@@ -933,7 +1026,8 @@ impl AndroidSession {
                 notes.push(format!("forward --remove: {e}"));
             }
         }
-        if self.installed && self.cfg.uninstall_at_teardown {
+        // Never over a package that was on the device before this session: its data is the owner's.
+        if self.installed && !self.preinstalled && self.cfg.uninstall_at_teardown {
             match self.call(args_uninstall(&package), TEARDOWN_TIMEOUT) {
                 Ok(out) => {
                     if !out.text().contains("Success") {

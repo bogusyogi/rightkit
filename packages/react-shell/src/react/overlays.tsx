@@ -1,14 +1,66 @@
-import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { useFocusTrap, useLatest, useModalDismiss } from "./hooks.js";
 import { Button, Input, cx, type ButtonProps } from "./ui.js";
-import { isTopEscapeOwner, pushEscapeOwner } from "./escape-stack.js";
+import { MODAL_ESCAPE_PRIORITY, isTopEscapeOwner, pushEscapeOwner } from "./escape-stack.js";
+import type { ReturnFocusTarget } from "@rightkit/platform-ui/headless";
 import type { SlotClasses } from "./slots.js";
+
+// Elements made inert by open modals, shared so stacked modals restore only when the last one closes.
+interface InertRecord {
+  count: number;
+  inert: string | null;
+  ariaHidden: string | null;
+}
+const inertRecords = new Map<Element, InertRecord>();
+const KEEP_LIVE = '[aria-live],[role="status"],[role="alert"],[data-rk-keep-interactive]';
+const NOT_CONTENT = new Set(["SCRIPT", "STYLE", "LINK", "META", "TEMPLATE", "NOSCRIPT"]);
+
+/**
+ * Mark everything outside `surface` inert and aria-hidden: at every level from `surface` up to `document.body`, each
+ * sibling that is not on the path to the surface. Live regions (toasts) and `[data-rk-keep-interactive]` are left alone.
+ * The previous `inert` and `aria-hidden` of every touched element is restored on cleanup, including ones that already
+ * had `aria-hidden`. The set is the siblings present at mount; layers opened later are not touched.
+ */
+function inertOutside(surface: Element): () => void {
+  const touched: Element[] = [];
+  let node: Element | null = surface;
+  while (node && node !== document.body && node.parentElement) {
+    const parent: Element = node.parentElement;
+    for (const sibling of Array.from(parent.children)) {
+      if (sibling === node || NOT_CONTENT.has(sibling.tagName) || sibling.matches(KEEP_LIVE) || sibling.contains(surface)) continue;
+      const known = inertRecords.get(sibling);
+      if (known) known.count += 1;
+      else {
+        inertRecords.set(sibling, { count: 1, inert: sibling.getAttribute("inert"), ariaHidden: sibling.getAttribute("aria-hidden") });
+        sibling.setAttribute("inert", "");
+        sibling.setAttribute("aria-hidden", "true");
+      }
+      touched.push(sibling);
+    }
+    if (parent === document.body) break;
+    node = parent;
+  }
+  return () => {
+    for (const el of touched) {
+      const record = inertRecords.get(el);
+      if (!record) continue;
+      record.count -= 1;
+      if (record.count > 0) continue;
+      inertRecords.delete(el);
+      if (record.inert === null) el.removeAttribute("inert");
+      else el.setAttribute("inert", record.inert);
+      if (record.ariaHidden === null) el.removeAttribute("aria-hidden");
+      else el.setAttribute("aria-hidden", record.ariaHidden);
+    }
+  };
+}
 
 export interface ModalShellProps {
   /** Accessible name when there is no visible title. */
   label: string;
   onClose: () => void;
-  width?: number;
+  /** Dialog width: a number is pixels; a string is any CSS length (`"32rem"`, `"min(90vw, 40rem)"`). Default 440. */
+  width?: number | string;
   align?: "center" | "top";
   /** Pass false when the dialog sets its own initial focus. */
   autoFocus?: boolean;
@@ -45,6 +97,18 @@ export interface ModalShellProps {
   overlayStyle?: CSSProperties;
   /** `root`: extra class on the dialog surface (same as `className`); `overlay`: extra class on the backdrop. */
   slots?: SlotClasses<"root" | "overlay">;
+  /**
+   * Make the rest of the page inert and aria-hidden while this modal is mounted, so keyboard, pointer and screen-reader
+   * users cannot reach it; each previous `inert` and `aria-hidden` value is restored on close. Default: on for
+   * `role="dialog"` with `dismissOnBackdrop={false}`, off otherwise.
+   */
+  inertBackground?: boolean;
+  /**
+   * Where focus goes on close: an element or a function returning one. Falls back to the opener, and when the opener is
+   * `<body>` (a WebKit click does not focus its button) or gone (a palette that unmounted), to the last focused or
+   * pressed element that is still connected.
+   */
+  returnFocus?: ReturnFocusTarget;
   children: ReactNode;
 }
 
@@ -53,8 +117,9 @@ export interface ModalShellProps {
  * backdrop dismissal with an exit animation, Tab focus trap, focus restored to the opener, and a
  * width that never exceeds the viewport.
  */
-export function ModalShell({ label, onClose, width = 440, align = "center", autoFocus = true, role = "dialog", dismissOnBackdrop = true, dismissOn = "mousedown", labelledBy, describedBy, ariaLabel, className, overlayClassName, overlayStyle, escape = true, dismissible, slots, children }: ModalShellProps) {
+export function ModalShell({ label, onClose, width = 440, align = "center", autoFocus = true, role = "dialog", dismissOnBackdrop = true, dismissOn = "mousedown", labelledBy, describedBy, ariaLabel, className, overlayClassName, overlayStyle, escape = true, dismissible, inertBackground, returnFocus, slots, children }: ModalShellProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const pressedOnBackdrop = useRef(false);
   const releasedOnBackdrop = useRef(false);
   const dismissibleRef = useLatest(dismissible);
@@ -75,7 +140,7 @@ export function ModalShell({ label, onClose, width = 440, align = "center", auto
       e.preventDefault();
       if (allowed()) closeRef.current();
     };
-    const removeOwner = pushEscapeOwner(owner);
+    const removeOwner = pushEscapeOwner(owner, MODAL_ESCAPE_PRIORITY);
     window.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("keydown", onKey, true);
@@ -84,11 +149,18 @@ export function ModalShell({ label, onClose, width = 440, align = "center", auto
     // allowed reads only refs, so one registration per mount is correct.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  useFocusTrap(ref, true, { autoFocus });
+  useFocusTrap(ref, true, { autoFocus, returnFocus });
+  const inert = inertBackground ?? (role === "dialog" && !dismissOnBackdrop);
+  useLayoutEffect(() => {
+    const overlay = overlayRef.current;
+    if (!inert || !overlay) return;
+    return inertOutside(overlay);
+  }, [inert]);
   const named = ariaLabel !== undefined;
   const byMouseDown = dismissOn === "mousedown";
   return (
     <div
+      ref={overlayRef}
       className={cx(`rk-overlay rk-overlay--${align}${closing ? " is-closing" : ""}`, overlayClassName, slots?.overlay)}
       style={overlayStyle}
       onMouseDown={(e) => {

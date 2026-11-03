@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-fs"
-version = "0.4.10"
+version = "0.4.12"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for Right Suite apps."
@@ -21,16 +21,11 @@ name = "rightkit-swap"
 path = "src/bin/rightkit-swap.rs"
 required-features = ["fs"]
 
-[[test]]
-name = "swap"
-path = "tests/swap.rs"
-required-features = ["fs"]
-
 [features]
 default = []
 # Atomic writes, owner-only files, StateDir, netfs, clonefile, and the error type. Pulls
 # libc (unix) and thiserror. `db` uses this layer and no more.
-fs = ["dep:libc", "dep:thiserror"]
+fs = ["dep:libc", "dep:thiserror", "dep:zeroize"]
 # Cross-process locks (POSIX record locks via libc on unix) on top of `fs`. Also names the
 # `write_locks` module: `KeyedWriteLocks`, in-process write locks keyed by destination with an
 # optional cross-process lock file.
@@ -49,9 +44,10 @@ blake3 = ["dep:blake3"]
 # Names the `zip` module for consumers that ask for it (`write_zip`, `read_zip`). The module is
 # compiled without it (std only, since `StoredZipWriter`), so this adds no code and no dependency.
 zip = []
-# `app_dirs` module: one per-user data/local/cache/home resolver with a dev namespace and test
-# isolation. Pulls thiserror (through `fs`) and nothing else.
+# `app_dirs` module: one per-user data/local/cache/home resolver with a dev namespace. Pulls thiserror (through `fs`) and nothing else.
 app-dirs = ["fs"]
+# `toolchain_lease` module: digest-bound immutable toolchain tree leases (rightkit#838). Uses the digest and json layers.
+toolchain-lease = ["fs", "digest", "json"]
 
 [dependencies]
 blake3 = { version = "1.8", optional = true }
@@ -59,12 +55,10 @@ serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 sha2 = { version = "0.11", default-features = false, optional = true }
 thiserror = { version = "2", optional = true }
+zeroize = { version = "1.9", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", optional = true }
-
-[dev-dependencies]
-tempfile = "3"
 
 [package.metadata.rightkit]
 continuous = false

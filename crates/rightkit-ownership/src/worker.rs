@@ -3,14 +3,18 @@
 //! the result object, or `{error, code}`.
 
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{json, Value};
 
 use crate::approval::{canonical_repository_identity, sha256_value};
 use crate::error::{Res, ScanError};
+use crate::evidence::create_evidence;
 use crate::gitio;
+use crate::inventory::content_inventory_keyed;
 use crate::json::{field, items, sha256_hex, str_of, truthy};
+use crate::keyauth::read_committed_key_authority;
 use crate::paths;
 use crate::runner::{ScanRequest, ScanRunner};
 use crate::scan::{catalog_digest, catalog_version, ScanContext, SCANNER_VERSION};
@@ -153,7 +157,7 @@ impl Scanner {
         if let Some(hook) = &self.ctx.before_inventory {
             hook(&root, call);
         }
-        let source = content_inventory(&root);
+        let source = content_inventory_keyed(&root);
         let roots: Vec<String> = items(field(&trust, "repositories"))
             .iter()
             .find(|e| {

@@ -11,11 +11,11 @@
    Sections: tokens, frame/fused layout, page, ui kit, overlays (palette, modal, menu, toast).
    Flat suite tokens (--rk-chrome --rk-plane --rk-ink --rk-accent ...) are defined here and
    shared with app view CSS. Dark follows the OS unless html[data-theme] is set. */
-:root { --rk-wash-hover: var(--rk-fill); --rk-wash-press: var(--rk-fill-2); --rk-line-2: color-mix(in srgb, currentColor 8%, transparent); --rk-brand: #7040c4; --rk-brand-dark: var(--rk-brand); --rk-caption-close-bg: #c42b1c; --rk-caption-close-ink: #fff; --rk-plane-radius: 20px; --rk-chrome: #eee9df; --rk-plane: #fffcf5; --rk-elevated: #ffffff; --rk-win: var(--rk-plane); --rk-side: var(--rk-chrome); --rk-bg: var(--rk-plane); --rk-panel: #ffffff; --rk-sunk: #f6f1e8; --rk-fill: rgba(35,31,26,.05); --rk-fill-2: rgba(35,31,26,.085); --rk-fill-3: rgba(35,31,26,.13); --rk-line: rgba(35,31,26,.11); --rk-line-strong: rgba(35,31,26,.18); --rk-hairline: rgba(35,31,26,.11); --rk-ink: #231f1a; --rk-ink-2: #6b655c; --rk-ink-3: #8a8378; --rk-accent: var(--rk-brand); --rk-accent-soft: color-mix(in srgb, var(--rk-accent) 14%, transparent); --rk-accent-ink: #ffffff; --rk-focus: color-mix(in srgb, var(--rk-accent) 35%, transparent); --rk-ok: #1e7f3c; --rk-ok-dot: #2ba24a; --rk-ok-soft: rgba(43,162,74,.14); --rk-warn: #b25000; --rk-warn-dot: #e08a00; --rk-warn-soft: rgba(224,138,0,.14); --rk-bad: #c4001a; --rk-bad-soft: rgba(196,0,26,.1); --rk-radius: 12px; --rk-card: 0 0 0 .5px rgba(35,31,26,.09), 0 1px 3px rgba(35,31,26,.06); --rk-knob: 0 1px 2px rgba(35,31,26,.14), 0 0 0 .5px rgba(35,31,26,.06); --rk-sel: rgba(35,31,26,.06); --rk-seg-on: #ffffff; --rk-ghost: #ffffff; --rk-pop: 0 0 0 .5px var(--rk-line-strong), 0 16px 40px rgba(20,16,10,.22); --rk-scrim: rgba(20,16,10,.38); --rk-danger: var(--rk-bad); --rk-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color-scheme: light; }
+:root { --rk-wash-hover: var(--rk-fill); --rk-wash-press: var(--rk-fill-2); --rk-line-2: color-mix(in srgb, currentColor 8%, transparent); --rk-brand: #7040c4; --rk-brand-dark: var(--rk-brand); --rk-caption-close-bg: #c42b1c; --rk-caption-close-ink: #fff; --rk-plane-radius: 20px; --rk-chrome: #eee9df; --rk-plane: #fffcf5; --rk-elevated: #ffffff; --rk-win: var(--rk-plane); --rk-side: var(--rk-chrome); --rk-bg: var(--rk-plane); --rk-panel: #ffffff; --rk-sunk: #f6f1e8; --rk-fill: rgba(35,31,26,.05); --rk-fill-2: rgba(35,31,26,.085); --rk-fill-3: rgba(35,31,26,.13); --rk-line: rgba(35,31,26,.11); --rk-line-strong: rgba(35,31,26,.18); --rk-hairline: rgba(35,31,26,.11); --rk-ink: #231f1a; --rk-ink-2: #6b655c; --rk-ink-3: #8a8378; --rk-accent: var(--rk-brand); --rk-accent-soft: color-mix(in srgb, var(--rk-accent) 14%, transparent); --rk-accent-ink: #ffffff; --rk-focus: color-mix(in srgb, var(--rk-accent) 35%, transparent); --rk-ok: #1e7f3c; --rk-ok-dot: #2ba24a; --rk-ok-soft: rgba(43,162,74,.14); --rk-warn: #b25000; --rk-warn-dot: #e08a00; --rk-warn-soft: rgba(224,138,0,.14); --rk-bad: #c4001a; --rk-bad-soft: rgba(196,0,26,.1); --rk-radius: 12px; --rk-card: 0 0 0 .5px rgba(35,31,26,.09), 0 1px 3px rgba(35,31,26,.06); --rk-knob: 0 1px 2px rgba(35,31,26,.14), 0 0 0 .5px rgba(35,31,26,.06); --rk-sel: rgba(35,31,26,.06); --rk-seg-on: #ffffff; --rk-ghost: #ffffff; --rk-pop: 0 0 0 .5px var(--rk-line-strong), 0 16px 40px rgba(20,16,10,.22); --rk-scrim: rgba(20,16,10,.38); --rk-danger: var(--rk-bad); --rk-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; --rk-stage: #0b0c0d; --rk-success: #1e7f3c; --rk-success-soft: rgba(43,162,74,.14); --rk-success-border: rgba(30,127,60,.35); --rk-warning: #b25000; --rk-warning-bg: rgba(224,138,0,.14); --rk-star: #e0a200; --rk-dur-1: 120ms; --rk-ease-out: cubic-bezier(.2,.7,.2,1); --rk-ease-spring: cubic-bezier(.34,1.56,.64,1); --rk-item-transition: background-color .12s; --rk-textarea-min-height: 64px; --rk-scrollbar-thumb: var(--rk-fill-3); --rk-scrollbar-thumb-hover: var(--rk-line-strong); color-scheme: light; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --rk-chrome: #0f0f10; --rk-plane: #17171a; --rk-elevated: #1f1f23; --rk-panel: #1f1f23; --rk-sunk: #1c1c1f; --rk-fill: rgba(242,240,236,.055); --rk-fill-2: rgba(242,240,236,.09); --rk-fill-3: rgba(242,240,236,.14); --rk-line: rgba(242,240,236,.09); --rk-line-strong: rgba(242,240,236,.16); --rk-hairline: rgba(242,240,236,.09); --rk-ink: #f2f0ec; --rk-ink-2: #969390; --rk-ink-3: #6e6b68; --rk-accent: var(--rk-brand-dark); --rk-accent-soft: color-mix(in srgb, var(--rk-accent) 18%, transparent); --rk-focus: color-mix(in srgb, var(--rk-accent) 50%, transparent); --rk-ok: #4cd07d; --rk-ok-dot: #4cd07d; --rk-ok-soft: rgba(76,208,125,.16); --rk-warn: #ffb340; --rk-warn-dot: #ffb340; --rk-warn-soft: rgba(255,179,64,.16); --rk-bad: #ff6961; --rk-bad-soft: rgba(255,105,97,.12); --rk-card: 0 0 0 .5px rgba(242,240,236,.08); --rk-knob: 0 1px 2px rgba(0,0,0,.4); --rk-sel: rgba(242,240,236,.1); --rk-seg-on: #3a3a42; --rk-ghost: #2a2a30; --rk-pop: 0 0 0 .5px var(--rk-line-strong), 0 18px 44px rgba(0,0,0,.55); --rk-scrim: rgba(0,0,0,.55); color-scheme: dark; }
+  :root:not([data-theme="light"]) { --rk-chrome: #0f0f10; --rk-plane: #17171a; --rk-elevated: #1f1f23; --rk-panel: #1f1f23; --rk-sunk: #1c1c1f; --rk-fill: rgba(242,240,236,.055); --rk-fill-2: rgba(242,240,236,.09); --rk-fill-3: rgba(242,240,236,.14); --rk-line: rgba(242,240,236,.09); --rk-line-strong: rgba(242,240,236,.16); --rk-hairline: rgba(242,240,236,.09); --rk-ink: #f2f0ec; --rk-ink-2: #969390; --rk-ink-3: #6e6b68; --rk-accent: var(--rk-brand-dark); --rk-accent-soft: color-mix(in srgb, var(--rk-accent) 18%, transparent); --rk-focus: color-mix(in srgb, var(--rk-accent) 50%, transparent); --rk-ok: #4cd07d; --rk-ok-dot: #4cd07d; --rk-ok-soft: rgba(76,208,125,.16); --rk-warn: #ffb340; --rk-warn-dot: #ffb340; --rk-warn-soft: rgba(255,179,64,.16); --rk-bad: #ff6961; --rk-bad-soft: rgba(255,105,97,.12); --rk-card: 0 0 0 .5px rgba(242,240,236,.08); --rk-knob: 0 1px 2px rgba(0,0,0,.4); --rk-sel: rgba(242,240,236,.1); --rk-seg-on: #3a3a42; --rk-ghost: #2a2a30; --rk-pop: 0 0 0 .5px var(--rk-line-strong), 0 18px 44px rgba(0,0,0,.55); --rk-scrim: rgba(0,0,0,.55); --rk-success: #4cd07d; --rk-success-soft: rgba(76,208,125,.16); --rk-success-border: rgba(76,208,125,.4); --rk-warning: #ffb340; --rk-warning-bg: rgba(255,179,64,.16); --rk-star: #ffc94d; color-scheme: dark; }
 }
-:root[data-theme="dark"] { --rk-chrome: #0f0f10; --rk-plane: #17171a; --rk-elevated: #1f1f23; --rk-panel: #1f1f23; --rk-sunk: #1c1c1f; --rk-fill: rgba(242,240,236,.055); --rk-fill-2: rgba(242,240,236,.09); --rk-fill-3: rgba(242,240,236,.14); --rk-line: rgba(242,240,236,.09); --rk-line-strong: rgba(242,240,236,.16); --rk-hairline: rgba(242,240,236,.09); --rk-ink: #f2f0ec; --rk-ink-2: #969390; --rk-ink-3: #6e6b68; --rk-accent: var(--rk-brand-dark); --rk-accent-soft: color-mix(in srgb, var(--rk-accent) 18%, transparent); --rk-focus: color-mix(in srgb, var(--rk-accent) 50%, transparent); --rk-ok: #4cd07d; --rk-ok-dot: #4cd07d; --rk-ok-soft: rgba(76,208,125,.16); --rk-warn: #ffb340; --rk-warn-dot: #ffb340; --rk-warn-soft: rgba(255,179,64,.16); --rk-bad: #ff6961; --rk-bad-soft: rgba(255,105,97,.12); --rk-card: 0 0 0 .5px rgba(242,240,236,.08); --rk-knob: 0 1px 2px rgba(0,0,0,.4); --rk-sel: rgba(242,240,236,.1); --rk-seg-on: #3a3a42; --rk-ghost: #2a2a30; --rk-pop: 0 0 0 .5px var(--rk-line-strong), 0 18px 44px rgba(0,0,0,.55); --rk-scrim: rgba(0,0,0,.55); color-scheme: dark; }
+:root[data-theme="dark"] { --rk-chrome: #0f0f10; --rk-plane: #17171a; --rk-elevated: #1f1f23; --rk-panel: #1f1f23; --rk-sunk: #1c1c1f; --rk-fill: rgba(242,240,236,.055); --rk-fill-2: rgba(242,240,236,.09); --rk-fill-3: rgba(242,240,236,.14); --rk-line: rgba(242,240,236,.09); --rk-line-strong: rgba(242,240,236,.16); --rk-hairline: rgba(242,240,236,.09); --rk-ink: #f2f0ec; --rk-ink-2: #969390; --rk-ink-3: #6e6b68; --rk-accent: var(--rk-brand-dark); --rk-accent-soft: color-mix(in srgb, var(--rk-accent) 18%, transparent); --rk-focus: color-mix(in srgb, var(--rk-accent) 50%, transparent); --rk-ok: #4cd07d; --rk-ok-dot: #4cd07d; --rk-ok-soft: rgba(76,208,125,.16); --rk-warn: #ffb340; --rk-warn-dot: #ffb340; --rk-warn-soft: rgba(255,179,64,.16); --rk-bad: #ff6961; --rk-bad-soft: rgba(255,105,97,.12); --rk-card: 0 0 0 .5px rgba(242,240,236,.08); --rk-knob: 0 1px 2px rgba(0,0,0,.4); --rk-sel: rgba(242,240,236,.1); --rk-seg-on: #3a3a42; --rk-ghost: #2a2a30; --rk-pop: 0 0 0 .5px var(--rk-line-strong), 0 18px 44px rgba(0,0,0,.55); --rk-scrim: rgba(0,0,0,.55); --rk-success: #4cd07d; --rk-success-soft: rgba(76,208,125,.16); --rk-success-border: rgba(76,208,125,.4); --rk-warning: #ffb340; --rk-warning-bg: rgba(255,179,64,.16); --rk-star: #ffc94d; color-scheme: dark; }
 .rk-shell { background: var(--rk-chrome); color: var(--rk-ink); font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; letter-spacing: -.003em; user-select: none; -webkit-user-select: none; }
 :where(.rk-shell) button { font: inherit; color: inherit; cursor: default; }
 /* Ink set on the text elements themselves, not only on .rk-shell. WebKit (WKWebView) can leave an element that inherits `color` stale
@@ -53,7 +53,7 @@
 .rk-group h6 { margin: 0 8px 3px; padding: 0 10px; font-size: 11px; font-weight: 600; color: var(--rk-ink-3); }
 /* The active row extends to the plane edge and joins it with concave 12px
    radial-mask corners — never a detached pill. */
-.rk-item { gap: 8px; width: calc(100% - 16px); height: 30px; margin: 0 8px; padding: 0 8px 0 10px; border: 0; background: none; border-radius: 8px; color: var(--rk-ink); text-align: left; font-size: 13px; transition: background-color .12s; }
+.rk-item { gap: 8px; width: calc(100% - 16px); height: 30px; margin: 0 8px; padding: 0 8px 0 10px; border: 0; background: none; border-radius: 8px; color: var(--rk-ink); text-align: left; font-size: 13px; transition: var(--rk-item-transition, background-color .12s); }
 .rk-item:hover { background: var(--rk-fill); }
 .rk-item:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: -2px; }
 .rk-item > svg:not(.rk-fuse) { width: 16px; height: 16px; color: var(--rk-accent); }
@@ -74,6 +74,7 @@
 .rk-wordmark em, .rk-wordmark span { font-style: normal; color: var(--rk-accent); }
 .rk-icon-btn { width: 28px; height: 28px; border-radius: 7px; color: var(--rk-ink-2); border: 0; background: none; transition: background-color .12s, color .12s; }
 .rk-icon-btn:hover, .rk-icon-btn.is-open { background: var(--rk-fill-2); color: var(--rk-ink); }
+.rk-icon-btn:active { background: var(--rk-wash-press); }
 .rk-icon-btn svg { width: 16px; height: 16px; }
 /* ---- Layout additions ------------------------------------------------------------------- */
 .rk-top__toggle { margin-left: -4px; }
@@ -110,19 +111,29 @@
 .rk-btn--ghost:hover { background: var(--rk-fill); }
 .rk-btn--danger { background: var(--rk-bad); color: #fff; }
 .rk-btn--danger:hover { background: color-mix(in srgb, var(--rk-bad) 86%, black); }
+.rk-btn--plain { justify-content: flex-start; min-height: 30px; padding: 0 8px; background: transparent; color: var(--rk-ink); font-weight: 500; border-radius: 6px; }
+:root:not([data-rk-pointer="off"]) .rk-btn:not(.rk-btn--ghost):not(:disabled):hover { background-image: linear-gradient(var(--rk-wash-hover), var(--rk-wash-hover)); }
+.rk-btn:not(:disabled):active { background-image: linear-gradient(var(--rk-wash-press), var(--rk-wash-press)); }
 .rk-input { height: 30px; padding: 0 10px; border: 0; border-radius: 8px; background: var(--rk-fill-2); color: var(--rk-ink); font: inherit; outline: none; }
 .rk-input:focus { background: var(--rk-elevated); box-shadow: 0 0 0 2px var(--rk-focus); }
 .rk-input[aria-invalid="true"] { box-shadow: 0 0 0 2px var(--rk-bad-soft), inset 0 0 0 1px var(--rk-bad); }
 .rk-input::placeholder { color: var(--rk-ink-3); }
+.rk-textarea { height: auto; min-height: var(--rk-textarea-min-height, 64px); padding: 8px 10px; line-height: 1.5; resize: vertical; }
+.rk-textarea--grow { overflow: hidden; resize: none; }
+.rk-textarea:disabled { opacity: .5; }
 .rk-toggle { width: var(--rk-toggle-width, 36px); height: var(--rk-toggle-height, 22px); border: 0; border-radius: 99px; background: var(--rk-fill-3); padding: 0; transition: background-color .15s; }
 .rk-toggle[aria-checked="true"] { background: var(--rk-accent); }
 .rk-toggle__knob { width: var(--rk-toggle-knob, 18px); height: var(--rk-toggle-knob, 18px); border-radius: 50%; background: #fff; box-shadow: var(--rk-knob); transition: transform .15s; }
 .rk-toggle[aria-checked="true"] .rk-toggle__knob { transform: translateX(var(--rk-toggle-travel, 14px)); }
 .rk-toggle:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: 2px; }
 .rk-toggle:disabled { opacity: .5; }
+:root:not([data-rk-pointer="off"]) .rk-toggle[aria-checked="true"]:not(:disabled):hover { background-image: linear-gradient(var(--rk-wash-hover), var(--rk-wash-hover)); }
+.rk-toggle[aria-checked="true"]:not(:disabled):active { background-image: linear-gradient(var(--rk-wash-press), var(--rk-wash-press)); }
 .rk-seg { padding: 2px; gap: var(--rk-seg-gap, 2px); border-radius: 9px; background: var(--rk-fill-2); }
 .rk-seg__item { border: 0; background: none; padding: 4px 11px; border-radius: 7px; color: var(--rk-ink-2); font-size: 12.5px; font-weight: 550; }
 .rk-seg__item.is-on { background: var(--rk-seg-on); color: var(--rk-ink); box-shadow: var(--rk-knob); }
+:root:not([data-rk-pointer="off"]) .rk-seg__item.is-on:hover { box-shadow: inset 0 0 0 999px var(--rk-wash-hover), var(--rk-knob); }
+.rk-seg__item.is-on:active { box-shadow: inset 0 0 0 999px var(--rk-wash-press), var(--rk-knob); }
 .rk-seg__item:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: 0; }
 .rk-card { background: var(--rk-panel); border-radius: var(--rk-radius); box-shadow: var(--rk-card); padding: 16px; }
 .rk-badge { height: 20px; padding: 0 8px; border-radius: 99px; font-size: 11px; font-weight: 600; background: var(--rk-fill-2); color: var(--rk-ink-2); white-space: nowrap; }
@@ -240,6 +251,14 @@
 .rk-card--interactive:active { box-shadow: inset 0 0 0 999px var(--rk-wash-press), var(--rk-card); }
 .rk-card--interactive:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: 2px; }
 .rk-card.is-selected { box-shadow: inset 0 0 0 1.5px var(--rk-accent), var(--rk-card); }
+.rk-card.is-slotted { padding: 0; }
+.rk-card__header { display: block; width: 100%; margin: 0; padding: 10px 16px; border: 0; border-radius: var(--rk-radius) var(--rk-radius) 0 0; background: none; color: var(--rk-ink); font: inherit; font-size: 13px; font-weight: 600; text-align: start; }
+button.rk-card__header { cursor: default; }
+:root:not([data-rk-pointer="off"]) button.rk-card__header:hover { background: var(--rk-wash-hover); }
+button.rk-card__header:active { background: var(--rk-wash-press); }
+button.rk-card__header:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: -2px; }
+.rk-card__media { display: block; width: 100%; overflow: hidden; border-radius: var(--rk-radius) var(--rk-radius) 0 0; }
+.rk-card__body { padding: 16px; }
 .rk-appearance__opt { gap: 8px; }
 .rk-skeleton { border-radius: 6px; background: linear-gradient(90deg, var(--rk-fill-2) 25%, var(--rk-fill-3) 37%, var(--rk-fill-2) 63%); background-size: 400% 100%; animation: rk-shimmer 1.4s ease infinite; }
 .rk-skeleton-rows { gap: 8px; }
@@ -249,6 +268,18 @@
 .rk-check__box { width: 16px; height: 16px; border-radius: 5px; background: var(--rk-fill-2); box-shadow: inset 0 0 0 1px var(--rk-line-strong); color: var(--rk-accent-ink); font-size: 11px; font-weight: 700; }
 .rk-check__input:checked + .rk-check__box, .rk-check__input:indeterminate + .rk-check__box { background: var(--rk-accent); box-shadow: none; }
 .rk-check__input:focus-visible + .rk-check__box { outline: 2px solid var(--rk-focus); outline-offset: 2px; }
+.rk-radio-group { display: grid; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.rk-radio-group__legend { padding: 0; margin-bottom: 6px; font-size: 12.5px; font-weight: 600; color: var(--rk-ink); }
+.rk-radio { position: relative; display: flex; align-items: flex-start; gap: 8px; color: var(--rk-ink); font-size: 13px; cursor: default; }
+.rk-radio.is-disabled { opacity: .5; }
+.rk-radio__input { position: absolute; left: 0; top: 0; width: 1px; height: 1px; margin: 0; clip: rect(0 0 0 0); clip-path: inset(50%); }
+.rk-radio__box { width: 16px; height: 16px; flex: none; margin-top: 1px; border-radius: 50%; background: var(--rk-fill-2); box-shadow: inset 0 0 0 1px var(--rk-line-strong); }
+.rk-radio__input:checked + .rk-radio__box { background: var(--rk-accent); box-shadow: inset 0 0 0 4px var(--rk-panel); }
+.rk-radio__input:focus-visible + .rk-radio__box { outline: 2px solid var(--rk-focus); outline-offset: 2px; }
+:root:not([data-rk-pointer="off"]) .rk-radio:not(.is-disabled):hover .rk-radio__input:not(:checked) + .rk-radio__box { background: var(--rk-wash-hover); }
+.rk-radio:not(.is-disabled):active .rk-radio__input:not(:checked) + .rk-radio__box { background: var(--rk-wash-press); }
+.rk-radio__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rk-radio__desc { font-size: 12px; color: var(--rk-ink-3); }
 .rk-select { height: 30px; padding: 0 28px 0 10px; border: 0; border-radius: 8px; background-color: var(--rk-fill-2); color: var(--rk-ink); font: inherit; outline: none; background-image: linear-gradient(45deg, transparent 50%, var(--rk-ink-2) 50%), linear-gradient(135deg, var(--rk-ink-2) 50%, transparent 50%); background-position: calc(100% - 13px) 50%, calc(100% - 9px) 50%; background-size: 4px 4px, 4px 4px; background-repeat: no-repeat; }
 .rk-select:focus-visible { box-shadow: 0 0 0 2px var(--rk-focus); }
 .rk-select:disabled { opacity: .5; }
@@ -261,11 +292,17 @@
 .rk-notice--bad { background: var(--rk-bad-soft); }
 .rk-notice__title { font-weight: 650; }
 .rk-notice__text { color: var(--rk-ink-2); }
+.rk-notice--interactive { cursor: default; }
+:root:not([data-rk-pointer="off"]) .rk-notice--interactive:hover { box-shadow: inset 0 0 0 999px var(--rk-wash-hover), inset 0 0 0 1px var(--rk-line); }
+.rk-notice--interactive:active { box-shadow: inset 0 0 0 999px var(--rk-wash-press), inset 0 0 0 1px var(--rk-line); }
+.rk-notice--interactive:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: 2px; }
 .rk-progress { height: 6px; border-radius: 99px; background: var(--rk-fill-2); }
 .rk-progress__fill { border-radius: inherit; background: var(--rk-accent); transition: width .2s ease; }
 .rk-progress--ok .rk-progress__fill { background: var(--rk-ok-dot); }
 .rk-progress--warn .rk-progress__fill { background: var(--rk-warn-dot); }
 .rk-progress--bad .rk-progress__fill { background: var(--rk-bad); }
+.rk-progress--indeterminate .rk-progress__fill { width: 36%; animation: rk-progress-indet 1.4s ease-in-out infinite; }
+@keyframes rk-progress-indet { from { transform: translateX(-100%); } to { transform: translateX(280%); } }
 .rk-recorder { gap: 6px; min-width: 120px; height: 28px; padding: 0 10px; border: 0; border-radius: 7px; background: var(--rk-fill-2); color: var(--rk-ink); font: inherit; font-size: 12.5px; }
 .rk-recorder:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: 2px; }
 .rk-recorder.is-recording { background: var(--rk-accent-soft); box-shadow: 0 0 0 2px var(--rk-accent); }
@@ -304,10 +341,82 @@
 .rk-table__row.is-error > :first-child { box-shadow: inset 2px 0 0 var(--rk-bad); }
 .rk-table__message .rk-table__cell { padding: 16px 12px; color: var(--rk-ink-2); text-align: center; }
 .rk-table__message--error .rk-table__cell { color: var(--rk-bad); }
+.rk-text { margin: 0; min-width: 0; color: var(--rk-ink); user-select: text; -webkit-user-select: text; }
+.rk-text--raw { padding: 8px 10px; border-radius: 8px; background: var(--rk-fill); font-family: var(--rk-font-mono); font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rk-text--caption { font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rk-text--digest { font-family: var(--rk-font-mono); font-size: 12px; color: var(--rk-ink-2); word-break: break-all; }
+.rk-text[role="region"]:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: 2px; }
+.rk-dl { display: grid; gap: 10px; min-width: 0; margin: 0; }
+.rk-dl__row { display: grid; grid-template-columns: minmax(96px, 35%) minmax(0, 1fr); gap: 12px; align-items: baseline; }
+.rk-dl dt { font-size: 12.5px; font-weight: 550; color: var(--rk-ink-2); }
+.rk-dl dd { margin: 0; min-width: 0; font-size: 13px; color: var(--rk-ink); overflow-wrap: anywhere; }
+.rk-dl--dense { gap: 4px; }
+.rk-dl--dense .rk-dl__row { gap: 8px; }
+.rk-dl--dense dt, .rk-dl--dense dd { font-size: 12px; }
+.rk-dl--inline { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.rk-dl--inline .rk-dl__row { display: inline-flex; gap: 6px; align-items: baseline; }
+.rk-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.rk-form-stack { display: grid; gap: 14px; min-width: 0; }
+.rk-fieldset { min-width: 0; margin: 0; padding: 10px 12px 12px; border: 0; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--rk-line); }
+.rk-fieldset__legend { padding: 0 4px; font-size: 12.5px; font-weight: 600; color: var(--rk-ink); }
+.rk-hint { margin: 0; font-size: 12px; line-height: 1.45; color: var(--rk-ink-3); }
+.rk-section-title { margin: 0; font-size: 13px; font-weight: 650; color: var(--rk-ink); }
+.rk-kicker { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--rk-ink-3); }
+.rk-field__error { font-size: 12px; font-weight: 550; color: var(--rk-bad); }
+.rk-scroll { scrollbar-width: thin; scrollbar-color: var(--rk-scrollbar-thumb) transparent; }
+.rk-scroll::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+.rk-scroll::-webkit-scrollbar-track { background: transparent; }
+.rk-scroll::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 99px; background: var(--rk-scrollbar-thumb); background-clip: padding-box; }
+.rk-scroll::-webkit-scrollbar-thumb:hover { background: var(--rk-scrollbar-thumb-hover); background-clip: padding-box; }
+.rk-scroll--gutter { scrollbar-gutter: stable; }
 @media (forced-colors: active) {
   .rk-table__row.is-selected { outline: 2px solid Highlight; outline-offset: -2px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .rk-skeleton:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)) { animation: none; }
   .rk-progress__fill:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)) { transition: none; }
+  .rk-progress--indeterminate .rk-progress__fill:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)) { animation: none; }
+}
+
+/* ---- Shared components: icon, media tile, listbox, tooltip, live region, spinner ------------------------------------ */
+.rk-icon { flex: none; display: inline-block; vertical-align: middle; overflow: visible; }
+.rk-media-tile { overflow: hidden; }
+.rk-media-tile__frame { position: relative; width: 100%; overflow: hidden; background: var(--rk-stage, var(--rk-fill-2)); }
+.rk-media-tile__img, .rk-media-tile__preview { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.rk-media-tile__img, .rk-media-tile__preview { object-fit: cover; }
+.rk-media-tile[data-fit="contain"] .rk-media-tile__img, .rk-media-tile[data-fit="contain"] .rk-media-tile__preview { object-fit: contain; }
+.rk-media-tile__placeholder { position: absolute; inset: 0; display: grid; place-items: center; color: var(--rk-ink-3); font-size: 12px; }
+.rk-media-tile__corner { position: absolute; top: 6px; inset-inline-start: 6px; z-index: 1; }
+.rk-media-tile__badge { position: absolute; bottom: 6px; inset-inline-end: 6px; z-index: 1; }
+.rk-listbox { outline: none; min-width: 0; }
+.rk-listbox:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: -2px; border-radius: 8px; }
+.rk-listbox__group + .rk-listbox__group { margin-top: 4px; }
+.rk-listbox__group-label { padding: 6px 8px 2px; color: var(--rk-ink-3); font-size: 11px; font-weight: 600; }
+.rk-listbox__option { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 8px; border-radius: 8px; color: var(--rk-ink); cursor: default; }
+:root:not([data-rk-pointer="off"]) .rk-listbox__option:not(.is-disabled):hover { background: var(--rk-wash-hover); }
+.rk-listbox__option.is-active { background: var(--rk-sel); }
+.rk-listbox__option.is-disabled { opacity: .5; }
+.rk-tooltip-anchor { position: relative; display: inline-flex; }
+.rk-tooltip { position: absolute; z-index: 90; max-width: 240px; padding: 4px 8px; border-radius: 6px; background: var(--rk-elevated); color: var(--rk-ink); box-shadow: var(--rk-pop); font-size: 12px; line-height: 1.35; white-space: nowrap; pointer-events: none; animation: rk-tooltip-in .12s ease-out; }
+.rk-tooltip[data-placement="top"] { bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); }
+.rk-tooltip[data-placement="bottom"] { top: calc(100% + 6px); left: 50%; transform: translateX(-50%); }
+.rk-tooltip[data-placement="start"] { inset-inline-end: calc(100% + 6px); top: 50%; transform: translateY(-50%); }
+.rk-tooltip[data-placement="end"] { inset-inline-start: calc(100% + 6px); top: 50%; transform: translateY(-50%); }
+@keyframes rk-tooltip-in { from { opacity: 0; } }
+.rk-live-region { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+.rk-spinner { position: relative; display: inline-block; flex: none; vertical-align: middle; }
+.rk-spinner__ring { position: absolute; inset: 0; box-sizing: border-box; border-radius: 50%; border: 2px solid var(--rk-fill-3); border-top-color: var(--rk-accent); animation: rk-spin .8s linear infinite; }
+@keyframes rk-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .rk-tooltip:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)) { animation: none; }
+  .rk-spinner__ring:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)) { animation: none; }
+  .rk-media-tile__preview:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)) { display: none; }
+}
+@media (forced-colors: active) {
+  .rk-listbox__option.is-active { outline: 2px solid Highlight; outline-offset: -2px; }
+  .rk-listbox__option.is-disabled { opacity: 1; color: GrayText; }
+  .rk-listbox:focus-visible { outline-color: Highlight; }
+  .rk-tooltip { border: 1px solid CanvasText; box-shadow: none; }
+  .rk-media-tile__frame { border: 1px solid CanvasText; }
+  .rk-spinner__ring { border-color: CanvasText; border-top-color: Highlight; }
 }

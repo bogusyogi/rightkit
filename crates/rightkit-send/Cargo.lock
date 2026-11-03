@@ -406,15 +406,16 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "libc",
  "windows",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-send"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "libc",
  "rcgen",

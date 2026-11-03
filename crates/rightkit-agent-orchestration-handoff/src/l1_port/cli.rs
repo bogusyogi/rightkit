@@ -14,6 +14,7 @@ use super::live_state::{
     append_note, bare_hex, check_reconciliation, verify_notes, NoteKind, Reconciliation,
     SourceBlock,
 };
+use super::open_items::{collect as collect_open_items, PrefillSources};
 use super::pointer::{
     build_pointer, handoff_file_in, paste_prompt_with_options, LiveStateRef, Platform,
 };
@@ -648,10 +649,29 @@ fn run_bootstrap(args: &[String], env: &RunEnv, out: &mut dyn std::io::Write) ->
     let mut live_state: Option<PathBuf> = None;
     let mut live_state_out: Option<PathBuf> = None;
     let mut artifact_root: Option<PathBuf> = None;
+    let mut repos: Vec<PathBuf> = Vec::new();
+    let mut approvals_dir: Option<PathBuf> = None;
+    let mut issue_repos: Vec<String> = Vec::new();
     let mut json = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
+            "--repo" => {
+                i += 1;
+                if let Some(v) = args.get(i) {
+                    repos.push(PathBuf::from(v));
+                }
+            }
+            "--approvals-dir" => {
+                i += 1;
+                approvals_dir = args.get(i).map(PathBuf::from);
+            }
+            "--issues-repo" => {
+                i += 1;
+                if let Some(v) = args.get(i) {
+                    issue_repos.push(v.clone());
+                }
+            }
             "--platform" => {
                 i += 1;
                 platform = args.get(i).cloned();
@@ -712,6 +732,27 @@ fn run_bootstrap(args: &[String], env: &RunEnv, out: &mut dyn std::io::Write) ->
             return 2;
         }
     };
+    if live_state.is_none() {
+        let _ = writeln!(
+            out,
+            "FAIL: --live-state is required: the handoff source block carries the open-items ledger (open_items, or open_items_none_reason) and any procedures in flight; a transcript alone never replaces it"
+        );
+        return 2;
+    }
+    // The ledger is prefilled from machine-readable sources, never from memory: the workspace's
+    // git state, its issued approvals, and the open issues of any repository named.
+    let base = workspace
+        .as_deref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| env.cwd.clone());
+    if repos.is_empty() {
+        repos.push(base.clone());
+    }
+    let prefill = PrefillSources {
+        repos,
+        approvals_dir: Some(approvals_dir.unwrap_or_else(|| base.join("tasks").join("approvals"))),
+        issue_repos,
+    };
     match build_pointer(
         platform,
         session_id.as_deref(),
@@ -722,6 +763,7 @@ fn run_bootstrap(args: &[String], env: &RunEnv, out: &mut dyn std::io::Write) ->
         Ok(pointer) => {
             let live = match prepare_live_state(
                 live_state.as_deref(),
+                &prefill,
                 live_state_out,
                 &handoff_file_in(
                     &pointer,
@@ -753,6 +795,10 @@ fn run_bootstrap(args: &[String], env: &RunEnv, out: &mut dyn std::io::Write) ->
                             "path": live.path,
                             "sha256": live.sha256,
                             "in_flight": live.block.in_flight,
+                            "open_items": live.block.open_items,
+                            "open_items_none_reason": live.block.open_items_none_reason,
+                            "procedures": live.block.procedures,
+                            "struck_items": live.block.struck_items,
                             "changed_since": live.block.changed_since,
                             "memory": live.block.memory,
                             "artifact_roots": live.block.artifact_roots,
@@ -789,6 +835,7 @@ fn run_bootstrap(args: &[String], env: &RunEnv, out: &mut dyn std::io::Write) ->
 /// target can verify the digest printed in the paste block.
 fn prepare_live_state(
     input: Option<&std::path::Path>,
+    prefill: &PrefillSources,
     out_path: Option<PathBuf>,
     default_out: &str,
     pointer: &super::pointer::SourcePointer,
@@ -798,7 +845,9 @@ fn prepare_live_state(
     };
     let text = std::fs::read_to_string(input)
         .map_err(|error| format!("cannot read --live-state: {error}"))?;
-    let block = SourceBlock::parse(&text)?;
+    let mut block = SourceBlock::parse(&text)?;
+    block.merge_prefilled_open_items(collect_open_items(prefill)?)?;
+    block.validate()?;
     block.require_handoff_complete()?;
     block.bind_to_prefix(pointer.cutoff_bytes, &pointer.sha256)?;
     let digest = block.digest()?;

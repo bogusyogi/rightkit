@@ -67,13 +67,9 @@ const SELECT_MODE = SELECT !== undefined;
 let STEPS;
 try { STEPS = parseSteps(argOf("--steps")); } catch (error) { console.error(`gate: ${error.message}`); process.exit(2); }
 
-const ROOT_SUITES = [
-  { id: "test:ownership-approval", paths: ["ownership-approval"] },
-  { id: "test:characterization", paths: ["characterization"] },
-  { id: "test:infrastructure", paths: ["infrastructure"] },
-  { id: "test:swift-contracts", paths: ["swift/contracts"] },
-];
-const SCRIPT_TESTS = { id: "scripts", paths: ["scripts"] };
+// End-to-end tests only (Adrian, 2026-11-03): the root unit-test suites (ownership-approval, characterization, infrastructure, swift contracts) and the
+// scripts/ci self-tests were removed; no root suite is planned or run.
+const ROOT_SUITES = [];
 const SWIFT_ROOT_MANIFEST = "swift/root-manifest";
 const SWIFT_PACKAGES = [
   { id: "swift/RightKitSwift", paths: ["swift/RightKitSwift"] },
@@ -170,7 +166,7 @@ function unitPlan() {
 function selectPlan() {
   const config = readJson("ci/gate.config.json", {});
   const packages = npmPackages();
-  const known = { rust: rustMembers(config).map((m) => m.name), npm: packages.map((p) => p.dir), root: [...ROOT_SUITES, SCRIPT_TESTS].map((s) => s.id), swift: SWIFT_PACKAGES.map((s) => s.id) };
+  const known = { rust: rustMembers(config).map((m) => m.name), npm: packages.map((p) => p.dir), root: ROOT_SUITES.map((s) => s.id), swift: SWIFT_PACKAGES.map((s) => s.id) };
   let picked;
   try { picked = parseSelectTokens(SELECT, known); } catch (error) {
     console.error(`gate: ${error.message}. Usage: --select "rust:<crate> rust-check:<crate> npm:<dir> root:<id> swift:<id>"`);
@@ -215,7 +211,7 @@ function plan() {
     host: HOST, base, all, changedPaths: changedPaths.length, config, packages,
     rust: selectRust({ changedPaths, members: rustMembers(config), dependents: crateDependents(), configChanged, all }),
     npm: selectNpm({ changedPaths, packages, all }),
-    root: selectByPaths({ changedPaths, suites: [...ROOT_SUITES, SCRIPT_TESTS], all }),
+    root: selectByPaths({ changedPaths, suites: ROOT_SUITES, all }),
     swift: HOST === "macos" ? selectByPaths({ changedPaths, suites: SWIFT_PACKAGES, all }) : [],
   };
 }
@@ -596,7 +592,8 @@ async function npmGate(selection) {
     for (const dir of npm.test) {
       const pkg = packages.find((p) => p.dir === dir);
       if (!pkg?.scripts.test) {
-        if (UNIT_MODE) results.push({ unit: `npm:${dir}`, command: "no test script", ok: false, code: 1, seconds: 0 });
+        // End-to-end tests only (Adrian, 2026-11-03): an npm unit with no test script has nothing to run, as a crate with no test has; its status
+        // is allowed-no-test and no step is recorded.
         continue;
       }
       if (!built) { results.push({ unit: `npm:${dir}`, command: "not run: workspace build failed", ok: false, code: 1, seconds: 0 }); continue; }
@@ -604,8 +601,7 @@ async function npmGate(selection) {
     }
   }
   for (const id of root) {
-    if (id === SCRIPT_TESTS.id) await run("root:scripts", "node", ["--test", "scripts/**/*.test.mjs"], { timeoutMinutes: 10 });
-    else await run(`root:${id}`, "pnpm", ["run", id], { timeoutMinutes: 20 });
+    await run(`root:${id}`, "pnpm", ["run", id], { timeoutMinutes: 20 });
   }
 }
 
@@ -641,7 +637,7 @@ function unitVerdicts(selection) {
   for (const name of units) {
     if (excluded.includes(name) || noTest.includes(name)) continue;
     const id = unitId(selection, name);
-    verdicts.set(id, judgeUnit({ name, steps: results.filter((r) => r.unit === id), allowIgnored, allowMissingAssets, requiredCommands: requiredTestCommands(selection, name) }));
+    verdicts.set(id, judgeUnit({ name, steps: results.filter((r) => r.unit === id), allowIgnored, allowMissingAssets, requiredCommands: requiredTestCommands(selection, name), allowNoTests: true }));
   }
   return verdicts;
 }

@@ -6,6 +6,7 @@ use super::ffi::*;
 use crate::keys::{self, Chord};
 use crate::model::*;
 use crate::platform::InputEvent;
+use std::os::raw::c_ulong;
 use std::time::Duration;
 
 #[derive(Clone, Copy)]
@@ -137,6 +138,76 @@ fn click(
     Ok(())
 }
 
+/// Left-button drag: a hover move to `from`, button down, `steps` dragged moves ending on `to`,
+/// button up at `to`. Pid-addressed events never move the user's pointer; the HID path does,
+/// so it restores the pointer afterwards. If any event cannot be created after the button went
+/// down, the button is still released so the target never keeps a stuck drag.
+fn drag(
+    dest: Dest,
+    window: Option<u64>,
+    from: (f64, f64),
+    to: (f64, f64),
+    steps: u32,
+) -> Result<()> {
+    let src = source(dest)?;
+    let wid = match (dest, window) {
+        (_, Some(w)) => Some(w as u32),
+        (Dest::Pid(pid), None) => window_under(pid, from.0, from.1),
+        _ => None,
+    };
+    let saved = matches!(dest, Dest::Hid)
+        .then(|| {
+            Cf::new(unsafe { CGEventCreate(std::ptr::null()) })
+                .map(|e| unsafe { CGEventGetLocation(e.0) })
+        })
+        .flatten();
+    // 5 = mouse moved, 1 = left down, 6 = left dragged, 2 = left up.
+    let mk = |ty: u32, x: f64, y: f64, state: i64| -> Result<Cf> {
+        let ev = Cf::new(unsafe { CGEventCreateMouseEvent(src.0, ty, CGPoint { x, y }, 0) })
+            .ok_or(Error::Unsupported("mouse event"))?;
+        unsafe {
+            CGEventSetIntegerValueField(ev.0, 1, state);
+            if let Some(w) = wid {
+                CGEventSetIntegerValueField(ev.0, 91, i64::from(w));
+                CGEventSetIntegerValueField(ev.0, 92, i64::from(w));
+            }
+            if let Dest::Pid(pid) = dest {
+                CGEventSetIntegerValueField(ev.0, 40, i64::from(pid));
+            }
+        }
+        Ok(ev)
+    };
+    post(dest, &mk(5, from.0, from.1, 0)?);
+    std::thread::sleep(Duration::from_millis(30));
+    post(dest, &mk(1, from.0, from.1, 1)?);
+    std::thread::sleep(Duration::from_millis(40));
+    let steps = steps.clamp(1, MAX_DRAG_STEPS);
+    let mut result = Ok(());
+    for i in 1..=steps {
+        let t = f64::from(i) / f64::from(steps);
+        let (x, y) = (from.0 + (to.0 - from.0) * t, from.1 + (to.1 - from.1) * t);
+        match mk(6, x, y, 1) {
+            Ok(ev) => post(dest, &ev),
+            Err(e) => {
+                result = Err(e);
+                break;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(12));
+    }
+    // Always release, at `to`, even after a failed step.
+    let release = mk(2, to.0, to.1, 1);
+    std::thread::sleep(Duration::from_millis(30));
+    match release {
+        Ok(ev) => post(dest, &ev),
+        Err(e) => result = result.and(Err(e)),
+    }
+    if let Some(p) = saved {
+        unsafe { CGWarpMouseCursorPosition(p) };
+    }
+    result
+}
+
 fn scroll(dest: Dest, x: f64, y: f64, dx: f64, dy: f64) -> Result<()> {
     let src = source(dest)?;
     // Our convention: positive dy scrolls content down (like DOM deltaY); CG wheel is inverse.
@@ -163,5 +234,6 @@ pub fn send(dest: Dest, window: Option<u64>, ev: &InputEvent) -> Result<()> {
             count,
         } => click(dest, window, *x, *y, *button, *count),
         InputEvent::Scroll { x, y, dx, dy } => scroll(dest, *x, *y, *dx, *dy),
+        InputEvent::Drag { from, to, steps } => drag(dest, window, *from, *to, *steps),
     }
 }

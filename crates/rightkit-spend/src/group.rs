@@ -428,7 +428,7 @@ fn commit_group_impl(
     actual_micro: i64,
 ) -> Result<GroupOutcome> {
     settle_group(conn, request_id, |res| {
-        commit_impl(conn, ctx, &res.reservation_id, actual_micro)
+        commit_impl(conn, ctx, &res.reservation_id, actual_micro, None, None)
     })
 }
 

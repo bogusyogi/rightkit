@@ -228,6 +228,33 @@ public struct RightKitAppRoot: Sendable {
         }
     }
 
+    /// Rename the regular file at `rel` to `rel + suffix`, both inside the root. Used to set a corrupt file aside
+    /// (for example `queue.json.corrupt-<timestamp>`) before recreating it. An existing destination is never
+    /// overwritten and a symlink is never moved. Returns the new location.
+    @discardableResult
+    public func moveAside(_ rel: String, suffix: String) throws -> URL {
+        guard !suffix.isEmpty, !suffix.contains("/"), !suffix.contains("\0") else {
+            throw RightKitFSError.invalidName(suffix)
+        }
+        let source = try path(rel)
+        let destinationRel = rel + suffix
+        let destination = try path(destinationRel)
+        var st = stat()
+        guard lstat(source.path, &st) == 0 else {
+            throw RightKitFSError.io(path: source.path, errno: errno)
+        }
+        if (st.st_mode & S_IFMT) == S_IFLNK { throw RightKitFSError.symlink(rel) }
+        guard (st.st_mode & S_IFMT) == S_IFREG else { throw RightKitFSError.notAFile(rel) }
+        guard !FileManager.default.fileExists(atPath: destination.path) else {
+            throw RightKitFSError.invalidName(destinationRel)
+        }
+        do { try FileManager.default.moveItem(at: source, to: destination) } catch {
+            throw RightKitFSError.io(path: source.path, errno: Int32(truncatingIfNeeded: (error as NSError).code))
+        }
+        _ = try path(destinationRel)
+        return destination
+    }
+
     /// Names (not paths) directly inside the directory `dir`, sorted; `""` or `"."` lists the root.
     /// Internal temp files of an in-flight atomic write are not listed. An absent directory is `[]`.
     public func list(_ dir: String = "") throws -> [String] {

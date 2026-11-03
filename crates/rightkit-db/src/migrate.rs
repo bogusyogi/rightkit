@@ -20,6 +20,7 @@ use crate::recover::{
 use crate::{DbError, DbOptions, Result};
 use rusqlite::{Connection, ErrorCode, OptionalExtension};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub enum Step {
@@ -106,7 +107,11 @@ pub struct LegacyVersionTable {
 }
 
 /// Checks a pre-migration backup before the first step runs; `Err(reason)` stops the migration.
-pub type VerifyBackup = fn(&Path) -> std::result::Result<(), String>;
+/// A closure, so an owner can keep state (a key, a message count, a free-space floor) in it.
+pub type VerifyBackup = Arc<dyn Fn(&Path) -> std::result::Result<(), String> + Send + Sync>;
+/// Names the pre-migration backup from the current and target versions (see
+/// [`MigrateOptions::backup_name`]).
+pub type BackupName = Arc<dyn Fn(i64, i64) -> String + Send + Sync>;
 #[derive(Clone)]
 pub struct MigrateOptions {
     /// Version location shared by reads and transactional migration writes.
@@ -126,7 +131,7 @@ pub struct MigrateOptions {
     /// `<db>.pre-v<target>.bak` beside the database. Must be a plain file name that is not the
     /// database's own name (a name with a path separator or NUL is refused as
     /// [`DbError::Backup`]).
-    pub backup_name: Option<fn(current: i64, target: i64) -> String>,
+    pub backup_name: Option<BackupName>,
     /// Checks the pre-migration backup before the first step runs. `Err(reason)` stops the
     /// migration with [`DbError::Backup`]. The live database is untouched and the backup is kept.
     pub verify_backup: Option<VerifyBackup>,
@@ -390,7 +395,7 @@ fn backup_path(db: &Path, options: &MigrateOptions, current: i64, target: i64) -
         .ok_or(DbError::InvalidDatabasePath)?
         .to_string_lossy()
         .into_owned();
-    let file = match options.backup_name {
+    let file = match &options.backup_name {
         Some(namer) => namer(current, target),
         None => format!("{name}.pre-v{target}.bak"),
     };
@@ -596,7 +601,7 @@ pub fn migrate(
                 .clone()
                 .unwrap_or_else(|| DbOptions::new(path));
             crate::backup::online_backup_sized(&backup_options, conn, &backup, None)?;
-            if let Some(verify) = options.verify_backup {
+            if let Some(verify) = &options.verify_backup {
                 verify(&backup).map_err(|reason| {
                     DbError::Backup(format!("pre-migration backup failed its check: {reason}"))
                 })?;

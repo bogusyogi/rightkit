@@ -49,6 +49,15 @@ app workspace that links `rightkit-typeset` declares the same patch, pointing at
 citationberg = { path = "<RightKit>/vendor/citationberg" }
 ```
 
+An app outside the RightKit tree has no such path; it points the patch at a RightKit commit instead (the crate is found by name inside the repository):
+
+```toml
+[patch.crates-io]
+citationberg = { git = "https://github.com/bogusyogi/rightkit", rev = "<commit that carries vendor/citationberg 0.7.0 with quick-xml 0.42>" }
+```
+
+The fork cannot be published and depended on under a RightKit name: typst and hayagriva name `citationberg` themselves, so only a patch of that name replaces it. The requirement is declared in `[[package.metadata.rightkit.consumer_patches]]` in this crate's manifest so release tooling can check an app's manifest and lock.
+
 Without it the app's `cargo deny` and `cargo audit` fail on quick-xml 0.38.4. The all-packages sample app (`e2e-app/Cargo.toml`) carries it.
 
 ## Licences

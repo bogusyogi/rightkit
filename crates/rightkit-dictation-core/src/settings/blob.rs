@@ -7,6 +7,7 @@
 
 use rightkit_transcript_library::history::HistoryRetention;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 

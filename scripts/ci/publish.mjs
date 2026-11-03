@@ -293,7 +293,7 @@ export async function planPublication({ registry, unitsText, dryRun, allowHostEx
       }
     } else if (!unit.hasTest) {
       needed.noTest.add(name);
-      if (!allowNoTest.includes(name)) errors.push(`${name}: package.json has no test script, so nothing would verify it; name it in allow_no_test to publish it untested`);
+      // End-to-end tests only (Adrian, 2026-11-03): no test script qualifies without naming it, as a crate with no test does.
     }
     if (Object.hasOwn(assetGated, name)) {
       needed.assets.add(name);

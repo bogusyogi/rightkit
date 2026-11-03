@@ -284,14 +284,36 @@ fn generate_bindings(
     let checked_in = manifest_dir.join(format!("bindings-{target}.rs"));
     if !checked_in.is_file() {
         panic!(
-            "ggml-sys: no checked-in bindings for {target} ({}). Build with `--features regenerate-bindings` on a host with libclang to generate them (see VERSIONS.md).",
-            checked_in.display()
+            "ggml-sys: unsupported target {target}: no checked-in bindings ({}). Supported targets: {}. Build with `--features regenerate-bindings` on a host with libclang to add one (see VERSIONS.md).",
+            checked_in.display(),
+            supported_targets(manifest_dir)
         );
     }
     std::fs::copy(&checked_in, out_dir.join("bindings.rs")).expect("copy checked-in bindings.rs");
 }
 
 // ---- GenRight additions (see ../../PINNED.md) ----
+
+/// The targets that have a checked-in `bindings-<target>.rs`, comma separated (matches
+/// `supported_targets` in `[package.metadata.rightkit]`).
+#[cfg(not(feature = "regenerate-bindings"))]
+fn supported_targets(manifest_dir: &Path) -> String {
+    let mut targets: Vec<String> = std::fs::read_dir(manifest_dir)
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .filter_map(|e| e.file_name().into_string().ok())
+                .filter_map(|name| {
+                    name.strip_prefix("bindings-")
+                        .and_then(|rest| rest.strip_suffix(".rs"))
+                        .map(str::to_string)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    targets.sort();
+    targets.join(", ")
+}
 
 fn have_command(name: &str) -> bool {
     std::process::Command::new(name)

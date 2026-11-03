@@ -611,8 +611,7 @@ pub(crate) fn transcribe_probe_buffer(
 /// File audio gets the same conditioning authority as dictation, applied once
 /// when a file job is created (the job then steps over the conditioned samples).
 pub(crate) fn condition_file_audio(buffer: &[f32]) -> Vec<f32> {
-    let audio_policy = rightkit_dictation_core::dev_var!("RIGHTKIT_AUDIO_CONDITIONING_POLICY")
-        .unwrap_or_else(|_| "default".into());
+    let audio_policy = "default";
     rightkit_dictation_core::audio_conditioning::condition_for_asr(
         buffer,
         SAMPLE_RATE,
@@ -647,8 +646,7 @@ where
         ),
     );
     let t = Instant::now();
-    let audio_policy = rightkit_dictation_core::dev_var!("RIGHTKIT_AUDIO_CONDITIONING_POLICY")
-        .unwrap_or_else(|_| "default".into());
+    let audio_policy = "default";
     let conditioned = rightkit_dictation_core::audio_conditioning::condition_for_asr(
         buffer,
         SAMPLE_RATE,

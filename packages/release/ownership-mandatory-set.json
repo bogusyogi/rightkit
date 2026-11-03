@@ -507,6 +507,29 @@
         "M14": "@rightkit/legal needs six proprietary roles and imports node:crypto, so it cannot run in a webview; @rightkit/onboarding mandates a legal step first. Ember ships @rightkit/legal-ui for its licences and notices and holds its first-run notice until its text is approved. OSS profile; the legal and onboarding owners need an OSS mode and a mode without a legal step.",
         "M22": "rightkit-agent-tools needs a daemon-backed app control service. Ember's agent surface is its own MCP server over engine command ids, being ported to rightkit-mcp. Applies to non-daemon apps."
       }
+    },
+    "cutright": {
+      "status": "proposed",
+      "issue": "bogusyogi/rightkit#1006",
+      "source": "bogusyogi/CutRight RightKit wave-2 port (branch claude/rk-port)",
+      "profile": "desktop",
+      "note": "DRAFT, not ratified: only Adrian's own words ratify a ruling. The checker ignores an amendment marked status proposed and the key proposedNotApplicable; on ratification Adrian's decision moves the rows to notApplicable and removes status. CutRight keeps both N/A strings, each carrying the issue and the expiry 2026-11-30.",
+      "proposedNotApplicable": {
+        "M9": "No SQLite app state. Project state is canonical JSON through rightkit-fs and settings are JSON through rightkit-app-settings; rightkit-db arrives only transitively through rightkit-job-queue and no JobStore is used.",
+        "M17": "No first-party HTTP client. LLM calls go through rightkit-llm, speech through rightkit-speech-client, model packs through rightkit-models and licence through @rightkit/license; rightkit-http is transitive only."
+      }
+    },
+    "viewright": {
+      "status": "proposed",
+      "issue": "bogusyogi/rightkit#1140",
+      "source": "bogusyogi/viewright RightKit port (branch claude/rk-port), independent verification",
+      "profile": "desktop",
+      "note": "DRAFT, not ratified: only Adrian's own words ratify a ruling. The checker ignores an amendment marked status proposed and the key proposedNotApplicable. ViewRight keeps its N/A strings, each carrying the issue and the expiry 2026-11-30. M1 (#1067) and M22 (#994) are separate decisions and are not proposed here.",
+      "proposedNotApplicable": {
+        "M3": "No engine child process and no restart-surviving jobs: document open, save, export and OCR run in-process; the only child processes are reveal and open-with (rightkit-child-process) and the OCR worker (rightkit-ocr).",
+        "M4": "No engine child process and no restart-surviving jobs: document open, save, export and OCR run in-process.",
+        "M7": "No local service: rightkit-daemon is used for AppRoot and mode::roots only (M6 adopted), with no socket, pipe, discovery or claim file. The QA control server is rightkit-qa behind qa-native and dev-control."
+      }
     }
   },
   "amendments": {

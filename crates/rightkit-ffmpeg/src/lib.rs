@@ -18,11 +18,12 @@ use serde::{Deserialize, Serialize};
 // Runner / probe / progress / cancel / loudness modules (media-runner lane). Kept in
 // separate files so the catalog lane's edits to this file stay independent.
 pub mod archive;
+pub mod bundle;
 pub mod bundled;
 pub mod command;
 pub mod content_digest;
 pub mod decode;
-pub mod dev_resolve;
+pub mod ebur128;
 pub mod encoders;
 pub mod h264_rule;
 pub mod handle;
@@ -36,13 +37,14 @@ pub mod staging;
 pub mod unverified;
 pub mod verify_cache;
 
+pub use bundle::{BundleEntry, BundlePlan};
 pub use bundled::{
     verify_bundled_ffmpeg, verify_bundled_ffmpeg_in, verify_bundled_ffprobe,
     verify_bundled_ffprobe_in,
 };
 pub use command::{
-    extract_args, transcode_audio_command, AudioTranscode, DevFfmpeg, ExtractMode, ExtractOptions,
-    FfmpegArg, FfmpegBinary, FfmpegCommand,
+    extract_args, transcode_audio_command, AudioTranscode, ExtractMode, ExtractOptions, FfmpegArg,
+    FfmpegBinary, FfmpegCommand,
 };
 pub use content_digest::{
     content_identity, content_identity_file, ContentFormat, ContentIdentity, SliceDigest,
@@ -51,9 +53,8 @@ pub use encoders::{pick_h264, EncoderInventory};
 pub use handle::{
     bundled_tool_candidates, bundled_tool_candidates_with_dirs, resolve_ffmpeg_handle,
     resolve_ffmpeg_handle_with, resolve_ffprobe_handle, resolve_ffprobe_handle_with,
-    verified_or_development, verify_ffmpeg_or_development, verify_ffprobe_or_development,
-    verify_first_of, FfmpegHandle, FfprobeHandle, HandleResolution, ResolveOptions,
-    SkippedCandidate, ToolHandle,
+    verify_ffmpeg_handle, verify_ffprobe_handle, verify_first_of, FfmpegHandle, FfprobeHandle,
+    HandleResolution, ResolveOptions, SkippedCandidate, ToolHandle,
 };
 #[cfg(feature = "native")]
 pub use native::{
@@ -74,10 +75,7 @@ pub use runner::{
 pub use staging::{
     external_bin_path, stage_external_bin, tauri_target_triple, StagedBinary, VerifiedArtifact,
 };
-pub use unverified::{
-    resolve_ffmpeg_or_unverified, resolve_unverified, AnyFfmpeg, BuildMode, Capabilities,
-    ConfigLicense, UnverifiedRequest, UnverifiedSource, UnverifiedTool,
-};
+pub use unverified::{Capabilities, ConfigLicense};
 pub use verify_cache::{digest_computations, verify_cache_clear};
 
 pub const APPROVED_CATALOG_JSON: &str = include_str!("../catalog/artifacts.json");
@@ -701,11 +699,9 @@ pub enum MediaError {
         expected: Tool,
         found: Tool,
     },
-    UnverifiedRefusedInRelease,
     OverrideMissing {
         path: PathBuf,
     },
-    UnverifiedNotFound,
     StagingFailed(String),
     /// A Mach-O or PE whose structure does not add up; never treated as a plain file.
     MalformedBinary(String),
@@ -756,9 +752,7 @@ impl MediaError {
             | Self::ArtifactNotApproved { .. }
             | Self::PendingWithDigest(_)
             | Self::WrongTool { .. }
-            | Self::UnverifiedRefusedInRelease
             | Self::OverrideMissing { .. }
-            | Self::UnverifiedNotFound
             | Self::StagingFailed(_)
             | Self::MalformedBinary(_)
             | Self::ComponentNotAllowed { .. }
@@ -819,14 +813,8 @@ impl fmt::Display for MediaError {
             Self::WrongTool { expected, found } => {
                 write!(f, "expected a {expected} artifact, found {found}")
             }
-            Self::UnverifiedRefusedInRelease => f.write_str(
-                "an unverified (non-catalog) FFmpeg is refused in release mode",
-            ),
             Self::OverrideMissing { path } => {
                 write!(f, "explicit FFmpeg override {} is not a file", path.display())
-            }
-            Self::UnverifiedNotFound => {
-                f.write_str("no unverified FFmpeg found (override, environment, or PATH)")
             }
             Self::StagingFailed(why) => write!(f, "externalBin staging failed: {why}"),
             Self::MalformedBinary(why) => write!(f, "malformed binary: {why}"),

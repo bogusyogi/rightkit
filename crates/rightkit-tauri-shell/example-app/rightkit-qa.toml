@@ -8,3 +8,11 @@ binaries = { darwin = "target/debug/shell-example-app", windows = "target/debug/
 window_label = "main"
 mode = "hidden"
 package = "shell-example-app"
+
+# The app's real data is snapshotted before every journey and restored after (rightkit#1437). No
+# credential items: the example app stores none.
+[snapshot]
+app_name = "RkShellExample"
+process_names = ["shell-example-app"]
+# The autostart test writes a LaunchAgent outside the app folders; a failed run must not leave it.
+extra_paths = ["~/Library/LaunchAgents/rk-shell-example.autostart.plist"]

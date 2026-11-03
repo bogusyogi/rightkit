@@ -78,3 +78,30 @@
 .rk-doctor__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .rk-doctor__detail, .rk-doctor__fix { color: var(--rk-ink-2); font-size: 12.5px; text-wrap: pretty; }
 .rk-doctor__details > summary { cursor: pointer; padding: 10px 14px; font-size: 12.5px; color: var(--rk-ink-2); }
+
+/* 0.7.1: Pro-locked rows, select and path controls, index progress, diagnostics log views, disabled models, settings modal.
+   Each rule styles a class the components add; none applies to markup that does not use it. */
+.rk-sr__lock { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--rk-fill); color: var(--rk-ink-2); font-size: 10.5px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; vertical-align: 1px; }
+.rk-sr__lock-fs { min-width: 0; margin: 0; padding: 0; border: 0; }
+.rk-sr__lock-fs:disabled { opacity: .55; }
+.rk-sr__disabled-reason { color: var(--rk-ink-2); }
+.rk-settings__select { min-width: 160px; }
+.rk-path { align-items: center; }
+.rk-path__value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12.5px/1.4 var(--rk-font-mono); color: var(--rk-ink-2); }
+.rk-index-progress { display: block; }
+.rk-diag__entries { margin: 0 0 22px; padding-left: 28px; }
+.rk-diag__entries li { margin: 0; }
+.rk-diag__kind { color: var(--rk-ink-2); }
+.rk-diag__tail { margin: 6px 0 0; }
+.rk-doctor__notes { margin: 0 0 14px; color: var(--rk-ink-2); font-size: 12.5px; }
+.rk-settings-modal { display: flex; flex-direction: column; max-height: min(86vh, 760px); padding: 0; overflow: hidden; }
+.rk-settings-modal__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px 10px 20px; }
+.rk-settings-modal__title { margin: 0; font-size: 16px; font-weight: 650; }
+.rk-settings-modal__banner { margin: 0 18px 10px; padding: 8px 12px; border-radius: 10px; background: var(--rk-accent-soft); color: var(--rk-ink); font-size: 12.5px; }
+.rk-settings-modal__confirm { margin: 0 18px 10px; padding: 12px 14px; border-radius: 10px; background: var(--rk-bad-soft); }
+.rk-settings-modal__confirm-title { margin: 0 0 4px; }
+.rk-settings-modal__confirm-text { margin: 0 0 10px; color: var(--rk-ink-2); font-size: 12.5px; }
+.rk-settings-modal__body { flex: 1 1 auto; min-height: 0; height: min(64vh, 620px); }
+.rk-settings-modal__body .rk-settings { height: 100%; }
+.rk-settings-modal__foot { display: flex; align-items: center; gap: 8px; padding: 12px 18px; border-top: .5px solid var(--rk-hairline); }
+.rk-settings-modal__spacer { flex: 1; }

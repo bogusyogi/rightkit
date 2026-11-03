@@ -406,9 +406,10 @@ impl StoreOptions {
     /// It runs once on open, before defaults are applied and before repair (so it sees the
     /// file's keys only, and repair then fills or drops fields of the migrated object). If it
     /// reports a change, the store commits the migrated document once during open. An `Err`
-    /// aborts the open and nothing is written. It never runs for [`crate::Store::open_read_only`]
-    /// (the value is then the unmigrated file), for a missing file, or for envelope files (which
-    /// use [`crate::Schema::migration`]). It must be idempotent: a crash after the file write
+    /// aborts the open and nothing is written. [`crate::Store::open_read_only`] runs it too, in
+    /// memory only: its value is the migrated file on open and on every re-read, and it writes
+    /// nothing. It never runs for a missing file or for envelope files (which use
+    /// [`crate::Schema::migration`]). It must be idempotent: a crash after the file write
     /// and before your own bookkeeping runs it again on the migrated object.
     pub fn flat_migration(
         mut self,

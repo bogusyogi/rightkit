@@ -136,8 +136,18 @@ export interface LegalReceiptCreateRequest {
  * `reset()` clears the stored receipt (used by `resetLegalAcceptance`). A port needs `create` or `write`; with neither,
  * agreeing fails and the gate stays closed.
  */
+/**
+ * A receipt that exists but no longer counts: its version or documents differ from the current agreement. `read()` may
+ * return it so the gate shows as a re-acceptance and the setup progress is kept (`current: false`). Any other return
+ * value is a current record or `null`.
+ */
+export interface HistoricalLegalReceipt {
+  record: LegalAcceptanceRecord;
+  current: false;
+}
+
 export interface LegalReceiptPort {
-  read(): LegalAcceptanceRecord | null | Promise<LegalAcceptanceRecord | null>;
+  read(): LegalAcceptanceRecord | HistoricalLegalReceipt | null | Promise<LegalAcceptanceRecord | HistoricalLegalReceipt | null>;
   /** Native receipt creation: returns the stored record, stamped with native time. Preferred over `write`. */
   create?(request: LegalReceiptCreateRequest): LegalAcceptanceRecord | Promise<LegalAcceptanceRecord>;
   /** @deprecated Renderer-built record with webview time. Implement `create` on a native receipt service instead. */
@@ -240,6 +250,19 @@ export type LegalMode = "gate" | "notice" | "none";
 export interface OnboardingProps {
   /** Window-sized by default; use `contained` when the host sizes the setup surface. */
   layout?: "window" | "contained";
+  /**
+   * Setup chrome. `rail` (default): a left step rail with a "Step n of N" eyebrow. `card`: one centred card with the app
+   * name on top and a dot pager, no rail (the HeardRight v5 onboarding mock). Applies to the setup steps only; the legal
+   * gate keeps its own layout.
+   */
+  frame?: "rail" | "card";
+  /** Vertical density of the setup steps. `compact` (rail frame): main padding 18px top, content 8px, rail 188px wide. Default `default`. */
+  density?: "default" | "compact";
+  /**
+   * Clears the macOS traffic lights: the rail (or card brand row) and the titlebar strip start past them. Use with a
+   * `titlebar` or `dragRegion` on macOS windows with overlay title bars. Default false.
+   */
+  trafficLightInset?: boolean;
   settings: SettingsBackend;
   /** Required when `legalMode` is `gate` (default). Optional for `notice` (the documents shown) and `none`. */
   legal?: LegalStepConfig;
@@ -291,7 +314,7 @@ export interface OnboardingProps {
   modelsIntro?: ReactNode;
   /** Show "Set up later". Default true. */
   allowSkip?: boolean;
-  /** Optional titlebar content rendered in a strip along the top. */
+  /** Optional titlebar content rendered in a strip along the top. On macOS with `trafficLightInset`, the strip starts past the lights. */
   titlebar?: ReactNode;
   /** Render a `data-tauri-drag-region` strip at the top of the setup steps. Default false. Never applied to the legal stage; see `legalDragRegion`. */
   dragRegion?: boolean;

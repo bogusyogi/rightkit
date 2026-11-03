@@ -11,6 +11,7 @@
 //! connection. The clock is passed in (`now`), never read here, so tests inject time. Bounded: at
 //! most [`MAX_ENTRIES`] per-connection entries.
 
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 /// Length of the failure window.

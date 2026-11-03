@@ -24,7 +24,7 @@ use std::path::Path;
 use std::sync::LazyLock;
 
 use super::validate::{
-    clean_path_value, command_has_flag, fenced_after, has_forbidden_part, label_value,
+    clean_path_value, command_has_flag, concrete, fenced_after, has_forbidden_part, label_value,
     normalized_path, physical_norm, resolve_physical_existing, table_rows,
 };
 use crate::l1_port::continuity::{ContinuityContext, ContinuityEvent};
@@ -33,6 +33,12 @@ use crate::l1_port::live_state::{bare_hex, compare_form, SourceBlock};
 pub const SOURCE_ASSERTION_LABEL: &str =
     "**Source assertion (hash-bound claim, not transcript evidence):**";
 pub const MEMORY_LABEL: &str = "**Source memory:**";
+/// Heading of the table in section 8 that imports the source ledger.
+pub const IMPORTED_ITEMS_HEADING: &str = "### Imported open items";
+const SECTION_9: &str = "## 9. Safety, Authority & Boundaries";
+const SECTION_10: &str = "## 10. Exact Resume Sequence";
+const SECTION_11: &str = "## 11. State Verification & Invalidation";
+const DISPOSITIONS: &[&str] = &["carried", "done", "superseded", "user-cancelled"];
 pub const WINDOW_LABEL: &str = "**Identifier accounting window:**";
 const MAX_WINDOW_TURNS: usize = 1_000;
 const MIN_REASON_CHARS: usize = 8;
@@ -198,6 +204,8 @@ pub fn continuity_errors(
             memory_errors(text, block, &mut errors);
             change_errors(text, block, &mut errors);
             block_artifact_root_errors(text, block, windows, &mut errors);
+            open_item_errors(text, block, &mut errors);
+            procedure_errors(text, block, &mut errors);
         }
         None => {
             let declared = label_value(text, SOURCE_ASSERTION_LABEL).unwrap_or_default();
@@ -377,6 +385,113 @@ fn block_artifact_root_errors(
                     }
                 }
                 Err(e) => errors.push(format!("durable artifact root is not resolvable: {e}")),
+            }
+        }
+    }
+}
+
+/// Every ledger id of the source block needs a row in section 8's "Imported open items" table with
+/// a disposition: `carried` (with its next action), or `done`, `superseded`, `user-cancelled` (with
+/// the evidence). A missing id, a duplicate, an unknown id or a bad disposition each fail.
+fn open_item_errors(text: &str, block: &SourceBlock, errors: &mut Vec<String>) {
+    if block.open_items.is_empty() {
+        return;
+    }
+    if !text.contains(IMPORTED_ITEMS_HEADING) {
+        errors.push(format!(
+            "section 8 lacks the `{IMPORTED_ITEMS_HEADING}` table, but the source block carries {} open item(s): {}",
+            block.open_items.len(),
+            block.open_items.iter().map(|r| r.id.as_str()).collect::<Vec<_>>().join(", ")
+        ));
+        return;
+    }
+    let rows = table_rows(text, IMPORTED_ITEMS_HEADING, SECTION_9);
+    let known: BTreeSet<&str> = block.open_items.iter().map(|r| r.id.as_str()).collect();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    for (index, row) in rows.iter().enumerate().skip(1) {
+        if row.len() != 6 {
+            errors.push(format!(
+                "Imported open items row {index} must contain 6 cells (id, item, disposition, next action, approval needed, evidence)"
+            ));
+            continue;
+        }
+        let id = row[0].replace('`', "").trim().to_string();
+        if !known.contains(id.as_str()) {
+            errors.push(format!(
+                "Imported open items row {index} names `{id}`, which is not a ledger id of the source block"
+            ));
+            continue;
+        }
+        if !seen.insert(id.clone()) {
+            errors.push(format!(
+                "ledger id {id} appears more than once in Imported open items"
+            ));
+        }
+        let disposition = compare_form(&row[2]);
+        let kind = DISPOSITIONS.iter().find(|d| {
+            disposition == **d
+                || disposition.starts_with(&format!("{d} "))
+                || disposition.starts_with(&format!("{d}:"))
+                || disposition.starts_with(&format!("{d}+"))
+                || disposition.starts_with(&format!("{d} -"))
+        });
+        match kind {
+            None => errors.push(format!(
+                "ledger id {id} needs a disposition of carried, done, superseded or user-cancelled, not `{}`",
+                row[2].trim()
+            )),
+            Some(&"carried") => {
+                if !concrete(&row[3]) {
+                    errors.push(format!("carried ledger id {id} needs a concrete next action"));
+                }
+            }
+            Some(other) => {
+                if !concrete(&row[5]) {
+                    errors.push(format!("ledger id {id} is {other} and needs concrete evidence"));
+                }
+            }
+        }
+    }
+    for item in &block.open_items {
+        if !seen.contains(&item.id) {
+            errors.push(format!(
+                "ledger id {} (`{}`) from the source block is missing from section 8 Imported open items; give it a disposition: carried, done+evidence, superseded or user-cancelled",
+                item.id, item.item
+            ));
+        }
+    }
+}
+
+/// Every step of every declared procedure must appear, in order, in section 10.
+fn procedure_errors(text: &str, block: &SourceBlock, errors: &mut Vec<String>) {
+    if block.procedures.is_empty() {
+        return;
+    }
+    let Some(start) = text.find(SECTION_10) else {
+        errors.push("the packet has no section 10 for the declared procedures".to_string());
+        return;
+    };
+    let end = text
+        .find(SECTION_11)
+        .filter(|e| *e > start)
+        .unwrap_or(text.len());
+    let section = compare_form(&text[start..end]);
+    for procedure in &block.procedures {
+        let mut cursor = 0usize;
+        for (index, step) in procedure.steps.iter().enumerate() {
+            let wanted = compare_form(step);
+            match section[cursor..].find(&wanted) {
+                Some(at) => cursor += at + wanted.len(),
+                None if section.contains(&wanted) => errors.push(format!(
+                    "procedure `{}` step {} `{step}` is out of order in section 10",
+                    procedure.name,
+                    index + 1
+                )),
+                None => errors.push(format!(
+                    "procedure `{}` step {} `{step}` is missing from section 10",
+                    procedure.name,
+                    index + 1
+                )),
             }
         }
     }

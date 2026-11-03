@@ -25,6 +25,7 @@ import { resolveCommand } from "./development.mjs";
 import { verifyNsisEmbeddedBinary } from "./nsis-payload.mjs";
 import { resolveArtifactPath, splitArtifactContext } from "./release-artifact-path.mjs";
 import { signingReceiptPath } from "./signing-receipts.mjs";
+import { defaultManagedRoots, isUnderManagedRoot } from "./managed-target-stage.mjs";
 import { patchTauriBundleType } from "./tauri-bundle-marker.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -82,10 +83,24 @@ function relativeInside(appRoot, value, label, issues) {
 }
 
 /**
+ * An artifact path under a broker-managed root (the RustRight data root, .rightkit-managed, rightkit-build-control) may be absolute
+ * (rightkit#717): the raw EXE and the NSIS installer of a managed Cargo target live there, and the Authenticode-before-NSIS contract
+ * must address them where Tauri writes them. Anything absolute outside a managed root, or with a `..` segment, is still refused.
+ */
+function managedAbsolute(value, label, issues, managedRoots) {
+  if (typeof value !== "string" || value.trim() === "" || value !== value.trim() || value.includes("\0")) return undefined;
+  if (!(path.win32.isAbsolute(value) || path.posix.isAbsolute(value))) return undefined;
+  if (value.replaceAll("\\", "/").split("/").includes("..")) { issues.push(`${label} must not contain .., received ${JSON.stringify(value)}`); return null; }
+  if (!path.isAbsolute(value)) return undefined;
+  if (!isUnderManagedRoot(path.dirname(value), managedRoots)) return undefined;
+  return path.resolve(value);
+}
+
+/**
  * Validate `target.winPackage` strictly and return the normalised plan. Throws WinPackageConfigError listing
  * every problem. Unknown keys are refused so a typo cannot silently drop a sidecar or the updater step.
  */
-export function validateWinPackage({ appRoot, config = {}, target } = {}) {
+export function validateWinPackage({ appRoot, config = {}, target, env = process.env, managedRoots = defaultManagedRoots(env) } = {}) {
   const issues = [];
   if (typeof appRoot !== "string" || appRoot === "") issues.push("appRoot must be a non-empty string");
   if (!isPlainObject(target)) throw new WinPackageConfigError([...issues, "target must be an object"]);
@@ -109,8 +124,14 @@ export function validateWinPackage({ appRoot, config = {}, target } = {}) {
   const installerDeclared = spec.installerFile ?? (Array.isArray(target.sign?.files) && target.sign.files.length === 1 ? target.sign.files[0] : undefined);
   if (rawDeclared === undefined) issues.push("the raw EXE path is unknown: set winPackage.rawExe or exactly one target.sign.prePackageFiles entry");
   if (installerDeclared === undefined) issues.push("the installer path is unknown: set winPackage.installerFile or exactly one target.sign.files entry");
-  const rawExe = rawDeclared === undefined ? null : relativeInside(appRoot, rawDeclared, "rawExe", issues);
-  const installerFile = installerDeclared === undefined ? null : relativeInside(appRoot, installerDeclared, "installerFile", issues);
+  const artifactPath = (declared, label) => {
+    if (declared === undefined) return { file: null, managed: false };
+    const absolute = managedAbsolute(declared, label, issues, managedRoots);
+    if (absolute === null) return { file: null, managed: false };
+    return absolute ? { file: absolute, managed: true } : { file: relativeInside(appRoot, declared, label, issues), managed: false };
+  };
+  const { file: rawExe, managed: rawExeManaged } = artifactPath(rawDeclared, "rawExe");
+  const { file: installerFile, managed: installerFileManaged } = artifactPath(installerDeclared, "installerFile");
   if (rawExe && !/\.exe$/i.test(rawExe)) issues.push(`rawExe must be an .exe, received ${rawDeclared}`);
   if (installerFile && !/\.exe$/i.test(installerFile)) issues.push(`installerFile must be an .exe, received ${installerDeclared}`);
   if (rawExe && installerFile && rawExe.toLowerCase() === installerFile.toLowerCase()) issues.push("rawExe and installerFile must be different files");
@@ -147,6 +168,7 @@ export function validateWinPackage({ appRoot, config = {}, target } = {}) {
     triple,
     rawExe,
     installerFile,
+    managed: Object.freeze({ rawExe: rawExeManaged, installerFile: installerFileManaged }),
     sidecars: Object.freeze(sidecars),
     tauriCwd,
   });
@@ -286,7 +308,7 @@ export function runWinPackageRecipe({ appRoot, config = {}, target, deps = {} } 
 
   phase("build", () => {
     if (!dry) fs.rmSync(rawExe, { force: true });
-    tauri(["build", "--no-bundle", "--target", plan.triple], quiet);
+    tauri(["build", "--no-bundle", "--target", plan.triple, "--", "--locked"], quiet); // the reviewed lockfile only (rightkit#725)
     if (dry) return;
     raw = locate(rawExe, { env, fs, split });
     if (!fs.existsSync(raw)) throw new Error(`tauri build did not produce the raw EXE: ${rawExe}`);

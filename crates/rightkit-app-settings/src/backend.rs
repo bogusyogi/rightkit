@@ -510,7 +510,7 @@ enum Doc {
 /// The bytes of `path`, or `None` when it does not exist. Any other error is an error: a file
 /// that cannot be read is never treated as missing.
 fn read_bytes(path: &Path) -> Result<Option<Vec<u8>>, Error> {
-    match fs::read(path) {
+    match rightkit_fs::read_replaced(path) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e.into()),
@@ -526,7 +526,7 @@ fn read_bytes_capped(path: &Path, limit: Option<u64>) -> Result<Option<Vec<u8>>,
     let Some(limit) = limit else {
         return read_bytes(path);
     };
-    let file = match File::open(path) {
+    let file = match rightkit_fs::open_replaced(path) {
         Ok(file) => file,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e.into()),

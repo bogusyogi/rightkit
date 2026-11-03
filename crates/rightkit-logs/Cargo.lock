@@ -282,34 +282,37 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "libc",
  "windows",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-crypto"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "blake3",
+ "ring",
  "serde_json",
 ]
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.10"
+version = "0.4.12"
 dependencies = [
  "libc",
  "serde",
  "serde_json",
  "sha2",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.8"
+version = "0.3.9"
 dependencies = [
  "getrandom 0.4.3",
  "libc",

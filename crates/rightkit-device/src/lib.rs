@@ -9,6 +9,9 @@
 
 #[cfg(feature = "credentials")]
 pub mod credentials;
+pub mod vault;
+
+pub use vault::{LicenseState, LicenseStatus, LicenseVault, VaultError};
 
 pub use rightkit_license::LicenseRequirement;
 pub use rightkit_license::RevokedIds;

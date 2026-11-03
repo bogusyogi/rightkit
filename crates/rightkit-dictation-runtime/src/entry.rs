@@ -18,15 +18,13 @@ use crate::{crash_capture, ipc, runtime::EngineRuntime};
 
 pub fn run() -> anyhow::Result<()> {
     // First, before any thread or ORT use: an inherited ORT_DYLIB_PATH must not steer the
-    // engine (release switch rule; no-op with rightkit-onnx `dev-overrides`).
+    // engine.
     rightkit_onnx::clear_inherited_runtime_for_release();
     init_tracing();
     // Sidecar postmortem: the shell can only dump its own process when it
     // notices the engine died. Install our own panic hook so a real dump of
     // THIS process lands in the shared crash dir before abort.
     crash_capture::install_panic_hook();
-    // ENG-10 (`RIGHTKIT_ENGINE_QOS=responsive`, test-mode): Windows EcoQoS opt-out. Default: no-op.
-    crate::perf_levers::apply_process_qos();
     // Every fixed root (app data, models base, KWS, ffmpeg, CoreML caches) is derived here from
     // the engine's own location and the shared path rules; nothing is passed in by the launcher.
     crate::engine_paths::install();
@@ -49,6 +47,8 @@ pub fn run() -> anyhow::Result<()> {
     // JSON result after every candidate has consumed those exact bytes.
     if first.as_deref() == Some("calibrate") {
         let pcm = args.next().unwrap_or_default();
+        // Explicit option from the shell: `calibrate <pcm> --collect-diagnostics`.
+        let collect_diagnostics = args.any(|arg| arg == "--collect-diagnostics");
         let path = std::path::PathBuf::from(&pcm);
         let bytes = std::fs::read(&path)
             .map_err(|error| anyhow::anyhow!("read calibration PCM {}: {error}", path.display()))?;
@@ -62,20 +62,17 @@ pub fn run() -> anyhow::Result<()> {
             .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
             .collect::<Vec<_>>();
         #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
-        let mut result = calibration::run_with_runner(
-            &samples,
-            std::env::var_os("RIGHTKIT_CALIBRATION_COLLECT_DIAGNOSTICS").is_some(),
-            |route| run_calibration_child(&pcm, route),
-        );
+        let mut result = calibration::run_with_runner(&samples, collect_diagnostics, |route| {
+            run_calibration_child(&pcm, route)
+        });
         #[cfg(target_os = "macos")]
-        if std::env::var_os("RIGHTKIT_CALIBRATION_COLLECT_DIAGNOSTICS").is_some()
+        if collect_diagnostics
             && result
                 .attempts
                 .first()
                 .is_some_and(|attempt| attempt.status != "passed")
         {
-            let policy = rightkit_dictation_core::dev_var!("RIGHTKIT_AUDIO_CONDITIONING_POLICY")
-                .unwrap_or_else(|_| "default".into());
+            let policy = "default";
             let conditioned = rightkit_dictation_core::audio_conditioning::condition_for_asr(
                 &samples, 16_000, &policy,
             );
@@ -153,11 +150,10 @@ pub fn run() -> anyhow::Result<()> {
     // the OS caches its ANE compilation — the ~3-6 min first-load cost. The shell
     // runs this during install so the compile happens behind a visible
     // "Preparing model…" step instead of lazily blocking the engine at boot.
-    // The engine derives the model directory itself; a directory argument is
-    // honoured only in test-mode builds.
+    // The engine derives the model directory itself.
     #[cfg(target_os = "macos")]
     if first.as_deref() == Some("prepare-whisper") {
-        let dir = prepare_whisper_dir(args.next());
+        let dir = prepare_whisper_dir();
         tracing::info!("prepare-whisper: compiling ANE cache for {}", dir.display());
         match rightkit_dictation_inference::whisper_coreml::WhisperCoreMl::load(&dir) {
             Ok(w) => {
@@ -190,15 +186,9 @@ pub fn run() -> anyhow::Result<()> {
         // and before any model lease or load.
         install_launch_frame()?;
     }
-    let first = if headless { args.next() } else { first };
     let role = crate::speech_service::role_for(headless);
 
-    // A positional models-base hint is a test-mode convenience; a release engine derives it.
-    let models_hint: Option<std::path::PathBuf> = {
-        let _ = first;
-        None
-    };
-    let models_base = asr::models_base(models_hint.as_deref());
+    let models_base = asr::models_base(None);
     tracing::info!("models base: {}", models_base.display());
 
     // OS lease follows the process, so crash/kill releases it automatically.
@@ -297,10 +287,9 @@ fn run_calibration_child(
 }
 
 /// The Whisper CoreML directory `prepare-whisper` warms: the downloaded copy under the models
-/// base. An explicit directory argument is honoured only in test-mode builds.
+/// base.
 #[cfg(target_os = "macos")]
-fn prepare_whisper_dir(explicit: Option<String>) -> std::path::PathBuf {
-    let _ = explicit;
+fn prepare_whisper_dir() -> std::path::PathBuf {
     asr::models_base(None).join("whisper-multi")
 }
 
@@ -352,8 +341,6 @@ fn install_launch_frame() -> anyhow::Result<()> {
     use rightkit_dictation_core::engine::launch::{
         EngineLaunch, LAUNCH_SCHEMA, LAUNCH_VERSION, MAX_LAUNCH_BYTES,
     };
-    // Engine tests that drive stdin directly start a test-mode engine without a frame and pass
-    // the choice in the environment instead (rightkit-dictation-inference `engine_paths`).
     let launch: EngineLaunch = rightkit_job_queue::read_launch_frame(
         &mut std::io::stdin().lock(),
         LAUNCH_SCHEMA,
@@ -397,26 +384,6 @@ fn install_launch_frame() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// A developer's explicit runtime path comes first. `developer_override_candidate` reads only with
-/// rightkit-onnx `dev-overrides`, which `test-mode` enables and which release builds refuse, so a
-/// shipped engine never consults the environment for its runtime library.
-fn with_developer_override(
-    candidates: Vec<rightkit_onnx::RuntimeCandidate>,
-) -> Vec<rightkit_onnx::RuntimeCandidate> {
-    explicit_first(
-        rightkit_onnx::developer_override_candidate("ORT_DYLIB_PATH"),
-        candidates,
-    )
-}
-
-/// The explicit candidate, when there is one, ahead of the bundled ones.
-fn explicit_first(
-    explicit: Option<rightkit_onnx::RuntimeCandidate>,
-    candidates: Vec<rightkit_onnx::RuntimeCandidate>,
-) -> Vec<rightkit_onnx::RuntimeCandidate> {
-    explicit.into_iter().chain(candidates).collect()
-}
-
 fn configure_ort_dylib() -> Result<(), String> {
     use rightkit_onnx::{
         configure_runtime_with_options, CandidateSource, RuntimeBindingOptions, RuntimeCandidate,
@@ -436,9 +403,7 @@ fn configure_ort_dylib() -> Result<(), String> {
                 CandidateSource::Bundled,
             )
         });
-        // Debug-only developer path: an explicit candidate, never a bundled one.
-        let dev_path: Option<RuntimeCandidate> = None;
-        [exe_sibling, packaged_resource, dev_path]
+        [exe_sibling, packaged_resource]
             .into_iter()
             .flatten()
             .collect()
@@ -460,14 +425,11 @@ fn configure_ort_dylib() -> Result<(), String> {
                 ));
             }
         }
-        // Debug-only developer path: an explicit candidate, never a bundled one.
         paths
     };
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let candidates: Vec<RuntimeCandidate> = Vec::new();
-
-    let candidates = with_developer_override(candidates);
 
     // Force-replace: the engine's own binding always wins over anything inherited.
     match configure_runtime_with_options(

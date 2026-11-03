@@ -1,6 +1,6 @@
 # Rust QA harness config (`rightkit-qa run --tier fast`). Replaces every Node e2e harness.
-# Scenarios are declarative TOML in tests/scenarios; the real engine binary runs in a fresh
-# per-scenario data dir, with system audio muted and no network.
+# Scenarios are declarative TOML in tests/scenarios; the real engine binary runs on the owner's real data
+# under the [snapshot] below, with system audio muted and no network.
 app = "rightapp"
 app_root = "."
 scenarios = ["tests/scenarios"]
@@ -8,12 +8,9 @@ default_tier = "fast"
 
 [engine]
 package = "rightapp-engine"
-# `test-mode` (QA only) lets rightkit-qa bind the engine's data root to the scenario's isolated directory through
-# rightkit_daemon::mode. The engine reads no data-root override of its own, in any build.
-build = ["rustright", "cargo", "build", "-p", "rightapp-engine", "--features", "test-mode"]
-data_dir_env = "RIGHTKIT_QA_DATA_DIR"
+build = ["rustright", "cargo", "build", "-p", "rightapp-engine"]
 
-# The real app, launched hidden on the scenario's isolated data and driven by rightkit-qa's control server, which only the
+# The real app, launched hidden on the real data and driven by rightkit-qa's control server, which only the
 # off-by-default `qa-native` feature compiles in (never a release build). `custom-protocol` embeds the built frontend (`pnpm
 # build` runs first), because a hidden run has no dev server.
 [ui]
@@ -29,3 +26,8 @@ workspace_root = "."
 
 [audio]
 system_mute = true
+
+# Real data, snapshot and restore (rightkit#1437): required. The run refuses to start while the app runs.
+[snapshot]
+app_name = "rightapp"
+process_names = ["RightApp", "rightapp-engine"]

@@ -17,7 +17,7 @@ import {
 import { App } from "./App.js";
 import { useReadyShow } from "./useReadyShow.js";
 import { logError, type DiagnosticEvent } from "@rightkit/document-core/state/diagnostics";
-import { getShell, isBrowserQaMode } from "@rightkit/document-core/state/tauriBridge";
+import { getShell } from "@rightkit/document-core/state/tauriBridge";
 import { hostAppName } from "../appName.js";
 
 // Locked (Adrian, 2026-07-17): the gate is its own fixed 960x560 window, independent of whatever
@@ -131,18 +131,7 @@ async function destroyWindow(): Promise<void> {
  */
 export function AppRoot() {
   const { settings, update, updateAsync } = useSettings();
-  // Browser QA runs against a fresh profile every launch, so the legal gate would otherwise block
-  // every automated run behind a manual click. QA mode is a deterministic harness, never a shipped
-  // build (isBrowserQaMode is false in production), so skip the gate there — mirrors how dev-native
-  // bypasses the license gate. Real users always see the gate until they accept.
-  // Browser QA normally bypasses the first-run gate so unattended document journeys can mount.
-  // The explicit qaLegal switch exercises the shipped gate itself with the same browser fixtures;
-  // it is only honored in QA/dev builds because isBrowserQaMode() is false in production.
-  const qaLegalGate =
-    isBrowserQaMode() &&
-    typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).get("qaLegal") === "1";
-  const needsGate = (!isBrowserQaMode() || qaLegalGate) && !legalAcceptanceCurrent(settings);
+  const needsGate = !legalAcceptanceCurrent(settings);
 
   // Configure native state before reveal. The gate is exact 960x560 and fixed; accepted/current
   // workspace launches with normal controls and maximized geometry.

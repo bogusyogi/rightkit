@@ -21,6 +21,8 @@ const MAX_ITEMS: usize = 200;
 const MAX_FIELD: usize = 512;
 const MAX_NOTE_CHARS: usize = 2_000;
 const MAX_NOTES: usize = 1_000;
+const MAX_OPEN_ITEMS: usize = 500;
+const MAX_STEPS: usize = 100;
 
 fn default_trust() -> String {
     SOURCE_BLOCK_TRUST.into()
@@ -121,6 +123,76 @@ pub struct SourceBlock {
     /// Process artifacts the work updates, including paths outside the workspace.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub artifact_roots: Vec<ArtifactRoot>,
+    /// Everything pending at handoff, one row per item (rightkit#1495). Required for a block that
+    /// ships in a handoff: either rows here or `open_items_none_reason`. Empty lists are not
+    /// serialized, so blocks that predate the ledger keep their digest.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub open_items: Vec<OpenItem>,
+    /// One line saying why nothing is pending (for example `all work complete`); valid only with an
+    /// empty `open_items`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_items_none_reason: Option<String>,
+    /// Procedures in flight (a release, a migration, an install) with their full remaining steps.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub procedures: Vec<Procedure>,
+    /// Rows `bootstrap` prefilled from machine-readable sources that the source struck, each with
+    /// the reason. The prefilled rows are never started from empty; a strike is on the record.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub struck_items: Vec<StruckItem>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenItemState {
+    Pending,
+    InProgress,
+    Blocked,
+    WaitingOnUser,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Approval {
+    pub needed: bool,
+    /// Who must approve; required when `needed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+}
+
+/// One pending item of the source ledger. The target must give every row's `id` a disposition in
+/// the packet's "Imported open items" table.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpenItem {
+    pub id: String,
+    pub item: String,
+    pub owner: String,
+    pub state: OpenItemState,
+    pub next: String,
+    /// What blocks it, or `none`.
+    pub blocker: String,
+    pub approval: Approval,
+    /// A path or command that shows the item's state.
+    pub evidence: String,
+}
+
+/// A procedure in flight and the whole remaining sequence. `steps_source` cites the repo runbook or
+/// the last completed run the steps came from; the script cannot know the canonical list, so the
+/// target checks the citation.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Procedure {
+    pub name: String,
+    pub steps: Vec<String>,
+    pub steps_source: String,
+}
+
+/// A prefilled ledger row the source dropped, with the stated reason.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StruckItem {
+    pub id: String,
+    pub reason: String,
 }
 
 /// Prior state a change is measured against: a previous continuity/packet
@@ -328,7 +400,114 @@ impl ChangedSince {
     }
 }
 
+fn ledger_id(name: &str, value: &str) -> Result<(), String> {
+    let ok = !value.is_empty()
+        && value.chars().count() <= 64
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'));
+    if ok {
+        Ok(())
+    } else {
+        Err(format!(
+            "{name} must be 1-64 characters of [A-Za-z0-9_.-]: {value}"
+        ))
+    }
+}
+
+impl OpenItem {
+    fn validate(&self) -> Result<(), String> {
+        ledger_id("open_items[].id", &self.id)?;
+        for (name, value) in [
+            ("item", &self.item),
+            ("owner", &self.owner),
+            ("next", &self.next),
+            ("blocker", &self.blocker),
+            ("evidence", &self.evidence),
+        ] {
+            let label = format!("open_items[{}].{name}", self.id);
+            field(&label, value)?;
+            no_secret(&label, value)?;
+        }
+        if self.approval.needed {
+            match &self.approval.from {
+                Some(from) => {
+                    let label = format!("open_items[{}].approval.from", self.id);
+                    field(&label, from)?;
+                    no_secret(&label, from)?;
+                }
+                None => {
+                    return Err(format!(
+                        "open_items[{}].approval.from must name who approves",
+                        self.id
+                    ))
+                }
+            }
+        } else if self.approval.from.is_some() {
+            return Err(format!(
+                "open_items[{}].approval.from is only valid when approval.needed is true",
+                self.id
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl Procedure {
+    fn validate(&self) -> Result<(), String> {
+        let name = format!("procedures[{}]", self.name);
+        field("procedures[].name", &self.name)?;
+        if self.steps.is_empty() || self.steps.len() > MAX_STEPS {
+            return Err(format!("{name}.steps must hold 1-{MAX_STEPS} steps"));
+        }
+        for (index, step) in self.steps.iter().enumerate() {
+            let label = format!("{name}.steps[{}]", index + 1);
+            field(&label, step)?;
+            no_secret(&label, step)?;
+        }
+        let source = format!("{name}.steps_source");
+        field(&source, &self.steps_source)?;
+        no_secret(&source, &self.steps_source)?;
+        Ok(())
+    }
+}
+
 impl SourceBlock {
+    /// Merge ledger rows `bootstrap` collected from machine-readable sources into the block: a row
+    /// the source struck (with its reason) is left out, a row the source declared itself with the
+    /// same id wins, every other prefilled row is added. A strike naming no prefilled row is an
+    /// error, so a typo cannot hide a row.
+    pub fn merge_prefilled_open_items(&mut self, prefilled: Vec<OpenItem>) -> Result<(), String> {
+        let known: BTreeSet<&str> = prefilled.iter().map(|row| row.id.as_str()).collect();
+        let mut struck = BTreeSet::new();
+        for strike in &self.struck_items {
+            ledger_id("struck_items[].id", &strike.id)?;
+            let label = format!("struck_items[{}].reason", strike.id);
+            field(&label, &strike.reason)?;
+            no_secret(&label, &strike.reason)?;
+            if strike.reason.trim().chars().count() < 8 {
+                return Err(format!("{label} must say why the row is dropped"));
+            }
+            if !known.contains(strike.id.as_str()) {
+                return Err(format!(
+                    "struck_items names {}, which bootstrap did not prefill",
+                    strike.id
+                ));
+            }
+            if !struck.insert(strike.id.clone()) {
+                return Err(format!("duplicate struck item: {}", strike.id));
+            }
+        }
+        let declared: BTreeSet<String> = self.open_items.iter().map(|row| row.id.clone()).collect();
+        for row in prefilled {
+            if struck.contains(&row.id) || declared.contains(&row.id) {
+                continue;
+            }
+            self.open_items.push(row);
+        }
+        Ok(())
+    }
+
     /// Bind every changed-since entry to the frozen prefix this block ships
     /// with: a baseline must be strictly earlier than the current cutoff and
     /// must not be the current prefix itself. Later deltas belong in notes.
@@ -364,6 +543,27 @@ impl SourceBlock {
                     .into(),
             );
         }
+        match (&self.open_items.is_empty(), &self.open_items_none_reason) {
+            (true, None) => {
+                return Err(
+                    "source block must carry open_items, or an empty list with open_items_none_reason (a one-line reason nothing is pending); a handoff never starts from an empty ledger without one"
+                        .into(),
+                )
+            }
+            (true, Some(reason)) => {
+                field("open_items_none_reason", reason)?;
+                no_secret("open_items_none_reason", reason)?;
+                if reason.contains('\n') {
+                    return Err("open_items_none_reason must be one line".into());
+                }
+            }
+            (false, Some(_)) => {
+                return Err(
+                    "open_items_none_reason is only valid when open_items is empty".into(),
+                )
+            }
+            (false, None) => {}
+        }
         Ok(())
     }
 
@@ -381,6 +581,7 @@ impl SourceBlock {
             || self.in_flight.len() > MAX_ITEMS
             || self.changed_since.len() > MAX_ITEMS
             || self.artifact_roots.len() > MAX_ITEMS
+            || self.struck_items.len() > MAX_OPEN_ITEMS
         {
             return Err(format!(
                 "source block lists are limited to {MAX_ITEMS} entries"
@@ -444,6 +645,25 @@ impl SourceBlock {
                         "memory must declare exactly one of dir or absent_reason".to_string()
                     )
                 }
+            }
+        }
+        if self.open_items.len() > MAX_OPEN_ITEMS || self.procedures.len() > MAX_ITEMS {
+            return Err(format!(
+                "open_items are limited to {MAX_OPEN_ITEMS} rows and procedures to {MAX_ITEMS}"
+            ));
+        }
+        let mut ledger_ids = BTreeSet::new();
+        for row in &self.open_items {
+            row.validate()?;
+            if !ledger_ids.insert(row.id.clone()) {
+                return Err(format!("duplicate open_items id: {}", row.id));
+            }
+        }
+        let mut procedure_names = BTreeSet::new();
+        for procedure in &self.procedures {
+            procedure.validate()?;
+            if !procedure_names.insert(procedure.name.clone()) {
+                return Err(format!("duplicate procedure name: {}", procedure.name));
             }
         }
         let mut roots = BTreeSet::new();

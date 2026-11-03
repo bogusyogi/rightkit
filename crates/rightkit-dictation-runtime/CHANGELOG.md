@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Removed the `RIGHTKIT_CALIBRATION_COLLECT_DIAGNOSTICS` environment switch. `calibrate <pcm>` takes an explicit `--collect-diagnostics` argument instead; the shell passes it when it wants diagnostics.
+- Removed the test-mode environment levers (`perf_levers`, `RIGHTKIT_*` reads via `dev_var!`), the live L3 reconfigure module (`ReconfigureL3` now answers with the not-enabled error), the live-evaluation hook in finalize, the VAD auto-calibrate and developer ORT-path overrides, and the argv models-base hint; each now runs its shipped behaviour only (Adrian, 2026-11-03: "My decision was no unit tests. Only e2e."; "dev mode, is mine ... real data. snapshot and restore.").
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 
 ## 0.1.0 (unreleased)

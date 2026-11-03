@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.11
+
+- `AddressPolicy::first_party_path_prefix(host, prefix)` and `AddressPolicy::check_url_path(url)`: path-prefix scope for a first-party host (whole decoded segments, several prefixes, traversal and encoded separators refused), enforced on the first request and every redirect hop in both clients (#744).
+- Adapter contract for foreign transports (a TLS-fingerprint client such as ScrapeRight's tls-client) documented in the README as the existing string-level guards; impersonation itself stays app-owned (gap ledger row 117) (#744).
+- `RedirectRefusal::UnusableLocation` and `RedirectRefusal::TooLong`, `MAX_REDIRECT_URL_LEN` (8192): a 3xx with an empty or unresolvable `Location` is now `HttpError::RedirectRefused { reason: UnusableLocation }` instead of `InvalidRequest` (class `Invalid` either way); a resolved target over the cap, or with port 0, is refused on every hop before anything is sent (#819 items 1 and 2).
+- `HttpError::request_may_have_been_delivered()`: false only for errors that prove nothing was sent; use it before replaying a non-idempotent submit (#718).
+- `AddressPolicy::allow_host_of(url)`: pins the one configured host (any address it resolves to); other hosts keep the public-only policy, and the never-overridden denials still apply (#696).
+- `percent_decode_strict` and `PercentError`: strict decoding of untrusted URL text, with a malformed escape or invalid UTF-8 as an error (#1139).
+
 ## Unreleased
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

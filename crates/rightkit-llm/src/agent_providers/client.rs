@@ -32,8 +32,8 @@ use std::sync::{Arc, Mutex};
 use wire::{ChatRequest, ReasoningRequest, StreamOptions};
 
 // Re-exports that keep every pre-decomposition `crate::agent_providers::client::…` path
-// working unchanged for `anthropic_client.rs`, `lib.rs`'s public re-export
-// list, and this file's own `#[cfg(test)]` modules.
+// working unchanged for `anthropic_client.rs`, and `lib.rs`'s public re-export
+// list.
 pub use catalog::{
     find_provider, find_provider_by_base_url, is_subscription_billed_route, provider_model_id,
     token_plan_provider_for_base_url, ProviderInfo, PROVIDERS,

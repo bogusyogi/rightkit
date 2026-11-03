@@ -401,47 +401,29 @@ pub(crate) struct BackupPlan<'a> {
     pub messages: Option<i64>,
 }
 
-struct VerifyCtx {
-    key: String,
-    from: i64,
-    messages: Option<i64>,
-    db_name: String,
-}
-
-thread_local! {
-    // `MigrateOptions::verify_backup` and `backup_name` are bare fns, so the
-    // per-run values travel in a thread-local set just before `migrate`.
-    static VERIFY: std::cell::RefCell<Option<VerifyCtx>> = const { std::cell::RefCell::new(None) };
-}
-
-struct VerifyGuard;
-
-impl Drop for VerifyGuard {
-    fn drop(&mut self) {
-        VERIFY.with(|v| *v.borrow_mut() = None);
+/// Names the pre-migration backup `<db file name>.pre-v<from>-<UTC stamp>.bak`; the crate prunes by
+/// the shared `<db file name>.pre-` prefix.
+fn backup_name_for(db_name: String) -> impl Fn(i64, i64) -> String + Send + Sync {
+    move |from: i64, _target: i64| {
+        let stamp = crate::utc_stamp::compact();
+        format!("{db_name}.pre-v{from}-{stamp}.bak")
     }
-}
-
-/// `<db file name>.pre-v<from>-<UTC stamp>.bak`; the crate prunes by the shared
-/// `<db file name>.pre-` prefix.
-fn backup_name(from: i64, _target: i64) -> String {
-    let name = VERIFY.with(|v| v.borrow().as_ref().map(|c| c.db_name.clone()));
-    let name = name.unwrap_or_else(|| super::db_file());
-    let stamp = crate::utc_stamp::compact();
-    format!("{name}.pre-v{from}-{stamp}.bak")
 }
 
 /// Reopen the backup with the key and compare it with the source. A backup
 /// that fails is deleted so no unverified `.bak` is left behind.
-fn verify_backup(path: &Path) -> Result<(), String> {
-    let result = VERIFY.with(|v| match v.borrow().as_ref() {
-        Some(c) => super::migration_backup::verify(path, &c.key, c.from, c.messages),
-        None => Err("no backup check context".to_string()),
-    });
-    if result.is_err() {
-        let _ = std::fs::remove_file(path);
+fn verify_backup_with(
+    key: String,
+    from: i64,
+    messages: Option<i64>,
+) -> impl Fn(&Path) -> Result<(), String> + Send + Sync {
+    move |path: &Path| {
+        let result = super::migration_backup::verify(path, &key, from, messages);
+        if result.is_err() {
+            let _ = std::fs::remove_file(path);
+        }
+        result
     }
-    result
 }
 
 /// Migrate with no backup of ours (in-memory and brand-new databases, tests).
@@ -470,25 +452,20 @@ pub(crate) fn migrate_with(
         optimize_after: false,
         ..MigrateOptions::default()
     };
-    let _guard;
     if let (Some(plan), Some(path)) = (plan.as_ref(), db_path) {
         options.backup = true;
         options.backup_options = Some(DbOptions::new(path).with_passphrase(plan.key));
         options.backup_retention = Some(super::migration_backup::KEEP_BACKUPS);
-        options.backup_name = Some(backup_name);
-        options.verify_backup = Some(verify_backup);
-        VERIFY.with(|v| {
-            *v.borrow_mut() = Some(VerifyCtx {
-                key: plan.key.to_string(),
-                from: plan.from,
-                messages: plan.messages,
-                db_name: path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| super::db_file()),
-            });
-        });
-        _guard = VerifyGuard;
+        let db_name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| super::db_file());
+        options.backup_name = Some(std::sync::Arc::new(backup_name_for(db_name)));
+        options.verify_backup = Some(std::sync::Arc::new(verify_backup_with(
+            plan.key.to_string(),
+            plan.from,
+            plan.messages,
+        )));
     }
     let report = apply_migrations(conn, db_path, MIGRATIONS, &options)?;
     if !report.applied.is_empty() {

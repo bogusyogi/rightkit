@@ -7,6 +7,7 @@ import { defaultReleaseConfigFile } from "./release-config.mjs";
 import { authorizeGitHubUpload } from "./github-upload-gate.mjs";
 import { recordPublishedVersion } from "./artifact-storage.mjs";
 import { admitInstalledQa } from "./release-qa-audit.mjs";
+import { retainAfterPublish } from "./publish-retention.mjs";
 
 const args = process.argv.slice(2);
 let platform = process.platform === "win32" ? "win" : process.platform === "darwin" ? "mac" : process.platform;
@@ -81,6 +82,11 @@ if (!dryRun) writeJson(verifiedMarker, {
 // Candidate builds never enter published.json.
 if (!dryRun) recordPublishedVersion({ app: sealed.manifest.app, version: sealed.manifest.version, platform });
 console.log(`right-release upload: ${dryRun ? "dry-run " : ""}${result.status} ${releaseId} tier=${tier} repo=${repo}`);
+// Only after the remote bytes were verified: bound what the sealed and state folders keep by count and age, and fail loudly above the size limit (rightkit#763).
+if (!dryRun) {
+  try { retainAfterPublish({ root: repoRoot, keep: { releaseId }, log: (line) => console.log(line) }); }
+  catch (error) { console.error(`right-release upload: published, but ${error.message}`); process.exitCode = 1; }
+}
 
 function writeJson(file, value) {
   mkdirSync(path.dirname(file), { recursive: true });

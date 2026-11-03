@@ -2,7 +2,6 @@
 //! cannot persist its progress must not advance the change token.
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 
 pub trait LedgerStorage: Send + Sync {
     fn load(&self) -> Result<Option<Vec<u8>>, String>;
@@ -34,19 +33,5 @@ impl LedgerStorage for FileStorage {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
         rightkit_fs::atomic_write_private(&self.path, bytes).map_err(|e| e.to_string())
-    }
-}
-
-/// Clonable in-memory storage; clones share bytes (simulates an app restart).
-#[derive(Clone, Default)]
-pub struct MemoryStorage(Arc<Mutex<Option<Vec<u8>>>>);
-
-impl LedgerStorage for MemoryStorage {
-    fn load(&self) -> Result<Option<Vec<u8>>, String> {
-        Ok(self.0.lock().unwrap().clone())
-    }
-    fn save(&self, bytes: &[u8]) -> Result<(), String> {
-        *self.0.lock().unwrap() = Some(bytes.to_vec());
-        Ok(())
     }
 }

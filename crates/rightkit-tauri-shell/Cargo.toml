@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-tauri-shell"
-version = "0.7.2"
+version = "0.7.3"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared Tauri desktop shell for Right Suite apps: webview hardening, window state, native menu, tray, single instance, deep links, autostart, rich clipboard, watchdog and engine wiring."
@@ -25,22 +25,19 @@ engine = ["dep:rightkit-job-queue"]
 # `right-release` allow-list (`packages/release/devtools-policy.json`, today only ViewRight) may
 # ship a build with it; every other app must leave it off. Never a default feature.
 content-devtools = ["tauri/devtools", "tauri/unstable"]
-# DEVELOPMENT/QA BUILDS ONLY. `NavPolicy::default()` allows loopback (localhost, 127.0.0.1, [::1]) http(s)
-# navigation as internal, for dev servers and QA drivers. Off by default: a dev profile (debug_assertions on)
-# no longer implies it. An app selects it from an optional QA/dev feature of its own. Never a default feature.
-dev-overrides = []
 # DEVELOPMENT/QA BUILDS ONLY. Compiles the QA control-command helpers an app registers on its `rightkit-qa`
 # control server: `clipboard::qa` (named-pasteboard paste and staging, which can only address a private
 # board and refuse the `Apple CFPasteboard ...` system names) and `frameless::button_frames` (the read-only
 # macOS traffic-light probe). Off by default and never a default
-# feature; an app selects it from its own QA/dev feature. Compiled only with debug_assertions: a release build that
-# enables it fails with compile_error!.
+# feature; an app selects it from its own QA/dev feature. A release build must not enable it.
 qa-probes = []
 logs = ["dep:rightkit-logs"]
 # Native event delivery rechecks each live webview; Tauri gates webview lookup behind unstable.
-host-services = ["dep:rightkit-app-settings", "tauri/unstable"]
+host-services = ["dep:rightkit-app-settings", "dep:sha2", "tauri/unstable"]
 crash = ["dep:rightkit-crash"]
 license = ["host-services", "dep:rightkit-license"]
+dialog = ["dep:tauri-plugin-dialog"]
+app-update = ["host-services", "dep:rightkit-app-update"]
 update = ["host-services", "dep:tauri-plugin-updater", "dep:reqwest", "dep:sha2", "dep:tokio", "dep:rustls"]
 update-license = ["update", "dep:rightkit-license", "dep:url"]
 overlay = ["dep:rightkit-overlay"]
@@ -54,16 +51,27 @@ rightkit-daemon = { version = "0.5.0", path = "../rightkit-daemon" }
 rightkit-job-queue = { version = "0.5.0", path = "../rightkit-job-queue", default-features = false, features = ["supervisor"], optional = true }
 rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process" }
 rightkit-app-settings = { version = "0.3.0", path = "../rightkit-app-settings", default-features = false, optional = true }
-rightkit-logs = { version = "0.3.5", path = "../rightkit-logs", default-features = false, optional = true }
+rightkit-logs = { version = "0.3.9", path = "../rightkit-logs", default-features = false, optional = true }
 rightkit-crash = { version = "0.3.4", path = "../rightkit-crash", default-features = false, features = ["window-errors"], optional = true }
 rightkit-license = { version = "0.2.5", path = "../rightkit-license", default-features = false, features = ["update-auth"], optional = true }
 rightkit-overlay = { version = "0.2.0", path = "../rightkit-overlay", optional = true }
 rightkit-pdf = { version = "0.3.3", path = "../rightkit-pdf", default-features = false, features = ["host"], optional = true }
 rightkit-models = { version = "0.5.2", path = "../rightkit-models", default-features = false, optional = true }
+rightkit-autostart = { version = "0.1.0", path = "../rightkit-autostart" }
+rightkit-clipboard = { version = "0.1.0", path = "../rightkit-clipboard" }
+rightkit-deep-link = { version = "0.1.0", path = "../rightkit-deep-link" }
+rightkit-instance = { version = "0.1.0", path = "../rightkit-instance" }
+rightkit-presence = { version = "0.1.0", path = "../rightkit-presence" }
+rightkit-notifications = { version = "0.1.0", path = "../rightkit-notifications" }
+rightkit-signal = { version = "0.1.0", path = "../rightkit-signal" }
+rightkit-app-update = { version = "0.1.0", path = "../rightkit-app-update", optional = true }
 rightkit-credentials = { version = "0.4.0", path = "../rightkit-credentials", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tauri-plugin-updater = { version = ">=2.10.1, <3", optional = true, default-features = true }
+# The native file and folder pickers (#746). The app registers `tauri_plugin_dialog::init()`; without it
+# the pickers answer `unsupported`.
+tauri-plugin-dialog = { version = "2.7", optional = true }
 reqwest = { version = "0.13.5", optional = true, default-features = false, features = ["rustls-no-provider"] }
 sha2 = { version = "0.11", optional = true }
 tokio = { version = "1", optional = true, features = ["macros", "time"] }
@@ -74,13 +82,10 @@ url = { version = "2", optional = true }
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSString", "NSURL", "NSValue", "NSGeometry", "NSObject", "NSBundle", "NSDictionary", "NSError"] }
-objc2-user-notifications = "0.3"
 block2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSButton", "NSControl", "NSView", "NSResponder", "NSPasteboard", "NSPasteboardItem"] }
 
 [target.'cfg(windows)'.dependencies]
-# Same toast backend as tauri-plugin-notification (via notify-rust): WinRT ToastNotificationManager.
-tauri-winrt-notification = "0.8"
 windows_061 = { package = "windows", version = "0.61", optional = true, features = [
   "Win32_Foundation",
   "Win32_Graphics_Dwm",
@@ -88,6 +93,7 @@ windows_061 = { package = "windows", version = "0.61", optional = true, features
   "Win32_System_DataExchange",
   "Win32_System_Memory",
   "Win32_System_Ole",
+  "Win32_UI_Controls",
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }
@@ -99,6 +105,7 @@ windows_062 = { package = "windows", version = "0.62", optional = true, features
   "Win32_System_DataExchange",
   "Win32_System_Memory",
   "Win32_System_Ole",
+  "Win32_UI_Controls",
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }

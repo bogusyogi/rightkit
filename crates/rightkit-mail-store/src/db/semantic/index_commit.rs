@@ -10,6 +10,7 @@ use rightkit_db::rusqlite::types::Value;
 use rightkit_db::rusqlite::{params_from_iter, Connection};
 use std::collections::HashMap;
 
+use super::embedder::STORED_DIM;
 use super::index::{hash_text, max_message_rowid, EmbeddedBatch, TEXT_EXPR};
 use super::storage::{self, VecRow};
 

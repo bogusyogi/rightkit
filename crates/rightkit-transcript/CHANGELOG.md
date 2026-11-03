@@ -3,6 +3,10 @@
 All notable changes to `rightkit-transcript`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.4.2 (unpublished)
+
+- Added `export::subtitle_timestamp(ms, separator)`, re-exported at the crate root (#1095). It is the one `HH:MM:SS<sep>mmm` formatter that `to_srt` (`,`) and `to_vtt` (`.`) use; consumers can drop their own copies for whisper-compatible `timestamps` JSON.
+
 ## 0.4.1 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

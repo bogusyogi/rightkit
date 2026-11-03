@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-tts-qwen-sys"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 license = "Apache-2.0 AND MIT"
 rust-version = "1.98.0"
@@ -31,6 +31,9 @@ cmake = "0.1"
 
 [package.metadata.rightkit]
 continuous = false
+# Targets with checked-in bindings (bindings-<target>.rs); any other target stops in build.rs. Release tooling and apps
+# read this list instead of finding out from a build panic (rightkit#1346 item 8).
+supported_targets = ["aarch64-apple-darwin", "x86_64-pc-windows-msvc"]
 continuous_reason = "no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src: raw FFI bindings plus statically linked ggml that start nothing by themselves, ggml_graph_compute uses a disposable thread pool created and joined inside each compute call unless the caller builds its own via ggml_threadpool_new, and any resident model belongs to the consumer (rightkit-tts-qwen) (reviewed 2026-10-11)"
 
 # One Cargo workspace and lock per crate (rightkit#1285).

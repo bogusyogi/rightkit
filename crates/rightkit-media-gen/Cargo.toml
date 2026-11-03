@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-media-gen"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Generative media providers (fal, WaveSpeed, Veo/Gemini, OpenAI Images, ElevenLabs, HeyGen, EvoLink, Higgsfield, Muapi, NanoBanana, Replicate, Wan2GP, Blender, local), model catalogue and facts, routing, durable generation jobs, result descriptors, library and spend ledger"
@@ -12,10 +12,6 @@ include = ["src/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LIC
 [lib]
 name = "rightkit_media_gen"
 path = "src/lib.rs"
-
-[features]
-# Development builds only: honour `<PREFIX>_FFMPEG` / `PATH` (unverified binaries).
-dev-overrides = ["rightkit-ffmpeg/dev-overrides"]
 
 [dependencies]
 rightkit-local-gen = { version = "0.1.0", path = "../rightkit-local-gen" }

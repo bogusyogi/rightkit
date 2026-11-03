@@ -1,5 +1,5 @@
 //! One resolver for an app's per-user folders (`data`, `local`, `cache`, `home`) with a dev
-//! namespace and test/QA isolation.
+//! namespace.
 //!
 //! This replaces the hand-rolled `app_paths.rs` / `*_DATA_DIR` copies in each app. The rules:
 //!
@@ -13,7 +13,7 @@
 //!   [`AppDirs::resolve`] and [`AppDirs::resolve_with_options`] build the macOS and Linux bases from
 //!   [`account_home`] (`getpwuid_r(geteuid())`), ignoring `HOME` and every `XDG_*` variable, so a
 //!   redirected environment cannot move a release app's folders. [`AppDirs::resolve_with`] uses supplied environment for ordinary mappings;
-//!   canonical QA overrides also validate disk state & trusted protected locations. macOS: `~/Library/Application Support` (data and local) and
+//!   macOS: `~/Library/Application Support` (data and local) and
 //!   `~/Library/Caches` (cache). Linux: `$XDG_DATA_HOME` (else `~/.local/share`) for data and
 //!   local, `$XDG_CACHE_HOME` (else `~/.cache`) for cache. Every base must be absolute; an unset or
 //!   relative base is an error, never the working directory.
@@ -22,23 +22,21 @@
 //!   Windows (Roaming AppData) and macOS (`~/Library/Application Support`) the platform has no
 //!   separate base, so `config` is the same folder as `data`. A Linux process with no `HOME` and no
 //!   `XDG_CONFIG_HOME` gets `config` next to `data` rather than a new failure. Android: the
-//!   injected files folder. Under a test root or a QA override `config` is `<root>/config`.
+//!   injected files folder.
 //! * **Legacy names.** [`AppId::with_legacy_names`] lists earlier app names whose folders must not
 //!   be abandoned. [`AppDirs::resolve`] (and [`AppDirs::resolve_with_legacy`], which takes the
 //!   existence test as a parameter) picks, for each of `data`, `local` and `config` separately,
 //!   the current name's folder if it exists, else the first legacy name's folder that exists, else
 //!   the current name. `cache` always uses the current name (it is re-creatable). Nothing is moved
-//!   or created. Test roots, QA overrides and injected folders ignore legacy names.
+//!   or created. Injected folders ignore legacy names.
 //! * **App folder.** `<base>/<org>/<namespace>`, org defaulting to `Orthic Labs`
 //!   ([`AppId::without_org`] keeps an existing flat `<base>/<name>` install). Windows cache is
 //!   `<LOCALAPPDATA>/<org>/<namespace>/Cache` so it never shares a folder with state.
+//! * **User folders.** [`user_dirs`] answers the account's home, Desktop, Documents and Downloads.
 //! * **Dev namespace.** Only an [`Options`] with `dev` set uses `<name>Dev` (for example
 //!   `ViewRightDev`); no build sets it by default, so a dev run is not isolated from the installed app.
-//! * **Test root.** From [`AppDirs::for_test`] in any build, every folder is under one per-process
-//!   temp root and the OS is never asked.
-//! * **QA overrides.** No build reads the `RIGHTKIT_QA_*`, `RIGHTKIT_UNDER_TEST` or legacy override
-//!   variables; the `test-mode` feature that compiled them is removed. [`Options::qa_overrides`] is kept
-//!   for callers and has no effect.
+//! * **No test mode.** There is no test root and no QA override: every build resolves the real
+//!   per-user folders. QA runs against the real home and uses `rightkit-qa` snapshot and restore.
 //!
 //! * **Android.** There is no environment-based resolution on Android: the app gets its folders
 //!   from the `Context` (`getFilesDir()`, `getCacheDir()`) and passes them in with
@@ -48,14 +46,11 @@
 //!   own id), so no org or `Dev` namespace is added. The injected constructor is compiled on every
 //!   target, so host tests cover it.
 //!
-//! Normal mappings are pure over an injected environment; canonical QA roots additionally use
-//! filesystem validation with trusted native locations or [`Options::protected_paths`].
-//! Native fallback uses account/known-folder locations, ignoring redirected HOME/XDG/APPDATA.
-//! Hosts with custom real XDG locations must supply those through [`Options::protected_paths`].
+//! Mappings are pure over an injected environment. The native resolvers use account and
+//! known-folder locations, ignoring redirected HOME/XDG/APPDATA.
 //! Nothing here creates a directory except [`AppDirs::create_all`].
-//!
-//! Historical selectors retain lexical checks against supplied bases. Canonical roots use the
-//! portable validation contract and trusted locations independent of redirected HOME/APPDATA.
+
+pub mod user_dirs;
 
 use std::ffi::OsString;
 use std::io;
@@ -68,15 +63,9 @@ pub const DEFAULT_ORG: &str = "Orthic Labs";
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum AppDirsError {
-    /// A base or override is relative or contains `..`.
-    #[error("{var} must be an absolute path without `..`: {}", .path.display())]
-    NotAbsolute { var: String, path: PathBuf },
-    /// An override points at (or inside) the real per-user folder; it is refused, not honoured.
-    #[error("{var} points at the real per-user folder {}; refusing", .path.display())]
-    RealFolder { var: String, path: PathBuf },
-    /// The canonical QA root is set without its activation pairing; refused, not honoured.
-    #[error("{var} is set without test activation; refusing unpaired test root {}", .path.display())]
-    UnpairedTestRoot { var: String, path: PathBuf },
+    /// A base folder the OS mapping needs is unset or empty.
+    #[error("cannot resolve the {what} folder: {why}")]
+    NoBase { what: &'static str, why: String },
     /// The operating system could not name the account's home or known folders. Never answered
     /// from `HOME`, `XDG_*`, `APPDATA`, `LOCALAPPDATA` or `USERPROFILE`: a redirected environment
     /// must not move an app's real folders.
@@ -125,16 +114,10 @@ impl Os {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct AppId {
-    /// Runner binding identity when it differs from the installed folder name. Matching is exact.
-    pub qa_app_id: Option<&'static str>,
     /// The installed folder name, for example `ViewRight`.
     pub name: &'static str,
     /// The organisation folder; `None` keeps a flat `<base>/<name>` layout.
     pub org: Option<&'static str>,
-    /// Historical per-app data override variable (for example `HR_APP_DATA_DIR`). No build reads it.
-    pub legacy_data_env: Option<&'static str>,
-    /// Historical per-app home override variable. No build reads it.
-    pub legacy_home_env: Option<&'static str>,
     /// Earlier app names whose existing folders are still used, in order of preference (for
     /// example `&["LightCraft"]` for an app renamed to `Ember`). See [`AppId::with_legacy_names`].
     pub legacy_names: &'static [&'static str],
@@ -144,19 +127,10 @@ impl AppId {
     /// `name` under [`DEFAULT_ORG`].
     pub const fn new(name: &'static str) -> AppId {
         AppId {
-            qa_app_id: None,
             name,
             org: Some(DEFAULT_ORG),
-            legacy_data_env: None,
-            legacy_home_env: None,
             legacy_names: &[],
         }
-    }
-
-    /// Use the runner's canonical app key for strict QA binding validation.
-    pub const fn with_qa_app_id(mut self, id: &'static str) -> AppId {
-        self.qa_app_id = Some(id);
-        self
     }
 
     /// Earlier names of this app, most preferred first. A folder under one of them that already
@@ -182,17 +156,6 @@ impl AppId {
         self
     }
 
-    /// Also honour these historical override variables (no build reads them).
-    pub const fn with_legacy_env(
-        mut self,
-        data: Option<&'static str>,
-        home: Option<&'static str>,
-    ) -> AppId {
-        self.legacy_data_env = data;
-        self.legacy_home_env = home;
-        self
-    }
-
     /// The folder-name component: `name`, or `<name>Dev` for a dev build.
     pub fn namespace(&self, dev: bool) -> String {
         if dev {
@@ -207,38 +170,22 @@ impl AppId {
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct Options {
-    /// Trusted real locations for QA root validation. `None` uses native user locations,
-    /// ignoring QA-overridden environment variables. Hosts may supply their own trusted context.
-    pub protected_paths: Option<Vec<PathBuf>>,
     pub os: Os,
     /// Use the `<name>Dev` namespace.
     pub dev: bool,
-    /// Read the QA override variables. No build reads them, so this has no effect.
-    pub qa_overrides: bool,
-    /// When set, every folder is under this root and the OS and environment are not consulted.
-    pub test_root: Option<PathBuf>,
 }
 
 impl Options {
-    /// A release-shaped resolution for `os`: not dev, no overrides, no test root.
+    /// A release-shaped resolution for `os`: not dev.
     pub fn new(os: Os) -> Options {
-        Options {
-            protected_paths: None,
-            os,
-            dev: false,
-            qa_overrides: false,
-            test_root: None,
-        }
+        Options { os, dev: false }
     }
 
-    /// This build: the target OS, release-shaped (not dev, no QA overrides, no test root).
+    /// This build: the target OS, release-shaped (not dev).
     pub fn current() -> Options {
         Options {
-            protected_paths: None,
             os: Os::current(),
             dev: false,
-            qa_overrides: false,
-            test_root: None,
         }
     }
 
@@ -246,26 +193,6 @@ impl Options {
         self.dev = dev;
         self
     }
-
-    pub fn protected_paths(mut self, paths: Vec<PathBuf>) -> Options {
-        self.protected_paths = Some(paths);
-        self
-    }
-
-    pub fn qa_overrides(mut self, on: bool) -> Options {
-        self.qa_overrides = on;
-        self
-    }
-
-    pub fn test_root(mut self, root: Option<PathBuf>) -> Options {
-        self.test_root = root;
-        self
-    }
-}
-
-/// The per-process temp root every test resolution uses: `<temp>/rightkit-test-<pid>`.
-pub fn process_test_root() -> PathBuf {
-    std::env::temp_dir().join(format!("rightkit-test-{}", std::process::id()))
 }
 
 /// An app's resolved folders.
@@ -281,17 +208,14 @@ pub struct AppDirs {
     pub local: PathBuf,
     /// Re-creatable cache.
     pub cache: PathBuf,
-    /// The home folder to show or search (the user's real home unless isolated).
+    /// The home folder to show or search (the user's real home).
     pub home: PathBuf,
-    /// True when any folder came from the test root or a QA override, so nothing is the real
-    /// per-user folder.
-    pub isolated: bool,
 }
 
 impl AppDirs {
     /// Resolve for this build. The per-user base folders come from the operating system's account
     /// (see [`account_home`] and the module docs), never from `HOME`, `XDG_*`, `APPDATA`,
-    /// `LOCALAPPDATA` or `USERPROFILE`; no QA override variable is read from the process environment.
+    /// `LOCALAPPDATA` or `USERPROFILE`.
     pub fn resolve(app: AppId) -> Result<AppDirs> {
         resolve_native(&app, &Options::current(), &account_home, &|p| p.is_dir())
     }
@@ -302,20 +226,13 @@ impl AppDirs {
     /// Windows the known-folder API only, with no environment fallback), and legacy names apply
     /// when their folder already exists.
     /// On Windows the known-folder lookup is the build's own, so `opts.os` should name the build's
-    /// OS for the real per-user folders; `opts.test_root` and the QA overrides behave as documented
-    /// on [`Options`].
+    /// OS for the real per-user folders.
     pub fn resolve_with_options(app: AppId, opts: &Options) -> Result<AppDirs> {
         resolve_native(&app, opts, &account_home, &|p| p.is_dir())
     }
 
-    /// Per-process temp folders in any build (consumer tests): never asks the OS.
-    pub fn for_test(app: AppId) -> Result<AppDirs> {
-        let opts = Options::current().test_root(Some(process_test_root()));
-        AppDirs::resolve_with(&app, &opts, &|_| None)
-    }
-
-    /// `env` answers variable lookups. Canonical QA overrides require filesystem validation;
-    /// legacy folder discovery is disabled here; use [`AppDirs::resolve_with_legacy`] for that.
+    /// `env` answers variable lookups. Legacy folder discovery is disabled here; use
+    /// [`AppDirs::resolve_with_legacy`] for that.
     pub fn resolve_with(
         app: &AppId,
         opts: &Options,
@@ -334,58 +251,17 @@ impl AppDirs {
         exists: &dyn Fn(&Path) -> bool,
     ) -> Result<AppDirs> {
         let ns = app.namespace(opts.dev);
-        if let Some(root) = &opts.test_root {
-            check_absolute(opts.os, "test root", root)?;
-            let r = root.join(&ns);
-            return Ok(AppDirs {
-                data: r.join("data"),
-                config: r.join("config"),
-                local: r.join("local"),
-                cache: r.join("cache"),
-                home: r.join("home"),
-                isolated: true,
-            });
-        }
-
         if opts.os == Os::Android {
             return Err(AppDirsError::AndroidNeedsInjectedRoots);
         }
-
-        let bases = Bases::read(opts.os, env);
-        let (qa_data, qa_home) = if opts.qa_overrides {
-            read_qa(app, opts, env, &bases)?
-        } else {
-            (None, None)
-        };
-
-        if let Some(root) = qa_data {
-            let home = qa_home.unwrap_or_else(|| root.join("home"));
-            return Ok(AppDirs {
-                local: root.join("local"),
-                cache: root.join("cache"),
-                config: root.join("config"),
-                data: root,
-                home,
-                isolated: true,
-            });
-        }
-
-        let dirs = real_dirs(app, opts, &ns, env, exists)?;
-        Ok(match qa_home {
-            Some(home) => AppDirs {
-                home,
-                isolated: true,
-                ..dirs
-            },
-            None => dirs,
-        })
+        real_dirs(app, opts, &ns, env, exists)
     }
 
     /// Folders handed in by the host app (Android: `Context.getFilesDir()` and
     /// `Context.getCacheDir()`), for targets with no environment mapping. `data` and `local` are
     /// `files_dir` (as on macOS, where the two are one folder), `cache` is `cache_dir`, and `home`
     /// is `files_dir` too: Android has no user home to show. Nothing is appended (no org, no `Dev`
-    /// namespace): the OS already gives each package its own private folders. `isolated` is false.
+    /// namespace): the OS already gives each package its own private folders.
     ///
     /// Both must be absolute and free of `..`, and neither may be the other or inside it (the OS
     /// may clear the cache folder, which must never be able to take state with it). Pure: touches
@@ -424,7 +300,6 @@ impl AppDirs {
             local: files_dir.clone(),
             cache: cache_dir,
             home: files_dir,
-            isolated: false,
         })
     }
 
@@ -466,7 +341,7 @@ struct Bases {
 /// process environment: macOS and Linux answer `HOME` from the account database
 /// ([`account_home`]) and report `XDG_*` as unset; Windows answers `APPDATA`, `LOCALAPPDATA` and
 /// `USERPROFILE` from the known-folder API only (no fallback to the variable when the call fails).
-/// Every other name (the QA override variables) is the process environment.
+/// Every other name is the process environment.
 fn native_env(
     key: &str,
     #[cfg_attr(not(any(unix, windows)), allow(unused_variables))] account: &dyn Fn() -> Result<
@@ -676,6 +551,27 @@ mod known {
         data2: 0x6FBA,
         data3: 0x4FCF,
         data4: [0x9D, 0x55, 0x7B, 0x8E, 0x7F, 0x15, 0x70, 0x91],
+    };
+    /// `FOLDERID_Desktop`.
+    pub(super) static DESKTOP: Guid = Guid {
+        data1: 0xB4BF_CC3A,
+        data2: 0xDB2C,
+        data3: 0x424C,
+        data4: [0xB0, 0x29, 0x7F, 0xE9, 0x9A, 0x87, 0xC6, 0x41],
+    };
+    /// `FOLDERID_Documents`.
+    pub(super) static DOCUMENTS: Guid = Guid {
+        data1: 0xFDD3_9AD0,
+        data2: 0x238F,
+        data3: 0x46AF,
+        data4: [0xAD, 0xB4, 0x6C, 0x85, 0x48, 0x03, 0x69, 0xC7],
+    };
+    /// `FOLDERID_Downloads`.
+    pub(super) static DOWNLOADS: Guid = Guid {
+        data1: 0x374D_E290,
+        data2: 0x123F,
+        data3: 0x4565,
+        data4: [0x91, 0x64, 0x39, 0xC4, 0x92, 0x5E, 0x46, 0x7B],
     };
     /// `FOLDERID_Profile`.
     pub(super) static PROFILE: Guid = Guid {
@@ -1050,29 +946,7 @@ fn real_dirs(
         local: pick_app_dir(&local, app, opts, ns, exists),
         cache,
         home,
-        isolated: false,
     })
-}
-
-/// The QA data and home overrides. No build reads them, so this is always `(None, None)`.
-fn read_qa(
-    _app: &AppId,
-    _opts: &Options,
-    _env: &dyn Fn(&str) -> Option<OsString>,
-    _bases: &Bases,
-) -> Result<(Option<PathBuf>, Option<PathBuf>)> {
-    Ok((None, None))
-}
-
-fn check_absolute(os: Os, var: &str, path: &Path) -> Result<()> {
-    if looks_absolute(os, path) {
-        Ok(())
-    } else {
-        Err(AppDirsError::NotAbsolute {
-            var: var.to_string(),
-            path: path.to_path_buf(),
-        })
-    }
 }
 
 /// Absolute for `os` and free of `..`, decided from the text so every OS mapping is testable on

@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use crate::driver_host::contracts::DriverCursor;
 
 use super::workspace::{validate_path_component, WorkspaceTrustVerdict};
+use std::collections::BTreeMap;
 
 /// The engine identity stamped on every harness binding record.
 pub const HARNESS_ENGINE: &str = "claude-code";

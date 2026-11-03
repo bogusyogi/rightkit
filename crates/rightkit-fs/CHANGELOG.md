@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.4.12 (unpublished)
+
+- Removed `tests/swap.rs` and the `tempfile` dev-dependency: a library-level check of `swap_paths` on a temporary folder, not a real app or service run (Adrian, 2026-11-03: "My decision was no unit tests. Only e2e."). The `rightkit-swap` binary is unchanged.
+
+Issues #710, #732, #738, #765, #823, #838, #1013, #1023, #1024, #1083, #1091, #1092, #1093, #1124, #1125, #1155, #1156, #1157. Source only: not compiled or run here; the root integration owns the check batch.
+
+### Test-mode residue removed (Adrian, 2026-11-03: no test-mode code; QA uses the real home with rightkit-qa snapshot and restore)
+
+- `app_dirs`: removed `AppDirsError::UnpairedTestRoot`, `RealFolder` and `NotAbsolute`, `Options::{test_root, qa_overrides, protected_paths}` and their fields, `process_test_root`, `AppDirs::for_test`, `AppDirs::isolated`, `AppId::{with_qa_app_id, with_legacy_env}` and their fields, and the always-empty QA-override reader. `AppDirsError::NoBase` stays. Outside callers updated: `rightkit-context-runtime` `paths::resolve` and `rightkit-dictation-core` `resolve_production_data_root` dropped their `.qa_overrides(false)` / `.test_root(None)` calls (no other caller in `crates/` or `packages/` used a removed item). #1024 (an implicit per-process test root for test binaries) and #738 item 3 (a release data-dir override) are declined by the same decision.
+
+### Added
+
+- `tree::remove_tree(path, &RemoveOptions { min_age, contents_only }) -> RemoveReport { removed, bytes_freed, retained }` (#1023, #738 item 2): never follows a link (walked through pinned directory handles), a link as `path` is refused, a link inside is removed as itself, a failed child is counted and does not stop its siblings, Windows deletes retry on error 5, 32 and 33.
+- `confined_copy::copy_tree_confined(src, dst, &ConfinedCopy { src_root, dst_root })` (#1092): refuses any symlink, junction or reparse point in the source tree or in a path below either root, refuses an existing destination, reads the source through pinned handles, builds in a hidden staging sibling and publishes with one exclusive rename (nothing partial).
+- `transaction`: `PreparedTransaction::commit_then(after)` (#1093 item 2): `after` runs after every file is published and before the commit marker; an error rolls the whole transaction back (`RolledBack`). A crash there leaves no marker, so `recover_transactions` rolls back. 
+- `transaction`: multi-root transactions (#1093 items 1 and 3, decision (a)). `TransactionEntry::in_root(root)` / `root()`: an entry may live under another root than the coordinating one passed to `FileTransaction::prepare`. The coordinating root alone holds the operation lock, `.rktxn/<id>/journal` and the commit marker; the other roots hold staged and backup names beside their destinations only (no `.rktxn` there). Each root is resolved once at preparation (links allowed in the root path), recorded in the journal with its file identity (`rktxn-journal 2`; single-root transactions still write version 1 and old journals recover unchanged), and may not be inside another root of the transaction. `recover_transactions(coordinating_root)` resolves every root from that journal, proving each recorded root again by file identity before touching it; an unreachable or substituted root keeps the transaction `Retained`. A changed committed leftover in another root is renamed in place to `<name>.retained`. Only the coordinating root's lock is taken. Single-root API unchanged. Not compiled or run here.
+- `trash`: Linux (freedesktop.org trash 1.0, home and per-volume trash, `.trashinfo`, exclusive rename, list/lookup/restore) and a Windows recycle-only move through `IFileOperation` with `FOFX_RECYCLEONDELETE`, confirmed against the Recycle Bin records (#1124). The Windows path has not been run on a host.
+- `publish_dir::publish_dir_retaining`, `RetainedPublish::{commit, rollback, previous, dest}`, `pending_retained` (#1125): the displaced tree is kept at the marker `.<name>.rkprev` until the caller decides; a crash leaves the marker for `pending_retained`.
+- `journal::JsonlJournal` (feature `lock`, #1155): open scans under a lock, truncates a torn tail to the last valid record and flushes, completes a final valid record that lost its newline, refuses (`Corrupt`, nothing cut) damage in the middle; `append` repairs first when the file does not end with a newline.
+- `retention::Retention` (#1156): `keep_newest`, `max_bytes`, `protect`, `order_by`, `commit(added)` with all-or-nothing retirement (victims renamed aside, undone and the new entry withdrawn if any fails); `quarantine` and `quarantine_hidden` (`.recovered-<ms>`, never overwritten).
+- `rename_case::rename_case_only(from, to)` (#1157): same-entry detection by `FileKey`, rename through a hidden unique name in the same directory, put back on failure.
+- `owned_temp::{OwnedTemp, sweep_owned_temps}` (#1013): a temp for an external writer with a `.rkowner` evidence record (owner label, creating pid); the sweep removes only temps whose record this module wrote, whose pid is confirmed dead, and that are regular non-link files at unlink time. Reuses `SweepReport`.
+- `malware_scan::{scan_file, ScanVerdict}` (#1091): Windows Defender `MpCmdRun.exe` verdict (Clean, Threat, Unavailable), no console window, 120 s bound; `Unavailable` elsewhere.
+- `app_dirs::user_dirs::{home, desktop, documents, downloads}` (#765): the `dirs` crate's values (Windows known folders, macOS `$HOME` plus names, XDG `user-dirs.dirs`).
+- `zip::read_zip_limited(path, max_bytes)` (#710 item 5) and the untrusted-names note on `read_zip` (item 4). Item 6 (re-hash during the copy) was already in `write_zip`.
+- `identity` is compiled with feature `fs` (#732): `StableId`, `Fingerprint`, `Tracked`, `Resolution`, `SearchLimits`, `identity::track_path` and the ledger-free `identity::locate`; only `IdentityStore` (the ledger) needs `json`.
+- `StateDir` gained crate-internal handle-relative helpers for the tree walkers (no public change).
+
+### Changed
+
+- `migrate_dir` (#710 items 2 and 3): on Windows an empty `to` is replaced in place by the rename (it is no longer removed and recreated before a cross-volume attempt), and a read-only file in the copy is flushed with its read-only attribute cleared and restored instead of silently skipped.
+
+Issue #838. Source only: the root integration owns the check batch.
+
+- Added feature `toolchain-lease` (= `fs` + `digest` + `json`) and module `toolchain_lease`: `ToolchainLease::seal(&SealSpec)` hashes runtime and SDK trees and single executables once, freezes their backing bytes with the OS immutable flag (macOS `UF_IMMUTABLE`, Linux `FS_IMMUTABLE_FL`; entries already OS-protected are recorded and left alone), and returns a lease bound to the full tree digest. `verify()` is the metadata-only replay check (0 bytes hashed; refuses expiry, a replaced ancestor or pinned root, a changed identity, size, mode, link count, change time or flags, a changed directory membership, a retargeted symlink, an external hard link); `verify_content()` rehashes everything for the enrollment and final boundaries and reports the bytes (`VerifyReport`) so a byte ledger can account for them. Sealing refuses symlinks that leave the sealed roots, special files, and files with hard links outside the roots; it fails closed (nothing left frozen) on a host without OS enforcement, on an entry it cannot freeze, and on Windows. `LeaseEvidence` (digest, enforcement, totals, validity) is content-free and serialisable; `SealSpec::journal` + `ToolchainLease::recover` clear a crashed seal's flags. Release or drop clears what the lease froze. Not covered: Windows, and a same-user process that clears the flag is detected by the change time, not prevented.
+
+Issues #823, #1083. Source only: not compiled or run here; the root integration owns the check batch.
+
+- Restored the strict directory publish policy from commit 5a5892a9 (#823, CutRight gap 7): `publish_dir_with` and `DirPublishPolicy { Replace, AbsentOnly, AbsentOrEmpty }`, and `DirPublishMethod::EmptyRemovedThenExclusiveRename`. The tests module of that commit is not restored (no unit tests).
+- Fixed the exhausted-loop path in `publish_strict` (#823): the final pass no longer removes an empty `dest` and then returns without publishing; a removal made by an earlier pass is undone (an empty directory given back at the name) before the error is returned.
+- Added `secret_file::read_secret_file(env_name, max_bytes) -> Result<Zeroizing<String>, SecretFileError>` (#1083): the path comes from the named environment variable, the file must pass `verify_owner_only`, is read through a bounded reader, and must be one line of non-control UTF-8 (one final line break is removed). New dependency `zeroize = "1.9"` (enabled by the `fs` feature).
+
 ## Unreleased
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

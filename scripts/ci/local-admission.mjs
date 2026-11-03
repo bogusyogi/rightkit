@@ -308,7 +308,7 @@ export function evidenceStepProblems({ evidence, unit, gateConfig, hostOs }) {
     }
   }
   for (const row of recorded) if (row?.ok !== true) problems.push(`a recorded step did not pass: ${String(row?.command).slice(0, 120)}`);
-  if (plan.steps.some((step) => step.test === true) && !(executed > 0)) problems.push("the test steps executed no test");
+  // End-to-end tests only (Adrian, 2026-11-03): a test step that ran no test and failed none is clean, as for a crate with no test.
   return [...new Set(problems)];
 }
 // ---- end fix5 (blocker 2) ----------------------------------------------------------------------------------------

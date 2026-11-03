@@ -92,3 +92,9 @@ let held = ledger.reserve("genright", "job-42", "2026-10", "fal-ai/flux", "v3", 
 ledger.mark_in_flight(&held.reservation.reservation_id)?;
 ledger.commit(&held.reservation.reservation_id, 118_000)?;
 ```
+
+## Approved budgets
+
+An owner-approved spend ceiling that a later edit of the ledger file cannot lift (#422). `create_approved_budget(id, scope, period, currency, limit_micro)` makes an unapproved budget and its allowance; the app shows the owner the budget and `ApprovedBudget::approval_bind()`, gets approval in its own flow, then calls `approve_budget(&SealKey, id, approver, expected_bind)`, which refuses a budget that changed since (`ApprovalChanged`) and seals the approval with HMAC-SHA256 (`rightkit-crypto`). `reserve_approved(..)` re-verifies the seal in constant time on every reservation and refuses `NotApproved` / `SealInvalid` (a seal that fails, or an allowance limit raised above the approved limit). `report_approved_spend(key, budget_id, report_id, reservation_id, actual)` commits once per report id; `approved_audit(..)` reads the append-only trail (triggers refuse update and delete).
+
+The seal key never lives in the ledger database: `SealKey::from_keychain(service, account)` (feature `keychain`) keeps it in the OS credential store through `rightkit-credentials` and refuses a guarded or non-durable store; `SealKey::from_bytes` is for an app that holds it elsewhere. A lost key leaves the budgets sealed-invalid and the owner re-approves. The approver is an app-supplied principal string, sealed and audited.

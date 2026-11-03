@@ -219,6 +219,22 @@ export function scratchRoots(policy, { platform = process.platform, env = proces
   return out;
 }
 
+/**
+ * The run-output folder of one app: `<APP>_SCRATCH` (the app's own override, an absolute path) when set, else `<first existing policy scratch root>/<app>`.
+ * Throws when neither exists: no drive is ever hard coded (rightkit#816, the reader Pulse kept as scripts/release/scratch-root.mjs).
+ */
+export function appScratchRoot(app, { policy = readDiskPolicy(), platform = process.platform, env = process.env, home = os.homedir() } = {}) {
+  if (typeof app !== "string" || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(app)) throw new Error(`appScratchRoot: ${JSON.stringify(app)} is not an app name`);
+  const override = env[`${app.toUpperCase().replaceAll("-", "_")}_SCRATCH`];
+  if (override) {
+    if (!path.isAbsolute(override)) throw new Error(`${app.toUpperCase().replaceAll("-", "_")}_SCRATCH must be an absolute path`);
+    return override;
+  }
+  const root = scratchRoots(policy, { platform, env, home }).find((candidate) => existsSync(candidate));
+  if (!root) throw new Error(`no scratch root for ${app}: set ${app.toUpperCase().replaceAll("-", "_")}_SCRATCH, or create the disk-policy scratch folder (${scratchRoots(policy, { platform, env, home }).join(", ") || "none declared for this platform"})`);
+  return path.join(root, app);
+}
+
 /** Create missing scratch roots (only when their parent volume exists). Returns the roots that exist afterwards. */
 export function ensureScratchRoots({ policy, platform = process.platform, env = process.env, home = os.homedir() } = {}) {
   const ready = [];

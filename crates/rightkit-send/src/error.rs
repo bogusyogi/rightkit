@@ -2,6 +2,7 @@
 //! shows text to people matches on the variant (or on the serialized `code`) and
 //! words it in its own language.
 
+use crate::transport::{FileFailure, NameProblem, SmallFailure, SmallStage};
 use serde::Serialize;
 use std::fmt;
 
@@ -22,6 +23,8 @@ pub enum Error {
     TrustStore { detail: String },
     /// A device key was not a 64-character SHA-256 in hex.
     InvalidFingerprint,
+    /// A trust subject was empty, too long, or held whitespace or control characters.
+    InvalidSubject,
     /// A device record was asked for that has no record.
     NotListed,
     /// The default state was set to Allow; only single devices may be allowed.
@@ -69,6 +72,26 @@ pub enum Error {
     NothingToSend,
     /// A chosen path is neither a file nor a folder.
     NotFileOrFolder { path: String },
+    /// A text to send over a transport is longer than one small item may be.
+    TextTooLarge { max: usize },
+    /// A file name that would not be saved as it is (a transport refuses names, it never rewrites them).
+    NameRefused { file: String, problem: NameProblem },
+    /// One small item (a text, a file list or an announce) did not go over a transport.
+    ItemFailed {
+        peer: String,
+        stage: SmallStage,
+        failure: SmallFailure,
+    },
+    /// One file did not go over a transport.
+    FileFailed {
+        peer: String,
+        file: String,
+        failure: FileFailure,
+    },
+    /// A command name the adapter does not have.
+    UnknownCommand { command: String },
+    /// A command's arguments were missing or of the wrong type.
+    BadArguments { command: String, detail: String },
     /// A received file's checksum did not match the one the sender named.
     Damaged { file: String },
     /// An internal failure that should not happen (serializing our own message).
@@ -97,6 +120,7 @@ impl fmt::Display for Error {
             Error::DiscoveryUnavailable { detail } => write!(f, "discovery unavailable: {detail}"),
             Error::TrustStore { detail } => write!(f, "cannot save the device list: {detail}"),
             Error::InvalidFingerprint => write!(f, "fingerprint is not 64 hex characters"),
+            Error::InvalidSubject => write!(f, "trust subject is not a usable key"),
             Error::NotListed => write!(f, "device is not in the list"),
             Error::AllowNotDefault => write!(f, "the default state cannot be allow"),
             Error::DeviceNearby => write!(f, "device is on the network now"),
@@ -141,6 +165,29 @@ impl fmt::Display for Error {
             }
             Error::Mark { file, detail } => write!(f, "cannot mark {file} as downloaded: {detail}"),
             Error::Damaged { file } => write!(f, "{file} arrived damaged"),
+            Error::TextTooLarge { max } => write!(f, "text is over {max} bytes"),
+            Error::NameRefused { file, problem } => {
+                write!(f, "{file} is refused: {}", problem.as_str())
+            }
+            Error::ItemFailed {
+                peer,
+                stage,
+                failure,
+            } => write!(
+                f,
+                "{} to {peer} did not go: {}",
+                stage.as_str(),
+                failure.code()
+            ),
+            Error::FileFailed {
+                peer,
+                file,
+                failure,
+            } => write!(f, "{file} to {peer} did not go: {}", failure.code()),
+            Error::UnknownCommand { command } => write!(f, "unknown command {command}"),
+            Error::BadArguments { command, detail } => {
+                write!(f, "bad arguments for {command}: {detail}")
+            }
             Error::Internal { detail } => write!(f, "internal error: {detail}"),
         }
     }

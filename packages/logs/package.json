@@ -18,12 +18,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.5"
+    "typescript": "^7.0.2"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",

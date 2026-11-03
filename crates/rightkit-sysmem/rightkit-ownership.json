@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-sysmem",
+  "capabilities": [
+    {
+      "capability": "sysmem",
+      "summary": "Platform memory calls behind a safe API: allocator pressure relief, physical memory on Windows, monitor colour profile",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

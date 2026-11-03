@@ -7,6 +7,8 @@
 //!
 //! - [`event`]: the vendor-neutral [`AgentEvent`] stream.
 //! - [`rate_limit`]: rate-limit state (no data, probe failed, unsupported, known).
+//! - [`tasks`]: normalized task list, subagent and lane-capacity state; idle lanes are
+//!   `Unknown` until every source has reported.
 //! - [`discovery`]: vendor CLI lookup on `PATH` and bounded version and sign-in probes.
 //! - `claude` (feature `claude`): Claude Code `stream-json` parser, writer and argv builder.
 //! - `codex` (feature `codex`): Codex `app-server` JSON-RPC client over stdio.
@@ -15,6 +17,7 @@
 pub mod discovery;
 pub mod event;
 pub mod rate_limit;
+pub mod tasks;
 
 #[cfg(feature = "claude")]
 pub mod claude;
@@ -29,8 +32,9 @@ pub mod driver_host;
 pub mod session;
 
 pub use event::{
-    AgentEvent, ControlOutcome, ControlResponse, McpServerStatus, ParseError, PermissionDenial,
-    RateLimitInfo, ResultSummary, SessionInit, UnknownPolicy, UsageCounts,
+    AgentEvent, ControlOutcome, ControlResponse, McpServerStatus, McpStartup, ParseError,
+    PermissionDenial, PlanStep, RateLimitInfo, RateLimitWindow, RateLimitWindows, ResultSummary,
+    SessionInit, UnknownPolicy, UsageCounts,
 };
 
 #[cfg(feature = "agent_host")]

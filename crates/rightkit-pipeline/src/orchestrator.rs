@@ -17,7 +17,7 @@ use std::fs::{self, File};
 use std::hash::{BuildHasher, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use rightkit_fs::digest::{blake3_bytes, blake3_file, sha256_file_with_len};
@@ -46,14 +46,6 @@ const PERMANENT_GENERATE_ERRORS: [&str; 8] = [
     "spend_cap",
     "unknown_command",
 ];
-
-/// Test-only crash points.
-#[doc(hidden)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Failpoint {
-    AfterCopyBeforeJournal,
-    AfterJournalBeforeAck,
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Submission {
@@ -87,7 +79,6 @@ pub struct Orchestrator<R: Runner> {
     project: PathBuf,
     consumer: String,
     catalog: OnceLock<ModelCatalog>,
-    failpoint: Mutex<Option<Failpoint>>,
 }
 
 impl Orchestrator<ProcessRunner> {
@@ -107,7 +98,6 @@ impl<R: Runner> Orchestrator<R> {
             project,
             consumer: DEFAULT_CONSUMER.to_string(),
             catalog: OnceLock::new(),
-            failpoint: Mutex::new(None),
         }
     }
 
@@ -128,20 +118,6 @@ impl<R: Runner> Orchestrator<R> {
 
     pub fn journal(&self) -> &Journal {
         &self.journal
-    }
-
-    #[doc(hidden)]
-    pub fn set_failpoint(&self, fp: Option<Failpoint>) {
-        *self.failpoint.lock().unwrap_or_else(|e| e.into_inner()) = fp;
-    }
-
-    fn hit(&self, fp: Failpoint, name: &'static str) -> Result<()> {
-        let mut g = self.failpoint.lock().unwrap_or_else(|e| e.into_inner());
-        if *g == Some(fp) {
-            *g = None;
-            return Err(Error::Injected(name));
-        }
-        Ok(())
     }
 
     /// Capability check over the engine's doctor report (read through RightKit's
@@ -648,11 +624,6 @@ impl<R: Runner> Orchestrator<R> {
                 });
             }
         }
-        self.hit(
-            Failpoint::AfterCopyBeforeJournal,
-            "after copy, before journal write",
-        )?;
-
         let kind = kind
             .or_else(|| parse_kind(asset.media["kind"].as_str()))
             .or_else(|| request_id.and_then(|r| self.request(r).ok().map(|e| e.kind)));
@@ -691,10 +662,6 @@ impl<R: Runner> Orchestrator<R> {
             "event": "genright.import", "request_id": stored.request_id, "job_id": stored.job_id,
             "asset_id": stored.asset_id, "media_path": stored.media_path, "sha256": stored.sha256,
         }));
-        self.hit(
-            Failpoint::AfterJournalBeforeAck,
-            "after journal write, before ack",
-        )?;
         Ok(stored)
     }
 

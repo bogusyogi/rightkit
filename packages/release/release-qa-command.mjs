@@ -22,6 +22,7 @@
 // There is no source stage (GATE-CONTRACT GC-A07): QA journeys run after the build against the installed dev copy.
 // This command refuses to seal from inside a QA run (RIGHT_RELEASE_QA_STAGE set): sealing is never test execution.
 import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -102,6 +103,18 @@ export function evidencePathFromOutput(stdout) {
 }
 
 /** Run the QA plan through the runner, then seal a receipt. `deps` are test seams; production uses the defaults. */
+/** GC-A10: the QA config of an app with journeys declares `[snapshot]` (the real data and credential items rightkit-qa snapshots and restores). */
+export function assertSnapshotConfigured(qaConfigFile) {
+  let table;
+  try { table = createRequire(import.meta.url)("smol-toml").parse(readFileSync(qaConfigFile, "utf8")); } catch (error) {
+    throw new Error(`qa.config ${qaConfigFile} is not readable TOML: ${error.message}`);
+  }
+  const snapshot = table?.snapshot;
+  const named = snapshot && typeof snapshot === "object" && (
+    (typeof snapshot.app_name === "string" && snapshot.app_name.trim()) || (Array.isArray(snapshot.extra_paths) && snapshot.extra_paths.length) || snapshot.suite_shared === true || snapshot.android);
+  if (!named) throw new Error(`QA journeys run on the real app data under a snapshot and restore (GATE-CONTRACT GC-A10, rightkit#1437): ${qaConfigFile} has no usable [snapshot] table (app_name, extra_paths, suite_shared or android, plus process_names and the [[snapshot.credentials]] items a journey changes). Declare it; no memory backend, test-mode or dummy data stands in for it`);
+}
+
 export const SOURCE_QA_REMOVED = "source QA is removed (GATE-CONTRACT GC-A07): QA journeys run after the build against the installed dev copy";
 
 export async function runQa({ stage, platform, releaseIdArg, configPath, deps = {} }) {
@@ -164,6 +177,9 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, deps = 
   const journeysConfig = config.qa.journeys ?? null;
   const qaConfig = path.resolve(appRoot, config.qa.config);
   if (!existsSync(qaConfig)) throw new Error(`qa.config does not exist: ${qaConfig}`);
+  // GC-A10 (rightkit#1437): journeys run on the real data, so the QA config must declare the `[snapshot]` the runner
+  // snapshots and restores around them. No fake backend, no dummy data: a journeys lane without it is refused.
+  if (journeysConfig) assertSnapshotConfigured(qaConfig);
   // #184: opt in with `qa.installed: { installDir? }`. Mounts the sealed DMG (mac) or runs the sealed NSIS installer into a
   // throwaway directory (win) and hands the runner the opened app; always cleaned up, even when the runner throws.
   let installedQa = null;
@@ -241,7 +257,7 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, deps = 
 }
 
 function usage(code) {
-  console.log("usage: right-release qa --stage installed --platform mac|win [--release <sealed-id>] [--config right-release.config.json]\n       (seals the QA receipt; admission is warn or refuse per app in qa-admission-policy.json; refused inside a QA run)\n       right-release qa audit [--app <dir>] [--json] [--since <YYYY-MM-DD>]\n       right-release qa policy show | set --app <app> --mode warn|refuse --set-by <name> [--stage installed]\n                             | approve-runner --runner <file> --version <v> --platform mac|win --set-by <name> [--note <text>]");
+  console.log("usage: right-release qa --stage installed --platform mac|win [--release <sealed-id>] [--config right-release.config.json]\n       (seals the QA receipt; admission is warn or refuse per app in qa-admission-policy.json; refused inside a QA run)\n       right-release qa audit [--app <dir>] [--json] [--since <YYYY-MM-DD>]\n       right-release qa policy show | set --repo <rightkit checkout> --app <app> --mode warn|refuse --set-by <name> [--stage installed]\n                             | approve-runner --repo <rightkit checkout> --runner <file> --version <v> --platform mac|win --set-by <name> [--note <text>]\n       (policy writes name their checkout with --repo or --dir and are refused inside node_modules or a trusted-gates root)");
   process.exit(code);
 }
 

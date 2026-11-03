@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-mcp"
-version = "0.7.3"
+version = "0.7.4"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared MCP client (stdio + streamable HTTP, trust gate, pool, OAuth hook) and server host (stdio + loopback HTTP, per-tool admission) for Right Suite apps."
@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["mcp", "agent", "tools", "json-rpc"]
 categories = ["development-tools"]
-include = ["src/**", "tests/**", "examples/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "examples/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [package.metadata.rightkit]
 continuous = "held-resource"
@@ -86,9 +86,6 @@ exact-json-ids = ["serde_json/arbitrary_precision"]
 agent_mcp-os-keyring = ["agent_mcp", "dep:rightkit-credentials", "dep:rightkit-oauth"]
 agent_mcp-host-env = ["agent_mcp", "rightkit-app-settings/agent_config-host-env"]
 agent_mcp = ["rightkit-fs/lock", "rightkit-fs/json", "rightkit-fs/transaction", "rightkit-http/gzip", "rightkit-http/untrusted", "rightkit-http/async", "dep:thiserror", "dep:async-trait", "dep:tokio", "tokio/full", "dep:futures", "dep:tracing", "dep:rightkit-agent-engine-runtime-resources", "dep:rightkit-sandbox", "dep:rightkit-agent-engine-protocol", "dep:rightkit-app-settings", "agent_mcp-os-keyring"]
-
-[dev-dependencies]
-tempfile = "3"
 
 [[example]]
 name = "example_server"

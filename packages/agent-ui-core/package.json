@@ -508,24 +508,18 @@
     "react": ">=18 <21"
   },
   "devDependencies": {
-    "@testing-library/dom": "^10.4.2",
-    "@testing-library/jest-dom": "^7.0.1",
-    "@testing-library/react": "^16.3.3",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "happy-dom": "^21.0.3",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "typescript": "^7.0.2",
-    "vite": "^8.3.4",
-    "vitest": "^5.0.5"
+    "vite": "^8.3.4"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
     "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "pnpm --filter \"@rightkit/agent-ui-core^...\" run build && vitest run"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",

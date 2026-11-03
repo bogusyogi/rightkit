@@ -645,6 +645,73 @@ impl OAuthClient {
         self.finish_loopback(flow, timeout)
     }
 
+    /// Build an authorization request for a caller-chosen redirect and PKCE verifier (#1128).
+    /// For a pasted-code flow when the loopback port is busy: the app shows the URL, the user
+    /// signs in and pastes the code back, and [`OAuthClient::exchange_code`] finishes with this
+    /// request. `redirect_uri` must be `https://`, or `http://` to `127.0.0.1`, `localhost` or
+    /// `[::1]`. `verifier` is an RFC 7636 code verifier (43 to 128 unreserved characters); the
+    /// challenge is its S256 hash and `state` is generated here.
+    pub fn authorization_request_for(
+        &self,
+        redirect_uri: &str,
+        verifier: &str,
+    ) -> Result<AuthorizationRequest, OAuthError> {
+        let loopback = ["http://127.0.0.1", "http://localhost", "http://[::1]"]
+            .iter()
+            .any(|p| redirect_uri.starts_with(p));
+        if !(redirect_uri.starts_with("https://") || loopback) {
+            return Err(OAuthError::InvalidConfig(
+                "redirect_uri must be https, or http on 127.0.0.1, localhost or [::1]".into(),
+            ));
+        }
+        let verifier_ok = (43..=128).contains(&verifier.len())
+            && verifier
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~'));
+        if !verifier_ok {
+            return Err(OAuthError::InvalidConfig(
+                "code verifier must be 43 to 128 unreserved characters (RFC 7636)".into(),
+            ));
+        }
+        let state = random_urlsafe(32)?;
+        let challenge = base64url(&Sha256::digest(verifier.as_bytes()));
+        let mut pairs = vec![
+            ("response_type", "code".to_string()),
+            ("client_id", self.config.client_id.clone()),
+            ("redirect_uri", redirect_uri.to_string()),
+            ("state", state.clone()),
+            ("code_challenge", challenge),
+            ("code_challenge_method", "S256".into()),
+        ];
+        if !self.config.scopes.is_empty() {
+            pairs.push(("scope", self.config.scopes.join(" ")));
+        }
+        for (k, v) in &self.config.authorization_params {
+            pairs.push((k.as_str(), v.clone()));
+        }
+        let query = pairs
+            .iter()
+            .map(|(k, v)| format!("{}={}", percent_encode(k), percent_encode(v)))
+            .collect::<Vec<_>>()
+            .join("&");
+        let authorization_url = format!(
+            "{}{}{}",
+            self.config.authorization_url,
+            if self.config.authorization_url.contains('?') {
+                '&'
+            } else {
+                '?'
+            },
+            query
+        );
+        Ok(AuthorizationRequest {
+            authorization_url,
+            state,
+            redirect_uri: redirect_uri.to_string(),
+            verifier: verifier.to_string(),
+        })
+    }
+
     pub fn exchange_code(
         &self,
         authorization: &AuthorizationRequest,

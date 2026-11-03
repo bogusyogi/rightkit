@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.4 (unpublished)
+
+- Declares the permissions the default `capture` feature needs in `[[package.metadata.rightkit.permissions]]`: `NSMicrophoneUsageDescription` and `com.apple.security.device.audio-input` on macOS, so release tooling can check an app against them instead of each app rediscovering them (rightkit#1346 item 5). No source change.
+
+## 0.3.3 (unpublished)
+
+- #970 (audio part): `OutputSession::set_idle_release(Some(after))` pauses the device stream while the queue is empty or the session paused for `after`, so an idle session runs zero audio callbacks; a push, `resume` or queued audio restarts it (`is_idle_released`). `OutputSession::service()` (call every 100 to 250 ms from the producer thread) retries a pending device-loss reopen, follows the default output device when the session was opened with `None` (at most one check a second; the new device must offer the session's rate and channel count), and applies the idle release. Not compiled or run on a device. The allocation-counting test of #970 is declined: tests are end-to-end only, and the callback already allocates nothing (its scratch buffer is made before the stream starts).
+
+- Added `wav::read_wav_mono_f32_prefix(path, seconds)` (#740): reads only the first `ceil(seconds * sample_rate)` frames as mono `f32` and never decodes the rest. A shorter file returns all of its samples; a non-finite or non-positive length is refused. `read_wav_mono_f32` and `read_wav_16k_mono` are unchanged in behaviour.
+
 ## 0.3.2 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

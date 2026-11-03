@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.10 (unpublished)
+
+- Library-level fixture unit tests removed from `tests/fixtures.rs`; the real-binary CLI fixture runs stay (Adrian, 2026-11-03: end-to-end tests only).
+- daemon-api v1: `device_revoked` joins the error-code enum (rightkit#306); a revoked device is `401 device_revoked`. Same text as `rightkit-daemon`'s copy of the schema.
+- **Canonical JSON (rightkit#417).** New `canonical` module: `to_canonical_string`, `canonical_value_string` and `CanonicalError`. RFC 8785 shape: no whitespace, members sorted by UTF-16 code units, shortest number form. Numbers with no guaranteed canonical form (exponent forms, non-finite floats) are refused, not written. Available without the `schema` feature.
+
 ## 0.1.9 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

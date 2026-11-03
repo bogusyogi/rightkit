@@ -98,59 +98,8 @@ static OUTPUT_BACKING_HONORED: AtomicU64 = AtomicU64::new(0);
 static OUTPUT_BACKING_IGNORED: AtomicU64 = AtomicU64::new(0);
 static OUTPUT_BACKING_FAILED: AtomicU64 = AtomicU64::new(0);
 
-/// ORT-13: opt-in `MLModelConfiguration` knobs (test-mode switches, default off; both can change
-/// numerics or load cost, so neither ships on):
-///
-/// - `RIGHTKIT_COREML_LOW_PRECISION_GPU_PROBE=1`: `allowLowPrecisionAccumulationOnGPU` (macOS 10.15+;
-///   only matters where a stage runs on the GPU, e.g. Intel Macs on `cpuAndGPU`);
-/// - `RIGHTKIT_COREML_FAST_PREDICTION_PROBE=1`: `MLOptimizationHints.specializationStrategy =
-///   fastPrediction` (macOS 14.4+; ignored, with a log line, on older systems).
-///
-/// Applies to every stage this process loads, so a probe arm covers the whole pipeline.
-fn apply_configuration_probes(config: &MLModelConfiguration) {
-    if rightkit_dictation_core::dev_var!("RIGHTKIT_COREML_LOW_PRECISION_GPU_PROBE").as_deref()
-        == Ok("1")
-    {
-        // SAFETY: plain BOOL property setter on a configuration this thread owns.
-        unsafe { config.setAllowLowPrecisionAccumulationOnGPU(true) };
-        tracing::info!(
-            probe = "low_precision_gpu",
-            "CoreML configuration probe applied"
-        );
-    }
-    if rightkit_dictation_core::dev_var!("RIGHTKIT_COREML_FAST_PREDICTION_PROBE").as_deref()
-        == Ok("1")
-    {
-        if objc2::available!(macos = 14.4) {
-            // SAFETY: the class and both selectors exist from macOS 14.4 (checked above); the
-            // hints object is copied by the setter.
-            unsafe {
-                let hints = objc2_core_ml::MLOptimizationHints::new();
-                hints.setSpecializationStrategy(
-                    objc2_core_ml::MLSpecializationStrategy::FastPrediction,
-                );
-                config.setOptimizationHints(&hints);
-            }
-            tracing::info!(
-                probe = "fast_prediction",
-                "CoreML configuration probe applied"
-            );
-        } else {
-            tracing::info!(
-                probe = "fast_prediction",
-                "CoreML configuration probe skipped: needs macOS 14.4"
-            );
-        }
-    }
-}
-
 fn output_backing_probe_enabled() -> bool {
-    OUTPUT_BACKING_EVALUATOR.with(|override_value| {
-        override_value.get().unwrap_or_else(|| {
-            rightkit_dictation_core::dev_var!("RIGHTKIT_COREML_OUTPUT_BACKING_PROBE").as_deref()
-                == Ok("1")
-        })
-    })
+    OUTPUT_BACKING_EVALUATOR.with(|override_value| override_value.get().unwrap_or(false))
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -287,15 +236,14 @@ impl Stage {
         Self::load_inner(path, None)
     }
 
-    /// Load a stage using a persisted developer compute profile. The
-    /// process-level RIGHTKIT_COREML_CU override remains highest priority.
+    /// Load a stage using a persisted developer compute profile.
     pub fn load_with_compute_profile(path: &Path, profile: &str) -> Result<Self, String> {
         Self::load_inner(path, Some(profile))
     }
 
     /// Load a stage pinned to CPU-only compute. For tiny per-frame models
     /// (e.g. the Silero VAD, one 32 ms frame per call) where ANE/GPU dispatch
-    /// overhead would exceed the compute itself. `RIGHTKIT_COREML_CU` still wins.
+    /// overhead would exceed the compute itself.
     pub fn load_cpu_only(path: &Path) -> Result<Self, String> {
         Self::load_inner(path, Some("cpu_only"))
     }
@@ -303,33 +251,17 @@ impl Stage {
     fn load_inner(path: &Path, configured_profile: Option<&str>) -> Result<Self, String> {
         autoreleasepool(|_| unsafe {
             let config = MLModelConfiguration::new();
-            // Compute units overridable via RIGHTKIT_COREML_CU for variable isolation:
-            // `cpuOnly` skips the ANE compile entirely (loads in seconds — use it to
-            // debug decode correctness without the ~10-min cold ANE compile),
-            // `all` = CPU+GPU+ANE, default `cpuAndNeuralEngine`.
             #[cfg(not(target_arch = "x86_64"))]
             let fallback_cu = MLComputeUnits::CPUAndNeuralEngine;
             #[cfg(target_arch = "x86_64")]
             let fallback_cu = MLComputeUnits::CPUAndGPU;
-            let (cu, compute_profile) =
-                match rightkit_dictation_core::dev_var!("RIGHTKIT_COREML_CU").as_deref() {
-                    Ok("cpuOnly") => (MLComputeUnits::CPUOnly, "env_cpu_only"),
-                    Ok("all") => (MLComputeUnits::All, "env_all"),
-                    Ok("cpuAndGPU") => (MLComputeUnits::CPUAndGPU, "env_cpu_gpu"),
-                    Ok("cpuAndNeuralEngine") => {
-                        (MLComputeUnits::CPUAndNeuralEngine, "env_neural_engine")
-                    }
-                    _ => match configured_profile {
-                        Some("neural_engine") => {
-                            (MLComputeUnits::CPUAndNeuralEngine, "neural_engine")
-                        }
-                        Some("cpu_gpu") => (MLComputeUnits::CPUAndGPU, "cpu_gpu"),
-                        Some("cpu_only") => (MLComputeUnits::CPUOnly, "cpu_only"),
-                        _ => (fallback_cu, "automatic"),
-                    },
-                };
+            let (cu, compute_profile) = match configured_profile {
+                Some("neural_engine") => (MLComputeUnits::CPUAndNeuralEngine, "neural_engine"),
+                Some("cpu_gpu") => (MLComputeUnits::CPUAndGPU, "cpu_gpu"),
+                Some("cpu_only") => (MLComputeUnits::CPUOnly, "cpu_only"),
+                _ => (fallback_cu, "automatic"),
+            };
             config.setComputeUnits(cu);
-            apply_configuration_probes(&config);
             let already_compiled = path.extension().and_then(|e| e.to_str()) == Some("mlmodelc");
             let (load_path, compile_cache) = if already_compiled {
                 (path.to_path_buf(), "precompiled_bundle")

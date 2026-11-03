@@ -11,6 +11,7 @@
 
 use std::fmt;
 use std::io;
+use std::path::PathBuf;
 
 /// Who the kernel says is on the other end of a connection.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -44,6 +45,60 @@ pub enum PeerError {
     Mismatch(PeerIdentity),
     /// The OS could not tell who the peer is (including a peer that already left).
     Query(io::Error),
+    /// The peer process was found but the OS would not let this process read its identity. It
+    /// carries what is known about the process so a host can say which program was refused
+    /// (rightkit#1287). On Windows this is the usual answer for a client at a higher integrity
+    /// level (an elevated process) than a medium-integrity server: the pid and image path are
+    /// still readable ([`PeerFailureKind::Elevated`]) and the refusal is right, only the missing
+    /// identity was the problem.
+    Unreadable {
+        /// The peer's process id, when the kernel reported one.
+        pid: Option<u32>,
+        /// The peer's executable path, when it could be read (Windows `QueryFullProcessImageNameW`
+        /// works with `PROCESS_QUERY_LIMITED_INFORMATION` even for an elevated client).
+        image: Option<PathBuf>,
+        /// A stable kind a host can switch on instead of parsing text.
+        kind: PeerFailureKind,
+        /// The OS error.
+        source: io::Error,
+    },
+}
+
+/// Why a peer could not be read, as a stable kind (see [`PeerError::Unreadable`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum PeerFailureKind {
+    /// The OS refused access to the peer's token: the client runs at a higher integrity level
+    /// than this host (typically elevated). Tell the user to run the client without
+    /// administrator rights, or the host elevated too.
+    Elevated,
+    /// Any other failure to read the peer.
+    Other,
+}
+
+impl PeerFailureKind {
+    /// A stable lowercase name for logs and events.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PeerFailureKind::Elevated => "elevated",
+            PeerFailureKind::Other => "other",
+        }
+    }
+}
+
+/// A peer that could not be identified, as a plain value a [`ServiceEvent`](crate::ServiceEvent)
+/// or a log line can carry (the OS error is flattened to text).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PeerRefusal {
+    /// The peer's process id, when known.
+    pub pid: Option<u32>,
+    /// The peer's executable path, when it could be read.
+    pub image: Option<PathBuf>,
+    /// The stable kind.
+    pub kind: PeerFailureKind,
+    /// The OS error text.
+    pub reason: String,
 }
 
 impl fmt::Display for PeerError {
@@ -61,6 +116,27 @@ impl fmt::Display for PeerError {
                 Ok(())
             }
             PeerError::Query(e) => write!(f, "could not identify peer: {e}"),
+            PeerError::Unreadable {
+                pid,
+                image,
+                kind,
+                source,
+            } => {
+                write!(f, "could not identify peer")?;
+                if let Some(pid) = pid {
+                    write!(f, " (pid {pid})")?;
+                }
+                if let Some(image) = image {
+                    write!(f, " ({})", image.display())?;
+                }
+                if *kind == PeerFailureKind::Elevated {
+                    write!(
+                        f,
+                        " (the client runs at a higher integrity level, for example elevated)"
+                    )?;
+                }
+                write!(f, ": {source}")
+            }
         }
     }
 }
@@ -69,6 +145,7 @@ impl std::error::Error for PeerError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             PeerError::Query(e) => Some(e),
+            PeerError::Unreadable { source, .. } => Some(source),
             _ => None,
         }
     }
@@ -80,17 +157,64 @@ impl From<PeerError> for io::Error {
             PeerError::Unsupported(_) => io::ErrorKind::Unsupported,
             PeerError::Mismatch(_) => io::ErrorKind::PermissionDenied,
             PeerError::Query(q) => q.kind(),
+            PeerError::Unreadable { source, .. } => source.kind(),
         };
         io::Error::new(kind, e.to_string())
     }
 }
 
 impl PeerError {
+    /// The peer's pid, when the error knows it.
+    pub fn pid(&self) -> Option<u32> {
+        match self {
+            PeerError::Mismatch(id) => id.pid,
+            PeerError::Unreadable { pid, .. } => *pid,
+            _ => None,
+        }
+    }
+
+    /// The peer's executable path, when the error carries it.
+    pub fn image(&self) -> Option<&std::path::Path> {
+        match self {
+            PeerError::Unreadable { image, .. } => image.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// The stable kind of an unreadable peer; `None` for the other errors.
+    pub fn failure_kind(&self) -> Option<PeerFailureKind> {
+        match self {
+            PeerError::Unreadable { kind, .. } => Some(*kind),
+            _ => None,
+        }
+    }
+
+    /// This error as a [`PeerRefusal`] when it is an unreadable peer (the server's rejection
+    /// event carries it).
+    pub(crate) fn refusal(&self) -> Option<PeerRefusal> {
+        match self {
+            PeerError::Unreadable {
+                pid,
+                image,
+                kind,
+                source,
+            } => Some(PeerRefusal {
+                pid: *pid,
+                image: image.clone(),
+                kind: *kind,
+                reason: source.to_string(),
+            }),
+            _ => None,
+        }
+    }
+
     /// The peer disconnected before it could be identified (a probe, or `wake`).
     /// Not an attack; the connection is still dropped, but no rejection is logged.
     pub(crate) fn peer_gone(&self) -> bool {
-        let PeerError::Query(e) = self else {
-            return false;
+        let e = match self {
+            PeerError::Query(e) => e,
+            PeerError::Unreadable { source, .. } => source,
+            _ => return false,
         };
         if matches!(
             e.kind(),
@@ -104,6 +228,90 @@ impl PeerError {
         // ERROR_BROKEN_PIPE 109, ERROR_NO_DATA 232, ERROR_PIPE_NOT_CONNECTED 233.
         cfg!(windows) && matches!(e.raw_os_error(), Some(109 | 232 | 233))
     }
+}
+
+/// `GENERIC_ALL` as an SDDL access mask.
+pub const ACCESS_GENERIC_ALL: u32 = 0x1000_0000;
+/// The restricted mask an elevated service grants one interactive owner (rightkit#1042): read and
+/// write data and attributes, `READ_CONTROL` and `SYNCHRONIZE`, and no delete, write-DAC or
+/// execute (`0x12019b`, the mask Pulse's `winadmin` service uses).
+pub const ACCESS_PIPE_OWNER_RW: u32 = 0x0012_019b;
+
+/// One principal of a pipe DACL: a SID string and an access mask (rightkit#1042).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AclEntry {
+    /// The SID in `S-1-...` form, or a two-letter SDDL alias such as `SY`. Only ASCII letters,
+    /// digits and `-` are accepted, so a value can never add an ACE or end the descriptor.
+    pub sid: String,
+    /// The access mask granted (see [`ACCESS_GENERIC_ALL`], [`ACCESS_PIPE_OWNER_RW`]).
+    pub mask: u32,
+}
+
+impl AclEntry {
+    pub fn new(sid: impl Into<String>, mask: u32) -> Self {
+        Self {
+            sid: sid.into(),
+            mask,
+        }
+    }
+
+    /// `GENERIC_ALL` for `sid`.
+    pub fn full_control(sid: impl Into<String>) -> Self {
+        Self::new(sid, ACCESS_GENERIC_ALL)
+    }
+
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn valid(&self) -> bool {
+        !self.sid.is_empty()
+            && self.sid.len() <= 184
+            && self
+                .sid
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    }
+}
+
+/// A mandatory integrity label for a pipe (rightkit#1123): the label is the level below which a
+/// process cannot write to the object. A confined (AppContainer) child needs the label lowered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum IntegrityLabel {
+    Untrusted,
+    Low,
+    Medium,
+    High,
+}
+
+impl IntegrityLabel {
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn sid(self) -> &'static str {
+        match self {
+            IntegrityLabel::Untrusted => "S-1-16-0",
+            IntegrityLabel::Low => "S-1-16-4096",
+            IntegrityLabel::Medium => "S-1-16-8192",
+            IntegrityLabel::High => "S-1-16-12288",
+        }
+    }
+}
+
+/// The SDDL for `entries` (a protected DACL, one ACE each) and an optional label with the
+/// no-write-up policy. `None` when `entries` is empty or an entry's SID is not plain.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn sddl_for_entries(
+    entries: &[AclEntry],
+    label: Option<IntegrityLabel>,
+) -> Option<String> {
+    if entries.is_empty() || !entries.iter().all(AclEntry::valid) {
+        return None;
+    }
+    let mut out = String::from("D:P");
+    for e in entries {
+        out.push_str(&format!("(A;;0x{:x};;;{})", e.mask, e.sid));
+    }
+    if let Some(label) = label {
+        out.push_str(&format!("S:(ML;;NW;;;{})", label.sid()));
+    }
+    Some(out)
 }
 
 /// `D:P(A;;GA;;;<sid>)`: protected DACL (no inheritance), one ACE granting
@@ -358,8 +566,10 @@ pub use unix::verify_peer_is_current_user;
 #[cfg(windows)]
 mod win {
     use super::*;
+    use std::os::windows::ffi::OsStringExt;
     use std::os::windows::io::RawHandle;
-    use windows::Win32::Foundation::{CloseHandle, LocalFree, HANDLE, HLOCAL};
+    use windows::core::PWSTR;
+    use windows::Win32::Foundation::{CloseHandle, LocalFree, ERROR_ACCESS_DENIED, HANDLE, HLOCAL};
     use windows::Win32::Security::Authorization::{
         ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
         SDDL_REVISION_1,
@@ -370,7 +580,8 @@ mod win {
     };
     use windows::Win32::System::Pipes::{GetNamedPipeClientProcessId, GetNamedPipeServerProcessId};
     use windows::Win32::System::Threading::{
-        GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
+        GetCurrentProcess, OpenProcess, OpenProcessToken, QueryFullProcessImageNameW,
+        PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
     };
 
     /// Win32 error as an `io::Error` that keeps the code, so `peer_gone` can see it.
@@ -430,26 +641,62 @@ mod win {
         }
     }
 
-    /// The SID string of the user running process `pid`. Fails closed: a process that
-    /// cannot be opened or queried yields an error, never a guess.
-    fn process_user_sid_string(pid: u32) -> io::Result<String> {
+    /// The executable path of an open process, `None` when it cannot be read.
+    fn process_image(proc: HANDLE) -> Option<PathBuf> {
+        let mut buf = vec![0u16; 32768];
+        let mut len = buf.len() as u32;
+        // SAFETY: `buf` holds `len` UTF-16 units; the handle is open for the call.
         unsafe {
-            let proc =
-                Owned(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).map_err(win_err)?);
+            QueryFullProcessImageNameW(proc, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut len)
+        }
+        .ok()?;
+        (len > 0).then(|| PathBuf::from(std::ffi::OsString::from_wide(&buf[..len as usize])))
+    }
+
+    /// `ERROR_ACCESS_DENIED` as the raw OS code `win_err` keeps (the low 16 bits).
+    fn is_access_denied(e: &io::Error) -> bool {
+        e.raw_os_error() == Some(ERROR_ACCESS_DENIED.0 as i32)
+    }
+
+    /// The SID string of the user running process `pid`. Fails closed: a process that
+    /// cannot be opened or queried yields an error, never a guess. A process that opens but
+    /// whose token is refused (a client at a higher integrity level) is
+    /// [`PeerError::Unreadable`] with its pid and image path (rightkit#1287).
+    fn process_user_sid_string(pid: u32) -> Result<String, PeerError> {
+        unsafe {
+            let proc = Owned(
+                OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+                    .map_err(|e| unreadable(pid, None, win_err(e)))?,
+            );
             let mut tok = HANDLE::default();
-            OpenProcessToken(proc.0, TOKEN_QUERY, &mut tok).map_err(win_err)?;
+            if let Err(e) = OpenProcessToken(proc.0, TOKEN_QUERY, &mut tok) {
+                return Err(unreadable(pid, process_image(proc.0), win_err(e)));
+            }
             let tok = Owned(tok);
-            token_user_sid(tok.0)
+            token_user_sid(tok.0).map_err(|e| unreadable(pid, process_image(proc.0), e))
         }
     }
 
-    /// Compare a peer process's user SID with ours.
-    fn verify_pid(pid: u32) -> Result<PeerIdentity, PeerError> {
+    fn unreadable(pid: u32, image: Option<PathBuf>, source: io::Error) -> PeerError {
+        let kind = if is_access_denied(&source) {
+            PeerFailureKind::Elevated
+        } else {
+            PeerFailureKind::Other
+        };
+        PeerError::Unreadable {
+            pid: Some(pid),
+            image,
+            kind,
+            source,
+        }
+    }
+
+    /// Compare a peer process's user SID with `expected` (a canonical `S-1-...` string).
+    fn verify_pid_against(pid: u32, expected: &str) -> Result<PeerIdentity, PeerError> {
         if pid == 0 {
             return Err(PeerError::Query(io::Error::other("peer process id is 0")));
         }
-        let me = current_user_sid_string().map_err(PeerError::Query)?;
-        let theirs = process_user_sid_string(pid).map_err(PeerError::Query)?;
+        let theirs = process_user_sid_string(pid)?;
         let id = PeerIdentity {
             uid: None,
             pid: Some(pid),
@@ -459,11 +706,17 @@ mod win {
         };
         // SID strings are canonical (`S-1-5-21-...`), so equality of the strings is
         // equality of the SIDs.
-        if theirs.eq_ignore_ascii_case(&me) {
+        if theirs.eq_ignore_ascii_case(expected) {
             Ok(id)
         } else {
             Err(PeerError::Mismatch(id))
         }
+    }
+
+    /// Compare a peer process's user SID with ours.
+    fn verify_pid(pid: u32) -> Result<PeerIdentity, PeerError> {
+        let me = current_user_sid_string().map_err(PeerError::Query)?;
+        verify_pid_against(pid, &me)
     }
 
     /// Server side: verify that the client connected to `handle` (a server pipe instance
@@ -483,6 +736,30 @@ mod win {
         unsafe { GetNamedPipeClientProcessId(HANDLE(handle), &mut pid) }
             .map_err(|e| PeerError::Query(win_err(e)))?;
         verify_pid(pid)
+    }
+
+    /// Server side, for a service that does not run as the user it serves (an elevated service
+    /// serving one interactive owner, rightkit#1042): like [`verify_pipe_peer_is_current_user`],
+    /// but the client's process-token user must equal `sid` (an `S-1-...` string), not the
+    /// current user's SID, which for a SYSTEM service would refuse the owner. Same fail-closed
+    /// rules: a client that cannot be opened or queried is rejected.
+    ///
+    /// `handle` must be a valid, connected named-pipe server handle for the duration of the
+    /// call.
+    pub fn verify_pipe_peer_is_sid(
+        handle: RawHandle,
+        sid: &str,
+    ) -> Result<PeerIdentity, PeerError> {
+        if sid.is_empty() {
+            return Err(PeerError::Query(io::Error::other(
+                "no SID to compare the peer with",
+            )));
+        }
+        let mut pid = 0u32;
+        // SAFETY: the caller guarantees a valid pipe handle; `pid` is a valid out-pointer.
+        unsafe { GetNamedPipeClientProcessId(HANDLE(handle), &mut pid) }
+            .map_err(|e| PeerError::Query(win_err(e)))?;
+        verify_pid_against(pid, sid)
     }
 
     /// Client side: verify that the server behind `handle` (a pipe opened with
@@ -541,6 +818,12 @@ mod win {
             &self.sddl
         }
 
+        /// The `SECURITY_ATTRIBUTES` itself, for `CreateNamedPipeW(.., Some(attrs.as_raw()))`
+        /// with the `windows` crate this crate uses. Valid while `self` is alive.
+        pub fn as_raw(&self) -> &SECURITY_ATTRIBUTES {
+            &self.attrs
+        }
+
         pub(crate) fn raw(&self) -> &SECURITY_ATTRIBUTES {
             &self.attrs
         }
@@ -558,6 +841,42 @@ mod win {
     /// named pipes, mutexes and events.
     pub fn owner_only_security_attributes() -> io::Result<OwnerOnlySecurityAttributes> {
         let sddl = sddl_for_sid(&current_user_sid_string()?);
+        attributes_from_sddl(sddl)
+    }
+
+    /// Owner-only attributes for the current user plus `extra` principals and an optional
+    /// integrity `label` (rightkit#1123): the descriptor for a pipe a confined child must write,
+    /// `D:P(A;;GA;;;<user>)(A;;GA;;;<container>)S:(ML;;NW;;;S-1-16-0)`. The current user always
+    /// keeps full control; every extra SID is checked to be plain (letters, digits, `-`).
+    pub fn owner_only_security_attributes_with(
+        extra: &[AclEntry],
+        label: Option<IntegrityLabel>,
+    ) -> io::Result<OwnerOnlySecurityAttributes> {
+        let mut entries = vec![AclEntry::full_control(current_user_sid_string()?)];
+        entries.extend(extra.iter().cloned());
+        pipe_security_attributes(&entries, label)
+    }
+
+    /// Attributes for exactly the principals in `entries` (rightkit#1042), for example SYSTEM
+    /// with full control and one interactive owner with [`ACCESS_PIPE_OWNER_RW`]:
+    /// `D:P(A;;0x10000000;;;SY)(A;;0x12019b;;;<owner>)`. The DACL is protected, so it inherits
+    /// nothing; nobody not listed has access. An empty list or an entry whose SID is not plain
+    /// is `InvalidInput`. Hand [`as_raw`](OwnerOnlySecurityAttributes::as_raw) to
+    /// `CreateNamedPipeW`, and check each client with [`verify_pipe_peer_is_sid`].
+    pub fn pipe_security_attributes(
+        entries: &[AclEntry],
+        label: Option<IntegrityLabel>,
+    ) -> io::Result<OwnerOnlySecurityAttributes> {
+        let sddl = sddl_for_entries(entries, label).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a pipe DACL needs at least one entry and plain SID strings",
+            )
+        })?;
+        attributes_from_sddl(sddl)
+    }
+
+    fn attributes_from_sddl(sddl: String) -> io::Result<OwnerOnlySecurityAttributes> {
         let wide: Vec<u16> = sddl.encode_utf16().chain(std::iter::once(0)).collect();
         let mut sd = PSECURITY_DESCRIPTOR::default();
         unsafe {
@@ -580,8 +899,9 @@ mod win {
 
 #[cfg(windows)]
 pub use win::{
-    owner_only_security_attributes, verify_pipe_peer_is_current_user,
-    verify_pipe_server_is_current_user, OwnerOnlySecurityAttributes,
+    owner_only_security_attributes, owner_only_security_attributes_with, pipe_security_attributes,
+    verify_pipe_peer_is_current_user, verify_pipe_peer_is_sid, verify_pipe_server_is_current_user,
+    OwnerOnlySecurityAttributes,
 };
 
 /// The SID string (`S-1-...`) of the user running this process, read from the process

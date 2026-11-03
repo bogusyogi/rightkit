@@ -6,10 +6,8 @@
 //! The steps, in order (none of them loads the library; ort does that later):
 //!
 //! 1. [`clear_inherited_runtime_for_release`]\: an
-//!    inherited `ORT_DYLIB_PATH` is dropped unless the `dev-overrides` feature is on.
-//! 2. Candidates, first regular file wins: the developer override named by
-//!    [`BindSpec::developer_env`] (only with `dev-overrides`; a release build never reads the
-//!    variable), then the bundled runtime beside the installed executable
+//!    inherited `ORT_DYLIB_PATH` is dropped.
+//! 2. Candidates, first regular file wins: the bundled runtime beside the installed executable
 //!    ([`installed_runtime_candidate`]), then each of [`BindSpec::extra_dirs`] (app data). A
 //!    bundled runtime beats an app-data copy.
 //! 3. Verification of the resolved file, before anything is bound and before any environment
@@ -35,10 +33,10 @@ use rightkit_ffmpeg::native::{NativeCatalog, NativeLibrary};
 
 use crate::runtime_bundle::{verify_library_in_manifest, VerifiedFile};
 use crate::{
-    clear_inherited_runtime_for_release, configure_runtime_checked, developer_override_with,
-    installed_runtime_candidate, kleidiai, nonempty_env_path, prepend_runtime_dir_to_path,
-    resolve_runtime, CandidateDiagnostic, CandidateSource, RuntimeBinding, RuntimeBindingOptions,
-    RuntimeCandidate, RuntimeError, RuntimeSelection, CONFIGURED_RUNTIME,
+    clear_inherited_runtime_for_release, configure_runtime_checked, installed_runtime_candidate,
+    kleidiai, nonempty_env_path, prepend_runtime_dir_to_path, resolve_runtime, CandidateDiagnostic,
+    CandidateSource, RuntimeBinding, RuntimeBindingOptions, RuntimeCandidate, RuntimeError,
+    RuntimeSelection, CONFIGURED_RUNTIME,
 };
 
 /// How the resolved runtime file is verified before it is bound.
@@ -62,10 +60,6 @@ pub enum BindVerification {
 /// fields that differ from the defaults.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BindSpec {
-    /// Name of the app's development override variable (for example `MYAPP_ORT_DYLIB`), read only
-    /// with the `dev-overrides` feature: a release build never reads it. Its value names the
-    /// runtime file and must end in the platform file name ([`crate::runtime_filename`]).
-    pub developer_env: Option<String>,
     /// App-data directories searched last, each joined with the platform file name. A relative
     /// directory is skipped, as in [`crate::discovery_candidates`].
     pub extra_dirs: Vec<PathBuf>,
@@ -110,7 +104,6 @@ impl BindSpec {
     /// entry and the default binding policy.
     pub fn new(verification: BindVerification) -> Self {
         Self {
-            developer_env: None,
             extra_dirs: Vec::new(),
             executable: None,
             resource_subdir: "runtime".to_owned(),
@@ -428,12 +421,9 @@ fn bind_with(spec: &BindSpec, host: &mut dyn BindHost) -> Result<BoundRuntime, B
     Ok(BoundRuntime { binding, report })
 }
 
-/// The search order: developer override, bundled beside the executable, app-data directories.
+/// The search order: bundled beside the executable, app-data directories.
 fn candidates(spec: &BindSpec, host: &dyn BindHost) -> Vec<RuntimeCandidate> {
     let mut out = Vec::new();
-    if let Some(name) = &spec.developer_env {
-        out.extend(developer_override_with(name, |name| host.env_path(name)));
-    }
     let executable = spec
         .executable
         .clone()

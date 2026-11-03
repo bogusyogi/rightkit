@@ -39,7 +39,7 @@ on:
         type: string
         default: ""
       allow_no_test:
-        description: npm packages with no test script; each must be named to publish untested
+        description: npm packages with no test script (end-to-end tests only; such a package qualifies without being named here); a name given must be a package with no test script
         type: string
         default: ""
       allow_ignored:

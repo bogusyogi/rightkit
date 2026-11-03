@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The local `pairing_sas.rs` copy of `rk-pair/1` is deleted (#965); `transfer` uses `rightkit_identity::pairing` (`pairing_commit`, `pairing_code`, `label_bytes`, the three constants). New dependency `rightkit-identity` 0.1.1. Behaviour unchanged (same bytes). Not compiled here.
+
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 
 ## 0.1.0 (2026-10-17)

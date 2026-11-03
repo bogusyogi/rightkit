@@ -14,15 +14,16 @@
 // - ChordRegistry refuses a chord bound to another owner (RegistryConflict) whatever the spelling,
 //   is idempotent for the same owner and frees a chord on release; HotkeyConflict names the failed
 //   required shortcut;
-// - HoldTracker pairs every press with exactly one release through the KeyStateSource seam;
-//   RegisterFailure maps Win32 codes and Carbon OSStatus values to typed failures;
+// - RegisterFailure maps Win32 codes and Carbon OSStatus values to typed failures; the RegisterHotKey
+//   bit constants and hold keys; HoldTracker, KeyStateSource, HotkeyApi, Registrations and
+//   UnregisterFailure are checked at compile time only (no fake OS seam: their behaviour is the
+//   crate's platform behaviour and is proved on a real desktop, not against a stand-in);
 // - the push-to-talk policy: PttHandoff start, end and completion in every order (a release
 //   during start is applied when the start completes), the abort cause carried through a cancel,
 //   format_abort, should_arm_ptt, the chord abort window and the decision predicates;
 // - HookChords matches a chord over raw key events (exact modifiers, swallow of the chord key only,
 //   one Pressed per hold, Released on key-up or modifier-up, injected events ignored, AlreadyBound,
-//   unbind and release_all); Registrations drives a fake OS hotkey table (ids, MOD_NOREPEAT flags,
-//   conflict and not-registered paths, stale records); hook_detail decodes key and mouse events;
+//   unbind and release_all); hook_detail decodes key and mouse events;
 //   MiddleClickGate, handle_other_mouse and run_job keep the lookup off the tap callback;
 //   ArmTimer fires, cancels, re-arms and stops on drop.
 // - on Windows and macOS only: the platform types are exported (checked by name at compile time,
@@ -60,7 +61,6 @@ use rightkit_hotkeys::{
     RegistryConflict, Side, UnregisterFailure,
 };
 use std::cell::RefCell;
-use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -73,10 +73,10 @@ fn main() {
     chord_parsing_and_keys();
     modifiers_platform_and_ptt_aliases();
     registry_and_conflicts();
-    hold_tracking_and_failures();
+    register_failure_mapping();
     push_to_talk_policy();
     hook_matcher();
-    registration_table();
+    registration_bits();
     hook_detail_decoding();
     middle_click_machinery();
     arm_timer();
@@ -362,80 +362,9 @@ fn registry_and_conflicts() {
     );
 }
 
-// ---- hold tracking and registration failures -----------------------------------------------
+// ---- registration failures ------------------------------------------------------------
 
-#[derive(Default)]
-struct FakeKeys(RefCell<HashSet<u16>>);
-
-impl FakeKeys {
-    fn down(&self, vk: u16) {
-        self.0.borrow_mut().insert(vk);
-    }
-    fn up(&self, vk: u16) {
-        self.0.borrow_mut().remove(&vk);
-    }
-}
-
-impl KeyStateSource for FakeKeys {
-    fn is_down(&self, vk: u16) -> bool {
-        self.0.borrow().contains(&vk)
-    }
-}
-
-fn hold_tracking_and_failures() {
-    const CTRL: u16 = 0x11;
-    const SPACE: u16 = 0x20;
-    let ctrl_space = || HoldKeys {
-        key: SPACE,
-        modifier_groups: vec![vec![CTRL]],
-    };
-    let keys = FakeKeys::default();
-    keys.down(CTRL);
-    keys.down(SPACE);
-    let mut tracker = HoldTracker::new();
-    assert!(tracker.is_idle());
-    assert!(tracker.press(1, ctrl_space()));
-    assert!(
-        !tracker.press(1, ctrl_space()),
-        "a repeated press is not a second Pressed"
-    );
-    assert!(!tracker.is_idle());
-    assert!(tracker.poll(&keys).is_empty());
-    keys.up(SPACE);
-    assert_eq!(tracker.poll(&keys), [1]);
-    assert!(tracker.poll(&keys).is_empty(), "exactly one Released");
-    assert!(tracker.is_idle());
-
-    keys.down(SPACE);
-    tracker.press(2, ctrl_space());
-    keys.up(CTRL);
-    assert_eq!(
-        tracker.poll(&keys),
-        [2],
-        "releasing the modifier first ends the hold"
-    );
-
-    let either_win = HoldKeys {
-        key: SPACE,
-        modifier_groups: vec![vec![0x5B, 0x5C]],
-    };
-    keys.down(0x5C);
-    tracker.press(3, either_win);
-    assert!(
-        tracker.poll(&keys).is_empty(),
-        "either Win key keeps the group down"
-    );
-
-    assert!(tracker.release(3));
-    assert!(!tracker.release(3));
-    tracker.press(4, ctrl_space());
-    tracker.press(5, ctrl_space());
-    let mut released = tracker.release_all();
-    released.sort();
-    assert_eq!(released, [4, 5]);
-    assert!(tracker.release_all().is_empty());
-    assert_ne!(HotkeyState::Pressed, HotkeyState::Released);
-
+fn register_failure_mapping() {
     for (code, failure) in [
         (1409, RegisterFailure::Conflict),
         (87, RegisterFailure::Unsupported),
@@ -713,47 +642,9 @@ fn hook_matcher() {
     assert_ne!(rebound, ctrl_shift_k, "ids are never reused");
 }
 
-// ---- the RegisterHotKey bookkeeping, against a fake OS table -------------------------------
+// ---- the RegisterHotKey bit constants and hold keys -------------------------------
 
-#[derive(Default)]
-struct FakeOs {
-    live: Vec<(i32, u32, u32)>,
-    calls: Vec<String>,
-    refuse_with: Option<u32>,
-    unregister_error: Option<u32>,
-}
-
-impl HotkeyApi for FakeOs {
-    fn register(&mut self, id: i32, modifiers: u32, vk: u32) -> Result<(), u32> {
-        self.calls
-            .push(format!("register {id} {modifiers:#x} {vk:#x}"));
-        if let Some(code) = self.refuse_with {
-            return Err(code);
-        }
-        let keys = modifiers & !modifier_bits::NOREPEAT;
-        if self.live.iter().any(|(_, m, v)| *m == keys && *v == vk) {
-            return Err(1409);
-        }
-        self.live.push((id, keys, vk));
-        Ok(())
-    }
-
-    fn unregister(&mut self, id: i32) -> Result<(), u32> {
-        self.calls.push(format!("unregister {id}"));
-        if let Some(code) = self.unregister_error {
-            return Err(code);
-        }
-        match self.live.iter().position(|(live, _, _)| *live == id) {
-            Some(position) => {
-                self.live.remove(position);
-                Ok(())
-            }
-            None => Err(ERROR_HOTKEY_NOT_REGISTERED),
-        }
-    }
-}
-
-fn registration_table() {
+fn registration_bits() {
     assert_eq!(
         (
             modifier_bits::ALT,
@@ -781,70 +672,6 @@ fn registration_table() {
             modifier_groups: vec![vec![0x11], vec![0x5B, 0x5C]]
         }
     );
-
-    let mut os = FakeOs::default();
-    let mut table = Registrations::new();
-    assert!(table.is_empty() && table.len() == 0);
-    let first = table
-        .register(&mut os, &ctrl_alt_k, false)
-        .expect("register");
-    assert_eq!(first, 1);
-    assert_eq!(os.calls[0], "register 1 0x4003 0x4b");
-    assert_eq!(
-        table.id_of(&chord("alt+ctrl+k")),
-        Some(first),
-        "matched on the canonical spelling"
-    );
-    assert_eq!(table.hold_keys(first), Some(&hold_keys(&ctrl_alt_k)));
-    assert_eq!(
-        table.register(&mut os, &chord("Alt+Ctrl+K"), true),
-        Err(1409),
-        "the OS answers a repeat with a conflict"
-    );
-    let second = table
-        .register(&mut os, &chord("Ctrl+Alt+J"), true)
-        .expect("register");
-    assert_eq!(second, 2, "a refused registration does not use up an id");
-    assert_eq!(table.len(), 2);
-
-    os.refuse_with = Some(5);
-    assert_eq!(table.register(&mut os, &chord("Alt+F9"), false), Err(5));
-    assert_eq!(
-        RegisterFailure::from_win32(5),
-        RegisterFailure::PermissionDenied
-    );
-    os.refuse_with = None;
-    assert_eq!(
-        table.id_of(&chord("Alt+F9")),
-        None,
-        "nothing is recorded for a refusal"
-    );
-
-    assert_eq!(table.unregister(&mut os, &ctrl_alt_k), Ok(first));
-    assert_eq!(
-        table.unregister(&mut os, &ctrl_alt_k),
-        Err(UnregisterFailure::NotRegistered)
-    );
-    // The OS forgot a registration behind our back: the stale record is dropped.
-    os.live.clear();
-    assert_eq!(
-        table.unregister(&mut os, &chord("Ctrl+Alt+J")),
-        Err(UnregisterFailure::NotRegistered)
-    );
-    assert!(table.is_empty());
-    // The OS refuses to unregister: the record is kept because the hotkey is still live.
-    let third = table
-        .register(&mut os, &chord("Ctrl+Alt+L"), false)
-        .unwrap();
-    os.unregister_error = Some(5);
-    assert_eq!(
-        table.unregister(&mut os, &chord("Ctrl+Alt+L")),
-        Err(UnregisterFailure::Os(5))
-    );
-    assert_eq!(table.id_of(&chord("Ctrl+Alt+L")), Some(third));
-    os.unregister_error = None;
-    table.clear(&mut os);
-    assert!(table.is_empty() && os.live.is_empty());
 }
 
 // ---- raw event decoding --------------------------------------------------------------------
@@ -1194,6 +1021,15 @@ fn arm_timer() {
         started.elapsed() < Duration::from_secs(8),
         "an hour is clamped to MAX_ARM_DELAY"
     );
+}
+
+// ---- seams: compile-time only --------------------------------------------------------------
+
+#[allow(dead_code)]
+fn seams_compile_only<K: KeyStateSource, A: HotkeyApi>() {
+    let _ = std::mem::size_of::<HoldTracker>();
+    let _ = std::mem::size_of::<Registrations>();
+    let _ = std::mem::size_of::<UnregisterFailure>();
 }
 
 // ---- platform types: exported, never constructed ------------------------------------------

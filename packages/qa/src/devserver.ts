@@ -397,6 +397,8 @@ export interface WaitForHttpOptions {
   timeoutMs?: number;
   /** Delay between attempts in ms. Default 250. */
   intervalMs?: number;
+  /** Request headers sent with every attempt, for example an `Authorization` bearer for an authenticated health route. */
+  headers?: Record<string, string>;
 }
 
 /**
@@ -411,11 +413,13 @@ export async function waitForHttp(url: string, options: WaitForHttpOptions = {})
   const timeoutMs = validateTimeout(options.timeoutMs ?? 120_000);
   const intervalMs = options.intervalMs ?? 250;
   if (!Number.isFinite(intervalMs) || intervalMs <= 0) throw new Error('intervalMs must be a positive number');
+  const headers = options.headers ?? {};
+  if (typeof headers !== 'object' || Array.isArray(headers) || Object.values(headers).some((v) => typeof v !== 'string')) throw new Error('waitForHttp headers must map header names to strings');
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const attemptMs = Math.max(1_000, Math.min(30_000, deadline - Date.now()));
     try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(attemptMs) });
+      const response = await fetch(url, { headers, signal: AbortSignal.timeout(attemptMs) });
       await response.body?.cancel().catch(() => {});
       if (response.ok) return;
     } catch {

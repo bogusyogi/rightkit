@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-i18n",
+  "capabilities": [
+    {
+      "capability": "localization",
+      "summary": "Rust runtime for the shared @rightkit/i18n catalogs: locale tag resolution, catalog merge over English, dotted-key lookup with fallback.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: catalog lookup is not an ownership fingerprint.",
+        "Catalogs are JSON objects of string messages, the same files @rightkit/i18n loads; function messages are JavaScript-only and are not represented."
+      ]
+    }
+  ]
+}

@@ -20,14 +20,12 @@ The `system` backend returns a PCM WAV, a word-timed `Transcript` from `rightkit
 | `engine` | off | `client`, `qts` (`rightkit-tts-qwen`), `libc` on Unix | The Qwen3-TTS QTS worker backend and the `rightkit-tts-worker` binary. |
 | `metal` | off | `engine`, `qts/metal` | QTS with the Metal backend (Apple). |
 | `vulkan` | off | `engine`, `qts/vulkan` | QTS with the Vulkan backend. |
-| `dev-overrides` | off | `rightkit-onnx/dev-overrides` (when `client` is on) | Development and QA builds only: honors an inherited `ORT_DYLIB_PATH` as a developer ONNX Runtime override. Never implied by a build profile and never a default feature; an app enables it only from its QA/test configuration. |
 
 Environment variables used by the crate:
 
 - `RIGHTKIT_TTS_MODEL_DIR` (legacy `GENRIGHT_QTS_MODEL_DIR`): QTS model directory. The default is `<data>/models/qts`.
 - `RIGHTKIT_TTS_WORKER` (legacy `GENRIGHT_QTS_WORKER`): worker binary path.
-- `ORT_DYLIB_PATH`: ONNX Runtime library for the vocoder. Read only with the `dev-overrides` feature: every other build
-  (release and the installed dev profile) never reads it, and
+- `ORT_DYLIB_PATH`: ONNX Runtime library for the vocoder. Never read in any build, and
   the client strips it from the worker's environment. Release callers pass the runtime with
   `QtsClient::with_ort_runtime(path)`, or the installed runtime is found by search.
 
@@ -69,3 +67,7 @@ Run through the RightKit wrapper: `rustright cargo test -p rightkit-tts`. Add `-
 A hosted runner has none of these assets, so each test prints `SKIP <test>: ...` and passes. Set `RIGHTKIT_REQUIRE_ASSETS=1` on a host that must have them, and the test fails instead.
 
 - `tests/e2e.rs`, `qts_real_synthesis_writes_non_silent_audio_and_transcript` (macOS only; run with `--features engine`): needs the QTS model directory `/private/tmp/gre2e-qts/models/qts` and ONNX Runtime `/private/tmp/gre2e-qts/runtime/qts/libonnxruntime.dylib`. Enabled by staging both there.
+
+## The worker binary is the app's to build, bundle and sign
+
+The package manager never builds a dependency's `[[bin]]`, so enabling `client` does not give an app `rightkit-tts-worker`. The app builds it (package `rightkit-tts`, feature `engine`, bin `rightkit-tts-worker`), ships it beside its own executable (the client also searches `<data>/runtime/qts` and the `RIGHTKIT_TTS_WORKER` override), and signs it with the app identity. The requirement is declared in `[[package.metadata.rightkit.helpers]]` in this crate's manifest so release tooling can check the bundle, and `worker_missing` now says so.

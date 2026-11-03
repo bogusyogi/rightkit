@@ -1,0 +1,85 @@
+[package]
+name = "rightkit-mesh-ffi"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.0"
+description = "C ABI over rightkit-mesh for a phone (the joiner side of short-code pairing and one request per stream), linked into the RightKitMeshLink Swift package and the Android meshlink module."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/bogusyogi/rightkit"
+publish = false
+include = ["src/**", "include/**", "ios-netwatch/**", "android/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_mesh_ffi"
+path = "src/lib.rs"
+crate-type = ["staticlib", "rlib"]
+
+[package.metadata.rightkit]
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "rkmesh_* C ABI (src/lib.rs)"
+file = "src/lib.rs"
+holds = ["thread", "memory"]
+scale = "one tokio runtime per mesh handle the phone creates (one per app process in practice) and the iroh endpoint it drives while a pairing or a request is in flight"
+release = "the free call of the handle drops the runtime and the endpoint"
+
+[dependencies]
+rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "digest"] }
+rightkit-crypto = { version = "0.1.2", path = "../rightkit-crypto" }
+# No desktop code: the phone links the mesh with default features off (no fast-apple-datapath: private syscalls fail App Store review).
+rightkit-mesh = { version = "0.1.2", path = "../rightkit-mesh", default-features = false }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "sync", "time"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+# Ed25519, SHA-256 and the system RNG: the same ring the desktop pairing uses.
+ring = "0.17"
+# Wipes the identity seed on drop.
+zeroize = "1"
+
+# This crate is its own cargo workspace: the iOS-only [patch] below must never reach desktop builds. Build from this
+# directory (or with --manifest-path). ios-netwatch is a member so tools that read its manifest resolve the same workspace.
+# iroh, iroh-relay and portmapper use a small slice of netwatch. The upstream crate does not build for iOS (it needs
+# net/route.h and netdev), so the phone links our own implementation of that slice, same name and version so the patch matches.
+[patch.crates-io]
+netwatch = { path = "ios-netwatch" }
+
+[profile.release]
+panic = "unwind"
+
+# One Cargo workspace and lock per crate (rightkit#1285).
+[workspace]
+members = ["ios-netwatch"]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

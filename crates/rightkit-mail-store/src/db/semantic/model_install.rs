@@ -16,6 +16,7 @@
 
 use super::resolve;
 use rightkit_models::suite::catalog::embedding_gemma_q4_spec;
+use rightkit_models::suite::paths::models_root;
 use rightkit_models::{Event, FileSpec, InstallOptions, ModelSpec, RevisionSpec, Store};
 use std::path::Path;
 

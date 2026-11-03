@@ -1,8 +1,6 @@
 use std::path::PathBuf;
 
-pub use rightkit_dictation_core::app_paths::{
-    app_data_dir_name, app_data_root, test_binary_data_root,
-};
+pub use rightkit_dictation_core::app_paths::{app_data_dir_name, app_data_root};
 
 pub fn app_data_file(name: &str) -> PathBuf {
     app_data_root().join(name)

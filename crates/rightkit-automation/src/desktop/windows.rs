@@ -18,6 +18,7 @@ use windows_sys::Win32::System::DataExchange::{
     CloseClipboard, CountClipboardFormats, EmptyClipboard, EnumClipboardFormats, GetClipboardData,
     GetClipboardOwner, GetClipboardSequenceNumber, OpenClipboard, SetClipboardData,
 };
+use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Memory::{
     GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE,
 };

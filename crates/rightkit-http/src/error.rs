@@ -166,6 +166,23 @@ impl HttpError {
         }
     }
 
+    /// True when the request may have reached the server, so a non-idempotent request (a paid
+    /// submit) must not be assumed unsent. False only for errors that prove nothing was sent:
+    /// invalid request construction, a connect-phase transport or timeout failure, and a
+    /// refusal before any connection (address policy, https-only, proxy mode). Every other
+    /// error, including any answer from the server, returns true.
+    pub fn request_may_have_been_delivered(&self) -> bool {
+        match self {
+            HttpError::InvalidRequest(_)
+            | HttpError::AddressDenied { .. }
+            | HttpError::HttpsRequired { .. }
+            | HttpError::SystemProxyUnsupported { .. } => false,
+            HttpError::Transport { connect_phase, .. } => !*connect_phase,
+            HttpError::Timeout { phase, .. } => *phase != Phase::Connect,
+            _ => true,
+        }
+    }
+
     /// Re-label a `Timeout` or `Transport` error as happening during a redirect hop. A
     /// transport error is no longer a pure connect failure, because earlier hops reached servers.
     pub(crate) fn into_redirect_phase(self) -> Self {

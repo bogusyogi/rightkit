@@ -322,6 +322,64 @@ export function installSnapshotDependencies({ checkout, snapshot, commit, tree, 
   return records;
 }
 
+/**
+ * Content check's store proof (rightkit#1488): every pnpm root the commit has (a lockfile in the snapshot) must find each package its lockfile
+ * names in the offline store, so a missing tarball (workerd in ViewRight's workers/waitlist) fails the check and is never first seen by the
+ * compile stage's install. `pnpm fetch --offline` reads the lockfile alone and installs nothing: its virtual store is a directory under
+ * `tmpRoot` (the gate's scratch root, removed afterwards), never the snapshot, and the snapshot is verified unchanged after the last root.
+ * Returns one record per root ({ root, storeDir, storeSource, pnpm, pinned, lockfileSha256, ms } or { root, skipped }); throws CheckError on a
+ * store miss, a pnpm that is not the pinned one, or any failure.
+ */
+export function verifySnapshotStore({ checkout, snapshot, commit, tree, ledger, roots, tmpRoot, env = process.env, spawn = defaultSpawn, now = () => Date.now(), readFile, exists }) {
+  const records = [];
+  if (!commit || !tree) throw new CheckError("the snapshot store check needs the selected commit and tree");
+  if (typeof tmpRoot !== "string" || !path.isAbsolute(tmpRoot)) throw new CheckError("the snapshot store check needs the gate's scratch root (an absolute path)");
+  const base = path.resolve(snapshot);
+  try {
+    const st = fs.lstatSync(base);
+    if (!st.isDirectory() || fs.realpathSync.native(base) !== base) throw new Error("not a real directory");
+  } catch (error) { throw new CheckError(`the snapshot store check needs a real snapshot directory: ${snapshot}: ${error.message}`); }
+  if (inside(base, checkout) || inside(checkout, base)) throw new CheckError(`snapshot ${base} and checkout ${checkout} overlap`);
+  verifySnapshotDir({ checkout, dir: base, commit, tree, when: "before the offline store check", ...(ledger !== undefined ? { ledger } : {}) });
+  const versionOf = (cwd) => { const r = spawn("pnpm", ["--version"], { cwd, env: { ...env, COREPACK_ENABLE_AUTO_PIN: "0" } }); return failed(r) ? null : text(r).trim().split(/\r?\n/).pop(); };
+  for (const root of roots) {
+    const dir = path.resolve(base, root);
+    if (!inside(dir, base)) throw new CheckError(`root ${root}: the store check is outside the snapshot`);
+    if (!fs.existsSync(path.join(dir, "pnpm-lock.yaml"))) { records.push({ root, skipped: "no pnpm-lock.yaml in the commit: nothing to check against the store (the pnpm-lockfile scan judges it)" }); continue; }
+    const { storeDir, source } = resolvePrimaryStore({ checkout, root, env, spawn, ...(readFile ? { readFile } : {}), ...(exists ? { exists } : {}) });
+    const pin = pinnedPnpm(dir) ?? pinnedPnpm(snapshot);
+    const version = versionOf(dir);
+    if (!version) throw new CheckError("pnpm is not runnable on this host; the snapshot's dependencies cannot be checked against the store");
+    if (pin && version !== pin) throw new CheckError(`pnpm ${version} is on PATH, but root ${root} of the commit pins pnpm@${pin} (packageManager); install the pinned pnpm`);
+    fs.mkdirSync(tmpRoot, { recursive: true });
+    const virtualStore = fs.mkdtempSync(path.join(tmpRoot, "rightkit-store-check-"));
+    const started = now();
+    let r;
+    try {
+      r = spawn("pnpm", ["fetch", "--offline", "--ignore-scripts", "--ignore-pnpmfile", "--store-dir", storeDir, "--virtual-store-dir", path.join(virtualStore, ".pnpm"), "--config.enable-global-virtual-store=false", "--reporter", "append-only"], {
+        cwd: dir, env: { ...env, COREPACK_ENABLE_AUTO_PIN: "0", CI: "true" }, maxBuffer: 1 << 28,
+      });
+    } catch (error) { r = { error }; } finally { fs.rmSync(virtualStore, { recursive: true, force: true }); }
+    const ms = now() - started;
+    if (failed(r)) {
+      const joined = `${r?.stdout ?? ""}\n${r?.stderr ?? ""}`.replace(/(https?:\/\/)\s+/g, "$1");
+      const miss = /ERR_PNPM_NO_OFFLINE_TARBALL[\s\S]{0,600}?(https?:\/\/\S+?\/-\/(\S+?)\.tgz)/.exec(joined);
+      throw new CheckError(miss
+        ? `root ${root}: ${miss[2]} is missing from the store ${storeDir} (offline, no network fallback); install the checkout's dependencies so the store holds it, then run the check again`
+        : `root ${root}: the offline store check failed (store ${storeDir}): ${tail(r) || r?.error?.message || `exit ${r?.status}`}`);
+    }
+    records.push({ root, storeDir, storeSource: source, pnpm: version, pinned: pin, lockfileSha256: crypto.createHash("sha256").update(fs.readFileSync(path.join(dir, "pnpm-lock.yaml"))).digest("hex"), ms });
+  }
+  verifySnapshotDir({ checkout, dir: base, commit, tree, when: "after the offline store check", ...(ledger !== undefined ? { ledger } : {}) });
+  return records;
+}
+
+/** One line per root of the offline store check, for the check's output. */
+export function describeStoreCheck(record) {
+  if (record.skipped) return `snapshot store root=${record.root} not checked: ${record.skipped}`;
+  return `snapshot store root=${record.root} pnpm=${record.pnpm}${record.pinned ? ` (pinned ${record.pinned})` : ""} store=${record.storeDir} (from ${record.storeSource}) holds every package of lockfile=sha256:${record.lockfileSha256} ms=${record.ms}`;
+}
+
 /** One line per installed root, for the check's output and evidence. */
 export function describeInstall(record) {
   if (record.skipped) return `snapshot dependencies root=${record.root} not installed: ${record.skipped}`;

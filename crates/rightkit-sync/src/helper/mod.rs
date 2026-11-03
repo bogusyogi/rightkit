@@ -1,7 +1,6 @@
 //! Backend for a helper process speaking the `rightkit-sync-helper/1`
 //! line-JSON protocol. The macOS CloudKit helper (`rightkit-cloudkit-helper`,
-//! Swift) is the production implementation; `rightkit-sync-fake-helper` is the
-//! protocol fake used by the end-to-end tests. See `API.md` section 4.
+//! Swift) is the production implementation. See `API.md` section 4.
 
 mod process;
 pub use crate::wire;
@@ -65,21 +64,6 @@ impl CloudKitHelper {
     /// Number of helper processes started so far.
     pub fn spawn_count(&self) -> u64 {
         self.shared.process.spawn_count()
-    }
-
-    /// Raw protocol call for diagnostics and tests (for example the memory
-    /// backend's `debug_write`). Not part of the sync contract.
-    #[doc(hidden)]
-    pub fn debug_call(&self, cmd: &str, params: Value) -> SyncResult<Map<String, Value>> {
-        let params = self.shared.scoped(params);
-        self.shared.call(cmd, params)
-    }
-
-    /// Memory backend only: another device writes `record` (wire JSON).
-    #[doc(hidden)]
-    pub fn backend_debug_write(&self, record: Value) -> SyncResult<()> {
-        self.debug_call("debug_write", json!({ "record": record }))
-            .map(|_| ())
     }
 
     /// Stop the helper process; the next call starts a fresh one.

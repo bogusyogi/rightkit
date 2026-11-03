@@ -6,10 +6,6 @@ use super::*;
 
 #[cfg(target_os = "windows")]
 pub(crate) fn write_clipboard_text(text: &str) -> Result<(), CopyFallbackReason> {
-    if test_mode() {
-        let _ = text;
-        return Ok(());
-    }
     if rightkit_automation::desktop::windows::write_clipboard_text(text) {
         Ok(())
     } else {
@@ -19,10 +15,6 @@ pub(crate) fn write_clipboard_text(text: &str) -> Result<(), CopyFallbackReason>
 
 #[cfg(target_os = "macos")]
 pub(crate) fn write_clipboard_text(text: &str) -> Result<(), CopyFallbackReason> {
-    if test_mode() {
-        let _ = text;
-        return Ok(());
-    }
     if crate::macos_input::set_clipboard(text) {
         Ok(())
     } else {
@@ -32,10 +24,6 @@ pub(crate) fn write_clipboard_text(text: &str) -> Result<(), CopyFallbackReason>
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub(crate) fn write_clipboard_text(text: &str) -> Result<(), CopyFallbackReason> {
-    if test_mode() {
-        let _ = text;
-        return Ok(());
-    }
     Err(CopyFallbackReason::UnsupportedPlatform)
 }
 
@@ -43,9 +31,6 @@ pub(crate) fn write_clipboard_text(text: &str) -> Result<(), CopyFallbackReason>
 /// clipboard is empty, holds non-text data, or cannot be opened.
 #[cfg(target_os = "windows")]
 fn read_clipboard_text() -> Option<String> {
-    if test_mode() {
-        return None;
-    }
     use std::ptr::null_mut;
     use windows_sys::Win32::Foundation::HWND;
     use windows_sys::Win32::System::DataExchange::{
@@ -87,9 +72,6 @@ fn read_clipboard_text() -> Option<String> {
 
 #[cfg(target_os = "windows")]
 fn clear_clipboard() -> Result<(), ()> {
-    if test_mode() {
-        return Ok(());
-    }
     use std::ptr::null_mut;
     use windows_sys::Win32::Foundation::HWND;
     use windows_sys::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard};
@@ -117,9 +99,6 @@ fn clear_clipboard() -> Result<(), ()> {
 /// window), letting the caller fall through to ordinary dictation.
 #[cfg(target_os = "windows")]
 pub fn fetch_selected_text_via_copy() -> Option<String> {
-    if test_mode() {
-        return None;
-    }
     let saved = rightkit_automation::desktop::windows::snapshot_general_clipboard()?;
     let _ = clear_clipboard();
     let mut copied_sequence = rightkit_automation::desktop::windows::clipboard_sequence_number();
@@ -159,7 +138,7 @@ pub fn fetch_selected_text_via_copy() -> Option<String> {
 /// writer changed the pasteboard during the operation.
 #[cfg(target_os = "macos")]
 pub fn fetch_selected_text_via_copy() -> Option<String> {
-    if test_mode() || !crate::macos_input::accessibility_trusted(false) {
+    if !crate::macos_input::accessibility_trusted(false) {
         return None;
     }
     let _clipboard_transaction =

@@ -183,6 +183,46 @@ export const FILES_ROWS = Object.freeze([
     },
   },
   {
+    // A template instance carries a PLACEHOLDER- updater public key and an `.invalid` updater endpoint until the owner copies the suite
+    // key in (#1167). Files only, so the doctor and the build name it, before any compile or signing, as one explicit row: a fresh
+    // instance is allowed to show exactly this row, and a build never reaches the seal-time signature failure that never said "placeholder".
+    id: "updater-placeholder",
+    tier: "files",
+    needsTarget: false,
+    run(ctx) {
+      if (ctx.platform !== "win" && ctx.platform !== "mac") return { na: "only the win and mac updaters carry a minisign key" };
+      const found = [];
+      const where = [];
+      const keys = [
+        ["release config distribution.updaterPublicKey", ctx.config?.distribution?.updaterPublicKey],
+        ["release config distribution.updaterPubkey", ctx.config?.distribution?.updaterPubkey],
+        ["target.updater.pubkey", ctx.target?.updater?.pubkey],
+        ["target.updater.publicKey", ctx.target?.updater?.publicKey],
+      ];
+      const endpoints = [];
+      for (const dir of new Set([ctx.root, workdirOf(ctx)])) {
+        const confPath = path.join(dir, "src-tauri", "tauri.conf.json");
+        if (!ctx.exists(confPath)) continue;
+        let updater;
+        try { updater = JSON.parse(ctx.fs.readFileSync(confPath, "utf8"))?.plugins?.updater; } catch { continue; } // an unreadable file is the frontend-config-readable row's finding
+        const label = path.relative(ctx.root, confPath).replaceAll("\\", "/") || "src-tauri/tauri.conf.json";
+        keys.push([`${label} plugins.updater.pubkey`, updater?.pubkey]);
+        for (const endpoint of asList(updater?.endpoints)) endpoints.push([`${label} plugins.updater.endpoints`, endpoint]);
+        where.push(label);
+      }
+      for (const [label, value] of keys) {
+        if (typeof value === "string" && /PLACEHOLDER-/i.test(value)) found.push(`${label} is the placeholder ${JSON.stringify(value.length > 60 ? `${value.slice(0, 60)}...` : value)}: copy the suite updater public key from a shipped app (${where[0] ?? "src-tauri/tauri.conf.json"} plugins.updater.pubkey), or take the app's own key, before any release`);
+      }
+      for (const [label, value] of endpoints) {
+        if (typeof value !== "string") continue;
+        let host = "";
+        try { host = new URL(value.replace(/\{\{[^}]*\}\}/g, "x")).hostname; } catch { host = ""; }
+        if (/\.invalid$/i.test(host)) found.push(`${label} names ${value}, a reserved .invalid host that never resolves: set the real update endpoint before any release`);
+      }
+      return found;
+    },
+  },
+  {
     // publish-update.mjs: the provider the upload takes, for the win and mac releases it uploads (iOS and Android go through their own
     // lanes, whose providers are app-store-connect and google-play). A config that declares no distribution is refused there too, as
     // is a provider it does not know; preflight G16 refuses an unknown provider in the config text.

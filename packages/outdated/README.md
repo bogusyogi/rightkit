@@ -29,7 +29,7 @@ right-update schedule install|remove|status [--repo <path>] [--interval <minutes
 | `apply` | Rewrites pins for every outdated, non-held row and writes `.rightkit/update/apply-report.json`. |
 | `gate` | Runs the manifest `gates` and each changed tool's `journey`; writes `.rightkit/update/gate-report.json`. |
 | `land` | Commits the verified changes (and pushes when `policy.land` is `"push"`). |
-| `discard` | Undoes an `apply` that has not been landed. |
+| `discard` | Undoes an `apply` that has not been landed: restores the files that still hold what `apply` wrote, leaves any that moved on, and always clears the report. |
 | `run` | `check`, `apply`, `gate`, `land` in one process. This is what a schedule runs. |
 | `schedule` | Installs, removes or reports the recurring `run`. |
 
@@ -59,7 +59,7 @@ right-update schedule install|remove|status [--repo <path>] [--interval <minutes
     "tier": { "held": ["/^ffmpeg/"] }
   },
   "gates": [
-    { "name": "update-tests", "command": ["pnpm", "--dir", "packages/outdated", "test"], "cwd": ".", "timeoutSec": 1800 }
+    { "name": "update-tests", "command": ["rightkit-gate", "<the repository's gate arguments>"], "cwd": ".", "timeoutSec": 1800 }
   ],
   "sources": [
     {
@@ -134,7 +134,7 @@ Journey placeholders: `{candidate}` (the staged candidate directory), `{out}` (a
 | `swiftpm` | Rewrites `exact:`/`from:` in `Package.swift` and the matching key in `project.yml`: the source manifest, plus the sibling file (`project.yml`, or `Package.swift` when `project.yml` is the source) when it declares the dependency at the same requirement. | `Package.resolved` is not refreshed; the report notes it. |
 | `tool` | Downloads the asset for this host's platform to `.rightkit/update/candidates/<name>/<version>/`, enforces the size bound, computes sha256, extracts `extract.member` from archives, and hashes the other platforms' assets without storing them. | none |
 
-Each row is a transaction: the files are snapshotted, edited, verified and restored if anything fails (`apply` then exits 1 and lists the row under `failed`). `apply` refuses to edit a file that already has uncommitted changes, and refuses to start while an earlier apply is not landed (run `land` or `discard`).
+Each row is a transaction: the files are snapshotted, edited, verified and restored if anything fails (`apply` then exits 1 and lists the row under `failed`). Rows for one crate that several workspace members pin are one transaction: every member's pin is rewritten together and each affected lockfile is updated once. Every lockfile a pin touches (`Cargo.lock`, `pnpm-lock.yaml`, SwiftPM `Package.resolved` through `swift package resolve`) is regenerated in the same transaction. `apply` refuses to edit a file that already has uncommitted changes, and refuses to start while an earlier apply is not landed (run `land` or `discard`).
 
 Not applied automatically:
 
@@ -170,6 +170,8 @@ A journey passes only when its command exits 0 and its `report` is a JSON object
 - A failed gate or journey outranks an inconclusive one. Exit 3 means nothing failed outright.
 
 A manifest with no `gates` passes vacuously and the gate report carries a warning.
+
+Every gate `command` must be a `rightkit-gate` invocation (`rightkit-gate ...` or `node <path>/rightkit-gate.mjs ...`): all builds, checks and tests run through the gate. A gate that runs another tool directly is not spawned and fails, naming the command.
 
 ## Land
 

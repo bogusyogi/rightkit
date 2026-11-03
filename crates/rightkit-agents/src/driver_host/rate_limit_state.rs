@@ -11,9 +11,10 @@
 //!   because arrival proves the vendor reports usage.
 //!
 //! The transition rules are `crate::rate_limit::RateLimitState`'s: observed data replaces
-//! every other state, a failed probe keeps the last known snapshot (and replaces `Unsupported`),
-//! and `mark_unsupported` never overwrites a `Known` snapshot. This module is the serde
-//! projection the API serialises, plus the `NormalizedEventKind` entry point.
+//! every other state, a failed probe keeps the last known snapshot (and leaves `Unsupported`
+//! as it is), and `mark_unsupported` replaces every state, a `Known` snapshot included. This
+//! module is the serde projection the API serialises, plus the `NormalizedEventKind` entry
+//! point.
 
 use crate::driver_host::NormalizedEventKind;
 use crate::event::RateLimitInfo;

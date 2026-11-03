@@ -1,11 +1,7 @@
 use crate::error::{Error, Result};
 use crate::namespace::{check_target, windows_credential_identity, Namespace};
 use crate::secret::Secret;
-#[cfg(feature = "memory-backend")]
-use std::collections::HashMap;
 use std::sync::Arc;
-#[cfg(feature = "memory-backend")]
-use std::sync::{Mutex, OnceLock};
 
 /// Whether the OS may show an authorization prompt for this call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -80,8 +76,8 @@ pub trait Backend: Send + Sync + 'static {
     /// Whether a value this backend accepts survives the process. Defaults to `false`
     /// (fail closed): migration deletes its source only after the copy is in a backend that
     /// says `true`, because copying into process memory and then deleting the persistent copy
-    /// would lose the secret on exit. The OS backends return `true`; `MemoryBackend` (debug and test
-    /// builds only) returns `false`, or `true` through `MemoryBackend::simulating_durable`.
+    /// would lose the secret on exit. The OS backends return `true`; an injected non-durable
+    /// backend returns `false`.
     fn durable(&self) -> bool {
         false
     }
@@ -116,131 +112,6 @@ pub trait Backend: Send + Sync + 'static {
         let _ = (expected, mode);
         check_target(ns, account)?;
         Ok(ConditionalDelete::Unsupported)
-    }
-}
-
-/// In-process store (guard mode, tests). Never touches the OS.
-///
-/// A test and development capability: it is compiled only under the non-default `memory-backend`
-/// feature, so a release build contains no volatile store that could be swapped in for the
-/// durable OS store (values would vanish on exit and strand encrypted data).
-#[cfg(feature = "memory-backend")]
-#[derive(Default)]
-pub struct MemoryBackend {
-    map: Mutex<HashMap<(String, String), Secret>>,
-    simulate_durable: bool,
-}
-
-#[cfg(feature = "memory-backend")]
-impl MemoryBackend {
-    pub fn new() -> Self {
-        Self::default()
-    }
-    /// A memory backend that REPORTS itself durable ([`Backend::durable`]), so tests can
-    /// exercise destructive migration against a fake. It still loses everything on exit; never
-    /// use it where the value matters.
-    pub fn simulating_durable() -> Self {
-        Self {
-            simulate_durable: true,
-            ..Self::default()
-        }
-    }
-    /// Shared by every `Store` in this process that is guarded into memory.
-    pub fn process_wide() -> Arc<MemoryBackend> {
-        static SHARED: OnceLock<Arc<MemoryBackend>> = OnceLock::new();
-        SHARED
-            .get_or_init(|| Arc::new(MemoryBackend::new()))
-            .clone()
-    }
-    fn key(ns: &Namespace, account: &str) -> (String, String) {
-        (ns.service().to_string(), account.to_string())
-    }
-}
-
-#[cfg(feature = "memory-backend")]
-impl Backend for MemoryBackend {
-    fn name(&self) -> &'static str {
-        "memory"
-    }
-    fn credential_identity(&self, ns: &Namespace, account: &str) -> Result<String> {
-        check_target(ns, account)?;
-        // Exactly the key the map uses.
-        let (service, account) = Self::key(ns, account);
-        Ok(format!("memory:{service}\u{1f}{account}"))
-    }
-    fn durable(&self) -> bool {
-        self.simulate_durable
-    }
-    fn get(&self, ns: &Namespace, account: &str, _: Interaction) -> Result<Option<Secret>> {
-        check_target(ns, account)?;
-        Ok(self
-            .map
-            .lock()
-            .unwrap()
-            .get(&Self::key(ns, account))
-            .cloned())
-    }
-    fn exists(&self, ns: &Namespace, account: &str, _: Interaction) -> Result<bool> {
-        check_target(ns, account)?;
-        Ok(self
-            .map
-            .lock()
-            .unwrap()
-            .contains_key(&Self::key(ns, account)))
-    }
-    fn set(&self, ns: &Namespace, account: &str, secret: &Secret, _: Interaction) -> Result<()> {
-        check_target(ns, account)?;
-        self.map
-            .lock()
-            .unwrap()
-            .insert(Self::key(ns, account), secret.clone());
-        Ok(())
-    }
-    fn add_if_absent(
-        &self,
-        ns: &Namespace,
-        account: &str,
-        secret: &Secret,
-        _: Interaction,
-    ) -> Result<bool> {
-        check_target(ns, account)?;
-        let mut m = self.map.lock().unwrap();
-        let k = Self::key(ns, account);
-        if m.contains_key(&k) {
-            return Ok(false);
-        }
-        m.insert(k, secret.clone());
-        Ok(true)
-    }
-    fn delete(&self, ns: &Namespace, account: &str, _: Interaction) -> Result<bool> {
-        check_target(ns, account)?;
-        Ok(self
-            .map
-            .lock()
-            .unwrap()
-            .remove(&Self::key(ns, account))
-            .is_some())
-    }
-    fn delete_if_equals(
-        &self,
-        ns: &Namespace,
-        account: &str,
-        expected: &Secret,
-        _: Interaction,
-    ) -> Result<ConditionalDelete> {
-        check_target(ns, account)?;
-        // Compare and remove under the one map lock every writer of this store takes.
-        let mut m = self.map.lock().unwrap();
-        let k = Self::key(ns, account);
-        let outcome = match m.get(&k) {
-            None => ConditionalDelete::Absent,
-            Some(current) if current.ct_eq(expected) => ConditionalDelete::Deleted,
-            Some(_) => ConditionalDelete::Changed,
-        };
-        if outcome == ConditionalDelete::Deleted {
-            m.remove(&k);
-        }
-        Ok(outcome)
     }
 }
 
@@ -297,7 +168,11 @@ pub fn system_backend() -> Arc<dyn Backend> {
     }
     #[cfg(windows)]
     {
-        Arc::new(crate::windows::CredentialManagerBackend)
+        // Credential Manager refuses a blob over 2,560 bytes: larger secrets are chunked behind
+        // a manifest (rightkit#1126); smaller ones are stored exactly as before.
+        Arc::new(crate::chunked::ChunkedBackend::new(Arc::new(
+            crate::windows::CredentialManagerBackend,
+        )))
     }
     #[cfg(target_os = "linux")]
     {

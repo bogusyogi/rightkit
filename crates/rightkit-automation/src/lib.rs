@@ -37,6 +37,7 @@
 
 pub mod admission;
 pub mod capture_safety;
+pub mod clipboard;
 pub mod control;
 pub mod delivery;
 #[cfg(feature = "desktop-context")]
@@ -44,13 +45,13 @@ pub mod desktop;
 pub mod engine;
 pub mod events;
 pub mod focus;
+pub mod foreign;
 pub mod in_app;
 pub mod json;
 pub mod keys;
 pub mod lease;
 pub mod marker;
 pub mod media_keys;
-pub mod mock;
 pub mod model;
 pub mod offscreen;
 #[cfg(feature = "paths")]
@@ -60,6 +61,8 @@ pub mod png;
 pub mod policy;
 pub mod proof;
 pub mod redact;
+pub mod screen;
+pub mod secret;
 pub mod sensitive;
 pub mod uia_text;
 
@@ -84,6 +87,7 @@ pub use policy::{
     ResultKind, SessionEvent,
 };
 pub use redact::{MaskText, Redactor, ShotContext, ShotReport};
+pub use secret::{origin_of_url, FieldOrigin, Secret};
 
 #[cfg(target_os = "macos")]
 pub type NativePlatform = macos::MacPlatform;

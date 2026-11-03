@@ -469,10 +469,23 @@ async fn serve(
     // licence owner maintains (locators only: no token, key or device id is ever passed in) and
     // verifies it live through `EngineEntitlements`, so a refresh, revocation or new activation
     // needs no restart. Without locators (a CLI or standalone daemon) it stays on the Free tier.
+    // The owner delivers its snapshot over the daemon's private IPC (`license.snapshot`), which
+    // identifies the peer process (rightkit#1501); the service stays published while this function
+    // runs and is released when it returns.
+    let mut _license_service: Option<rightkit_daemon::Service> = None;
     {
         if let Some(locators) = crate::license::launch_locators() {
             match crate::license::LicenseGate::open(locators) {
-                Ok(gate) => state = state.with_license_gate(std::sync::Arc::new(gate)),
+                Ok(gate) => {
+                    let gate = std::sync::Arc::new(gate);
+                    state = state.with_license_gate(gate.clone());
+                    match crate::license_ipc::host_license_service(gate, locators, actual_port) {
+                        Ok(service) => _license_service = service,
+                        Err(error) => eprintln!(
+                            "[license] licence snapshot service unavailable, running as Free: {error}"
+                        ),
+                    }
+                }
                 Err(error) => {
                     eprintln!("[license] licence gate unavailable, running as Free: {error}")
                 }

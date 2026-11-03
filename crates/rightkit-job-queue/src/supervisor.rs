@@ -231,6 +231,55 @@ fn deliver_launch_frame<W: io::Write + Send + 'static>(
     }
 }
 
+/// Serializer for the params of a raw call ([`EngineSupervisor::call_raw_with`],
+/// [`HandshakeCall::new`]): JSON into a zeroizing buffer, capped, without a `serde_json::Value`
+/// copy of the data.
+pub struct RawParams;
+
+impl RawParams {
+    /// Serialize `value` as one compact line of JSON into a buffer allocated at its final size
+    /// (so no reallocation leaves an unzeroed copy behind), wiped when it is dropped. `value` is
+    /// walked twice, first to count the bytes. Fails with `bad_input` when the JSON would exceed
+    /// `cap` bytes or `value` does not serialize; the message never contains the data.
+    pub fn serialize(value: &impl Serialize, cap: usize) -> JobResult<Zeroizing<Vec<u8>>> {
+        struct Count {
+            len: usize,
+            cap: usize,
+        }
+        impl io::Write for Count {
+            fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+                if self.len + data.len() > self.cap {
+                    return Err(io::Error::new(io::ErrorKind::WriteZero, "over the cap"));
+                }
+                self.len += data.len();
+                Ok(data.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let refuse = |e: serde_json::Error| {
+            if e.is_io() {
+                JobError::bad_input(format!("params exceed {cap} bytes"))
+            } else {
+                JobError::bad_input("params did not serialize")
+            }
+        };
+        let mut count = Count { len: 0, cap };
+        serde_json::to_writer(&mut count, value).map_err(refuse)?;
+        let mut buf = Zeroizing::new(Vec::with_capacity(count.len));
+        serde_json::to_writer(
+            CappedWriter {
+                buf: &mut buf,
+                cap: count.len,
+            },
+            value,
+        )
+        .map_err(refuse)?;
+        Ok(buf)
+    }
+}
+
 /// How a failed [`HandshakeCall`] is treated. See [`SupervisorConfig::with_handshake`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HandshakeMode {
@@ -539,6 +588,7 @@ pub struct SupervisorConfig {
     exit_observer: Option<Arc<dyn ExitObserver>>,
     handshake: Option<Arc<HandshakeFn>>,
     launch_frame: Option<Arc<LaunchFrameFn>>,
+    defer_start_key: Option<String>,
 }
 
 impl SupervisorConfig {
@@ -572,6 +622,7 @@ impl SupervisorConfig {
             exit_observer: None,
             handshake: None,
             launch_frame: None,
+            defer_start_key: None,
         }
     }
     /// Deliver fresh secrets (for example provider API keys) to every engine generation before it
@@ -633,6 +684,23 @@ impl SupervisorConfig {
         provider: impl Fn(u64) -> Result<LaunchFrame, JobError> + Send + Sync + 'static,
     ) -> Self {
         self.launch_frame = Some(Arc::new(provider));
+        self
+    }
+    /// Hold the first spawn until the app has supplied its first snapshot: the engine is not
+    /// started until [`EngineSupervisor::set_snapshot`] has registered a snapshot under `key`
+    /// (typically the `Init` snapshot carrying settings, paths, entitlements and auth), so the
+    /// engine's first message is always that snapshot and a call never reaches an engine that
+    /// started uninitialised. Every restart replays the newest snapshot as before.
+    ///
+    /// While the gate is closed `start_background` returns at once with the supervisor `Booting`
+    /// (lifecycle event `engine start deferred ...`), and a call waits up to
+    /// [`SupervisorConfig::ready_wait`] and answers `not_ready`. `start` blocks until the engine
+    /// is `Ready`, so a shell that starts before its settings are loaded uses `start_background`.
+    /// `shutdown` ends the wait. The gate is the presence of a snapshot under `key`, so a
+    /// `start` after a `shutdown` finds it open again and boots on the newest snapshot. Off by
+    /// default.
+    pub fn defer_first_start(mut self, key: impl Into<String>) -> Self {
+        self.defer_start_key = Some(key.into());
         self
     }
     /// Report every abnormal engine exit (not an intentional shutdown) to `observer`, with the
@@ -795,6 +863,9 @@ struct State {
     terminal: Option<Terminal>,
     /// Why the most recent first boot failed; what `start()` returns when it ends `Down`.
     last_start_error: Option<JobError>,
+    /// Bumped by every `begin_start` that boots; lets a boot parked on the deferred-start gate
+    /// tell it was superseded.
+    start_seq: u64,
 }
 
 struct Shared {
@@ -939,6 +1010,7 @@ impl EngineSupervisor {
                 restarts: 0,
                 terminal: None,
                 last_start_error: None,
+                start_seq: 0,
             }),
             cv: Condvar::new(),
             lifecycle_subs: Mutex::default(),
@@ -1001,6 +1073,37 @@ impl EngineSupervisor {
         let timeout = options.timeout.unwrap_or(self.sh.cfg.rpc_timeout);
         let on_frame = merge_event_callbacks(options.on_event, options.on_frame);
         let result = client.call_timeout_frames(method, params, on_frame, timeout);
+        self.finish_call(
+            result,
+            &client,
+            generation,
+            method,
+            options.keep_alive_on_timeout,
+            &format!("within {timeout:?}"),
+        )
+    }
+
+    /// As [`Self::call_with`], but the request's `params` are the caller's own, already
+    /// serialized JSON bytes (one value, no line break), spliced into the outbound frame as they
+    /// are and never parsed into a `serde_json::Value`: the path for params that carry secrets.
+    /// Build them with [`RawParams::serialize`] into a `Zeroizing` buffer and drop it after the
+    /// call; the only copy the client makes is the outbound frame buffer, which it overwrites
+    /// with zeros once the frame is written (see [`EngineClient::call_timeout_raw`]). Params that
+    /// are not exactly one JSON value on one line are refused with `bad_input` before anything
+    /// is written, and no error or lifecycle message quotes them.
+    ///
+    /// Readiness, the timeout (`options.timeout`, else the config's `rpc_timeout`), wedge and
+    /// `keep_alive_on_timeout` handling and error mapping are those of `call_with`. Raw calls
+    /// deliver no progress events, so `options.on_event` and `options.on_frame` are not used.
+    pub fn call_raw_with(
+        &self,
+        method: &str,
+        params_json: &[u8],
+        options: CallOptions,
+    ) -> JobResult<Value> {
+        let (client, generation) = self.ready_client()?;
+        let timeout = options.timeout.unwrap_or(self.sh.cfg.rpc_timeout);
+        let result = client.call_timeout_raw(method, params_json, timeout);
         self.finish_call(
             result,
             &client,
@@ -1108,6 +1211,8 @@ impl EngineSupervisor {
                 .then(|| g.client.clone())
                 .flatten()
         };
+        // A boot parked on `defer_first_start` waits for this registration.
+        self.sh.cv.notify_all();
         match live {
             Some(client) => client
                 .call_timeout(method, params, None, self.sh.cfg.rpc_timeout)
@@ -1360,7 +1465,8 @@ impl Drop for EngineSupervisor {
 enum StartPlan {
     Ready,
     Wait,
-    Boot,
+    /// Boot; carries the `start_seq` this start was given.
+    Boot(u64),
 }
 
 /// Moves `Down` to `Booting` (fresh budget) and reports what the caller must do.
@@ -1376,7 +1482,8 @@ fn begin_start(sh: &Arc<Shared>) -> StartPlan {
             g.terminal = None;
             g.last_start_error = None;
             g.lifecycle = Lifecycle::Booting;
-            StartPlan::Boot
+            g.start_seq += 1;
+            StartPlan::Boot(g.start_seq)
         }
     }
 }
@@ -1385,10 +1492,48 @@ fn run_start(sh: &Arc<Shared>, plan: StartPlan) -> JobResult<()> {
     match plan {
         StartPlan::Ready => Ok(()),
         StartPlan::Wait => ready_shared(sh).map(|_| ()),
-        StartPlan::Boot => match boot(sh, true) {
-            Ok(()) => Ok(()),
-            Err(_) => settle(sh),
-        },
+        StartPlan::Boot(seq) => {
+            wait_start_gate(sh, seq)?;
+            match boot(sh, true) {
+                Ok(()) => Ok(()),
+                Err(_) => settle(sh),
+            }
+        }
+    }
+}
+
+/// Parks a start until the snapshot named by [`SupervisorConfig::defer_first_start`] exists. An
+/// immediate `Ok` when no gate is configured. A shutdown (or a newer start) ends the wait with
+/// `down`.
+fn wait_start_gate(sh: &Arc<Shared>, seq: u64) -> JobResult<()> {
+    let Some(key) = &sh.cfg.defer_start_key else {
+        return Ok(());
+    };
+    let mut announced = false;
+    let mut g = sh.lock();
+    loop {
+        if g.shutting_down || g.start_seq != seq {
+            return Err(JobError::supervisor(
+                "down",
+                "engine was shut down while waiting for its first snapshot",
+            ));
+        }
+        if g.replay.iter().any(|e| e.key == *key) {
+            return Ok(());
+        }
+        if !announced {
+            announced = true;
+            sh.emit(
+                &g,
+                format!("engine start deferred until snapshot {key} is set"),
+                None,
+            );
+        }
+        g = sh
+            .cv
+            .wait_timeout(g, Duration::from_millis(200))
+            .unwrap_or_else(|e| e.into_inner())
+            .0;
     }
 }
 

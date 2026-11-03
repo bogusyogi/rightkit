@@ -174,8 +174,30 @@ pub struct Dispatcher {
     drain_timeout: Option<Duration>,
     aliases: Vec<(String, String)>,
     method_meta: Vec<(String, Value)>,
+    request_dry_run: bool,
+    doctor_readiness: Option<ReadinessFn>,
+    error_redactor: Option<ErrorRedactor>,
     emitter: EventEmitter,
+    /// Requests being run now, and the most that ran at once ([`Dispatcher::queue_depth`]).
+    active: std::sync::atomic::AtomicUsize,
+    active_peak: std::sync::atomic::AtomicUsize,
 }
+
+/// Decrements the dispatcher's active count when a request ends, however it ends.
+struct ActiveGuard<'a>(&'a std::sync::atomic::AtomicUsize);
+
+impl Drop for ActiveGuard<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Judges a `doctor` report: `true` when the app is ready. See [`Dispatcher::with_doctor_readiness`].
+pub type ReadinessFn = Arc<dyn Fn(&Value) -> bool + Send + Sync>;
+
+/// Rewrites every error the dispatcher returns, given the method and its params. See
+/// [`Dispatcher::with_error_redactor`].
+pub type ErrorRedactor = Arc<dyn Fn(&str, &Value, JobError) -> JobError + Send + Sync>;
 
 pub struct Outcome {
     pub response: Value,
@@ -218,8 +240,26 @@ impl Dispatcher {
             drain_timeout: None,
             aliases: vec![],
             method_meta: vec![],
+            request_dry_run: false,
+            doctor_readiness: None,
+            error_redactor: None,
             emitter: EventEmitter::default(),
+            active: std::sync::atomic::AtomicUsize::new(0),
+            active_peak: std::sync::atomic::AtomicUsize::new(0),
         }
+    }
+
+    /// Requests the dispatcher is running right now: the depth of the work it holds. The
+    /// dispatcher queues nothing of its own (each request runs on its connection's thread), so
+    /// this is the queue a host sees when requests arrive faster than commands finish. Read as a
+    /// number; no lock is taken (rightkit#1280).
+    pub fn queue_depth(&self) -> usize {
+        self.active.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// The most requests that were running at once since the dispatcher was built.
+    pub fn queue_depth_peak(&self) -> usize {
+        self.active_peak.load(std::sync::atomic::Ordering::SeqCst)
     }
     /// A handle for events this engine sends on its own initiative, with no request behind them
     /// (see [`EventEmitter`]). Take it before the dispatcher moves into `serve`; clones share the
@@ -237,6 +277,34 @@ impl Dispatcher {
     pub fn with_doctor(mut self, f: DoctorFn) -> Self {
         self.doctor = Some(f);
         self
+    }
+    /// Opt-in (default off): a request whose top-level `params.dry_run` is the JSON boolean
+    /// `true` runs as a dry run, in addition to the process-wide flag (`--dry-run`, `serve`'s
+    /// argument). Other values are ignored, so one live `serve` session can preview single
+    /// requests. Off keeps the 0.5.x behaviour byte-identical.
+    pub fn with_request_dry_run(mut self) -> Self {
+        self.request_dry_run = true;
+        self
+    }
+    /// Opt-in: `run_cli` runs the canonical `doctor` method, prints its report, and exits 1 when
+    /// `f(&report)` is false (0 otherwise). Stdio `serve` and the window `doctor` frame are
+    /// unchanged. Without it `run_cli` always exits 0 for an `Ok` report.
+    pub fn with_doctor_readiness(mut self, f: ReadinessFn) -> Self {
+        self.doctor_readiness = Some(f);
+        self
+    }
+    /// Applies `f` to every error the dispatcher returns (window frames and `run_cli`), so an
+    /// app that must not echo secret input values passes its redaction once, here.
+    pub fn with_error_redactor(mut self, f: ErrorRedactor) -> Self {
+        self.error_redactor = Some(f);
+        self
+    }
+    /// The dry-run flag one request runs under: the process flag, or the request's own
+    /// `params.dry_run` when [`Self::with_request_dry_run`] is on.
+    fn effective_dry_run(&self, dry_run: bool, params: &Value) -> bool {
+        dry_run
+            || (self.request_dry_run
+                && params.get("dry_run").and_then(Value::as_bool) == Some(true))
     }
     /// CLI: the positional word after a method whose first segment is
     /// `prefix` fills `key` (defaults: `job` -> `job_id`, `artifact` -> `artifact_id`).
@@ -382,10 +450,22 @@ impl Dispatcher {
         dry_run: bool,
         emit: &Sink,
     ) -> JobResult<Value> {
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let dry_run = self.effective_dry_run(dry_run, params);
+        let depth = self
+            .active
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
+        self.active_peak
+            .fetch_max(depth, std::sync::atomic::Ordering::SeqCst);
+        let _active = ActiveGuard(&self.active);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.call_inner(conn, method, params, dry_run, emit)
         }))
-        .unwrap_or_else(|p| Err(panic_error(method, p.as_ref())))
+        .unwrap_or_else(|p| Err(panic_error(method, p.as_ref())));
+        match (&self.error_redactor, result) {
+            (Some(redact), Err(e)) => Err(redact(method, params, e)),
+            (_, result) => result,
+        }
     }
 
     fn call_inner(
@@ -725,6 +805,25 @@ pub fn run_cli(
         print(out, &json!({"version": d.version}));
         return 0;
     }
+    if matches!(
+        f.words.first().map(String::as_str),
+        Some("--help" | "-h" | "help")
+    ) {
+        write_usage(d, out);
+        return 0;
+    }
+    if let (true, Some(last)) = (f.words.len() > 1, f.words.last()) {
+        if matches!(last.as_str(), "--help" | "-h") {
+            let words = &f.words[..f.words.len() - 1];
+            let found = (1..=words.len())
+                .rev()
+                .find_map(|k| d.canonical(&words[..k].join(".")));
+            if let Some(method) = found {
+                write_method_help(d, &method, out);
+                return 0;
+            }
+        }
+    }
     let Some((method, rest)) = (1..=f.words.len()).rev().find_map(|k| {
         let m = f.words[..k].join(".");
         d.canonical(&m).map(|m| (m, f.words[k..].to_vec()))
@@ -822,13 +921,57 @@ pub fn run_cli(
     match result {
         Ok(v) => {
             print(out, &v);
-            0
+            let not_ready =
+                method == "doctor" && d.doctor_readiness.as_ref().is_some_and(|ready| !ready(&v));
+            i32::from(not_ready)
         }
         Err(e) => {
             print(out, &envelope(&e.code, &e.message));
             1
         }
     }
+}
+
+/// Plain-text usage for `run_cli --help`: the engine, its version, and the canonical methods.
+fn write_usage(d: &Dispatcher, out: &mut dyn Write) {
+    let _ = writeln!(out, "{} {}", d.engine, d.version);
+    let _ = writeln!(out, "usage: {} <method words> [--input <json>|-] [--dry-run] [--wait] [--wait-timeout <s>] [--request-id <id>]", d.engine);
+    let _ = writeln!(
+        out,
+        "       {} <method words> --help   (method help)",
+        d.engine
+    );
+    let _ = writeln!(out, "methods:");
+    for m in d.methods() {
+        match d.method_meta(&m).and_then(method_help_line) {
+            Some(line) => {
+                let _ = writeln!(out, "  {m}  {line}");
+            }
+            None => {
+                let _ = writeln!(out, "  {m}");
+            }
+        }
+    }
+}
+
+/// `run_cli <method> --help`: the method's meta, or its name when none is set.
+fn write_method_help(d: &Dispatcher, method: &str, out: &mut dyn Write) {
+    let _ = writeln!(out, "{method}");
+    if let Some(meta) = d.method_meta(method) {
+        match method_help_line(meta) {
+            Some(line) => {
+                let _ = writeln!(out, "{line}");
+            }
+            None => print(out, meta),
+        }
+    }
+}
+
+/// The one-line help of a method's meta: a JSON string, or its `help` string field.
+fn method_help_line(meta: &Value) -> Option<String> {
+    meta.as_str()
+        .or_else(|| meta.get("help").and_then(Value::as_str))
+        .map(str::to_string)
 }
 
 // ------------------------------------------------------- job.* commands ----

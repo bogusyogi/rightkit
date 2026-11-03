@@ -13,11 +13,12 @@ pub mod helper;
 #[cfg(feature = "http")]
 pub mod http;
 mod ledger;
-mod memory;
 mod record;
 mod schedule;
 mod storage;
 mod traits;
+#[cfg(feature = "vault")]
+pub mod vault;
 pub mod wire;
 
 pub use backoff::BackoffPolicy;
@@ -27,11 +28,10 @@ pub use engine::{
 };
 pub use error::{SyncError, SyncResult};
 pub use ledger::{ConsentRequest, Ledger, LedgerStore, RemoteVersion};
-pub use memory::MemoryBackend;
 pub use record::{field, read_tombstone, write_tombstone, FieldValue, RawRecord};
 pub use schedule::{
     next_delay, should_continue, sync_once, work_outcome, SchedulePolicy, SyncBudget, SyncReport,
     WorkOutcome,
 };
-pub use storage::{FileStorage, LedgerStorage, MemoryStorage};
+pub use storage::{FileStorage, LedgerStorage};
 pub use traits::*;

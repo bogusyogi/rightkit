@@ -16,7 +16,34 @@ struct Entry {
     label: Option<String>,
     message: Option<String>,
     progress: Option<f64>,
+    counts: Option<Counts>,
+    kind: Option<String>,
+    cancellable: bool,
     started: Instant,
+}
+
+/// The unit a [`Counts`] pair is worded in (`3 of 25`, `12 of 340 MB`, `40 %`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CountUnit {
+    /// Plain items.
+    Count,
+    /// Bytes; a listing may show them scaled.
+    Bytes,
+    /// Percent of the total; `done` is read against 100 when `total` is 0.
+    Percent,
+}
+
+/// Work done out of a total, in one unit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Counts {
+    /// Units completed so far.
+    pub done: u64,
+    /// Units in the whole task.
+    pub total: u64,
+    /// The unit `done` and `total` are counted in.
+    pub unit: CountUnit,
 }
 
 #[derive(Default)]
@@ -55,6 +82,13 @@ pub struct ActivityOptions {
     /// one (a UI cancel token) is cancelled through the registry. It is used as it stands: a flag
     /// that is already set reads as cancelled from the first listing.
     pub flag: Option<Arc<AtomicBool>>,
+    /// Done and total counts in a unit, shown next to the label.
+    pub counts: Option<Counts>,
+    /// What kind of work this is (for example `import`, `export`), for grouping in a listing.
+    pub kind: Option<String>,
+    /// Whether a cancel control is offered for this activity. Defaults to true; it is a
+    /// listing attribute and does not gate [`InlineCancelRegistry::cancel`].
+    pub cancellable: Option<bool>,
 }
 
 impl ActivityOptions {
@@ -82,6 +116,21 @@ impl ActivityOptions {
         self.flag = Some(flag);
         self
     }
+    /// Sets the done and total counts and their unit.
+    pub fn counts(mut self, done: u64, total: u64, unit: CountUnit) -> Self {
+        self.counts = Some(Counts { done, total, unit });
+        self
+    }
+    /// Sets the kind of work.
+    pub fn kind(mut self, kind: impl Into<String>) -> Self {
+        self.kind = Some(kind.into());
+        self
+    }
+    /// Sets whether a cancel control is offered.
+    pub fn cancellable(mut self, yes: bool) -> Self {
+        self.cancellable = Some(yes);
+        self
+    }
 }
 
 /// One registered activity as of a listing ([`InlineCancelRegistry::list`] / `get`).
@@ -101,6 +150,12 @@ pub struct ActivitySnapshot {
     pub cancelled: bool,
     /// Time since registration.
     pub elapsed: Duration,
+    /// Done and total counts with their unit, when the work reported them.
+    pub counts: Option<Counts>,
+    /// The kind of work, when one was given.
+    pub kind: Option<String>,
+    /// Whether a cancel control is offered (see [`ActivityOptions::cancellable`]).
+    pub cancellable: bool,
 }
 
 fn clean_progress(p: Option<f64>) -> Option<f64> {
@@ -170,6 +225,9 @@ impl InlineCancelRegistry {
                 label: options.label,
                 message: options.message,
                 progress: clean_progress(options.progress),
+                counts: options.counts,
+                kind: options.kind,
+                cancellable: options.cancellable.unwrap_or(true),
                 started: Instant::now(),
             },
         );
@@ -261,6 +319,9 @@ fn snapshot(id: &str, entry: &Entry) -> ActivitySnapshot {
         progress: entry.progress,
         cancelled: entry.flag.load(Ordering::SeqCst),
         elapsed: entry.started.elapsed(),
+        counts: entry.counts,
+        kind: entry.kind.clone(),
+        cancellable: entry.cancellable,
     }
 }
 
@@ -292,6 +353,17 @@ impl InlineJobGuard {
     /// Sets or clears the progress fraction (clamped to `0.0..=1.0`; NaN clears it).
     pub fn set_progress(&self, fraction: Option<f64>) {
         self.update(|e| e.progress = clean_progress(fraction));
+    }
+
+    /// Sets the done and total counts in a unit; `None` clears them.
+    pub fn set_counts(&self, counts: Option<Counts>) {
+        self.update(|e| e.counts = counts);
+    }
+
+    /// Switches the cancel control for this activity on or off (listing attribute only; see
+    /// [`ActivityOptions::cancellable`]).
+    pub fn set_cancellable(&self, yes: bool) {
+        self.update(|e| e.cancellable = yes);
     }
 
     /// Sets progress and message together, as one change.

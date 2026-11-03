@@ -84,8 +84,7 @@ fn whisper_coreml_dir(models_dir: &Path) -> PathBuf {
     // Whisper is NOT bundled — it's a Pro on-demand download to app-data. The
     // The engine-startup resolved fallback is a *bundled-layout* path that doesn't
     // exist for this case, so the on-disk downloaded copy MUST win first. Only if
-    // it's absent do we use the resolved fallback (test-mode builds may override
-    // it), then the models-base fallback.
+    // it's absent do we use the resolved fallback, then the models-base fallback.
     let downloaded = crate::settings::app_data_root()
         .join("models")
         .join("whisper-multi");
@@ -301,18 +300,7 @@ fn apply_coreml_context_bias(model: &mut crate::coreml_asr::CoreMlParakeet) {
 }
 
 fn context_bias_score() -> Option<f32> {
-    if matches!(
-        rightkit_dictation_core::dev_var!("RIGHTKIT_DISABLE_ASR_CONTEXT_BIAS")
-            .ok()
-            .as_deref(),
-        Some("1") | Some("true") | Some("on")
-    ) {
-        return None;
-    }
-    let score = rightkit_dictation_core::dev_var!("RIGHTKIT_ASR_CONTEXT_BIAS_SCORE")
-        .ok()
-        .and_then(|value| value.parse::<f32>().ok())
-        .unwrap_or(DEFAULT_CONTEXT_BIAS_SCORE);
+    let score = DEFAULT_CONTEXT_BIAS_SCORE;
     score
         .is_finite()
         .then_some(score)
@@ -327,11 +315,7 @@ pub(crate) fn context_bias_terms() -> Vec<String> {
         .map(|s| s.to_string())
         .collect();
     terms.extend(crate::vocabulary::terms());
-    let max_terms = rightkit_dictation_core::dev_var!("RIGHTKIT_ASR_CONTEXT_BIAS_MAX_TERMS")
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .unwrap_or(512);
-    terms.truncate(max_terms);
+    terms.truncate(512);
     terms
 }
 
@@ -339,39 +323,24 @@ pub(crate) fn context_bias_terms() -> Vec<String> {
 pub(crate) fn probe_directml_embedded() -> bool {
     // The vendored crate registers DirectML with a silent CPU fallback; a
     // real probe requires an ORT session. We use the same lightweight
-    // heuristic the sidecar uses: trust the env override or default
-    // to DML on Windows and let model load fail loudly if the device is absent.
-    !matches!(
-        rightkit_dictation_core::dev_var!("RIGHTKIT_ASR_EP")
-            .ok()
-            .as_deref(),
-        Some("cpu") | Some("CPU")
-    )
+    // heuristic the sidecar uses: default to DML on Windows and let model load
+    // fail loudly if the device is absent.
+    true
 }
 
 /// Resolve the models base directory. Models live in EXACTLY ONE place — the
 /// app-data models dir — on every machine, dev or installed. There is no dev /
 /// sibling-of-exe / cwd lookup. Precedence:
-///  1. A test-mode override (compiled out of release builds).
-///  2. The optional `hint` (a positional arg; the engine entry passes one only in
-///     test-mode builds, so a release engine never takes its models path from argv).
-///  3. The root the engine resolved at startup (`engine_paths::install`), which is
+///  1. The optional `hint` (a positional arg; a release engine never takes its
+///     models path from argv).
+///  2. The root the engine resolved at startup (`engine_paths::install`), which is
 ///     the same `<app-data>/models` the shell uses.
-///  4. `<app-data>/models` — the same location, for callers that never installed.
+///  3. `<app-data>/models` — the same location, for callers that never installed.
 pub fn models_base(hint: Option<&Path>) -> PathBuf {
-    if let Some(dir) = dev_models_base() {
-        return dir;
-    }
     if let Some(hint) = hint {
         return hint.to_path_buf();
     }
     crate::engine_paths::installed()
         .map(|paths| paths.models_base.clone())
         .unwrap_or_else(|| crate::settings::app_data_root().join("models"))
-}
-
-fn dev_models_base() -> Option<PathBuf> {
-    rightkit_dictation_core::dev_var_os!("RIGHTKIT_MODELS_DIR")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
 }

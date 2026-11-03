@@ -26,6 +26,9 @@ use crate::link::frame::{
     DEAD_AFTER_SECS, HEARTBEAT_SECS, H_LINK_ID, H_LINK_KEY, LINK_PATH, MAX_LINE, UPGRADE_TOKEN,
 };
 use crate::remote::core::{Accepted, Daemon, FrameOutcome, Out, Request, Response};
+use hyper_util::service::TowerToHyperService;
+use std::panic::AssertUnwindSafe;
+use tokio_rustls::TlsAcceptor;
 
 pub fn router(daemon: Arc<Daemon>) -> Router {
     Router::new().fallback(entry).with_state(daemon)
@@ -36,18 +39,13 @@ async fn entry(State(daemon): State<Arc<Daemon>>, req: axum::extract::Request) -
         return link_entry(daemon, req).await;
     }
     let (parts, body) = req.into_parts();
+    let peer = parts.extensions.get::<SocketAddr>().copied();
     let path = parts.uri.path().to_string();
     let method = parts.method.as_str().to_string();
     let limit = daemon.body_limit(&method, &path);
     let bytes = match to_bytes(body, limit).await {
         Ok(b) => b,
-        Err(_) => {
-            return to_axum(Response {
-                status: 413,
-                body: json!({"error": "body_too_large"}),
-                headers: vec![],
-            })
-        }
+        Err(_) => return to_axum(Response::json(413, json!({"error": "body_too_large"}))),
     };
     let mut headers = BTreeMap::new();
     for (k, v) in &parts.headers {
@@ -67,15 +65,13 @@ async fn entry(State(daemon): State<Arc<Daemon>>, req: axum::extract::Request) -
             .map_or(path, |p| p.as_str().to_string()),
         headers,
         body: bytes.to_vec(),
+        params: BTreeMap::new(),
+        peer,
     };
     let d = daemon.clone();
     match tokio::task::spawn_blocking(move || d.handle(request)).await {
         Ok(resp) => to_axum(resp),
-        Err(_) => to_axum(Response {
-            status: 500,
-            body: json!({"error": "internal"}),
-            headers: vec![],
-        }),
+        Err(_) => to_axum(Response::json(500, json!({"error": "internal"}))),
     }
 }
 
@@ -98,19 +94,15 @@ async fn link_entry(daemon: Arc<Daemon>, mut req: axum::extract::Request) -> Axu
             .map_or_else(|| LINK_PATH.to_string(), |p| p.as_str().to_string()),
         headers,
         body: Vec::new(),
+        params: BTreeMap::new(),
+        peer: None,
     };
     let on_upgrade = hyper::upgrade::on(&mut req);
     let d = daemon.clone();
     let accepted = match tokio::task::spawn_blocking(move || d.link_accept(&request)).await {
         Ok(Ok(a)) => a,
         Ok(Err(resp)) => return to_axum(resp),
-        Err(_) => {
-            return to_axum(Response {
-                status: 500,
-                body: json!({"error": "internal"}),
-                headers: vec![],
-            })
-        }
+        Err(_) => return to_axum(Response::json(500, json!({"error": "internal"}))),
     };
     let link_id = accepted.link_id.clone();
     let key_hex = accepted.key_hex.clone();
@@ -123,11 +115,7 @@ async fn link_entry(daemon: Arc<Daemon>, mut req: axum::extract::Request) -> Axu
         .body(Body::empty());
     let Ok(response) = response else {
         daemon.link_closed(&accepted.session, "internal");
-        return to_axum(Response {
-            status: 500,
-            body: json!({"error": "internal"}),
-            headers: vec![],
-        });
+        return to_axum(Response::json(500, json!({"error": "internal"})));
     };
     tokio::spawn(async move {
         match on_upgrade.await {
@@ -229,11 +217,22 @@ where
 fn to_axum(resp: Response) -> AxumResponse {
     let status = StatusCode::from_u16(resp.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     let mut builder = AxumResponse::builder().status(status);
-    let body = match &resp.body {
-        Value::Null => Body::empty(),
-        v => {
-            builder = builder.header(header::CONTENT_TYPE, "application/json");
-            Body::from(v.to_string())
+    let body = if let Some(raw) = &resp.raw {
+        // A raw body carries its own content type; a value that is not a legal header value
+        // falls back to opaque bytes, and the browser is never left to sniff it.
+        let content_type = HeaderValue::try_from(raw.content_type.as_str())
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream"));
+        builder = builder
+            .header(header::CONTENT_TYPE, content_type)
+            .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff");
+        Body::from(raw.bytes.clone())
+    } else {
+        match &resp.body {
+            Value::Null => Body::empty(),
+            v => {
+                builder = builder.header(header::CONTENT_TYPE, "application/json");
+                Body::from(v.to_string())
+            }
         }
     };
     if let Some(h) = builder.headers_mut() {
@@ -302,10 +301,12 @@ async fn serve_with(
         tokio::select! {
             _ = &mut shutdown => break,
             accepted = listener.accept() => {
-                let Ok((stream, _)) = accepted else { continue };
+                let Ok((stream, peer)) = accepted else { continue };
                 let Ok(permit) = permits.clone().try_acquire_owned() else { continue };
                 let acceptor = acceptor.clone();
-                let svc = TowerToHyperService::new(app.clone());
+                // The accepted socket address rides along as a request extension, which `entry`
+                // copies into `Request::peer` (rightkit#1082).
+                let svc = TowerToHyperService::new(app.clone().layer(axum::Extension(peer)));
                 let mut stop = stop_rx.clone();
                 tokio::spawn(async move {
                     let _permit = permit;

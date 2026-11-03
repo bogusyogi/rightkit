@@ -30,6 +30,7 @@ use crate::driver_host::cli_runtime::auth::FORBIDDEN_BYOK_ENV_VARS;
 use crate::driver_host::DENIED_VENDOR_SUBPROCESS_ENV_VARS;
 
 use super::HarnessError;
+use std::collections::BTreeSet;
 
 /// The recorded trust verdict for a harness binding. Persisted on the
 /// binding record so a restart can prove the workspace grant the

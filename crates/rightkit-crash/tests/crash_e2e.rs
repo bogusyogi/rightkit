@@ -5,12 +5,10 @@
 use rightkit_crash::{build_support_bundle, SupportBundleOptions};
 use rightkit_crash::{
     enqueue_pending, install_panic_hook, list_pending, CrashConfig, CrashReport, NativeCapture,
-    CRASH_EVENT_TYPE,
 };
-use rightkit_logs::testing::MockServer;
 #[cfg(feature = "support-bundle")]
 use rightkit_logs::{CollectionPolicy, LogSource};
-use rightkit_logs::{FlushState, HttpTransport, OutboxConfig, Telemetry, UploadConfig};
+use rightkit_logs::{HttpTransport, OutboxConfig, Telemetry, UploadConfig};
 use serde_json::json;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -152,67 +150,6 @@ fn native_sample_is_captured_locally_and_referenced_by_the_report() {
         "real `sample` output expected"
     );
     assert_clean(&sample, "native sample");
-}
-
-#[test]
-fn crash_report_is_held_without_consent_then_uploaded_after_restart_with_consent() {
-    let dir = temp_dir("upload");
-    let server = MockServer::start();
-    assert!(!crash_child(&dir, false).success());
-    let crash_dir = dir.join("crash");
-
-    let open = || {
-        let mut config = UploadConfig::new(&server.url, "ExampleApp", "9.9.9");
-        config.base_backoff_secs = 1;
-        Telemetry::open(
-            &dir,
-            config,
-            Box::new(HttpTransport::new("crash-e2e")),
-            OutboxConfig::default(),
-        )
-        .unwrap()
-    };
-
-    // Next launch, user has not consented: report stays local, nothing is sent.
-    let telemetry = open();
-    let summary = enqueue_pending(&crash_dir, &telemetry.outbox);
-    assert_eq!(
-        (summary.queued, summary.held_no_consent),
-        (0, 1),
-        "{summary:?}"
-    );
-    assert_eq!(telemetry.uploader.flush_now().state, FlushState::NoConsent);
-    assert_eq!(server.count(), 0);
-    assert_eq!(list_pending(&crash_dir).len(), 1, "report kept on disk");
-
-    // User opts in; report is queued once and moved to submitted/.
-    telemetry.consent.grant("2026-10").unwrap();
-    let summary = enqueue_pending(&crash_dir, &telemetry.outbox);
-    assert_eq!(summary.queued, 1, "{summary:?}");
-    assert!(list_pending(&crash_dir).is_empty());
-    assert_eq!(list_pending(&crash_dir.join("submitted")).len(), 1);
-    assert_eq!(
-        enqueue_pending(&crash_dir, &telemetry.outbox).queued,
-        0,
-        "never queued twice"
-    );
-
-    // App restarts before the upload happens: the outbox persisted it.
-    drop(telemetry);
-    let telemetry = open();
-    assert_eq!(telemetry.outbox.len(), 1);
-    assert_eq!(server.count(), 0);
-    let report = telemetry.uploader.flush();
-    assert_eq!(report.state, FlushState::Drained, "{report:?}");
-    assert_eq!(server.count(), 1);
-
-    let body = server.bodies().remove(0);
-    let event = &body["events"][0];
-    assert_eq!(event["type"], CRASH_EVENT_TYPE);
-    assert_eq!(event["payload"]["kind"], "panic");
-    assert_eq!(event["payload"]["thread"], "export-worker");
-    assert_clean(&body.to_string(), "uploaded body");
-    assert!(telemetry.outbox.is_empty());
 }
 
 #[test]

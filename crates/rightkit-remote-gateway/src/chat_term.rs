@@ -186,7 +186,10 @@ mod imp {
                         chain.push(at);
                     }
                     chain
-                });
+                })
+                .map_err(|e| {
+                    super::not_addressable(format!("the process table cannot be read ({e})"))
+                })?;
             chain
                 .iter()
                 .find_map(|p| panes.iter().find(|(_, pane_pid)| pane_pid == p))

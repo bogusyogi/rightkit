@@ -11,8 +11,6 @@ path = "src/main.rs"
 
 [features]
 default = []
-# QA and dev only (never in default): lets rightkit-qa bind the engine's data root to an isolated directory.
-test-mode = ["rke2e-protocol/test-mode"]
 
 [dependencies]
 rke2e-protocol = { path = "../protocol" }

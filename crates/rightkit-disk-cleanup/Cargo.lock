@@ -183,7 +183,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-settings"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "rightkit-fs",
  "serde",
@@ -209,16 +209,17 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.10"
+version = "0.4.12"
 dependencies = [
  "libc",
  "sha2",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-fsindex"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "libc",
  "memchr",
@@ -228,11 +229,11 @@ dependencies = [
 
 [[package]]
 name = "rightkit-search"
-version = "0.4.2"
+version = "0.4.4"
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.2"
+version = "0.1.3"
 
 [[package]]
 name = "serde"
@@ -488,6 +489,12 @@ checksum = "3949bd5b99cafdf1c7ca86b43ca564028dfe27d66958f2470940f73d86d75b37"
 dependencies = [
  "windows-link",
 ]
+
+[[package]]
+name = "zeroize"
+version = "1.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
 
 [[package]]
 name = "zmij"

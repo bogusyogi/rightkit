@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.4 (unpublished)
+
+- `ChangeCoalescer` journaling (#544, Pulse `NativeEventQueue`): `ChangeCoalescer::journal(capacity)` keeps each batch's raw records (`ChangeBatch::raw`: path, the backend `EventKind`, and a `source_clock`) in arrival order, bounded by `capacity` (records beyond it count in `raw_dropped`; off by default). `push_with_clock(&Event, Option<u64>)` and `push_watch_record(&WatchEvent, raw_kind, source_clock)` carry the backend position (FSEvents event id); `ChangeBatch::source_clock` is the highest in the batch and `ChangeBatch::overflows` counts overflow and rescan signals (`has_gap()`). `push` and `push_watch_event` behave as before. The typed directory stream now forwards its raw kind.
+- Counters as numbers (#1282): `ChangeBatch` carries `raw_events` and `coalesced`; `ChangeCoalescer::totals()` returns cumulative `CoalesceTotals`; `WatchMetrics::coalesced_total` counts records the bounded queue merged into an identical unread tail, beside the existing `dropped_total` and `overflow_total`, all readable from `TypedWatcher::status()` per watcher (one watcher per root; counters start at zero when a watcher starts). rightkit-fsindex must surface `status().metrics` per root (needs: rightkit-fsindex).
+
 ## 0.4.3 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

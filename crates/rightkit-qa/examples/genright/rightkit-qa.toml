@@ -11,7 +11,6 @@ GENRIGHT_NO_KEYCHAIN = "1"  # mandatory, always
 [engine]
 package = "genright-engine"
 build = ["rustright", "cargo", "build", "-p", "genright-engine"]
-data_dir_env = "GENRIGHT_APP_DATA"      # fresh per scenario
 # `binary` is optional: managed RightKit keeps targets outside the checkout, so
 # the runner takes the executable from the build's compiler-artifact message
 # (`rightkit-qa run --build`) or from --engine / RIGHTKIT_QA_ENGINE.
@@ -29,3 +28,8 @@ package_json = "package.json"
 
 [audio]
 system_mute = true          # macOS: mute output for the run, restored afterwards
+
+# Real data, snapshot and restore (rightkit#1437): required. The run refuses to start while the app runs.
+[snapshot]
+app_name = "GenRight"
+process_names = ["GenRight"]

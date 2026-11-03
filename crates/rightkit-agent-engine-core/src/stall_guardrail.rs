@@ -1,6 +1,4 @@
-// (no //! header — this file is included via `#[path] mod stall_guardrail;` in
-// engine.rs, which already declares `mod tests`. We name our test mod
-// `stall_guardrail_tests` to avoid collision.)
+// (no //! header — this file is included via `#[path] mod stall_guardrail;` in engine.rs.)
 
 use rightkit_agent_engine_protocol::ToolCall;
 use std::collections::HashMap;

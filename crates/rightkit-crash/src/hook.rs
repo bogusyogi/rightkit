@@ -242,6 +242,40 @@ fn spawn_sink_thread(work: impl FnOnce() + Send + 'static) -> bool {
 }
 
 thread_local! {
+    /// Nesting depth of live [`CaughtPanicScope`] guards on this thread (#794).
+    static CAUGHT_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// RAII marker for panics the app catches on the current thread (`catch_unwind`, a join
+/// handle's `JoinError` on a blocking thread). While the guard lives, the panic hook on this
+/// thread records no crash report and writes no crash notice. Hold it only around the
+/// `catch_unwind` call on the same thread; it does not follow a task across `.await` points.
+#[derive(Debug)]
+#[must_use = "the scope ends when the guard is dropped"]
+pub struct CaughtPanicScope {
+    _private: (),
+}
+
+impl CaughtPanicScope {
+    /// Enter a caught-panic scope on the current thread.
+    pub fn enter() -> Self {
+        CAUGHT_DEPTH.with(|d| d.set(d.get() + 1));
+        Self { _private: () }
+    }
+}
+
+impl Drop for CaughtPanicScope {
+    fn drop(&mut self) {
+        CAUGHT_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+    }
+}
+
+/// True while a [`CaughtPanicScope`] is live on this thread.
+fn caught_scope_active() -> bool {
+    CAUGHT_DEPTH.with(|d| d.get() > 0)
+}
+
+thread_local! {
     /// True while this thread is recording a panic (or running a sink for one). Per thread, so
     /// concurrent panics on different threads are each recorded, while a panic inside the hook on
     /// the same thread cannot recurse. `const` init and no destructor: access is safe in a hook.
@@ -295,6 +329,13 @@ pub fn install_panic_hook(config: CrashConfig) {
     let chain = config.chain_default_hook;
     let app_name = config.app_name.clone();
     std::panic::set_hook(Box::new(move |info| {
+        if caught_scope_active() {
+            // The app catches this panic on this thread (#794): it is isolated work, not a crash.
+            if chain {
+                previous(info);
+            }
+            return;
+        }
         let message = info
             .payload()
             .downcast_ref::<&str>()

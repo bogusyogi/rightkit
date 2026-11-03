@@ -42,6 +42,7 @@ pub fn slug(value: &str, name: &str) -> Result<(), Fail> {
 /// credentials and the public-host test are `rightkit_http::validate_public_https_url`; on top of
 /// it, whitespace/control characters and any port are refused.
 pub fn public_https(url: &str, name: &str) -> Result<(), Fail> {
+    use rightkit_http::UrlPolicyError;
     if url.chars().any(|c| c.is_whitespace() || c.is_control()) {
         return Err(bad(format!(
             "{name} must not contain spaces or control characters"

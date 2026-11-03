@@ -701,6 +701,18 @@ pub fn resolve_bundled(name: &str) -> Option<PathBuf> {
     resolve_in_bundle(&std::env::current_exe().ok()?, name)
 }
 
+/// [`resolve_bundled`] and the code-signature check in one call (rightkit#749): resolve the helper
+/// `name` inside the running app's bundle, verify it against `trust` (the Developer ID team) now,
+/// and return a client that verifies it again before every spawn ([`AppleHelper::new_trusted`]).
+/// A helper that is not in the bundle, or whose signature does not satisfy `trust`, is
+/// [`Error::Helper`]; there is no client that runs an unverified bundled helper.
+pub fn resolve_bundled_trusted(name: &str, trust: HelperTrust) -> Result<AppleHelper> {
+    let path = resolve_bundled(name)
+        .ok_or_else(|| Error::Helper("helper not found inside the running app's bundle".into()))?;
+    let verified = verify_helper(&path, &trust)?;
+    Ok(AppleHelper::new_trusted(verified, trust))
+}
+
 fn resolve_in_bundle(exe: &std::path::Path, name: &str) -> Option<PathBuf> {
     use std::path::Component;
     let mut parts = std::path::Path::new(name).components();

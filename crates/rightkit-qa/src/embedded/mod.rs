@@ -16,7 +16,7 @@
 //! batch is authorized once, on the outer order. Without the variable the server refuses every order
 //! (fail closed, ADR-0001 item 7); with it but with an unusable file the server does not start. The token stops accidental ad-hoc driving, not a same-user process. The suite root is
 //! resolved from `RIGHTKIT_SUITE_ROOT` when the runner set it (an isolated run), else by
-//! `Suite::resolve` (the real per-user root); this build never enables `rightkit-daemon/test-mode`. The server **fails closed**: if no absolute root exists the plugin
+//! `Suite::resolve` (the real per-user root). The server **fails closed**: if no absolute root exists the plugin
 //! does not start, it never falls back to the working directory.
 //!
 //! Input is delivered inside the process straight to the webview: macOS
@@ -600,7 +600,11 @@ impl<R: Runtime> Control<R> {
         });
         // QA IPC fixture seam: only while the runtime QA control service is active (this whole
         // plugin exists only in a `control` build, which release builds never carry).
-        let builder = match ipc_fixture_script(service_from_env().as_deref()) {
+        // The QA mute script (`RIGHTKIT_QA_MUTE=1`) rides in the same init script: a plugin holds one.
+        let builder = match page_init_script(
+            service_from_env().as_deref(),
+            std::env::var("RIGHTKIT_QA_MUTE").ok().as_deref(),
+        ) {
             Some(script) => builder.js_init_script(script),
             None => builder,
         };
@@ -723,11 +727,32 @@ fn ipc_fixture_script(service: Option<&str>) -> Option<&'static str> {
         .map(|_| IPC_FIXTURE_JS)
 }
 
+/// QA mute page script: every media element of the page is muted before `play` and when a `play`
+/// event fires (`RIGHTKIT_QA_MUTE=1`). Web Audio contexts are not covered. Exported so a host can
+/// inject it through its own seam.
+pub const QA_MUTE_JS: &str = include_str!("mute_media.js");
+
+/// Whether `RIGHTKIT_QA_MUTE` asks for a silent page: `1` or `true`.
+fn mute_requested(value: Option<&str>) -> bool {
+    matches!(value.map(str::trim), Some("1") | Some("true"))
+}
+
+/// The one init script of the plugin: the IPC fixture and, when `RIGHTKIT_QA_MUTE` asks, the mute
+/// script. `None` for a normal launch of a control build (no QA control service), so nothing is
+/// injected.
+fn page_init_script(service: Option<&str>, mute: Option<&str>) -> Option<String> {
+    let fixture = ipc_fixture_script(service)?;
+    let mut script = fixture.to_string();
+    if mute_requested(mute) {
+        script.push('\n');
+        script.push_str(QA_MUTE_JS);
+    }
+    Some(script)
+}
+
 /// The suite root the control service is hosted under. `RIGHTKIT_SUITE_ROOT` (set by the QA runner
-/// for an isolated launch) is honoured here even though this build does not compile
-/// `rightkit-daemon/test-mode`, so the runner finds the discovery record under the root it chose;
-/// with it unset (a dev install launched normally) the real per-user root is used. Pure over its
-/// input for testing.
+/// for an isolated launch) is honoured here, so the runner finds the discovery record under the root it chose;
+/// with it unset (a dev install launched normally) the real per-user root is used.
 fn suite_from_override(root: Option<&str>) -> Result<Suite, Box<dyn std::error::Error>> {
     match root.map(str::trim).filter(|v| !v.is_empty()) {
         Some(root) => Ok(Suite::at(root)?),

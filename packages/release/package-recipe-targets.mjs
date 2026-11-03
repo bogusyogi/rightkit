@@ -69,11 +69,12 @@ function buildExtras(spec, label, { postBuild }) {
 
 /** Tauri v2 passes Cargo flags after `--`; the profile also decides where Tauri looks for the built binary. */
 const profileArgs = (extras) => (extras.profile ? ["--", "--profile", extras.profile] : []);
-/** The build command also takes `--jobs N` (Cargo parallelism), after the same `--`. */
-const buildCargoArgs = (extras, jobs) => {
-  const flags = [...(extras.profile ? ["--profile", extras.profile] : []), ...(jobs ? ["--jobs", String(jobs)] : [])];
-  return flags.length ? ["--", ...flags] : [];
-};
+/**
+ * The build command also takes `--jobs N` (Cargo parallelism), after the same `--`. A generated Tauri build always forwards
+ * `--locked` to Cargo, so a release can never resolve dependencies differently from the reviewed lockfile (rightkit#725).
+ * (The bundle command runs no Cargo, so it carries no Cargo flags.)
+ */
+const buildCargoArgs = (extras, jobs) => ["--", ...(extras.profile ? ["--profile", extras.profile] : []), ...(jobs ? ["--jobs", String(jobs)] : []), "--locked"];
 const configArgs = (extras, appRoot, cwd) => (extras.tauriConfig ? ["--config", path.relative(path.resolve(appRoot, cwd), path.resolve(appRoot, extras.tauriConfig)).split(path.sep).join("/")] : []);
 
 /**
@@ -181,14 +182,16 @@ export function expandWinPackageTarget(target, { appRoot, config = {}, env = pro
   if (target.prePackage !== undefined) fail("targets.win.winPackage replaces prePackage; remove the prePackage script");
   if (target.winPackage.sidecars !== undefined) fail("targets.win.winPackage.sidecars is not supported in a right-release target: declare sidecars through externalBin or mediaSidecar, which release.mjs signs with the raw EXE");
   if (!isObject(target.winPackage)) fail("targets.win.winPackage must be an object");
-  const { profile: _p, tauriConfig: _t, prepare: _pr, postBuild, jobs, timeoutMs, cleanStale, cargoTargetRoot: _c, ...coreSpec } = target.winPackage;
+  const { profile: _p, tauriConfig: _t, prepare: _pr, postBuild, jobs, timeoutMs, cleanStale, killProcesses, cargoTargetRoot: _c, ...coreSpec } = target.winPackage;
   if (postBuild !== undefined) fail("targets.win.winPackage.postBuild is not supported: release.mjs signs the raw EXE between the build and the bundle; use prepare");
   if (jobs !== undefined && !positiveInt(jobs)) fail("targets.win.winPackage.jobs must be a positive integer (Cargo --jobs)");
   if (timeoutMs !== undefined && !positiveInt(timeoutMs)) fail("targets.win.winPackage.timeoutMs must be a positive integer (milliseconds)");
   if (cleanStale !== undefined && typeof cleanStale !== "boolean") fail("targets.win.winPackage.cleanStale must be a boolean");
+  if (killProcesses !== undefined && (!Array.isArray(killProcesses) || !killProcesses.length)) fail("targets.win.winPackage.killProcesses must be a non-empty list of app-relative directories");
+  const killDirs = killProcesses === undefined ? undefined : killProcesses.map((dir, index) => relativeInside(dir, `targets.win.winPackage.killProcesses[${index}]`));
   const extras = buildExtras(target.winPackage, "targets.win.winPackage", { postBuild: false });
   let plan;
-  try { plan = validateWinPackage({ appRoot, config, target: { ...target, winPackage: coreSpec } }); } catch (error) {
+  try { plan = validateWinPackage({ appRoot, config, env, ...(managedRoots ? { managedRoots } : {}), target: { ...target, winPackage: coreSpec } }); } catch (error) {
     if (error instanceof WinPackageConfigError) fail(`targets.win.winPackage: ${(error.issues ?? [error.message]).join("; ")}`);
     throw error;
   }
@@ -196,11 +199,19 @@ export function expandWinPackageTarget(target, { appRoot, config = {}, env = pro
   const cwd = rel(plan.appRoot, plan.tauriCwd) || ".";
   const override = { bundle: { createUpdaterArtifacts: false, windows: { nsis: { installMode: plan.perMachine ? "perMachine" : "currentUser" } } } };
   const mapPath = targetRootMapper({ spec: target.winPackage, appRoot: plan.appRoot, cwd, env, resolveTargetRoot, label: "targets.win.winPackage", ...(managedRoots ? { managedRoots } : {}) });
-  const rawExe = mapPath(rel(plan.appRoot, plan.rawExe));
-  const installerFile = mapPath(rel(plan.appRoot, plan.installerFile));
+  // An absolute artifact path under a managed root (rightkit#717) is staged to a fixed app-relative copy: release.mjs signs and seals app-relative
+  // paths, and the same copy-out / copy-back plan as a mapped managed target applies (managed-target-stage.mjs).
+  const managedCopy = (absolute) => {
+    if (isSplitArtifactEnv(env)) return absolute; // a door split reads and signs the bound target in place: nothing is copied
+    const to = path.posix.join(cwd === "." ? "" : cwd, "src-tauri", "target", "rightkit-managed", path.basename(absolute));
+    mapPath.staged.set(to, { from: absolute, to });
+    return to;
+  };
+  const rawExe = plan.managed.rawExe ? managedCopy(plan.rawExe) : mapPath(rel(plan.appRoot, plan.rawExe));
+  const installerFile = plan.managed.installerFile ? managedCopy(plan.installerFile) : mapPath(rel(plan.appRoot, plan.installerFile));
   // Stale outputs are removed before the build, and the raw EXE is polled until it stops changing after it (in a managed
   // target directory the poll covers the real EXE before it is copied; the in-app copy is polled again after the copy).
-  const cleanup = cleanStale === false ? undefined : { remove: [rawExe, installerFile] };
+  const cleanup = cleanStale === false && !killDirs ? undefined : { ...(cleanStale === false ? {} : { remove: [rawExe, installerFile] }), ...(killDirs ? { killProcesses: killDirs } : {}) };
   const timeout = timeoutMs ?? DEFAULT_WIN_TIMEOUT_MS;
   // Broker-managed target directory: the real raw EXE is deleted before the build (it holds the previous signed copy) and
   // the fresh one is copied out once stable; after signing, the signed copy goes back
@@ -229,18 +240,27 @@ export function expandWinPackageTarget(target, { appRoot, config = {}, env = pro
   };
 }
 
-const MAC_KEYS = new Set(["universal", "triple", "tauriCwd", "features", "profile", "tauriConfig", "prepare", "postBuild", "cleanup", "cargoTargetRoot", "updater", "stageSidecars", "nativeHelpers"]);
+const MAC_KEYS = new Set(["universal", "triple", "tauriCwd", "features", "profile", "tauriConfig", "prepare", "postBuild", "cleanup", "cargoTargetRoot", "updater", "stageSidecars", "nativeHelpers", "prebuilt"]);
+/** The Tauri-only macPackage keys: an app that supplies its own .app (`prebuilt: true`) has no Tauri build to configure. */
+const MAC_TAURI_ONLY_KEYS = ["features", "profile", "tauriConfig", "tauriCwd", "stageSidecars", "cargoTargetRoot", "universal", "triple"];
 const STAGE_SIDECARS_KEYS = new Set(["config", "receipt"]);
+/** A prebuilt app's arch is whatever its own command produced: no slice is assumed, and nothing derived from the triple (helper arch, sidecar lipo) applies. */
+const UNIVERSAL_PREBUILT = "prebuilt";
 const DEFAULT_SIDECAR_RECEIPT = "src-tauri/binaries/stage-sidecar.json";
 const MAC_TRIPLES = ["aarch64-apple-darwin", "x86_64-apple-darwin"];
-const MAC_CLEANUP_KEYS = new Set(["staleApps", "staleDmgVolumes", "lsclean"]);
+const MAC_CLEANUP_KEYS = new Set(["staleApps", "staleDmgVolumes", "lsclean", "killProcesses"]);
 
 function macCleanupSpec(value) {
   if (value === undefined) return {};
   if (!isObject(value)) fail("targets.mac.macPackage.cleanup must be an object");
   const unknown = Object.keys(value).filter((key) => !MAC_CLEANUP_KEYS.has(key));
   if (unknown.length) fail(`targets.mac.macPackage.cleanup has unknown key(s): ${unknown.join(", ")} (allowed: ${[...MAC_CLEANUP_KEYS].join(", ")})`);
-  for (const key of MAC_CLEANUP_KEYS) if (value[key] !== undefined && typeof value[key] !== "boolean") fail(`targets.mac.macPackage.cleanup.${key} must be a boolean`);
+  for (const key of MAC_CLEANUP_KEYS) if (key !== "killProcesses" && value[key] !== undefined && typeof value[key] !== "boolean") fail(`targets.mac.macPackage.cleanup.${key} must be a boolean`);
+  // killProcesses: app-relative directories whose running executables are stopped before the build (recipe-build cleanup.killProcesses, rightkit#753).
+  if (value.killProcesses !== undefined) {
+    if (!Array.isArray(value.killProcesses) || !value.killProcesses.length) fail("targets.mac.macPackage.cleanup.killProcesses must be a non-empty list of app-relative directories");
+    return { ...value, killProcesses: value.killProcesses.map((dir, index) => relativeInside(dir, `targets.mac.macPackage.cleanup.killProcesses[${index}]`)) };
+  }
   return value;
 }
 
@@ -249,6 +269,10 @@ function macCleanupSpec(value) {
  * Developer ID signing set, app notarization before packing, and right-release's own signed DMG from the stapled app.
  * The app path and DMG path are `notarize.app` and `notarize.file`; DMG branding is `targets.mac.dmg`.
  * Architecture: `triple` (an explicit arch triple) beats `universal`; `universal: false` means this host's arch.
+ * `prebuilt: true` (rightkit#871): the app supplies its own .app (an xcodebuild notch, a hand-assembled bundle). The target then declares its own
+ * `prePackage` command (the app's assembly step); the recipe runs it instead of `tauri build` and still applies every later step unchanged: the .app as
+ * the Developer ID signing set, nested code, app notarization, the signed DMG and its notarization, the updater tarball. The Tauri-only keys
+ * (features, profile, tauriConfig, tauriCwd, stageSidecars, cargoTargetRoot, universal, triple) are refused with it; a `package` script stays refused.
  * `cleanup` runs built-in steps in recipe-build before the build (stale DMG volumes, stale .app bundles, lsregister).
  * `updater: true | "<app-relative .tar.gz>"` emits the Tauri updater tarball and its signature from the signed, stapled .app:
  * it prepends a `create-mac-updater` command to `postSign` (default output `<App>.app.tar.gz` beside the app's working root).
@@ -288,7 +312,14 @@ export function expandMacPackageTarget(target, { appRoot, config = {}, env = pro
   if (!isObject(spec)) fail("targets.mac.macPackage must be an object");
   const unknown = Object.keys(spec).filter((key) => !MAC_KEYS.has(key));
   if (unknown.length) fail(`targets.mac.macPackage has unknown key(s): ${unknown.join(", ")} (allowed: ${[...MAC_KEYS].join(", ")})`);
-  if (target.prePackage !== undefined || target.package !== undefined) fail("targets.mac.macPackage replaces prePackage and package; remove both scripts");
+  const prebuilt = spec.prebuilt === true;
+  if (spec.prebuilt !== undefined && typeof spec.prebuilt !== "boolean") fail("targets.mac.macPackage.prebuilt must be a boolean");
+  if (prebuilt) {
+    if (target.package !== undefined) fail("targets.mac.macPackage replaces package; remove the package script");
+    if (!isObject(target.prePackage) || typeof target.prePackage.cmd !== "string" || !target.prePackage.cmd.trim()) fail("targets.mac.macPackage.prebuilt needs targets.mac.prePackage: the app's own command that produces notarize.app");
+    const tauriOnly = MAC_TAURI_ONLY_KEYS.filter((key) => spec[key] !== undefined);
+    if (tauriOnly.length) fail(`targets.mac.macPackage.prebuilt: ${tauriOnly.join(", ")} configure the Tauri build, which a prebuilt app does not run; remove them`);
+  } else if (target.prePackage !== undefined || target.package !== undefined) fail("targets.mac.macPackage replaces prePackage and package; remove both scripts");
   if (typeof target.notarize?.app !== "string" || !target.notarize.app.endsWith(".app")) fail("targets.mac.macPackage needs notarize.app: the built .app path");
   if (typeof target.notarize?.file !== "string" || !target.notarize.file.endsWith(".dmg")) fail("targets.mac.macPackage needs notarize.file: the .dmg path right-release builds");
   if (target.dmg === false) fail("targets.mac.macPackage always builds a DMG; remove dmg: false");
@@ -301,7 +332,7 @@ export function expandMacPackageTarget(target, { appRoot, config = {}, env = pro
   if (spec.updater !== undefined && spec.updater !== true && spec.updater !== false && typeof spec.updater !== "string") fail("targets.mac.macPackage.updater must be true or an app-relative .tar.gz path");
   if (typeof spec.updater === "string" && !/\.tar\.gz$/i.test(relativeInside(spec.updater, "targets.mac.macPackage.updater"))) fail("targets.mac.macPackage.updater must end in .tar.gz");
   // Tauri's universal-apple-darwin target builds both slices and lipos them itself.
-  const triple = macPackageTriple(spec);
+  const triple = prebuilt ? UNIVERSAL_PREBUILT : macPackageTriple(spec);
   if (spec.triple !== undefined) {
     const wrong = [...MAC_TRIPLES, "universal-apple-darwin"].find((other) => other !== triple && target.notarize.app.replaceAll("\\", "/").split("/").includes(other));
     if (wrong) fail(`targets.mac.macPackage.triple is ${triple} but notarize.app is under ${wrong}; the built .app lives in the ${triple} directory`);
@@ -321,6 +352,7 @@ export function expandMacPackageTarget(target, { appRoot, config = {}, env = pro
     }
     // A universal app may not carry a thin helper: it would compile, sign and notarize and then fail on half the Macs.
     const thin = triple === "universal-apple-darwin" ? helpers.filter((helper) => !helper.universal) : [];
+    if (prebuilt) fail("targets.mac.macPackage.prebuilt: nativeHelpers are embedded by the Tauri build recipe; a prebuilt app embeds its own helpers in its prePackage command (declare their signing in sign.nestedCode)");
     if (thin.length) fail(`targets.mac.macPackage.nativeHelpers: ${thin.map((helper) => helper.name).join(", ")} must declare universal: true (this build's triple is universal-apple-darwin)`);
     if (helpers.some((helper) => helper.kind === "app") && (typeof config?.version !== "string" || !/^\d+(\.\d+){0,2}$/.test(config.version))) fail("targets.mac.macPackage.nativeHelpers: a kind \"app\" helper needs the release config version (1-3 numeric parts) for its Info.plist");
     const collisions = Object.keys(nativeHelperNestedCode(helpers)).filter((key) => isObject(target.sign?.nestedCode) && Object.hasOwn(target.sign.nestedCode, key));
@@ -329,7 +361,7 @@ export function expandMacPackageTarget(target, { appRoot, config = {}, env = pro
   }
   const args = ["exec", "tauri", "build", "--target", triple, "--bundles", "app", "--no-sign", ...configArgs(extras, appRoot, cwd), "--config", JSON.stringify(override)];
   if (spec.features?.length) args.push("--features", spec.features.join(","));
-  args.push(...profileArgs(extras));
+  args.push(...buildCargoArgs(extras)); // forwards --profile and --locked to Cargo (rightkit#725)
   const mapPath = targetRootMapper({ spec, appRoot, cwd, env, resolveTargetRoot, label: "targets.mac.macPackage", ...(managedRoots ? { managedRoots } : {}) });
   const app = mapPath(target.notarize.app);
   const entryFile = (entry) => (typeof entry === "string" ? entry : entry?.file);
@@ -340,8 +372,9 @@ export function expandMacPackageTarget(target, { appRoot, config = {}, env = pro
   const appPosix = app.replaceAll("\\", "/");
   const productName = path.posix.basename(appPosix, ".app");
   const volumes = [...new Set([productName, ...(isObject(target.dmg) && typeof target.dmg.volname === "string" ? [target.dmg.volname] : [])])];
-  const cleanup = cleanupSpec.staleApps || cleanupSpec.staleDmgVolumes || cleanupSpec.lsclean
+  const cleanup = cleanupSpec.staleApps || cleanupSpec.staleDmgVolumes || cleanupSpec.lsclean || cleanupSpec.killProcesses
     ? {
+      ...(cleanupSpec.killProcesses ? { killProcesses: cleanupSpec.killProcesses } : {}),
       ...(cleanupSpec.staleDmgVolumes ? { dmgVolumes: volumes } : {}),
       ...(cleanupSpec.staleApps || cleanupSpec.lsclean ? { apps: { dir: path.posix.dirname(appPosix), remove: cleanupSpec.staleApps === true, unregister: cleanupSpec.lsclean === true } } : {}),
     }
@@ -366,12 +399,14 @@ export function expandMacPackageTarget(target, { appRoot, config = {}, env = pro
   return {
     ...rest,
     ...postSign,
-    prePackage: wrapped ? recipeBuildCommand({ extras, build: { cmd: "pnpm", args, cwd }, env: QUIET_TAURI_ENV, cleanup, stage: macStage, verifySidecars, nativeHelpers: nativeHelpersPlan, boundTargets: mapPath.bound }) : { cmd: "pnpm", args, cwd, env: QUIET_TAURI_ENV },
+    prePackage: prebuilt
+      ? (wrapped ? recipeBuildCommand({ extras, build: { cmd: target.prePackage.cmd, args: target.prePackage.args ?? [], ...(target.prePackage.cwd === undefined ? {} : { cwd: target.prePackage.cwd }) }, env: target.prePackage.env ?? {}, cleanup, stage: macStage, boundTargets: mapPath.bound }) : target.prePackage)
+      : wrapped ? recipeBuildCommand({ extras, build: { cmd: "pnpm", args, cwd }, env: QUIET_TAURI_ENV, cleanup, stage: macStage, verifySidecars, nativeHelpers: nativeHelpersPlan, boundTargets: mapPath.bound }) : { cmd: "pnpm", args, cwd, env: QUIET_TAURI_ENV },
     // Helpers are signed by release.mjs inside-out through sign.nestedCode (deepest path first, hardened runtime, each helper's own entitlements), then the app.
     sign: { ...(target.sign ?? {}), ...(helpers ? { nestedCode: { ...nativeHelperNestedCode(helpers), ...(target.sign?.nestedCode ?? {}) } } : {}), prePackageFiles },
     notarize: { ...target.notarize, app, appBeforePackage: true },
     dmg: isObject(target.dmg) ? target.dmg : {},
-    recipe: { kind: "macPackage", universal: triple === "universal-apple-darwin" },
+    recipe: { kind: "macPackage", universal: triple === "universal-apple-darwin", ...(prebuilt ? { prebuilt: true } : {}) },
   };
 }
 

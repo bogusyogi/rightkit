@@ -53,6 +53,7 @@ mod ops;
 mod order;
 mod persist;
 mod reader;
+mod release_queue;
 mod snapshot;
 mod time;
 mod types;
@@ -78,6 +79,7 @@ pub use reader::{
     ClientNativeEntitlementSource, NativeRefusal, ENGINE_BUSY_TEXT, ENGINE_STORE_TEXT,
     ENGINE_UNRESOLVED_TEXT,
 };
+pub use release_queue::{DrainReport, PendingReleaseEntry, PendingReleaseId, PendingReleaseQueue};
 pub use types::{
     DeviceIdError, DeviceIdSource, LicenseClientConfig, LicenseSetup, PendingLicenseRelease,
     SecretString, DEFAULT_RECORD_ACCOUNT,
@@ -188,6 +190,17 @@ impl LicenseClient {
     /// Ask the licence service to e-mail a trial key. Issues no credential.
     pub fn request_trial(&self, email: &str) -> Result<TrialView, LicenseError> {
         self.configured()?.request_trial(email)
+    }
+
+    /// As [`LicenseClient::request_trial`], with the host platform sent in the request body.
+    /// `platform` must be `macos` or `windows` when given; any other value is refused without a
+    /// request. Native host code chooses it; it is never a renderer argument.
+    pub fn request_trial_for(
+        &self,
+        email: &str,
+        platform: Option<&str>,
+    ) -> Result<TrialView, LicenseError> {
+        self.configured()?.request_trial_for(email, platform)
     }
 
     /// Native only: activate through the renewable device-lease endpoint.

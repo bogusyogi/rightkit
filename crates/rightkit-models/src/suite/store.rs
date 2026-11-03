@@ -19,7 +19,7 @@ use crate::suite::refs;
 
 const INSTALL_WAIT: Duration = Duration::from_secs(30 * 60);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum EntryState {
     /// No usable copy in the store.
     Missing,
@@ -31,7 +31,8 @@ pub enum EntryState {
     InProgress,
 }
 
-#[derive(Debug, Clone)]
+/// Readiness of one store entry. Serializes as-is, so an app can hand it to its UI unchanged.
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ModelStatus {
     pub id: String,
     pub label: String,
@@ -200,6 +201,146 @@ pub fn base_size_hint_bytes() -> u64 {
 pub fn resolve_ready_dir(models_root: &Path, spec: &ModelSpec) -> Option<PathBuf> {
     let status = status_at(models_root, spec, VerifyMode::Size);
     (status.state == EntryState::Ready).then_some(status.dir)
+}
+
+/// What [`seed_from_dir_at`] did with a bundled copy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SeedOutcome {
+    /// The source directory does not exist. Nothing was touched.
+    NoSource,
+    /// The store already holds a copy that verifies at full depth. Nothing was copied or published.
+    AlreadyComplete,
+    /// The bundled copy verified in a staging sibling and was published with one rename.
+    Seeded,
+}
+
+/// Seed `spec` into the store from a bundled copy in `src_dir` (the app's resource folder), with
+/// no download: copy the spec's files into `<id>.staging-<pid>` beside the entry, stamp the trusted
+/// manifest there, verify every file against the catalog pins, then publish with one rename. A
+/// copy that fails verification is never published. Any previous (broken) entry moves to
+/// `<id>.replaced-<pid>` first and is restored if the publish fails.
+///
+/// Runs under the entry lock, and every run sweeps `<id>.staging-*` and `<id>.replaced-*` leftovers
+/// of dead installs before it writes. A missing source returns [`SeedOutcome::NoSource`] before
+/// any lock or write. Speech models are refused for any app but HeardRight, like every ensure.
+pub(crate) fn seed_from_dir_at(
+    models_root: &Path,
+    spec: &ModelSpec,
+    src_dir: &Path,
+    app_id: &str,
+) -> Result<SeedOutcome, String> {
+    refs::check_speech_owner(app_id, spec.id)?;
+    if !src_dir.is_dir() {
+        return Ok(SeedOutcome::NoSource);
+    }
+    let expected = spec.expected_manifest();
+    if expected.files.is_empty() {
+        return Err(format!("{} has no file list to seed", spec.label));
+    }
+    fs::create_dir_all(models_root)
+        .map_err(|err| format!("create {}: {err}", models_root.display()))?;
+    let entry_dir = paths::model_dir_at(models_root, spec.id);
+    let _guard = lock::lock_timeout(&entry_dir, app_id, INSTALL_WAIT)?
+        .ok_or_else(|| format!("{} is still being installed by another process", spec.label))?;
+    sweep_seed_leftovers(models_root, spec.id);
+
+    if status_at(models_root, spec, VerifyMode::Full).state == EntryState::Ready {
+        return Ok(SeedOutcome::AlreadyComplete);
+    }
+
+    let staging = models_root.join(format!("{}.staging-{}", spec.id, std::process::id()));
+    let _ = fs::remove_dir_all(&staging);
+    fs::create_dir_all(&staging).map_err(|err| format!("create {}: {err}", staging.display()))?;
+    let verified = copy_expected_files(src_dir, &staging, &expected).and_then(|()| {
+        manifest::write_manifest(&staging, &expected)?;
+        let report = manifest::verify_dir(&staging, &expected, VerifyMode::Full);
+        if report.is_ready() {
+            return Ok(());
+        }
+        let bad: Vec<String> = report.needed().iter().map(|c| c.path.clone()).collect();
+        Err(format!(
+            "bundled {} failed verification, not published: {}",
+            spec.label,
+            bad.join(", ")
+        ))
+    });
+    if let Err(err) = verified {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(err);
+    }
+    publish_seeded(models_root, spec.id, &staging, &entry_dir)?;
+    Ok(SeedOutcome::Seeded)
+}
+
+/// Copy only the files the trusted manifest names, from `src_dir` into `staging`.
+fn copy_expected_files(
+    src_dir: &Path,
+    staging: &Path,
+    expected: &manifest::Manifest,
+) -> Result<(), String> {
+    for file in &expected.files {
+        let Some(rel) = manifest::safe_rel_path(&file.path) else {
+            return Err(format!("invalid catalog path {:?}", file.path));
+        };
+        let from = src_dir.join(&rel);
+        let to = staging.join(&rel);
+        if let Some(parent) = to.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|err| format!("create {}: {err}", parent.display()))?;
+        }
+        fs::copy(&from, &to)
+            .map_err(|err| format!("seed {} -> {}: {err}", from.display(), to.display()))?;
+    }
+    Ok(())
+}
+
+/// Move the verified staging dir into `entry_dir` with one rename. An existing entry moves aside
+/// first, so a failed rename puts it back.
+fn publish_seeded(
+    models_root: &Path,
+    id: &str,
+    staging: &Path,
+    entry_dir: &Path,
+) -> Result<(), String> {
+    let aside = models_root.join(format!("{id}.replaced-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&aside);
+    let had_previous = entry_dir.exists();
+    if had_previous {
+        fs::rename(entry_dir, &aside)
+            .map_err(|err| format!("stage previous {}: {err}", entry_dir.display()))?;
+    }
+    match fs::rename(staging, entry_dir) {
+        Ok(()) => {
+            if had_previous {
+                let _ = fs::remove_dir_all(&aside);
+            }
+            Ok(())
+        }
+        Err(err) => {
+            if had_previous {
+                let _ = fs::rename(&aside, entry_dir);
+            }
+            let _ = fs::remove_dir_all(staging);
+            Err(format!("publish {}: {err}", entry_dir.display()))
+        }
+    }
+}
+
+/// Remove `<id>.staging-*` and `<id>.replaced-*` siblings left by a dead seed. Call under the
+/// entry lock only.
+fn sweep_seed_leftovers(models_root: &Path, id: &str) {
+    let staging_prefix = format!("{id}.staging-");
+    let replaced_prefix = format!("{id}.replaced-");
+    let Ok(entries) = fs::read_dir(models_root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if name.starts_with(&staging_prefix) || name.starts_with(&replaced_prefix) {
+            let _ = fs::remove_dir_all(entry.path());
+        }
+    }
 }
 
 /// Progress phases surfaced to the UI via `model-store://progress` events.

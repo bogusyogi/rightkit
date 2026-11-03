@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/app-update",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Shared runtime update policy helper for Right Suite Tauri apps.",
   "license": "MIT OR Apache-2.0",
   "packageManager": "pnpm@12.16.1",
@@ -39,12 +39,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "typescript": "^7.0.2",
-    "vitest": "^5.0.5",
     "react": "^19.3.1",
     "@types/react": "^19.3.0"
   },

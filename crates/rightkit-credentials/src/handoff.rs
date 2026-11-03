@@ -970,6 +970,90 @@ pub fn read_single_message<R: Read>(r: &mut R, limits: &Limits) -> Result<Messag
     }
 }
 
+/// One message as lowercase hexadecimal text, for a carrier that can only move text (a JSON-RPC
+/// string between a supervisor and its sidecar). It is exactly the binary frame of
+/// [`write_message`], two characters per byte, so the same decoder rules apply on the other side.
+/// The buffer is allocated once at its final size and zeroized when dropped; no growth leaves a
+/// stale copy of a value behind. Validation and limits are those of [`write_message_with_limits`].
+pub fn write_hex(msg: &Message, limits: &Limits) -> Result<Zeroizing<String>> {
+    let frame = encode(msg, limits)?;
+    let cap = limits.body_cap();
+    let hex_len = frame
+        .len()
+        .checked_mul(2)
+        .ok_or(HandoffError::Oversize { limit: cap })?;
+    let mut out: Zeroizing<String> = Zeroizing::new(String::with_capacity(hex_len));
+    for &b in frame.iter() {
+        out.push(char::from(HEX[usize::from(b >> 4)]));
+        out.push(char::from(HEX[usize::from(b & 0x0f)]));
+    }
+    Ok(out)
+}
+
+/// Decode hexadecimal text into bytes held in a zeroizing buffer. Odd length and any byte that is
+/// not a hexadecimal digit are refused with a typed error that names no byte of the text.
+fn decode_hex(text: &[u8], limits: &Limits) -> Result<Zeroizing<Vec<u8>>> {
+    let cap = limits.body_cap();
+    let max_text = HEADER_LEN.saturating_add(cap).saturating_mul(2);
+    if text.len() > max_text {
+        return Err(HandoffError::Oversize { limit: cap });
+    }
+    if text.len() % 2 != 0 {
+        return Err(HandoffError::Malformed("hex text has an odd length"));
+    }
+    let mut out: Zeroizing<Vec<u8>> = Zeroizing::new(Vec::with_capacity(text.len() / 2));
+    for pair in text.chunks_exact(2) {
+        match (nibble(pair[0]), nibble(pair[1])) {
+            (Some(hi), Some(lo)) => out.push((hi << 4) | lo),
+            _ => return Err(HandoffError::Malformed("hex text has a non-hex byte")),
+        }
+    }
+    Ok(out)
+}
+
+/// Read exactly one message from hexadecimal text, and nothing after it: a byte after the frame
+/// is [`HandoffError::TrailingBytes`], a frame cut short is [`HandoffError::Truncated`]. The
+/// decoded scratch is zeroized on every path, including each error return. Pass the text exactly
+/// as received; the caller wipes its own copy.
+pub fn read_hex(text: &str, limits: &Limits) -> Result<Message> {
+    let bytes = decode_hex(text.as_bytes(), limits)?;
+    let mut rest: &[u8] = &bytes;
+    let msg = read_message(&mut rest, limits)?;
+    if !rest.is_empty() {
+        return Err(HandoffError::TrailingBytes);
+    }
+    Ok(msg)
+}
+
+/// [`receive_snapshot_delivery`] over hexadecimal text: one Reply of any mode, with its id.
+pub fn receive_snapshot_delivery_hex(text: &str, limits: &Limits) -> Result<SnapshotDelivery> {
+    match read_hex(text, limits)? {
+        Message::Reply { id, snapshot, .. } => Ok(SnapshotDelivery { id, snapshot }),
+        _ => Err(HandoffError::UnexpectedKind),
+    }
+}
+
+/// [`receive_delivery`] over hexadecimal text: one strict Reply with every entry Present.
+pub fn receive_delivery_hex(text: &str, limits: &Limits) -> Result<Delivery> {
+    match read_hex(text, limits)? {
+        Message::Reply {
+            id,
+            mode: Mode::Strict,
+            snapshot,
+        } => Ok(Delivery {
+            id,
+            bundle: snapshot.into_bundle()?,
+        }),
+        Message::Reply { .. } => Err(HandoffError::ModeMismatch),
+        _ => Err(HandoffError::UnexpectedKind),
+    }
+}
+
+/// [`expect_ack`] over hexadecimal text: the text must hold one Ack (or Error) for `id`.
+pub fn expect_ack_hex(text: &str, id: u64, limits: &Limits) -> Result<()> {
+    expect_ack(read_hex(text, limits)?, id)
+}
+
 /// A strict delivery: the correlation id the owner chose, and the secrets. Acknowledge it with
 /// [`Delivery::ack`] (or `Message::ack(id)` after moving `bundle` out) once the secrets are
 /// installed. `Debug` shows names only.

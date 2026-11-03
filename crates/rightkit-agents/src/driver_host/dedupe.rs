@@ -1,4 +1,5 @@
 use crate::driver_host::NormalizedEvent;
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DedupAdmission {

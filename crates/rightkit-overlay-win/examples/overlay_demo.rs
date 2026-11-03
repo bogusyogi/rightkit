@@ -382,6 +382,8 @@ mod demo {
                 }
                 Ok(OverlayEvent::DpiChanged(scale)) => println!("dpi changed: scale {scale}"),
                 Ok(OverlayEvent::MonitorChanged) => println!("monitor changed"),
+                // Edit-mode events: the demo never calls `set_focusable(true)`.
+                Ok(OverlayEvent::Char(_) | OverlayEvent::Key(_) | OverlayEvent::Focus(_)) => {}
                 Err(RecvTimeoutError::Timeout) => {
                     if collapse_at.is_some_and(|at| Instant::now() >= at) {
                         collapse_at = None;

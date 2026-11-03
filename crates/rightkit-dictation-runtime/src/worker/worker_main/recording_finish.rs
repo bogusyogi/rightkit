@@ -56,56 +56,16 @@ impl Worker {
         returned
     }
 
-    /// ENG-06 (macOS, `RIGHTKIT_STOP_SNAPSHOT_AFTER_QUEUE=1`): the second half of the stop boundary,
-    /// run after the final decode is queued. Same steps and order as `close_capture_at_stop`
-    /// minus the ring drain, which already ran: snapshot, pause, prefetch.
-    #[cfg(target_os = "macos")]
-    fn close_capture_after_queue(&mut self) {
-        let snapshot_started = Instant::now();
-        self.focus.lock().snapshot_at_stop();
-        let snapshot_ms = snapshot_started.elapsed().as_millis() as u64;
-        let pause_started = Instant::now();
-        self.capture.pause();
-        tracing::info!(
-            event = "stop_boundary_after_queue",
-            snapshot_ms,
-            capture_pause_ms = pause_started.elapsed().as_millis() as u64,
-            "stop snapshot and capture pause ran beside the final decode"
-        );
-        self.focus.lock().snapshot_at_stop_prefetch();
-    }
-
     pub(super) fn stop_recording(&mut self, send_enter: bool) -> Flow {
         rightkit_dictation_inference::timeline_recorder::mark(|t| &mut t.worker_pickup_ms);
         let recording_generation = self.recording_generation;
         let Some((mut session, final_generation)) = self.retire_session(Decoding::Keep) else {
             return Flow::SkipPass;
         };
-        // ENG-06: macOS only, test-mode switch, default off. Only when the reload barrier is
-        // already clear and a stream exists, so every early exit below still sees today's order.
-        #[cfg(target_os = "macos")]
-        let final_first = crate::perf_levers::stop_snapshot_after_queue()
-            && self.reload_ready_generation == Some(recording_generation)
-            && self.capture.stream.is_some();
-        #[cfg(not(target_os = "macos"))]
-        let final_first = false;
-        if final_first {
-            // Drain only (the sample cutoff); snapshot, pause and prefetch follow the queue.
-            if let Some(cap) = &mut self.capture.stream {
-                if let Ok(chunk) = cap.read_f32(usize::MAX) {
-                    session.ingest(&chunk, &mut self.speech_vad, self.decision_clock.now());
-                }
-            }
-        } else {
-            self.close_capture_at_stop(&mut session, StopTail::Observe, true);
-        }
+        self.close_capture_at_stop(&mut session, StopTail::Observe, true);
         rightkit_dictation_inference::timeline_recorder::mark(|t| &mut t.audio_sealed_ms);
         let session_id = session.id.clone();
         if let Err(error) = self.wait_for_reload_generation(recording_generation, &session_id) {
-            #[cfg(target_os = "macos")]
-            if final_first {
-                self.close_capture_after_queue();
-            }
             let _ = self.event_tx.send(WorkerEvent::TranscriptFinal {
                 session_id,
                 capture_warning: None,
@@ -122,10 +82,6 @@ impl Worker {
                 .as_ref()
                 .is_some_and(|cap| !cap.is_replay()),
         ) {
-            #[cfg(target_os = "macos")]
-            if final_first {
-                self.close_capture_after_queue();
-            }
             // A user can stop before the 1.5 s recovery grace expires.
             // Never misreport that pure-zero input as an ASR failure.
             self.asr_executor.cancel_recording(final_generation);
@@ -157,16 +113,6 @@ impl Worker {
         let final_audio_secs = audio_secs(&session.buffer);
         let final_audio = std::mem::take(&mut session.buffer);
         let asr_started = Instant::now();
-        #[cfg(target_os = "macos")]
-        let transcribed = if final_first {
-            // ENG-06: the decode starts now; CGWindowList and the CoreAudio pause overlap it.
-            let queued = self.queue_final_result(final_generation, final_audio);
-            self.close_capture_after_queue();
-            queued.and_then(|reply_rx| self.wait_final_result(final_generation, reply_rx))
-        } else {
-            self.transcribe_final_result(final_generation, final_audio)
-        };
-        #[cfg(not(target_os = "macos"))]
         let transcribed = self.transcribe_final_result(final_generation, final_audio);
         let result = transcribed.map(|result| {
             crate::worker::FinalTranscript::from_asr(result, crate::worker::StopEvidence::Manual)

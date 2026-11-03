@@ -105,11 +105,7 @@ pub fn log_mel(audio: &[f32]) -> Vec<f32> {
     mel
 }
 
-/// Default tokenizer path is the bundled `tokenizer.json` beside the CoreML
-/// bundle. `RIGHTKIT_WHISPER_TOKENIZER` remains as a QA override only.
+/// The bundled `tokenizer.json` beside the CoreML bundle.
 pub fn tokenizer_path(model_dir: &Path) -> PathBuf {
-    if let Ok(p) = rightkit_dictation_core::dev_var!("RIGHTKIT_WHISPER_TOKENIZER") {
-        return PathBuf::from(p);
-    }
     model_dir.join("tokenizer.json")
 }

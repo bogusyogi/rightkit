@@ -1,0 +1,44 @@
+[package]
+name = "rightkit-i18n"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+license = "MIT OR Apache-2.0"
+description = "Rust runtime for the shared @rightkit/i18n catalogs: locale tag resolution, catalog merge over English, and dotted-key lookup with fallback."
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["i18n", "locale", "catalog", "translation"]
+categories = ["internationalization"]
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[dependencies]
+serde_json = "1"
+
+[package.metadata.rightkit]
+continuous = false
+continuous_reason = "In-memory catalog lookup called per string; no network, no background work, spawns nothing."
+
+# One Cargo workspace and lock per crate (rightkit#1285).
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

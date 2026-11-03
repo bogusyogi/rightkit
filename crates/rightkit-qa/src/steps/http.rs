@@ -12,6 +12,11 @@
 //!   header (defaults `x-hub-signature-256` and `sha256=`), so a scenario needs no precomputed
 //!   signature; a forged one is a different `secret`.
 //! * `timeout_s` (default 10).
+//! * `expect_status`: a status the answer must have, or the step fails with the status and the head
+//!   of the body: a number (`403`), a class (`"2xx"`), or a list of either (`[200, "3xx"]`). Without
+//!   it the step passes whatever the status is and a scenario asserts `status` itself with
+//!   `[[step.expect]]` (a refusal check does that); give `expect_status` when a wrong status should
+//!   fail at the step, before any later expectation reads a body that is not there (rightkit#942).
 //!
 //! Result `{ status, headers, body, json }`: `headers` has lowercased names, `body` is the text and
 //! `json` the body parsed when it is JSON, else null. A body that needs an app-specific encoding (a
@@ -93,6 +98,7 @@ pub(super) fn run_with(addr: SocketAddr, p: &Map<String, Value>) -> Result<Value
             "form",
             "sign",
             "timeout_s",
+            "expect_status",
         ],
     )?;
     let method = text(p, "method")?
@@ -171,6 +177,34 @@ pub(super) fn run_with(addr: SocketAddr, p: &Map<String, Value>) -> Result<Value
     let answer = qa_http::request_with(addr, &method, &path, None, &refs, sent.as_deref(), timeout)
         .map_err(|e| Error(format!("request to the listener {addr}: {}", e.0)))?;
     let body_text = answer.text();
+    if let Some(want) = pv(p, "expect_status") {
+        let accepts = |w: &Value| -> Result<bool> {
+            match w {
+                Value::Number(n) => Ok(n.as_u64() == Some(u64::from(answer.status))),
+                Value::String(c) if c.len() == 3 && c.ends_with("xx") && c.as_bytes()[0].is_ascii_digit() => {
+                    Ok(u64::from(c.as_bytes()[0] - b'0') == u64::from(answer.status) / 100)
+                }
+                _ => err("`expect_status` must be a status number, a class such as \"2xx\", or a list of them"),
+            }
+        };
+        let ok = match want {
+            Value::Array(list) if !list.is_empty() => {
+                let mut any = false;
+                for w in list {
+                    any |= accepts(w)?;
+                }
+                any
+            }
+            other => accepts(other)?,
+        };
+        if !ok {
+            return err(format!(
+                "the listener {addr} answered {} to {method} {path}, not {want}: {}",
+                answer.status,
+                crate::util::tail(body_text.trim(), 300)
+            ));
+        }
+    }
     let mut answer_headers: BTreeMap<String, String> = BTreeMap::new();
     for (name, value) in &answer.headers {
         answer_headers.insert(name.to_ascii_lowercase(), value.clone());

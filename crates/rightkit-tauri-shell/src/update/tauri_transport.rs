@@ -25,7 +25,11 @@ use super::{
 pub struct TauriUpdateConfig {
     pub endpoint: Url,
     pub public_key: String,
+    /// The download (and install-artifact) deadline.
     pub timeout: Duration,
+    /// The manifest check deadline (#1132). A hung manifest server fails within this, not within the
+    /// download deadline.
+    pub check_timeout: Duration,
 }
 
 impl TauriUpdateConfig {
@@ -40,6 +44,17 @@ impl TauriUpdateConfig {
     /// [`TauriUpdateTransport::with_suite_keys`].
     #[cfg(feature = "update-license")]
     pub fn suite(app_key: &str, timeout: Duration) -> Result<Self, crate::error::ShellError> {
+        Self::suite_timeouts(app_key, timeout, timeout)
+    }
+
+    /// [`TauriUpdateConfig::suite`] with separate deadlines (#1132): `check_timeout` for the manifest
+    /// request, `download_timeout` for the artifact.
+    #[cfg(feature = "update-license")]
+    pub fn suite_timeouts(
+        app_key: &str,
+        check_timeout: Duration,
+        download_timeout: Duration,
+    ) -> Result<Self, crate::error::ShellError> {
         use rightkit_license::suite_api;
         let invalid = |e: suite_api::SuiteApiError| {
             crate::error::ShellError::Invalid(format!("Right Suite updater: {e}"))
@@ -49,7 +64,7 @@ impl TauriUpdateConfig {
         let endpoint = Url::parse(&endpoint).map_err(|_| {
             crate::error::ShellError::Invalid("Right Suite updater endpoint".into())
         })?;
-        if timeout.is_zero() {
+        if check_timeout.is_zero() || download_timeout.is_zero() {
             return Err(crate::error::ShellError::Invalid(
                 "Right Suite updater needs a non-zero timeout".into(),
             ));
@@ -57,7 +72,8 @@ impl TauriUpdateConfig {
         Ok(Self {
             endpoint,
             public_key: suite_api::UPDATER_SIGNING_KEY.public_key.to_owned(),
-            timeout,
+            timeout: download_timeout,
+            check_timeout,
         })
     }
 
@@ -88,6 +104,7 @@ impl TauriUpdateConfig {
             endpoint,
             public_key: public_key.to_owned(),
             timeout,
+            check_timeout: timeout,
         })
     }
 }
@@ -110,7 +127,10 @@ struct VerifiedBytes {
 
 impl TauriUpdateTransport {
     pub fn new(app: AppHandle<Wry>, config: TauriUpdateConfig) -> Result<Self, TransportError> {
-        if config.timeout.is_zero() || config.public_key.trim().is_empty() {
+        if config.timeout.is_zero()
+            || config.check_timeout.is_zero()
+            || config.public_key.trim().is_empty()
+        {
             return Err(TransportError::Failed);
         }
         Ok(Self {
@@ -165,7 +185,7 @@ impl TauriUpdateTransport {
             .endpoints(vec![self.config.endpoint.clone()])
             .map_err(map_plugin_error)?
             .pubkey(public_key)
-            .timeout(self.config.timeout)
+            .timeout(self.config.check_timeout)
             .configure_client(client_policy)
             .version_comparator(|current, release| release.version > current)
             .build()

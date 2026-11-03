@@ -3,7 +3,7 @@
   "capabilities": [
     {
       "capability": "cloud-sync",
-      "summary": "Brand-neutral desktop/mobile cloud sync engine: change tokens, tombstones, last-writer-wins conflicts, resumable batches, offline queue, retry/backoff.; declaration-only detection (no precise implementation fingerprint)",
+      "summary": "Brand-neutral desktop/mobile cloud sync engine: change tokens, tombstones, last-writer-wins conflicts, resumable batches, offline queue, retry/backoff. Backends: CloudKit helper (Apple), Google Drive (own cloud), and the `http` client of the hosted sync service (supported, rightkit#967).; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

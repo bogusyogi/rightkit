@@ -137,10 +137,8 @@ impl Tool for FlyioTool {
             Err(error) => return error,
         };
 
-        let mut url = crate::coding_tools::context::local_provider_mock_base("flyio")
-            .unwrap_or_else(|| {
-                url::Url::parse(FLY_MACHINES_API_BASE).expect("Fly Machines API base URL is valid")
-            });
+        let mut url =
+            url::Url::parse(FLY_MACHINES_API_BASE).expect("Fly Machines API base URL is valid");
         {
             let mut segments = url
                 .path_segments_mut()

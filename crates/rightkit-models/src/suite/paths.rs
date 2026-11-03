@@ -16,21 +16,12 @@
 //! (`crate::init_android_files_dir`) and that directory is the root (`<filesDir>/models`).
 //! Unverified on a device.
 //!
-//! In a `test-mode` build `RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR` or `ORTHIC_SHARED_DIR`
-//! overrides the root (dev/test), resolved through `rightkit_daemon::Suite::resolve`. It is read
-//! on every call — never cached. A build without `test-mode` reads none of them.
+//! The root is `rightkit_daemon::Suite::resolve`, the per-user default, in every build. No
+//! environment variable overrides it, and it is read on every call, never cached.
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// Legacy alias that overrides the suite store root in `test-mode` builds only. Read live (not
-/// OnceLock) so tests can redirect the store without process-global ordering hazards.
-pub const SUITE_ROOT_ENV: &str = "RIGHT_SUITE_DIR";
-/// Orthic Labs shared-data override (`test-mode` builds only). `RIGHTKIT_SUITE_ROOT` and
-/// `RIGHT_SUITE_DIR` take precedence when set.
-pub const ORTHIC_SHARED_DIR_ENV: &str = "ORTHIC_SHARED_DIR";
-/// The preferred override, honoured in `test-mode` builds only (`rightkit_daemon::ENV_SUITE_ROOT`).
-pub const RIGHTKIT_SUITE_ROOT_ENV: &str = rightkit_daemon::ENV_SUITE_ROOT;
 /// Last ScrapeRight release eligible for automatic legacy-root migration.
 pub const LEGACY_COMPAT_MAX_APP_VERSION: &str = "0.1.12";
 
@@ -73,15 +64,9 @@ pub fn version_within(app_version: &str, max_version: &str) -> bool {
 
 /// Suite-wide root directory shared by all Orthic Labs apps.
 ///
-/// Resolved by [`rightkit_daemon::Suite::resolve`], the one rule every Right Suite crate uses:
+/// Resolved by [`rightkit_daemon::Suite::resolve`], which is always the operating system's
+/// per-user default from the account database. No environment variable overrides it.
 ///
-/// - **With the `test-mode` feature** the override variables `RIGHTKIT_SUITE_ROOT`,
-///   `RIGHT_SUITE_DIR` and `ORTHIC_SHARED_DIR` are honoured, in that order. A value that is empty
-///   after trimming counts as unset. With no override the root is the real per-user folder, like a
-///   normal launch (isolation is chosen per launch by the QA runner's environment). A relative
-///   override fails closed (panics).
-/// - **Without it** (every release build) no override variable is read: the root is the operating
-///   system's per-user default from the account database.
 pub fn suite_root() -> PathBuf {
     match checked_suite_root() {
         Ok(root) => root,
@@ -91,10 +76,9 @@ pub fn suite_root() -> PathBuf {
 
 /// Whether `models_root` is the suite's own models root ([`models_root`]).
 ///
-/// Comparing a path writes nothing, so a test-mode build whose own root cannot be resolved (a
-/// relative override) answers `false` here instead of panicking: nothing can be the
-/// suite's models root when the suite has none. Store code uses this to decide whether the legacy
-/// registry beside the suite root is also consulted.
+/// Comparing a path writes nothing, so a root that cannot be resolved answers `false` here
+/// instead of panicking: nothing can be the suite's models root when the suite has none. Store
+/// code uses this to decide whether the legacy registry beside the suite root is also consulted.
 pub fn is_suite_models_root(models_root: &Path) -> bool {
     checked_suite_root()
         .map(|root| models_root_at(&root) == models_root)
@@ -110,39 +94,22 @@ pub fn is_suite_root(root: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// [`suite_root`] with the test-mode refusal as the error, in the words [`suite_root`] panics with.
+/// [`suite_root`] with the refusal as the error, in the words [`suite_root`] panics with.
 fn checked_suite_root() -> Result<PathBuf, String> {
     // An app-injected files directory (Android) is the root outright: there is no per-user
     // account folder to resolve, and nothing else may redirect it.
     if let Some(files_dir) = crate::android::android_files_dir() {
         return Ok(files_dir);
     }
-    let resolved = rightkit_daemon::Suite::resolve();
-    // `TEST_CAPABILITY` is the daemon's own feature, so it is also true when an app enabled
-    // `rightkit-daemon/test-mode` directly instead of this crate's `test-mode`.
-    if !rightkit_daemon::mode::TEST_CAPABILITY {
-        return Ok(match resolved {
-            Ok(suite) => suite.root().to_path_buf(),
-            Err(_) => default_suite_root(),
-        });
-    }
-    // A test-capable build honours an override when one is set and otherwise resolves the real
-    // folders exactly like a normal launch (dev installs keep their QA control; isolation is chosen
-    // per launch by the runner's environment, never by the build). Only an unresolvable or
-    // relative override is an error. Resolved fresh on every call, never cached.
-    match resolved {
-        Ok(suite) => Ok(suite.root().to_path_buf()),
-        Err(err) => Err(format!(
-            "rightkit-models: cannot resolve the suite root in test-mode: {err}"
-        )),
-    }
+    // `Suite::resolve` is the per-user default in every build. Resolved fresh on every call.
+    Ok(match rightkit_daemon::Suite::resolve() {
+        Ok(suite) => suite.root().to_path_buf(),
+        Err(_) => default_suite_root(),
+    })
 }
 
-/// Previous Right Suite registry root retained during compatibility window.
-///
-/// When [`suite_root`] was redirected (a test-mode override), this is that same root, so isolated
-/// runs never see the real legacy folder. Otherwise it is `RightSuite` beside the `Orthic Labs`
-/// folder, as before.
+/// Previous Right Suite registry root retained during compatibility window: `RightSuite` beside
+/// the `Orthic Labs` folder.
 pub fn legacy_suite_root() -> PathBuf {
     let root = suite_root();
     // No legacy tree exists inside an injected app directory: stay in it, like a redirected root.
@@ -150,7 +117,6 @@ pub fn legacy_suite_root() -> PathBuf {
         return root;
     }
     match rightkit_daemon::Suite::per_user_default() {
-        Ok(default) if default.root() != root => root,
         Ok(default) => default
             .root()
             .parent()
@@ -165,18 +131,10 @@ pub fn legacy_suite_root() -> PathBuf {
 /// (`<data dir>/<app>/...`; Windows `%LOCALAPPDATA%`, else the roaming/application-support dir),
 /// or `None` when the platform has none.
 ///
-/// In a `test-mode` build whose suite root was redirected by an override, this is
-/// `<suite root>/app-data`, so nothing that derives an app folder from it can reach the real
-/// per-user folder from an isolated run (device ids, sibling-app discovery). Otherwise it is the
-/// platform directory, as before.
+/// The platform per-user data directory. Only an app-injected Android files directory replaces it
+/// (`<files dir>/app-data`).
 pub fn app_data_base() -> Option<PathBuf> {
     if crate::android::android_files_dir().is_some() {
-        return Some(suite_root().join("app-data"));
-    }
-    let redirected = rightkit_daemon::Suite::per_user_default()
-        .map(|default| default.root() != suite_root())
-        .unwrap_or(false);
-    if redirected {
         return Some(suite_root().join("app-data"));
     }
     #[cfg(windows)]
@@ -233,7 +191,7 @@ pub fn models_root() -> PathBuf {
     suite_root().join("models")
 }
 
-/// `<root>/models` under an explicit root (test/dev injection point).
+/// `<root>/models` under an explicit root (an app's own directory, or a sandbox).
 pub fn models_root_at(root: &Path) -> PathBuf {
     root.join("models")
 }

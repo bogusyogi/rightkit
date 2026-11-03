@@ -86,7 +86,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 /** Entry builder shared by the kinds. */
 function entry(
-  base: { name: string; kind: Source["kind"]; source: string },
+  base: { name: string; kind: CheckEntry["kind"]; source: string },
   config: UpdateManifest["policy"],
   explicit: Policy | undefined,
   fields: Partial<Pick<CheckEntry, "pinned" | "latest" | "status" | "reason" | "error" | "platforms">>,
@@ -492,6 +492,140 @@ async function checkTool(source: Extract<Source, { kind: "tool" }>, config: Upda
   }
 }
 
+// ---------------------------------------------------------------- native and toolchain (rightkit#1267)
+
+async function checkNative(
+  source: Extract<Source, { kind: "native" }>,
+  config: UpdateManifest["policy"],
+  deps: { fetch?: FetchLike },
+): Promise<CheckEntry[]> {
+  const base = { name: source.name, kind: "native" as const, source: `native:${source.name}` };
+  const [owner = "", repo = ""] = source.repo.split("/");
+  try {
+    const latest = await latestGithubTag(owner, repo, deps.fetch);
+    return [entry(base, config, source.policy, { pinned: source.pin, ...judge(source.pin, latest) })];
+  } catch (error) {
+    return [entry(base, config, source.policy, { pinned: source.pin, error: `upstream lookup failed: ${errorText(error)}` })];
+  }
+}
+
+async function checkToolchain(
+  repo: string,
+  source: Extract<Source, { kind: "toolchain" }>,
+  config: UpdateManifest["policy"],
+  deps: { fetch?: FetchLike },
+): Promise<CheckEntry[]> {
+  const file = path.join(repo, source.file);
+  if (source.file === "rust-toolchain.toml") {
+    const base = { name: "toolchain:rust", kind: "toolchain" as const, source: source.file };
+    let channel: string | null = null;
+    try {
+      const doc = parseToml(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+      const table = isObject(doc.toolchain) ? doc.toolchain : {};
+      channel = typeof table.channel === "string" ? table.channel : null;
+    } catch (error) {
+      return [entry(base, config, source.policy, { error: `cannot read ${source.file}: ${errorText(error)}` })];
+    }
+    if (channel === null || !/^\d+\.\d+(?:\.\d+)?$/.test(channel)) {
+      return [entry(base, config, source.policy, { pinned: channel, reason: "toolchain channel is not a pinned version" })];
+    }
+    try {
+      const latest = await latestGithubTag("rust-lang", "rust", deps.fetch);
+      return [entry(base, config, source.policy, { pinned: channel, ...judge(channel, latest) })];
+    } catch (error) {
+      return [entry(base, config, source.policy, { pinned: channel, error: `upstream lookup failed: ${errorText(error)}` })];
+    }
+  }
+
+  const base = { name: "toolchain:packageManager", kind: "toolchain" as const, source: source.file };
+  let packageManager: string | null = null;
+  try {
+    const pkg = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+    packageManager = typeof pkg.packageManager === "string" ? pkg.packageManager : null;
+  } catch (error) {
+    return [entry(base, config, source.policy, { error: `cannot read ${source.file}: ${errorText(error)}` })];
+  }
+  const match = packageManager === null ? null : /^([a-z0-9-]+)@(\d+\.\d+\.\d+)(?:\+.*)?$/.exec(packageManager);
+  if (match === null) {
+    return [entry(base, config, source.policy, { reason: "no pinned packageManager (name@x.y.z)" })];
+  }
+  const tool = match[1] ?? "";
+  const pinned = match[2] ?? "";
+  const named = { name: `toolchain:${tool}`, kind: "toolchain" as const, source: source.file };
+  try {
+    const registry = (await fetchJson(`https://registry.npmjs.org/${tool}/latest`, { fetch: deps.fetch })) as unknown;
+    const latest = isObject(registry) && typeof registry.version === "string" ? registry.version : null;
+    return [entry(named, config, source.policy, { pinned, ...judge(pinned, latest) })];
+  } catch (error) {
+    return [entry(named, config, source.policy, { pinned, error: `upstream lookup failed: ${errorText(error)}` })];
+  }
+}
+
+// ---------------------------------------------------------------- coverage (rightkit#1267)
+
+/** Manifest and toolchain file names a coverage scan looks for, with the label used in reasons. */
+const COVERAGE_LABELS: Record<string, string> = {
+  "Cargo.toml": "Cargo manifest",
+  "package.json": "package.json",
+  "Package.swift": "SwiftPM manifest",
+  "project.yml": "XcodeGen project",
+  "rust-toolchain.toml": "Rust toolchain",
+  "build.gradle": "Gradle build",
+  "build.gradle.kts": "Gradle build",
+  "settings.gradle": "Gradle settings",
+  "settings.gradle.kts": "Gradle settings",
+};
+
+/** Directories a coverage scan never enters: dependency, build and tool output. */
+const COVERAGE_SKIP_DIRS = new Set(["node_modules", "target", "dist", "build", ".build", "Pods", "DerivedData", ".gradle", "vendor", ".venv", "out"]);
+
+function walkCoverageFiles(root: string, rel: string, found: string[]): void {
+  let items: fs.Dirent[];
+  try {
+    items = fs.readdirSync(path.join(root, rel), { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const item of items) {
+    const child = rel === "" ? item.name : `${rel}/${item.name}`;
+    if (item.isDirectory()) {
+      if (!item.name.startsWith(".") && !COVERAGE_SKIP_DIRS.has(item.name)) walkCoverageFiles(root, child, found);
+    } else if (item.isFile() && Object.prototype.hasOwnProperty.call(COVERAGE_LABELS, item.name)) {
+      found.push(child);
+    }
+  }
+}
+
+/**
+ * Manifest and toolchain files in the repository that no source declares. Each is an `unknown` row, so `check` exits
+ * non-zero until the file is declared in `.rightkit/update.json` or held with a reason (rightkit#1267).
+ */
+export function coverageEntries(repo: string, manifest: UpdateManifest): CheckEntry[] {
+  const declared = new Set<string>();
+  for (const source of manifest.sources) {
+    if (source.kind === "cargo" || source.kind === "pnpm") {
+      for (const rel of sourceManifests(repo, source)) declared.add(rel.split("\\").join("/"));
+    } else if (source.kind === "swiftpm") {
+      declared.add(source.manifest.split("\\").join("/"));
+    } else if (source.kind === "toolchain") {
+      declared.add(source.file);
+    }
+  }
+  const found: string[] = [];
+  walkCoverageFiles(repo, "", found);
+  const out: CheckEntry[] = [];
+  for (const rel of found.sort()) {
+    if (declared.has(rel)) continue;
+    const label = COVERAGE_LABELS[path.posix.basename(rel)] ?? "manifest";
+    out.push(
+      entry({ name: rel, kind: "coverage", source: rel }, manifest.policy, undefined, {
+        reason: `undeclared ${label}: not covered by .rightkit/update.json`,
+      }),
+    );
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- driver
 
 /** Check every source in the manifest. Never throws. */
@@ -534,6 +668,12 @@ export async function checkSources(repo: string, manifest: UpdateManifest, deps:
         case "tool":
           out.push(...(await checkTool(source, manifest.policy, { ...deps, fetch: fetchFn })));
           break;
+        case "native":
+          out.push(...(await checkNative(source, manifest.policy, { fetch: fetchFn })));
+          break;
+        case "toolchain":
+          out.push(...(await checkToolchain(repo, source, manifest.policy, { fetch: fetchFn })));
+          break;
       }
     } catch (error) {
       out.push(
@@ -542,6 +682,11 @@ export async function checkSources(repo: string, manifest: UpdateManifest, deps:
         }),
       );
     }
+  }
+  try {
+    out.push(...coverageEntries(repo, manifest));
+  } catch (error) {
+    out.push(entry({ name: "coverage", kind: "coverage", source: "coverage" }, manifest.policy, undefined, { error: `coverage scan failed: ${errorText(error)}` }));
   }
   return out;
 }

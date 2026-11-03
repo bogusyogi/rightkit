@@ -24,6 +24,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::driver_host::cli_runtime::adapter::{CliProviderAdapter, CliTransport};
 use crate::driver_host::cli_runtime::attestation::AttestationInputs;
 use crate::driver_host::cli_runtime::ids::{CliProviderId, CliTransportKind, HarnessRequirements};
+use crate::driver_host::cli_runtime::qualification::requirements_are_consistent;
 
 /// Latest known attestation for a provider, in the shape the
 /// registry needs to make a readiness decision. Mirrors the

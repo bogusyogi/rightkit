@@ -75,6 +75,15 @@ pub struct RunMarker {
     /// Pass or fail, set when the job ends. `None` while running and in pre-0.5.0 markers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outcome: Option<RunOutcome>,
+    /// The run's owner asked to keep it (`SuiteOptions::keep_data`): retention does not remove the
+    /// run until this time (milliseconds since the epoch). The request lives in the marker, not in a
+    /// file the app under test could plant, and it expires after [`KEEP_DATA_MAX`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_until: Option<u128>,
+    /// The batch run this run belongs to: the value of [`GATE_RUN_ENV`] when the run was created.
+    /// Retention never removes a run of the batch that is active (rightkit#1239).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gate_run: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -217,6 +226,8 @@ pub fn create(
         app_root: None,
         kind: Some(RunKind::Functional),
         outcome: None,
+        keep_until: None,
+        gate_run: gate_run_from_env(),
     };
     write_marker(&run, &marker)?;
     Ok(ManagedRun { root: run, marker })
@@ -683,42 +694,6 @@ fn write_home_marker(home: &Path, app: &str, run_id: &str) -> Result<()> {
 fn write_whole(path: &Path, bytes: &[u8]) -> Result<()> {
     rightkit_fs::atomic_write(path, bytes).map_err(std::io::Error::from)?;
     Ok(())
-}
-
-/// Write the runner binding of one per-scenario directory under a home, through the same
-/// whole-file write as the home's own binding. The identity (`app`, `runRoot`, `runId`) is copied
-/// from the home's existing binding, never made up here; `scenario` is added as extra runner
-/// metadata. A home without a readable binding is refused.
-///
-/// This is bookkeeping a test-mode app can find at the root it is told to use. It does not
-/// authenticate the runner: rightkit-fs checks only that the binding's `app` equals the app's id.
-pub(crate) fn write_scenario_binding(home: &Path, dir: &Path, scenario: &str) -> Result<()> {
-    let home_binding = read_binding(home).ok_or_else(|| {
-        crate::util::Error(format!(
-            "{}: no readable runner binding; a scenario directory is bound only from its home's binding",
-            home.display()
-        ))
-    })?;
-    let field = |key: &str| {
-        home_binding
-            .get(key)
-            .and_then(serde_json::Value::as_str)
-            .filter(|v| !v.is_empty())
-            .map(str::to_owned)
-            .ok_or_else(|| {
-                crate::util::Error(format!(
-                    "{}: runner binding has no `{key}` to bind a scenario directory to",
-                    home.display()
-                ))
-            })
-    };
-    write_whole(
-        &dir.join(BINDING_FILE),
-        &serde_json::to_vec(&serde_json::json!({
-            "app": field("app")?, "runRoot": field("runRoot")?, "runId": field("runId")?,
-            "scenario": scenario,
-        }))?,
-    )
 }
 
 /// `(pid, started_at_ms)` recorded in a home.
@@ -1397,27 +1372,55 @@ pub(crate) fn copy_tree(source: &Path, target: &Path) -> Result<()> {
     Ok(())
 }
 
-/// A plain file in a run directory that says its owner asked to keep the run's data
-/// (`SuiteOptions::keep_data`): the run's home and worlds are what the caller reads after the run.
-/// Both removal paths honour it (`prune_unlocked` and `retention::prune_runs`), whatever the
-/// run's outcome, age or count, so a later or concurrent run of the same app cannot remove it.
-pub const KEEP_DATA_FILE: &str = ".rightkit-keep-data";
+/// Set by the release pipeline for every `rightkit-qa` process of one multi-journey release run: the
+/// id of that batch. Every run created under it records the id, and while a process holds it,
+/// retention does not remove any run of that batch, so the batch keeps all of its journeys'
+/// evidence (rightkit#1239). A value that is not a safe key is ignored.
+pub const GATE_RUN_ENV: &str = "RIGHTKIT_QA_GATE_RUN_ID";
 
-/// Mark the run at `run_root` as kept: call it before the run's outcome is recorded, so a pass that
-/// reads the marker never sees a finished run whose keep request is not there yet.
-pub fn mark_keep_data(run_root: &Path) -> std::io::Result<()> {
-    fs::write(
-        run_root.join(KEEP_DATA_FILE),
-        "the run's owner asked to keep its data; retention does not remove this run\n",
-    )
+fn gate_run_from_env() -> Option<String> {
+    std::env::var(GATE_RUN_ENV)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty() && safe_key(v, "gate run id").is_ok())
 }
 
-/// True when `run_dir` carries [`KEEP_DATA_FILE`] as a plain file (a link of that name does not
-/// count). The one check both retention rules use.
+/// True when `marker` belongs to the batch this process runs under ([`GATE_RUN_ENV`]).
+pub fn in_active_gate_run(marker: &RunMarker) -> bool {
+    match (gate_run_from_env(), marker.gate_run.as_deref()) {
+        (Some(active), Some(mine)) => active == mine,
+        _ => false,
+    }
+}
+
+/// How long a kept run is exempt from retention. A kept run used to stay forever, so every
+/// `--keep-data` run grew the store without a limit (rightkit#942 N3).
+pub const KEEP_DATA_MAX: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 3600);
+
+/// Mark the run at `run_root` as kept for [`KEEP_DATA_MAX`] (`SuiteOptions::keep_data`): the run's
+/// evidence is what the caller reads after the run. Both removal paths honour it (`prune_unlocked`
+/// and `retention::prune_runs`), whatever the run's outcome, age or count, until it expires or is
+/// released, so a later or concurrent run of the same app cannot remove it. Call it before the run's
+/// outcome is recorded, so a pass that reads the marker never sees a finished run whose keep request
+/// is not there yet.
+pub fn mark_keep_data(run_root: &Path) -> Result<()> {
+    let until = now_ms().saturating_add(KEEP_DATA_MAX.as_millis());
+    update_marker(run_root, |m| m.keep_until = Some(until))
+}
+
+/// Drop the keep request of the run at `run_root` (`rightkit-qa release-kept`): retention treats the
+/// run by its outcome and age again.
+pub fn release_keep_data(run_root: &Path) -> Result<()> {
+    update_marker(run_root, |m| m.keep_until = None)
+}
+
+/// True when the marker of `run_dir` holds a keep request that has not expired. The one check both
+/// retention rules use. A file in the run directory is not a request (the app under test could
+/// create one).
 pub fn run_keeps_data(run_dir: &Path) -> bool {
-    fs::symlink_metadata(run_dir.join(KEEP_DATA_FILE))
-        .map(|m| m.is_file())
-        .unwrap_or(false)
+    read_marker(&run_dir.join(RUN_MARKER))
+        .and_then(|m| m.keep_until)
+        .is_some_and(|t| t > now_ms())
 }
 
 pub fn prune(root: &Path, app: &str, max_bytes: Option<u64>) -> Result<RetentionReport> {
@@ -1572,7 +1575,12 @@ fn prune_unlocked(
         .collect();
     let protected: std::collections::HashSet<String> = runs
         .iter()
-        .filter(|x| now.saturating_sub(x.1.created_at) < young_ms || x.3 || run_keeps_data(&x.0))
+        .filter(|x| {
+            now.saturating_sub(x.1.created_at) < young_ms
+                || x.3
+                || run_keeps_data(&x.0)
+                || in_active_gate_run(&x.1)
+        })
         .map(|x| x.1.run_id.clone())
         .collect();
     let caller_protected: std::collections::HashSet<&str> =
@@ -1649,6 +1657,8 @@ fn prune_unlocked(
                 "younger than retention window".into()
             } else if run_keeps_data(&item.0) {
                 "kept data (the run's owner asked to keep it)".into()
+            } else if in_active_gate_run(&item.1) {
+                "belongs to the active batch run".into()
             } else if failed.contains(&item.1.run_id) {
                 "failed run kept".into()
             } else {

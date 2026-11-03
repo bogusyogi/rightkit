@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.4 (unpublished)
+
+- Added async gateway calls on `rightkit_http::AsyncClient` behind feature `gateway-async` (#697): `GatewayExchange::exchange_async`, `exchange_tokens_async`, `exchange_raw_async` and `refresh_async`. Same request body, redaction, `NeedsReauth` mapping and token parsing as the blocking calls; the blocking calls are unchanged.
+- Added `GatewayExchange::with_insecure_host(endpoint, host)` (#697): accepts plain `http://` for exactly `host` when `host` is the endpoint's own host (LAN gateway the operator configured). Off by default; every other host keeps the loopback-only rule. `with_refresh_endpoint` on the same instance applies the same allowance for that host. It is a constructor because the endpoint is validated when it is set.
+
+## 0.10.3 (unpublished)
+
+- Added `OAuthClient::authorization_request_for(redirect_uri, verifier)` (#1128): an `AuthorizationRequest` for a caller-chosen redirect and an external PKCE verifier (RFC 7636, 43 to 128 unreserved characters). `redirect_uri` must be https or http on `127.0.0.1`, `localhost` or `[::1]`. The state is generated here. Finish with the existing `exchange_code` after the user pastes the code, for when the loopback port is busy.
+
+## 0.10.2 (unpublished)
+
+- Added `CallbackListener::wait_post_json_with(timeout, cancel, allowed_origin, validate)` (#700). `validate` runs on the posted object after the `state` check; an `Err(reason)` is answered `400` with that text and the wait continues, so the browser never sees success for a body the caller discards. `wait_post_json` is unchanged in behaviour and delegates with an always-`Ok` validator.
+
 ## 0.10.1 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

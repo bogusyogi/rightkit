@@ -2085,7 +2085,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-settings"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "rightkit-fs",
  "serde",
@@ -2095,7 +2095,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.3.2"
+version = "0.3.4"
 dependencies = [
  "hound",
  "rightkit-ffmpeg",
@@ -2142,29 +2142,33 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "libc",
  "windows",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
+ "core-foundation",
  "getrandom 0.4.3",
  "rightkit-child-process",
  "rightkit-fs",
  "rightkit-sidecar",
+ "security-framework",
  "serde",
  "serde_json",
  "subtle",
  "windows",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "rightkit-db"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "libc",
  "rightkit-fs",
@@ -2191,7 +2195,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ffmpeg"
-version = "0.2.14"
+version = "0.2.16"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -2201,7 +2205,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.10"
+version = "0.4.12"
 dependencies = [
  "blake3",
  "libc",
@@ -2209,11 +2213,12 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-http"
-version = "0.3.10"
+version = "0.3.11"
 dependencies = [
  "getrandom 0.4.3",
  "reqwest",
@@ -2225,7 +2230,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-job-queue"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "rightkit-child-process",
  "rightkit-db",
@@ -2238,7 +2243,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.8"
+version = "0.3.9"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -2285,7 +2290,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-social-publish"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "rightkit-cache",
  "rightkit-fs",
@@ -2299,7 +2304,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.2"
+version = "0.1.3"
 
 [[package]]
 name = "rightkit-timeline"
@@ -2314,7 +2319,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-transcript"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -2323,7 +2328,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-typeset"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "thiserror",
  "typst",
@@ -2333,7 +2338,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-video-project"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "chrono",
  "rightkit-audio",

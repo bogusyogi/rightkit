@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-crash"
-version = "0.3.7"
+version = "0.3.8"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Privacy-first panic capture, redacted crash reports, native dumps and support bundles for Right Suite apps."
@@ -32,8 +32,9 @@ window-errors = []
 diagnostics = ["dep:tracing", "rightkit-logs/tracing"]
 
 [dependencies]
+rightkit-crypto = { version = "0.1.1", path = "../rightkit-crypto" }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs"] }
-rightkit-logs = { version = "0.3.7", path = "../rightkit-logs", default-features = false }
+rightkit-logs = { version = "0.3.9", path = "../rightkit-logs", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = { version = "0.1", default-features = false, features = ["std"], optional = true }
@@ -48,9 +49,6 @@ windows-sys = { version = "0.61.2", features = [
   "Win32_System_Memory",
   "Win32_System_Threading",
 ] }
-
-[dev-dependencies]
-rightkit-logs = { version = "0.3.7", path = "../rightkit-logs", features = ["testing"] }
 
 [package.metadata.rightkit]
 continuous = "held-resource"

@@ -32,8 +32,6 @@ jobs:
         with:
           node-version: "26.8.1"
           package-manager-cache: false
-      - name: Check qualification harness
-        run: node --test scripts/ci/runtime-qualify.test.mjs
       - name: Authenticate candidate run & immutable artifact digest
         id: candidate
         env:

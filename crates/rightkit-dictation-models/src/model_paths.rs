@@ -260,12 +260,11 @@ pub fn local_asr_ready(dir: &Path, subdir: &str) -> bool {
 
 /// One resolution candidate, tagged so telemetry can show which kind of
 /// location actually won: a shipped bundle location, an exe-relative
-/// (non-bundle) location, or the dev-only source-checkout fallback.
+/// (non-bundle) location.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KwsCandidateKind {
     Bundle,
     ExeRelative,
-    DevSource,
 }
 
 pub struct KwsCandidate {
@@ -275,10 +274,8 @@ pub struct KwsCandidate {
 
 /// Build the ordered candidate list for KWS resolution. Executable-
 /// relative / macOS bundle locations are tried FIRST because that is what
-/// ships to users. The `CARGO_MANIFEST_DIR` source-checkout path is a
-/// dev-only last resort: it is compiled in at build time, so a release
-/// binary built on a developer machine would otherwise keep resolving into
-/// that developer's source tree instead of its own bundle.
+/// ships to users. No build-time source-checkout path is a candidate, so a binary built on a
+/// developer machine never resolves into that developer's source tree.
 pub fn kws_candidates(exe: Option<&Path>) -> Vec<KwsCandidate> {
     let mut candidates = Vec::new();
     if let Some(exe) = exe {
@@ -304,11 +301,6 @@ pub fn kws_candidates(exe: Option<&Path>) -> Vec<KwsCandidate> {
             }
         }
     }
-    #[cfg(feature = "test-mode")]
-    candidates.push(KwsCandidate {
-        kind: KwsCandidateKind::DevSource,
-        path: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src-tauri/resources/kws"),
-    });
     candidates
 }
 
@@ -319,16 +311,7 @@ pub fn select_kws_dir(
     candidates: Vec<KwsCandidate>,
     mut ready: impl FnMut(&Path) -> bool,
 ) -> (PathBuf, KwsCandidateKind) {
-    let fallback = candidates
-        .iter()
-        .find(|c| {
-            matches!(
-                c.kind,
-                KwsCandidateKind::Bundle | KwsCandidateKind::ExeRelative
-            )
-        })
-        .map(|c| (c.path.clone(), c.kind))
-        .or_else(|| candidates.first().map(|c| (c.path.clone(), c.kind)));
+    let fallback = candidates.first().map(|c| (c.path.clone(), c.kind));
     let selected = candidates
         .into_iter()
         .find(|c| ready(&c.path))

@@ -11,6 +11,77 @@ export function useLatest<T>(value: T): RefObject<T> {
   return ref;
 }
 
+/** Where focus returns on close: an element, or a function returning one (or null for "use the fallback"). */
+export type ReturnFocusTarget = HTMLElement | null | (() => HTMLElement | null);
+
+const HISTORY_LIMIT = 8;
+const PRESSABLE = 'a[href],button,input,select,textarea,summary,[tabindex],[role="button"],[role="menuitem"],[role="tab"]';
+const histories = new WeakMap<Document, HTMLElement[]>();
+
+function remember(list: HTMLElement[], el: HTMLElement) {
+  const at = list.indexOf(el);
+  if (at >= 0) list.splice(at, 1);
+  list.push(el);
+  if (list.length > HISTORY_LIMIT) list.shift();
+}
+
+/**
+ * Start recording which elements held focus (and which controls were pressed, since WebKit does not focus a clicked
+ * button) so a closing layer can return focus to the last one still connected after its opener is gone. Idempotent per
+ * document; returns that document's history, oldest first.
+ */
+export function trackFocusHistory(doc: Document = document): readonly HTMLElement[] {
+  const existing = histories.get(doc);
+  if (existing) return existing;
+  const list: HTMLElement[] = [];
+  histories.set(doc, list);
+  doc.addEventListener(
+    "focusin",
+    (event) => {
+      const t = event.target;
+      if (t instanceof HTMLElement && t !== doc.body && t !== doc.documentElement) remember(list, t);
+    },
+    true,
+  );
+  doc.addEventListener(
+    "pointerdown",
+    (event) => {
+      const t = event.target;
+      const hit = t instanceof Element ? t.closest<HTMLElement>(PRESSABLE) : null;
+      if (hit) remember(list, hit);
+    },
+    true,
+  );
+  const active = doc.activeElement;
+  if (active instanceof HTMLElement && active !== doc.body) remember(list, active);
+  return list;
+}
+
+if (typeof document !== "undefined") trackFocusHistory(document);
+
+/**
+ * Pick the element focus returns to. Order: the explicit `returnFocus` target when connected; the `opener` when it is
+ * connected and is a real control (not `<body>`); then the newest `history` entry that is still connected and outside
+ * `exclude`; finally the opener, even if it is `<body>`.
+ */
+export function resolveReturnFocus(input: {
+  returnFocus?: ReturnFocusTarget;
+  opener: HTMLElement | null;
+  history: readonly HTMLElement[];
+  exclude?: Element | null;
+}): HTMLElement | null {
+  const { returnFocus, opener, history, exclude } = input;
+  const explicit = typeof returnFocus === "function" ? returnFocus() : returnFocus;
+  if (explicit?.isConnected) return explicit;
+  const body = opener?.ownerDocument.body;
+  if (opener?.isConnected && opener !== body && opener !== opener.ownerDocument.documentElement) return opener;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const candidate = history[i];
+    if (candidate.isConnected && candidate !== opener && !(exclude && (candidate === exclude || exclude.contains(candidate)))) return candidate;
+  }
+  return opener;
+}
+
 /** Options for {@link useFocusTrap}. Every default reproduces the 0.2.1 behaviour exactly. */
 export interface FocusTrapOptions {
   /** Focus the first control on open. Default true. */
@@ -43,6 +114,12 @@ export interface FocusTrapOptions {
    * `useEffect(() => () => opener.focus())` would.
    */
   restoreWhen?: "inactive" | "always";
+  /**
+   * Explicit return target on close (an element, or a function returning one). When it is missing or disconnected, focus
+   * returns to the opener, and when the opener is `<body>` or gone (a palette that unmounted, a WebKit click that never
+   * focused its button) to the last previously focused or pressed element that is still connected.
+   */
+  returnFocus?: ReturnFocusTarget;
   /** Ignore `[hidden]` controls when finding the first and last. Default true. */
   skipHidden?: boolean;
   /** Tab with no focusable control: `"prevent"` (default) swallows it, `"pass"` leaves it native. */
@@ -70,8 +147,8 @@ const documentTraps: Array<{ el: HTMLElement; doc: Document }> = [];
  */
 export function attachFocusTrap(
   el: HTMLElement,
-  config: Required<Omit<FocusTrapOptions, "scope" | "skipUnrendered">> &
-    Pick<FocusTrapOptions, "scope" | "skipUnrendered"> & { opener: { current: HTMLElement | null }; isActive: () => boolean },
+  config: Required<Omit<FocusTrapOptions, "scope" | "skipUnrendered" | "returnFocus">> &
+    Pick<FocusTrapOptions, "scope" | "skipUnrendered" | "returnFocus"> & { opener: { current: HTMLElement | null }; isActive: () => boolean },
 ): () => void {
   const { autoFocus, trap, restore, restoreTiming, restoreWhen, captureOpener, fromOutside, skipHidden, emptyList, focusFallback, opener, isActive } = config;
   const scope = config.scope ?? "element";
@@ -80,7 +157,8 @@ export function attachFocusTrap(
     const candidate = el.ownerDocument.activeElement as HTMLElement | null;
     if (candidate && candidate !== el && !el.contains(candidate)) opener.current = candidate;
   }
-  const target = opener.current;
+  const history = trackFocusHistory(el.ownerDocument).slice();
+  const openedWith = opener.current;
   const items = () => {
     const all = Array.from(el.querySelectorAll<HTMLElement>(FOCUSABLE));
     return all.filter((n) => (!skipHidden || !n.hasAttribute("hidden")) && (!skipUnrendered || n.getClientRects().length > 0));
@@ -126,7 +204,9 @@ export function attachFocusTrap(
     // dialog and would otherwise yank focus back to the opener.
     const settle = () => {
       const closed = !el.isConnected || !isActive();
-      if (restore && (closed || restoreWhen === "always")) target?.focus?.();
+      if (restore && (closed || restoreWhen === "always")) {
+        resolveReturnFocus({ returnFocus: config.returnFocus, opener: openedWith, history, exclude: el })?.focus?.({ preventScroll: true });
+      }
       if (closed && captureOpener === "effect") opener.current = null;
     };
     if (restoreTiming === "sync") settle();
@@ -154,7 +234,9 @@ export function useFocusTrap(ref: RefObject<HTMLElement | null>, active = true, 
     focusFallback = "container",
     scope = "element",
     skipUnrendered = false,
+    returnFocus,
   } = opts;
+  const returnFocusRef = useLatest(returnFocus);
   // "render": captured during the first render, since React's `autoFocus` attribute moves focus at commit, before
   // any effect runs. "effect": filled by the core on the first effect run of an open (see attachFocusTrap).
   const activeRef = useLatest(active);
@@ -175,10 +257,14 @@ export function useFocusTrap(ref: RefObject<HTMLElement | null>, active = true, 
       focusFallback,
       scope,
       skipUnrendered,
+      returnFocus: () => {
+        const r = returnFocusRef.current;
+        return typeof r === "function" ? r() : (r ?? null);
+      },
       opener,
       isActive: () => activeRef.current,
     });
-  }, [ref, active, autoFocus, trap, restore, restoreTiming, restoreWhen, captureOpener, fromOutside, skipHidden, emptyList, focusFallback, scope, skipUnrendered, activeRef]);
+  }, [ref, active, autoFocus, trap, restore, restoreTiming, restoreWhen, captureOpener, fromOutside, skipHidden, emptyList, focusFallback, scope, skipUnrendered, activeRef, returnFocusRef]);
 }
 
 /**

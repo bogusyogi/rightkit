@@ -24,6 +24,7 @@
 
 use rightkit_child_process::{OwnedChild, OwnedCommand};
 use std::io::{self, BufRead, Read, Write};
+use std::process::Stdio;
 use subtle::ConstantTimeEq;
 
 /// Length of the secret in bytes before hex encoding.

@@ -35,7 +35,6 @@ pub use environment::init_windows_ort;
 
 pub use model::{
     encoder_pass_age, take_batched_run_stats, EncoderOutput, MelFeatures, OnnxAsr, OnnxAsrConfig,
-    PredictorOutput,
 };
 pub use session::{ExecutionProvider, SessionOptions};
 

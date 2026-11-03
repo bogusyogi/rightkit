@@ -344,36 +344,50 @@ export async function runLand(options: { repo: string }, deps: LandDeps = {}): P
 export interface DiscardOutcome {
   exitCode: 0 | 2;
   restored: string[];
+  /** Recorded files that no longer hold the digest apply wrote (the tree moved on): left exactly as they are. */
+  moved: string[];
   errors: string[];
+  notes: string[];
 }
 
-/** Undo an unlanded apply: restore the files it touched (only if untouched since) and drop staged candidates. */
+/**
+ * Undo an unlanded apply and clear its report. A file that still holds the digest apply wrote is restored from HEAD; a file that no
+ * longer does has moved on (edited, or already committed) and is never touched, so unrelated edits survive. The report, the gate
+ * report and the staged candidates are cleared either way, so a stale report cannot block the next apply (rightkit#1429).
+ */
 export async function runDiscard(options: { repo: string }, deps: { run?: RunFn } = {}): Promise<DiscardOutcome> {
   const repo = path.resolve(options.repo);
   const run = deps.run ?? runCommand;
   const apply = loadApplyReport(stateFile(repo, APPLY_REPORT));
-  if (!apply.ok) return { exitCode: 2, restored: [], errors: [apply.error] };
-  if (apply.value.landed) return { exitCode: 2, restored: [], errors: [`already landed in ${apply.value.landed.commit}; nothing to discard`] };
+  if (!apply.ok) return { exitCode: 2, restored: [], moved: [], errors: [apply.error], notes: [] };
+  if (apply.value.landed) return { exitCode: 2, restored: [], moved: [], errors: [`already landed in ${apply.value.landed.commit}; nothing to discard`], notes: [] };
   const files = new Map<string, { before: string | null; after: string | null }>();
   for (const change of apply.value.changes) for (const f of change.files) files.set(f.path, { before: f.sha256Before, after: f.sha256After });
-  for (const [rel, h] of files) {
-    const actual = sha256File(toAbs(repo, rel));
-    if (actual !== h.after) return { exitCode: 2, restored: [], errors: [`${rel} changed after apply; refusing to discard over unrelated edits`] };
-  }
-  if (!(await isRepoRoot({ run, repo })) && files.size > 0) return { exitCode: 2, restored: [], errors: ["not a git work tree; cannot restore files"] };
+  const matching: string[] = [];
+  const moved: string[] = [];
+  for (const [rel, h] of files) (sha256File(toAbs(repo, rel)) === h.after ? matching : moved).push(rel);
+  if (matching.length > 0 && !(await isRepoRoot({ run, repo }))) return { exitCode: 2, restored: [], moved, errors: ["not a git work tree; cannot restore files"], notes: [] };
   const restored: string[] = [];
-  for (const [rel, h] of files) {
+  const notes: string[] = [];
+  for (const rel of matching) {
+    const h = files.get(rel)!;
     if (h.before === null) {
       fs.rmSync(toAbs(repo, rel), { force: true });
     } else {
       const result = await run(["git", "restore", "--worktree", "--source=HEAD", "--", rel], { cwd: repo, timeoutMs: 60_000 });
-      if (result.code !== 0) return { exitCode: 2, restored, errors: [`git restore ${rel} failed: ${result.stderr.trim() || result.error}`] };
-      if (sha256File(toAbs(repo, rel)) !== h.before) return { exitCode: 2, restored, errors: [`${rel} does not match its pre-apply digest after restore`] };
+      if (result.code !== 0) return { exitCode: 2, restored, moved, errors: [`git restore ${rel} failed: ${result.stderr.trim() || result.error}`], notes };
+      if (sha256File(toAbs(repo, rel)) !== h.before) {
+        // HEAD already holds the applied bytes (they were committed outside right-update): there is nothing of apply's left to undo.
+        moved.push(rel);
+        notes.push(`${rel} equals HEAD, so the apply was committed outside right-update; left as it is`);
+        continue;
+      }
     }
     restored.push(rel);
   }
+  if (moved.length > 0) notes.push(`${moved.length} recorded file(s) no longer match the apply-report and were left untouched: ${moved.slice(0, 20).join(", ")}${moved.length > 20 ? ", ..." : ""}; the stale report was cleared`);
   fs.rmSync(path.join(repo, ...CANDIDATES_DIR.split("/")), { recursive: true, force: true });
   fs.rmSync(stateFile(repo, APPLY_REPORT), { force: true });
   fs.rmSync(stateFile(repo, GATE_REPORT), { force: true });
-  return { exitCode: 0, restored, errors: [] };
+  return { exitCode: 0, restored, moved, errors: [], notes };
 }

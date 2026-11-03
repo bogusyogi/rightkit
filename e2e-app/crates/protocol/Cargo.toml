@@ -7,9 +7,6 @@ publish = false
 
 [features]
 default = []
-# QA and dev only (never in default): compiles `rightkit_daemon::mode`'s test capability so rightkit-qa can bind this app's
-# data root to an isolated directory. The release switch scan refuses a release build whose graph enables it.
-test-mode = ["rightkit-daemon/test-mode"]
 
 [dependencies]
 # Shared RightKit crates: exact registry pins (rightkit-versions.json `registry`).

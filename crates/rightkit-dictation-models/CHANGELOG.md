@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2 (unpublished)
+
+- Removed (breaking, rightkit#1437): the `test-mode` feature; the `test_support` module; `shared::reset_activation_for_tests` and `shared::activate_for_tests`; the `verify_receipt` module and the `RIGHTKIT_MODEL_VERIFY=receipt` stat-receipt policy (every launch verifies in full, as every release build already did); the `RIGHTKIT_MODEL_BASE_URL` manifest override in `model_fetch::load_manifest`; and the `KwsCandidateKind::DevSource` variant with its `CARGO_MANIFEST_DIR` source-checkout candidate. Release behaviour is unchanged. A build that enables `rightkit-dictation-models/test-mode` no longer resolves: drop the feature.
+- Why: Adrian, 2026-11-03: "no debug assertions"; "dev mode, is mine. im the fucking owner, my data. no dummy data, no fucking made up shit. real data. snapshot and restore."
+
 ## 0.1.1 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

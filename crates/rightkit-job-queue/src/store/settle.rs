@@ -41,7 +41,7 @@ use std::time::{Duration, Instant};
 use rightkit_db::write_txn;
 use serde_json::{json, Map, Value};
 
-use super::{now, Event, Expect, Job, JobRecord, JobStore, Transition, CANCELLED, COMPLETE};
+use super::{Event, Expect, Job, JobRecord, JobStore, Transition, CANCELLED, COMPLETE};
 use crate::config::StatusModel;
 use crate::error::{JobError, JobResult};
 use crate::runner::{EventSink, JobLock};
@@ -270,7 +270,7 @@ impl Drop for DeliveryPin<'_> {
 }
 
 /// The row as it will read once `t` lands: `base` with the status, error and result of `t`.
-pub(crate) fn projected(base: &Job, t: &Transition) -> Job {
+pub(crate) fn projected(base: &Job, t: &Transition, at: String) -> Job {
     let mut job = base.clone();
     if let Some(to) = &t.to {
         job.status = to.clone();
@@ -281,7 +281,7 @@ pub(crate) fn projected(base: &Job, t: &Transition) -> Job {
     if let Some(r) = &t.result {
         job.result = Some(r.clone());
     }
-    job.updated_at = now();
+    job.updated_at = at;
     job
 }
 
@@ -319,7 +319,7 @@ fn entry_bytes(job_id: &str, t: &Transition, ev: &Option<LifecycleEvent>) -> usi
     n
 }
 
-fn entry_json(e: &Entry) -> Value {
+fn entry_json(e: &Entry, at: String) -> Value {
     let t = &e.transition;
     let mut m = Map::new();
     m.insert("version".into(), json!(1));
@@ -341,7 +341,7 @@ fn entry_json(e: &Entry) -> Value {
             json!({"stage": ev.stage, "progress": ev.progress, "message": ev.message}),
         );
     }
-    m.insert("recorded_at".into(), json!(now()));
+    m.insert("recorded_at".into(), json!(at));
     Value::Object(m)
 }
 
@@ -791,7 +791,7 @@ impl JobStore {
         if !journal_safe(&e.job_id) {
             return false;
         }
-        let bytes = serde_json::to_vec(&entry_json(e)).unwrap_or_default();
+        let bytes = serde_json::to_vec(&entry_json(e, self.cfg.now())).unwrap_or_default();
         let options = rightkit_fs::AtomicOptions {
             private: true,
             create_parents: true,

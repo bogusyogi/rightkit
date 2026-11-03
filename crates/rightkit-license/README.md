@@ -57,7 +57,7 @@ The same `client` feature carries the rest of the licence-adjacent native work, 
 
 ### Engine processes: the owner hands over a snapshot
 
-An engine (sidecar, daemon, CLI) never reads the owner's credential store: only the owner binary does (`rightkit-credentials` README, "Helpers, sidecars and CLIs"). The owner reads the stored record through its fenced native source and hands the engine a `rightkit_credentials::handoff` snapshot of three values, `licence.token`, `licence.device` and `licence.clock` (`engine-snapshot` feature, implied by `client`):
+An engine (sidecar, daemon, CLI) never reads the owner's credential store: only the owner binary does (`rightkit-credentials` README, "Helpers, sidecars and CLIs"). The owner reads the stored record through its fenced native source and hands the engine a `rightkit_credentials::handoff` snapshot of three values (four with the credential-store clock, below), `licence.token`, `licence.device` and `licence.clock` (`engine-snapshot` feature, implied by `client`):
 
 ```rust
 // Owner: when the engine starts, again after every change (`client.invalidation()`), and to answer the engine's request.
@@ -68,6 +68,19 @@ cell.apply(snapshot)?;
 let engine = EngineEntitlements::suite_snapshot("heardright", &cell, license_dir)?;
 engine.require_pro()?; // signature, app, device, expiry, ledger; an incident denylist via with_revoked_ids
 ```
+
+**Owner on the credential-store clock (rightkit#1477).** An app that configured `LicenseClientConfig::with_credential_clock` keeps its anti-rollback ledger where an engine must not read it, and need not move to the file ledger or migrate its keychain mark. The owner sends the ledger itself as a fourth value, `licence.clock-state` (the ledger's JSON), and the engine verifies against that mark:
+
+```rust
+// Owner: the same triggers, but answer (and send) the four-name snapshot.
+let reply = client.answer_engine_request(&request); // exactly the three names, or exactly the four of SNAPSHOT_NAMES_WITH_CLOCK
+let snapshot = client.engine_snapshot_with_clock();
+// Engine: no ledger file, no store; the mark comes from the cell.
+cell.apply(snapshot)?;
+let engine = EngineEntitlements::suite_snapshot_with_mark("heardright", &cell)?;
+```
+
+The engine refuses a wall clock behind the delivered mark, refuses when the owner says its ledger exists but the snapshot carries none, and drops every write, so the owner stays the only writer. An owner whose ledger read failed sends a failed read, and the engine answers unreadable (never Free, never Pro). The mark is taken on the owner's word like the device binding: a forged mark can only be too low (rollback detection weaker in that engine, no grant) and the token must still verify under the suite key. An engine that asks for the three legacy names gets the unchanged three-value snapshot.
 
 The snapshot is never a verdict: the engine has no input for "you are Pro", a failed owner read arrives as unreadable (never Free, never a stale token), and a delivery replaces what the engine held. The anti-rollback ledger must be the file ledger in the licence directory, which the engine only reads. `CredentialTokenSource::from_record_store` is deprecated: it made the engine a second reader of the owner's store.
 
@@ -97,6 +110,8 @@ if report.grants_access() { /* allow the native Pro operation */ }
 For a credential-backed anti-rollback ledger, configure `LicenseClientConfig::with_credential_clock(store, account)` before building `LicenseClient`. Use the same license directory, namespace and account in every process. Disabled licensing makes `native_entitlement_source()` and `native_clock_store()` return `LicenseError::Unconfigured`.
 
 `LicenseClient::deactivate_with_pending_release` accepts a callback `FnOnce(&PendingLicenseRelease) -> Result<(), ()>` to persist existing app queue data before deactivation. The callback receives an activation secret or lease id and device hash; callback error or panic preserves active licensing state. After persistence succeeds, the client writes its tombstone, then attempts best-effort server release.
+
+**Retry queue with acknowledgement (rightkit#1036).** An app that must free the seat after an offline or interrupted removal lends its durable queue through `PendingReleaseQueue` (`enqueue(&PendingLicenseRelease) -> PendingReleaseId`, `pending() -> Vec<PendingReleaseEntry>`, `acknowledge(&PendingReleaseId)`). `LicenseClient::deactivate_with_queue(&queue)` persists the row, writes the tombstone, makes the immediate release and, when the server settles it, acknowledges the row it was handed, so a removal that reached the server leaves no row. `LicenseClient::drain_pending_releases(&queue) -> DrainReport` sends every queued row on launch, focus and foreground: 2xx acknowledges, 404 and 410 (lease or activation already gone) settle it too, anything else, including no answer, keeps it queued. Lease rows carry the device hash and exact lease id, so a delayed retry cannot revoke a later reactivation; rows an older build wrote (activation token) keep draining. The client calls the queue under one lock per client, so the app's load-change-store needs none of its own; a row removed by a failed tombstone write (a definite store refusal) is deleted again so a later drain cannot free an active licence's seat. `PendingLicenseRelease` stays non-`Debug`, non-`Clone` and non-serialisable; the app serialises only inside its own queue. The shell command `rightkit_license_retry_pending_releases` and the JS `retryPendingReleases()` are in `rightkit-tauri-shell` and `@rightkit/license` (see CHANGELOG 0.2.8).
 
 ## Cargo features
 

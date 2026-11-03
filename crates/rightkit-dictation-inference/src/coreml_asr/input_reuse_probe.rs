@@ -62,14 +62,12 @@ pub(crate) fn clear_evaluator_override() {
     EVALUATOR_ENABLED.with(|value| value.set(None));
 }
 
-/// Return true only for the explicit allocation-reuse probe opt-in.
+/// Whether input allocation reuse is on for this decode.
 pub(crate) fn enabled() -> bool {
     EVALUATOR_ENABLED.with(|override_value| {
-        override_value.get().unwrap_or_else(|| {
-            PRODUCTION_ENABLED.with(|value| value.get())
-                || rightkit_dictation_core::dev_var!("RIGHTKIT_COREML_INPUT_REUSE_PROBE").as_deref()
-                    == Ok("1")
-        })
+        override_value
+            .get()
+            .unwrap_or_else(|| PRODUCTION_ENABLED.with(|value| value.get()))
     })
 }
 

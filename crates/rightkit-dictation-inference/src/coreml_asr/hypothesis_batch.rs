@@ -6,58 +6,10 @@ use rightkit_asr::parakeet_core::tdt_beam::BeamHyp;
 
 type Predictor = (Vec<f32>, Vec<f32>, Vec<f32>);
 
-const MAX_HYP_BATCH_ROWS: usize = 8;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum HypothesisBatchMode {
-    Scalar,
-    Predictor,
-    Joint,
-    Both,
-}
-
-impl HypothesisBatchMode {
-    pub(crate) fn batches_predictor(self) -> bool {
-        matches!(self, Self::Predictor | Self::Both)
-    }
-
-    pub(crate) fn batches_joint(self) -> bool {
-        matches!(self, Self::Joint | Self::Both)
-    }
-
-    pub(crate) fn is_batched(self) -> bool {
-        self.batches_predictor() || self.batches_joint()
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct HypothesisBatchConfig {
-    pub(crate) mode: HypothesisBatchMode,
-    pub(crate) max_rows: Option<usize>,
-}
-
-pub(crate) fn resolve_hypothesis_batch_config(
-    mode_value: Option<&str>,
-    max_rows_value: Option<&str>,
-) -> HypothesisBatchConfig {
-    let mode = match mode_value {
-        Some("predictor") => HypothesisBatchMode::Predictor,
-        Some("joint") => HypothesisBatchMode::Joint,
-        // Unset ships API batching of predictor and joint (beam 2: -8.5% wall,
-        // identical output on 224 clips; docs/experiments/2026-10-01).
-        // `RIGHTKIT_COREML_HYP_BATCH=0` restores the scalar path.
-        Some("1") | None => HypothesisBatchMode::Both,
-        _ => HypothesisBatchMode::Scalar,
-    };
-    let max_rows = max_rows_value
-        .and_then(|value| value.parse::<usize>().ok())
-        .filter(|&value| value > 0)
-        .map(|value| value.min(MAX_HYP_BATCH_ROWS));
-    HypothesisBatchConfig { mode, max_rows }
-}
-
-pub(crate) fn batch_chunk_size(row_count: usize, max_rows: Option<usize>) -> usize {
-    max_rows.unwrap_or_else(|| row_count.max(1))
+/// Shipping config: API batching of predictor and joint (beam 2: -8.5% wall, identical output
+/// on 224 clips; docs/experiments/2026-10-01), one tensor call per row group.
+pub(crate) fn batch_chunk_size(row_count: usize) -> usize {
+    row_count.max(1)
 }
 
 /// Rows per tensor call for a bundle's `decoder_batch`: `None` keeps the

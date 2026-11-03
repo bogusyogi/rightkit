@@ -234,6 +234,12 @@ Only `SPEECH_OWNER_APP` (`heardright`) may hold a speech model; every other app 
 - `parakeet_spec()` (TDT v3) is in no catalog list: `base_catalog()` is OCR on Windows and empty elsewhere.
 - `retire_speech_models(models_root, "heardright", active)` / `ModelStore::retire_speech_models(active)`: HeardRight calls it after activating `active` (Ultra). With `active` Ready, it strips every retired TDT id from every readable ref in every registry and removes each entry. Foreign refs, a foreign Parakeet runtime lease and a corrupt ref file never block it. An install in progress or a held entry lock keeps that entry; an OS refusal (a file still mapped on Windows) leaves the live entry intact in `failed`. Any other caller, a non-speech `active` or an `active` that is not Ready is an error. Idempotent.
 
+## Seeding a bundled model (no download)
+
+`ModelStore::seed_from_dir(spec, src_dir)` installs a model that ships inside the app's resources. It copies only the files the trusted catalog spec names into `<id>.staging-<pid>` beside the entry, stamps the trusted manifest there, verifies every file at full depth against the catalog pins, and publishes with one rename. A copy that fails verification is never published; a previous entry is moved aside and restored on failure. Each run under the entry lock removes `<id>.staging-*` and `<id>.replaced-*` leftovers from dead installs. The return value is `SeedOutcome::NoSource` (no source directory; nothing touched), `AlreadyComplete` (the store already verifies at full depth) or `Seeded`.
+
+`ModelStore::effective_status(spec, siblings, mode)` reports where an app should load a model from without registering anything: this store's entry when present, else the first verified sibling entry on the machine-wide store.
+
 ## Releasing models and retired-entry pruning
 
 - `suite::refs::release(refs_dir, app, ids)`, `ModelStore::release(ids)` and `Store::release_app_model(app, ids)` drop one app's refs to the listed ids only and return the listed ids no app references any more (sorted). Idempotent; an invalid id or a corrupt ref file is an error and changes nothing. Release itself deletes nothing.
@@ -266,7 +272,7 @@ use rightkit_models::{EntitlementError, ModelStore};
 use rightkit_models::suite::catalog::ModelSpec; // the suite's catalog spec, not the root `ModelSpec`
 ```
 
-- `ModelStore::shared(app_id)` binds the machine-wide shared store (the root is `rightkit_daemon::Suite::resolve`: `RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR` and `ORTHIC_SHARED_DIR` override it only in a build where `rightkit-daemon`'s `test-mode` is enabled by a dependent; this crate no longer enables it, so its own builds read none of them); `ModelStore::at_models_root(root, app_id)`
+- `ModelStore::shared(app_id)` binds the machine-wide shared store (the root is `rightkit_daemon::Suite::resolve`, the per-user default; no environment variable overrides it in any build); `ModelStore::at_models_root(root, app_id)`
   binds an explicit directory (tests, sandboxes). `with_http_client` swaps the transport.
 - `EntitlementError` is what `try_ensure_entitled` returns. Match on it to tell "not entitled"
   (`NotEntitled`), "back off" (`RateLimited`), "retry" (`Transport`) and "local failure" (`Install`).

@@ -153,18 +153,33 @@ pub struct LiveSampler {
     system: System,
 }
 
-impl Default for LiveSampler {
-    fn default() -> Self {
-        Self::new()
+/// The operating system would not give sysinfo access to its system tables (sysinfo 0.40 reports
+/// this from its constructors instead of panicking or returning an empty list).
+#[derive(Debug)]
+pub struct SamplerError(String);
+
+impl std::fmt::Display for SamplerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "system information unavailable: {}", self.0)
+    }
+}
+
+impl std::error::Error for SamplerError {}
+
+impl From<sysinfo::Error> for SamplerError {
+    fn from(error: sysinfo::Error) -> Self {
+        Self(error.to_string())
     }
 }
 
 impl LiveSampler {
-    pub fn new() -> Self {
-        let mut system = System::new();
+    /// A sampler primed with its first (not yet a measurement) reading. Fails when the OS refuses
+    /// sysinfo its system tables; there is no `Default`, since no value is a valid fallback.
+    pub fn new() -> Result<Self, SamplerError> {
+        let mut system = System::new()?;
         system.refresh_cpu_usage();
         system.refresh_memory();
-        Self { system }
+        Ok(Self { system })
     }
 
     pub fn sample(&mut self) -> LiveReading {
@@ -242,14 +257,18 @@ fn is_plumbing_mount(_mount: &str) -> bool {
 fn read_disks() -> Vec<DiskStatus> {
     // The list first with no volume asked anything, then the free-space and size reading for
     // the mounts that are drives.
-    let mut disks = Disks::new_with_refreshed_list_specifics(sysinfo::DiskRefreshKind::nothing());
-    for disk in disks.list_mut() {
+    // No list from the OS is an empty drive list, as for any other unreadable listing.
+    let Ok(mut disks) =
+        Disks::new_with_refreshed_list_specifics(sysinfo::DiskRefreshKind::nothing())
+    else {
+        return Vec::new();
+    };
+    for disk in disks.iter_mut() {
         if !is_plumbing_mount(&disk.mount_point().to_string_lossy()) {
             disk.refresh_specifics(sysinfo::DiskRefreshKind::everything());
         }
     }
     disks
-        .list()
         .iter()
         .filter(|disk| !is_plumbing_mount(&disk.mount_point().to_string_lossy()))
         .map(|disk| {
@@ -477,10 +496,13 @@ fn list_disks() -> Vec<DiskStatus> {
 #[cfg(not(windows))]
 pub fn mount_points() -> Vec<String> {
     Disks::new_with_refreshed_list_specifics(sysinfo::DiskRefreshKind::nothing())
-        .list()
-        .iter()
-        .map(|disk| disk.mount_point().to_string_lossy().into_owned())
-        .collect()
+        .map(|disks| {
+            disks
+                .iter()
+                .map(|disk| disk.mount_point().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Windows: the lettered drives from the drive mask. The engine's background drive-health pass
@@ -511,7 +533,10 @@ pub fn mount_points() -> Vec<String> {
 }
 
 pub fn system_status() -> SystemStatus {
-    let mut sampler = LiveSampler::new();
+    let mut sampler = match LiveSampler::new() {
+        Ok(sampler) => sampler,
+        Err(error) => return system_status_unavailable(&error),
+    };
     // sysinfo computes CPU deltas between refreshes. Keep this bounded and
     // avoid publishing an immediate zero as a reading.
     std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
@@ -549,6 +574,27 @@ pub fn system_status() -> SystemStatus {
             label: "swap total".into(),
         },
         disks,
+    }
+}
+
+/// Every CPU, memory and swap metric unavailable, with the reason as its label; the drive list is
+/// still read because it does not go through sysinfo's system tables.
+fn system_status_unavailable(error: &SamplerError) -> SystemStatus {
+    fn none<T>(label: &str, error: &SamplerError) -> Metric<T> {
+        Metric {
+            value: None,
+            capability: Capability::Unavailable,
+            label: format!("{label}: {error}"),
+        }
+    }
+    SystemStatus {
+        cpu_usage_percent: none("total CPU usage", error),
+        memory_used_bytes: none("system memory used", error),
+        memory_total_bytes: none("system memory total", error),
+        memory_pressure: memory_pressure_metric(),
+        swap_used_bytes: none("swap used", error),
+        swap_total_bytes: none("swap total", error),
+        disks: list_disks(),
     }
 }
 
@@ -736,6 +782,7 @@ fn procs_with(settle_gpu: bool) -> Vec<ProcessInfo> {
     };
     #[cfg(not(windows))]
     let _ = settle_gpu;
+    // No process table from the OS is an empty listing; `process_sampler::with_processes` reports why.
     let mut processes: Vec<_> = process_sampler::with_processes(|system| {
         system
             .processes()
@@ -777,7 +824,8 @@ fn procs_with(settle_gpu: bool) -> Vec<ProcessInfo> {
                 }
             })
             .collect()
-    });
+    })
+    .unwrap_or_default();
     processes.sort_by_key(|process| (process.identity.pid, process.identity.start_time));
     processes
 }

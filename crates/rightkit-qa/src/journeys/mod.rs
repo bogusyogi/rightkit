@@ -1,5 +1,5 @@
 //! End-to-end journeys: the `journeys.toml` manifest, the adapter protocol and the
-//! `rightkit.journeys.receipt/1` receipt (`docs/E2E-TESTING-STANDARD.md` D3, D4, D5).
+//! `rightkit.journeys.receipt/2` receipt (`docs/E2E-TESTING-STANDARD.md` D3, D4, D5).
 //!
 //! * `manifest`: the manifest and mapping types and [`check`], the static validation.
 //! * `adapter`: what an app's own Rust test adapter links: read the selection, append
@@ -22,7 +22,7 @@
 //!
 //! Hard rule of this module: a journey counts as passed only on positive evidence. Zero
 //! journeys, a missing or duplicate or unselected result, a skipped or errored journey, a stale
-//! `run_id` or `nonce`, a digest that does not match, a failed isolation or a non-zero adapter
+//! `run_id` or `nonce`, a digest that does not match, a missing or unverified snapshot restore or a non-zero adapter
 //! exit each make the verdict something other than `passed`, and an input that cannot be
 //! checked (no results file) is a problem, not a pass.
 pub mod adapter;
@@ -42,9 +42,10 @@ pub use receipt::{
 use serde::{Deserialize, Serialize};
 
 /// Receipt schema identifier (D5).
-pub const RECEIPT_SCHEMA: &str = "rightkit.journeys.receipt/1";
-/// Adapter protocol version (D4).
-pub const PROTOCOL: u32 = 1;
+pub const RECEIPT_SCHEMA: &str = "rightkit.journeys.receipt/2";
+/// Adapter protocol version (D4). Version 2 (rightkit#1437) replaces `start.isolation` with
+/// `start.snapshot_id`: the journeys run on the owner's real data under a snapshot and restore.
+pub const PROTOCOL: u32 = 2;
 
 /// Machine-readable problem codes. The first twelve are the D5 codes; the rest are added by this
 /// implementation where D5 states a rule without naming a code.
@@ -59,14 +60,15 @@ pub mod code {
     pub const ARTIFACT_MISMATCH: &str = "artifact_mismatch";
     pub const ARTIFACT_NOT_FROM_BUILD: &str = "artifact_not_from_build";
     pub const SOURCE_MISMATCH: &str = "source_mismatch";
-    pub const ISOLATION: &str = "isolation";
+    /// The snapshot of the real data is missing, unverified or does not match the adapter's start record.
+    pub const SNAPSHOT: &str = "snapshot";
     pub const ADAPTER_EXIT: &str = "adapter_exit";
     // Added here (D5 states the rule without a code):
     /// A selected journey ended `failed` or `errored`.
     pub const JOURNEY_FAILED: &str = "journey_failed";
     /// A `passed` journey with no unit, with a failed or skipped unit, or with units that do not add up.
     pub const EMPTY_JOURNEY: &str = "empty_journey";
-    /// The receipt does not have the `rightkit.journeys.receipt/1` shape or a field is malformed.
+    /// The receipt does not have the `rightkit.journeys.receipt/2` shape or a field is malformed.
     pub const SCHEMA: &str = "schema";
     /// The receipt's `counts` disagree with what its journeys say.
     pub const COUNTS_MISMATCH: &str = "counts_mismatch";
@@ -92,7 +94,7 @@ pub mod code {
     /// The build is not attested: no exit 0, no `build-finished` success, no broker request id, or
     /// a command that is not a compile-only broker build.
     pub const BUILD_NOT_ATTESTED: &str = "build_not_attested";
-    /// A binary to launch lacks the QA control marker (it is not a test-mode/control build).
+    /// A binary to launch lacks the QA control marker (it is not a QA control build).
     pub const QA_MARKER_MISSING: &str = "qa_marker_missing";
 
     /// Codes that mean "no usable result" (verdict `incomplete`) rather than "a journey failed".

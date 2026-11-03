@@ -394,7 +394,9 @@ fn resolve_worker_exe(
         .ok_or_else(|| {
             QtsError::new(
                 "worker_missing",
-                format!("{name} not found next to the app or in <data>/runtime/qts"),
+                format!(
+                    "{name} not found next to the app or in <data>/runtime/qts; the app must build, bundle and sign it (Cargo does not build a dependency's binary; see the helper declaration in rightkit-tts's Cargo.toml)"
+                ),
             )
         })
 }
@@ -428,10 +430,8 @@ fn spawn(spec: &SpawnSpec, backend: &str, mode: Mode) -> Result<Worker, QtsError
     let ort = ort_runtime_for(spec)?;
     let mut cmd = Command::new(exe);
     cmd.args(spec.worker_args(backend, mode, ort).to_command_line());
-    if !cfg!(feature = "dev-overrides") {
-        // Without `dev-overrides`: an inherited ORT_DYLIB_PATH never reaches the worker.
-        cmd.env_remove("ORT_DYLIB_PATH");
-    }
+    // An inherited ORT_DYLIB_PATH never reaches the worker.
+    cmd.env_remove("ORT_DYLIB_PATH");
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit());

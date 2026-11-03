@@ -11,7 +11,7 @@
     "engine": "not activated or qualified by these rows; EngineHost sidecar/presence/supervisor requires separate held-resource workload",
     "license,update,update-license,overlay,pdf-host": "not activated or qualified by these rows; final adapter owners must classify extra held-resource work versus focused stateless command qualification",
     "content-devtools": "enabled only in native-host rows to register ContentWebview and exercise settings/secrets ACL refusal; DevTools inspection is not qualified and needs its own allowed-app native qualification",
-    "dev-overrides,qa-probes": "development-only; excluded from published runtime workload"
+    "qa-probes": "development-only; excluded from published runtime workload"
   },
   "workloads": [
     {

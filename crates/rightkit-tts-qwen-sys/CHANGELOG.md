@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4 (unpublished)
+
+- Declares `supported_targets` (`aarch64-apple-darwin`, `x86_64-pc-windows-msvc`) in `[package.metadata.rightkit]`, and an unsupported target now stops with a message that lists the supported targets instead of only naming the missing bindings file (rightkit#1346 item 8). Supported builds are unchanged.
+
 ## 0.1.3 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

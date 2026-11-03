@@ -215,6 +215,10 @@ fn supervise(
     for (key, value) in &launch.env {
         cmd.env(key, value);
     }
+    // The worker runs the scenario on the owner's real data under the snapshot this process armed.
+    if let Some(marker) = crate::snapshot::armed_marker_path() {
+        cmd.env(crate::snapshot::MARKER_ENV, marker);
+    }
     containment.prepare(&mut cmd);
 
     let not_before = SystemTime::now();

@@ -30,8 +30,23 @@ pub enum OverlayEvent {
     DpiChanged(f32),
     /// The window moved to a different monitor.
     MonitorChanged,
+    /// A character typed while the window is in edit mode (`OverlayHandle::set_focusable(true)`).
+    /// Control characters are not sent here; the editing keys are reported as [`OverlayEvent::Key`].
+    Char(char),
+    /// An editing key pressed while the window is in edit mode.
+    Key(OverlayKey),
+    /// The window gained (`true`) or lost (`false`) keyboard focus while in edit mode.
+    Focus(bool),
     /// The window is gone. Always the last event; the receiver disconnects after it.
     Closed,
+}
+
+/// The editing keys reported as [`OverlayEvent::Key`] in edit mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OverlayKey {
+    Enter,
+    Escape,
+    Backspace,
 }
 
 /// Events waiting to be sent, merged as they are pushed so a flood of pointer moves costs one

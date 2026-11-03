@@ -3,12 +3,14 @@
 //! pending-advisory mode, which is the only mode the worker uses).
 
 use std::path::Path;
+use std::time::Duration;
 
 use serde_json::{json, Map, Value};
 
 use crate::approval::{canonical_repository_identity, sha256_value, validate_ownership_floor};
 use crate::committed::{acquire, assert_checkout_clean};
 use crate::error::{Res, ScanError};
+use crate::gitio;
 use crate::json::{field, items, locale_compare, str_of, truthy};
 use crate::paths;
 use crate::scan::{

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.3 (unpublished)
+
+- Added (rightkit#421): feature `mcp-provider` and `ToolboxProvider`, a `rightkit_mcp::ToolProvider` over a `Toolbox` for one `Caller` (src/mcp_provider.rs). `tools/list` is `Toolbox::list_for`; every `tools/call` runs `Toolbox::call_cancellable`, so exposure rules, allowlist, schema and admission apply unchanged; refusals are tool-level errors, an unknown tool is `ToolNotFound`; MCP cancellation reaches the tool's `CancelToken`. M22 decision recorded in the spec adjudication. The `rightkit-mcp` dependency no longer enables `agent_mcp` itself (feature `coding_tools` does), and its floor is 0.7.4.
+- Added (rightkit#1245): `coding_tools` tool `list_mcp_sources` reports each MCP source's state (`ready`, `no-tools`, `failed`, `pending`) and tool count from `McpManager::connection_states`, without starting a server or calling a tool; sources the channel permissions hide are omitted. Registered in the always-on set (hidden with the other MCP tools when mobile MCP is off).
+- Removed test-only code: feature `coding_tools-test-mode`, `local_provider_mock_base` (the `RIGHTKIT_E2E_LOCAL_PROVIDER_MOCK` endpoint redirect; Cloudflare and Fly.io always use their real API base) and `observe_revision_for_tests` (Adrian, 2026-11-03: "make sure no debug assertions in their respective apps/ repos"; "My decision was no unit tests. Only e2e."; "dev mode, is mine. im the fucking owner, my data. no dummy data ... real data. snapshot and restore."). Release behaviour unchanged.
+
+- Added (rightkit#795): a loopback HTTP transport for apps whose control surface is not a `control-<app>` pipe service (CodeRight). `AppProfile::with_http(HttpEndpoint)` / `AppProfile::http` moves the profile's tools onto `POST <path>` with `{"method","params"}` and an `{"ok","result"|"error"}` answer (wire contract `control-http v1`, `src/backends/http.rs`). `HttpEndpoint::new` and `parse` refuse any non-loopback address; an optional bearer token is read from a named file on every call and is never held in the profile, argv, environment or a log. The profile's methods, command policy, batch checks and the hard exposure rules (no paste or pasteboard tool, dictation layer) apply to both transports unchanged. `right-ctl` selects it with `RIGHT_CTL_HTTP_<APP>=ip:port[/path]` (and `RIGHT_CTL_HTTP_<APP>_TOKEN_FILE`). `AppProfile` gains the public field `http`, so a struct literal needs `http: None`; the constructors set it.
+- Documented (rightkit#795): an agent host's own model-facing registry is not exposed through `right-ctl` (the README states the exemption); the host applies `exposure::forbidden` to its own tool and command names so the pasteboard rule holds there too.
+
 ## Unreleased
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

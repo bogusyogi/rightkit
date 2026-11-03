@@ -2,6 +2,7 @@
 
 ## 0.2.10 (unpublished)
 
+- Removed (breaking): the `dev-overrides` feature, `developer_override_candidate` and `BindSpec::developer_env`. `clear_inherited_runtime_for_release` always clears `ORT_DYLIB_PATH`. Adrian, 2026-11-03: "dev mode, is mine. im the fucking owner, my data. no dummy data, no fucking made up shit. real data. snapshot and restore." and "make sure no debug assertions in their respective apps/ repos". Callers to fix: rightkit-dictation-runtime `entry.rs` (`developer_override_candidate`), rightkit-tts `dev-overrides` forward.
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 
 ## 0.2.9 (unreleased)

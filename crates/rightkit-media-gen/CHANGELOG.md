@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1 (unpublished)
+
+- Removed: the `dev-overrides` feature. ffmpeg and ffprobe resolve only through the catalog-verified bundled binary (`host::ffmpeg::trust` is always `verified`); the `<PREFIX>_FFMPEG`/`PATH` fallback and the `ORT_DYLIB_PATH` developer candidate in `qts::models` are gone. Adrian, 2026-11-03: "dev mode, is mine. im the fucking owner, my data. no dummy data, no fucking made up shit. real data. snapshot and restore." Needs rightkit-ffmpeg 0.2.16 and rightkit-onnx 0.2.10 (the resolver loses its `dev`/`mode` arguments).
+- Changed (rightkit#1437): `host::keychain::store_for` guards with `GuardMode::Deny`; `GuardMode::Memory` no longer exists (rightkit-credentials 0.4.6). `<PREFIX>_NO_KEYCHAIN` now denies the credential store instead of swapping in an in-memory one. Adrian, 2026-11-03: "no dummy data, no fucking made up shit. real data. snapshot and restore."
+
 ## Unreleased
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

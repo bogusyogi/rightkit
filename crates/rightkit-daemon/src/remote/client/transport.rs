@@ -6,6 +6,9 @@ use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 
 use super::error::Error;
+use rustls::pki_types::ServerName;
+use std::sync::Arc;
+use std::time::Duration;
 
 /// Largest header block accepted from the daemon.
 const HEAD_MAX: usize = 64 * 1024;

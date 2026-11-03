@@ -64,7 +64,8 @@ Run it with `RuleSet::evaluate_with` or `run_repair_loop_with`. Kind names start
 
 ## Cargo features
 
-None. The crate has no `[features]` table.
+- `phone` (off by default): the phone review and pause surface, `phone::PhoneSurface`, `TokenRegistry` and the `ReviewHost` trait (rightkit#1489). It serves `GET /review/api/jobs`, `POST /review/api/jobs/{id}/approve|reject|resolve|pause` and `POST /review/api/account/pause` on a `rightkit-daemon` host with the `remote` feature. Tokens are per device and bound to one account, stored as HMAC-SHA256 and verified in constant time; stale revisions, wrong job states and autonomous pairings answer `409`; failed authentication is rate limited. See the module docs for the wire contract.
+- The other features (`code`, `minimize`, `render-qa`) are described in the manifest.
 
 ## Platform support
 

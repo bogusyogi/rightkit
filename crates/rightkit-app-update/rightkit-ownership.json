@@ -1,0 +1,25 @@
+{
+  "package": "rightkit-app-update",
+  "capabilities": [
+    {
+      "capability": "update-boot-probation",
+      "summary": "Failed-boot detection after an app update: a sentinel file, BootStage progress and the reinstall decision (no payload backup, no rollback, per decision D1 of #771)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: apps call this crate instead of keeping their own boot sentinel, boot attempt counter or boot_stage and boot_ok commands.",
+        "Pure policy plus one sentinel file; it restores nothing and installs nothing."
+      ]
+    },
+    {
+      "capability": "allowlisted-fetch-bridge",
+      "summary": "A webview fetch request executed natively through rightkit-http: exact https host allowlist, optional path prefixes, redacted errors, base64 body DTOs",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: replaces tauri-plugin-http. The webview never carries a policy; the app compiles the allowlist natively.",
+        "Registration as a Tauri command stays with the shell host; the JS fetch export is @rightkit/tauri."
+      ]
+    }
+  ]
+}

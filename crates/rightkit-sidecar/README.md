@@ -12,6 +12,7 @@ Catalog capability: `framed-sidecar`. crates.io has 0.1.0; the source is 0.2.0, 
 - `read_json_line_or_oversized`: returns an over-limit frame as a value (`Incoming::Oversized`, with its head and `Oversized::id`). A supervisor can answer that one call and keep the child running.
 - `length_prefixed`: binary-safe alternative framing, a 4-byte big-endian length followed by a JSON body (`write_frame`, `read_frame`, and the `_bytes` variants).
 - `wire`: one typed envelope as `wire::Frame`, with the variants `Hello`, `Ready`, `Request`, `Event`, `Response` and `Bye`.
+- `length_prefixed::FrameOptions { allow_empty }` (0.3.1, opt-in): `read_frame_bytes_opts`, `write_frame_bytes_opts`, `read_frame_bytes_deadline_opts`, `write_frame_bytes_deadline_opts` and `deadline::read_frame_deadline_opts` / `write_frame_deadline_opts` treat a zero-length body as a valid frame (an empty write is the four-byte length `0`; a zero length reads as an empty `Vec`). The functions without `_opts` are unchanged and still refuse a zero length.
 - `length_prefixed::read_frame_bytes_deadline` / `write_frame_bytes_deadline` (0.2.1): the same frame over any `Read` or `Write` with a readiness callback (`Ready`) and an absolute deadline, for transports that are not a raw descriptor or overlapped handle. Same error mapping as `deadline` (end of stream is `UnexpectedEof`, never `Ok(None)`).
 - `deadline` (new in 0.2.0): `read_frame_deadline` and `write_frame_deadline` move one length-prefixed frame, the same wire format as `length_prefixed`, before an absolute `Instant`. Partial transfers resume until the deadline. On expiry they return `FrameError::TimedOut { partial_bytes }`. `DeadlineFramed<T>` wraps a stream that owns its descriptor or handle.
 - On malformed JSON, `FrameError::Json` is returned after the bad line is consumed, so the next call resumes cleanly. Non-UTF-8 lines return `FrameError::InvalidUtf8`.
@@ -25,7 +26,9 @@ Do not use it for schemas or request routing. Those belong to the app or to `rig
 
 ## Cargo features
 
-None. The crate has no `[features]` table. Dependencies: `serde` and `serde_json`, plus `libc` on Unix and `windows-sys` on Windows.
+- `tokio` (off by default): `tokio_io`, with `read_json_line_async`, `read_json_line_async_opts`, `read_json_line_or_oversized_async_opts`, `write_json_line_async`, `write_json_line_flush_async`, `write_encoded_line_async` and `write_encoded_line_flush_async`, the JSON-lines readers and writers over `tokio::io::AsyncBufRead` and `AsyncWrite` with the same bounds, resynchronisation and errors as the blocking functions. It enables `tokio` with `io-util` only: no runtime, no spawn. A read future dropped mid-line leaves the stream off a line boundary; close it.
+
+Dependencies: `serde` and `serde_json`, plus `libc` on Unix and `windows-sys` on Windows (and `tokio` with the feature above).
 
 ## Usage
 

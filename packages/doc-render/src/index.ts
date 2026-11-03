@@ -8,6 +8,8 @@ export { remarkHighlight, remarkPreserveSoftBreaks, remarkAutolinkFlag } from ".
 export { parseMarkdown, parseToTree, clearMarkdownParseCache, getMarkdownParseCacheEntryCount, getMarkdownParseCacheBytes, configureMarkdownParseCache, DEFAULT_PARSE_CACHE_MAX_BYTES } from "./parseMarkdown.js";
 export type { ParseOptions } from "./parseMarkdown.js";
 export { safeLinkHref, safeImageHref, sanitizeHtml, sanitizeMarkdownHtml, isSafeUri } from "./security.js";
+export { sanitizeFullHtmlDocument, sanitizeKatexHtml, sanitizeMermaidSvg, filterStyle } from "./htmlProfiles.js";
+export type { FullDocumentPolicy } from "./htmlProfiles.js";
 export { buildHeadingSlugs } from "./headingSlugs.js";
 export { collectFootnotes } from "./footnotes.js";
 export { formatCitation, formatBibliographyEntry, formatNames, formatYear, buildBibliographyMap } from "./citations/formatter.js";

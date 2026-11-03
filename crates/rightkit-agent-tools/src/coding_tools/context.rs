@@ -28,41 +28,6 @@ impl std::fmt::Debug for SecretString {
     }
 }
 
-/// Qualification-only mock endpoint override. It requires an explicit arm
-/// and accepts loopback HTTP URLs only, preventing provider credentials from
-/// being redirected to arbitrary hosts by runtime environment configuration.
-///
-/// Compiled only into test builds (`test` or the `test-mode` feature, which the `host app`
-/// binary's own `test-mode` enables) on a `host` profile. A release build has no override at all,
-/// not even one behind an environment variable.
-#[cfg(not(all(
-    feature = "coding_tools-host",
-    any(test, feature = "coding_tools-test-mode")
-)))]
-pub(crate) fn local_provider_mock_base(_provider: &str) -> Option<url::Url> {
-    None
-}
-
-#[cfg(all(
-    feature = "coding_tools-host",
-    any(test, feature = "coding_tools-test-mode")
-))]
-pub(crate) fn local_provider_mock_base(provider: &str) -> Option<url::Url> {
-    if std::env::var("RIGHTKIT_E2E_LOCAL_PROVIDER_MOCK")
-        .ok()
-        .as_deref()
-        != Some("1")
-    {
-        return None;
-    }
-    let key = format!("RIGHTKIT_E2E_{}_BASE_URL", provider.to_ascii_uppercase());
-    let raw = std::env::var(key).ok()?;
-    let url = url::Url::parse(&raw).ok()?;
-    let loopback = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1"));
-    (url.scheme() == "http" && loopback && url.username().is_empty() && url.password().is_none())
-        .then_some(url)
-}
-
 #[derive(Debug, Clone)]
 pub struct CredentialPrompt {
     pub provider: String,

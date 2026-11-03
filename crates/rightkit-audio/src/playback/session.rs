@@ -19,6 +19,8 @@ const MAX_RING_DURATION: Duration = Duration::from_secs(60);
 const SCRATCH_SAMPLES: usize = 4096;
 /// Minimum wait between failed reopen attempts.
 const RETRY_INTERVAL: Duration = Duration::from_millis(250);
+/// Minimum wait between checks of which device is the default output.
+const FOLLOW_INTERVAL: Duration = Duration::from_secs(1);
 
 fn playback_err(context: &str, e: impl std::fmt::Display) -> AudioError {
     AudioError::Playback(format!("{context}: {e}"))
@@ -46,6 +48,10 @@ pub struct OutputFormat {
     pub channels: u16,
     /// Ring capacity in interleaved samples.
     pub capacity_samples: usize,
+}
+
+fn device_id(device: &cpal::Device) -> Option<String> {
+    device.id().ok().map(|id| id.id().to_string())
 }
 
 fn device_name(device: &cpal::Device) -> String {
@@ -382,6 +388,15 @@ pub struct OutputSession {
     device_name: String,
     next_retry: Instant,
     last_error: Option<AudioError>,
+    /// Opened on the default device: [`service`](OutputSession::service) moves the stream when the
+    /// default changes.
+    follow_default: bool,
+    active_id: Option<String>,
+    next_follow_check: Instant,
+    idle_release: Option<Duration>,
+    idle_since: Option<Instant>,
+    /// The cpal stream is paused (no callbacks) because nothing was playing.
+    stream_idle: bool,
 }
 
 impl Deref for OutputSession {
@@ -434,6 +449,12 @@ impl OutputSession {
             device_name: name,
             next_retry: Instant::now(),
             last_error: None,
+            follow_default: device.is_none(),
+            active_id: device_id(&dev),
+            next_follow_check: Instant::now() + FOLLOW_INTERVAL,
+            idle_release: None,
+            idle_since: None,
+            stream_idle: false,
         })
     }
 
@@ -453,13 +474,137 @@ impl OutputSession {
     /// tries to reopen the default device, at most once per 250 ms; see
     /// [`take_last_error`](Self::take_last_error).
     pub fn push_samples(&mut self, samples: &[f32]) -> usize {
+        self.retry_recovery();
+        // Audio after an idle release brings the device back before it is queued.
+        if self.stream_idle && !samples.is_empty() && !self.control.shared.is_paused() {
+            self.wake_from_idle();
+        }
+        self.control.shared.push(samples)
+    }
+
+    fn retry_recovery(&mut self) {
         if self.control.shared.fault() == FAULT_REOPEN && Instant::now() >= self.next_retry {
             if let Err(e) = self.recover() {
                 self.last_error = Some(e);
                 self.next_retry = Instant::now() + RETRY_INTERVAL;
             }
         }
-        self.control.shared.push(samples)
+    }
+
+    /// Pause the device stream while nothing plays, so an idle session costs no audio callbacks and
+    /// lets the hardware sleep. `Some(after)`: once the queue has been empty, or the session paused,
+    /// for `after` as seen by consecutive [`service`](Self::service) calls, the stream is paused;
+    /// queued audio, [`resume`](OutputControl::resume) or a push brings it back. `None` (the
+    /// default) keeps the stream running. The playback clock, queue, volume and counters are
+    /// untouched either way.
+    pub fn set_idle_release(&mut self, after: Option<Duration>) {
+        self.idle_release = after;
+        self.idle_since = None;
+        if after.is_none() && self.stream_idle {
+            self.wake_from_idle();
+        }
+    }
+
+    /// Whether the device stream is paused by the idle release (no callbacks are running).
+    pub fn is_idle_released(&self) -> bool {
+        self.stream_idle
+    }
+
+    fn wake_from_idle(&mut self) {
+        self.idle_since = None;
+        if !self.stream_idle {
+            return;
+        }
+        // The default device may have changed while no callback ran.
+        self.next_follow_check = Instant::now();
+        if let Some(stream) = &self.stream {
+            if let Err(e) = stream.play() {
+                self.last_error = Some(playback_err("stream.play() failed after idle", e));
+                return;
+            }
+        }
+        self.stream_idle = false;
+    }
+
+    /// Housekeeping for the producer thread; call it every 100 to 250 ms (and it is cheap enough to
+    /// call from a `push` loop). Retries a pending device-loss reopen, follows the default output
+    /// device when this session was opened with `None` (checked at most once a second; the new
+    /// device must offer the session's rate and channel count, else the failure is kept for
+    /// [`take_last_error`](Self::take_last_error) and the current stream stays), and applies the
+    /// idle release of [`set_idle_release`](Self::set_idle_release).
+    pub fn service(&mut self) {
+        self.retry_recovery();
+        let now = Instant::now();
+        if self.follow_default && !self.stream_idle && now >= self.next_follow_check {
+            self.next_follow_check = now + FOLLOW_INTERVAL;
+            if let Err(e) = self.follow_default_device() {
+                self.last_error = Some(e);
+            }
+        }
+        let Some(after) = self.idle_release else {
+            return;
+        };
+        let shared = &self.control.shared;
+        let idle = shared.is_paused() || shared.ring.len() == 0;
+        if self.stream_idle {
+            if !idle {
+                self.wake_from_idle();
+            }
+            return;
+        }
+        if !idle {
+            self.idle_since = None;
+            return;
+        }
+        match self.idle_since {
+            None => self.idle_since = Some(now),
+            Some(since) if now.saturating_duration_since(since) >= after => {
+                if let Some(stream) = &self.stream {
+                    match stream.pause() {
+                        Ok(()) => self.stream_idle = true,
+                        Err(e) => {
+                            self.last_error = Some(playback_err("stream.pause() failed", e));
+                        }
+                    }
+                }
+                self.idle_since = None;
+            }
+            Some(_) => {}
+        }
+    }
+
+    /// Move the stream to the default output device when it is no longer the one in use.
+    fn follow_default_device(&mut self) -> Result<(), AudioError> {
+        let host = cpal::default_host();
+        let Some(dev) = host.default_output_device() else {
+            return Ok(());
+        };
+        let id = device_id(&dev);
+        if id.is_none() || id == self.active_id {
+            return Ok(());
+        }
+        let shared = Arc::clone(&self.control.shared);
+        // Checked before the old stream is dropped: a device that cannot play this session's
+        // format leaves the current stream alone.
+        let supported = matching_config(&dev, shared.sample_rate, shared.channels)?;
+        // One consumer of the ring at a time: the old stream goes first.
+        self.stream = None;
+        match build_and_start(&dev, supported, &shared) {
+            Ok(stream) => {
+                shared.note_recovery();
+                self.device_name = device_name(&dev);
+                self.active_id = id;
+                self.stream = Some(stream);
+                self.stream_idle = false;
+                self.idle_since = None;
+                Ok(())
+            }
+            Err(e) => {
+                // No stream now: let the device-loss path retry on the default device.
+                shared.record_stream_error(true);
+                Err(e)
+            }
+        }
     }
 
     /// Samples the ring could accept right now.
@@ -491,7 +636,10 @@ impl OutputSession {
         shared.clear_fault();
         shared.note_recovery();
         self.device_name = device_name(&dev);
+        self.active_id = device_id(&dev);
         self.stream = Some(stream);
+        self.stream_idle = false;
+        self.idle_since = None;
         self.last_error = None;
         Ok(true)
     }

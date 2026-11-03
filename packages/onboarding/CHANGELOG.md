@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.4 — unpublished staging
+
+- Removed (Adrian, 2026-11-03: end-to-end tests only; a built harness page on a dev server is not end to end): the real-browser tests against a harness page, their harness, `vitest.config.ts` and the `test` and `pretest` scripts and the test-only devDependencies (`@rightkit/qa-chrome`, `vite`, `vitest`, `react-dom`, `@types/react-dom`). Nothing shipped changes.
+
+Additive. Every default is unchanged; existing callers and exports keep their meaning.
+
+Added:
+- Issue #1017: `isStepSettled(state, stepId)` exported beside `isLegalAccepted`: true when the setup was set aside (`skipped`), or the step is in `completed` or `skippedSteps`. Reads the raw persisted value; missing or malformed input is false and never throws.
+- Issue #861: `restartOnboardingSetup({ settings })` restarts the setup at its first step. Progress (completed and skipped steps, the set-aside flag) is cleared; the legal acceptance and the `legal` completion are kept, so the agreement is not asked again.
+- Issue #1314: `density="compact"` (rail 188px, main 18px top, content 8px) and `trafficLightInset` (macOS: rail and titlebar strip start past the traffic lights; width from `--rk-lights-width`, top from `--rk-onboarding-lights-top`, default 40px).
+- Issue #1223: `frame="card"` lays the setup out as one centred card with the app name on top and a dot pager, no step rail or eyebrow (the HeardRight v5 mock). Default `frame="rail"` is unchanged.
+- Issue #1173: `LegalReceiptPort.read()` may return `{ record, current: false }` (`HistoricalLegalReceipt`). A historical receipt keeps the re-acceptance variant and the setup progress: the gate shows again and Agree takes the re-acceptance branch. `createNativeLegalReceiptPort.read` maps that native shape. Native side: needs `crates/rightkit-tauri-shell/src/host/legal.rs` to offer the historical record (today it returns none).
+- Issue #1102: `importLegacyAcceptance({ invoke, storageKey, parse, storage, commands })`: one-time submission of a renderer-held legacy acceptance to the native `rightkit_legal_receipt_import` command (`LEGAL_RECEIPT_COMMANDS.import`); the legacy key is removed only after the native service confirms. Native command: needs `crates/rightkit-tauri-shell/src/host/legal.rs`.
+
 ## 0.6.3 — unpublished staging
 
 Additive (PK10-1, PK10-2, PK10-3, PK10-5). Every default is unchanged; the change set has no breaking item, so under R5 (pre-1.0) it takes the next patch.

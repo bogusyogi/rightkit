@@ -3,6 +3,7 @@
 ## 0.1.2 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+- Removed the `fake-engine` feature, the `fake-genright-engine` binary, `tests/orchestration.rs`, the public `Failpoint` enum, `Orchestrator::set_failpoint`, `Error::Injected` and `ProcessRunner::with_env` (test-only code).
 
 ## 0.1.1 (unreleased)
 

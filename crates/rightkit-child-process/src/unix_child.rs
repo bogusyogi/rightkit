@@ -79,6 +79,7 @@
 //! The state is one lock-guarded enum, never separate atomics, so no thread can observe a
 //! half-published transition.
 
+use crate::child_usage::ChildUsage;
 use crate::exit_watch::ExitWatch;
 use crate::identity::{Origin, Proof};
 use crate::process_handle::lock_child;
@@ -167,6 +168,8 @@ pub struct UnixChild {
     child: Child,
     pid: u32,
     leader: Leader,
+    /// CPU time and peak memory, read by the `wait4` that reaped the leader.
+    usage: Option<ChildUsage>,
     /// Who the leader was at spawn. Checked by [`UnixChild::prove`] before any action by pid.
     origin: Origin,
     /// The wake-up hint for waiters (never a verdict), opened at spawn and shared with every
@@ -191,6 +194,53 @@ impl UnixChild {
             watch,
             child,
             leader: Leader::Unreaped,
+            usage: None,
+        }
+    }
+
+    /// CPU time and peak memory of the leader (and the descendants it waited for), once this
+    /// type has reaped it; `None` before, and when another reader reaped it.
+    pub(crate) fn reaped_usage(&self) -> Option<ChildUsage> {
+        self.usage
+    }
+
+    /// One non-blocking reap of the leader with `wait4`, so the kernel's resource accounting
+    /// for the child arrives with its status. The std `Child` is never asked to wait after
+    /// this type took over the reaping (only `cleanup_unidentified`, which runs before any
+    /// other path can see the child, still uses it), so nothing reaps behind this call.
+    fn reap_nonblocking(&mut self) -> io::Result<Option<ExitStatus>> {
+        use std::os::unix::process::ExitStatusExt;
+        loop {
+            let mut raw_status: libc::c_int = 0;
+            // SAFETY: an all-zero rusage is valid, and wait4 fills it.
+            let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+            // SAFETY: valid out pointers; the caller proved just before that the pid still
+            // names this child (`require_ours`) and holds the lock, so no other reader of this
+            // child runs.
+            let reaped = unsafe {
+                libc::wait4(
+                    self.pid as libc::pid_t,
+                    &mut raw_status,
+                    libc::WNOHANG,
+                    &mut usage,
+                )
+            };
+            if reaped == 0 {
+                return Ok(None);
+            }
+            if reaped > 0 {
+                if reaped as u32 != self.pid {
+                    return Err(io::Error::other(
+                        "wait4 reaped a process that is not the child",
+                    ));
+                }
+                self.usage = Some(ChildUsage::from_rusage(&usage));
+                return Ok(Some(ExitStatus::from_raw(raw_status)));
+            }
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() != Some(libc::EINTR) {
+                return Err(error);
+            }
         }
     }
 
@@ -280,7 +330,7 @@ impl UnixChild {
         if let Err(error) = self.require_ours() {
             return Err(self.note_error(error));
         }
-        match self.child.try_wait() {
+        match self.reap_nonblocking() {
             Ok(Some(status)) => {
                 self.note_reaped(status);
                 Ok(Some(status))
@@ -563,16 +613,8 @@ pub(crate) fn wait_shared(
     shared: &Mutex<UnixChild>,
     deadline: Option<Instant>,
 ) -> io::Result<Option<ExitStatus>> {
-    let (watch, pid) = {
-        let child = lock_child(shared);
-        (child.exit_watch(), child.id())
-    };
-    let mut first = true;
-    watch.wait_for(deadline, || {
-        let looked = lock_child(shared).try_wait();
-        pause_for_test(&mut first, pid, matches!(looked, Ok(None)));
-        looked
-    })
+    let watch = lock_child(shared).exit_watch();
+    watch.wait_for(deadline, || lock_child(shared).try_wait())
 }
 
 /// Like [`wait_shared`] but does not reap: `Ok(true)` once the leader has exited (or was reaped
@@ -581,14 +623,9 @@ pub(crate) fn observe_shared(
     shared: &Mutex<UnixChild>,
     deadline: Option<Instant>,
 ) -> io::Result<bool> {
-    let (watch, pid) = {
-        let child = lock_child(shared);
-        (child.exit_watch(), child.id())
-    };
-    let mut first = true;
+    let watch = lock_child(shared).exit_watch();
     let seen = watch.wait_for(deadline, || {
         let state = lock_child(shared).leader_state();
-        pause_for_test(&mut first, pid, matches!(state, Ok(LeaderState::Running)));
         Ok(match state? {
             LeaderState::Running => None,
             LeaderState::Exited | LeaderState::Reaped => Some(()),
@@ -596,5 +633,3 @@ pub(crate) fn observe_shared(
     })?;
     Ok(seen.is_some())
 }
-
-fn pause_for_test(_first: &mut bool, _pid: u32, _running: bool) {}

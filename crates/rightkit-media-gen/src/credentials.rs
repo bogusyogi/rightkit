@@ -38,7 +38,7 @@ fn kerr(e: rightkit_credentials::Error) -> GenError {
     GenError::new("keychain", format!("keychain error: {e}"))
 }
 
-/// The injected store, else the host OS store (`RIGHTKIT_NO_KEYCHAIN` guards it into memory).
+/// The injected store, else the host OS store (`RIGHTKIT_NO_KEYCHAIN` denies it).
 fn store(ctx: &Context) -> Store {
     match &ctx.credentials {
         Some(c) => c.store().clone(),

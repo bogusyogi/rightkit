@@ -5,7 +5,7 @@ Small, brand-neutral i18n runtime for React apps. The app supplies an English ca
 | Item | Value |
 |---|---|
 | Where it runs | App webview UI (React) |
-| Rust pair | None |
+| Rust pair | `rightkit-i18n` (crates/rightkit-i18n): loads the same catalogs in native code |
 | Version | see INDEX.md |
 | License | MIT OR Apache-2.0 |
 

@@ -885,13 +885,13 @@ fn attach_room_tone(
     if gaps.is_empty() {
         return Ok(());
     }
-    let binary = rk::verify_ffmpeg_or_development(
+    let binary = rk::verify_ffmpeg_handle(
         &tools.ffmpeg,
         rk::EXPORT_ASS_ZIMG_VARIANT,
         crate::tools::VERIFY_TIMEOUT,
     )
     .or_else(|_| {
-        rk::verify_ffmpeg_or_development(
+        rk::verify_ffmpeg_handle(
             &tools.ffmpeg,
             rk::EXPORT_ASS_VARIANT,
             crate::tools::VERIFY_TIMEOUT,

@@ -219,6 +219,14 @@ export function iosTrustPackageResolved(iosSpec) {
 
 const outside = (root, file) => { const relative = path.relative(root, file); return relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative); };
 
+/** The Package.swift a SwiftPM target requires: the one in the app root or the config workdir, else the app root's unless the target is an Xcode-built bundle (`notarize.appBeforePackage`). */
+function swiftPackageManifestInputs({ appRoot, config, target }) {
+  const roots = [appRoot, path.resolve(appRoot, config?.workdir ?? ".")];
+  const found = roots.map((root) => path.join(root, "Package.swift")).find((file) => existsSync(file));
+  if (found) return [found];
+  return target?.notarize?.appBeforePackage ? [] : [path.join(appRoot, "Package.swift")];
+}
+
 export function resolveReleaseBuildInputs({ repoRoot, appRoot, configPath, config, target, env = process.env }) {
   const swift = resolveProjectType({ appRoot, config, target }) === "swiftpm";
   const iosSpec = iosPackageSpecOf(target);
@@ -250,8 +258,10 @@ export function resolveReleaseBuildInputs({ repoRoot, appRoot, configPath, confi
   const requiredInputs = [
     configPath,
     ...(swift
-      // SwiftPM: Package.swift is required; Package.resolved and the Node manifests only when they exist.
-      ? [path.join(appRoot, "Package.swift"), ...optionalIfPresent(["Package.resolved", "package.json", "pnpm-lock.yaml"])]
+      // SwiftPM: the Package.swift is required where the target's layout puts it (the app root or the config's workdir); an Xcode-built
+      // mac bundle that notarizes before it packages (Pulse's mac/ notch, #920) has no root SwiftPM package, so none is demanded.
+      // Package.resolved and the Node manifests only when they exist.
+      ? [...swiftPackageManifestInputs({ appRoot, config, target }), ...optionalIfPresent(["Package.resolved", "package.json", "pnpm-lock.yaml"])]
       : nativeIos
       // Native iOS: package.json and pnpm-lock.yaml only when the app has them, plus the declared Cargo manifest and its lock.
       ? [...optionalIfPresent(["package.json", "pnpm-lock.yaml"]), ...(pinnedLayout ? [pinnedLayout.manifestPath, pinnedLayout.lockPath] : [])]

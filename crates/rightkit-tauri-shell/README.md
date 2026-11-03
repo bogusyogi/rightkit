@@ -14,18 +14,18 @@ Shared Tauri desktop shell for Right Suite applications. It owns hardened webvie
 | `wv2-0_38` | off | `windows` 0.61, `webview2-com` 0.38 | Windows types for apps locked to Tauri 2.11. Use `default-features = false, features = ["wv2-0_38"]` & retain other selected features. |
 | `wv2-0_39` | on | `windows` 0.62, `webview2-com` 0.39 | Windows types for Tauri 2.12; default since 0.5.0. Enabling both selects 0.39. |
 | `content-devtools` | off | `tauri/devtools` | Required by `DevToolsPolicy::ContentOnly`. Only an app on the `right-release` allow-list (today ViewRight) may ship it; see "DevTools policy". Never a default feature. |
-| `dev-overrides` | off | none | Development and QA builds only: `NavPolicy::default()` treats loopback (localhost, 127.0.0.1, [::1]) http(s) URLs as internal. Not implied by a build profile (installed dev builds with debug assertions get the release default, `allow_loopback: false`); an app sets it from an optional QA/dev feature. Never a default feature. |
 | `host-services` | off | `rightkit-app-settings` 0.3.0 | Shared host services (`src/host/`): settings bridge, write-only API-key slots, legal receipt, and the `HostCallerPolicy` that gates them. Adds the `rightkit_settings_*`, `rightkit_secrets_*`, `rightkit_legal_receipt_*` and `rightkit_preview_*` commands. |
+| `app-update` | off | `rightkit-app-update` 0.1.0 | Boot probation after an update and the allowlisted fetch bridge as host commands (`rightkit_boot_status`, `rightkit_boot_stage`, `rightkit_boot_ok`, `rightkit_boot_begin`, `rightkit_app_update_fetch`), behind `ServiceId::APP_UPDATE` (`HostServicesBuilder::app_update`). Implies `host-services`. |
 | `logs` | off | `rightkit-logs` 0.3.4 | Renderer log commands `rightkit_logs_write`, `rightkit_logs_collect`, `rightkit_logs_clear` (`src/logs_commands.rs`). `LogsConfig::clear_sources` makes clear cover the app's other logs, and `LogsConfig::settings` fills the bundle's `metadata.settings` (see Logs below). |
 | `crash` | off | `rightkit-crash` 0.3.4 (`window-errors`) | `watchdog::crash_capture` and `CrashCaptureOptions`: a stall capture that writes a crash report through `rightkit-crash`. Also `rightkit_crash_window_error`, the renderer error sink (`src/crash_commands.rs`), with or without `host-services` (see Crash below). |
 | `models` | off | implies `host-services`; `rightkit-models` 0.5.0 | Native model store commands `rightkit_models_list`, `_install`, `_cancel`, `_remove` (`src/host/models.rs`). IPC accepts only a declared model id. |
 | `pdf-host` | off | implies `host-services`; `rightkit-pdf` 0.3.3 (`host`) | Native PDF view: seven `rightkit_pdf_*` commands (`src/pdf_host.rs`). PDFKit on macOS; `unsupported` on other platforms. |
-| `license` | off | implies `host-services`; `rightkit-license` 0.2.4 (`update-auth`) | Five `rightkit_license_*` commands. The views they return carry no token, key or device id. |
+| `license` | off | implies `host-services`; `rightkit-license` 0.2.4 (`update-auth`) | The `rightkit_license_*` commands (status, activate, refresh, deactivate, request_trial, link_request, link_redeem, retry_pending_releases; the last needs `LicenseHostService::with_release_queue`) and, behind `ServiceId::ACCOUNT` (`HostServicesBuilder::account_client`), the nine `rightkit_account_*` commands. The views they return carry no token, key or device id. |
 | `update` | off | implies `host-services`; `tauri-plugin-updater` =2.10.1, `reqwest` 0.13.5, `sha2`, `tokio` | Native updater: five `rightkit_update_*` commands (`src/update.rs`). |
 | `update-license` | off | implies `update` and `license`; `url` | Binds each update to the licence captured at check (`LicenseAuthority`). |
 | `overlay` | off | `rightkit-overlay` 0.2.0 | Always-on-top, no-activate overlay host (`src/overlay_host.rs`). |
 | `app-lock` | off | implies `host-services`; `rightkit-credentials` 0.4.0 (`os-auth`) | Native OS-auth app lock: `rightkit_app_lock_*` commands over Windows Hello / macOS LocalAuthentication, caller-gated, fail-closed (`src/app_lock.rs`, `src/host/app_lock.rs`). Local unlock never grants remote approval, PIN or signing authority. |
-| `qa-probes` | off | none | Development and QA builds only: QA control-command helpers (`clipboard::qa` private-pasteboard staging, `frameless::button_frames` traffic-light probe). Compiled only with debug assertions; a release build enabling it fails with `compile_error!`. Never a default feature. It does not enable DevTools inspection. |
+| `qa-probes` | off | none | Development and QA builds only: QA control-command helpers (`clipboard::qa` private-pasteboard staging, `frameless::button_frames` traffic-light probe). Compiled only with this feature; a release build must not enable it. Never a default feature. It does not enable DevTools inspection. |
 
 Mismatched `wv2` features put two copies of `windows` or `webview2-com` beside Tauri's, and `cast()` then fails. With `default-features = false`, enable exactly the feature that matches the app's Tauri version.
 
@@ -38,7 +38,7 @@ The native updater verifies minisign signatures, accepts only https URLs with no
 ## Platform support
 
 - macOS: native notifications and presence through `objc2` and related crates; `cfg(target_os = "macos")` in `src/` (for example `notify.rs`, `presence.rs`, `frameless.rs`).
-- Windows: WebView2 types through the `wv2` features; native toasts through `tauri-winrt-notification`; `cfg(windows)` in `src/`.
+- Windows: WebView2 types through the `wv2` features; native toasts through `rightkit-notifications`; `cfg(windows)` in `src/`.
 - Linux: this README does not describe Linux-specific behavior. Open-URL delivery on Linux depends on the `.desktop` MIME entry (see Standalone open-URL hook).
 
 Published version: see `INDEX.md` at the repository root. See `CHANGELOG.md`; the version sections below record additions by version.
@@ -54,7 +54,7 @@ Illustrative; not compiled as a doctest. The compiled references are `tests/poli
 - WebView2 hardening (`src/harden.rs`, `windows_impl`): sets status bar, zoom control, pinch zoom, swipe navigation and browser accelerator keys (F5, Ctrl+R, Alt+Left, F12). It registers `ContextMenuRequested` through `ICoreWebView2_11`. That handler suppresses the menu unless the target is editable and `allow_editable_menu` is set.
 - Idle (`src/idle.rs`): `ICoreWebView2_3::TrySuspend` and `SetIsVisible` on the controller.
 - Clipboard (`src/clipboard.rs`): `OpenClipboard` with 10 retries at 20 ms. Reads `CF_UNICODETEXT`, `HTML Format`, `PNG`, `CF_HDROP` (file lists through `DragQueryFileW`) and `CF_DIB`. A write owns the clipboard through a message-only window, because `SetClipboardData` fails after `EmptyClipboard` with a NULL owner. `ClipboardOptions::image_preference` chooses `PNG` first (default) or `CF_DIB` first for the typed image.
-- Notifications: WinRT toasts through `tauri-winrt-notification` 0.8, as described below.
+- Notifications: delivery by `rightkit-notifications` (WinRT toasts on Windows), as described below.
 - Registry and shell: autostart reads and writes `HKCU\...\CurrentVersion\Run` through `reg.exe`. Scheme registration writes under `HKCU\Software\Classes` through `reg.exe`. Both use `CREATE_NO_WINDOW`. `opener` launches `rundll32.exe url.dll,FileProtocolHandler`.
 - Single instance uses the rightkit-daemon named pipe (`src/instance.rs`). Broker entropy comes from `SystemFunction036` in advapi32 (`src/broker.rs`).
 - Dependencies: `windows_061`/`windows_062` and `webview2_com_038`/`webview2_com_039` are optional. They enable Win32 features `Win32_Foundation`, `Win32_System_Com`, `Win32_System_DataExchange`, `Win32_System_Memory`, `Win32_System_Ole`, `Win32_UI_Shell` and `Win32_UI_WindowsAndMessaging`. Consumers select only a `wv2-*` feature.
@@ -106,7 +106,7 @@ Iframes: inspection of an iframe alone cannot be granted. On both platforms the 
 
 ### Development builds
 
-There is no development-build hole and no `dev-inspect` cargo feature: it was removed, `DEV_INSPECT_COMPILED` is always `false`, and `build_gate_with` ignores its historical `dev_inspect` argument (`src/devtools.rs:23-27,60-62`). `Denied` / `ContentOnly` apply exactly as above in every build profile; debug assertions do not matter. `DEV_INSPECT_MARKER` text stays only so release scanning can still refuse binaries built from older sources. `qa-probes` and `dev-overrides` do not enable inspection.
+There is no development-build hole and no `dev-inspect` cargo feature: it was removed, `DEV_INSPECT_COMPILED` is always `false`, and `build_gate_with` ignores its historical `dev_inspect` argument (`src/devtools.rs:23-27,60-62`). `Denied` / `ContentOnly` apply exactly as above in every build profile. `DEV_INSPECT_MARKER` text stays only so release scanning can still refuse binaries built from older sources. `qa-probes` does not enable inspection.
 
 - **The pipe form of remote debugging leaves no port file.** Started with the remote-debugging *pipe* switch, a browser takes its debugger over inherited handles: it opens no port and writes no `DevToolsActivePort`, so the tripwire above cannot see it. The switch is refused where it can be seen (the process's own arguments, the `AdditionalBrowserArguments` policy, the scrubbed environment variables). A parent process that starts the browser itself with that switch is outside what this crate can detect.
 - **`BrowserExecutableFolder` policy (Windows).** A machine or user policy that makes WebView2 start a browser from another folder for this program is refused at start (`DevToolsError::BrowserRuntimeRedirected`): that browser may be built to do anything. Matched value names: `*` and this program's executable file name, compared without regard to case; every other name belongs to another program and is ignored. The environment variable of the same purpose, `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER`, is refused the same way when it is set in the process environment at start.
@@ -207,6 +207,7 @@ Each profile replaces the module set. `on` / `off` says whether the module is in
 - `ClearSource::jsonl("engine", path)` removes a JSONL log and its rotated generation.
   `ClearSource::new("shell", move || guard.clear())` clears a `tracing` family through the app's
   `Arc<rightkit_logs::TracingGuard>`; the shell does not enable the `tracing` feature of `rightkit-logs`.
+- **Own queue (#1027).** `LogsConfig::sink = Some(Arc<dyn rightkit_logs::LogSink>)` (a `ValueWriter`) carries writes, the pre-collect flush and `clear()` (which removes every file the sink owns); `record_filter` rewrites or drops a record before key redaction; `primary_source_name` renames `renderer` in the bundle and the clear report.
 - **Settings in the bundle.** `LogsConfig::settings = Some(SettingsSnapshot::new(|| json!({..})))` is
   called on each collect and its value goes to `metadata.settings`, key-redacted with
   `LogsConfig::redaction` and scrubbed. A closure that panics yields
@@ -272,7 +273,7 @@ subresources beneath a site root. The app grants it for a document it already ho
   `example-app/src/main.rs` and `example-app/scenarios/`.
 - `frameless::button_frames(&window)` is a read-only macOS probe of the close, minimise and zoom buttons (frame, hidden
   flag, window visibility), read on the main thread; it returns `ShellError::Unsupported` on other platforms. It is a
-  QA probe: compiled only with the non-default `qa-probes` feature in a debug-assertions build; a release build that enables the feature fails with `compile_error!`.
+  QA probe: compiled only with the non-default `qa-probes` feature with the feature on; a release build must not enable it.
 - Clipboard reads: `clipboard::read` no longer copies bytes of unrecognised pasteboard types. Opt in with
   `ClipboardOptions { custom_max_bytes: Some(n), .. }` through `clipboard::read_with` or
   `ShellBuilder::clipboard_options`. On macOS text also falls back to the other plain-text types
@@ -395,11 +396,28 @@ Tests inspect generated plugin scripts for all three scopes & the isolated
 plugin, plus real service arbitration from a separate secondary process,
 argv/cwd forwarding & guard release.
 
+## Remote-origin content windows (#963)
+
+`windows::WindowSpec` opens app-relative pages only. `ContentWebviewSpec` opens a window onto a remote `https` origin for sign-in windows and content readers:
+
+```rust
+let spec = ContentWebviewSpec::new("play-spotify", "https://open.spotify.com/")
+    .allow_origin("https://open.spotify.com")
+    .allow_origin("https://accounts.spotify.com")
+    .popup_origin("https://accounts.google.com")
+    .profile(ContentProfile::new("spotify", profiles_root)?)
+    .app_acl_manifest(true)
+    .capability(include_str!("../capabilities/default.json"));
+rightkit_tauri_shell::content_webview::open(&app, &spec)?;
+```
+
+Navigation stays on `allowed_origins`; a sized `window.open` to a `popup_origins` origin is an in-app popup; other web links open in the system browser. The profile slot keeps cookies and storage per slot (`data_directory` on Windows and Linux, a stable `data_store_identifier` on macOS 14+); with no profile the window is incognito. The webview takes no IPC: `validate` refuses a spec whose capabilities grant it permissions. DevTools follow the shell gate: non-inspectable under `Denied`; under `ContentOnly` pass `spec.registration()` to the builder's content webviews. Closing destroys the webview.
+
 ## Also (0.1.1)
 
 ### Windows notifications
 
-`notify` now posts native toasts on Windows (`notify::platform::SUPPORTED` is true), through `tauri-winrt-notification`, the WinRT `ToastNotificationManager` wrapper that `tauri-plugin-notification` uses via `notify-rust`. The public API (`notify::post`, `status`, `NotificationRequest`, sound throttling, Do-Not-Disturb suppression) is unchanged, so callers are cross-platform.
+`notify` now posts native toasts on Windows (`notify::platform::SUPPORTED` is true), through `rightkit-notifications` (WinRT `ToastNotificationManager`). The public API (`notify::post`, `status`, `NotificationRequest`, sound throttling, Do-Not-Disturb suppression) is unchanged, so callers are cross-platform.
 
 - Toasts are attributed to an AppUserModelID. An installed app owns one through its Start-menu shortcut; Tauri's NSIS and MSI installers set it to the bundle `identifier`, and the shell uses `tauri.conf.json`'s `identifier` by default. Call `notify::set_app_id("com.example.app")` before the first notification to override it. The installer or shortcut must register that same AUMID, or Windows drops the toast.
 - An unpackaged dev build has no AUMID, so toasts fall back to PowerShell's (`notify::FALLBACK_APP_ID`) and show its name and icon.

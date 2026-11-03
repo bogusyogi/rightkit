@@ -35,8 +35,9 @@
 //! container needs a caller-supplied ffmpeg. [`mock::MockServer`] stands in for paid providers.
 /// Accessibility evidence for UI scenarios: contrast, focus indicator, role/name assertions.
 pub mod a11y;
-/// Android journeys through `adb` (emulator or USB device); feature `android`.
-#[cfg(feature = "android")]
+/// Android journeys through `adb` (emulator or USB device). Always compiled (it needs nothing beyond
+/// this crate): the snapshot of an Android app's data (`[snapshot.android]`) uses it. The `android`
+/// feature is kept as an empty alias.
 pub mod android;
 pub mod audio;
 pub mod binary;
@@ -44,11 +45,17 @@ pub mod binary;
 pub mod browser;
 pub mod budget;
 pub mod check;
+/// `rightkit-qa install`, `exec` and `proc`: the commands consumer scripts call (rightkit#430).
+pub mod cli_tools;
 pub mod config;
 pub mod control;
+/// macOS permission-dialog evidence.
+pub mod dialog;
+/// macOS display accessibility preferences and the scroller style, read and required for QA.
+pub mod display_prefs;
 /// QA-only in-app control server. Compiled only with the explicit `control` feature, which only an
 /// app's `qa-native` feature enables. A dev build is the release profile plus `qa-native`
-/// (GATE-CONTRACT GC-A07), so `debug_assertions` is not the guard: `right-release` refuses to seal or
+/// (GATE-CONTRACT GC-A07); `right-release` refuses to seal or
 /// upload a release or update build whose binary carries `QA_CONTROL_MARKER`.
 #[cfg(feature = "control")]
 pub mod embedded;
@@ -70,6 +77,8 @@ pub mod journeys;
 pub mod lock;
 pub mod loudness;
 pub mod media;
+/// Play an owner's recording as an app's microphone input through a virtual loopback device.
+pub mod mic;
 pub mod mock;
 pub mod page;
 pub mod plugin;
@@ -82,12 +91,15 @@ pub mod scenario;
 pub mod settings;
 /// Signing evidence of a gate-signed QA run: parse `RIGHTKIT_QA_SIGNING_EVIDENCE` and require a launched file to hash to its signed record.
 pub mod signing;
+/// Snapshot and restore of the owner's real app data and credential items around a journey run (rightkit#1437).
+pub mod snapshot;
+/// The Android part of the snapshot: the app's private data dir through `run-as`.
+pub(crate) mod snapshot_android;
 pub mod steps;
 pub mod storage;
 pub mod suite;
 pub mod supervise;
 pub mod tart;
-pub mod userdata;
 pub mod util;
 pub mod worker;
 pub mod worker_main;

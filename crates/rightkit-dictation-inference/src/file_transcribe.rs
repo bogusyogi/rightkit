@@ -1,7 +1,7 @@
 //! Offline file transcription decode path for the sidecar.
 //!
 //! The shell chooses a file; the sidecar owns media decoding and ASR. ffmpeg is
-//! resolved from an explicit bundled path or packaged runtime. PATH is dev-only.
+//! resolved from an explicit bundled path or packaged runtime and must verify against the catalog.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -12,7 +12,7 @@ use rightkit_ffmpeg::probe::{probe_media_opt_with, ProbeError};
 use rightkit_ffmpeg::runner::RunError;
 use rightkit_ffmpeg::{
     resolve_ffmpeg as resolve_catalog_ffmpeg, verify_ffmpeg, ArtifactCatalog, CancellationToken,
-    DevFfmpeg, FfmpegBinary, MediaError, ResolutionRequest, VerifiedFfmpeg,
+    FfmpegBinary, MediaError, ResolutionRequest, VerifiedFfmpeg,
 };
 
 /// Typed prefix for a privacy-denied read. Hosts match on it to offer the
@@ -114,7 +114,7 @@ fn decode_with_ffmpeg(input: &Path) -> Result<Vec<f32>, String> {
         .collect())
 }
 
-fn spawn_error(tool: &MediaTool, error: &std::io::Error, install_hint: bool) -> String {
+fn spawn_error(tool: &VerifiedFfmpeg, error: &std::io::Error, install_hint: bool) -> String {
     let path = tool.ffmpeg_path().display();
     if install_hint {
         format!("could not run ffmpeg at {path} ({error}). Install ffmpeg or use a bundled build.")
@@ -153,60 +153,15 @@ pub fn probe_duration_secs(input: &Path) -> Result<Option<u32>, String> {
     }
 }
 
-/// The ffmpeg this process runs: catalog-verified when the bundled build is in the
-/// approved catalog, otherwise the same path as an explicit development binary.
-enum MediaTool {
-    Verified(VerifiedFfmpeg),
-    Dev(DevFfmpeg),
-}
-
-impl FfmpegBinary for MediaTool {
-    fn ffmpeg_path(&self) -> &Path {
-        match self {
-            Self::Verified(tool) => tool.ffmpeg_path(),
-            Self::Dev(tool) => tool.ffmpeg_path(),
-        }
-    }
-}
-
 /// The ONLY place that chooses an ffmpeg binary. Verification hashes the file and runs
 /// `-version`, so a verified tool is cached; a failure is never cached.
-fn media_tool() -> Result<&'static MediaTool, String> {
-    static TOOL: OnceLock<MediaTool> = OnceLock::new();
+fn media_tool() -> Result<&'static VerifiedFfmpeg, String> {
+    static TOOL: OnceLock<VerifiedFfmpeg> = OnceLock::new();
     if let Some(tool) = TOOL.get() {
         return Ok(tool);
     }
-    let tool = choose_tool(ffmpeg_command()?)?;
+    let tool = verify_in_catalog(&ffmpeg_command()?).map_err(|error| media_tool_error(&error))?;
     Ok(TOOL.get_or_init(|| tool))
-}
-
-/// The bundled ffmpeg is staged from the RightKit catalog, so it verifies. Anything else is
-/// refused: only a binary that is merely not in the catalog may run unverified, and only where
-/// rightkit-ffmpeg allows it (`DevFfmpeg::try_unverified`, refused unless the crate's
-/// `dev-overrides` feature is on, which no the app build enables). A release build never runs
-/// an unverified ffmpeg.
-fn choose_tool(path: PathBuf) -> Result<MediaTool, String> {
-    choose_tool_with(path, verify_in_catalog)
-}
-
-/// [`choose_tool`] with the catalog verification passed in, so tests inject each failure.
-fn choose_tool_with(
-    path: PathBuf,
-    verify: impl FnOnce(&Path) -> Result<VerifiedFfmpeg, MediaError>,
-) -> Result<MediaTool, String> {
-    // A bare name is the debug-only PATH lookup; there is no file to hash.
-    if path.is_file() {
-        match verify(&path) {
-            Ok(verified) => return Ok(MediaTool::Verified(verified)),
-            Err(error) if !error.is_not_in_catalog() => return Err(media_tool_error(&error)),
-            Err(error) => {
-                tracing::warn!("ffmpeg build is not in the approved media catalog ({error})");
-            }
-        }
-    }
-    DevFfmpeg::try_unverified(path)
-        .map(MediaTool::Dev)
-        .map_err(|error| media_tool_error(&error))
 }
 
 fn media_tool_error(error: &MediaError) -> String {
@@ -237,14 +192,12 @@ fn ffmpeg_command() -> Result<PathBuf, String> {
         crate::engine_paths::ffmpeg_path()
             .as_deref()
             .map(Path::as_os_str),
-        false,
     )
 }
 
 fn resolve_ffmpeg(
     exe: Option<&Path>,
     explicit: Option<&std::ffi::OsStr>,
-    allow_path: bool,
 ) -> Result<PathBuf, String> {
     if let Some(path) = explicit {
         let path = PathBuf::from(path);
@@ -276,12 +229,8 @@ fn resolve_ffmpeg(
             }
         }
     }
-    if allow_path {
-        Ok(PathBuf::from(name))
-    } else {
-        Err(format!(
-            "Bundled media decoder is missing; repair the {} installation.",
-            app_name()
-        ))
-    }
+    Err(format!(
+        "Bundled media decoder is missing; repair the {} installation.",
+        app_name()
+    ))
 }

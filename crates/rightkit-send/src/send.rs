@@ -47,6 +47,14 @@ pub struct Entry {
 }
 
 impl Entry {
+    /// The message text when this entry is a text message, not a file.
+    pub(crate) fn text(&self) -> Option<&str> {
+        match &self.source {
+            Source::Text(text) => Some(text),
+            Source::File(_) => None,
+        }
+    }
+
     /// Opens the entry's content for reading: the file from disk, or the message text.
     ///
     /// Each call returns a fresh reader positioned at the start. A file that cannot be opened

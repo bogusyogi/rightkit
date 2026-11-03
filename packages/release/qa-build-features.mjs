@@ -17,6 +17,10 @@ const DEVTOOLS_FEATURES = Object.freeze(featureRegistry.conditionalForbiddenFeat
 export const FORBIDDEN_FEATURES = Object.freeze([...featureRegistry.forbiddenFeatures.filter((name) => !name.includes("/")), ...DEVTOOLS_FEATURES]);
 export const QUALIFIED_FORBIDDEN_FEATURES = Object.freeze(featureRegistry.forbiddenFeatures.filter((name) => name.includes("/")));
 const FORBIDDEN_DEPENDENCY = "tauri-plugin-wdio-webdriver";
+// GATE-CONTRACT GC-A07 (rightkit#1433): the dev copy is the release build plus exactly one feature, `qa-native`. The named `dev` tier allows
+// that one feature and nothing else (`test-mode`, every other QA or inspect feature and `--all-features` stay refused); the release and
+// update tiers refuse `qa-native` too.
+export const DEV_TIER_FEATURES = Object.freeze(["qa-native"]);
 const MANAGERS = new Set(["pnpm", "npm", "yarn", "bun", "npx"]);
 
 // "dep:foo" -> "foo"; "tauri/devtools" and "tauri?/devtools" -> "devtools".
@@ -24,10 +28,11 @@ function featureName(item) {
   const bare = String(item).trim().replace(/^dep:/, "");
   return bare.includes("/") ? bare.slice(bare.lastIndexOf("/") + 1) : bare;
 }
-export function isForbiddenFeature(item, { allowDevtools = false } = {}) {
+export function isForbiddenFeature(item, { allowDevtools = false, tier = "release" } = {}) {
   const text = String(item).trim();
   const name = featureName(text);
   if (allowDevtools && DEVTOOLS_FEATURES.includes(name)) return false;
+  if (tier === "dev" && DEV_TIER_FEATURES.includes(name)) return false;
   // `control` is too generic to forbid by bare name; rightkit-qa's dev-only server feature is refused when qualified.
   if (QUALIFIED_FORBIDDEN_FEATURES.includes(text.replace(/\s+/g, "").replace("?/", "/"))) return true;
   return text === `dep:${FORBIDDEN_DEPENDENCY}` || FORBIDDEN_FEATURES.includes(name);
@@ -61,7 +66,7 @@ export function scriptTarget(tokens) {
 }
 
 // Issues (strings) for one command object { cmd, args, env? } or a shell string.
-export function commandFeatureIssues(command, { label = "command", scripts = {}, depth = 0, seen = new Set(), allowDevtools = false } = {}) {
+export function commandFeatureIssues(command, { label = "command", scripts = {}, depth = 0, seen = new Set(), allowDevtools = false, tier = "release" } = {}) {
   const parts = typeof command === "string" ? [command] : [command?.cmd, ...(command?.args ?? [])].filter((v) => v !== undefined).map(String);
   // Two views: every argument whole (`--features` followed by "a b qa-native"), and every argument re-tokenised as
   // shell text (`sh -c "cargo build --features qa-native"`).
@@ -70,16 +75,16 @@ export function commandFeatureIssues(command, { label = "command", scripts = {},
   for (const tokens of views) {
     const { enabled, allFeatures } = featuresInTokens(tokens);
     if (allFeatures) issues.add(`${label}: --all-features enables every feature including ${FORBIDDEN_FEATURES.join(", ")}`);
-    for (const feature of enabled) if (isForbiddenFeature(feature, { allowDevtools })) issues.add(`${label}: enables feature \`${feature}\``);
+    for (const feature of enabled) if (isForbiddenFeature(feature, { allowDevtools, tier })) issues.add(`${label}: enables feature \`${feature}\``);
   }
   if (command && typeof command === "object") {
     for (const [key, value] of Object.entries(command.env ?? {})) {
-      if (/FEATURES$/i.test(key)) for (const feature of String(value).split(/[,\s]+/)) if (feature && isForbiddenFeature(feature, { allowDevtools })) issues.add(`${label}: env ${key} enables feature \`${feature}\``);
+      if (/FEATURES$/i.test(key)) for (const feature of String(value).split(/[,\s]+/)) if (feature && isForbiddenFeature(feature, { allowDevtools, tier })) issues.add(`${label}: env ${key} enables feature \`${feature}\``);
     }
   }
   const script = views.map(scriptTarget).find(Boolean);
   if (script && depth < 3 && Object.hasOwn(scripts, script) && !seen.has(script)) {
-    for (const issue of commandFeatureIssues(String(scripts[script]), { label: `${label} -> package script \`${script}\``, scripts, depth: depth + 1, seen: new Set([...seen, script]), allowDevtools })) issues.add(issue);
+    for (const issue of commandFeatureIssues(String(scripts[script]), { label: `${label} -> package script \`${script}\``, scripts, depth: depth + 1, seen: new Set([...seen, script]), allowDevtools, tier })) issues.add(issue);
   }
   return [...issues];
 }
@@ -153,7 +158,7 @@ function dependencyInfo(spec) {
   };
 }
 
-export function cargoManifestIssues(manifestText, label = "Cargo.toml", { allowDevtools = false } = {}) {
+export function cargoManifestIssues(manifestText, label = "Cargo.toml", { allowDevtools = false, tier = "release" } = {}) {
   const { features, dependencies } = parseCargoFeaturesAndDependencies(manifestText);
   const issues = [];
   const canonicalFeature = (item) => {
@@ -162,7 +167,7 @@ export function cargoManifestIssues(manifestText, label = "Cargo.toml", { allowD
   };
   for (const [alias, dep] of dependencies) {
     if (dep.package && dep.package !== alias && !dep.optional) for (const feature of dep.features) {
-      if (isForbiddenFeature(`${dep.package ?? alias}/${feature}`, { allowDevtools })) issues.push(`${label}: dependency \`${alias}\` enables forbidden feature \`${dep.package ?? alias}/${feature}\``);
+      if (isForbiddenFeature(`${dep.package ?? alias}/${feature}`, { allowDevtools, tier })) issues.push(`${label}: dependency \`${alias}\` enables forbidden feature \`${dep.package ?? alias}/${feature}\``);
     }
   }
   const tauri = dependencies.get("tauri");
@@ -180,14 +185,14 @@ export function cargoManifestIssues(manifestText, label = "Cargo.toml", { allowD
     if (shell && !shell.optional && shell.features.includes("dev-inspect")) issues.push(`${label}: dependency \`${name}\` lists \`dev-inspect\` unconditionally (developer inspection ships in release builds)`);
   }
   // GC-A09: no `test-mode` feature exists anywhere (own `[features]` table or any dependency, optional or not,
-  // `<crate>/test-mode` forwards included): tests are isolated by injection (a temp data root, a MemoryBackend).
+  // `<crate>/test-mode` forwards included): tests are isolated by injection of a temp data root; journeys run on the real data under the rightkit-qa snapshot and restore (GC-A10, rightkit#1437).
   const isTestModeName = (name) => name === "test-mode" || name.endsWith("-test-mode");
   for (const name of features.keys()) {
-    if (isTestModeName(name)) issues.push(`${label}: declares feature \`${name}\` (no test-mode feature may exist: inject a temp data root and a MemoryBackend instead)`);
+    if (isTestModeName(name)) issues.push(`${label}: declares feature \`${name}\` (no test-mode feature may exist: tests inject a temp data root, journeys run on the real data under the rightkit-qa [snapshot] and restore)`);
   }
   for (const [alias, dep] of dependencies) {
     for (const feature of dep.features) {
-      if (isTestModeName(feature)) issues.push(`${label}: dependency \`${alias}\` enables feature \`${feature}\` (no test-mode feature may exist: inject a temp data root and a MemoryBackend instead)`);
+      if (isTestModeName(feature)) issues.push(`${label}: dependency \`${alias}\` enables feature \`${feature}\` (no test-mode feature may exist: tests inject a temp data root, journeys run on the real data under the rightkit-qa [snapshot] and restore)`);
     }
   }
   const wdio = dependencies.get(FORBIDDEN_DEPENDENCY);
@@ -197,7 +202,7 @@ export function cargoManifestIssues(manifestText, label = "Cargo.toml", { allowD
     const item = stack.pop();
     if (reached.has(item)) continue;
     reached.add(item);
-    if (isForbiddenFeature(canonicalFeature(item), { allowDevtools })) issues.push(`${label}: default feature set reaches \`${item}\``);
+    if (isForbiddenFeature(canonicalFeature(item), { allowDevtools, tier })) issues.push(`${label}: default feature set reaches \`${item}\``);
     if (features.has(item)) stack.push(...features.get(item));
   }
   return issues;
@@ -214,7 +219,7 @@ export function resolveCargoManifestPath({ root, cargoManifest, manifest } = {})
   return { rel: candidates.find((c) => existsSync(path.join(root, c))), declared, candidates };
 }
 
-export function buildFeatureIssues({ root, commands, devtools, cargoManifest, manifest }) {
+export function buildFeatureIssues({ root, commands, devtools, cargoManifest, manifest, tier = "release" }) {
   const allowDevtools = devtools?.mode === "content-only";
   let scripts = {};
   try { scripts = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).scripts ?? {}; } catch { /* no package.json */ }
@@ -223,16 +228,20 @@ export function buildFeatureIssues({ root, commands, devtools, cargoManifest, ma
     if (!command) continue;
     // A `node recipe-build.mjs --plan <JSON>` wrapper hides every step's flags in one argument: scan each step too.
     const expanded = expandRecipeBuildCommands(command, { root });
-    expanded.forEach((part, index) => issues.push(...commandFeatureIssues(part, { label: index === 0 ? label : `${label} -> recipe-build step ${index}`, scripts, allowDevtools })));
+    expanded.forEach((part, index) => issues.push(...commandFeatureIssues(part, { label: index === 0 ? label : `${label} -> recipe-build step ${index}`, scripts, allowDevtools, tier })));
   }
   const { rel } = resolveCargoManifestPath({ root, cargoManifest, manifest });
-  if (rel) issues.push(...cargoManifestIssues(readFileSync(path.join(root, rel), "utf8"), rel, { allowDevtools }));
+  if (rel) issues.push(...cargoManifestIssues(readFileSync(path.join(root, rel), "utf8"), rel, { allowDevtools, tier }));
   return issues;
 }
 
 export function assertNoForbiddenBuildFeatures({ root, commands, tier = "release", devtools, cargoManifest, manifest }) {
-  const issues = buildFeatureIssues({ root, commands, devtools, cargoManifest, manifest });
+  // The named `dev` tier (GC-A07) allows `qa-native` only; every other tier name (release, update, release/update) refuses it as well.
+  const issues = buildFeatureIssues({ root, commands, devtools, cargoManifest, manifest, tier: tier === "dev" ? "dev" : "release" });
   if (issues.length === 0) return;
+  if (tier === "dev") {
+    throw new Error(`dev build refused: it enables a feature other than ${DEV_TIER_FEATURES.join(", ")} (the dev copy is the release build plus exactly that feature, GATE-CONTRACT GC-A07):\n- ${issues.join("\n- ")}\n`);
+  }
   throw new Error(
     `${tier} build refused: it enables a test-automation or debugging feature (${FORBIDDEN_FEATURES.join(", ")}); none may ship:\n- ${issues.join("\n- ")}\n`
     + "Remove the feature from the release build command, the app's default features and its tauri dependency; dev builds (`right-release dev`) may keep it. "

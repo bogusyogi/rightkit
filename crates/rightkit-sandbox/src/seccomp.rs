@@ -172,9 +172,14 @@ pub(crate) fn allowlist_program(arch: u32, allowed: &[u32]) -> io::Result<Vec<So
 /// * on x86_64, the whole x32 syscall range, which would otherwise reach `socket` under a number
 ///   this filter does not name.
 ///
+/// With `deny_unix`, `AF_UNIX` is denied too: every `socket` and `socketpair` returns `EPERM`.
+///
 /// Anything else is allowed, including `connect` and `sendto`, which need a socket the process
 /// can no longer create (an inherited socket descriptor stays the caller's responsibility).
-pub(crate) fn network_only_program(nr: &NetworkNumbers) -> io::Result<Vec<SockFilter>> {
+pub(crate) fn network_only_program(
+    nr: &NetworkNumbers,
+    deny_unix: bool,
+) -> io::Result<Vec<SockFilter>> {
     #[derive(Clone, Copy)]
     enum Goto {
         Deny,
@@ -189,7 +194,12 @@ pub(crate) fn network_only_program(nr: &NetworkNumbers) -> io::Result<Vec<SockFi
         chain.push((jump_eq(number, 0, 0), Goto::Deny));
     }
     for number in [nr.socket, nr.socketpair] {
-        chain.push((jump_eq(number, 0, 0), Goto::SocketCheck));
+        let target = if deny_unix {
+            Goto::Deny
+        } else {
+            Goto::SocketCheck
+        };
+        chain.push((jump_eq(number, 0, 0), target));
     }
 
     let mut prog: Vec<SockFilter> = arch_prologue(nr.arch).to_vec();

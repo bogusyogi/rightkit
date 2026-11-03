@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3 (unpublished)
+
+- Added `clock`: an injectable `Clock` trait (`SystemClock` default). `DateTime::now_utc()` / `DateTime::now_utc_with(&dyn Clock)` return the current UTC time with nanoseconds; `unix_millis_now()` / `unix_millis_with(&dyn Clock)` return Unix milliseconds (#992). Replaces the app-side clock reads in MailRight `utc_stamp.rs` and the `now_ms` re-export. Existing API unchanged.
+
 ## 0.1.2 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

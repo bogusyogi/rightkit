@@ -78,7 +78,7 @@ use std::sync::Mutex;
 
 static CONFIGURED_RUNTIME: Mutex<Option<PathBuf>> = Mutex::new(None);
 
-/// Clear inherited `ORT_DYLIB_PATH` unless the `dev-overrides` feature is on (then a no-op).
+/// Clear inherited `ORT_DYLIB_PATH`.
 /// This keeps shell-exported development paths from steering shipped and installed dev apps,
 /// consistent with the policy that inherited `ORT_DYLIB_PATH` fails closed.
 ///
@@ -86,33 +86,7 @@ static CONFIGURED_RUNTIME: Mutex<Option<PathBuf>> = Mutex::new(None);
 /// use. Removing a process environment variable requires exclusive access to
 /// the environment; this function does not unload an already-loaded runtime.
 pub fn clear_inherited_runtime_for_release() {
-    clear_inherited_runtime_with(|| std::env::remove_var("ORT_DYLIB_PATH"));
-}
-
-// Injected removal keeps release/debug tests free of process env mutation.
-fn clear_inherited_runtime_with(remove_path: impl FnOnce()) {
-    if cfg!(not(feature = "dev-overrides")) {
-        remove_path();
-    }
-}
-
-/// Read a caller-named development override as an explicit runtime candidate.
-/// Unset or empty values return `None`; builds without the `dev-overrides` feature
-/// always return `None` without reading the variable. Path validation remains in runtime resolution.
-pub fn developer_override_candidate(env_name: &str) -> Option<RuntimeCandidate> {
-    developer_override_with(env_name, nonempty_env_path)
-}
-
-// Injected reader keeps the release/debug tests free of process env mutation.
-fn developer_override_with(
-    env_name: &str,
-    read_env: impl FnOnce(&str) -> Option<PathBuf>,
-) -> Option<RuntimeCandidate> {
-    if cfg!(feature = "dev-overrides") {
-        read_env(env_name).map(|path| RuntimeCandidate::new(path, CandidateSource::Explicit))
-    } else {
-        None
-    }
+    std::env::remove_var("ORT_DYLIB_PATH");
 }
 
 /// Candidate for an override that names the runtime file itself, with any file name

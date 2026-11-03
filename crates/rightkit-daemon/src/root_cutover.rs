@@ -68,6 +68,7 @@ use crate::app_root::{
     MigrateOptions, MigrationReport,
 };
 use crate::discovery::{try_lock_exclusive, LockedFile};
+use rightkit_fs::atomic::try_sync_dir;
 
 /// The persisted selection: written at the new root, atomically, at every phase change.
 pub const CUTOVER_RECORD: &str = ".rightkit-root-cutover.json";

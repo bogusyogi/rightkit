@@ -34,6 +34,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::control::admission::lock;
+use std::collections::hash_map::RandomState;
+use std::sync::Mutex;
 
 /// Typed execution state (CodeRight `Running | Exited | Unknown`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

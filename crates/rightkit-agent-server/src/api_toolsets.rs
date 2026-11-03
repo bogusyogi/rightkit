@@ -167,6 +167,7 @@ fn tool_gateway_statuses(config: &HostConfig) -> Vec<ToolGatewayStatus> {
                 "recursive_fetch",
                 "research_report",
                 "list_mcp_tools",
+                "list_mcp_sources",
                 "list_mcp_resources",
                 "read_mcp_resource",
                 "context7",
@@ -196,7 +197,12 @@ fn tool_gateway_statuses(config: &HostConfig) -> Vec<ToolGatewayStatus> {
             "Read-only MCP discovery and resource access without granting mutating MCP calls.",
             "mcp",
             "not_required",
-            &["list_mcp_tools", "list_mcp_resources", "read_mcp_resource"],
+            &[
+                "list_mcp_tools",
+                "list_mcp_sources",
+                "list_mcp_resources",
+                "read_mcp_resource",
+            ],
         ),
     ]
 }
@@ -544,6 +550,7 @@ pub(crate) fn builtin_toolset_profiles() -> Vec<ToolsetProfile> {
                 "recursive_fetch",
                 "research_report",
                 "list_mcp_tools",
+                "list_mcp_sources",
                 "list_mcp_resources",
                 "read_mcp_resource",
                 "tool_search",

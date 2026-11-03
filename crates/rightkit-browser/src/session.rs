@@ -46,6 +46,9 @@ enum ProfileGuard {
     },
     /// Caller-owned directory: dropping this guard has no filesystem effects.
     Existing,
+    /// Encrypted persistent profile: sealed and the plaintext wiped on release.
+    #[cfg(feature = "profile-vault")]
+    Vault(crate::vault::VaultLease),
 }
 
 struct FixtureLaunchState {
@@ -206,7 +209,7 @@ impl FixtureLaunchState {
             None => true,
         };
         if proxy_stopped {
-            release_profile(
+            let _ = release_profile(
                 self.profile
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
@@ -271,7 +274,7 @@ impl Drop for FixtureLaunchOwner {
                         .lock()
                         .unwrap_or_else(|error| error.into_inner())
                         .take();
-                    release_profile(
+                    let _ = release_profile(
                         self.state
                             .profile
                             .lock()
@@ -288,17 +291,32 @@ impl Drop for FixtureLaunchOwner {
 
 /// Remove the session's profile. A temporary profile is deleted with bounded retries:
 /// on Windows a just-terminated helper can hold a handle for a moment after its job ends.
-fn release_profile(guard: Option<ProfileGuard>) {
-    if let Some(ProfileGuard::Temp(dir)) = guard {
-        let path = dir.path().to_path_buf();
-        drop(dir);
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
-        while path.exists()
-            && std::fs::remove_dir_all(&path).is_err()
-            && std::time::Instant::now() < deadline
-        {
-            std::thread::sleep(Duration::from_millis(100));
+///
+/// An encrypted profile is sealed and its plaintext working directory wiped; the result says
+/// whether that succeeded (on failure the tree stays for the next start's recovery).
+fn release_profile(guard: Option<ProfileGuard>) -> Result<()> {
+    match guard {
+        Some(ProfileGuard::Temp(dir)) => {
+            let path = dir.path().to_path_buf();
+            drop(dir);
+            let deadline = std::time::Instant::now() + Duration::from_secs(3);
+            while path.exists()
+                && std::fs::remove_dir_all(&path).is_err()
+                && std::time::Instant::now() < deadline
+            {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            if path.exists() {
+                return Err(BrowserError::Profile(format!(
+                    "temporary profile still exists after removal: {}",
+                    path.display()
+                )));
+            }
+            Ok(())
         }
+        #[cfg(feature = "profile-vault")]
+        Some(ProfileGuard::Vault(mut lease)) => lease.seal_and_wipe().map_err(BrowserError::from),
+        _ => Ok(()),
     }
 }
 
@@ -338,6 +356,12 @@ fn prepare_profile(profile: &ProfileSpec) -> Result<(ProfileGuard, PathBuf, Path
             let locked = lock_named_profile(root, name)?;
             crate::real_session::import_if_needed(import, &locked.1)?;
             Ok(locked)
+        }
+        #[cfg(feature = "profile-vault")]
+        ProfileSpec::Encrypted(vault) => {
+            let lease = vault.open()?;
+            let dir = lease.work_dir().to_path_buf();
+            Ok((ProfileGuard::Vault(lease), dir, vault.downloads_dir()))
         }
         ProfileSpec::Directory(path) => {
             validate_profile_dir(path)?;
@@ -390,6 +414,38 @@ pub struct BrowserSession {
     fixture_backend: Option<FixtureBackend>,
 }
 
+/// Internal terminal outcome of stopping a session; see [`StopReport`].
+struct Stopped {
+    process_error: Option<String>,
+    profile: Result<()>,
+}
+
+impl Stopped {
+    fn into_report(self) -> StopReport {
+        StopReport {
+            process_stopped: self.process_error.is_none(),
+            process_error: self.process_error,
+            profile_released: self.profile.is_ok(),
+            profile_error: self.profile.err().map(|error| error.to_string()),
+        }
+    }
+}
+
+/// What stopping a session actually achieved, step by step (see
+/// [`BrowserSession::shutdown_report`]).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StopReport {
+    /// Chrome's process tree (and, on Unix, its watchdog) terminated without error.
+    pub process_stopped: bool,
+    pub process_error: Option<String>,
+    /// The profile was released: temporary profile deleted, encrypted profile sealed and its
+    /// plaintext wiped. Also true when there was nothing to release (named or caller-owned
+    /// directory, or already released).
+    pub profile_released: bool,
+    pub profile_error: Option<String>,
+}
+
 /// Flags every session launch starts from, before profile, viewport, proxy and caller flags.
 const BASE_CHROME_ARGS: &[&str] = &[
     "--remote-debugging-port=0",
@@ -416,8 +472,9 @@ const BASE_CHROME_ARGS: &[&str] = &[
     "--disable-sync",
     "--force-color-profile=srgb",
     "--metrics-recording-only",
-    "--password-store=basic",
-    "--use-mock-keychain",
+    // No `--use-mock-keychain` and no `--password-store=basic` (rightkit#1306, Adrian: no mocks,
+    // real data): Chrome uses the real OS credential store for its own cookie and password
+    // encryption.
     // No unmanaged windows: a pop-up would be a page the policy never saw.
     "--block-new-web-contents",
 ];
@@ -942,7 +999,7 @@ impl BrowserSession {
                 .await
                 .map_err(cdp);
             if let Err(error) = download_setup {
-                session.stop(false).await;
+                let _ = session.stop(false).await;
                 return Err(BrowserError::Launch(error.to_string()));
             }
         }
@@ -1222,7 +1279,21 @@ impl BrowserSession {
     /// the process group and up to 5 s more, then SIGKILL (job termination on Windows).
     /// Safe to call twice. A temporary profile is deleted once Chrome has exited.
     pub async fn shutdown(&self) {
-        self.stop(false).await;
+        let _ = self.stop(false).await;
+    }
+
+    /// [`Self::shutdown`] that reports failure. `Err` when Chrome's process tree did not stop
+    /// cleanly ([`BrowserError::Stop`]) or the profile was not released: a temporary profile that
+    /// still exists, or an encrypted profile ([`ProfileSpec::Encrypted`], feature `profile-vault`)
+    /// that could not be sealed or whose plaintext working directory could not be wiped (the tree
+    /// is then left in place and the next start recovers it). A profile failure is reported first.
+    pub async fn close(&self) -> Result<()> {
+        let stopped = self.stop(false).await;
+        stopped.profile?;
+        match stopped.process_error {
+            Some(error) => Err(BrowserError::Stop(error)),
+            None => Ok(()),
+        }
     }
 
     /// Stop the fixture browser process tree while retaining its profile until the fixture
@@ -1416,14 +1487,27 @@ impl BrowserSession {
     /// Cancel: kill the owned Chrome now and wait for it to exit. Helper
     /// processes exit with their parent; none are detached.
     pub async fn cancel(&self) {
-        self.stop(true).await;
+        let _ = self.stop(true).await;
     }
 
-    async fn stop(&self, hard: bool) {
-        self.stop_inner(hard, true).await;
+    /// [`Self::shutdown`] that returns the terminal outcome of every cleanup step instead of
+    /// discarding it: whether Chrome's process tree stopped without error and whether the profile
+    /// was released (temporary profile deleted, encrypted profile sealed and wiped). A `Stop`
+    /// lifecycle event is not evidence of either; this report is.
+    pub async fn shutdown_report(&self) -> StopReport {
+        self.stop(false).await.into_report()
     }
 
-    async fn stop_inner(&self, hard: bool, release_profile_dir: bool) {
+    /// [`Self::cancel`] with the same terminal [`StopReport`].
+    pub async fn cancel_report(&self) -> StopReport {
+        self.stop(true).await.into_report()
+    }
+
+    async fn stop(&self, hard: bool) -> Stopped {
+        self.stop_inner(hard, true).await
+    }
+
+    async fn stop_inner(&self, hard: bool, release_profile_dir: bool) -> Stopped {
         self.stopping.store(true, Ordering::SeqCst);
         if !hard {
             let graceful = async {
@@ -1445,13 +1529,29 @@ impl BrowserSession {
         // Whatever is left: SIGTERM the process group with a bounded wait, SIGKILL last
         // (cancel kills at once). Windows: the job object takes the whole tree.
         let taken = self.proc.lock().unwrap().take();
+        let mut process_error = None;
         if let Some(mut p) = taken {
             let grace = if hard { Duration::ZERO } else { GRACE };
-            let _ = tokio::task::spawn_blocking(move || p.terminate_gracefully(grace)).await;
+            match tokio::task::spawn_blocking(move || p.terminate_gracefully(grace)).await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => process_error = Some(error.to_string()),
+                Err(error) => {
+                    process_error = Some(format!("termination task did not finish: {error}"))
+                }
+            }
         }
-        if release_profile_dir {
-            release_profile(self.profile_guard.lock().unwrap().take());
-        }
+        let released = if release_profile_dir {
+            let guard = self.profile_guard.lock().unwrap().take();
+            // Sealing a large profile is blocking work; keep it off the async worker.
+            match tokio::task::spawn_blocking(move || release_profile(guard)).await {
+                Ok(result) => result,
+                Err(error) => Err(BrowserError::Profile(format!(
+                    "profile release did not finish: {error}"
+                ))),
+            }
+        } else {
+            Ok(())
+        };
         for p in self.pages.lock().unwrap().drain(..) {
             p.abort_pumps();
         }
@@ -1463,6 +1563,10 @@ impl BrowserSession {
         }
         let reason = if hard { "cancelled" } else { "shutdown" };
         self.emit_stopped(reason);
+        Stopped {
+            process_error,
+            profile: released,
+        }
     }
 
     fn emit_stopped(&self, reason: &str) {
@@ -1537,7 +1641,7 @@ impl Drop for BrowserSession {
             let _ = p.terminate_gracefully(GRACE);
         }
         // Chrome has exited: now the temporary profile can go.
-        release_profile(self.profile_guard.lock().unwrap().take());
+        let _ = release_profile(self.profile_guard.lock().unwrap().take());
         self.emit_stopped("dropped");
     }
 }

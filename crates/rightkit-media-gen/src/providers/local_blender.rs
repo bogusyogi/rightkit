@@ -294,11 +294,10 @@ impl LocalBlender {
         })
     }
 
-    /// The owner's ffmpeg handle; the only source. Development builds reach `RIGHTKIT_FFMPEG` / PATH through the
-    /// owner's `dev-overrides` path inside it, release builds never do.
+    /// The owner's ffmpeg handle; the only source.
     fn ffmpeg_handle(&self) -> Result<crate::host::ffmpeg::FfmpegHandle, ProviderError> {
         crate::host::ffmpeg::resolve_ffmpeg()
-            .map_err(|e| unavailable(format!("FFmpeg is required for Blender video models but no verified ffmpeg was found (bundled; RIGHTKIT_FFMPEG or PATH in development builds): {e}")))
+            .map_err(|e| unavailable(format!("FFmpeg is required for Blender video models but no verified ffmpeg was found (bundled): {e}")))
     }
 
     fn checked(&self, req: &GenRequest) -> Result<(&'static str, Kind), ProviderError> {

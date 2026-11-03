@@ -36,7 +36,6 @@ Do not use it as a general tracing framework. The `tracing` feature only writes 
 | Feature | Default | Pulls in | Enables |
 |---|---|---|---|
 | `http` | yes | `ureq` 3.4 (`rustls`) | The HTTPS transport for the consented outbox uploader. Without it the crate has no network dependency, and callers supply their own `Transport`. |
-| `testing` | no | none | `testing::MockServer`, a loopback mock ingest server for app end-to-end tests. |
 | `tracing` | no | `tracing` 0.1 (`std`), `tracing-subscriber` 0.3 (`std`, `registry`, `fmt`, `json`, `env-filter`) | Daily-rolling JSONL file logs: `install_tracing`, `tracing_layer`, `tracing_layer_checked`, `TracingFileConfig`, `TracingGuard`, `tracing_log_sources` and `collect_tracing_diagnostics`. Also `stderr_layer`, a composable formatted stderr layer that installs no global subscriber. |
 
 Consumers that bring their own transport use `default-features = false`. `default-features = false` builds the event store, collection and consent code with no network dependency.
@@ -206,3 +205,7 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 - Required hosts: macOS and Windows.
 - Status exposure: `TracingGuard::status()` in `src/tracing_file.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
 - Measured: not yet measured.
+
+## Added in 0.3.9
+
+`ValueWriter` / `LogSink` (queued multi-file `Value` writer with ordered snapshot and clear), `MetricsStore` (metric series with tiered rollup and retention), `ClassedLog` (per-class sampling and retention), `scan_privacy`, `RedactionCounts` (what a scrub replaced, by kind), `system::process_snapshot(pid)` and `install_tracing_or_noop`. See CHANGELOG 0.3.9.

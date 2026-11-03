@@ -6,7 +6,7 @@ import { spawnSync } from "./background-process.mjs";
 import { assertReleaseDependencies } from "./release-dependencies.mjs";
 import { assertNoForbiddenBuildFeatures } from "./qa-build-features.mjs";
 import { expandRecipeBuildCommands } from "./recipe-build.mjs";
-import { assertNoReleaseSwitches, commandTokens, localCrateDirsFromTree, resolveFeatureClosure, shippedRustTriples, validateNonShipped } from "./release-switch-scan.mjs";
+import { assertNoReleaseSwitches, commandTokens, localCrateDirsFromTree, releasePresenceFindings, resolveFeatureClosure, shippedRustTriples, validateNonShipped } from "./release-switch-scan.mjs";
 import { iosOwnershipScope } from "./ownership-scope.mjs";
 import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mjs";
 import { releaseSwitchInputs } from "./ios-build-context.mjs";
@@ -53,11 +53,12 @@ function thrownText(name, error) {
  * `detail` is the exact refusal text the build prints (after "right-release: ").
  * `strict` is true for a real release build (a missing switches.json or an unrunnable feature closure fails);
  * a dry run passes false and only reports the closure problem.
- * Also returns `devtoolsAllowance` and `inventoryText` (the switches.json text or null) for the later binary scans.
+ * Also returns `devtoolsAllowance`, `inventoryText` (the switches.json text or null) and `presenceAccepted` (S1-S4 names whose `releasePresence` claim the
+ * source proved, #937) for the later binary scans.
  * @returns {{ findings: { name: string, detail: string }[], treeText: string | undefined, devtoolsAllowance: object, inventoryText: string | null }}
  */
 export function evaluatePrebuildGates({ root, config, target, platform, iosSpec, nativeIos, nativeAssembly, nativeFinalizer, strict = true }) {
-  const state = { devtoolsAllowance: { mode: "denied" }, inventoryText: null };
+  const state = { devtoolsAllowance: { mode: "denied" }, inventoryText: null, presenceAccepted: [] };
   const findings = [];
   const failed = new Set();
   // Run one gate: `after` names the gates it depends on. Returns { ok, value }; a blocked or failed gate is a finding.
@@ -177,7 +178,10 @@ export function evaluatePrebuildGates({ root, config, target, platform, iosSpec,
   gate("release-switches", scanAfter, () => {
     const closureInput = { treeText, devtools: state.devtoolsAllowance, remoteHost: config.releaseSwitches?.remoteHost, remoteLoopback: config.releaseSwitches?.remoteLoopback, commands: closureCommands.map((c) => commandTokens(c)) };
     if (releaseSwitchInventoryText != null) {
-      assertNoReleaseSwitches({ ...closureInput, sourceRoot: root, sourceRoots, skipRoots, inventoryText: releaseSwitchInventoryText, appForbid: config.releaseSwitches?.forbid ?? [] }, "source switch inventory");
+      const envHelpers = config.releaseSwitches?.envHelpers;
+      assertNoReleaseSwitches({ ...closureInput, sourceRoot: root, sourceRoots, skipRoots, inventoryText: releaseSwitchInventoryText, appForbid: config.releaseSwitches?.forbid ?? [], envHelpers }, "source switch inventory");
+      // Names that release code only scrubs, clears or sets stay allowed in the binary scan after the build (rightkit#937).
+      state.presenceAccepted = [...releasePresenceFindings({ inventoryText: releaseSwitchInventoryText, treeText, sourceRoot: root, sourceRoots, skipRoots, envHelpers }).accepted];
     } else if (treeText != null || closureInput.commands.length) {
       assertNoReleaseSwitches({ ...closureInput, appForbid: config.releaseSwitches?.forbid ?? [] }, "feature closure");
     }

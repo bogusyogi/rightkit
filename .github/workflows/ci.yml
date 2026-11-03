@@ -94,7 +94,11 @@ jobs:
           package-manager-cache: false
       # Seconds, committed files only (scripts/preflight.mjs). Every other job needs plan, so a push whose tree the
       # preflight refuses stops here, before any shard or hosted runner starts. No local git hook runs it.
+      # RK_PUSH_BEFORE names the push's previous tip: the commit-citations rule (GC-T19, rightkit#1268) judges exactly the commits this
+      # push adds (empty on a pull request or a dispatch, where it falls back to the merge-base with origin/main).
       - name: Preflight (committed files only)
+        env:
+          RK_PUSH_BEFORE: ${{ github.event.before }}
         run: node scripts/preflight.mjs
       - name: Resolve authenticated per-OS baseline
         if: github.event_name != 'pull_request'

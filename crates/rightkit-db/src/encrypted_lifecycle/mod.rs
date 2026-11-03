@@ -1,4 +1,4 @@
-//! The encrypted-store lifecycle (feature `encrypted-lifecycle`, which also needs `sqlcipher` or
+//! The encrypted-store lifecycle (feature `encrypted-lifecycle`, which also needs `sqlcipher-libtomcrypt` or
 //! `sqlcipher-system`).
 //!
 //! One owner for what apps used to hand-roll around SQLCipher: choosing the key that opens the file

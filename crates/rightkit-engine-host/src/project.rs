@@ -30,7 +30,7 @@ pub fn media_tools(env: &Env) -> Result<MediaTools, ProjectError> {
     MediaTools::resolve(env.resource_dir().as_deref())
 }
 
-/// Title font from the engine bundle (`test-mode` builds also honour `RIGHTKIT_FONT`).
+/// Title font from the engine bundle.
 pub fn title_font(env: &Env) -> Option<PathBuf> {
     // Only a font that exists: on Windows the resource dir is the exe's folder even for a
     // bare dev binary, and a missing path would fail every render while hashing it. With no

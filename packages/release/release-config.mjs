@@ -37,11 +37,16 @@ export const RELEASE_CONFIG_SCHEMA = 1;
 export const MAX_CONFIG_BYTES = 1024 * 1024;
 export const LEGACY_EXECUTABLE_EXTENSIONS = Object.freeze([".mjs", ".js", ".cjs", ".ts", ".mts", ".cts", ".jsx", ".tsx"]);
 
-/** The complete set of top-level keys. A key outside it is refused: a new capability is a RightKit change, not an app extension. */
+/**
+ * The complete set of top-level keys. A key outside it is refused: a new capability is a RightKit change, not an app extension.
+ * `runtimeArtifacts` was removed from the set (rightkit#753): no code read it, so an app that declared it got a silent no-op. It is now
+ * refused with RELEASE_CONFIG_KEY. Runtime artifacts are staged by `sidecars` (kind native-library, onnxruntime, remote, resource) and
+ * delivered by the runtime-artifact manifests (runtime-artifact-manifest.mjs, docs/RUNTIME-ARTIFACT-DELIVERY.md).
+ */
 export const TOP_LEVEL_KEYS = Object.freeze([
   "$schema", "$comment", "schema", "app", "version", "channel", "distribution", "packageManager", "workdir", "targets", "development",
-  "deps", "checks", "buildInputs", "hostedWorkflows", "devtools", "releaseSwitches", "qa", "nativeAssembly", "legal", "web", "tests",
-  "sidecars", "assembly", "releaseDependencies", "appStoreConnect", "storage", "cargoProfileExempt", "runtimeArtifacts", "windows",
+  "deps", "checks", "buildInputs", "hostedWorkflows", "devtools", "releaseSwitches", "qa", "nativeAssembly", "legal", "security", "web", "tests",
+  "sidecars", "directRelease", "modelBundles", "assembly", "releaseDependencies", "appStoreConnect", "storage", "cargoProfileExempt", "windows",
 ]);
 export const TEMPLATE_TOKENS = Object.freeze(["app", "version", "home", "localAppData"]);
 

@@ -15,8 +15,10 @@ use tokio::sync::Notify;
 
 use super::{Daemon, Request, Response};
 use crate::link::frame::{open_c2s, s2c_line, FrameError, HEARTBEAT_SECS, SCOPE, UPGRADE_TOKEN};
+use crate::remote::routes::LINK_ROUTE;
 use crate::remote::state::TaskStatus;
 use crate::remote::util::{hex, random_bytes};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
 /// Something to write to a link's connection.
 #[derive(Debug, Clone, PartialEq)]

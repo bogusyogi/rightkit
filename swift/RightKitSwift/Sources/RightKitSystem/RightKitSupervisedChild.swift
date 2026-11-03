@@ -63,6 +63,13 @@ public struct RightKitRestartState: Equatable, Sendable {
 ///
 /// A missing executable is `.notInstalled` with no retries. A pid stopped on purpose is not a
 /// failure. The owner calls `terminate()` when it quits.
+///
+/// Host seams, all optional and all called on the main actor: `prepareProcess` receives each
+/// configured `Process` just before it runs (set standard input, arguments, environment);
+/// `onSpawned` and `onExit` bracket the child's life so the host can keep and close its pipe;
+/// `canStart` is a start gate consulted before every launch; `externalRunning` lets `status` report
+/// a copy of the program that something else started. `start(arguments:ignoringBackoff:)` spawns
+/// now with its own arguments, and `stop(grace:)` stops the child without ending supervision.
 @MainActor
 public final class RightKitSupervisedChild {
     public struct Configuration: Sendable {
@@ -116,8 +123,25 @@ public final class RightKitSupervisedChild {
     public let configuration: Configuration
     /// Called when `status` may have changed.
     public var onChange: (@MainActor () -> Void)?
+    /// Called with every configured `Process` just before `run()`, for the per-spawn standard input
+    /// (a `Pipe` the host keeps the write end of), arguments and environment. The default standard
+    /// input is the null device, and standard output and error are already set.
+    public var prepareProcess: (@MainActor (Process) -> Void)?
+    /// Called right after a spawn succeeded, with the running process.
+    public var onSpawned: (@MainActor (Process) -> Void)?
+    /// Called when a spawned child has exited: the process, its termination status, whether a signal
+    /// ended it, and `planned` (true when it was stopped through `stop(grace:)` or `terminate(grace:)`,
+    /// so the exit is not counted as a failure). Not called for a spawn that failed to start.
+    public var onExit: (@MainActor (Process, Int32, Bool, Bool) -> Void)?
+    /// Consulted before each launch, the timer's and `start(arguments:ignoringBackoff:)`'s; a launch
+    /// is deferred (and tried again on the next tick) while it returns false.
+    public var canStart: (@MainActor () -> Bool)?
+    /// Whether a copy of the program that this object did not spawn is running (for example one
+    /// Launch Services started). Only `status` reads it: a true value reports `.running`.
+    public var externalRunning: (@MainActor () -> Bool)?
 
     private var child: Process?
+    private var spawned: [pid_t: Process] = [:]
     private var timer: Timer?
     private var quitting = false
     private var spawning = false
@@ -133,7 +157,7 @@ public final class RightKitSupervisedChild {
     public var status: Status {
         if !installed { return .notInstalled }
         if let reason = restart.latchReason { return .latched(reason) }
-        if isRunning { return .running }
+        if isRunning || externalRunning?() == true { return .running }
         return restart.exits.isEmpty ? .starting : .restarting
     }
 
@@ -153,6 +177,27 @@ public final class RightKitSupervisedChild {
     public func retry() {
         restart.retry()
         ensureRunning()
+    }
+
+    /// Spawns the child now, with `arguments` in place of `Configuration.arguments` for this spawn
+    /// (nil keeps the configured ones). With `ignoringBackoff` a pending backoff and a crash latch do
+    /// not hold the launch back (a user's explicit open), and a failure of this child is still
+    /// counted like any other exit. Does nothing, and returns false, when the owner is quitting, a
+    /// child is already running or starting, the executable is missing, or `canStart` says no.
+    /// Does not begin supervision: call `supervise()` for that.
+    @discardableResult
+    public func start(arguments: [String]? = nil, ignoringBackoff: Bool = true) -> Bool {
+        launch(arguments: arguments, ignoringBackoff: ignoringBackoff)
+    }
+
+    /// Stops the child (SIGTERM, up to `grace` seconds, SIGKILL) and keeps supervising: the exit is
+    /// planned, so it is not a failure, and the timer starts the child again on a later tick unless
+    /// `canStart` holds it off. Blocks the caller for at most `grace`. No-op when nothing runs.
+    public func stop(grace: TimeInterval = 3) {
+        guard let process = child, process.isRunning else { return }
+        let pid = process.processIdentifier
+        intentionalStops.insert(pid)
+        RightKitProcesses.stop([pid], grace: grace)
     }
 
     /// Stops supervising and stops the child: SIGTERM, up to `grace` seconds, SIGKILL. Blocks the
@@ -175,11 +220,18 @@ public final class RightKitSupervisedChild {
     }
 
     private func ensureRunning() {
+        launch(arguments: nil, ignoringBackoff: false)
+    }
+
+    @discardableResult
+    private func launch(arguments: [String]?, ignoringBackoff: Bool) -> Bool {
         defer { publish() }
-        guard !quitting, !spawning, !isRunning, restart.canLaunch(now: Date()) else { return }
+        guard !quitting, !spawning, !isRunning else { return false }
+        guard ignoringBackoff || restart.canLaunch(now: Date()) else { return false }
+        guard canStart?() ?? true else { return false }
         guard FileManager.default.isExecutableFile(atPath: configuration.executable.path) else {
             installed = false
-            return
+            return false
         }
         installed = true
         spawning = true
@@ -188,22 +240,24 @@ public final class RightKitSupervisedChild {
             let handle = configuration.logsDirectory.flatMap {
                 RightKitChildLog.openForAppend($0.appendingPathComponent("\(configuration.name)-stderr.log"))
             }
-            await self?.finishStart(stderr: handle)
+            await self?.finishStart(stderr: handle, arguments: arguments)
         }
+        return true
     }
 
-    private func finishStart(stderr: FileHandle?) {
+    private func finishStart(stderr: FileHandle?, arguments: [String]?) {
         spawning = false
         // The owner started quitting, or something else started it while the log was opening.
         guard !quitting, !isRunning else { try? stderr?.close(); return }
         let process = Process()
         process.executableURL = configuration.executable
-        process.arguments = configuration.arguments
+        process.arguments = arguments ?? configuration.arguments
         if let environment = configuration.environment { process.environment = environment }
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = stderr ?? FileHandle.nullDevice
         process.qualityOfService = configuration.qualityOfService
+        prepareProcess?(process)
         process.terminationHandler = { [weak self] finished in
             let code = finished.terminationStatus
             let signaled = finished.terminationReason == .uncaughtSignal
@@ -214,10 +268,12 @@ public final class RightKitSupervisedChild {
             try process.run()
             try? stderr?.close()   // the child holds its own copy
             child = process
+            spawned[process.processIdentifier] = process
             record("spawned", [
                 "pid": Int(process.processIdentifier), "exits_in_window": restart.exits.count,
                 "log": stderr == nil ? 0 : 1, "respawn": restart.exits.isEmpty ? 0 : 1,
             ])
+            onSpawned?(process)
         } catch {
             try? stderr?.close()
             recordFailure(code: -1, signaled: false, pid: 0)
@@ -228,6 +284,7 @@ public final class RightKitSupervisedChild {
     private func handleExit(pid: pid_t, code: Int32, signaled: Bool) {
         if child?.processIdentifier == pid { child = nil }
         let planned = intentionalStops.remove(pid) != nil
+        if let process = spawned.removeValue(forKey: pid) { onExit?(process, code, signaled, planned || quitting) }
         if planned || quitting { publish(); return }
         recordFailure(code: code, signaled: signaled, pid: pid)
     }

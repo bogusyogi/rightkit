@@ -1,0 +1,69 @@
+[package]
+name = "rightkit-clipboard"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Rich clipboard without Tauri: text, HTML, PNG, file lists and app-defined formats in one transaction on macOS (NSPasteboard) and Windows (Win32), private named pasteboards, and snapshot reads with platform fallbacks."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["clipboard", "pasteboard"]
+categories = ["os"]
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_clipboard"
+path = "src/lib.rs"
+
+[dependencies]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSString", "NSURL", "NSValue", "NSGeometry", "NSObject", "NSBundle", "NSDictionary", "NSError"] }
+objc2-app-kit = { version = "0.3", features = ["NSPasteboard", "NSPasteboardItem"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_System_Com",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
+  "Win32_System_Ole",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

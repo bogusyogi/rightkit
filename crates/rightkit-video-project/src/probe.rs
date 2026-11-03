@@ -197,12 +197,8 @@ where
         cmd.path(Path::new(arg.as_ref()));
     }
     rk::runner::spawn_streaming(
-        &rk::verify_ffprobe_or_development(
-            ffprobe,
-            rk::DECODE_VARIANT,
-            crate::tools::VERIFY_TIMEOUT,
-        )
-        .map_err(std::io::Error::other)?,
+        &rk::verify_ffprobe_handle(ffprobe, rk::DECODE_VARIANT, crate::tools::VERIFY_TIMEOUT)
+            .map_err(std::io::Error::other)?,
         &cmd,
         policy,
     )
@@ -213,7 +209,7 @@ where
 /// the parsed document. A program that cannot start is `media_tool_missing`; an unreadable
 /// file or JSON is `probe_failed`.
 pub(crate) fn run_probe_json(tools: &MediaTools, file: &Path) -> Result<ProbeJson, ProjectError> {
-    let ffprobe = rk::verify_ffprobe_or_development(
+    let ffprobe = rk::verify_ffprobe_handle(
         &tools.ffprobe,
         rk::DECODE_VARIANT,
         crate::tools::VERIFY_TIMEOUT,

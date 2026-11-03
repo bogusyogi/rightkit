@@ -524,6 +524,14 @@ public struct LicenseClientConfiguration: Sendable {
     public let baseURL: URL
     public let appVersion: String
     public let deviceID: @Sendable () -> String
+
+    /// The device id, or ``LicenseError/corruptDeviceID`` when the provider returns an empty id. Activation and
+    /// lease calls use this, so a failed read in an app's id closure refuses cleanly instead of sending `""`.
+    public func requiredDeviceID() throws -> String {
+        let id = deviceID()
+        guard !id.isEmpty else { throw LicenseError.corruptDeviceID }
+        return id
+    }
     public let session: URLSession
     public let publicKeyBase64url: String?
     /// Sent as `deviceClass` on `activate` when set (ScrapeRight and HeardRight send `"iphone"`).
@@ -642,10 +650,11 @@ public struct LicenseActivationClient: Sendable {
     public func activate(key rawKey: String) async throws -> StoredLicense {
         let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { throw LicenseError.transport("Enter a license key first.") }
-        var payload = ["app": configuration.app, "licenseKey": key, "deviceId": configuration.deviceID(), "version": configuration.appVersion]
+        let deviceId = try configuration.requiredDeviceID()
+        var payload = ["app": configuration.app, "licenseKey": key, "deviceId": deviceId, "version": configuration.appVersion]
         if let deviceClass = configuration.deviceClass { payload["deviceClass"] = deviceClass }
         let body: LicenseServerResponse = try await post(path: "activate", payload: payload)
-        let license = Self.license(from: body, deviceId: configuration.deviceID(), key: key)
+        let license = Self.license(from: body, deviceId: deviceId, key: key)
         try await store.save(license)
         return license
     }

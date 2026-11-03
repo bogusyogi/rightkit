@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.2 — unpublished staging
+
+- Removed (Adrian, 2026-11-03: end-to-end tests only; a built harness page on a dev server is not end to end): the real-browser tests against a harness page, their harness, `test/` (harness, SSR and Shiki browser pages), the `test:browser` script and the devDependencies `@rightkit/qa-chrome`, `esbuild`, `react-dom` and `@types/react-dom`. Nothing shipped changes.
+
+- Issue #1182: consumers must override `micromark-extension-math>katex` (remark-math pulls katex 0.16.x, inside GHSA-238p-pmpm-9mq7, vulnerable >=0.11.0 <0.18.2; a library cannot carry a pnpm override). The README states the override. New bin `rightkit-doc-render-check-katex [lockfile ...]` reads a `pnpm-lock.yaml` or `package-lock.json`, exits 1 when it resolves katex below 0.18.2 next to `@rightkit/doc-render`, and prints the override to add.
+
+- Issue #812: `remarkHighlight` gives the `highlight` node and every text node it splits from a positioned text node a `position` (start and end offsets, line and column), so source-preserving editors can map the selection.
+- Issue #395: `sanitizeFullHtmlDocument(html, { allowMedia, allowSvg, allowForms, beforeSanitize })` sanitizes a whole document; every addition defaults off, `beforeSanitize` runs on the unsanitized parsed tree before any removal, and `base`, `meta`, `link`, `style` and scripts are never admitted.
+- Issue #395: `sanitizeKatexHtml` (MathML and styled spans with inline SVG) and `sanitizeMermaidSvg` (SVG drawing elements only; no `foreignObject`, `image`, `use` or links) profiles; `style` keeps only an allowlist of CSS declarations through `filterStyle`. `URI_ATTRIBUTES` is exported from `security` for these profiles.
+
 ## 0.2.1 — unpublished staging
 
 - Add `sanitizeShikiHtml` & fixed-code `ShikiSanitizationError` for classic Shiki 4.5 dual-theme HTML, with guarded parse5 8.0.1 parsing, strict source/structure/CSS validation & bounded fixed-tag serialization.

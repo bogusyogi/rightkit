@@ -9,6 +9,7 @@
 use crate::model::FrontApp;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FocusReport {

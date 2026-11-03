@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-tools"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 rust-version = "1.98.0"
 description = "One typed tool interface for agents over rightkit-automation, rightkit-browser and each app's engine commands (via rightkit-daemon), plus the `right-ctl <app> <command>` CLI."
@@ -16,14 +16,15 @@ default = ["automation", "browser", "speech"]
 automation = ["dep:rightkit-automation"]
 browser = ["dep:rightkit-browser", "dep:tokio"]
 speech = ["dep:rightkit-speech-client"]
+# `ToolboxProvider`: serve a Toolbox over MCP (rightkit-mcp `ToolProvider`).
+mcp-provider = ["dep:rightkit-mcp"]
 # Agent demo mode (`demo.*` tools, `right-ctl demo`). Non-default: release builds omit it entirely.
 demo = []
-coding_tools-test-mode = ["coding_tools"]
 coding_tools-host = ["coding_tools", "coding_tools-code-mode", "dep:rightkit-browser", "dep:rightkit-sandbox", "dep:rightkit-ffmpeg", "dep:rightkit-agent-plugins", "dep:portable-pty", "rightkit-mcp/agent_mcp-os-keyring", "rightkit-llm/agent_providers-os-keyring", "rightkit-app-settings/agent_config-host-env", "rightkit-mcp/agent_mcp-host-env", "rightkit-llm/agent_providers-host-env"]
 coding_tools-code-mode = ["coding_tools", "dep:rquickjs"]
 coding_tools-embeddings = ["coding_tools", "rightkit-embed/inference"]
 coding_tools-test-support = ["coding_tools"]
-coding_tools = ["dep:bytes", "dep:rightkit-db", "dep:anyhow", "dep:rightkit-agent-engine-protocol", "dep:rightkit-agent-engine-runtime-resources", "dep:rightkit-fs", "dep:rightkit-crypto", "dep:rightkit-time", "dep:rightkit-agent-policy", "dep:rightkit-app-settings", "dep:rightkit-mcp", "dep:rightkit-agent-engine-history", "dep:rightkit-agent-host-traits", "dep:rightkit-llm", "dep:rightkit-logs", "dep:thiserror", "dep:tracing", "dep:tokio", "tokio/full", "dep:rightkit-http", "dep:url", "dep:async-trait", "dep:rightkit-embed", "dep:rightkit-sandbox", "dep:rightkit-child-process", "dep:futures", "dep:tempfile", "dep:scraper", "dep:git2", "dep:ignore", "dep:globset", "dep:regex", "dep:flate2", "dep:libc", "dep:rightkit-daemon", "dep:winapi", "dep:windows", "coding_tools-host"]
+coding_tools = ["dep:bytes", "dep:rightkit-db", "dep:anyhow", "dep:rightkit-agent-engine-protocol", "dep:rightkit-agent-engine-runtime-resources", "dep:rightkit-fs", "dep:rightkit-crypto", "dep:rightkit-time", "dep:rightkit-agent-policy", "dep:rightkit-app-settings", "dep:rightkit-mcp", "rightkit-mcp/agent_mcp", "dep:rightkit-agent-engine-history", "dep:rightkit-agent-host-traits", "dep:rightkit-llm", "dep:rightkit-logs", "dep:thiserror", "dep:tracing", "dep:tokio", "tokio/full", "dep:rightkit-http", "dep:url", "dep:async-trait", "dep:rightkit-embed", "dep:rightkit-sandbox", "dep:rightkit-child-process", "dep:futures", "dep:tempfile", "dep:scraper", "dep:git2", "dep:ignore", "dep:globset", "dep:regex", "dep:flate2", "dep:libc", "dep:rightkit-daemon", "dep:winapi", "dep:windows", "coding_tools-host"]
 
 [dependencies]
 rightkit-daemon = { version = "0.5.1", path = "../rightkit-daemon" }
@@ -43,7 +44,7 @@ rightkit-crypto = {version = "0.1.0", path = "../rightkit-crypto", optional = tr
 rightkit-time = {version = "0.1.1", path = "../rightkit-time", optional = true}
 rightkit-agent-policy = {version = "0.1.0", path = "../rightkit-agent-policy", optional = true}
 rightkit-app-settings = {version = "0.3.1", path = "../rightkit-app-settings", features = ["agent_config"], optional = true}
-rightkit-mcp = {version = "0.7.2", path = "../rightkit-mcp", features = ["agent_mcp"], optional = true}
+rightkit-mcp = {version = "0.7.4", path = "../rightkit-mcp", optional = true}
 rightkit-agent-engine-history = {version = "0.1.0", path = "../rightkit-agent-engine-history", optional = true}
 rightkit-ffmpeg = {version = "0.2.13", path = "../rightkit-ffmpeg", features = ["agent_media"], optional = true}
 rightkit-agent-plugins = {version = "0.1.0", path = "../rightkit-agent-plugins", optional = true}

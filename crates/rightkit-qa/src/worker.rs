@@ -16,7 +16,7 @@
 //! <run root>/<world dir>/
 //!     scenario.json   written by the runner, read by the worker
 //!     outcome.json    written by the worker, read by the runner
-//!     <data, home, temp, control socket, control token file>   as named in `World`
+//!     <temp, control socket, control token file>   as named in `World`
 //! ```
 use crate::evidence::{Artifact, Check, CheckStatus};
 use crate::util::{err, plain_path, require_text, Error, Result};
@@ -29,8 +29,10 @@ use std::path::{Component, Path, PathBuf};
 /// looks at another field, so a runner and a worker from different releases cannot misread each other.
 ///
 /// Version 2 added the per-step samples, the engine starts per environment set and the launch facts
-/// to `outcome.json`. Version 1 is not read: an outcome without them cannot back a truthful receipt.
-pub const SCHEMA_VERSION: u32 = 2;
+/// to `outcome.json`. Version 3 (rightkit#1437) drops the throwaway `home` and `dataDir` of the world
+/// and the data-directory facts of the launch: the app runs on the owner's real data under the
+/// journey run's snapshot and restore. Older versions are not read.
+pub const SCHEMA_VERSION: u32 = 3;
 /// File the runner writes into the world directory.
 pub const SCENARIO_FILE: &str = "scenario.json";
 /// File the worker writes into the world directory.
@@ -64,15 +66,14 @@ pub struct EnvMarker {
     pub value: String,
 }
 
-/// The sandbox of one scenario: where its processes keep state and which ports and control
-/// endpoints are theirs. Every path is absolute and lies under the run root.
+/// The slot of one scenario: its scratch temp dir, ports and control endpoint. It holds no app data;
+/// the app runs on the owner's real data under the journey run's snapshot and restore (rightkit#1437).
+/// Every path is absolute and lies under the run root.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct World {
     /// The world directory itself: holds `scenario.json` and `outcome.json`.
     pub dir: PathBuf,
-    pub data_dir: PathBuf,
-    pub home: PathBuf,
     pub temp: PathBuf,
     /// First port of the range this world may bind (inclusive).
     pub port_start: u16,
@@ -142,20 +143,12 @@ pub struct StepSample {
 }
 
 /// What the worker actually launched, recorded at the launch and not asserted by the runner: the
-/// receipt's `world` section is built from it. `env` is the environment the first app or engine
-/// process was given; only the part `isolation_env` keeps reaches the receipt (isolation keys,
-/// `RIGHTKIT_*` keys and the world marker), and the worker should send no more than that.
+/// receipt's `scenario` section is built from it. `env` is the environment the first app or engine
+/// process was given; only the part `launch_env` keeps reaches the receipt (`RIGHTKIT_*` keys and the
+/// scenario marker), and the worker should send no more than that.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkerLaunch {
-    /// The directory the app was told is its data directory. Must lie under the scenario's world dir.
-    pub data_dir: PathBuf,
-    /// Variable through which the app was told it (`data_dir_env` of the config).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub data_dir_env: Option<String>,
-    /// Flag through which the app was told it (`data_dir_arg` of the config).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub data_dir_arg: Option<String>,
     /// Arguments of that launch.
     #[serde(default)]
     pub args: Vec<String>,
@@ -222,7 +215,7 @@ pub struct WorkerOutcome {
     #[serde(default)]
     pub steps: Vec<StepSample>,
     /// The launch the scenario made; `None` when it launched nothing (the runner refuses a pass
-    /// without it: isolation cannot be recorded).
+    /// without it: the launched binaries cannot be recorded).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch: Option<WorkerLaunch>,
     /// Checks the scenario recorded.
@@ -299,8 +292,6 @@ impl World {
     pub fn validate(&self, run_root: &Path) -> Result<()> {
         for (label, p) in [
             ("world dir", &self.dir),
-            ("world data dir", &self.data_dir),
-            ("world home", &self.home),
             ("world temp", &self.temp),
             ("world control socket", &self.control_socket),
             ("world control token file", &self.control_token_file),
@@ -458,12 +449,6 @@ impl WorkerOutcome {
             }
         }
         if let Some(l) = &self.launch {
-            if !l.data_dir.is_absolute() {
-                return err(format!(
-                    "launch data dir must be an absolute path: {}",
-                    l.data_dir.display()
-                ));
-            }
             if l.env
                 .iter()
                 .any(|(k, _)| k.is_empty() || k.contains(['=', '\0']))

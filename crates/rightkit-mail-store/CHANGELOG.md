@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `data_dir`: docs no longer name a test-mode refusal; the per-process fallback folder after a host refusal is `<app>-no-data-dir-<pid>` (was `<app>-under-test-<pid>`).
+- Pre-migration backup hooks are closures (rightkit-db `BackupName`/`VerifyBackup`, rightkit#770): the key, timestamp name and message-count check are captured per migration, replacing the thread-local that carried them.
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 
 ## 0.1.0 (unreleased)

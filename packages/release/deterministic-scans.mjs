@@ -25,7 +25,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn as spawnChild, spawnSync } from "./background-process.mjs";
 import { spawnUnderOwnership } from "./build-ownership.mjs";
 import { checkAdvisoryExceptions } from "./advisory-exceptions.mjs";
-import { crossCompileEnv, crossTargetsFor, oneOutput } from "./cross-targets.mjs";
+import { crateRunsOn, crossCompileEnv, oneOutput, scopedCrossTargets } from "./cross-targets.mjs";
+import { declaredFeatureNames, effectiveCrateFeatures, featureCoverageProblems } from "./feature-coverage.mjs";
 import { CLIPPY_UNIVERSAL_FEATURE_FLAGS, canonicalJson, clippyBatchPlan, clippySelectionOf, digestScanSet, requiredScanIds, rustCratePlan, rustScanId } from "./scan-digest.mjs";
 import { reach } from "./lock-graph.mjs";
 import { cargoManifestState } from "./cargo-manifest-text.mjs";
@@ -34,6 +35,8 @@ import { PYTHON_LOCK_FILE, pythonLockProblems } from "./python-lock.mjs";
 import { lockOwnerOf, packageLockProblems, xcodeProjectLockProblems } from "./swift-lock.mjs";
 import { LAUNCH_GUARD_IMPORT } from "./class-a-launch-guard.mjs";
 import { advisoryCacheRoot, ensureAdvisoryDb, prepareDenyOverlay, readAdvisoryPin } from "./advisory-db.mjs";
+import { ghsaFindings } from "./ghsa-audit.mjs";
+import { OutdatedUnavailableError, resolveOutdatedBin } from "./outdated-command.mjs";
 import { isInsideGenerationTarget, observedEnvOf, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest } from "./snapshot-request.mjs";
 import { SCAN_TOKEN_ENV, appendLedger, readLedger, scanTokenOf, unclaimedLedgers } from "./cargo-ledger.mjs";
 import { brokerSection, carryBrokerAdapterAsync, verifyBrokerLedger } from "./snapshot-broker.mjs";
@@ -51,7 +54,7 @@ export const CHECKER_IDENTITY = (() => {
   try {
     const p = JSON.parse(fs.readFileSync(new URL("./package.json", import.meta.url), "utf8"));
     const h = crypto.createHash("sha256");
-    for (const f of ["./deterministic-scans.mjs", "./scan-digest.mjs", "./swift-lock.mjs", "./gradle-lock.mjs", "./python-lock.mjs"]) { h.update(f); h.update("\0"); h.update(fs.readFileSync(new URL(f, import.meta.url))); h.update("\0"); }
+    for (const f of ["./deterministic-scans.mjs", "./scan-digest.mjs", "./swift-lock.mjs", "./gradle-lock.mjs", "./python-lock.mjs", "./ghsa-audit.mjs"]) { h.update(f); h.update("\0"); h.update(fs.readFileSync(new URL(f, import.meta.url))); h.update("\0"); }
     return `${p.name}@${p.version}#${h.digest("hex").slice(0, 16)}`;
   } catch { return null; }
 })();
@@ -72,14 +75,17 @@ export const CLASS_A_SCAN_PREFIXES = Object.freeze([
   "actionlint", "shellcheck", "pnpm-lockfile", "swift-lock", "gradle-lock", "python-lock", "pnpm-audit", "cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list",
   "changelog-version", "license", "secret-scan", "path-policy", "advisory-exceptions", "suite-api", "build-helpers",
   // Everything mechanical and deterministic that does not compile is class A (Adrian, 2026-10-27): typecheck, lint, generated docs.
-  "tsc", "eslint", "biome", "generated-docs",
+  "tsc", "eslint", "biome", "oxlint", "generated-docs",
+  // The GitHub advisory database beside RustSec (rightkit#1461), dependency freshness as advice (rightkit#1475), the Swift type-check
+  // (rightkit#1289) and the Cargo feature coverage check (rightkit#1231).
+  "ghsa-audit", "dependency-freshness", "swift-typecheck", "feature-coverage",
 ]);
 // Class B includes compiles and tests that execute project code.
 export const CLASS_B_SCAN_PREFIXES = Object.freeze([
   "clippy", "check", "check-all-features", "check-features", "check-dependent", "doc", "swift-build",
 ]);
 // Test scripts can invoke a compiler indirectly, so all tests run after Class A.
-export const TEST_SCAN_CLASS = Object.freeze({ "test:rust": "B", "test:rust-serial": "B", "test:npm": "B", "test:scripts-ci": "B" });
+export const TEST_SCAN_CLASS = Object.freeze({ "test:rust": "B", "test:rust-serial": "B", "test:npm": "B" });
 
 /**
  * Rollout switch for the CI integration (ci/gate.config.json: { "deterministicScans": { "enabled": true } }).
@@ -397,15 +403,18 @@ export const ESLINT_CONFIG_FILES = Object.freeze([
   ".eslintrc", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.yaml", ".eslintrc.yml",
 ]);
 export const BIOME_CONFIG_FILES = Object.freeze(["biome.json", "biome.jsonc"]);
+// Oxlint reads `.oxlintrc.json` (JSON with comments) or an `oxlint.config.*` from the directory it runs in (rightkit#1402). It is JS/TS only (Rust stays Clippy)
+// and never replaces ESLint or Biome: a package with several of these configs runs every one of them, so no unmatched rule is silently dropped.
+export const OXLINT_CONFIG_FILES = Object.freeze([".oxlintrc.json", "oxlint.config.ts", "oxlint.config.mts", "oxlint.config.cts", "oxlint.config.js", "oxlint.config.mjs", "oxlint.config.cjs"]);
 // Everything scripts/generate-index.mjs reads or writes (its header and loadInventory): crate and package manifests and
 // READMEs, the root Cargo.toml (workspace version), the versions and ownership data, the ownership-availability helper it imports, itself,
 // the port matrix generator it imports, and its outputs (the port matrix's MD and HTML are checked for consistency with its JSON).
 // The Right Suite API contract and every projection scripts/gen-suite-api.mjs writes from it (the test-vector copy included).
-const SUITE_API_INPUT = /^(contracts\/right-suite-api\.v1\.json|scripts\/gen-suite-api\.mjs|crates\/rightkit-license\/src\/suite_api_generated\.rs|packages\/app-update\/src\/suite-api\.generated\.ts|packages\/release\/suite-api\.generated\.mjs|swift\/RightKitSwift\/Sources\/RightKitLicense\/RightSuiteAPI\.generated\.swift|crates\/rightkit-license\/test-vectors\/right-suite-api\.v1\.json)$/;
+const SUITE_API_INPUT = /^(contracts\/right-suite-api\.v1\.json|scripts\/gen-suite-api\.mjs|crates\/rightkit-license\/src\/suite_api_generated\.rs|packages\/app-update\/src\/suite-api\.generated\.ts|packages\/release\/suite-api\.generated\.mjs|swift\/RightKitSwift\/Sources\/RightKitLicense\/RightSuiteAPI\.generated\.swift)$/;
 const GENERATOR_INPUT = /^(crates\/[^/]+\/(Cargo\.toml|README\.md)|packages\/[^/]+\/(package\.json|README\.md)|Cargo\.toml|packages\/release\/(rightkit-versions\.json|rightkit-ownership\.json|ownership-availability\.mjs)|scripts\/generate-(index|port-matrix)\.mjs|INDEX\.md|docs\/(ADOPTION|CAPABILITY-MAP|PORT-MATRIX)\.md|docs\/port-matrix\.(html|json))$/;
 const PROBES = Object.freeze({
   rustfmt: ["--version"], node: ["--version"], rustright: ["cargo", "--version"], pnpm: ["--version"],
-  actionlint: ["-version"], shellcheck: ["--version"], "right-git": ["--version"], swift: ["--version"],
+  actionlint: ["-version"], shellcheck: ["--version"], oxlint: ["--version"], "right-git": ["--version"], swift: ["--version"],
   "cargo-deny": ["--version"], "cargo-audit": ["audit", "--version"], // as cargo itself starts the subcommand binaries
 });
 /**
@@ -416,11 +425,11 @@ const PROBES = Object.freeze({
  * The installers (.github/workflows/publish.yml, publish-app.yml, ci.yml) and the managed host path in ci/rk-pipeline.json
  * provision exactly this version; scripts/ci/scan-receipt.test.mjs holds them to it.
  */
-export const PINNED_SCAN_TOOLS = Object.freeze({ shellcheck: "0.11.0" });
+export const PINNED_SCAN_TOOLS = Object.freeze({ shellcheck: "0.11.0", oxlint: "1.89.0" });
 /** Scans whose answer depends on a remote service at run time, not only on their inputs: `pnpm-audit` asks the registry's advisory
  * service. A verdict that includes them is reusable only after they are re-run (`rightkit-gate live-scans`; GATE-CONTRACT §1, E18),
  * and a red caused by one is never deterministic. Ids are `<prefix>` or `<prefix>:<root>`; rustright's REMOTE_SCANS mirrors this list. */
-export const LIVE_SCAN_IDS = Object.freeze(["pnpm-audit"]);
+export const LIVE_SCAN_IDS = Object.freeze(["pnpm-audit", "ghsa-audit"]);
 export const isLiveScan = (id) => LIVE_SCAN_IDS.some((p) => id === p || String(id).startsWith(`${p}:`));
 /** Scans whose FAILURE may come from the registry rather than their inputs: `pnpm-lockfile` (`install --frozen-lockfile --lockfile-only`)
  * re-verifies lockfile entries against the registry when pnpm's cache is cold, so an outage fails it. Their pass is deterministic, but a
@@ -440,6 +449,7 @@ export function inTreeGate(contentRoot, exists = fs.existsSync) {
 // The version a probe's output names, for a tool whose first line is not its version (`shellcheck --version` opens with a banner).
 const PROBE_VERSION = Object.freeze({
   shellcheck: (text) => { const m = /^version:\s*(\S+)\s*$/m.exec(text); return m ? `shellcheck ${m[1]}` : null; },
+  oxlint: (text) => { const m = /\b(\d+\.\d+\.\d+)\b/.exec(String(text).split(/\r?\n/).find((l) => l.trim()) ?? ""); return m ? `oxlint ${m[1]}` : null; },
 });
 /** null when `version` (a probe's answer) is the pinned one or the tool has no pin, else the problem. */
 export function pinnedVersionProblem(tool, version) {
@@ -460,7 +470,7 @@ export function pinnedVersionProblem(tool, version) {
  * A scan the broker carries (a snapshot-broker host's cargo-deny / cargo-audit) runs the broker's own registered tool: its identity is the
  * broker's tool registration (RustRight), recorded here as `source: "broker"` and never claimed as bound by the gate.
  */
-export const TRUSTED_SCAN_TOOLS = Object.freeze(["actionlint", "shellcheck", "cargo-deny", "cargo-audit"]);
+export const TRUSTED_SCAN_TOOLS = Object.freeze(["actionlint", "shellcheck", "oxlint", "cargo-deny", "cargo-audit"]);
 const SHA256_HEX = /^[0-9a-f]{64}$/i;
 
 /** The scan-tool policy of a pipeline file's `tools` object for `platform`: `{ [tool]: { path, sha256, version } }` for each trusted tool that has a `<platform>` entry (shape unchecked here; resolveTrustedScanTool judges it). */
@@ -1077,7 +1087,22 @@ export function planScans({
   const wsIdSuffix = (ws) => (perWorkspaceIds && ws !== "." ? `:${wsLabel(ws)}` : "");
   const wsOf = (n) => (rustMap ? rustMap.get(n).cargoDir : cargoWs);
   const crateOf = (n) => (rustMap?.get(n)?.crate ?? n);
-  const featuresOf = (n) => crateFeatures?.[n] ?? crateFeatures?.[crateOf(n)] ?? {};
+  // The crate's feature plan input: the declared entry of ci/gate.config.json `rust`, plus `autoAllFeatures` for a crate that declares no featureSets but has Cargo
+  // features (feature-coverage.mjs; rightkit#1231), read from the committed Cargo.toml.
+  const manifestTextOf = (n) => { try { return readFile(path.join(contentRoot, rustDir(n), "Cargo.toml")); } catch { return null; } };
+  const featuresOf = (n) => {
+    const key = crateFeatures?.[n] !== undefined ? n : crateOf(n);
+    return effectiveCrateFeatures({ crateFeatures: { [key]: crateFeatures?.[key] ?? {} }, units: [key], manifestOf: () => manifestTextOf(n) })[key];
+  };
+  // Per-crate platform scope (rightkit#1248, ci/gate.config.json rust.<crate>.platforms): a crate scoped to other hosts plans no compile or test
+  // row here (check, check-features, clippy and its cross targets, doc, test, check-dependent). Its class A rows (package list, changelog,
+  // licence, secrets) are file-only and stay. Said once per crate in the notes; the scoped host's own gate runs the rows.
+  const platformSkipped = new Set();
+  const outOfScope = (n) => {
+    if (crateRunsOn(featuresOf(n), platform)) return false;
+    if (!platformSkipped.has(n)) { platformSkipped.add(n); notes.push(`${crateOf(n)} is scoped to ${featuresOf(n).platforms.join(", ")} (ci/gate.config.json platforms); its compile and test scans are not planned on ${platform} and run on the scoped host`); }
+    return true;
+  };
   // With no Rust unit in play the default workspace counts only when it has a Cargo.toml: a root rust-toolchain.toml (or other Rust config)
   // in a crate-per-workspace repository must not turn the repository root into a phantom workspace whose cargo scans have no manifest.
   const workspaces = rustMap && rustMap.size ? [...new Set([...rustMap.values()].map((u) => u.cargoDir))].sort() : (exists(path.join(contentRoot, cargoWs === "." ? "Cargo.toml" : `${cargoWs}/Cargo.toml`)) ? [cargoWs] : []);
@@ -1229,6 +1254,9 @@ export function planScans({
 
   // Exceptions expire by date, not by change: checked on every run, whatever changed.
   if (exists(path.join(contentRoot, "ci/advisory-exceptions.json"))) add({ id: "advisory-exceptions", class: A, internal: "advisory-exceptions" });
+  // Dependency freshness (rightkit#1475): `right-update check --json` once per repository that commits `.rightkit/update.json`. Advice only: it never
+  // fails a run (latest is a live registry answer), and the row carries "N behind latest".
+  if (exists(path.join(contentRoot, ".rightkit/update.json"))) add({ id: "dependency-freshness", class: A, internal: "dependency-freshness", advise: true });
   // An app's advisory exceptions follow the same policy as RightKit's own: a Cargo workspace whose deny.toml or .cargo/audit.toml
   // ignores an advisory needs its ledger, <workspace>/.rightkit/advisory-exceptions.json, with owner, evidence, an unexpired
   // reviewBy, the exact affected versions and dependents in that workspace's Cargo.lock, and a person's approval; deny.toml and
@@ -1271,6 +1299,9 @@ export function planScans({
     const pinEnv = { RK_ADVISORY_DB_COMMIT: pin.commit };
     add({ id: `cargo-deny${wsIdSuffix(ws)}`, class: A, ...cargoReadIn(ws, "deny", "--frozen", "--metadata-path", "{advisoryMetadata}", "--config", "{advisoryDenyConfig}", "check"), env: pinEnv, advisoryDb: "deny", advisoryPin: pin });
     add({ id: `cargo-audit${wsIdSuffix(ws)}`, class: A, ...cargoReadIn(ws, "audit", "--db", "{advisoryDb}", "--no-fetch"), env: pinEnv, advisoryDb: "audit", advisoryPin: pin });
+    // The GitHub advisory database (rightkit#1461): cargo-audit and cargo-deny read RustSec only, so a GHSA RustSec has not copied yet passed the
+    // gate (zip GHSA-m665-v7pm-7grj). One scan per workspace lock asks OSV about its crates.io packages (ghsa-audit.mjs; GATE-CONTRACT GC-A19).
+    if (exists(path.join(contentRoot, inDir(ws, "Cargo.lock")))) add({ id: `ghsa-audit${wsIdSuffix(ws)}`, class: A, internal: "ghsa-audit", lockFile: inDir(ws, "Cargo.lock"), ...(ws === "." ? {} : { cwd: ws }) });
   }
   // The audit policy is the consumer's own: every package.json script that is exactly `pnpm audit <flags>` (only --prod, --dev,
   // --audit-level <low|moderate|high|critical> are accepted) declares one, and the scan runs the strictest of them all: a dependency
@@ -1326,14 +1357,17 @@ export function planScans({
       ...(trusted ? {} : { deferred: "requires a trusted-root run: the generator is repository code and no separate trusted checkout provides it; the content root's copy is never executed" }),
     });
   }
-  const clippyEntries = [];
+  const clippyEntries = []; const coverageCrates = [];
   for (const name of crateNames) {
-    // Feature sets exactly as CI's gate runs them (scripts/ci/gate.mjs, ci/gate.config.json rust.<crate>):
+    if (outOfScope(name)) continue;
+    // Feature sets as CI's gate runs them (scripts/ci/gate.mjs, ci/gate.config.json rust.<crate>), plus --all-features for a crate that declares none but has features (rightkit#1231):
     // clippy per `featureSets` (default features when absent); check per `checkFeatureSets` (default
     // --all-features), none when a lint set already uses --all-features. Some crates' features cannot
     // all be on together (rightkit-db sqlcipher vs sqlcipher-system; qa-driver wv2 generations).
     const own = featuresOf(name);
-    const { lintSets, defaultCheck, checkSets } = rustCratePlan(own);
+    const { lintSets, baseSets, defaultCheck, checkSets } = rustCratePlan(own);
+    // Every feature the crate declares must be enabled by one of these sets (the feature-coverage scan below, rightkit#1231).
+    coverageCrates.push({ name, manifest: inDir(rustDir(name), "Cargo.toml"), sets: [...(defaultCheck ? [[]] : []), ...lintSets, ...checkSets] });
     const ws = wsOf(name); const crate = crateOf(name);
     // `cargo clippy --all-targets` type-checks exactly what `cargo check --all-targets` does: the default
     // check runs only when no clippy set covers default features.
@@ -1344,10 +1378,10 @@ export function planScans({
     // The other two OS targets, every lint set, -D warnings, on every host (cross-targets.mjs; Adrian 2026-11-02/03, no skip). The zig C
     // toolchain must be provisioned (crossCcDir); without it the scan fails naming the fix, never skipped. On a broker host the broker must
     // admit the cross target and its CC_/CXX_/AR_ variables; a refusal there fails the scan.
-    for (const target of crossTargetsFor(own, platform)) {
+    for (const target of scopedCrossTargets(own, platform)) {
       const crossEnv = crossCompileEnv(target);
-      lintSets.forEach((set, i) => {
-        const id = `${rustScanId.clippy(name, lintSets.length, i)}@${target}`;
+      baseSets.forEach((set, i) => {
+        const id = `${rustScanId.clippy(name, baseSets.length, i)}@${target}`;
         if (!crossEnv) { add({ id, class: B, tool: "node", args: ["-e", `console.error("RK_CROSS_CC_UNPROVISIONED: the zig C toolchain for ${target} is not provisioned; run node scripts/ci/provision-zig.mjs <managed data root>/zig (or set RIGHTKIT_CROSS_CC_DIR)"); process.exit(1)`] }); return; }
         const scan = cargoIn(ws, ...clippyArgs(crate, { features: set, locked: true, target }));
         add({ id, class: B, batchUnit: name, ...scan, env: { ...(scan.env ?? {}), ...crossEnv } });
@@ -1359,6 +1393,10 @@ export function planScans({
       add({ id: rustScanId.doc(name), class: B, ...cargoIn(ws, "rustdoc", "-p", crate, "--lib", ...lintSets[0], "--locked", "--", ...DOC_RUSTDOC_ARGS) });
     }
   }
+  // Class A, file-only (rightkit#1231): no feature of a crate's Cargo.toml may be left out of every planned feature set, so feature-gated code is never
+  // unchecked. Crates without Cargo features need no row.
+  const featureful = coverageCrates.filter((c) => { const t = manifestTextOf(c.name); return typeof t === "string" && declaredFeatureNames(t).length > 0; });
+  if (featureful.length) add({ id: "feature-coverage", class: A, internal: "feature-coverage", crates: featureful });
   if (clippyBatching && clippyEntries.length) {
     // One Clippy scan per batch (row 8.6): the independent batches first, the sidecar-bound ones after them (row 8.8; the compile lane
     // drains in plan order). The reason a configuration stays separate is recorded in the plan notes.
@@ -1376,13 +1414,13 @@ export function planScans({
     const memo = new Map();
     const scoped = crateNames.filter((n) => wsOf(n) === ws).map(crateOf);
     const workspace = (rustMap ? [...rustMap.keys()] : listDir(path.join(contentRoot, "crates"))).filter((n) => wsOf(n) === ws);
-    const dependents = safeUnits(workspace.filter((n) => !inScope.has(n) && exists(path.join(contentRoot, rustDir(n), "Cargo.toml")) && scoped.some((t) => reach(lock, crateOf(n), memo).has(t))).sort(), "crate");
+    const dependents = safeUnits(workspace.filter((n) => !inScope.has(n) && !outOfScope(n) && exists(path.join(contentRoot, rustDir(n), "Cargo.toml")) && scoped.some((t) => reach(lock, crateOf(n), memo).has(t))).sort(), "crate");
     for (const name of dependents) { planned.add(name); add({ id: `check-dependent:${name}`, class: B, batchUnit: name, ...cargoIn(ws, ...checkArgs(crateOf(name), { locked: true })) }); }
   }
   // Across Cargo workspaces (one workspace and lock per crate): a unit that path-depends on a unit in scope, transitively, is judged by
   // the manifests' path dependencies, since no lock holds both.
   if (typeof crateDependents === "function" && rustMap && crateNames.length) {
-    const across = [...crateDependents(new Set(crateNames))].filter((n) => !inScope.has(n) && !planned.has(n) && rustMap.has(n) && exists(path.join(contentRoot, rustDir(n), "Cargo.toml"))).sort();
+    const across = [...crateDependents(new Set(crateNames))].filter((n) => !inScope.has(n) && !planned.has(n) && rustMap.has(n) && !outOfScope(n) && exists(path.join(contentRoot, rustDir(n), "Cargo.toml"))).sort();
     for (const name of safeUnits(across, "crate")) add({ id: `check-dependent:${name}`, class: B, batchUnit: name, ...cargoIn(wsOf(name), ...checkArgs(crateOf(name), { locked: true })) });
   }
   // A linter config in the unit's directory or any ancestor of it (a repository-level config covers every unit, as the tools look it up).
@@ -1410,6 +1448,19 @@ export function planScans({
     }
     if (hasConfig(dir, ESLINT_CONFIG_FILES)) add({ id: `eslint:${name}`, class: A, executes: true, tool: "pnpm", args: ["exec", "eslint", "."], env: PNPM_RUN_ENV, cwd: dir });
     if (hasConfig(dir, BIOME_CONFIG_FILES)) add({ id: `biome:${name}`, class: A, executes: true, tool: "pnpm", args: ["exec", "biome", "lint", "."], env: PNPM_RUN_ENV, cwd: dir });
+    // Oxlint (rightkit#1402): the pinned, enrolled native binary (PINNED_SCAN_TOOLS; ci/oxlint.json), never `pnpm exec`, so it needs no installed
+    // dependencies and a package's own copy never judges it. It reads the config in the package directory. A JSON config with no `jsPlugins` is data
+    // and the row is a content check; a script config (`oxlint.config.*`) or `jsPlugins` make Oxlint run repository code, so the row `executes` (full class A only).
+    // Not enrolled on the host: TOOL_UNTRUSTED, as for actionlint; never skipped, never passed.
+    // The nearest directory at or above the package that holds a config decides (the config applies to the whole package; an ancestor's is named with -c).
+    const oxlintDir = [...ancestorDirsOf(dir)].reverse().find((d) => OXLINT_CONFIG_FILES.some((f) => exists(path.join(liveRoot, inDir(d, f)))));
+    if (oxlintDir !== undefined) {
+      const configFile = OXLINT_CONFIG_FILES.find((f) => exists(path.join(liveRoot, inDir(oxlintDir, f))));
+      let runsCode = configFile !== ".oxlintrc.json";
+      if (!runsCode) { try { runsCode = /"jsPlugins"/.test(readFile(path.join(liveRoot, inDir(oxlintDir, configFile)))); } catch { runsCode = true; } }
+      const configArgs = oxlintDir === dir ? [] : ["-c", path.posix.relative(dir, inDir(oxlintDir, configFile))];
+      add({ id: `oxlint:${name}`, class: A, tool: "oxlint", args: [...configArgs, "."], root: "content", cwd: dir, ...(runsCode ? { executes: true } : {}) });
+    }
   }
   // One `swift build` per Swift package a changed file belongs to: the nearest Package.swift at or above the file, built in its own
   // directory (rightkit#1229: Pulse's package is swift/RightKitHub, and a root `swift build` found no package and blocked every push).
@@ -1426,6 +1477,11 @@ export function planScans({
       const declared = swiftPackages?.[dir === "" ? "." : dir]?.qualifyOnly;
       const reason = typeof declared?.reason === "string" && declared.reason.trim() !== "" ? declared.reason.replace(/\s+/g, " ").trim() : null;
       if (declared && !reason) notes.push(`ci/gate.config.json swift.${dir}.qualifyOnly is ignored: it must be { "reason": "<why this package cannot build from the bare snapshot>" } with a non-empty reason; ${id} is planned`);
+      // The Swift type-check (rightkit#1289): Class A, the Mac host only; a package class B does not build (qualify-only) cannot be type-checked from the bare snapshot either.
+      if (!reason) {
+        if (platform === "darwin") add({ id: dir === "" || dir === "." ? "swift-typecheck" : `swift-typecheck:${dir}`, class: A, internal: "swift-typecheck", dir: dir === "" ? "." : dir, executes: true });
+        else notes.push(`swift-typecheck skipped for ${dir === "" || dir === "." ? "the root package" : dir}: the Swift type-check runs on the Mac host only (platform ${platform})`);
+      }
       if (reason) { qualifyOwed.push({ id, kind: "swift-build", dir: dir === "" ? "." : dir, reason }); notes.push(`${id} is not built by class B (ci/gate.config.json swift.${dir}.qualifyOnly: ${reason}); it is owed to the qualify stage`); }
       // The committed Package.resolved is the lockfile: like cargo --locked and pnpm --frozen-lockfile, a stale one fails here with
       // SwiftPM's own message instead of SwiftPM rewriting it inside the snapshot (seen only after the compile as a changed tree).
@@ -1465,8 +1521,9 @@ export function planScans({
     // Tests per declared feature set, serially too where the crate asks for it, as CI's gate runs them. `quietTests: true` marks
     // every test scan of the crate for the quiet lane (laneOf): run alone, under the broker's quiet lease.
     for (const name of crateNames) {
+      if (outOfScope(name)) continue;
       const own = featuresOf(name);
-      const sets = rustCratePlan(own).lintSets;
+      const sets = rustCratePlan(own).baseSets;
       const quiet = own.quietTests === true ? { quiet: true } : {};
       if (own.quietTests === true && quietTests === "ci") {
         deferredToCi.push(...sets.map((set, i) => rustScanId.testRust(name, sets.length, i)), ...(own.alsoSerial ? sets.map((set, i) => rustScanId.testRustSerial(name, sets.length, i)) : []));
@@ -1555,37 +1612,7 @@ export function planScans({
       add({ id: `test:npm:${name}`, class: inClassA ? A : B, kind: "test", executes: true, classReason: inClassA ? `class A on recorded evidence (${classAEvidence}); run under the launch guard` : brokerCall ? "its test script reaches the broker (compiles); it runs with the compile scans" : laterReason ?? "test scripts execute project code and run after class A", ...(own.quietTests === true ? { quiet: true } : {}), ...(brokerCall ? { brokerCall } : {}), tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"], env: { ...PNPM_RUN_ENV, ...(isolatedCheckout ? { RIGHTKIT_ISOLATED_CHECKOUT: "1" } : {}), ...(cargoTarget ? { CARGO_TARGET_DIR: cargoTarget } : {}) } });
     }
     if (deferredToCi.length) notes.push(`${deferredToCi.length} quiet test scan(s) left to the CI shards (one crate per runner), not run here: ${deferredToCi.join(", ")}`);
-    // scripts/ci tests run when scripts/, ci/ or .github/ changed, or a file the scripts/ci sources reference (imports and
-    // relative path literals, followed through packages/*.mjs) changed. Where unreadable, they run.
-    const ciDir = exists(path.join(liveRoot, "scripts/ci"));
-    const scriptsCiTouched = () => {
-      if (files.some((f) => /^(scripts|ci|\.github)\//.test(f))) return true;
-      try {
-        const sources = listDir(path.join(liveRoot, "scripts/ci")).filter((n) => /\.mjs$/.test(n));
-        if (!sources.length) return true;
-        const inputs = new Set(); const seen = new Set();
-        const visit = (rel) => {
-          if (seen.has(rel)) return;
-          seen.add(rel);
-          let text; try { text = readFile(path.join(liveRoot, rel)); } catch { return; }
-          for (const m of text.matchAll(/["'`]((?:\.\.?\/)+[^"'`\s]+)["'`]/g)) {
-            const target = path.posix.normalize(path.posix.join(path.posix.dirname(rel), m[1])).replace(/\/+$/, "");
-            if (!target || target === "." || target.startsWith("..")) continue;
-            inputs.add(target);
-            if (target.startsWith("packages/") && target.endsWith(".mjs")) visit(target);
-          }
-        };
-        for (const n of sources) visit(`scripts/ci/${n}`);
-        return files.some((f) => [...inputs].some((i) => f === i || f.startsWith(`${i}/`)));
-      } catch { return true; }
-    };
-    if (ciDir ? scriptsCiTouched() : (!(rustMap || npmMap) && files.some((f) => f.startsWith("scripts/")))) {
-      // The suite is the exported commit's test files, named explicitly: an untracked WIP test in the live
-      // checkout is never run and can neither block nor pass a push.
-      const suite = listDir(path.join(contentRoot, "scripts", "ci")).filter((n) => n.endsWith(".test.mjs")).sort().map((n) => `scripts/ci/${n}`);
-      // End-to-end tests only (Adrian, 2026-11-03): a repo that removed its scripts/ci unit tests has no suite to run, and no row is planned.
-      if (suite.length) add({ id: "test:scripts-ci", class: B, kind: "test", executes: true, classReason: "tests execute project code and run after class A", tool: "node", args: ["--test", ...suite] });
-    }
+    // End-to-end tests only (Adrian, 2026-11-03): the scripts/ci self-tests were removed, so no `test:scripts-ci` scan is planned.
   }
 
   // Without a local compile grant the managed broker path is closed: every broker scan (class A
@@ -1828,9 +1855,9 @@ export function stripTomlComments(text) {
 export function testResultsProblem(results) {
   if (!results) return { code: "NO_TEST_SUMMARY", detail: "no test counts recorded" };
   // End-to-end tests only (Adrian, 2026-11-03: "End to end tests ONLY any unit tests need strict approval along with evidence and
-  // reason"): a Rust crate whose test build runs no test is a pass, recorded with its zero counts. A test that failed still fails, and a
-  // run whose tests were all skipped or ignored still proves nothing (ALL_SKIPPED below). node:test and vitest rows are unchanged.
-  if (results.runner === "libtest" && !(results.tests > 0) && !(results.fail > 0)) return null;
+  // reason"): a Rust crate whose test build runs no test is a pass, recorded with its zero counts; so is an npm test scan whose runner (node:test, vitest) reports zero tests and no failure. A test that failed still fails, and a
+  // run whose tests were all skipped or ignored still proves nothing (ALL_SKIPPED below).
+  if (["libtest", "node:test", "vitest"].includes(results.runner) && !(results.tests > 0) && !(results.fail > 0)) return null;
   if (!(results.tests > 0)) return { code: "NO_TESTS", detail: "the test scan executed no test" };
   if (results.fail > 0) return { code: "SUMMARY_FAILED", detail: `the test runner exited 0 but its summary reports ${results.fail} failed test(s)` };
   // A suite that ran tests but passed none of them (every test skipped or todo) proves nothing (D17, rightkit#1236).
@@ -2247,9 +2274,22 @@ async function defaultScanSecrets() {
 export async function ignoredPathSkip(ctx) {
   const git = async (args) => { try { return await ctx.deps.spawn("git", args, { cwd: ctx.contentRoot, encoding: "utf8", env: ctx.deps.env }); } catch { return null; } };
   const top = await git(["rev-parse", "--show-toplevel"]);
-  if (!top || top.status !== 0) return null;
   const same = (a, b) => { try { return fs.realpathSync(a) === fs.realpathSync(b); } catch { return path.resolve(a) === path.resolve(b); } };
-  if (!same(String(top.stdout ?? "").trim(), ctx.contentRoot)) return null;
+  if (!top || top.status !== 0 || !same(String(top.stdout ?? "").trim(), ctx.contentRoot)) {
+    // Not a git toplevel: a snapshot, which holds the commit's files and also whatever a stage wrote into it (dist/stage, build output), and
+    // `git ls-files --ignored` cannot tell them apart there. Class A judges the commit's tracked files only (rightkit#1393): with the
+    // gate's list of them, everything else, and every directory with none of them, is skipped. Without the list nothing is skipped.
+    if (!Array.isArray(ctx.trackedFiles)) return null;
+    const trackedSet = new Set(ctx.trackedFiles);
+    const parents = new Set();
+    for (const f of trackedSet) for (let i = f.indexOf("/"); i !== -1; i = f.indexOf("/", i + 1)) parents.add(f.slice(0, i));
+    const base = ctx.contentRoot;
+    return (absolute) => {
+      const rel = path.relative(base, absolute).replaceAll("\\", "/");
+      if (!rel || rel.startsWith("..")) return false;
+      return !trackedSet.has(rel) && !parents.has(rel);
+    };
+  }
   const listed = await git(["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"]);
   if (!listed || listed.status !== 0) return null;
   const entries = String(listed.stdout ?? "").split("\0").filter(Boolean);
@@ -2364,6 +2404,52 @@ const INTERNAL = {
     for (const f of s.files) { try { parse(ctx.read(f)); } catch (e) { bad.push(`${f}: ${String(e.message).split("\n")[0]}`); } }
     return bad;
   },
+  // The GitHub advisory database (ghsa-audit.mjs, rightkit#1461): a GHSA advisory RustSec lacks fails like a RustSec vulnerability; no network and no
+  // same-day answer fails (ADVISORY_DB) exactly as cargo-audit does without its database.
+  "ghsa-audit": async (s, ctx) => {
+    let lockText;
+    try { lockText = ctx.read(s.lockFile); } catch (e) { return { code: "ADVISORY_DB", detail: `${s.lockFile} is unreadable (${e.message}); the GitHub advisory scan needs the committed lockfile` }; }
+    try { return (await ghsaFindings({ lockText, fetchFn: ctx.deps.fetch ?? globalThis.fetch, cacheDir: ctx.ghsaCacheDir ?? null })).findings; }
+    catch (e) { return { code: "ADVISORY_DB", detail: `the GitHub advisory database (OSV) could not be asked: ${e.message}; class A refuses to pass a lockfile it could not check against it, as it refuses cargo-audit without its database (connect once; the answer is then kept for the UTC day)` }; }
+  },
+  // Dependency freshness (rightkit#1475): advice, never a failure. `right-update check --json` over the committed repository; the row carries "N behind latest".
+  "dependency-freshness": async (s, ctx) => {
+    let bin;
+    try { bin = resolveOutdatedBin(); } catch (e) { return { advice: `dependency freshness not measured: ${e instanceof OutdatedUnavailableError ? e.message : `right-update could not be located (${e.message})`}` }; }
+    let r;
+    try { r = await ctx.deps.spawn(process.execPath, [bin, "check", "--json", "--repo", ctx.contentRoot], { cwd: ctx.contentRoot, encoding: "utf8", env: { ...ctx.deps.env, ...PNPM_NO_HOOKS_ENV }, timeout: 120_000, maxBuffer: 1 << 26 }); }
+    catch (e) { return { advice: `dependency freshness not measured: right-update check did not run (${e.message})` }; }
+    let report = null;
+    try { report = JSON.parse(String(r?.stdout ?? "")); } catch { report = null; }
+    if (!report || !Array.isArray(report.entries)) return { advice: `dependency freshness not measured: right-update check printed no report${r?.status ? ` (exit ${r.status})` : ""}` };
+    const behind = report.entries.filter((e) => e.status === "outdated");
+    const unjudged = report.entries.filter((e) => e.status === "unknown" || e.error).length;
+    const named = behind.slice(0, 5).map((e) => `${e.name} ${e.pinned ?? "?"} -> ${e.latest ?? "?"}`).join(", ");
+    return { advice: `${behind.length} behind latest${named ? ` (${named}${behind.length > 5 ? ", ..." : ""})` : ""}${unjudged ? `; ${unjudged} not judged` : ""}` };
+  },
+  // The Swift type-check (rightkit#1289): Mac host only, Class A, before any compile stage. SwiftPM compiles each target with `-Xswiftc -typecheck`: swiftc type-checks every
+  // source against the real SDK and the target's dependencies and writes no object file, so a labelled-argument order error fails here in seconds instead of at the
+  // end of the Xcode compile (Pulse, 2026-10-29, exit 65 after the Rust stages). The committed Package.resolved decides the dependencies (`--disable-automatic-resolution`);
+  // SwiftPM's state lives under the gate's scratch root, never in the snapshot. A pass is exit 0. A failure with Swift diagnostics lists them; a failure with none is the
+  // build system's (it did not complete) and still fails: never a pass that checked nothing.
+  "swift-typecheck": async (s, ctx) => {
+    let scratch;
+    try { scratch = swiftScratchPath({ tmpRoot: ctx.tmpRoot, roots: [ctx.contentRoot, ctx.liveRoot, ctx.cargoLiveRoot], id: s.id }); }
+    catch (e) { return { code: "SWIFT_SCRATCH", detail: `${s.id}: ${e.message}` }; }
+    fs.mkdirSync(scratch, { recursive: true });
+    const packageDir = path.join(ctx.contentRoot, s.dir === "." ? "" : s.dir);
+    let r;
+    try { r = await ctx.deps.spawn("swift", ["build", "--disable-automatic-resolution", "--package-path", packageDir, "--scratch-path", scratch, "-Xswiftc", "-typecheck"], { cwd: packageDir, encoding: "utf8", env: { ...ctx.deps.env, ...PNPM_NO_HOOKS_ENV }, timeout: 10 * 60_000, maxBuffer: 1 << 26 }); }
+    catch (e) { return { code: "TOOL_MISSING", detail: `${s.id}: swift could not be started (${e.message}); the Swift type-check is required on the Mac host and is never skipped` }; }
+    if (r?.error) return { code: "TOOL_MISSING", detail: `${s.id}: swift could not be started (${r.error.message}); the Swift type-check is required on the Mac host and is never skipped` };
+    if (r?.status === 0) return [];
+    const output = `${r?.stdout ?? ""}\n${r?.stderr ?? ""}`;
+    const diagnostics = [...new Set(output.split(/\r?\n/).filter((l) => /\.swift:\d+:\d+: error:/.test(l)).map((l) => l.trim().replace(/^.*?(?=[^/\\\s]+\.swift:\d+:\d+: error:)/, "")))];
+    if (diagnostics.length) return diagnostics.slice(0, 8).map((d) => `${s.dir === "." ? "" : `${s.dir}: `}${d}`);
+    return [`${s.dir === "." ? "swift package" : s.dir}: the Swift type-check did not complete (exit ${r?.status ?? "none"}) and printed no Swift diagnostic: ${failureDetail(r)}`];
+  },
+  // Every Cargo feature of a planned crate is enabled by one of its planned feature sets (feature-coverage.mjs, rightkit#1231).
+  "feature-coverage": (s, ctx) => s.crates.flatMap((c) => featureCoverageProblems({ name: c.name, manifestText: ctx.read(c.manifest), sets: c.sets })),
   // File-only SwiftPM lockfile check (swift-lock.mjs): runs no SwiftPM, reads Package.swift / project.pbxproj and Package.resolved as committed.
   "swift-lock": (s, ctx) => {
     const exists = (f) => ctx.deps.exists(path.join(ctx.contentRoot, f));
@@ -2521,7 +2607,9 @@ export async function runScans(plan, options = {}) {
   const rootDir = (r) => (r === "content" ? contentRoot : r === "parent" ? path.dirname(contentRoot) : r === "cargoLive" ? (cargoLiveRoot ?? liveRoot) : liveRoot);
   const selected = plan.scans.filter((s) => classes.includes(s.class) && !exclude(s));
   const ordered = [...selected.filter((s) => s.class === SCAN_CLASS.A), ...selected.filter((s) => s.class === SCAN_CLASS.B)];
-  const ctx = { deps, contentRoot, read: (f) => deps.readFile(path.join(contentRoot, f)) };
+  // `trackedFiles` (the gate's list of the commit's own files): where the content root is not a git toplevel (a snapshot), the secret scan judges
+  // exactly these and never what a stage wrote there (rightkit#1393).
+  const ctx = { deps, contentRoot, liveRoot, cargoLiveRoot, tmpRoot, read: (f) => deps.readFile(path.join(contentRoot, f)), trackedFiles: Array.isArray(options.trackedFiles) ? options.trackedFiles : null };
   // GATE-CONTRACT GC-A11 (Adrian, 2026-11-02): Class A never runs in the broker. Class A cargo reads are never carried, in any stage; the gate
   // runs them directly (snapshot-metadata.mjs directReadSpawn), and cargo-deny / cargo-audit are its own enrolled tools.
   const cargoReadsAreCarried = false;
@@ -2542,6 +2630,8 @@ export async function runScans(plan, options = {}) {
   // options.cache ={ read(key), write(key, row), digest(scan) => string | null } (null: not cacheable, which is how the live class A checks opt out).
   const cache = options.cache && typeof options.cache.read === "function" && typeof options.cache.write === "function" && typeof options.cache.digest === "function" ? options.cache : null;
   const cacheHits = [];
+  // The GitHub advisory scan's same-UTC-day answers live beside the pinned RustSec checkout; a run with no cache (the door's live-scans refresh) asks again.
+  if (cache) { try { ctx.ghsaCacheDir = path.join(deps.advisoryCacheRoot ?? advisoryCacheRoot({ env: deps.env, platform: deps.platform }), "ghsa-audit"); } catch { ctx.ghsaCacheDir = null; } }
   let classAFailed = false;
   // Class B needs class A first: in this call (classes includes A) or valid prior class A evidence for the
   // same class A scan set (options.priorClassA: an earlier runScans result whose class A rows all passed).
@@ -2831,7 +2921,7 @@ export async function runScans(plan, options = {}) {
     if (s.class === SCAN_CLASS.B && classAFailed) {
       return { ...row, status: "not-run", detail: "a class A scan failed; class B starts only after class A passes" };
     }
-    let status = "pass"; let detail = ""; let code;
+    let status = "pass"; let detail = ""; let code; let advice;
     if (s.deferred) {
       // A class A scan that did not run is not a class A pass: class B waits.
       if (s.class === SCAN_CLASS.A) classAFailed = true;
@@ -2841,6 +2931,8 @@ export async function runScans(plan, options = {}) {
       if (s.internal) {
         const out = await INTERNAL[s.internal](s, ctx);
         if (out && out.missing) { status = "fail"; code = "TOOL_MISSING"; detail = out.missing; }
+        else if (out && !Array.isArray(out) && out.code) { status = "fail"; code = out.code; detail = out.detail; }
+        else if (out && !Array.isArray(out) && typeof out.advice === "string") { advice = out.advice; }
         else if (out.length) { status = "fail"; detail = out.join("; "); }
       } else {
         const scanDir = path.join(rootDir(s.root), s.cwd ?? "");
@@ -3212,7 +3304,7 @@ export async function runScans(plan, options = {}) {
       }
     } catch (e) { status = "fail"; code = "SCAN_ERROR"; detail = e.message; }
     if (status === "fail" && s.class === SCAN_CLASS.A) classAFailed = true;
-    return { ...row, status, ...(code ? { code } : {}), ...(detail ? { detail } : {}) };
+    return { ...row, status, ...(code ? { code } : {}), ...(detail ? { detail } : {}), ...(advice ? { advice } : {}) };
   }
 
   // Cargo calls the gate cannot attribute to a scan (the code under test cleared or replaced the scan token): never skipped.

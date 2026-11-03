@@ -51,8 +51,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, TryLockError, Weak};
 
 use rightkit_license::{
-    CommandError, LicenseClient, LicenseError, LicenseInvalidation, LicenseView, RefreshView,
-    RejectReason, SecretString, TrialView,
+    CommandError, DrainReport, LicenseClient, LicenseError, LicenseInvalidation, LicenseView,
+    LinkRequestOutcome, PendingReleaseQueue, RefreshView, RejectReason, SecretString, TrialView,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Webview, Wry};
@@ -80,6 +80,27 @@ pub trait LicenseOps: Send + Sync {
     fn request_trial(&self, email: &str) -> Result<TrialView, LicenseError>;
     /// The change counter the event follows; `None` means no event is ever emitted.
     fn invalidation(&self) -> Option<LicenseInvalidation>;
+    /// Issue a Windows link code on this device (#1130). Default: unsupported, so an app with its own
+    /// `LicenseOps` keeps its policy until it opts in.
+    fn link_request(&self) -> Result<LinkRequestOutcome, LicenseError> {
+        Err(LicenseError::Unsupported)
+    }
+    /// Send every row of the app's pending-release queue to the server and delete the settled ones
+    /// (#1036). Default: unsupported.
+    fn drain_pending_releases(
+        &self,
+        _queue: &dyn PendingReleaseQueue,
+    ) -> Result<DrainReport, LicenseError> {
+        Err(LicenseError::Unsupported)
+    }
+    /// Redeem a link code issued by an Apple device on this one (#1130). Default: unsupported.
+    fn link_redeem(
+        &self,
+        _code: &str,
+        _device_label: Option<&str>,
+    ) -> Result<LicenseView, LicenseError> {
+        Err(LicenseError::Unsupported)
+    }
 }
 
 impl LicenseOps for LicenseClient {
@@ -98,6 +119,22 @@ impl LicenseOps for LicenseClient {
     fn request_trial(&self, email: &str) -> Result<TrialView, LicenseError> {
         LicenseClient::request_trial(self, email)
     }
+    fn link_request(&self) -> Result<LinkRequestOutcome, LicenseError> {
+        LicenseClient::link_request(self)
+    }
+    fn link_redeem(
+        &self,
+        code: &str,
+        device_label: Option<&str>,
+    ) -> Result<LicenseView, LicenseError> {
+        LicenseClient::link_redeem(self, code, device_label)
+    }
+    fn drain_pending_releases(
+        &self,
+        queue: &dyn PendingReleaseQueue,
+    ) -> Result<DrainReport, LicenseError> {
+        LicenseClient::drain_pending_releases(self, queue)
+    }
     fn invalidation(&self) -> Option<LicenseInvalidation> {
         Some(LicenseClient::invalidation(self))
     }
@@ -106,18 +143,50 @@ impl LicenseOps for LicenseClient {
 /// The registered licence service: the client behind the five commands and the event.
 pub struct LicenseHostService {
     ops: Arc<dyn LicenseOps>,
+    /// The app's durable pending-release queue (#1036); `None` answers `unsupported`.
+    queue: Option<Arc<dyn PendingReleaseQueue + Send + Sync>>,
+}
+
+/// The counts of one pending-release drain, in the renderer's shape (`PendingReleaseDrain` in
+/// `@rightkit/license`). Counts only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingReleaseDrainView {
+    pub attempted: u32,
+    pub settled: u32,
+    pub kept: u32,
+    pub acknowledge_failed: u32,
+}
+
+impl From<DrainReport> for PendingReleaseDrainView {
+    fn from(report: DrainReport) -> Self {
+        Self {
+            attempted: report.attempted,
+            settled: report.settled,
+            kept: report.kept,
+            acknowledge_failed: report.acknowledge_failed,
+        }
+    }
 }
 
 impl LicenseHostService {
     pub fn new(client: LicenseClient) -> Self {
         Self {
             ops: Arc::new(client),
+            queue: None,
         }
+    }
+
+    /// Lend the app's durable pending-release queue (#1036). Without it
+    /// `rightkit_license_retry_pending_releases` answers `unsupported`.
+    pub fn with_release_queue(mut self, queue: Arc<dyn PendingReleaseQueue + Send + Sync>) -> Self {
+        self.queue = Some(queue);
+        self
     }
 
     /// A service over any [`LicenseOps`] (a test double).
     pub fn with_ops(ops: Arc<dyn LicenseOps>) -> Self {
-        Self { ops }
+        Self { ops, queue: None }
     }
 
     /// The licence as it stands. No network.
@@ -140,12 +209,38 @@ impl LicenseHostService {
         self.ops.refresh()
     }
 
+    /// Retry every release in the app's queue (#1036). `unsupported` when the app lent no queue.
+    pub fn retry_pending_releases(&self) -> Result<PendingReleaseDrainView, LicenseError> {
+        let queue = self.queue.as_deref().ok_or(LicenseError::Unsupported)?;
+        self.ops.drain_pending_releases(queue).map(Into::into)
+    }
+
     pub fn deactivate(&self) -> Result<LicenseView, LicenseError> {
         self.ops.deactivate()
     }
 
     /// Ask for a trial key by e-mail. An address that is empty, too long or holds a control
     /// character is answered `accepted: false` without a client call.
+    /// Issue a link code on this device. No input to check.
+    pub fn link_request(&self) -> Result<LinkRequestOutcome, LicenseError> {
+        self.ops.link_request()
+    }
+
+    /// Redeem `code` on this device. A code that is empty, too long or holds a control character is
+    /// refused as `keyNotAccepted` without a client call.
+    pub fn link_redeem(
+        &self,
+        code: &str,
+        device_label: Option<&str>,
+    ) -> Result<LicenseView, LicenseError> {
+        if !plausible(code, MAX_KEY_CHARS) {
+            return Err(LicenseError::Rejected {
+                reason: RejectReason::KeyNotAccepted,
+            });
+        }
+        self.ops.link_redeem(code, device_label)
+    }
+
     pub fn request_trial(&self, email: &str) -> Result<TrialView, LicenseError> {
         if !plausible(email, MAX_EMAIL_CHARS) {
             return Ok(TrialView {
@@ -326,6 +421,16 @@ pub async fn rightkit_license_refresh(webview: Webview<Wry>) -> Result<RefreshVi
     off_thread(move || service.refresh()).await
 }
 
+/// Retry the releases that still have to reach the server (#1036). Answers the counts of the pass
+/// (`attempted`, `settled`, `kept`, `acknowledgeFailed`); never touches the stored licence.
+#[tauri::command]
+pub async fn rightkit_license_retry_pending_releases(
+    webview: Webview<Wry>,
+) -> Result<PendingReleaseDrainView, CommandError> {
+    let service = license_service(&webview, "retry_pending_releases")?;
+    off_thread(move || service.retry_pending_releases()).await
+}
+
 /// Free this device's seat and tombstone the stored licence. Answers the new view.
 #[tauri::command]
 pub async fn rightkit_license_deactivate(
@@ -333,6 +438,27 @@ pub async fn rightkit_license_deactivate(
 ) -> Result<LicenseView, CommandError> {
     let service = license_service(&webview, "deactivate")?;
     off_thread(move || service.deactivate()).await
+}
+
+/// Issue a Windows link code on this device, for an Apple-to-Windows Pro move (#1130). The code is
+/// shown once and expires; redeem it on the new device with `rightkit_license_link_redeem`.
+#[tauri::command]
+pub async fn rightkit_license_link_request(
+    webview: Webview<Wry>,
+) -> Result<LinkRequestOutcome, CommandError> {
+    let service = license_service(&webview, "link_request")?;
+    off_thread(move || service.link_request()).await
+}
+
+/// Redeem a link code an Apple device issued (#1130). Answers the new licence view.
+#[tauri::command]
+pub async fn rightkit_license_link_redeem(
+    webview: Webview<Wry>,
+    code: String,
+    device_label: Option<String>,
+) -> Result<LicenseView, CommandError> {
+    let service = license_service(&webview, "link_redeem")?;
+    off_thread(move || service.link_redeem(&code, device_label.as_deref())).await
 }
 
 /// Ask the licence service to e-mail a trial key. Issues no credential.

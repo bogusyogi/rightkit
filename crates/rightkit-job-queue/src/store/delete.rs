@@ -17,7 +17,7 @@ use std::path::{Component, Path, PathBuf};
 use rightkit_db::rusqlite::{params, OptionalExtension};
 use rightkit_db::write_txn;
 
-use super::{artifact_row, now, JobStore, PruneReport, Transition, CANCELLED};
+use super::{artifact_row, JobStore, PruneReport, Transition, CANCELLED};
 use crate::error::{JobError, JobResult};
 
 /// Crate-owned side table: jobs whose deletion has begun and not finished.
@@ -308,7 +308,7 @@ impl JobStore {
         }
         tx.execute(
             "INSERT OR REPLACE INTO rk_job_deleting (job_id, keep_files, started_at) VALUES (?1,?2,?3)",
-            params![job_id, opts.keep_files as i64, now()],
+            params![job_id, opts.keep_files as i64, self.cfg.now()],
         )?;
         tx.commit()?;
         drop(conn);

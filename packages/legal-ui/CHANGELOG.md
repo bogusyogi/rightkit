@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.2 — unpublished staging
+
+Additive. Every default is unchanged.
+
+Added:
+- Issue #715: `LegalDocumentBody` takes `highlightPattern` and `renderHighlight` to mark placeholders (for example `[[FILL: ...]]`) in plain text, in both Markdown and `text` formats. Default render: `<mark class="rk-legal-gate__placeholder">`. Matches inside code, emphasis or link text are left alone.
+- Issue #1056: `manifestGateDocuments(manifest, { shortTitles, excludeRoles })` returns `LegalGateDocument[]` from a structural `LegalManifestLike` (`documents[].role`, `title`, `publicUrl`), in manifest order.
+- Issue #1315: `LegalGate` takes `titlebar?: ReactNode` and `dragRegion?: boolean`, rendered as a strip along the top (height `var(--rk-onboarding-titlebar-h, 32px)`) with `data-tauri-drag-region` when `dragRegion` is set. Absent by default: the gate is unchanged.
+
 ## 0.4.1 (2026-10-19)
 
 - Adds `layout="contained"` to remove the gate's viewport minimum height; default `window` preserves existing sizing.

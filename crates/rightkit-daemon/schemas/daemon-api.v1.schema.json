@@ -165,7 +165,7 @@
         "additionalProperties": false,
         "required": ["code", "status", "retryable"],
         "properties": {
-          "code": { "enum": ["unauthenticated", "forbidden", "revision_conflict", "upload_hash_mismatch", "upload_out_of_range", "webhook_signature_invalid", "webhook_replay", "oauth_state_invalid", "scope_mismatch", "rate_limited", "not_found", "bad_request", "method_not_allowed", "body_too_large", "internal", "storage_error", "precondition_required", "idempotency_key_reuse", "already_enrolled", "too_large", "too_many_uploads", "bad_chunk_size", "bad_chunk_index", "bad_chunk_length", "chunk_too_large", "chunk_digest_mismatch", "chunk_conflict", "already_complete", "finalizing", "hash_mismatch", "incomplete", "oauth_unavailable", "duplicate_delivery"] },
+          "code": { "enum": ["unauthenticated", "device_revoked", "forbidden", "revision_conflict", "upload_hash_mismatch", "upload_out_of_range", "webhook_signature_invalid", "webhook_replay", "oauth_state_invalid", "scope_mismatch", "rate_limited", "not_found", "bad_request", "method_not_allowed", "body_too_large", "internal", "storage_error", "precondition_required", "idempotency_key_reuse", "already_enrolled", "too_large", "too_many_uploads", "bad_chunk_size", "bad_chunk_index", "bad_chunk_length", "chunk_too_large", "chunk_digest_mismatch", "chunk_conflict", "already_complete", "finalizing", "hash_mismatch", "incomplete", "oauth_unavailable", "duplicate_delivery"] },
           "status": { "type": "integer", "minimum": 400, "maximum": 599 },
           "retryable": { "type": "boolean" }
         }

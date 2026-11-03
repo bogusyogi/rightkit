@@ -16,6 +16,7 @@ use std::time::Duration;
 use rightkit_http::Secret;
 
 use crate::{DeviceAuthorization, DeviceWait, OAuthClient, OAuthError, TokenSet, TokenStore};
+use std::fs::OpenOptions;
 
 /// Refresh this long before the provider's expiry.
 pub const DEFAULT_REFRESH_SKEW: Duration = Duration::from_secs(120);

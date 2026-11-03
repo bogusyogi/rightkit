@@ -9,6 +9,8 @@
 // A class with no caller (read-only, irreversible) is not kept here: the app
 // offers no permanent delete, so nothing could construct it.
 
+use rightkit_db::rusqlite::Connection;
+
 /// Developer flag (settings key) the UI reads to show destructive actions.
 pub const DESTRUCTIVE_FLAG: &str = "destructive_remote_actions_enabled";
 

@@ -20,6 +20,7 @@ import { MSIX_SIGNING_CONTRACT } from "./msix-config.mjs";
 
 const WINDOWS_PORTABLE_SIGNING_CONTRACT = "windows-raw-exe-authenticode-before-portable-v1";
 const WINDOWS_NSIS_SIGNING_CONTRACT = "windows-raw-exe-authenticode-before-nsis-v1";
+const WINDOWS_PAYLOAD_SIGNING_CONTRACT = "windows-payload-authenticode-before-nsis-v1";
 const UPDATER_ENV = ["TAURI_SIGNING_PRIVATE_KEY", "TAURI_SIGNING_PRIVATE_KEY_PASSWORD"];
 const NOTARY_ENV = ["APPLE_API_KEY_PATH", "APPLE_API_KEY", "APPLE_API_ISSUER"];
 class CheckStopped extends Error {}
@@ -239,7 +240,7 @@ export const HOST_ROWS = Object.freeze([
     tier: "host",
     run(ctx) {
       const { platform, target } = ctx;
-      const contracts = [WINDOWS_NSIS_SIGNING_CONTRACT, WINDOWS_PORTABLE_SIGNING_CONTRACT, MSIX_SIGNING_CONTRACT];
+      const contracts = [WINDOWS_NSIS_SIGNING_CONTRACT, WINDOWS_PAYLOAD_SIGNING_CONTRACT, WINDOWS_PORTABLE_SIGNING_CONTRACT, MSIX_SIGNING_CONTRACT];
       if (platform !== "win" || !contracts.includes(target?.signingContract)) return { na: "not a Windows target signed through sign-windows.mjs" };
       if (ctx.hostPlatform !== "win32") return { notRun: "the Windows signing prerequisites (signtool, Azure Artifact Signing) are probed on the Windows host that signs" };
       const env = windowsEnv(ctx);

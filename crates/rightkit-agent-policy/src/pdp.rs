@@ -1,4 +1,6 @@
+use crate::decision_log::DecisionLog;
 use crate::types::PermissionDecision;
+use crate::workspace_trust_gate::WorkspaceTrustGate;
 
 /// A key-value attribute attached to a policy request or subject.
 #[derive(Debug, Clone, PartialEq, Eq)]

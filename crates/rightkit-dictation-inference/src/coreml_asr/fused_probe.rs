@@ -1,9 +1,6 @@
-//! CoreML decoder/joint graph loader for validated production assets and
-//! legacy evaluator probes.
+//! CoreML decoder/joint graph loader for validated production assets.
 //!
-//! Production loads a hash-validated sibling graph from the TDT model archive;
-//! the legacy evaluator path remains available when `RIGHTKIT_COREML_FUSED_PROBE_DIR`
-//! names a compiled `.mlmodelc`, source `.mlpackage`, or directory. The graph
+//! Production loads a hash-validated sibling graph from the TDT model archive. The graph
 //! is expected to accept independent rows with these logical shapes:
 //!
 //! * token ids: `[B, 1]`, `i32`
@@ -24,24 +21,10 @@ use objc2_core_ml::MLMultiArrayDataType;
 
 use super::model::{model_dir_sha256, CoreMlParakeet};
 
-const FUSED_PROBE_ENV: &str = "RIGHTKIT_COREML_FUSED_PROBE_DIR";
 const PRODUCTION_GRAPH: &str = "fused_predictor_joint.mlmodelc";
 const PRODUCTION_GRAPH_PACKAGE: &str = "fused_predictor_joint.mlpackage";
 const PRODUCTION_MANIFEST: &str = "fused_predictor_joint.manifest.json";
 const PRODUCTION_SCHEMA: &str = "heardright.coreml.fused-model.v1";
-
-const GRAPH_NAMES: &[&str] = &[
-    "FusedDecoderJoint.mlmodelc",
-    "FusedDecoderJoint.mlpackage",
-    "DecoderJoint.mlmodelc",
-    "DecoderJoint.mlpackage",
-    "PredictorJoint.mlmodelc",
-    "PredictorJoint.mlpackage",
-    "fused_decoder_joint.mlmodelc",
-    "fused_decoder_joint.mlpackage",
-    "decoder_joint.mlmodelc",
-    "decoder_joint.mlpackage",
-];
 
 const TOKEN_INPUTS: &[&str] = &[
     "decoder_input_ids",
@@ -160,12 +143,7 @@ impl FusedProbe {
     /// Gated on capability, not on the directory name (ORT-02 / ENG-15): a payload without the
     /// graph files returns `None` below exactly as before, and a payload that ships them (v3
     /// today; an Ultra export once qualified) gets the same hash validation.
-    /// `RIGHTKIT_COREML_FUSED=off` (test-mode) forces the split decoder for an A/B; `auto` is default.
     pub(crate) fn load_production(dir: &Path) -> Result<Option<Self>, String> {
-        if rightkit_dictation_core::dev_var!("RIGHTKIT_COREML_FUSED").as_deref() == Ok("off") {
-            tracing::info!(model_dir = %dir.display(), "production fused graph disabled by RIGHTKIT_COREML_FUSED=off");
-            return Ok(None);
-        }
         let manifest_path = dir.join(PRODUCTION_MANIFEST);
         let graph_path = dir.join(PRODUCTION_GRAPH);
         let graph_package_path = dir.join(PRODUCTION_GRAPH_PACKAGE);
@@ -178,30 +156,15 @@ impl FusedProbe {
             .map_err(|e| format!("parse {}: {e}", manifest_path.display()))?;
         validate_production_manifest(dir, &manifest)?;
         let graph = dir.join(&manifest.graph);
-        let mut probe = Self::load_graph(&graph, None)?
+        let mut probe = Self::load_graph(&graph)?
             .ok_or_else(|| format!("production fused graph missing: {}", graph.display()))?;
         probe.stage.enable_output_backings();
         tracing::info!(graph = %graph.display(), "validated production CoreML fused decoder loaded");
         Ok(Some(probe))
     }
 
-    pub(crate) fn load_from_env() -> Result<Option<Self>, String> {
-        let Some(raw) = rightkit_dictation_core::dev_var_os!(FUSED_PROBE_ENV) else {
-            return Ok(None);
-        };
-        let requested = PathBuf::from(raw);
-        let graph = resolve_graph_path(&requested)?;
-        let profile = rightkit_dictation_core::dev_var!(FUSED_PROBE_PROFILE_ENV)
-            .ok()
-            .filter(|value| matches!(value.as_str(), "cpu_only" | "cpu_gpu" | "neural_engine"))
-            .unwrap_or_else(crate::settings::asr_decoder_compute);
-        Self::load_graph(&graph, Some(profile.as_str()))
-    }
-
-    fn load_graph(graph: &Path, profile: Option<&str>) -> Result<Option<Self>, String> {
-        let profile = profile
-            .map(str::to_string)
-            .unwrap_or_else(crate::settings::asr_decoder_compute);
+    fn load_graph(graph: &Path) -> Result<Option<Self>, String> {
+        let profile = crate::settings::asr_decoder_compute();
         let stage = Stage::load_with_compute_profile(graph, &profile)?;
         let inputs = stage.input_names();
         let outputs = stage.output_names();
@@ -615,60 +578,6 @@ fn choose_name(available: &[String], aliases: &[&str], role: &str) -> Result<Str
         .ok_or_else(|| format!("fused probe has no {role}; available={available:?}"))
 }
 
-fn resolve_graph_path(requested: &Path) -> Result<PathBuf, String> {
-    if requested.is_file()
-        || requested
-            .extension()
-            .is_some_and(|ext| ext == "mlmodelc" || ext == "mlpackage")
-    {
-        if requested.exists() {
-            return Ok(requested.to_path_buf());
-        }
-        return Err(format!(
-            "{FUSED_PROBE_ENV} graph does not exist: {}",
-            requested.display()
-        ));
-    }
-    if requested.is_dir() {
-        for name in GRAPH_NAMES {
-            let candidate = requested.join(name);
-            if candidate.exists() {
-                return Ok(candidate);
-            }
-        }
-        let mut candidates = std::fs::read_dir(requested)
-            .map_err(|error| format!("read {FUSED_PROBE_ENV} directory: {error}"))?
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .filter(|path| {
-                path.is_dir()
-                    && matches!(
-                        path.extension().and_then(|ext| ext.to_str()),
-                        Some("mlmodelc") | Some("mlpackage")
-                    )
-            })
-            .collect::<Vec<_>>();
-        candidates.sort();
-        if candidates.len() == 1 {
-            return Ok(candidates.remove(0));
-        }
-        if candidates.is_empty() {
-            return Err(format!(
-                "{FUSED_PROBE_ENV} directory has no CoreML graph: {}",
-                requested.display()
-            ));
-        }
-        return Err(format!(
-            "{FUSED_PROBE_ENV} directory has multiple CoreML graphs; name one explicitly: {}",
-            requested.display()
-        ));
-    }
-    Err(format!(
-        "{FUSED_PROBE_ENV} path does not exist: {}",
-        requested.display()
-    ))
-}
-
 impl CoreMlParakeet {
     pub fn fused_probe_compute_profile(&self) -> Option<&str> {
         self.fused_probe
@@ -712,10 +621,8 @@ impl CoreMlParakeet {
     /// split_vs_fused_logits, batch_vs_scalar_g, batch_vs_scalar_h,
     /// batch_vs_scalar_c, batch_vs_scalar_logits]`.
     ///
-    /// Production loads the validated sibling graph; evaluator loads may use
-    /// `RIGHTKIT_COREML_FUSED_PROBE_DIR`. The optional
-    /// `RIGHTKIT_COREML_FUSED_PROBE_MAX_ROWS` cap selects available counts from
-    /// `[1, 2, 4, 8]`; this lets a static batch-one export run count one.
+    /// Production loads the validated sibling graph. The configured row cap selects available
+    /// counts from `[1, 2, 4, 8]`.
     /// Numerical differences are reported as maxima, while shape/nonfinite
     /// failures remain hard errors.
     pub fn fused_probe_sanity(&self) -> Result<Option<Vec<[f32; 9]>>, String> {

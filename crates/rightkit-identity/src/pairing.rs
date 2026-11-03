@@ -2,13 +2,19 @@
 //! per-device effect grants, resume tickets and a redelivery-safe replay store.
 //!
 //! Key agreement is out of scope: the caller supplies the shared secret both devices derived
-//! (for example from `rightkit_sync_keys::pairing_sas`). Both sides MAC the same canonical
+//! (for example from the X25519 exchange `rightkit_sync_keys` runs over the `rk-pair/1` code in this module). Both sides MAC the same canonical
 //! transcript under a role label, so a reflected MAC fails. The owner approves only after the
 //! peer's MAC has verified.
 
 use crate::util::{ct_eq, hex, hmac_sha256, random_bytes, unhex};
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
+
+/// The `rk-pair/1` short-authenticated-string functions live here too: this module is the one
+/// pairing owner (#965).
+pub use crate::sas::{
+    label_bytes, pairing_code, pairing_commit, CODE_DIGITS, MAX_LABEL_CHARS, NONCE_BYTES,
+};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

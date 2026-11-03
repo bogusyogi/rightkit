@@ -8,7 +8,7 @@ import { LAND_MODES, POLICIES, PLATFORMS, SCHEMA_VERSION, type Policy, type Sour
 export const MANIFEST_RELATIVE_PATH = ".rightkit/update.json";
 export const RIGHTKIT_VERSIONS_DEFAULT = "packages/release/rightkit-versions.json";
 
-const SOURCE_KINDS = ["cargo", "pnpm", "swiftpm", "rightkit", "tool"] as const;
+const SOURCE_KINDS = ["cargo", "pnpm", "swiftpm", "rightkit", "tool", "native", "toolchain"] as const;
 const UPSTREAM_TYPES = ["github-release", "url"] as const;
 const TOP_LEVEL_KEYS = new Set(["schemaVersion", "sources", "policy", "gates"]);
 const POLICY_KEYS = new Set(["default", "held", "tier", "land"]);
@@ -314,6 +314,20 @@ export function validateManifest(raw: unknown): ManifestValidation {
           break;
         case "tool":
           validateTool(source, where, errors);
+          break;
+        case "native":
+          checkUnknownKeys(source, new Set(["kind", "name", "pin", "repo", "policy"]), where, errors);
+          if (typeof source.name !== "string" || source.name.trim() === "") errors.push(`${where}.name must be a non-empty string`);
+          if (typeof source.pin !== "string" || source.pin.trim() === "") errors.push(`${where}.pin must be a non-empty string`);
+          if (typeof source.repo !== "string" || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(source.repo)) {
+            errors.push(`${where}.repo must be owner/repo`);
+          }
+          break;
+        case "toolchain":
+          checkUnknownKeys(source, new Set(["kind", "file", "policy"]), where, errors);
+          if (source.file !== "rust-toolchain.toml" && source.file !== "package.json") {
+            errors.push(`${where}.file must be rust-toolchain.toml or package.json`);
+          }
           break;
       }
     });

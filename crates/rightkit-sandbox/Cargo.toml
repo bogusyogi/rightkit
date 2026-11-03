@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-sandbox"
-version = "0.6.3"
+version = "0.6.4"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared OS sandbox, PTY lease, process-tree, and reserve-before-spawn resource authority for Right Suite apps."
@@ -11,19 +11,20 @@ include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LI
 
 [dependencies]
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
-portable-pty = { version = "0.9", optional = true }
+rightkit-pty = { version = "0.1.0", path = "../rightkit-pty", optional = true }
 rightkit-crypto = {version = "0.1.0", path = "../rightkit-crypto", optional = true}
 async-trait = {version = "0.1", optional = true}
 serde = {version = "1", features = ["derive"], optional = true}
 serde_json = {version = "1", optional = true}
-tokio = {version = "1", features = ["io-util", "macros", "process", "sync", "time", "rt"], optional = true}
+tokio = {version = "1", features = ["io-util", "macros", "process", "sync", "time", "rt", "rt-multi-thread"], optional = true}
 tokio-util = {version = "0.7", optional = true}
 
 [features]
 default = ["pty"]
-# PTY sessions with lease-epoch input fencing (`Sandbox::spawn_pty`, `PtySession`). Off removes
-# `portable-pty`; the confinement, process-tree and resource APIs do not need it.
-pty = ["dep:portable-pty"]
+# PTY sessions with lease-epoch input fencing (`Sandbox::spawn_pty`, `PtySession`), over
+# `rightkit-pty`. Off removes it and its private runtime; the confinement, process-tree and
+# resource APIs do not need it.
+pty = ["dep:rightkit-pty", "dep:tokio"]
 execution = ["dep:rightkit-crypto", "dep:async-trait", "dep:serde", "dep:serde_json", "dep:tokio", "dep:tokio-util", "rightkit-child-process/tokio"]
 
 [target.'cfg(unix)'.dependencies]
@@ -46,7 +47,7 @@ release = "Drop"
 api = "PtySession"
 file = "src/pty.rs"
 holds = ["child", "thread", "memory"]
-scale = "one PTY and its child process tree, one reader thread that ends at PTY EOF, and an output buffer capped at OUTPUT_CAP (1 MiB, oldest bytes dropped); fixed per session"
+scale = "one rightkit-pty terminal and its owned child process tree, one private tokio runtime with a single worker thread (plus its blocking-pool threads for wait and cancel, idle-reaped) that carries one reader task ending at PTY EOF, and an output buffer capped at OUTPUT_CAP (1 MiB, oldest bytes dropped); Drop runs the staged kill and shuts the runtime down; fixed per session"
 release = "Drop"
 
 [[package.metadata.rightkit.resources]]

@@ -149,6 +149,9 @@ pub struct Harness {
     ran: Arc<AtomicBool>,
     /// Set by any scenario that failed.
     failed: Arc<AtomicBool>,
+    /// The snapshot of the owner's real data this run holds ([`Harness::with_snapshot`]). Clones
+    /// share it; the last clone to drop restores it.
+    snapshot: Arc<Mutex<Option<crate::snapshot::Armed>>>,
 }
 
 impl Drop for Harness {
@@ -269,7 +272,22 @@ impl Harness {
             kind: crate::storage::RunKind::Functional,
             ran: Arc::new(AtomicBool::new(false)),
             failed: Arc::new(AtomicBool::new(false)),
+            snapshot: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Run this harness's scenarios on the owner's real data under a snapshot (rightkit#1437): the
+    /// app's data folders and credential items are copied now and restored and verified when the
+    /// last clone of this harness drops (or, after a crash, at the next `rightkit-qa` start). A
+    /// scenario that launches an app or its engine with no snapshot armed is refused. Panics when
+    /// the snapshot cannot be taken (the app is running, a keychain item cannot be read, ...).
+    pub fn with_snapshot(self, cfg: &crate::config::SnapshotConfig) -> Self {
+        let managed = crate::retention::managed_root_of_run(&self.run_root)
+            .unwrap_or_else(|| crate::storage::managed_root(None));
+        let armed = crate::snapshot::arm(&self.app, cfg, &managed)
+            .unwrap_or_else(|e| panic!("cannot snapshot the real data: {e}"));
+        *self.snapshot.lock().unwrap_or_else(|e| e.into_inner()) = Some(armed);
+        self
     }
 
     /// The run kind recorded in this harness run's marker. Default `functional`.

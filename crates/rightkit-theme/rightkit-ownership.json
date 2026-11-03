@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-theme",
+  "capabilities": [
+    {
+      "capability": "theme-tokens",
+      "summary": "Resolved theme tokens per mode for non-web UIs: brand file parsing, derived dark accent, WCAG 2.x contrast repair, W3C design-token JSON emission (rightkit-theme generate --json)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: colour arithmetic is not an ownership fingerprint.",
+        "The resolver is a port of @rightkit/theme (packages/theme/src/brand.ts, color.ts); the TypeScript package stays the web owner and both read the same brand.json."
+      ]
+    }
+  ]
+}

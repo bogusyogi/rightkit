@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.1 — unpublished staging
+
+- Removed (Adrian, 2026-11-03: end-to-end tests only; a built harness page on a dev server is not end to end): the real-browser tests against a harness page, their harness, `vitest.config.ts` and the `test` and `pretest` scripts and the test-only devDependencies (`@rightkit/qa-chrome`, `vite`, `vitest`, `react-dom`, `@types/react-dom`). Nothing shipped changes.
+
+Addresses open issues #394, #620, #730, #754, #988, #1065 and #1066 (source only; not compiled or tested in this pass).
+
+- Additive (#988): `createPreferenceStore({ backend, onError })` and `usePreference(store, key)` in `/core`. Hydrated synchronous store: `boot()`, `get()`, `set()` and `patch()` over one serial queue with revision-conflict retry; `panelBackend` serves `SettingsPanel` from the same document and queue. Uses the existing `RevisionConflict`.
+- Additive (#1065): `diagnosticsSection` takes `emailSupport { address, subject, body }` (copy, then mailto), `entries()` for an inline ring-log view, `logFiles { list, reveal? }` for a multi-file log tail preview, and `openExternal`.
+- Additive (#1066): `licenseSection` takes `client` as an object, a promise or a factory; the key is trimmed; a loading row shows until the first read settles; `LicenseClientLike.onChange` subscribes to external changes; `plan` (a node or a function of `{ view, tier, pro, licensed }`) replaces `planSlot` when given; `labels.loading`.
+- Additive (#620): `SettingsModal` (in the standard entry): dialog over `ModalShell` with a dirty banner, Save / Discard / Reload footer, a close guard that asks before discarding, a pending lock, search with Cmd/Ctrl-F, and `deepLinkHash` (`#settings=<id>`).
+- Additive (#394): `SettingsPanel` and `SectionFrame` take `classNames` slots (root, nav, item, search, body, section, title, error); `updatesSection` and `legalSection` take a `render` slot.
+- Additive (#754): `doctorSection` takes `probe` (one shared probe for all checks) and `notes`; `modelsSection` takes `isDisabled(model)` (a reason disables Download) and `actions(model)`; new `SelectControl` and `PathControl` primitives.
+- Additive (#730): `SettingRow` takes `locked` and `lockedLabel` (Pro-gated row, controls disabled); `IndexProgressLine` primitive; installed models show their status while disabled.
+
 ## 0.7.0 — unpublished staging
 
 BREAKING: the licence section and hooks move from `StoredLicense` to the `LicenseView` of `@rightkit/license` 0.3.

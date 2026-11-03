@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.4 (unpublished)
+
+- Removed (breaking, Adrian, 2026-11-03: "no dummy data, no fucking made up shit. real data."): `agent_providers::keystore::InMemoryKeyStore`, the in-memory key store fake. Nothing in the repository used it; keys live in the OS keychain through `OsKeyStore`.
+- Issue #658: `attempt` module. `AnthropicProvider`, `OpenAiCompatProvider` and `ImageGenerationClient` gain `with_attempt_observer`, which reports every physical HTTP attempt as an `AttemptNotice` with a `SubmissionReceipt` (`Submitted`, `Rejected`, `SubmissionUnknown`) and a `retry_notice()` ("retrying in N s (reason)") when another attempt follows. Built on `rightkit-http`'s per-attempt outcome hook.
+- Issue #658: `attempt::separate_budget_retry(transport_attempts, status_attempts)`: connection failures and retryable statuses get separate budgets; the connection ladder starts at 5 s and `Retry-After` is honoured.
+- Issue #1004: `ImageRequest` gains `quality` and `output_format` (`with_quality`, `with_output_format`), sent only when set. The response cap is configurable with `with_max_response_bytes` (GenRight needs up to 256 MiB). `ImageGenerationClient::probe_key()` checks the credential through `GET {base}/models` without generating. `generate_classified()` returns `ImageFailure` with an `ImageFailureClass` (`Retryable`, `AmbiguousMayBeBilled`, `Billing`, `Auth`, `Other`); `classify_image_error` is public. The field names follow the OpenAI images API, which this crate still marks unverified against CodeRight's client.
+- Issue #417 (rightkit-llm part): feature `tokens` adds `tokens::count_o200k(text)`, the o200k_base count through `tiktoken-rs`, with a `TokenError` instead of a guessed count when the encoding fails to load.
+
 ## 0.3.3 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

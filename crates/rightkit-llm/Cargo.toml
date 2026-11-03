@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-llm"
-version = "0.3.3"
+version = "0.3.4"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Brand-neutral BYOK LLM clients: Anthropic Messages and OpenAI-compatible chat, streaming, tool use, route failover with circuit breaker, pricing, and prompt-cache discipline, plus an opt-in provider for installed command-line assistants."
@@ -18,6 +18,7 @@ cli = ["dep:rightkit-child-process"]
 agent_providers-os-keyring = ["agent_providers", "dep:rightkit-credentials", "rightkit-oauth/secrets"]
 agent_providers-host-env = ["agent_providers", "rightkit-app-settings/agent_config-host-env"]
 agent_providers-replay-record = ["agent_providers", "agent_providers-host-env"]
+tokens = ["dep:tiktoken-rs"]
 agent_providers = ["dep:rightkit-logs", "dep:rightkit-agent-engine-protocol", "dep:rightkit-agent-policy", "dep:rightkit-app-settings", "dep:thiserror", "dep:tokio", "dep:futures", "dep:rightkit-oauth", "rightkit-http/untrusted", "rightkit-http/async", "dep:rightkit-crypto", "dep:rightkit-fs", "dep:rightkit-time", "dep:url", "dep:bytes", "dep:async-stream", "dep:toml", "dep:dirs", "dep:tiktoken-rs", "agent_providers-os-keyring"]
 agent_router-os-keyring = ["agent_router", "agent_providers-os-keyring"]
 agent_router = ["agent_providers", "dep:thiserror", "dep:toml", "agent_router-os-keyring"]

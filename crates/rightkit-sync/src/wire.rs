@@ -145,7 +145,9 @@ impl WireRecord {
     }
 }
 
-/// Error kinds a helper reports. Anything unknown is treated as transient.
+/// Error kinds a helper reports. Anything unknown is treated as transient, so a peer that predates
+/// `persistence` still degrades it to transient; a `persistence` kind keeps the local durability
+/// failure (`SyncError::Persistence`) across the wire (rightkit#751).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WireError {
     pub kind: String,
@@ -174,6 +176,7 @@ impl WireError {
             "zone_missing" => SyncError::ZoneMissing,
             "scope_changed" => SyncError::Cancelled,
             "conflict" => SyncError::Conflict,
+            "persistence" => SyncError::Persistence(self.message),
             "retry_after" | "network" | "busy" => SyncError::RetryAfter {
                 secs: hint.unwrap_or(if self.kind == "network" { 15.0 } else { 30.0 }),
                 detail: self.message,
@@ -198,6 +201,7 @@ impl WireError {
             SyncError::ZoneMissing => Self::new("zone_missing", "zone missing", None),
             SyncError::Cancelled => Self::new("scope_changed", "account scope changed", None),
             SyncError::Conflict => Self::new("conflict", "server record changed", None),
+            SyncError::Persistence(m) => Self::new("persistence", m.clone(), None),
             other => Self::new("transient", other.to_string(), None),
         }
     }

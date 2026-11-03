@@ -33,17 +33,37 @@ export const SUITE_DEFAULTS: Record<Mode, Record<string, string>> = {
     chrome: "#EEE9DF", plane: "#FFFCF5", elevated: "#FFFFFF", panel: "#FFFFFF", sunk: "#F6F1E8",
     ink: "#231F1A", "ink-2": "#6B655C", "ink-3": "#8A8378",
     ok: "#1E7F3C", warn: "#B25000", bad: "#C4001A",
+    // Status aliases and the video letterbox surface (--rk-stage: footage stays near-black in both modes).
+    stage: "#0B0C0D",
+    success: "#1E7F3C", "success-soft": "rgba(30,127,60,.14)", "success-border": "rgba(30,127,60,.3)",
+    warning: "#B25000", "warning-bg": "rgba(178,80,0,.14)",
+    star: "#B8860B",
   },
   dark: {
     chrome: "#0F0F10", plane: "#17171A", elevated: "#1F1F23", panel: "#1F1F23", sunk: "#1C1C1F",
     ink: "#F2F0EC", "ink-2": "#969390", "ink-3": "#6E6B68",
     ok: "#4CD07D", warn: "#FFB340", bad: "#FF6961",
+    stage: "#0B0C0D",
+    success: "#16A766", "success-soft": "rgba(47,125,79,.12)", "success-border": "rgba(47,125,79,.3)",
+    warning: "#FFAD47", "warning-bg": "rgba(255,173,71,.16)",
+    star: "#E0B740",
   },
+};
+
+/**
+ * The suite motion scale (not colours, so not per mode): `--rk-dur-1` micro feedback, `--rk-ease-out` entrances,
+ * `--rk-ease-spring` overshoot. `checkSuiteDefaults` keeps these in step with `shell.css`.
+ */
+export const SUITE_MOTION: Readonly<Record<string, string>> = {
+  "--rk-dur-1": "120ms",
+  "--rk-ease-out": "cubic-bezier(0.16, 1, 0.3, 1)",
+  "--rk-ease-spring": "cubic-bezier(0.34, 1.56, 0.64, 1)",
 };
 
 export const OVERRIDABLE_TOKENS = [
   "chrome", "plane", "elevated", "panel", "sunk", "ink", "ink-2", "ink-3", "ok", "warn", "bad",
   "ok-dot", "warn-dot", "line", "line-strong", "hairline", "accent-ink",
+  "stage", "success", "success-soft", "success-border", "warning", "warning-bg", "star",
 ] as const;
 
 const BRAND_KEY = /^brand(?:-[a-z]+)*$/;

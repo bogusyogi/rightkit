@@ -76,35 +76,35 @@
     "maxAttemptsPerUnit": 1,
     "exceptions": {
       "rightkit-ffmpeg": {
-        "version": "0.2.14",
+        "version": "0.2.16",
         "allow": [
           "allow_missing_assets"
         ],
         "reason": "ci/asset-gated.json: its tests need FFmpeg and ffprobe development builds the publish workflow does not provision; those tests skip hosted and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-motion": {
-        "version": "0.2.2",
+        "version": "0.3.0",
         "allow": [
           "allow_missing_assets"
         ],
         "reason": "ci/asset-gated.json: the #[ignore]d tests/encode_e2e.rs needs an ffmpeg binary and encoders the publish workflow does not provision; a missing ffmpeg prints SKIP hosted."
       },
       "rightkit-asr": {
-        "version": "0.4.1",
+        "version": "0.4.2",
         "allow": [
           "allow_missing_assets"
         ],
         "reason": "ci/asset-gated.json: Whisper library (RIGHTKIT_WHISPER_LIB), ASR models and audio fixtures; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-automation": {
-        "version": "0.6.5",
+        "version": "0.6.7",
         "allow": [
           "allow_missing_assets"
         ],
         "reason": "ci/asset-gated.json: desktop session for the end-to-end tests (e2e_mac, e2e_win); the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-browser": {
-        "version": "0.3.8",
+        "version": "0.3.9",
         "allow": [
           "allow_missing_assets"
         ],
@@ -118,7 +118,7 @@
         "reason": "ci/asset-gated.json: ONNX Runtime and model files; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-qa": {
-        "version": "0.10.2",
+        "version": "0.10.3",
         "allow": [
           "allow_missing_assets",
           "allow_no_test"
@@ -126,7 +126,7 @@
         "reason": "ci/asset-gated.json: FFmpeg binary for the media cross-check (tests/media_ffmpeg.rs); its skip-handling tests also print SKIP markers by design; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it. The crate refuses Linux (util::platform: macOS and Windows only), so its unit & integration tests are cfg-gated to macOS and Windows & the Linux direct-origin lane runs none (allow_no_test); the macOS and Windows verify jobs run every test."
       },
       "@rightkit/release": {
-        "version": "0.6.40",
+        "version": "0.6.42",
         "allow": [
           "allow_no_test"
         ],
@@ -147,7 +147,7 @@
         "reason": "ci/asset-gated.json: editing FFmpeg and ffprobe (RIGHTKIT_FFMPEG, RIGHTKIT_FFPROBE) for tests/ffmpeg.rs; a missing build prints SKIP, RIGHTKIT_REQUIRE_ASSETS=1 makes it fail; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-video-project": {
-        "version": "0.1.1",
+        "version": "0.1.2",
         "allow": [
           "allow_missing_assets"
         ],
@@ -182,7 +182,7 @@
         "reason": "ci/asset-gated.json: the macOS sandbox storage tests need private IPC storage (RIGHTKIT_CI_IPC_STORAGE) the publish workflow does not provision; they print SKIP markers recorded in the receipts, and the crate's compile, clippy, doc and remaining tests still qualify it."
       },
       "@rightkit/qa": {
-        "version": "0.6.2",
+        "version": "0.7.0",
         "allow": [
           "allow_missing_assets"
         ],

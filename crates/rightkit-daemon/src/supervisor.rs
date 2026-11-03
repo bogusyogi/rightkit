@@ -35,9 +35,10 @@ use crate::client::{Client, ClientConfig};
 use crate::host_identity::HostExpectation;
 use crate::private::PrivateChild;
 use rightkit_child_process::{
-    Generation, HealthOutcome, HealthPolicy, HealthProbe, HealthTracker, RestartOutcome,
-    RestartPermit, RestartPolicy, RestartTracker,
+    AdoptedIdentity, Generation, HealthOutcome, HealthPolicy, HealthProbe, HealthTracker,
+    RestartOutcome, RestartPermit, RestartPolicy, RestartTracker,
 };
+use serde_json::json;
 use std::io;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
@@ -153,6 +154,23 @@ pub enum SupervisorEvent {
     Exhausted,
     /// The supervisor will not start another child (a policy that never restarts, or `stop`).
     Stopped,
+    /// A stop was not confirmed (the child is still there after its grace and the kill): no
+    /// replacement starts until it is gone (rightkit#936 b2).
+    StopUnconfirmed {
+        launch: u64,
+        pid: u32,
+    },
+    /// The child exited on purpose after forwarding; the instance with `pid` is supervised by
+    /// identity now ([`ExitAction::AdoptForeign`]).
+    Adopted {
+        launch: u64,
+        pid: u32,
+    },
+    /// The adopted foreign instance is gone.
+    ForeignExited {
+        launch: u64,
+        pid: u32,
+    },
 }
 
 /// Callback for [`SupervisorEvent`]s. Runs on the supervisor thread; keep it short.
@@ -181,6 +199,64 @@ impl LockState {
 /// Supplies the current [`LockState`] at each launch. Runs on the supervisor thread.
 pub type LockStateFn = Arc<dyn Fn() -> LockState + Send + Sync>;
 
+/// How a child that exited by itself ended (what [`SupervisorHooks::exit_action`] is asked about
+/// and what [`SupervisorHandle::last_exit`] reports).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExitInfo {
+    /// The 1-based launch count of the child that exited.
+    pub launch: u64,
+    /// Its exit code, when it had one (a signal gives none on Unix).
+    pub code: Option<i32>,
+    pub success: bool,
+}
+
+/// What the supervisor does after a child exited by itself ([`SupervisorHooks::exit_action`]).
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum ExitAction {
+    /// The restart policy decides (the default).
+    Default,
+    /// This exit is final: nothing restarts and the supervisor ends in
+    /// [`SupervisorState::Stopped`]. The supervising process reads the code from
+    /// [`SupervisorHandle::final_exit`] and exits with it, so launchd and the notches see the
+    /// child's own disposition (0, 70, 75, ...) (rightkit#936 b20).
+    Final,
+    /// The child exited on purpose after forwarding to an instance that already runs (a second
+    /// launch of a single-instance app). Supervise that instance by identity instead: liveness
+    /// only (no probe, it is not this supervisor's child), never signalled. When it is gone the
+    /// restart policy decides (rightkit#936 b2).
+    AdoptForeign(AdoptedIdentity),
+}
+
+/// Asked before each launch ([`SupervisorHooks::start_gate`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StartGateInfo {
+    /// The 1-based launch count the next child would have.
+    pub next_launch: u64,
+}
+
+/// Whether the next launch may happen now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StartGate {
+    /// Launch now.
+    Proceed,
+    /// Not yet (another supervisor's child is still finishing a handover): ask again after this
+    /// long. No restart budget is charged for waiting.
+    Wait(Duration),
+    /// Never launch: the supervisor ends in [`SupervisorState::Stopped`].
+    Stop,
+}
+
+/// Optional decisions the supervisor asks its host (rightkit#936). Every hook runs on the
+/// supervisor thread; keep each short.
+#[derive(Default)]
+pub struct SupervisorHooks {
+    /// Called when a child exits by itself.
+    pub exit_action: Option<Box<dyn FnMut(&ExitInfo) -> ExitAction + Send>>,
+    /// Called before every launch, the first included (a start precondition: wait for a handover).
+    pub start_gate: Option<Box<dyn FnMut(&StartGateInfo) -> StartGate + Send>>,
+}
+
 enum Cmd {
     Stop,
     RestartNow(Option<LockState>),
@@ -191,10 +267,31 @@ enum Cmd {
 pub struct SupervisorHandle {
     tx: mpsc::Sender<Cmd>,
     status: Arc<Mutex<SupervisorStatus>>,
+    exits: Arc<Mutex<ExitRecord>>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
+#[derive(Default)]
+struct ExitRecord {
+    last: Option<ExitInfo>,
+    final_exit: Option<ExitInfo>,
+}
+
 impl SupervisorHandle {
+    /// The most recent self-exit of a child, if any child has exited by itself.
+    pub fn last_exit(&self) -> Option<ExitInfo> {
+        self.exits.lock().unwrap_or_else(|e| e.into_inner()).last
+    }
+
+    /// The exit a [`SupervisorHooks::exit_action`] declared [`ExitAction::Final`], if one did. The
+    /// supervising process exits with its `code`.
+    pub fn final_exit(&self) -> Option<ExitInfo> {
+        self.exits
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .final_exit
+    }
+
     /// The state now.
     pub fn status(&self) -> SupervisorStatus {
         *self.status.lock().unwrap_or_else(|e| e.into_inner())
@@ -264,7 +361,33 @@ where
     L: FnMut() -> io::Result<PrivateChild> + Send + 'static,
     P: FnMut(&PrivateChild) -> bool + Send + 'static,
 {
-    spawn_core(config, move |_locked| launch(), probe, None, None, on_event)
+    spawn_core(
+        config,
+        move |_locked| launch(),
+        probe,
+        None,
+        None,
+        SupervisorHooks::default(),
+        on_event,
+    )
+}
+
+/// [`supervise_with_lock_state`] with [`SupervisorHooks`] (rightkit#936): a start gate before each
+/// launch, an exit disposition, a hold-off while a stop is unconfirmed (always on) and supervision
+/// of a foreign instance by identity.
+pub fn supervise_with_hooks<L, P>(
+    config: SupervisorConfig,
+    launch: L,
+    probe: P,
+    lock_state: Option<LockStateFn>,
+    hooks: SupervisorHooks,
+    on_event: Option<SupervisorEventFn>,
+) -> io::Result<SupervisorHandle>
+where
+    L: FnMut(bool) -> io::Result<PrivateChild> + Send + 'static,
+    P: FnMut(&PrivateChild) -> bool + Send + 'static,
+{
+    spawn_core(config, launch, probe, None, lock_state, hooks, on_event)
 }
 
 /// [`supervise`] for a child whose replacement must start from the app's lock state: every
@@ -284,7 +407,15 @@ where
     L: FnMut(bool) -> io::Result<PrivateChild> + Send + 'static,
     P: FnMut(&PrivateChild) -> bool + Send + 'static,
 {
-    spawn_core(config, launch, probe, None, lock_state, on_event)
+    spawn_core(
+        config,
+        launch,
+        probe,
+        None,
+        lock_state,
+        SupervisorHooks::default(),
+        on_event,
+    )
 }
 
 /// Supervise a child the caller already spawned (and usually already verified: it counts
@@ -304,7 +435,15 @@ where
     L: FnMut(bool) -> io::Result<PrivateChild> + Send + 'static,
     P: FnMut(&PrivateChild) -> bool + Send + 'static,
 {
-    spawn_core(config, launch, probe, Some(child), lock_state, on_event)
+    spawn_core(
+        config,
+        launch,
+        probe,
+        Some(child),
+        lock_state,
+        SupervisorHooks::default(),
+        on_event,
+    )
 }
 
 fn spawn_core<L, P>(
@@ -313,6 +452,7 @@ fn spawn_core<L, P>(
     probe: P,
     adopted: Option<PrivateChild>,
     lock_state: Option<LockStateFn>,
+    hooks: SupervisorHooks,
     on_event: Option<SupervisorEventFn>,
 ) -> io::Result<SupervisorHandle>
 where
@@ -320,6 +460,7 @@ where
     P: FnMut(&PrivateChild) -> bool + Send + 'static,
 {
     let (tx, rx) = mpsc::channel();
+    let exits = Arc::new(Mutex::new(ExitRecord::default()));
     let status = Arc::new(Mutex::new(SupervisorStatus {
         state: SupervisorState::Starting,
         launches: 0,
@@ -338,6 +479,8 @@ where
         adopted,
         lock_state,
         pending_locked: None,
+        hooks,
+        exits: exits.clone(),
     };
     let thread = std::thread::Builder::new()
         .name("rk-supervisor".into())
@@ -345,6 +488,7 @@ where
     Ok(SupervisorHandle {
         tx,
         status,
+        exits,
         thread: Some(thread),
     })
 }
@@ -391,6 +535,19 @@ enum Phase {
     Waiting(RestartPermit, Instant),
     /// Nothing runs: `AwaitingDemand`, `Exhausted` or `Stopped`.
     Idle(SupervisorState),
+    /// The start gate said wait; ask again at the instant.
+    Gated(Instant),
+    /// A stop was not confirmed: the child is held (and stopped again each tick) and nothing
+    /// replaces it until it is gone. The flag is an explicit restart demand to honour then.
+    Unconfirmed(Box<Running>, bool),
+    /// An instance this supervisor did not spawn, watched by identity.
+    Foreign(Box<ForeignRun>),
+}
+
+struct ForeignRun {
+    identity: AdoptedIdentity,
+    generation: Generation,
+    launch: u64,
 }
 
 struct Core<L, P> {
@@ -407,6 +564,8 @@ struct Core<L, P> {
     lock_state: Option<LockStateFn>,
     /// One-launch lock override from `restart_now_with_lock`.
     pending_locked: Option<bool>,
+    hooks: SupervisorHooks,
+    exits: Arc<Mutex<ExitRecord>>,
 }
 
 impl<L, P> Core<L, P>
@@ -438,7 +597,7 @@ where
         }
         loop {
             let wait = match &self.phase {
-                Phase::Waiting(_, due) => due
+                Phase::Waiting(_, due) | Phase::Gated(due) => due
                     .saturating_duration_since(Instant::now())
                     .min(self.cfg.poll_interval),
                 _ => self.cfg.poll_interval,
@@ -499,6 +658,25 @@ where
 
     /// Launch a child now. A launch failure is charged to the budget like a crash.
     fn start(&mut self) {
+        if let Some(gate) = self.hooks.start_gate.as_mut() {
+            match gate(&StartGateInfo {
+                next_launch: self.launches + 1,
+            }) {
+                StartGate::Proceed => {}
+                StartGate::Wait(wait) => {
+                    self.set_status(SupervisorState::WaitingRestart, None);
+                    self.phase = Phase::Gated(Instant::now() + wait.max(MIN_POLL));
+                    return;
+                }
+                StartGate::Stop => {
+                    self.tracker.shutdown();
+                    self.emit(SupervisorEvent::Stopped);
+                    self.set_status(SupervisorState::Stopped, None);
+                    self.phase = Phase::Idle(SupervisorState::Stopped);
+                    return;
+                }
+            }
+        }
         let locked = self.next_locked();
         match (self.launch)(locked) {
             Ok(child) => {
@@ -568,7 +746,69 @@ where
                     self.phase = Phase::Waiting(permit, due);
                 }
             }
+            Phase::Gated(due) => {
+                if Instant::now() >= due {
+                    self.start();
+                } else {
+                    self.phase = Phase::Gated(due);
+                }
+            }
+            Phase::Unconfirmed(running, demand) => self.tick_unconfirmed(*running, demand),
+            Phase::Foreign(foreign) => self.tick_foreign(*foreign),
             idle @ Phase::Idle(_) => self.phase = idle,
+        }
+    }
+
+    /// The held child again: stop it once more; once it is gone the replacement may follow.
+    fn tick_unconfirmed(&mut self, mut running: Running, demand: bool) {
+        let gone = matches!(running.child.child_mut().try_wait(), Ok(Some(_)))
+            || self.stop_child(&mut running.child);
+        if gone {
+            self.settle(running, demand);
+        } else {
+            self.phase = Phase::Unconfirmed(Box::new(running), demand);
+        }
+    }
+
+    /// An adopted foreign instance: liveness by identity only. A read that fails is not taken
+    /// for an exit.
+    fn tick_foreign(&mut self, foreign: ForeignRun) {
+        if matches!(foreign.identity.is_running(), Ok(true) | Err(_)) {
+            self.phase = Phase::Foreign(Box::new(foreign));
+            return;
+        }
+        self.emit(SupervisorEvent::ForeignExited {
+            launch: foreign.launch,
+            pid: foreign.identity.pid(),
+        });
+        let outcome = self.tracker.exited(foreign.generation, self.at());
+        self.apply(outcome);
+    }
+
+    /// The child is confirmed gone: tell the restart tracker and act on its answer. `demand`
+    /// turns a wait-for-demand answer into a start (an explicit restart).
+    fn settle(&mut self, running: Running, demand: bool) {
+        drop(running.child);
+        let at = self.at();
+        let mut outcome = self.tracker.exited(running.generation, at);
+        if demand && outcome == RestartOutcome::AwaitingDemand {
+            outcome = self.tracker.request_restart(at);
+        }
+        self.apply(outcome);
+    }
+
+    /// Stop the child and settle, or hold it when the stop is unconfirmed.
+    fn stop_and_settle(&mut self, mut running: Running, demand: bool) {
+        if self.stop_child(&mut running.child) {
+            self.settle(running, demand);
+        } else {
+            let pid = running.child.child().id();
+            self.emit(SupervisorEvent::StopUnconfirmed {
+                launch: running.launch,
+                pid,
+            });
+            self.set_status(SupervisorState::WaitingRestart, Some(pid));
+            self.phase = Phase::Unconfirmed(Box::new(running), demand);
         }
     }
 
@@ -580,18 +820,53 @@ where
                     code: status.code(),
                     success: status.success(),
                 });
+                let info = ExitInfo {
+                    launch: running.launch,
+                    code: status.code(),
+                    success: status.success(),
+                };
+                self.exits.lock().unwrap_or_else(|e| e.into_inner()).last = Some(info);
+                let action = match self.hooks.exit_action.as_mut() {
+                    Some(decide) => decide(&info),
+                    None => ExitAction::Default,
+                };
                 // The child has been reaped by `try_wait`; dropping the wrapper closes its stdin.
                 drop(running.child);
-                let outcome = self.tracker.exited(running.generation, self.at());
-                self.apply(outcome);
+                match action {
+                    ExitAction::Final => {
+                        self.exits
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .final_exit = Some(info);
+                        self.tracker.shutdown();
+                        self.emit(SupervisorEvent::Stopped);
+                        self.set_status(SupervisorState::Stopped, None);
+                        self.phase = Phase::Idle(SupervisorState::Stopped);
+                    }
+                    ExitAction::AdoptForeign(identity) => {
+                        let pid = identity.pid();
+                        self.emit(SupervisorEvent::Adopted {
+                            launch: running.launch,
+                            pid,
+                        });
+                        self.set_status(SupervisorState::Ready, Some(pid));
+                        self.phase = Phase::Foreign(Box::new(ForeignRun {
+                            identity,
+                            generation: running.generation,
+                            launch: running.launch,
+                        }));
+                    }
+                    _ => {
+                        let outcome = self.tracker.exited(running.generation, self.at());
+                        self.apply(outcome);
+                    }
+                }
                 return;
             }
             Ok(None) => {}
             Err(_) => {
                 // The state of the child cannot be read: do not guess it is fine.
-                self.stop_child(running.child);
-                let outcome = self.tracker.exited(running.generation, self.at());
-                self.apply(outcome);
+                self.stop_and_settle(running, false);
                 return;
             }
         }
@@ -630,17 +905,19 @@ where
             None => self.phase = Phase::Running(Box::new(running)),
             Some(event) => {
                 self.emit(event);
-                self.stop_child(running.child);
-                let outcome = self.tracker.exited(running.generation, self.at());
-                self.apply(outcome);
+                self.stop_and_settle(running, false);
             }
         }
     }
 
-    /// Stdin closed (the polite cue), then the whole tree is killed after the grace.
-    fn stop_child(&self, mut child: PrivateChild) {
+    /// Stdin closed (the polite cue), then the whole tree is killed after the grace. True when the
+    /// child is confirmed gone; false when the stop could not be confirmed.
+    fn stop_child(&self, child: &mut PrivateChild) -> bool {
         child.close_stdin();
-        let _ = child.child_mut().wait_then_kill(self.cfg.stop_grace);
+        match child.child_mut().wait_then_kill(self.cfg.stop_grace) {
+            Ok(_) => true,
+            Err(_) => matches!(child.child_mut().try_wait(), Ok(Some(_))),
+        }
     }
 
     fn restart_now(&mut self, state: Option<LockState>) {
@@ -649,18 +926,11 @@ where
         }
         let placeholder = Phase::Idle(SupervisorState::Stopped);
         match std::mem::replace(&mut self.phase, placeholder) {
-            Phase::Running(running) => {
-                self.stop_child(running.child);
-                let at = self.at();
-                let mut outcome = self.tracker.exited(running.generation, at);
-                if outcome == RestartOutcome::AwaitingDemand {
-                    // This is the demand.
-                    outcome = self.tracker.request_restart(at);
-                }
-                self.apply(outcome);
-            }
-            // A start is already on its way.
-            waiting @ Phase::Waiting(..) => self.phase = waiting,
+            // This is the demand: a wait-for-demand answer becomes a start.
+            Phase::Running(running) => self.stop_and_settle(*running, true),
+            Phase::Unconfirmed(running, _) => self.phase = Phase::Unconfirmed(running, true),
+            // A start is already on its way, or an instance this supervisor never signals runs.
+            held @ (Phase::Waiting(..) | Phase::Gated(_) | Phase::Foreign(_)) => self.phase = held,
             Phase::Idle(SupervisorState::AwaitingDemand) => {
                 match self.tracker.request_restart(self.at()) {
                     // Nothing ever ran, so the tracker was not waiting: start directly.
@@ -691,10 +961,11 @@ where
 
     fn shutdown(&mut self) {
         self.tracker.shutdown();
-        if let Phase::Running(running) =
-            std::mem::replace(&mut self.phase, Phase::Idle(SupervisorState::Stopped))
-        {
-            self.stop_child(running.child);
+        match std::mem::replace(&mut self.phase, Phase::Idle(SupervisorState::Stopped)) {
+            Phase::Running(mut running) | Phase::Unconfirmed(mut running, _) => {
+                self.stop_child(&mut running.child);
+            }
+            _ => {}
         }
         self.set_status(SupervisorState::Stopped, None);
         self.emit(SupervisorEvent::Stopped);

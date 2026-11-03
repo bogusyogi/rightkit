@@ -56,6 +56,10 @@ pub fn find_binaries(name: &str) -> Vec<PathBuf> {
     };
     let suffixes = executable_suffixes();
     std::env::split_paths(&paths)
+        // An empty PATH entry (`/usr/bin::/bin`) and any relative entry would resolve against
+        // the current directory, so a CLI planted in the working directory would be found.
+        // Only absolute directories are searched.
+        .filter(|dir| !dir.as_os_str().is_empty() && dir.is_absolute())
         .flat_map(|dir| {
             suffixes
                 .iter()

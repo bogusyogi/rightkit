@@ -50,9 +50,9 @@ pub use key_migration::{
     provider_key_storage_health, read_key, remove_key, status_source, write_key, KeySource,
     ProviderKeyStorageHealth,
 };
-pub use keystore::{InMemoryKeyStore, KeyStoreBackend, KeyStoreError};
 #[cfg(feature = "agent_providers-os-keyring")]
 pub use keystore::{KeyStore, OsKeyStore};
+pub use keystore::{KeyStoreBackend, KeyStoreError};
 pub use model_metadata::{
     capability_of, table as model_metadata_table, ModelCapability, ModelTier,
 };

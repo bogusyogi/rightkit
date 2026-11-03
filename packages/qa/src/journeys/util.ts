@@ -70,3 +70,13 @@ export function matchesAny(globs: readonly string[], file: string): boolean {
 }
 
 export const problem = (code: string, id: string | null, detail: string): Problem => ({ code, id, detail });
+
+export class JourneysError extends Error {
+  constructor(
+    message: string,
+    readonly problems: Problem[] = [],
+  ) {
+    super(message);
+    this.name = 'JourneysError';
+  }
+}

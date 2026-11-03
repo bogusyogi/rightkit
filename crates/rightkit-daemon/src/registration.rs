@@ -37,6 +37,7 @@ use crate::contract::{TableError, Transport};
 use crate::error::ServiceError;
 use crate::server::ServiceConfig;
 use crate::suite::valid_service_name;
+use crate::Allowlist;
 
 /// Which transports a registered service may be offered on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

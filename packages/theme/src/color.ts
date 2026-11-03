@@ -73,3 +73,9 @@ export function ensureContrast(fg: string, bg: string, min: number): string {
   }
   return mix(fg, target, hi);
 }
+
+/** Space-separated `R G B` channels of a hex colour (`#1E7F3C` -> `30 127 60`), the form `rgb(var(--x-rgb) / alpha)` reads. Throws on invalid hex, like `parseHex`. */
+export function rgbChannels(hex: string): string {
+  const { r, g, b } = parseHex(hex);
+  return `${r} ${g} ${b}`;
+}

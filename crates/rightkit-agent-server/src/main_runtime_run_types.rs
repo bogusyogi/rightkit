@@ -94,9 +94,10 @@ type CliToolFilters = (Option<String>, Vec<String>, Vec<String>);
 
 /// Built-in tools that front MCP servers. `--no-mcp` and `--exclude-tools
 /// 'mcp__*'` remove them; `--tools` keeps them unless it names `mcp__` tools.
-const MCP_GATEWAY_TOOLS: [&str; 4] = [
+const MCP_GATEWAY_TOOLS: [&str; 5] = [
     "mcp_call",
     "list_mcp_tools",
+    "list_mcp_sources",
     "list_mcp_resources",
     "read_mcp_resource",
 ];

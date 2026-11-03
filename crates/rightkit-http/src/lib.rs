@@ -39,17 +39,17 @@ mod urlredact;
 
 pub use cancel::{is_cancelled_io, CancelToken};
 pub use client::{
-    form_encode, percent_decode, percent_decode_component, percent_encode,
+    form_encode, percent_decode, percent_decode_component, percent_decode_strict, percent_encode,
     percent_encode_component, AttemptDelivery, AttemptEvent, AttemptOutcome, Client, ClientConfig,
-    Method, ProxyDiagnostic, ProxyMode, ProxyModeUsed, Request, Response, ResponseHead, RetryEvent,
-    StreamResponse, TrustRoots,
+    Method, PercentError, ProxyDiagnostic, ProxyMode, ProxyModeUsed, Request, Response,
+    ResponseHead, RetryEvent, StreamResponse, TrustRoots,
 };
 pub use error::{ErrorClass, HttpError, Phase};
 pub use multipart::{Multipart, MultipartRelated};
 pub use netpolicy::{
     check_redirect_target, parse_host_ip, parse_legacy_ipv4, validate_public_https_url,
     AddressClass, AddressPolicy, ApprovedOrigins, CredentialScope, HostIpKind, IpNet, ParsedHostIp,
-    RedirectRefusal, ResolveError, UrlPolicyError,
+    RedirectRefusal, ResolveError, UrlPolicyError, MAX_REDIRECT_URL_LEN,
 };
 pub use quota::{defer_in, remaining_in, QuotaSchedule, QuotaStore};
 pub use retry::{

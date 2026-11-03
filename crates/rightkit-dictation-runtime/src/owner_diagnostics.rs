@@ -1,16 +1,10 @@
 use serde_json::Value;
-use std::ffi::OsStr;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::OnceLock;
 
-// Test-mode only (release switch rule S1): a release build turns capture on through the on-disk
-// marker below and never reads, or contains, these names.
-/// Absolute directory to write owner diagnostics into. Raw WAV capture is by far
-/// the heaviest thing this app writes, and the default lives on the boot volume;
-/// pointing it at an external disk keeps long debugging sessions from filling it.
 /// Marker file in the app-data root that turns capture on and KEEPS it on.
 ///
 /// An env var alone lives only in the process the owner launched from a
@@ -42,8 +36,7 @@ pub fn enabled() -> bool {
 }
 
 fn legacy_enabled() -> bool {
-    enabled_from(rightkit_dictation_core::dev_var_os!(OWNER_DIAGNOSTICS_ENV).as_deref())
-        || marker_path().is_file()
+    marker_path().is_file()
 }
 
 /// Path of the persistent opt-in marker.
@@ -52,8 +45,7 @@ fn marker_path() -> PathBuf {
 }
 
 /// Destination override recorded inside the marker file, if any. Absolute paths
-/// only, for the same reason the env override demands one: the sidecar's working
-/// directory is not the owner's shell.
+/// only: the sidecar's working directory is not the owner's shell.
 fn marker_dir_override() -> Option<PathBuf> {
     let body = fs::read_to_string(marker_path()).ok()?;
     let line = body.lines().find(|l| !l.trim().is_empty())?.trim();
@@ -61,51 +53,9 @@ fn marker_dir_override() -> Option<PathBuf> {
     path.is_absolute().then_some(path)
 }
 
-fn enabled_from(value: Option<&OsStr>) -> bool {
-    value.and_then(OsStr::to_str).is_some_and(|value| {
-        matches!(
-            value.to_ascii_lowercase().as_str(),
-            "1" | "true" | "on" | "yes"
-        )
-    })
-}
-
 fn root() -> PathBuf {
-    // Precedence: explicit env var for THIS process, then the on-disk marker,
-    // then the default. The env var is a deliberate per-launch choice (tests,
-    // one-off captures to a scratch dir) and must not be silently hijacked by
-    // ambient machine state — the marker's job is to survive relaunches that
-    // carry no environment, not to override launches that set one.
-    resolve_root(
-        rightkit_dictation_core::dev_var_os!(OWNER_DIAGNOSTICS_DIR_ENV).as_deref(),
-        || {
-            marker_dir_override()
-                .unwrap_or_else(|| crate::settings::app_data_root().join("diagnostic-captures"))
-        },
-    )
-}
-
-/// Resolve the diagnostics directory from an optional override.
-///
-/// The override must be an ABSOLUTE path: this runs in the sidecar, whose working
-/// directory is not the user's shell, so a relative path would land somewhere the
-/// user did not intend and did not expect. Anything blank or relative falls back
-/// to the default rather than guessing.
-fn resolve_root(override_dir: Option<&OsStr>, default: impl FnOnce() -> PathBuf) -> PathBuf {
-    let candidate = override_dir
-        .map(Path::new)
-        .filter(|path| !path.as_os_str().is_empty());
-    match candidate {
-        Some(path) if path.is_absolute() => path.to_path_buf(),
-        Some(path) => {
-            tracing::warn!(
-                path = %path.display(),
-                "diagnostics directory override must be an absolute path; using the default location"
-            );
-            default()
-        }
-        None => default(),
-    }
+    marker_dir_override()
+        .unwrap_or_else(|| crate::settings::app_data_root().join("diagnostic-captures"))
 }
 
 fn writer() -> &'static Sender<WriteJob> {

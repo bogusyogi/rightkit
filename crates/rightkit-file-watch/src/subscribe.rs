@@ -7,7 +7,7 @@
 //! recursive/non-recursive ref counting, and RAII unregistration. Test-only hooks were
 //! dropped; the behavior is covered by real filesystem tests under `tests/`.
 
-use notify::Watcher;
+use notify::{RecommendedWatcher, Watcher};
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::path::Path;

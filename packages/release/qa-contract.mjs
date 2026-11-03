@@ -21,13 +21,12 @@ export function validateQaBackdoorContract(root, packageScripts = {}) {
   }
 
   const rustSource = readRustSources(path.join(root, "src-tauri", "src")).replace(/\s+/g, " ");
-  if (!/cfg\s*\(\s*all\s*\(\s*not\s*\(\s*debug_assertions\s*\)\s*,\s*feature\s*=\s*"qa-native"\s*\)\s*\)/.test(rustSource)
-      || !/compile_error!/.test(rustSource)) {
-    issues.push("Rust must compile_error when qa-native is enabled outside debug builds");
-  }
-  if (!/cfg\s*\(\s*all\s*\(\s*debug_assertions\s*,\s*feature\s*=\s*"qa-native"\s*\)\s*\)/.test(rustSource)
+  // GATE-CONTRACT GC-A07 (rightkit#1433): the dev copy is the release build plus `qa-native`, so the feature is no longer required to sit behind a
+  // debug-assertions profile (the earlier rule demanded a `compile_error!` for qa-native outside debug builds, which forced a debug profile). An app
+  // that still carries that cfg passes until it adopts GC-A07; what stays required is that the WebDriver registration exists only behind `qa-native`.
+  if (!/cfg\s*\([^"]{0,120}feature\s*=\s*"qa-native"/.test(rustSource)
       || !/tauri_plugin_wdio_webdriver::init/.test(rustSource)) {
-    issues.push("WebDriver registration must require debug_assertions and qa-native");
+    issues.push("WebDriver registration must be behind the qa-native feature");
   }
   if (!/RIGHTKIT_QA_NATIVE/.test(rustSource)) {
     issues.push("WebDriver registration must also require RIGHTKIT_QA_NATIVE");

@@ -2197,7 +2197,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-settings"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "rightkit-db",
  "rightkit-fs",
@@ -2220,7 +2220,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.3.2"
+version = "0.3.4"
 dependencies = [
  "hound",
  "rightkit-ffmpeg",
@@ -2231,7 +2231,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-browser"
-version = "0.3.8"
+version = "0.3.9"
 dependencies = [
  "async-tungstenite 0.35.0",
  "chromiumoxide",
@@ -2250,10 +2250,11 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "libc",
  "windows",
+ "zeroize",
 ]
 
 [[package]]
@@ -2271,7 +2272,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-contracts"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "jsonschema",
  "serde",
@@ -2280,7 +2281,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "getrandom 0.4.3",
  "secret-service",
@@ -2293,29 +2294,33 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crypto"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "blake3",
+ "ring",
  "serde_json",
 ]
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
+ "core-foundation",
  "getrandom 0.4.3",
  "rightkit-child-process",
  "rightkit-fs",
  "rightkit-sidecar",
+ "security-framework",
  "serde",
  "serde_json",
  "subtle",
  "windows",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "rightkit-db"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "libc",
  "rightkit-fs",
@@ -2326,7 +2331,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-device"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-license",
@@ -2334,7 +2339,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ffmpeg"
-version = "0.2.14"
+version = "0.2.16"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -2344,17 +2349,18 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.10"
+version = "0.4.12"
 dependencies = [
  "blake3",
  "libc",
  "sha2",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-http"
-version = "0.3.10"
+version = "0.3.11"
 dependencies = [
  "getrandom 0.4.3",
  "reqwest",
@@ -2365,7 +2371,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-job-queue"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "rightkit-child-process",
  "rightkit-daemon",
@@ -2380,7 +2386,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-license"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
@@ -2412,7 +2418,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.8"
+version = "0.3.9"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -2426,7 +2432,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-media-gen"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "image",
  "rightkit-app-settings",
@@ -2478,7 +2484,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-models"
-version = "0.5.4"
+version = "0.5.8"
 dependencies = [
  "dirs",
  "flate2",
@@ -2495,7 +2501,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-motion"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "image",
  "rightkit-ffmpeg",
@@ -2520,7 +2526,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sandbox"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "libc",
  "rightkit-child-process",
@@ -2529,7 +2535,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-search"
-version = "0.4.2"
+version = "0.4.4"
 dependencies = [
  "rusqlite",
 ]
@@ -2546,19 +2552,21 @@ dependencies = [
 
 [[package]]
 name = "rightkit-spend"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
+ "rightkit-crypto",
  "rightkit-db",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.2"
+version = "0.1.3"
 
 [[package]]
 name = "rightkit-transcript"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -2567,7 +2575,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tts"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",

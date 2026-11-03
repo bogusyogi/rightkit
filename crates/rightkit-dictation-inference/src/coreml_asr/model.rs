@@ -122,8 +122,7 @@ pub struct CoreMlParakeet {
     pub(crate) bias: Option<ContextBias>,
     // Beam width for `decode_window` (see `decode_window.rs`). Default `2`
     // preserves one alternative hypothesis for contextual bias; `1` restores
-    // the original greedy decode. Set via `set_beam_width` or the
-    // `RIGHTKIT_ASR_BEAM_WIDTH` env override read once at `load()` time.
+    // the original greedy decode. Set via `set_beam_width`.
     pub(crate) beam_width: usize,
     pub(crate) model_fingerprint: String,
     pub(crate) model_dir_sha256: Option<String>,

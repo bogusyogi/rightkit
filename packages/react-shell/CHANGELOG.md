@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.7.3 — issue sweep (2026-11-03)
+
+- Removed (Adrian, 2026-11-03: end-to-end tests only; a built harness page on a dev server is not end to end): the real-browser tests against a harness page, their harness, `vitest.config.ts`, `test-fixtures/`, the `pretest` and `test` scripts and the devDependencies `@rightkit/qa-chrome`, `vite` and `vitest`. Nothing shipped changes.
+
+Additive. Existing props, defaults and markup are unchanged; new behaviour is opt-in. Not compiled in this change; the owner chat runs the gate.
+
+- `ModalShell` `width` accepts a number (pixels) or any CSS length string such as `"32rem"` or `"min(90vw, 40rem)"`; the default stays 440 (#755). `useShortcuts` works without a `ShellProvider`: outside one, the shortcuts run on a page-wide registry that listens on `window` while any component uses it; inside one they join the shell's registry as before (#755). The issue's donor "contract fixtures" are not added: they conflict with the standing decision of no unit tests and no dummy data.
+- Select: ref, `data-*`, `tabIndex`, `id`, `name`, focus and blur passthrough, `aria-*` passthrough, option groups (`SelectGroup`), `aria-invalid` (#985, #1002, #729).
+- Textarea: `autoGrow`, `aria-*` and `data-*` passthrough (#729).
+- `DescriptionList` and `KeyValue`, dense and inline variants (#996).
+- `ProgressBar` indeterminate when `value` is omitted, with `aria-busy` and reduced-motion safe (#997).
+- Card: `title`, `data-*`, `media` slot, `current` (`aria-current`), header button via `header`, `onHeaderClick`, `headerLabel` (#1001, #1075, #1031).
+- Notice: `onClick` makes the whole notice one button (#1031).
+- `Radio` and `RadioGroup` with per-option description, fieldset and legend (#1073).
+- `TextBlock` with raw, caption and digest variants and a focusable scroll region (#1074).
+- `Toolbar`, `FormStack`, `Fieldset`, `Hint`, `SectionTitle`, `Kicker`, and Field `error` with `role=alert` tied to `aria-describedby` (#1076).
+- Checkbox: `id`, `aria-label`, `aria-labelledby`, `labelPosition` (#1111).
+- Slider: `onChangeStart`, `onChangeEnd`, `onChangeCancel` (Escape restores), `settleMs`, `id` and `data-*` (#1153).
+- Button `plain` variant; hover and press washes for Button, IconButton, segment and checked switch (#865, #866).
+- Tokens: `--rk-item-transition`, `--rk-stage`, success, warning, star and motion tokens (#1000, #1016, #987); `.rk-scroll` and `.rk-scroll--gutter` themed thin scrollbar (#863).
+- Icon: shared base set of 37 Lucide glyphs with `glyphs` app extension (#984).
+- MediaTile: fixed-aspect poster, hover or focus muted preview, badge and corner slots (#1011).
+- Listbox, ListboxGroup, ListboxOption over Popover and `useListNavigation` (#1003).
+- Tooltip: `role=tooltip` tied by `aria-describedby`, Escape and pointer-leave dismiss (#1108).
+- `useDeferred` and `Spinner`; SkeletonRows `delayMs` (#1109, #1061 related).
+- LiveRegion and `useAnnounce` (#1110).
+- AppShell: `sidebarResizable.maxViewport` (#983); `sidebarRail` slot and `RailButton` (#1087); `planeBar` and `planeBarRef` (#1104); `titleRef` and `titleFill` (#1112).
+- PageShell side column: `side`, `sideWidth`, `sideLabel` (#998).
+- `useResizeHandle` and controlled `SidebarResizer` with no storage (#1107).
+- `DragRegion` and `dragRegionProps` (#1112).
+- `RetainedHost`, `useRetainedSlot`, `RetainedSlot` for state that survives geometry changes (#1151).
+- `os-windows` platform font stacks and `font-size-adjust` (#999).
+- `TabStrip`, `TabItem` with roving focus, close, dirty marker, overflow arrows and drag reorder (#1060).
+- `ColorGrid`, `ColorSwatch`; Popover and ContextMenu `takeFocus` (#1061).
+- Popover `dismissOnScroll` and `dismissOnResize`, both default true (#1062).
+- `useEscapeOwner`, `pushEscapeOwner`, `isTopEscapeOwner`, priority-ordered stack (#1113).
+- ModalShell and Dialog `inertBackground`, on by default for non-dismissible dialogs, with ref-counted restore (#1152).
+- ModalShell and Popover `returnFocus` with a connected-element fallback; needs `@rightkit/platform-ui` >=0.4.1 (#1154).
+
 ## 0.7.2 — unpublished staging
 
 Additive. No existing markup, class or CSS value changes.

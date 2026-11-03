@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1 — unpublished staging
+
+- Removed (Adrian, 2026-11-03: end-to-end tests only): the three unit test files under `src/`, the `test` script and the `vitest` devDependency. `typecheck:contracts` stays.
+
+- Issue #448: `createNativeFetch({ invoke, command?, timeoutMs? })` returns a `fetch`-compatible function over the native fetch bridge (`FetchBridge` in `rightkit-app-update`), so an app needs neither `tauri-plugin-http` nor a webview `connect-src` for its own servers. It builds a `Request` from the usual `fetch` arguments, sends `{ request: { url, method, headers, bodyBase64?, timeoutMs? } }` to the command (`RIGHTKIT_FETCH_COMMAND` = `rightkit_app_update_fetch`, registered by the app's host behind its caller policy) and answers a real `Response` (final URL after native redirects; no body for 204, 205 and 304). Failures reject with `NativeFetchError` (a `TypeError`, closed `code`, fixed text `NATIVE_FETCH_MESSAGES`); an aborted `signal` is honoured before and after the native call. The native host owns the allowlist. Additive, Breaking: none. The boot-stage half of #448 is `@rightkit/app-update/native` `reportStage` and `@rightkit/app-update/react` `BootProbationReporter`. Needs the rightkit-tauri-shell command registration. Not compiled. The default command is `rightkit_app_update_fetch`, the name `rightkit-tauri-shell` registers (feature `app-update`); request and response DTOs are the camelCase shapes of `FetchRequest` and `FetchResponse`.
+
 ## 0.3.0 — unpublished staging
 
 Breaking:
@@ -8,6 +14,9 @@ Breaking:
 - No licence operations remain: this package has no `@rightkit/license` dependency or import, and no licence client or command.
 
 Device atomic `getOrCreate`, logs, diagnostics & update passthrough behavior remain unchanged.
+
+Added (#1106, typed app command registry):
+- `defineTauriCommands<Spec>({ invoke, commands, mapError? })`: an app declares its own `invoke` commands once as an interface of async methods plus a runtime map (`name: true`, or `name: 'rust_name'`); the map is exhaustive against the spec at compile time, names are validated, and every command goes through one error mapper (default `TauriCommandError` with `command` and `cause`). `declaredTauriCommandNames`, `tauriHandlerCommandNames(rustSource)` and `missingTauriHandlers(declared, rustSources)` check that each declared name is registered in a Rust `generate_handler![]` list (for the app's end-to-end suite or build script; comments are ignored). Additive; `createRightKitTauriClient` is unchanged. Not built here.
 
 Added (CutRight gap 8, native file dialogs):
 - `@rightkit/tauri/dialog`: `pickFolder`, `pickFile`, `pickFiles` over `@tauri-apps/plugin-dialog` (new optional peer, `^2.0.0`). `directory` and `multiple` are set by the function; every other plugin option passes through unchanged; cancel resolves `null`; a plugin result of the wrong shape throws. No `saveFile`: its behaviour is unproven. The main entry stays free of the plugin.

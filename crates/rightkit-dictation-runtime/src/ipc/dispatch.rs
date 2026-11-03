@@ -52,19 +52,12 @@ pub(crate) fn handle(
             &trace_id,
             Some(EnginePayload::Capabilities {
                 capabilities: {
-                    let mut capabilities: Vec<String> = vec![
+                    vec![
                         "dictation".into(),
                         "final_only".into(),
                         "focus_tracking".into(),
                         "delivery_precedence".into(),
-                    ];
-                    // ENG-07: advertised only under `RIGHTKIT_L3_LIVE_RECONFIGURE=1` (test-mode).
-                    if crate::perf_levers::l3_live_reconfigure() {
-                        capabilities.push(
-                            rightkit_dictation_core::engine::CAPABILITY_LIVE_L3_RECONFIGURE.into(),
-                        );
-                    }
-                    capabilities
+                    ]
                 },
             }),
             None,
@@ -93,8 +86,7 @@ pub(crate) fn handle(
             )
         }
         Request::ReplaceEngineConfig { config } => {
-            crate::settings::replace_runtime_config(super::l3_live::apply_pushed_config(config));
-            crate::perf_levers::prewarm_app_index_if_pro();
+            crate::settings::replace_runtime_config(config);
             // Accept configuration and queue model preparation when idle.
             // The shell holds its runtime mutex across this ACK: waiting for
             // model preparation here would still block its next StartDictation
@@ -494,26 +486,12 @@ pub(crate) fn handle(
                 None,
             )
         }
-        Request::ReconfigureL3 {
-            ai_polish_enabled,
-            provider_state,
-            provider_ready,
-        } => {
-            match super::l3_live::reconfigure(ai_polish_enabled, &provider_state, provider_ready) {
-                Ok(()) => EngineFrame::base(
-                    EngineSchemaName::EngineAck,
-                    request_id,
-                    None,
-                    &trace_id,
-                    Some(EnginePayload::EngineAck {
-                        status: "ok".into(),
-                        detail: Some("l3_reconfigured".into()),
-                    }),
-                    None,
-                ),
-                Err(message) => error_frame(request_id, &trace_id, None, &message),
-            }
-        }
+        Request::ReconfigureL3 { .. } => error_frame(
+            request_id,
+            &trace_id,
+            None,
+            "live L3 reconfigure is not enabled in this engine",
+        ),
         Request::Shutdown => EngineFrame::health(request_id, &trace_id),
     }
 }

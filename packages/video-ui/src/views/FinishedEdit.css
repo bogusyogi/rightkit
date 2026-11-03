@@ -461,7 +461,7 @@
 }
 .fe-clip--sel { border-color: var(--rk-accent); box-shadow: 0 0 0 1px var(--rk-accent); }
 .fe-clip--pending { opacity: 0.6; }
-.fe-clip--caption { background: var(--rk-accent-soft); }
+.fe-clip--caption { background: var(--caption-clip); }
 .fe-clip__thumbs { position: absolute; inset: 0; display: flex; opacity: 0.55; }
 .fe-clip__thumbs img { height: 100%; flex: 1; min-width: 0; object-fit: cover; }
 .fe-clip__label {

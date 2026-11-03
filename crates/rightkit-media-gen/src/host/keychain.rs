@@ -1,13 +1,14 @@
 //! The host OS credential store configuration, shared by the engine (provider keys, licence
 //! record) and the shell (the per-install device id through `rightkit-device`).
 
-/// A store for `service`: `<PREFIX>_NO_KEYCHAIN` switches to an in-memory store (tests, QA).
+/// A store for `service`: `<PREFIX>_NO_KEYCHAIN` denies every operation. There is no in-memory store
+/// (rightkit-credentials 0.4.6): QA runs on the real store under the rightkit-qa snapshot and restore.
 pub fn store_for(service: &str) -> rightkit_credentials::Store {
     let ns = rightkit_credentials::Namespace::new(service)
         .expect("keychain service is a fixed valid identifier");
     let cfg = rightkit_credentials::Config::new(ns)
         .guard_env(rightkit_local_gen::host::env_name("NO_KEYCHAIN"))
-        .guard_mode(rightkit_credentials::GuardMode::Memory);
+        .guard_mode(rightkit_credentials::GuardMode::Deny);
     rightkit_credentials::Store::open(cfg)
 }
 

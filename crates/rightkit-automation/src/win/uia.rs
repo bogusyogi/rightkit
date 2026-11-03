@@ -9,6 +9,7 @@ use crate::uia_text::{
     FocusedFieldText, RowPush, TerminalLimits, TerminalRowCollector, TerminalRows, TextRead,
 };
 use std::cell::Cell;
+use std::mem::ManuallyDrop;
 use std::sync::OnceLock;
 use std::time::Instant;
 use windows::core::{IUnknown, Interface, BSTR};
@@ -926,6 +927,45 @@ pub fn native_write_capable(el: &El) -> bool {
 fn read_native_role(el: &El) -> Option<String> {
     let ct = unsafe { el.0.CurrentControlType() }.ok()?;
     Some(format!("UIA_{}", control_name(ct.0)))
+}
+
+/// Where a field lives. A browser exposes the page URL as the value of its `Document` element,
+/// so the nearest `Document` ancestor (within 64 hops) whose value is an http(s) URL gives the
+/// origin. A `Document` with another kind of value (a rich-text control) is not a web page and
+/// is skipped; with no web document above it the field is `Native`. A web document whose URL is
+/// unreadable cannot be told from a native one, so a browser field with an unreadable URL is
+/// `Native` only when no `Document` ancestor exists at all, and `Unknown` otherwise.
+pub fn field_origin(el: &El) -> crate::secret::FieldOrigin {
+    use crate::secret::{origin_of_url, FieldOrigin};
+    let mut cur = Some(el.clone());
+    let mut saw_document = false;
+    for _ in 0..64 {
+        let Some(e) = cur else { break };
+        if unsafe { e.0.CurrentControlType() }.ok() == Some(UIA_DocumentControlTypeId) {
+            saw_document = true;
+            if let Some(o) = e.value_text().as_deref().and_then(origin_of_url) {
+                return FieldOrigin::Web(o);
+            }
+        }
+        cur = e.parent();
+    }
+    if saw_document {
+        FieldOrigin::Unknown
+    } else {
+        FieldOrigin::Native
+    }
+}
+
+/// Replace the whole value of a password or card field through its writable `ValuePattern`.
+/// Never keystrokes; reads nothing back.
+pub fn secret_write(el: &El, secret: &crate::secret::Secret) -> Result<()> {
+    let v: IUIAutomationValuePattern = el
+        .pattern(UIA_ValuePatternId)
+        .ok_or(Error::Unsupported("no ValuePattern"))?;
+    if b(unsafe { v.CurrentIsReadOnly() }).unwrap_or(true) {
+        return Err(Error::Unsupported("value is read-only"));
+    }
+    unsafe { v.SetValue(&BSTR::from(secret.expose())) }.map_err(|e| win_err(e, "SetValue"))
 }
 
 pub fn native_write(el: &El, text: &str) -> Result<()> {

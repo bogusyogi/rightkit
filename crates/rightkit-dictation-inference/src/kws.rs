@@ -159,42 +159,41 @@ impl KwsOnsetMethod {
     }
 }
 
-/// Live switches for the Rust keyword spotter, read from `RIGHTKIT_KWS_*` by
-/// [`KwsSwitches::from_env`] in test / `test-mode` builds (release builds read
-/// nothing and get [`KwsSwitches::default`]). The defaults are today's
-/// behaviour. `onset` and `onset_shift_ms` move only the cut; the other
-/// switches change what is detected, so a run with them is a new qualification.
+/// Switches for the Rust keyword spotter. No environment is read; every build uses
+/// [`KwsSwitches::default`], which is today's behaviour. `onset` and `onset_shift_ms` move
+/// only the cut; the other switches change what is detected, so a run with them is a new
+/// qualification.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct KwsSwitches {
-    /// `RIGHTKIT_KWS_ONSET` = `emission` | `posterior` | `aligned` | `acoustic` |
+    /// `emission` | `posterior` | `aligned` | `acoustic` |
     /// `off`: which candidate becomes the cut start; `None` (`off`) also stops
     /// estimating and logging candidates. Default `emission`.
     pub onset: Option<KwsOnsetMethod>,
-    /// `RIGHTKIT_KWS_ONSET_SHIFT_MS`: signed milliseconds added to the chosen
-    /// candidate, -1000..=1000 (ignored with `RIGHTKIT_KWS_ONSET=off`). Default 0.
+    /// signed milliseconds added to the chosen
+    /// candidate, -1000..=1000 (ignored when `onset` is `None`). Default 0.
     pub onset_shift_ms: i32,
-    /// `RIGHTKIT_KWS_THRESHOLD_TOKENS` = `upstream` | `matched`. Default `upstream`.
+    /// `upstream` | `matched`. Default `upstream`.
     pub threshold_tokens: rust_kws::ThresholdTokens,
-    /// `RIGHTKIT_KWS_JOINER_BATCHING` = `beam` | `per_hypothesis`. Default `beam`.
+    /// `beam` | `per_hypothesis`. Default `beam`.
     pub joiner_batching: rust_kws::JoinerBatching,
-    /// `RIGHTKIT_KWS_MERGE_TIMESTAMPS` = `first` | `likelier`: whose timestamps a
+    /// `first` | `likelier`: whose timestamps a
     /// merged beam path keeps. Default `first` (upstream, which can keep a stale
     /// early first-token time).
     pub merge_timestamps: rust_kws::MergeTimestamps,
-    /// `RIGHTKIT_KWS_PORTABLE_MATH` = `0` | `1`. Default `0`.
+    /// `0` | `1`. Default `0`.
     pub portable_math: bool,
-    /// `RIGHTKIT_KWS_TTL_FRAMES` = frames (1..=1000) | `off`. Default 38.
+    /// frames (1..=1000) | `off`. Default 38.
     pub ttl_frames: Option<i32>,
-    /// `RIGHTKIT_KWS_STATIC_BATCH` = `0` | `1`: pin the encoder's batch dimension to
+    /// `0` | `1`: pin the encoder's batch dimension to
     /// 1 (~10% less KWS CPU). Bit-identical for the shipped int8 encoder on
     /// x86-64 Linux; re-verify on each OS (`kws_static_batch_encoder_is_bit_identical`
     /// in rightkit-asr). Default `0`.
     pub static_batch: bool,
-    /// `RIGHTKIT_KWS_DECODER_CACHE` = `0` | `1`: reuse decoder rows per token context
+    /// `0` | `1`: reuse decoder rows per token context
     /// (~5% less KWS CPU). Exact where the decoder is batch-invariant
     /// (`kws_decoder_is_batch_invariant` in rightkit-asr). Default `0`.
     pub decoder_cache: bool,
-    /// `RIGHTKIT_KWS_SHARED_MODEL` = `0` | `1`: the wake, confirm and hey-wake
+    /// `0` | `1`: the wake, confirm and hey-wake
     /// spotters share one set of ONNX sessions (~46 MB less RSS for three).
     /// Default `0`.
     pub shared_model: bool,
@@ -219,172 +218,6 @@ impl Default for KwsSwitches {
 }
 
 impl KwsSwitches {
-    /// [`Self::default`] with any `RIGHTKIT_KWS_*` switch applied. Test and
-    /// `test-mode` builds only: release builds never read the environment.
-    pub fn from_env() -> Self {
-        let (switches, warnings) = Self::from_lookup(|name| match name {
-            "RIGHTKIT_KWS_ONSET" => rightkit_dictation_core::dev_var!("RIGHTKIT_KWS_ONSET").ok(),
-            "RIGHTKIT_KWS_ONSET_SHIFT_MS" => {
-                rightkit_dictation_core::dev_var!("RIGHTKIT_KWS_ONSET_SHIFT_MS").ok()
-            }
-            "RIGHTKIT_KWS_THRESHOLD_TOKENS" => {
-                rightkit_dictation_core::dev_var!("RIGHTKIT_KWS_THRESHOLD_TOKENS").ok()
-            }
-            "RIGHTKIT_KWS_JOINER_BATCHING" => {
-                rightkit_dictation_core::dev_var!("RIGHTKIT_KWS_JOINER_BATCHING").ok()
-            }
-            "RIGHTKIT_KWS_MERGE_TIMESTAMPS" => {
-                rightkit_dictation_core::dev_var!("RIGHTKIT_KWS_MERGE_TIMESTAMPS").ok()
-            }
-            "RIGHTKIT_KWS_PORTABLE_MATH" => {
-                rightkit_dictation_core::dev_var!("RIGHTKIT_KWS_PORTABLE_MATH").ok()
-            }
-            "RIGHTKIT_KWS_TTL_FRAMES" => {
-                rightkit_dictation_core::dev_var!("RIGHTKIT_KWS_TTL_FRAMES").ok()
-            }
-            "RIGHTKIT_KWS_STATIC_BATCH" => {
-                rightkit_dictation_core::dev_var!("RIGHTKIT_KWS_STATIC_BATCH").ok()
-            }
-            "RIGHTKIT_KWS_DECODER_CACHE" => {
-                rightkit_dictation_core::dev_var!("RIGHTKIT_KWS_DECODER_CACHE").ok()
-            }
-            "RIGHTKIT_KWS_SHARED_MODEL" => {
-                rightkit_dictation_core::dev_var!("RIGHTKIT_KWS_SHARED_MODEL").ok()
-            }
-            _ => None,
-        });
-        for warning in warnings {
-            tracing::warn!("{warning}");
-        }
-        switches
-    }
-
-    /// Parse the switches from `lookup`; invalid values keep the default and
-    /// produce a warning.
-    fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> (Self, Vec<String>) {
-        let mut switches = Self::default();
-        let mut warnings = Vec::new();
-        let mut read = |name: &str, apply: &mut dyn FnMut(&str) -> bool, expected: &str| {
-            if let Some(value) = lookup(name) {
-                if !apply(value.trim()) {
-                    warnings.push(format!(
-                        "ignoring invalid {name}={value:?}; expected {expected}"
-                    ));
-                }
-            }
-        };
-        read(
-            "RIGHTKIT_KWS_ONSET",
-            &mut |v| match v.to_ascii_lowercase().as_str() {
-                "off" => {
-                    switches.onset = None;
-                    true
-                }
-                other => KwsOnsetMethod::parse(other)
-                    .map(|method| switches.onset = Some(method))
-                    .is_some(),
-            },
-            "emission, posterior, aligned, acoustic or off",
-        );
-        read(
-            "RIGHTKIT_KWS_ONSET_SHIFT_MS",
-            &mut |v| {
-                v.parse::<i32>()
-                    .ok()
-                    .filter(|ms| (-1_000..=1_000).contains(ms))
-                    .map(|ms| switches.onset_shift_ms = ms)
-                    .is_some()
-            },
-            "milliseconds in -1000..=1000",
-        );
-        read(
-            "RIGHTKIT_KWS_THRESHOLD_TOKENS",
-            &mut |v| match v.to_ascii_lowercase().as_str() {
-                "upstream" => {
-                    switches.threshold_tokens = rust_kws::ThresholdTokens::Upstream;
-                    true
-                }
-                "matched" | "matched_keyword" => {
-                    switches.threshold_tokens = rust_kws::ThresholdTokens::MatchedKeyword;
-                    true
-                }
-                _ => false,
-            },
-            "upstream or matched",
-        );
-        read(
-            "RIGHTKIT_KWS_JOINER_BATCHING",
-            &mut |v| match v.to_ascii_lowercase().replace('-', "_").as_str() {
-                "beam" => {
-                    switches.joiner_batching = rust_kws::JoinerBatching::Beam;
-                    true
-                }
-                "per_hypothesis" => {
-                    switches.joiner_batching = rust_kws::JoinerBatching::PerHypothesis;
-                    true
-                }
-                _ => false,
-            },
-            "beam or per_hypothesis",
-        );
-        read(
-            "RIGHTKIT_KWS_MERGE_TIMESTAMPS",
-            &mut |v| match v.to_ascii_lowercase().as_str() {
-                "first" => {
-                    switches.merge_timestamps = rust_kws::MergeTimestamps::First;
-                    true
-                }
-                "likelier" => {
-                    switches.merge_timestamps = rust_kws::MergeTimestamps::Likelier;
-                    true
-                }
-                _ => false,
-            },
-            "first or likelier",
-        );
-        let flag = |v: &str| match v.to_ascii_lowercase().as_str() {
-            "1" | "true" | "on" => Some(true),
-            "0" | "false" | "off" => Some(false),
-            _ => None,
-        };
-        read(
-            "RIGHTKIT_KWS_PORTABLE_MATH",
-            &mut |v| flag(v).map(|on| switches.portable_math = on).is_some(),
-            "0 or 1",
-        );
-        read(
-            "RIGHTKIT_KWS_STATIC_BATCH",
-            &mut |v| flag(v).map(|on| switches.static_batch = on).is_some(),
-            "0 or 1",
-        );
-        read(
-            "RIGHTKIT_KWS_DECODER_CACHE",
-            &mut |v| flag(v).map(|on| switches.decoder_cache = on).is_some(),
-            "0 or 1",
-        );
-        read(
-            "RIGHTKIT_KWS_SHARED_MODEL",
-            &mut |v| flag(v).map(|on| switches.shared_model = on).is_some(),
-            "0 or 1",
-        );
-        read(
-            "RIGHTKIT_KWS_TTL_FRAMES",
-            &mut |v| {
-                if v.eq_ignore_ascii_case("off") {
-                    switches.ttl_frames = None;
-                    return true;
-                }
-                v.parse::<i32>()
-                    .ok()
-                    .filter(|frames| (1..=1_000).contains(frames))
-                    .map(|frames| switches.ttl_frames = Some(frames))
-                    .is_some()
-            },
-            "encoder frames in 1..=1000 or off",
-        );
-        (switches, warnings)
-    }
-
     /// `base` with these switches applied.
     fn tuning(&self, base: RustKwsTuning) -> RustKwsTuning {
         RustKwsTuning {
@@ -668,9 +501,9 @@ impl CascadeClock {
 unsafe impl Send for Kws {}
 
 impl Kws {
-    /// Load the cascade with [`KwsSwitches::from_env`].
+    /// Load the cascade with [`KwsSwitches::default`].
     pub fn load(model_dir: &Path) -> Result<Self, String> {
-        Self::load_with_switches(model_dir, KwsSwitches::from_env())
+        Self::load_with_switches(model_dir, KwsSwitches::default())
     }
 
     /// Load the cascade with explicit switches.
@@ -689,7 +522,7 @@ impl Kws {
         if !matches!(paths, 4 | 8 | 16) {
             return Err("replay paths must be 4, 8 or 16".into());
         }
-        let switches = KwsSwitches::from_env();
+        let switches = KwsSwitches::default();
         Self::load_with_paths_and_switches(
             model_dir,
             paths,

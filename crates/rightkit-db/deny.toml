@@ -33,6 +33,10 @@ allow = [
   "Unlicense",
   "CDLA-Permissive-2.0",
 ]
+# sqlcipher-src bundles the public-domain SQLite amalgamation (blessing) and LibTomCrypt (WTFPL) beside SQLCipher's BSD-3-Clause.
+exceptions = [
+  { allow = ["blessing", "WTFPL"], crate = "sqlcipher-src" },
+]
 confidence-threshold = 0.9
 # Anything not allowed fails, including GPL, AGPL and LGPL crates. LGPL ffmpeg ships only as a separate sidecar process, never linked.
 unused-allowed-license = "allow"

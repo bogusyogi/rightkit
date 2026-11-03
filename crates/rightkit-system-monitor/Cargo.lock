@@ -122,7 +122,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-settings"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "rightkit-fs",
  "serde",
@@ -132,23 +132,25 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "libc",
  "windows",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.10"
+version = "0.4.12"
 dependencies = [
  "libc",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-system-monitor"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "libc",
  "rightkit-app-settings",
@@ -227,9 +229,9 @@ dependencies = [
 
 [[package]]
 name = "sysinfo"
-version = "0.39.6"
+version = "0.40.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2071df9448915b71c4fe6d25deaf1c22f12bd234f01540b77312bb8e41361e6"
+checksum = "110e37d98880fd804cd47509b90a8444f7aaaab655ae625e83cd442a8bc2ebf2"
 dependencies = [
  "libc",
  "memchr",
@@ -397,6 +399,12 @@ checksum = "3949bd5b99cafdf1c7ca86b43ca564028dfe27d66958f2470940f73d86d75b37"
 dependencies = [
  "windows-link",
 ]
+
+[[package]]
+name = "zeroize"
+version = "1.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
 
 [[package]]
 name = "zmij"

@@ -19,6 +19,8 @@
 //!
 //! Nothing here authenticates anything.
 
+use crate::error::ServiceError;
+use serde_json::Value;
 use std::io::{self, Read, Write};
 use std::time::{Duration, Instant};
 
@@ -219,27 +221,6 @@ impl Request {
                 None => (percent_decode(part), String::new()),
             })
             .collect()
-    }
-
-    /// A request for tests and for hosts that build one directly.
-    pub fn for_test(method: Method, target: &str, headers: &[(&str, &str)], body: &[u8]) -> Self {
-        let (path, query) = match target.split_once('?') {
-            Some((p, q)) => (p.to_string(), Some(q.to_string())),
-            None => (target.to_string(), None),
-        };
-        Self {
-            method,
-            target: target.to_string(),
-            path,
-            query,
-            headers: headers
-                .iter()
-                .map(|(n, v)| (n.to_ascii_lowercase(), (*v).to_string()))
-                .collect(),
-            body: body.to_vec(),
-            keep_alive: true,
-            peer: None,
-        }
     }
 }
 

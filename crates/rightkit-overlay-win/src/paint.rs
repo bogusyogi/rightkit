@@ -411,6 +411,25 @@ fn sdf_rounded_rect(px: f32, py: f32, cx: f32, cy: f32, hw: f32, hh: f32, r: f32
     (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt() + qx.max(qy).min(0.0) - r
 }
 
+impl Clone for PaintCtx {
+    /// A copy of the canvas: the pixels, scale and clip. The text and glass caches start empty in the
+    /// copy and rebuild on first use, so a clone of a painted canvas costs one buffer copy.
+    fn clone(&self) -> Self {
+        Self {
+            width: self.width,
+            height: self.height,
+            scale: self.scale,
+            pixels: self.pixels.clone(),
+            clip: self.clip,
+            glass: Vec::new(),
+            glass_stamp: 0,
+            glass_builds: 0,
+            masks: Vec::new(),
+            text: TextEngine::new(),
+        }
+    }
+}
+
 impl PaintCtx {
     /// A free-standing canvas of `width_px` x `height_px` device pixels at `dpi`. The overlay
     /// window builds its own; this exists so a painter can be unit-tested or rendered to a
@@ -488,6 +507,23 @@ impl PaintCtx {
     /// The premultiplied `0xAARRGGBB` pixels, row-major, top row first.
     pub fn pixels(&self) -> &[u32] {
         &self.pixels
+    }
+
+    /// The canvas over an existing premultiplied BGRA buffer of `width_px` x `height_px` device
+    /// pixels at `dpi` (the buffer's own scale). `None` when `pixels` does not hold exactly the
+    /// clamped surface, so a canvas never reads past its buffer. The buffer is taken, not copied.
+    pub fn from_pixels(width_px: u32, height_px: u32, dpi: u32, pixels: Vec<u32>) -> Option<Self> {
+        let mut ctx = Self::offscreen(width_px, height_px, dpi);
+        (pixels.len() == ctx.pixels.len()).then(|| {
+            ctx.pixels = pixels;
+            ctx
+        })
+    }
+
+    /// The canvas pixels, writable, for a host that copies a frame in or out of its own buffer. The
+    /// length is `width * height` and never changes.
+    pub fn pixels_mut(&mut self) -> &mut [u32] {
+        &mut self.pixels
     }
 
     /// One pixel, `0` outside the surface.

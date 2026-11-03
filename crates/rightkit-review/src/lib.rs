@@ -32,6 +32,10 @@
 //! Final-render QA (feature `render-qa`): `render_qa` probes a rendered file with ffmpeg, records a typed report
 //! and content-addressed receipt, and builds per-platform social packages that refuse an unqualified render.
 //!
+//! Phone surface (feature `phone`): `phone` serves the operator's review and pause routes
+//! (`/review/api/*`) over a daemon's public routes, with per-device HMAC-stored tokens bound to
+//! one account, autonomy gating, failed-auth rate limiting and revision conflicts.
+//!
 //! Code review (feature `code`): `code_review` adjudicates independent
 //! provider judgments over candidate findings, normalizes them and issues
 //! receipts; `minimize` (feature `minimize`) builds and verifies minimal-diff
@@ -49,6 +53,8 @@ mod judge;
 pub mod ladder;
 #[cfg(feature = "minimize")]
 pub mod minimize;
+#[cfg(feature = "phone")]
+pub mod phone;
 pub mod qa;
 mod record;
 #[cfg(feature = "render-qa")]

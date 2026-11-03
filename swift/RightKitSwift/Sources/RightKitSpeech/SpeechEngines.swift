@@ -291,6 +291,11 @@ public struct SpeechEngineSelector: Sendable {
     /// Canonical providers handed to every engine this selector builds.
     public var conditioning: ConditioningProvider?
     public var parakeetDetokenization: DetokenizationProvider?
+    /// Refuse a model directory that has no `coreml-ready.json` marker (a previous validation passed). Default on:
+    /// an unvalidated directory is `modelNotReady`, never a partly loaded engine.
+    public var requireReadyMarker = true
+    /// Optional engine cache. Set one to reuse a built engine for the same kind and directory; nil builds each time.
+    public var engineCache: SpeechEngineCache?
 
     public init(parakeetModelDirectory: URL? = nil, whisperModelDirectory: URL? = nil) {
         self.parakeetModelDirectory = parakeetModelDirectory
@@ -325,13 +330,55 @@ public struct SpeechEngineSelector: Sendable {
         switch kind {
         case .parakeet:
             guard let dir = parakeetModelDirectory else { throw SpeechError.modelNotReady }
-            return try ParakeetEngine(
-                modelDirectory: dir, options: parakeetOptions,
-                conditioning: conditioning, detokenization: parakeetDetokenization)
+            try requireReady(dir)
+            return try cached(kind, dir) {
+                try ParakeetEngine(
+                    modelDirectory: dir, options: parakeetOptions,
+                    conditioning: conditioning, detokenization: parakeetDetokenization)
+            }
         case .whisper:
             guard let dir = whisperModelDirectory else { throw SpeechError.modelNotReady }
-            return try WhisperEngine(modelDirectory: dir, conditioning: conditioning)
+            try requireReady(dir)
+            return try cached(kind, dir) {
+                try WhisperEngine(modelDirectory: dir, conditioning: conditioning)
+            }
         }
+    }
+
+    private func requireReady(_ dir: URL) throws {
+        if requireReadyMarker && !CoreMLModelValidator.hasReadyMarker(at: dir) {
+            throw SpeechError.modelNotReady
+        }
+    }
+
+    private func cached(
+        _ kind: SpeechEngineKind, _ dir: URL, build: () throws -> any SpeechTranscribing
+    ) throws -> any SpeechTranscribing {
+        guard let engineCache else { return try build() }
+        return try engineCache.engine(for: "\(kind.rawValue)|\(dir.standardizedFileURL.path)", build: build)
+    }
+}
+
+/// Reuses built speech engines by kind and model directory. Thread-safe; share one instance across selectors.
+public final class SpeechEngineCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var engines: [String: any SpeechTranscribing] = [:]
+
+    public init() {}
+
+    /// The cached engine for `key`, building and storing it on the first request. A failed build is not cached.
+    public func engine(for key: String, build: () throws -> any SpeechTranscribing) throws -> any SpeechTranscribing {
+        lock.lock(); defer { lock.unlock() }
+        if let engine = engines[key] { return engine }
+        let engine = try build()
+        engines[key] = engine
+        return engine
+    }
+
+    /// Drops every cached engine, for example after a model is replaced on disk.
+    public func removeAll() {
+        lock.lock(); defer { lock.unlock() }
+        engines.removeAll()
     }
 }
 #endif

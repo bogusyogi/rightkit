@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-daemon"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2021"
 rust-version = "1.98.0"
 description = "One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist."
@@ -25,6 +25,7 @@ base64 = { version = "0.23", optional = true }
 blake3 = { version = "1", optional = true }
 form_urlencoded = { version = "1", optional = true }
 ring = { version = "0.17", optional = true }
+rightkit-identity = { version = "0.1.1", path = "../rightkit-identity", optional = true }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
 # `remote` only.
 rightkit-contracts = { version = "0.1.8", path = "../rightkit-contracts", default-features = false, optional = true }
@@ -39,7 +40,13 @@ hyper-util = { version = "0.1", features = ["tokio", "service", "server-graceful
 # backend compiles on the Windows host (see API.md for the exact command).
 rightkit-agent-engine-protocol = {version = "0.1.0", path = "../rightkit-agent-engine-protocol", optional = true}
 async-trait = {version = "0.1", optional = true}
+# Peer code-signature check (`peer_signature`, rightkit#1319): Security.framework on macOS,
+# WinVerifyTrust on Windows.
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { version = "3.7", default-features = false }
+core-foundation = { version = "0.10" }
 [target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Cryptography", "Win32_Security_Cryptography_Catalog", "Win32_Security_Cryptography_Sip", "Win32_Security_WinTrust", "Win32_System_Threading"] }
 windows = { version = "0.62", features = [
   "Win32_Foundation",
   "Win32_Security",
@@ -57,7 +64,7 @@ default = ["local"]
 local = []
 # Blocking device client (enrol, signed requests, resumable upload) pinned to caller-supplied roots.
 # No tokio, axum or hyper. Enables `remote::client` and `remote::signing`.
-link = ["dep:base64", "dep:blake3", "dep:ring", "dep:rustls"]
+link = ["dep:base64", "dep:blake3", "dep:ring", "dep:rightkit-identity", "dep:rustls"]
 # `rk-relay/1`: the blind relay and mailbox protocol (frames, relay state machine, device session).
 # Transport-free; needs only what `link` already carries.
 relay = ["link"]
@@ -81,10 +88,6 @@ remote = [
 # enabled by it. `releaseSwitches.remoteHost` stays false for
 # desktop apps and `@rightkit/release` keeps refusing a desktop build with `remote`.
 remote-loopback = []
-# Compiles the test-mode capability (`mode::Mode::Test`, the override selectors and the
-# `RIGHTKIT-TEST-MODE-COMPILED` marker). Off by default. Apps expose their own `test-mode` feature that
-# enables it, only from qa-native/dev-native; `@rightkit/release` refuses a release build that has it.
-test-mode = []
 agent_daemon_core = ["dep:axum", "dep:rightkit-agent-engine-protocol"]
 agent_daemon_runtime = ["dep:async-trait", "dep:tokio", "tokio/rt"]
 

@@ -3,7 +3,7 @@
 //! A new device (the *requester*) gets the account data key only after an enrolled device (the
 //! *approver*) approves it. The two talk through a relay that sees only opaque byte strings; the
 //! relay is never trusted for secrecy or authenticity. The approval is the `rk-pair/1`
-//! short-code pairing of `rightkit-daemon` (see `crate::pairing_sas` for the copied functions)
+//! short-code pairing of `rightkit-daemon` (the `rk-pair/1` functions are `rightkit_identity::pairing`'s)
 //! with an X25519 step and an AEAD key wrap added.
 //!
 //! ```text
@@ -52,12 +52,13 @@
 
 use crate::error::{Error, Result};
 use crate::key::{check_component, DataKey, KEY_LEN};
-use crate::pairing_sas::{
-    label_bytes, pairing_code, pairing_commit, CODE_DIGITS, MAX_LABEL_CHARS, NONCE_BYTES,
-};
 use crate::util::{ct_eq, hex_decode, push_lp, random_array};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
+use hkdf::Hkdf;
+use rightkit_identity::pairing::{
+    label_bytes, pairing_code, pairing_commit, CODE_DIGITS, MAX_LABEL_CHARS, NONCE_BYTES,
+};
 use sha2::{Digest, Sha256};
 use x25519_dalek::{PublicKey, SharedSecret, StaticSecret};
 use zeroize::Zeroizing;

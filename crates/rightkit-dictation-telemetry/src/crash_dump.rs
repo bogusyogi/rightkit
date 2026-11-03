@@ -89,8 +89,3 @@ pub fn write_dump(reason: &str) -> Option<PathBuf> {
     rightkit_crash::prune(&dir, CRASH_RETENTION);
     result
 }
-
-#[doc(hidden)]
-pub fn crash_retention_for_test() -> Retention {
-    CRASH_RETENTION
-}

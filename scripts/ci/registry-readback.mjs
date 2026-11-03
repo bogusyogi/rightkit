@@ -159,25 +159,14 @@ await assert.rejects(unavailable.status(),error=>error instanceof license.Licens
 await assert.rejects(import('@rightkit/license/testing'),{code:'ERR_PACKAGE_PATH_NOT_EXPORTED'});
 fs.writeFileSync('runtime.json',JSON.stringify({scope:'isolated JavaScript wrapper & display helpers; native commands not exercised',exports:expected,productionTestingDenied:true}));
 `;
-const licenseDevelopmentSmoke = `import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import {createLicenseMock,RIGHTKIT_LICENSE_TESTING_DO_NOT_SHIP} from '@rightkit/license/testing';
-const mock=createLicenseMock(); assert.equal(mock.sentinel,RIGHTKIT_LICENSE_TESTING_DO_NOT_SHIP);
-assert.equal(mock.bridge.invoke[RIGHTKIT_LICENSE_TESTING_DO_NOT_SHIP],true);
-assert.equal((await mock.client.status()).lifecycle,'unlicensed');
-assert.equal((await mock.client.activate('isolated-test-key')).status,'active');
-assert.equal((await mock.client.deactivate()).revisionState,'tombstone');
-fs.writeFileSync('development-runtime.json',JSON.stringify({scope:'development testing export only',sentinel:mock.sentinel}));
-`;
 const licenseTypeSmoke = `import * as license from '@rightkit/license';
-import {createLicenseMock,RIGHTKIT_LICENSE_TESTING_DO_NOT_SHIP} from '@rightkit/license/testing';
 import type {LicenseTier,LicenseKind,EntitlementStage,Lifecycle,LicenseStatus,LicenseView,RefreshOutcome,RefreshView,TrialView,RejectReason,CommandErrorCode,MessageCode,LicenseInvoke,LicenseUnlisten,LicenseListen,LicenseConfig,LicenseRequirement,LicenseClient} from '@rightkit/license';
-const mock=createLicenseMock(); const client:LicenseClient=mock.client;
+const config:LicenseConfig={invoke:async()=>undefined as never,listen:async()=>()=>{}}; const client:LicenseClient=license.createLicenseClient(config);
 const view:Promise<LicenseView>=client.status(); const refresh:Promise<RefreshView>=client.refresh(); const trial:Promise<TrialView>=client.requestTrial('reader@example.test');
-const config:LicenseConfig=mock.bridge; const invoke:LicenseInvoke=config.invoke; const listen:LicenseListen=config.listen; const stop:LicenseUnlisten=()=>{};
+const invoke:LicenseInvoke=config.invoke; const listen:LicenseListen=config.listen; const stop:LicenseUnlisten=()=>{};
 type PublicTypes=[LicenseTier,LicenseKind,EntitlementStage,Lifecycle,LicenseStatus,RefreshOutcome,RejectReason,CommandErrorCode,MessageCode,LicenseRequirement];
 const requirement:LicenseRequirement={tier:'pro',allFeatures:['export']};
-void license.satisfiesRequirement(null,requirement); void view; void refresh; void trial; void invoke; void listen; void stop; void RIGHTKIT_LICENSE_TESTING_DO_NOT_SHIP;
+void license.satisfiesRequirement(null,requirement); void view; void refresh; void trial; void invoke; void listen; void stop;
 `;
 
 export async function consume(bundle, output, env = process.env) {
@@ -222,7 +211,7 @@ export async function consume(bundle, output, env = process.env) {
     report.installed = { name: installed.name, version: installed.version };
     const entries = declaredEntries(installed);
     check(entries.hasEntry && entries.patterns.length === 0, "explicit entry targets required");
-    if (isLicense) check(entries.subpaths.map(item => item.subpath).sort().join() === ".,./testing" && entries.subpaths.find(item => item.subpath === "./testing").testConditions?.join() === "development", "license recipe export coverage changed");
+    if (isLicense) check(entries.subpaths.map(item => item.subpath).sort().join() === ".", "license recipe export coverage changed");
     for (const file of entries.files) {
       const target = path.resolve(dir, file); const relative = path.relative(dir, target);
       check(relative && !relative.startsWith("..") && !path.isAbsolute(relative) && fs.statSync(target).isFile(), `invalid/missing installed export target ${file}`);
@@ -232,12 +221,7 @@ export async function consume(bundle, output, env = process.env) {
     fs.writeFileSync(path.join(consumer, "smoke.mjs"), isLicense ? licenseSmoke : smoke);
     fs.writeFileSync(path.join(consumer, "consumer.ts"), isLicense ? licenseTypeSmoke : typeSmoke);
     run(process.execPath, ["smoke.mjs"]);
-    if (isLicense) {
-      fs.writeFileSync(path.join(consumer, "development-smoke.mjs"), licenseDevelopmentSmoke);
-      run(process.execPath, ["--conditions=development", "development-smoke.mjs"]);
-      report.developmentRuntime = read(path.join(consumer, "development-runtime.json"));
-    }
-    run(process.execPath, ["node_modules/typescript/bin/tsc", "--noEmit", "--strict", "--module", "NodeNext", "--moduleResolution", "NodeNext", "--target", "ES2022", ...(isLicense ? ["--customConditions", "development"] : []), "consumer.ts"]);
+    run(process.execPath, ["node_modules/typescript/bin/tsc", "--noEmit", "--strict", "--module", "NodeNext", "--moduleResolution", "NodeNext", "--target", "ES2022", "consumer.ts"]);
     check(fs.readFileSync(path.join(consumer, "package-lock.json")).equals(lockBytes), "lock changed during consumer checks");
     report.runtime = read(path.join(consumer, "runtime.json")); report.typesVerified = true; report.verified = true;
   } catch (error) { report.error = error.message; throw error; }

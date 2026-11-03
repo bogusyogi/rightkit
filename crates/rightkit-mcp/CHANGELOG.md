@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.4 (unpublished)
+
+- Removed `tests/e2e.rs` and the `tempfile` dev-dependency: it ran the crate's own client against the crate's own example server with a fixed-token auth stand-in, not a real installed app or external service (Adrian, 2026-11-03: "My decision was no unit tests. Only e2e."). `examples/example_server.rs` stays as a documented example.
+- Issue #1245: `McpManager::connection_states()` (feature `agent_mcp`) reports each registered server as an `EngineSource` (`Connected { tools }`, `Starting`, `Failed`) from the manager's own state: the last completed tool listing and any listing still running. It never starts a server, lists, or calls a tool, and keeps no error text. A never-listed server is `Starting` (lazy connect). `Disabled` and `NeedsAuth` are not reported because the manager has no such state. New `engine_source_status(&[EngineSource])` classifies engine-held sources without a trust store.
+- Issue #421: no change to the server host; per-version batch policy and the bounded call already ship. `ToolProvider` is served from a `Toolbox` by `rightkit-agent-tools` `ToolboxProvider`.
+- Issue #708: `TrustStore::try_load_migrating` gives a `records` document that does not parse as a native store to `migrate` (for example another store's camelCase records). Native files load exactly as before; when `migrate` returns `None` the native parse error is returned as `InvalidData`.
+- Issue #1245: new `session_status` module: `session_source_status(configured, discovery, trust)` classifies each configured tool source for one session as `ready`, `no-tools`, `not-mounted`, `failed`, `needs-auth`, `pending`, `disabled`, `discovery-unavailable` or `discovery-failed` from the engine's own `SessionDiscovery`. Trust is checked first; no server is started, no tool is called, and no engine error text is carried.
+
 ## 0.7.3 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

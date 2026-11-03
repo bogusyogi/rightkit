@@ -5,6 +5,7 @@
 //! when the projection is missing or degraded.
 
 use crate::types::MemoryEntry;
+use std::collections::HashMap;
 
 /// A storage-independent lexical result.
 #[derive(Debug, Clone, PartialEq)]

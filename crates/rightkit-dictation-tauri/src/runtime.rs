@@ -1,4 +1,4 @@
-//! Runtime module root — owns `RuntimeApp` (Fake controller vs supervised
+//! Runtime module root — owns `RuntimeApp` (the supervised
 //! engine sidecar runtime) and the `EngineRuntime` orchestration
 //! around it.
 //!
@@ -42,7 +42,7 @@
 //!
 //! Module map:
 //!   prepared.rs      — CancelSource, RuntimeApp enum, Prepared{Start,Stop,Cancel}
-//!   app.rs           — `impl RuntimeApp` dispatch (Fake vs Engine)
+//!   app.rs           — `impl RuntimeApp` dispatch to the engine runtime
 //!   engine.rs        — EngineRuntime + SidecarHandle structs, history-store
 //!                      construction, storage generation, orphan-draft recovery
 //!   session.rs       — `impl EngineRuntime`: session/stop/cancel/delivery ops
@@ -83,18 +83,11 @@ mod shared;
 // `pub use` so `crate::runtime::X` paths (in-crate callers AND the
 // host-application integration tests) resolve exactly as they did
 // when these items lived flat in this module via include!.
-pub use control_tail::{
-    apply_sidecar_control_tail_for_test, engine_state_snapshot_is_transcribing_session,
-};
+pub use control_tail::engine_state_snapshot_is_transcribing_session;
 pub use engine::recover_orphaned_drafts_in_store;
 pub use prepared::{
     CancelSource, PreparedCancel, PreparedStart, PreparedStartError, PreparedStartResult,
     PreparedStop, PreparedStopError, RuntimeApp,
-};
-#[doc(hidden)]
-pub use shared::{
-    lock_free_facades_absent_for_test, shared_state_clone_shares_for_test,
-    stale_error_expiry_rejected_for_test, state_emission_permitted_for_test,
 };
 
 pub use control_tail::{

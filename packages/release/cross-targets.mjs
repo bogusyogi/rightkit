@@ -34,6 +34,30 @@ export function crossTargetsFor(entry = {}, platform = "darwin") {
 }
 
 /**
+ * Per-crate platform scope (rightkit#1248): `platforms` in a crate's ci/gate.config.json entry names the hosts (`process.platform` words:
+ * darwin, win32, linux) whose gate plans the crate's compile and test rows. A crate whose dependencies exist only on Windows
+ * (pulse-windows: windows-future) cannot compile on the Mac, so its rows run on the Windows host only; the other hosts plan none of them
+ * and say so in the plan notes. Absent means every host (the default, and the only scope for a crate that builds everywhere). A bad value
+ * throws, like `crossTargets`: a scope that quietly matched nothing would drop a crate's checks.
+ */
+export function crateRunsOn(entry = {}, platform = "darwin") {
+  const scope = entry?.platforms;
+  if (scope === undefined) return true;
+  if (!Array.isArray(scope) || scope.length === 0 || scope.some((p) => !Object.hasOwn(CROSS_TARGETS, p)) || new Set(scope).size !== scope.length) {
+    throw new Error(`ci/gate.config.json platforms must be a non-empty list of distinct hosts from ${Object.keys(CROSS_TARGETS).join(", ")}, not ${JSON.stringify(scope)}`);
+  }
+  // A scope is the one narrowing of "every crate on every host" (GC-A14), so it says why: its dependencies exist for those OSes only.
+  if (typeof entry.platformsReason !== "string" || !entry.platformsReason.trim()) throw new Error("ci/gate.config.json platforms needs a non-empty platformsReason (why the crate builds on those hosts only)");
+  return scope.includes(platform);
+}
+
+/** The cross targets a crate is checked for on `platform`: crossTargetsFor, narrowed to the OSes a platform scope names (all of them when it names none). */
+export function scopedCrossTargets(entry = {}, platform = "darwin") {
+  const targets = crossTargetsFor(entry, platform);
+  return Array.isArray(entry?.platforms) ? targets.filter((target) => entry.platforms.some((p) => CROSS_TARGETS[p] === target)) : targets;
+}
+
+/**
  * The provisioned zig wrapper directory: RIGHTKIT_CROSS_CC_DIR, else `<managed data root>/zig/cross-cc` (where scripts/ci/provision-zig.mjs
  * writes on a Mac or Dell), else null.
  */

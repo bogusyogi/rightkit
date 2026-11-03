@@ -3,7 +3,6 @@
 //! The CLI never prints secret bytes; an executed child controls its own output.
 //!
 //!   rightkit-credentials <status|set|delete|ensure-key> --namespace N --account A [--replace]
-//!       [--isolated-keychain PATH --keychain-password PW]   (macOS test keychain under the temp directory; never the login keychain; needs the `isolated-test-keychain` feature)
 //!   rightkit-credentials exec --namespace N --account A --env NAME -- /absolute/native/executable [args...]
 //! `exec` requires an unguarded durable OS store, inherits child output, and returns its exit
 //! status. The selected native executable receives the secret only in its own environment.
@@ -208,26 +207,7 @@ fn run(args: &[String]) -> rightkit_credentials::Result<serde_json::Value> {
     };
     let ns = Namespace::new(arg(args, "--namespace").ok_or(missing("--namespace"))?)?;
     let account = arg(args, "--account").ok_or(missing("--account"))?;
-    #[allow(unused_mut)]
-    let mut cfg = Config::new(ns);
-    if let Some(path) = arg(args, "--isolated-keychain") {
-        #[cfg(all(target_os = "macos", feature = "isolated-test-keychain"))]
-        {
-            let pw = arg(args, "--keychain-password");
-            let kc = rightkit_credentials::macos::KeychainBackend::open_isolated_file(
-                std::path::Path::new(&path),
-                pw.as_deref(),
-            )?;
-            cfg = cfg.backend(std::sync::Arc::new(kc));
-        }
-        #[cfg(not(all(target_os = "macos", feature = "isolated-test-keychain")))]
-        {
-            let _ = path;
-            return Err(rightkit_credentials::Error::Unavailable(
-                "--isolated-keychain needs macOS and the isolated-test-keychain feature".into(),
-            ));
-        }
-    }
+    let cfg = Config::new(ns);
     let store = Store::open(cfg);
     let diag = store.diagnostics();
     match cmd {
@@ -262,5 +242,3 @@ fn run(args: &[String]) -> rightkit_credentials::Result<serde_json::Value> {
         }),
     }
 }
-
-// `MemoryBackend` is compiled only with debug assertions.

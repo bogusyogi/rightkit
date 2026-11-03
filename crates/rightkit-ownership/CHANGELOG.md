@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.6 (unpublished)
+
+- Fixed (#687): the admission inputs probe no longer reads clean blob bodies. `git_listed_inventory` takes `read_bodies`; with `false` clean committed blobs are sized by `cat-file --batch-check` and keyed by their index oid (`git:<oid>`, the same digest the body path produces), so `content_inventory_keyed` returns the same content digest, coverage and sizes as `content_inventory` for the same tree. Dirty files are still read and hashed. The protected scan still reads bodies. Racy-entry handling, the key components and the cache key format are unchanged. The scanner policy digest covers `inventory.rs`, `scan.rs` and `worker.rs`, so it changes with this release.
+- Fixed: `worker.rs`, `scan.rs`, `trust.rs`, `committed.rs`, `evidence.rs`, `gitio.rs`, `keylog.rs`, `limits.rs` and `lockfiles.rs` used items whose `use` lines were removed by the test-removal commit 36282f3ab, so non-test code did not compile. The imports are restored; no behaviour change.
+
 ## 0.4.5 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

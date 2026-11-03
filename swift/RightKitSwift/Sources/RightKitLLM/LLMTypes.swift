@@ -95,17 +95,31 @@ public struct LLMQuirkRule: Sendable, Equatable {
 public struct LLMProvider: Sendable, Equatable {
     public enum MaxTokensField: String, Sendable, Equatable { case maxTokens = "max_tokens", maxCompletionTokens = "max_completion_tokens" }
 
+    /// The request and response dialect the endpoint speaks.
+    public enum Wire: String, Sendable, Equatable {
+        /// `POST {baseURL}/chat/completions`, bearer key.
+        case openAICompatible
+        /// Anthropic Messages: `POST {baseURL}/messages`, `x-api-key` and `anthropic-version` headers.
+        /// Only ``LLMAgentClient`` speaks it; ``LLMClient`` refuses such a route.
+        case anthropic
+    }
+
     public var id: String
-    /// Base URL; `/chat/completions` is appended.
+    /// Base URL; `/chat/completions` (or `/messages` for ``Wire/anthropic``) is appended.
     public var baseURL: URL
     public var requiresCredential: Bool
     public var maxTokensField: MaxTokensField
+    public var wire: Wire
 
-    public init(id: String, baseURL: URL, requiresCredential: Bool = true, maxTokensField: MaxTokensField = .maxTokens) {
+    public init(
+        id: String, baseURL: URL, requiresCredential: Bool = true, maxTokensField: MaxTokensField = .maxTokens,
+        wire: Wire = .openAICompatible,
+    ) {
         self.id = id
         self.baseURL = baseURL
         self.requiresCredential = requiresCredential
         self.maxTokensField = maxTokensField
+        self.wire = wire
     }
 
     private static func make(_ id: String, _ url: String, key: Bool = true, field: MaxTokensField = .maxTokens) -> LLMProvider {
@@ -122,6 +136,11 @@ public struct LLMProvider: Sendable, Equatable {
     public static let xAI = make("xai", "https://api.x.ai/v1")
     public static let gemini = make("gemini", "https://generativelanguage.googleapis.com/v1beta/openai")
     public static let nvidia = make("nvidia", "https://integrate.api.nvidia.com/v1")
+    /// Anthropic's native Messages API (tool use and streaming through ``LLMAgentClient``). Not in ``presets``,
+    /// which lists the providers the OpenAI-shaped ``LLMClient`` can call.
+    public static let anthropic = LLMProvider(
+        id: "anthropic", baseURL: URL(string: "https://api.anthropic.com/v1")!, requiresCredential: true, wire: .anthropic,
+    )
     public static let ollama = make("ollama", "http://127.0.0.1:11434/v1", key: false)
     public static let lmStudio = make("lmstudio", "http://127.0.0.1:1234/v1", key: false)
 
@@ -129,7 +148,7 @@ public struct LLMProvider: Sendable, Equatable {
         openAI, openRouter, groq, deepSeek, together, mistral, xAI, gemini, nvidia, ollama, lmStudio,
     ]
 
-    public static func preset(_ id: String) -> LLMProvider? { presets.first { $0.id == id } }
+    public static func preset(_ id: String) -> LLMProvider? { (presets + [anthropic]).first { $0.id == id } }
 
     var completionsURL: URL { baseURL.appendingPathComponent("chat/completions") }
 }
@@ -231,4 +250,12 @@ public enum LLMError: Error, Equatable, Sendable {
     case noRoutes
     case allRoutesFailed([LLMAttempt])
     case cancelled
+    /// ``LLMBudget`` refused the call before it was sent: the worst-case cost would pass the cap.
+    case budgetExceeded(limitMicro: Int64, usedMicro: Int64, requestedMicro: Int64)
+    /// The budget could not be read or written, so no call was made (it fails closed).
+    case budgetUnavailable(String)
+    /// No price is known for this route, so its cost cannot be bounded; nothing was sent.
+    case unpriced(provider: String, model: String)
+    /// The agent loop used all its steps and the model was still calling tools.
+    case toolLoopLimit(steps: Int)
 }

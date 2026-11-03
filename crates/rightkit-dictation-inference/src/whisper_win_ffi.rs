@@ -230,140 +230,6 @@ const _: () = {
     assert!(offset_of!(WhisperFullParams, vad_params) == 280);
 };
 
-/// Test-mode overrides for the Windows whisper.cpp context and decode
-/// (ORT-12). Every field `None` = today's behaviour exactly.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct WhisperWinTuning {
-    /// `RIGHTKIT_WHISPER_WIN_LEGACY_INIT=1`: use `whisper_init_from_file` (the
-    /// pre-ORT-12 call) instead of `_with_params(default_params())`. A/B only;
-    /// both build the same context.
-    legacy_init: bool,
-    /// `RIGHTKIT_WHISPER_WIN_GPU_DEVICE=<n>|calibrated`.
-    gpu_device: Option<GpuDeviceChoice>,
-    /// `RIGHTKIT_WHISPER_WIN_FLASH_ATTN=0|1` (v1.9.3 default: 1).
-    flash_attn: Option<bool>,
-    /// `RIGHTKIT_WHISPER_WIN_THREADS=<n>` (default: logical CPUs clamped 1..=8).
-    threads: Option<c_int>,
-    /// `RIGHTKIT_WHISPER_WIN_AUDIO_CTX=<n>` (default: whisper.cpp's 0 = full 1500).
-    /// Changes output: WER-gate it before any default change.
-    audio_ctx: Option<c_int>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum GpuDeviceChoice {
-    Index(c_int),
-    /// The ggml GPU whose description equals the calibrated DirectML
-    /// adapter's DXGI name (the only bridge between the two numberings).
-    Calibrated,
-}
-
-impl WhisperWinTuning {
-    fn from_env() -> Self {
-        fn var(name: &str) -> Option<String> {
-            match name {
-                "RIGHTKIT_WHISPER_WIN_LEGACY_INIT" => {
-                    rightkit_dictation_core::dev_var!("RIGHTKIT_WHISPER_WIN_LEGACY_INIT").ok()
-                }
-                "RIGHTKIT_WHISPER_WIN_GPU_DEVICE" => {
-                    rightkit_dictation_core::dev_var!("RIGHTKIT_WHISPER_WIN_GPU_DEVICE").ok()
-                }
-                "RIGHTKIT_WHISPER_WIN_FLASH_ATTN" => {
-                    rightkit_dictation_core::dev_var!("RIGHTKIT_WHISPER_WIN_FLASH_ATTN").ok()
-                }
-                "RIGHTKIT_WHISPER_WIN_THREADS" => {
-                    rightkit_dictation_core::dev_var!("RIGHTKIT_WHISPER_WIN_THREADS").ok()
-                }
-                "RIGHTKIT_WHISPER_WIN_AUDIO_CTX" => {
-                    rightkit_dictation_core::dev_var!("RIGHTKIT_WHISPER_WIN_AUDIO_CTX").ok()
-                }
-                _ => None,
-            }
-        }
-        Self::parse(var)
-    }
-
-    /// Pure parser (unit-tested). Malformed values are ignored with a warning
-    /// so a typo never changes decoding silently.
-    fn parse(var: impl Fn(&str) -> Option<String>) -> Self {
-        fn positive(name: &str, raw: Option<String>) -> Option<c_int> {
-            let raw = raw?;
-            match raw.trim().parse::<c_int>() {
-                Ok(n) if n > 0 => Some(n),
-                _ => {
-                    tracing::warn!(switch = name, value = %raw, "ignoring invalid whisper switch");
-                    None
-                }
-            }
-        }
-        let legacy_init = var("RIGHTKIT_WHISPER_WIN_LEGACY_INIT")
-            .as_deref()
-            .map(str::trim)
-            == Some("1");
-        let gpu_device = var("RIGHTKIT_WHISPER_WIN_GPU_DEVICE").and_then(|raw| {
-            let value = raw.trim();
-            if value.eq_ignore_ascii_case("calibrated") {
-                Some(GpuDeviceChoice::Calibrated)
-            } else {
-                match value.parse::<c_int>() {
-                    Ok(n) if n >= 0 => Some(GpuDeviceChoice::Index(n)),
-                    _ => {
-                        tracing::warn!(value = %raw, "ignoring invalid RIGHTKIT_WHISPER_WIN_GPU_DEVICE");
-                        None
-                    }
-                }
-            }
-        });
-        let flash_attn = var("RIGHTKIT_WHISPER_WIN_FLASH_ATTN").and_then(|raw| match raw.trim() {
-            "1" => Some(true),
-            "0" => Some(false),
-            _ => {
-                tracing::warn!(value = %raw, "ignoring invalid RIGHTKIT_WHISPER_WIN_FLASH_ATTN");
-                None
-            }
-        });
-        Self {
-            legacy_init,
-            gpu_device,
-            flash_attn,
-            threads: positive(
-                "RIGHTKIT_WHISPER_WIN_THREADS",
-                var("RIGHTKIT_WHISPER_WIN_THREADS"),
-            ),
-            audio_ctx: positive(
-                "RIGHTKIT_WHISPER_WIN_AUDIO_CTX",
-                var("RIGHTKIT_WHISPER_WIN_AUDIO_CTX"),
-            ),
-        }
-    }
-
-    fn changes_context(&self) -> bool {
-        self.gpu_device.is_some() || self.flash_attn.is_some()
-    }
-
-    /// Apply context overrides onto the DLL's own defaults. `calibrated`
-    /// resolves through `resolve_calibrated` and keeps the default device
-    /// when no unique match exists.
-    fn apply_context(
-        &self,
-        mut params: WhisperContextParams,
-        resolve_calibrated: impl FnOnce() -> Option<c_int>,
-    ) -> WhisperContextParams {
-        match &self.gpu_device {
-            Some(GpuDeviceChoice::Index(n)) => params.gpu_device = *n,
-            Some(GpuDeviceChoice::Calibrated) => {
-                if let Some(n) = resolve_calibrated() {
-                    params.gpu_device = n;
-                }
-            }
-            None => {}
-        }
-        if let Some(flash_attn) = self.flash_attn {
-            params.flash_attn = flash_attn;
-        }
-        params
-    }
-}
-
 /// Today's decode thread count: logical CPUs clamped to 1..=8.
 fn default_threads() -> c_int {
     std::thread::available_parallelism()
@@ -372,117 +238,10 @@ fn default_threads() -> c_int {
         .clamp(1, 8)
 }
 
-/// whisper.cpp's GPU index for the device named `wanted`, counting only GPU
-/// and IGPU devices in registry order exactly as `whisper_backend_init_gpu`
-/// does. `None` unless exactly one device matches.
-fn ggml_gpu_index_by_name(devices: &[(c_int, String)], wanted: &str) -> Option<c_int> {
-    let mut gpu_index = 0;
-    let mut found = None;
-    let mut matches = 0;
-    for (kind, description) in devices {
-        if *kind == GGML_BACKEND_DEVICE_TYPE_GPU || *kind == GGML_BACKEND_DEVICE_TYPE_IGPU {
-            if description.trim() == wanted.trim() {
-                matches += 1;
-                found = Some(gpu_index);
-            }
-            gpu_index += 1;
-        }
-    }
-    (matches == 1).then_some(found).flatten()
-}
-
-/// Enumerate ggml backend devices from the staged ggml DLLs (already loaded
-/// by `whisper.dll`, so this only bumps their reference counts).
-fn ggml_devices(dll_dir: &Path) -> Result<Vec<(c_int, String)>, String> {
-    let open = |name: &str| {
-        // SAFETY: staged sibling DLLs already mapped by whisper.dll's imports.
-        unsafe {
-            Library::load_with_flags(
-                dll_dir.join(name),
-                LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS,
-            )
-        }
-        .ok()
-    };
-    let libs: Vec<Library> = ["ggml.dll", "ggml-base.dll"]
-        .into_iter()
-        .filter_map(open)
-        .collect();
-    fn find<T: Copy>(libs: &[Library], name: &[u8]) -> Option<T> {
-        // SAFETY: signatures mirror ggml-backend.h at the pinned tag.
-        libs.iter()
-            .find_map(|lib| unsafe { lib.get::<T>(name) }.ok().map(|s| *s))
-    }
-    let count: FnGgmlDevCount =
-        find(&libs, b"ggml_backend_dev_count\0").ok_or("ggml_backend_dev_count missing")?;
-    let get: FnGgmlDevGet =
-        find(&libs, b"ggml_backend_dev_get\0").ok_or("ggml_backend_dev_get missing")?;
-    let kind: FnGgmlDevType =
-        find(&libs, b"ggml_backend_dev_type\0").ok_or("ggml_backend_dev_type missing")?;
-    let description: FnGgmlDevDescription = find(&libs, b"ggml_backend_dev_description\0")
-        .ok_or("ggml_backend_dev_description missing")?;
-    let mut devices = Vec::new();
-    // SAFETY: registry calls on the loaded ggml; indices stay below count().
-    unsafe {
-        for i in 0..count() {
-            let dev = get(i);
-            if dev.is_null() {
-                continue;
-            }
-            let ptr = description(dev);
-            let text = if ptr.is_null() {
-                String::new()
-            } else {
-                CStr::from_ptr(ptr).to_string_lossy().into_owned()
-            };
-            devices.push((kind(dev), text));
-        }
-    }
-    // `libs` drop here: FreeLibrary only decrements the count whisper.dll holds.
-    Ok(devices)
-}
-
-/// The calibrated DirectML adapter's name mapped onto whisper.cpp's GPU index.
-fn calibrated_gpu_index(dll_dir: &Path) -> Option<c_int> {
-    let adapter_index = crate::calibration::active_route().dml_device_id?;
-    let adapters = crate::calibration::enumerate_dml_adapters().ok()?;
-    let name = adapters
-        .iter()
-        .find(|adapter| adapter.index == adapter_index)
-        .map(|adapter| adapter.name.clone())?;
-    let devices = match ggml_devices(dll_dir) {
-        Ok(devices) => devices,
-        Err(error) => {
-            tracing::warn!(
-                error,
-                "whisper calibrated GPU: ggml device list unavailable"
-            );
-            return None;
-        }
-    };
-    let index = ggml_gpu_index_by_name(&devices, &name);
-    tracing::info!(
-        calibrated_adapter = %name,
-        ggml_devices = ?devices,
-        resolved_gpu_device = ?index,
-        "whisper calibrated GPU resolution"
-    );
-    index
-}
-
 type FnInitFromFile = unsafe extern "C" fn(*const c_char) -> *mut WhisperContext;
 type FnContextDefaultParams = unsafe extern "C" fn() -> WhisperContextParams;
 type FnInitFromFileWithParams =
     unsafe extern "C" fn(*const c_char, WhisperContextParams) -> *mut WhisperContext;
-// ggml backend device registry (ggml.dll / ggml-base.dll at the same tag,
-// ggml/include/ggml-backend.h:134-145,181-184,241-242). Only resolved for
-// `RIGHTKIT_WHISPER_WIN_GPU_DEVICE=calibrated`.
-type FnGgmlDevCount = unsafe extern "C" fn() -> usize;
-type FnGgmlDevGet = unsafe extern "C" fn(usize) -> *mut c_void;
-type FnGgmlDevType = unsafe extern "C" fn(*mut c_void) -> c_int;
-type FnGgmlDevDescription = unsafe extern "C" fn(*mut c_void) -> *const c_char;
-const GGML_BACKEND_DEVICE_TYPE_GPU: c_int = 1;
-const GGML_BACKEND_DEVICE_TYPE_IGPU: c_int = 2;
 type FnFree = unsafe extern "C" fn(*mut WhisperContext);
 type FnDefaultParams = unsafe extern "C" fn(WhisperSamplingStrategy) -> WhisperFullParams;
 type FnFull =
@@ -544,9 +303,6 @@ pub struct WhisperFfiEngine {
     timings: Option<NativeTimings>,
     ctx: *mut WhisperContext,
     threads: c_int,
-    /// `Some` only under `RIGHTKIT_WHISPER_WIN_AUDIO_CTX`; `None` leaves the
-    /// default params' value (0 = full context) untouched.
-    audio_ctx: Option<c_int>,
 }
 
 // SAFETY: whisper.cpp's `whisper_context` is safe to use from a single
@@ -622,7 +378,6 @@ impl WhisperFfiEngine {
                 .ok()
                 .map(|s| *s)
         };
-        let tuning = WhisperWinTuning::from_env();
         let free: FnFree = sym!(b"whisper_free\0");
         let default_params: FnDefaultParams = sym!(b"whisper_full_default_params\0");
         let full: FnFull = sym!(b"whisper_full\0");
@@ -647,19 +402,14 @@ impl WhisperFfiEngine {
 
         let model_c = CString::new(model_path.to_string_lossy().as_bytes())
             .map_err(|e| format!("model path has NUL byte: {e}"))?;
-        let (ctx, init_call) = match (tuning.legacy_init, context_default_params, init_with_params)
-        {
-            (false, Some(defaults), Some(init)) => {
-                // SAFETY: resolved exports; the returned struct is the DLL's own
-                // defaults, overridden only by explicit test-mode switches.
-                let base = unsafe { defaults() };
-                let params = tuning.apply_context(base, || calibrated_gpu_index(dll_dir));
+        let (ctx, init_call) = match (context_default_params, init_with_params) {
+            (Some(defaults), Some(init)) => {
+                // SAFETY: resolved exports; the returned struct is the DLL's own defaults.
+                let params = unsafe { defaults() };
                 tracing::info!(
                     use_gpu = params.use_gpu,
                     flash_attn = params.flash_attn,
                     gpu_device = params.gpu_device,
-                    default_flash_attn = base.flash_attn,
-                    default_gpu_device = base.gpu_device,
                     "whisper context params"
                 );
                 // SAFETY: `model_c` outlives the call; params passed by value.
@@ -669,11 +419,6 @@ impl WhisperFfiEngine {
                 )
             }
             _ => {
-                if tuning.changes_context() {
-                    tracing::warn!(
-                        "whisper context switches ignored: legacy init or no _with_params export"
-                    );
-                }
                 // SAFETY: `init_from_file` is the resolved `whisper_init_from_file`
                 // export; `model_c` stays alive for the call.
                 (
@@ -689,13 +434,8 @@ impl WhisperFfiEngine {
             ));
         }
 
-        let threads = tuning.threads.unwrap_or_else(default_threads);
-        tracing::info!(
-            threads,
-            audio_ctx = ?tuning.audio_ctx,
-            init_call,
-            "whisper decode params"
-        );
+        let threads = default_threads();
+        tracing::info!(threads, init_call, "whisper decode params");
 
         Ok(Self {
             _lib: Some(lib),
@@ -709,7 +449,6 @@ impl WhisperFfiEngine {
             timings,
             ctx,
             threads,
-            audio_ctx: tuning.audio_ctx,
         })
     }
 
@@ -758,9 +497,6 @@ impl WhisperFfiEngine {
         params.detect_language = false;
         params.greedy_best_of = 1;
         params.beam_search_beam_size = 1;
-        if let Some(audio_ctx) = self.audio_ctx {
-            params.audio_ctx = audio_ctx;
-        }
 
         let abort_flag = Arc::new(AbortFlag(AtomicBool::new(false)));
         let flag_ptr = Arc::as_ptr(&abort_flag) as *mut c_void;

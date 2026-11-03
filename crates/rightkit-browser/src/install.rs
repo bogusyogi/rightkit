@@ -325,11 +325,43 @@ pub fn ensure_chrome_for_testing(
     })
 }
 
+/// Put the pinned Chrome for Testing ([`PINNED_CHROME_FOR_TESTING`]) at the suite-wide managed
+/// root ([`ManagedRoot::resolve`]), the same place every RightKit app resolves. `progress` receives
+/// `(downloaded, total)` bytes of the archive. Blocking: call it from an installer or updater
+/// step, or from `spawn_blocking`.
+pub fn ensure_default_chrome_for_testing(
+    progress: impl FnMut(u64, u64),
+) -> Result<ChromeInstall, InstallError> {
+    let http = http_client();
+    let root = ManagedRoot::resolve();
+    let progress = std::cell::RefCell::new(progress);
+    ensure_with(
+        &root,
+        &PINNED_CHROME_FOR_TESTING,
+        platform_key(),
+        &|d, sha, dest| {
+            fetch_reporting(&http, d, sha, dest, |done, total| {
+                (*progress.borrow_mut())(done, total)
+            })
+        },
+    )
+}
+
 fn fetch(
     http: &ModelHttp,
     d: &PinnedDownload,
     sha256: &str,
     dest: &Path,
+) -> Result<(), InstallError> {
+    fetch_reporting(http, d, sha256, dest, |_, _| {})
+}
+
+fn fetch_reporting(
+    http: &ModelHttp,
+    d: &PinnedDownload,
+    sha256: &str,
+    dest: &Path,
+    progress: impl FnMut(u64, u64),
 ) -> Result<(), InstallError> {
     let part = part_path_for(dest);
     download_resumable(
@@ -342,7 +374,7 @@ fn fetch(
             authorization: None,
             cancelled: &|| false,
         },
-        |_, _| {},
+        progress,
     )
     .map(|_| ())
     .map_err(|e| InstallError::Download {

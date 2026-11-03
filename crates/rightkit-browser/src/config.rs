@@ -23,6 +23,11 @@ pub enum ProfileSpec {
         name: String,
         import: crate::real_session::ImportSpec,
     },
+    /// Persistent profile kept as one authenticated-encrypted file at rest (feature
+    /// `profile-vault`): decrypted into a private working directory when the session starts,
+    /// re-sealed and wiped when it stops, recovered after a crash. See [`crate::ProfileVault`].
+    #[cfg(feature = "profile-vault")]
+    Encrypted(crate::vault::ProfileVault),
 }
 
 #[derive(Clone)]
@@ -185,6 +190,12 @@ impl LaunchOptions {
             name: name.into(),
             import,
         };
+        self
+    }
+    /// Use an encrypted persistent profile (feature `profile-vault`); see [`crate::ProfileVault`].
+    #[cfg(feature = "profile-vault")]
+    pub fn encrypted_profile(mut self, vault: crate::vault::ProfileVault) -> Self {
+        self.profile = ProfileSpec::Encrypted(vault);
         self
     }
     /// Use an existing absolute Chrome user-data directory, including paths with
@@ -634,6 +645,14 @@ pub fn find_chrome() -> Option<PathBuf> {
             return Some(p);
         }
     }
+    let per_user: &[&str] = if cfg!(target_os = "windows") {
+        &[
+            r"Google\Chrome\Application\chrome.exe",
+            r"Microsoft\Edge\Application\msedge.exe",
+        ]
+    } else {
+        &[]
+    };
     let candidates: &[&str] = if cfg!(target_os = "windows") {
         &[
             r"C:\Program Files\Google\Chrome\Application\chrome.exe",
@@ -658,7 +677,23 @@ pub fn find_chrome() -> Option<PathBuf> {
     candidates
         .iter()
         .map(PathBuf::from)
+        .chain(windows_local_app_candidates(per_user))
         .find(|p| Path::new(p).exists())
+}
+
+/// Per-user Windows installs: each relative path under `%LOCALAPPDATA%`, in order. Empty when
+/// `LOCALAPPDATA` is unset, and on other platforms (no per-user install layout there).
+pub(crate) fn windows_local_app_candidates(relative: &[&str]) -> Vec<PathBuf> {
+    if !cfg!(windows) {
+        return Vec::new();
+    }
+    let Some(local) = std::env::var_os("LOCALAPPDATA")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+    else {
+        return Vec::new();
+    };
+    relative.iter().map(|rel| local.join(rel)).collect()
 }
 
 /// Chrome flags a caller may not pass: they would redirect the profile to the

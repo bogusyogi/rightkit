@@ -10,6 +10,7 @@ use crate::keys::{self, KeyDef};
 use crate::policy::{ActionKind, AdmissionRequest, BlockedRequest, Guard, LifecycleKind};
 use chromiumoxide::cdp::browser_protocol::accessibility::GetFullAxTreeParams;
 use chromiumoxide::cdp::browser_protocol::dom::SetFileInputFilesParams;
+use chromiumoxide::cdp::browser_protocol::emulation::SetUserAgentOverrideParams;
 use chromiumoxide::cdp::browser_protocol::fetch::{
     EnableParams as FetchEnableParams, EventRequestPaused, FailRequestParams, RequestPattern,
 };
@@ -20,9 +21,13 @@ use chromiumoxide::cdp::browser_protocol::input::{
 use chromiumoxide::cdp::browser_protocol::inspector::{
     EnableParams as InspectorEnableParams, EventTargetCrashed,
 };
-use chromiumoxide::cdp::browser_protocol::network::{ErrorReason, SetCookiesParams};
-use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
+use chromiumoxide::cdp::browser_protocol::network::{
+    ErrorReason, Headers, SetCookiesParams, SetExtraHttpHeadersParams,
+};
 use chromiumoxide::cdp::browser_protocol::page::CreateIsolatedWorldParams;
+use chromiumoxide::cdp::browser_protocol::page::{
+    CaptureScreenshotFormat, CaptureScreenshotParams, Viewport,
+};
 use chromiumoxide::cdp::js_protocol::runtime::{
     AddBindingParams, EvaluateParams, EventBindingCalled, EventConsoleApiCalled,
     EventExceptionThrown, ExecutionContextId,
@@ -103,12 +108,75 @@ pub const OBSERVE_AX_DEPTH: u32 = 12;
 /// that fires no navigation (bfcache restore, same-document entry) must not hang the caller.
 const HISTORY_NAVIGATION_WAIT: Duration = Duration::from_secs(10);
 
-/// Screenshot options for [`BrowserPage::screenshot_with`].
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// Longest accepted user-agent string, in bytes.
+pub const MAX_USER_AGENT_BYTES: usize = 1024;
+/// Most extra HTTP headers one [`BrowserPage::set_extra_headers`] call accepts.
+pub const MAX_EXTRA_HEADERS: usize = 32;
+/// Longest accepted extra-header value, in bytes.
+pub const MAX_HEADER_VALUE_BYTES: usize = 8192;
+
+/// Screenshot options for [`BrowserPage::screenshot_with`]. The default is the viewport as PNG.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ScreenshotOptions {
-    /// Capture with a transparent background. Pair with
+    /// Capture with a transparent background (PNG only). Pair with
     /// [`BrowserPage::set_transparent_background`] for a fully transparent page.
     pub omit_background: bool,
+    /// Image format; PNG by default.
+    pub format: ScreenshotFormat,
+    /// Capture only this region, in CSS pixels of the page. `None` captures the visible viewport
+    /// (or, with a `scale`, the whole visual viewport).
+    pub clip: Option<ScreenshotClip>,
+    /// Output scale of the capture, a positive finite factor (`1.0` when `None`). Use it with
+    /// `clip` or alone to produce a smaller image, for example a 1280 px wide frame of a wider
+    /// viewport.
+    pub scale: Option<f64>,
+}
+
+/// Image format of a screenshot.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ScreenshotFormat {
+    /// Lossless PNG.
+    #[default]
+    Png,
+    /// JPEG at `quality`, 1 to 100.
+    Jpeg { quality: u8 },
+}
+
+/// A capture region in CSS pixels of the page. `x` and `y` are at least zero; `width` and
+/// `height` are positive.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScreenshotClip {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+impl ScreenshotClip {
+    fn validate(&self) -> Result<()> {
+        let finite = [self.x, self.y, self.width, self.height]
+            .iter()
+            .all(|v| v.is_finite());
+        if !finite || self.x < 0.0 || self.y < 0.0 || self.width <= 0.0 || self.height <= 0.0 {
+            return Err(BrowserError::Invalid(
+                "screenshot clip needs finite x and y of at least 0 and a positive width and height"
+                    .into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// RFC 9110 token characters, the only bytes a header name may contain.
+fn is_header_token(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+}
+
+fn has_control(value: &str) -> bool {
+    value.chars().any(|c| c.is_control())
 }
 
 /// What an action addresses.
@@ -517,6 +585,83 @@ impl BrowserPage {
         )
         .await?;
         self.inner.execute(params).await.map_err(cdp)?;
+        Ok(())
+    }
+
+    /// Override the user agent of this page (`Emulation.setUserAgentOverride`), and optionally
+    /// its `Accept-Language`. Applies to this page's later requests and scripts. Admitted as an
+    /// `Eval`-kind effect (detail `user_agent`).
+    pub async fn set_user_agent(
+        &self,
+        user_agent: &str,
+        accept_language: Option<&str>,
+    ) -> Result<()> {
+        let ua = user_agent.trim();
+        if ua.is_empty() || ua.len() > MAX_USER_AGENT_BYTES || has_control(ua) {
+            return Err(BrowserError::Invalid(format!(
+                "user agent must be 1 to {MAX_USER_AGENT_BYTES} bytes without control characters"
+            )));
+        }
+        let mut builder = SetUserAgentOverrideParams::builder().user_agent(ua);
+        if let Some(lang) = accept_language {
+            let lang = lang.trim();
+            if lang.is_empty() || lang.len() > MAX_HEADER_VALUE_BYTES || has_control(lang) {
+                return Err(BrowserError::Invalid(
+                    "accept-language must be non-empty and free of control characters".into(),
+                ));
+            }
+            builder = builder.accept_language(lang);
+        }
+        let params = builder
+            .build()
+            .map_err(|e| BrowserError::Invalid(format!("user agent override: {e}")))?;
+        self.admit(ActionKind::Eval, None, None, Some("user_agent".into()))
+            .await?;
+        self.inner.execute(params).await.map_err(cdp)?;
+        Ok(())
+    }
+
+    /// Send `headers` with every later request of this page (`Network.setExtraHTTPHeaders`).
+    /// Each call replaces the previous set; an empty slice clears it. Names are case-insensitive
+    /// and must be unique; values may not contain control characters. Admitted as an `Eval`-kind
+    /// effect whose detail carries the count only: header values are never logged.
+    pub async fn set_extra_headers(&self, headers: &[(String, String)]) -> Result<()> {
+        if headers.len() > MAX_EXTRA_HEADERS {
+            return Err(BrowserError::Invalid(format!(
+                "set_extra_headers takes at most {MAX_EXTRA_HEADERS} headers"
+            )));
+        }
+        let mut map = serde_json::Map::new();
+        for (name, value) in headers {
+            if !is_header_token(name) {
+                return Err(BrowserError::Invalid(
+                    "extra header names must be non-empty HTTP tokens".into(),
+                ));
+            }
+            if value.len() > MAX_HEADER_VALUE_BYTES || value.contains(['\r', '\n', '\0']) {
+                return Err(BrowserError::Invalid(format!(
+                    "extra header value must be at most {MAX_HEADER_VALUE_BYTES} bytes without CR, LF or NUL"
+                )));
+            }
+            let key = name.to_ascii_lowercase();
+            if map.contains_key(&key) {
+                return Err(BrowserError::Invalid("duplicate extra header name".into()));
+            }
+            map.insert(key, Value::String(value.clone()));
+        }
+        self.admit(
+            ActionKind::Eval,
+            None,
+            None,
+            Some(format!("extra_headers {} names", headers.len())),
+        )
+        .await?;
+        self.inner
+            .execute(SetExtraHttpHeadersParams::new(Headers::new(Value::Object(
+                map,
+            ))))
+            .await
+            .map_err(cdp)?;
         Ok(())
     }
 
@@ -1518,15 +1663,74 @@ impl BrowserPage {
     /// PNG screenshot of the viewport with options; `ScreenshotOptions::default()` matches
     /// [`BrowserPage::screenshot`].
     pub async fn screenshot_with(&self, options: ScreenshotOptions) -> Result<Vec<u8>> {
-        self.inner
-            .screenshot(
-                ScreenshotParams::builder()
-                    .format(CaptureScreenshotFormat::Png)
-                    .omit_background(options.omit_background)
-                    .build(),
-            )
-            .await
-            .map_err(cdp)
+        let params = self.screenshot_params(&options).await?;
+        self.inner.screenshot(params).await.map_err(cdp)
+    }
+
+    /// Build the CDP capture request for `options`. A scale without a clip captures the visual
+    /// viewport (`Page.getLayoutMetrics`) at that scale, so the output is `scale` times its CSS size.
+    async fn screenshot_params(&self, options: &ScreenshotOptions) -> Result<ScreenshotParams> {
+        let mut params_builder = CaptureScreenshotParams::builder();
+        match options.format {
+            ScreenshotFormat::Png => {
+                params_builder = params_builder.format(CaptureScreenshotFormat::Png);
+            }
+            ScreenshotFormat::Jpeg { quality } => {
+                if !(1..=100).contains(&quality) {
+                    return Err(BrowserError::Invalid(
+                        "JPEG screenshot quality must be 1 to 100".into(),
+                    ));
+                }
+                if options.omit_background {
+                    return Err(BrowserError::Invalid(
+                        "omit_background needs a PNG screenshot".into(),
+                    ));
+                }
+                params_builder = params_builder
+                    .format(CaptureScreenshotFormat::Jpeg)
+                    .quality(i64::from(quality));
+            }
+        }
+        let scale = match options.scale {
+            None => None,
+            Some(s) if s.is_finite() && s > 0.0 => Some(s),
+            Some(_) => {
+                return Err(BrowserError::Invalid(
+                    "screenshot scale must be positive and finite".into(),
+                ))
+            }
+        };
+        if let Some(region) = &options.clip {
+            region.validate()?;
+        }
+        let clip = match (options.clip, scale) {
+            (None, None) => None,
+            (region, scale) => {
+                let (x, y, width, height) = match region {
+                    Some(r) => (r.x, r.y, r.width, r.height),
+                    None => {
+                        let metrics = self.inner.layout_metrics().await.map_err(cdp)?;
+                        let v = metrics.css_visual_viewport;
+                        (v.page_x, v.page_y, v.client_width, v.client_height)
+                    }
+                };
+                Some(Viewport {
+                    x,
+                    y,
+                    width,
+                    height,
+                    scale: scale.unwrap_or(1.0),
+                })
+            }
+        };
+        if let Some(clip) = clip {
+            params_builder = params_builder.clip(clip);
+        }
+        Ok(ScreenshotParams {
+            cdp_params: params_builder.build(),
+            full_page: None,
+            omit_background: Some(options.omit_background),
+        })
     }
 
     pub async fn screenshot_to(&self, path: &Path) -> Result<()> {

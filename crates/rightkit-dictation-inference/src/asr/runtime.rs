@@ -62,11 +62,7 @@ fn onnx_beam_result_with_policy(
     window: &[f32],
     policy: rightkit_asr::parakeet_core::DetokPolicy,
 ) -> Result<TranscriptionResult, String> {
-    let beam_width = rightkit_dictation_core::dev_var!("RIGHTKIT_ASR_BEAM_WIDTH")
-        .ok()
-        .and_then(|raw| raw.trim().parse::<usize>().ok())
-        .map(|parsed| parsed.clamp(1, 8))
-        .unwrap_or(2);
+    let beam_width = 2;
     let pass_started = std::time::Instant::now();
     let hits = crate::onnx_beam_decode::decode_segment(model, window, 0.0, bias, beam_width)?;
     // Timeline telemetry: samples + total here; the mel/encode/search split is
@@ -202,15 +198,14 @@ fn align_onnx_control_suffix(
         return Err("command has no token encoding".to_string());
     }
     // ENG-08: the exact retry (locator off) runs right after a fast pass on
-    // the same model and the same conditioned audio. With the test-mode switch
-    // on it reuses that pass's encoder output instead of re-running mel + the
-    // static-window encode; off (default) it re-encodes exactly as before.
+    // the same model and the same conditioned audio; it re-encodes rather than reusing the
+    // fast pass's encoder output.
     use rightkit_asr::parakeet_core::command_alignment::{
         align_encoder_output, AlignEncoderReuse, AlignEncoderSource,
     };
     let model_id = &*model as *const OnnxAsr as usize;
     let (encoded, encoder_source) = align_encoder_output(
-        AlignEncoderReuse::from_env(),
+        AlignEncoderReuse::Off,
         model_id,
         conditioned_audio,
         locator_enabled,
@@ -655,20 +650,6 @@ impl AsrRuntime {
         false
     }
 
-    /// Prepare candidate-only CoreML frontend lookahead before a measured
-    /// decode. The environment switch is read by the resident model here,
-    /// after model load, so ordinary runtime startup remains unchanged.
-    #[cfg(target_os = "macos")]
-    pub fn prepare_frontend_lookahead(
-        &mut self,
-        memory_gate: crate::coreml_asr::MemoryGate,
-    ) -> Result<bool, String> {
-        if let AsrRuntime::CoreMlParakeet(model) = self {
-            return model.prepare_frontend_lookahead(memory_gate);
-        }
-        Err("frontend lookahead requires CoreML Parakeet runtime".into())
-    }
-
     /// Snapshot candidate counters and residency for evaluator receipts.
     #[cfg(target_os = "macos")]
     pub fn frontend_lookahead_stats(&self) -> Option<crate::coreml_asr::FrontendLookaheadStats> {
@@ -737,13 +718,6 @@ impl AsrRuntime {
     pub fn load_probe(models_dir: &Path, ep: AsrEp) -> Result<Self, String> {
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         {
-            if rightkit_dictation_core::dev_var!("RIGHTKIT_DISABLE_KWS")
-                .ok()
-                .as_deref()
-                == Some("1")
-            {
-                return Ok(AsrRuntime::ProbeDisabled);
-            }
             let _ = (models_dir, ep);
             let dir = crate::engine_paths::kws_dir().ok_or_else(|| {
                 "bundled KWS directory was not resolved at engine startup".to_string()
@@ -791,10 +765,6 @@ impl AsrRuntime {
         let persisted_route = crate::settings::persisted_recognition_route();
         crate::calibration::apply_persisted_active_route();
         #[cfg(target_os = "macos")]
-        if rightkit_dictation_core::dev_var!("RIGHTKIT_ASR_COREML")
-            .ok()
-            .as_deref()
-            != Some("0")
         {
             let backend = configured_backend();
             let lang = crate::settings::dictation_language();
@@ -849,7 +819,7 @@ impl AsrRuntime {
         // macOS has NO ONNX fallback. `rightkit-dictation-onnx-asr` is deliberately not a macOS
         // dependency: decoding, detokenization, result types and score policy are
         // first-party in heardright-parakeet-core, and execution is CoreML.
-        // Reaching here means the CoreML route was declined (RIGHTKIT_ASR_COREML=0) or
+        // Reaching here means the CoreML route was declined or
         // unavailable, and on macOS there is no second engine to fall back to.
         #[cfg(target_os = "macos")]
         {
@@ -1759,33 +1729,14 @@ fn with_terminal_silence(segment: &[f32], window: usize) -> std::borrow::Cow<'_,
     let room = window
         .saturating_sub(MEL_HOP_SAMPLES)
         .saturating_sub(segment.len());
-    let tail_ms = rightkit_dictation_core::dev_var!("RIGHTKIT_FINAL_TAIL_MS")
-        .ok()
-        .and_then(|raw| raw.trim().parse::<u64>().ok())
-        .unwrap_or(FINAL_TAIL_SILENCE_MS);
+    let tail_ms = FINAL_TAIL_SILENCE_MS;
     let tail = ms_to_samples(tail_ms).min(room);
     if tail == 0 || segment.is_empty() || !ends_in_speech(segment) {
         return std::borrow::Cow::Borrowed(segment);
     }
-    // Measurement knob: pad with low-level deterministic noise instead of
-    // digital zeros (`RIGHTKIT_FINAL_TAIL_NOISE=<rms>`), to compare against the
-    // corpus. Zeros are the shipping default.
-    let noise_rms = rightkit_dictation_core::dev_var!("RIGHTKIT_FINAL_TAIL_NOISE")
-        .ok()
-        .and_then(|raw| raw.trim().parse::<f32>().ok())
-        .unwrap_or(0.0);
     let mut padded = Vec::with_capacity(segment.len() + tail);
     padded.extend_from_slice(segment);
-    if noise_rms > 0.0 {
-        let mut state: u32 = 0x9e37_79b9;
-        for _ in 0..tail {
-            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-            let unit = (state >> 8) as f32 / (1u32 << 24) as f32 * 2.0 - 1.0;
-            padded.push(unit * noise_rms * 1.732);
-        }
-    } else {
-        padded.resize(segment.len() + tail, 0.0);
-    }
+    padded.resize(segment.len() + tail, 0.0);
     std::borrow::Cow::Owned(padded)
 }
 

@@ -12,12 +12,9 @@ use rightkit_fs::app_dirs::{AppDirs, AppId, Options};
 pub const PRODUCT_DIR_NAME: &str = "Membrane";
 
 /// Resolve `Membrane` folders from the process environment: release namespace
-/// (never `MembraneDev`), no QA override, no test root.
+/// (never `MembraneDev`).
 fn resolve(app: AppId) -> Option<AppDirs> {
-    let options = Options::current()
-        .dev(false)
-        .qa_overrides(false)
-        .test_root(None);
+    let options = Options::current().dev(false);
     AppDirs::resolve_with(&app, &options, &|key| std::env::var_os(key)).ok()
 }
 

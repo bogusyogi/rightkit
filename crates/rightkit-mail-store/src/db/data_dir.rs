@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use crate::host::host;
 pub use crate::host::DirKind;
 
-/// The data folder and how it was chosen, or the host's test-mode refusal.
+/// The data folder and how it was chosen, or the host's refusal.
 pub(crate) fn data_dir_checked() -> Result<(PathBuf, DirKind), String> {
     host().data_dir_checked()
 }
@@ -15,7 +15,7 @@ pub fn data_dir() -> PathBuf {
     match data_dir_checked() {
         Ok((dir, _)) => dir,
         Err(_) => std::env::temp_dir().join(format!(
-            "{}-under-test-{}",
+            "{}-no-data-dir-{}",
             host().app_slug(),
             std::process::id()
         )),

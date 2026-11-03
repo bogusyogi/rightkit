@@ -178,6 +178,9 @@ function scaffoldCliPlugin(repoPath, options) {
     const shimPath = join(repoPath, "hooks", hooks.shimName);
     writeFileSync(shimPath, hooks.script, "utf8");
     written.push(shimPath);
+    const windowsShimPath = join(repoPath, "hooks", hooks.windowsShimName);
+    writeFileSync(windowsShimPath, hooks.windowsScript, "utf8");
+    written.push(windowsShimPath);
   }
 
   const mcpManifest = buildMcpManifest(options.mcpCommand, options);

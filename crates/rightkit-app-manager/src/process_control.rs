@@ -131,12 +131,17 @@ fn snapshot() -> Vec<Snap> {
             .map(|p| snap_of(p, me, Some(&threads)))
             .collect()
     })
+    // No process table from the OS is an empty listing.
+    .unwrap_or_default()
 }
 
 /// Identity, owner and executable only, read fresh from the system, for the check made at
 /// action time. Nothing cached: the pid, start time and owner it reports are live.
 fn identity_snapshot() -> Vec<Snap> {
-    let mut system = System::new();
+    // No process table is an empty snapshot: nothing matches, so no action is taken on a guess.
+    let Ok(mut system) = System::new() else {
+        return Vec::new();
+    };
     let kind = ProcessRefreshKind::nothing()
         .with_exe(UpdateKind::Always)
         .with_user(UpdateKind::Always);
@@ -540,7 +545,10 @@ fn recheck(key: &str, lead: &ProcessIdentity) -> Result<ProcessRow, String> {
 }
 
 fn alive(id: &ProcessIdentity) -> bool {
-    let mut system = System::new();
+    // Without a process table the process cannot be shown gone, so it counts as alive.
+    let Ok(mut system) = System::new() else {
+        return true;
+    };
     let pid = Pid::from_u32(id.pid);
     system.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
     system

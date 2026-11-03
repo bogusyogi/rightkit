@@ -669,15 +669,16 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "libc",
  "windows",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-ffmpeg"
-version = "0.2.14"
+version = "0.2.16"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -687,16 +688,17 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.10"
+version = "0.4.12"
 dependencies = [
  "libc",
  "sha2",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-http"
-version = "0.3.10"
+version = "0.3.11"
 dependencies = [
  "getrandom 0.4.3",
  "serde",

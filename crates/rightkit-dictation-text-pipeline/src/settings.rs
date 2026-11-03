@@ -152,9 +152,7 @@ pub fn replace_runtime_config(config: SettingsBlob) {
     }
 }
 
-pub use rightkit_dictation_core::app_paths::{
-    app_data_root, app_data_root_is_explicit_override, test_binary_data_root,
-};
+pub use rightkit_dictation_core::app_paths::app_data_root;
 
 pub fn wake_lab_marker_present() -> bool {
     app_data_root().join("owner-idle-wake.enabled").is_file()
@@ -417,22 +415,11 @@ pub fn ai_polish_mode() -> String {
 
 /// Recognition language. `"auto"` = Parakeet auto-detect (free). A specific code
 /// = lock Whisper to that language (Pro; the shell already sanitized this to
-/// "auto" for non-Pro before pushing). Precedence: pushed setting / on-disk
-/// settings → `RIGHTKIT_DICTATION_LANG` env (test and `test-mode` builds only) → "auto".
+/// "auto" for non-Pro before pushing). Pushed setting / on-disk settings, else "auto".
 pub fn dictation_language() -> String {
-    // The live pushed config / on-disk settings WIN over a spawn-time env seed:
-    // a language change in Settings (pushed via ReplaceEngineConfig) must reach
-    // the running engine. The env is only a last-resort seed for a test harness
-    // running the engine without a shell; a release build never reads it.
-    if let Some(v) = load_settings()
+    // A language change in Settings (pushed via ReplaceEngineConfig) must reach the running engine.
+    load_settings()
         .dictation_language
-        .map(|v| v.trim().to_lowercase())
-        .filter(|v| !v.is_empty())
-    {
-        return v;
-    }
-    rightkit_dictation_core::dev_var!("RIGHTKIT_DICTATION_LANG")
-        .ok()
         .map(|v| v.trim().to_lowercase())
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| "auto".to_string())

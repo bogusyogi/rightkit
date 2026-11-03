@@ -76,6 +76,13 @@ pub struct StoreStatus {
     pub last_error: Option<String>,
 }
 
+/// Result of [`JsonlStore::retain`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RetainReport {
+    pub kept: u64,
+    pub removed: u64,
+}
+
 #[derive(Debug)]
 pub struct JsonlStore {
     path: PathBuf,
@@ -207,6 +214,20 @@ impl JsonlStore {
         }
     }
 
+    /// As [`JsonlStore::append_best_effort`] for an arbitrary JSON value: a failed append is
+    /// counted in [`JsonlStore::status`] instead of returned. Nothing is printed.
+    pub fn append_value_best_effort(&self, value: &Value) {
+        if let Err(error) = self.append_value(value) {
+            self.record(|status| {
+                status.failed_appends = status.failed_appends.saturating_add(1);
+                status.last_error = Some(format!(
+                    "append to {} failed ({error})",
+                    self.path.display()
+                ));
+            });
+        }
+    }
+
     fn record(&self, update: impl FnOnce(&mut StoreStatus)) {
         let mut status = self
             .failures
@@ -225,6 +246,49 @@ impl JsonlStore {
             remove_if_present(&rotate::generation_path(&self.path, n, DEFAULT_NAME))?;
         }
         Ok(())
+    }
+
+    /// Rewrite the current file and every rotated predecessor, keeping only the lines for which
+    /// `keep` returns true (per-event-class retention, issue #1278). Runs under the append lock,
+    /// so no append interleaves; each file is replaced atomically. A line that is not a JSON
+    /// object is kept. Returns how many lines were kept and removed.
+    pub fn retain(&self, mut keep: impl FnMut(&Value) -> bool) -> io::Result<RetainReport> {
+        let _guard = self
+            .append_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut report = RetainReport::default();
+        let mut paths = vec![self.path.clone()];
+        paths.extend(
+            (1..=self.generations).map(|n| rotate::generation_path(&self.path, n, DEFAULT_NAME)),
+        );
+        for path in paths {
+            let text = match fs::read_to_string(&path) {
+                Ok(text) => text,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error),
+            };
+            let mut out = String::with_capacity(text.len());
+            let mut removed_here = 0u64;
+            for line in text.lines() {
+                let drop_it = match serde_json::from_str::<Value>(line) {
+                    Ok(value) if value.is_object() => !keep(&value),
+                    _ => false,
+                };
+                if drop_it {
+                    removed_here += 1;
+                } else if !line.is_empty() {
+                    out.push_str(line);
+                    out.push('\n');
+                    report.kept += 1;
+                }
+            }
+            if removed_here > 0 {
+                crate::atomic::write_atomic(&path, out.as_bytes())?;
+                report.removed += removed_here;
+            }
+        }
+        Ok(report)
     }
 
     fn append_value_locked(&self, value: &Value) -> io::Result<()> {

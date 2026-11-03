@@ -6,16 +6,16 @@
 //! `crates/rightkit-ffmpeg/catalog/artifacts.json`. The crate looks (first hit wins) at, in the engine executable's
 //! directory: `ffmpeg[.exe]`, `runtime/ffmpeg[.exe]`, `resources/runtime/ffmpeg[.exe]` (macOS also
 //! `../Resources/runtime/...`), then `src-tauri/binaries/ffmpeg-<target-triple>[.exe]` in the directory and each
-//! ancestor. The build is Release mode: an unverified binary is refused, never used.
+//! ancestor. An unverified binary is refused, never used.
 use std::path::Path;
 use std::time::{Duration, Instant};
 
 use rightkit_ffmpeg::loudnorm::{measure_loudness, LoudnessTarget};
 use rightkit_ffmpeg::probe::{probe_media, run_ffprobe_json};
 use rightkit_ffmpeg::{
-    resolve_ffmpeg_handle_with, resolve_ffprobe_handle_with, run_capture, run_checked, BuildMode,
+    resolve_ffmpeg_handle_with, resolve_ffprobe_handle_with, run_capture, run_checked,
     CancellationToken, FfmpegBinary, FfmpegCommand, FfmpegHandle, FfprobeHandle, ResolveOptions,
-    RunError, Tool, ToolHandle, UnverifiedRequest,
+    RunError, ToolHandle,
 };
 use serde_json::{json, Value};
 
@@ -34,19 +34,12 @@ fn exe() -> Result<std::path::PathBuf, String> {
     std::env::current_exe().map_err(|e| format!("current_exe: {e}"))
 }
 
-/// The bundled, catalog-verified ffmpeg (shared with the audio, playback and asr probes). Release mode: a binary
-/// that is not the approved build is an error, never a development fallback.
+/// The bundled, catalog-verified ffmpeg (shared with the audio, playback and asr probes). A binary
+/// that is not the approved build is an error.
 pub fn ffmpeg_handle() -> Result<FfmpegHandle, String> {
-    let handle = resolve_ffmpeg_handle_with(
-        &exe()?,
-        VARIANT,
-        &UnverifiedRequest::new(Tool::Ffmpeg),
-        BuildMode::Release,
-        &ResolveOptions::runtime_layout(),
-        T,
-    )
-    .map_err(|e| format!("{e}; {}", where_to_stage("ffmpeg")))?
-    .handle;
+    let handle = resolve_ffmpeg_handle_with(&exe()?, VARIANT, &ResolveOptions::runtime_layout(), T)
+        .map_err(|e| format!("{e}; {}", where_to_stage("ffmpeg")))?
+        .handle;
     if !handle.is_verified() {
         return Err("ffmpeg resolved but is not catalog-verified".into());
     }
@@ -54,16 +47,10 @@ pub fn ffmpeg_handle() -> Result<FfmpegHandle, String> {
 }
 
 pub fn ffprobe_handle() -> Result<FfprobeHandle, String> {
-    let handle = resolve_ffprobe_handle_with(
-        &exe()?,
-        VARIANT,
-        &UnverifiedRequest::new(Tool::Ffprobe),
-        BuildMode::Release,
-        &ResolveOptions::runtime_layout(),
-        T,
-    )
-    .map_err(|e| format!("{e}; {}", where_to_stage("ffprobe")))?
-    .handle;
+    let handle =
+        resolve_ffprobe_handle_with(&exe()?, VARIANT, &ResolveOptions::runtime_layout(), T)
+            .map_err(|e| format!("{e}; {}", where_to_stage("ffprobe")))?
+            .handle;
     if !handle.is_verified() {
         return Err("ffprobe resolved but is not catalog-verified".into());
     }
@@ -73,14 +60,12 @@ pub fn ffprobe_handle() -> Result<FfprobeHandle, String> {
 fn artifact_id_ffmpeg(h: &FfmpegHandle) -> String {
     match h {
         ToolHandle::Verified(v) => v.artifact_id().to_string(),
-        ToolHandle::Development(_) => "development".into(),
     }
 }
 
 fn artifact_id_ffprobe(h: &FfprobeHandle) -> String {
     match h {
         ToolHandle::Verified(v) => v.artifact_id().to_string(),
-        ToolHandle::Development(_) => "development".into(),
     }
 }
 

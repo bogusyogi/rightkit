@@ -1,7 +1,8 @@
-//! Move to the trash, find it again by identity, put it back (macOS and Windows).
+//! Move to the trash, find it again by identity, put it back (macOS, Windows and Linux).
 //!
-//! - [`move_to_trash`]: send a file, directory or symlink to the Trash (macOS) or Recycle Bin
-//!   (Windows) and return a [`TrashIdentity`], a small value an app can persist.
+//! - [`move_to_trash`]: send a file, directory or symlink to the Trash (macOS), the Recycle Bin
+//!   (Windows) or the freedesktop.org trash (Linux) and return a [`TrashIdentity`], a small value an
+//!   app can persist.
 //! - [`lookup`] and [`list`]: find what is in the trash, by identity or all of it.
 //! - [`restore`]: move an item back to the path it came from, never over something that is there.
 //!
@@ -24,14 +25,16 @@
 //!
 //! # Windows
 //!
-//! Moving to the Recycle Bin is **refused** ([`FsError::Unavailable`]), before anything is touched.
-//! The only call this module could reach without a COM binding is `SHFileOperationW`, and with
-//! `FOF_NOCONFIRMATION` (needed for a call with no UI) it deletes an item permanently, with no way to
-//! undo it, when the item is too large for the bin, the bin is disabled for the volume
-//! (`NukeOnDelete`), or the shell otherwise cannot recycle it; without that flag it blocks on a
-//! dialog. A trash function that can destroy its input is worse than none, so [`move_to_trash`] does
-//! not delete on Windows until a recycle-only operation (`IFileOperation` with
-//! `FOFX_RECYCLEONDELETE`, which fails instead of deleting) is available to this crate.
+//! [`move_to_trash`] uses `IFileOperation` (hand-declared COM, `ole32` and `shell32`) with
+//! `FOF_ALLOWUNDO | FOFX_RECYCLEONDELETE` and no UI. `FOFX_RECYCLEONDELETE` makes the operation
+//! fail instead of deleting permanently when the item cannot be recycled (too large for the bin,
+//! the bin disabled for the volume), which is why the older `SHFileOperationW` route was not used.
+//! After the operation the Recycle Bin records are searched for the item's [`FileKey`]; if none
+//! holds it the call returns an error that says the item left its place without a record (it was
+//! not found in the bin), rather than reporting a trash that cannot be restored. Only a path on a
+//! fixed drive with a letter is moved (no UNC, network or removable drive): anything else is
+//! [`FsError::Unavailable`] before the item is touched. **This path has not been run on a Windows
+//! host from this tree**; the device run listed in the changelog must pass before relying on it.
 //!
 //! [`lookup`], [`list`] and [`restore`] still work for items already in the bin: the shell keeps each
 //! item as a pair in `<drive>:\$Recycle.Bin\<user SID>\`: `$I<id>` (a small record: original path,
@@ -39,7 +42,18 @@
 //! and 2) and move `$R<id>` back; they never write a record. A UNC path, a network or removable
 //! drive and a path that is not drive-lettered are refused with [`FsError::Unavailable`].
 //!
-//! Everything else (Linux, other targets) returns [`FsError::Unavailable`].
+//! # Linux and other freedesktop.org systems
+//!
+//! The trash specification 1.0: the home trash `$XDG_DATA_HOME/Trash` (default
+//! `~/.local/share/Trash`) with `files/` and `info/`, for an item on the same filesystem as it;
+//! otherwise the per-volume trash `<topdir>/.Trash/<uid>` (when `<topdir>/.Trash` is a real
+//! sticky directory) or `<topdir>/.Trash-<uid>`, with `Path` recorded relative to the top
+//! directory. The name is claimed by creating its `.trashinfo` file exclusively, then the item is
+//! moved with an exclusive rename, so nothing in the trash is ever overwritten. An item is never
+//! copied across filesystems: when no usable trash exists on its filesystem the move is refused
+//! and the item stays. [`list`] covers the home trash and the volume trashes of the mounts named in
+//! `/proc/self/mounts`; unlike macOS it knows each entry's original path. `directorysizes` is not
+//! maintained. Android, iOS and other targets return [`FsError::Unavailable`].
 //!
 //! The Swift counterpart ("RightKitSwift") is a separate repository and is not part of this crate.
 
@@ -82,9 +96,16 @@ pub struct TrashEntry {
     pub trashed_unix_ms: u64,
 }
 
-#[cfg_attr(any(target_os = "macos", windows), allow(dead_code))]
+#[cfg_attr(
+    any(
+        target_os = "macos",
+        windows,
+        all(unix, not(any(target_os = "ios", target_os = "android")))
+    ),
+    allow(dead_code)
+)]
 fn unavailable() -> FsError {
-    FsError::Unavailable("trash is available on macOS and Windows only")
+    FsError::Unavailable("trash is available on macOS, Windows and Linux only")
 }
 
 /// Send `path` to the trash and return its identity. `path` must exist (a symlink is trashed itself,
@@ -537,14 +558,224 @@ mod sys {
         a.to_lowercase() == b.to_string_lossy().to_lowercase()
     }
 
-    /// Refuses without touching the item: `SHFileOperationW` cannot be made recycle-only (with no
-    /// confirmation it deletes permanently when the item cannot be recycled), and no recycle-only
-    /// API is bound here. Fail closed rather than risk irreversible deletion.
-    pub fn move_item(_original: &Path, _key: FileKey) -> Result<Moved> {
-        Err(FsError::Unavailable(
-            "moving to the Recycle Bin is unavailable: the shell would delete permanently when an \
-             item cannot be recycled, and no recycle-only operation is bound",
-        ))
+    /// Move to the Recycle Bin with `IFileOperation` and `FOFX_RECYCLEONDELETE` (fails instead of
+    /// deleting permanently), then confirm a bin record holds the item.
+    pub fn move_item(original: &Path, key: FileKey) -> Result<Moved> {
+        let drive = drive_of(original)?;
+        require_fixed_drive(drive)?;
+        com::recycle_only(original)?;
+        match records(drive)?.into_iter().find(|r| r.key == key) {
+            Some(record) => Ok(Moved {
+                trashed_as: Some(record.data),
+                trashed_unix_ms: Some(record.deleted_unix_ms),
+            }),
+            None => Err(FsError::io(
+                original,
+                io::Error::other(
+                    "the item left its place but no Recycle Bin record with its identity was found",
+                ),
+            )),
+        }
+    }
+
+    /// Hand-declared `IFileOperation` (shobjidl_core.h). Vtable slots counted from `IUnknown`
+    /// (0 QueryInterface, 1 AddRef, 2 Release): 3 Advise, 4 Unadvise, 5 SetOperationFlags,
+    /// 6 SetProgressMessage, 7 SetProgressDialog, 8 SetProperties, 9 SetOwnerWindow,
+    /// 10 ApplyPropertiesToItem, 11 ApplyPropertiesToItems, 12 RenameItem, 13 RenameItems,
+    /// 14 MoveItem, 15 MoveItems, 16 CopyItem, 17 CopyItems, 18 DeleteItem, 19 DeleteItems,
+    /// 20 NewItem, 21 PerformOperations, 22 GetAnyOperationsAborted.
+    mod com {
+        use super::super::FsError;
+        use super::Result;
+        use std::ffi::c_void;
+        use std::io;
+        use std::os::windows::ffi::OsStrExt;
+        use std::path::Path;
+
+        #[repr(C)]
+        struct Guid {
+            data1: u32,
+            data2: u16,
+            data3: u16,
+            data4: [u8; 8],
+        }
+
+        /// `CLSID_FileOperation` {3AD05575-8857-4850-9277-11B85BDB8E09}.
+        static CLSID_FILE_OPERATION: Guid = Guid {
+            data1: 0x3AD0_5575,
+            data2: 0x8857,
+            data3: 0x4850,
+            data4: [0x92, 0x77, 0x11, 0xB8, 0x5B, 0xDB, 0x8E, 0x09],
+        };
+        /// `IID_IFileOperation` {947AAB5F-0A5C-4C13-B4D6-4BF7836FC9F8}.
+        static IID_FILE_OPERATION: Guid = Guid {
+            data1: 0x947A_AB5F,
+            data2: 0x0A5C,
+            data3: 0x4C13,
+            data4: [0xB4, 0xD6, 0x4B, 0xF7, 0x83, 0x6F, 0xC9, 0xF8],
+        };
+        /// `IID_IShellItem` {43826D1E-E718-42EE-BC55-A1E261C37BFE}.
+        static IID_SHELL_ITEM: Guid = Guid {
+            data1: 0x4382_6D1E,
+            data2: 0xE718,
+            data3: 0x42EE,
+            data4: [0xBC, 0x55, 0xA1, 0xE2, 0x61, 0xC3, 0x7B, 0xFE],
+        };
+
+        const COINIT_APARTMENTTHREADED: u32 = 0x2;
+        const CLSCTX_INPROC_SERVER: u32 = 0x1;
+        const RPC_E_CHANGED_MODE: i32 = 0x8001_0106_u32 as i32;
+        const FOF_SILENT: u32 = 0x0004;
+        const FOF_NOCONFIRMATION: u32 = 0x0010;
+        const FOF_ALLOWUNDO: u32 = 0x0040;
+        const FOF_NOCONFIRMMKDIR: u32 = 0x0200;
+        const FOF_NOERRORUI: u32 = 0x0400;
+        const FOFX_RECYCLEONDELETE: u32 = 0x0008_0000;
+        const FLAGS: u32 = FOF_SILENT
+            | FOF_NOCONFIRMATION
+            | FOF_NOCONFIRMMKDIR
+            | FOF_NOERRORUI
+            | FOF_ALLOWUNDO
+            | FOFX_RECYCLEONDELETE;
+
+        const SLOT_RELEASE: usize = 2;
+        const SLOT_SET_OPERATION_FLAGS: usize = 5;
+        const SLOT_DELETE_ITEM: usize = 18;
+        const SLOT_PERFORM_OPERATIONS: usize = 21;
+        const SLOT_GET_ANY_OPERATIONS_ABORTED: usize = 22;
+
+        #[link(name = "ole32")]
+        unsafe extern "system" {
+            fn CoInitializeEx(reserved: *mut c_void, coinit: u32) -> i32;
+            fn CoUninitialize();
+            fn CoCreateInstance(
+                clsid: *const Guid,
+                outer: *mut c_void,
+                context: u32,
+                iid: *const Guid,
+                out: *mut *mut c_void,
+            ) -> i32;
+        }
+
+        #[link(name = "shell32")]
+        unsafe extern "system" {
+            fn SHCreateItemFromParsingName(
+                path: *const u16,
+                bind: *mut c_void,
+                iid: *const Guid,
+                out: *mut *mut c_void,
+            ) -> i32;
+        }
+
+        /// The function pointer in vtable `slot` of COM object `object`.
+        unsafe fn slot(object: *mut c_void, index: usize) -> *const c_void {
+            // SAFETY: a COM object starts with a pointer to its vtable of function pointers.
+            unsafe {
+                let vtable = *(object as *const *const *const c_void);
+                *vtable.add(index)
+            }
+        }
+
+        struct Com(*mut c_void);
+        impl Drop for Com {
+            fn drop(&mut self) {
+                if !self.0.is_null() {
+                    // SAFETY: an owned COM reference, released once.
+                    unsafe {
+                        let release: unsafe extern "system" fn(*mut c_void) -> u32 =
+                            std::mem::transmute(slot(self.0, SLOT_RELEASE));
+                        release(self.0);
+                    }
+                }
+            }
+        }
+
+        struct Apartment(bool);
+        impl Drop for Apartment {
+            fn drop(&mut self) {
+                if self.0 {
+                    // SAFETY: balances a successful CoInitializeEx on this thread.
+                    unsafe { CoUninitialize() };
+                }
+            }
+        }
+
+        fn failed(path: &Path, call: &str, hr: i32) -> FsError {
+            FsError::io(
+                path,
+                io::Error::other(format!("{call} failed with HRESULT {:#010x}", hr as u32)),
+            )
+        }
+
+        pub fn recycle_only(path: &Path) -> Result<()> {
+            let plain = crate::plain::plain_path(path.to_path_buf());
+            let wide: Vec<u16> = plain
+                .as_os_str()
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+            // SAFETY: COM calls follow the documented signatures; every owned interface is
+            // wrapped in a guard that releases it, the apartment guard only balances a success.
+            unsafe {
+                let hr = CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED);
+                if hr < 0 && hr != RPC_E_CHANGED_MODE {
+                    return Err(failed(path, "CoInitializeEx", hr));
+                }
+                let _apartment = Apartment(hr >= 0);
+                let mut raw: *mut c_void = std::ptr::null_mut();
+                let hr = CoCreateInstance(
+                    &CLSID_FILE_OPERATION,
+                    std::ptr::null_mut(),
+                    CLSCTX_INPROC_SERVER,
+                    &IID_FILE_OPERATION,
+                    &mut raw,
+                );
+                if hr < 0 || raw.is_null() {
+                    return Err(failed(path, "CoCreateInstance(FileOperation)", hr));
+                }
+                let operation = Com(raw);
+                let set_flags: unsafe extern "system" fn(*mut c_void, u32) -> i32 =
+                    std::mem::transmute(slot(operation.0, SLOT_SET_OPERATION_FLAGS));
+                let hr = set_flags(operation.0, FLAGS);
+                if hr < 0 {
+                    return Err(failed(path, "SetOperationFlags", hr));
+                }
+                let mut item_raw: *mut c_void = std::ptr::null_mut();
+                let hr = SHCreateItemFromParsingName(
+                    wide.as_ptr(),
+                    std::ptr::null_mut(),
+                    &IID_SHELL_ITEM,
+                    &mut item_raw,
+                );
+                if hr < 0 || item_raw.is_null() {
+                    return Err(failed(path, "SHCreateItemFromParsingName", hr));
+                }
+                let item = Com(item_raw);
+                let delete_item: unsafe extern "system" fn(
+                    *mut c_void,
+                    *mut c_void,
+                    *mut c_void,
+                ) -> i32 = std::mem::transmute(slot(operation.0, SLOT_DELETE_ITEM));
+                let hr = delete_item(operation.0, item.0, std::ptr::null_mut());
+                if hr < 0 {
+                    return Err(failed(path, "DeleteItem", hr));
+                }
+                let perform: unsafe extern "system" fn(*mut c_void) -> i32 =
+                    std::mem::transmute(slot(operation.0, SLOT_PERFORM_OPERATIONS));
+                let hr = perform(operation.0);
+                if hr < 0 {
+                    return Err(failed(path, "PerformOperations", hr));
+                }
+                let aborted_fn: unsafe extern "system" fn(*mut c_void, *mut i32) -> i32 =
+                    std::mem::transmute(slot(operation.0, SLOT_GET_ANY_OPERATIONS_ABORTED));
+                let mut aborted = 0i32;
+                let hr = aborted_fn(operation.0, &mut aborted);
+                if hr < 0 || aborted != 0 {
+                    return Err(failed(path, "the recycle operation was aborted", hr));
+                }
+            }
+            Ok(())
+        }
     }
 
     pub fn list() -> Result<Vec<TrashEntry>> {
@@ -589,7 +820,11 @@ mod sys {
     }
 }
 
-#[cfg(not(any(target_os = "macos", windows)))]
+#[cfg(not(any(
+    target_os = "macos",
+    windows,
+    all(unix, not(any(target_os = "ios", target_os = "android")))
+)))]
 mod sys {
     use super::{unavailable, FileKey, Moved, Result, TrashEntry, TrashIdentity};
     use std::path::Path;
@@ -608,5 +843,392 @@ mod sys {
     }
     pub fn restore(_entry: &TrashEntry, _identity: &TrashIdentity) -> Result<()> {
         Err(unavailable())
+    }
+}
+
+#[cfg(all(
+    unix,
+    not(any(target_os = "macos", target_os = "ios", target_os = "android"))
+))]
+mod sys {
+    use super::{now_ms, FileKey, FsError, Moved, Result, TrashEntry, TrashIdentity};
+    use std::ffi::{OsStr, OsString};
+    use std::fs;
+    use std::io::{self, Write};
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+    use std::path::{Path, PathBuf};
+
+    /// How far apart two readings of one deletion time may be (the record has second resolution).
+    const TIME_TOLERANCE_MS: u64 = 2_000;
+    const INFO_SUFFIX: &str = ".trashinfo";
+    const MAX_INFO_BYTES: u64 = 64 * 1024;
+
+    /// One trash directory: `files/` and `info/`, and for a volume trash its top directory.
+    struct Root {
+        files: PathBuf,
+        info: PathBuf,
+        topdir: Option<PathBuf>,
+    }
+
+    impl Root {
+        fn at(dir: &Path, topdir: Option<PathBuf>) -> Root {
+            Root {
+                files: dir.join("files"),
+                info: dir.join("info"),
+                topdir,
+            }
+        }
+    }
+
+    pub fn key_nofollow(path: &Path) -> Result<FileKey> {
+        let meta = fs::symlink_metadata(path).map_err(|e| FsError::io(path, e))?;
+        Ok(FileKey {
+            volume: meta.dev(),
+            index: meta.ino(),
+        })
+    }
+
+    fn uid() -> u32 {
+        // SAFETY: geteuid has no preconditions.
+        unsafe { libc::geteuid() }
+    }
+
+    fn home_trash_dir() -> Option<PathBuf> {
+        let absolute = |v: OsString| Some(PathBuf::from(v)).filter(|p| p.is_absolute());
+        let data = std::env::var_os("XDG_DATA_HOME")
+            .and_then(absolute)
+            .or_else(|| {
+                std::env::var_os("HOME")
+                    .and_then(absolute)
+                    .map(|h| h.join(".local/share"))
+            })?;
+        Some(data.join("Trash"))
+    }
+
+    fn make_private_dir(path: &Path) -> Result<()> {
+        match fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(path)
+        {
+            Ok(()) => Ok(()),
+            Err(e) => Err(FsError::io(path, e)),
+        }
+    }
+
+    fn ensure_root(dir: &Path, topdir: Option<PathBuf>) -> Result<Root> {
+        let root = Root::at(dir, topdir);
+        make_private_dir(&root.files)?;
+        make_private_dir(&root.info)?;
+        Ok(root)
+    }
+
+    /// The trash for a volume other than the home trash's: `<top>/.Trash/<uid>` when `.Trash` is a
+    /// real sticky directory, else `<top>/.Trash-<uid>`, both owned by the user.
+    fn volume_trash(original: &Path, dev: u64) -> Result<Root> {
+        let mut top = original
+            .parent()
+            .ok_or_else(|| FsError::BadName(original.display().to_string()))?
+            .to_path_buf();
+        while let Some(up) = top.parent() {
+            match fs::metadata(up) {
+                Ok(m) if m.dev() == dev => top = up.to_path_buf(),
+                _ => break,
+            }
+        }
+        let shared = top.join(".Trash");
+        let dir = match fs::symlink_metadata(&shared) {
+            Ok(m) if m.is_dir() && !m.file_type().is_symlink() && m.mode() & 0o1000 != 0 => {
+                shared.join(uid().to_string())
+            }
+            _ => top.join(format!(".Trash-{}", uid())),
+        };
+        if let Ok(m) = fs::symlink_metadata(&dir) {
+            if m.file_type().is_symlink() || !m.is_dir() || m.uid() != uid() {
+                return Err(FsError::Unavailable(
+                    "the volume's trash directory is not a directory owned by this user",
+                ));
+            }
+        }
+        ensure_root(&dir, Some(top))
+    }
+
+    fn encode_path(path: &Path) -> String {
+        let mut out = String::new();
+        for &b in path.as_os_str().as_bytes() {
+            if b.is_ascii_alphanumeric() || matches!(b, b'/' | b'-' | b'_' | b'.' | b'~') {
+                out.push(char::from(b));
+            } else {
+                out.push_str(&format!("%{b:02X}"));
+            }
+        }
+        out
+    }
+
+    fn decode_path(text: &str) -> PathBuf {
+        let bytes = text.as_bytes();
+        let mut out = Vec::with_capacity(bytes.len());
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'%' && i + 2 < bytes.len() {
+                if let Some(v) = std::str::from_utf8(&bytes[i + 1..i + 3])
+                    .ok()
+                    .and_then(|h| u8::from_str_radix(h, 16).ok())
+                {
+                    out.push(v);
+                    i += 3;
+                    continue;
+                }
+            }
+            out.push(bytes[i]);
+            i += 1;
+        }
+        PathBuf::from(OsString::from_vec(out))
+    }
+
+    fn format_local(ms: u64) -> String {
+        let secs = (ms / 1000) as libc::time_t;
+        // SAFETY: zeroed tm is a valid out-parameter; localtime_r fills it.
+        let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+        unsafe { libc::localtime_r(&secs, &mut tm) };
+        format!(
+            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+            tm.tm_year + 1900,
+            tm.tm_mon + 1,
+            tm.tm_mday,
+            tm.tm_hour,
+            tm.tm_min,
+            tm.tm_sec
+        )
+    }
+
+    fn parse_local(text: &str) -> Option<u64> {
+        let (date, time) = text.trim().split_once('T')?;
+        let mut d = date.split('-').map(|p| p.parse::<i32>().ok());
+        let mut t = time.split(':').map(|p| p.parse::<i32>().ok());
+        let (year, month, day) = (d.next()??, d.next()??, d.next()??);
+        let (hour, minute, second) = (t.next()??, t.next()??, t.next()??);
+        // SAFETY: zeroed tm is valid; the fields mktime reads are set below.
+        let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+        tm.tm_year = year - 1900;
+        tm.tm_mon = month - 1;
+        tm.tm_mday = day;
+        tm.tm_hour = hour;
+        tm.tm_min = minute;
+        tm.tm_sec = second;
+        tm.tm_isdst = -1;
+        let secs = unsafe { libc::mktime(&mut tm) };
+        (secs >= 0).then(|| secs as u64 * 1000)
+    }
+
+    pub fn move_item(original: &Path, _key: FileKey) -> Result<Moved> {
+        let meta = fs::symlink_metadata(original).map_err(|e| FsError::io(original, e))?;
+        let home = home_trash_dir().ok_or(FsError::Unavailable(
+            "no home trash: neither XDG_DATA_HOME nor HOME is an absolute path",
+        ))?;
+        let home_root = ensure_root(&home, None)?;
+        let home_dev = fs::metadata(&home_root.files)
+            .map_err(|e| FsError::io(&home_root.files, e))?
+            .dev();
+        let root = if meta.dev() == home_dev {
+            home_root
+        } else {
+            volume_trash(original, meta.dev())?
+        };
+        let name = original
+            .file_name()
+            .ok_or_else(|| FsError::BadName(original.display().to_string()))?;
+        let recorded = match &root.topdir {
+            Some(top) => original.strip_prefix(top).unwrap_or(original),
+            None => original,
+        };
+        let deleted_ms = now_ms();
+        let body = format!(
+            "[Trash Info]\nPath={}\nDeletionDate={}\n",
+            encode_path(recorded),
+            format_local(deleted_ms)
+        );
+        for attempt in 0..10_000u32 {
+            let mut candidate = OsString::from(name);
+            if attempt > 0 {
+                candidate.push(format!(".{attempt}"));
+            }
+            let mut info_name = candidate.clone();
+            info_name.push(INFO_SUFFIX);
+            let info_path = root.info.join(&info_name);
+            let mut info = match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&info_path)
+            {
+                Ok(file) => file,
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(FsError::io(&info_path, e)),
+            };
+            if let Err(e) = info
+                .write_all(body.as_bytes())
+                .and_then(|()| info.sync_all())
+            {
+                let _ = fs::remove_file(&info_path);
+                return Err(FsError::io(&info_path, e));
+            }
+            drop(info);
+            let target = root.files.join(&candidate);
+            match crate::atomic::rename_exclusive(original, &target) {
+                Ok(()) => {
+                    return Ok(Moved {
+                        trashed_as: Some(target),
+                        trashed_unix_ms: Some(deleted_ms / 1000 * 1000),
+                    })
+                }
+                Err(FsError::AlreadyExists(_)) => {
+                    let _ = fs::remove_file(&info_path);
+                    continue;
+                }
+                Err(e) => {
+                    let _ = fs::remove_file(&info_path);
+                    return Err(e);
+                }
+            }
+        }
+        Err(FsError::AlreadyExists(original.to_path_buf()))
+    }
+
+    fn unescape_mount(field: &str) -> PathBuf {
+        let bytes = field.as_bytes();
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'\\' && i + 3 < bytes.len() {
+                if let Some(v) = std::str::from_utf8(&bytes[i + 1..i + 4])
+                    .ok()
+                    .and_then(|o| u8::from_str_radix(o, 8).ok())
+                {
+                    out.push(v);
+                    i += 4;
+                    continue;
+                }
+            }
+            out.push(bytes[i]);
+            i += 1;
+        }
+        PathBuf::from(OsStr::from_bytes(&out))
+    }
+
+    fn roots() -> Vec<Root> {
+        let mut out = Vec::new();
+        if let Some(home) = home_trash_dir() {
+            out.push(Root::at(&home, None));
+        }
+        if let Ok(mounts) = fs::read_to_string("/proc/self/mounts") {
+            for line in mounts.lines() {
+                let Some(point) = line.split_whitespace().nth(1) else {
+                    continue;
+                };
+                let top = unescape_mount(point);
+                let shared = top.join(".Trash").join(uid().to_string());
+                if shared.is_dir() {
+                    out.push(Root::at(&shared, Some(top.clone())));
+                }
+                let own = top.join(format!(".Trash-{}", uid()));
+                if own.is_dir() {
+                    out.push(Root::at(&own, Some(top)));
+                }
+            }
+        }
+        out
+    }
+
+    fn entries_in(root: &Root) -> Vec<TrashEntry> {
+        let Ok(read) = fs::read_dir(&root.info) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for entry in read.flatten() {
+            let file_name = entry.file_name();
+            let Some(stem) = file_name.to_str().and_then(|n| n.strip_suffix(INFO_SUFFIX)) else {
+                continue;
+            };
+            let data = root.files.join(stem);
+            let Ok(data_meta) = fs::symlink_metadata(&data) else {
+                continue;
+            };
+            let info_path = entry.path();
+            let Ok(info_meta) = fs::metadata(&info_path) else {
+                continue;
+            };
+            if info_meta.len() > MAX_INFO_BYTES {
+                continue;
+            }
+            let Ok(text) = fs::read_to_string(&info_path) else {
+                continue;
+            };
+            let mut original = None;
+            let mut deleted = None;
+            let mut in_section = false;
+            for line in text.lines() {
+                if line.starts_with('[') {
+                    in_section = line.trim() == "[Trash Info]";
+                } else if in_section {
+                    if let Some(v) = line.strip_prefix("Path=") {
+                        original.get_or_insert_with(|| decode_path(v));
+                    } else if let Some(v) = line.strip_prefix("DeletionDate=") {
+                        deleted = deleted.or_else(|| parse_local(v));
+                    }
+                }
+            }
+            let original = original.map(|p| match (&root.topdir, p.is_absolute()) {
+                (Some(top), false) => top.join(p),
+                _ => p,
+            });
+            let trashed_unix_ms =
+                deleted.unwrap_or_else(|| (info_meta.mtime().max(0) as u64) * 1000);
+            out.push(TrashEntry {
+                path: data,
+                key: FileKey {
+                    volume: data_meta.dev(),
+                    index: data_meta.ino(),
+                },
+                original,
+                trashed_unix_ms,
+            });
+        }
+        out
+    }
+
+    pub fn list() -> Result<Vec<TrashEntry>> {
+        Ok(roots().iter().flat_map(entries_in).collect())
+    }
+
+    pub fn lookup(identity: &TrashIdentity) -> Result<Option<TrashEntry>> {
+        let all = list()?;
+        if let Some(hint) = &identity.trashed_as {
+            if let Some(found) = all
+                .iter()
+                .find(|e| e.path == *hint && e.key == identity.key)
+            {
+                return Ok(Some(found.clone()));
+            }
+        }
+        Ok(all.into_iter().find(|e| {
+            e.key == identity.key
+                && e.original.as_deref() == Some(identity.original.as_path())
+                && e.trashed_unix_ms.abs_diff(identity.trashed_unix_ms) <= TIME_TOLERANCE_MS
+        }))
+    }
+
+    pub fn restore(entry: &TrashEntry, identity: &TrashIdentity) -> Result<()> {
+        crate::atomic::rename_exclusive(&entry.path, &identity.original)?;
+        // Best effort: drop the `.trashinfo` that described the item.
+        if let (Some(files), Some(name)) = (entry.path.parent(), entry.path.file_name()) {
+            if let Some(dir) = files.parent() {
+                let mut info_name = name.to_os_string();
+                info_name.push(INFO_SUFFIX);
+                let _ = fs::remove_file(dir.join("info").join(info_name));
+            }
+        }
+        Ok(())
     }
 }

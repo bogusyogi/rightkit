@@ -17,6 +17,10 @@
 //! rightkit-qa sweep
 //! rightkit-qa prune-runs [--app <key>] [--root <managed root>] [--dry-run]
 //! rightkit-qa verify  <evidence.json>
+//! rightkit-qa install [--to DIR] [--json]
+//! rightkit-qa exec   [--timeout-s N] [--cwd DIR] [--max-output-bytes N] [--json] -- <program> [args...]
+//! rightkit-qa control call --service NAME --method M [--params JSON] [--token-file FILE]
+//! rightkit-qa proc   kill-tree --pid N --expect-command TEXT [--json]
 //! rightkit-qa run-tests [cargo test args] [--parallel N] [--binary-timeout-s N] [--total-timeout-s N]
 //!                     [--from-cargo-json <file>] [--env K=V]... [--cwd package|workspace|<dir>] [-- <libtest args>]
 //!                     (compile the test binaries in the broker, run them outside it, write one receipt)
@@ -84,6 +88,7 @@ impl Args {
             "--kind",
             "--app",
             "--root",
+            "--run",
             "--tree",
             "--manifest",
             "--results",
@@ -376,6 +381,21 @@ fn prune_runs(a: &Args) -> Result<i32> {
     Ok(0)
 }
 
+/// `rightkit-qa release-kept --app <key> --run <id> [--root <managed root>]`: drop the keep request of
+/// one run (`--keep-data` keeps a run for at most 7 days); retention then treats it by outcome and age.
+fn release_kept(a: &Args) -> Result<i32> {
+    let root = rightkit_qa::storage::managed_root(a.value("--root").map(PathBuf::from).as_deref());
+    let (Some(app), Some(run)) = (a.value("--app"), a.value("--run")) else {
+        return err(
+            "usage: rightkit-qa release-kept --app <key> --run <id> [--root <managed root>]",
+        );
+    };
+    let run_root = rightkit_qa::storage::run_root(&root, &app, &run)?;
+    rightkit_qa::storage::release_keep_data(&run_root)?;
+    println!("released the keep request of {app}/{run}");
+    Ok(0)
+}
+
 /// `rightkit-qa clean [--dry-run] [--dir <.../rightkit-qa>] [--max-age-hours N]`: remove the QA
 /// homes of dead runs (owner process gone, older than the window; default 2 h or
 /// `RIGHTKIT_QA_HOME_MAX_AGE_SECS`). A home whose owner is alive is never touched. A home written
@@ -656,7 +676,7 @@ fn journeys_run(a: &Args) -> Result<i32> {
     Ok(report.exit_code())
 }
 
-const GENERAL_USAGE: &str = "usage: rightkit-qa <doctor|list|run|guard|sweep|prune-runs|homes|clean|verify|run-tests|journeys> [--config rightkit-qa.toml] ...\nrun `rightkit-qa <command> --help` for one command's usage";
+const GENERAL_USAGE: &str = "usage: rightkit-qa <doctor|list|run|guard|sweep|prune-runs|homes|clean|verify|run-tests|journeys|install|exec|proc|control|display-prefs|release-kept> [--config rightkit-qa.toml] ...\nrun `rightkit-qa <command> --help` for one command's usage";
 
 /// The line `rightkit-qa --version` (or `-V`) prints, or `None` when the command line asks for no
 /// version. It is decided before any config is read.
@@ -696,9 +716,15 @@ fn command_usage(cmd: &str) -> String {
         "guard" => "usage: rightkit-qa guard [--app-root <dir>] [--config rightkit-qa.toml] [--backend control|wdio]",
         "sweep" => "usage: rightkit-qa sweep [--config rightkit-qa.toml] ...",
         "prune-runs" => "usage: rightkit-qa prune-runs [--config rightkit-qa.toml] ...",
+        "release-kept" => "usage: rightkit-qa release-kept --app <key> --run <id> [--root <managed root>]",
         "homes" => "usage: rightkit-qa homes [--config rightkit-qa.toml] ...",
         "clean" => "usage: rightkit-qa clean [--config rightkit-qa.toml] ...",
         "verify" => "usage: rightkit-qa verify <evidence.json>",
+        "install" => "usage: rightkit-qa install [--to DIR] [--json]   (puts rightkit-qa and rightkit-qa-interactive at DIR, default <managed root>/agent-bin, with rightkit-qa.install.json)",
+        "exec" => "usage: rightkit-qa exec [--timeout-s N] [--cwd DIR] [--max-output-bytes N] [--json] -- <program> [args...]",
+        "control" => "usage: rightkit-qa control call --service NAME --method M [--params JSON] [--token-file FILE] [--app right-qa]",
+        "display-prefs" => "usage: rightkit-qa display-prefs [--json] [--require reduceMotion|reduceTransparency|increaseContrast|differentiateWithoutColor=true|false | scrollBars=Automatic|WhenScrolling|Always]... [--allow-write-on-ci]   (macOS)",
+        "proc" => "usage: rightkit-qa proc kill-tree --pid N --expect-command TEXT [--json]",
         "run-tests" => return rightkit_qa::run_tests::cli::USAGE.to_string(),
         _ => return GENERAL_USAGE.to_string(),
     };
@@ -724,6 +750,14 @@ fn run() -> Result<i32> {
     if let Some(usage) = help_request(&a.0) {
         println!("{usage}");
         return Ok(0);
+    }
+    // Crash recovery comes first (rightkit#1437): a leftover restore marker means a journey run died
+    // with the owner's real data not yet put back. Restore it before anything else runs. A scenario
+    // worker is a child of a run that holds a live marker, so it skips this.
+    if a.0.first().map(String::as_str) != Some("worker") {
+        for note in rightkit_qa::snapshot::recover_all(&rightkit_qa::storage::managed_root(None))? {
+            eprintln!("[qa] {note}");
+        }
     }
     match a.0.first().map(String::as_str) {
         Some("doctor") => doctor(&a),
@@ -757,13 +791,19 @@ fn run() -> Result<i32> {
         Some("guard") => guard(&a),
         Some("sweep") => sweep(&a),
         Some("prune-runs") => prune_runs(&a),
+        Some("release-kept") => release_kept(&a),
         Some("homes") => homes(&a),
         Some("clean") => clean(&a),
         Some("verify") => verify(&a),
         Some("journeys") => journeys(&a),
         Some("run-tests") => rightkit_qa::run_tests::cli::main(&a.0[1..]),
+        Some("install") => rightkit_qa::cli_tools::install(&a.0[1..]),
+        Some("exec") => rightkit_qa::cli_tools::exec(&a.0[1..]),
+        Some("proc") => rightkit_qa::cli_tools::proc_cmd(&a.0[1..]),
+        Some("control") => rightkit_qa::cli_tools::control_cmd(&a.0[1..]),
+        Some("display-prefs") => rightkit_qa::display_prefs::cli(&a.0[1..]),
         _ => {
-            eprintln!("usage: rightkit-qa <doctor|list|run|worker|guard|sweep|prune-runs|homes|clean|verify|run-tests|journeys> [--config rightkit-qa.toml] ...");
+            eprintln!("usage: rightkit-qa <doctor|list|run|worker|guard|sweep|prune-runs|homes|clean|verify|run-tests|journeys|install|exec|proc|control|display-prefs|release-kept> [--config rightkit-qa.toml] ...");
             Ok(2)
         }
     }

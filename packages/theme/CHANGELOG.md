@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.2 — unpublished staging
+
+- Removed (Adrian, 2026-11-03: end-to-end tests only; a built harness page on a dev server is not end to end): the real-browser tests against a harness page, their harness, `vitest.config.ts`, the `test` script and the devDependencies `@rightkit/qa-chrome` and `vitest`. Nothing shipped changes.
+
+Additive. Every existing default and export is unchanged.
+
+Added:
+- Issue #986: `createPresetStore({ presets, storageKey, legacyKeys, storage })` (`src/presets.ts`): preset-id persistence with legacy-key migration over `presetTokens`, every storage access guarded. The derived second hairline `--rk-line-2` (`deriveLineSecond`: the line nudged 6% toward the opposite pole) is added unless the preset sets it. The preset lists stay per app.
+- Issue #686: `presetCss(presets, { modeAttribute })` emits `:root[data-palette="<id>"][data-theme="light"]` for a `mode: "light"` preset; `TokenPreset.label?` and `presetOptions(presets)` give a labelled picker list.
+- Issue #987: `SUITE_DEFAULTS` gain the status aliases `success`, `success-soft`, `success-border`, `warning`, `warning-bg`, `star` per mode, and `SUITE_MOTION` (`--rk-dur-1`, `--rk-ease-out`, `--rk-ease-spring`). All are overridable in a brand file's `tokens`.
+- Issue #1016: `stage` is overridable and defaults to `#0B0C0D` in both modes (`--rk-stage`). `checkSuiteDefaults(shellCss)` and the CLI `rightkit-theme suite-defaults <shell.css>` compare `SUITE_DEFAULTS` and `SUITE_MOTION` with react-shell's `shell.css` (drift check).
+- Issue #864: the Tanker wordmark face ships as `fonts/Tanker-400.woff2` with `@font-face` in `wordmark.css` (export `@rightkit/theme/wordmark.css`).
+- Issue #1064: `rgbChannels(hex)` (space-separated `R G B`) and `applyTokens(record, root, { skipUnchanged, rgbCompanions })`: diffing apply and `<name>-rgb` companions. The default call is unchanged.
+
 ## 0.3.1 — unpublished staging
 
 - Repairs runtime token and theme behavior.

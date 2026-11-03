@@ -30,60 +30,14 @@
 use base64::Engine;
 use serde_json::{json, Value};
 
-use crate::remote::util::{hex, random_bytes, sha256_hex, unhex};
+use crate::remote::util::{hex, random_bytes, unhex};
 
-const COMMIT_DOMAIN: &[u8] = b"rk-pair/1 commit";
-const SAS_DOMAIN: &[u8] = b"rk-pair/1 sas";
-
-/// Length of both nonces, in bytes.
-pub const NONCE_BYTES: usize = 16;
-/// Longest accepted device label, in characters. Over this the host answers 400: a label is
-/// bound into the commitment, so it is never truncated.
-pub const MAX_LABEL_CHARS: usize = 64;
-/// Digits in the code.
-pub const CODE_DIGITS: usize = 6;
-
-/// Length-prefixed concatenation, so no two different field lists share an encoding.
-fn framed(parts: &[&[u8]]) -> Vec<u8> {
-    let mut out = Vec::new();
-    for part in parts {
-        out.extend_from_slice(&(part.len() as u32).to_be_bytes());
-        out.extend_from_slice(part);
-    }
-    out
-}
-
-fn label_bytes(label: Option<&str>) -> Vec<u8> {
-    // A present empty label differs from an absent one.
-    match label {
-        Some(l) => [&[1u8][..], l.as_bytes()].concat(),
-        None => vec![0u8],
-    }
-}
-
-/// Hex commitment D sends first.
-pub fn pairing_commit(public_key: &[u8], nonce_d: &[u8], label: Option<&str>) -> String {
-    let lb = label_bytes(label);
-    sha256_hex(&framed(&[COMMIT_DOMAIN, public_key, nonce_d, &lb]))
-}
-
-/// The six-digit code both sides display, from the whole transcript.
-pub fn pairing_code(
-    public_key: &[u8],
-    nonce_d: &[u8],
-    nonce_h: &[u8],
-    label: Option<&str>,
-    host_binding: &[u8],
-) -> String {
-    let lb = label_bytes(label);
-    let digest = ring::digest::digest(
-        &ring::digest::SHA256,
-        &framed(&[SAS_DOMAIN, public_key, nonce_d, nonce_h, &lb, host_binding]),
-    );
-    let d = digest.as_ref();
-    let n = u32::from_be_bytes([d[0], d[1], d[2], d[3]]) % 1_000_000;
-    format!("{n:06}")
-}
+// The commitment, the code and their constants are `rightkit-identity`'s (it owns the wire
+// bytes); re-exported so these paths stay the daemon's public ones.
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+pub use rightkit_identity::{
+    pairing_code, pairing_commit, CODE_DIGITS, MAX_LABEL_CHARS, NONCE_BYTES,
+};
 
 /// The device side of a pairing, with no transport: build the three request bodies and compute
 /// the code to display. The caller sends them (`POST /v1/pair`, `POST /v1/pair/{id}/reveal`,

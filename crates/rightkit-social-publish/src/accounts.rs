@@ -196,9 +196,16 @@ fn check_expected(cur: &AccountRecord, expected: i64) -> Result<(), Fail> {
 /// sandbox mechanics passed.
 fn readiness_of(rec: &AccountRecord, now: i64) -> Result<AccountReadiness, Fail> {
     let mut blockers: Vec<String> = Vec::new();
+    // A token past its `token_expires_at` cannot publish, so the account needs a reconnect. It reports the
+    // existing `reauth_required` code: the protocol's blocker vocabulary is unchanged (#1496).
+    let token_expired = match &rec.token_expires_at {
+        Some(expires) => time::parse_instant(expires, "token_expires_at")? <= now,
+        None => false,
+    };
     match rec.connection_state.as_str() {
         "not_connected" => blockers.push("not_connected".to_string()),
         "reauth_required" => blockers.push("reauth_required".to_string()),
+        _ if token_expired => blockers.push("reauth_required".to_string()),
         _ => {}
     }
     if rec.paused {

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2 (unpublished)
+
+- Removed (breaking, Adrian, 2026-11-03: "no dummy data, no fucking made up shit. real data."): the browser-QA fixture layer. `BROWSER_QA_BUILD`, `isBrowserQaMode()`, `qaReloadPdfBytes()`, every fixture branch of `state/tauriBridge` and the `state/browserQa`, `browserQaText`, `browserQaDocx` and `browserQaPdf` modules (and their `index` exports) are gone. Outside the Tauri webview the bridge keeps its plain no-op returns.
+- Removed (breaking, Adrian, 2026-11-03: no dummy data): the in-memory browser-QA licence client. `browserQaLicenseClient()` is gone from `state/tauriBridge`, `state/browserQaLicense` is deleted, and the `@rightkit/license` dependency with it (`@rightkit/license/testing` no longer exists).
+
 ## 0.1.1
 
 - Ask 1: the host bridge (`state/tauriBridge`), diagnostics (`state/diagnostics`) and platform modules are the single copy the document editors import. Hosts delete their own copies. Host-facing changes a host must adopt:

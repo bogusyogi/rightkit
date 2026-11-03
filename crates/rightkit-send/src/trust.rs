@@ -18,6 +18,11 @@
 //! Fingerprints (always lowercase, see `normalize`) are the policy key; the
 //! alias, model and kind are only what the device claimed, and the owner's own
 //! name for it is `label`.
+//!
+//! The key is a [`TrustSubject`]: the TLS fingerprint of a LocalSend peer, or any other stable
+//! identifier a [`crate::transport::Transport`] proves (a paired device's id over a device
+//! mesh). Both live in the one store file under the record's `fingerprint` field, so a store
+//! written before subjects existed reads unchanged and the Swift SendKit trust layout is the same.
 
 use super::error::Error;
 use super::{now_ms, write_atomic};
@@ -39,6 +44,79 @@ pub const PROOF_CALLBACK: &str = "callback";
 /// The one spelling of a fingerprint used as a key everywhere.
 pub fn normalize(fingerprint: &str) -> String {
     fingerprint.trim().to_ascii_lowercase()
+}
+
+/// Whom a trust record is about. A subject is a normalized key (lowercase, 1 to 128
+/// characters, no whitespace or control characters) that a transport has proven for the
+/// peer: the SHA-256 of a TLS certificate on the LocalSend route, a device-link id such as
+/// `dev_<32 hex>` on a device mesh. The two spaces cannot collide (a fingerprint is 64 hex
+/// characters, a device id has a prefix), and the store treats both alike.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct TrustSubject(String);
+
+impl TrustSubject {
+    /// Any subject key. `Error::InvalidSubject` when it is empty, over 128 characters, or has
+    /// whitespace or control characters.
+    pub fn new(key: &str) -> Result<TrustSubject, Error> {
+        let key = normalize(key);
+        if valid_fingerprint(&key) && !key.chars().any(|c| c.is_whitespace() || c.is_control()) {
+            Ok(TrustSubject(key))
+        } else {
+            Err(Error::InvalidSubject)
+        }
+    }
+
+    /// The subject of a TLS peer: its certificate fingerprint, which must be 64 hex characters.
+    pub fn tls_fingerprint(fingerprint: &str) -> Result<TrustSubject, Error> {
+        let key = normalize(fingerprint);
+        if super::net::valid_pin(&key) {
+            Ok(TrustSubject(key))
+        } else {
+            Err(Error::InvalidFingerprint)
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl AsRef<str> for TrustSubject {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for TrustSubject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl TryFrom<String> for TrustSubject {
+    type Error = Error;
+
+    fn try_from(key: String) -> Result<TrustSubject, Error> {
+        TrustSubject::new(&key)
+    }
+}
+
+impl From<TrustSubject> for String {
+    fn from(subject: TrustSubject) -> String {
+        subject.0
+    }
+}
+
+/// What a request from a proven peer is subject to, from its trust state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Admission {
+    /// Allow, and the peer proved its key: accept without a card.
+    Accept,
+    /// Ask the owner.
+    Ask,
+    /// Deny: refuse at once and count it.
+    Deny,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,6 +182,11 @@ pub struct TrustEntry {
 }
 
 impl TrustEntry {
+    /// The subject this record is about.
+    pub fn subject(&self) -> TrustSubject {
+        TrustSubject(normalize(&self.fingerprint))
+    }
+
     fn blank(fingerprint: String, state: TrustState, now: u64) -> TrustEntry {
         TrustEntry {
             fingerprint,
@@ -159,7 +242,10 @@ fn valid_fingerprint(fingerprint: &str) -> bool {
     !fingerprint.is_empty() && fingerprint.len() <= 128
 }
 
-pub(crate) struct TrustStore {
+/// The records of one trust store file. The service keeps one; a host that moves files over
+/// another transport (a device mesh) opens its own with [`TrustStore::load`] and applies the same
+/// Allow, Ask and Deny rules through [`TrustStore::admission`].
+pub struct TrustStore {
     path: PathBuf,
     default_state: TrustState,
     devices: Vec<TrustEntry>,
@@ -333,8 +419,8 @@ impl TrustStore {
 
     /// What a request or send from `fingerprint` is subject to. A device with
     /// no usable fingerprint can never be allowed.
-    pub fn state_of(&self, fingerprint: &str) -> TrustState {
-        let fingerprint = normalize(fingerprint);
+    pub fn state_of(&self, subject: impl AsRef<str>) -> TrustState {
+        let fingerprint = normalize(subject.as_ref());
         if !valid_fingerprint(&fingerprint) {
             return match self.default_state {
                 TrustState::Deny => TrustState::Deny,
@@ -348,19 +434,30 @@ impl TrustStore {
             .unwrap_or(self.default_state)
     }
 
+    /// What a request from `subject` is subject to. `proven` says the transport proved the peer's
+    /// key for this request (a client certificate, a paired-device session): only then does Allow
+    /// skip the card. An unproven peer set to Allow is asked, as on the LocalSend route.
+    pub fn admission(&self, subject: impl AsRef<str>, proven: bool) -> Admission {
+        match self.state_of(subject) {
+            TrustState::Deny => Admission::Deny,
+            TrustState::Allow if proven => Admission::Accept,
+            _ => Admission::Ask,
+        }
+    }
+
     /// Record a sighting. A first sighting takes the default state. `proof`
     /// ("certificate" or "callback") is set only by a check that just passed;
     /// without it, a record that already has proof keeps its alias, model and
     /// kind and the claimed alias goes to `alias_claimed`.
     pub fn observe(
         &mut self,
-        fingerprint: &str,
+        subject: impl AsRef<str>,
         alias: &str,
         model: Option<&str>,
         kind: Option<&str>,
         proof: Option<&str>,
     ) {
-        let fingerprint = normalize(fingerprint);
+        let fingerprint = normalize(subject.as_ref());
         if !valid_fingerprint(&fingerprint) {
             return;
         }
@@ -415,16 +512,16 @@ impl TrustStore {
 
     /// Whether this device has ever proved its key by certificate. Such a record
     /// never accepts the weaker callback proof.
-    pub fn certificate_proven(&self, fingerprint: &str) -> bool {
-        let fingerprint = normalize(fingerprint);
+    pub fn certificate_proven(&self, subject: impl AsRef<str>) -> bool {
+        let fingerprint = normalize(subject.as_ref());
         self.devices
             .iter()
             .any(|d| d.fingerprint == fingerprint && d.proof.as_deref() == Some(PROOF_CERTIFICATE))
     }
 
     /// The device just answered a connect-back handshake for its fingerprint.
-    pub fn mark_callback(&mut self, fingerprint: &str) {
-        let fingerprint = normalize(fingerprint);
+    pub fn mark_callback(&mut self, subject: impl AsRef<str>) {
+        let fingerprint = normalize(subject.as_ref());
         if let Some(entry) = self
             .devices
             .iter_mut()
@@ -457,8 +554,8 @@ impl TrustStore {
     }
 
     /// Count a request answered 403.
-    pub fn refuse(&mut self, fingerprint: &str) {
-        let fingerprint = normalize(fingerprint);
+    pub fn refuse(&mut self, subject: impl AsRef<str>) {
+        let fingerprint = normalize(subject.as_ref());
         let due = now_ms().saturating_sub(self.saved_ms) >= SAVE_REFUSED_MS;
         if let Some(entry) = self
             .devices
@@ -472,8 +569,8 @@ impl TrustStore {
         }
     }
 
-    pub fn set_state(&mut self, fingerprint: &str, state: TrustState) -> Result<(), Error> {
-        let fingerprint = normalize(fingerprint);
+    pub fn set_state(&mut self, subject: impl AsRef<str>, state: TrustState) -> Result<(), Error> {
+        let fingerprint = normalize(subject.as_ref());
         if !valid_fingerprint(&fingerprint) {
             return Err(Error::InvalidFingerprint);
         }
@@ -495,9 +592,9 @@ impl TrustStore {
         self.explicit_save()
     }
 
-    pub fn set_label(&mut self, fingerprint: &str, label: &str) -> Result<(), Error> {
+    pub fn set_label(&mut self, subject: impl AsRef<str>, label: &str) -> Result<(), Error> {
         self.lift_hold()?;
-        let fingerprint = normalize(fingerprint);
+        let fingerprint = normalize(subject.as_ref());
         let entry = self
             .devices
             .iter_mut()
@@ -507,9 +604,9 @@ impl TrustStore {
         self.explicit_save()
     }
 
-    pub fn forget(&mut self, fingerprint: &str) -> Result<(), Error> {
+    pub fn forget(&mut self, subject: impl AsRef<str>) -> Result<(), Error> {
         self.lift_hold()?;
-        let fingerprint = normalize(fingerprint);
+        let fingerprint = normalize(subject.as_ref());
         let before = self.devices.len();
         self.devices.retain(|d| d.fingerprint != fingerprint);
         if self.devices.len() == before {

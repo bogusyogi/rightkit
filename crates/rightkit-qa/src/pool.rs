@@ -5,11 +5,13 @@
 //!   `min(cores, commit headroom / configured peak per scenario)` capped by a per-OS start value
 //!   ([`start_workers`]: Dell 2, Mac 4) until the real peaks are measured. Commit headroom is
 //!   `ullAvailPageFile` from `GlobalMemoryStatusEx` on Windows and available memory elsewhere.
-//! * **Worlds.** Every scenario gets a [`World`] ([`WorldPlan::world`]): a data dir, home and temp
-//!   dir, a port range, a control socket and control token file path, and an env marker, all under
-//!   the run root and none shared with another scenario. [`world_env`] exports a world as
-//!   environment variables and [`world_from_env`] reads it back, so a child finds its world in its own
-//!   env. [`world_workspace`] turns a world into the [`QaWorkspace`] one in-process scenario runs in.
+//! * **Scenario slots (`World`).** Every scenario gets a [`World`] ([`WorldPlan::world`]): a temp dir,
+//!   a port range, a control socket and control token file path, and an env marker, all under the run
+//!   root and none shared with another scenario. A slot holds no app data: the app runs on the owner's
+//!   real data under the journey run's snapshot and restore ([`crate::snapshot`], rightkit#1437), so
+//!   there is no throwaway home or data directory. [`world_env`] exports a slot as environment
+//!   variables and [`world_from_env`] reads it back. [`world_workspace`] turns it into the
+//!   [`QaWorkspace`] one in-process scenario runs in.
 //! * **Tokens.** `focus`, `audio`, `gui-session`, `clipboard` and `credentials` are in-process locks the
 //!   pool holds for a scenario that declares them. Two scenarios that name the same token never
 //!   overlap; a scenario that names none takes no lock and never waits. A worker takes all of a
@@ -115,8 +117,20 @@ pub fn size_pool(i: &SizeInputs<'_>) -> PoolSize {
     }
 }
 
-/// [`size_pool`] over this host: its core count, its commit headroom and `[host]`.
+/// The pool size of a run on this host. Scenarios run on the owner's real data (rightkit#1437), where
+/// two app instances would share one data folder and one single-instance lock, so a run is always
+/// serial: one worker. [`size_pool`] is kept for its sizing rule.
 pub fn host_pool_size(host: &HostConfig, jobs: usize, serial: Option<&str>) -> PoolSize {
+    let _ = (host, jobs, serial);
+    PoolSize {
+        workers: 1,
+        reason: "serial: scenarios run on the owner's real data, one at a time".into(),
+    }
+}
+
+/// [`size_pool`] over this host: its core count, its commit headroom and `[host]`.
+#[allow(dead_code)]
+fn sized_by_host(host: &HostConfig, jobs: usize, serial: Option<&str>) -> PoolSize {
     size_pool(&SizeInputs {
         configured: host.workers,
         cores: std::thread::available_parallelism()
@@ -282,8 +296,6 @@ pub fn parse_tokens(names: &[String]) -> Result<Vec<Token>> {
 /// has it, so a same-user scan finds survivors by it.
 pub const WORLD_MARKER_ENV: &str = "RIGHTKIT_QA_WORLD";
 pub const ENV_WORLD_DIR: &str = "RIGHTKIT_QA_WORLD_DIR";
-pub const ENV_WORLD_DATA: &str = "RIGHTKIT_QA_WORLD_DATA";
-pub const ENV_WORLD_HOME: &str = "RIGHTKIT_QA_WORLD_HOME";
 pub const ENV_WORLD_TEMP: &str = "RIGHTKIT_QA_WORLD_TEMP";
 pub const ENV_PORT_START: &str = "RIGHTKIT_QA_PORT_START";
 pub const ENV_PORT_END: &str = "RIGHTKIT_QA_PORT_END";
@@ -367,11 +379,10 @@ impl WorldPlan {
         }
         let n = index + 1;
         let dir = self.worlds_dir().join(format!("w{n:03}"));
-        let home = dir.join("home");
-        // The world's temp dir is the app's TMPDIR, where its control service falls back to a
-        // `rk-<tag>-<hash>.sock` (33 bytes, rightkit-daemon transport.rs) when the suite path is too
-        // long. It sits beside the home (`wNNN/t`, inside the world's QA root) so that socket fits the
-        // 103-byte Unix limit; a run root too deep for it is refused here, before anything launches.
+        // The slot's temp dir is where the control service falls back to a `rk-<tag>-<hash>.sock`
+        // (33 bytes, rightkit-daemon transport.rs) when the suite path is too long. It sits at
+        // `wNNN/t`, inside the slot, so that socket fits the 103-byte Unix limit; a run root too deep
+        // for it is refused here, before anything launches.
         let temp = dir.join("t");
         #[cfg(unix)]
         {
@@ -385,7 +396,6 @@ impl WorldPlan {
         }
         let start = u32::from(self.port_base) + index as u32 * u32::from(self.ports_per_world);
         Ok(World {
-            data_dir: home.join("data"),
             temp,
             control_socket: dir.join("control.sock"),
             control_token_file: dir.join("control.token"),
@@ -395,16 +405,14 @@ impl WorldPlan {
                 name: WORLD_MARKER_ENV.into(),
                 value: format!("{}-w{n:03}", self.run_id),
             },
-            home,
             dir,
         })
     }
 }
 
-/// Create the directories of a world (private to the user). Idempotent. Everything else a scenario
-/// needs under the home is the runner's to add, see [`world_workspace`].
+/// Create the directories of a world (private to the user). Idempotent.
 pub fn create_world_dirs(world: &World) -> Result<()> {
-    for p in [&world.dir, &world.home, &world.data_dir, &world.temp] {
+    for p in [&world.dir, &world.temp] {
         rightkit_fs::private::ensure_private_dir(p)
             .map_err(|e| Error(format!("cannot create world dir {}: {e}", p.display())))?;
     }
@@ -428,8 +436,6 @@ pub fn check_distinct(worlds: &[World]) -> Result<()> {
     for w in worlds {
         for (label, p) in [
             ("dir", &w.dir),
-            ("data dir", &w.data_dir),
-            ("home", &w.home),
             ("temp", &w.temp),
             ("control socket", &w.control_socket),
             ("control token file", &w.control_token_file),
@@ -485,8 +491,6 @@ pub fn world_env(world: &World, tokens: &[Token]) -> Vec<(String, String)> {
             world.env_marker.value.clone(),
         ),
         (ENV_WORLD_DIR.into(), text(&world.dir)),
-        (ENV_WORLD_DATA.into(), text(&world.data_dir)),
-        (ENV_WORLD_HOME.into(), text(&world.home)),
         (ENV_WORLD_TEMP.into(), text(&world.temp)),
         (ENV_PORT_START.into(), world.port_start.to_string()),
         (ENV_PORT_END.into(), world.port_end.to_string()),
@@ -524,8 +528,6 @@ pub fn world_from_env(get: &dyn Fn(&str) -> Option<String>) -> Result<World> {
     };
     Ok(World {
         dir: PathBuf::from(need(ENV_WORLD_DIR)?),
-        data_dir: PathBuf::from(need(ENV_WORLD_DATA)?),
-        home: PathBuf::from(need(ENV_WORLD_HOME)?),
         temp: PathBuf::from(need(ENV_WORLD_TEMP)?),
         port_start: port(ENV_PORT_START)?,
         port_end: port(ENV_PORT_END)?,
@@ -574,106 +576,22 @@ pub fn build_spec(plan: &WorldPlan, world: &World, i: SpecInputs<'_>) -> Scenari
 
 // ---------------------------------------------------------------------- per-scenario workspace
 
-/// The runner's binding file name in a QA home. `storage` keeps its own copy private.
-const BINDING_FILE: &str = ".rightkit-app.json";
-
-/// The shape of a fresh QA home (its profile directories and its runner binding), captured before
-/// any scenario runs so each world home can be built the same way without reading a home that other
-/// scenarios are writing into.
-#[derive(Debug, Clone)]
-pub struct HomeTemplate {
-    dirs: Vec<PathBuf>,
-    binding: Vec<u8>,
-}
-
-impl HomeTemplate {
-    /// Capture `home`: every directory under it (not the `worlds` tree) and its binding file.
-    pub fn capture(home: &Path) -> Result<Self> {
-        let binding = std::fs::read(home.join(BINDING_FILE)).map_err(|e| {
-            Error(format!(
-                "{}: no readable runner binding to copy into scenario worlds: {e}",
-                home.display()
-            ))
-        })?;
-        let mut dirs = vec![];
-        let mut stack = vec![PathBuf::new()];
-        while let Some(rel) = stack.pop() {
-            let Ok(rd) = std::fs::read_dir(home.join(&rel)) else {
-                continue;
-            };
-            for e in rd.flatten() {
-                let Ok(ft) = e.file_type() else { continue };
-                if !ft.is_dir() || ft.is_symlink() {
-                    continue;
-                }
-                let child = rel.join(e.file_name());
-                if child == Path::new("worlds") {
-                    continue;
-                }
-                dirs.push(child.clone());
-                stack.push(child);
-            }
-        }
-        dirs.sort();
-        Ok(Self { dirs, binding })
-    }
-
-    fn apply(&self, world_home: &Path) -> Result<()> {
-        for rel in &self.dirs {
-            std::fs::create_dir_all(world_home.join(rel))?;
-        }
-        rightkit_fs::atomic_write(&world_home.join(BINDING_FILE), &self.binding).map_err(|e| {
-            Error(format!(
-                "cannot bind scenario home {}: {}",
-                world_home.display(),
-                std::io::Error::from(e)
-            ))
-        })
-    }
-}
-
-/// The [`QaWorkspace`] one in-process scenario runs in: the run's workspace with its home, data dir
-/// and every environment path moved into `world`, the world's own variables added, and the evidence
-/// and capture dirs left shared. Two scenarios built this way share no profile directory, so nothing
-/// one of them writes, or tears down, is in the other's.
-pub fn world_workspace(
-    ws: &QaWorkspace,
-    template: &HomeTemplate,
-    world: &World,
-    tokens: &[Token],
-) -> Result<QaWorkspace> {
+/// The [`QaWorkspace`] one in-process scenario runs in: the run's workspace with the scenario slot's
+/// own variables (marker, ports, control endpoint, tokens) added and its control token minted. The
+/// scratch home, evidence and capture dirs stay shared, and the app's home, profile and data folders
+/// are never moved: the scenario runs on the owner's real data.
+pub fn world_workspace(ws: &QaWorkspace, world: &World, tokens: &[Token]) -> Result<QaWorkspace> {
     create_world_dirs(world)?;
-    template.apply(&world.home)?;
-    // The world names its control token file to every launch (`ENV_CONTROL_TOKEN_FILE` is the launch's
+    // The slot names its control token file to every launch (`ENV_CONTROL_TOKEN_FILE` is the launch's
     // `token::ENV_AUTH_FILE`), and a launch reads the file it is named, failing closed: the token is
-    // minted here, where every runner path (suite and journeys) builds its world.
+    // minted here, where every runner path (suite and journeys) builds its slot.
     crate::control::token::write_file(&world.control_token_file)?;
-    let mut env: BTreeMap<String, String> = BTreeMap::new();
-    for (k, v) in &ws.env {
-        let moved = match Path::new(v).strip_prefix(&ws.home) {
-            Ok(rel) if rel.as_os_str().is_empty() => world.home.to_string_lossy().into_owned(),
-            Ok(rel) => world.home.join(rel).to_string_lossy().into_owned(),
-            Err(_) => v.clone(),
-        };
-        env.insert(k.clone(), moved);
-    }
-    // Every directory an exported variable points at must exist (the run workspace does the same).
-    for v in env.values() {
-        let p = Path::new(v);
-        if p.starts_with(&world.home) {
-            std::fs::create_dir_all(p)?;
-        }
-    }
+    let mut env: BTreeMap<String, String> = ws.env.clone();
     env.extend(world_env(world, tokens));
-    // The app's temp dir is the world's own short one (see `WorldPlan::world`), not `home/tmp`.
-    for key in ["TMPDIR", "TMP", "TEMP"] {
-        env.insert(key.into(), world.temp.to_string_lossy().into_owned());
-    }
     Ok(QaWorkspace {
         run_id: ws.run_id.clone(),
         root: ws.root.clone(),
-        home: world.home.clone(),
-        data_dir: world.data_dir.clone(),
+        home: ws.home.clone(),
         evidence_dir: ws.evidence_dir.clone(),
         capture_dir: ws.capture_dir.clone(),
         env,

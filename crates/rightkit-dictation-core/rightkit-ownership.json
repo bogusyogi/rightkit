@@ -3,7 +3,7 @@
   "capabilities": [
     {
       "capability": "dictation",
-      "summary": "Dictation core: engine wire protocol and validation, provider key handoff, recording session state machine and controller, wake word state, mic selection and audio conditioning.; declaration-only detection (no precise implementation fingerprint)",
+      "summary": "Dictation core: engine wire protocol and validation, provider key handoff, recording session state machine, wake word state, mic selection and audio conditioning.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

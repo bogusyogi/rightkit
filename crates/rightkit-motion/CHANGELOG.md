@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0 (unpublished)
+
+- rightkit#1144: the loopback project host takes the app's policy. BREAKING (`server` feature): `project_server::Project` replaces `gsap_js` with `injection: Injection`; new `Injection { runtime, swaps }`, `ScriptSwap { url_contains, url_ends_with, route, body }` (`ScriptSwap::gsap`), `Injection::deterministic(gsap)` (the previous behaviour: bundled `hf-runtime.js` plus the GSAP swap), `swap_scripts`, `serve(dir, entry, Injection) -> Handle { url, port(), logs(), shutdown() }` and `ProjectServer::start_with`. `ProjectServer::start(dir, entry, gsap_js)` is unchanged. Swap routes must be under `/__hf/`. Host guard, containment, byte ranges, log sink unchanged.
+- rightkit#1144: new feature `browser-source`: `browser_source::BrowserFrameSource`, a `render::FrameSource` over a managed `rightkit-browser` page (open, size, transparent background for alpha, wait for `__hf_meta`; seek with paint wait; CDP PNG capture with omit-background for alpha). `CompositionMeta` returns duration and size. Adds `rightkit-browser` and `tokio` (rt, time) behind the feature only.
+
+## 0.2.3 (unpublished)
+
+- Added caller-supplied encoder settings on `EncodeSpec` (#803, GenRight parity), defaults unchanged:
+  - `vp9_crf: Option<u32>`: VP9 alpha `-crf` 0 to `VP9_CRF_MAX` (63). `None` keeps `Quality::vp9_crf()` (40, 32, 24). Refused for any other output.
+  - `audio_codec: Option<AudioCodec>`: `AudioCodec::Opus` (libopus 128k) is the VP9 alpha audio codec and lifts the former video-only refusal. The caller must choose it only when the build lists `libopus`; the render then fails at ffmpeg start if it does not. `AudioCodec::Aac` is for H.264 and MPEG-4. `None` keeps PCM for ProRes and AAC otherwise.
+- Breaking for struct-literal callers of `EncodeSpec` (new fields); the only in-repo literal, `render.rs`, now passes `None`.
+
 ## 0.2.2 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

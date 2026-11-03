@@ -7,6 +7,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { digestScanSet, requiredScanIds, requiredScanProblems } from "../../packages/release/scan-digest.mjs";
+import { effectiveCrateFeatures } from "../../packages/release/feature-coverage.mjs";
 import { LOCAL_SCAN_CLASSES, LOCAL_SCAN_SCHEMA, localScanShapeProblems } from "./upload.mjs";
 
 export const SCAN_RECEIPT_SCHEMA = "rightkit.scan-receipt/2";
@@ -143,7 +144,8 @@ function validScope(scope) {
 export function buildScanReceipt({ result, plannedClassA, sourceCommit, headCommit, cargoLocks, observedTools, run, scope }) {
   if (scope !== undefined) requireThat(validScope(scope), "malformed scan scope");
   const problems = [...resultProblems(result, plannedClassA, cargoLocks), ...toolVersionProblems(observedTools)];
-  const rows = (result?.scans ?? []).map(({ id, class: cls, command, status }) => ({ id, class: cls, command, status }));
+  // `advice` (dependency-freshness, rightkit#1475: "N behind latest") rides in the row for the reader; the scan-set digest binds id, class and command only.
+  const rows = (result?.scans ?? []).map(({ id, class: cls, command, status, advice }) => ({ id, class: cls, command, status, ...(typeof advice === "string" ? { advice } : {}) }));
   return {
     schema: SCAN_RECEIPT_SCHEMA,
     passed: problems.length === 0,
@@ -209,7 +211,8 @@ export function localResultProblems(result, planned, cargoLocks = {}) {
 
 export function buildLocalScanRecord({ result, planned, sourceCommit, headCommit, cargoLocks, observedTools, units, files }) {
   const problems = [...localResultProblems(result, planned, cargoLocks), ...toolVersionProblems(observedTools)];
-  const rows = (result?.scans ?? []).map(({ id, class: cls, command, status }) => ({ id, class: cls, command, status }));
+  // `advice` (dependency-freshness, rightkit#1475: "N behind latest") rides in the row for the reader; the scan-set digest binds id, class and command only.
+  const rows = (result?.scans ?? []).map(({ id, class: cls, command, status, advice }) => ({ id, class: cls, command, status, ...(typeof advice === "string" ? { advice } : {}) }));
   return {
     schema: LOCAL_SCAN_SCHEMA, passed: problems.length === 0, problems, sourceCommit, headCommit, cargoLocks,
     scope: { units: [...units], files },
@@ -231,7 +234,9 @@ export function localRequiredScanIds({ units, readText }) {
   if (exists("ci/gate.config.json")) {
     try { crateFeatures = JSON.parse(readText("ci/gate.config.json")).rust ?? {}; } catch { refuse("ci/gate.config.json in the authenticated source is not valid JSON"); }
   }
-  return requiredScanIds({ units, crateFeatures, exists });
+  // The same generated lint plan the gate's planner uses (rightkit#1231): a crate with no declared featureSets and Cargo features is linted with --all-features too.
+  const manifestOf = (name) => { try { return readText(`crates/${name}/Cargo.toml`); } catch { return null; } };
+  return requiredScanIds({ units, crateFeatures: effectiveCrateFeatures({ crateFeatures, units, manifestOf }), exists });
 }
 
 /** Throws unless the record shows a complete, passed local scan of exactly this source commit, lockfile and unit set,

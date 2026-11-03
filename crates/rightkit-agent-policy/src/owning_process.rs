@@ -17,6 +17,8 @@
 //! through arbitrary indirection (computed pids, scripts on disk); OS-level
 //! process-group isolation of spawned shells remains the backstop.
 
+use crate::shell_stages::split_pipelines;
+
 /// Identity of the process the policy must keep alive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OwningProcess {

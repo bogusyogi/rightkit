@@ -4,6 +4,8 @@ Cloudflare Worker (D1 for records, R2 for large bodies) that implements the serv
 
 Private package: it is deployed, not published.
 
+Status (ruling rightkit#967): the hosted sync service is live and supported. This Worker is deployed for HeardRight, and the `rightkit-sync` `http` feature is its supported client; the earlier "parked" note in `crates/rightkit-sync` is retired. A later self-hosted deployment of the same Worker (for example for RightPass) uses the same protocol.
+
 ## What the server knows
 
 Only ciphertext and ordering metadata. The client-side cipher keeps `name`, `type`, `updated_at`, `deleted_at` in clear and puts every other field into one AEAD blob, which is `enc` here (base64 on the wire, a BLOB or R2 object at rest). The worker never parses `enc`, never logs names or bodies, and cannot read transcripts.
@@ -137,4 +139,4 @@ Compared with `crates/rightkit-sync/HTTP-PROTOCOL.md` as of 2026-10-16:
 
 ## Develop
 
-`pnpm typecheck`, `pnpm test` (vitest with `@cloudflare/vitest-pool-workers`, four local D1 shards and local R2 via Miniflare). Tests use fixed test-only secrets, `SHARD_COUNT=4` and `CF_PLAN=free` set in `vitest.config.ts`.
+`pnpm typecheck`. The package has no unit tests (Adrian, 2026-11-03: end-to-end tests only).

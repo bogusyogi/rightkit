@@ -70,7 +70,7 @@ struct Parts {
 /// The start time and owner (uid) of `pid` right now, or None when no such process exists.
 /// A start time of 0 means the platform reported none.
 pub fn live_identity(pid: u32) -> Option<(u64, Option<u32>)> {
-    let mut system = System::new();
+    let mut system = System::new().ok()?;
     let target = Pid::from_u32(pid);
     system.refresh_processes_specifics(
         ProcessesToUpdate::Some(&[target]),

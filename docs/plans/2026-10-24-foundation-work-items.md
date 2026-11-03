@@ -22,4 +22,18 @@ Source: `docs/research/2026-10-24-rightkit-vs-fastframe-matrix.md` (30-row compa
 | 16 | Swift package public or vendorable for open-source consumers | `RightKitSwift` is consumed by exact tag from the private repository; an open-source RightPass iOS build cannot resolve it | Decision: publish the Swift package publicly or document a vendoring procedure under its licence |
 | 17 | Small borrows from the Fastframe family | `fastframe-file`'s debug panic when the UI thread writes; Spotifast's DPAPI sealed credential fallback and revocation markers; Spotifast's CI gate on new settings; `fastframe-audio` pause-when-idle output and allocation-free callback test; package-manager-installed detection in the updater; system proxy and SOCKS in `rightkit-http`; Sigstore or GitHub artifact attestations | Each landed in its owner with a test, or declined with a line here |
 
+## Dispositions of items 16 and 17 (2026-11-03)
+
+Item 16 (#969): decided, vendor. `swift/RightKitSwift/docs/VENDORING.md` holds the procedure; a public mirror is a publication call that stays with Adrian and nothing depends on it.
+
+Item 17 (#970), each bullet:
+
+- `rightkit-fs` debug-panic Writer: declined. It asks for a panic in debug builds, and the standing rule is no debug assertions or debug-only behaviour (Adrian, 2026-11-03).
+- `rightkit-credentials` DPAPI-sealed fallback copy and revocation markers: declined. A second sealed copy of a secret outside Credential Manager is a second store beside the platform one, which the Swift owner refuses in its header ("no plaintext or file fallback"). A failed Credential Manager read stays an error the app shows. Non-secret revocation markers are not declined: they are open in `rightkit-credentials`, held by the batch that owns it.
+- CI refusal of a new settings field without an approval label: declined. RightKit pushes to `main` in batches (`docs/CI.md`), so no pull request label exists for a check to read. A field-approval gate would need its own approval record format; none is decided.
+- `rightkit-audio` idle pause and default-device following: done (`OutputSession::set_idle_release`, `OutputSession::service`, rightkit-audio 0.3.3). The allocation-counting test is declined: tests are end-to-end only, and the callback allocates nothing.
+- Updater refuses package-manager-managed installs: done (`rightkit-tauri-shell` `update::managed_install`, `UpdatePolicy::allow_managed_install`, 0.7.3).
+- `rightkit-http` system proxy detection: already shipped (`ProxyMode::System`, `rightkit-http/src/system_proxy.rs`). SOCKS support: open in `rightkit-http`, owned by the batch that holds that crate.
+- Sigstore or GitHub artifact attestations on every published artefact: open in `packages/release`, owned by Legion.
+
 Not doing (recorded so it is not re-litigated): migrating the hubs to egui; git-tag dependencies on fastframe (release checks refuse them; fork and publish as `rightkit-*` if a piece is taken); copying their assets (ZapFast ships GPL-2.0 sounds); Zig.

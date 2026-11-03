@@ -53,9 +53,6 @@ pub struct OnnxAsr {
     /// Experimental reusable fixed-shape output storage for the fused graph.
     /// Initialized on first explicit call; never used by the shipping path.
     joint_preallocated_outputs: Option<PreallocatedJointOutputs>,
-    /// Audit-only split copy. Loaded only when `RIGHTKIT_ONNX_PREDICTOR_EXPERIMENT_DIR`
-    /// is explicitly set; the installed fused model remains the default path.
-    split_decoder: Option<SplitDecoder>,
     vocab: Vec<String>,
     config: OnnxAsrConfig,
     static_window: Option<usize>,
@@ -65,25 +62,10 @@ pub struct OnnxAsr {
     joint_scratch: JointBatchScratch,
 }
 
-struct SplitDecoder {
-    predictor: rightkit_onnx::ort::session::Session,
-    joint: rightkit_onnx::ort::session::Session,
-}
-
 struct PreallocatedJointOutputs {
     options:
         rightkit_onnx::ort::session::RunOptions<rightkit_onnx::ort::session::HasSelectedOutputs>,
     shapes: [Vec<i64>; 3],
-}
-
-/// Predictor result that can be reused by blank descendants of one beam path.
-/// Keep output projection and next recurrent state together so the cache
-/// represents the complete predictor transition.
-#[derive(Clone)]
-pub struct PredictorOutput {
-    pub projection: Array3<f32>,
-    pub state_h: Array3<f32>,
-    pub state_c: Array3<f32>,
 }
 
 /// One batched joint step: logits plus the next predictor state (h, c).
@@ -146,28 +128,11 @@ impl OnnxAsr {
             ],
         )?)?;
 
-        let split_decoder = if let Some(dir) =
-            dev_var_os!("RIGHTKIT_ONNX_PREDICTOR_EXPERIMENT_DIR")
-        {
-            let dir = Path::new(&dir);
-            Some(SplitDecoder {
-                predictor: options
-                    .cpu_only_for_stage("PREDICTOR")
-                    .build(&dir.join("predictor.onnx"))?,
-                joint: options
-                    .cpu_only_for_stage("JOINT")
-                    .build(&dir.join("joint.onnx"))?,
-            })
-        } else {
-            None
-        };
-
         Ok(Self {
             mel,
             encoder,
             decoder_joint,
             joint_preallocated_outputs: None,
-            split_decoder,
             vocab,
             config,
             static_window,
@@ -245,8 +210,7 @@ impl OnnxAsr {
     /// where the audio stops. Passing short features to a static graph is either
     /// a hard shape rejection or an accepted tensor with undefined length
     /// semantics. Note macOS passes the full static window as its length and
-    /// clamps decoding to the real frames instead;
-    /// `RIGHTKIT_ONNX_ENCODER_LENGTH_EXPERIMENT=static` tests that here (ORT-01).
+    /// clamps decoding to the real frames instead.
     pub fn encode(&mut self, features: &Array2<f32>) -> Result<EncoderOutput> {
         let frames = features.shape()[0];
         let feature_size = features.shape()[1];
@@ -325,13 +289,7 @@ impl OnnxAsr {
         signal: rightkit_onnx::ort::session::SessionInputValue<'_>,
         frames: usize,
     ) -> Result<EncoderOutput> {
-        // ORT-01 experiment: `static` passes the full static window as
-        // `length` (macOS semantics) and clamps decoding to the real frames
-        // below. Default `actual` is the shipping behaviour.
-        let length_input = match (encoder_length_mode()?, self.static_window) {
-            (EncoderLengthMode::Static, Some(win)) => win,
-            _ => frames,
-        };
+        let length_input = frames;
         let prior_pass_age = encoder_pass_age();
         let outputs = self
             .encoder
@@ -650,134 +608,6 @@ impl OnnxAsr {
         }
         joint_step_from_outputs(&outputs)
     }
-
-    /// Run only the decoder predictor branch from an audit split graph.
-    pub fn predictor_step(
-        &mut self,
-        last_token: i32,
-        state_h: &Array3<f32>,
-        state_c: &Array3<f32>,
-    ) -> Result<PredictorOutput> {
-        let split = self.split_decoder.as_mut().ok_or_else(|| {
-            Error::MissingArtifact("split predictor experiment models were not loaded".into())
-        })?;
-        let targets = Array2::from_shape_vec((1, 1), vec![last_token])
-            .map_err(|e| Error::Shape(format!("predictor targets: {e}")))?;
-        let outputs = split
-            .predictor
-            .run(rightkit_onnx::ort::inputs!(
-                "targets" => tensor!(targets),
-                "target_length" => tensor!(Array1::from_vec(vec![1i32])),
-                "input_states_1" => tensor!(state_h.clone()),
-                "input_states_2" => tensor!(state_c.clone())
-            ))
-            .map_err(|e| Error::Runtime(format!("split predictor: {e}")))?;
-        let projection = extract_state(&outputs, "/joint/pred/Add_output_0")?;
-        Ok(PredictorOutput {
-            projection,
-            state_h: extract_state(&outputs, "output_states_1")?,
-            state_c: extract_state(&outputs, "output_states_2")?,
-        })
-    }
-
-    /// Split predictor using borrowed ORT tensor views for its state inputs.
-    /// This isolates the cost of cloning the two recurrent-state arrays into
-    /// owned ORT tensors in `predictor_step`; outputs remain owned because the
-    /// beam cache outlives this synchronous session call.
-    pub fn predictor_step_borrowed(
-        &mut self,
-        last_token: i32,
-        state_h: &Array3<f32>,
-        state_c: &Array3<f32>,
-    ) -> Result<PredictorOutput> {
-        let split = self.split_decoder.as_mut().ok_or_else(|| {
-            Error::MissingArtifact("split predictor experiment models were not loaded".into())
-        })?;
-        let targets = [last_token];
-        let target_length = [1i32];
-        let targets = rightkit_onnx::ort::value::TensorRef::from_array_view(([1, 1], &targets[..]))
-            .map_err(|e| Error::Runtime(format!("predictor targets: {e}")))?;
-        let target_length =
-            rightkit_onnx::ort::value::TensorRef::from_array_view(([1], &target_length[..]))
-                .map_err(|e| Error::Runtime(format!("predictor target length: {e}")))?;
-        let input_states_1 = rightkit_onnx::ort::value::TensorRef::from_array_view(state_h.view())
-            .map_err(|e| Error::Runtime(format!("predictor state h: {e}")))?;
-        let input_states_2 = rightkit_onnx::ort::value::TensorRef::from_array_view(state_c.view())
-            .map_err(|e| Error::Runtime(format!("predictor state c: {e}")))?;
-        let outputs = split
-            .predictor
-            .run(rightkit_onnx::ort::inputs!(
-                "targets" => targets,
-                "target_length" => target_length,
-                "input_states_1" => input_states_1,
-                "input_states_2" => input_states_2
-            ))
-            .map_err(|e| Error::Runtime(format!("split predictor: {e}")))?;
-        Ok(PredictorOutput {
-            projection: extract_state(&outputs, "/joint/pred/Add_output_0")?,
-            state_h: extract_state(&outputs, "output_states_1")?,
-            state_c: extract_state(&outputs, "output_states_2")?,
-        })
-    }
-
-    /// Run the joint branch using a cached predictor projection.
-    pub fn joint_from_predictor(
-        &mut self,
-        enc_frame: &[f32],
-        projection: &Array3<f32>,
-    ) -> Result<Vec<f32>> {
-        let split = self.split_decoder.as_mut().ok_or_else(|| {
-            Error::MissingArtifact("split predictor experiment models were not loaded".into())
-        })?;
-        let frame = Array3::from_shape_vec((1, enc_frame.len(), 1), enc_frame.to_vec())
-            .map_err(|e| Error::Shape(format!("joint frame: {e}")))?;
-        let outputs = split
-            .joint
-            .run(rightkit_onnx::ort::inputs!(
-                "encoder_outputs" => tensor!(frame),
-                "/joint/pred/Add_output_0" => tensor!(projection.clone())
-            ))
-            .map_err(|e| Error::Runtime(format!("split joint: {e}")))?;
-        let (_, logits) = outputs["outputs"]
-            .try_extract_tensor::<f32>()
-            .map_err(|e| Error::Runtime(format!("split joint logits: {e}")))?;
-        Ok(logits.to_vec())
-    }
-
-    /// Split joint with borrowed frame & projection inputs. This avoids
-    /// rebuilding the frame tensor and cloning the cached projection for each
-    /// encoder frame that shares one predictor result.
-    pub fn joint_from_predictor_borrowed(
-        &mut self,
-        enc_frame: &[f32],
-        projection: &Array3<f32>,
-    ) -> Result<Vec<f32>> {
-        let split = self.split_decoder.as_mut().ok_or_else(|| {
-            Error::MissingArtifact("split predictor experiment models were not loaded".into())
-        })?;
-        let frame = rightkit_onnx::ort::value::TensorRef::from_array_view((
-            [1, enc_frame.len(), 1],
-            enc_frame,
-        ))
-        .map_err(|e| Error::Runtime(format!("joint frame: {e}")))?;
-        let projection = rightkit_onnx::ort::value::TensorRef::from_array_view(projection.view())
-            .map_err(|e| Error::Runtime(format!("joint predictor projection: {e}")))?;
-        let outputs = split
-            .joint
-            .run(rightkit_onnx::ort::inputs!(
-                "encoder_outputs" => frame,
-                "/joint/pred/Add_output_0" => projection
-            ))
-            .map_err(|e| Error::Runtime(format!("split joint: {e}")))?;
-        let (_, logits) = outputs["outputs"]
-            .try_extract_tensor::<f32>()
-            .map_err(|e| Error::Runtime(format!("split joint logits: {e}")))?;
-        Ok(logits.to_vec())
-    }
-
-    pub fn has_split_predictor_experiment(&self) -> bool {
-        self.split_decoder.is_some()
-    }
 }
 
 pub struct EncoderOutput {
@@ -789,8 +619,7 @@ pub struct EncoderOutput {
     pub used: usize,
     /// Real mel frames fed to this pass (before padding to the static window).
     pub input_frames: usize,
-    /// The `length` input actually passed: `input_frames`, or the static
-    /// window under `RIGHTKIT_ONNX_ENCODER_LENGTH_EXPERIMENT=static`.
+    /// The `length` input actually passed: `input_frames`.
     pub length_input: usize,
     /// Time since the previous encoder pass in this process finished, at the
     /// start of this one. `None` for the first pass. A GPU-recency signal for
@@ -846,27 +675,6 @@ fn fill_signal_channel_major(
         row[frames..].fill(0.0);
     }
     Ok(())
-}
-
-/// ORT-01: `RIGHTKIT_ONNX_ENCODER_LENGTH_EXPERIMENT=actual|static`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EncoderLengthMode {
-    Actual,
-    Static,
-}
-
-fn encoder_length_mode() -> Result<EncoderLengthMode> {
-    match dev_var!("RIGHTKIT_ONNX_ENCODER_LENGTH_EXPERIMENT")
-        .ok()
-        .as_deref()
-        .map(str::trim)
-    {
-        None | Some("") | Some("actual") => Ok(EncoderLengthMode::Actual),
-        Some("static") => Ok(EncoderLengthMode::Static),
-        Some(other) => Err(Error::Runtime(format!(
-            "invalid RIGHTKIT_ONNX_ENCODER_LENGTH_EXPERIMENT: {other}"
-        ))),
-    }
 }
 
 /// When the most recent encoder pass in this process finished.

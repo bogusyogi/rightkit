@@ -3,3 +3,4 @@
 export * from "./sections.js";
 export * from "./standard.js";
 export * from "./hooks.js";
+export * from "./SettingsModal.js";

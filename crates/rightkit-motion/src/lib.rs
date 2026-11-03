@@ -10,7 +10,12 @@
 //!   quality map, ProRes 4444 and VP9 alpha output with an encoder-availability probe, PNG to
 //!   PPM/PAM conversion, and still and poster export.
 //!
-//! No browser, Typst or media decode lives here, and no webview: the frame source is a trait. Without
+//! - `project_server` (feature `server`): loopback host for an HTML composition project with the app's
+//!   runtime injection and script swaps (`serve(dir, entry, Injection) -> Handle`).
+//! - `browser_source` (feature `browser-source`): `BrowserFrameSource`, a `FrameSource` over a managed
+//!   Chrome page that loads that host.
+//!
+//! No browser (outside `browser-source`), Typst or media decode lives here, and no webview: the frame source is a trait. Without
 //! feature `encode` there is no I/O at all. With it, ffmpeg runs only through `rightkit-ffmpeg`
 //! (an owned `rightkit-child-process` tree); fuzzy ASR matching stays in `rightkit-align`.
 //!
@@ -22,6 +27,8 @@
 //! diffs), and its capability `motion-takes` is declaration-only until then.
 
 pub mod beats;
+#[cfg(feature = "browser-source")]
+pub mod browser_source;
 #[cfg(feature = "engine-commands")]
 pub mod cmd;
 pub mod composition;
@@ -47,7 +54,8 @@ pub use sheet::{
 #[cfg(feature = "encode")]
 pub use encoder::{
     build_command, is_init_failure, pick_alpha_encoder, pick_encoder, probe_inventory,
-    target_bitrate, AlphaSupport, AudioInput, EncodeSpec, Encoder, EncoderKind, Quality,
+    target_bitrate, AlphaSupport, AudioCodec, AudioInput, EncodeSpec, Encoder, EncoderKind,
+    Quality, VP9_CRF_MAX,
 };
 #[cfg(feature = "encode")]
 pub use frame::{png_dimensions, png_to_pam, png_to_ppm};

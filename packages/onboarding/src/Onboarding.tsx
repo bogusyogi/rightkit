@@ -3,7 +3,7 @@ import { LegalGate } from "@rightkit/legal-ui";
 import { Button } from "@rightkit/react-shell/react";
 import { cx } from "./ui.js";
 import { licenseStep, modelsStep, permissionsStep, signInStep } from "./steps.js";
-import type { EligibilityBasis, LegalAcceptanceRecord, LegalGateDocument, LegalStepConfig, OnboardingLabels, OnboardingProps, OnboardingResult, OnboardingStep, OnboardingStepContext, PersistedOnboardingState } from "./types.js";
+import type { EligibilityBasis, LegalAcceptanceRecord, LegalGateDocument, LegalStepConfig, OnboardingLabels, OnboardingProps, OnboardingResult, OnboardingStep, OnboardingStepContext, PersistedOnboardingState, SettingsBackend } from "./types.js";
 
 const KEY = "onboarding.state";
 const INITIAL: PersistedOnboardingState = { version: 1, currentStep: 0, completed: [], skipped: false, legalAccepted: false };
@@ -48,11 +48,22 @@ export function readState(value: unknown): PersistedOnboardingState {
   };
 }
 
-/** Replace the acceptance in `state` with the one from the app's receipt (`undefined`: not accepted). */
-function withReceipt(state: PersistedOnboardingState, record: LegalAcceptanceRecord | undefined): PersistedOnboardingState {
+/**
+ * Replace the acceptance in `state` with the one from the app's receipt (`undefined`: not accepted). A `historical` record
+ * (`HistoricalLegalReceipt`) is kept as the acceptance for the re-acceptance variant but never counts as accepted: it is
+ * flagged reopened, so the gate shows again and the setup progress is left alone.
+ */
+function withReceipt(state: PersistedOnboardingState, record: LegalAcceptanceRecord | undefined, historical = false): PersistedOnboardingState {
   const { legalAcceptance: _drop, eligibilityBasis: _basis, ...rest } = state;
   void _drop; void _basis;
-  return record ? { ...rest, legalAccepted: true, eligibilityBasis: record.eligibilityBasis, legalAcceptance: record } : { ...rest, legalAccepted: false };
+  if (!record) return { ...rest, legalAccepted: false };
+  if (historical) return { ...rest, legalAccepted: false, legalReopened: true, eligibilityBasis: record.eligibilityBasis, legalAcceptance: record };
+  return { ...rest, legalAccepted: true, eligibilityBasis: record.eligibilityBasis, legalAcceptance: record };
+}
+
+/** True when a `LegalReceiptPort.read()` value is a historical receipt (`{ record, current: false }`). */
+function isHistoricalReceipt(value: unknown): value is { record: unknown; current: false } {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && "record" in value && (value as { current?: unknown }).current === false;
 }
 
 /** True when the stored acceptance satisfies the host's requirement. */
@@ -75,6 +86,38 @@ export function isLegalAccepted(
   // With no version or hash requirement a recorded acceptance is still required: a bare legacy
   // `legalAccepted` flag carries no version, time or basis, so it re-prompts once (as re-acceptance).
   return state.legalAcceptance !== undefined;
+}
+
+/**
+ * True when the setup step `stepId` is settled in a persisted onboarding state: the step is completed or skipped, or the
+ * whole setup was set aside ("Set up later", `skipped: true`). Reads the raw persisted value, so callers need no cast.
+ * Missing or malformed input is false; it never throws. Which steps gate an app stays with the app.
+ */
+export function isStepSettled(state: unknown, stepId: string): boolean {
+  try {
+    if (typeof state !== "object" || state === null || typeof stepId !== "string") return false;
+    const candidate = state as Partial<PersistedOnboardingState>;
+    if (candidate.skipped === true) return true;
+    const completed = Array.isArray(candidate.completed) && candidate.completed.includes(stepId);
+    const skipped = Array.isArray(candidate.skippedSteps) && candidate.skippedSteps.includes(stepId);
+    return completed || skipped;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Restarts the setup at its first step ("Show onboarding again"). The setup progress (completed and skipped steps, the
+ * set-aside flag) is cleared, but the legal acceptance is kept: the agreement is not asked again, and `legal` stays
+ * completed. Reads the stored value first, so the rest of the settings are untouched.
+ */
+export async function restartOnboardingSetup({ settings }: { settings: SettingsBackend }): Promise<void> {
+  const key = onboardingStateKey();
+  const snapshot = await settings.load();
+  const state = readState(snapshot.values[key]);
+  await settings.patch({
+    [key]: { ...state, currentStep: 0, skipped: false, skippedSteps: [], completed: state.completed.filter((id) => id === "legal") },
+  }, snapshot.revision);
 }
 
 /** FNV-1a fallback when SubtleCrypto is unavailable. */
@@ -108,7 +151,7 @@ function NoticeList({ documents }: { documents: readonly LegalGateDocument[] }) 
   return <ul className="rk-onboarding__notices">{documents.map((d) => <li key={d.title}>{d.onOpen ? <button type="button" onClick={d.onOpen}>{d.title}</button> : d.url ? <a href={d.url} target="_blank" rel="noreferrer">{d.title}</a> : d.title}</li>)}</ul>;
 }
 
-export function Onboarding({ settings, legal, legalMode = "gate", appName, steps = [], permissions, models, license, signIn, receiptDocuments, onComplete, onSkip, className, layout = "window", requiredVersion, requiredDocumentsHash, isAccepted, documentsHash, beforeLegalGate, requireModel, autoStartDownload, shouldAutoStart, onModelsStepEnter, modelsIntro, allowSkip = true, titlebar, dragRegion, legalDragRegion = false, legalReceipt, labels: labelOverrides }: OnboardingProps) {
+export function Onboarding({ settings, legal, legalMode = "gate", appName, steps = [], permissions, models, license, signIn, receiptDocuments, onComplete, onSkip, className, layout = "window", requiredVersion, requiredDocumentsHash, isAccepted, documentsHash, beforeLegalGate, requireModel, autoStartDownload, shouldAutoStart, onModelsStepEnter, modelsIntro, allowSkip = true, titlebar, dragRegion, legalDragRegion = false, legalReceipt, labels: labelOverrides, frame = "rail", density = "default", trafficLightInset = false }: OnboardingProps) {
   if (legalMode === "gate" && !legal) throw new Error("Onboarding: `legal` is required when legalMode is \"gate\"");
   const L: OnboardingLabels = { ...DEFAULT_LABELS, ...labelOverrides };
   const gated = legalMode === "gate";
@@ -151,8 +194,13 @@ export function Onboarding({ settings, legal, legalMode = "gate", appName, steps
         if (!legalReceipt) { if (live) setState(loaded); return; }
         // The app's receipt is the source of truth for acceptance; an unreadable receipt counts as none.
         let record: LegalAcceptanceRecord | undefined;
-        try { record = readAcceptance(await legalReceipt.read()); } catch { record = undefined; }
-        if (live) setState(withReceipt(loaded, record));
+        let historical = false;
+        try {
+          const value: unknown = await legalReceipt.read();
+          if (isHistoricalReceipt(value)) { record = readAcceptance(value.record); historical = record !== undefined; }
+          else record = readAcceptance(value);
+        } catch { record = undefined; historical = false; }
+        if (live) setState(withReceipt(loaded, record, historical));
       } catch (e) { if (live) setError(e instanceof Error ? e.message : String(e)); }
     })();
     return () => { live = false; };
@@ -220,7 +268,14 @@ export function Onboarding({ settings, legal, legalMode = "gate", appName, steps
     }
     await markAndMove(index + 1, { completed: active.id });
   };
-  const rootClass = cx("rk-onboarding", layout === "contained" && "rk-onboarding--contained", className);
+  const rootClass = cx(
+    "rk-onboarding",
+    layout === "contained" && "rk-onboarding--contained",
+    density === "compact" && "rk-onboarding--compact",
+    trafficLightInset && "rk-onboarding--lights",
+    frame === "card" && "rk-onboarding--card",
+    className,
+  );
   if (error && !state) return <div className={rootClass}><p className="rk-onboarding__error" role="alert">{error}</p><Button onClick={() => window.location.reload()}>Retry</Button></div>;
   if (state && !active) return <main className={rootClass} data-testid="onboarding"><p className="rk-onboarding__muted">Nothing to set up.</p><Button variant="primary" onClick={() => void runCallback(() => onComplete(resultOf(activeState.completed, activeState.skippedSteps ?? [])))}>{L.finish}</Button></main>;
   if (!state || !active) return <div className={rootClass} aria-busy="true"><p className="rk-onboarding__muted">{L.loading}</p></div>;
@@ -264,6 +319,29 @@ export function Onboarding({ settings, legal, legalMode = "gate", appName, steps
     }} /></div>;
   }
   const body: ReactNode = active.render(context);
+  if (frame === "card") {
+    // The HeardRight v5 frame: one centred card, the app name on top, a dot pager and no step rail.
+    return <main className={rootClass} data-testid="onboarding" data-step-id={active.id} data-frame="card">
+      <TitleStrip titlebar={titlebar} dragRegion={dragRegion} />
+      <section className="rk-onboarding__main rk-onboarding__main--card">
+        <div className="rk-onboarding__brand rk-onboarding__brand--card">{appName ?? legal?.appName}</div>
+        <div className="rk-onboarding__frame">
+          {active.title ? <h1>{active.title}</h1> : null}
+          {active.description ? <p className="rk-onboarding__description">{active.description}</p> : null}
+          <div className="rk-onboarding__content">{body}</div>
+          {error ? <p className="rk-onboarding__error" role="alert">{error}</p> : null}
+          <footer>
+            <Button variant="secondary" disabled={index <= lead || saving || continuing} onClick={() => void save({ currentStep: index - 1 })}>{L.back}</Button>
+            <nav className="rk-onboarding__dots" aria-label="Setup progress">{builtins.map((step, i) => <button key={step.id} type="button" className={cx("rk-onboarding__dot", i === index && "is-active", activeState.completed.includes(step.id) && "is-done")} aria-label={`Step ${i + 1}: ${step.label}`} aria-current={i === index ? "step" : undefined} disabled={(gated && i === 0 && builtins.length > 1) || continuing} onClick={() => { if (!continuing && i >= lead && (i <= index || canContinue)) void save({ currentStep: i }); }} />)}</nav>
+            <span className="rk-onboarding__hint">{!canContinue && active.blockedHint ? active.blockedHint : null}</span>
+            {allowSkip ? <Button variant="ghost" disabled={saving || continuing} onClick={() => { void save({ currentStep: index, skipped: true }).then((ok) => ok ? runCallback(onSkip) : undefined); }}>{L.skip}</Button> : null}
+            {active.skippable ? <Button variant="ghost" disabled={saving || continuing} onClick={() => void markAndMove(index + 1, { skipped: active.id })}>{L.skipStep}</Button> : null}
+            <Button variant="primary" disabled={saving || continuing || !canContinue} onClick={() => void advance()}>{active.continueLabel ?? (index === builtins.length - 1 ? L.finish : L.continue)}</Button>
+          </footer>
+        </div>
+      </section>
+    </main>;
+  }
   return <main className={rootClass} data-testid="onboarding" data-step-id={active.id}>
     <TitleStrip titlebar={titlebar} dragRegion={dragRegion} />
     <aside className="rk-onboarding__rail"><div className="rk-onboarding__brand">{appName ?? legal?.appName}</div><nav aria-label="Setup progress">{builtins.map((step, i) => <button key={step.id} type="button" className={cx("rk-onboarding__step", i === index && "is-active", activeState.completed.includes(step.id) && "is-done")} aria-current={i === index ? "step" : undefined} disabled={(gated && i === 0 && builtins.length > 1) || continuing} onClick={() => { if (!continuing && i >= lead && (i <= index || canContinue)) void save({ currentStep: i }); }}><span>{activeState.completed.includes(step.id) ? "✓" : i + 1}</span>{step.label}</button>)}</nav></aside>

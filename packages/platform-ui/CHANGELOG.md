@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.1 — unpublished staging
+
+Additive. Every new option defaults to the 0.4.0 behaviour.
+
+- `FocusTrapOptions.returnFocus` (and `attachFocusTrap`): an element or a function returning one that receives focus on close (#1154).
+- Focus return fallback (#1154): when the recorded opener is `<body>` (WebKit does not focus a clicked button) or no longer connected (a palette that unmounted), focus goes to the last focused or pressed element that is still connected and outside the trap. Previously nothing was focused.
+- `trackFocusHistory(doc?)` and `resolveReturnFocus(...)` (`./headless`), `ReturnFocusTarget` type: the focus history and the pure resolver behind the fallback (#1154).
+
 ## 0.4.0 — unpublished staging
 
 - Removes public QA exports from the runtime package surface.

@@ -1,4 +1,4 @@
-import { resolveBrand, type BrandFile, type Mode } from "./brand.js";
+import { SUITE_DEFAULTS, SUITE_MOTION, resolveBrand, type BrandFile, type Mode } from "./brand.js";
 import { contrastRatio, isHex } from "./color.js";
 
 export interface ContrastResult {
@@ -125,5 +125,37 @@ export function checkGeneratedCss(css: string, brand: BrandFile): string[] {
   for (const name of need.light) if (!new RegExp(`${name.replace(/[-/]/g, "\\$&")}\\s*:`).test(css)) problems.push(`missing ${name}`);
   const darkBlock = css.slice(css.indexOf('[data-theme="dark"]'));
   for (const name of need.dark) if (!new RegExp(`${name.replace(/[-/]/g, "\\$&")}\\s*:`).test(darkBlock)) problems.push(`missing ${name} in dark block`);
+  return problems;
+}
+
+const normalizeValue = (value: string) => value.replace(/\s+/g, "").toLowerCase();
+
+/**
+ * Drift check between the flat suite defaults in this package and `@rightkit/react-shell`'s `shell.css` (pass its text).
+ * Every `SUITE_DEFAULTS` entry must be declared as `--rk-<name>` in the light `:root` block and in the dark block
+ * (`:root:not([data-theme="light"])` or `:root[data-theme="dark"]`), and every `SUITE_MOTION` entry in the light block,
+ * with the same value (case and spacing ignored). Returns one line per problem; empty when they agree.
+ */
+export function checkSuiteDefaults(shellCss: string): string[] {
+  const declared: Record<Mode, Map<string, string>> = { light: new Map(), dark: new Map() };
+  for (const rule of shellCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    // The innermost selector is the last line before `{`; @media wrappers and comments are not selectors.
+    const selector = (rule[1] ?? "").replace(/\/\*[\s\S]*?\*\//g, "").trim().split("\n").pop()?.trim() ?? "";
+    const mode: Mode | null = selector === ":root"
+      ? "light"
+      : selector === ':root:not([data-theme="light"])' || selector === ':root[data-theme="dark"]' ? "dark" : null;
+    if (!mode) continue;
+    for (const decl of (rule[2] ?? "").matchAll(/(--rk-[a-z0-9-]+)\s*:\s*([^;]+);/g)) declared[mode].set(decl[1]!, decl[2]!.trim());
+  }
+  const problems: string[] = [];
+  const compare = (mode: Mode, name: string, expected: string) => {
+    const actual = declared[mode].get(name);
+    if (actual === undefined) problems.push(`${mode}: ${name} is not declared in shell.css`);
+    else if (normalizeValue(actual) !== normalizeValue(expected)) problems.push(`${mode}: ${name} is ${actual} in shell.css, SUITE_DEFAULTS says ${expected}`);
+  };
+  for (const mode of ["light", "dark"] as const) {
+    for (const [key, value] of Object.entries(SUITE_DEFAULTS[mode])) compare(mode, `--rk-${key}`, value);
+  }
+  for (const [name, value] of Object.entries(SUITE_MOTION)) compare("light", name, value);
   return problems;
 }

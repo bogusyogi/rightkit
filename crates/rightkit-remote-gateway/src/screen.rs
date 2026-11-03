@@ -207,7 +207,7 @@ fn spot_path() -> Option<std::path::PathBuf> {
 fn process_start(pid: u32) -> Option<u64> {
     use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
     let pid = Pid::from_u32(pid);
-    let mut system = System::new();
+    let mut system = System::new().ok()?;
     system.refresh_processes_specifics(
         ProcessesToUpdate::Some(&[pid]),
         true,

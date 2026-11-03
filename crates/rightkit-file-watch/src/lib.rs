@@ -17,7 +17,7 @@ pub mod subscribe;
 pub mod sync;
 pub mod typed;
 
-pub use coalesce::{ChangeBatch, ChangeCoalescer, Rename};
+pub use coalesce::{ChangeBatch, ChangeCoalescer, CoalesceTotals, RawChange, Rename};
 pub use native::{Granularity, TypedOptions, WatchBackend, WatchCursor};
 /// Backend types use exactly this crate's `notify` dependency.
 pub use notify;

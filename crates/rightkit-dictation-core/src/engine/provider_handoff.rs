@@ -18,6 +18,7 @@ use rightkit_credentials::Secret;
 use zeroize::Zeroizing;
 
 use super::secret::SecretString;
+use std::process::Command;
 
 /// Logical names of the provider slots (`[a-z0-9._-]`, as the owner requires).
 pub const GROQ: &str = "groq";
