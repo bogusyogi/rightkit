@@ -160,9 +160,11 @@ const BUILD_ENV_PREFIXES = ["CARGO_", "RUST", "SCCACHE_", "RK_", "RIGHTKIT_", "R
 // 3,809 entries and hit none across identical runs): the run's ownership handle, the attest nonce, the request-id file, the carried call's
 // snapshot request and cargo map, the direct receipt path.
 const BUILD_ENV_EXCLUDED = /^(RK_GATE_|RUSTRIGHT_QUIET_LEASE$|RIGHTKIT_BUILD_OWNERSHIP$|RIGHTKIT_CARRIED_CARGO_MAP$|RUSTRIGHT_ATTEST_NONCE$|RUSTRIGHT_REQUEST_ID_FILE$|RUSTRIGHT_SNAPSHOT_REQUEST$|RK_DIRECT_RECEIPT$)/;
-// A per-run temporary directory inside a value (the runtime cargo wrapper lives under a fresh `rk-gate-shim-XXXXXX`) is normalised: the
-// wrapper's own identity (`rk-cargo-shim-<identity>`) still keys the result, the random parent does not.
-const normalizeRunTemp = (value) => String(value).replace(/rk-gate-shim-[A-Za-z0-9]+/g, "rk-gate-shim-*");
+// Per-run parts of a value are normalised: the runtime cargo wrapper's fresh parent (`rk-gate-shim-XXXXXX`) and its folder name
+// (`rk-cargo-shim-<identity>`), whose identity hashes the run's broker section and so differs on every run (measured 2026-11-03: two identical
+// Class A runs of rightkit-asr shared no key, only CARGO differed). The wrapper's CODE keys the result through the gate identity instead
+// (the gate package files in the Class A environment digest; gateCodeIdentity for class B), so a changed wrapper still misses.
+const normalizeRunTemp = (value) => String(value).replace(/rk-gate-shim-[A-Za-z0-9]+/g, "rk-gate-shim-*").replace(/rk-cargo-shim-[0-9a-f]+/g, "rk-cargo-shim-*");
 export const buildEnvName = (name) => {
   const upper = String(name).toUpperCase();
   if (BUILD_ENV_EXCLUDED.test(upper)) return false;

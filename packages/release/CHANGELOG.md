@@ -1,6 +1,16 @@
 # Changelog
 
-## 0.6.31 (unpublished)
+## 0.6.32 (unpublished)
+
+- **Results are reused when their inputs haven't changed (GC-T14; A1, A10, B5 in `docs/results/2026-11-02-class-a-b-inefficiencies.md`).** Measured on the Mac, Class A of rightkit-asr on one commit twice: the first run took 59 s and the second 30 s, with 949 checks reused. Before this release no run reused anything.
+  - Every key held the runtime cargo wrapper's folder name, `rk-cargo-shim-<identity>`. That identity hashes the run's broker section, so it differed on every run. The name is now normalised like its parent temp folder, and the wrapper's code (`cargo-target-shim.mjs` and the broker carrier files) keys results through the gate identity instead.
+  - A Class A row's key no longer holds the tool caches the scans write themselves (vitest, tsc build info), nor the run's scope and scan-set digests, which changed whenever one file joined or left the plan.
+  - Every class B key carries the gate's code identity: the checker, `rightkit-gate.mjs` and the wrapper and carrier files. A changed check or key logic never reuses an older verdict.
+  - `build-helpers` is never reused: it reads the host's trace list, which is outside every key.
+  - A `tsc` row's key carries its `tscWorkspace` (the sibling packages its check project maps). A scoped run narrows that list without changing the row's id or command, and the run-wide scope digest used to be the only thing binding it.
+- **The cache bypass is retired.** `--no-cache` and `RK_GATE_CACHE=0` are refused with the reason (workspace rule: never write or run a no-cache option). GATE-CONTRACT GC-T14 and GC-A01 now say there is no bypass in any form. A result is reused only under a key that names every input it read.
+
+## 0.6.31 — 2026-11-03
 
 - **The gate resolves a commit in a checkout another account owns (ViewRight and PostRight on the Dell).** The commit-name lookup (`snapshot-git.mjs` `discoveryRun`) runs git with a sealed, empty global config, so the user's `safe.directory` never reached it. From 0.6.9 (4a04cee19, 2026-10-29) a checkout owned by `BUILTIN\Administrators` failed with "dubious ownership". It now passes `-c safe.directory=<checkout>` (command-line config is protected configuration git accepts for it) and `-c core.fsmonitor=false`. Proof on the Dell, non-elevated, git 2.49: without it exit 128 "dubious ownership"; with it the commit `e17782ea…`. Every other config-isolated gate git call already passes `safe.directory` or runs on a gate-owned folder with an explicit `GIT_DIR`.
 - **Scan time limits always fire (A9).** The scan runner spawns asynchronously on every run; one lane used a synchronous spawn, which holds the event loop, so no limit could fire. The 2026-11-02 runs show what that cost: every scan that finished at the same moment reported the same inflated time (shellcheck and actionlint 1,655 s against a 5 min limit), held by a synchronous broker call. The existing one-retry of a timed-out Class A scan (rightkit#1459) no longer retries test suites: a slow test is a finding, not a hung tool.

@@ -25,9 +25,10 @@
 //
 // Content checks run on an export of HEAD (exactly what is pushed), never on uncommitted work in the checkout.
 //
-//   rightkit-gate [--base <ref>] [--plan] [--no-cache]
-//                                             run the gate (default base origin/main); --plan prints the scans and runs none;
-//                                             --no-cache (or RK_GATE_CACHE=0) reruns every scan
+//   rightkit-gate [--base <ref>] [--plan]
+//                                             run the gate (default base origin/main); --plan prints the scans and runs none.
+//                                             There is no cache bypass (GC-T14; Adrian: no no-cache option): a result is reused only under a key
+//                                             naming every input it read, so a changed input always reruns.
 //   rightkit-gate --to check|compile|package|qualify|dev|test --route [--platform p] [--commit <rev>]
 //                                             prints one JSON line (schema rightkit-gate.route/1) naming the route this host takes for the
 //                                             stage and the refusal it would meet, and runs nothing: no ownership, snapshot, check, run record
@@ -79,7 +80,7 @@ import path from "node:path";
 import { hostTarget } from "../cross-targets.mjs";
 import { FOREIGN_PRE_COMMIT, retireHooksIn } from "../hook-retirement.mjs";
 import { fileURLToPath } from "node:url";
-import { BIOME_CONFIG_FILES, ESLINT_CONFIG_FILES, LOCAL_CLASS_B_JOBS, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanToolPolicyFromPipeline, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
+import { BIOME_CONFIG_FILES, CHECKER_IDENTITY, ESLINT_CONFIG_FILES, LOCAL_CLASS_B_JOBS, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanToolPolicyFromPipeline, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
 // The gate's own executor: an outer gate's cargo wrapper on PATH is never this gate's cargo (gate-executor.mjs `gateWrappers`).
@@ -111,7 +112,23 @@ export const PARTIAL_EXIT = 3;
 /** The platforms a door run can package: desktop (signed, sealed, installed QA, publisher upload) and mobile (signed, sealed, store test track). */
 export const PLATFORMS = Object.freeze(["mac", "win", "ios", "android"]);
 export const MOBILE_PLATFORMS = Object.freeze(new Set(["ios", "android"]));
-const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify|release --unit npm:@rightkit/<name>|cargo:rightkit-<name> [--receipt-out <file>] | rightkit-gate --to tool --unit cargo:rightkit-qa|cargo:rightkit-credentials [--no-broker <exception-id>] [--receipt-out <file>] [--commit <rev>] (builds the unit's release binary from the commit and enrols it: cargo:rightkit-qa as the managed rightkit-qa runner, cargo:rightkit-credentials as the managed OS credential provider updater signing runs; Mac and Windows) | rightkit-gate --to check|compile|package|qualify --units-file <json {"units":[<selector>,...]} written for this run> | rightkit-gate --to check|compile|package|qualify --all-units-exception <id> (RightKit only: its unit is named on every run, or every unit by Adrian's entry in ci/all-units-exceptions.json of the commit) | rightkit-gate --to check|compile|package|qualify [--unit <selector>] --no-broker <exception-id> (Mac and Dell only; Adrian's recorded exception in .rightkit/broker-exceptions.json of the commit) | rightkit-gate --to dev|test [--commit <rev>] [-- <right-release args>] | rightkit-gate --to check|compile|package|qualify|dev|test --route [--platform mac|win|ios|android] [--commit <rev>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] | rightkit-gate install-hook | rightkit-gate env-digest | rightkit-gate snapshot [--commit <rev>] [--verify [--env <sha256>]] [--json] | rightkit-gate live-scans --repo <root> | rightkit-gate clippy [<cargo clippy args>] | rightkit-gate env-digest [--snapshot <dir> --commit <sha>] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | rightkit-gate check --commit <sha> --full-a --snapshot <dir> | --version`;
+// The gate's code identity for result keys: the checker (deterministic-scans and scan-digest, CHECKER_IDENTITY) and this file, where
+// the keys are built. An unidentifiable checker gets a per-process value, so nothing is reused across runs.
+let gateCodeIdentityMemo = null;
+function gateCodeIdentity() {
+  if (gateCodeIdentityMemo === null) {
+    const h = createHash("sha256");
+    h.update(CHECKER_IDENTITY ?? `unidentified-${process.pid}-${Date.now()}`);
+    h.update("\0");
+    h.update(fs.readFileSync(fileURLToPath(import.meta.url)));
+    // The runtime cargo wrapper and the broker carrier it runs: their code decides what a carried compile did.
+    for (const f of ["cargo-target-shim.mjs", "snapshot-broker.mjs", "snapshot-request.mjs", "snapshot-metadata.mjs", "provenance-verify.mjs", "cargo-ledger.mjs"]) { h.update(`\0${f}\0`); h.update(fs.readFileSync(new URL(`../${f}`, import.meta.url))); }
+    gateCodeIdentityMemo = h.digest("hex").slice(0, 24);
+  }
+  return gateCodeIdentityMemo;
+}
+
+const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify|release --unit npm:@rightkit/<name>|cargo:rightkit-<name> [--receipt-out <file>] | rightkit-gate --to tool --unit cargo:rightkit-qa|cargo:rightkit-credentials [--no-broker <exception-id>] [--receipt-out <file>] [--commit <rev>] (builds the unit's release binary from the commit and enrols it: cargo:rightkit-qa as the managed rightkit-qa runner, cargo:rightkit-credentials as the managed OS credential provider updater signing runs; Mac and Windows) | rightkit-gate --to check|compile|package|qualify --units-file <json {"units":[<selector>,...]} written for this run> | rightkit-gate --to check|compile|package|qualify --all-units-exception <id> (RightKit only: its unit is named on every run, or every unit by Adrian's entry in ci/all-units-exceptions.json of the commit) | rightkit-gate --to check|compile|package|qualify [--unit <selector>] --no-broker <exception-id> (Mac and Dell only; Adrian's recorded exception in .rightkit/broker-exceptions.json of the commit) | rightkit-gate --to dev|test [--commit <rev>] [-- <right-release args>] | rightkit-gate --to check|compile|package|qualify|dev|test --route [--platform mac|win|ios|android] [--commit <rev>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] | rightkit-gate install-hook | rightkit-gate env-digest | rightkit-gate snapshot [--commit <rev>] [--verify [--env <sha256>]] [--json] | rightkit-gate live-scans --repo <root> | rightkit-gate clippy [<cargo clippy args>] | rightkit-gate env-digest [--snapshot <dir> --commit <sha>] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | rightkit-gate check --commit <sha> --full-a --snapshot <dir> | --version`;
 /** The host platform (process.platform) that constructs each platform's artifact; a platform missing here (android) builds on any host. */
 const STAGE_NATIVE_HOST = Object.freeze({ mac: "darwin", ios: "darwin", win: "win32" });
 
@@ -3039,6 +3056,11 @@ export async function main(argv, io = {}) {
     gateFile: fileURLToPath(import.meta.url), ...io,
   };
   const args = [...argv];
+  // The cache bypass is retired (GC-T14; workspace rule: never write or run a no-cache option). Refused by name so an old caller learns why.
+  if (args.includes("--no-cache") || (io.env ?? process.env).RK_GATE_CACHE === "0") {
+    (io.err ?? console.error)("rightkit-gate: --no-cache and RK_GATE_CACHE=0 are retired: results are reused only under a key naming every input they read, so a changed input always reruns (GC-T14)");
+    return 2;
+  }
   const option = (name) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
   // `clippy`: the Clippy route (../clippy-route.mjs; docs/GATE-CONTRACT.md §1 "Clippy route & batching"). Dispatched before the global
   // flags below because everything after `clippy` is cargo's own argv, verbatim (`-v`, `-h` and `--version` are cargo's).
@@ -3969,7 +3991,7 @@ export async function main(argv, io = {}) {
       try { envAtStart = classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files: live.files, spawn: o.spawn, includeCaches: false }); envStartWithCaches = classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files: live.files, spawn: o.spawn }); cachesAtStart = toolCacheManifest({ root: liveBase, files: live.files }); }
       catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
     }
-    if (boundFullA && !args.includes("--no-cache") && o.env.RK_GATE_CACHE !== "0") {
+    if (boundFullA) {
       try {
         const common = git("rev-parse", "--git-common-dir");
         if (failed(common)) throw new Error("no git directory");
@@ -3981,12 +4003,19 @@ export async function main(argv, io = {}) {
         const readBlob = (p) => fs.readFileSync(path.join(liveBase, p), "utf8");
         // The verdict also depends on what is not in the tree: the gate's own code and advisory data, the node and pnpm that run
         // the checks, the installed dependencies (pnpm's install state) and the platform. Any change there is a cache miss.
-        const environment = classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files, spawn: o.spawn });
+        // Tool caches (vitest, tsc build info, ...) are left out: the scans write them themselves, so keying on them made every rerun miss.
+        const environment = classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files, spawn: o.spawn, includeCaches: false });
         const digest = buildCacheDigest({ objectId, headTree: digestOf(files), rustUnits: rust.units, npmUnits: npm, cargoDir: ".", rustLocks, crateFeatures, listFiles, readBlob });
-        cache = { ...store, digest: (scan) => { const key = digest(scan); return key === null ? null : `${key}:${environment}:${plan.scopeDigest ?? "repository"}:${plan.scanSetDigest}`; } };
+        // A row's key is its own inputs plus the environment; the run's scope and scan set are not inputs of one row, and keying on them
+        // missed every row whenever one file joined or left the plan. build-helpers is never reused: it reads the host's trace list,
+        // which is outside every key (and takes seconds).
+        // A row field that shapes what the scan checks without changing its id or command is part of its key: a tsc row's tscWorkspace
+        // (the sibling packages its check project maps; scopeScans narrows it per scope) changes the verdict on the same tree.
+        const rowShape = (scan) => (scan.tscWorkspace ? `:tscws=${createHash("sha256").update(canonicalJson([...scan.tscWorkspace].sort())).digest("hex")}` : "");
+        cache = { ...store, digest: (scan) => { if (/^build-helpers(:|$)/.test(scan.id)) return null; const key = digest(scan); return key === null ? null : `${key}:${environment}${rowShape(scan)}`; } };
       } catch { cache = null; }
     }
-    if (!classAOnly && !args.includes("--no-cache") && o.env.RK_GATE_CACHE !== "0") {
+    if (!classAOnly) {
       try {
         const headSha = snapshotBCommit?.commit ?? text(git("rev-parse", "HEAD")).trim();
         const treeId = text(git("rev-parse", `${headSha}^{tree}`)).trim();
@@ -4009,7 +4038,10 @@ export async function main(argv, io = {}) {
             if (failed(r)) throw new Error(`git show failed: ${why(r)}`);
             return text(r);
           };
-          cache = { ...store, digest: buildCacheDigest({ objectId, headTree: treeId, rustUnits: rust.units, npmUnits: npm, cargoDir: ".", rustLocks, crateFeatures, listFiles, readBlob }) };
+          // The gate's identity is part of every class B key: a changed check or key logic never reuses an older verdict.
+          const rowDigest = buildCacheDigest({ objectId, headTree: treeId, rustUnits: rust.units, npmUnits: npm, cargoDir: ".", rustLocks, crateFeatures, listFiles, readBlob });
+          const gateIdentity = gateCodeIdentity();
+          cache = { ...store, digest: (scan) => { const key = rowDigest(scan); return key === null ? null : `${key}:${gateIdentity}`; } };
         }
       } catch { cache = null; }
     }
