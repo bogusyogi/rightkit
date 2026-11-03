@@ -95,7 +95,9 @@ pub(crate) fn spawn(
     // The parent's slave must close now: end of file on the master needs every slave closed.
     drop(slave);
     let eof = eof_char(master.as_raw_fd());
-    let master = AsyncFd::new(master)?;
+    // SAFETY: `master` is an owned, open descriptor that AsyncFd now owns until it drops; nothing
+    // else closes it or swaps it for another descriptor.
+    let master = unsafe { AsyncFd::register(master) }.map_err(|e| e.into_parts().1)?;
     Ok((
         child,
         Terminal {

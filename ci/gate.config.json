@@ -123,6 +123,28 @@
         []
       ]
     },
+    "rightkit-bench": {
+      "checkFeatureSets": [
+        [
+          "--features",
+          "sqlcipher,qa-snapshot"
+        ],
+        [
+          "--features",
+          "sqlcipher-system"
+        ]
+      ],
+      "featureSets": [
+        [
+          "--features",
+          "sqlcipher,qa-snapshot"
+        ],
+        [
+          "--features",
+          "sqlcipher-system"
+        ]
+      ]
+    },
     "rightkit-qa": {
       "checkFeatureSets": [
         [

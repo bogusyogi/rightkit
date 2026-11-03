@@ -1795,6 +1795,7 @@ fn reparse_of(e: &fs::DirEntry, full: &Path) -> io::Result<Option<Reparse>> {
 #[cfg(windows)]
 fn reparse_tag(path: &Path) -> io::Result<u32> {
     use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
     use windows::Win32::Storage::FileSystem::{FindClose, FindFirstFileW, WIN32_FIND_DATAW};
     let wide: Vec<u16> = path
         .as_os_str()

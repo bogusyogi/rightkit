@@ -146,6 +146,9 @@ impl InApp for ServiceBridge {
             InputEvent::Scroll { x, y, dx, dy } => {
                 self.call("wheel", json!({"x": x, "y": y, "dx": dx, "dy": dy}))
             }
+            InputEvent::Drag { .. } => Err(Error::Unsupported(
+                "drag not expressible in control channel",
+            )),
         }
     }
 }

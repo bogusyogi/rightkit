@@ -50,7 +50,9 @@
 //! after a crash.
 
 use std::ffi::OsString;
-use std::fs::{self, File, OpenOptions};
+use std::fs::File;
+#[cfg(unix)]
+use std::fs::{self, OpenOptions};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -148,23 +150,6 @@ pub struct LeaseEvidence {
     pub bytes_hashed_sealing: u64,
     pub sealed_at_unix: u64,
     pub expires_at_unix: u64,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Kind {
-    File,
-    Dir,
-    Symlink,
-}
-
-impl Kind {
-    fn label(self) -> &'static str {
-        match self {
-            Kind::File => "file",
-            Kind::Dir => "dir",
-            Kind::Symlink => "symlink",
-        }
-    }
 }
 
 #[derive(Clone, Debug)]

@@ -337,6 +337,20 @@ pub mod token {
             (None, b) => Ok(b),
         }
     }
+
+    /// Leave exactly one [`ENV_AUTH_FILE`] entry in `env`, naming `path`.
+    pub fn set_one(env: &mut Vec<(String, String)>, path: &Path) {
+        env.retain(|(k, _)| k != ENV_AUTH_FILE);
+        env.push((
+            ENV_AUTH_FILE.to_string(),
+            path.to_string_lossy().into_owned(),
+        ));
+    }
+
+    /// Client side, one launch: the token it holds and the file it names to the app (ADR-0001 D-e and
+    /// item 7). A launch that names a token file (`named`) reads it, failing closed on an unusable
+    /// file. A launch that names none (the legacy, non-journeys path) mints a token into `run_root` as
+    /// `control-<stem>.token` and names that file itself. Either way the launch holds a token.
     pub fn for_launch(
         named: Option<&Path>,
         run_root: &Path,

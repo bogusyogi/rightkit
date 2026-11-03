@@ -279,7 +279,7 @@ pub fn unseal_with_store(
     blob: &[u8],
     aad: &[u8],
 ) -> Result<Secret> {
-    if blob.len() < 1 || blob[0] != STORE_BLOB_VERSION {
+    if blob.is_empty() || blob[0] != STORE_BLOB_VERSION {
         return Err(ProtectedKeyError::BadBlob);
     }
     if !store.exists(account).map_err(store_error)? {

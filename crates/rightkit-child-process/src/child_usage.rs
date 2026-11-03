@@ -84,8 +84,10 @@ impl ChildUsage {
             let ticks = (u64::from(t.dwHighDateTime) << 32) | u64::from(t.dwLowDateTime);
             Duration::new(ticks / 10_000_000, ((ticks % 10_000_000) * 100) as u32)
         };
-        let mut counters = PROCESS_MEMORY_COUNTERS::default();
-        counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+        let mut counters = PROCESS_MEMORY_COUNTERS {
+            cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
+            ..Default::default()
+        };
         // SAFETY: the handle is open for query; the buffer is a sized PROCESS_MEMORY_COUNTERS.
         let peak = unsafe {
             GetProcessMemoryInfo(

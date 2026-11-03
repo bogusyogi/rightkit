@@ -987,9 +987,6 @@ fn resolve_app_dirs(name: &str, flat: bool) -> Result<rightkit_fs::AppDirs> {
     }
     let dirs = rightkit_fs::AppDirs::resolve(id)
         .map_err(|e| Error(format!("cannot resolve the data folders of {name}: {e}")))?;
-    if dirs.isolated {
-        return err("the app folders resolved as isolated; the snapshot needs the real ones");
-    }
     Ok(dirs)
 }
 

@@ -16,6 +16,7 @@ use crate::discovery::{try_adopt_or_spawn, AdoptOrSpawn};
 use crate::host_identity::HostExpectation;
 
 /// What [`attach_or_fallback`] did.
+#[allow(clippy::large_enum_variant)]
 pub enum Attached<T> {
     /// A resident host answered; this client is connected to it.
     Daemon(Client),

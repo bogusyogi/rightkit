@@ -622,7 +622,7 @@ mod unix_impl {
             )
         };
 
-        let before = witness(stream, pid).map_err(&observe)?;
+        let before = witness(stream, pid).map_err(observe)?;
         let exe = match os::executable_of(pid) {
             Ok(Some(exe)) => exe,
             Ok(None) => return Err(observe(ObserveError::Gone)),
@@ -632,7 +632,7 @@ mod unix_impl {
                 ))))
             }
         };
-        let after = witness(stream, pid).map_err(&observe)?;
+        let after = witness(stream, pid).map_err(observe)?;
         if before != after {
             return Err(changed(
                 "its identity differed before and after its executable path was read",
