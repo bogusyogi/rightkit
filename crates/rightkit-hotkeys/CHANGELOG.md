@@ -14,7 +14,7 @@ Code-only change; nothing in this section was compiled or run when written. The 
 - Fixed (macOS, #180, L-09): push-to-talk timers are bounded and cancelled. The arm delay used one sleeping thread per press, only invalidated by a generation check; it is now one `ptt_timer::ArmTimer` thread per `FnHotkeyTap` with a single pending deadline. Release, an aborting key or modifier, `set_ptt_key`, `set_ptt_enabled(false)` and the end of dictation cancel it. Dropping `FnHotkeyTap` cancels the timer, blocks any later start, and ends a recording the tap started (through `ptt_cancel`). `spawn_with_arm_delay` clamps the delay to `ptt_timer::MAX_ARM_DELAY` (1 s).
 - Added (#180, L-18): `F21` to `F24` parse as chord keys (Windows `VK_F21` to `VK_F24`, 0x84 to 0x87). macOS has no virtual keycode for them: `Key::mac_keycode_checked()` returns `None`, `Key::mac_keycode()` returns the sentinel `chord::NO_MAC_KEYCODE` (0xFFFF), and macOS `GlobalHotkeys::register` returns `RegisterError::Unsupported` for such a chord instead of registering a wrong key.
 
-## Unreleased
+## 0.1.3 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 Additive; nothing in this section was compiled or run when written.

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-context-protocol"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Context protocol contract: typed scope-grant, candidate-set, packet, receipt and knowledge-emission shapes, their canonical JSON Schemas, and the canonical byte/digest contract."

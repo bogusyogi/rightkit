@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-remote-gateway"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.98.0"
 description = "Remote tools for agents on this computer: files, documents, terminals, processes, screen, app launch, media, clipboard, chat read and start, saved logins and payments; folder confinement, per-chat unlock, local approvals, owner settings and the activity trail."

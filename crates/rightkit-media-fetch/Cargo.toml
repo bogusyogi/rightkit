@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-media-fetch"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Media fetch: yt-dlp download and 16 kHz mono WAV normalize, playlist expansion, and a pure URL/file job classifier with a shared media-type table."

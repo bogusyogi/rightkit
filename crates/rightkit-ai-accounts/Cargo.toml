@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-ai-accounts"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.98.0"
 description = "AI assistant account management for Claude: Desktop login slots and switching, chat sync and mirroring between accounts, command-line account folders, and account names."

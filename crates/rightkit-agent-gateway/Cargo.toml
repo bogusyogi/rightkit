@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-gateway"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Local agent gateway for a mail-style app: pairing registry, append-only audit log, request gate profiles and untrusted-content wrapping, over a host-implemented connection trait."

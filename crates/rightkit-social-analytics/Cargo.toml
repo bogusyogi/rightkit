@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-social-analytics"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Store-free social campaign analytics pieces: tracked short links with public-https destination checks, UTM tagging, deterministic link ids and redirect-route rules."

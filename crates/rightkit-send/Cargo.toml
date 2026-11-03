@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-send"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 rust-version = "1.90"
 description = "Nearby file and text sharing over the open LocalSend v2 protocol, with Pulse extensions: TLS identity pinning, per-device trust, and macOS Bonjour discovery. Product-neutral; the host supplies identity, paths and policy."

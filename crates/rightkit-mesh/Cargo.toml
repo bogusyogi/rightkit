@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-mesh"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.98.0"
 description = "Device mesh for Right Suite apps: iroh live sessions between paired devices, end-to-end encrypted mailbox, sync reconciliation and capped relayed transfers. The host supplies identity and trust through PeerTrust."

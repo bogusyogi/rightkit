@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-apple-ops"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Apple ops: App Store Connect API and upload, build analysis, preflight, profiling and SwiftUI traces"

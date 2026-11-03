@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-context-provider-sdk"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Context provider SDK: the typed Provider trait, the canonical Fixture shape and the run_conformance harness for adapters implementing context operations."

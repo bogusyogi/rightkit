@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-pipeline"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Generation pipeline client: drive an installed generation engine (submit, follow, import), crash-safe journal and recovery, model catalog checks."

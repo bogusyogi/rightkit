@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-text-polish"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Transcript polish: deterministic L0 cleanup (numbers, dates, inline edits, formatting, casing), spoken control and AI-transform command parsing, vocabulary replacements and learning."

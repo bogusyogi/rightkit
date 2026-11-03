@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-evidence-contracts"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Evidence contracts: plans, providers, findings reports, receipts, traces, source anchors and canonical JSON digests"

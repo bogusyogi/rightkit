@@ -1,7 +1,7 @@
 # Changelog
 
 
-## Unreleased
+## 0.2.4 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 

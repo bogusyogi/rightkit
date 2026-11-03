@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-autoedit"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Automatic editing for Right Suite video apps: transcript-driven cut engine (retakes, fillers, silences), editorial engine, named cut variants, and scoped editing rules with their resolution matrix."

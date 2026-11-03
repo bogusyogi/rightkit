@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-dictation-core"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Dictation core: engine wire protocol and validation, provider key handoff, recording session state machine and controller, wake word state, mic selection and audio conditioning."

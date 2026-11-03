@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-web-extract"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Article extraction without transport: readable-text parsing, title and redirect resolution, blocked-page detection, BM25 fit filtering, and extraction-ladder decisions."

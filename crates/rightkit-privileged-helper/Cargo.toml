@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-privileged-helper"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.98.0"
 description = "Elevation broker for root-owned uninstall moves: parks paths for a trusted UI that asks the owner and the privileged helper, with bounded waits and in-memory state."

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-repo-graph-grammars"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Vendored tree-sitter grammars (ql, systemrdl, vue) for the repository graph, with no crates.io equivalent for tree-sitter-language 0.1."

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-engine-host"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Engine binary framework: one command registry served as a headless JSON CLI and as a stdio sidecar, shared wire types, contract and TypeScript export, isolated-data-folder rule"

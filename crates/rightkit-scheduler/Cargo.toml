@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-scheduler"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Agent schedule model: bot profiles, schedule specs (cron, once, interval, monitor), due-minute computation in IANA time zones"

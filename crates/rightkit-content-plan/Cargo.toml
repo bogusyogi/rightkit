@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-content-plan"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Store-free content planning rules: manual draft approval gate, first-sentence disclosure check and per-platform posted-link host table."

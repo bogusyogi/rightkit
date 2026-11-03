@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-content-proof"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Exact claim-number reading for content proof review: currency, thousands separators, k/m/bn suffixes, percentages and number words as exact decimals, with tokenization."

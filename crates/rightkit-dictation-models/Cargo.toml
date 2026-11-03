@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-dictation-models"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Dictation model store: speech model catalog, shared model leases and paths, downloads with grants and verification, on top of rightkit-models."

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-voice-commands"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Voice command recognition: typed command actions, spoken-command catalog and matching, app-launch and shortcut queries, external link allowlist check."

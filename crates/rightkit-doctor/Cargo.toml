@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-doctor"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Doctor framework for RightKit engines and CLIs: check rows, verdicts and exit codes, host-supplied checks, the engine doctor report, and neutral probes (toolchains, writable folders, bounded child processes, clipboard)"
