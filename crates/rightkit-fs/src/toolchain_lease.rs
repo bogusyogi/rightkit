@@ -49,6 +49,9 @@
 //! ([`SealSpec::journal`]) names the paths it is about to freeze (those not already immutable) so [`ToolchainLease::recover`] can clear them
 //! after a crash.
 
+// The sealing walk is unix-only; the Windows build keeps the types without a caller.
+#![cfg_attr(not(unix), allow(dead_code))]
+
 use std::ffi::OsString;
 use std::fs::File;
 #[cfg(unix)]
