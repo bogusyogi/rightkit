@@ -172,7 +172,7 @@ impl Compositor {
             vertex: wgpu::VertexState {
                 module: &fullscreen_shader,
                 entry_point: Some("vertex_main"),
-                buffers: &[wgpu::VertexBufferLayout {
+                buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<[f32; 2]>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &[wgpu::VertexAttribute {
@@ -180,7 +180,7 @@ impl Compositor {
                         offset: 0,
                         shader_location: 0,
                     }],
-                }],
+                })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -205,7 +205,7 @@ impl Compositor {
             vertex: wgpu::VertexState {
                 module: &fullscreen_shader,
                 entry_point: Some("vertex_main"),
-                buffers: &[wgpu::VertexBufferLayout {
+                buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<[f32; 2]>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &[wgpu::VertexAttribute {
@@ -213,7 +213,7 @@ impl Compositor {
                         offset: 0,
                         shader_location: 0,
                     }],
-                }],
+                })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -238,7 +238,7 @@ impl Compositor {
             vertex: wgpu::VertexState {
                 module: &fullscreen_shader,
                 entry_point: Some("vertex_main"),
-                buffers: &[wgpu::VertexBufferLayout {
+                buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<[f32; 2]>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &[wgpu::VertexAttribute {
@@ -246,7 +246,7 @@ impl Compositor {
                         offset: 0,
                         shader_location: 0,
                     }],
-                }],
+                })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -400,7 +400,7 @@ impl Compositor {
             "compositor-present-pass",
         );
         context.queue().submit([encoder.finish()]);
-        surface_texture.present();
+        context.queue().present(surface_texture);
         Ok(())
     }
 

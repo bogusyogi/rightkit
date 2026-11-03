@@ -104,7 +104,7 @@ impl EffectPipeline {
                     vertex: wgpu::VertexState {
                         module: &vertex_shader_module,
                         entry_point: Some("vertex_main"),
-                        buffers: &[wgpu::VertexBufferLayout {
+                        buffers: &[Some(wgpu::VertexBufferLayout {
                             array_stride: std::mem::size_of::<[f32; 2]>() as u64,
                             step_mode: wgpu::VertexStepMode::Vertex,
                             attributes: &[wgpu::VertexAttribute {
@@ -112,7 +112,7 @@ impl EffectPipeline {
                                 offset: 0,
                                 shader_location: 0,
                             }],
-                        }],
+                        })],
                         compilation_options: wgpu::PipelineCompilationOptions::default(),
                     },
                     fragment: Some(wgpu::FragmentState {
