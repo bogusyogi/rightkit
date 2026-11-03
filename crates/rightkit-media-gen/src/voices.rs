@@ -3212,7 +3212,7 @@ mod tests {
         // same format VoiceRight wrote — so import treats them as voices.
         let d = Dir::new();
         let ctx = ctx_with(&d, None);
-        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/e2e/fixtures/qts");
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/qts");
         let r = import_from(&ctx, &json!({"source_dir": src.display().to_string()}), &[]).unwrap();
         assert_eq!(r["source_found"], true);
         assert_eq!(r["imported"].as_array().unwrap().len(), 2);

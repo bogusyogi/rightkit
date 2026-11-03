@@ -3,6 +3,7 @@
 ## 0.4.4 (GATE-CONTRACT GC-A07)
 
 - Changed: no `debug_assertions` switches. `MemoryBackend` and the `GuardMode::Memory` swap compile under `cfg(test)` or the new non-default `memory-backend` feature, which dependents enable only in `[dev-dependencies]`. Without it a tripped guard is `Deny` in every build. Fixes dependents' release-profile tests that could not name `MemoryBackend`.
+- Fixed: a tripped `GuardMode::Memory` guard keeps a caller-injected memory backend instead of replacing it with the shared process-wide map, so tests that inject one no longer see each other's secrets.
 
 ## 0.4.3 (unreleased)
 

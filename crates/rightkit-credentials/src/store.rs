@@ -392,7 +392,11 @@ impl Store {
             ) {
                 #[cfg(any(test, feature = "memory-backend"))]
                 GuardMode::Memory => (
-                    MemoryBackend::process_wide(),
+                    // A caller-injected memory backend is its own volatile store and never the OS
+                    // store, so it stays isolated; otherwise the guard shares one process-wide map.
+                    cfg.backend
+                        .filter(|b| b.name() == "memory")
+                        .unwrap_or_else(|| MemoryBackend::process_wide() as Arc<dyn Backend>),
                     Some((name, GuardMode::Memory)),
                 ),
                 // The volatile store is not compiled into a release build: the mode resolves to
