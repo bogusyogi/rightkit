@@ -724,7 +724,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "getrandom",
  "secret-service",
@@ -751,7 +751,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "rightkit-credentials",
  "rightkit-fs",

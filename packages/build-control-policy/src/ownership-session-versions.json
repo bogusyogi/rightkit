@@ -547,7 +547,7 @@
     "rightkit-device-link-types": "0.1.0",
     "rightkit-dictation-app-runtime": "0.1.0",
     "rightkit-dictation-command-host": "0.1.0",
-    "rightkit-dictation-core": "0.2.0",
+    "rightkit-dictation-core": "0.2.1",
     "rightkit-dictation-engine": "0.1.0",
     "rightkit-dictation-inference": "0.1.0",
     "rightkit-dictation-models": "0.1.0",
