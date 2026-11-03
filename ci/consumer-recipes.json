@@ -3102,10 +3102,11 @@
       "pkId": "PK93",
       "id": "ci/consumers/rightkit-document-workspace/src/main.rs",
       "files": {
-        "Cargo.toml": "6549ab2552dab8968395d8ca42bc0451c0a127f756df30164a6690cb18761f56",
+        "Cargo.toml": "774e75f90d43a1258f07abb98379c323698dbf073e20ddc1df554c02858d14f5",
         "README.md": "5ede4146ed109cea16010d109b35430fbd8ca3b34e90e5539d78372f956c7fa8",
         "src/main.rs": "3d2631f7ac19447109b6ee3b58534719431df2d862f6585e0afd180728a65182"
-      }
+      },
+      "aggregateSha256": "8a8d0c4eb23cc51a7b85968d60b96cb2daf7aa743b2587027b72181c83432e05"
     },
     "rightkit-evidence-contracts": {
       "pkId": "PK94",

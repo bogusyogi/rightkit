@@ -105,7 +105,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | document-core | `@rightkit/document-core` | none | declaration-only | 0 | @rightkit/document-core: staged 0.1.0, not published |
 | document-io | `rightkit-docs` | advise | fingerprinted | 11 (0 block, 11 advise) | rightkit-docs: published 0.1.2 (crates.io) |
 | document-rendering | `@rightkit/doc-render` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/doc-render: published 0.2.1 (npm) |
-| document-workspace | `rightkit-document-workspace` | none | declaration-only | 0 | rightkit-document-workspace: staged 0.1.1, not published |
+| document-workspace | `rightkit-document-workspace` | none | declaration-only | 0 | rightkit-document-workspace: staged 0.1.2, not published |
 | document-workspace-ui | `@rightkit/document-workspace` | none | declaration-only | 0 | @rightkit/document-workspace: staged 0.1.0, not published |
 | docx | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.2 (crates.io) |
 | docx-editor | `@rightkit/docx-editor` | none | declaration-only | 0 | @rightkit/docx-editor: staged 0.1.0, not published |
