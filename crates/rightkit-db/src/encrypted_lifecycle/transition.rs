@@ -20,8 +20,11 @@
 
 use super::error::LifecycleError;
 use crate::{DbError, StoreLock};
-use rightkit_fs::FileKey;
+use rightkit_fs::atomic::{atomic_write_with_access_denied_retry, AccessDeniedRetry};
+use rightkit_fs::transient::{retry_transient, retry_transient_fs, TRANSIENT_RETRY};
+use rightkit_fs::{AtomicWriteOptions, FileKey};
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -105,17 +108,77 @@ pub struct RootIdentity {
 }
 
 impl RootIdentity {
+    /// The identity of `path` and of its directory now, as an infallible snapshot for display and
+    /// diagnosis. A root that does not exist has no file identity. A transient Windows refusal to
+    /// open it (a scanner or indexer holding it for a moment) is retried within rightkit-fs's
+    /// bound first; a root that still cannot be opened afterwards **also reads as no identity**,
+    /// so the two cases cannot be told apart here.
+    ///
+    /// Because of that, a journal that a later check compares against must not record this
+    /// result: an identity stored as `file: None` is read back as "nothing was recorded", never
+    /// as "unreadable". This crate's relocation journals record through `try_capture` and
+    /// `capture_present`, which return the error instead, and its checks report an unreadable
+    /// root as that error rather than as a changed one.
     pub fn capture(path: &Path) -> Self {
-        let file = FileKey::of_path(path).ok();
+        let file = retry_transient_fs(|| FileKey::of_path(path)).ok();
         let dir = path
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
-            .and_then(|parent| FileKey::of_path(parent).ok());
+            .and_then(|parent| retry_transient_fs(|| FileKey::of_path(parent)).ok());
         Self {
             path: path.to_path_buf(),
             file,
             dir,
         }
+    }
+
+    /// [`RootIdentity::capture`] that reports why an identity could not be read. Only a root (or
+    /// directory) that is not there has no identity; any other failure to open it, once the
+    /// bounded retry of a transient Windows refusal is spent, is the error, never a mismatch.
+    pub(crate) fn try_capture(path: &Path) -> Result<Self, LifecycleError> {
+        let file = current_key(path)?;
+        let dir = match path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            Some(parent) => current_key(parent)?,
+            None => None,
+        };
+        Ok(Self {
+            path: path.to_path_buf(),
+            file,
+            dir,
+        })
+    }
+
+    /// [`RootIdentity::try_capture`] for a root that must be there when it is recorded (the
+    /// database being moved, the transaction root, a copy that was just written or published).
+    /// A root that is absent is an error as well: a journal must not carry `file: None` for a file
+    /// the operation depends on. The journal reader refuses a relocation journal whose transaction
+    /// root or published copy has no file identity, and every identity check reads a recorded
+    /// `None` as "not the file that was recorded", so one refusal that outlasts the retry bound at
+    /// record time would become a state that no later retry could clear.
+    pub(crate) fn capture_present(path: &Path) -> Result<Self, LifecycleError> {
+        let identity = Self::try_capture(path)?;
+        if identity.file.is_none() {
+            return Err(rightkit_fs::FsError::io(
+                path,
+                std::io::Error::from(std::io::ErrorKind::NotFound),
+            )
+            .into());
+        }
+        Ok(identity)
+    }
+}
+
+/// The identity of `path` now: `Some` when it can be opened, `None` when it does not exist, and
+/// the error when it exists but cannot be opened. A transient Windows refusal to open it is
+/// retried within rightkit-fs's bound first.
+pub(crate) fn current_key(path: &Path) -> Result<Option<FileKey>, LifecycleError> {
+    match retry_transient_fs(|| FileKey::of_path(path)) {
+        Ok(key) => Ok(Some(key)),
+        Err(error) if error.is_not_found() => Ok(None),
+        Err(error) => Err(error.into()),
     }
 }
 
@@ -545,10 +608,19 @@ mod relocation_journal_tests {
     }
 }
 
-/// Remove the journal beside `db`; a missing one is fine.
+/// The bounded opt-in that lets a Windows publish step ride out `ERROR_ACCESS_DENIED` (and the
+/// sharing and lock violations) while a scanner or indexer still holds a file it just saw. The
+/// bound is rightkit-fs's [`TRANSIENT_RETRY`], the same one every plain delete, rename and open
+/// here uses; after it the original error is returned unchanged.
+pub(super) fn access_denied_retry() -> AccessDeniedRetry {
+    AccessDeniedRetry::new(TRANSIENT_RETRY)
+}
+
+/// Remove the journal beside `db`; a missing one is fine. A Windows delete refusal that clears by
+/// itself (a scanner holding the file) is retried a bounded number of times.
 pub(crate) fn remove_journal(db: &Path) -> Result<(), LifecycleError> {
     let path = journal_path(db);
-    match std::fs::remove_file(&path) {
+    match retry_transient(|| std::fs::remove_file(&path)) {
         Ok(()) => {
             rightkit_fs::atomic::sync_dir(
                 path.parent()
@@ -636,11 +708,22 @@ impl StoreTransition {
         &self.roots
     }
 
-    /// Write `journal` atomically (private, synced) beside every guarded root.
+    /// Write `journal` atomically (private, synced) beside every guarded root. Every write after
+    /// the first replaces the previous journal, which on Windows a scanner holding it without
+    /// delete sharing refuses with a transient `ERROR_ACCESS_DENIED`, so the replace is retried a
+    /// bounded number of times ([`access_denied_retry`]).
     pub(crate) fn write_journal(&self, journal: &Journal) -> Result<(), LifecycleError> {
         let body = encode(journal)?;
         for root in &self.roots {
-            rightkit_fs::atomic::atomic_write_private(&journal_path(root), body.as_bytes())?;
+            atomic_write_with_access_denied_retry(
+                &journal_path(root),
+                AtomicWriteOptions {
+                    private: true,
+                    ..AtomicWriteOptions::default()
+                },
+                access_denied_retry(),
+                |file| file.write_all(body.as_bytes()),
+            )?;
         }
         Ok(())
     }

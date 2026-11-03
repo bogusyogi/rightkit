@@ -97,7 +97,7 @@ fn migrations_are_transactional_idempotent_and_backed_up() {
         .open_writer_migrated(&migrations(), &MigrateOptions::default())
         .unwrap_or_else(|error| {
             panic!(
-                "existing-store open/migration/backup failed after {:?} ({pages} pages, budget {:?}): {error:?}",
+                "existing-store open/migration/backup failed after {:?} ({pages} pages, busy wait {:?}): {error:?}",
                 backup_started.elapsed(),
                 options.busy_timeout,
             )
@@ -149,7 +149,7 @@ fn failed_step_rolls_back_and_marker_is_reported_then_cleared() {
     let error = migrate(&conn, Some(&path), &failing, &MigrateOptions::default()).unwrap_err();
     assert!(
         matches!(&error, DbError::MigrationFailed { version: 2, .. }),
-        "expected migration step 2 failure; pre-migration backup/migration elapsed {:?} ({pages} pages, default backup budget {:?}): {error:?}",
+        "expected migration step 2 failure; pre-migration backup/migration elapsed {:?} ({pages} pages, default busy wait {:?}): {error:?}",
         migration_started.elapsed(),
         options.busy_timeout,
     );

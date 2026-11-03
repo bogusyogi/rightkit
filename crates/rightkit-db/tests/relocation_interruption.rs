@@ -808,6 +808,30 @@ fn canonical_key_readback_refusal_after_publication_retains_copy_and_key_on_abor
         report.cleanup_retained,
         vec![old_journal_path.clone(), new_journal_path.clone()]
     );
+    let explained: Vec<&PathBuf> = session
+        .cleanup_errors()
+        .iter()
+        .map(|(path, _)| path)
+        .collect();
+    assert_eq!(
+        explained,
+        report.cleanup_retained.iter().collect::<Vec<_>>(),
+        "every retained path says why: {report:?} {:?}",
+        session.cleanup_errors()
+    );
+    assert!(
+        session
+            .cleanup_errors()
+            .iter()
+            .all(|(_, why)| !why.is_empty()),
+        "{report:?} {:?}",
+        session.cleanup_errors()
+    );
+    assert_eq!(
+        store.relocation_cleanup_errors(),
+        session.cleanup_errors(),
+        "the store reports the same reasons as the session"
+    );
     assert_eq!(fs::read(&old_journal_path).unwrap(), old_journal);
     assert_eq!(fs::read(&new_journal_path).unwrap(), new_journal);
     assert!(store.with_writer(|_| ()).is_ok());
@@ -817,6 +841,46 @@ fn canonical_key_readback_refusal_after_publication_retains_copy_and_key_on_abor
         KEY.as_bytes()
     );
     assert_eq!(fs::read(fixture.old()).unwrap(), source_bytes);
+}
+
+/// A cleanup that is given up reports the error that stopped it with the path it kept, so a
+/// recurrence names its cause instead of only listing paths.
+#[test]
+fn retained_cleanup_carries_the_error_that_kept_it() {
+    let fixture = Fixture::new();
+    let store = Arc::new(EncryptedStore::open(fixture.config()).unwrap());
+    let mut session = store.prepare_relocation(fixture.plan()).unwrap();
+    session.quiesce().unwrap();
+    session.copy().unwrap();
+    session.reopen().unwrap();
+    let workspace = fs::read_dir(fixture.root.join("new"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with(".rkdb-relocate-"))
+        })
+        .expect("the relocation workspace exists until committed settlement");
+    // The report names paths without the Windows verbatim prefix that `fs::canonicalize` gave the
+    // fixture root, so compare the plain form.
+    let workspace = rightkit_fs::plain_path(workspace);
+    // A stray file keeps the workspace from being removed: an OS error on every platform.
+    fs::write(workspace.join("stray"), b"x").unwrap();
+    let report = session.settle(RelocationSettlement::Committed).unwrap();
+    assert_eq!(
+        report.cleanup_retained,
+        vec![workspace.clone()],
+        "{report:?}"
+    );
+    assert_eq!(session.cleanup_errors().len(), 1, "{report:?}");
+    let (path, why) = &session.cleanup_errors()[0];
+    assert_eq!(path, &workspace);
+    assert!(why.contains("os error"), "the OS error is carried: {why}");
+    assert!(
+        journal(&fixture.old()).exists(),
+        "the journals stay while cleanup is incomplete"
+    );
+    assert_eq!(value(&fixture.new_db()), 41);
 }
 
 #[test]
@@ -1029,4 +1093,106 @@ fn optional_old_root_recovery_does_not_treat_unreadable_journal_as_absence() {
     assert_eq!(fs::read(journal(&fixture.old())).unwrap(), authority);
     assert!(!fixture.new_db().exists());
     assert_eq!(value(&fixture.old()), 41);
+}
+
+/// Windows refuses a rename over a file, or a delete of it, with `ERROR_ACCESS_DENIED` (5) or
+/// `ERROR_SHARING_VIOLATION` (32) while another handle holds it without delete sharing (an indexer,
+/// a virus scanner). The hold ends by itself, so a relocation must ride it out instead of failing
+/// or retaining its journals. These cases cannot be reproduced off Windows.
+#[cfg(windows)]
+mod windows_transient_refusals {
+    use super::*;
+    use std::os::windows::fs::OpenOptionsExt;
+
+    /// `FILE_SHARE_READ | FILE_SHARE_WRITE`: everything but `FILE_SHARE_DELETE`.
+    const SHARE_READ_WRITE: u32 = 0x1 | 0x2;
+    const HOLD: Duration = Duration::from_millis(250);
+
+    /// Holds `path` open without delete sharing for `HOLD`, then lets go.
+    fn hold_without_delete_sharing(path: &Path) -> std::thread::JoinHandle<()> {
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(SHARE_READ_WRITE)
+            .open(path)
+            .unwrap();
+        std::thread::spawn(move || {
+            std::thread::sleep(HOLD);
+            drop(file);
+        })
+    }
+
+    /// The candidate file inside the relocation workspace under the destination's directory.
+    fn candidate(fixture: &Fixture) -> PathBuf {
+        let workspace = fs::read_dir(fixture.root.join("new"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| {
+                path.file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with(".rkdb-relocate-"))
+            })
+            .expect("the relocation workspace exists until committed settlement");
+        workspace.join("candidate.db")
+    }
+
+    #[test]
+    fn journal_replace_rides_out_a_holder_without_delete_sharing() {
+        let fixture = Fixture::new();
+        let store = Arc::new(EncryptedStore::open(fixture.config()).unwrap());
+        let mut session = store.prepare_relocation(fixture.plan()).unwrap();
+        session.quiesce().unwrap();
+        let holder = hold_without_delete_sharing(&journal(&fixture.old()));
+        session.copy().unwrap();
+        holder.join().unwrap();
+        session.reopen().unwrap();
+        let report = session.settle(RelocationSettlement::Committed).unwrap();
+        assert!(report.cleanup_retained.is_empty(), "{report:?}");
+        assert!(!journal(&fixture.old()).exists());
+        assert!(!journal(&fixture.new_db()).exists());
+        assert_eq!(value(&fixture.new_db()), 41);
+    }
+
+    /// A holder that excludes every other reader makes the open that reads a file's identity fail
+    /// with `ERROR_SHARING_VIOLATION` until it lets go. That is not a changed identity.
+    #[test]
+    fn root_identity_rides_out_a_holder_that_blocks_reading() {
+        use rightkit_db::encrypted_lifecycle::RootIdentity;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("root.db");
+        fs::write(&path, b"identity").unwrap();
+        let before = RootIdentity::capture(&path);
+        assert!(before.file.is_some(), "{before:?}");
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+        let holder = std::thread::spawn(move || {
+            std::thread::sleep(HOLD);
+            drop(file);
+        });
+        let during = RootIdentity::capture(&path);
+        holder.join().unwrap();
+        assert_eq!(during, before);
+    }
+
+    #[test]
+    fn committed_cleanup_rides_out_a_holder_without_delete_sharing() {
+        let fixture = Fixture::new();
+        let store = Arc::new(EncryptedStore::open(fixture.config()).unwrap());
+        let mut session = store.prepare_relocation(fixture.plan()).unwrap();
+        session.quiesce().unwrap();
+        session.copy().unwrap();
+        session.reopen().unwrap();
+        let candidate = candidate(&fixture);
+        let holder = hold_without_delete_sharing(&candidate);
+        let report = session.settle(RelocationSettlement::Committed).unwrap();
+        holder.join().unwrap();
+        assert!(report.cleanup_retained.is_empty(), "{report:?}");
+        assert!(!candidate.exists());
+        assert!(!candidate.parent().unwrap().exists());
+        assert!(!journal(&fixture.old()).exists());
+        assert!(!journal(&fixture.new_db()).exists());
+        assert_eq!(value(&fixture.new_db()), 41);
+    }
 }

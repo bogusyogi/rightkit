@@ -595,7 +595,7 @@ pub fn migrate(
                 .backup_options
                 .clone()
                 .unwrap_or_else(|| DbOptions::new(path));
-            crate::online_backup_to(&backup_options, conn, &backup, None)?;
+            crate::backup::online_backup_sized(&backup_options, conn, &backup, None)?;
             if let Some(verify) = options.verify_backup {
                 verify(&backup).map_err(|reason| {
                     DbError::Backup(format!("pre-migration backup failed its check: {reason}"))
