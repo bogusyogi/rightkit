@@ -39,6 +39,7 @@ Built from Adrian's own words; ids in brackets point to `/Volumes/D/scratch/inst
 ## Working
 - Parallelize independent work on cheap tiers: `legion:alchemist` (Haiku/Luna) by default, `legion:alchemist-specialist` (Sonnet/Sol 6.1) only where a mistake would pass checks yet be wrong; sequence dependent steps; spend no usage on needless agents. [T0643 T1297 T3237]
 - Never idle or loop on one blocked item while other work is pending; name the blocker and move to the next item. [T2556]
+- Keep Claude's own task list (`TaskCreate`/`TaskUpdate`/`TaskList`) for every multi-step job: load it with `ToolSearch select:TaskCreate,TaskUpdate,TaskList` at session start, update it on every state change, and never poll a blocked gate; resume on a message. [Orthic-Labs/legion#143]
 - Keep one owner per file; only a repository's owner writes to it; work on `main` in the primary checkout with no worktrees, branches, stashes, clones or scratch copies. [T2862 T0599 T2641]
 - Call any skill Adrian names with the Skill tool before anything else; a same-named agent never substitutes. [T2553]
 - Use `legion:debugger` after any failure, `legion:designer` for UI and `legion:writing` for any text a reader gets. [T2553]
