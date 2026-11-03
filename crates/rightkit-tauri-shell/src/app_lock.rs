@@ -400,5 +400,5 @@ pub fn bind_owner(
     Ok((service, owner))
 }
 
-#[cfg(all(test, debug_assertions))]
+#[cfg(test)]
 mod tests;

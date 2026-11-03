@@ -8,7 +8,7 @@
 //!
 //! ```ignore
 //! let mut config = LogsConfig::new("MyApp", env!("CARGO_PKG_VERSION"), app_data.join("logs/events.jsonl"));
-//! config.build = if cfg!(debug_assertions) { "debug" } else { "release" }.into();
+//! config.build = "release".into(); // there is no debug build
 //! logs_commands::install(app.handle(), config)?;           // in the app's setup
 //! // invoke_handler: rightkit_tauri_shell::handler![...]   // lists the three log commands itself
 //! ```

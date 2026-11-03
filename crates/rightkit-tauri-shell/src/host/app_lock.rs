@@ -286,7 +286,7 @@ pub(crate) fn invalidate(app: &AppHandle<Wry>, label: Option<&str>, event: Lifec
     true
 }
 
-#[cfg(all(test, debug_assertions))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};

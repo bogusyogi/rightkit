@@ -33,24 +33,24 @@ pub fn launched_in_background() -> bool {
 
 /// QA-only launch policy. The harness sets this before the frontend exists so every
 /// shell-owned show/reopen path can preserve the user's foreground app. Compiled out of
-/// product releases: without debug assertions the selector is not read at all and the answer
+/// product releases: without the `qa-probes` feature the selector is not read at all and the answer
 /// is always `false`, so a shipped binary carries no QA hidden/background switch.
-#[cfg(debug_assertions)]
+#[cfg(feature = "qa-probes")]
 pub fn qa_hidden() -> bool {
     std::env::var_os("RIGHTKIT_QA_HIDDEN").as_deref() == Some(std::ffi::OsStr::new("1"))
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(not(feature = "qa-probes"))]
 pub fn qa_hidden() -> bool {
     false
 }
 
-#[cfg(debug_assertions)]
+#[cfg(feature = "qa-probes")]
 pub fn qa_background() -> bool {
     std::env::var_os("RIGHTKIT_QA_BACKGROUND").as_deref() == Some(std::ffi::OsStr::new("1"))
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(not(feature = "qa-probes"))]
 pub fn qa_background() -> bool {
     false
 }

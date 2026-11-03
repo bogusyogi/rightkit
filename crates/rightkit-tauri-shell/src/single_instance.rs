@@ -170,6 +170,7 @@ pub(crate) fn release(token: u64) {
             .position(|(t, _)| *t == token)
             .map(|i| held.remove(i))
     };
+    #[allow(clippy::drop_non_drop)] // the held value is a lock handle only on some hosts
     drop(legacy);
 }
 

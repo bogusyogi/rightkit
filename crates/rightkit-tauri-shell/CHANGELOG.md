@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.1 (GATE-CONTRACT GC-A07)
+
+- Changed: no `debug_assertions` switches. The dev build is the release profile plus `qa-native`, so `qa-probes` (frameless, clipboard, `lifecycle::qa_hidden` / `qa_background`) now compile under the feature alone, the `compile_error!` that refused `qa-probes` without debug assertions is removed (the release scan forbids the feature in a release), and the inspector close in `devtools` is gated on `content-devtools` only.
+
 ## 0.7.0 (unpublished)
 
 BREAKING (source), so the next version is 0.7.0 (the registry records 0.6.0): `LogsRuntime::clear` changes its return type, and `rightkit_crash_window_error` moves from `host::crash` to `crash_commands`.

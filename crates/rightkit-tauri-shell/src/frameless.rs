@@ -5,11 +5,11 @@
 //! Donor: ViewRight `traffic_lights` (capture the macOS-default button origins once, apply a
 //! horizontal/vertical offset, re-assert after resize/focus because AppKit resets them).
 
-#[cfg(all(feature = "qa-probes", debug_assertions))]
+#[cfg(feature = "qa-probes")]
 use serde::Serialize;
 use tauri::{WebviewWindow, WebviewWindowBuilder, Wry};
 
-#[cfg(all(feature = "qa-probes", debug_assertions))]
+#[cfg(feature = "qa-probes")]
 use crate::error::ShellError;
 
 /// Style a builder for the frameless look. No-op when `frameless` is false.
@@ -117,7 +117,7 @@ impl TrafficLights {
 
 /// One standard window button's frame in its superview's coordinates (AppKit points, origin at the
 /// bottom-left) and whether it is hidden. QA probe: compiled only with the `qa-probes` feature in a debug-assertions build.
-#[cfg(all(feature = "qa-probes", debug_assertions))]
+#[cfg(feature = "qa-probes")]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct ButtonFrame {
     pub x: f64,
@@ -127,7 +127,7 @@ pub struct ButtonFrame {
     pub hidden: bool,
 }
 
-#[cfg(all(feature = "qa-probes", debug_assertions))]
+#[cfg(feature = "qa-probes")]
 impl ButtonFrame {
     /// Map an AppKit frame (`origin`, `size`) and hidden flag to the typed struct. Pure.
     pub fn new(origin: (f64, f64), size: (f64, f64), hidden: bool) -> Self {
@@ -143,7 +143,7 @@ impl ButtonFrame {
 
 /// The three standard window buttons, read without changing anything. See [`button_frames`].
 /// QA probe: compiled only with the `qa-probes` feature in a debug-assertions build.
-#[cfg(all(feature = "qa-probes", debug_assertions))]
+#[cfg(feature = "qa-probes")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ButtonFrames {
     pub close: ButtonFrame,
@@ -153,7 +153,7 @@ pub struct ButtonFrames {
     pub window_visible: bool,
 }
 
-#[cfg(all(feature = "qa-probes", debug_assertions))]
+#[cfg(feature = "qa-probes")]
 impl ButtonFrames {
     /// `[close, miniaturize, zoom]`.
     pub fn buttons(&self) -> [ButtonFrame; 3] {
@@ -180,7 +180,7 @@ impl ButtonFrames {
 /// platform other than macOS it returns [`ShellError::Unsupported`].
 ///
 /// QA probe: compiled only with the `qa-probes` feature in a debug-assertions build (a release build refuses the feature).
-#[cfg(all(feature = "qa-probes", debug_assertions))]
+#[cfg(feature = "qa-probes")]
 pub fn button_frames(window: &WebviewWindow<Wry>) -> Result<ButtonFrames, ShellError> {
     #[cfg(target_os = "macos")]
     {
@@ -203,7 +203,7 @@ mod macos {
     use objc2_foundation::NSPoint;
     use tauri::{WebviewWindow, Wry};
 
-    #[cfg(all(feature = "qa-probes", debug_assertions))]
+    #[cfg(feature = "qa-probes")]
     use crate::error::ShellError;
 
     const KINDS: [NSWindowButton; 3] = [
@@ -259,7 +259,7 @@ mod macos {
     }
 
     /// Read the three buttons on the main thread (see [`super::button_frames`]).
-    #[cfg(all(feature = "qa-probes", debug_assertions))]
+    #[cfg(feature = "qa-probes")]
     pub fn frames(window: &WebviewWindow<Wry>) -> Result<super::ButtonFrames, ShellError> {
         use tauri::Manager;
         if window
@@ -284,7 +284,7 @@ mod macos {
             .map_err(ShellError::Other)
     }
 
-    #[cfg(all(feature = "qa-probes", debug_assertions))]
+    #[cfg(feature = "qa-probes")]
     fn read(window: &WebviewWindow<Wry>) -> Result<super::ButtonFrames, String> {
         let win = ns_window(window).ok_or("no NSWindow for this window")?;
         let mut out = [super::ButtonFrame::new((0.0, 0.0), (0.0, 0.0), false); 3];
@@ -398,7 +398,7 @@ mod macos {
     }
 }
 
-#[cfg(all(test, feature = "qa-probes", debug_assertions))]
+#[cfg(all(test, feature = "qa-probes"))]
 mod tests {
     use super::*;
 

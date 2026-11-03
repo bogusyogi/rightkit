@@ -71,8 +71,6 @@ pub mod watchdog;
 pub mod webview2_env;
 pub mod webview2_menu;
 pub mod window_state;
-#[cfg(all(feature = "qa-probes", not(debug_assertions)))]
-compile_error!("rightkit-tauri-shell: the `qa-probes` feature is for development and QA builds only; a build without debug assertions (release) must not enable it");
 /// The `windows` / `webview2-com` generation selected by `wv2-0_38` / `wv2-0_39`.
 #[cfg(windows)]
 pub(crate) mod winapi {
