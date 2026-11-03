@@ -29,9 +29,14 @@ DOCX editing pane over @eigenpal/docx-editor with a host-owned toolbar, find, pr
 The pane renders its own toolbar through `DocxEditor`'s `renderToolbar` prop and
 `DocxHostToolbarContext` (typed in `documents/docx/eigenpalReact`). The published
 `@eigenpal/docx-editor-react@1.9.0` does not have that prop yet: the source change is carried in
-`patches/docx-editor-react-host-toolbar.patch` for an upstream pull request. Until it lands, a host
-that wants the host toolbar applies the patch to its editor build; against the unpatched editor the
-prop is ignored and the editor shows its built-in toolbar.
+`patches/docx-editor-react-host-toolbar.patch` for an upstream pull request. Until it lands, the
+workspace root applies it through `patchedDependencies` in `pnpm-workspace.yaml`, keyed
+`@eigenpal/docx-editor-react@1.9.0` and pointing at `packages/docx-editor/patches/docx-editor-react-host-toolbar.patch`.
+That root entry is not yet registered; until it is, a host must apply the patch itself. Against the
+unpatched editor the prop is ignored and the editor shows its built-in toolbar.
+
+`@rightkit/docx-editor/styles.css` imports the editor's own stylesheet, so a host imports this one
+file and does not import the editor's stylesheet separately.
 
 ## Product name
 

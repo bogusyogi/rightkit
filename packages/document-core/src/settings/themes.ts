@@ -156,7 +156,15 @@ export const BASE_THEME_IDS = [
 
 /** Each choice owns a dark- and light-body value so the same intent remains readable. */
 export const ACCENT_PRESETS: AccentPreset[] = [
-  { id: "blue", name: `${hostAppName()} blue`, dark: "#3FA3DE", light: "#0C6AA5" },
+  // A getter: the name reads hostAppName() when displayed, not at import, so setHostAppName() at host startup takes effect.
+  {
+    id: "blue",
+    get name() {
+      return `${hostAppName()} blue`;
+    },
+    dark: "#3FA3DE",
+    light: "#0C6AA5",
+  },
   { id: "copper", name: "Copper", dark: "#C46A3D", light: "#9D5530" },
   { id: "iris", name: "Iris", dark: "#A78BFA", light: "#6D4BC3" },
   { id: "amber", name: "Amber", dark: "#E0A458", light: "#87570E" },

@@ -3,4 +3,5 @@
 @import "./documents/markdown/markdownLiveEditor.css";
 @import "./documents/markdown/markdownCodeFence.css";
 @import "./documents/markdown/markdownMotion.css";
+@import "./documents/markdown/markdownReading.css";
 @import "katex/dist/katex.min.css";

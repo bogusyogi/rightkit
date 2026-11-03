@@ -11,10 +11,16 @@ import { normalizeSoftWraps } from "./pmToMarkdown.js";
 
 type Mdastish = Root | RootContent;
 
-/** Bounded LRU projection cache. Mounted renderers share recent source projections without
- * retaining every cold tab's full document tree. */
-const pmDocCache = new Map<string, ReturnType<typeof markdownToPmDocUncached>>();
-const PM_DOC_CACHE_MAX = 4;
+/** Byte-bounded LRU projection cache. Mounted renderers share recent source projections without
+ * retaining every cold tab's full document tree. Each entry is charged a fixed estimate per source
+ * unit (the key string plus a projected tree of the same order), and the least recently used
+ * entries are evicted until the total fits PM_DOC_CACHE_MAX_BYTES (24 MiB). A single document
+ * over the budget is projected but not cached. */
+const PM_DOC_CACHE_MAX_BYTES = 24 * 1024 * 1024;
+const PM_DOC_CACHE_BYTES_PER_UNIT = 4;
+type PmDocCacheEntry = { doc: ReturnType<typeof markdownToPmDocUncached>; bytes: number };
+const pmDocCache = new Map<string, PmDocCacheEntry>();
+let pmDocCacheBytes = 0;
 
 function markdownToPmDocUncached(source: string) {
   let tree: Root;
@@ -63,14 +69,20 @@ export function markdownToPmDoc(source: string) {
   if (cached) {
     pmDocCache.delete(source);
     pmDocCache.set(source, cached);
-    return cached;
+    return cached.doc;
   }
   incParseCount(1);
   const doc = markdownToPmDocUncached(source);
-  pmDocCache.set(source, doc);
-  if (pmDocCache.size > PM_DOC_CACHE_MAX) {
-    const oldest = pmDocCache.keys().next().value;
-    if (oldest !== undefined) pmDocCache.delete(oldest);
+  const bytes = source.length * PM_DOC_CACHE_BYTES_PER_UNIT;
+  if (bytes <= PM_DOC_CACHE_MAX_BYTES) {
+    pmDocCache.set(source, { doc, bytes });
+    pmDocCacheBytes += bytes;
+    while (pmDocCacheBytes > PM_DOC_CACHE_MAX_BYTES) {
+      const oldest = pmDocCache.keys().next().value;
+      if (oldest === undefined) break;
+      pmDocCacheBytes -= pmDocCache.get(oldest)?.bytes ?? 0;
+      pmDocCache.delete(oldest);
+    }
   }
   return doc;
 }

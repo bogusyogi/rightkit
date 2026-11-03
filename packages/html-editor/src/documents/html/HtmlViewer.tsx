@@ -98,7 +98,7 @@ export function HtmlViewer({
   siteRoot?: SiteRootGrant | null;
   registerSearchProvider?: (provider: SearchProvider | null) => void;
   onRequestFind?: () => void;
-  /** Open a brokered absolute path as a the host app tab (used for internal relative-link navigation). */
+  /** Open a brokered absolute path as a host app tab (used for internal relative-link navigation). */
   onOpenPath?: (path: string, opts?: { background?: boolean }) => void;
   /** Changes when the app theme/palette changes — hot-applies iframe theme CSS without rebuilding. */
   themeKey?: string;

@@ -39,7 +39,7 @@ function useRkContext(): SettingsContext {
   }, [settings.autoCheckUpdates, update]);
 }
 
-/** Renders a published section body under the the host app token map. */
+/** Renders a published section body under the host app token map. */
 function RkSection({ section, ctx, children }: { section: SettingsSection; ctx: SettingsContext; children?: React.ReactNode }) {
   return (
     <div className="vr-rk">
@@ -125,7 +125,7 @@ export function AboutFrame({ card, panels }: { card: React.ReactNode; panels: Re
   return <RkSection section={section} ctx={ctx} />;
 }
 
-/** Renders the published licenseSection body (status, verify, deactivate, activate, purchase rows) under the the host app token map. */
+/** Renders the published licenseSection body (status, verify, deactivate, activate, purchase rows) under the host app token map. */
 export function PublishedLicense({ section }: { section: SettingsSection }) {
   const ctx = useRkContext();
   return <RkSection section={section} ctx={ctx} />;

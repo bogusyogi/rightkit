@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/markdown-editor",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Markdown and MDX editor: ProseMirror WYSIWYG, source mode, math, diagrams and properties panel.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -12,6 +12,7 @@
       "import": "./dist/index.js"
     },
     "./styles.css": "./dist/styles.css",
+    "./documents/markdown/markdownReading.css": "./dist/documents/markdown/markdownReading.css",
     "./documents/markdown/MarkdownCoreProvider": {
       "types": "./dist/documents/markdown/MarkdownCoreProvider.d.ts",
       "import": "./dist/documents/markdown/MarkdownCoreProvider.js"
@@ -141,8 +142,8 @@
     "prosemirror-model": "1.25.12",
     "prosemirror-state": "^1.4.4",
     "prosemirror-tables": "1.8.5",
-    "prosemirror-transform": "1.12.2",
-    "prosemirror-view": "1.42.6",
+    "prosemirror-transform": "1.12.4",
+    "prosemirror-view": "1.42.8",
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",

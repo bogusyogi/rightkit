@@ -1,0 +1,70 @@
+/* Reading column: typography and measure for Markdown documents. The host sets --doc-font, --doc-size,
+   --doc-leading, --doc-fg and --doc-measure on its root from Settings (@rightkit/document-core writes
+   them). Without --doc-measure the column fills the scroller. */
+
+/* Reading column — driven by Settings (font / size / line-height / contrast). */
+.reading {
+  font-family: var(--doc-font);
+  font-size: var(--doc-size);
+  line-height: var(--doc-leading);
+  color: var(--doc-fg);
+}
+
+.reading :where(.font-serif) {
+  font-family: var(--doc-font);
+}
+
+/* Markdown Hybrid editor — ProseMirror owns editable prose, raw blocks stay source-only.
+   Full available width by default; an optional reading column uses Settings.readingWidthPx
+   via --doc-measure, selectable in Aa. The document fills the scroller and insets its text
+   with padding, so wide tables and code fences can break out of the measure a little — up to the
+   edge margin, never past it, so the hidden-x scroller can't clip them. --vr-doc-pad/--vr-breakout
+   are registered <length>s, calculated from the scroll container's inline size so descendants
+   inherit resolved lengths instead of re-evaluating percentages against their own width. */
+@property --vr-doc-pad {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 1.5rem;
+}
+@property --vr-breakout {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+.vr-markdown-document-geometry,
+.vr-reading-measure {
+  --vr-edge-pad: clamp(1.5rem, 4.8cqi, 4rem);
+  --vr-doc-pad: max(var(--vr-edge-pad), calc((100cqi - var(--doc-measure, 100cqi)) / 2));
+  --vr-breakout: min(2.5rem, calc(var(--vr-doc-pad) - var(--vr-edge-pad)));
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
+  padding-inline: var(--vr-doc-pad);
+}
+.vr-reading-container {
+  container-type: inline-size;
+}
+
+/* Breakout blocks: the live editor's native table wrapper and code fence are top-level PM
+   children; the rendered preview marks its table/code wrappers vr-md-table/vr-md-code. */
+.vr-pm-markdown-doc.vr-markdown-document-geometry > .vr-pm-table-scroll,
+.vr-pm-markdown-doc.vr-markdown-document-geometry > .vr-pm-code-fence,
+.vr-reading-measure .vr-md-table,
+.vr-reading-measure .vr-md-code {
+  width: calc(100% + 2 * var(--vr-breakout));
+  max-width: none;
+  margin-inline: calc(-1 * var(--vr-breakout));
+}
+
+.vr-pm-markdown-doc {
+  box-sizing: border-box;
+  margin: 0 auto;
+  color: var(--doc-fg);
+  font-family: var(--doc-font);
+  font-size: var(--doc-size);
+  line-height: var(--doc-leading);
+  outline: none;
+  white-space: pre-wrap;
+}

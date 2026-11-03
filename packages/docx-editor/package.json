@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/docx-editor",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "DOCX editing pane over @eigenpal/docx-editor with a host-owned toolbar, find, print and Markdown export.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -55,8 +55,8 @@
     "prosemirror-model": "1.25.12",
     "prosemirror-state": "^1.4.4",
     "prosemirror-tables": "^1.8.5",
-    "prosemirror-transform": "^1.12.2",
-    "prosemirror-view": "1.42.6"
+    "prosemirror-transform": "1.12.4",
+    "prosemirror-view": "1.42.8"
   },
   "peerDependencies": {
     "react": ">=18 <21"

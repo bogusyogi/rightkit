@@ -18,7 +18,7 @@ import {
   useDismiss,
 } from "@rightkit/platform-ui/headless";
 
-// Native the host app toolbar/menu primitives — square, copper-on-theme, compact app UI.
+// Native host app toolbar/menu primitives — square, copper-on-theme, compact app UI.
 // Zero eigenpal UI. Every interactive element uses onMouseDown + preventDefault so clicking
 // a control never steals the document selection before the command bridge formats it.
 

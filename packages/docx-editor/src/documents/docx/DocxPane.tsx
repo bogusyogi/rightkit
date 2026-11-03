@@ -53,7 +53,7 @@ interface Props {
   onRequestFind?: () => void;
   onRequestReplace?: () => void;
   /** Wave 2 Read mode — drives the vendor's "viewing" editing mode: the document becomes truly
-   *  read-only while the the host app toolbar bridge stays mounted for viewing controls. */
+   *  read-only while the host app toolbar bridge stays mounted for viewing controls. */
   readOnly?: boolean;
 }
 
@@ -185,7 +185,7 @@ export function DocxPane({
     registerSearchProvider?.(next);
   }, [readOnly, registerSearchProvider]);
 
-  // When the editor's ProseMirror view is ready, build a the host app-owned Find controller over it
+  // When the editor's ProseMirror view is ready, build a host app-owned Find controller over it
   // and register a "docx" SearchProvider — so DOCX find/replace runs through the shared FindBar.
   // The vendor's own Ctrl+F dialog is disabled (disableFindReplaceShortcuts) so there's one surface.
   const onEditorViewReady = useCallback(

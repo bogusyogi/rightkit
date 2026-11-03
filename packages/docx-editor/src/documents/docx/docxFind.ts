@@ -4,7 +4,7 @@ import type { Node as PMNode } from "prosemirror-model";
 import { findLiteralMatches } from "@rightkit/document-core/documents/searchUtils";
 import type { SearchOptions, SearchResult } from "@rightkit/document-core/documents/types";
 
-// Find decorations live in a the host app-owned ProseMirror plugin appended to the editor's live view.
+// Find decorations live in a host app-owned ProseMirror plugin appended to the editor's live view.
 // We use the SAME prosemirror-state/view instances the vendored editor uses (pnpm dedupes them),
 // so the plugin + decorations interoperate. The vendored editor is never modified.
 const findKey = new PluginKey<DecorationSet>("vrDocxFind");
