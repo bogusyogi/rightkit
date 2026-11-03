@@ -517,14 +517,12 @@ fn real_local_artifacts_and_locks_match_their_catalog_records() {
     let root = root();
     let mut verified = Vec::new();
 
-    let files: [(NativeLibrary, &str, &str, &str); 1] = [
-        (
-            NativeLibrary::Ffmpeg,
-            "macos",
-            "aarch64",
-            "heardright/tauri-app-next/src-tauri/resources/runtime/ffmpeg",
-        ),
-    ];
+    let files: [(NativeLibrary, &str, &str, &str); 1] = [(
+        NativeLibrary::Ffmpeg,
+        "macos",
+        "aarch64",
+        "heardright/tauri-app-next/src-tauri/resources/runtime/ffmpeg",
+    )];
     for (lib, os, arch, rel) in files {
         let path = root.join(rel);
         if !path.is_file() {
