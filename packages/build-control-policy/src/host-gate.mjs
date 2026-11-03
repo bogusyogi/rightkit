@@ -52,7 +52,54 @@ function defaultGitTop(cwd) {
   return r.status === 0 ? r.stdout.trim() : null;
 }
 
-export function trustedGate({ platform = process.platform, home = homedir(), read = readFileSync, realpath = realpathSync, treeHash = packageDigest, cwd, gitTop } = {}) {
+// Since rustright 658a78d the broker no longer pins a gate (Adrian, 2026-11-03: "Then fucking get rid of it"), so the pin in its config
+// (`admission.trustedEntry`) stopped moving: the Dell's stayed on 0.6.29 and every app's host gate kept running it after 0.6.31-0.6.33.
+// The host gate now runs the newest @rightkit/release installed under the managed root's `trusted-gates/` (each installed and sealed
+// by rustright/tools/install/trusted-gate.mjs after checking the tarball against the npm registry's integrity). With no sealed install
+// there it falls back to the config pin.
+const SEMVER = /^(\d+)\.(\d+)\.(\d+)$/;
+const newer = (a, b) => { const x = SEMVER.exec(a).slice(1).map(Number); const y = SEMVER.exec(b).slice(1).map(Number); for (let i = 0; i < 3; i += 1) if (x[i] !== y[i]) return x[i] > y[i]; return false; };
+export function newestInstalledGate({ platform = process.platform, root = platform === 'win32' ? 'D:\\.rightkit-managed\\trusted-gates' : '/Volumes/D/.rightkit-managed/trusted-gates', read = readFileSync, list = readdirSync } = {}) {
+  // A folder counts only when it is a sealed install (rustright/tools/install/trusted-gate.mjs): its name is the sha256 of the
+  // `<name>.manifest.txt` beside it, and the gate entry and package.json on disk hash to their manifest lines. A partial or unsealed
+  // folder, or one planted later, never qualifies.
+  const join2 = platform === 'win32' ? win32.join : posix.join;
+  const sha = (bytes) => createHash('sha256').update(bytes).digest('hex');
+  const ENTRY = './node_modules/@rightkit/release/bin/rightkit-gate.mjs';
+  const PKG = './node_modules/@rightkit/release/package.json';
+  const candidates = [];
+  let entries = [];
+  try { entries = list(root); } catch { return null; }
+  for (const name of entries) {
+    if (!/^[a-f0-9]{64}$/.test(name)) continue;
+    let manifest;
+    try { manifest = read(join2(root, `${name}.manifest.txt`)); } catch { continue; }
+    if (sha(manifest) !== name) continue;
+    const lines = new Map(String(manifest).split('\n').map((l) => l.split('\t')).filter((f) => f.length === 4 && f[1] === 'file').map((f) => [f[0], f[3]]));
+    const pkgDir = join2(root, name, 'node_modules', '@rightkit', 'release');
+    const entry = join2(pkgDir, 'bin', 'rightkit-gate.mjs');
+    let version;
+    try {
+      const pkgBytes = read(join2(pkgDir, 'package.json'));
+      if (lines.get(PKG) !== sha(pkgBytes) || lines.get(ENTRY) !== sha(read(entry))) continue;
+      const manifestJson = JSON.parse(String(pkgBytes));
+      version = manifestJson?.name === '@rightkit/release' ? manifestJson.version : null;
+    } catch { continue; }
+    if (typeof version !== 'string' || !SEMVER.test(version)) continue;
+    candidates.push({ version, entry, install: name, files: lines });
+  }
+  // Newest first; the chosen install's every file must still match its manifest (the entry imports its sibling modules), else the next.
+  candidates.sort((a, b) => (newer(a.version, b.version) ? -1 : newer(b.version, a.version) ? 1 : 0));
+  for (const c of candidates) {
+    let intact = true;
+    for (const [rel, digest] of c.files) {
+      try { if (sha(read(join2(root, c.install, ...rel.replace(/^\.\//, '').split('/')))) !== digest) { intact = false; break; } } catch { intact = false; break; }
+    }
+    if (intact) return { version: c.version, entry: c.entry, install: c.install };
+  }
+  return null;
+}
+export function pinnedGate({ platform = process.platform, home = homedir(), read = readFileSync, realpath = realpathSync, treeHash = packageDigest, cwd, gitTop } = {}) {
   if (platform === 'linux') return linuxGate({ cwd, read, realpath, ...(gitTop ? { gitTop } : {}) });
   const config = platform === 'darwin' ? join(home, 'Library', 'Application Support', 'RightKit', 'build-control', 'config.json')
     : platform === 'win32' ? 'D:\\.rightkit-managed\\config.json' : null;
@@ -72,6 +119,11 @@ export function trustedGate({ platform = process.platform, home = homedir(), rea
   const packageRoot = normalized.slice(0, end + marker.length - 1);
   if (pin.treeSha256 !== undefined && treeHash(packageRoot, platform) !== pin.treeSha256) throw new Error('trusted gate package digest does not match host pin');
   return target;
+}
+
+export function trustedGate(options = {}) {
+  const newest = newestInstalledGate(options);
+  return newest ? newest.entry : pinnedGate(options);
 }
 
 export function main(args = process.argv.slice(2)) {

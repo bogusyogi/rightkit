@@ -183,7 +183,8 @@ if (first === "--version" || first === "-v") {
   run("local-qualify.mjs", args.slice(1));
 } else if (first === "publish-local") {
   // The local route (rightkit#1471): Class A on the exact pushed commit, then the Keychain token publishes that commit's bytes.
-  run("publish-local-npm.mjs", args.slice(1));
+  if (args[1] === "cargo") run("publish-local-cargo.mjs", args.slice(2));
+  else run("publish-local-npm.mjs", args.slice(1));
 } else if (first === "publish") {
   const rest = args.slice(1);
   // RightKit crates and @rightkit packages reach a registry from CI only: publish.yml qualification, the approval
@@ -355,6 +356,10 @@ Commands:
   release                                             Compatibility alias for build
   publish                                             Compatibility alias for upload
   check-release-dependencies [--platform mac|win|linux | --all-targets]  Check app-forbidden release crates
+  publish-local cargo --crate rightkit-<name> --commit <sha> --compile-report <file>
+                                                      Needs the unit-gate report of a green --to compile of that commit
+                                                      (either host); packages and publishes --no-verify from the commit,
+                                                      verifies the crates.io index checksum
   publish-local npm --package @rightkit/<name> --commit <sha>
                                                       Mac: Class A on the pushed commit, pack it, publish with the
                                                       Keychain token (npm-rightkit-publish), verify the registry shasum

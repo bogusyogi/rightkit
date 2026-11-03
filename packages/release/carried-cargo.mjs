@@ -17,10 +17,13 @@
 // map file through `RIGHTKIT_CARRIED_CARGO_MAP` and reads the ledger after the child ends: a refused, unverified or unfinished call fails
 // the stage, and every verified call, nested children included, is verified again from the broker's receipt.
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { appendLedger, readLedger, SCAN_TOKEN_ENV, UNSCOPED } from "./cargo-ledger.mjs";
-import { SHIM_MAP_SCHEMA, locateWorkspaceByWalk } from "./cargo-target-shim.mjs";
+import { SHIM_MAP_SCHEMA, locateWorkspaceByWalk, readOnlyCargo } from "./cargo-target-shim.mjs";
+import { directCargoPath } from "./managed-cargo.mjs";
+import { carriedScanRefusal } from "./snapshot-metadata.mjs";
 import { BROKER_REFUSAL_STATUS, carryBrokerAdapter, carryBrokerCargo, verifyBrokerLedger } from "./snapshot-broker.mjs";
 import { splitCarriedArgs } from "./snapshot-request.mjs";
 
@@ -37,6 +40,15 @@ export function carriedCargoMapOf(env = process.env) {
     if (map?.schema !== SHIM_MAP_SCHEMA || map.mode !== "broker" || !map.broker || typeof map.ledgerDir !== "string" || !map.workspaces) throw new Error("not a broker-mode cargo target map");
     return { map };
   } catch (error) { return { error: `the carried cargo map ${file} cannot be read (${error.message})` }; }
+}
+
+/** The broker's registered cargo (managed-cargo.mjs directCargoPath), else PATH's without the RustRight shims; null when none exists. */
+function directCargoBin(env, platform = process.platform) {
+  const pathKey = platform === "win32" ? (Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "Path") : "PATH";
+  const d = directCargoPath({ env: { ...env, PATH: env[pathKey] }, platform, gateWrappers: true });
+  const names = platform === "win32" ? ["cargo.exe"] : ["cargo"];
+  for (const dir of String(d.path ?? "").split(platform === "win32" ? ";" : ":").filter(Boolean)) for (const n of names) { const c = path.join(dir, n); if (fs.existsSync(c)) return c; }
+  return null;
 }
 
 const refused = (code, message) => {
@@ -73,6 +85,30 @@ export function runCarriedCargo(args, options = {}, { map, spawn = spawnSync, er
   } catch (error) { return refuse("RK_CARGO_UNBOUND_WORKSPACE", `\`cargo ${words.join(" ")}\` from ${from}: its Cargo workspace cannot be resolved (${error.message}); a snapshot stage's Cargo calls run in the commit's workspaces`); }
   if (!Object.hasOwn(map.workspaces, workspace)) return refuse("RK_CARGO_UNBOUND_WORKSPACE", `\`cargo ${words.join(" ")}\` builds the Cargo workspace ${workspace}, which is not one this snapshot stage resolved (${Object.keys(map.workspaces).join(", ") || "none"})`);
   const capture = options.stdio === "inherit" ? "inherit" : "capture";
+  // GATE-CONTRACT GC-A11: a call that compiles nothing (metadata, fmt --check, deny, audit, package --list) runs directly with the broker's
+  // registered cargo into its own scratch target, never carried: the broker refuses non-compiling requests (rustright a2972f0), which
+  // stopped every unit stage at its `cargo fmt -p <crate> --check` step on the Mac and Dell (2026-11-03). Recorded like the cargo
+  // wrapper's direct calls (cargo-target-shim.mjs), so the stage's ledger check sees it ran.
+  // Only the exact non-writing shapes the cargo wrapper accepts run directly (carriedScanRefusal: `fmt -p <unit> --check`, metadata with
+  // --locked/--frozen, `deny ... check`, `audit --db <dir> --no-fetch`), and only when the first word is the subcommand itself (no
+  // `+toolchain` or global option in front). Anything else still carries, and the broker refuses it: a direct call never writes the
+  // snapshot (no `fmt` without --check, no lock rewrite, no `deny init`, no `audit fix`).
+  const directShape = /^[a-z]/.test(words[0] ?? "") && readOnlyCargo(words) && carriedScanRefusal(words) === null
+    && (words[0] !== "package" || (words.includes("--list") && (words.includes("--locked") || words.includes("--frozen"))));
+  if (directShape) {
+    const realCargo = directCargoBin(env);
+    if (!realCargo) return refuse("RK_CARGO_DIRECT_MISSING", `\`cargo ${words.join(" ")}\` compiles nothing and runs directly (GC-A11), but no cargo was found on the broker's toolchain or PATH`);
+    let scratch;
+    try { scratch = fs.mkdtempSync(path.join(os.tmpdir(), "rk-carried-read-")); }
+    catch (error) { return refuse("RK_CARGO_DIRECT_SCRATCH", `cannot create a scratch target for \`cargo ${words.join(" ")}\` (${error.message})`); }
+    const { CARGO_TARGET_DIR: _t, CARGO_BUILD_TARGET_DIR: _t2, ...rest } = env; void _t; void _t2;
+    let r;
+    try { r = spawn(realCargo, words, { cwd: from, env: { ...rest, CARGO: realCargo, CARGO_TARGET_DIR: scratch }, stdio: capture === "inherit" ? "inherit" : "pipe", encoding: "utf8", maxBuffer: options.maxBuffer ?? 1 << 28 }); }
+    finally { try { fs.rmSync(scratch, { recursive: true, force: true }); } catch { /* temporary */ } }
+    if (r.error) return refuse("RK_CARGO_DIRECT_FAILED", `${realCargo} did not start (${r.error.message})`);
+    try { record({ ...base, status: "ran", direct: true, exit: r.status ?? null }); } catch { /* the result is returned either way */ }
+    return { status: r.status ?? 1, signal: r.signal ?? null, stdout: r.stdout ?? "", stderr: r.stderr ?? "", error: null };
+  }
   const result = carryBrokerCargo({ words, cwd: from, env, section: map.broker, workspace, checkoutWorkspace: map.workspaces[workspace], record: (entry) => record({ ...entry, id: base.id }), spawn, err, stdio: capture });
   return { status: result.status, signal: null, stdout: result.stdout, stderr: result.stderr, error: null, ...(result.outcome?.status === "verified" ? { outputDir: result.outcome.outputDir, requestId: result.outcome.requestId, requestDigest: result.outcome.requestDigest } : {}), ...(result.outcome?.status === "refused" ? { refusal: { code: result.outcome.code, message: result.outcome.message } } : {}) };
 }
