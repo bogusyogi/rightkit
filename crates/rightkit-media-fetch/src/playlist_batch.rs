@@ -22,7 +22,7 @@ use crate::MediaSpec;
 
 /// What a batch run needs from its host besides the lister and the queue.
 pub struct BatchContext<'a> {
-    /// The product's display name, used in "needs <product> Pro" messages.
+    /// The product's display name, used in "needs `<product>` Pro" messages.
     pub product: &'a str,
     /// Mints the id of one queued child job.
     pub new_id: &'a dyn Fn() -> String,

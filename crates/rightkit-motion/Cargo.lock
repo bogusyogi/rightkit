@@ -2033,6 +2033,7 @@ dependencies = [
 name = "rightkit-motion"
 version = "0.2.1"
 dependencies = [
+ "chrono",
  "image",
  "rightkit-cache",
  "rightkit-engine-host",

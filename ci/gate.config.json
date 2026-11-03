@@ -255,11 +255,7 @@
       "checkFeatureSets": [
         [
           "--features",
-          "db-adapter,os-auth,settings-probe,rightkit-db/sqlcipher"
-        ],
-        [
-          "--features",
-          "db-adapter,os-auth,rightkit-db/sqlcipher-system"
+          "db-adapter,os-auth,settings-probe,rightkit-db/sqlcipher-system"
         ]
       ]
     },
@@ -466,6 +462,9 @@
     },
     "rightkit-agent-policy": {
       "allowIgnored": "src/injection_harness_tests.rs: four #[ignore] cases document payloads only ThreatScanScope::Strict catches (strict-memory-persistence and strict-backdoor-install, two each); the context/tool-result paths under test use ThreatScanScope::Context, so these rows record the known gap, not a pass (every other case runs and asserts)"
+    },
+    "rightkit-dictation-text-pipeline": {
+      "allowIgnored": "five live-provider and bench tests (l3_cleanup/tests/more.rs, text_polish/bench.rs) are #[ignore] on purpose: they call real model providers with real API keys and run by hand with --ignored"
     }
   },
   "fixtures": [

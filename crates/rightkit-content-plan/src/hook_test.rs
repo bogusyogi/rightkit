@@ -220,8 +220,6 @@ fn short(reason: &'static str, message: String) -> Verdict {
     Verdict::Open(Shortfall { reason, message })
 }
 
-/// The rule over stored rows, with no writes: one pick per opening, then a strict single maximum.
-
 fn assess(
     store: &dyn HookTestStore,
     scope: &Scope,
@@ -328,8 +326,6 @@ fn assess(
 }
 
 /// Writes a decision: each opening's role and lineage, then the set as decided. Both writes are guarded by the
-/// revision the read loaded and by the set still being open, so a racing decision changes nothing twice.
-
 /// Writes a decision: each opening's role and lineage, then the set as decided. Both writes are guarded by the
 /// revision the read loaded and by the set still being open, so a racing decision changes nothing twice.
 fn record_decision(

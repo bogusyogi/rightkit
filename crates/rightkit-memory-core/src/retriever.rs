@@ -167,7 +167,7 @@ impl MemoryRetriever {
     /// Build the bounded, query-independent projection for one scope (BM06).
     ///
     /// Selection is query-independent by construction — it reuses the same
-    /// scope-membership test as [`retrieve_hybrid_with_lexical_hits`]'s
+    /// scope-membership test as `retrieve_hybrid_with_lexical_hits`'s
     /// `eligible_scopes` mask rather than any relevance ranking, so the
     /// projection reflects standing/scoped admission, not a search result.
     /// `global`-scoped entries are always included alongside the caller's
@@ -233,7 +233,7 @@ impl MemoryRetriever {
     /// applicable standing preferences (BM06). Query results and the scope's
     /// admission-eligible preference rows are unioned (deduped by id, query
     /// hits ranked first); this never promotes a non-preference row — the
-    /// classification boundary lives in [`Self::classify`], not here. Pull
+    /// classification boundary lives in `Self::classify`, not here. Pull
     /// retains final admission over whatever this returns.
     pub fn retrieve_with_standing_preferences<'a>(
         registry: &'a MemoryRegistry,

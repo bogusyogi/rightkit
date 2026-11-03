@@ -3,7 +3,7 @@
 //! ffmpeg boundary and cached under `<project>/.cache/thumbs`, a rightkit-cache
 //! `DiskCache` keyed by media identity, time and width, so repeated calls are free.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;

@@ -147,8 +147,8 @@ jobs:
           chmod +x "$RUNNER_TEMP/shellcheck-bin/shellcheck"
           "$RUNNER_TEMP/shellcheck-bin/shellcheck" --version | grep -Fx "version: ${SHELLCHECK_VERSION}"
           echo "$RUNNER_TEMP/shellcheck-bin" >> "$GITHUB_PATH"
-      - name: Install the GTK and WebKit development libraries for Tauri units
-        if: ${{ contains(matrix.unit, 'tauri') }}
+      - name: Install the GTK and WebKit development libraries for Tauri units and rightkit-qa
+        if: ${{ contains(matrix.unit, 'tauri') || matrix.unit == 'cargo:rightkit-qa' }}
         run: |
           set -euo pipefail
           sudo apt-get update -qq

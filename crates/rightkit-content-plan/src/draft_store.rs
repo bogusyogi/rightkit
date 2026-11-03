@@ -222,7 +222,7 @@ pub fn draft_put(store: &dyn DraftStore, input: Value) -> Result<Value, Fail> {
         title: title.as_deref(),
         body: &req.body,
         disclosure_required: req.disclosure_required,
-        source_note: req.source_note.as_deref(),
+        source_note: Some(req.source_note.as_str()).filter(|note| !note.trim().is_empty()),
     };
 
     let saved = in_txn(store, || {

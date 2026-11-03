@@ -278,9 +278,9 @@ pub async fn ssrf_guard_reject_reason(verb: &str, url: &str) -> Option<String> {
 /// tool result, to avoid token bloat and over-wrapping trusted local output.
 pub fn wrap_untrusted_web_text(source: &str, text: &str) -> String {
     // the host app's own threat scan decides whether the text is withheld (policy stays here); the
-    // envelope is RightKit's `<host_untrusted-context>` wrapper, which also fills the body
+    // envelope is RightKit's `<coderight-untrusted-context>` wrapper, which also fills the body
     // hash and escapes a closing tag inside the body.
-    rightkit_http::wrap_untrusted_web_text_host(
+    rightkit_http::wrap_untrusted_web_text_coderight(
         source,
         &sanitize_untrusted_tool_text(source, text),
         &rightkit_http::WrapOptions {

@@ -43,8 +43,6 @@ pub const WRITE_METHODS: [&str; 8] = [
     "calendar.resume",
 ];
 
-/// Schema v40: operator resolutions of failed entries (`calendar.resolve_failure`). A resolution hides the failure from
-
 /// States `calendar.pause` accepts.
 const PAUSABLE: [&str; 4] = ["draft", "media_pending", "ready", "scheduled"];
 
@@ -80,8 +78,6 @@ fn prep_minutes(raw: Option<i64>) -> Result<i64, Fail> {
         Some(n) => Err(bad(format!("prep_minutes must be zero or more, got {n}"))),
     }
 }
-
-/// Column list shared by every entry read. Index 9 is `media_json` and index 23 is `settings_json`, both parsed
 
 /// Fill `effective_state`: `late` for a draft or media_pending entry whose preparation deadline
 /// (`scheduled_at` minus `prep` minutes) is before `now`. The stored state is unchanged.
@@ -328,8 +324,6 @@ fn check_comment_and_settings(
     }
     Ok(())
 }
-
-/// `brief.put`: the next revision of a brief, or the same revision when the content is identical to
 
 /// `brief.put`: the next revision of a brief, or the same revision when the content is identical to
 /// the latest one. Type, title and payload are the content compared.

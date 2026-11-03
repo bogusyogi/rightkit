@@ -947,16 +947,15 @@ pub fn plan(input: &PlannerInput) -> Result<PlannerOutput, PlannerError> {
     packet_omissions.extend(
         decisions
             .iter()
-            .filter_map(|(candidate, decision, reason)| {
-                (decision == "rejected" && reason == "consumer_resolver_unavailable").then(|| {
-                    OmissionV1 {
-                        id: candidate.id.clone(),
-                        layer: Some(candidate.layer),
-                        reason: reason.clone(),
-                        detail_id: None,
-                        stage: None,
-                    }
-                })
+            .filter(|&(_candidate, decision, reason)| {
+                decision == "rejected" && reason == "consumer_resolver_unavailable"
+            })
+            .map(|(candidate, _decision, reason)| OmissionV1 {
+                id: candidate.id.clone(),
+                layer: Some(candidate.layer),
+                reason: reason.clone(),
+                detail_id: None,
+                stage: None,
             }),
     );
 

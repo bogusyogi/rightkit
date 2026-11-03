@@ -28,11 +28,12 @@ encode = ["dep:rightkit-ffmpeg", "dep:image"]
 # deterministic runtime and swaps remote GSAP for a caller-supplied copy. Adds `rightkit-http` (path decoding).
 server = ["dep:rightkit-http"]
 # Engine command handlers (`cmd`): `media.thumbnail` and `contactsheet.make` over a video project.
-engine-commands = ["dep:rightkit-engine-host", "dep:rightkit-video-project", "dep:rightkit-ffmpeg", "dep:rightkit-cache", "dep:rightkit-fs"]
+engine-commands = ["dep:rightkit-engine-host", "dep:rightkit-video-project", "dep:rightkit-ffmpeg", "dep:rightkit-cache", "dep:rightkit-fs", "dep:chrono"]
 
 [dependencies]
 rightkit-engine-host = { version = "0.1.1", path = "../rightkit-engine-host", features = ["project-cmd"], optional = true }
 rightkit-video-project = { version = "0.1.0", path = "../rightkit-video-project", optional = true }
+chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
 rightkit-cache = { version = "0.2.3", path = "../rightkit-cache", optional = true }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "blake3"], optional = true }
 rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }

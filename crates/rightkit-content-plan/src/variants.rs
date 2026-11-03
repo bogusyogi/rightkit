@@ -264,6 +264,7 @@ fn checked_detail(
     })
 }
 
+#[derive(Default)]
 struct Placed {
     in_caption: Option<String>,
     first_comment: Option<String>,

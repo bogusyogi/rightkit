@@ -2,6 +2,7 @@
 
 ## 0.2.1 (unreleased)
 
+- Fix: feature `engine-commands` declares the `chrono` dependency its contact sheet uses.
 - New, additive (feature `engine-commands`, off by default): `cmd::thumb` (`media.thumbnail`: cached typed-FFmpeg frame extraction from a source or render, with a host-supplied `GradeLookup` for graded source frames) and `cmd::contactsheet` (`contactsheet.make`: a PNG contact sheet of a render bound to its revision and hash), moved from CutRight's `cutright-engine`. The on-disk sheet schema id `cutright.contactsheet.v1` is kept.
 
 ## 0.2.0 — unpublished staging (2026-10-18)

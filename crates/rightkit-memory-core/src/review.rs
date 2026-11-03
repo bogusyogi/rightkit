@@ -1,6 +1,6 @@
 //! Proposal-only Cortex review boundaries.
 //!
-//! Stage 0 Dream remains deterministic and lives in [`crate::dream`]. This
+//! Stage 0 Dream remains deterministic and lives in `crate::dream`. This
 //! module owns Stage 1's provider-output contracts and foreground gate. It
 //! does not call a model or write durable memory.
 
@@ -845,7 +845,7 @@ fn normalized_tokens(text: &str) -> Vec<String> {
 
 /// Split flattened event text into sentence-like units before matching.
 fn sentences(text: &str) -> Vec<String> {
-    text.split(|character| matches!(character, '.' | '!' | '?' | ';' | '\n'))
+    text.split(['.', '!', '?', ';', '\n'])
         .map(|part| part.trim().to_string())
         .filter(|part| !part.is_empty())
         .collect()
@@ -864,7 +864,7 @@ fn extract_assertions(text: &str) -> Vec<DeterministicAssertion> {
         'positions: for position in 1..tokens.len() {
             for (marker, family, polarity) in ASSERTION_MARKERS {
                 let marker_tokens = marker.split(' ').collect::<Vec<_>>();
-                if position + marker_tokens.len() >= tokens.len() + 1 {
+                if position + marker_tokens.len() > tokens.len() {
                     continue;
                 }
                 if tokens[position..position + marker_tokens.len()]
@@ -976,7 +976,7 @@ fn proposal(
 ///
 /// Rules, in order:
 /// 1. **Near duplicate** — same scope and either identical Stage 0 dedup key
-///    (the exact rule [`crate::dream`] already uses) or 3-gram shingle overlap
+///    (the exact rule `crate::dream` already uses) or 3-gram shingle overlap
 ///    at or above the configured floor.
 /// 2. **Contradiction candidate** — same scope, same literal subject span and
 ///    predicate family, and either opposite polarity (an explicit negation
@@ -1053,8 +1053,8 @@ pub fn analyze_events_for_curation(
     }
 
     // 2 & 3. assertion pairs, grouped by (scope, subject, predicate family)
-    let mut groups: BTreeMap<(String, String, &'static str), Vec<(usize, DeterministicAssertion)>> =
-        BTreeMap::new();
+    type GroupKey = (String, String, &'static str);
+    let mut groups: BTreeMap<GroupKey, Vec<(usize, DeterministicAssertion)>> = BTreeMap::new();
     for (index, event) in ordered.iter().enumerate() {
         for assertion in extract_assertions(&event.text) {
             groups
