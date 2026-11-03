@@ -3,6 +3,7 @@
 ## 0.1.2
 
 - Declared `markdown_index` (it shipped in 0.1.1 as a file but was never a `pub mod`, so no host could import it).
+- Added `SettingsStore::in_app_folder(app_folder, namespace)`: the store opens `settings.json` and `explorer.json` directly in the app's own data folder (rightkit-fs `AppDirs::data`), so a host needs no parent-folder resolver (viewright#57). `new(data_dir, namespace)` is unchanged and opens the same files under `<data_dir>/<namespace>/`. Additive.
 
 ## 0.1.1
 

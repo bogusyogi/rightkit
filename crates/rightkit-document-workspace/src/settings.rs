@@ -1,5 +1,5 @@
 //! The durable settings document and the explorer record, stored as `rightkit-app-settings`
-//! envelopes under `<data_dir>/<namespace>/`.
+//! envelopes under `<data_dir>/<namespace>/` (or directly in the app's own folder, `in_app_folder`).
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -51,7 +51,8 @@ impl SettingsWrite {
 /// shape, so the store keeps one opaque JSON object. Only a successful open is cached; a failed
 /// open is reported on every call and retried.
 pub struct SettingsStore {
-    data_dir: Option<PathBuf>,
+    /// The folder holding `settings.json` and `explorer.json` (`None` when unavailable).
+    folder: Option<PathBuf>,
     namespace: String,
     document: OnceLock<Document>,
     explorer: OnceLock<Document>,
@@ -61,8 +62,21 @@ impl SettingsStore {
     /// `data_dir` is the host's per-user data directory (`None` when unavailable) and
     /// `namespace` the app's folder name beneath it.
     pub fn new(data_dir: Option<PathBuf>, namespace: impl Into<String>) -> Self {
+        let namespace = namespace.into();
         Self {
-            data_dir,
+            folder: data_dir.map(|dir| dir.join(&namespace)),
+            namespace,
+            document: OnceLock::new(),
+            explorer: OnceLock::new(),
+        }
+    }
+
+    /// The store in the app's own data folder, as rightkit-fs resolves it (`AppDirs::data`):
+    /// `settings.json` and `explorer.json` live directly in `app_folder`, so the host keeps no
+    /// parent-folder resolver of its own (viewright#57). `namespace` names the document schema.
+    pub fn in_app_folder(app_folder: PathBuf, namespace: impl Into<String>) -> Self {
+        Self {
+            folder: Some(app_folder),
             namespace: namespace.into(),
             document: OnceLock::new(),
             explorer: OnceLock::new(),
@@ -70,11 +84,11 @@ impl SettingsStore {
     }
 
     fn document_path(&self, name: &str) -> Result<PathBuf, WorkspaceError> {
-        let root = self
-            .data_dir
+        let folder = self
+            .folder
             .as_ref()
             .ok_or_else(|| WorkspaceError::Other("settings directory is unavailable".into()))?;
-        Ok(root.join(&self.namespace).join(name))
+        Ok(folder.join(name))
     }
 
     fn options(&self) -> StoreOptions {
@@ -251,5 +265,23 @@ mod tests {
         assert!(write.committed.is_none());
         assert_eq!(store.get("k", None).unwrap(), Value::String("v".into()));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn in_app_folder_writes_directly_into_the_app_folder() {
+        let parent =
+            std::env::temp_dir().join(format!("rightkit-settings-app-{}", std::process::id()));
+        let app_folder = parent.join("test-app");
+        std::fs::create_dir_all(&app_folder).unwrap();
+        let store = SettingsStore::in_app_folder(app_folder.clone(), "test-app");
+        store
+            .set(SETTINGS_KEY, r#"{"diagnostics":false}"#, None, None)
+            .unwrap();
+        assert!(app_folder.join("settings.json").is_file());
+        assert!(!app_folder.join("test-app").exists());
+        // The same document as `new(parent, namespace)` opens: one file, two ways to name it.
+        let via_parent = SettingsStore::new(Some(parent.clone()), "test-app");
+        assert!(!via_parent.persisted_diagnostics_enabled());
+        let _ = std::fs::remove_dir_all(parent);
     }
 }
