@@ -1238,7 +1238,9 @@ export function planScans({
     const dir = ws === "." ? "" : ws;
     // A non-empty list only: `[^\]\s]` is one character that is neither whitespace nor the closing bracket, so `ignore = []` followed by
     // a later `]` (the next table header) is not an ignore (Pulse, 2026-10-27: `\S` matched the `]` itself).
-    const ignores = ["deny.toml", ".cargo/audit.toml"].some((f) => { try { return /\bignore\s*=\s*\[[^\]]*[^\]\s][^\]]*\]/s.test(readFile(path.join(contentRoot, dir, f))); } catch { return false; } });
+    // Comments go first: the @rightkit/config template keeps a commented example inside an empty `ignore = [ ... ]`, which is no
+    // ignore (CutRight, 2026-11-03).
+    const ignores = ["deny.toml", ".cargo/audit.toml"].some((f) => { try { return /\bignore\s*=\s*\[[^\]]*[^\]\s][^\]]*\]/s.test(readFile(path.join(contentRoot, dir, f)).replace(/#[^\n]*/g, "")); } catch { return false; } });
     if (ignores && !(dir === "" && exists(path.join(contentRoot, "ci/advisory-exceptions.json")))) add({ id: `advisory-exceptions${dir ? `:${wsLabel(ws)}` : ""}`, class: A, internal: "advisory-exceptions", dir, exceptionsFile: ".rightkit/advisory-exceptions.json" });
   }
   // Like generated-docs, planned only when a changed file is one of the contract's inputs or projections. The generator runs from

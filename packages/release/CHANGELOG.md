@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.40 (unpublished)
+
+- **An empty advisory ignore list needs no ledger.** The app advisory-exceptions scan read the @rightkit/config template's commented example inside `ignore = [ ... ]` as an entry and demanded `.rightkit/advisory-exceptions.json` (CutRight, 2026-11-03). TOML comments are now dropped before the check.
+
 ## 0.6.39 (unpublished)
 
 Class A and Class B speed-ups from `docs/results/2026-11-02-class-a-b-inefficiencies.md` (B1, B4, B7, A6) and rightkit#1458, #1460, #1464. Written from the code; nothing in this set is measured, run or tested yet (GATE-CONTRACT GC-A18, GC-A19).
