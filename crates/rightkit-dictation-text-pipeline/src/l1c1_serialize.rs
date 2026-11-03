@@ -196,8 +196,8 @@ mod tests {
 
     #[test]
     fn matches_frozen_python_fixture_for_flat_rows() {
-        let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("fixtures/l1c1_fixtures.jsonl");
+        let fixture_path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/l1c1_fixtures.jsonl");
         let content = fs::read_to_string(&fixture_path)
             .unwrap_or_else(|e| panic!("failed to read fixture {fixture_path:?}: {e}"));
 

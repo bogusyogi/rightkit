@@ -320,9 +320,7 @@ impl GpuContext {
         rx.recv()
             .map_err(|_| GpuError::Readback)?
             .map_err(|_| GpuError::Readback)?;
-        let mapped = slice
-            .get_mapped_range()
-            .map_err(|_| GpuError::Readback)?;
+        let mapped = slice.get_mapped_range().map_err(|_| GpuError::Readback)?;
 
         let mut out = Vec::with_capacity((row_bytes * height) as usize);
         for row in mapped.chunks(padded_row as usize).take(height as usize) {
