@@ -510,6 +510,7 @@ impl BrowserSession {
         policy: FixtureProxyPolicy,
     ) -> std::result::Result<Self, FixtureError> {
         #[cfg(not(any(target_os = "macos", windows)))]
+        #[allow(clippy::needless_return)]
         {
             let _ = policy;
             return Err(FixtureError::ConfinementUnsupported(

@@ -7,6 +7,7 @@
 use crate::fixture_protocol::{FixtureAction, FixtureError, FixtureIntent, FixtureKey};
 use crate::fixture_server::FixtureServer;
 use crate::page::{BrowserPage, Target};
+#[cfg_attr(not(any(target_os = "macos", windows)), allow(unused_imports))]
 use crate::proxy::FixtureProxyPolicy;
 use crate::session::BrowserSession;
 use chromiumoxide::cdp::browser_protocol::emulation::SetScriptExecutionDisabledParams;
@@ -16,10 +17,12 @@ use chromiumoxide::cdp::browser_protocol::fetch::{
     HeaderEntry, RequestPattern,
 };
 use chromiumoxide::cdp::browser_protocol::inspector::EventTargetCrashed;
+#[cfg_attr(not(any(target_os = "macos", windows)), allow(unused_imports))]
+use chromiumoxide::cdp::browser_protocol::page::CreateIsolatedWorldParams;
 use chromiumoxide::cdp::browser_protocol::page::{
-    CreateIsolatedWorldParams, EnableParams as PageEnableParams, EventDocumentOpened,
-    EventFrameNavigated, EventNavigatedWithinDocument, GetFrameTreeParams,
-    SetWebLifecycleStateParams, SetWebLifecycleStateState, StopLoadingParams,
+    EnableParams as PageEnableParams, EventDocumentOpened, EventFrameNavigated,
+    EventNavigatedWithinDocument, GetFrameTreeParams, SetWebLifecycleStateParams,
+    SetWebLifecycleStateState, StopLoadingParams,
 };
 use chromiumoxide::cdp::js_protocol::runtime::{
     CallArgument, CallFunctionOnParams, EnableParams as RuntimeEnableParams,
@@ -582,6 +585,7 @@ impl FixtureSession {
         }
 
         #[cfg(not(any(target_os = "macos", windows)))]
+        #[allow(clippy::needless_return)]
         {
             let _ = (server, intent);
             return Err(FixtureError::ConfinementUnsupported(

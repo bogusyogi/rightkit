@@ -28,6 +28,9 @@
 //! * [`BrowserPage::observe`] returns refs that are checked for staleness before use.
 //! * [`design_mode`] holds the element-picker primitives: an isolated-world binding bridge,
 //!   a one-shot native-gesture submit gate, device-pixel capture geometry and the picker script builder.
+// The source-only fixture browser is confined by macOS Seatbelt / the Windows sandbox; on other hosts its
+// constructors refuse and the rest of the fixture machinery is unreachable.
+#![cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
 mod cdp_ext;
 mod config;
 #[cfg(feature = "cookie-export")]
