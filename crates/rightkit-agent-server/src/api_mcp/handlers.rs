@@ -207,12 +207,12 @@ async fn publish_mcp_lifecycle(state: &DaemonState, server: &str, action: &str) 
     for session in sessions {
         // A203: a reload keeps the session's own trust posture; project MCP
         // config reloads only for a workspace the session holds as Trusted.
-        let project_trust = if session.workspace_trust == rightkit_agent_policy::WorkspaceTrust::Trusted
-        {
-            rightkit_mcp::agent_mcp::ProjectTrust::Trusted
-        } else {
-            rightkit_mcp::agent_mcp::ProjectTrust::Untrusted
-        };
+        let project_trust =
+            if session.workspace_trust == rightkit_agent_policy::WorkspaceTrust::Trusted {
+                rightkit_mcp::agent_mcp::ProjectTrust::Trusted
+            } else {
+                rightkit_mcp::agent_mcp::ProjectTrust::Untrusted
+            };
         let manager = rightkit_mcp::agent_mcp::load_for_session(
             Some(std::path::Path::new(&session.workspace_root)),
             None,

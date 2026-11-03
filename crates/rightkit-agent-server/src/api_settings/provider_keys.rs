@@ -94,7 +94,10 @@ fn resolve_provider_credential_with<B: rightkit_llm::agent_providers::KeyStoreBa
     let status = rightkit_llm::agent_providers::status_source(backend, provider);
     let resolved = match status {
         rightkit_llm::agent_providers::KeySource::Keychain => {
-            match backend.get(rightkit_llm::agent_providers::key_migration::SERVICE, provider) {
+            match backend.get(
+                rightkit_llm::agent_providers::key_migration::SERVICE,
+                provider,
+            ) {
                 Ok(value) if !value.trim().is_empty() => ResolvedProviderCredential::Present {
                     secret: value.trim().to_string(),
                     source: "keychain",
@@ -107,9 +110,11 @@ fn resolve_provider_credential_with<B: rightkit_llm::agent_providers::KeyStoreBa
                 },
             }
         }
-        rightkit_llm::agent_providers::KeySource::Unreadable => ResolvedProviderCredential::Unreadable {
-            remedy: status.remedy(),
-        },
+        rightkit_llm::agent_providers::KeySource::Unreadable => {
+            ResolvedProviderCredential::Unreadable {
+                remedy: status.remedy(),
+            }
+        }
         // Missing (or the env variant status_source never returns): stored
         // sources came up empty, so fall back to the environment variable.
         _ => match provider_env_var(provider).and_then(|name| std::env::var(name).ok()) {
@@ -159,15 +164,16 @@ async fn probe_provider_credential(provider: &str, secret: &str) -> ProviderCred
     let url = format!("{}/models", info.base_url.trim_end_matches('/'));
     // Redirects are never followed (`endpoint_client`), and the bearer secret is
     // registered with the request so no error text can echo it.
-    let client = match rightkit_http::http_client::endpoint_client(&url, std::time::Duration::from_secs(10))
-    {
-        Ok(client) => client,
-        Err(error) => {
-            return ProviderCredentialProbe::Unreachable(format!(
-                "probe client unavailable: {error}"
-            ))
-        }
-    };
+    let client =
+        match rightkit_http::http_client::endpoint_client(&url, std::time::Duration::from_secs(10))
+        {
+            Ok(client) => client,
+            Err(error) => {
+                return ProviderCredentialProbe::Unreachable(format!(
+                    "probe client unavailable: {error}"
+                ))
+            }
+        };
     let response = match client
         .send_any(&rightkit_http::Request::get(url).bearer(secret))
         .await

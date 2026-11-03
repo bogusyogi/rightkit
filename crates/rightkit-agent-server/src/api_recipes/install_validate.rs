@@ -52,13 +52,15 @@ async fn install_recipe_url_handler(
     enforce_recipe_trusted_source(&headers)?;
     let url = validated_recipe_github_url(&body.url)?;
     let raw_url = normalized_recipe_github_raw_url(&url)?;
-    let client =
-        rightkit_http::http_client::endpoint_client(raw_url.as_str(), std::time::Duration::from_secs(15))
-            .map_err(|e| {
-            RecipeApiError::server_error(serde_json::json!({
-                "error": format!("failed to create recipe HTTP client: {e}")
-            }))
-        })?;
+    let client = rightkit_http::http_client::endpoint_client(
+        raw_url.as_str(),
+        std::time::Duration::from_secs(15),
+    )
+    .map_err(|e| {
+        RecipeApiError::server_error(serde_json::json!({
+            "error": format!("failed to create recipe HTTP client: {e}")
+        }))
+    })?;
     let request = rightkit_http::Request::get(raw_url.as_str())
         .header("User-Agent", "RightKit recipe installer")
         .max_response_bytes(512 * 1024);

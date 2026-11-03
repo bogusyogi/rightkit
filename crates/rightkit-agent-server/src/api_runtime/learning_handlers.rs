@@ -42,9 +42,7 @@ fn write_approved_proposal_instinct(
     Ok(true)
 }
 
-fn proposal_to_instinct(
-    proposal: &rightkit_adapt::Proposal,
-) -> Option<rightkit_adapt::Instinct> {
+fn proposal_to_instinct(proposal: &rightkit_adapt::Proposal) -> Option<rightkit_adapt::Instinct> {
     if !matches!(
         proposal.kind,
         rightkit_adapt::ProposalKind::HarnessRule | rightkit_adapt::ProposalKind::Memory

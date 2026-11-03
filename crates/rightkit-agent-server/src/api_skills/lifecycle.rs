@@ -60,10 +60,13 @@ fn required_trimmed(value: Option<&str>) -> Result<String, StatusCode> {
         .ok_or(StatusCode::BAD_REQUEST)
 }
 
-fn default_skill_benchmark_threshold(mode: rightkit_agent_host_traits::skill_host::SkillGateMode) -> f64 {
+fn default_skill_benchmark_threshold(
+    mode: rightkit_agent_host_traits::skill_host::SkillGateMode,
+) -> f64 {
     match mode {
         rightkit_agent_host_traits::skill_host::SkillGateMode::Hard => 1.0,
-        rightkit_agent_host_traits::skill_host::SkillGateMode::Soft | rightkit_agent_host_traits::skill_host::SkillGateMode::Mixed => 0.75,
+        rightkit_agent_host_traits::skill_host::SkillGateMode::Soft
+        | rightkit_agent_host_traits::skill_host::SkillGateMode::Mixed => 0.75,
     }
 }
 
@@ -74,13 +77,20 @@ fn skill_benchmark_gate_passed(
     threshold: f64,
 ) -> bool {
     match mode {
-        rightkit_agent_host_traits::skill_host::SkillGateMode::Hard => runner_passed && score >= threshold,
+        rightkit_agent_host_traits::skill_host::SkillGateMode::Hard => {
+            runner_passed && score >= threshold
+        }
         rightkit_agent_host_traits::skill_host::SkillGateMode::Soft => score >= threshold,
-        rightkit_agent_host_traits::skill_host::SkillGateMode::Mixed => runner_passed && score >= threshold,
+        rightkit_agent_host_traits::skill_host::SkillGateMode::Mixed => {
+            runner_passed && score >= threshold
+        }
     }
 }
 
-fn proposal_gate_mode(dirs: &[PathBuf], slug: &str) -> Option<rightkit_agent_host_traits::skill_host::SkillGateMode> {
+fn proposal_gate_mode(
+    dirs: &[PathBuf],
+    slug: &str,
+) -> Option<rightkit_agent_host_traits::skill_host::SkillGateMode> {
     find_skill_item(dirs, slug).and_then(|(item, _)| item.metadata.coderight.gate_mode)
 }
 

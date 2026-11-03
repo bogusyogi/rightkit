@@ -66,7 +66,8 @@ mod eff001_subagent_route_tests {
             .unwrap();
         });
         let storage = crate::api::SharedStorage::new(
-            rightkit_agent_engine_storage::Storage::open(&root.path().join("eff001-subagent.db")).unwrap(),
+            rightkit_agent_engine_storage::Storage::open(&root.path().join("eff001-subagent.db"))
+                .unwrap(),
         );
         let state =
             DaemonState::new("")
@@ -167,14 +168,16 @@ mod eff001_subagent_route_tests {
         let trace = rightkit_agent_engine_core::qualification_trace::snapshot();
         assert_eq!(
             trace.stages_for("eff001-subagent-call-9f7e"),
-            rightkit_agent_engine_core::qualification_trace::EffectAdmissionStage::canonical_order()
+            rightkit_agent_engine_core::qualification_trace::EffectAdmissionStage::canonical_order(
+            )
         );
         assert!(trace.is_canonically_ordered("eff001-subagent-call-9f7e"));
         assert!(trace.reached_execute("eff001-subagent-call-9f7e"));
         server.abort();
         assert_eq!(
             trace.stages_for("eff001-child-call-9f7e"),
-            rightkit_agent_engine_core::qualification_trace::EffectAdmissionStage::canonical_order()
+            rightkit_agent_engine_core::qualification_trace::EffectAdmissionStage::canonical_order(
+            )
         );
         assert!(trace.is_canonically_ordered("eff001-child-call-9f7e"));
         assert!(trace.reached_execute("eff001-child-call-9f7e"));

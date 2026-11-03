@@ -65,11 +65,15 @@ fn extension_execution_trust_check() -> Check {
     let catalog = rightkit_agent_plugins::extension_trust_catalog();
     let native = catalog
         .iter()
-        .find(|entry| entry.class == rightkit_agent_plugins::ExtensionTrustClass::TrustedNativeInProcess)
+        .find(|entry| {
+            entry.class == rightkit_agent_plugins::ExtensionTrustClass::TrustedNativeInProcess
+        })
         .expect("native extension trust class");
     let external = catalog
         .iter()
-        .find(|entry| entry.class == rightkit_agent_plugins::ExtensionTrustClass::ExternalProcessMcp)
+        .find(|entry| {
+            entry.class == rightkit_agent_plugins::ExtensionTrustClass::ExternalProcessMcp
+        })
         .expect("external extension trust class");
     let isolated = catalog
         .iter()

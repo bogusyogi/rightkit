@@ -3,7 +3,9 @@ mod tests_observability {
     use super::tests_support::*;
     use super::*;
 
-    use rightkit_agent_engine_runtime_middleware::{MiddlewarePhase, RuntimeObservation, RuntimeSpan};
+    use rightkit_agent_engine_runtime_middleware::{
+        MiddlewarePhase, RuntimeObservation, RuntimeSpan,
+    };
 
     #[tokio::test]
     async fn runtime_spans_route_filters_by_session_and_reads_span() {
@@ -131,12 +133,14 @@ mod tests_observability {
 
     #[tokio::test]
     async fn resource_metrics_exposes_bounded_prompt_overhead_observations() {
-        rightkit_logs::agent_telemetry::record_prompt_overhead(rightkit_logs::agent_telemetry::PromptOverheadEvent {
-            provider: Some("fixture-provider".to_string()),
-            model: Some("fixture-model".to_string()),
-            system_prompt_bytes: 1,
-            tool_prelude_bytes: 5,
-        });
+        rightkit_logs::agent_telemetry::record_prompt_overhead(
+            rightkit_logs::agent_telemetry::PromptOverheadEvent {
+                provider: Some("fixture-provider".to_string()),
+                model: Some("fixture-model".to_string()),
+                system_prompt_bytes: 1,
+                tool_prelude_bytes: 5,
+            },
+        );
 
         let metrics = resource_metrics_json(&DaemonState::new("")).await;
         assert_eq!(metrics["promptOverhead"]["available"], true);

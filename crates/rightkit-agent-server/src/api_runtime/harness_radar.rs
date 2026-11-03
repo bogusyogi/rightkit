@@ -190,9 +190,7 @@ fn current_harness_radar_snapshot() -> RuntimeHarnessRadarSnapshot {
     }
     for entry in &entries {
         let count = capability_map
-            .entry(rightkit_adapt::harness_radar_capability_for_entry(
-                entry,
-            ))
+            .entry(rightkit_adapt::harness_radar_capability_for_entry(entry))
             .or_insert(0);
         *count += 1;
     }

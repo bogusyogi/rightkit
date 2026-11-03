@@ -51,7 +51,8 @@ fn review_rejected_options_names_each_unsupported_flag() {
 #[test]
 fn caps_markdown_reports_real_tools() {
     let capabilities = rightkit_agent_tools::coding_tools::default_tool_capabilities();
-    let output = rightkit_agent_tools::coding_tools::render_tool_capabilities_markdown(&capabilities);
+    let output =
+        rightkit_agent_tools::coding_tools::render_tool_capabilities_markdown(&capabilities);
 
     assert!(output.contains("RightKit capabilities"));
     assert!(output.contains("read-only"));

@@ -11,7 +11,9 @@ use std::sync::{Mutex, OnceLock};
 use axum::extract::{Path as AxumPath, Query as AxumQuery, State as AxumState};
 use axum::http::HeaderMap;
 use axum::response::Json as AxumJson;
-use rightkit_agent_engine_core::conduit::{seq_of, ConduitReceive, ConduitReplay, ConduitSubscription};
+use rightkit_agent_engine_core::conduit::{
+    seq_of, ConduitReceive, ConduitReplay, ConduitSubscription,
+};
 use rightkit_agent_engine_protocol::{ProtocolEvent, ToolCall};
 
 const RUN_HOST_ENV: &str = "RIGHTKIT_RUN_HOST";
@@ -309,14 +311,17 @@ fn apply_membrane_cli_composition(mut state: api::DaemonState) -> api::DaemonSta
     match rightkit_memory::backend::native::connect_from_environment() {
         Ok(backend) => {
             let provenance =
-                rightkit_memory::memory_provenance::MemoryProvenanceStore::from_backend(backend.clone());
+                rightkit_memory::memory_provenance::MemoryProvenanceStore::from_backend(
+                    backend.clone(),
+                );
             state = state
                 .with_memory_backend(backend)
                 .with_memory_provenance(provenance);
             // Pulse absent connects to the typed unavailable backend; the
             // context is still off and must be reported degraded.
             if rightkit_memory::backend::native::context_is_off() {
-                state = state.with_context_degraded(rightkit_memory::membrane::OFF_REASON.to_string());
+                state =
+                    state.with_context_degraded(rightkit_memory::membrane::OFF_REASON.to_string());
             }
         }
         Err(error) => {
@@ -330,7 +335,9 @@ fn apply_membrane_cli_composition(mut state: api::DaemonState) -> api::DaemonSta
                     ),
                 ))
                 .with_memory_provenance(
-                    rightkit_memory::memory_provenance::MemoryProvenanceStore::unavailable(reason.clone()),
+                    rightkit_memory::memory_provenance::MemoryProvenanceStore::unavailable(
+                        reason.clone(),
+                    ),
                 )
                 .with_context_degraded(reason);
         }
@@ -830,7 +837,11 @@ impl InlineMcpProjection {
                 );
             }
         }
-        let call_id = format!("mcp:{}:{}", self.session_id, rightkit_agent_engine_protocol::uuid_v7());
+        let call_id = format!(
+            "mcp:{}:{}",
+            self.session_id,
+            rightkit_agent_engine_protocol::uuid_v7()
+        );
         let result = self
             .dispatch_call(call_id.clone(), name, input.clone(), true)
             .await?;
@@ -1047,11 +1058,11 @@ pub(crate) fn governed_mcp_process_launcher(
 mod mcp_launch_policy_tests {
     #[tokio::test]
     async fn normal_mcp_launch_honors_host_context_and_resource_admission() {
-        use rightkit_sandbox::execution::{CommandLaunchSpec, ProcessLaunchContext};
         use rightkit_agent_engine_runtime_resources::ServiceScope;
         use rightkit_agent_tools::coding_tools::process_resource_authority::{
             install_process_resource_profile, ResourceKind, ResourceProfile,
         };
+        use rightkit_sandbox::execution::{CommandLaunchSpec, ProcessLaunchContext};
         let governor = install_process_resource_profile(ResourceProfile::Expanded).unwrap();
         let root = std::env::temp_dir().to_string_lossy().into_owned();
         let scope = ServiceScope::Workspace(root.clone());
@@ -2382,7 +2393,10 @@ mod session_execution_host_tests {
 mod inline_history_command_tests {
     use super::*;
 
-    fn durable_storage(session_id: &str, payloads: &[String]) -> rightkit_agent_engine_storage::Storage {
+    fn durable_storage(
+        session_id: &str,
+        payloads: &[String],
+    ) -> rightkit_agent_engine_storage::Storage {
         let mut storage = rightkit_agent_engine_storage::Storage::open_in_memory().unwrap();
         storage
             .create_session(&rightkit_agent_engine_storage::SessionRow {

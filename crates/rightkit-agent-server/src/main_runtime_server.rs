@@ -212,7 +212,9 @@ async fn serve(
                 // Exclusive DB-lifetime ownership is held before storage opens.
                 // An unresolved prior-process fence is an unknown outcome,
                 // never permission to dispatch the accepted input again.
-                match s.reconcile_orphaned_message_dispatches(&rightkit_agent_engine_protocol::now_iso()) {
+                match s.reconcile_orphaned_message_dispatches(
+                    &rightkit_agent_engine_protocol::now_iso(),
+                ) {
                     Ok(count) if count > 0 => eprintln!(
                         "{}",
                         serde_json::json!({
@@ -358,7 +360,8 @@ async fn serve(
 
     // Persist learning under the state root so self-improvement accumulates across
     // restarts; fall back to in-memory if there is no state directory.
-    let evo_path = rightkit_app_settings::agent_config::state_root().map(|root| root.join("evolution.db"));
+    let evo_path =
+        rightkit_app_settings::agent_config::state_root().map(|root| root.join("evolution.db"));
     if let Some(p) = evo_path.as_ref() {
         if let Some(dir) = p.parent() {
             let _ = std::fs::create_dir_all(dir);
@@ -383,10 +386,13 @@ async fn serve(
                         "[serve] Membrane context unavailable (context off): {}",
                         rightkit_memory::membrane::OFF_REASON
                     );
-                    serve_context_degraded = Some(rightkit_memory::membrane::OFF_REASON.to_string());
+                    serve_context_degraded =
+                        Some(rightkit_memory::membrane::OFF_REASON.to_string());
                 }
                 let provenance =
-                    rightkit_memory::memory_provenance::MemoryProvenanceStore::from_backend(backend.clone());
+                    rightkit_memory::memory_provenance::MemoryProvenanceStore::from_backend(
+                        backend.clone(),
+                    );
                 (backend, provenance)
             }
             Err(error) => {
@@ -408,9 +414,10 @@ async fn serve(
                             error.message(),
                         ),
                     );
-                let provenance = rightkit_memory::memory_provenance::MemoryProvenanceStore::unavailable(
-                    rightkit_memory::membrane::OFF_REASON.to_string(),
-                );
+                let provenance =
+                    rightkit_memory::memory_provenance::MemoryProvenanceStore::unavailable(
+                        rightkit_memory::membrane::OFF_REASON.to_string(),
+                    );
                 (backend, provenance)
             }
         };
@@ -508,8 +515,9 @@ async fn serve(
     // the gate (mounts when on, hides when off); the per-handler 423 in
     // `api_workflows::routes` is the defence-in-depth fallback for the
     // (currently impossible) case where the gate is on but state is None.
-    let workflows_feature =
-        rightkit_workflow::control_plane::prelude::FeatureGate::from_config(config.features.workflows_enabled);
+    let workflows_feature = rightkit_workflow::control_plane::prelude::FeatureGate::from_config(
+        config.features.workflows_enabled,
+    );
     state = state.with_workflows_feature(workflows_feature);
     if workflows_feature.is_enabled() {
         if let Some(store) = storage.clone() {
@@ -609,12 +617,16 @@ async fn serve(
                 .await;
                 for outcome in outcomes {
                     match outcome.decision {
-                        rightkit_agents::driver_host::cli_runtime::ResumeDecision::Resume { .. } => {
+                        rightkit_agents::driver_host::cli_runtime::ResumeDecision::Resume {
+                            ..
+                        } => {
                             // Native resume will be re-attempted when the
                             // executor's resume() path is invoked with
                             // the daemon-bound guard attached.
                         }
-                        rightkit_agents::driver_host::cli_runtime::ResumeDecision::Refuse(ref error) => {
+                        rightkit_agents::driver_host::cli_runtime::ResumeDecision::Refuse(
+                            ref error,
+                        ) => {
                             eprintln!(
                                 "[serve] refusing to resume binding {}: {} ({})",
                                 outcome.binding_id,
@@ -768,7 +780,9 @@ async fn serve(
             if let Some(supervisor) = supervisor {
                 let recovery = crate::workflow::RecoveryWorker::new(
                     workflow_storage.clone(),
-                    std::sync::Arc::new(rightkit_workflow::control_plane::prelude::SystemClock::new()),
+                    std::sync::Arc::new(
+                        rightkit_workflow::control_plane::prelude::SystemClock::new(),
+                    ),
                 );
                 let workflow_state = std::sync::Arc::new(state.clone());
                 let mut workflow_shutdown = state.shutdown_tx.subscribe();
@@ -793,7 +807,9 @@ async fn serve(
                         workflow_storage.clone(),
                         supervisor.clone(),
                         dispatcher,
-                        std::sync::Arc::new(rightkit_workflow::control_plane::prelude::SystemClock::new()),
+                        std::sync::Arc::new(
+                            rightkit_workflow::control_plane::prelude::SystemClock::new(),
+                        ),
                         crate::workflow::ResourceLimiters {
                             max_concurrent_per_run: 1,
                             max_total_concurrent: 4,
@@ -1046,7 +1062,9 @@ fn load_persisted_projection(
     session_id: &str,
     compaction_seq: u32,
 ) -> Option<rightkit_agent_engine_core::compaction_archive::CompactionProjectionRecord> {
-    use rightkit_agent_engine_core::compaction_archive::{CompactionProjectionRecord, PROJECTION_EVENT_KIND};
+    use rightkit_agent_engine_core::compaction_archive::{
+        CompactionProjectionRecord, PROJECTION_EVENT_KIND,
+    };
     let rows = store.all_events(session_id).ok()?;
     let to_seq = compaction_seq.saturating_sub(1);
     rows.into_iter()
@@ -1063,7 +1081,10 @@ fn load_persisted_projection(
 mod event_retention_projection_tests {
     use super::*;
 
-    fn session_with_compaction(store: &mut rightkit_agent_engine_storage::Storage, session_id: &str) {
+    fn session_with_compaction(
+        store: &mut rightkit_agent_engine_storage::Storage,
+        session_id: &str,
+    ) {
         // Two pre-compaction user turns, then a SessionCompacted marker.
         store
             .append_event(
@@ -1222,13 +1243,14 @@ mod event_retention_projection_tests {
         // Built at live-compaction time over the canonical range, with a
         // non-empty summary -- distinguishable from the operational build,
         // which always uses an empty summary.
-        let persisted = rightkit_agent_engine_core::compaction_archive::CompactionProjectionRecord::build(
-            "sess-1",
-            0,
-            2,
-            &canonical_range,
-            "live summary",
-        );
+        let persisted =
+            rightkit_agent_engine_core::compaction_archive::CompactionProjectionRecord::build(
+                "sess-1",
+                0,
+                2,
+                &canonical_range,
+                "live summary",
+            );
         persist_projection_record(&mut store, "sess-1", &persisted);
         let mut pending: PendingProjections = std::collections::HashMap::new();
 
@@ -1252,13 +1274,14 @@ mod event_retention_projection_tests {
         session_with_compaction(&mut store, "sess-1");
         let range_rows = store.events_in_range("sess-1", 0, 2, usize::MAX).unwrap();
         let canonical_range = crate::rehydrate::rehydrate_transcript(&range_rows);
-        let persisted = rightkit_agent_engine_core::compaction_archive::CompactionProjectionRecord::build(
-            "sess-1",
-            0,
-            2,
-            &canonical_range,
-            "live summary",
-        );
+        let persisted =
+            rightkit_agent_engine_core::compaction_archive::CompactionProjectionRecord::build(
+                "sess-1",
+                0,
+                2,
+                &canonical_range,
+                "live summary",
+            );
         persist_projection_record(&mut store, "sess-1", &persisted);
         let mut pending: PendingProjections = std::collections::HashMap::new();
 

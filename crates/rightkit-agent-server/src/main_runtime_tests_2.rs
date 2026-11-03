@@ -237,7 +237,8 @@ fn telegram_live_smoke_passes_when_ready_and_chat_observed() {
 
 #[test]
 fn configured_boss_model_resolves_agent_aliases_before_startup() {
-    let mut registry = rightkit_agent_orchestration::coding::registry::AgentRegistry::with_builtins();
+    let mut registry =
+        rightkit_agent_orchestration::coding::registry::AgentRegistry::with_builtins();
     let conductor = registry.get("conductor").unwrap().model_id.clone();
     assert_ne!(conductor, "conductor");
     assert_eq!(

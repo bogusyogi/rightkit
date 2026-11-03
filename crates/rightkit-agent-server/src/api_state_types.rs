@@ -5,7 +5,8 @@ pub use rightkit_daemon::agent_daemon_core::{DaemonSettingsStore, EngineConfig, 
 pub(crate) const SESSION_MSG_CHANNEL_CAPACITY: usize = 32;
 
 pub struct LiveSession {
-    pub compaction_snapshot_feed: Arc<std::sync::RwLock<rightkit_agent_engine_core::CompactionSnapshotV1>>,
+    pub compaction_snapshot_feed:
+        Arc<std::sync::RwLock<rightkit_agent_engine_core::CompactionSnapshotV1>>,
     pub id: String,
     pub title: Arc<Mutex<String>>,
     pub model: Arc<Mutex<String>>,
@@ -96,7 +97,8 @@ pub struct LiveSession {
     pub driver_tool_tx: Option<tokio::sync::mpsc::Sender<DriverToolRequest>>,
     /// Request authoritative compaction from the live engine. Manual requests
     /// use the same operation as the automatic capacity trigger.
-    pub compact_tx: Option<tokio::sync::mpsc::Sender<rightkit_agent_engine_core::CompactionCommandV1>>,
+    pub compact_tx:
+        Option<tokio::sync::mpsc::Sender<rightkit_agent_engine_core::CompactionCommandV1>>,
     /// Request a structural, recoverable fold from the live engine task.
     pub context_fold_tx:
         Option<tokio::sync::mpsc::Sender<crate::api_context_folds::ContextFoldCommand>>,
@@ -110,7 +112,8 @@ pub struct LiveSession {
     /// Set to `true` to interrupt the engine at its next iteration boundary.
     pub interrupt_tx: Option<tokio::sync::watch::Sender<bool>>,
     /// Live permission-mode control; the engine adopts the latest value each turn.
-    pub permission_mode_tx: Option<tokio::sync::watch::Sender<rightkit_agent_policy::PermissionMode>>,
+    pub permission_mode_tx:
+        Option<tokio::sync::watch::Sender<rightkit_agent_policy::PermissionMode>>,
     /// Live session-scoped permission rules shared with the engine.
     pub permission_rules: Arc<Mutex<rightkit_agent_policy::RuleStore>>,
     /// Pending tool-approval oneshots keyed by tool_call_id.
@@ -438,7 +441,8 @@ pub struct DaemonState {
     /// the spawn helper drives this executor instead of the legacy
     /// native path. `None` while the daemon is still booting or in
     /// tests that do not wire the bridge.
-    pub cli_executor: Option<Arc<rightkit_agents::driver_host::cli_runtime::AuthenticatedCliExecutor>>,
+    pub cli_executor:
+        Option<Arc<rightkit_agents::driver_host::cli_runtime::AuthenticatedCliExecutor>>,
     pub(crate) cli_bridge: Option<Arc<crate::driver_host_runtime::DaemonCliDriverBridge>>,
     pub(crate) qualification_bindings: Arc<std::sync::RwLock<HashSet<String>>>,
     /// Binding-scoped plaintext launch material. Secrets live only in memory;
@@ -534,7 +538,8 @@ pub struct DaemonState {
     pub cli_recovery_deferred_updates:
         Arc<rightkit_agents::driver_host::cli_runtime::DeferredBindingUpdates>,
     /// Pending blind model comparisons, keyed by comparison id.
-    pub comparisons: Arc<Mutex<HashMap<String, rightkit_agent_orchestration::coding::BlindComparison>>>,
+    pub comparisons:
+        Arc<Mutex<HashMap<String, rightkit_agent_orchestration::coding::BlindComparison>>>,
     /// Captured high-quality run trajectories for fine-tuning export.
     pub trajectories: crate::trajectory::TrajectoryStore,
     /// Directory containing installed plugin folders with `plugin.json` manifests.
@@ -571,7 +576,8 @@ pub struct DaemonState {
     /// Durable execution-journal directory used to detect interrupted turns.
     pub journal_dir: Option<PathBuf>,
     /// Operator-visible runtime middleware registry and local span store.
-    pub runtime_middleware: Arc<Mutex<rightkit_agent_engine_runtime_middleware::RuntimeMiddlewareRegistry>>,
+    pub runtime_middleware:
+        Arc<Mutex<rightkit_agent_engine_runtime_middleware::RuntimeMiddlewareRegistry>>,
     /// Operator-requested cancellation facts for tool invocations. This remains
     /// separate from approval resolution so cancellation is immediately auditable.
     pub tool_invocation_cancellations:
@@ -676,18 +682,24 @@ impl SharedStorage {
         }
     }
 
-    pub async fn lock(&self) -> tokio::sync::MutexGuard<'_, rightkit_agent_engine_storage::Storage> {
+    pub async fn lock(
+        &self,
+    ) -> tokio::sync::MutexGuard<'_, rightkit_agent_engine_storage::Storage> {
         self.writer.lock().await
     }
 
     pub fn try_lock(
         &self,
-    ) -> Result<tokio::sync::MutexGuard<'_, rightkit_agent_engine_storage::Storage>, tokio::sync::TryLockError>
-    {
+    ) -> Result<
+        tokio::sync::MutexGuard<'_, rightkit_agent_engine_storage::Storage>,
+        tokio::sync::TryLockError,
+    > {
         self.writer.try_lock()
     }
 
-    pub fn blocking_lock(&self) -> tokio::sync::MutexGuard<'_, rightkit_agent_engine_storage::Storage> {
+    pub fn blocking_lock(
+        &self,
+    ) -> tokio::sync::MutexGuard<'_, rightkit_agent_engine_storage::Storage> {
         self.writer.blocking_lock()
     }
 

@@ -89,7 +89,10 @@ pub struct LaunchCli {
 impl LaunchCli {
     /// Fill unset launch fields from a preset; explicit flags always win.
     /// Returns the preset's system prompt for the caller to append.
-    pub fn apply_preset(&mut self, preset: &rightkit_app_settings::agent_config::presets::Preset) -> Option<String> {
+    pub fn apply_preset(
+        &mut self,
+        preset: &rightkit_app_settings::agent_config::presets::Preset,
+    ) -> Option<String> {
         if self.model.is_none() {
             self.model = preset.model.clone();
         }

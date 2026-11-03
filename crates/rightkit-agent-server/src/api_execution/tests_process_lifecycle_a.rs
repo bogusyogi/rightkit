@@ -5,9 +5,9 @@ mod tests_process_lifecycle_a {
     use super::*;
     use axum::body::Body;
     use axum::http::Request;
+    use http_body_util::BodyExt;
     use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
     use rightkit_agent_tools::coding_tools::Tool;
-    use http_body_util::BodyExt;
     use tower::ServiceExt;
     #[tokio::test(flavor = "multi_thread")]
     async fn execution_process_routes_list_detail_and_kill_live_background_shell() {
@@ -25,18 +25,19 @@ mod tests_process_lifecycle_a {
         } else {
             "printf 'process-ready\\n'; sleep 30"
         };
-        let shell_id = rightkit_agent_tools::coding_tools::background_shell::spawn_background_with_target(
-            command.to_string(),
-            &root,
-            &live.background_shells,
-            None,
-            rightkit_agent_tools::coding_tools::background_shell::BgExecutionTarget {
-                backend_id: Some("local".to_string()),
-                workspace_id: Some("process-workspace".to_string()),
-                network_profile: Some("egress-restricted".to_string()),
-            },
-        )
-        .expect("background admission");
+        let shell_id =
+            rightkit_agent_tools::coding_tools::background_shell::spawn_background_with_target(
+                command.to_string(),
+                &root,
+                &live.background_shells,
+                None,
+                rightkit_agent_tools::coding_tools::background_shell::BgExecutionTarget {
+                    backend_id: Some("local".to_string()),
+                    workspace_id: Some("process-workspace".to_string()),
+                    network_profile: Some("egress-restricted".to_string()),
+                },
+            )
+            .expect("background admission");
         let app = crate::api::build_router(state);
         let root_query = encode_query_value(&root.to_string_lossy());
 

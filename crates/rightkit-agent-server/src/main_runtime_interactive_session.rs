@@ -772,7 +772,8 @@ mod interactive_session {
         if let Some(cap) = rightkit_llm::agent_providers::capability_of(model_id) {
             return Some(cap);
         }
-        if let Some(cap) = rightkit_llm::agent_providers::capability_of(&format!("{provider_id}/{model_id}"))
+        if let Some(cap) =
+            rightkit_llm::agent_providers::capability_of(&format!("{provider_id}/{model_id}"))
         {
             return Some(cap);
         }
@@ -780,7 +781,8 @@ mod interactive_session {
             .iter()
             .find(|cap| {
                 cap.slug.split('/').next() == Some(provider_id)
-                    && rightkit_llm::agent_providers::provider_model_id(provider_id, &cap.slug) == model_id
+                    && rightkit_llm::agent_providers::provider_model_id(provider_id, &cap.slug)
+                        == model_id
             })
     }
 
@@ -1193,7 +1195,8 @@ mod interactive_session {
                 && !["minimax", "opencode", "custom"]
                     .iter()
                     .any(|hidden| hidden.eq_ignore_ascii_case(id))
-                && rightkit_agents::driver_host::vendor_cli::VendorCli::from_provider_id(id).is_none()
+                && rightkit_agents::driver_host::vendor_cli::VendorCli::from_provider_id(id)
+                    .is_none()
                 && !custom_ids.contains(&id)
             {
                 custom_ids.push(id);
@@ -1600,7 +1603,8 @@ mod interactive_session {
                             // selection moves — admitted history is never
                             // retargeted, and a uuid id cannot collide across
                             // restarts.
-                            let next_session = format!("s-{}", rightkit_agent_engine_protocol::uuid_v7());
+                            let next_session =
+                                format!("s-{}", rightkit_agent_engine_protocol::uuid_v7());
                             match ensure_root_session(
                                 interactive_context_mode(std::env::args()),
                                 &next_session,
@@ -2294,7 +2298,10 @@ mod interactive_session {
         fn live_pty_shell(
             &self,
             id: &str,
-        ) -> Result<std::sync::Arc<rightkit_agent_tools::coding_tools::background_shell::BgShell>, String> {
+        ) -> Result<
+            std::sync::Arc<rightkit_agent_tools::coding_tools::background_shell::BgShell>,
+            String,
+        > {
             let Some(super::SessionExecutionHost::Inline(host)) =
                 super::SessionExecutionHost::select_if_ready(self.context_mode)
             else {
@@ -2557,9 +2564,11 @@ mod interactive_session {
 
         fn enqueue_text(&self, text: &str) {
             for line in text.lines() {
-                self.push_host_event(rightkit_terminal_ui::transcript::timeline::DaemonEvent::System {
-                    text: line.to_string(),
-                });
+                self.push_host_event(
+                    rightkit_terminal_ui::transcript::timeline::DaemonEvent::System {
+                        text: line.to_string(),
+                    },
+                );
             }
         }
 
@@ -2876,7 +2885,8 @@ mod interactive_session {
             effort_id: Option<&str>,
         ) -> Result<(), String> {
             if let Some(provider) = provider_id.filter(|provider| {
-                rightkit_agents::driver_host::vendor_cli::VendorCli::from_provider_id(provider).is_some()
+                rightkit_agents::driver_host::vendor_cli::VendorCli::from_provider_id(provider)
+                    .is_some()
             }) {
                 if self
                     .turn_cancellation
@@ -2909,10 +2919,10 @@ mod interactive_session {
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .request_switch_for_next_turn(
-                        provider.to_string(),
-                        model_id.to_string(),
-                        rightkit_agent_orchestration::coding::PrefixChangeReason::UserRequestedSwitch,
-                    );
+                    provider.to_string(),
+                    model_id.to_string(),
+                    rightkit_agent_orchestration::coding::PrefixChangeReason::UserRequestedSwitch,
+                );
                 *self.pending_route.lock().unwrap_or_else(|e| e.into_inner()) = None;
                 return Ok(());
             }
@@ -3108,9 +3118,11 @@ mod interactive_session {
                 events
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
-                    .push_back(rightkit_terminal_ui::transcript::timeline::DaemonEvent::System {
-                        text: message,
-                    });
+                    .push_back(
+                        rightkit_terminal_ui::transcript::timeline::DaemonEvent::System {
+                            text: message,
+                        },
+                    );
             });
         }
     }
@@ -3263,15 +3275,25 @@ mod interactive_session {
                 let port = None;
                 let elapsed = elapsed_since_epoch_ns(shell.started_at_ns());
                 let status = match shell.status() {
-                    rightkit_agent_tools::coding_tools::background_shell::BgStatus::Running => "running".to_string(),
-                    rightkit_agent_tools::coding_tools::background_shell::BgStatus::Exited(code) => {
+                    rightkit_agent_tools::coding_tools::background_shell::BgStatus::Running => {
+                        "running".to_string()
+                    }
+                    rightkit_agent_tools::coding_tools::background_shell::BgStatus::Exited(
+                        code,
+                    ) => {
                         format!("exited {code}")
                     }
-                    rightkit_agent_tools::coding_tools::background_shell::BgStatus::Killed => "stopped".to_string(),
-                    rightkit_agent_tools::coding_tools::background_shell::BgStatus::SpawnFailed(error) => {
+                    rightkit_agent_tools::coding_tools::background_shell::BgStatus::Killed => {
+                        "stopped".to_string()
+                    }
+                    rightkit_agent_tools::coding_tools::background_shell::BgStatus::SpawnFailed(
+                        error,
+                    ) => {
                         format!("failed: {error}")
                     }
-                    rightkit_agent_tools::coding_tools::background_shell::BgStatus::Unknown => "unknown".to_string(),
+                    rightkit_agent_tools::coding_tools::background_shell::BgStatus::Unknown => {
+                        "unknown".to_string()
+                    }
                 };
                 rows.push(RunningProjection::Shell {
                     id: id.clone(),
@@ -3338,22 +3360,23 @@ mod interactive_session {
             };
             if kind == "task" {
                 let mut tasks = live.tasks.lock().unwrap_or_else(|e| e.into_inner());
-                let cancelled = rightkit_agent_orchestration::coding::task_list_projection::mark_cancelled(
-                    &mut tasks,
-                    id,
-                    format!(
-                        "unix:{}",
-                        std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map_or(0, |d| d.as_secs())
-                    ),
-                )
-                .map_err(|error| error.to_string())?;
+                let cancelled =
+                    rightkit_agent_orchestration::coding::task_list_projection::mark_cancelled(
+                        &mut tasks,
+                        id,
+                        format!(
+                            "unix:{}",
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map_or(0, |d| d.as_secs())
+                        ),
+                    )
+                    .map_err(|error| error.to_string())?;
                 let task_snapshot = tasks.clone();
                 drop(tasks);
                 let seq = live.conduit.next_seq();
-                live.conduit
-                    .publish(rightkit_agent_engine_protocol::ProtocolEvent::TaskGraphUpdated {
+                live.conduit.publish(
+                    rightkit_agent_engine_protocol::ProtocolEvent::TaskGraphUpdated {
                         session_id: session_id.to_string(),
                         seq,
                         created_at: format!(
@@ -3364,10 +3387,11 @@ mod interactive_session {
                         ),
                         summary: format!("Task {} cancelled by user from TUI", cancelled.id),
                         tasks: task_snapshot,
-                    });
+                    },
+                );
                 let seq = live.conduit.next_seq();
-                live.conduit
-                    .publish(rightkit_agent_engine_protocol::ProtocolEvent::UserMessageSubmitted {
+                live.conduit.publish(
+                    rightkit_agent_engine_protocol::ProtocolEvent::UserMessageSubmitted {
                         session_id: session_id.to_string(),
                         seq,
                         created_at: format!(
@@ -3383,7 +3407,8 @@ mod interactive_session {
                         nonce: None,
                         trust: None,
                         attachments: Vec::new(),
-                    });
+                    },
+                );
                 return Ok(format!("Cancelled task {}.", cancelled.id));
             }
             if kind != "shell" {
@@ -4318,7 +4343,11 @@ mod interactive_session {
                 .swap(false, std::sync::atomic::Ordering::SeqCst)
         }
 
-        async fn refresh_nav(&self, nav: &mut rightkit_terminal_ui::nav::NavView, turn_in_flight: bool) {
+        async fn refresh_nav(
+            &self,
+            nav: &mut rightkit_terminal_ui::nav::NavView,
+            turn_in_flight: bool,
+        ) {
             // The truthful local label: the resolved model once a turn has
             // bound one, else the configured provider — never "-".
             let local_model = {
@@ -4386,8 +4415,10 @@ mod interactive_session {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|elapsed| elapsed.as_secs() as i64)
                 .unwrap_or(0);
-            let mut details: std::collections::HashMap<String, rightkit_terminal_ui::nav::SessionDetail> =
-                std::collections::HashMap::new();
+            let mut details: std::collections::HashMap<
+                String,
+                rightkit_terminal_ui::nav::SessionDetail,
+            > = std::collections::HashMap::new();
             for row in &session_rows {
                 // Root sessions only: rows with a parent are sub-agents, which
                 // belong in the agent tree, not the session picker.
@@ -4587,7 +4618,10 @@ mod interactive_session {
             Ok(rightkit_terminal_ui::nav::SessionId(id))
         }
 
-        async fn switch_session(&self, id: &rightkit_terminal_ui::nav::SessionId) -> Result<(), String> {
+        async fn switch_session(
+            &self,
+            id: &rightkit_terminal_ui::nav::SessionId,
+        ) -> Result<(), String> {
             // Detach, not cancel (invariant AK): re-point the active session
             // so future turns target it; the tree being left keeps running.
             // The durable row is read and VALIDATED FIRST — active session,
@@ -4722,7 +4756,10 @@ mod interactive_session {
             Ok(())
         }
 
-        async fn fetch_agent_transcript(&self, id: &rightkit_terminal_ui::nav::AgentId) -> Option<String> {
+        async fn fetch_agent_transcript(
+            &self,
+            id: &rightkit_terminal_ui::nav::AgentId,
+        ) -> Option<String> {
             // Read-only view of a sub-agent: pull its bounded scrollback and
             // render the recent user/assistant/tool events as an excerpt, and
             // SEED the per-agent cursor the maintenance tick polls from. The
@@ -5126,7 +5163,9 @@ mod interactive_session {
             super::provider_setup::perform_action(
                 provider,
                 action,
-                secret.as_ref().map(rightkit_terminal_ui::nav::SecretText::expose),
+                secret
+                    .as_ref()
+                    .map(rightkit_terminal_ui::nav::SecretText::expose),
             )
             .await
         }
@@ -5660,7 +5699,9 @@ mod interactive_session {
                         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                             Ok(rightkit_app_settings::agent_config::HostConfig::default())
                         }
-                        Err(error) => Err(rightkit_app_settings::agent_config::ConfigError::Io(error.to_string())),
+                        Err(error) => Err(rightkit_app_settings::agent_config::ConfigError::Io(
+                            error.to_string(),
+                        )),
                     },
                     |config| {
                         let _ = crate::tui_projects::apply_tui_setting(config, key, value);
@@ -6119,7 +6160,9 @@ mod interactive_session {
     pub(super) fn daemon_event_to_timeline_event(
         event: &serde_json::Value,
     ) -> Option<rightkit_terminal_ui::transcript::timeline::DaemonEvent> {
-        use rightkit_terminal_ui::transcript::timeline::{DaemonEvent, RunSignal, TaskStatus, ToolStatus};
+        use rightkit_terminal_ui::transcript::timeline::{
+            DaemonEvent, RunSignal, TaskStatus, ToolStatus,
+        };
 
         let kind = event
             .get("$kind")

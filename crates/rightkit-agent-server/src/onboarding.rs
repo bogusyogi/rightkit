@@ -62,9 +62,9 @@ use std::fmt::Write as _;
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 
-use rightkit_app_settings::agent_config::{HostConfig, ConfigLoader, ProviderRouteConfig};
 use rightkit_agent_engine_protocol::TranscriptMessage;
 use rightkit_agent_tools::coding_tools::ToolRegistry;
+use rightkit_app_settings::agent_config::{ConfigLoader, HostConfig, ProviderRouteConfig};
 
 use crate::provider_client::{ProviderLlmClient, ProviderRoute};
 
@@ -189,7 +189,9 @@ pub fn detect_from_config<B: rightkit_llm::agent_providers::KeyStoreBackend>(
 
 /// Async variant used by product entrypoints so native OAuth counts as a
 /// configured credential without exposing credential material.
-pub async fn detect_from_config_with_native_auth<B: rightkit_llm::agent_providers::KeyStoreBackend>(
+pub async fn detect_from_config_with_native_auth<
+    B: rightkit_llm::agent_providers::KeyStoreBackend,
+>(
     backend: &B,
     config: &HostConfig,
 ) -> OnboardingState {
@@ -261,7 +263,8 @@ impl ReadinessRunner for RealReadinessRunner {
     async fn run(&self, choice: &RouteChoice, credential: &str) -> ReadinessResult {
         use rightkit_agent_engine_core::llm::LlmClient;
 
-        let model_id = rightkit_llm::agent_providers::provider_model_id(&choice.provider, &choice.model);
+        let model_id =
+            rightkit_llm::agent_providers::provider_model_id(&choice.provider, &choice.model);
         let base_url = choice.base_url.trim().trim_end_matches('/').to_string();
         let route = Arc::new(Mutex::new(ProviderRoute {
             api_key: credential.to_string(),
@@ -663,7 +666,9 @@ pub async fn run_onboarding<B: rightkit_llm::agent_providers::KeyStoreBackend + 
     .await
 }
 
-async fn run_onboarding_with_native_auth<B: rightkit_llm::agent_providers::KeyStoreBackend + Send + Sync>(
+async fn run_onboarding_with_native_auth<
+    B: rightkit_llm::agent_providers::KeyStoreBackend + Send + Sync,
+>(
     state: &OnboardingState,
     backend: &B,
     runner: &dyn ReadinessRunner,

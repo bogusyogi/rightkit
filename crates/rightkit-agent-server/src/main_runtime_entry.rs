@@ -117,7 +117,9 @@ fn run_main() {
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
             let resolved = rightkit_app_settings::agent_config::presets::load_presets(&workspace)
-                .and_then(|all| rightkit_app_settings::agent_config::presets::resolve_preset(&all, &name));
+                .and_then(|all| {
+                    rightkit_app_settings::agent_config::presets::resolve_preset(&all, &name)
+                });
             match resolved {
                 Ok(preset) => {
                     // Carried in run options (`--append-system-prompt`) for `-p`.
@@ -596,7 +598,9 @@ fn cli_acquisition_v1_enabled() -> bool {
     cli_acquisition_v1_enabled_from_config(&load_current_merged_config())
 }
 
-fn cli_acquisition_v1_enabled_from_config(config: &rightkit_app_settings::agent_config::HostConfig) -> bool {
+fn cli_acquisition_v1_enabled_from_config(
+    config: &rightkit_app_settings::agent_config::HostConfig,
+) -> bool {
     config.features.cli_acquisition_v1.unwrap_or(true)
 }
 

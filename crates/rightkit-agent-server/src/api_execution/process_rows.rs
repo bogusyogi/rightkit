@@ -148,17 +148,23 @@ fn historical_process_row(record: ExecutionProcessRecord) -> ExecutionProcessRow
     }
 }
 
-fn process_status(status: &rightkit_agent_tools::coding_tools::background_shell::BgStatus) -> &'static str {
+fn process_status(
+    status: &rightkit_agent_tools::coding_tools::background_shell::BgStatus,
+) -> &'static str {
     match status {
         rightkit_agent_tools::coding_tools::background_shell::BgStatus::Running => "running",
         rightkit_agent_tools::coding_tools::background_shell::BgStatus::Exited(_) => "exited",
         rightkit_agent_tools::coding_tools::background_shell::BgStatus::Killed => "killed",
-        rightkit_agent_tools::coding_tools::background_shell::BgStatus::SpawnFailed(_) => "spawnFailed",
+        rightkit_agent_tools::coding_tools::background_shell::BgStatus::SpawnFailed(_) => {
+            "spawnFailed"
+        }
         rightkit_agent_tools::coding_tools::background_shell::BgStatus::Unknown => "unknown",
     }
 }
 
-fn process_status_label(status: &rightkit_agent_tools::coding_tools::background_shell::BgStatus) -> String {
+fn process_status_label(
+    status: &rightkit_agent_tools::coding_tools::background_shell::BgStatus,
+) -> String {
     match status {
         rightkit_agent_tools::coding_tools::background_shell::BgStatus::Running => "running".into(),
         rightkit_agent_tools::coding_tools::background_shell::BgStatus::Exited(code) => {

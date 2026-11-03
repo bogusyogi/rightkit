@@ -279,29 +279,30 @@ async fn set_goal_status_field_recovers_from_poisoned_goal_state_mutex() {
     let live = state
         .get_session("goal-status-poison")
         .expect("seeded session should exist");
-    *lock_recover(&live.goal_state, "session.goal_state") = Some(rightkit_agent_engine_core::GoalState {
-        id: "goal-poison".into(),
-        text: "keep going".into(),
-        status: "active".into(),
-        budget_usd: 0.0,
-        budget_tokens: 0,
-        tokens_used: 0,
-        cost_usd: 0.0,
-        continuation_count: 0,
-        no_progress_count: 0,
-        gds_score: 0.0,
-        verification_present: false,
-        verification_approved: false,
-        started_at: "t0".into(),
-        closed_at: None,
-        dismissed_at: None,
-        decomposition_state: "missing".into(),
-        plan_revision: 0,
-        now: None,
-        next: None,
-        steps: Vec::new(),
-        verification_state: "unverified".into(),
-    });
+    *lock_recover(&live.goal_state, "session.goal_state") =
+        Some(rightkit_agent_engine_core::GoalState {
+            id: "goal-poison".into(),
+            text: "keep going".into(),
+            status: "active".into(),
+            budget_usd: 0.0,
+            budget_tokens: 0,
+            tokens_used: 0,
+            cost_usd: 0.0,
+            continuation_count: 0,
+            no_progress_count: 0,
+            gds_score: 0.0,
+            verification_present: false,
+            verification_approved: false,
+            started_at: "t0".into(),
+            closed_at: None,
+            dismissed_at: None,
+            decomposition_state: "missing".into(),
+            plan_revision: 0,
+            now: None,
+            next: None,
+            steps: Vec::new(),
+            verification_state: "unverified".into(),
+        });
     poison_live_goal_state(&live);
 
     assert!(set_goal_status_field(&live, "paused"));
@@ -335,29 +336,30 @@ async fn publish_agent_roster_recovers_from_poisoned_roster_and_goal_state_mutex
     let live = state
         .get_session("roster-poison")
         .expect("seeded session should exist");
-    *lock_recover(&live.goal_state, "session.goal_state") = Some(rightkit_agent_engine_core::GoalState {
-        id: "goal-roster-poison".into(),
-        text: "keep budget meter alive".into(),
-        status: "active".into(),
-        budget_usd: 0.0,
-        budget_tokens: 0,
-        tokens_used: 123,
-        cost_usd: 0.0,
-        continuation_count: 0,
-        no_progress_count: 0,
-        gds_score: 0.0,
-        verification_present: false,
-        verification_approved: false,
-        started_at: "t0".into(),
-        closed_at: None,
-        dismissed_at: None,
-        decomposition_state: "missing".into(),
-        plan_revision: 0,
-        now: None,
-        next: None,
-        steps: Vec::new(),
-        verification_state: "unverified".into(),
-    });
+    *lock_recover(&live.goal_state, "session.goal_state") =
+        Some(rightkit_agent_engine_core::GoalState {
+            id: "goal-roster-poison".into(),
+            text: "keep budget meter alive".into(),
+            status: "active".into(),
+            budget_usd: 0.0,
+            budget_tokens: 0,
+            tokens_used: 123,
+            cost_usd: 0.0,
+            continuation_count: 0,
+            no_progress_count: 0,
+            gds_score: 0.0,
+            verification_present: false,
+            verification_approved: false,
+            started_at: "t0".into(),
+            closed_at: None,
+            dismissed_at: None,
+            decomposition_state: "missing".into(),
+            plan_revision: 0,
+            now: None,
+            next: None,
+            steps: Vec::new(),
+            verification_state: "unverified".into(),
+        });
     poison_live_agent_roster(&live);
     poison_live_goal_state(&live);
 

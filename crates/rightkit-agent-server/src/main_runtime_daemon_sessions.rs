@@ -78,17 +78,19 @@ async fn daemon_session_list(status: Option<String>, tag: Option<String>) -> i32
         url.push('?');
         url.push_str(&query);
     }
-    let listed =
-        match rightkit_http::http_client::daemon_client_with(&url, std::time::Duration::from_secs(30)) {
-            Ok(client) => {
-                rightkit_http::http_client::send_any(
-                    &client,
-                    &rightkit_http::Request::get(url.clone()).bearer(&token),
-                )
-                .await
-            }
-            Err(e) => Err(e),
-        };
+    let listed = match rightkit_http::http_client::daemon_client_with(
+        &url,
+        std::time::Duration::from_secs(30),
+    ) {
+        Ok(client) => {
+            rightkit_http::http_client::send_any(
+                &client,
+                &rightkit_http::Request::get(url.clone()).bearer(&token),
+            )
+            .await
+        }
+        Err(e) => Err(e),
+    };
     match listed {
         Ok(resp) if rightkit_http::http_client::is_success(resp.status) => {
             println!("{}", resp.text());

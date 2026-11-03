@@ -15,7 +15,8 @@ fn skill_fires_at_session_start(
         .set("workspace_root", workspace_root)
         .set("role", role.unwrap_or(""))
         .set("skill", &skill.slug);
-    rightkit_agent_host_traits::skill_host::trigger::evaluate_trigger(trigger, &ctx).unwrap_or(false)
+    rightkit_agent_host_traits::skill_host::trigger::evaluate_trigger(trigger, &ctx)
+        .unwrap_or(false)
 }
 
 fn find_skill_item(dirs: &[PathBuf], slug: &str) -> Option<(SkillItem, String)> {

@@ -172,7 +172,8 @@ pub(crate) async fn fetch_marketplace_url_bytes(
         rightkit_http::http_client::DEFAULT_TIMEOUT,
     )?;
     let response =
-        rightkit_http::http_client::send_any(&client, &rightkit_http::Request::get(trimmed)).await?;
+        rightkit_http::http_client::send_any(&client, &rightkit_http::Request::get(trimmed))
+            .await?;
     if !rightkit_http::http_client::is_success(response.status) {
         return Err(format!(
             "{label} fetch failed with HTTP {}",

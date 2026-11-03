@@ -14,7 +14,8 @@ fn an_attached_licence_gate_replaces_the_fixed_feature_set() {
     assert!(seeded.has_license_feature("schedules"));
 
     let cell = rightkit_license::EngineSnapshotCell::new();
-    let config = rightkit_license::EngineEntitlementsConfig::from_snapshot([7_u8; 32], "coderight", &cell);
+    let config =
+        rightkit_license::EngineEntitlementsConfig::from_snapshot([7_u8; 32], "coderight", &cell);
     let gate = crate::license::LicenseGate::with_config(
         cell,
         config,

@@ -1,4 +1,6 @@
-pub(crate) fn parse_permission_decision(s: &str) -> Option<rightkit_agent_policy::PermissionDecision> {
+pub(crate) fn parse_permission_decision(
+    s: &str,
+) -> Option<rightkit_agent_policy::PermissionDecision> {
     match s.trim().to_lowercase().as_str() {
         "allow" => Some(rightkit_agent_policy::PermissionDecision::Allow),
         "ask" => Some(rightkit_agent_policy::PermissionDecision::Ask),

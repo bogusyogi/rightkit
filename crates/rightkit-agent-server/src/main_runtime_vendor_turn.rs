@@ -316,11 +316,14 @@ pub(crate) fn resolve_provider_account(
     session_id: &str,
     project: &str,
 ) -> Result<Option<ResolvedClaudeAccount>, String> {
-    let store = match rightkit_app_settings::agent_config::accounts::AccountStore::default_location() {
-        Ok(store) => store,
-        Err(rightkit_app_settings::agent_config::accounts::AccountsError::NoStateRoot) => return Ok(None),
-        Err(error) => return Err(error.to_string()),
-    };
+    let store =
+        match rightkit_app_settings::agent_config::accounts::AccountStore::default_location() {
+            Ok(store) => store,
+            Err(rightkit_app_settings::agent_config::accounts::AccountsError::NoStateRoot) => {
+                return Ok(None)
+            }
+            Err(error) => return Err(error.to_string()),
+        };
     let Some(account_id) = store
         .resolve(Some(session_id), Some(project))
         .map_err(|error| error.to_string())?
@@ -330,9 +333,13 @@ pub(crate) fn resolve_provider_account(
     let mut resolved = account_for_selection(
         provider_name,
         &account_id,
-        |id| rightkit_llm::agent_providers::client::load_account_key(id).map_err(|error| error.to_string()),
+        |id| {
+            rightkit_llm::agent_providers::client::load_account_key(id)
+                .map_err(|error| error.to_string())
+        },
         |label| {
-            let provider = rightkit_agents::driver_host::cli_runtime::CliProviderId::new(provider_name);
+            let provider =
+                rightkit_agents::driver_host::cli_runtime::CliProviderId::new(provider_name);
             let record =
                 rightkit_agents::driver_host::cli_runtime::profile::load_profile(&provider, label)
                     .map_err(|error| error.to_string())?;
@@ -1587,7 +1594,9 @@ mod account_launch_tests {
             Some("api_key/claude/team")
         );
         let dir = tempfile::tempdir().unwrap();
-        let store = rightkit_app_settings::agent_config::accounts::AccountStore::at(dir.path().join("accounts.json"));
+        let store = rightkit_app_settings::agent_config::accounts::AccountStore::at(
+            dir.path().join("accounts.json"),
+        );
         let entry = store.add_api_key_account("Team", "claude").unwrap();
         assert_eq!(entry.id, "api_key/claude/team");
         apply_api_key_label(&mut resolved.identity, &entry.id, &store);

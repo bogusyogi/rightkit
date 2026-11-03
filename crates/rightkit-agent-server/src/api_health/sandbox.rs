@@ -27,7 +27,8 @@ fn allowed_sandbox_tiers() -> &'static [&'static str] {
 }
 
 fn normalize_sandbox_tier(value: &str) -> Option<String> {
-    rightkit_agent_policy::SandboxTier::parse_alias(value).map(|tier| tier.persisted_value().to_string())
+    rightkit_agent_policy::SandboxTier::parse_alias(value)
+        .map(|tier| tier.persisted_value().to_string())
 }
 
 fn load_sandbox_settings(

@@ -37,7 +37,9 @@ pub(crate) fn workspace_mcp_config_path(workspace_root: &str) -> Option<PathBuf>
     }
 }
 
-pub(crate) fn read_mcp_config_file(path: &FsPath) -> Result<rightkit_mcp::agent_mcp::McpConfigFile, String> {
+pub(crate) fn read_mcp_config_file(
+    path: &FsPath,
+) -> Result<rightkit_mcp::agent_mcp::McpConfigFile, String> {
     if !path.exists() {
         return Ok(rightkit_mcp::agent_mcp::McpConfigFile::default());
     }
@@ -68,7 +70,9 @@ pub(crate) fn validate_mcp_server_name(name: &str) -> Result<(), StatusCode> {
     }
 }
 
-pub(crate) fn mcp_transport_label(config: &rightkit_mcp::agent_mcp::McpServerConfig) -> &'static str {
+pub(crate) fn mcp_transport_label(
+    config: &rightkit_mcp::agent_mcp::McpServerConfig,
+) -> &'static str {
     match config {
         rightkit_mcp::agent_mcp::McpServerConfig::Http(_) => "http",
         rightkit_mcp::agent_mcp::McpServerConfig::Sse(_) => "sse",
@@ -139,7 +143,8 @@ fn mcp_policy_diagnostics(
 
     if matches!(
         config,
-        rightkit_mcp::agent_mcp::McpServerConfig::Http(_) | rightkit_mcp::agent_mcp::McpServerConfig::Sse(_)
+        rightkit_mcp::agent_mcp::McpServerConfig::Http(_)
+            | rightkit_mcp::agent_mcp::McpServerConfig::Sse(_)
     ) && trust.preset == "remote_unreviewed"
     {
         diagnostics.push(serde_json::json!({
@@ -152,14 +157,17 @@ fn mcp_policy_diagnostics(
     diagnostics
 }
 
-fn inferred_mcp_trust(config: &rightkit_mcp::agent_mcp::McpServerConfig) -> rightkit_mcp::agent_mcp::McpTrustPolicy {
+fn inferred_mcp_trust(
+    config: &rightkit_mcp::agent_mcp::McpServerConfig,
+) -> rightkit_mcp::agent_mcp::McpTrustPolicy {
     let preset = match config {
         rightkit_mcp::agent_mcp::McpServerConfig::Stdio(_) => "local_process",
-        rightkit_mcp::agent_mcp::McpServerConfig::Http(c) if is_local_mcp_url(&c.url) => "local_dev",
-        rightkit_mcp::agent_mcp::McpServerConfig::Sse(c) if is_local_mcp_url(&c.url) => "local_dev",
-        rightkit_mcp::agent_mcp::McpServerConfig::Http(_) | rightkit_mcp::agent_mcp::McpServerConfig::Sse(_) => {
-            "remote_unreviewed"
+        rightkit_mcp::agent_mcp::McpServerConfig::Http(c) if is_local_mcp_url(&c.url) => {
+            "local_dev"
         }
+        rightkit_mcp::agent_mcp::McpServerConfig::Sse(c) if is_local_mcp_url(&c.url) => "local_dev",
+        rightkit_mcp::agent_mcp::McpServerConfig::Http(_)
+        | rightkit_mcp::agent_mcp::McpServerConfig::Sse(_) => "remote_unreviewed",
     };
     rightkit_mcp::agent_mcp::McpTrustPolicy {
         preset: preset.to_string(),
@@ -266,7 +274,8 @@ pub(crate) fn workspace_stdio_trust_decision(
     if workspace_root.is_empty() {
         return rightkit_mcp::agent_mcp::TrustDecision::Pending;
     }
-    let store_path = rightkit_mcp::agent_mcp::default_trust_store_path(mcp_trust_store_home_dir().as_deref());
+    let store_path =
+        rightkit_mcp::agent_mcp::default_trust_store_path(mcp_trust_store_home_dir().as_deref());
     let store = rightkit_mcp::agent_mcp::load_trust_store(&store_path);
     rightkit_mcp::agent_mcp::decide_workspace_stdio(&store, workspace_root, server_name, stdio)
 }
@@ -293,7 +302,8 @@ pub(crate) fn mcp_transport_from_config(
         if let rightkit_mcp::agent_mcp::McpServerConfig::Stdio(stdio) = config {
             match workspace_stdio_trust_decision(workspace_root, name, stdio) {
                 rightkit_mcp::agent_mcp::TrustDecision::Approved => {}
-                rightkit_mcp::agent_mcp::TrustDecision::Pending | rightkit_mcp::agent_mcp::TrustDecision::Denied => {
+                rightkit_mcp::agent_mcp::TrustDecision::Pending
+                | rightkit_mcp::agent_mcp::TrustDecision::Denied => {
                     return Arc::new(rightkit_mcp::agent_mcp::StubTransport::new(Vec::new()));
                 }
             }
@@ -308,7 +318,9 @@ pub(crate) fn mcp_transport_from_config(
         rightkit_mcp::agent_mcp::McpServerConfig::Http(c) => {
             Arc::new(rightkit_mcp::agent_mcp::HttpTransport::new(c.url))
         }
-        rightkit_mcp::agent_mcp::McpServerConfig::Sse(c) => Arc::new(rightkit_mcp::agent_mcp::SseTransport::new(c.url)),
+        rightkit_mcp::agent_mcp::McpServerConfig::Sse(c) => {
+            Arc::new(rightkit_mcp::agent_mcp::SseTransport::new(c.url))
+        }
         rightkit_mcp::agent_mcp::McpServerConfig::Stdio(c) => {
             let workspace_root = std::env::current_dir()
                 .unwrap_or_else(|_| PathBuf::from("."))

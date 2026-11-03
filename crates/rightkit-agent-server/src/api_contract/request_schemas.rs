@@ -171,7 +171,9 @@ fn openapi_request_schema(method: &str, path: &str) -> Option<Value> {
             })
             .or_else(|| crate::api_delivery::delivery_openapi_request_schema(method, path))
             .or_else(|| crate::api_environments::environments_openapi_request_schema(method, path))
-            .or_else(|| rightkit_agent_engine_attention::attention_openapi_request_schema(method, path))
+            .or_else(|| {
+                rightkit_agent_engine_attention::attention_openapi_request_schema(method, path)
+            })
             .or_else(|| run_changes_contract_request_schema(method, path)),
     }
 }

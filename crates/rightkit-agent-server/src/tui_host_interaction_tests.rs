@@ -384,7 +384,9 @@ mod interaction_gate_tests {
         assert!(composer.is_in_paste_burst());
 
         composer.set_defer_paste_burst_idle_flush(true);
-        while let Some(Ok(rightkit_terminal_ui::crossterm::event::Event::Key(key))) = rx.recv().await {
+        while let Some(Ok(rightkit_terminal_ui::crossterm::event::Event::Key(key))) =
+            rx.recv().await
+        {
             composer.handle(&TuiEvent::Key(key));
         }
         composer.set_defer_paste_burst_idle_flush(false);

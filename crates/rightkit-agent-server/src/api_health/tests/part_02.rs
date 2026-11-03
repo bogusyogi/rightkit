@@ -54,9 +54,10 @@ async fn health_route_reports_storage_read_pool_when_available() {
 
 #[test]
 fn health_discloses_a_keychain_failure() {
-    let status = provider_key_storage_status(rightkit_llm::agent_providers::ProviderKeyStorageHealth {
-        keychain_failure_observed: true,
-    });
+    let status =
+        provider_key_storage_status(rightkit_llm::agent_providers::ProviderKeyStorageHealth {
+            keychain_failure_observed: true,
+        });
 
     assert!(status.keychain_failure_observed);
 }

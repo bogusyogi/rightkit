@@ -79,15 +79,13 @@ fn slash_generated_plan_tasks(
             .iter()
             .filter(|criterion| criterion.buildable)
         {
-            if existing_tasks
-                .iter()
-                .chain(out.iter())
-                .any(|task: &rightkit_evidence::FeatureTask| {
+            if existing_tasks.iter().chain(out.iter()).any(
+                |task: &rightkit_evidence::FeatureTask| {
                     task.success_criterion_ids
                         .iter()
                         .any(|id| id == &criterion.id)
-                })
-            {
+                },
+            ) {
                 continue;
             }
             out.push(rightkit_evidence::FeatureTask {

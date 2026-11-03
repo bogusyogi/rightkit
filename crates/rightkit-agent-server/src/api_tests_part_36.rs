@@ -239,7 +239,10 @@ async fn clear_goal_preserves_terminal_status() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let persisted = storage.lock().await.get_goal(&goal_id).unwrap().unwrap();
-    assert_eq!(persisted.status, rightkit_agent_engine_storage::GoalStatus::Achieved);
+    assert_eq!(
+        persisted.status,
+        rightkit_agent_engine_storage::GoalStatus::Achieved
+    );
     assert!(persisted.dismissed_at.is_some());
 }
 
@@ -472,7 +475,11 @@ async fn goal_resume_resets_gap_audit_and_persists_active_status() {
     storage
         .lock()
         .await
-        .update_goal_status(&goal_id, rightkit_agent_engine_storage::GoalStatus::Paused, None)
+        .update_goal_status(
+            &goal_id,
+            rightkit_agent_engine_storage::GoalStatus::Paused,
+            None,
+        )
         .unwrap();
     set_goal_status_field(&live, "paused");
 

@@ -17,7 +17,9 @@ impl DaemonState {
             ),
         );
         let memory_provenance =
-            rightkit_memory::memory_provenance::MemoryProvenanceStore::from_backend(memory_backend.clone());
+            rightkit_memory::memory_provenance::MemoryProvenanceStore::from_backend(
+                memory_backend.clone(),
+            );
         let instincts = crate::store_write::load_instincts(&default_instincts_store_path());
         let driver_host = match rightkit_agent_tools::coding_tools::process_resource_authority::process_resource_governor() {
             Some(governor) => crate::driver_host_runtime::DriverHostRuntime::new().with_process_launch(
@@ -38,7 +40,8 @@ impl DaemonState {
             ),
             None => crate::driver_host_runtime::DriverHostRuntime::new(),
         };
-        let cli_registry = Arc::new(rightkit_agents::driver_host::cli_runtime::CliAdapterRegistry::new());
+        let cli_registry =
+            Arc::new(rightkit_agents::driver_host::cli_runtime::CliAdapterRegistry::new());
         rightkit_agents::driver_host::cli_runtime::built_in::seed_registry(&cli_registry)
             .expect("built-in CLI registry must register atomically");
         let cli_registry_provider_ids = cli_registry.provider_ids().into_iter().collect();
@@ -52,7 +55,9 @@ impl DaemonState {
             memory_consolidation_status:
                 rightkit_memory::consolidation_status::ConsolidationStatusState::new(),
             sessions: Arc::new(Mutex::new(HashMap::new())),
-            handoff_controller: Arc::new(rightkit_agent_tools::coding_tools::handoff::HandoffController),
+            handoff_controller: Arc::new(
+                rightkit_agent_tools::coding_tools::handoff::HandoffController,
+            ),
             mcp_pool: Arc::new(rightkit_mcp::agent_mcp::McpTransportPool::default()),
             driver_host,
             cli_registry,
@@ -229,7 +234,10 @@ impl DaemonState {
             .collect()
     }
 
-    pub fn with_telegram_remote_config(mut self, config: rightkit_app_settings::agent_config::RemoteConfig) -> Self {
+    pub fn with_telegram_remote_config(
+        mut self,
+        config: rightkit_app_settings::agent_config::RemoteConfig,
+    ) -> Self {
         let token_configured = config
             .telegram_token
             .as_deref()
@@ -516,10 +524,12 @@ impl rightkit_agents::driver_host::cli_runtime::CliExecutorLaunchContextProvider
                 )
             })?;
         if scoped.session_id != session_id || scoped.agent_id != agent_id {
-            return Err(rightkit_agents::driver_host::cli_runtime::AgentRuntimeError::new(
-                "launch_context_identity_mismatch",
-                "launch context does not belong to requested session and agent",
-            ));
+            return Err(
+                rightkit_agents::driver_host::cli_runtime::AgentRuntimeError::new(
+                    "launch_context_identity_mismatch",
+                    "launch context does not belong to requested session and agent",
+                ),
+            );
         }
         let store = self.storage.try_lock().map_err(|_| {
             rightkit_agents::driver_host::cli_runtime::AgentRuntimeError::new(
@@ -545,20 +555,24 @@ impl rightkit_agents::driver_host::cli_runtime::CliExecutorLaunchContextProvider
             || row.auth_mode != "native_cli_account"
             || !row.signed_in
         {
-            return Err(rightkit_agents::driver_host::cli_runtime::AgentRuntimeError::new(
-                "profile_not_eligible",
-                "profile is not a signed-in native CLI account",
-            ));
+            return Err(
+                rightkit_agents::driver_host::cli_runtime::AgentRuntimeError::new(
+                    "profile_not_eligible",
+                    "profile is not a signed-in native CLI account",
+                ),
+            );
         }
         if scoped.context.profile.id.as_str() != profile_id.as_str()
             || scoped.context.profile.provider_id.as_str() != provider_id.as_str()
             || scoped.context.profile.managed_home.as_os_str()
                 != std::ffi::OsStr::new(&row.managed_home)
         {
-            return Err(rightkit_agents::driver_host::cli_runtime::AgentRuntimeError::new(
-                "launch_context_profile_mismatch",
-                "scoped launch profile no longer matches persisted profile",
-            ));
+            return Err(
+                rightkit_agents::driver_host::cli_runtime::AgentRuntimeError::new(
+                    "launch_context_profile_mismatch",
+                    "scoped launch profile no longer matches persisted profile",
+                ),
+            );
         }
         Ok(scoped.context)
     }

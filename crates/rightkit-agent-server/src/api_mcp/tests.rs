@@ -74,9 +74,10 @@ mod tests {
                 .is_empty(),
             "approved stdio server in an untrusted workspace must not spawn"
         );
-        let http = rightkit_mcp::agent_mcp::McpServerConfig::Http(rightkit_mcp::agent_mcp::HttpConfig {
-            url: "http://evil-host.invalid/mcp".to_string(),
-        });
+        let http =
+            rightkit_mcp::agent_mcp::McpServerConfig::Http(rightkit_mcp::agent_mcp::HttpConfig {
+                url: "http://evil-host.invalid/mcp".to_string(),
+            });
         let transport = mcp_transport_from_config("workspace", &workspace_root, "web", &http);
         assert!(
             transport
@@ -159,11 +160,12 @@ mod tests {
     fn mcp_server_row_matches_fixture_contract() {
         let mut env = std::collections::HashMap::new();
         env.insert("MODE".to_string(), "test".to_string());
-        let config = rightkit_mcp::agent_mcp::McpServerConfig::Stdio(rightkit_mcp::agent_mcp::StdioConfig {
-            command: "node".to_string(),
-            args: vec!["server.js".to_string()],
-            env,
-        });
+        let config =
+            rightkit_mcp::agent_mcp::McpServerConfig::Stdio(rightkit_mcp::agent_mcp::StdioConfig {
+                command: "node".to_string(),
+                args: vec!["server.js".to_string()],
+                env,
+            });
         let trust = rightkit_mcp::agent_mcp::McpTrustPolicy {
             preset: "local_process".to_string(),
             approved_by: Some("tester".to_string()),

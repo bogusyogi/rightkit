@@ -5,8 +5,8 @@ mod tests_fanout {
     async fn remote_channel_fanout_submits_untrusted_message_to_bound_sessions() {
         use axum::body::Body;
         use axum::http::Request;
-        use rightkit_agent_engine_protocol::{ContentTrust, ProtocolEvent, TranscriptMessage};
         use http_body_util::BodyExt;
+        use rightkit_agent_engine_protocol::{ContentTrust, ProtocolEvent, TranscriptMessage};
         use std::sync::Arc;
         use tower::ServiceExt;
 

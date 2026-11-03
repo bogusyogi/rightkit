@@ -121,7 +121,8 @@ async fn slash_model_rejects_subagent_sessions() {
 #[tokio::test]
 async fn memory_routes_add_and_search_entries() {
     let memory = crate::test_support::FakeMemoryBackend::new();
-    let provenance = rightkit_memory::memory_provenance::MemoryProvenanceStore::from_backend(memory.clone());
+    let provenance =
+        rightkit_memory::memory_provenance::MemoryProvenanceStore::from_backend(memory.clone());
     let app = build_router(
         DaemonState::new("")
             .with_memory_backend(memory)

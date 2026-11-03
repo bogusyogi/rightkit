@@ -763,9 +763,13 @@ mod eff006_journal_recovery_call_site {
         std::fs::write(&applied, "before\n").unwrap();
         std::fs::write(&untouched, "before\n").unwrap();
         let applied_revision =
-            rightkit_agent_tools::coding_tools::file_service::observe_revision_for_tests(&applied).unwrap();
+            rightkit_agent_tools::coding_tools::file_service::observe_revision_for_tests(&applied)
+                .unwrap();
         let untouched_revision =
-            rightkit_agent_tools::coding_tools::file_service::observe_revision_for_tests(&untouched).unwrap();
+            rightkit_agent_tools::coding_tools::file_service::observe_revision_for_tests(
+                &untouched,
+            )
+            .unwrap();
 
         let journal_dir = root.join(".coderight").join("mutation-journal");
         std::fs::create_dir_all(&journal_dir).unwrap();

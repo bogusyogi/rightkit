@@ -39,7 +39,8 @@ impl DaemonState {
                 evidence_guard.verification_approved,
             )
         };
-        let jury_consensus = state == rightkit_agent_orchestration::coding::CompletionState::Accepted
+        let jury_consensus = state
+            == rightkit_agent_orchestration::coding::CompletionState::Accepted
             || state == rightkit_agent_orchestration::coding::CompletionState::Rejected
             || state == rightkit_agent_orchestration::coding::CompletionState::Escalate
             || state == rightkit_agent_orchestration::coding::CompletionState::PartiallyComplete;
@@ -55,14 +56,17 @@ impl DaemonState {
         let typed_mutations = session
             .typed_mutations
             .load(std::sync::atomic::Ordering::Relaxed);
-        let claim_suggests_done = state == rightkit_agent_orchestration::coding::CompletionState::Accepted;
+        let claim_suggests_done =
+            state == rightkit_agent_orchestration::coding::CompletionState::Accepted;
         let mut downgrade_to_unmet: Option<String> = None;
         let mut downgrade_to_active = false;
         if claim_suggests_done {
             // FM-188: assemble itemized per-task evidence from the live task
             // graph + per-task mutation map. Stable identity is TaskNode.id
             // (or job_id when the task was dispatched as a job).
-            let task_evidence: Vec<rightkit_agent_orchestration::coding::unbacked_work_gate::TaskEvidence> = {
+            let task_evidence: Vec<
+                rightkit_agent_orchestration::coding::unbacked_work_gate::TaskEvidence,
+            > = {
                 let tasks = lock_recover(&session.tasks, "session.tasks").clone();
                 let per_task =
                     lock_recover(&session.task_typed_evidence, "session.task_typed_evidence")
@@ -211,14 +215,15 @@ impl DaemonState {
                 mapped_status
             };
             gs.status = status.as_str().to_string();
-            gs.verification_state =
-                if status == rightkit_agent_engine_storage::GoalStatus::Achieved && gs.verification_approved {
-                    "verified".into()
-                } else if gs.verification_approved {
-                    "pending".into()
-                } else {
-                    "failed".into()
-                };
+            gs.verification_state = if status == rightkit_agent_engine_storage::GoalStatus::Achieved
+                && gs.verification_approved
+            {
+                "verified".into()
+            } else if gs.verification_approved {
+                "pending".into()
+            } else {
+                "failed".into()
+            };
             gs.closed_at = crate::goal_terminal::is_terminal(status).then(now_iso);
             (status, gs.snapshot())
         };
@@ -317,11 +322,11 @@ mod finalize_goal_integration_tests {
     use crate::api::{lock_recover, DaemonState, LiveSession};
     use axum::body::Body;
     use axum::http::Request;
+    use http_body_util::BodyExt;
     use rightkit_agent_engine_core::{Conduit, GoalState};
-    use rightkit_agent_orchestration::coding::CompletionState;
     use rightkit_agent_engine_protocol::event::GoalStepV1;
     use rightkit_agent_engine_protocol::ProtocolEvent;
-    use http_body_util::BodyExt;
+    use rightkit_agent_orchestration::coding::CompletionState;
     use std::sync::Arc;
     use tower::ServiceExt;
 
@@ -556,7 +561,10 @@ mod finalize_goal_integration_tests {
             .newest_displayable_goal_for_session("victory")
             .unwrap()
             .expect("terminal goal persisted before event");
-        assert_eq!(persisted.status, rightkit_agent_engine_storage::GoalStatus::Achieved);
+        assert_eq!(
+            persisted.status,
+            rightkit_agent_engine_storage::GoalStatus::Achieved
+        );
         assert_eq!(persisted.verification_state, "verified");
         assert_eq!(persisted.plan_revision, snapshot.plan_revision);
         assert_eq!(persisted.steps, snapshot.steps);

@@ -93,9 +93,11 @@ async fn run_promotion_handler(
             "promoted": true, "role": role, "fromModel": from_model,
             "toModel": to_model, "delta": delta,
         }),
-        rightkit_agent_orchestration::coding::PromotionDecision::Reject { reason } => serde_json::json!({
-            "promoted": false, "reason": reason,
-        }),
+        rightkit_agent_orchestration::coding::PromotionDecision::Reject { reason } => {
+            serde_json::json!({
+                "promoted": false, "reason": reason,
+            })
+        }
     };
     Ok(Json(json))
 }
@@ -108,7 +110,9 @@ async fn get_benchmark_proof(State(state): State<DaemonState>) -> Json<serde_jso
     Json(benchmark_proof_json(&state).await)
 }
 
-async fn load_benchmark_rows(state: &DaemonState) -> Vec<rightkit_agent_engine_storage::BenchmarkRow> {
+async fn load_benchmark_rows(
+    state: &DaemonState,
+) -> Vec<rightkit_agent_engine_storage::BenchmarkRow> {
     if let Some(storage) = &state.storage {
         let storage2 = storage.clone();
         tokio::task::spawn_blocking(move || {

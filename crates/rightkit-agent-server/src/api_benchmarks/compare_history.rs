@@ -69,7 +69,8 @@ async fn run_model_compare(
 
     let id = format!("cmp-{}", now_millis());
     let seed = now_millis() as u64;
-    let comparison = rightkit_agent_orchestration::coding::BlindComparison::new(&id, &prompt, candidates, seed);
+    let comparison =
+        rightkit_agent_orchestration::coding::BlindComparison::new(&id, &prompt, candidates, seed);
     let entries = serde_json::to_value(comparison.blinded()).unwrap_or(serde_json::Value::Null);
     state
         .comparisons
@@ -131,7 +132,8 @@ async fn run_agent_compare(
 
     let id = format!("cmp-{}", now_millis());
     let seed = now_millis() as u64;
-    let comparison = rightkit_agent_orchestration::coding::BlindComparison::new(&id, &task, candidates, seed);
+    let comparison =
+        rightkit_agent_orchestration::coding::BlindComparison::new(&id, &task, candidates, seed);
     let entries = serde_json::to_value(comparison.blinded()).unwrap_or(serde_json::Value::Null);
     state
         .comparisons
@@ -405,7 +407,8 @@ pub(crate) struct ManagedCommandSpec {
 
 pub(crate) async fn run_managed_command(spec: ManagedCommandSpec) -> Result<(i32, String), String> {
     #[cfg(test)]
-    let adapter = rightkit_agent_tools::coding_tools::process_launch::UnconfinedProcessLaunchAdapter;
+    let adapter =
+        rightkit_agent_tools::coding_tools::process_launch::UnconfinedProcessLaunchAdapter;
     #[cfg(not(test))]
     let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
     let context = rightkit_sandbox::execution::ProcessLaunchContext {

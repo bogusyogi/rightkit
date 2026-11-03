@@ -41,7 +41,9 @@ struct QualificationMatrixRequest {
 }
 
 /// Classify one permission-only engine response into a matrix outcome.
-fn qualification_outcome(result: &rightkit_agent_tools::coding_tools::ToolResult) -> (&'static str, String) {
+fn qualification_outcome(
+    result: &rightkit_agent_tools::coding_tools::ToolResult,
+) -> (&'static str, String) {
     let outcome = if !result.is_error {
         "allowed"
     } else if result.content.contains("unknown tool") {

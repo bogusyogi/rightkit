@@ -34,7 +34,8 @@ mod client_presence_reaper_tests {
         std::fs::create_dir_all(&dir).unwrap();
         let db_path = dir.join("presence.db");
 
-        let storage = rightkit_agent_engine_storage::Storage::open(&db_path).expect("open fresh db");
+        let storage =
+            rightkit_agent_engine_storage::Storage::open(&db_path).expect("open fresh db");
         let shared = SharedStorage::new(storage);
         let state = DaemonState::new("test-token").with_storage(shared.clone());
 
@@ -94,7 +95,8 @@ mod client_presence_reaper_tests {
         std::fs::create_dir_all(&dir).unwrap();
         let db_path = dir.join("presence.db");
 
-        let storage = rightkit_agent_engine_storage::Storage::open(&db_path).expect("open fresh db");
+        let storage =
+            rightkit_agent_engine_storage::Storage::open(&db_path).expect("open fresh db");
         let shared = SharedStorage::new(storage);
         let state = DaemonState::new("test-token").with_storage(shared.clone());
 
@@ -180,7 +182,8 @@ mod client_presence_reaper_tests {
         let dir = unique_temp_dir("keep-resident-sched");
         std::fs::create_dir_all(&dir).unwrap();
         let db_path = dir.join("presence.db");
-        let storage = rightkit_agent_engine_storage::Storage::open(&db_path).expect("open fresh db");
+        let storage =
+            rightkit_agent_engine_storage::Storage::open(&db_path).expect("open fresh db");
         let shared = SharedStorage::new(storage);
         let mut state = DaemonState::new("test-token").with_storage(shared.clone());
         state.licensed_features = std::sync::Arc::new(std::sync::Mutex::new({

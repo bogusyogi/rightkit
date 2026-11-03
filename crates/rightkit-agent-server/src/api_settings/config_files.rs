@@ -1,13 +1,18 @@
 fn load_workspace_config_only(
     workspace: &FsPath,
-) -> Result<rightkit_app_settings::agent_config::HostConfig, rightkit_app_settings::agent_config::ConfigError> {
+) -> Result<
+    rightkit_app_settings::agent_config::HostConfig,
+    rightkit_app_settings::agent_config::ConfigError,
+> {
     let path = workspace_config_path(workspace);
     match fs::read_to_string(&path) {
         Ok(content) => rightkit_app_settings::agent_config::ConfigLoader::new().load_str(&content),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             Ok(rightkit_app_settings::agent_config::HostConfig::default())
         }
-        Err(err) => Err(rightkit_app_settings::agent_config::ConfigError::Io(err.to_string())),
+        Err(err) => Err(rightkit_app_settings::agent_config::ConfigError::Io(
+            err.to_string(),
+        )),
     }
 }
 
@@ -110,16 +115,17 @@ async fn update_workspace_config_blocking(
 ) -> Result<(), StatusCode> {
     let outcome = tokio::task::spawn_blocking(move || {
         let read_failed = std::cell::Cell::new(false);
-        let result = rightkit_app_settings::agent_config::ConfigLoader::new().update_workspace_from(
-            &workspace,
-            || {
-                load_workspace_config_only(&workspace).map_err(|err| {
-                    read_failed.set(true);
-                    err
-                })
-            },
-            edit,
-        );
+        let result = rightkit_app_settings::agent_config::ConfigLoader::new()
+            .update_workspace_from(
+                &workspace,
+                || {
+                    load_workspace_config_only(&workspace).map_err(|err| {
+                        read_failed.set(true);
+                        err
+                    })
+                },
+                edit,
+            );
         (result.map(|_| ()), read_failed.get())
     })
     .await
@@ -195,9 +201,10 @@ mod workspace_lock_tests {
                 tokio::spawn(async move {
                     update_workspace_config_blocking(workspace, move |config| {
                         std::thread::sleep(std::time::Duration::from_millis(15));
-                        config
-                            .toolsets
-                            .insert(format!("t{n}"), rightkit_app_settings::agent_config::ToolsetConfig::default());
+                        config.toolsets.insert(
+                            format!("t{n}"),
+                            rightkit_app_settings::agent_config::ToolsetConfig::default(),
+                        );
                     })
                     .await
                 })
@@ -240,9 +247,10 @@ mod workspace_lock_tests {
         let waiting = tokio::spawn(update_workspace_config_blocking(
             workspace.clone(),
             |config| {
-                config
-                    .toolsets
-                    .insert("late".into(), rightkit_app_settings::agent_config::ToolsetConfig::default());
+                config.toolsets.insert(
+                    "late".into(),
+                    rightkit_app_settings::agent_config::ToolsetConfig::default(),
+                );
             },
         ));
         let started = std::time::Instant::now();

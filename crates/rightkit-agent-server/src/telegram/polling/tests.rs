@@ -190,7 +190,8 @@ mod tests {
         }
 
         if method == Method::GET && path == "/sessions/telegram-default/events/history" {
-            return Json(Vec::<rightkit_agent_engine_protocol::ProtocolEvent>::new()).into_response();
+            return Json(Vec::<rightkit_agent_engine_protocol::ProtocolEvent>::new())
+                .into_response();
         }
 
         (StatusCode::NOT_FOUND, "unexpected daemon request").into_response()

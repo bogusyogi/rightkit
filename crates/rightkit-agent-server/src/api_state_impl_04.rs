@@ -16,8 +16,9 @@ fn deny_globs_for_config(
             // Reject only the malformed entries; well-formed user denies stay
             // in force on top of the defaults.
             tracing::warn!(%error, "permissions deny globs invalid; dropping malformed entries");
-            let valid =
-                |p: &String| rightkit_agent_policy::DenyGlobSet::with_patterns([p.clone()], []).is_ok();
+            let valid = |p: &String| {
+                rightkit_agent_policy::DenyGlobSet::with_patterns([p.clone()], []).is_ok()
+            };
             let read: Vec<String> = permissions
                 .deny_read_globs
                 .iter()
@@ -93,9 +94,10 @@ impl rightkit_hooks::agent_hooks::ProcessLaunchAdapter for DaemonHookProcessLaun
         };
         let launcher = crate::main_runtime::governed_child_process_launcher()
             .map_err(|error| format!("hook process admission denied: {error}"))?;
-        let mut child = rightkit_sandbox::execution::ProcessLaunchAdapter::spawn(launcher.as_ref(), spec)
-            .await
-            .map_err(|error| format!("hook launch failed: {error:?}"))?;
+        let mut child =
+            rightkit_sandbox::execution::ProcessLaunchAdapter::spawn(launcher.as_ref(), spec)
+                .await
+                .map_err(|error| format!("hook launch failed: {error:?}"))?;
         // Both pipes are drained concurrently with the wait: an unread pipe
         // can deadlock the child, and capture is bounded so a runaway hook
         // cannot grow daemon memory without limit.

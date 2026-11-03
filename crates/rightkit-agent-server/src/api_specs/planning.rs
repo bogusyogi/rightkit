@@ -221,7 +221,10 @@ fn implementation_prompt(
             .findings
             .iter()
             .filter(|finding| {
-                matches!(finding.severity, rightkit_evidence::FindingSeverity::Critical)
+                matches!(
+                    finding.severity,
+                    rightkit_evidence::FindingSeverity::Critical
+                )
             })
             .count()
     ));

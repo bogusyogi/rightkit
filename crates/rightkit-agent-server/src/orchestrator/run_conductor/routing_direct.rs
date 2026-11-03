@@ -115,20 +115,21 @@ impl DaemonState {
         // 2. Deterministic gate (post-edit): the build/test/fmt checks must pass.
         let specs =
             crate::pre_gate::specs_from_config(&workspace_config.orchestration.pre_gate_checks);
-        let gate_ok = if specs.is_empty() {
-            true
-        } else {
-            let ctx = rightkit_agent_tools::coding_tools::ToolContext::new(
-                session_id,
-                session.workspace_root.trim(),
-                rightkit_agent_policy::PermissionMode::Bypass,
-                session.workspace_trust,
-            );
-            !matches!(
+        let gate_ok =
+            if specs.is_empty() {
+                true
+            } else {
+                let ctx = rightkit_agent_tools::coding_tools::ToolContext::new(
+                    session_id,
+                    session.workspace_root.trim(),
+                    rightkit_agent_policy::PermissionMode::Bypass,
+                    session.workspace_trust,
+                );
+                !matches!(
                 crate::pre_gate::run_pre_gate(&conduit, session_id, &ctx, &specs).await,
                 rightkit_agent_tools::coding_tools::check_runner::PreGateDecision::SkipJuryFailed(_)
             )
-        };
+            };
 
         // 3. Thin diff review (the DirectEdit lane's review gate). Skip straight
         // to escalation if the gate already failed — no point reviewing a red build.
@@ -198,9 +199,10 @@ impl DaemonState {
             // `already_escalated` is false on the first hop; a retry of the
             // DirectEdit path within the same run would set it true to block
             // a second hop (today that loop is in caller, not here).
-            let escalate = rightkit_agent_orchestration::coding::escalation::should_escalate_direct_edit(
-                gate_ok, review_ok, false,
-            );
+            let escalate =
+                rightkit_agent_orchestration::coding::escalation::should_escalate_direct_edit(
+                    gate_ok, review_ok, false,
+                );
             if escalate {
                 // Escalate: caller falls through to the ArchitectPlan path.
                 Ok(None)

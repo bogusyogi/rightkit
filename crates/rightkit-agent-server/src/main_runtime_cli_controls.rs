@@ -476,8 +476,8 @@ async fn cli_permission(command: PermissionCommand) -> i32 {
 /// `/providers` screen calls — so none of them needs a running daemon.
 /// `set-visibility` writes the one shared `model-visibility.json`.
 async fn cli_provider(command: ProviderCommand) -> i32 {
-    use rightkit_terminal_ui::nav::ProviderKind;
     use provider_setup::{screen_provider, vendor_facts};
+    use rightkit_terminal_ui::nav::ProviderKind;
     let kind_of = |provider: &str| screen_provider(provider).map(|screen| screen.kind);
     match command {
         ProviderCommand::Status { provider } => {
@@ -649,7 +649,10 @@ fn cli_provider_key_remove(provider: &str) -> i32 {
 async fn cli_provider_key_write(provider: String) -> i32 {
     if matches!(
         provider_setup::screen_provider(&provider).map(|screen| screen.kind),
-        Some(rightkit_terminal_ui::nav::ProviderKind::OAuth | rightkit_terminal_ui::nav::ProviderKind::VendorCli)
+        Some(
+            rightkit_terminal_ui::nav::ProviderKind::OAuth
+                | rightkit_terminal_ui::nav::ProviderKind::VendorCli
+        )
     ) {
         eprintln!("{provider} does not use an API key; use `coderight provider login {provider}`.");
         return 2;

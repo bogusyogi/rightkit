@@ -41,7 +41,10 @@ impl DaemonSubagentSupervisor {
         Self { state }
     }
 
-    async fn session_row(&self, session_id: &str) -> Result<rightkit_agent_engine_storage::SessionRow, String> {
+    async fn session_row(
+        &self,
+        session_id: &str,
+    ) -> Result<rightkit_agent_engine_storage::SessionRow, String> {
         let Some(storage) = self.state.storage.as_ref() else {
             return Err("subagent supervision requires daemon session storage".to_string());
         };
@@ -112,9 +115,13 @@ impl DaemonSubagentSupervisor {
             .map_err(|error| format!("failed to read subagent status {session_id}: {error}"))?
             .ok_or_else(|| format!("unknown subagent session {session_id}"))?;
         Ok(match status.as_str() {
-            "completed" | "idle" => Some(rightkit_agent_tools::coding_tools::SubagentTerminalStatus::Completed),
+            "completed" | "idle" => {
+                Some(rightkit_agent_tools::coding_tools::SubagentTerminalStatus::Completed)
+            }
             "failed" => Some(rightkit_agent_tools::coding_tools::SubagentTerminalStatus::Failed),
-            "cancelled" => Some(rightkit_agent_tools::coding_tools::SubagentTerminalStatus::Cancelled),
+            "cancelled" => {
+                Some(rightkit_agent_tools::coding_tools::SubagentTerminalStatus::Cancelled)
+            }
             _ => None,
         })
     }
@@ -156,7 +163,10 @@ impl rightkit_agent_tools::coding_tools::SubagentSupervisor for DaemonSubagentSu
     ) -> std::pin::Pin<
         Box<
             dyn std::future::Future<
-                    Output = Result<Vec<rightkit_agent_tools::coding_tools::SubagentWaitOutcome>, String>,
+                    Output = Result<
+                        Vec<rightkit_agent_tools::coding_tools::SubagentWaitOutcome>,
+                        String,
+                    >,
                 > + Send,
         >,
     > {
@@ -174,10 +184,12 @@ impl rightkit_agent_tools::coding_tools::SubagentSupervisor for DaemonSubagentSu
                 let mut pending = false;
                 for (path, session_id) in &resolved {
                     match supervisor.terminal_status(session_id).await? {
-                        Some(status) => outcomes.push(rightkit_agent_tools::coding_tools::SubagentWaitOutcome {
-                            agent_path: path.clone(),
-                            status,
-                        }),
+                        Some(status) => {
+                            outcomes.push(rightkit_agent_tools::coding_tools::SubagentWaitOutcome {
+                                agent_path: path.clone(),
+                                status,
+                            })
+                        }
                         None => pending = true,
                     }
                 }
@@ -402,7 +414,9 @@ pub(crate) fn native_spawn_route(
     options: &rightkit_agent_tools::coding_tools::SubagentSpawnOptions,
 ) -> Option<(String, String)> {
     let runtime = options.runtime.as_ref()?;
-    let rightkit_agent_tools::coding_tools::SpawnRuntimeKind::CodeRightNative { model_id, .. } = runtime else {
+    let rightkit_agent_tools::coding_tools::SpawnRuntimeKind::CodeRightNative { model_id, .. } =
+        runtime
+    else {
         return None;
     };
     if model_id.trim().is_empty() {
@@ -520,9 +534,9 @@ impl SubagentFork {
         // this child session.  Keep this at the spawn seam so a resolved pack
         // cannot be admitted while its MCP channel remains merely metadata.
         let available_channels =
-            rightkit_agent_orchestration::coding::role_pack_mcp::McpChannelSet::from_channels([self
-                .mcp_channel
-                .as_str()]);
+            rightkit_agent_orchestration::coding::role_pack_mcp::McpChannelSet::from_channels([
+                self.mcp_channel.as_str(),
+            ]);
         let mcp_binding = rightkit_agent_orchestration::coding::role_pack_mcp::bind_role_pack_mcp(
             resolved,
             std::slice::from_ref(&self.mcp_channel),
@@ -793,8 +807,12 @@ pub(crate) fn open_subagent_worktree_pool(
     let state_dir = parent_workspace
         .join(".coderight")
         .join("subagent-worktree-pool-state");
-    rightkit_agent_tools::coding_tools::worktree_pool::WorktreePool::open(parent_workspace, &pool_dir, &state_dir)
-        .map_err(|error| format!("failed to open sub-agent worktree pool: {error}"))
+    rightkit_agent_tools::coding_tools::worktree_pool::WorktreePool::open(
+        parent_workspace,
+        &pool_dir,
+        &state_dir,
+    )
+    .map_err(|error| format!("failed to open sub-agent worktree pool: {error}"))
 }
 
 /// The workspace's shared worktree pool with the governed child-process
@@ -1433,10 +1451,12 @@ mod native_route_tests {
     #[test]
     fn explicit_native_route_reaches_child_descriptor_inputs() {
         let options = rightkit_agent_tools::coding_tools::SubagentSpawnOptions {
-            runtime: Some(rightkit_agent_tools::coding_tools::SpawnRuntimeKind::CodeRightNative {
-                provider_id: Some("anthropic".into()),
-                model_id: "claude-haiku".into(),
-            }),
+            runtime: Some(
+                rightkit_agent_tools::coding_tools::SpawnRuntimeKind::CodeRightNative {
+                    provider_id: Some("anthropic".into()),
+                    model_id: "claude-haiku".into(),
+                },
+            ),
             ..Default::default()
         };
         assert_eq!(

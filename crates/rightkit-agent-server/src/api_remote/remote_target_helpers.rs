@@ -71,7 +71,8 @@ fn telegram_status_payload(
 ) -> serde_json::Value {
     let status = &state.telegram_status;
     let runtime = status.runtime.lock().ok().map(|guard| guard.clone());
-    let bindings = rightkit_bot_messaging::load_telegram_session_bindings(&status.binding_store_path);
+    let bindings =
+        rightkit_bot_messaging::load_telegram_session_bindings(&status.binding_store_path);
     let (json_binding_count, binding_store_readable, binding_store_error) = match bindings {
         Ok(bindings) => (bindings.chats.len(), true, serde_json::Value::Null),
         Err(error) => (0, false, serde_json::Value::String(error)),
@@ -120,7 +121,9 @@ async fn remote_binding_count(state: &DaemonState, channel_id: &str) -> Option<u
         .ok()
 }
 
-async fn stored_remote_channels(state: &DaemonState) -> Vec<rightkit_agent_engine_storage::RemoteChannelRow> {
+async fn stored_remote_channels(
+    state: &DaemonState,
+) -> Vec<rightkit_agent_engine_storage::RemoteChannelRow> {
     let Some(storage) = &state.storage else {
         return Vec::new();
     };

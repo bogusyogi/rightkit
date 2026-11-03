@@ -6,7 +6,10 @@
 /// else. This folds each successful agent's output into the message, longest
 /// first (the substantive deliverable, rather than a one-line signoff), with a
 /// per-agent cap so one verbose worker can't bury the rest.
-fn compose_run_report(summary: &str, results: &[rightkit_agent_orchestration::coding::WorkerResult]) -> String {
+fn compose_run_report(
+    summary: &str,
+    results: &[rightkit_agent_orchestration::coding::WorkerResult],
+) -> String {
     const MAX_PER_AGENT: usize = 8_000;
     const MAX_AGENTS: usize = 6;
 

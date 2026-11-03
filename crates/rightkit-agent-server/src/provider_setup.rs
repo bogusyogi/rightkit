@@ -241,7 +241,11 @@ pub fn key_is_set(provider_id: &str) -> bool {
 }
 
 pub fn store_key(provider_id: &str, key: &str) -> Result<(), String> {
-    super::onboarding::store_credential(&rightkit_llm::agent_providers::OsKeyStore, provider_id, key.trim())
+    super::onboarding::store_credential(
+        &rightkit_llm::agent_providers::OsKeyStore,
+        provider_id,
+        key.trim(),
+    )
 }
 
 pub fn remove_key(provider_id: &str) -> Result<(), String> {

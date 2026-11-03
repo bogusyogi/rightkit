@@ -153,7 +153,9 @@ pub(crate) fn subagent_error_kind(error: &str) -> SubagentErrorKind {
         rightkit_agent_engine_core::FailureKind::Timeout => {
             SubagentErrorKind::ResourceLimit("timeout".into())
         }
-        rightkit_agent_engine_core::FailureKind::Budget => SubagentErrorKind::ResourceLimit("budget".into()),
+        rightkit_agent_engine_core::FailureKind::Budget => {
+            SubagentErrorKind::ResourceLimit("budget".into())
+        }
         rightkit_agent_engine_core::FailureKind::Network
         | rightkit_agent_engine_core::FailureKind::Auth
         | rightkit_agent_engine_core::FailureKind::ProviderError

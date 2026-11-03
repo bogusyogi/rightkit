@@ -344,7 +344,8 @@ fn web_search_config_from_config(
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .or_else(|| {
-            let tinyfish_available = rightkit_llm::agent_providers::load_api_key("tinyfish").is_some()
+            let tinyfish_available = rightkit_llm::agent_providers::load_api_key("tinyfish")
+                .is_some()
                 || std::env::var("TINYFISH_API_KEY").is_ok();
             tinyfish_available.then(|| "tinyfish".to_string())
         })?;
@@ -659,7 +660,9 @@ where
 /// required credential that is absent) are never offered. Credential
 /// resolution uses the existing credential resolver. Native OpenAI routes
 /// remain owned by the broker's account catalog. Sorted for stable order.
-fn configured_catalog_routes(config: &rightkit_app_settings::agent_config::HostConfig) -> Vec<(String, String)> {
+fn configured_catalog_routes(
+    config: &rightkit_app_settings::agent_config::HostConfig,
+) -> Vec<(String, String)> {
     let mut rows: Vec<(String, String)> = config
         .provider_routes
         .iter()

@@ -88,12 +88,15 @@ pub(crate) fn run_exit_code_for_event(
     event: &rightkit_agent_engine_protocol::ProtocolEvent,
 ) -> Option<RunExitCode> {
     match event {
-        rightkit_agent_engine_protocol::ProtocolEvent::RunInterrupted { .. } => Some(RunExitCode::UserAbort),
+        rightkit_agent_engine_protocol::ProtocolEvent::RunInterrupted { .. } => {
+            Some(RunExitCode::UserAbort)
+        }
         rightkit_agent_engine_protocol::ProtocolEvent::BudgetExceeded { .. } => {
             Some(RunExitCode::BudgetExceeded)
         }
         rightkit_agent_engine_protocol::ProtocolEvent::ToolApprovalResolved {
-            approved: false, ..
+            approved: false,
+            ..
         } => Some(RunExitCode::ToolDenied),
         rightkit_agent_engine_protocol::ProtocolEvent::RunFailed { kind, error, .. } => {
             Some(run_exit_code_from_failure_kind(kind, error))

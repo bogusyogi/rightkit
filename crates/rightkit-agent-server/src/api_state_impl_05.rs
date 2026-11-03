@@ -56,7 +56,10 @@ impl DaemonState {
     }
 
     #[cfg(test)]
-    pub fn live_team(&self, name: &str) -> Option<rightkit_agent_tools::coding_tools::TeamDefinition> {
+    pub fn live_team(
+        &self,
+        name: &str,
+    ) -> Option<rightkit_agent_tools::coding_tools::TeamDefinition> {
         lock_recover(&self.live_teams, "live_teams")
             .get(name)
             .cloned()
@@ -376,7 +379,10 @@ impl DaemonState {
             let load_events = |session_id: &str| -> Vec<rightkit_agent_engine_storage::EventRow> {
                 match &events_pool {
                     Some(pool) => pool
-                        .all_events_paged(session_id, rightkit_agent_engine_storage::RESUME_PAGE_ROWS)
+                        .all_events_paged(
+                            session_id,
+                            rightkit_agent_engine_storage::RESUME_PAGE_ROWS,
+                        )
                         .unwrap_or_default(),
                     None => events_storage
                         .blocking_lock()
@@ -507,8 +513,10 @@ impl DaemonState {
             visible_messages.extend(markers.iter().cloned());
             engine_messages.extend(markers);
         }
-        let restored_lineage =
-            rightkit_agent_engine_core::LineageBudget::from_usd(lineage_ceiling_usd, lineage_spent_usd);
+        let restored_lineage = rightkit_agent_engine_core::LineageBudget::from_usd(
+            lineage_ceiling_usd,
+            lineage_spent_usd,
+        );
         let lineage_budget = {
             let mut lineages = lock_recover(&self.lineage_budgets, "lineage_budgets");
             if let Some(existing) = lineages
@@ -602,7 +610,10 @@ impl DaemonState {
     }
 }
 
-fn persisted_lineage_root_id(id: &str, rows: &[rightkit_agent_engine_storage::SessionRow]) -> String {
+fn persisted_lineage_root_id(
+    id: &str,
+    rows: &[rightkit_agent_engine_storage::SessionRow],
+) -> String {
     let parents = rows
         .iter()
         .map(|row| (row.id.as_str(), row.parent_session_id.as_deref()))

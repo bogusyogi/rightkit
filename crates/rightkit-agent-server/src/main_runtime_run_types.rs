@@ -312,7 +312,9 @@ const DEFAULT_CLI_SUBAGENT_TIMEOUT_SECONDS: u64 = 300;
 const MIN_CLI_SUBAGENT_TIMEOUT_SECONDS: u64 = 60;
 const MAX_CLI_SUBAGENT_TIMEOUT_SECONDS: u64 = 900;
 
-fn cli_subagent_timeout(options: &rightkit_agent_tools::coding_tools::SubagentSpawnOptions) -> std::time::Duration {
+fn cli_subagent_timeout(
+    options: &rightkit_agent_tools::coding_tools::SubagentSpawnOptions,
+) -> std::time::Duration {
     let env_seconds = std::env::var("RIGHTKIT_CLI_SUBAGENT_TIMEOUT_SECONDS").ok();
     std::time::Duration::from_secs(cli_subagent_timeout_seconds(
         options,
@@ -389,7 +391,8 @@ impl rightkit_agent_tools::coding_tools::SubagentSpawner for CliSubagentSpawner 
         let task = task.to_string();
         let workspace_root = self.workspace_root.clone();
         Box::pin(async move {
-            let mut registry = rightkit_agent_orchestration::coding::registry::AgentRegistry::with_builtins();
+            let mut registry =
+                rightkit_agent_orchestration::coding::registry::AgentRegistry::with_builtins();
             let merged_config = load_merged_config_for_workspace(
                 &workspace_root,
                 &std::env::vars().collect::<std::collections::HashMap<_, _>>(),

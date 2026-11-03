@@ -30,16 +30,17 @@ async fn raw_event_restart_replay_covers_tool_invocation_lifecycle_matrix() {
             })
             .unwrap();
 
-        let append_event =
-            |store: &mut rightkit_agent_engine_storage::Storage, kind: &str, event: ProtocolEvent| {
-                store
-                    .append_event(
-                        "s-lifecycle-replay",
-                        kind,
-                        &serde_json::to_string(&event).unwrap(),
-                    )
-                    .unwrap();
-            };
+        let append_event = |store: &mut rightkit_agent_engine_storage::Storage,
+                            kind: &str,
+                            event: ProtocolEvent| {
+            store
+                .append_event(
+                    "s-lifecycle-replay",
+                    kind,
+                    &serde_json::to_string(&event).unwrap(),
+                )
+                .unwrap();
+        };
         let call = |id: &str, name: &str, args: &str| ToolCall {
             id: id.to_string(),
             name: name.to_string(),

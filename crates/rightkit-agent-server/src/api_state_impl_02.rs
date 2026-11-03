@@ -199,7 +199,9 @@ impl DaemonState {
     /// Attach durable runtime middleware span/observation storage.
     pub fn with_runtime_middleware_store_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.runtime_middleware = Arc::new(Mutex::new(
-            rightkit_agent_engine_runtime_middleware::RuntimeMiddlewareRegistry::with_store_path(path),
+            rightkit_agent_engine_runtime_middleware::RuntimeMiddlewareRegistry::with_store_path(
+                path,
+            ),
         ));
         self
     }

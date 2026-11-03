@@ -1,4 +1,6 @@
-use rightkit_logs::agent_telemetry::{MeasurementObservation, MeasurementReceipt, MeasurementScenario};
+use rightkit_logs::agent_telemetry::{
+    MeasurementObservation, MeasurementReceipt, MeasurementScenario,
+};
 
 /// Frozen scenario manifest for FM-189/S:P7. Driving workers, cancellation,
 /// restart, and host gauges remains an external runner concern.

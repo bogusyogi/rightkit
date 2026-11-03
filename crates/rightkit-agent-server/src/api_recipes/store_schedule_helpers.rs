@@ -94,7 +94,8 @@ fn recipe_effective_toolset(
     let selected = clean_optional_recipe_schedule_string(requested_toolset)
         .or_else(|| clean_optional_recipe_schedule_string(rendered.settings.toolset.as_deref()))
         .or_else(|| required.first().cloned());
-    let config = rightkit_app_settings::agent_config::ConfigLoader::new().load_files_for_workspace(workspace_root);
+    let config = rightkit_app_settings::agent_config::ConfigLoader::new()
+        .load_files_for_workspace(workspace_root);
 
     for required_toolset in &required {
         if resolve_toolset_profile_with_config(required_toolset, &config).is_err() {

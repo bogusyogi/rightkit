@@ -534,7 +534,8 @@ pub async fn fetch_full_scrollback(
     session_id: &str,
     limit: usize,
 ) -> Result<Vec<serde_json::Value>, ScrollbackError> {
-    let client = rightkit_http::http_client::daemon_client(base_url).map_err(ScrollbackError::Transport)?;
+    let client =
+        rightkit_http::http_client::daemon_client(base_url).map_err(ScrollbackError::Transport)?;
     let mut pages: Vec<Vec<serde_json::Value>> = Vec::new();
     let mut before = i64::MAX;
     loop {

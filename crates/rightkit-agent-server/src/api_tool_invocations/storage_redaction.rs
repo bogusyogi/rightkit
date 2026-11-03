@@ -99,7 +99,9 @@ fn storage_event_row(
     }
 }
 
-fn record_from_storage_row(row: rightkit_agent_engine_storage::ToolInvocationStoreRow) -> ToolInvocationRecord {
+fn record_from_storage_row(
+    row: rightkit_agent_engine_storage::ToolInvocationStoreRow,
+) -> ToolInvocationRecord {
     ToolInvocationRecord {
         id: row.id,
         session_id: row.session_id,
@@ -201,7 +203,10 @@ fn redact_json(value: Value) -> Value {
     }
 }
 
-fn output_hash(summary: &str, output: Option<&rightkit_agent_engine_protocol::OutputRef>) -> String {
+fn output_hash(
+    summary: &str,
+    output: Option<&rightkit_agent_engine_protocol::OutputRef>,
+) -> String {
     if let Some(hash) = output.and_then(|out| out.content_hash.clone()) {
         return hash;
     }

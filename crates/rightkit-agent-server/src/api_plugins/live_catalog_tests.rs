@@ -356,7 +356,8 @@ mod live_plugin_catalog_tests {
         let trace = rightkit_agent_engine_core::qualification_trace::snapshot();
         assert_eq!(
             trace.stages_for("eff001-call-9f7e"),
-            rightkit_agent_engine_core::qualification_trace::EffectAdmissionStage::canonical_order()
+            rightkit_agent_engine_core::qualification_trace::EffectAdmissionStage::canonical_order(
+            )
         );
         assert!(trace.is_canonically_ordered("eff001-call-9f7e"));
         assert!(trace.reached_execute("eff001-call-9f7e"));
@@ -414,7 +415,8 @@ mod live_plugin_catalog_tests {
             .unwrap();
         });
         let storage = crate::api::SharedStorage::new(
-            rightkit_agent_engine_storage::Storage::open(&root.path().join("eff001-workflow.db")).unwrap(),
+            rightkit_agent_engine_storage::Storage::open(&root.path().join("eff001-workflow.db"))
+                .unwrap(),
         );
         let state =
             DaemonState::new("")
@@ -438,7 +440,9 @@ mod live_plugin_catalog_tests {
             edges: vec![],
             retry: rightkit_workflow::control_plane::domain::RetryPolicy {
                 max_attempts: 1,
-                backoff: rightkit_workflow::control_plane::domain::BackoffStrategy::Fixed { delay_ms: 0 },
+                backoff: rightkit_workflow::control_plane::domain::BackoffStrategy::Fixed {
+                    delay_ms: 0,
+                },
                 retryable: vec![],
             },
             config: rightkit_workflow::control_plane::domain::NodeConfig::Execution {
@@ -505,7 +509,8 @@ mod live_plugin_catalog_tests {
         let trace = rightkit_agent_engine_core::qualification_trace::snapshot();
         assert_eq!(
             trace.stages_for("workflow-eff001-call-9f7e"),
-            rightkit_agent_engine_core::qualification_trace::EffectAdmissionStage::canonical_order()
+            rightkit_agent_engine_core::qualification_trace::EffectAdmissionStage::canonical_order(
+            )
         );
         assert!(trace.is_canonically_ordered("workflow-eff001-call-9f7e"));
         assert!(trace.reached_execute("workflow-eff001-call-9f7e"));
@@ -533,7 +538,8 @@ mod live_plugin_catalog_tests {
             .unwrap();
         });
         let storage = crate::api::SharedStorage::new(
-            rightkit_agent_engine_storage::Storage::open(&root.path().join("eff001-denied.db")).unwrap(),
+            rightkit_agent_engine_storage::Storage::open(&root.path().join("eff001-denied.db"))
+                .unwrap(),
         );
         let state =
             DaemonState::new("")
@@ -605,9 +611,9 @@ mod live_plugin_catalog_tests {
         assert!(!stages.is_empty());
         assert!(trace.is_canonically_ordered("eff001-denied-9f7e"));
         assert!(!trace.reached_execute("eff001-denied-9f7e"));
-        assert!(
-            !stages.contains(&rightkit_agent_engine_core::qualification_trace::EffectAdmissionStage::Execute)
-        );
+        assert!(!stages.contains(
+            &rightkit_agent_engine_core::qualification_trace::EffectAdmissionStage::Execute
+        ));
         server.abort();
     }
 }

@@ -4,8 +4,8 @@
 // ITEMS only (not its  clauses), so we re-state the trailing imports
 // for types not declared in main_runtime.rs's own prelude.
 
-use rightkit_agent_policy::WorkspaceTrust;
 use rightkit_agent_engine_protocol::ProtocolEvent;
+use rightkit_agent_policy::WorkspaceTrust;
 
 #[test]
 fn stream_input_event_kinds_are_explicit_for_refusal_diagnostics() {

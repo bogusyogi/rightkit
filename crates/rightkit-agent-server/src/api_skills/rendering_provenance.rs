@@ -121,25 +121,25 @@ fn limit_chars(text: &str, max_chars: usize) -> String {
 
 fn review_skill_provenance(source_url: &str, content: &str) -> SkillProvenanceReviewResponse {
     let mut findings = Vec::new();
-    let normalized_source_url = match rightkit_agent_host_traits::skill_host::normalize_skill_pack_github_url(source_url)
-    {
-        Ok(url) => {
-            findings.push(SkillProvenanceFinding {
-                severity: "info",
-                code: "github-source-normalized",
-                message: "Source URL is a supported GitHub skill-pack URL.".to_string(),
-            });
-            Some(url)
-        }
-        Err(error) => {
-            findings.push(SkillProvenanceFinding {
-                severity: "error",
-                code: "unsupported-source-url",
-                message: error.to_string(),
-            });
-            None
-        }
-    };
+    let normalized_source_url =
+        match rightkit_agent_host_traits::skill_host::normalize_skill_pack_github_url(source_url) {
+            Ok(url) => {
+                findings.push(SkillProvenanceFinding {
+                    severity: "info",
+                    code: "github-source-normalized",
+                    message: "Source URL is a supported GitHub skill-pack URL.".to_string(),
+                });
+                Some(url)
+            }
+            Err(error) => {
+                findings.push(SkillProvenanceFinding {
+                    severity: "error",
+                    code: "unsupported-source-url",
+                    message: error.to_string(),
+                });
+                None
+            }
+        };
     let content_hash = format!(
         "sha256:{}",
         rightkit_fs::digest::sha256_bytes(content.as_bytes())

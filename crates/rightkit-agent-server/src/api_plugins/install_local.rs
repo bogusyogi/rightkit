@@ -8,8 +8,8 @@ pub(crate) fn install_local_plugin(
     }
     let manifest_path = source_path.join("plugin.json");
     let raw = std::fs::read_to_string(&manifest_path).map_err(|_| StatusCode::BAD_REQUEST)?;
-    let manifest =
-        rightkit_agent_plugins::PluginManifest::from_json(&raw).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let manifest = rightkit_agent_plugins::PluginManifest::from_json(&raw)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
     if !validate_plugin_id(&manifest.id) {
         return Err(StatusCode::BAD_REQUEST);
     }

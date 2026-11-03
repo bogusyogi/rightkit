@@ -11,7 +11,9 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-use rightkit_agent_engine_protocol::{default_job_mode, ScheduleRunState as StoredScheduleRunState};
+use rightkit_agent_engine_protocol::{
+    default_job_mode, ScheduleRunState as StoredScheduleRunState,
+};
 
 use crate::api::{require_license_feature, DaemonState};
 use crate::api_permissions::enforce_trusted_source_authority;
@@ -683,8 +685,9 @@ async fn import_bot_handler(
 ) -> Result<(StatusCode, Json<BotProfileV1>), StatusCode> {
     enforce_trusted_source_authority(&headers)?;
     require_license_feature(&state, "schedules")?;
-    let package = rightkit_workflow::control_plane::import_export::import_authority_free_bot_package(&body)
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let package =
+        rightkit_workflow::control_plane::import_export::import_authority_free_bot_package(&body)
+            .map_err(|_| StatusCode::BAD_REQUEST)?;
     let profile = BotProfileV1 {
         schema_version: 1,
         version: 1,
@@ -724,8 +727,10 @@ async fn export_bot_handler(
         provenance: "coderight:authority-free-export".into(),
         content_hash: String::new(),
     };
-    let bytes = rightkit_workflow::control_plane::import_export::export_authority_free_bot_package(&package)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let bytes = rightkit_workflow::control_plane::import_export::export_authority_free_bot_package(
+        &package,
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     serde_json::from_slice(&bytes)
         .map(Json)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)

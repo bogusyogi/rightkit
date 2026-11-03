@@ -168,9 +168,10 @@ fn driver_capability_header_parameters(path: &str) -> Vec<Value> {
 /// shaped from.
 fn unavailable_response_schema(method: &str, path: &str) -> Option<Value> {
     match (method, path) {
-        ("get", "/machine/status") | ("get", "/machine/info") => {
-            Some(rightkit_agent_engine_api_platform::openapi::machine_status_unavailable_response_schema())
-        }
+        ("get", "/machine/status") | ("get", "/machine/info") => Some(
+            rightkit_agent_engine_api_platform::openapi::machine_status_unavailable_response_schema(
+            ),
+        ),
         _ => None,
     }
 }

@@ -26,11 +26,15 @@ fn cli_error_envelope(code: CliExitCode, message: &str) -> serde_json::Value {
     })
 }
 
-fn cli_exit_code_from_events(events: &[rightkit_agent_engine_protocol::ProtocolEvent]) -> Option<CliExitCode> {
+fn cli_exit_code_from_events(
+    events: &[rightkit_agent_engine_protocol::ProtocolEvent],
+) -> Option<CliExitCode> {
     events.iter().find_map(cli_exit_code_from_event)
 }
 
-fn cli_exit_code_from_event(event: &rightkit_agent_engine_protocol::ProtocolEvent) -> Option<CliExitCode> {
+fn cli_exit_code_from_event(
+    event: &rightkit_agent_engine_protocol::ProtocolEvent,
+) -> Option<CliExitCode> {
     use rightkit_agent_engine_protocol::ProtocolEvent::*;
     match event {
         RunFailed { kind, error, .. } => Some(cli_exit_code_from_failure_kind(kind, error)),
@@ -80,15 +84,21 @@ fn cli_exit_code_from_error(error: &str) -> CliExitCode {
     }
 }
 
-fn render_cli_stream_event(ev: &rightkit_agent_engine_protocol::ProtocolEvent) -> serde_json::Value {
+fn render_cli_stream_event(
+    ev: &rightkit_agent_engine_protocol::ProtocolEvent,
+) -> serde_json::Value {
     let data = serde_json::to_value(ev).unwrap_or_else(|_| serde_json::json!({}));
     let error = cli_exit_code_from_event(ev).map(|code| {
         let message = match ev {
-            rightkit_agent_engine_protocol::ProtocolEvent::RunFailed { error, .. } => error.as_str(),
+            rightkit_agent_engine_protocol::ProtocolEvent::RunFailed { error, .. } => {
+                error.as_str()
+            }
             rightkit_agent_engine_protocol::ProtocolEvent::RunInterrupted { reason, .. } => {
                 reason.as_deref().unwrap_or("run interrupted")
             }
-            rightkit_agent_engine_protocol::ProtocolEvent::BudgetExceeded { hint, .. } => hint.as_str(),
+            rightkit_agent_engine_protocol::ProtocolEvent::BudgetExceeded { hint, .. } => {
+                hint.as_str()
+            }
             rightkit_agent_engine_protocol::ProtocolEvent::ToolApprovalResolved { .. } => {
                 "tool approval denied"
             }

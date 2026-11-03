@@ -256,8 +256,8 @@ pub(crate) fn probe_learning(verbose: bool) -> Dimension {
     use rightkit_adapt::InstinctStore;
 
     let Some(home) = coderight_home() else {
-        let detail = "learning: no state directory — cannot locate the RightKit state directory"
-            .to_string();
+        let detail =
+            "learning: no state directory — cannot locate the RightKit state directory".to_string();
         return if verbose {
             dim_with_evidence("unknown", detail, Vec::new())
         } else {

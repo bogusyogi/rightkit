@@ -189,7 +189,8 @@ async fn patch_session_model_accepts_agent_alias_for_live_route() {
         base_url: "http://127.0.0.1:9".into(),
         fallback_models: Vec::new(),
     });
-    let workspace_config = rightkit_app_settings::agent_config::ConfigLoader::new().load_files_for_workspace(&root);
+    let workspace_config =
+        rightkit_app_settings::agent_config::ConfigLoader::new().load_files_for_workspace(&root);
     let expected = state
         .provider_route_for_model(
             &workspace_config,
@@ -281,22 +282,24 @@ async fn patch_session_structured_selection_persists_binds_and_restarts_legacy_c
     storage
         .lock()
         .await
-        .upsert_direct_inference_connection(&rightkit_agent_engine_storage::DirectInferenceConnectionRow {
-            id: "direct-patch".into(),
-            name: "Patch direct".into(),
-            protocol: "openai_compatible".into(),
-            base_url: "http://127.0.0.1:9/v1".into(),
-            auth_kind: "none".into(),
-            auth_header_name: None,
-            public_headers_json: "{}".into(),
-            manual_models_json: r#"["manual-model"]"#.into(),
-            trust_private_network: true,
-            credential_configured: false,
-            credential_revision: 0,
-            configuration_revision: 1,
-            created_at: "2026-08-11T00:00:00Z".into(),
-            updated_at: "2026-08-11T00:00:00Z".into(),
-        })
+        .upsert_direct_inference_connection(
+            &rightkit_agent_engine_storage::DirectInferenceConnectionRow {
+                id: "direct-patch".into(),
+                name: "Patch direct".into(),
+                protocol: "openai_compatible".into(),
+                base_url: "http://127.0.0.1:9/v1".into(),
+                auth_kind: "none".into(),
+                auth_header_name: None,
+                public_headers_json: "{}".into(),
+                manual_models_json: r#"["manual-model"]"#.into(),
+                trust_private_network: true,
+                credential_configured: false,
+                credential_revision: 0,
+                configuration_revision: 1,
+                created_at: "2026-08-11T00:00:00Z".into(),
+                updated_at: "2026-08-11T00:00:00Z".into(),
+            },
+        )
         .unwrap();
     let state = DaemonState::new("").with_storage(storage.clone());
     state.create_session("s-selection-patch", None, "/tmp", "Selection patch", None);
@@ -477,8 +480,8 @@ async fn provider_route_for_minimax_slug_uses_native_subscription_endpoint() {
         base_url: "https://openrouter.ai/api/v1".into(),
         fallback_models: Vec::new(),
     });
-    let workspace_config =
-        rightkit_app_settings::agent_config::ConfigLoader::new().load_files_for_workspace(FsPath::new("/tmp"));
+    let workspace_config = rightkit_app_settings::agent_config::ConfigLoader::new()
+        .load_files_for_workspace(FsPath::new("/tmp"));
 
     let route = state.provider_route_for_model(
         &workspace_config,
@@ -555,7 +558,10 @@ async fn top_level_session_model_override_uses_minimax_subscription_route() {
     assert_eq!(route.model_id, "MiniMax-M3");
 }
 
-fn test_driver_binding(session_id: &str, driver_kind: &str) -> rightkit_agent_engine_storage::DriverBindingRow {
+fn test_driver_binding(
+    session_id: &str,
+    driver_kind: &str,
+) -> rightkit_agent_engine_storage::DriverBindingRow {
     rightkit_agent_engine_storage::DriverBindingRow {
         id: format!("binding-{session_id}-{driver_kind}"),
         driver_kind: driver_kind.to_string(),

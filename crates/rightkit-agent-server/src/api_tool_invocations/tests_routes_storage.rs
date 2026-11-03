@@ -77,25 +77,29 @@ async fn tool_invocation_routes_replay_sql_ledger_after_storage_reopen() {
             })
             .unwrap();
         store
-            .append_tool_invocation_event(&rightkit_agent_engine_storage::ToolInvocationEventStoreRow {
-                invocation_id: "turn-sql:tc-read".to_string(),
-                session_id: "s-sql".to_string(),
-                seq: 1,
-                kind: "toolCallStarted".to_string(),
-                created_at: "2026-06-08T00:00:00Z".to_string(),
-                payload_redacted_json: r#"{"call":{"id":"turn-sql:tc-read"}}"#.to_string(),
-            })
+            .append_tool_invocation_event(
+                &rightkit_agent_engine_storage::ToolInvocationEventStoreRow {
+                    invocation_id: "turn-sql:tc-read".to_string(),
+                    session_id: "s-sql".to_string(),
+                    seq: 1,
+                    kind: "toolCallStarted".to_string(),
+                    created_at: "2026-06-08T00:00:00Z".to_string(),
+                    payload_redacted_json: r#"{"call":{"id":"turn-sql:tc-read"}}"#.to_string(),
+                },
+            )
             .unwrap();
         store
-            .append_tool_invocation_event(&rightkit_agent_engine_storage::ToolInvocationEventStoreRow {
-                invocation_id: "turn-sql:tc-read".to_string(),
-                session_id: "s-sql".to_string(),
-                seq: 2,
-                kind: "toolResultAdded".to_string(),
-                created_at: "2026-06-08T00:00:01Z".to_string(),
-                payload_redacted_json: r#"{"toolCallId":"turn-sql:tc-read","processId":"4242"}"#
-                    .to_string(),
-            })
+            .append_tool_invocation_event(
+                &rightkit_agent_engine_storage::ToolInvocationEventStoreRow {
+                    invocation_id: "turn-sql:tc-read".to_string(),
+                    session_id: "s-sql".to_string(),
+                    seq: 2,
+                    kind: "toolResultAdded".to_string(),
+                    created_at: "2026-06-08T00:00:01Z".to_string(),
+                    payload_redacted_json:
+                        r#"{"toolCallId":"turn-sql:tc-read","processId":"4242"}"#.to_string(),
+                },
+            )
             .unwrap();
         store
             .upsert_tool_invocation_cancellation(

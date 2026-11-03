@@ -79,13 +79,21 @@ fn command_spec_checklist(state: &DaemonState, spec_id: &str, args: &[String]) -
             .findings
             .iter()
             .filter(|finding| {
-                matches!(finding.severity, rightkit_evidence::FindingSeverity::Critical)
+                matches!(
+                    finding.severity,
+                    rightkit_evidence::FindingSeverity::Critical
+                )
             })
             .count();
         let warning_count = analysis
             .findings
             .iter()
-            .filter(|finding| matches!(finding.severity, rightkit_evidence::FindingSeverity::Warning))
+            .filter(|finding| {
+                matches!(
+                    finding.severity,
+                    rightkit_evidence::FindingSeverity::Warning
+                )
+            })
             .count();
         let findings = analysis.findings.clone();
         store.record_analysis(analysis);

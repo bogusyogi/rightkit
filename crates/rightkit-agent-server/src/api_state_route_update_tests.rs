@@ -53,8 +53,9 @@ mod route_update_tests {
     async fn route_update_commits_live_and_durable_state_together() {
         let dir = unique_temp_dir("route-commit");
         std::fs::create_dir_all(&dir).unwrap();
-        let storage =
-            SharedStorage::new(rightkit_agent_engine_storage::Storage::open(dir.join("s.db")).unwrap());
+        let storage = SharedStorage::new(
+            rightkit_agent_engine_storage::Storage::open(dir.join("s.db")).unwrap(),
+        );
         let state = DaemonState::new("")
             .with_storage(storage.clone())
             .with_engine(engine_cfg());
@@ -127,8 +128,9 @@ mod route_update_tests {
     async fn unknown_explicit_provider_rejects_before_effects() {
         let dir = unique_temp_dir("route-reject");
         std::fs::create_dir_all(&dir).unwrap();
-        let storage =
-            SharedStorage::new(rightkit_agent_engine_storage::Storage::open(dir.join("s.db")).unwrap());
+        let storage = SharedStorage::new(
+            rightkit_agent_engine_storage::Storage::open(dir.join("s.db")).unwrap(),
+        );
         let state = DaemonState::new("")
             .with_storage(storage.clone())
             .with_engine(engine_cfg());
@@ -170,8 +172,9 @@ mod route_update_tests {
     async fn queued_admission_blocks_route_update_until_consumed() {
         let dir = unique_temp_dir("route-busy-queue");
         std::fs::create_dir_all(&dir).unwrap();
-        let storage =
-            SharedStorage::new(rightkit_agent_engine_storage::Storage::open(dir.join("s.db")).unwrap());
+        let storage = SharedStorage::new(
+            rightkit_agent_engine_storage::Storage::open(dir.join("s.db")).unwrap(),
+        );
         let state = DaemonState::new("")
             .with_storage(storage.clone())
             .with_engine(engine_cfg());
@@ -375,8 +378,9 @@ mod route_update_tests {
     async fn missing_durable_row_fails_without_touching_live_state() {
         let dir = unique_temp_dir("route-missing-row");
         std::fs::create_dir_all(&dir).unwrap();
-        let storage =
-            SharedStorage::new(rightkit_agent_engine_storage::Storage::open(dir.join("s.db")).unwrap());
+        let storage = SharedStorage::new(
+            rightkit_agent_engine_storage::Storage::open(dir.join("s.db")).unwrap(),
+        );
         let state = DaemonState::new("")
             .with_storage(storage.clone())
             .with_engine(engine_cfg());
@@ -462,8 +466,9 @@ mod route_update_tests {
     async fn live_route_publishes_only_after_durable_commit() {
         let dir = unique_temp_dir("route-durable-first");
         std::fs::create_dir_all(&dir).unwrap();
-        let storage =
-            SharedStorage::new(rightkit_agent_engine_storage::Storage::open(dir.join("s.db")).unwrap());
+        let storage = SharedStorage::new(
+            rightkit_agent_engine_storage::Storage::open(dir.join("s.db")).unwrap(),
+        );
         let state = DaemonState::new("")
             .with_storage(storage.clone())
             .with_engine(engine_cfg());

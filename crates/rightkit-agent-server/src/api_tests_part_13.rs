@@ -178,11 +178,13 @@ async fn subagent_spawn_can_use_isolated_git_worktree_workspace() {
             "make an isolated change",
             "parent",
             rightkit_agent_tools::coding_tools::SubagentSpawnOptions {
-                worktree: Some(rightkit_agent_tools::coding_tools::SubagentWorktreeOptions {
-                    branch: Some("codex/subagent-isolation".into()),
-                    path: Some(worktree.to_string_lossy().into_owned()),
-                    cleanup: false,
-                }),
+                worktree: Some(
+                    rightkit_agent_tools::coding_tools::SubagentWorktreeOptions {
+                        branch: Some("codex/subagent-isolation".into()),
+                        path: Some(worktree.to_string_lossy().into_owned()),
+                        cleanup: false,
+                    },
+                ),
                 max_iterations: None,
                 ..Default::default()
             },

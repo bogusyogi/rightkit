@@ -340,8 +340,11 @@ async fn session_memory_retrieval_persists_attributable_runtime_span() {
 async fn memory_save_tool_persists_and_validates() {
     use rightkit_agent_tools::coding_tools::Tool as _;
     let (store, backend, provenance) = test_memory_components();
-    let tool =
-        rightkit_memory::memory_save_tool::MemorySaveTool::new(backend, provenance, "D:/work/demo-project");
+    let tool = rightkit_memory::memory_save_tool::MemorySaveTool::new(
+        backend,
+        provenance,
+        "D:/work/demo-project",
+    );
     let ctx = rightkit_agent_tools::coding_tools::context::ToolContext::new(
         "test",
         std::path::PathBuf::from("/tmp"),
@@ -533,7 +536,9 @@ async fn approved_memory_provenance_is_recalled_through_a_fresh_provenance_store
     // sidecar persisted by the save tool (nothing is held in-process).
     let reloaded_backend = backend.clone();
     let reloaded_provenance =
-        rightkit_memory::memory_provenance::MemoryProvenanceStore::from_backend(reloaded_backend.clone());
+        rightkit_memory::memory_provenance::MemoryProvenanceStore::from_backend(
+            reloaded_backend.clone(),
+        );
     let injection = retrieve_workspace_memory(
         reloaded_backend.as_ref(),
         &reloaded_provenance,
@@ -765,6 +770,7 @@ fn test_memory_components() -> (
 ) {
     let memory = crate::test_support::FakeMemoryBackend::new();
     let backend: std::sync::Arc<dyn rightkit_memory::backend::MemoryBackend> = memory.clone();
-    let provenance = rightkit_memory::memory_provenance::MemoryProvenanceStore::from_backend(backend.clone());
+    let provenance =
+        rightkit_memory::memory_provenance::MemoryProvenanceStore::from_backend(backend.clone());
     (memory, backend, provenance)
 }

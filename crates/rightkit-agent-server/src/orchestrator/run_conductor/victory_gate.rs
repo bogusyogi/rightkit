@@ -78,7 +78,10 @@ impl DaemonState {
         gds: f64,
         workspace_config: &rightkit_app_settings::agent_config::HostConfig,
         initial_git_ref: Option<&str>,
-    ) -> (rightkit_agent_orchestration::coding::CompletionState, String) {
+    ) -> (
+        rightkit_agent_orchestration::coding::CompletionState,
+        String,
+    ) {
         use rightkit_agent_orchestration::coding::CompletionState;
 
         let session = match self.get_session(session_id) {
@@ -148,7 +151,9 @@ impl DaemonState {
                 tracker.reset();
                 rightkit_agent_engine_core::GoalGapObservation::Reset
             } else {
-                let gap = rightkit_agent_engine_core::UnresolvedGoalGap::from_verifier_output(&verification);
+                let gap = rightkit_agent_engine_core::UnresolvedGoalGap::from_verifier_output(
+                    &verification,
+                );
                 let mut goal = lock_recover(&session.goal_state, "session.goal_state");
                 match goal.as_mut() {
                     Some(goal) => tracker.observe_for_goal(goal, &gap, false),
@@ -173,7 +178,9 @@ impl DaemonState {
                 &session,
                 goal_verification_artifact(&vhash, false, "auto-jury", vec![], &verification),
             );
-            if let rightkit_agent_engine_core::GoalGapObservation::Stalled { count } = gap_observation {
+            if let rightkit_agent_engine_core::GoalGapObservation::Stalled { count } =
+                gap_observation
+            {
                 return (
                     CompletionState::NeedsReview,
                     format!(
@@ -297,14 +304,15 @@ impl DaemonState {
         if let Some(goal) = lock_recover(&session.goal_state, "session.goal_state").as_mut() {
             goal.verification_present = true;
             goal.verification_approved = approved;
-            goal.verification_state =
-                if approved && arb.state == rightkit_agent_orchestration::coding::CompletionState::Accepted {
-                    "verified".into()
-                } else if approved {
-                    "pending".into()
-                } else {
-                    "failed".into()
-                };
+            goal.verification_state = if approved
+                && arb.state == rightkit_agent_orchestration::coding::CompletionState::Accepted
+            {
+                "verified".into()
+            } else if approved {
+                "pending".into()
+            } else {
+                "failed".into()
+            };
         }
         let mut summary = format!(
             "{} (GDS {gds:.2}). Verification passed; auto-jury {approve_count}/{} approve, \

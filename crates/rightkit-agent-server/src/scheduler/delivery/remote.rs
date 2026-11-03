@@ -43,7 +43,10 @@ async fn deliver_webhook_result(
                 .record_delivery(remote_target, payload, "failed", Some(error.to_string()))
                 .map_err(|e| e.to_string())?;
             record_sql_remote_delivery(state, &record).await;
-            let _ = rightkit_bot_messaging::append_remote_delivery(&remote_deliveries_path(root), record);
+            let _ = rightkit_bot_messaging::append_remote_delivery(
+                &remote_deliveries_path(root),
+                record,
+            );
             return Err(error.to_string());
         }
     };

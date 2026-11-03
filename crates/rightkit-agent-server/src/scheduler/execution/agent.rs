@@ -384,8 +384,9 @@ async fn finalize_agent_run(
             .as_ref()
             .map(|binding| binding.required)
             .unwrap_or(false);
-        if let rightkit_workflow::control_plane::verifier_binding::TerminalGate::Blocked { reason } =
-            gate_terminal_status(verdict, required)
+        if let rightkit_workflow::control_plane::verifier_binding::TerminalGate::Blocked {
+            reason,
+        } = gate_terminal_status(verdict, required)
         {
             // A required verifier that does not approve holds the run out of
             // the completed state; "failed" feeds bounded retry and overlap
@@ -502,7 +503,9 @@ async fn run_post_run_verifier(
                             },
                         ) if completed_session == verifier_session_id => return Some(status),
                         rightkit_agent_engine_core::conduit::ConduitReceive::Event(_) => continue,
-                        rightkit_agent_engine_core::conduit::ConduitReceive::Lagged { .. } => continue,
+                        rightkit_agent_engine_core::conduit::ConduitReceive::Lagged { .. } => {
+                            continue
+                        }
                         rightkit_agent_engine_core::conduit::ConduitReceive::Closed => return None,
                     }
                 }

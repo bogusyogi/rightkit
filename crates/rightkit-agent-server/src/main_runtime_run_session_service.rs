@@ -120,7 +120,9 @@ fn daemon_event_error_message(event: &rightkit_agent_engine_protocol::ProtocolEv
                 hint.as_str()
             }
         }
-        rightkit_agent_engine_protocol::ProtocolEvent::ToolApprovalResolved { .. } => "tool approval denied",
+        rightkit_agent_engine_protocol::ProtocolEvent::ToolApprovalResolved { .. } => {
+            "tool approval denied"
+        }
         _ => "run failed",
     }
 }

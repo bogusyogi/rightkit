@@ -79,11 +79,13 @@ async fn subagent_worktree_cleanup_runs_when_child_cannot_start() {
             "make an isolated change",
             "parent",
             rightkit_agent_tools::coding_tools::SubagentSpawnOptions {
-                worktree: Some(rightkit_agent_tools::coding_tools::SubagentWorktreeOptions {
-                    branch: Some("codex/subagent-cleanup".into()),
-                    path: Some(worktree.to_string_lossy().into_owned()),
-                    cleanup: true,
-                }),
+                worktree: Some(
+                    rightkit_agent_tools::coding_tools::SubagentWorktreeOptions {
+                        branch: Some("codex/subagent-cleanup".into()),
+                        path: Some(worktree.to_string_lossy().into_owned()),
+                        cleanup: true,
+                    },
+                ),
                 max_iterations: None,
                 ..Default::default()
             },
@@ -155,7 +157,10 @@ async fn subagent_spawn_publishes_subagent_stop_hook_on_child_failure() {
     let event = tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
             let event = hooks.recv().await.expect("hook bus should remain open");
-            if matches!(event, rightkit_hooks::agent_hooks::HookEvent::SubagentStop { .. }) {
+            if matches!(
+                event,
+                rightkit_hooks::agent_hooks::HookEvent::SubagentStop { .. }
+            ) {
                 break event;
             }
         }
@@ -201,7 +206,8 @@ async fn slash_review_returns_auditor_code_review_action() {
 
     assert!(review.success);
     assert!(review.output.contains("read-only auditor review"));
-    let rightkit_agent_host_traits::skill_host::CommandAction::ConductGoal(action) = review.action else {
+    let rightkit_agent_host_traits::skill_host::CommandAction::ConductGoal(action) = review.action
+    else {
         panic!("review must produce a conductor goal");
     };
     assert!(action.contains("categorized as `code-review`"));

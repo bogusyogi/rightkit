@@ -22,12 +22,22 @@ async fn checklist_spec_handler(
     let blocker_count = analysis
         .findings
         .iter()
-        .filter(|finding| matches!(finding.severity, rightkit_evidence::FindingSeverity::Critical))
+        .filter(|finding| {
+            matches!(
+                finding.severity,
+                rightkit_evidence::FindingSeverity::Critical
+            )
+        })
         .count();
     let warning_count = analysis
         .findings
         .iter()
-        .filter(|finding| matches!(finding.severity, rightkit_evidence::FindingSeverity::Warning))
+        .filter(|finding| {
+            matches!(
+                finding.severity,
+                rightkit_evidence::FindingSeverity::Warning
+            )
+        })
         .count();
     store.record_analysis(analysis.clone());
     persist_spec_store(&state, &store)?;

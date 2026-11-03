@@ -47,12 +47,7 @@ fn parses_hooks_test_with_optional_matcher() {
 
 #[test]
 fn parses_hooks_revoke_with_optional_restore() {
-    let cli = parse(&[
-        "coderight",
-        "hooks",
-        "revoke",
-        "RIGHTKIT_HOOK_PRE_TOOL_USE",
-    ]);
+    let cli = parse(&["coderight", "hooks", "revoke", "RIGHTKIT_HOOK_PRE_TOOL_USE"]);
     match &cli.command {
         Command::Hooks {
             command: HooksCommand::Revoke { id, restore },

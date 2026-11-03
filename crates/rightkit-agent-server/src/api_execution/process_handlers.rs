@@ -93,8 +93,12 @@ async fn create_execution_process(
         Vec::new()
     };
     let persistence = match body.persistence.as_deref().unwrap_or("inline") {
-        "inline" => rightkit_agent_tools::coding_tools::background_shell::ProcessPersistence::Inline,
-        "service" => rightkit_agent_tools::coding_tools::background_shell::ProcessPersistence::Service,
+        "inline" => {
+            rightkit_agent_tools::coding_tools::background_shell::ProcessPersistence::Inline
+        }
+        "service" => {
+            rightkit_agent_tools::coding_tools::background_shell::ProcessPersistence::Service
+        }
         other => {
             return Err(ExecutionError::bad_request(format!(
                 "unsupported persistence '{other}'"
@@ -104,12 +108,14 @@ async fn create_execution_process(
     let channel = match body.execution_channel.as_deref().unwrap_or("pipe") {
         "pipe" => rightkit_sandbox::execution::ExecutionChannel::Pipe,
         "pty" => {
-            let size = body.pty_size.unwrap_or(rightkit_sandbox::execution::PtySize {
-                rows: 24,
-                cols: 80,
-                pixel_width: 0,
-                pixel_height: 0,
-            });
+            let size = body
+                .pty_size
+                .unwrap_or(rightkit_sandbox::execution::PtySize {
+                    rows: 24,
+                    cols: 80,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                });
             if size.rows == 0 || size.cols == 0 || size.rows > 32767 || size.cols > 32767 {
                 return Err(ExecutionError::bad_request(
                     "ptySize rows/cols must be in 1..32767",
@@ -164,29 +170,32 @@ async fn create_execution_process(
         context,
         env: Vec::new(),
     };
-    let shell_id = rightkit_agent_tools::coding_tools::background_shell::spawn_managed_channel_with_kind(
-        adapter,
-        spec,
-        channel,
-        program,
-        &live.background_shells,
-        None,
-        rightkit_agent_tools::coding_tools::background_shell::BgExecutionTarget {
-            backend_id: Some("local".to_string()),
-            workspace_id: live.execution_workspace_id.clone(),
-            network_profile: live.execution_network_profile.clone(),
-        },
-        persistence,
-        "terminalSession".into(),
-    )
-    .await
-    .map_err(|error| match error {
-        rightkit_sandbox::execution::EffectExecutionError::ResourceLimitsMissing => ExecutionError {
-            status: StatusCode::TOO_MANY_REQUESTS,
-            message: "resource governor denied process creation before spawn".into(),
-        },
-        other => ExecutionError::conflict(other.to_string()),
-    })?;
+    let shell_id =
+        rightkit_agent_tools::coding_tools::background_shell::spawn_managed_channel_with_kind(
+            adapter,
+            spec,
+            channel,
+            program,
+            &live.background_shells,
+            None,
+            rightkit_agent_tools::coding_tools::background_shell::BgExecutionTarget {
+                backend_id: Some("local".to_string()),
+                workspace_id: live.execution_workspace_id.clone(),
+                network_profile: live.execution_network_profile.clone(),
+            },
+            persistence,
+            "terminalSession".into(),
+        )
+        .await
+        .map_err(|error| match error {
+            rightkit_sandbox::execution::EffectExecutionError::ResourceLimitsMissing => {
+                ExecutionError {
+                    status: StatusCode::TOO_MANY_REQUESTS,
+                    message: "resource governor denied process creation before spawn".into(),
+                }
+            }
+            other => ExecutionError::conflict(other.to_string()),
+        })?;
     let process = live_execution_process(&state, &shell_id, true)?
         .map(|(process, _)| process)
         .ok_or_else(|| ExecutionError::not_found("execution process not found"))?;
@@ -267,8 +276,8 @@ async fn kill_execution_process(
         if killed {
             if let Some(live) = state.get_session(&process_before_kill.session_id) {
                 let seq = live.conduit.next_seq();
-                live.conduit
-                    .publish(rightkit_agent_engine_protocol::ProtocolEvent::UserMessageSubmitted {
+                live.conduit.publish(
+                    rightkit_agent_engine_protocol::ProtocolEvent::UserMessageSubmitted {
                         session_id: process_before_kill.session_id.clone(),
                         seq,
                         created_at: format!(
@@ -284,7 +293,8 @@ async fn kill_execution_process(
                         nonce: None,
                         trust: None,
                         attachments: Vec::new(),
-                    });
+                    },
+                );
             }
         }
         live_execution_processes(&state, None, true)

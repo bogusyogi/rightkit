@@ -88,7 +88,8 @@ fn record_permission_denial_recovers_from_poisoned_mutex() {
         .any(|row| row.session_id == "s1" && row.tool_call_id == "tc1"));
     assert!(denials.iter().any(|row| {
         row.session_id == "s1"
-            && row.correlation == rightkit_agent_policy::denial_tracking::correlation_token("s1", "tc1")
+            && row.correlation
+                == rightkit_agent_policy::denial_tracking::correlation_token("s1", "tc1")
     }));
 
     let _ = std::fs::remove_dir_all(root);
@@ -116,9 +117,12 @@ async fn live_team_directory_registers_and_deletes_definitions() {
     let team = state.live_team("review-squad").expect("team registered");
     assert_eq!(team.members, vec!["architect", "tester"]);
 
-    let summary = rightkit_agent_tools::coding_tools::TeamDirectory::delete_team(&state, "review-squad".to_string())
-        .await
-        .unwrap();
+    let summary = rightkit_agent_tools::coding_tools::TeamDirectory::delete_team(
+        &state,
+        "review-squad".to_string(),
+    )
+    .await
+    .unwrap();
     assert!(summary.contains("review-squad"));
     assert!(state.live_team("review-squad").is_none());
 

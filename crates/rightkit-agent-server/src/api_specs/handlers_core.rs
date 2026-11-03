@@ -116,7 +116,10 @@ async fn patch_spec_handler(
             .findings
             .iter()
             .filter(|finding| {
-                matches!(finding.severity, rightkit_evidence::FindingSeverity::Critical)
+                matches!(
+                    finding.severity,
+                    rightkit_evidence::FindingSeverity::Critical
+                )
             })
             .map(|finding| finding.kind.as_str())
             .collect::<Vec<_>>()

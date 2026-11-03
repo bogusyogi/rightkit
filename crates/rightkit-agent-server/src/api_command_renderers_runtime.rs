@@ -98,14 +98,15 @@ fn doctor_status_label(status: crate::doctor::Status) -> &'static str {
 
 pub(crate) fn command_caps() -> CommandResult {
     let capabilities = rightkit_agent_tools::coding_tools::default_tool_capabilities();
-    command_ok(rightkit_agent_tools::coding_tools::render_tool_capabilities_markdown(
-        &capabilities,
-    ))
+    command_ok(rightkit_agent_tools::coding_tools::render_tool_capabilities_markdown(&capabilities))
 }
 
 pub(crate) fn command_doctor() -> CommandResult {
     let report = crate::doctor::gather_runtime();
-    command_ok(format!("```text\n{}```", report.render_text("RightKit").trim_end()))
+    command_ok(format!(
+        "```text\n{}```",
+        report.render_text("RightKit").trim_end()
+    ))
 }
 
 pub(crate) fn command_instructions(args: &[String]) -> CommandResult {

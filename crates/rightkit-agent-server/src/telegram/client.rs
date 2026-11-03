@@ -54,7 +54,9 @@ impl HttpDaemonClient {
         match resp.status {
             409 => Ok(()),
             401 => Err(DaemonError::Unauthorized),
-            s if !rightkit_http::http_client::is_success(s) => Err(DaemonError::Http(format!("HTTP {s}"))),
+            s if !rightkit_http::http_client::is_success(s) => {
+                Err(DaemonError::Http(format!("HTTP {s}")))
+            }
             _ => Ok(()),
         }
     }
@@ -78,7 +80,9 @@ impl DaemonClient for HttpDaemonClient {
         match resp.status {
             404 => Err(DaemonError::SessionNotFound(session_id.to_string())),
             401 => Err(DaemonError::Unauthorized),
-            s if !rightkit_http::http_client::is_success(s) => Err(DaemonError::Http(format!("HTTP {s}"))),
+            s if !rightkit_http::http_client::is_success(s) => {
+                Err(DaemonError::Http(format!("HTTP {s}")))
+            }
             _ => {
                 let v: Value = resp.json().map_err(|e| DaemonError::Http(e.to_string()))?;
                 // The daemon returns `{"accepted":true,"seq":N}`.
@@ -108,7 +112,9 @@ impl DaemonClient for HttpDaemonClient {
         match resp.status {
             404 => Err(DaemonError::SessionNotFound(session_id.to_string())),
             401 => Err(DaemonError::Unauthorized),
-            s if !rightkit_http::http_client::is_success(s) => Err(DaemonError::Http(format!("HTTP {s}"))),
+            s if !rightkit_http::http_client::is_success(s) => {
+                Err(DaemonError::Http(format!("HTTP {s}")))
+            }
             _ => {
                 let v: Value = resp.json().map_err(|e| DaemonError::Http(e.to_string()))?;
                 if !v.get("ok").and_then(Value::as_bool).unwrap_or(false) {
@@ -147,7 +153,9 @@ impl DaemonClient for HttpDaemonClient {
         match resp.status {
             404 => Err(DaemonError::SessionNotFound(session_id.to_string())),
             401 => Err(DaemonError::Unauthorized),
-            s if !rightkit_http::http_client::is_success(s) => Err(DaemonError::Http(format!("HTTP {s}"))),
+            s if !rightkit_http::http_client::is_success(s) => {
+                Err(DaemonError::Http(format!("HTTP {s}")))
+            }
             _ => Ok(()),
         }
     }
@@ -167,7 +175,9 @@ impl DaemonClient for HttpDaemonClient {
         match resp.status {
             404 => Err(DaemonError::SessionNotFound(session_id.to_string())),
             401 => Err(DaemonError::Unauthorized),
-            s if !rightkit_http::http_client::is_success(s) => Err(DaemonError::Http(format!("HTTP {s}"))),
+            s if !rightkit_http::http_client::is_success(s) => {
+                Err(DaemonError::Http(format!("HTTP {s}")))
+            }
             _ => {
                 let events: Vec<ProtocolEvent> =
                     resp.json().map_err(|e| DaemonError::Http(e.to_string()))?;
@@ -192,7 +202,9 @@ impl DaemonClient for HttpDaemonClient {
 
         match resp.status {
             401 => Err(DaemonError::Unauthorized),
-            s if !rightkit_http::http_client::is_success(s) => Err(DaemonError::Http(format!("HTTP {s}"))),
+            s if !rightkit_http::http_client::is_success(s) => {
+                Err(DaemonError::Http(format!("HTTP {s}")))
+            }
             _ => Ok(()),
         }
     }
