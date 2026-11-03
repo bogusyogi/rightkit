@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/blender-worker",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Blender render worker (Python): job protocol, scene authoring, product review and look development, shipped as source for a host to install.",
   "license": "GPL-3.0-or-later",
   "type": "module",
@@ -11,9 +11,20 @@
       "types": "./index.d.ts",
       "import": "./index.js"
     },
+    "./schemas/job.schema.json": "./schemas/job.schema.json",
+    "./schemas/result-manifest.schema.json": "./schemas/result-manifest.schema.json",
+    "./schemas/shot-manifest.schema.json": "./schemas/shot-manifest.schema.json",
+    "./schemas/worker-manifest.schema.json": "./schemas/worker-manifest.schema.json",
     "./package.json": "./package.json"
   },
-  "files": ["index.js", "index.d.ts", "worker", "README.md", "LICENSE"],
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "schemas",
+    "worker",
+    "README.md",
+    "LICENSE"
+  ],
   "sideEffects": false,
   "publishConfig": {
     "registry": "https://registry.npmjs.org",

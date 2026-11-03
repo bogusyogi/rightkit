@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:renderright:job.schema.json",
+  "title": "RenderRight worker job",
+  "type": "object",
+  "required": ["schema", "job_id", "kind", "recipe", "output_dir", "params"],
+  "properties": {
+    "schema": {"const": 1},
+    "job_id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "kind": {"enum": ["image", "video", "authoring"]},
+    "source": {"type": ["string", "null"]},
+    "recipe": {"enum": ["hero", "turntable", "exploded", "film", "probe", "lookdev", "measure", "swatch"]},
+    "output_dir": {"type": "string", "minLength": 1},
+    "params": {"type": "object", "properties": {
+      "width": {"type": "integer", "minimum": 16, "maximum": 4096},
+      "height": {"type": "integer", "minimum": 16, "maximum": 4096},
+      "samples": {"type": "integer", "minimum": 1, "maximum": 512},
+      "source_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+      "look_profile": {"enum": ["product_premium_v1", "fenrir_premium_v1"]},
+      "view": {"enum": ["hero", "detail", "overview"]},
+      "denoise": {"const": false},
+      "frame_count": {"type": "integer", "minimum": 1, "maximum": 1200},
+      "fps": {"type": "object", "required": ["num", "den"], "properties": {"num": {"type": "integer", "minimum": 1}, "den": {"type": "integer", "minimum": 1}}, "additionalProperties": false},
+      "device": {"enum": ["auto", "cpu"]},
+      "transparent": {"type": "boolean"},
+      "env": {"enum": ["studio_lightbox", "studio_grey", "studio_dark"]},
+      "material_recipe": {"oneOf": [{"enum": ["anodized_black", "machined_aluminum", "brass", "copper", "titanium_stonewash"]}, {"type": "object", "required": ["materials"], "properties": {"materials": {"type": "object", "additionalProperties": {"enum": ["anodized_black", "machined_aluminum", "brass", "copper", "titanium_stonewash"]}}}, "additionalProperties": false}, {"type": "null"}]},
+      "mechanism_json": {"type": "string", "minLength": 1},
+      "shot_id": {"enum": ["establish", "top_detail", "profile", "hero"]},
+      "prompt": {"type": "string", "maxLength": 4000},
+      "camera": {"type": "object", "properties": {"lens_mm": {"type": "number", "minimum": 15, "maximum": 200}, "azimuth_deg": {"type": "number", "minimum": -360, "maximum": 360}, "elevation_deg": {"type": "number", "minimum": -89, "maximum": 89}, "distance_scale": {"type": "number", "minimum": 0.25, "maximum": 4}}, "additionalProperties": false},
+      "shot_start_frame": {"type": "integer", "minimum": 0},
+      "source_frame_count": {"type": "integer", "minimum": 1, "maximum": 1200},
+      "product_spec": {"type": "string", "minLength": 1},
+      "swatch_finish": {"type": "string", "minLength": 1},
+      "lookdev_settings": {"type": "object"}
+    }, "additionalProperties": true}
+  },
+  "allOf": [
+    {"if": {"properties": {"recipe": {"const": "probe"}}}, "then": {"properties": {"kind": {"const": "image"}, "source": {"enum": [null, ""]}}}},
+    {"if": {"properties": {"recipe": {"enum": ["hero"]}}}, "then": {"required": ["source"], "properties": {"kind": {"const": "image"}, "source": {"type": "string", "pattern": "\\.[gG][lL][bB]$"}}}},
+    {"if": {"properties": {"recipe": {"enum": ["turntable", "exploded", "film"]}}}, "then": {"required": ["source"], "properties": {"kind": {"const": "video"}, "source": {"type": "string", "pattern": "\\.[gG][lL][bB]$"}}}},
+    {"if": {"properties": {"recipe": {"enum": ["lookdev", "measure", "swatch"]}}}, "then": {"properties": {"kind": {"const": "authoring"}, "source": {"type": ["string", "null"]}, "params": {"properties": {"width": {}, "height": {}, "samples": {"type": "integer", "minimum": 96, "maximum": 512}, "frame_count": {"const": 1}, "fps": {}, "device": {}, "transparent": {"const": false}, "env": {"const": "studio_dark"}, "look_profile": {"const": "fenrir_premium_v1"}, "view": {"enum": ["hero", "detail", "overview"]}, "denoise": {"const": false}, "source_sha256": {}, "material_recipe": {}, "product_spec": {"type": "string", "minLength": 1}, "swatch_finish": {"type": "string", "minLength": 1}, "lookdev_settings": {"type": "object"}}, "additionalProperties": false}}}},
+    {"if": {"properties": {"params": {"required": ["shot_id"]}}}, "then": {"properties": {"recipe": {"const": "film"}}}},
+    {"if": {"properties": {"params": {"required": ["shot_start_frame"]}}}, "then": {"properties": {"params": {"required": ["shot_id", "source_frame_count"]}}}},
+    {"if": {"properties": {"params": {"required": ["source_frame_count"]}}}, "then": {"properties": {"params": {"required": ["shot_start_frame"]}}}},
+    {"if": {"properties": {"recipe": {"enum": ["lookdev", "measure"]}}}, "then": {"required": ["source"], "properties": {"source": {"type": "string", "pattern": "\\.[gG][lL][bB]$"}}}}
+  ],
+  "additionalProperties": false
+}

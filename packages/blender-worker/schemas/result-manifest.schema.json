@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:renderright:result-manifest.schema.json",
+  "title": "RenderRight result manifest",
+  "type": "object",
+  "required": ["schema", "job_id", "job_fingerprint", "worker", "blender_version", "recipe", "source", "fps", "artifacts"],
+  "properties": {
+    "schema": {"const": 1},
+    "job_id": {"type": "string"},
+    "job_fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "worker": {"type": "object", "required": ["name", "version"], "properties": {"name": {"const": "renderright"}, "version": {"type": "string"}}, "additionalProperties": false},
+    "blender_version": {"type": "string"},
+    "recipe": {"type": "object", "required": ["id", "version", "sha256"], "properties": {"id": {"enum": ["hero", "turntable", "exploded", "film", "probe"]}, "version": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}, "additionalProperties": false},
+    "source": {"type": "object", "required": ["path", "sha256"], "properties": {"path": {"type": ["string", "null"]}, "sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}}, "additionalProperties": false},
+    "fps": {"type": "object", "required": ["num", "den"], "properties": {"num": {"type": "integer", "minimum": 1}, "den": {"type": "integer", "minimum": 1}}, "additionalProperties": false},
+    "artifacts": {"type": "array", "items": {"type": "object", "required": ["id", "path", "mime", "sha256", "bytes", "role"], "properties": {"id": {"type": "string"}, "path": {"type": "string"}, "mime": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "bytes": {"type": "integer", "minimum": 0}, "role": {"enum": ["movie", "hero", "shot_manifest", "probe"]}}, "additionalProperties": false}}
+  },
+  "additionalProperties": false
+}

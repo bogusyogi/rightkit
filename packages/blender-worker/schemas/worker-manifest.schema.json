@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:renderright:worker-manifest.schema.json",
+  "title": "RenderRight worker installation manifest",
+  "type": "object",
+  "required": ["schema", "name", "version", "protocol", "license", "entry", "recipes", "blender"],
+  "properties": {
+    "schema": {"const": 1},
+    "name": {"const": "renderright"},
+    "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+    "protocol": {"const": 1},
+    "license": {"const": "GPL-3.0-or-later"},
+    "entry": {"const": "render_job.py"},
+    "recipes": {"const": "recipes/manifest.json"},
+    "blender": {"type": "object", "required": ["version", "qualification"], "properties": {
+      "version": {"type": ["string", "null"], "pattern": "^5\\.2\\.2$"},
+      "qualification": {"type": ["string", "null"]}
+    }, "additionalProperties": false}
+  },
+  "allOf": [{"if": {"properties": {"blender": {"properties": {"version": {"type": "string"}}}}}, "then": {"properties": {"blender": {"properties": {"qualification": {"type": "string"}}}}}}],
+  "additionalProperties": false
+}
