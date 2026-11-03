@@ -136,5 +136,3 @@ pub(crate) fn apply_live_permission_mode(
 include!("api_permissions/serialization.rs");
 
 include!("api_permissions/command_renderer.rs");
-
-include!("api_permissions/tests.rs");

@@ -194,9 +194,6 @@ pub fn run() -> anyhow::Result<()> {
     let role = crate::speech_service::role_for(headless);
 
     // A positional models-base hint is a test-mode convenience; a release engine derives it.
-    #[cfg(any(test, feature = "test-mode"))]
-    let models_hint = first.map(std::path::PathBuf::from);
-    #[cfg(not(any(test, feature = "test-mode")))]
     let models_hint: Option<std::path::PathBuf> = {
         let _ = first;
         None
@@ -303,11 +300,6 @@ fn run_calibration_child(
 /// base. An explicit directory argument is honoured only in test-mode builds.
 #[cfg(target_os = "macos")]
 fn prepare_whisper_dir(explicit: Option<String>) -> std::path::PathBuf {
-    #[cfg(any(test, feature = "test-mode"))]
-    if let Some(dir) = explicit.filter(|dir| !dir.is_empty()) {
-        return std::path::PathBuf::from(dir);
-    }
-    #[cfg(not(any(test, feature = "test-mode")))]
     let _ = explicit;
     asr::models_base(None).join("whisper-multi")
 }
@@ -362,10 +354,6 @@ fn install_launch_frame() -> anyhow::Result<()> {
     };
     // Engine tests that drive stdin directly start a test-mode engine without a frame and pass
     // the choice in the environment instead (rightkit-dictation-inference `engine_paths`).
-    #[cfg(any(test, feature = "test-mode"))]
-    if rightkit_dictation_core::dev_var_os!("RIGHTKIT_ASR_BACKEND").is_some() {
-        return Ok(());
-    }
     let launch: EngineLaunch = rightkit_job_queue::read_launch_frame(
         &mut std::io::stdin().lock(),
         LAUNCH_SCHEMA,
@@ -449,13 +437,6 @@ fn configure_ort_dylib() -> Result<(), String> {
             )
         });
         // Debug-only developer path: an explicit candidate, never a bundled one.
-        #[cfg(feature = "test-mode")]
-        let dev_path = Some(RuntimeCandidate::new(
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../../.venv-build-dml/Lib/site-packages/onnxruntime/capi/onnxruntime.dll"),
-            CandidateSource::Explicit,
-        ));
-        #[cfg(not(feature = "test-mode"))]
         let dev_path: Option<RuntimeCandidate> = None;
         [exe_sibling, packaged_resource, dev_path]
             .into_iter()
@@ -480,13 +461,6 @@ fn configure_ort_dylib() -> Result<(), String> {
             }
         }
         // Debug-only developer path: an explicit candidate, never a bundled one.
-        #[cfg(feature = "test-mode")]
-        paths.push(RuntimeCandidate::new(
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../src-tauri/resources/runtime")
-                .join(dylib),
-            CandidateSource::Explicit,
-        ));
         paths
     };
 
@@ -508,41 +482,8 @@ fn configure_ort_dylib() -> Result<(), String> {
         }
         Err(error) => {
             tracing::warn!(reason = %error, "ORT runtime binding failed");
-            #[cfg(not(feature = "test-mode"))]
             return Err("Bundled ONNX runtime is missing; repair the app installation.".into());
-            #[cfg(feature = "test-mode")]
-            tracing::warn!("ONNX runtime unresolved; ORT may fall back to the OS loader");
         }
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod ort_override_tests {
-    use rightkit_onnx::{CandidateSource, RuntimeCandidate};
-
-    /// An explicit developer runtime is tried before the bundled runtime, and without one the
-    /// bundled candidates are unchanged. The owner's `developer_override_candidate` reads the
-    /// variable (only with `dev-overrides`); this test hands the candidate in, so it sets nothing.
-    #[test]
-    fn explicit_developer_runtime_is_tried_first() {
-        let bundled = || {
-            vec![RuntimeCandidate::new(
-                "bundled/onnxruntime",
-                CandidateSource::Bundled,
-            )]
-        };
-        let explicit = std::env::temp_dir().join("hr-dev-onnxruntime");
-        let with_override = super::explicit_first(
-            Some(RuntimeCandidate::new(&explicit, CandidateSource::Explicit)),
-            bundled(),
-        );
-        let without = super::explicit_first(None, bundled());
-        assert_eq!(with_override.len(), 2);
-        assert_eq!(with_override[0].path, explicit);
-        assert!(matches!(with_override[0].source, CandidateSource::Explicit));
-        assert!(matches!(with_override[1].source, CandidateSource::Bundled));
-        assert_eq!(without.len(), 1);
-        assert!(matches!(without[0].source, CandidateSource::Bundled));
-    }
 }

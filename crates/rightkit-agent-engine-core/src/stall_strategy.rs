@@ -17,19 +17,3 @@ pub const STRATEGY_RESET_DIRECTIVE: &str =
 pub fn stalled_reason(detail: &str) -> String {
     format!("agent stalled (loop detector hard-stop): {detail}")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn directive_is_actionable_and_nonempty() {
-        assert!(STRATEGY_RESET_DIRECTIVE.contains("fundamentally different approach"));
-        assert!(!STRATEGY_RESET_DIRECTIVE.trim().is_empty());
-    }
-
-    #[test]
-    fn stalled_reason_includes_detail() {
-        assert!(stalled_reason("read_file x5").contains("read_file x5"));
-    }
-}

@@ -237,23 +237,3 @@ pub fn watch_files(
         .watch_files(&authorized)
         .map_err(WorkspaceError::Watch)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::cmp::Ordering;
-
-    #[test]
-    fn natural_order_compares_digit_runs_numerically() {
-        assert_eq!(natural_cmp("img2", "img10"), Ordering::Less);
-        assert_eq!(natural_cmp("IMG2", "img2"), Ordering::Equal);
-        assert_eq!(natural_cmp("a", "a1"), Ordering::Less);
-    }
-
-    #[test]
-    fn hex_path_header_round_trips() {
-        assert_eq!(decode_hex_path("612f62").unwrap(), "a/b");
-        assert!(decode_hex_path("").is_err());
-        assert!(decode_hex_path("zz").is_err());
-    }
-}

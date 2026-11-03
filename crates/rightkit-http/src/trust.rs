@@ -7,24 +7,9 @@
 //! (blocking: ureq cannot extend its bundled set) the Mozilla roots. `TrustRoots::Platform`
 //! never consults it. Without the feature this module has no state and returns nothing.
 
-#[cfg(feature = "testing")]
-static TEST_ROOTS: std::sync::Mutex<Vec<Vec<u8>>> = std::sync::Mutex::new(Vec::new());
-
 /// DER roots registered through the testing seam; always empty without `testing`.
 pub(crate) fn test_roots() -> Vec<Vec<u8>> {
-    #[cfg(feature = "testing")]
-    {
-        TEST_ROOTS.lock().map(|g| g.clone()).unwrap_or_default()
-    }
-    #[cfg(not(feature = "testing"))]
     {
         Vec::new()
-    }
-}
-
-#[cfg(feature = "testing")]
-pub(crate) fn add_test_root(der: Vec<u8>) {
-    if let Ok(mut g) = TEST_ROOTS.lock() {
-        g.push(der);
     }
 }

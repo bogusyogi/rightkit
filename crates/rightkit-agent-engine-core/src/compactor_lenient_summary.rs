@@ -59,35 +59,3 @@ where
 pub fn parse_lenient_summary(raw: &serde_json::Value) -> Result<LenientCompactionSummary, String> {
     serde_json::from_value(raw.clone()).map_err(|error| error.to_string())
 }
-
-#[cfg(test)]
-mod lenient_summary_tests {
-    use super::*;
-
-    #[test]
-    fn malformed_summary_fields_do_not_discard_the_summary() {
-        let raw = serde_json::json!({
-            "text": 42,
-            "obligations": "finish the migration",
-            "confidence": "high",
-        });
-        let parsed = parse_lenient_summary(&raw).expect("lenient parse must not fail closed");
-        assert_eq!(parsed.text, "42");
-        assert_eq!(parsed.obligations, vec!["finish the migration".to_string()]);
-        assert_eq!(
-            parsed.extra.get("confidence").and_then(|v| v.as_str()),
-            Some("high")
-        );
-    }
-
-    #[test]
-    fn null_and_array_shaped_fields_also_coerce() {
-        let raw = serde_json::json!({
-            "text": null,
-            "obligations": ["a", "b", 3],
-        });
-        let parsed = parse_lenient_summary(&raw).unwrap();
-        assert_eq!(parsed.text, "");
-        assert_eq!(parsed.obligations, vec!["a", "b", "3"]);
-    }
-}

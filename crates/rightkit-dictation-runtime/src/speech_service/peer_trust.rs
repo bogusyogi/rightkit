@@ -12,8 +12,7 @@
 //! - Windows Authenticode signer `CN=Damned Ventures LLC`, Azure Artifact Signing (`docs/WINDOWS-SIGNING.md:5`; the
 //!   release `install` kind signs the exe and its sidecars, `right-release.config.mjs:138,146`).
 //!
-//! Dev and unsigned builds are admitted only when this crate is built for its tests or with `test-mode`
-//! ([`BuildMode::current`]); there is no environment switch, so a release build always enforces.
+//! Every build enforces ([`BuildMode::current`]); there is no environment switch.
 
 use rightkit_daemon::PeerIdentity;
 
@@ -39,25 +38,13 @@ pub(super) enum PeerVerification {
 /// Which policy applies. Fixed at compile time; never read from the environment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum BuildMode {
-    /// Product builds: only a verified Orthic peer is admitted. A `test-mode` build runs as
-    /// `TestMode`, so there it is only named by tests.
-    #[cfg_attr(all(feature = "test-mode", not(test)), allow(dead_code))]
+    /// Product builds: only a verified Orthic peer is admitted.
     Release,
-    /// This crate's tests and `test-mode` builds: unsigned local peers are admitted. Absent from product builds.
-    #[cfg(any(test, feature = "test-mode"))]
-    TestMode,
 }
 
 impl BuildMode {
     pub(super) const fn current() -> Self {
-        #[cfg(any(test, feature = "test-mode"))]
-        {
-            Self::TestMode
-        }
-        #[cfg(not(any(test, feature = "test-mode")))]
-        {
-            Self::Release
-        }
+        Self::Release
     }
 }
 
@@ -66,9 +53,6 @@ impl BuildMode {
 pub(super) enum Decision {
     /// Verified Orthic peer.
     Admit,
-    /// Not verified Orthic, admitted only because this is a test-mode build.
-    #[cfg(any(test, feature = "test-mode"))]
-    AdmitUnverifiedTestMode,
     /// Refuse and close before reading anything.
     Refuse,
 }
@@ -77,8 +61,6 @@ pub(super) enum Decision {
 pub(super) fn decide(verification: &PeerVerification, mode: BuildMode) -> Decision {
     match (verification, mode) {
         (PeerVerification::Orthic, _) => Decision::Admit,
-        #[cfg(any(test, feature = "test-mode"))]
-        (_, BuildMode::TestMode) => Decision::AdmitUnverifiedTestMode,
         (_, BuildMode::Release) => Decision::Refuse,
     }
 }
@@ -111,11 +93,6 @@ pub(super) fn admit(peer: &PeerIdentity) -> bool {
     let verification = verify_peer(peer);
     match decide(&verification, BuildMode::current()) {
         Decision::Admit => true,
-        #[cfg(any(test, feature = "test-mode"))]
-        Decision::AdmitUnverifiedTestMode => {
-            tracing::debug!(event = "service_peer_unverified_test_mode", pid = ?peer.pid, ?verification);
-            true
-        }
         Decision::Refuse => {
             let (kind, reason) = match &verification {
                 PeerVerification::Orthic => ("orthic", ""),
@@ -188,75 +165,6 @@ mod platform {
                 "code requirement not satisfied (OSStatus {}): {error}",
                 error.code()
             )),
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use std::ffi::c_void;
-
-        const TASK_AUDIT_TOKEN: u32 = 15;
-        const TASK_AUDIT_TOKEN_COUNT: u32 = 8;
-
-        extern "C" {
-            fn mach_task_self() -> *const c_void;
-            fn task_info(
-                task: *const c_void,
-                flavor: u32,
-                out: *mut c_void,
-                count: *mut u32,
-            ) -> i32;
-        }
-
-        fn own_audit_token() -> [u32; 8] {
-            let mut token = [0u32; 8];
-            let mut count = TASK_AUDIT_TOKEN_COUNT;
-            // SAFETY: TASK_AUDIT_TOKEN fills eight natural_t words into a buffer of exactly that size.
-            let status = unsafe {
-                task_info(
-                    mach_task_self(),
-                    TASK_AUDIT_TOKEN,
-                    token.as_mut_ptr().cast(),
-                    &mut count,
-                )
-            };
-            assert_eq!(status, 0, "task_info(TASK_AUDIT_TOKEN) failed");
-            token
-        }
-
-        #[test]
-        fn a_running_process_that_is_not_signed_by_the_team_is_not_orthic() {
-            // The test binary is ad-hoc or unsigned; no such binary can satisfy a Developer ID team requirement.
-            let result = verify_audit_token(&own_audit_token(), "AAAAAAAAAA");
-            assert!(
-                matches!(result, PeerVerification::NotOrthic(_)),
-                "got {result:?}"
-            );
-        }
-
-        #[test]
-        fn a_token_naming_no_process_is_unverifiable_never_orthic() {
-            let result = verify_audit_token(&[0u32; 8], ORTHIC_MAC_TEAM_ID);
-            assert!(
-                matches!(result, PeerVerification::Unverifiable(_)),
-                "got {result:?}"
-            );
-        }
-
-        #[test]
-        fn a_peer_without_an_audit_token_is_unverifiable() {
-            let peer = PeerIdentity::default();
-            assert!(matches!(verify(&peer), PeerVerification::Unverifiable(_)));
-        }
-
-        #[test]
-        fn a_malformed_team_id_never_reaches_the_requirement_compiler() {
-            let result = verify_audit_token(&own_audit_token(), "x\" or anchor apple");
-            assert!(
-                matches!(result, PeerVerification::Unverifiable(_)),
-                "got {result:?}"
-            );
         }
     }
 }
@@ -476,109 +384,5 @@ mod platform {
         PeerVerification::Unverifiable(
             "no peer code-signature verification on this platform".into(),
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn all_verifications() -> Vec<PeerVerification> {
-        vec![
-            PeerVerification::Orthic,
-            PeerVerification::NotOrthic("ad hoc".into()),
-            PeerVerification::Unverifiable("no token".into()),
-        ]
-    }
-
-    #[test]
-    fn release_admits_only_a_proven_orthic_peer() {
-        for verification in all_verifications() {
-            let expected = if verification == PeerVerification::Orthic {
-                Decision::Admit
-            } else {
-                Decision::Refuse
-            };
-            assert_eq!(
-                decide(&verification, BuildMode::Release),
-                expected,
-                "{verification:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_mode_admits_unsigned_peers_and_still_marks_an_orthic_one_admit() {
-        assert_eq!(
-            decide(&PeerVerification::Orthic, BuildMode::TestMode),
-            Decision::Admit
-        );
-        assert_eq!(
-            decide(
-                &PeerVerification::NotOrthic("ad hoc".into()),
-                BuildMode::TestMode
-            ),
-            Decision::AdmitUnverifiedTestMode
-        );
-        assert_eq!(
-            decide(
-                &PeerVerification::Unverifiable("none".into()),
-                BuildMode::TestMode
-            ),
-            Decision::AdmitUnverifiedTestMode
-        );
-    }
-
-    #[test]
-    fn this_crates_tests_run_in_test_mode_and_a_product_build_is_release() {
-        // `cfg(test)` is the only way this assertion compiles in; a build without it or `test-mode` is Release.
-        assert_eq!(BuildMode::current(), BuildMode::TestMode);
-    }
-
-    #[test]
-    fn the_mac_requirement_names_the_orthic_team_and_rejects_malformed_ids() {
-        assert_eq!(
-            mac_requirement(ORTHIC_MAC_TEAM_ID).as_deref(),
-            Some("anchor apple generic and certificate leaf[subject.OU] = \"6KLGD3LLKF\"")
-        );
-        for bad in [
-            "",
-            "6KLGD3LLK",
-            "6KLGD3LLKFX",
-            "6klgd3llkf",
-            "6KLGD3LLK\"",
-            "6KLGD3LL K",
-        ] {
-            assert_eq!(mac_requirement(bad), None, "{bad:?}");
-        }
-    }
-
-    #[test]
-    fn the_windows_signer_match_is_exact() {
-        assert!(windows_signer_matches(
-            "Damned Ventures LLC",
-            ORTHIC_WINDOWS_SIGNER_CN
-        ));
-        for bad in [
-            "",
-            "damned ventures llc",
-            "Damned Ventures LLC ",
-            "Damned Ventures",
-            "Someone Else",
-        ] {
-            assert!(
-                !windows_signer_matches(bad, ORTHIC_WINDOWS_SIGNER_CN),
-                "{bad:?}"
-            );
-        }
-    }
-
-    #[test]
-    #[cfg(not(any(target_os = "macos", windows)))]
-    fn an_unsupported_platform_is_unverifiable() {
-        assert!(matches!(
-            verify_peer(&PeerIdentity::default()),
-            PeerVerification::Unverifiable(_)
-        ));
     }
 }

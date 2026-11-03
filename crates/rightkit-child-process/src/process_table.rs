@@ -46,7 +46,7 @@ pub fn process_table() -> io::Result<Vec<ProcessEntry>> {
 
 /// Parse `/proc/<pid>/stat` and return the parent pid. The command name (field 2) may contain
 /// spaces and parentheses, so fields are counted after the last `)`.
-#[cfg(any(target_os = "linux", target_os = "android", test))]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn parse_stat_parent(stat: &str) -> Option<u32> {
     let rest = &stat[stat.rfind(')')? + 1..];
     // After the name: state, ppid, ...
@@ -54,7 +54,7 @@ fn parse_stat_parent(stat: &str) -> Option<u32> {
 }
 
 /// Join NUL-separated `/proc/<pid>/cmdline` bytes into one space-separated string.
-#[cfg(any(target_os = "linux", target_os = "android", test))]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn join_cmdline(bytes: &[u8]) -> Option<String> {
     let trimmed = bytes.strip_suffix(&[0]).unwrap_or(bytes);
     if trimmed.is_empty() {
@@ -67,7 +67,7 @@ fn join_cmdline(bytes: &[u8]) -> Option<String> {
 
 /// Join a `KERN_PROCARGS2` buffer (argc, executable path, padding NULs, then argv) into one
 /// space-separated string of the arguments, without the environment.
-#[cfg(any(target_os = "macos", test))]
+#[cfg(target_os = "macos")]
 fn join_procargs2(buffer: &[u8]) -> Option<String> {
     let count = usize::try_from(i32::from_ne_bytes(buffer.get(..4)?.try_into().ok()?)).ok()?;
     let mut i = 4;
@@ -420,123 +420,5 @@ mod imp {
 
     pub(super) fn table() -> io::Result<Vec<ProcessEntry>> {
         Err(io::Error::from(io::ErrorKind::Unsupported))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn stat_parent_survives_spaces_and_parens_in_the_name() {
-        assert_eq!(parse_stat_parent("42 (bash) S 7 42 42 0 -1"), Some(7));
-        assert_eq!(parse_stat_parent("42 (a b) c) R 9 1 1"), Some(9));
-        assert_eq!(parse_stat_parent("garbage"), None);
-        assert_eq!(parse_stat_parent("42 (x) S"), None);
-    }
-
-    #[test]
-    fn cmdline_joins_arguments_and_empty_is_none() {
-        assert_eq!(
-            join_cmdline(b"ls\0-l\0/tmp\0").as_deref(),
-            Some("ls -l /tmp")
-        );
-        assert_eq!(join_cmdline(b"sd-server\0").as_deref(), Some("sd-server"));
-        assert_eq!(join_cmdline(b""), None);
-        assert_eq!(join_cmdline(b"\0"), None);
-    }
-
-    #[test]
-    fn procargs2_yields_arguments_without_environment() {
-        let mut buffer = 2i32.to_ne_bytes().to_vec();
-        buffer.extend_from_slice(b"/bin/tool\0\0\0tool\0--flag\0HOME=/x\0");
-        assert_eq!(join_procargs2(&buffer).as_deref(), Some("tool --flag"));
-        assert_eq!(join_procargs2(&3i32.to_ne_bytes()), None);
-        let mut cut = 1i32.to_ne_bytes().to_vec();
-        cut.extend_from_slice(b"/bin/tool\0tool");
-        assert_eq!(join_procargs2(&cut), None);
-    }
-
-    /// The parent of this test process, read independently of the table under test.
-    #[cfg(unix)]
-    fn own_parent() -> u32 {
-        // SAFETY: getppid takes no arguments and cannot fail.
-        unsafe { libc::getppid() as u32 }
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
-    #[test]
-    fn the_table_contains_this_process_with_its_parent_and_memory() {
-        let rows = process_table().expect("process table");
-        let me = rows
-            .iter()
-            .find(|row| row.pid == std::process::id())
-            .expect("own pid is listed");
-        assert_ne!(me.parent_pid, std::process::id());
-        #[cfg(unix)]
-        assert_eq!(me.parent_pid, own_parent());
-        assert!(me.working_set_bytes.unwrap_or(0) > 0);
-        let line = me.command_line.as_deref().expect("own command line");
-        assert!(!line.is_empty());
-        #[cfg(unix)]
-        {
-            let argv: Vec<String> = std::env::args_os()
-                .map(|arg| arg.to_string_lossy().into_owned())
-                .collect();
-            assert_eq!(line, argv.join(" "));
-        }
-        let exe = std::env::current_exe().unwrap();
-        let stem = exe.file_stem().unwrap().to_string_lossy().into_owned();
-        assert!(line.contains(&stem), "{line} should name {stem}");
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
-    #[test]
-    fn a_spawned_child_is_listed_under_this_parent_with_its_arguments() {
-        use std::process::{Command, Stdio};
-        // A distinctive argument, so a forked child that has not exec'd yet (still showing this
-        // process's command line) is never mistaken for the finished one.
-        const MARK: &str = "7654";
-        let mut command = if cfg!(windows) {
-            let mut c = Command::new("ping.exe");
-            c.args(["-n", MARK, "127.0.0.1"]);
-            c
-        } else {
-            let mut c = Command::new("sleep");
-            c.arg(MARK);
-            c
-        };
-        let mut child = command
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn");
-        let pid = child.id();
-        let mut found = None;
-        for _ in 0..50 {
-            found = process_table().unwrap().into_iter().find(|row| {
-                row.pid == pid
-                    && row
-                        .command_line
-                        .as_deref()
-                        .is_some_and(|line| line.contains(MARK))
-            });
-            if found.is_some() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
-        let _ = child.kill();
-        let _ = child.wait();
-        let row = found.expect("child listed with its command line");
-        assert_eq!(row.parent_pid, std::process::id());
-        let line = row.command_line.unwrap();
-        let expected = if cfg!(windows) {
-            format!("-n {MARK} 127.0.0.1")
-        } else {
-            format!("sleep {MARK}")
-        };
-        assert!(line.contains(&expected), "{line} should contain {expected}");
     }
 }

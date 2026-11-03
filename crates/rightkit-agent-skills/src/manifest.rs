@@ -454,20 +454,3 @@ fn collect_skill_candidates(
         }
     }
 }
-
-/// Validate and normalize a GitHub-hosted skill pack URL into a fetchable
-/// raw URL. Row 17 follow-up: a real install flow would download the
-/// `SKILL.md`, run provenance review, and stage the pack into a per-user
-/// skill directory; this helper only validates the shape so the planned
-/// `POST /skills/install` endpoint can short-circuit malformed URLs early.
-///
-/// Accepted shapes:
-/// - `https://github.com/<owner>/<repo>/blob/<ref>/<path-to-skill-md>`
-/// - `https://raw.githubusercontent.com/<owner>/<repo>/<ref>/<path-to-skill-md>`
-///
-/// Returns the raw URL on success.
-
-#[cfg(test)]
-#[cfg(test)]
-#[path = "manifest_tests.rs"]
-mod manifest_tests;

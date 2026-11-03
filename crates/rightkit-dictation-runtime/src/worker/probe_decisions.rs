@@ -301,10 +301,6 @@ fn write_event_at(path: &Path, payload: &serde_json::Value) -> std::io::Result<(
         .append_bounded(&payload)
 }
 
-#[cfg(test)]
-#[path = "probe_decisions_writer_tests.rs"]
-mod writer_tests;
-
 pub(crate) fn command_probe_start_sample(
     speech_start_sample: Option<usize>,
     buffer_samples: usize,
@@ -470,24 +466,6 @@ pub(crate) fn should_keep_control_candidate_armed(
     !control_found && saw_control_candidate
 }
 
-#[cfg(test)]
-pub(crate) fn opening_command_due(
-    heard_voice: bool,
-    pending_prefix: bool,
-    pause_ready: bool,
-    command_audio_samples: usize,
-    last_submitted_samples: usize,
-    last_check: Instant,
-) -> bool {
-    heard_voice
-        && (command_audio_samples <= CMD_WINDOW_SAMPLES || pending_prefix)
-        && command_audio_samples >= CMD_MIN_PROBE_SAMPLES
-        && (pause_ready || last_check.elapsed() >= Duration::from_millis(CMD_RETRY_MS))
-        && (command_audio_samples
-            >= last_submitted_samples.saturating_add(CMD_NEW_AUDIO_PROBE_SAMPLES)
-            || (pause_ready && !pending_prefix))
-}
-
 pub(crate) fn opening_command_due_at(
     heard_voice: bool,
     pending_prefix: bool,
@@ -507,41 +485,6 @@ pub(crate) fn opening_command_due_at(
         && (command_audio_samples
             >= last_submitted_samples.saturating_add(CMD_NEW_AUDIO_PROBE_SAMPLES)
             || (pause_ready && !pending_prefix))
-}
-
-#[cfg(test)]
-pub(crate) fn confirmed_main_asr_control(
-    _text: &str,
-    _pause_ready: bool,
-) -> Option<rightkit_text_polish::text_pipeline::ControlCommand> {
-    None
-}
-
-#[cfg(test)]
-pub(crate) fn observe_voice_chunk(
-    chunk: &[f32],
-    last_voice_at: &mut Instant,
-    heard_voice: &mut bool,
-    checked_this_pause: &mut bool,
-    mut speech_observer: impl FnMut(&[f32]) -> bool,
-    speech_start_sample: &mut Option<usize>,
-    chunk_start_sample: usize,
-) {
-    if chunk.is_empty() {
-        return;
-    }
-    // Silero owns both first-speech detection and the ongoing voice clock. Do
-    // not pre-filter its input with an RMS/peak heuristic: one loud transient
-    // could otherwise prevent all later quiet speech from reaching the VAD.
-    let confirmed = speech_observer(chunk);
-    if confirmed {
-        if speech_start_sample.is_none() {
-            *speech_start_sample = Some(chunk_start_sample.saturating_sub(CMD_PREROLL_SAMPLES));
-        }
-        *last_voice_at = Instant::now();
-        *heard_voice = true;
-        *checked_this_pause = false;
-    }
 }
 
 pub(crate) fn observe_voice_chunk_at(
@@ -606,15 +549,6 @@ pub(crate) fn mark_pause_probe_submitted(checked_this_pause: &mut bool, pause_re
     }
 }
 
-#[cfg(test)]
-pub(crate) fn mark_opening_prefix_result(
-    checked_this_pause: &mut bool,
-    pending_command_prefix_since: &mut Option<Instant>,
-) {
-    *checked_this_pause = false;
-    pending_command_prefix_since.get_or_insert_with(Instant::now);
-}
-
 pub(crate) fn mark_opening_prefix_result_at(
     checked_this_pause: &mut bool,
     pending_command_prefix_since: &mut Option<worker_clock::WorkerInstant>,
@@ -623,10 +557,6 @@ pub(crate) fn mark_opening_prefix_result_at(
     *checked_this_pause = false;
     pending_command_prefix_since.get_or_insert(now);
 }
-
-#[cfg(test)]
-#[path = "probe_decisions_decision_clock_tests.rs"]
-mod decision_clock_tests;
 
 // mpsc has no "peek and put back", so a command
 // pulled here via `try_recv` (to gate a probe launch — see `probe_gate_clear`

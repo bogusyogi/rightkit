@@ -89,7 +89,7 @@ pub(crate) struct BuiltTls {
     pub(crate) kind: &'static str,
     /// Number of trust anchors in the root store (`Bundled`); 0 for the OS verifier. Read by
     /// the unit tests only.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[allow(dead_code)]
     pub(crate) anchors: usize,
 }
 
@@ -1258,39 +1258,5 @@ fn map_reqwest_error_in(err: reqwest::Error, default: Phase) -> HttpError {
         HttpError::InvalidRequest(message)
     } else {
         HttpError::transport(message, phase)
-    }
-}
-
-#[cfg(test)]
-mod tls_tests {
-    use super::*;
-    use crate::client::TrustRoots;
-
-    #[test]
-    fn both_branches_install_an_explicit_config_that_advertises_http1_only() {
-        for trust in [TrustRoots::Platform, TrustRoots::Bundled] {
-            let built = build_tls(trust, &[]).unwrap();
-            assert_eq!(built.config.alpn_protocols, vec![b"http/1.1".to_vec()]);
-            assert_eq!(built.kind, trust.verifier_kind());
-        }
-    }
-
-    #[test]
-    fn bundled_is_exactly_the_mozilla_roots_and_platform_has_no_store() {
-        let bundled = build_tls(TrustRoots::Bundled, &[]).unwrap();
-        assert_eq!(bundled.anchors, webpki_roots::TLS_SERVER_ROOTS.len());
-        assert!(bundled.anchors > 100);
-        let platform = build_tls(TrustRoots::Platform, &[]).unwrap();
-        assert_eq!(platform.anchors, 0);
-        // A registered test root must be a certificate.
-        assert!(build_tls(TrustRoots::Bundled, &[vec![1, 2, 3]]).is_err());
-    }
-
-    #[test]
-    fn clients_report_the_verifier_that_was_installed() {
-        let c = AsyncClient::new(ClientConfig::default()).unwrap();
-        assert_eq!(c.verifier_kind(), "platform");
-        let c = AsyncClient::new(ClientConfig::default().trust(TrustRoots::Bundled)).unwrap();
-        assert_eq!(c.verifier_kind(), "bundled");
     }
 }

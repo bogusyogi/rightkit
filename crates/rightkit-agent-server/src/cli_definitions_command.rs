@@ -542,27 +542,3 @@ pub enum BotCommand {
     /// Re-enable a previously paused Bot profile.
     Resume { id: String },
 }
-
-#[cfg(test)]
-mod command_group_tests {
-    use super::*;
-    #[test]
-    fn grouped_help_and_headless_run_options_are_real_cli_variants() {
-        let help = Cli::try_parse_from(["coderight", "help", "--all"])
-            .expect("registry help command must parse");
-        assert!(matches!(help.command, Command::Help { all: true }));
-
-        let run = Cli::try_parse_from([
-            "coderight",
-            "run",
-            "--print",
-            "--output-schema",
-            "schema.json",
-        ])
-        .expect("headless run contract must parse");
-        assert!(matches!(
-            run.command,
-            Command::Run { args } if args.print && args.output_schema.as_deref() == Some("schema.json")
-        ));
-    }
-}

@@ -22,11 +22,6 @@ mod hosted_run_session {
     // file no longer contains an executable daemon-only run loop.
     include!("main_runtime_run_session_service.rs");
 
-    #[cfg(test)]
-    pub(super) fn output_mode_args_for_daemon_client_tests() -> RunArgs {
-        run_session_unit_tests::output_mode_args()
-    }
-
     /// Canonical Refactor-1 run path. Both InlineHost and ServiceHost enter the
     /// same prompt normalization, output projection, semantic event handling,
     /// resync, terminal disposition, and exit-code logic here.
@@ -835,74 +830,11 @@ mod hosted_run_session {
             ))
         }
     }
-    #[cfg(test)]
-    mod vendor_option_validation_tests {
-        use super::*;
-        use rightkit_agents::driver_host::vendor_cli::VendorCli;
-
-        #[test]
-        fn claude_code_accepts_forwarded_run_flags() {
-            let mut args = output_mode_args_for_daemon_client_tests();
-            args.max_turns = Some(3);
-            args.max_budget_usd = Some(1.0);
-            args.system_prompt = Some("x".into());
-            args.append_system_prompt_file = Some("a.txt".into());
-            args.mcp_config = Some("m.json".into());
-            args.add_dir = vec!["d".into()];
-            assert_eq!(
-                validate_vendor_cli_options(&args, VendorCli::ClaudeCode),
-                Ok(())
-            );
-        }
-
-        #[test]
-        fn antigravity_rejects_flags_it_lacks_but_accepts_add_dir() {
-            let mut args = output_mode_args_for_daemon_client_tests();
-            args.add_dir = vec!["d".into()];
-            assert_eq!(
-                validate_vendor_cli_options(&args, VendorCli::Antigravity),
-                Ok(())
-            );
-            args.max_turns = Some(3);
-            args.mcp_config = Some("m.json".into());
-            let error = validate_vendor_cli_options(&args, VendorCli::Antigravity).unwrap_err();
-            assert!(
-                error.contains("--max-turns") && error.contains("--mcp-config"),
-                "{error}"
-            );
-            assert!(!error.contains("--add-dir"), "{error}");
-        }
-
-        #[test]
-        fn both_vendors_still_reject_tool_filters() {
-            let mut args = output_mode_args_for_daemon_client_tests();
-            args.tools = vec!["read".into()];
-            for kind in [VendorCli::ClaudeCode, VendorCli::Antigravity] {
-                assert!(validate_vendor_cli_options(&args, kind)
-                    .unwrap_err()
-                    .contains("--tools"));
-            }
-        }
-    }
-    #[cfg(test)]
-    mod hosted_cancellation_tests {
-        use super::*;
-        include!("main_runtime_cancel_tests.rs");
-    }
 }
 
 // Preserve the root names consumed by main_runtime_entry.rs. There is one
 // implementation; these are visibility imports, not duplicate logic.
 use hosted_run_session::{run_error_exit, select_run_output_mode, RunOutputMode};
-
-#[cfg(test)]
-mod run_session_unit_tests {
-    use super::*;
-
-    pub(super) fn output_mode_args() -> RunArgs {
-        super::hosted_run_session::output_mode_args_for_daemon_client_tests()
-    }
-}
 
 /// Shared CLI/TUI execution entry. Host selection is deliberately beneath
 /// presentation so both surfaces acquire InlineHost by default.

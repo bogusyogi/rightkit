@@ -34,7 +34,6 @@ path = "src/lib.rs"
 
 [features]
 default = []
-test-mode = []
 # Builds the black-box test binaries and enables the end-to-end tests (they also need a product skill host).
 e2e-harness = []
 qualification = ["rightkit-agent-engine-core/qualification"]
@@ -121,11 +120,7 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage
 
 [dev-dependencies]
 base64 = { version = "0.23" }
-rightkit-app-settings = { version = "0.3.1", path = "../rightkit-app-settings", features = ["agent_config", "agent_config-test-mode"] }
-rightkit-mcp = { version = "0.7.2", path = "../rightkit-mcp", features = ["agent_mcp", "agent_mcp-test-loopback"] }
-tower = { version = "0.5", features = ["util"] }
-http-body-util = { version = "0.1" }
-mockito = { version = "1" }
+rightkit-app-settings = { version = "0.3.1", path = "../rightkit-app-settings", features = ["agent_config"] }
 tiny_http = { version = "0.12" }
 portable-pty = { version = "0.9" }
 vt100 = { version = "0.18" }

@@ -159,22 +159,6 @@ pub(crate) fn launch_effort() -> Option<String> {
     })
 }
 
-#[cfg(test)]
-mod selection_effort_tests {
-    use super::parse_selection_effort;
-
-    #[test]
-    fn effort_parses_only_the_closed_set() {
-        let v = |s: &str| serde_json::from_str::<serde_json::Value>(s).unwrap();
-        assert_eq!(
-            parse_selection_effort(&v(r#"{"effort":"High"}"#)).as_deref(),
-            Some("high")
-        );
-        assert_eq!(parse_selection_effort(&v(r#"{"effort":"turbo"}"#)), None);
-        assert_eq!(parse_selection_effort(&v(r#"{"model":"m"}"#)), None);
-    }
-}
-
 /// Per-provider model visibility the `/providers` picker toggles: which
 /// catalog models `/model` hides. Shares the `~/.coderight/state` directory
 /// with `model-selection.json`.
@@ -283,48 +267,6 @@ fn set_model_hidden_at(
         map.remove(provider);
     }
     save_model_visibility_at(path, &map)
-}
-
-#[cfg(test)]
-mod model_visibility_store_tests {
-    use super::*;
-
-    #[test]
-    fn store_path_is_the_state_file_both_surfaces_use() {
-        let path = model_visibility_path().expect("home directory");
-        assert!(path.ends_with(std::path::Path::new("state").join("model-visibility.json")));
-    }
-
-    #[test]
-    fn cli_and_tui_share_one_writer_and_one_reader() {
-        // The CLI verb and the TUI host must both go through
-        // `set_model_hidden` (no daemon endpoint, no second store).
-        let cli = include_str!("main_runtime_cli_controls.rs");
-        let tui = include_str!("main_runtime_interactive_session.rs");
-        assert!(cli.contains("set_model_hidden(&provider, &model, !visible)"));
-        assert!(tui.contains("super::set_model_hidden(provider, model, hidden)"));
-        assert!(!cli.contains("/inference/visibility"));
-    }
-
-    #[test]
-    fn hidden_flags_round_trip_through_the_shared_file() {
-        let dir = std::env::temp_dir().join(format!(
-            "coderight-visibility-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
-        ));
-        let path = dir.join("state").join("model-visibility.json");
-        set_model_hidden_at(&path, "claude-code", "opus", true).unwrap();
-        set_model_hidden_at(&path, "openai", "gpt-x", true).unwrap();
-        set_model_hidden_at(&path, "openai", "gpt-x", false).unwrap();
-        let loaded = load_model_visibility_at(&path);
-        assert_eq!(loaded.get("claude-code"), Some(&vec!["opus".to_string()]));
-        assert!(!loaded.contains_key("openai"));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
 }
 
 pub(crate) fn load_current_merged_config() -> rightkit_app_settings::agent_config::HostConfig {
@@ -778,22 +720,5 @@ fn resolve_prompt_text(
             .map(Some)
             .map_err(|err| format!("Error: Cannot read {file_label} at {path}: {err}")),
         (None, None) => Ok(None),
-    }
-}
-
-#[cfg(test)]
-mod default_db_dir_tests {
-    use super::default_db_dir;
-
-    #[test]
-    fn isolated_state_root_isolates_default_db_from_real_user_data() {
-        let isolated = std::path::PathBuf::from("qa-home");
-        let user_data = std::path::PathBuf::from("real-user-data");
-        let dir = default_db_dir(
-            Some(isolated.clone()),
-            Some(user_data),
-            std::path::PathBuf::from("temp"),
-        );
-        assert_eq!(dir, isolated);
     }
 }

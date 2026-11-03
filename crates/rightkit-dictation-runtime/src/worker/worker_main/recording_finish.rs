@@ -291,24 +291,11 @@ impl Worker {
     ) {
         use rightkit_text_polish::text_pipeline::ControlIntent;
         let sid = session.id.clone();
-        #[cfg(test)]
-        let confirmation_sample = session.buffer.len();
         // The tail is appended unobserved: the cut resolver below decides
         // where the utterance ends. Spoken cancel saves to history and needs
         // no polish-only AX prefetch.
         let is_cancel = matches!(intent, ControlIntent::Cancel);
         self.close_capture_at_stop(&mut session, StopTail::Append, !is_cancel);
-        #[cfg(test)]
-        if let Some(controller) = replay_controller() {
-            let mut state = controller
-                .state
-                .0
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            state.confirmed_onset_sample = probe_result.trigger_onset_sample;
-            state.confirmation_sample = Some(confirmation_sample);
-            state.stop_buffer_samples = Some(session.buffer.len());
-        }
         if is_cancel {
             // Cancel-to-history: a spoken cancel must still SAVE the
             // utterance (0.1.86 contract), so run the full-buffer decode

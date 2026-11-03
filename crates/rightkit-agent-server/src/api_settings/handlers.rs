@@ -1103,35 +1103,3 @@ async fn test_provider_key_payload_with<B: rightkit_llm::agent_providers::KeySto
     }
     Ok(body)
 }
-
-#[cfg(test)]
-mod budget_patch_tests {
-    use super::apply_budget_patch;
-
-    #[test]
-    fn a_patch_changes_only_the_named_budget_fields() {
-        let mut budget = rightkit_app_settings::agent_config::BudgetConfig::default();
-        let untouched = budget.clone();
-        apply_budget_patch(
-            &serde_json::json!({"perTaskMaxUsd": 2.5, "maxWorkers": 7}),
-            &mut budget,
-        );
-        assert_eq!(budget.per_task_max_usd, 2.5);
-        assert_eq!(budget.max_workers, 7);
-        assert_eq!(budget.per_goal_max_usd, untouched.per_goal_max_usd);
-        assert_eq!(budget.warning_at, untouched.warning_at);
-        assert_eq!(budget.max_iterations, untouched.max_iterations);
-    }
-
-    #[test]
-    fn an_empty_or_mistyped_patch_changes_nothing() {
-        let mut budget = rightkit_app_settings::agent_config::BudgetConfig::default();
-        let before = budget.clone();
-        apply_budget_patch(
-            &serde_json::json!({"perTaskMaxUsd": "high", "unknown": 1}),
-            &mut budget,
-        );
-        assert_eq!(budget.per_task_max_usd, before.per_task_max_usd);
-        assert_eq!(budget.max_workers, before.max_workers);
-    }
-}

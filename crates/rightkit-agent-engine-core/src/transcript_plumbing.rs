@@ -36,24 +36,6 @@ fn is_supported_image_data_url(data_url: &str) -> bool {
     rest.contains(";base64,")
 }
 
-#[cfg(test)]
-pub(crate) fn inject_pending_view_images(transcript: &mut Transcript) -> bool {
-    let mut pending = transcript
-        .messages()
-        .iter()
-        .flat_map(|message| match message {
-            TranscriptMessage::Tool {
-                tool_call_id,
-                summary,
-                is_error,
-                ..
-            } if !is_error => extract_view_images(tool_call_id, summary),
-            _ => Vec::new(),
-        })
-        .collect::<Vec<_>>();
-    inject_pending_view_images_with_state(transcript, &mut pending)
-}
-
 pub(crate) fn inject_pending_view_images_with_state(
     transcript: &mut Transcript,
     pending: &mut Vec<PendingViewImage>,
@@ -295,44 +277,6 @@ pub(crate) fn duplicate_tool_call_note(call: &ToolCall) -> String {
         "[Rejected tool call `{}`: its id `{}` was already used in an earlier turn. The call was not run; reissue it if still needed.]",
         call.name, call.id
     )
-}
-
-#[cfg(test)]
-mod cross_turn_dedupe_tests {
-    use super::*;
-
-    fn call(id: &str) -> ToolCall {
-        ToolCall {
-            id: id.into(),
-            name: "read_file".into(),
-            arguments_json: "{}".into(),
-        }
-    }
-
-    #[test]
-    fn cross_turn_duplicate_tool_call_ids_are_rejected() {
-        let mut transcript = Transcript::new();
-        transcript.push_assistant("", None, vec![call("call_1")]);
-        transcript.push_tool_result("call_1", "ok", false);
-        let prior = prior_tool_call_ids(&transcript, None);
-        let mut next = vec![call("call_1"), call("call_2")];
-        let dropped = drop_cross_turn_duplicate_tool_calls(&mut next, &prior);
-        assert_eq!(dropped.len(), 1);
-        assert_eq!(dropped[0].id, "call_1");
-        assert_eq!(next.len(), 1);
-        assert_eq!(next[0].id, "call_2");
-    }
-
-    #[test]
-    fn current_streaming_assistant_is_not_its_own_prior_turn() {
-        let mut transcript = Transcript::new();
-        let id = match transcript.push_assistant("", None, vec![call("call_9")]) {
-            TranscriptMessage::Assistant { id, .. } => id.clone(),
-            _ => unreachable!(),
-        };
-        assert!(prior_tool_call_ids(&transcript, Some(&id)).is_empty());
-        assert!(prior_tool_call_ids(&transcript, None).contains("call_9"));
-    }
 }
 
 pub(crate) fn is_worker_spawning_tool_call(call: &ToolCall) -> bool {

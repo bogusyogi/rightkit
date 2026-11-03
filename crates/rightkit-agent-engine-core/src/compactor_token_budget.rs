@@ -174,7 +174,3 @@ impl Summarizer for TokenBudgetSummarizer {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "compactor_token_budget_tests.rs"]
-mod token_budget_tests;

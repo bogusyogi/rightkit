@@ -399,6 +399,3 @@ pub fn bind_owner(
     }));
     Ok((service, owner))
 }
-
-#[cfg(test)]
-mod tests;

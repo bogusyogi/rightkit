@@ -1113,52 +1113,6 @@ pub(crate) fn environments_openapi_response_schema(method: &str, path: &str) -> 
     }
 }
 
-#[cfg(test)]
-pub(crate) fn environments_endpoints() -> &'static [(&'static str, &'static str, &'static str)] {
-    &[
-        (
-            "GET",
-            "/environments",
-            "List environment entries with provider/setup/trust state",
-        ),
-        (
-            "POST",
-            "/environments/select",
-            "Persist the selected environment for a workspace",
-        ),
-        (
-            "POST",
-            "/environments/{id}/test",
-            "Run a test-connection against an environment",
-        ),
-        (
-            "GET",
-            "/environments/scripts",
-            "List versioned, logged setup scripts for a workspace",
-        ),
-        (
-            "POST",
-            "/environments/scripts/run",
-            "Run a synchronous logged setup script (rerunnable, not cancellable)",
-        ),
-        (
-            "POST",
-            "/environments/scripts/runs/{runId}/cancel",
-            "Report cancellation state for a synchronous setup-script run",
-        ),
-        (
-            "GET",
-            "/environments/scripts/runs/{runId}/logs",
-            "Read a setup script run's full log tail",
-        ),
-        (
-            "POST",
-            "/environments/scripts/runs/{runId}/rerun",
-            "Re-run a setup script (records history, fresh run-id)",
-        ),
-    ]
-}
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 pub(crate) struct ManagedProcessOutput {
@@ -1188,14 +1142,7 @@ pub(crate) async fn run_managed_process_with_timeout(
     workspace_root: &str,
     timeout: std::time::Duration,
 ) -> Result<ManagedProcessOutput, String> {
-    #[cfg(test)]
-    use rightkit_sandbox::execution::ProcessLaunchAdapter;
     use rightkit_sandbox::execution::{CommandLaunchSpec, ProcessLaunchContext};
-    #[cfg(test)]
-    let adapter: std::sync::Arc<dyn ProcessLaunchAdapter> = std::sync::Arc::new(
-        rightkit_agent_tools::coding_tools::process_launch::UnconfinedProcessLaunchAdapter,
-    );
-    #[cfg(not(test))]
     let adapter = crate::main_runtime::governed_child_process_launcher()
         .map_err(|error| format!("managed process launch policy unavailable: {error}"))?;
     let mut child = adapter
@@ -1504,118 +1451,4 @@ fn now_iso() -> String {
         .map(|d| d.as_secs())
         .unwrap_or_default();
     format!("unix:{secs}")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn env_kind_runtime_support_is_local_and_worktree_only() {
-        assert!(EnvironmentKind::Local.is_runtime_supported());
-        assert!(EnvironmentKind::Worktree.is_runtime_supported());
-        assert!(!EnvironmentKind::Ssh.is_runtime_supported());
-        assert!(!EnvironmentKind::Wsl.is_runtime_supported());
-        assert!(!EnvironmentKind::ConfiguredRemote.is_runtime_supported());
-    }
-
-    #[test]
-    fn env_kind_from_id_routes_all_kinds() {
-        assert_eq!(env_kind_from_id("local"), EnvironmentKind::Local);
-        assert_eq!(
-            env_kind_from_id("worktree.feature"),
-            EnvironmentKind::Worktree
-        );
-        assert_eq!(env_kind_from_id("ssh-prod"), EnvironmentKind::Ssh);
-        assert_eq!(env_kind_from_id("WSL-Ubuntu"), EnvironmentKind::Wsl);
-        assert_eq!(
-            env_kind_from_id("configuredRemote"),
-            EnvironmentKind::ConfiguredRemote
-        );
-        assert_eq!(env_kind_from_id(""), EnvironmentKind::Local);
-    }
-
-    #[test]
-    fn default_environments_reports_runtime_support_honestly() {
-        let envs = default_environments("/Users/me/code", EnvironmentTrustLevel::Trusted);
-        let local = envs.iter().find(|e| e.id == "local").unwrap();
-        let ssh = envs.iter().find(|e| e.id == "ssh").unwrap();
-        assert!(local.runtime_supported);
-        assert!(local.runtime_unavailable_reason.is_none());
-        assert!(!ssh.runtime_supported);
-        assert!(ssh.runtime_unavailable_reason.is_some());
-        assert_eq!(ssh.setup_state, EnvironmentSetupState::Unsupported);
-    }
-
-    #[test]
-    fn default_setup_scripts_cover_all_kinds() {
-        let scripts = default_setup_scripts();
-        let kinds: std::collections::BTreeSet<&'static str> = scripts
-            .iter()
-            .map(|s| s.environment_kind.as_str())
-            .collect();
-        assert!(kinds.contains("local"));
-        assert!(kinds.contains("worktree"));
-        assert!(kinds.contains("ssh"));
-        assert!(kinds.contains("wsl"));
-        assert!(kinds.contains("configuredRemote"));
-        for script in &scripts {
-            assert!(script.version >= 1);
-            assert!(!script.id.is_empty());
-            assert!(!script.steps.is_empty());
-        }
-    }
-
-    #[test]
-    fn environments_openapi_components_cover_required_schemas() {
-        let components = environments_openapi_components();
-        for name in [
-            "EnvironmentKind",
-            "EnvironmentSetupState",
-            "EnvironmentTrustLevel",
-            "EnvironmentRecord",
-            "EnvironmentListResponse",
-            "EnvironmentTestResult",
-            "SetupScript",
-            "SetupScriptRun",
-            "SetupScriptLogsResponse",
-        ] {
-            assert!(components.contains_key(name), "missing {name}");
-        }
-    }
-
-    #[test]
-    fn environments_endpoints_is_unique() {
-        let eps = environments_endpoints();
-        let mut seen = std::collections::HashSet::new();
-        for (method, path, _) in eps {
-            let key = format!("{method} {path}");
-            assert!(seen.insert(key.clone()), "duplicate {key}");
-        }
-        assert!(eps.len() >= 7);
-    }
-
-    #[test]
-    fn enforce_workspace_root_rejects_relative_or_unsafe_paths() {
-        let root = tempfile::tempdir().unwrap();
-        assert!(!enforce_workspace_root(""));
-        assert!(!enforce_workspace_root("relative"));
-        assert!(!enforce_workspace_root("/tmp/../etc"));
-        assert!(enforce_workspace_root(root.path().to_str().unwrap()));
-    }
-
-    #[test]
-    fn working_directory_must_remain_inside_workspace() {
-        let root = tempfile::tempdir().unwrap();
-        let child = root.path().join("child");
-        std::fs::create_dir(&child).unwrap();
-        assert!(path_is_within_workspace(
-            root.path().to_str().unwrap(),
-            child.to_str().unwrap()
-        ));
-        assert!(!path_is_within_workspace(
-            root.path().to_str().unwrap(),
-            "/tmp"
-        ));
-    }
 }

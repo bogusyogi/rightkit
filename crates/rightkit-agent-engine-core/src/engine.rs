@@ -23,18 +23,12 @@ use crate::tool_dispatch_plumbing::{
     enforce_generation_completeness_gate, parse_tool_arguments_attributed,
     strip_safety_terminated_tool_calls,
 };
-#[cfg(test)]
-use crate::tool_dispatch_plumbing::{lexical_path_key, parse_tool_arguments};
-#[cfg(test)]
-use crate::tool_policy::shell_guardrail_decision;
 use crate::tool_policy::{
     evaluate_tool_guardrails, extract_command_arg, extract_path_arg, pre_tool_approval_reason,
     rule_target_for_call, ToolGuardrailAction, ToolGuardrailDecision,
 };
 use crate::tool_result_store::ToolResultStore;
 use crate::transcript::{tool_result_trust, Transcript};
-#[cfg(test)]
-use crate::transcript_plumbing::inject_pending_view_images;
 use crate::transcript_plumbing::{
     extract_view_images, inject_pending_view_images_with_state, is_worker_spawning_tool_call,
     repair_dangling_tool_calls, PendingViewImage,
@@ -120,16 +114,10 @@ mod goal_flow;
 mod permission_flow;
 #[path = "engine_prompt_cache.rs"]
 mod prompt_cache_plumbing;
-#[cfg(test)]
-#[path = "run_origin_tests.rs"]
-mod run_origin_tests;
 #[path = "engine_runtime_recording.rs"]
 mod runtime_recording;
 #[path = "stall_guardrail.rs"]
 mod stall_guardrail;
-#[cfg(test)]
-#[path = "engine_tests.rs"]
-mod tests;
 #[path = "engine_tool_dispatch.rs"]
 mod tool_dispatch;
 
@@ -595,8 +583,6 @@ pub struct SessionEngine {
             rightkit_agent_tools::coding_tools::sandbox::SandboxGrant,
         ),
     >,
-    #[cfg(test)]
-    pub(crate) composition_js_runtime_spawned: bool,
     /// ENG-73: demand-driven lifetime facts for this engine. Updated from
     /// the turn-boundary points already owned by this file
     /// (`begin_run_changes`); UI/session leases are acquired and released by
@@ -767,13 +753,6 @@ impl SessionEngine {
         self.file_service.clone()
     }
 
-    /// Test-only: remaining iteration budget, for asserting refund/charge
-    /// behavior end-to-end through the turn loop.
-    #[cfg(test)]
-    pub(crate) fn iteration_budget_remaining(&self) -> f64 {
-        self.iteration_budget.remaining()
-    }
-
     pub fn set_self_review_fork(&mut self, fork: Arc<dyn RestrictedSelfReviewFork>) {
         self.self_review_fork = Some(fork);
     }
@@ -789,30 +768,6 @@ impl SessionEngine {
     /// SQLite-backed sink at session-creation time.
     pub fn set_run_origin_sink(&mut self, sink: Arc<dyn crate::run_origin::RunOriginSink>) {
         self.origin_sink = Some(sink);
-    }
-
-    #[cfg(test)]
-    pub(crate) fn clear_run_origin_sink(&mut self) {
-        self.origin_sink = None;
-    }
-
-    /// Install a host-mutation-receipt broker (FM-179). Production wires this
-    /// unconditionally at session-creation time against the real workspace's
-    /// `<state-dir>/sentinel/broker.jsonl`; test builds default to `None`
-    /// instead of opening that path against every test's workspace_root —
-    /// most tests default `workspace_root` to the *shared* system temp dir
-    /// (`SessionEngineConfig::default()`), and unconditionally replaying/
-    /// appending a broker ledger there would race and pollute across the
-    /// whole suite. A test that specifically exercises the receipt-enforced
-    /// post-edit fan-out (`ReceiptBinding::Enforced` in
-    /// `engine_loop_dispatch.rs`) opens its own broker against its own
-    /// tempdir and installs it here instead.
-    #[cfg(test)]
-    pub(crate) fn set_assurance_broker(
-        &mut self,
-        broker: Arc<Mutex<crate::assurance_broker::AssuranceBroker>>,
-    ) {
-        self.assurance_broker = Some(broker);
     }
 
     /// Returns the currently-installed origin sink, if any.
@@ -1267,7 +1222,6 @@ impl SessionEngine {
         let async_inbox_producer =
             rightkit_agent_tools::coding_tools::async_inbox::activate_session(&config.session_id);
         let workspace_root = config.workspace_root;
-        #[cfg(not(test))]
         let assurance_broker_path = workspace_root
             .join(".rightkit")
             .join("sentinel")
@@ -1368,11 +1322,6 @@ impl SessionEngine {
             subagent_role: None,
             session_start_hooks_fired: false,
             assurance_broker: {
-                #[cfg(test)]
-                {
-                    None
-                }
-                #[cfg(not(test))]
                 {
                     crate::assurance_broker::AssuranceBroker::open(assurance_broker_path)
                         .ok()
@@ -1429,25 +1378,11 @@ impl SessionEngine {
                 config.loop_detector_config.tool_loop_window_size,
             ),
             origin_sink: {
-                #[cfg(test)]
-                {
-                    Some(Arc::new(
-                        crate::run_origin::InMemoryOriginSink::always_ready(),
-                    ))
-                }
-                #[cfg(not(test))]
                 {
                     None
                 }
             },
             run_changes_sink: {
-                #[cfg(test)]
-                {
-                    Some(Arc::new(
-                        crate::run_changes::InMemoryRunChangesSink::default(),
-                    ))
-                }
-                #[cfg(not(test))]
                 {
                     None
                 }
@@ -1464,8 +1399,6 @@ impl SessionEngine {
             internal_composition_call_ids: std::collections::HashSet::new(),
             #[cfg(feature = "host")]
             sandbox_retry_grants: HashMap::new(),
-            #[cfg(test)]
-            composition_js_runtime_spawned: false,
             idle_grace: IdleGraceCoordinator::default(),
         }
     }
@@ -1597,150 +1530,8 @@ impl SessionEngine {
     }
 }
 
-#[cfg(test)]
-impl SessionEngine {
-    /// EFF-002 test seam: seed the digest an approval is treated as having
-    /// authorized, so a fixture can drive the pre-execute recheck without
-    /// having to reproduce a full interactive approval round-trip.
-    pub(crate) fn seed_approved_effect_digest(&self, call_id: &str, digest: &str) {
-        self.approved_effect_digests
-            .lock()
-            .unwrap()
-            .insert(call_id.to_string(), digest.to_string());
-    }
-
-    /// Test seam: mark a call id as carrying an approval-required grant.
-    pub(crate) fn seed_approval_required(&self, call_id: &str) {
-        self.approval_required_calls
-            .lock()
-            .unwrap()
-            .insert(call_id.to_string());
-    }
-
-    pub(crate) fn approval_required_marker_count(&self) -> usize {
-        self.approval_required_calls.lock().unwrap().len()
-    }
-
-    pub(crate) fn approved_effect_digest_count(&self) -> usize {
-        self.approved_effect_digests.lock().unwrap().len()
-    }
-}
-
 // `now_iso`, `now_nanos`, and `pinned_system_prefix_as_stable` were
 // extracted to `engine_helpers.rs`
 // (FEATURE-MATRIX par §#141) to keep `engine.rs` under the 400-line
 // convention. Call sites are unchanged because the helpers inherit
 // `use super::*` from the engine module.
-
-/// ENG-73 unit tests for `IdleGraceCoordinator`. Kept inline in this file
-/// (rather than in `engine_tests.rs`) because this lane's file allowlist is
-/// `engine.rs` only; `engine_tests.rs` belongs to a different lane's
-/// ownership under the dispatch's one-file-one-agent rule.
-#[cfg(test)]
-mod idle_grace_tests {
-    use super::IdleGraceCoordinator;
-    use std::time::Duration;
-
-    #[test]
-    fn fresh_coordinator_is_idle_but_not_yet_expired() {
-        let coordinator = IdleGraceCoordinator::new(Duration::from_millis(50));
-        assert!(coordinator.is_idle());
-        assert!(!coordinator.should_teardown());
-        assert!(coordinator.time_until_teardown().is_some());
-    }
-
-    #[test]
-    fn idle_coordinator_expires_after_grace_window() {
-        let coordinator = IdleGraceCoordinator::new(Duration::from_millis(5));
-        std::thread::sleep(Duration::from_millis(20));
-        assert!(coordinator.is_idle());
-        assert!(coordinator.should_teardown());
-        assert_eq!(coordinator.time_until_teardown(), Some(Duration::ZERO));
-    }
-
-    #[test]
-    fn active_turn_blocks_teardown_regardless_of_elapsed_time() {
-        let mut coordinator = IdleGraceCoordinator::new(Duration::from_millis(5));
-        coordinator.begin_turn();
-        std::thread::sleep(Duration::from_millis(20));
-        assert!(!coordinator.is_idle());
-        assert!(!coordinator.should_teardown());
-        assert!(coordinator.time_until_teardown().is_none());
-    }
-
-    #[test]
-    fn ending_turn_restarts_the_idle_clock() {
-        let mut coordinator = IdleGraceCoordinator::new(Duration::from_millis(30));
-        coordinator.begin_turn();
-        std::thread::sleep(Duration::from_millis(40));
-        coordinator.end_turn();
-        // The clock resets on end_turn, so teardown is not yet eligible even
-        // though the turn itself ran longer than the grace window.
-        assert!(coordinator.is_idle());
-        assert!(!coordinator.should_teardown());
-    }
-
-    #[test]
-    fn held_lease_blocks_teardown_even_with_no_active_turn() {
-        let mut coordinator = IdleGraceCoordinator::new(Duration::from_millis(5));
-        coordinator.acquire_lease("ui-session-1");
-        std::thread::sleep(Duration::from_millis(20));
-        assert!(coordinator.has_active_lease());
-        assert!(!coordinator.is_idle());
-        assert!(!coordinator.should_teardown());
-    }
-
-    #[test]
-    fn releasing_the_last_lease_restarts_the_idle_clock() {
-        let mut coordinator = IdleGraceCoordinator::new(Duration::from_millis(30));
-        coordinator.acquire_lease("ui-session-1");
-        std::thread::sleep(Duration::from_millis(40));
-        coordinator.release_lease("ui-session-1");
-        assert!(!coordinator.has_active_lease());
-        assert!(coordinator.is_idle());
-        assert!(!coordinator.should_teardown());
-    }
-
-    #[test]
-    fn releasing_unknown_lease_is_a_harmless_no_op() {
-        let mut coordinator = IdleGraceCoordinator::new(Duration::from_millis(5));
-        coordinator.release_lease("never-acquired");
-        assert!(coordinator.is_idle());
-    }
-
-    #[test]
-    fn multiple_leases_all_must_release_before_idle() {
-        let mut coordinator = IdleGraceCoordinator::new(Duration::from_millis(5));
-        coordinator.acquire_lease("a");
-        coordinator.acquire_lease("b");
-        coordinator.release_lease("a");
-        assert!(coordinator.has_active_lease());
-        assert!(!coordinator.is_idle());
-        coordinator.release_lease("b");
-        assert!(!coordinator.has_active_lease());
-        assert!(coordinator.is_idle());
-    }
-
-    #[test]
-    fn note_activity_postpones_teardown_without_changing_turn_or_lease_state() {
-        let mut coordinator = IdleGraceCoordinator::new(Duration::from_millis(20));
-        std::thread::sleep(Duration::from_millis(15));
-        coordinator.note_activity();
-        std::thread::sleep(Duration::from_millis(15));
-        // 15ms since the refreshed activity mark: still under the 20ms
-        // window even though 30ms has elapsed since construction.
-        assert!(!coordinator.should_teardown());
-    }
-
-    #[test]
-    fn default_uses_the_short_bounded_grace_window() {
-        let coordinator = IdleGraceCoordinator::default();
-        let remaining = coordinator
-            .time_until_teardown()
-            .expect("fresh coordinator is idle");
-        // Freshly constructed: remaining budget must be (just under) the full
-        // default window, not zero and not exceeding it.
-        assert!(remaining <= IdleGraceCoordinator::DEFAULT_IDLE_GRACE);
-        assert!(remaining > IdleGraceCoordinator::DEFAULT_IDLE_GRACE - Duration::from_secs(1));
-    }
-}

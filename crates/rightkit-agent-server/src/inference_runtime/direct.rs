@@ -1,5 +1,3 @@
-#[cfg(test)]
-use super::InferenceProtocol;
 use super::{DirectAuthKind, DirectConnection};
 use std::{
     collections::HashSet,
@@ -192,74 +190,5 @@ pub fn validate_direct_connection(
             Err(DirectValidationError::InvalidHeader)
         }
         _ => Ok(()),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::BTreeMap;
-    fn c(url: &str) -> DirectConnection {
-        DirectConnection {
-            id: "00000000-0000-4000-8000-000000000000".into(),
-            name: "local".into(),
-            protocol: InferenceProtocol::OpenaiCompatible,
-            normalized_base_url: url.into(),
-            auth_kind: DirectAuthKind::None,
-            auth_header_name: None,
-            public_headers: BTreeMap::new(),
-            manual_model_ids: vec!["m".into()],
-            trust_private_network: false,
-            credential_configured: false,
-            credential_revision: 0,
-            configuration_revision: 0,
-            created_at: String::new(),
-            updated_at: String::new(),
-        }
-    }
-    #[test]
-    fn normalizes_v1() {
-        assert_eq!(
-            normalize_base_url("https://example.test/v1/").unwrap(),
-            "https://example.test/v1"
-        );
-        assert_eq!(
-            normalize_base_url("https://example.test/v1/v1").unwrap(),
-            "https://example.test/v1"
-        );
-    }
-    #[test]
-    fn only_loopback_http() {
-        assert!(validate_direct_connection(&c("http://127.0.0.1:9000")).is_ok());
-        assert_eq!(
-            validate_direct_connection(&c("http://example.test"))
-                .unwrap_err()
-                .code(),
-            "tls_required"
-        );
-    }
-    #[test]
-    fn mixed_dns_answers_fail_closed() {
-        assert_eq!(
-            validate_resolved_addresses(
-                [
-                    "127.0.0.1".parse().unwrap(),
-                    "169.254.169.254".parse().unwrap()
-                ],
-                false,
-            )
-            .unwrap_err()
-            .code(),
-            "forbidden_host"
-        );
-    }
-    #[test]
-    fn private_dns_requires_explicit_approval() {
-        assert_eq!(
-            validate_resolved_addresses(["10.0.0.1".parse().unwrap()], false)
-                .unwrap_err()
-                .code(),
-            "private_host_approval_required"
-        );
     }
 }

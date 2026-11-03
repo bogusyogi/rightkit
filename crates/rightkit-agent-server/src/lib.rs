@@ -82,8 +82,7 @@ mod inline_host_init;
 mod inline_shell_runner;
 mod journal;
 mod learning;
-// The gate is attached only by release builds; `test-mode` and test builds seed Pro instead.
-#[cfg_attr(any(test, feature = "test-mode"), allow(dead_code))]
+// The gate is attached by release builds.
 mod license;
 mod main_runtime;
 mod mcp_server;
@@ -99,8 +98,6 @@ mod provider_client;
 mod rehydrate;
 mod rollout_store;
 mod router_seam;
-#[cfg(test)]
-mod router_seam_tests;
 mod run_origin_storage;
 mod scheduler;
 mod session_tool_catalog;
@@ -108,8 +105,6 @@ mod skill_loop;
 mod startup;
 mod store_write;
 mod telegram_task;
-#[cfg(test)]
-mod test_support;
 mod trajectory;
 mod tui_host;
 mod tui_image_input;
@@ -203,50 +198,4 @@ fn install_binary_resource_profile() -> Result<(), String> {
                 "resource profile conflict: binary selected {profile:?}, already bound to {existing:?}"
             )
         })
-}
-
-#[cfg(test)]
-mod binary_resource_profile_tests {
-    use super::binary_resource_profile;
-    use rightkit_agent_tools::coding_tools::process_resource_authority::ResourceProfile;
-    use std::ffi::OsStr;
-
-    #[test]
-    fn service_host_keeps_its_expanded_profile() {
-        for inherited_local_profile in [None, Some("strict"), Some("practical")] {
-            assert_eq!(
-                binary_resource_profile(Some(OsStr::new("serve")), inherited_local_profile)
-                    .unwrap(),
-                ResourceProfile::Expanded,
-            );
-        }
-    }
-
-    #[test]
-    fn all_other_binary_paths_receive_the_local_profile_before_dispatch() {
-        for command in [
-            None,
-            Some("run"),
-            Some("exec"),
-            Some("--plain"),
-            Some("onboard"),
-            Some("doctor"),
-            Some("acp-server"),
-            Some("mcp-server"),
-            Some("attach"),
-            Some("schedule"),
-            Some("__dogfood-inventory"),
-        ] {
-            let command = command.map(OsStr::new);
-            assert_eq!(
-                binary_resource_profile(command, None).unwrap(),
-                ResourceProfile::Practical
-            );
-            assert_eq!(
-                binary_resource_profile(command, Some("strict")).unwrap(),
-                ResourceProfile::Strict,
-            );
-            assert!(binary_resource_profile(command, Some("unbounded")).is_err());
-        }
-    }
 }

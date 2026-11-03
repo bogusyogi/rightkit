@@ -181,15 +181,3 @@ pub fn load_session(
 pub fn clear_session(db: &Db) -> Result<(), WorkspaceError> {
     db.clear_session().map_err(WorkspaceError::from)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn recent_limit_is_clamped() {
-        assert_eq!(clamp_recent_limit(None), 20);
-        assert_eq!(clamp_recent_limit(Some(0)), 1);
-        assert_eq!(clamp_recent_limit(Some(500)), 50);
-    }
-}

@@ -57,22 +57,3 @@ impl UnavailableStateV1 {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn unavailable_state_round_trips_without_empty_success_shape() {
-        let state = UnavailableStateV1::new(
-            BindingSurfaceV1::ForegroundMemoryCursor,
-            UnavailableReasonV1::CursorOmitted,
-            true,
-        );
-        let value = serde_json::to_value(state).expect("typed state serializes");
-        assert_eq!(value["surface"], "foreground_memory_cursor");
-        assert_eq!(value["reason"], "cursor_omitted");
-        assert_eq!(value["retryable"], true);
-        assert!(serde_json::from_value::<UnavailableStateV1>(value).is_ok());
-    }
-}

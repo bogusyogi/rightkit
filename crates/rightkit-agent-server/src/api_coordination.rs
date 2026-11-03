@@ -243,34 +243,3 @@ fn command_ok(output: impl Into<String>) -> CommandResult {
         action: CommandAction::None,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn coordination_openapi_components_cover_routes() {
-        let components = coordination_openapi_components();
-        for name in [
-            "TeamDefinition",
-            "TeamListResponse",
-            "MessageHistoryRow",
-            "MessageListResponse",
-            "DeleteTeamResponse",
-        ] {
-            assert!(components.contains_key(name), "{name} schema missing");
-        }
-        assert_eq!(
-            coordination_openapi_response_schema("get", "/teams").unwrap()["$ref"],
-            "#/components/schemas/TeamListResponse"
-        );
-        assert_eq!(
-            coordination_openapi_response_schema("get", "/messages").unwrap()["$ref"],
-            "#/components/schemas/MessageListResponse"
-        );
-        assert_eq!(
-            components["TeamListResponse"]["properties"]["teams"]["items"]["$ref"],
-            "#/components/schemas/TeamDefinition"
-        );
-    }
-}

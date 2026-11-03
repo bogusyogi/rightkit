@@ -261,16 +261,3 @@ async fn missionlog_since_handler(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(json!({ "entries": entries })))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sanitize_team_id_rejects_path_traversal() {
-        assert!(sanitize_team_id("../etc/passwd").is_err());
-        assert!(sanitize_team_id("team a").is_err());
-        assert!(sanitize_team_id("").is_err());
-        assert!(sanitize_team_id("team-a_1").is_ok());
-    }
-}

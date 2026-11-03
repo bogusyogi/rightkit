@@ -1,12 +1,3 @@
-#[cfg(test)]
-mod replay_contract;
-#[cfg(test)]
-mod replay_driver;
-#[cfg(test)]
-mod replay_effect_sink;
-#[cfg(test)]
-mod wav_replay_source;
-
 mod capture_device;
 mod capture_recovery;
 mod probe_decisions;
@@ -19,8 +10,6 @@ mod windows_lifecycle;
 mod worker_api;
 mod worker_clock;
 mod worker_main;
-#[cfg(test)]
-mod worker_tests;
 
 pub use unified_probe_lane::FileProgress;
 

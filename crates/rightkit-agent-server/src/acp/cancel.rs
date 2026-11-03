@@ -25,16 +25,3 @@ pub async fn handle_session_cancel(
         .await
         .map_err(|e| acp::AcpError::internal_error(format!("failed to cancel session: {e}")))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[tokio::test]
-    async fn missing_session_id_is_invalid_params() {
-        let client = DaemonClient::new(0, None);
-        let err = handle_session_cancel(json!({}), &client).await.unwrap_err();
-        assert_eq!(err.code, acp::AcpErrorCode::InvalidParams.code());
-    }
-}

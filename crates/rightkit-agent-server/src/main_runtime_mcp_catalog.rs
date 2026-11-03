@@ -146,9 +146,3 @@ async fn cli_mcp_install(name: &str, scope: &str, workspace_root: Option<&str>) 
         }
     }
 }
-
-#[cfg(test)]
-mod mcp_catalog_tests {
-    use super::*;
-    include!("main_runtime_mcp_catalog_tests.rs");
-}

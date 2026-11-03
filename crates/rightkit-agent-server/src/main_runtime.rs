@@ -54,12 +54,3 @@ include!("main_runtime_daemon_actions.rs");
 include!("main_runtime_daemon_exports.rs");
 include!("main_runtime_server.rs");
 include!("main_runtime_config.rs");
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    include!("main_runtime_tests_1.rs");
-    include!("main_runtime_tests_2.rs");
-    include!("main_runtime_tests_3.rs");
-    include!("main_runtime_tests_4.rs");
-}

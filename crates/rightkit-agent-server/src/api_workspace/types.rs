@@ -67,22 +67,9 @@ pub(crate) enum PolicyError {
 impl PolicyError {
     pub fn status(&self) -> StatusCode {
         match self {
-            PolicyError::BadRequest(reason) => {
-                debug_assert!(!reason.is_empty());
-                StatusCode::BAD_REQUEST
-            }
-            PolicyError::Forbidden(reason) => {
-                debug_assert!(!reason.is_empty());
-                StatusCode::FORBIDDEN
-            }
+            PolicyError::BadRequest(reason) => StatusCode::BAD_REQUEST,
+            PolicyError::Forbidden(reason) => StatusCode::FORBIDDEN,
             PolicyError::NotFound => StatusCode::NOT_FOUND,
-        }
-    }
-    #[cfg(test)]
-    pub fn reason(&self) -> String {
-        match self {
-            PolicyError::BadRequest(m) | PolicyError::Forbidden(m) => m.clone(),
-            PolicyError::NotFound => "not found".to_string(),
         }
     }
 }

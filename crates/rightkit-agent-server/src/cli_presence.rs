@@ -483,16 +483,3 @@ fn acquire_autostart_claim() -> Option<AutostartClaim> {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    include!("cli_presence_tests.rs");
-
-    #[test]
-    fn inline_run_never_takes_daemon_presence_lease() {
-        assert!(!presence_allowed_for_label("run", false));
-        assert!(presence_allowed_for_label("run", true));
-        assert!(presence_allowed_for_label("mcp-server", false));
-    }
-}

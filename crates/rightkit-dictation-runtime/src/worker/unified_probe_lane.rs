@@ -43,8 +43,6 @@ pub(crate) struct ProbeResult {
     /// Monotonic send boundary used to separate result-consumer delay from
     /// mailbox/decode time in stale-result diagnostics.
     pub(crate) completed_at: Instant,
-    #[cfg(test)]
-    pub(crate) measured_decode_duration: Duration,
     pub(crate) native_origin_sample: usize,
     /// KWS graph output is a closed, canonical command set. Preserve that
     /// typed decision instead of reclassifying its text through fuzzy ASR.
@@ -85,8 +83,6 @@ pub(crate) struct IdleWakeResult {
 pub(crate) struct OpeningCommandRequest {
     pub(crate) generation: u64,
     pub(crate) session_id: String,
-    #[cfg(test)]
-    pub(crate) submitted_at: worker_clock::WorkerInstant,
     pub(crate) created_at: Instant,
     pub(crate) audio: Vec<f32>,
     pub(crate) speech_start_sample: Option<usize>,
@@ -101,16 +97,6 @@ pub(crate) struct OpeningCommandResult {
     pub(crate) request: OpeningCommandRequest,
     pub(crate) transcript: Result<String, String>,
     pub(crate) decode_ms: u64,
-    #[cfg(test)]
-    pub(crate) measured_decode_duration: Duration,
-}
-
-#[cfg(test)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct LaneCompletion {
-    pub(crate) lane: worker_clock::ExecutorLane,
-    pub(crate) submitted_at: worker_clock::WorkerInstant,
-    pub(crate) measured_decode_duration: Duration,
 }
 
 pub(crate) fn should_use_fresh_confirmation_fallback(lane: &str, pending_prefix: bool) -> bool {
@@ -133,44 +119,6 @@ pub(crate) fn should_use_cleanup_first_control(
         )
         && native_intent == Some(intent)
         && onset_sample.is_some_and(|onset| onset > 0)
-}
-
-#[cfg(test)]
-impl LaneCompletion {
-    pub(crate) fn schedule_on(self, schedule: &mut worker_clock::ReplayEventSchedule) {
-        schedule.schedule_lane_completion(
-            self.lane,
-            self.submitted_at,
-            self.measured_decode_duration,
-        );
-    }
-}
-
-#[cfg(test)]
-pub(crate) trait HasLaneCompletion {
-    fn lane_completion(&self) -> LaneCompletion;
-}
-
-#[cfg(test)]
-impl HasLaneCompletion for ProbeResult {
-    fn lane_completion(&self) -> LaneCompletion {
-        LaneCompletion {
-            lane: worker_clock::ExecutorLane::Kws,
-            submitted_at: self.request.submitted_at,
-            measured_decode_duration: self.measured_decode_duration,
-        }
-    }
-}
-
-#[cfg(test)]
-impl HasLaneCompletion for OpeningCommandResult {
-    fn lane_completion(&self) -> LaneCompletion {
-        LaneCompletion {
-            lane: worker_clock::ExecutorLane::MainAsr,
-            submitted_at: self.request.submitted_at,
-            measured_decode_duration: self.measured_decode_duration,
-        }
-    }
 }
 
 /// Keep bounded VAD history for recording lifecycle bookkeeping. Terminal
@@ -750,8 +698,6 @@ impl MainAsrMailbox {
         if !self.exclusivity.queue_opening() {
             return false;
         }
-        #[cfg(test)]
-        replay_mark_lane_in_flight(worker_clock::ExecutorLane::MainAsr, request.submitted_at);
         state.latest_opening = Some(request);
         drop(state);
         self.ready.notify_one();
@@ -1078,13 +1024,9 @@ impl ProbeMailbox {
         if !self.exclusivity.queue_probe() {
             return false;
         }
-        #[cfg(test)]
-        replay_mark_lane_in_flight(worker_clock::ExecutorLane::Kws, request.submitted_at);
         trace_probe_lifecycle(&request, "queued", None, None);
         if let Some(replaced) = state.latest_probe.replace(request) {
             trace_probe_lifecycle(&replaced, "pending_replaced", None, None);
-            #[cfg(test)]
-            replay_note_probe_discarded(replaced.total_samples);
         }
         drop(state);
         self.ready.notify_one();
@@ -1096,8 +1038,6 @@ impl ProbeMailbox {
         if let Some(cleared) = state.latest_probe.take() {
             self.exclusivity.clear_probe_queue();
             trace_probe_lifecycle(&cleared, "pending_cleared", None, None);
-            #[cfg(test)]
-            replay_note_probe_discarded(cleared.total_samples);
         }
         state.idle_wake.clear();
     }
@@ -1249,8 +1189,6 @@ pub(crate) struct AsrExecutor {
     reload_tx: Sender<ReloadCoordinatorCommand>,
     reload_result_rx: Receiver<ReloadCompletion>,
     reload_next_id: std::sync::atomic::AtomicU64,
-    #[cfg(test)]
-    reload_lock: Arc<std::sync::Mutex<()>>,
 }
 
 pub(crate) struct AsrWorkerAlive {
@@ -1267,11 +1205,6 @@ impl Drop for AsrWorkerAlive {
 }
 
 impl AsrExecutor {
-    #[cfg(all(test, target_os = "macos"))]
-    pub(crate) fn spawn(models_dir: PathBuf, ep: AsrEp) -> Result<Self, String> {
-        Self::spawn_with_wait_signal(models_dir, ep, Arc::new(WorkerWaitSignal::default()))
-    }
-
     pub(crate) fn spawn_with_wait_signal(
         models_dir: PathBuf,
         ep: AsrEp,
@@ -1291,8 +1224,6 @@ impl AsrExecutor {
         let main_worker_alive = Arc::clone(&main_alive);
         let main_wait_signal = Arc::clone(&wait_signal);
         let main_models_dir = models_dir.clone();
-        #[cfg(all(test, any(target_os = "macos", target_os = "windows")))]
-        let trigger_replay = TRIGGER_REPLAY_ACTIVE.load(std::sync::atomic::Ordering::Acquire);
 
         std::thread::Builder::new()
             .name("hr-main-asr-worker".to_string())
@@ -1302,20 +1233,6 @@ impl AsrExecutor {
                     wait_signal: Arc::clone(&main_wait_signal),
                 };
                 crate::perf_levers::apply_thread_qos("hr-main-asr-worker");
-                #[cfg(all(test, any(target_os = "macos", target_os = "windows")))]
-                let mut model = if trigger_replay {
-                    AsrRuntime::ProbeDisabled
-                } else {
-                    match AsrRuntime::load(&main_models_dir, ep) {
-                        Ok(model) => model,
-                        Err(error) => {
-                            let _ = main_ready_tx
-                                .send(Err(format!("main ASR model load: {error}")));
-                            return;
-                        }
-                    }
-                };
-                #[cfg(not(all(test, any(target_os = "macos", target_os = "windows"))))]
                 let mut model = match AsrRuntime::load(&main_models_dir, ep) {
                     Ok(model) => model,
                     Err(error) => {
@@ -1556,17 +1473,7 @@ impl AsrExecutor {
                                 request,
                                 transcript,
                                 decode_ms: measured_decode_duration.as_millis() as u64,
-                                #[cfg(test)]
-                                measured_decode_duration,
                             };
-                            #[cfg(test)]
-                            {
-                                let completion = opening_result.lane_completion();
-                                replay_schedule_lane_completion(completion);
-                                while !replay_lane_completion_ready(completion) {
-                                    std::thread::yield_now();
-                                }
-                            }
                             main_worker_mailbox.exclusivity.opening_finished();
                             let _ = opening_result_tx.send(opening_result);
                             main_wait_signal.notify();
@@ -1814,11 +1721,6 @@ impl AsrExecutor {
                             probe_wait_signal.notify();
                         }
                         ProbeJob::Probe(request) => {
-                            #[cfg(test)]
-                            replay_mark_lane_started(
-                                worker_clock::ExecutorLane::Kws,
-                                request.submitted_at,
-                            );
                             let started = Instant::now();
                             let queue_wait_ms =
                                 started.duration_since(request.created_at).as_millis() as u64;
@@ -1959,8 +1861,6 @@ impl AsrExecutor {
                                 probe_native_origin_sample = 0;
                             }
                             let probe_ms = started.elapsed().as_millis() as u64;
-                            #[cfg(test)]
-                            let measured_decode_duration = started.elapsed();
                             trace_probe_lifecycle(
                                 &request,
                                 "inference_finished",
@@ -1973,8 +1873,6 @@ impl AsrExecutor {
                                 probe_ms,
                                 queue_wait_ms,
                                 completed_at: Instant::now(),
-                                #[cfg(test)]
-                                measured_decode_duration,
                                 #[cfg(any(target_os = "macos", target_os = "windows"))]
                                 native_origin_sample: probe_native_origin_sample,
                                 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -1983,14 +1881,6 @@ impl AsrExecutor {
                                 trigger_onset_sample,
                                 trigger_onset_skip_reason,
                             };
-                            #[cfg(test)]
-                            {
-                                let completion = probe_result.lane_completion();
-                                replay_schedule_lane_completion(completion);
-                                while !replay_lane_completion_ready(completion) {
-                                    std::thread::yield_now();
-                                }
-                            }
                             probe_result.completed_at = Instant::now();
                             probe_worker_mailbox.exclusivity.probe_finished();
                             let _ = result_tx.send(probe_result);
@@ -2045,8 +1935,6 @@ impl AsrExecutor {
         let reload_probe_alive = Arc::clone(&probe_alive);
         let reload_cleanup_supported = Arc::clone(&control_cleanup_supported);
         let reload_thread_lock = Arc::new(std::sync::Mutex::new(()));
-        #[cfg(test)]
-        let reload_lock = Arc::clone(&reload_thread_lock);
         let reload_wait_signal = Arc::clone(&wait_signal);
         std::thread::Builder::new()
             .name("hr-asr-reload-coordinator".to_string())
@@ -2106,8 +1994,6 @@ impl AsrExecutor {
             reload_tx,
             reload_result_rx,
             reload_next_id: std::sync::atomic::AtomicU64::new(1),
-            #[cfg(test)]
-            reload_lock,
         })
     }
 
@@ -2413,31 +2299,6 @@ impl AsrExecutor {
 
     pub(crate) fn set_keep_warm_continuous(&self, on: bool) {
         self.main_mailbox.set_keep_warm_continuous(on);
-    }
-
-    #[cfg(test)]
-    pub(crate) fn reload_model(&self) -> Result<bool, String> {
-        let deadline = Instant::now() + Duration::from_secs(61);
-        let _guard = loop {
-            match self.reload_lock.try_lock() {
-                Ok(guard) => break guard,
-                Err(std::sync::TryLockError::Poisoned(poisoned)) => break poisoned.into_inner(),
-                Err(std::sync::TryLockError::WouldBlock) => {
-                    if Instant::now() >= deadline {
-                        return Err("ASR reload lock deadline exceeded".to_string());
-                    }
-                    std::thread::sleep(Duration::from_millis(2));
-                }
-            }
-        };
-        reload_model_until_stable(
-            &self.main_mailbox,
-            &self.probe_mailbox,
-            &self.main_alive,
-            &self.probe_alive,
-            &self.control_cleanup_supported,
-            deadline,
-        )
     }
 
     pub(crate) fn shutdown(&self) {
@@ -2761,28 +2622,6 @@ pub(crate) fn probe_result_decision(
     }
 }
 
-#[cfg(test)]
-pub(crate) fn probe_result_is_current(
-    result: &ProbeResult,
-    generation: u64,
-    session_id: Option<&str>,
-    kws_stream_generation: u64,
-    native_origin_sample: Option<usize>,
-    live_total_samples: usize,
-    now: worker_clock::WorkerInstant,
-) -> bool {
-    probe_result_decision(
-        result,
-        generation,
-        session_id,
-        kws_stream_generation,
-        native_origin_sample,
-        live_total_samples,
-        now,
-    )
-    .current
-}
-
 pub(crate) fn opening_result_is_current(
     result: &OpeningCommandResult,
     generation: u64,
@@ -2800,7 +2639,3 @@ pub(crate) fn latch_probe_lane_failure(failed: &mut bool) -> bool {
         true
     }
 }
-
-#[cfg(test)]
-#[path = "unified_probe_lane_tests.rs"]
-mod unified_probe_lane_tests;

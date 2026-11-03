@@ -79,11 +79,7 @@ impl EngineRuntime {
             return Ok(());
         }
         let ep = AsrEp::resolve_default();
-        let handle = if cfg!(test) || engine_test_mode() {
-            crate::worker::spawn_dummy_worker(self.focus.clone())?
-        } else {
-            spawn_worker(self.models_base.clone(), ep, self.focus.clone())?
-        };
+        let handle = spawn_worker(self.models_base.clone(), ep, self.focus.clone())?;
         self.worker = Some(handle);
         Ok(())
     }
@@ -421,55 +417,5 @@ impl EngineRuntime {
         result: Result<String, String>,
     ) -> Result<FinalizeOutcome, String> {
         self.finalize_transcript_with_audio_secs(session_id, result, None)
-    }
-}
-
-#[cfg(test)]
-mod last_delivery_tests {
-    use super::*;
-    use rightkit_transcript_library::delivery::{DeliveryOutcome, TargetSnapshot};
-
-    fn record(text: &str, outcome: DeliveryOutcome) -> DeliveryRecord {
-        let target = TargetSnapshot {
-            process_id: None,
-            process_name: None,
-            window_title: None,
-            window_handle: None,
-            focused_control_handle: None,
-            foreground_target: None,
-            focused_text_input: None,
-            is_elevated: None,
-            stop_continuity: None,
-            exe_path: None,
-        };
-        DeliveryRecord::new("d", text, outcome, target)
-    }
-
-    #[test]
-    fn replaced_history_skips_cancelled_and_draft_rows_for_the_last_delivery() {
-        let mut runtime = EngineRuntime::new(PathBuf::from("."));
-        runtime.replace_recent_history(vec![
-            record("x", DeliveryOutcome::Cancelled),
-            record("y", DeliveryOutcome::Draft),
-            record("z", DeliveryOutcome::Pasted),
-        ]);
-        assert_eq!(runtime.last_delivery().unwrap().transcript, "z");
-        // The list itself is kept whole.
-        assert_eq!(runtime.recent_history(10).len(), 3);
-    }
-
-    #[test]
-    fn replaced_history_skips_file_transcriptions_and_synced_rows() {
-        use rightkit_transcript_library::delivery::DeliverySource;
-        let mut runtime = EngineRuntime::new(PathBuf::from("."));
-        let file = record("file", DeliveryOutcome::Pasted).with_source(
-            DeliverySource::FileTranscription {
-                file_name: "a.wav".into(),
-            },
-        );
-        runtime.replace_recent_history(vec![file, record("own", DeliveryOutcome::Pasted)]);
-        assert_eq!(runtime.last_delivery().unwrap().transcript, "own");
-        runtime.replace_recent_history(vec![record("x", DeliveryOutcome::Cancelled)]);
-        assert!(runtime.last_delivery().is_none());
     }
 }

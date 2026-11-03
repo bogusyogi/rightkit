@@ -48,8 +48,6 @@ include!("orchestrator/mechanism_host.rs");
 include!("orchestrator/run_conductor.rs");
 include!("orchestrator/run_conductor/core_helpers.rs");
 include!("orchestrator/run_conductor/finalize_goal.rs");
-#[cfg(test)]
-include!("orchestrator/run_conductor/finalize_goal_tests.rs");
 include!("orchestrator/run_conductor/victory_gate.rs");
 include!("orchestrator/run_conductor/routing_direct.rs");
 include!("orchestrator/run_conductor/plan_jury.rs");

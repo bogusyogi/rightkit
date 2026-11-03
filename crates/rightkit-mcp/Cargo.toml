@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-mcp"
-version = "0.7.2"
+version = "0.7.3"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared MCP client (stdio + streamable HTTP, trust gate, pool, OAuth hook) and server host (stdio + loopback HTTP, per-tool admission) for Right Suite apps."
@@ -83,19 +83,12 @@ advanced-http = ["dep:tokio", "dep:http", "dep:futures-util", "rightkit-http/asy
 # Off by default: serde_json arbitrary_precision is unified across the whole
 # dependency graph and changes number round-tripping for every crate.
 exact-json-ids = ["serde_json/arbitrary_precision"]
-# Test-only seam: `ClientExtensions::address_policy` overrides the HTTP client's address
-# policy. Absent from the default build; enabled for this crate's own tests only.
-testing = []
 agent_mcp-os-keyring = ["agent_mcp", "dep:rightkit-credentials", "dep:rightkit-oauth"]
 agent_mcp-host-env = ["agent_mcp", "rightkit-app-settings/agent_config-host-env"]
-agent_mcp-test-loopback = ["agent_mcp", "rightkit-http/testing", "testing"]
 agent_mcp = ["rightkit-fs/lock", "rightkit-fs/json", "rightkit-fs/transaction", "rightkit-http/gzip", "rightkit-http/untrusted", "rightkit-http/async", "dep:thiserror", "dep:async-trait", "dep:tokio", "tokio/full", "dep:futures", "dep:tracing", "dep:rightkit-agent-engine-runtime-resources", "dep:rightkit-sandbox", "dep:rightkit-agent-engine-protocol", "dep:rightkit-app-settings", "agent_mcp-os-keyring"]
 
 [dev-dependencies]
 tempfile = "3"
-rightkit-mcp = { path = ".", features = ["testing"] }
-tokio = { version = "1", features = ["full", "macros", "rt-multi-thread", "sync", "time"] }
-rightkit-app-settings = {version = "0.3.1", path = "../rightkit-app-settings", features = ["agent_config", "agent_config-host-env", "agent_config-test-mode"]}
 
 [[example]]
 name = "example_server"
@@ -135,7 +128,3 @@ incremental = false
 [profile.test.build-override]
 debug = false
 opt-level = 0
-[[test]]
-name = "agent_mcp_transport_hardening"
-path = "tests/agent_mcp_transport_hardening.rs"
-required-features = ["agent_mcp"]

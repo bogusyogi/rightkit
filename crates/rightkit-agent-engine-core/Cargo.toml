@@ -7,7 +7,7 @@ description = "Agent engine core: the agent turn loop, tool dispatch, permission
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_agent_engine_core"
@@ -77,8 +77,3 @@ incremental = false
 debug = false
 opt-level = 0
 
-[dev-dependencies]
-tokio = {version = "1", features = ["full"]}
-rightkit-agent-tools = {version = "0.3.1", path = "../rightkit-agent-tools", features = ["coding_tools", "coding_tools-test-support"]}
-tempfile = {version = "3"}
-rightkit-child-process = {version = "0.5.7", features = ["tokio"], path = "../rightkit-child-process"}

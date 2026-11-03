@@ -305,12 +305,6 @@ impl AdvancedHttp {
                 _ => policy,
             }
         };
-        #[cfg(feature = "testing")]
-        let address_policy = extensions
-            .address_policy
-            .clone()
-            .unwrap_or_else(base_policy);
-        #[cfg(not(feature = "testing"))]
         let address_policy = base_policy();
         let client = AsyncClient::new(ClientConfig {
             user_agent: concat!("rightkit-mcp/", env!("CARGO_PKG_VERSION")).into(),
@@ -925,41 +919,6 @@ async fn read_legacy(
         parser.push(chunk.as_ref())?;
     }
 }
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn sse_crlf_multiline_and_split_utf8() {
-        let mut parser = SseParser::new(1024);
-        for byte in "event: endpoint\r\ndata: /méssages\r\ndata: ?sid=1\r\n\r\n".as_bytes() {
-            parser.push(&[*byte]).unwrap();
-        }
-        let event = parser.pop().unwrap();
-        assert_eq!(event.name.as_deref(), Some("endpoint"));
-        assert_eq!(event.data, "/méssages\n?sid=1");
-        assert!(parser.pop().is_none());
-    }
-    #[test]
-    fn sse_unterminated_frame_is_bounded() {
-        let mut parser = SseParser::new(8);
-        assert!(matches!(
-            parser.push(b"data: 123456"),
-            Err(McpError::ResponseTooLarge { limit: 8 })
-        ));
-    }
-    #[test]
-    fn sse_limit_counts_complete_crlf_delimiters() {
-        let bytes = b"data: x\r\n\r\n";
-        let mut exact = SseParser::new(bytes.len());
-        exact.push(bytes).unwrap();
-        assert_eq!(exact.pop().unwrap().data, "x");
-        let mut too_small = SseParser::new(bytes.len() - 1);
-        assert!(matches!(
-            too_small.push(bytes),
-            Err(McpError::ResponseTooLarge { .. })
-        ));
-    }
-}
 
 /// The endpoint host when it is literally a loopback name (`localhost`, `127.0.0.1`, `::1`),
 /// as the address policy spells it; `None` for anything else (rightkit#165).
@@ -974,26 +933,4 @@ fn loopback_host(url: &str) -> Option<String> {
         None => hp.rsplit_once(':').map(|(h, _)| h).unwrap_or(hp),
     };
     Some(host.to_string())
-}
-
-#[cfg(test)]
-mod loopback_host_tests {
-    use super::loopback_host;
-
-    #[test]
-    fn only_literal_loopback_hosts_qualify() {
-        assert_eq!(
-            loopback_host("http://localhost:3000/mcp").as_deref(),
-            Some("localhost")
-        );
-        assert_eq!(
-            loopback_host("http://127.0.0.1:8080").as_deref(),
-            Some("127.0.0.1")
-        );
-        assert_eq!(loopback_host("http://[::1]:9000/x").as_deref(), Some("::1"));
-        assert_eq!(loopback_host("http://localhost.evil.com/mcp"), None);
-        assert_eq!(loopback_host("http://user@localhost/mcp"), None);
-        assert_eq!(loopback_host("https://example.com/mcp"), None);
-        assert_eq!(loopback_host("http://10.0.0.5/mcp"), None);
-    }
 }

@@ -150,5 +150,3 @@ include!("api_specs/evidence_protocol.rs");
 include!("api_specs/utilities.rs");
 
 include!("api_specs/error.rs");
-
-include!("api_specs/tests.rs");

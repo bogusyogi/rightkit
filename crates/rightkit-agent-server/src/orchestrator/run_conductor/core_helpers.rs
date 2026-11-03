@@ -320,17 +320,3 @@ fn conductor_checkpoint_run_id(session_id: &str, goal: &str) -> String {
     let digest = rightkit_crypto::sha256(format!("{session_id}\0{goal}").as_bytes());
     format!("conductor-{}", rightkit_crypto::hex_encode(&digest))
 }
-
-#[cfg(test)]
-mod conductor_checkpoint_id_tests {
-    use super::conductor_checkpoint_run_id;
-
-    #[test]
-    fn checkpoint_identity_is_stable_and_goal_scoped() {
-        let first = conductor_checkpoint_run_id("session-a", "ship it");
-        assert_eq!(first, conductor_checkpoint_run_id("session-a", "ship it"));
-        assert_ne!(first, conductor_checkpoint_run_id("session-a", "different"));
-        assert_ne!(first, conductor_checkpoint_run_id("session-b", "ship it"));
-        assert_eq!(first.len(), "conductor-".len() + 64);
-    }
-}

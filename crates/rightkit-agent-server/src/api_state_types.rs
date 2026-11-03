@@ -477,8 +477,7 @@ pub struct DaemonState {
     #[allow(dead_code)]
     pub token: String,
     pub engine_cfg: Option<EngineConfig>,
-    /// Fixed Pro feature set. Empty in production, where the licence gate below decides; only a
-    /// test or `test-mode` build seeds it (never from the environment).
+    /// Fixed Pro feature set. Empty; the licence gate below decides.
     pub licensed_features: Arc<Mutex<HashSet<String>>>,
     /// The daemon's own verification of the stored licence record (`crate::license`). When set it
     /// is the only source of Pro features; absent means no licence locators were given (Free).

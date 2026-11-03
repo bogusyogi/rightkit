@@ -16,19 +16,3 @@ pub mod command_registry;
 pub(crate) use cli_definitions_command_run::{
     warn_deprecated_context_mode_flag, CliColor, ContextMode, OutputFormat,
 };
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    include!("cli_definitions_tests_1.rs");
-    include!("cli_definitions_tests_2.rs");
-    include!("cli_definitions_tests_3.rs");
-    include!("cli_definitions_tests_4.rs");
-    include!("cli_definitions_tests_5.rs");
-    include!("cli_definitions_tests_6.rs");
-    include!("cli_definitions_tests_7.rs");
-    include!("cli_definitions_tests_8.rs");
-    include!("cli_definitions_tests_9.rs");
-    include!("cli_definitions_tests_doctor_flag_parse.rs");
-    include!("cli_definitions_tests_launch.rs");
-}

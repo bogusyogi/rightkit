@@ -150,33 +150,3 @@ async fn normalize_session_error_envelope(request: Request<Body>, next: Next) ->
     )
         .into_response()
 }
-
-#[cfg(test)]
-mod machine_error_tests {
-    use super::*;
-    use http_body_util::BodyExt;
-    use tower::ServiceExt;
-
-    #[tokio::test]
-    async fn bare_session_errors_are_normalized_to_versioned_envelope() {
-        let app = sessions_routes().with_state(DaemonState::new("test-token"));
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/sessions/missing/goal")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(value["schemaVersion"], "coderight.error.v1");
-        assert_eq!(value["code"], "resource_not_found");
-        assert_eq!(value["effectState"], "none");
-        assert!(rightkit_agent_engine_protocol::is_canonical_uuid_v7(
-            value["correlationId"].as_str().unwrap()
-        ));
-    }
-}

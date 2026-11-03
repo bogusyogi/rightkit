@@ -111,8 +111,6 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
 use crate::api_benchmarks::benchmark_routes;
-#[cfg(test)]
-use crate::api_benchmarks::{verification_shell_command, CompareRequest};
 use crate::api_clients::client_routes;
 use crate::api_command_mcp::command_mcp;
 use crate::api_command_renderers::{
@@ -135,13 +133,9 @@ use crate::api_lsp::lsp_routes;
 use crate::api_mcp::{default_mcp_user_config_path, mcp_routes};
 use crate::api_memory::{memory_routes, render_memory_command};
 use crate::api_notifications::notification_routes;
-#[cfg(test)]
-use crate::api_permissions::live_session_permission_mode;
 use crate::api_permissions::{
     parse_permission_decision, permission_routes, render_permissions_command,
 };
-#[cfg(test)]
-use crate::api_plugins::plugin_source_sha256;
 use crate::api_plugins::{
     default_plugin_dir, default_plugin_marketplace_path, plugin_manifests_with_roots, plugin_routes,
 };
@@ -154,8 +148,6 @@ use crate::api_session_handoff::{
 };
 use crate::api_sessions::sessions_routes;
 use crate::api_settings::settings_routes;
-#[cfg(test)]
-use crate::api_settings::SaveSettings;
 use crate::api_skills::{
     default_skills_dirs, skill_runtime_context_with_behavioral, skills_routes,
 };
@@ -195,14 +187,10 @@ mod api_state;
 pub(crate) use api_state::native_spawn_route;
 
 pub use api_router::build_router;
-#[cfg(test)]
-pub(crate) use api_session_bindings::session_spec_id;
 pub(crate) use api_session_bindings::{
     ensure_bound_spec_can_complete, session_binding_row, session_spec_completion_summary,
     session_workspace_root, update_session_spec_binding, ListSessionsQuery, SessionSearchQuery,
 };
-#[cfg(test)]
-pub(crate) use api_session_config::build_session_tool_registry;
 pub(crate) use api_session_config::{
     api_workspace_root, build_session_tool_registry_for_plugins, compose_agent_persona,
     effective_tool_filter, initial_license_features, load_workspace_config_with_env,
@@ -215,10 +203,6 @@ pub(crate) use api_session_config::{
     BindSessionSpecRequest, CreateSession, LlmDispatchClassifier, OrchestrateBody, PatchSession,
     PostMessage, ResolveApproval, ResolvePlan, SessionQuery, SetGoal, WorkspaceQuery,
 };
-#[cfg(test)]
-pub(crate) use api_session_config::{
-    sanitize_generated_session_title, should_auto_title, SessionEntryOutcome,
-};
 pub(crate) use api_session_context::{
     apply_brief_default, apply_fable_mode, build_session_environment_snapshot,
     compose_session_system_prompt, decorate_user_payload_with_system_reminder,
@@ -227,11 +211,6 @@ pub(crate) use api_session_context::{
     load_instruction_context, load_stored_artifacts, now_iso, now_millis,
     persist_artifacts_snapshot, plugin_prompt_context, push_session_artifact,
     remote_channel_engine_payload, retrieve_session_memory, trust_envelope,
-};
-#[cfg(test)]
-pub(crate) use api_session_context::{
-    instinct_block_from_rules, retrieve_workspace_memory, session_start_snapshot_block,
-    MAX_INSTINCT_BYTES,
 };
 pub(crate) use api_session_contract::{
     answer_question_request_schema, answer_question_response_schema, clear_goal_response_schema,
@@ -244,11 +223,6 @@ pub(crate) use api_session_contract::{
     set_goal_request_schema, set_goal_response_schema, steer_session_request_schema,
     steer_session_response_schema, untrusted_content_item,
 };
-#[cfg(test)]
-pub(crate) use api_session_contract::{
-    create_session_request_schema, fork_session_request_schema, fork_session_response_schema,
-    post_message_response_schema, task_nodes_response_schema,
-};
 pub(crate) use api_session_utils::{
     await_event_persistence, away_summary_line, kind_matches, live_shell_statuses_for_workspace,
     load_workspace_task_records, normalize_session_status, publish_agent_roster,
@@ -257,13 +231,7 @@ pub(crate) use api_session_utils::{
     transcript_for_session, untrusted_policy_action, update_session_effort, update_session_model,
     update_session_route, workspace_tasks_path, EditGoal,
 };
-#[cfg(test)]
-pub(crate) use api_slash_session_commands::read_session_model;
 pub(crate) use api_slash_session_commands::{command_effort, command_model, command_usage};
-#[cfg(test)]
-pub(crate) use api_state::effective_child_permission_mode_for_test;
-#[cfg(test)]
-pub(crate) use api_state::session_user_surfaces_enabled;
 pub(crate) use api_state::{
     build_subagent_fork, cleanup_subagent_worktree, lock_recover, missing_provider_key_message,
     prepare_subagent_workspace, record_engine_unavailable_reason, record_subagent_runtime_span,
@@ -271,8 +239,6 @@ pub(crate) use api_state::{
     SessionRuntimeOptions, SubagentFork, SubagentLifecycleMark,
 };
 pub(crate) use api_state::{governed_workspace_worktree_pool, open_subagent_worktree_pool};
-#[cfg(test)]
-pub(crate) use api_state::{AdmissionGuard, RunBudgetLedger};
 pub use api_state::{
     DaemonSettingsStore, DaemonState, EngineConfig, LiveSession, PendingElicitation,
     PendingElicitationCleanup, SharedStorage,
@@ -301,6 +267,3 @@ pub(crate) fn append_event_via_storage_authority(
             .map_err(|error| error.to_string())
     }
 }
-
-#[cfg(test)]
-include!("api_tests.rs");

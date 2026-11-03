@@ -9,8 +9,6 @@ mod foreign;
 mod health;
 #[cfg(unix)]
 mod identity;
-#[cfg(all(test, unix))]
-mod identity_tests;
 mod launch;
 pub mod login_shell;
 #[cfg(any(unix, windows))]

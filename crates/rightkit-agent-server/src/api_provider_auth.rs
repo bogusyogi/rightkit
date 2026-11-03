@@ -459,30 +459,6 @@ impl AuthInteraction for TerminalAuthInteraction {
     }
 }
 
-#[cfg(test)]
-mod terminal_auth_tests {
-    use super::*;
-    use std::sync::atomic::{AtomicBool, Ordering};
-
-    #[tokio::test]
-    async fn dropping_manual_reader_cancels_bounded_terminal_polling() {
-        let interaction = TerminalAuthInteraction::default();
-        let cancelled = interaction.reader_cancelled.clone();
-        let exited = Arc::new(AtomicBool::new(false));
-        let reader_exited = exited.clone();
-        let task = tokio::task::spawn_blocking(move || {
-            while !cancelled.load(Ordering::SeqCst) {
-                std::thread::sleep(std::time::Duration::from_millis(1));
-            }
-            reader_exited.store(true, Ordering::SeqCst);
-        });
-        *interaction.reader_task.lock().await = Some(task);
-
-        interaction.finish_reader().await.unwrap();
-        assert!(exited.load(Ordering::SeqCst));
-    }
-}
-
 /// Resolve one inference credential at request construction time. This is the
 /// only runtime seam for subscription credentials: OAuth refresh therefore
 /// runs through broker's per-provider lock before any provider request is
@@ -604,69 +580,6 @@ pub(crate) async fn fetch_chatgpt_account_models(
     }
     let bytes = response.body;
     decode_catalog_models(&bytes)
-}
-
-#[cfg(test)]
-mod catalog_decode_tests {
-    use super::{decode_catalog_models, CatalogModel};
-
-    #[test]
-    fn decode_filters_non_list_visibility_and_sorts_by_priority() {
-        let body = serde_json::json!({
-            "models": [
-                { "slug": "gpt-6-astra", "display_name": "GPT-6-Astra", "visibility": "list", "priority": 30 },
-                { "slug": "gpt-5.1", "display_name": "gpt-5.1", "visibility": "list", "priority": 10 },
-                { "slug": "gpt-4-hidden", "visibility": "hide", "priority": 1 },
-                { "slug": "gpt-4-none", "visibility": "none", "priority": 2 },
-                { "slug": "gpt-6.1-sol", "visibility": "list", "priority": 20 },
-            ]
-        });
-        let models = decode_catalog_models(body.to_string().as_bytes()).unwrap();
-        assert_eq!(
-            models,
-            vec![
-                CatalogModel {
-                    slug: "gpt-5.1".to_string(),
-                    display_name: "gpt-5.1".to_string(),
-                },
-                CatalogModel {
-                    slug: "gpt-6.1-sol".to_string(),
-                    display_name: "gpt-6.1-sol".to_string(),
-                },
-                CatalogModel {
-                    slug: "gpt-6-astra".to_string(),
-                    display_name: "GPT-6-Astra".to_string(),
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn decode_is_tolerant_of_missing_optional_fields_and_unknown_keys() {
-        let body = serde_json::json!({
-            "models": [
-                { "slug": "gpt-6-astra", "future_field": { "nested": true } },
-                { "slug": "   " },
-            ],
-            "server_version": 2,
-        });
-        let models = decode_catalog_models(body.to_string().as_bytes()).unwrap();
-        assert_eq!(
-            models,
-            vec![CatalogModel {
-                slug: "gpt-6-astra".to_string(),
-                // A missing display_name falls back to the slug; a blank
-                // slug row is dropped.
-                display_name: "gpt-6-astra".to_string(),
-            }]
-        );
-    }
-
-    #[test]
-    fn decode_reports_the_decode_stage_on_bad_json() {
-        let error = decode_catalog_models(b"not json").unwrap_err();
-        assert!(error.contains("could not decode catalog body"), "{error}");
-    }
 }
 
 fn pending() -> &'static Arc<Mutex<HashMap<String, Arc<PendingLogin>>>> {

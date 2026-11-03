@@ -7,7 +7,7 @@ description = "Shared Tauri desktop shell for Right Suite apps: webview hardenin
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bogusyogi/rightkit"
 readme = "README.md"
-include = ["build.rs", "src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE", "CHANGELOG.md"]
+include = ["build.rs", "src/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE", "CHANGELOG.md"]
 
 [features]
 default = ["wv2-0_39"]
@@ -113,24 +113,13 @@ name = "budget_native"
 harness = false
 
 [dev-dependencies]
-rightkit-credentials = { version = "0.4.4", path = "../rightkit-credentials", features = ["memory-backend", "os-auth"] }
 tempfile = "3"
-# A real `TracingGuard` for the logs clear test; the shell itself does not enable the feature.
-rightkit-logs = { version = "0.3.5", path = "../rightkit-logs", default-features = false, features = ["tracing"] }
 tauri = { version = "2", features = ["test"] }
-# The redirect fixture builds a bare reqwest client (rustls-no-provider); production gets the ring provider installed by
-# tauri-plugin-updater, so the test installs the same one (ring, already in the lock).
-rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 # Workspace-lock constraint only (dev-dependencies are not published to consumers): keeps the shared Cargo.lock
 # on the tauri-utils that Tauri 2.11 (the workspace line, wv2-0_38) ships with. tauri-plugin 2.7+ (a build
 # dependency of tauri-plugin-updater) needs tauri-utils ~2.10.2, which adds AppConfig::app_directories_override
 # that tauri 2.11 `test` code does not set (E0063 in tauri 2.11.5 src/test/mod.rs). Lift with the tauri 2.12 move.
 tauri-utils = { version = ">=2.9.3, <2.10" }
-
-[[example]]
-name = "shell_engine_fixture"
-path = "tests/support/shell_engine_fixture.rs"
-required-features = ["engine"]
 
 # One Cargo workspace and lock per crate (rightkit#1285).
 [workspace]

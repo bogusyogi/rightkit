@@ -4,28 +4,9 @@ use super::*;
 ///
 /// Release builds start with none: Pro comes only from the daemon's own verification of the stored
 /// licence record (`crate::license::LicenseGate`, attached at boot). No environment variable, flag
-/// or request can grant a feature. A `test-mode` build (QA and the e2e rigs) and unit tests are the
-/// Pro product so Pro-gated routes are reachable without a signed licence; that set is compiled in,
-/// not read from anywhere, and release builds cannot enable the feature.
+/// or request can grant a feature.
 pub(crate) fn initial_license_features() -> HashSet<String> {
-    #[cfg(any(test, feature = "test-mode"))]
-    {
-        [
-            "routing",
-            "brews",
-            "evolution",
-            "execution_backends",
-            "schedules",
-        ]
-        .into_iter()
-        .map(str::to_string)
-        .collect()
-    }
-
-    #[cfg(not(any(test, feature = "test-mode")))]
-    {
-        HashSet::new()
-    }
+    HashSet::new()
 }
 
 pub(crate) fn require_license_feature(

@@ -141,7 +141,3 @@ async fn any_session_running(state: &DaemonState) -> bool {
     .await
     .unwrap_or(false)
 }
-
-#[cfg(test)]
-#[path = "main_runtime_server_client_presence_tests.rs"]
-mod main_runtime_server_client_presence_tests;

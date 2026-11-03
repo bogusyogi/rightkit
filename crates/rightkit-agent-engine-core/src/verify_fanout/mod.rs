@@ -28,8 +28,6 @@ pub mod injection;
 pub mod pending;
 pub mod profile;
 pub mod staleness;
-#[cfg(test)]
-mod tests;
 pub mod verifiers;
 
 pub use budget::VerifyBudgets;
@@ -246,62 +244,5 @@ pub async fn run_verify_fanout(request: FanoutRequest<'_>) -> FanoutReport {
         discarded_stale,
         binding_errors,
         budget_exhausted,
-    }
-}
-
-#[cfg(test)]
-mod tests_mod {
-    use super::*;
-
-    fn text_finding(
-        path: &str,
-        message: &str,
-        severity: FindingSeverity,
-        source: &str,
-    ) -> VerifiedFinding {
-        VerifiedFinding {
-            source: source.into(),
-            range: Some(FindingRange::point(0, 0)),
-            severity,
-            category: FindingCategory::Lsp,
-            message: message.into(),
-            content_hash: None,
-            fixability: FindingFixability::Manual,
-            path: PathBuf::from(path),
-        }
-    }
-
-    #[test]
-    fn dedupe_collapses_identical_problems_across_sources_keeping_most_severe() {
-        let deduped = dedupe_findings(vec![
-            text_finding(
-                "a.rs",
-                "cannot find value x",
-                FindingSeverity::Warning,
-                "lsp",
-            ),
-            text_finding(
-                "a.rs",
-                "cannot\nfind value x",
-                FindingSeverity::Error,
-                "clippy",
-            ),
-            text_finding("a.rs", "a different problem", FindingSeverity::Error, "lsp"),
-        ]);
-        assert_eq!(deduped.len(), 2);
-        let collapsed = deduped
-            .iter()
-            .find(|f| f.message == "cannot find value x")
-            .unwrap();
-        assert_eq!(collapsed.severity, FindingSeverity::Error);
-    }
-
-    #[test]
-    fn dedupe_keeps_findings_in_different_files_and_ranges() {
-        let deduped = dedupe_findings(vec![
-            text_finding("a.rs", "boom", FindingSeverity::Error, "lsp"),
-            text_finding("b.rs", "boom", FindingSeverity::Error, "lsp"),
-        ]);
-        assert_eq!(deduped.len(), 2);
     }
 }

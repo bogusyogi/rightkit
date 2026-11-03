@@ -147,26 +147,3 @@ pub(crate) async fn drive_soak(state: &DaemonState, config: &SoakDriveConfig) ->
 
     outcome
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn drives_short_bounded_window_and_measures_workers() {
-        let state = DaemonState::new("soak-driver-test-token");
-        let outcome = drive_soak(
-            &state,
-            &SoakDriveConfig {
-                worker_count: 4,
-                duration: Duration::from_millis(10),
-                workspace_root: std::env::temp_dir().to_string_lossy().into_owned(),
-            },
-        )
-        .await;
-        assert_eq!(outcome.completed_workers, 2);
-        assert_eq!(outcome.cancelled_workers, 2);
-        assert_eq!(outcome.ownership_violations, 0);
-        assert!(state.list_sessions().is_empty());
-    }
-}

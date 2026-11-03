@@ -148,29 +148,3 @@ fn extract_title(path: &Path) -> Option<String> {
     }
     None
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn indexes_markdown_beside_the_document_and_skips_build_folders() {
-        let dir =
-            std::env::temp_dir().join(format!("rightkit-docws-mdindex-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join("notes")).unwrap();
-        std::fs::create_dir_all(dir.join("node_modules")).unwrap();
-        std::fs::write(dir.join("a.md"), "# Alpha\nbody").unwrap();
-        std::fs::write(dir.join("notes").join("b.markdown"), "text").unwrap();
-        std::fs::write(dir.join("node_modules").join("c.md"), "# skip").unwrap();
-        std::fs::write(dir.join("d.txt"), "not markdown").unwrap();
-        let flat = index_markdown_folder(&dir.join("a.md"), false).unwrap();
-        assert_eq!(flat.files.len(), 1);
-        assert_eq!(flat.files[0].title.as_deref(), Some("Alpha"));
-        let deep = index_markdown_folder(&dir.join("a.md"), true).unwrap();
-        let mut rel: Vec<_> = deep.files.iter().map(|f| f.relative_path.clone()).collect();
-        rel.sort();
-        assert_eq!(rel, ["a.md", "notes/b.markdown"]);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}

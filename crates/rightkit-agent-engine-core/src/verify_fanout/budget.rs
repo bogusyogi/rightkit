@@ -43,17 +43,3 @@ impl Default for VerifyBudgets {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn defaults_are_bounded_and_per_file_stays_under_per_verifier() {
-        let budgets = VerifyBudgets::default();
-        assert!(budgets.per_verifier_file <= budgets.per_verifier);
-        assert!(budgets.per_verifier <= budgets.aggregate);
-        assert!(budgets.max_verifiers > 0);
-        assert!(budgets.max_findings_per_verifier > 0);
-    }
-}

@@ -19,11 +19,6 @@ use super::{
     worker_clock::*, worker_main::*,
 };
 
-#[cfg(test)]
-pub(crate) use super::replay_driver::ReplayDriver;
-#[cfg(test)]
-pub(crate) use super::wav_replay_source::{CaptureEvent, ScriptedCaptureEvent};
-
 pub(crate) use parking_lot::Mutex;
 pub(crate) use rightkit_audio::capture::{
     list_input_devices, CaptureFirstBuffer, CaptureSession, CaptureTransport, DeviceInfo,
@@ -306,26 +301,16 @@ impl WakeDiagnostics {
 
 pub(crate) enum WorkerCapture {
     Live(CaptureSession),
-    #[cfg(test)]
-    Replay(ReplayCapture),
 }
 
 impl WorkerCapture {
     pub(crate) fn is_replay(&self) -> bool {
-        #[cfg(test)]
-        if matches!(self, Self::Replay(_)) {
-            return true;
-        }
         false
     }
 
     pub(crate) fn read_f32(&mut self, max_samples: usize) -> Result<Vec<f32>, String> {
         match self {
             Self::Live(capture) => capture
-                .read_f32(max_samples)
-                .map_err(|error| error.to_string()),
-            #[cfg(test)]
-            Self::Replay(capture) => capture
                 .read_f32(max_samples)
                 .map_err(|error| error.to_string()),
         }
@@ -340,10 +325,6 @@ impl WorkerCapture {
             Self::Live(capture) => capture
                 .read_f32_blocking(min_samples, timeout_ms)
                 .map_err(|error| error.to_string()),
-            #[cfg(test)]
-            Self::Replay(capture) => capture
-                .read_f32_blocking(min_samples)
-                .map_err(|error| error.to_string()),
         }
     }
 
@@ -356,610 +337,62 @@ impl WorkerCapture {
             Self::Live(capture) => capture
                 .wait_first_buffer(min_samples, timeout_ms)
                 .map_err(|error| error.to_string()),
-            #[cfg(test)]
-            Self::Replay(capture) => capture
-                .wait_first_buffer(min_samples)
-                .map_err(|error| error.to_string()),
         }
     }
 
     pub(crate) fn wait_for_audio(&mut self, timeout: Duration) -> bool {
         match self {
             Self::Live(capture) => capture.wait_for_audio(timeout),
-            #[cfg(test)]
-            Self::Replay(capture) => capture.wait_for_audio(),
         }
     }
 
     pub(crate) fn flush(&mut self) -> usize {
         match self {
             Self::Live(capture) => capture.flush(),
-            #[cfg(test)]
-            Self::Replay(capture) => capture.flush(),
         }
     }
 
     pub(crate) fn pause(&self) {
         match self {
             Self::Live(capture) => capture.pause(),
-            #[cfg(test)]
-            Self::Replay(capture) => capture.pause(),
         }
     }
 
     pub(crate) fn resume(&self) -> Result<(), String> {
         match self {
             Self::Live(capture) => capture.resume().map_err(|error| error.to_string()),
-            #[cfg(test)]
-            Self::Replay(capture) => capture.resume().map_err(|error| error.to_string()),
         }
     }
 
     pub(crate) fn stop(&mut self) -> MetricsSnapshot {
         match self {
             Self::Live(capture) => capture.stop(),
-            #[cfg(test)]
-            Self::Replay(capture) => capture.stop(),
         }
     }
 
     pub(crate) fn metrics_snapshot(&self) -> MetricsSnapshot {
         match self {
             Self::Live(capture) => capture.metrics_snapshot(),
-            #[cfg(test)]
-            Self::Replay(capture) => capture.metrics_snapshot(),
         }
     }
 
     pub(crate) fn input_rate(&self) -> u32 {
         match self {
             Self::Live(capture) => capture.input_rate(),
-            #[cfg(test)]
-            Self::Replay(_) => SAMPLE_RATE,
         }
     }
 
     pub(crate) fn input_channels(&self) -> u16 {
         match self {
             Self::Live(capture) => capture.input_channels(),
-            #[cfg(test)]
-            Self::Replay(_) => 1,
         }
     }
 
     pub(crate) fn input_sample_format(&self) -> &str {
         match self {
             Self::Live(capture) => capture.input_sample_format(),
-            #[cfg(test)]
-            Self::Replay(_) => "F32 replay",
         }
     }
-}
-
-#[cfg(test)]
-#[derive(Default)]
-pub(crate) struct ReplayCaptureState {
-    pub(crate) driver: Option<ReplayDriver>,
-    pub(crate) total_samples: usize,
-    pub(crate) cursor: usize,
-    pub(crate) paused: bool,
-    pub(crate) submitted_total: usize,
-    pub(crate) processed_total: usize,
-    /// Probe executor completed; worker main fully dispatched result.
-    pub(crate) dispatched_total: usize,
-    pub(crate) executor_pending: usize,
-    pub(crate) dispatch_pending: usize,
-    pub(crate) pumped_total: usize,
-    pub(crate) max_probe_ms: u64,
-    pub(crate) reads: u64,
-    pub(crate) confirmed_onset_sample: Option<usize>,
-    pub(crate) confirmation_sample: Option<usize>,
-    pub(crate) stop_buffer_samples: Option<usize>,
-}
-
-#[cfg(test)]
-#[derive(Clone)]
-pub(crate) struct ReplayCaptureController {
-    pub(crate) state: Arc<(std::sync::Mutex<ReplayCaptureState>, std::sync::Condvar)>,
-    pub(crate) clock: Arc<worker_clock::VirtualWorkerClock>,
-}
-
-#[cfg(test)]
-impl Default for ReplayCaptureController {
-    fn default() -> Self {
-        Self {
-            state: Arc::new((
-                std::sync::Mutex::new(ReplayCaptureState::default()),
-                std::sync::Condvar::new(),
-            )),
-            clock: Arc::new(worker_clock::VirtualWorkerClock::default()),
-        }
-    }
-}
-
-#[cfg(test)]
-impl ReplayCaptureController {
-    pub(crate) fn load(&self, audio: Vec<f32>) {
-        self.load_scripted(audio, Vec::new());
-    }
-
-    pub(crate) fn load_scripted(&self, audio: Vec<f32>, scripted: Vec<ScriptedCaptureEvent>) {
-        self.load_scripted_with_padding(audio, scripted, true);
-    }
-
-    /// Load exact external fixture PCM. Gate2's historical corpus keeps a
-    /// confirm-timeout tail; external audio manifests must preserve WAV EOF.
-    pub(crate) fn load_scripted_unpadded(
-        &self,
-        audio: Vec<f32>,
-        scripted: Vec<ScriptedCaptureEvent>,
-    ) {
-        self.load_scripted_with_padding(audio, scripted, false);
-    }
-
-    fn load_scripted_with_padding(
-        &self,
-        mut audio: Vec<f32>,
-        scripted: Vec<ScriptedCaptureEvent>,
-        pad_confirmation_timeout: bool,
-    ) {
-        if pad_confirmation_timeout {
-            audio.resize(audio.len() + crate::kws::CONFIRM_TIMEOUT_SAMPLES, 0.0);
-        }
-        let total_samples = audio.len();
-        let driver =
-            ReplayDriver::from_samples(SAMPLE_RATE, audio, scripted, Arc::clone(&self.clock))
-                .expect("valid replay samples");
-        let (state, ready) = &*self.state;
-        let mut state = state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        *state = ReplayCaptureState {
-            driver: Some(driver),
-            total_samples,
-            paused: true,
-            ..ReplayCaptureState::default()
-        };
-        ready.notify_all();
-    }
-
-    pub(crate) fn virtual_clock(&self) -> Arc<worker_clock::VirtualWorkerClock> {
-        Arc::clone(&self.clock)
-    }
-
-    pub(crate) fn pop_scripted_control(&self) -> Option<CaptureEvent> {
-        let mut state = self
-            .state
-            .0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        state.driver.as_mut().and_then(ReplayDriver::pop_control)
-    }
-
-    pub(crate) fn mark_lane_in_flight(
-        &self,
-        lane: worker_clock::ExecutorLane,
-        submitted_at: worker_clock::WorkerInstant,
-    ) {
-        let (state, ready) = &*self.state;
-        state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .driver
-            .as_mut()
-            .expect("replay loaded before lane submission")
-            .mark_lane_submitted(lane, submitted_at)
-            .unwrap_or_else(|error| panic!("invalid replay lane submission: {error:?}"));
-        ready.notify_all();
-    }
-
-    pub(crate) fn mark_lane_started(
-        &self,
-        lane: worker_clock::ExecutorLane,
-        submitted_at: worker_clock::WorkerInstant,
-    ) {
-        let (state, ready) = &*self.state;
-        state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .driver
-            .as_mut()
-            .expect("replay loaded before lane start")
-            .mark_lane_started(lane, submitted_at)
-            .unwrap_or_else(|error| panic!("invalid replay lane start: {error:?}"));
-        ready.notify_all();
-    }
-
-    pub(crate) fn schedule_lane_completion(&self, completion: LaneCompletion) {
-        let (state, ready) = &*self.state;
-        state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .driver
-            .as_mut()
-            .expect("replay loaded before lane completion")
-            .supply_lane_duration(
-                completion.lane,
-                completion.submitted_at,
-                completion.measured_decode_duration,
-            )
-            .unwrap_or_else(|error| panic!("invalid replay lane completion: {error:?}"));
-        ready.notify_all();
-    }
-
-    pub(crate) fn lane_completion_ready(
-        &self,
-        lane: worker_clock::ExecutorLane,
-        submitted_at: worker_clock::WorkerInstant,
-    ) -> bool {
-        let (state_mutex, ready) = &*self.state;
-        let mut state = state_mutex
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        loop {
-            if state
-                .driver
-                .as_mut()
-                .expect("replay loaded before lane readiness")
-                .advance_to_lane_completion(lane, submitted_at)
-                .unwrap_or_else(|error| panic!("advance replay lane completion: {error:?}"))
-            {
-                ready.notify_all();
-                return true;
-            }
-            state = ready
-                .wait(state)
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-        }
-    }
-
-    pub(crate) fn finished(&self) -> Option<u64> {
-        let state = self
-            .state
-            .0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        (state.cursor == state.total_samples
-            && state.pumped_total >= state.total_samples
-            && state.submitted_total <= state.processed_total
-            && state.submitted_total <= state.dispatched_total
-            && state.executor_pending == 0
-            && state.dispatch_pending == 0)
-            .then_some(state.max_probe_ms)
-    }
-
-    pub(crate) fn debug_state(&self) -> String {
-        let state = self
-            .state
-            .0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        format!(
-            "cursor={}/{} submitted={} processed={} executor_pending={} dispatch_pending={} paused={} reads={}",
-            state.cursor,
-            state.total_samples,
-            state.submitted_total,
-            state.processed_total,
-            state.executor_pending,
-            state.dispatch_pending,
-            state.paused,
-            state.reads
-        )
-    }
-
-    pub(crate) fn note_submitted(&self, total_samples: usize) {
-        let (state, ready) = &*self.state;
-        let mut state = state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        state.submitted_total = state.submitted_total.max(total_samples);
-        state.executor_pending += 1;
-        state.dispatch_pending += 1;
-        ready.notify_all();
-    }
-
-    pub(crate) fn note_processed(&self, total_samples: usize, probe_ms: u64) {
-        let (state, ready) = &*self.state;
-        let mut state = state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        state.processed_total = state.processed_total.max(total_samples);
-        assert!(
-            state.executor_pending > 0,
-            "replay probe completion without submission"
-        );
-        state.executor_pending -= 1;
-        state.max_probe_ms = state.max_probe_ms.max(probe_ms);
-        ready.notify_all();
-    }
-
-    pub(crate) fn note_dispatched(&self, total_samples: usize) {
-        let (state, ready) = &*self.state;
-        let mut state = state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        state.dispatched_total = state.dispatched_total.max(total_samples);
-        assert!(
-            state.dispatch_pending > 0,
-            "replay probe dispatch without submission"
-        );
-        state.dispatch_pending -= 1;
-        ready.notify_all();
-    }
-
-    pub(crate) fn note_discarded(&self, total_samples: usize) {
-        let (state, ready) = &*self.state;
-        let mut state = state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        state.processed_total = state.processed_total.max(total_samples);
-        state.dispatched_total = state.dispatched_total.max(total_samples);
-        assert!(
-            state.executor_pending > 0,
-            "replay probe discard without submission"
-        );
-        assert!(
-            state.dispatch_pending > 0,
-            "replay probe discard after dispatch"
-        );
-        state.executor_pending -= 1;
-        state.dispatch_pending -= 1;
-        ready.notify_all();
-    }
-}
-
-#[cfg(test)]
-#[derive(Clone)]
-pub(crate) struct ReplayCapture {
-    pub(crate) controller: ReplayCaptureController,
-}
-
-#[cfg(test)]
-impl ReplayCapture {
-    pub(crate) fn read_f32(&mut self, max_samples: usize) -> anyhow::Result<Vec<f32>> {
-        let (state_mutex, ready) = &*self.controller.state;
-        let mut state = state_mutex
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if state.paused {
-            return Ok(Vec::new());
-        }
-        let block = state
-            .driver
-            .as_mut()
-            .expect("replay loaded before capture")
-            .read_audio(max_samples)
-            .map_err(|error| anyhow::anyhow!("virtual replay clock: {error:?}"))?
-            .unwrap_or_default();
-        state.cursor = state.cursor.saturating_add(block.len());
-        state.reads = state.reads.saturating_add((!block.is_empty()) as u64);
-        ready.notify_all();
-        Ok(block)
-    }
-
-    pub(crate) fn read_f32_blocking(&mut self, min_samples: usize) -> anyhow::Result<Vec<f32>> {
-        let mut output = Vec::new();
-        while output.len() < min_samples {
-            let chunk = self.read_f32(min_samples.saturating_sub(output.len()))?;
-            if chunk.is_empty() {
-                break;
-            }
-            output.extend(chunk);
-        }
-        Ok(output)
-    }
-
-    pub(crate) fn wait_first_buffer(
-        &mut self,
-        min_samples: usize,
-    ) -> anyhow::Result<CaptureFirstBuffer> {
-        let audio = self.read_f32_blocking(min_samples)?;
-        Ok(if audio.is_empty() {
-            CaptureFirstBuffer::NoSamples
-        } else {
-            CaptureFirstBuffer::Data(audio)
-        })
-    }
-
-    pub(crate) fn wait_for_audio(&self) -> bool {
-        let (state_mutex, ready) = &*self.controller.state;
-        let mut state = state_mutex
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        while !state.paused
-            && state.cursor < state.total_samples
-            && state
-                .driver
-                .as_ref()
-                .is_some_and(ReplayDriver::is_waiting_for_lane_duration)
-        {
-            state = ready
-                .wait(state)
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-        }
-        !state.paused && state.cursor < state.total_samples
-    }
-
-    pub(crate) fn flush(&mut self) -> usize {
-        0
-    }
-
-    pub(crate) fn pause(&self) {
-        let (state_mutex, ready) = &*self.controller.state;
-        state_mutex
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .paused = true;
-        ready.notify_all();
-    }
-
-    pub(crate) fn resume(&self) -> anyhow::Result<()> {
-        let (state_mutex, ready) = &*self.controller.state;
-        state_mutex
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .paused = false;
-        ready.notify_all();
-        Ok(())
-    }
-
-    pub(crate) fn stop(&mut self) -> MetricsSnapshot {
-        self.pause();
-        self.metrics_snapshot()
-    }
-
-    pub(crate) fn metrics_snapshot(&self) -> MetricsSnapshot {
-        let state = self
-            .controller
-            .state
-            .0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        MetricsSnapshot {
-            input_overflow_count: 0,
-            dropped_blocks: 0,
-            total_samples_emitted: state.cursor as u64,
-            callback_invocations: state.reads,
-            input_samples_received: state.cursor as u64,
-            first_callback_latency_us: Some(0),
-            async_error_count: 0,
-            last_async_error_kind: None,
-            terminal_error_kind: None,
-            mean_callback_duration_us: 0.0,
-            max_callback_duration_us: 0,
-            downmix_locked_channel: None,
-        }
-    }
-}
-
-#[cfg(test)]
-#[path = "worker_api_replay_capture_adapter_tests.rs"]
-mod replay_capture_adapter_tests;
-
-#[cfg(test)]
-pub(crate) static REPLAY_CAPTURE: OnceLock<std::sync::Mutex<Option<ReplayCaptureController>>> =
-    OnceLock::new();
-
-#[cfg(test)]
-pub(crate) static TRIGGER_REPLAY_ACTIVE: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-
-#[cfg(test)]
-pub(crate) fn install_trigger_replay() -> ReplayCaptureController {
-    let controller = ReplayCaptureController::default();
-    *REPLAY_CAPTURE
-        .get_or_init(|| std::sync::Mutex::new(None))
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(controller.clone());
-    TRIGGER_REPLAY_ACTIVE.store(true, std::sync::atomic::Ordering::Release);
-    controller
-}
-
-#[cfg(test)]
-pub(crate) fn replay_capture() -> Option<ReplayCapture> {
-    REPLAY_CAPTURE
-        .get_or_init(|| std::sync::Mutex::new(None))
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clone()
-        .map(|controller| ReplayCapture { controller })
-}
-
-#[cfg(test)]
-pub(crate) fn replay_note_probe_submitted(total_samples: usize) {
-    if let Some(controller) = REPLAY_CAPTURE
-        .get_or_init(|| std::sync::Mutex::new(None))
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .as_ref()
-    {
-        controller.note_submitted(total_samples);
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn replay_note_probe_processed(total_samples: usize, probe_ms: u64) {
-    if let Some(controller) = REPLAY_CAPTURE
-        .get_or_init(|| std::sync::Mutex::new(None))
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .as_ref()
-    {
-        controller.note_processed(total_samples, probe_ms);
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn replay_note_probe_discarded(total_samples: usize) {
-    if let Some(controller) = replay_controller() {
-        controller.note_discarded(total_samples);
-    }
-}
-
-#[cfg(test)]
-pub(crate) struct ReplayProbeDispatchGuard {
-    controller: Option<ReplayCaptureController>,
-    total_samples: usize,
-}
-
-#[cfg(test)]
-impl Drop for ReplayProbeDispatchGuard {
-    fn drop(&mut self) {
-        if let Some(controller) = self.controller.take() {
-            controller.note_dispatched(self.total_samples);
-        }
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn replay_probe_dispatch_guard(total_samples: usize) -> ReplayProbeDispatchGuard {
-    ReplayProbeDispatchGuard {
-        controller: replay_controller(),
-        total_samples,
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn replay_controller() -> Option<ReplayCaptureController> {
-    REPLAY_CAPTURE
-        .get_or_init(|| std::sync::Mutex::new(None))
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clone()
-}
-
-#[cfg(test)]
-pub(crate) fn replay_mark_lane_in_flight(
-    lane: worker_clock::ExecutorLane,
-    submitted_at: worker_clock::WorkerInstant,
-) {
-    if let Some(controller) = replay_controller() {
-        controller.mark_lane_in_flight(lane, submitted_at);
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn replay_mark_lane_started(
-    lane: worker_clock::ExecutorLane,
-    submitted_at: worker_clock::WorkerInstant,
-) {
-    if let Some(controller) = replay_controller() {
-        controller.mark_lane_started(lane, submitted_at);
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn replay_schedule_lane_completion(completion: LaneCompletion) {
-    if let Some(controller) = replay_controller() {
-        controller.schedule_lane_completion(completion);
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn replay_lane_completion_ready(completion: LaneCompletion) -> bool {
-    replay_controller().is_none_or(|controller| {
-        controller.lane_completion_ready(completion.lane, completion.submitted_at)
-    })
 }
 
 // Command probes are useful operational diagnostics, but the recognized words

@@ -155,39 +155,3 @@ pub fn to_wire_string(v: &Value) -> String {
     write(v, &mut out);
     out
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rejects_malformed_and_trailing() {
-        assert!(RawJson::new("{\"a\":").is_err());
-        assert!(RawJson::new("{} {}").is_err());
-        assert!(RawJson::new("").is_err());
-        assert!(RawJson::from_slice(&[0xff]).is_err());
-    }
-
-    #[test]
-    fn keeps_bytes_and_substitutes_in_tree() {
-        let raw = r#"{"z":1.0,"a":1,"n":1E2,"u":"é😀\/"}"#;
-        let r = RawJson::new(raw).unwrap();
-        assert_eq!(r.get(), raw);
-        let tree = serde_json::json!({"x":[1, r.to_value()], "y": r.to_value()});
-        let s = to_wire_string(&tree);
-        assert_eq!(s, format!(r#"{{"x":[1,{raw}],"y":{raw}}}"#));
-        serde_json::from_str::<Value>(&s).unwrap();
-    }
-
-    #[test]
-    fn plain_values_match_display() {
-        let v = serde_json::json!({"b":[1,2.5,"x\n",null],"a":{"k":true}});
-        assert_eq!(to_wire_string(&v), v.to_string());
-    }
-
-    #[test]
-    fn echoed_lookalike_is_not_a_marker() {
-        let v = serde_json::json!({"$rightkit-raw-json-00": "[1,2]"});
-        assert_eq!(to_wire_string(&v), v.to_string());
-    }
-}

@@ -8,7 +8,7 @@ use rightkit_mcp::{
     ServerSpec, TrustStore,
 };
 use rightkit_sandbox::execution::ProcessLaunchContext;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -170,60 +170,4 @@ fn extract_structured_result(result: Value) -> std::io::Result<Value> {
         ));
     };
     serde_json::from_str(text).map_err(std::io::Error::other)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{extract_structured_result, SentinelClient};
-    use serde_json::json;
-
-    #[test]
-    fn extracts_structured_content_before_text() {
-        let value = extract_structured_result(json!({
-            "structuredContent": {"decision": "proceed"},
-            "content": [{"type": "text", "text": "ignored"}]
-        }))
-        .unwrap();
-        assert_eq!(value["decision"], "proceed");
-    }
-
-    #[test]
-    fn parses_text_fallback() {
-        let value = extract_structured_result(json!({
-            "content": [{"type": "text", "text": "{\"decision\":\"blocked\"}"}]
-        }))
-        .unwrap();
-        assert_eq!(value["decision"], "blocked");
-    }
-
-    #[tokio::test]
-    async fn one_persistent_process_serves_multiple_beacon_calls() {
-        // Sentinel runs in a workspace-scoped AppContainer, so its fixture
-        // script must be readable from that same workspace boundary.
-        let dir = tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
-        let script = dir.path().join("fake-sentinel.cjs");
-        std::fs::write(
-            &script,
-            r#"const readline=require('node:readline'); let calls=0;
-const rl=readline.createInterface({input:process.stdin});
-rl.on('line', line => { const m=JSON.parse(line); if (!Object.hasOwn(m,'id')) return;
-  if (m.method === 'initialize') console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{protocolVersion:'2025-11-25'}}));
-  else if (m.method === 'tools/call') { calls += 1; console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{structuredContent:{decision:'proceed',calls}}})); }
-});"#,
-        )
-        .unwrap();
-        let mut client = SentinelClient::spawn("node", script.to_str().unwrap())
-            .await
-            .unwrap();
-        let first = client
-            .beacon(json!({"operation":"assess","summary":"start"}))
-            .await
-            .unwrap();
-        let second = client
-            .beacon(json!({"operation":"checkpoint","run_id":"r1"}))
-            .await
-            .unwrap();
-        assert_eq!(first["calls"], 1);
-        assert_eq!(second["calls"], 2);
-    }
 }

@@ -347,7 +347,4 @@ pub struct ClientExtensions {
     /// resolves to loopback, and every other private, link-local or metadata address, stays
     /// refused. Hosts should set it only for user-configured servers (rightkit#165).
     pub allow_loopback: bool,
-    /// Test-only: replaces the HTTP client's address policy (default: public-web).
-    #[cfg(feature = "testing")]
-    pub address_policy: Option<rightkit_http::AddressPolicy>,
 }

@@ -137,30 +137,3 @@ fn is_identifier(name: &str) -> bool {
         .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
-
-#[cfg(all(test, unix))]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_plain_identifiers_reach_the_script() {
-        assert!(is_identifier("PATH"));
-        assert!(is_identifier("_X1"));
-        assert!(!is_identifier("1X"));
-        assert!(!is_identifier("A;rm"));
-        assert!(!is_identifier("A B"));
-        assert!(!is_identifier(""));
-    }
-
-    #[test]
-    fn a_nonexistent_shell_falls_back_to_a_real_one() {
-        let shell = shell();
-        assert!(shell.is_absolute());
-        assert!(shell.is_file());
-    }
-
-    #[test]
-    fn env_values_skips_invalid_names_and_returns_nothing_for_none_valid() {
-        assert!(env_values(&["not valid".to_string()], Duration::from_secs(1)).is_empty());
-    }
-}

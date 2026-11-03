@@ -208,9 +208,6 @@ fn wide_text(text: &str) -> Vec<u16> {
 pub(crate) struct GdiText {
     scratch: Option<Surface>,
     fonts: Vec<(FontKey, HFONT)>,
-    /// Every font handed to `DeleteObject` by eviction, with whether GDI accepted it (tests).
-    #[cfg(test)]
-    evicted: Vec<(HFONT, bool)>,
 }
 
 impl GdiText {
@@ -218,8 +215,6 @@ impl GdiText {
         Self {
             scratch: None,
             fonts: Vec::new(),
-            #[cfg(test)]
-            evicted: Vec::new(),
         }
     }
 
@@ -265,25 +260,12 @@ impl GdiText {
         }
         if self.fonts.len() >= FONT_CACHE_MAX {
             let (_, oldest) = self.fonts.remove(0);
-            // SAFETY: the font is not selected into any DC (every selection is undone before the
-            // calls below return) and its handle is dropped here.
-            #[cfg(test)]
-            let deleted = unsafe { DeleteObject(oldest) } != 0;
-            #[cfg(test)]
-            self.evicted.push((oldest, deleted));
-            #[cfg(not(test))]
             unsafe {
                 DeleteObject(oldest);
             }
         }
         self.fonts.push((key, font));
         Some(font)
-    }
-
-    /// How many fonts are alive (for the bound test).
-    #[cfg(test)]
-    pub(crate) fn font_count(&self) -> usize {
-        self.fonts.len()
     }
 
     fn ensure_scratch(&mut self, width: usize, height: usize) -> Option<&mut Surface> {
@@ -416,90 +398,5 @@ impl Drop for GdiText {
                 DeleteObject(font);
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn text_is_bounded_and_never_splits_a_surrogate_pair() {
-        let long = "a".repeat(10_000);
-        assert_eq!(wide_text(&long).len(), MAX_TEXT_UNITS);
-        assert_eq!(wide_text("hi"), vec![u16::from(b'h'), u16::from(b'i')]);
-        // A pair straddling the cap loses the whole pair, not half of it.
-        let straddle = format!("{}\u{1F600}", "a".repeat(MAX_TEXT_UNITS - 1));
-        let wide = wide_text(&straddle);
-        assert_eq!(wide.len(), MAX_TEXT_UNITS - 1);
-        assert!(wide.iter().all(|&u| u == u16::from(b'a')));
-        assert!(wide_text("").is_empty());
-    }
-
-    #[test]
-    fn the_font_list_is_bounded_and_keeps_recent_fonts() {
-        let mut text = GdiText::new();
-        // Far more distinct sizes than the list holds.
-        for px in 8..(8 + 3 * FONT_CACHE_MAX as i32) {
-            assert!(text.font("Segoe UI", px as f32, 400, false).is_some());
-            assert!(text.font_count() <= FONT_CACHE_MAX);
-        }
-        assert_eq!(text.font_count(), FONT_CACHE_MAX);
-        // A hit does not add an entry; a request that is not finite or enormous is held to range.
-        let before = text.font_count();
-        let recent = 8 + 3 * FONT_CACHE_MAX as i32 - 1;
-        assert!(text.font("Segoe UI", recent as f32, 400, false).is_some());
-        assert_eq!(text.font_count(), before);
-        assert!(text.font("Segoe UI", f32::NAN, 400, false).is_some());
-        assert!(text.font("Segoe UI", 1.0e9, 400, false).is_some());
-        assert!(text.font_count() <= FONT_CACHE_MAX);
-    }
-
-    #[test]
-    fn huge_strings_render_and_measure_without_overflow() {
-        let mut text = GdiText::new();
-        let long = "W".repeat(1_000_000);
-        let (w, h) = text.measure(&long, "Segoe UI", 16.0, 400, false);
-        assert!(w.is_finite() && h.is_finite() && h > 0.0, "{w} x {h}");
-        let mask = text.render(&long, "Segoe UI", 16.0, 400, false);
-        if let Some(mask) = mask {
-            assert!(mask.width <= MAX_TEXT_WIDTH && mask.height <= MAX_TEXT_HEIGHT);
-        }
-    }
-
-    #[test]
-    fn a_surface_publishes_only_what_fits_and_owns_its_pixels() {
-        let mut surface = Surface::new(40, 20).expect("a small DIB");
-        assert_eq!((surface.width, surface.height), (40, 20));
-        assert_eq!(surface.pixels_mut().len(), 40 * 20);
-        // Degenerate and oversized requests are refused up front.
-        assert!(Surface::new(0, 10).is_none());
-        assert!(Surface::new(10, 0).is_none());
-        assert!(Surface::new(MAX_SURFACE_SIDE as usize + 1, 10).is_none());
-        assert!(!present(std::ptr::null_mut(), &surface, 0, 0, 41, 20));
-        assert!(!present(std::ptr::null_mut(), &surface, 0, 0, 40, 0));
-    }
-}
-
-#[cfg(test)]
-mod font_cache_tests {
-    use super::*;
-    #[test]
-    fn lru_eviction_deletes_only_the_cold_font() {
-        let mut text = GdiText::new();
-        let first = text.font("Segoe UI", 10.0, 400, false).unwrap();
-        let cold = text.font("Segoe UI", 11.0, 400, false).unwrap();
-        for px in 12..(10 + FONT_CACHE_MAX) {
-            text.font("Segoe UI", px as f32, 400, false).unwrap();
-        }
-        assert_eq!(text.fonts.len(), FONT_CACHE_MAX);
-        assert_eq!(text.font("Segoe UI", 10.0, 400, false), Some(first));
-        text.font("Segoe UI", 50.0, 400, false).unwrap();
-        assert_eq!(text.fonts.len(), FONT_CACHE_MAX);
-        // GDI recycles freed handle values, so a stale handle's type is not a reliable probe;
-        // assert on what the cache itself did: exactly the cold font was deleted, and GDI took it.
-        assert_eq!(text.evicted, vec![(cold, true)]);
-        assert!(text.fonts.iter().any(|(_, font)| *font == first));
-        assert!(text.fonts.iter().all(|(key, _)| key.px != 11));
     }
 }

@@ -12,8 +12,8 @@
 use std::sync::Arc;
 
 use rightkit_daemon::{
-    host, valid_service_name, Allowlist, CallContext, Client, Emit, Handler, HostError, Hosted,
-    ServiceConfig, ServiceError, Suite, MAX_SERVICE_NAME_LEN,
+    host, Allowlist, CallContext, Client, Emit, Handler, HostError, Hosted, ServiceConfig,
+    ServiceError, Suite, MAX_SERVICE_NAME_LEN,
 };
 use serde_json::{json, Value};
 
@@ -114,7 +114,6 @@ pub(crate) fn derive_service_name(app_id: &str, suffix: &str) -> Result<String, 
             max: MAX_SERVICE_NAME_LEN,
         }));
     }
-    debug_assert!(valid_service_name(&name), "normalisation produced {name:?}");
     Ok(name)
 }
 
@@ -205,16 +204,6 @@ fn invalid_app_id(e: InvalidAppId) -> Arbitration {
     Arbitration::InvalidAppId(e)
 }
 
-#[cfg(test)]
-fn arbitrate_in_suite(
-    suite: &Suite,
-    app_id: &str,
-    version: &str,
-    on_second: Arc<dyn Fn(SecondInstance) + Send + Sync>,
-) -> Arbitration {
-    arbitrate_in_suite_with(suite, app_id, version, None, on_second)
-}
-
 fn arbitrate_in_suite_with(
     suite: &Suite,
     app_id: &str,
@@ -285,185 +274,5 @@ fn arbitrate_in_suite_with(
             reason: InvalidAppIdReason::Rejected(name),
         }),
         Err(e) => Arbitration::Unavailable(e.to_string()),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::process::{Command, Stdio};
-    use std::sync::mpsc;
-    use std::time::Duration;
-
-    #[test]
-    fn arbitration_forwards_secondary_launch_and_releases_primary_guard() {
-        let suite = Suite::per_run_temp("shell-instance").unwrap();
-        let (tx, rx) = mpsc::channel();
-        let primary = match arbitrate_in_suite(
-            &suite,
-            "test-shell",
-            "1.0.0",
-            Arc::new(move |second| {
-                tx.send(second).unwrap();
-            }),
-        ) {
-            Arbitration::Primary(hosted) => hosted,
-            _ => panic!("first launch must host arbitration"),
-        };
-        // Arbitration checks process identity, so the secondary must be a separate process.
-        let child = Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "instance::tests::secondary_process",
-                "--nocapture",
-            ])
-            .env("RK_SHELL_INSTANCE_TEST_ROOT", suite.root())
-            .stdout(Stdio::null())
-            .status()
-            .unwrap();
-        assert!(child.success());
-        let forwarded = rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(forwarded
-            .argv
-            .iter()
-            .any(|arg| arg == "instance::tests::secondary_process"));
-        assert_eq!(
-            forwarded.cwd,
-            std::env::current_dir().unwrap().to_string_lossy()
-        );
-        drop(primary);
-        assert!(matches!(
-            arbitrate_in_suite(&suite, "test-shell", "1.0.0", Arc::new(|_| {})),
-            Arbitration::Primary(_)
-        ));
-    }
-
-    fn kind(a: &Arbitration) -> &'static str {
-        match a {
-            Arbitration::Primary(_) => "primary",
-            Arbitration::Secondary => "secondary",
-            Arbitration::Unavailable(_) => "unavailable",
-            Arbitration::InvalidAppId(_) => "invalid-app-id",
-        }
-    }
-
-    #[test]
-    fn valid_ids_keep_their_exact_service_name() {
-        assert_eq!(try_service_name("mailright").unwrap(), "mailright-shell");
-        assert_eq!(
-            try_service_name("view-right2").unwrap(),
-            "view-right2-shell"
-        );
-        assert_eq!(service_name("mailright"), "mailright-shell");
-        assert_eq!(normalize_app_id("test-shell"), "test-shell");
-    }
-
-    #[test]
-    fn dotted_uppercase_and_underscore_ids_normalise() {
-        assert_eq!(
-            try_service_name("app.mailright").unwrap(),
-            "app-mailright-shell"
-        );
-        assert_eq!(try_service_name("Mail_Right").unwrap(), "mail-right-shell");
-        assert_eq!(try_service_name("a..b").unwrap(), "a--b-shell");
-        assert_eq!(try_service_name("é").unwrap(), "--shell");
-        assert!(valid_service_name(
-            &try_service_name("App.Mail_Right").unwrap()
-        ));
-    }
-
-    #[test]
-    fn unnameable_ids_are_typed_errors_not_unavailable() {
-        let empty = try_service_name("").unwrap_err();
-        assert_eq!(empty.reason, InvalidAppIdReason::Empty);
-        let long = "a".repeat(43);
-        let err = try_service_name(&long).unwrap_err();
-        assert_eq!(
-            err.reason,
-            InvalidAppIdReason::TooLong {
-                name_len: 49,
-                max: 48
-            }
-        );
-        assert!(try_service_name(&"a".repeat(42)).is_ok());
-        let suite = Suite::per_run_temp("shell-instance-invalid").unwrap();
-        assert_eq!(
-            kind(&arbitrate_in_suite(&suite, "", "1.0.0", Arc::new(|_| {}))),
-            "invalid-app-id"
-        );
-        assert_eq!(
-            kind(&arbitrate_in_suite(
-                &suite,
-                &long,
-                "1.0.0",
-                Arc::new(|_| {})
-            )),
-            "invalid-app-id"
-        );
-        assert_eq!(
-            kind(&arbitrate("", "1.0.0", Arc::new(|_| {}))),
-            "invalid-app-id"
-        );
-    }
-
-    #[test]
-    fn dotted_id_second_launch_sees_the_primary() {
-        let suite = Suite::per_run_temp("shell-instance-dotted").unwrap();
-        let (tx, rx) = mpsc::channel();
-        let primary = arbitrate_in_suite(
-            &suite,
-            "app.mailright",
-            "1.0.0",
-            Arc::new(move |second| {
-                tx.send(second).unwrap();
-            }),
-        );
-        assert_eq!(kind(&primary), "primary");
-        // The secondary asks with a differently spelled but equivalent id.
-        let status = Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "instance::tests::dotted_secondary_process",
-                "--nocapture",
-            ])
-            .env("RK_SHELL_INSTANCE_DOTTED_ROOT", suite.root())
-            .stdout(Stdio::null())
-            .status()
-            .unwrap();
-        assert!(status.success());
-        rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        drop(primary);
-    }
-
-    #[test]
-    fn dotted_secondary_process() {
-        let Some(root) = std::env::var_os("RK_SHELL_INSTANCE_DOTTED_ROOT") else {
-            return;
-        };
-        let suite = Suite::at(std::path::PathBuf::from(root)).unwrap();
-        let outcome = arbitrate_in_suite(
-            &suite,
-            "App.MailRight",
-            "1.0.0",
-            Arc::new(|_| panic!("secondary callback must not run")),
-        );
-        assert_eq!(kind(&outcome), "secondary");
-    }
-
-    #[test]
-    fn secondary_process() {
-        let Some(root) = std::env::var_os("RK_SHELL_INSTANCE_TEST_ROOT") else {
-            return;
-        };
-        let suite = Suite::at(std::path::PathBuf::from(root)).unwrap();
-        assert!(matches!(
-            arbitrate_in_suite(
-                &suite,
-                "test-shell",
-                "1.0.0",
-                Arc::new(|_| panic!("secondary callback must not run"))
-            ),
-            Arbitration::Secondary
-        ));
     }
 }

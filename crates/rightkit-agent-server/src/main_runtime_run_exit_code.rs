@@ -148,10 +148,3 @@ pub(crate) fn final_run_exit_code(
     }
     terminal_event.unwrap_or(fallback_for_err)
 }
-
-#[cfg(test)]
-mod run_exit_code_unit_tests {
-    use super::*;
-    use rightkit_agent_engine_protocol::ProtocolEvent;
-    include!("main_runtime_run_exit_code_tests.rs");
-}

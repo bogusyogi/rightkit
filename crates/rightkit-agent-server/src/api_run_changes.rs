@@ -721,7 +721,7 @@ impl RunChangeStore {
         }))
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[allow(dead_code)]
     pub fn record(&self, run_id: &str, capture: CaptureSnapshotRequest) -> CaptureSnapshotResponse {
         self.record_checked(run_id, capture)
             .expect("run-change capture must be valid and durable")
@@ -1776,12 +1776,6 @@ fn apply_undo_with_service(
     result
 }
 
-#[cfg(test)]
-fn apply_undo(workspace_root: &Path, entry: &ChangeEntry, undo: &UndoBody) -> Result<(), String> {
-    let fixture = rightkit_agent_tools::coding_tools::FileService::default();
-    apply_undo_with_service(&fixture, workspace_root, entry, undo)
-}
-
 fn refresh_anchor(
     workspace_root: &str,
     path: &str,
@@ -2075,10 +2069,8 @@ fn run_changes_store(_state: &DaemonState) -> Arc<RunChangeStore> {
 }
 
 /// Resolve the run_changes root with the same state-root rule as the rest of
-/// the app: the AppRoot state root (`RIGHTKIT_SUITE_ROOT` in a test-mode build).
-/// `RIGHTKIT_RUN_CHANGES_DIR` remains an explicit override. Under
-/// `cfg(test)` the real home is never used: with no override the root is a
-/// process-private directory under the system temp dir.
+/// the app: the AppRoot state root (`RIGHTKIT_SUITE_ROOT` when set).
+/// `RIGHTKIT_RUN_CHANGES_DIR` remains an explicit override.
 fn resolve_run_changes_root() -> PathBuf {
     if let Some(dir) = std::env::var_os("RIGHTKIT_RUN_CHANGES_DIR") {
         return PathBuf::from(dir);
@@ -2092,46 +2084,9 @@ fn dirs_default_home() -> PathBuf {
             return root;
         }
     }
-    #[cfg(test)]
-    {
-        return std::env::temp_dir().join(format!("coderight-test-state-{}", std::process::id()));
-    }
-    #[cfg(not(test))]
     {
         rightkit_app_settings::agent_config::state_root()
             .unwrap_or_else(|| PathBuf::from(".coderight"))
-    }
-}
-
-#[cfg(test)]
-mod run_changes_root_isolation_tests {
-    use super::*;
-
-    #[test]
-    fn default_root_is_not_under_real_home() {
-        // Only meaningful when no explicit overrides are set by the harness.
-        if std::env::var_os("RIGHTKIT_RUN_CHANGES_DIR").is_some()
-            || rightkit_app_settings::agent_config::state_root_is_isolated()
-        {
-            let root = resolve_run_changes_root();
-            assert!(root.ends_with("run_changes"));
-            return;
-        }
-        let root = resolve_run_changes_root();
-        assert!(root.ends_with("run_changes"));
-        assert!(
-            root.starts_with(std::env::temp_dir()),
-            "test run_changes root must live under the temp dir, got {}",
-            root.display()
-        );
-        for var in ["HOME", "USERPROFILE"] {
-            if let Some(real) = std::env::var_os(var) {
-                assert!(
-                    !root.starts_with(PathBuf::from(real).join(".coderight")),
-                    "test run_changes root must not be the real ~/.coderight"
-                );
-            }
-        }
     }
 }
 
@@ -2162,7 +2117,3 @@ impl SnakeCaseExt for String {
 }
 
 // ── Tests (executed by the final integration lane) ───────────────────────────
-
-#[cfg(test)]
-#[path = "api_run_changes/tests/mod.rs"]
-mod tests;

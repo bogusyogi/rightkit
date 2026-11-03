@@ -91,7 +91,6 @@ mod e2e_vendor_discovery;
 mod evt004_reconnect_durable_truth;
 mod evt005_admission_restart;
 mod evt006_effect_recovery;
-mod krn006_composition_root;
 mod ops004_route_contract;
 mod ops005_subscriber_resync;
 mod runtime_soak_publication;

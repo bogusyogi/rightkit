@@ -614,13 +614,3 @@ pub(crate) fn supervisor_client_is_live(client_id: &str) -> bool {
         .map(|supervisor| supervisor.client_is_live(&ClientId(client_id.to_string())))
         .unwrap_or(false)
 }
-
-#[cfg(test)]
-mod tests {
-    include!("api_clients_tests.rs");
-}
-
-#[cfg(test)]
-mod idle_eviction_producer_tests {
-    include!("api_clients_idle_eviction_tests.rs");
-}

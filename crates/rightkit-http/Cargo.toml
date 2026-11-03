@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["http", "retry", "sse", "streaming"]
 categories = ["web-programming::http-client"]
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "API.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "README.md", "CHANGELOG.md", "API.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 agent_host = ["async", "dep:url", "gzip", "untrusted"]
@@ -23,7 +23,6 @@ gzip = ["ureq/gzip", "reqwest?/gzip"]
 # streaming and an async SSE stream. Needs a tokio runtime at call time.
 async = ["dep:reqwest", "dep:tokio", "dep:futures-util", "dep:bytes", "dep:rustls", "dep:rustls-platform-verifier", "dep:webpki-roots"]
 # In-process mock HTTP server for tests of this crate and its consumers.
-testing = []
 
 [dependencies]
 url = { version = "2", optional = true }
@@ -42,14 +41,6 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 rustls-platform-verifier = { version = "0.7", default-features = false, optional = true }
 # Async `TrustRoots::Bundled`: Mozilla roots, installed explicitly (same crate ureq uses).
 webpki-roots = { version = "1", optional = true }
-
-[dev-dependencies]
-# Throwaway CAs and leaf certificates for the local TLS server in tests/tls_local.rs.
-rcgen = "0.14"
-# The test TLS server speaks rustls directly (ring), whatever features are on.
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
-tokio = { version = "1", features = ["rt", "macros", "time"] }
-rightkit-http = { path = ".", default-features = false, features = ["testing"] }
 
 [package.metadata.rightkit]
 continuous = false

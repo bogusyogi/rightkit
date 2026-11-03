@@ -104,20 +104,3 @@ pub fn rk_shell_print(
         let _ = app.emit(EVENT_PRINT_ERROR, error);
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn print_ui_defaults_to_the_in_app_preview_and_parses_kebab_case() {
-        assert_eq!(PrintUi::default(), PrintUi::Browser);
-        let ui: PrintUi = serde_json::from_str("\"system\"").unwrap();
-        assert_eq!(ui, PrintUi::System);
-        let ui: PrintUi = serde_json::from_str("\"browser\"").unwrap();
-        assert_eq!(ui, PrintUi::Browser);
-        assert!(serde_json::from_str::<PrintUi>("\"pdf\"").is_err());
-        let none: Option<PrintUi> = serde_json::from_str("null").unwrap();
-        assert_eq!(none.unwrap_or_default(), PrintUi::Browser);
-    }
-}

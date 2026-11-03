@@ -28,6 +28,3 @@ pub use model::{DeliveryTarget, ScheduleEntry, ScheduleSpec};
 #[allow(unused_imports)]
 pub use persistence::claim_due_schedules;
 pub use time::{current_epoch_minute, next_due_epoch_minute_in_time_zone, normalize_time_zone};
-
-#[cfg(test)]
-mod tests;

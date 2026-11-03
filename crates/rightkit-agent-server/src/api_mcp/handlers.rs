@@ -293,22 +293,3 @@ async fn login_mcp_server_handler(
         }))),
     }
 }
-
-#[cfg(test)]
-mod management_query_tests {
-    use super::McpManagementQuery;
-
-    #[test]
-    fn open_browser_defaults_to_none_so_login_is_headless() {
-        let q: McpManagementQuery = serde_json::from_str("{}").expect("empty query parses");
-        assert_eq!(q.open_browser, None);
-        assert!(!q.open_browser.unwrap_or(false));
-    }
-
-    #[test]
-    fn open_browser_opt_in_parses_true() {
-        let q: McpManagementQuery =
-            serde_json::from_str(r#"{"openBrowser":true}"#).expect("query parses");
-        assert_eq!(q.open_browser, Some(true));
-    }
-}

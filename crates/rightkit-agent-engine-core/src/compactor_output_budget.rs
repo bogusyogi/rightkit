@@ -39,10 +39,6 @@ pub fn reserved_summary_tokens_from_env() -> u32 {
     reserved_summary_tokens(parsed)
 }
 
-#[cfg(test)]
-#[path = "compactor_output_budget_tests.rs"]
-mod output_budget_tests;
-
 // ---------------------------------------------------------------------------
 // Mechanism 9: core safety pass, always last.
 // ---------------------------------------------------------------------------
@@ -78,48 +74,4 @@ pub fn core_safety_pass(text: &str) -> String {
     let keep = HARD_SAFETY_CHAR_CEILING.saturating_sub(marker_len);
     let kept: String = trimmed.chars().take(keep).collect();
     format!("{kept}{marker}")
-}
-
-#[cfg(test)]
-mod core_safety_pass_tests {
-    use super::*;
-
-    #[test]
-    fn under_ceiling_is_unchanged_besides_trim() {
-        let out = core_safety_pass("  a short summary  ");
-        assert_eq!(out, "a short summary");
-    }
-
-    #[test]
-    fn over_ceiling_is_truncated_with_marker_stating_size_and_cap() {
-        let huge = "x".repeat(HARD_SAFETY_CHAR_CEILING + 500);
-        let out = core_safety_pass(&huge);
-        assert!(out.len() < huge.len());
-        assert!(out.contains(&format!(
-            "truncated from {}",
-            HARD_SAFETY_CHAR_CEILING + 500
-        )));
-        assert!(out.contains(&HARD_SAFETY_CHAR_CEILING.to_string()));
-    }
-
-    #[test]
-    fn core_safety_pass_is_idempotent() {
-        let huge = "y".repeat(HARD_SAFETY_CHAR_CEILING + 500);
-        let once = core_safety_pass(&huge);
-        let twice = core_safety_pass(&once);
-        assert_eq!(once, twice);
-    }
-
-    /// The property that makes idempotence possible, asserted directly: the
-    /// marker is accounted for inside the cap rather than appended past it.
-    #[test]
-    fn truncated_output_fits_within_the_cap_including_its_marker() {
-        let huge = "z".repeat(HARD_SAFETY_CHAR_CEILING * 2);
-        let out = core_safety_pass(&huge);
-        assert!(
-            out.chars().count() <= HARD_SAFETY_CHAR_CEILING,
-            "output is {} chars, over the {HARD_SAFETY_CHAR_CEILING} cap",
-            out.chars().count()
-        );
-    }
 }

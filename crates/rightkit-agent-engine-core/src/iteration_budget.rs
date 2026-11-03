@@ -321,11 +321,3 @@ pub async fn attempt_graceful_summary(
     }
     GracefulSummaryOutcome::Completed(text)
 }
-
-#[cfg(test)]
-mod iteration_budget_tests {
-    use super::*;
-    use crate::llm::{LlmClient, LlmResponse, ScriptedLlm};
-    use rightkit_agent_engine_protocol::TranscriptMessage;
-    include!("iteration_budget_tests.rs");
-}

@@ -92,26 +92,6 @@ pub(super) fn extract_hover_content(contents: &serde_json::Value) -> String {
     String::new()
 }
 
-#[cfg(test)]
-pub(super) fn diagnostics_document_sync_notifications(
-    uri: &str,
-    language_id: &str,
-    text: &str,
-) -> Vec<serde_json::Value> {
-    let (open, _) = document_sync_notification(uri, language_id, text, None);
-    vec![
-        open,
-        serde_json::json!({
-            "jsonrpc": "2.0",
-            "method": "textDocument/didSave",
-            "params": {
-                "textDocument": {"uri": uri},
-                "text": text,
-            }
-        }),
-    ]
-}
-
 /// Build the next full-document LSP synchronization notification.
 ///
 /// The first snapshot opens the document at version 1. Later snapshots use

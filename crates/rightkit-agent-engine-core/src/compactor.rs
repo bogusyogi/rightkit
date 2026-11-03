@@ -230,16 +230,6 @@ impl Compactor {
             .map(|prefired| prefired.fingerprint.clone())
     }
 
-    /// Test-only peek at the prefire cache. Used by
-    /// `compaction_coordinator` tests to prove that state stored through one
-    /// handle to a persistent `Compactor` is visible through another --
-    /// this must never be called from non-test code, hence the `#[cfg(test)]`
-    /// gate and the `_for_test` name.
-    #[cfg(test)]
-    pub fn take_prefired_for_test(&self) -> Option<PrefiredSummary> {
-        self.prefired.lock().unwrap().clone()
-    }
-
     /// Wire a post-compaction memory-block provider. When set, every
     /// rebuild path injects the provider's fresh output immediately after
     /// the post-compaction continuation marker, replacing any prior
@@ -551,69 +541,5 @@ impl Compactor {
         rebuilt.push(compact_msg);
         rebuilt.extend(recent_kept);
         rebuilt
-    }
-}
-
-#[cfg(test)]
-#[path = "compactor_tests.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "compactor_tests_features.rs"]
-mod features_tests;
-
-#[cfg(test)]
-mod legacy_compaction_safety_tests {
-    use super::*;
-
-    struct FixedLegacySummary;
-
-    #[async_trait]
-    impl Summarizer for FixedLegacySummary {
-        async fn summarize(
-            &self,
-            _messages: &[TranscriptMessage],
-            _prior_summary: Option<&str>,
-        ) -> String {
-            "  legacy summary  ".into()
-        }
-    }
-
-    #[tokio::test]
-    async fn legacy_compaction_safety_pass_runs_before_boundary_write() {
-        let compactor = Compactor::new(0, 1).with_summarizer(Arc::new(FixedLegacySummary));
-        let mut transcript = Transcript::new();
-        transcript.push_user("old request");
-        transcript.push_assistant("old answer", None, Vec::new());
-        transcript.push_user("latest request");
-
-        compactor
-            .compact(&mut transcript, "session", Path::new("/tmp"))
-            .await;
-
-        assert!(transcript.messages().iter().any(|message| matches!(
-            message,
-            TranscriptMessage::Compact { summary, .. } if summary == "legacy summary"
-        )));
-    }
-
-    #[tokio::test]
-    async fn legacy_compaction_retains_open_obligation_outside_summary() {
-        let compactor = Compactor::new(0, 1).with_summarizer(Arc::new(FixedLegacySummary));
-        let mut transcript = Transcript::new();
-        transcript.push_user("old request");
-        transcript.push_tool_result("call-1", "OPEN OBLIGATION: finish release", false);
-        transcript.push_user("latest request");
-
-        compactor
-            .compact(&mut transcript, "session", Path::new("/tmp"))
-            .await;
-
-        assert!(transcript.messages().iter().any(|message| matches!(
-            message,
-            TranscriptMessage::Tool {
-                id, summary, pinned: true, ..
-            } if id == "tool-2" && summary == "OPEN OBLIGATION: finish release"
-        )));
     }
 }

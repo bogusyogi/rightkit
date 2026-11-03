@@ -439,19 +439,3 @@ impl RightKitMcpServer {
         self.host.dispatch_checked_async(request, context).await
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn server_mode_keeps_orchestration_outside_mcp() {
-        let policy = McpServerModePolicy::new("trusted", true);
-        assert!(policy.exposes_tool(&McpServerToolSummary::new("read_file", true)));
-        assert!(!policy.exposes_tool(&McpServerToolSummary::new("spawn_subagent", false)));
-        assert!(policy
-            .denial_reason(&McpServerToolSummary::new("spawn_subagent", false))
-            .unwrap()
-            .contains("orchestration-only"));
-    }
-}

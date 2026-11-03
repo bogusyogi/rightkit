@@ -155,9 +155,3 @@ fn validate_run_output<E>(
     validate_output_response(schema, text)
         .map_err(|message| (RunExitCode::SchemaViolation.as_i32(), message))
 }
-
-#[cfg(test)]
-mod output_schema_unit_tests {
-    use super::*;
-    include!("main_runtime_run_output_schema_tests.rs");
-}

@@ -308,10 +308,3 @@ pub fn summarize_script(events: &[(usize, RunInputEvent)]) -> Option<(String, Sc
         },
     ))
 }
-
-#[cfg(test)]
-mod input_format_unit_tests {
-    use super::*;
-    use std::io::Cursor;
-    include!("main_runtime_run_input_format_tests.rs");
-}

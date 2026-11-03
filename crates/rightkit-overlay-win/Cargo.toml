@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-overlay-win"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Native Win32 layered-window overlays for Right Suite apps: software painter, DWM-paced animation, hover and hit regions, per-monitor DPI, no WebView."

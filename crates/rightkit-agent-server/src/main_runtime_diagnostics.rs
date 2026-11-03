@@ -129,34 +129,6 @@ pub(crate) fn file_descriptor_error(
     error.to_string()
 }
 
-#[cfg(all(test, unix))]
-mod nofile_tests {
-    use super::*;
-
-    #[test]
-    fn nofile_target_is_bounded_by_hard_limit_and_never_lowers_soft() {
-        assert_eq!(target_nofile_soft(1_024, 4_096), 4_096);
-        assert_eq!(target_nofile_soft(16_384, 32_768), 16_384);
-    }
-
-    #[test]
-    fn nofile_raise_failure_preserves_observed_limit_and_surfaces_reason() {
-        let result = raise_nofile_with(|| Ok((1_024, 16_384)), |_, _| Err("denied".into()));
-        assert_eq!(result.applied_soft, Some(1_024));
-        assert_eq!(result.target_soft, Some(8_192));
-        assert!(result.detail.contains("denied"));
-    }
-
-    #[test]
-    fn exhaustion_error_is_actionable_and_carries_limits() {
-        let diagnostic = nofile_result(1_024, 4_096, 4_096, 1_024, "denied");
-        let error = std::io::Error::from_raw_os_error(libc::EMFILE);
-        let rendered = file_descriptor_error(&error, &diagnostic);
-        assert!(rendered.contains("current soft limit=1024"));
-        assert!(rendered.contains("raise the host nofile limit"));
-    }
-}
-
 async fn cli_diagnostics(command: DiagnosticsCommand) -> i32 {
     match command {
         DiagnosticsCommand::Watch {

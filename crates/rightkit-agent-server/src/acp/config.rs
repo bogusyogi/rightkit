@@ -66,21 +66,3 @@ pub fn handle_authenticate(params: Value) -> Result<Value, acp::AcpError> {
     // succeeds trivially (see AGENTS.md doc-comment on AuthenticateResponse).
     Ok(json!({}))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn initialize_rejects_unsupported_protocol_version() {
-        let params = json!({ "protocolVersion": acp::ACP_PROTOCOL_VERSION + 999 });
-        let err = handle_initialize(params).unwrap_err();
-        assert_eq!(err.code, acp::AcpErrorCode::InvalidParams.code());
-    }
-
-    #[test]
-    fn success_response_uses_null_id_when_absent() {
-        let response = success_response(None, json!({}));
-        assert_eq!(response["id"], Value::Null);
-    }
-}

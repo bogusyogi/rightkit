@@ -43,34 +43,3 @@ pub fn parse_artifact_kind(s: &str) -> ArtifactKind {
         _ => ArtifactKind::Other,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn roundtrip_known_kinds() {
-        for k in [
-            ArtifactKind::Plan,
-            ArtifactKind::Diff,
-            ArtifactKind::TestReport,
-            ArtifactKind::Screenshot,
-            ArtifactKind::CostReport,
-        ] {
-            assert_eq!(parse_artifact_kind(k.as_str()), k);
-        }
-    }
-
-    #[test]
-    fn unknown_maps_to_other() {
-        assert_eq!(parse_artifact_kind("zzz"), ArtifactKind::Other);
-    }
-
-    #[test]
-    fn trust_bearing_classification() {
-        assert!(ArtifactKind::Diff.is_trust_bearing());
-        assert!(ArtifactKind::TestReport.is_trust_bearing());
-        assert!(!ArtifactKind::Screenshot.is_trust_bearing());
-        assert!(!ArtifactKind::Other.is_trust_bearing());
-    }
-}

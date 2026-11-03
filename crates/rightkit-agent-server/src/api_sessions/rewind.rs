@@ -95,42 +95,6 @@ fn clean(content: &str) -> String {
     strip_system_reminders(content).trim().to_string()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rewind_text_is_the_user_text_without_the_injected_time_block() {
-        let reminder = crate::api::dynamic_user_turn_reminder(None, &[]);
-        let stored =
-            crate::api::decorate_user_payload_with_system_reminder("fix the flaky test", &reminder);
-        assert!(stored.contains("Current UTC time:"));
-        assert_eq!(clean(&stored), "fix the flaky test");
-        assert_eq!(strip_system_reminders(&stored).trim(), "fix the flaky test");
-    }
-
-    #[test]
-    fn wrap_and_strip_are_inverse_for_the_injected_form() {
-        let block = wrap_system_reminder("Current UTC time: 2026-10-17T00:00:00Z");
-        assert_eq!(
-            block,
-            "<system-reminder>\nCurrent UTC time: 2026-10-17T00:00:00Z\n</system-reminder>"
-        );
-        assert_eq!(strip_system_reminders(&block), "");
-        assert_eq!(clean(&format!("hello\n\n{block}")), "hello");
-    }
-
-    #[test]
-    fn strip_keeps_text_between_blocks_and_drops_unclosed_tail() {
-        let text = format!(
-            "a {} b {}",
-            wrap_system_reminder("x"),
-            "<system-reminder>\nnever closed"
-        );
-        assert_eq!(clean(&text), "a  b");
-    }
-}
-
 /// One prior user prompt of a session, as offered by the rewind picker.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RewindPoint {

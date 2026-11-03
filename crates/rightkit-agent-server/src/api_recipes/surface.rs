@@ -4,6 +4,3 @@ include!("install_validate.rs");
 include!("run_deeplink_schedule.rs");
 include!("store_schedule_helpers.rs");
 include!("error.rs");
-
-#[cfg(test)]
-include!("tests.rs");

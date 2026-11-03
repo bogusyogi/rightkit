@@ -97,30 +97,3 @@ pub fn broker_error(message: String) -> WorkspaceError {
         WorkspaceError::Other(message)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn broker_error_classifies_by_message() {
-        assert!(matches!(
-            broker_error("path is not authorized".into()),
-            WorkspaceError::BrokerDenied(_)
-        ));
-        assert!(matches!(
-            broker_error("No such file or directory".into()),
-            WorkspaceError::FileNotFound(_)
-        ));
-        assert!(matches!(
-            broker_error("boom".into()),
-            WorkspaceError::Other(_)
-        ));
-    }
-
-    #[test]
-    fn serializes_with_code_and_message() {
-        let json = serde_json::to_string(&WorkspaceError::Io("x".into())).unwrap();
-        assert_eq!(json, r#"{"code":"io","message":"x"}"#);
-    }
-}

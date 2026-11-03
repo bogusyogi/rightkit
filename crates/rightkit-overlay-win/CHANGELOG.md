@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1 (unpublished)
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.1.0 (unreleased)
 
 Verified on the Dell (Windows): the crate builds, the 83 unit tests, the doc test and the ignored desktop smoke test (`tests/windows_smoke.rs`) pass. The changes listed under "Review fixes" below were made after that run and are source-level until the integration owner reruns it, together with the new ignored `tests/windows_gdi_handles.rs` and a manual demo pass on a mixed-DPI host.

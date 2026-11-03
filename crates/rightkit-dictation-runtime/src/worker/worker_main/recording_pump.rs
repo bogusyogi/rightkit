@@ -7,19 +7,6 @@ use super::*;
 
 impl Worker {
     pub(super) fn pump_recording(&mut self) {
-        // A virtual capture can consume minutes of PCM while the real reload
-        // thread is still starting. Begin accelerated replay only once that
-        // thread has acknowledged this session; native capture stays live.
-        #[cfg(test)]
-        if self
-            .capture
-            .stream
-            .as_ref()
-            .is_some_and(WorkerCapture::is_replay)
-            && self.reload_ready_generation != Some(self.recording_generation)
-        {
-            return;
-        }
         let mut audio_arrived_this_loop = false;
         let read = self.capture.stream.as_mut().map(|cap| {
             cap.wait_for_audio(CAPTURE_POLL);
@@ -317,8 +304,6 @@ impl Worker {
                 let opening_submitted = self.asr_executor.submit_opening(OpeningCommandRequest {
                     generation: self.recording_generation,
                     session_id: session.id.clone(),
-                    #[cfg(test)]
-                    submitted_at: decision_now,
                     created_at: Instant::now(),
                     audio: session.buffer[command_start..].to_vec(),
                     speech_start_sample: session.speech.speech_start_sample,
@@ -383,22 +368,8 @@ impl Worker {
                 }) {
                     session.kws_probe_count = probe_sequence;
                     self.kws_native_origin_sample = Some(native_origin_sample);
-                    #[cfg(test)]
-                    replay_note_probe_submitted(session.buffer.len());
                 }
             }
-        }
-
-        // EOF is complete only after this final capture block has reached the
-        // probe-submission decision, not merely after read_f32 advanced cursor.
-        #[cfg(test)]
-        if let Some(controller) = replay_controller() {
-            let mut state = controller
-                .state
-                .0
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            state.pumped_total = state.pumped_total.max(session.buffer.len());
         }
 
         if reload_ready
@@ -485,16 +456,6 @@ impl Worker {
                 {
                     return;
                 }
-            }
-            // Gate2 scores trigger actions only. Long negative recordings
-            // can legitimately hit production's generic 60-second
-            // post-speech auto-stop, which is not a KWS detection. Keep
-            // duration-cap coverage intact, but let trigger replay reach
-            // EOF so the harness can cancel negatives itself.
-            #[cfg(test)]
-            if TRIGGER_REPLAY_ACTIVE.load(std::sync::atomic::Ordering::Acquire) && !duration_cap_hit
-            {
-                return;
             }
             let (session, final_generation) = self
                 .retire_session(Decoding::Keep)

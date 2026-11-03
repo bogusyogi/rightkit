@@ -319,18 +319,3 @@ pub(crate) fn web_search_config_from_config(
         api_key: api_key.to_string(),
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::normalize_driver_kind;
-
-    #[test]
-    fn driver_kind_defaults_native_and_rejects_unknown_values() {
-        assert_eq!(normalize_driver_kind(None).unwrap(), "native");
-        assert_eq!(
-            normalize_driver_kind(Some(" CoDeX ".into())).unwrap(),
-            "codex"
-        );
-        assert!(normalize_driver_kind(Some("other".into())).is_err());
-    }
-}

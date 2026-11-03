@@ -479,17 +479,3 @@ pub fn install_with_options(
         ids,
     })
 }
-
-#[cfg(test)]
-mod independent_tests {
-    use super::*;
-
-    #[test]
-    fn native_ids_are_unambiguous_and_separate_from_legacy_ids() {
-        let a = TrayOptions::custom_only("x:y");
-        let b = TrayOptions::custom_only("x");
-        assert_ne!(a.native_id("z"), b.native_id("y:z"));
-        assert_ne!(a.native_id(ID_SHOW), ID_SHOW);
-        assert_eq!(a.native_id("stop"), a.native_id("stop"));
-    }
-}

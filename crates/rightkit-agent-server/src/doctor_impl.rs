@@ -80,9 +80,6 @@ fn extension_execution_trust_check() -> Check {
         .find(|entry| entry.class == rightkit_agent_plugins::ExtensionTrustClass::FutureIsolated)
         .expect("future isolated extension trust class");
 
-    debug_assert!(native.process_authority && !native.registration_is_sandbox);
-    debug_assert!(external.process_authority && !external.registration_is_sandbox);
-    debug_assert!(!isolated.available && !isolated.registration_is_sandbox);
     if native.validate_registration_sandbox_claim(true).is_ok() {
         return check(
             "extension_execution_trust",

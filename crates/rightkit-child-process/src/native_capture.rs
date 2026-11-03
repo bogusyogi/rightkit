@@ -41,13 +41,6 @@ pub(crate) enum Stream {
     Stderr,
 }
 
-/// Test seam: make the next capture of `stream` that the calling thread starts fail its first
-/// read with `kind`, which the reader stores exactly as it stores a real read failure.
-#[cfg(test)]
-pub(crate) fn inject_read_fault(stream: Stream, kind: io::ErrorKind) {
-    test_fault::arm(stream, kind);
-}
-
 /// Receives each chunk the reader thread reads, on that thread, together with the capture's
 /// stop flag. A sink that can wait (a full channel) must give up once the flag is set, so a
 /// join never waits on it. Only [`crate::run_streaming`] installs one.
@@ -112,11 +105,6 @@ impl NativeOutputCapture {
         stream: Stream,
     ) -> io::Result<Self> {
         let prepared = platform::prepare(pipe)?;
-        // Test seam: taken here, on the thread that starts the capture, so a fault armed by one
-        // test can only reach a capture that same test starts (see `inject_read_fault`).
-        #[cfg(test)]
-        let mut fault = test_fault::take(stream);
-        #[cfg(not(test))]
         let _ = stream;
         let shared: Arc<Shared> = Arc::default();
         let stop = Arc::new(AtomicBool::new(false));
@@ -129,12 +117,6 @@ impl NativeOutputCapture {
                 let mut pipe = platform::reader(prepared);
                 let mut buffer = [0; CHUNK];
                 while !cancelled.load(Ordering::Acquire) {
-                    #[cfg(test)]
-                    let read = match fault.take() {
-                        Some(kind) => Err(io::Error::new(kind, "injected pipe read failure")),
-                        None => platform::read(&mut pipe, &mut buffer),
-                    };
-                    #[cfg(not(test))]
                     let read = platform::read(&mut pipe, &mut buffer);
                     match read {
                         Ok(0) => {
@@ -252,34 +234,5 @@ impl NativeOutputCapture {
 impl Drop for NativeOutputCapture {
     fn drop(&mut self) {
         self.stop_and_join();
-    }
-}
-
-#[cfg(test)]
-pub(crate) mod test_fault {
-    use super::Stream;
-    use std::{cell::Cell, io};
-
-    thread_local! {
-        // Thread-local, not global: `start` runs on the thread that called `run`, so parallel
-        // tests cannot take each other's fault.
-        static ARMED: Cell<[Option<io::ErrorKind>; 2]> = const { Cell::new([None, None]) };
-    }
-
-    pub(crate) fn arm(stream: Stream, kind: io::ErrorKind) {
-        ARMED.with(|armed| {
-            let mut slots = armed.get();
-            slots[stream as usize] = Some(kind);
-            armed.set(slots);
-        });
-    }
-
-    pub(super) fn take(stream: Stream) -> Option<io::ErrorKind> {
-        ARMED.with(|armed| {
-            let mut slots = armed.get();
-            let kind = slots[stream as usize].take();
-            armed.set(slots);
-            kind
-        })
     }
 }

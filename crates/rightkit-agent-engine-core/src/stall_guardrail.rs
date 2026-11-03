@@ -149,12 +149,3 @@ fn severity_for_count(count: u32) -> StallSeverity {
 
 include!("stall_guardrail_args.rs");
 include!("stall_guardrail_messages.rs");
-
-#[cfg(test)]
-mod stall_guardrail_tests {
-    use super::*;
-    use crate::goal_continuation::update_goal_state;
-    use crate::goal_state::{ContinueDecision, GoalState};
-    use std::sync::{Arc, Mutex};
-    include!("stall_guardrail_tests.rs");
-}

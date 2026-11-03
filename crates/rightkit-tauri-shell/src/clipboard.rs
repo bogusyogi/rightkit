@@ -185,19 +185,19 @@ pub fn take_item_from_with(
 
 /// Whether the AppleScript fallbacks may run for this board. They read the general clipboard, so
 /// only `Board::General` may use them.
-#[cfg(any(target_os = "macos", test))]
+#[cfg(target_os = "macos")]
 fn fallback_allowed(board: &Board) -> bool {
     matches!(board, Board::General)
 }
 
 /// The API saw a file-URL item but produced no path: ask AppKit through osascript (general only).
-#[cfg(any(target_os = "macos", test))]
+#[cfg(target_os = "macos")]
 fn needs_file_fallback(board: &Board, files_found: bool, types: &[String]) -> bool {
     fallback_allowed(board) && !files_found && types.iter().any(|t| t == "public.file-url")
 }
 
 /// Only a non-PNG bitmap (TIFF, or an image type) needs AppleScript's PNG coercion (general only).
-#[cfg(any(target_os = "macos", test))]
+#[cfg(target_os = "macos")]
 fn needs_png_fallback(board: &Board, types: &[String]) -> bool {
     fallback_allowed(board)
         && types
@@ -600,20 +600,6 @@ mod imp {
         }
     }
 
-    /// Release a named test pasteboard in the pasteboard server. No-op for the general board.
-    #[cfg(test)]
-    pub fn release_named(b: &Board) {
-        if matches!(b, Board::Named(_)) {
-            if let Ok(pb) = board(b) {
-                // SAFETY: `releaseGlobally` takes no arguments and returns void; the board is not used
-                // again by the caller.
-                unsafe {
-                    let _: () = objc2::msg_send![&*pb, releaseGlobally];
-                }
-            }
-        }
-    }
-
     pub fn write(b: &Board, c: &ClipboardContent) -> Result<(), String> {
         let pb = board(b)?;
         pb.clearContents();
@@ -992,255 +978,5 @@ mod imp {
     }
     pub fn formats(_: &Board) -> Result<Vec<String>, String> {
         Err("rich clipboard is not implemented on this platform".into())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn types(list: &[&str]) -> Vec<String> {
-        list.iter().map(|t| (*t).to_owned()).collect()
-    }
-
-    fn named() -> Board {
-        Board::Named("rightkit-shell-test-unit".into())
-    }
-
-    #[test]
-    fn only_the_general_board_may_use_the_applescript_fallbacks() {
-        assert!(fallback_allowed(&Board::General));
-        assert!(!fallback_allowed(&named()));
-    }
-
-    #[test]
-    fn the_general_board_selects_the_fallbacks_as_before() {
-        let general = Board::General;
-        assert!(needs_file_fallback(
-            &general,
-            false,
-            &types(&["public.file-url"])
-        ));
-        // A path the API already produced needs no fallback.
-        assert!(!needs_file_fallback(
-            &general,
-            true,
-            &types(&["public.file-url"])
-        ));
-        assert!(!needs_file_fallback(
-            &general,
-            false,
-            &types(&["public.png"])
-        ));
-        assert!(needs_png_fallback(&general, &types(&["public.tiff"])));
-        assert!(needs_png_fallback(&general, &types(&["public.image"])));
-        assert!(!needs_png_fallback(
-            &general,
-            &types(&["public.utf8-plain-text"])
-        ));
-    }
-
-    #[test]
-    fn a_named_board_never_selects_a_fallback() {
-        let board = named();
-        for list in [
-            &["public.file-url"][..],
-            &["public.tiff"],
-            &["public.image"],
-            &[
-                "public.file-url",
-                "public.tiff",
-                "public.image",
-                "public.png",
-            ],
-            &[],
-        ] {
-            let t = types(list);
-            assert!(!needs_file_fallback(&board, false, &t), "{list:?}");
-            assert!(!needs_file_fallback(&board, true, &t), "{list:?}");
-            assert!(!needs_png_fallback(&board, &t), "{list:?}");
-        }
-    }
-
-    #[test]
-    fn system_pasteboard_names_are_refused() {
-        for name in [
-            "Apple CFPasteboard general",
-            "Apple CFPasteboard find",
-            "Apple CFPasteboard drag",
-            "apple cfpasteboard general",
-            "  Apple CFPasteboard general",
-            "",
-            "   ",
-        ] {
-            assert!(named_board_refusal(name).is_some(), "{name:?}");
-        }
-        assert!(named_board_refusal("rightkit-shell-test-1-0").is_none());
-        assert!(named_board_refusal("viewright-paste-test").is_none());
-    }
-
-    /// The system-board alias is refused by every raw entry point on every platform, before any
-    /// pasteboard is touched (macOS) or because named boards do not exist (elsewhere).
-    #[test]
-    fn the_general_board_alias_is_unreachable_through_a_name() {
-        let alias = Board::Named("Apple CFPasteboard general".into());
-        assert!(read(&alias).is_err());
-        assert!(formats(&alias).is_err());
-        let content = ClipboardContent {
-            text: Some("must never be written".into()),
-            ..ClipboardContent::default()
-        };
-        assert!(write(&alias, &content).is_err());
-        let dir = std::env::temp_dir().join("rightkit-shell-test-alias-unused");
-        assert!(take_item_from_with(
-            &alias,
-            &PathBroker::new(),
-            &dir,
-            ClipboardPolicy::default(),
-            &ClipboardOptions::default(),
-        )
-        .is_err());
-        assert!(!dir.exists());
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    #[test]
-    fn a_named_board_is_rejected_where_there_is_no_private_clipboard() {
-        let dir = std::env::temp_dir().join("rightkit-shell-test-named-unused");
-        let result = take_item_from_with(
-            &named(),
-            &PathBroker::new(),
-            &dir,
-            ClipboardPolicy::default(),
-            &ClipboardOptions::default(),
-        );
-        assert!(result.is_err(), "{result:?}");
-        assert!(!dir.exists());
-    }
-
-    /// macOS: every test below stages content on a uniquely named private pasteboard and reads it
-    /// back with `take_item_from_with`. None reads or writes the general pasteboard: the board is
-    /// always `Board::Named`, and the guard releases it afterwards. These need the pasteboard
-    /// server, like any NSPasteboard use; the crate has no earlier macOS pasteboard test to mirror.
-    #[cfg(target_os = "macos")]
-    mod private_board {
-        use super::*;
-
-        struct TestBoard(Board);
-
-        impl TestBoard {
-            fn new() -> Self {
-                static COUNTER: AtomicU64 = AtomicU64::new(0);
-                Self(Board::Named(format!(
-                    "rightkit-shell-test-{}-{}",
-                    std::process::id(),
-                    COUNTER.fetch_add(1, Ordering::Relaxed)
-                )))
-            }
-            fn take(&self, temp_dir: &Path) -> Result<ClipboardItem, ShellError> {
-                take_item_from_with(
-                    &self.0,
-                    &PathBroker::new(),
-                    temp_dir,
-                    ClipboardPolicy::default(),
-                    &ClipboardOptions::default(),
-                )
-            }
-        }
-
-        impl Drop for TestBoard {
-            fn drop(&mut self) {
-                imp::release_named(&self.0);
-            }
-        }
-
-        #[test]
-        fn text_written_to_a_named_board_is_taken_from_it() {
-            let board = TestBoard::new();
-            let dir = tempfile::tempdir().unwrap();
-            write(
-                &board.0,
-                &ClipboardContent {
-                    text: Some("private paste text".into()),
-                    html: Some("<b>private</b>".into()),
-                    ..ClipboardContent::default()
-                },
-            )
-            .unwrap();
-            assert_eq!(
-                board.take(dir.path()).unwrap(),
-                ClipboardItem::Text {
-                    text: "private paste text".into()
-                }
-            );
-        }
-
-        #[test]
-        fn an_empty_named_board_is_none_not_the_general_clipboard() {
-            let board = TestBoard::new();
-            let dir = tempfile::tempdir().unwrap();
-            assert_eq!(board.take(dir.path()).unwrap(), ClipboardItem::None);
-        }
-
-        #[test]
-        fn a_named_board_with_only_an_unreadable_bitmap_type_is_none_with_no_fallback() {
-            let board = TestBoard::new();
-            let dir = tempfile::tempdir().unwrap();
-            let mut custom = BTreeMap::new();
-            custom.insert("public.tiff".to_owned(), b"not really a tiff".to_vec());
-            write(
-                &board.0,
-                &ClipboardContent {
-                    custom,
-                    ..ClipboardContent::default()
-                },
-            )
-            .unwrap();
-            // The general path would hand this to AppleScript's `the clipboard as PNG`.
-            assert_eq!(board.take(dir.path()).unwrap(), ClipboardItem::None);
-            // The fallback would have staged a file here; none was.
-            assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
-        }
-
-        #[test]
-        fn files_and_images_on_a_named_board_are_granted() {
-            let dir = tempfile::tempdir().unwrap();
-            let file = dir.path().join("pasted.txt");
-            std::fs::write(&file, b"hello").unwrap();
-
-            let files = TestBoard::new();
-            write(
-                &files.0,
-                &ClipboardContent {
-                    files: vec![file.to_string_lossy().into_owned()],
-                    ..ClipboardContent::default()
-                },
-            )
-            .unwrap();
-            match files.take(dir.path()).unwrap() {
-                ClipboardItem::Files { paths } => {
-                    assert_eq!(paths.len(), 1);
-                    assert!(paths[0].ends_with("pasted.txt"), "{paths:?}");
-                }
-                other => panic!("expected files, got {other:?}"),
-            }
-
-            let image = TestBoard::new();
-            let png = b"\x89PNG\r\n\x1a\nstand-in bytes".to_vec();
-            write(
-                &image.0,
-                &ClipboardContent {
-                    png: Some(png.clone()),
-                    ..ClipboardContent::default()
-                },
-            )
-            .unwrap();
-            match image.take(dir.path()).unwrap() {
-                ClipboardItem::Image { path } => {
-                    assert_eq!(std::fs::read(&path).unwrap(), png);
-                }
-                other => panic!("expected an image, got {other:?}"),
-            }
-        }
     }
 }

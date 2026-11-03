@@ -234,12 +234,6 @@ fn mcp_trust_presets_json() -> serde_json::Value {
 /// Home directory used to locate the persisted MCP trust-approval store,
 /// mirroring `rightkit_mcp::agent_mcp::config::home_dir` (crates/mcp/src/config.rs).
 fn mcp_trust_store_home_dir() -> Option<PathBuf> {
-    // Test seam: `dirs::home_dir` ignores HOME/USERPROFILE on Windows, so tests that
-    // redirect the trust store through HOME would otherwise read the real profile.
-    #[cfg(test)]
-    if let Some(home) = std::env::var_os("HOME").filter(|home| !home.is_empty()) {
-        return Some(PathBuf::from(home));
-    }
     rightkit_app_settings::agent_config::os_home_dir()
 }
 

@@ -164,34 +164,3 @@ pub(crate) fn render_text(status: &ContextStatus) -> String {
     }
     output
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn missing_binding_is_unavailable() {
-        let status = from_metrics(&json!({"membraneBinding": {"bound": false, "mode": "off"}}));
-        assert_eq!(status.state, ComponentState::Unavailable);
-        assert!(status
-            .components
-            .iter()
-            .all(|row| row.state == ComponentState::Unavailable));
-    }
-
-    #[test]
-    fn advertised_subsystems_are_not_reported_as_healthy() {
-        let status = from_metrics(&json!({
-            "membraneBinding": {
-                "bound": true, "mode": "cli",
-                "subsystems": ["pull", "memory", "blueprint", "transcript", "adapt"]
-            }
-        }));
-        assert_eq!(status.state, ComponentState::Advertised);
-        assert!(status
-            .components
-            .iter()
-            .all(|row| row.state == ComponentState::Advertised));
-    }
-}

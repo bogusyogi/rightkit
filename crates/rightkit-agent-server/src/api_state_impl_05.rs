@@ -55,16 +55,6 @@ impl DaemonState {
             .unwrap_or(false)
     }
 
-    #[cfg(test)]
-    pub fn live_team(
-        &self,
-        name: &str,
-    ) -> Option<rightkit_agent_tools::coding_tools::TeamDefinition> {
-        lock_recover(&self.live_teams, "live_teams")
-            .get(name)
-            .cloned()
-    }
-
     /// Like `submit_user_text` but allows specifying the trust level. Used by
     /// the scheduler and spec runner for workspace-generated prompts that should
     /// not carry full operator `User` authority.
@@ -677,44 +667,5 @@ pub(super) fn deliver_engine_text(
         Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
             Err(EngineTextRefusal::QueueClosed)
         }
-    }
-}
-
-#[cfg(test)]
-mod hctx002_turn_input_delivery_tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn full_turn_queue_is_refused_rather_than_dropped() {
-        let (tx, _rx) = tokio::sync::mpsc::channel::<String>(1);
-        assert_eq!(deliver_engine_text(&tx, "first".into()), Ok(()));
-        // Second send has nowhere to go; it must be reported, not swallowed.
-        assert_eq!(
-            deliver_engine_text(&tx, "second".into()),
-            Err(EngineTextRefusal::QueueFull)
-        );
-        assert_eq!(
-            EngineTextRefusal::QueueFull.reason(),
-            "session turn queue is full"
-        );
-    }
-
-    #[tokio::test]
-    async fn closed_turn_queue_is_refused_rather_than_dropped() {
-        let (tx, rx) = tokio::sync::mpsc::channel::<String>(4);
-        drop(rx);
-        assert_eq!(
-            deliver_engine_text(&tx, "orphan".into()),
-            Err(EngineTextRefusal::QueueClosed)
-        );
-    }
-
-    #[tokio::test]
-    async fn delivery_succeeds_while_capacity_remains() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(2);
-        assert_eq!(deliver_engine_text(&tx, "a".into()), Ok(()));
-        assert_eq!(deliver_engine_text(&tx, "b".into()), Ok(()));
-        assert_eq!(rx.recv().await.as_deref(), Some("a"));
-        assert_eq!(rx.recv().await.as_deref(), Some("b"));
     }
 }

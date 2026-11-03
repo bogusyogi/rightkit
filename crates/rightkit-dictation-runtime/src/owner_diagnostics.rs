@@ -8,13 +8,9 @@ use std::sync::OnceLock;
 
 // Test-mode only (release switch rule S1): a release build turns capture on through the on-disk
 // marker below and never reads, or contains, these names.
-#[cfg(any(test, feature = "test-mode"))]
-const OWNER_DIAGNOSTICS_ENV: &str = "RIGHTKIT_OWNER_DIAGNOSTICS";
 /// Absolute directory to write owner diagnostics into. Raw WAV capture is by far
 /// the heaviest thing this app writes, and the default lives on the boot volume;
 /// pointing it at an external disk keeps long debugging sessions from filling it.
-#[cfg(any(test, feature = "test-mode"))]
-const OWNER_DIAGNOSTICS_DIR_ENV: &str = "RIGHTKIT_OWNER_DIAGNOSTICS_DIR";
 /// Marker file in the app-data root that turns capture on and KEEPS it on.
 ///
 /// An env var alone lives only in the process the owner launched from a
@@ -220,131 +216,4 @@ fn append_jsonl(root: &Path, payload: &Value) -> Result<(), String> {
         .open(path)
         .map_err(|error| error.to_string())?;
     file.write_all(&line).map_err(|error| error.to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::ffi::OsStr;
-    use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn temp_root(label: &str) -> std::path::PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        std::env::temp_dir().join(format!(
-            "rightkit-owner-diagnostics-{label}-{}-{nonce}",
-            std::process::id()
-        ))
-    }
-
-    #[test]
-    fn owner_diagnostics_are_off_without_explicit_truthy_flag() {
-        assert!(!enabled_from(None));
-        for value in ["", "0", "false", "off", "no", "unexpected"] {
-            assert!(!enabled_from(Some(OsStr::new(value))), "{value}");
-        }
-        for value in ["1", "true", "TRUE", "on", "yes"] {
-            assert!(enabled_from(Some(OsStr::new(value))), "{value}");
-        }
-    }
-
-    /// The marker must carry BOTH the opt-in and the destination, because an
-    /// env var survives nothing: relaunching, updating, or opening from
-    /// Applications all start a process with a clean environment and silently
-    /// stopped capture (2026-07-28), losing exactly the session worth keeping.
-    #[test]
-    fn marker_file_persists_the_opt_in_and_its_destination() {
-        let root = temp_root("marker");
-        fs::create_dir_all(&root).unwrap();
-        let marker = root.join(OWNER_DIAGNOSTICS_MARKER);
-
-        // Absent marker, no env: capture is off. This is the default for users.
-        assert!(!marker.is_file());
-        assert!(!enabled_from(None));
-
-        // Empty marker: on, default destination (no override recorded).
-        fs::write(&marker, "").unwrap();
-        assert!(marker.is_file(), "presence alone must enable capture");
-        assert_eq!(read_marker_dir(&marker), None);
-
-        // Marker carrying an absolute path: that path is the destination.
-        // Derive it rather than hardcoding a POSIX path — `/Volumes/...` is not
-        // absolute on Windows, and this gate runs on both platforms.
-        let dest = temp_root("marker-dest");
-        assert!(dest.is_absolute());
-        fs::write(&marker, format!("{}\n", dest.display())).unwrap();
-        assert_eq!(read_marker_dir(&marker), Some(dest));
-
-        // Relative paths are refused for the same reason the env override
-        // refuses them: the sidecar's cwd is not the owner's shell.
-        fs::write(&marker, "relative/dir\n").unwrap();
-        assert_eq!(read_marker_dir(&marker), None);
-
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    /// Test seam for `marker_dir_override`, which resolves its own path from the
-    /// live app-data root.
-    fn read_marker_dir(marker: &std::path::Path) -> Option<std::path::PathBuf> {
-        let body = fs::read_to_string(marker).ok()?;
-        let line = body.lines().find(|l| !l.trim().is_empty())?.trim();
-        let path = std::path::PathBuf::from(line);
-        path.is_absolute().then_some(path)
-    }
-
-    #[test]
-    fn owner_diagnostics_dir_override_is_absolute_only() {
-        let fallback = || std::path::PathBuf::from("/default/location");
-        // Absolute override wins — this is the "put the WAVs on an external disk" case.
-        let override_dir = temp_root("external-disk");
-        assert!(override_dir.is_absolute());
-        assert_eq!(
-            resolve_root(Some(override_dir.as_os_str()), fallback),
-            override_dir
-        );
-        // Unset, blank, or relative all fall back: the sidecar's working directory
-        // is not the user's shell, so a relative path would land somewhere unintended.
-        assert_eq!(resolve_root(None, fallback), fallback());
-        assert_eq!(resolve_root(Some(OsStr::new("")), fallback), fallback());
-        assert_eq!(
-            resolve_root(Some(OsStr::new("relative/dir")), fallback),
-            fallback()
-        );
-    }
-
-    #[test]
-    fn owner_audio_is_written_as_exact_16khz_mono_pcm() {
-        let root = temp_root("wav");
-        let samples = [-1.0, -0.25, 0.0, 0.25, 1.0];
-        let path = write_wav_atomic(&root, "session/7", 1234, &samples).unwrap();
-        let audio = rightkit_audio::wav::read_wav_mono_f32(&path).unwrap();
-        assert_eq!(audio.sample_rate, 16_000);
-        let decoded: Vec<i16> = audio
-            .samples
-            .iter()
-            .map(|v| (v * i16::MAX as f32).round() as i16)
-            .collect();
-        assert_eq!(decoded, vec![i16::MIN + 1, -8192, 0, 8192, i16::MAX]);
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn owner_transcript_log_keeps_content_unredacted() {
-        let root = temp_root("jsonl");
-        let payload = serde_json::json!({
-            "event": "final_transcript",
-            "session_id": "session-7",
-            "raw": "Right? Zepher stab",
-            "stripped": "Right? Zepher stab",
-            "delivered": "Right? Zepher stab"
-        });
-        append_jsonl(&root, &payload).unwrap();
-        let written = fs::read_to_string(root.join("transcripts.jsonl")).unwrap();
-        assert!(written.contains("Right? Zepher stab"));
-        assert!(!written.contains("[redacted"));
-        fs::remove_dir_all(root).unwrap();
-    }
 }

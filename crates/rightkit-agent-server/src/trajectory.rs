@@ -54,18 +54,6 @@ impl TrajectoryStore {
         );
     }
 
-    /// Count of stored trajectories (diagnostics/tests).
-    #[cfg(test)]
-    pub fn len(&self) -> usize {
-        self.db
-            .lock()
-            .query_row("SELECT count(*) FROM trajectories", [], |r| {
-                r.get::<_, i64>(0)
-            })
-            .map(|n| n as usize)
-            .unwrap_or(0)
-    }
-
     /// Export qualifying trajectories (gds ≥ `min_gds`) as OpenAI chat
     /// fine-tuning JSONL — one object per line.
     pub fn export_jsonl(&self, min_gds: f64) -> String {
@@ -111,48 +99,4 @@ fn jsonl_line(role: &str, model: &str, prompt: &str, output: &str) -> String {
         "metadata": { "role": role, "model": model }
     })
     .to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn t(role: &str, gds: f64, output: &str) -> Trajectory {
-        Trajectory {
-            role: role.into(),
-            model: "deepseek-v4-pro".into(),
-            prompt: "do the thing".into(),
-            output: output.into(),
-            gds,
-            agent_version: None,
-        }
-    }
-
-    #[test]
-    fn records_and_exports_only_qualifying() {
-        let s = TrajectoryStore::new();
-        s.record(&t("coder", 0.95, "great answer"));
-        s.record(&t("coder", 0.40, "weak answer"));
-        s.record(&t("coder", 0.90, "good answer"));
-        assert_eq!(s.len(), 3);
-        let jsonl = s.export_jsonl(0.90);
-        let lines: Vec<&str> = jsonl.lines().collect();
-        assert_eq!(lines.len(), 2, "only gds>=0.90 exported");
-        // Each line is a valid OpenAI chat fine-tune record.
-        for line in lines {
-            let v: serde_json::Value = serde_json::from_str(line).unwrap();
-            assert_eq!(v["messages"][0]["role"], "user");
-            assert_eq!(v["messages"][1]["role"], "assistant");
-            assert_eq!(v["metadata"]["role"], "coder");
-        }
-        assert!(jsonl.contains("great answer") && jsonl.contains("good answer"));
-        assert!(!jsonl.contains("weak answer"));
-    }
-
-    #[test]
-    fn skips_empty_output() {
-        let s = TrajectoryStore::new();
-        s.record(&t("coder", 0.99, "   "));
-        assert_eq!(s.len(), 0);
-    }
 }

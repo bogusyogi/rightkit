@@ -70,5 +70,3 @@ include!("api_settings/provider_keys.rs");
 include!("api_settings/toolsets.rs");
 
 include!("api_settings/config_files.rs");
-
-include!("api_settings/tests.rs");

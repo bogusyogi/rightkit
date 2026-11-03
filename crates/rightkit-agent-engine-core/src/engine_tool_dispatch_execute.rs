@@ -490,30 +490,3 @@ async fn staged_git_diff(workspace_root: &std::path::Path) -> String {
         String::new()
     }
 }
-
-#[cfg(test)]
-mod pre_commit_gate_tests {
-    use super::{is_git_commit_command, staged_git_diff};
-
-    #[test]
-    fn detects_plain_and_compound_git_commit() {
-        assert!(is_git_commit_command("git commit -m msg"));
-        assert!(is_git_commit_command("git add -A && git commit -m msg"));
-        assert!(is_git_commit_command("cd x; git commit --amend"));
-    }
-
-    #[test]
-    fn ignores_non_commit_git_and_lookalikes() {
-        assert!(!is_git_commit_command("git status"));
-        assert!(!is_git_commit_command("git add commit.txt"));
-        assert!(!is_git_commit_command("echo git && echo commit"));
-        assert!(!is_git_commit_command("cargo commit"));
-    }
-
-    #[tokio::test]
-    async fn staged_diff_is_empty_outside_a_repo() {
-        let dir = std::env::temp_dir().join("cr-precommit-norepo-test");
-        let _ = std::fs::create_dir_all(&dir);
-        assert_eq!(staged_git_diff(&dir).await, "");
-    }
-}

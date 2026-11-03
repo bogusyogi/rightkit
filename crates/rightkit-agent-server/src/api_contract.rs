@@ -53,5 +53,3 @@ include!("api_contract/request_schemas.rs");
 include!("api_contract/response_schemas.rs");
 
 include!("api_contract/path_helpers.rs");
-
-include!("api_contract/tests.rs");

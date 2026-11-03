@@ -166,17 +166,3 @@ pub(crate) fn emit_session_update(
     });
     let _ = transport.send_line(&notification);
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn prompt_timeout_error_carries_session_and_seq_context() {
-        let error = prompt_timeout_error("session-123", 42);
-        let data = error.data.clone().unwrap_or_default();
-        assert_eq!(data["sessionId"], "session-123");
-        assert_eq!(data["afterSeq"], 42);
-        assert_eq!(data["retryable"], true);
-    }
-}

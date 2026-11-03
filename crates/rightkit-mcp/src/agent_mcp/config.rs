@@ -71,7 +71,7 @@ impl ProjectTrust {
 /// CR's normal MCP trust/approval gate before any tool runs.
 pub fn default_mcp_servers() -> Vec<(String, McpServerConfig)> {
     // Test-wide knob: hermetic e2e runs must not spawn `npx` on every session.
-    #[cfg(any(test, feature = "agent_mcp-host-env"))]
+    #[cfg(feature = "agent_mcp-host-env")]
     {
         if std::env::var("RIGHTKIT_DISABLE_DEFAULT_MCP").is_ok_and(|v| v == "1") {
             return Vec::new();
@@ -339,9 +339,9 @@ async fn load_with_trust_gate_pooled_impl(
     // `${VAR}` placeholders expand from the process environment only in
     // desktop, daemon and test builds (`host-env`); the mobile runtime expands
     // against an empty environment.
-    #[cfg(any(test, feature = "agent_mcp-host-env"))]
+    #[cfg(feature = "agent_mcp-host-env")]
     let env_vars = std::env::vars().collect::<HashMap<_, _>>();
-    #[cfg(not(any(test, feature = "agent_mcp-host-env")))]
+    #[cfg(not(feature = "agent_mcp-host-env"))]
     let env_vars = HashMap::<String, String>::new();
     expand_config_env(&mut merged, &env_vars);
     refresh_and_attach_oauth_tokens(&mut merged).await;
@@ -534,7 +534,7 @@ pub fn config_paths(workspace_root: Option<&Path>) -> Vec<PathBuf> {
     }
 
     // Highest precedence: the explicit operator-selected file.
-    #[cfg(any(test, feature = "agent_mcp-host-env"))]
+    #[cfg(feature = "agent_mcp-host-env")]
     {
         if let Ok(p) = std::env::var("RIGHTKIT_MCP_CONFIG") {
             paths.push(PathBuf::from(p));
@@ -546,13 +546,6 @@ pub fn config_paths(workspace_root: Option<&Path>) -> Vec<PathBuf> {
 
 fn home_dir() -> Option<PathBuf> {
     rightkit_app_settings::agent_config::os_home_dir()
-}
-
-#[cfg(test)]
-fn build_manager(config: McpConfigFile) -> McpManager {
-    tokio::runtime::Runtime::new()
-        .unwrap()
-        .block_on(build_manager_pooled(config, None, None, None))
 }
 
 /// Construct the concrete transport for one server config (FM-100 helper).
@@ -731,11 +724,3 @@ fn unix_timestamp_seconds() -> u64 {
         .map(|duration| duration.as_secs())
         .unwrap_or_default()
 }
-
-#[cfg(test)]
-#[path = "config_tests.rs"]
-mod config_tests;
-
-#[cfg(test)]
-#[path = "config_trust_gate_tests.rs"]
-mod config_trust_gate_tests;

@@ -164,10 +164,6 @@ impl Worker {
                 }
             };
             self.asr_executor.probe_result_drained();
-            #[cfg(test)]
-            replay_note_probe_processed(probe_result.request.total_samples, probe_result.probe_ms);
-            #[cfg(test)]
-            let _dispatch_guard = replay_probe_dispatch_guard(probe_result.request.total_samples);
             // No session means no buffered audio: every path that ends a
             // recording empties or drops its buffer.
             let live_total_samples = self

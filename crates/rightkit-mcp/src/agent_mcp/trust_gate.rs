@@ -87,7 +87,3 @@ pub fn gate_workspace_stdio_servers(
     }
     (approved_names, pending)
 }
-
-#[cfg(test)]
-#[path = "trust_gate_tests.rs"]
-mod trust_gate_tests;

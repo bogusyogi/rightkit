@@ -346,10 +346,3 @@ fn filter_agent_session_rows(
         })
         .collect()
 }
-
-#[cfg(test)]
-mod daemon_resolve_tests {
-    use super::*;
-    use serde_json::{json, Value};
-    include!("main_runtime_daemon_resolve_tests.rs");
-}

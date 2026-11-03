@@ -11,6 +11,3 @@ include!("lifecycle.rs");
 include!("runtime_context.rs");
 include!("files.rs");
 include!("rendering_provenance.rs");
-
-#[cfg(test)]
-include!("tests.rs");

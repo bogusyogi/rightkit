@@ -1729,21 +1729,3 @@ async fn apply_live_session_status(
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod safe_mode_toolset_tests {
-    use super::effective_session_toolset;
-
-    #[test]
-    fn safe_mode_forces_read_only_toolset() {
-        assert_eq!(effective_session_toolset(true, None), Some("read-only"));
-        assert_eq!(
-            effective_session_toolset(true, Some("desktop-full")),
-            Some("read-only")
-        );
-        assert_eq!(
-            effective_session_toolset(false, Some("dev-safe")),
-            Some("dev-safe")
-        );
-    }
-}

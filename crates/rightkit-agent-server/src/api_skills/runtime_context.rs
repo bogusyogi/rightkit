@@ -1,12 +1,3 @@
-#[cfg(test)]
-pub(crate) fn skill_runtime_context(
-    dirs: &[PathBuf],
-    workspace_root: &str,
-    role: Option<&str>,
-) -> Option<String> {
-    skill_runtime_context_with_behavioral(dirs, workspace_root, role, None)
-}
-
 pub(crate) fn skill_runtime_context_with_behavioral(
     dirs: &[PathBuf],
     workspace_root: &str,

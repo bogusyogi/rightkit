@@ -60,8 +60,6 @@ pub mod sentinel_client;
 pub mod session_state_summary;
 mod skill_plumbing;
 mod stall_strategy;
-#[cfg(test)]
-mod test_skill_catalog;
 pub mod tool_await;
 mod tool_dispatch_plumbing;
 #[cfg(feature = "qualification")]

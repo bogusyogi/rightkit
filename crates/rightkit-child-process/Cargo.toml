@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-child-process"
-version = "0.5.7"
+version = "0.5.8"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Ownership-safe child lifecycle, restart, and health primitives for Right Suite apps."
@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["process", "supervisor", "lifecycle", "sidecar"]
 categories = ["os"]
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [package.metadata.rightkit]
 continuous = false
@@ -28,10 +28,6 @@ libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["Wdk_System_SystemInformation", "Win32_Foundation", "Win32_Security", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Power", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_System_WindowsProgramming"] }
-
-[dev-dependencies]
-trybuild = "=1.0.122"
-tokio = { version = "1", features = ["rt", "macros", "process", "time"] }
 
 # One Cargo workspace and lock per crate (rightkit#1285).
 [workspace]

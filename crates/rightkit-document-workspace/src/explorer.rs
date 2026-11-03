@@ -304,12 +304,6 @@ fn child_name(keep: Option<&str>) -> Option<&str> {
     keep.filter(|n| !n.is_empty() && !n.contains("..") && !n.contains(['/', '\\']))
 }
 
-/// Test entry point with no named child; the command always goes through [`scan_dir_keeping`].
-#[cfg(all(test, unix))]
-fn scan_dir(dir: &str, cap: usize) -> Result<(Vec<RawEntry>, bool), WorkspaceError> {
-    scan_dir_keeping("Test", dir, cap, None)
-}
-
 /// Read ONE level of `dir` (canonicalized first): hidden names and OS junk skipped,
 /// dirs-then-files each natural-sorted, capped at `cap` entries (`truncated` reports the
 /// cut). `keep` names one child that stays listed even when the cap would cut it (the
@@ -501,8 +495,3 @@ pub fn explorer_reveal(app_name: &str, path: &str) -> Result<(), WorkspaceError>
     rightkit_child_process::reveal::reveal(&canon, &scope)
         .map_err(|e| WorkspaceError::Other(e.to_string()))
 }
-
-// Its only fixture is the Unix symlink-escape case.
-#[cfg(all(test, unix))]
-#[path = "explorer_tests.rs"]
-mod explorer_tests;

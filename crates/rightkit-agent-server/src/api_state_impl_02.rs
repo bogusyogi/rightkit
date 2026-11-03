@@ -297,15 +297,6 @@ impl DaemonState {
         self
     }
 
-    #[cfg(test)]
-    pub(crate) fn with_executed_bakeoff_runtime(
-        mut self,
-        runtime: Arc<dyn crate::api_benchmarks::ExecutedBakeoffRuntime>,
-    ) -> Self {
-        self.executed_bakeoff_runtime = runtime;
-        self
-    }
-
     #[allow(clippy::too_many_arguments)]
     fn configured_provider_route(
         &self,

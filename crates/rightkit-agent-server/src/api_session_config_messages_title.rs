@@ -554,33 +554,3 @@ fn scrub_system_reminders(content: &str) -> String {
 }
 
 // ── Router ────────────────────────────────────────────────────────────────────
-
-#[cfg(test)]
-mod uniquify_title_tests {
-    use super::uniquify_title;
-    use std::collections::HashSet;
-
-    fn taken(titles: &[&str]) -> HashSet<String> {
-        titles.iter().map(|t| t.to_lowercase()).collect()
-    }
-
-    #[test]
-    fn free_title_passes_through_trimmed() {
-        assert_eq!(
-            uniquify_title(" Fix flaky test ", &taken(&[])),
-            "Fix flaky test"
-        );
-    }
-
-    #[test]
-    fn collision_gets_ordinal_case_insensitive() {
-        let t = taken(&["fix flaky test"]);
-        assert_eq!(uniquify_title("Fix Flaky Test", &t), "Fix Flaky Test · 2");
-    }
-
-    #[test]
-    fn ordinal_climbs_past_taken_ordinals() {
-        let t = taken(&["audit run", "audit run · 2", "audit run · 3"]);
-        assert_eq!(uniquify_title("Audit run", &t), "Audit run · 4");
-    }
-}

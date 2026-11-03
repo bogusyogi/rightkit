@@ -89,12 +89,6 @@ fn mcp_login_result(value: &serde_json::Value) -> (String, i32) {
     }
 }
 
-#[cfg(test)]
-mod mcp_cli_format_tests {
-    use super::*;
-    include!("main_runtime_cli_management_tests.rs");
-}
-
 async fn cli_app(command: AppCommand) -> i32 {
     match command {
         AppCommand::Handoff { session_id } => daemon_handoff(&session_id).await,

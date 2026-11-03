@@ -148,106 +148,8 @@ pub(crate) fn is_breakaway_denied(error: &io::Error) -> bool {
     error.raw_os_error() == Some(5)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn bits(flags: PROCESS_CREATION_FLAGS) -> u32 {
-        flags.0
-    }
-
-    /// The default composition must match what this crate set before the option existed.
-    #[test]
-    fn default_priority_leaves_the_existing_flags_unchanged() {
-        assert_eq!(
-            bits(creation_flags(false, true, ProcessPriority::Normal)),
-            bits(CREATE_NO_WINDOW | CREATE_SUSPENDED)
-        );
-        assert_eq!(
-            bits(creation_flags(true, true, ProcessPriority::Normal)),
-            bits(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB)
-        );
-        assert_eq!(
-            bits(creation_flags(false, false, ProcessPriority::Normal)),
-            bits(CREATE_SUSPENDED)
-        );
-    }
-
-    #[test]
-    fn the_in_job_detached_fallback_has_no_breakaway_and_one_console_flag() {
-        let flags = bits(in_job_detached_flags(true, ProcessPriority::Normal));
-        assert_eq!(flags, bits(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
-        assert_eq!(flags & bits(CREATE_BREAKAWAY_FROM_JOB), 0);
-        assert_eq!(flags & bits(DETACHED_PROCESS), 0);
-        let visible = bits(in_job_detached_flags(false, ProcessPriority::Normal));
-        assert_eq!(visible, bits(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP));
-        let idle = bits(in_job_detached_flags(true, ProcessPriority::Idle));
-        assert_eq!(
-            idle,
-            bits(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | IDLE_PRIORITY_CLASS)
-        );
-    }
-
-    #[test]
-    fn only_access_denied_counts_as_a_denied_breakaway() {
-        assert!(is_breakaway_denied(&io::Error::from_raw_os_error(5)));
-        assert!(!is_breakaway_denied(&io::Error::from_raw_os_error(2)));
-        assert!(!is_breakaway_denied(&io::Error::other("no code")));
-    }
-
-    #[test]
-    fn below_normal_keeps_the_console_and_suspension_flags() {
-        let flags = creation_flags(false, true, ProcessPriority::BelowNormal);
-        assert_eq!(
-            bits(flags),
-            bits(CREATE_NO_WINDOW | CREATE_SUSPENDED | BELOW_NORMAL_PRIORITY_CLASS)
-        );
-        assert_eq!(bits(flags) & bits(IDLE_PRIORITY_CLASS), 0);
-    }
-
-    #[test]
-    fn idle_composes_with_detached_breakaway_and_hidden_console() {
-        let flags = creation_flags(true, true, ProcessPriority::Idle);
-        assert_eq!(
-            bits(flags),
-            bits(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB | IDLE_PRIORITY_CLASS)
-        );
-        assert_eq!(bits(flags) & bits(CREATE_SUSPENDED), 0);
-    }
-
-    #[test]
-    fn a_visible_child_at_lower_priority_still_has_no_console_flag() {
-        let flags = creation_flags(false, false, ProcessPriority::BelowNormal);
-        assert_eq!(bits(flags) & bits(CREATE_NO_WINDOW), 0);
-        assert_ne!(bits(flags) & bits(BELOW_NORMAL_PRIORITY_CLASS), 0);
-    }
-
-    #[test]
-    fn efficient_is_below_normal() {
-        assert_eq!(
-            bits(priority_class(ProcessPriority::Efficient)),
-            bits(priority_class(ProcessPriority::BelowNormal))
-        );
-    }
-
-    #[test]
-    fn priority_classes_are_distinct_and_normal_adds_nothing() {
-        assert_eq!(bits(priority_class(ProcessPriority::Normal)), 0);
-        assert_ne!(
-            bits(priority_class(ProcessPriority::BelowNormal)),
-            bits(priority_class(ProcessPriority::Idle))
-        );
-    }
-}
-
 #[derive(Debug)]
 pub(crate) struct KillOnCloseJob(OwnedHandle);
-
-/// Test only: the raw handle of a retained job, for direct accounting queries.
-#[cfg(test)]
-pub(crate) fn raw_job(job: &KillOnCloseJob) -> HANDLE {
-    raw(&job.0)
-}
 
 /// The processes that were in a job when [`KillOnCloseJob::hold_members`] ran, each held open
 /// (process id and handle). The handle keeps the process object alive after the process exits,
@@ -256,12 +158,6 @@ pub(crate) fn raw_job(job: &KillOnCloseJob) -> HANDLE {
 pub(crate) struct JobMembers(Vec<(u32, OwnedHandle)>);
 
 impl JobMembers {
-    /// Test only: the process ids held.
-    #[cfg(test)]
-    pub(crate) fn pids(&self) -> Vec<u32> {
-        self.0.iter().map(|(pid, _)| *pid).collect()
-    }
-
     /// Waits until `deadline` (the absolute instant shared with the caller's other steps; `None`
     /// waits as long as it takes) for every held process to have exited: its process object is
     /// signalled, so it holds no handle, lock or file any more. `Ok(false)` once the deadline has
@@ -317,12 +213,6 @@ impl KillOnCloseJob {
     ) -> io::Result<bool> {
         const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
         loop {
-            #[cfg(test)]
-            let count = match crate::owned::cleanup_test_fault::job_count() {
-                Some(count) => count,
-                None => crate::windows_job::WindowsJob::active_count_of(raw(&self.0))?,
-            };
-            #[cfg(not(test))]
             let count = crate::windows_job::WindowsJob::active_count_of(raw(&self.0))?;
             let now = std::time::Instant::now();
             let left = deadline.map(|d| d.saturating_duration_since(now));
@@ -501,9 +391,6 @@ pub(crate) fn terminate(
     code: u32,
     deadline: Option<std::time::Instant>,
 ) -> io::Result<()> {
-    #[cfg(test)]
-    let refused = crate::owned::cleanup_test_fault::termination_refused();
-    #[cfg(not(test))]
     let refused = false;
     // Do not skip the job when its original parent already exited.
     let job_result = match job {

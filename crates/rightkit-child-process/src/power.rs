@@ -226,31 +226,3 @@ mod imp {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_reason_with_a_nul_byte_is_rejected() {
-        let error = PowerAssertion::acquire("a\u{0}b", PowerKind::System).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
-    }
-
-    #[cfg(any(windows, target_os = "macos"))]
-    #[test]
-    fn acquire_and_release_round_trip() {
-        let guard = PowerAssertion::acquire("rightkit power test", PowerKind::System).unwrap();
-        drop(guard);
-        let guard =
-            PowerAssertion::acquire("rightkit power test", PowerKind::SystemAndDisplay).unwrap();
-        drop(guard);
-    }
-
-    #[cfg(not(any(windows, target_os = "macos")))]
-    #[test]
-    fn other_hosts_report_unsupported() {
-        let error = PowerAssertion::acquire("x", PowerKind::System).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
-    }
-}

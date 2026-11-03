@@ -37,9 +37,6 @@ pub mod untrusted;
 pub mod urlguard;
 mod urlredact;
 
-#[cfg(feature = "testing")]
-pub mod testing;
-
 pub use cancel::{is_cancelled_io, CancelToken};
 pub use client::{
     form_encode, percent_decode, percent_decode_component, percent_encode,

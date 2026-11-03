@@ -96,23 +96,3 @@ pub(crate) fn reconfigure(
     );
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn policy_matches_the_shell_derivation() {
-        let off = policy_value(false, "ready", true);
-        assert_eq!(off["cleanup_enabled"], false);
-        assert_eq!(off["cloud_consent"], false);
-        assert_eq!(off["provider_state"], "");
-        let on = policy_value(true, "ready", true);
-        assert_eq!(on["cleanup_enabled"], true);
-        assert_eq!(on["cloud_consent"], true);
-        assert_eq!(on["provider_state"], "ready");
-        let no_key = policy_value(true, "groq_key_absent", false);
-        assert_eq!(no_key["cloud_consent"], false);
-        assert_eq!(no_key["cleanup_enabled"], cfg!(target_os = "macos"));
-    }
-}

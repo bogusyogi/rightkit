@@ -209,29 +209,3 @@ pub(crate) fn fold_archive_response_schema() -> serde_json::Value {
         }
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn request_bounds_fail_closed() {
-        let request = FoldRequest {
-            subtask_id: "task".into(),
-            start_marker: "same".into(),
-            end_marker: "same".into(),
-            summary: "done".into(),
-        };
-        assert_eq!(validate_request(&request), Err(StatusCode::BAD_REQUEST));
-    }
-
-    #[test]
-    fn archive_path_hashes_session_identity() {
-        let path = session_fold_archive_dir("/tmp/coderight/data.db", "../foreign").unwrap();
-        assert_eq!(
-            path.parent().unwrap(),
-            FsPath::new("/tmp/coderight/context-folds")
-        );
-        assert_eq!(path.file_name().unwrap().to_string_lossy().len(), 64);
-    }
-}

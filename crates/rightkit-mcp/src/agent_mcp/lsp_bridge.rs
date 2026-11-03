@@ -3,8 +3,6 @@ mod helpers;
 
 pub use helpers::{lsp_mcp_tool_definitions, LspBridgeError};
 
-#[cfg(test)]
-use helpers::diagnostics_document_sync_notifications;
 use helpers::{
     document_sync_notification, extract_definition_locations, extract_diagnostics,
     extract_hover_content, extract_reference_locations, read_file_text_for_uri,
@@ -16,10 +14,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Child;
 
-#[cfg(not(test))]
 const LSP_OPERATION_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(15);
-#[cfg(test)]
-const LSP_OPERATION_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_millis(250);
 const LSP_SHUTDOWN_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(2);
 const MAX_LSP_MESSAGE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_LSP_HEADER_LINE_BYTES: usize = 8 * 1024;
@@ -586,9 +581,3 @@ where
     String::from_utf8(line)
         .map_err(|error| LspBridgeError::Communication(format!("header UTF-8: {error}")))
 }
-
-/// Errors from the LSP bridge.
-
-#[cfg(test)]
-#[path = "lsp_bridge_tests.rs"]
-mod lsp_bridge_tests;

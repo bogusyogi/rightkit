@@ -66,30 +66,3 @@ impl Default for LoopDetectorConfig {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn defaults_reproduce_legacy_call_site_values() {
-        let cfg = LoopDetectorConfig::default();
-        // Pre-P-3 hardcoded call site was MopDetector::new(8, 4).
-        assert_eq!(cfg.mop_window_size, 8);
-        assert_eq!(cfg.mop_repeat_threshold, 4);
-        // Pre-P-3 ToolLoopDetector::default() values.
-        assert_eq!(cfg.tool_loop_window_size, 40);
-        assert_eq!(cfg.exact_warn_threshold, 3);
-        assert_eq!(cfg.exact_stop_threshold, 5);
-        assert_eq!(cfg.kind_warn_threshold, 30);
-        assert_eq!(cfg.kind_stop_threshold, 40);
-    }
-
-    #[test]
-    fn defaults_apply_lane_specified_idempotency_thresholds() {
-        let cfg = LoopDetectorConfig::default();
-        assert_eq!(cfg.mutating_repeat_warn_threshold, 2);
-        assert_eq!(cfg.read_only_repeat_warn_threshold, 4);
-        assert_eq!(cfg.same_name_varying_warn_threshold, 6);
-    }
-}

@@ -296,7 +296,3 @@ pub enum CompactNoOpReason {
     BreakerOpen,
     SummarizerFailed(String),
 }
-
-#[cfg(test)]
-#[path = "compactor_breaker_tests.rs"]
-mod breaker_tests;

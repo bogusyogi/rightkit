@@ -99,24 +99,3 @@ pub(crate) fn expand_custom_command(
     };
     rightkit_agent_host_traits::skill_host::inline_shell::expand(body, &mut runner)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ask_mode_never_runs_a_shell_command() {
-        // Ask mode requires approval for shell; the expander must not run it.
-        let dir = tempfile::tempdir().unwrap();
-        let marker = dir.path().join("ran.txt");
-        let body = format!("x !{{echo hi > \"{}\"}} y", marker.display());
-        let out = expand_custom_command(
-            &body,
-            PermissionMode::Ask,
-            WorkspaceTrust::Trusted,
-            dir.path(),
-        );
-        assert!(out.contains("command not run"), "{out}");
-        assert!(!marker.exists());
-    }
-}

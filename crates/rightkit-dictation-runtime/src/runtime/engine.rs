@@ -42,20 +42,6 @@ pub(crate) use rightkit_transcript_library::delivery::CopyFallbackReason;
 pub(crate) const RECENT_HISTORY_CAP: usize = 100;
 pub(crate) const TERMINAL_TOMBSTONE_CAP: usize = 64;
 
-pub(crate) fn engine_test_mode() -> bool {
-    // `#[cfg]`, not `cfg!()`: a release binary must not contain the switch name.
-    #[cfg(any(test, feature = "test-mode"))]
-    {
-        std::env::var("RIGHTKIT_ENGINE_TEST_MODE")
-            .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
-            .unwrap_or(false)
-    }
-    #[cfg(not(any(test, feature = "test-mode")))]
-    {
-        false
-    }
-}
-
 /// Engine info surfaced over the IPC contract as the `EngineInfo` payload.
 #[derive(Debug, Clone)]
 pub struct EngineInfo {

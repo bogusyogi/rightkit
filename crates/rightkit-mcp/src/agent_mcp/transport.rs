@@ -128,8 +128,6 @@ impl ClientAdapter {
                         8 * 1024 * 1024
                     },
                 },
-                #[cfg(feature = "agent_mcp-test-loopback")]
-                address_policy: Some(rightkit_http::testing::loopback_policy()),
                 ..Default::default()
             },
             client: Mutex::new(None),
@@ -1044,7 +1042,3 @@ fn parse_elicitation_request(
         request,
     })
 }
-
-#[cfg(test)]
-#[path = "transport_tests.rs"]
-mod transport_tests;

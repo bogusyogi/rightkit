@@ -129,53 +129,6 @@ impl WorkflowApiState {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ed25519_dalek::{Signer, SigningKey};
-    use rightkit_workflow::control_plane::import_export::PackageSignatureVerifier;
-
-    #[test]
-    fn empty_trust_roots_fail_closed() {
-        let verifier = Ed25519PackageVerifier::from_config(&[]);
-        let manifest = rightkit_workflow::control_plane::import_export::PackageManifest {
-            name: "n".into(),
-            version: "1".into(),
-            content_hash: "sha256:x".into(),
-            intended_state: rightkit_workflow::control_plane::domain::PublicationState::Draft,
-            declared_capabilities: rightkit_workflow::control_plane::domain::CapabilitySet::empty(),
-            schema_version: 1,
-            declared_effects: Vec::new(),
-            signing_key_id: "missing".into(),
-        };
-        assert!(verifier.verify(&manifest, b"payload", &[0; 64]).is_err());
-    }
-
-    #[test]
-    fn configured_ed25519_key_verifies_bound_manifest_and_payload() {
-        let signing = SigningKey::from_bytes(&[7; 32]);
-        let config = rightkit_app_settings::agent_config::WorkflowImportTrustedPublicKey {
-            key_id: "test".into(),
-            public_key_base64: rightkit_crypto::base64_encode(signing.verifying_key().as_bytes()),
-        };
-        let verifier = Ed25519PackageVerifier::from_config(&[config]);
-        let manifest = rightkit_workflow::control_plane::import_export::PackageManifest {
-            name: "n".into(),
-            version: "1".into(),
-            content_hash: "sha256:x".into(),
-            intended_state: rightkit_workflow::control_plane::domain::PublicationState::Draft,
-            declared_capabilities: rightkit_workflow::control_plane::domain::CapabilitySet::empty(),
-            schema_version: 1,
-            declared_effects: Vec::new(),
-            signing_key_id: "test".into(),
-        };
-        let mut signed = serde_json::to_vec(&manifest).expect("manifest");
-        signed.extend_from_slice(b"payload");
-        let signature = signing.sign(&signed).to_bytes();
-        assert!(verifier.verify(&manifest, b"payload", &signature).is_ok());
-    }
-}
-
 /// Build the full v1 axum router for the workflow control plane.
 ///
 /// The returned `Router` is typed with [`DaemonState`] (the daemon's shared

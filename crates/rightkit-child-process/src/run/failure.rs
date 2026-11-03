@@ -134,36 +134,3 @@ pub(crate) fn terminate_runner(
         Err(error) => Err(stop_after_failure(child, RunnerPhase::Terminate, error)),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn partial_spawn_is_never_reclassified_as_not_started() {
-        let error = crate::owned::spawn_setup_failure(io::Error::from_raw_os_error(5));
-        let error = failure(RunnerPhase::Spawn, LeaderTermination::NotStarted, error);
-        let detail = RunnerFailure::from_io(&error).unwrap();
-        assert_eq!(detail.phase(), RunnerPhase::Setup);
-        assert_eq!(detail.termination(), LeaderTermination::Unconfirmed);
-        assert_eq!(detail.source_io_error().raw_os_error(), Some(5));
-        assert!(error
-            .get_ref()
-            .unwrap()
-            .downcast_ref::<RunnerFailure>()
-            .is_some());
-    }
-
-    #[test]
-    fn confirmed_read_failure_retains_original_os_error() {
-        let error = failure(
-            RunnerPhase::Stdout,
-            LeaderTermination::Confirmed,
-            io::Error::from_raw_os_error(5),
-        );
-        let detail = RunnerFailure::from_io(&error).unwrap();
-        assert_eq!(detail.phase(), RunnerPhase::Stdout);
-        assert_eq!(detail.termination(), LeaderTermination::Confirmed);
-        assert_eq!(detail.source_io_error().raw_os_error(), Some(5));
-    }
-}

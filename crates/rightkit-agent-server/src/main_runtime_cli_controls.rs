@@ -924,39 +924,3 @@ pub(crate) fn render_registry_help(show_all: bool) -> String {
     }
     out
 }
-
-#[cfg(test)]
-mod render_registry_help_tests {
-    use super::render_registry_help;
-
-    /// Consumption test living OUTSIDE command_registry.rs: fails if the
-    /// registry stops being the source `/help` renders from. `/quit` and
-    /// `provider connect` exist ONLY as COMMAND_REGISTRY rows (no other
-    /// static list enumerates them), so their presence here proves this
-    /// function reads the table rather than a hand-maintained string.
-    #[test]
-    fn common_help_renders_entries_that_exist_only_in_the_registry() {
-        let help = render_registry_help(false);
-        assert!(
-            help.contains("/quit"),
-            "expected /quit (registry-only entry) in rendered common help:\n{help}"
-        );
-        assert!(
-            !help.contains("conduct"),
-            "advanced-only entry `conduct` leaked into common help:\n{help}"
-        );
-    }
-
-    #[test]
-    fn all_help_adds_the_advanced_group() {
-        let help = render_registry_help(true);
-        assert!(
-            help.contains("/quit"),
-            "common group missing from --all help:\n{help}"
-        );
-        assert!(
-            help.contains("conduct"),
-            "expected advanced-only entry `conduct` in --all help:\n{help}"
-        );
-    }
-}

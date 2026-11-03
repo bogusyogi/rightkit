@@ -172,9 +172,6 @@ pub struct UnixChild {
     /// The wake-up hint for waiters (never a verdict), opened at spawn and shared with every
     /// waiter.
     watch: Arc<ExitWatch>,
-    /// Test only: the id used as the signal target, to stand in for a recycled id.
-    #[cfg(test)]
-    recycled_id: Option<u32>,
 }
 
 impl UnixChild {
@@ -194,8 +191,6 @@ impl UnixChild {
             watch,
             child,
             leader: Leader::Unreaped,
-            #[cfg(test)]
-            recycled_id: None,
         }
     }
 
@@ -230,9 +225,6 @@ impl UnixChild {
             return self.child.wait().is_ok();
         };
         let deadline = std::time::Instant::now().checked_add(timeout);
-        #[cfg(test)]
-        let refused = crate::owned::cleanup_test_fault::refuse(timeout);
-        #[cfg(not(test))]
         let refused = false;
         let reaped = if refused {
             Ok(None)
@@ -259,8 +251,6 @@ impl UnixChild {
         if !matches!(self.leader, Leader::Unreaped) {
             return Ok(false);
         }
-        #[cfg(test)]
-        trace::record(trace::Event::Proof { leader: self.pid });
         if self.origin.check(self.pid)? == Proof::Same {
             Ok(true)
         } else {
@@ -279,17 +269,6 @@ impl UnixChild {
         }
     }
 
-    /// Test only: pretend the pid was described differently at spawn, as if our child had been
-    /// collected elsewhere and the number given to the process now holding it.
-    #[cfg(test)]
-    pub(crate) fn simulate_replaced(&mut self) {
-        self.origin = Origin::Known(crate::identity::Identity {
-            parent: 0,
-            started_sec: 1,
-            started_usec: 1,
-        });
-    }
-
     /// Non-blocking. A `Some` result means the leader has been reaped, and ends group
     /// signalling for this child.
     pub fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
@@ -301,8 +280,6 @@ impl UnixChild {
         if let Err(error) = self.require_ours() {
             return Err(self.note_error(error));
         }
-        #[cfg(test)]
-        trace::record(trace::Event::Wait { leader: self.pid });
         match self.child.try_wait() {
             Ok(Some(status)) => {
                 self.note_reaped(status);
@@ -419,34 +396,12 @@ impl UnixChild {
         group_members_besides(self.pid, self.signal_id())
     }
 
-    /// True when a process other than the leader is still in the group (unknown counts as yes).
-    #[cfg(test)]
-    pub(crate) fn group_has_other_members(&mut self) -> io::Result<bool> {
-        Ok(match self.group_other_members()? {
-            Members::Pids(pids) => !pids.is_empty(),
-            Members::Unknown => true,
-        })
-    }
-
     fn signal_id(&self) -> u32 {
-        #[cfg(test)]
-        if let Some(id) = self.recycled_id {
-            return id;
-        }
         self.pid
-    }
-
-    /// Test only: aim every later signal at `id`, as if the kernel had recycled the leader's
-    /// pid and group id for an unrelated group.
-    #[cfg(test)]
-    pub(crate) fn simulate_recycled_id(&mut self, id: u32) {
-        self.recycled_id = Some(id);
     }
 
     fn note_reaped(&mut self, status: ExitStatus) {
         self.leader = Leader::Reaped(status);
-        #[cfg(test)]
-        trace::record(trace::Event::Reaped { leader: self.pid });
     }
 
     fn note_error(&mut self, error: io::Error) -> io::Error {
@@ -467,8 +422,6 @@ impl UnixChild {
 ))]
 fn probe_exit(pid: u32) -> io::Result<bool> {
     loop {
-        #[cfg(test)]
-        trace::record(trace::Event::Wait { leader: pid });
         // SAFETY: an all-zero siginfo_t is valid, and waitid fills it.
         let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
         // SAFETY: valid out pointer; WNOWAIT leaves the zombie in place.
@@ -510,13 +463,6 @@ fn probe_exit(_pid: u32) -> io::Result<bool> {
 /// The single place a signal reaches a child or its group, so tests can observe every one
 /// (signal 0 included).
 fn raw_kill(leader: u32, target: i32, signal: i32) -> i32 {
-    #[cfg(test)]
-    trace::record(trace::Event::Signal {
-        leader,
-        target,
-        signal,
-    });
-    #[cfg(not(test))]
     let _ = leader;
     // SAFETY: plain kill(2). The callers hold the lock and have just confirmed the leader is
     // unreaped, which pins the target id.
@@ -651,115 +597,4 @@ pub(crate) fn observe_shared(
     Ok(seen.is_some())
 }
 
-/// Test seam: after the first look that found the child still running, with the lock already
-/// released and before the thread sleeps, run the hook installed for `pid` (see [`gate`]).
-#[cfg(test)]
-fn pause_for_test(first: &mut bool, pid: u32, running: bool) {
-    if *first && running {
-        *first = false;
-        gate::pause(pid);
-    }
-}
-
-#[cfg(not(test))]
 fn pause_for_test(_first: &mut bool, _pid: u32, _running: bool) {}
-
-/// Test instrumentation: every signal, every reap and every wait-class system call that names
-/// the leader's pid, in the order they happened. All are recorded under the child's lock, so the
-/// order is the real order.
-#[cfg(test)]
-pub(crate) mod trace {
-    use std::sync::Mutex;
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub(crate) enum Event {
-        Signal {
-            leader: u32,
-            target: i32,
-            signal: i32,
-        },
-        Reaped {
-            leader: u32,
-        },
-        /// The pid was proven to still name the spawned process (see `UnixChild::prove`).
-        Proof {
-            leader: u32,
-        },
-        /// A `waitpid`/`waitid` (probe or reap) was issued naming this pid. After `Reaped` the
-        /// number may belong to someone else, so none may follow.
-        Wait {
-            leader: u32,
-        },
-    }
-
-    static EVENTS: Mutex<Vec<Event>> = Mutex::new(Vec::new());
-
-    pub(crate) fn record(event: Event) {
-        EVENTS.lock().unwrap_or_else(|p| p.into_inner()).push(event);
-    }
-
-    pub(crate) fn mark() -> usize {
-        EVENTS.lock().unwrap_or_else(|p| p.into_inner()).len()
-    }
-
-    /// Signals and reaps about `leader` recorded since `mark` (wait calls are left out; see
-    /// [`since_with_waits`]).
-    pub(crate) fn since(mark: usize, leader: u32) -> Vec<Event> {
-        since_with_waits(mark, leader)
-            .into_iter()
-            .filter(|event| !matches!(event, Event::Wait { .. } | Event::Proof { .. }))
-            .collect()
-    }
-
-    /// Every event about `leader` recorded since `mark`, wait calls included.
-    pub(crate) fn since_with_waits(mark: usize, leader: u32) -> Vec<Event> {
-        EVENTS.lock().unwrap_or_else(|p| p.into_inner())[mark..]
-            .iter()
-            .copied()
-            .filter(|event| match event {
-                Event::Signal { leader: l, .. }
-                | Event::Reaped { leader: l }
-                | Event::Proof { leader: l }
-                | Event::Wait { leader: l } => *l == leader,
-            })
-            .collect()
-    }
-}
-
-/// Test seam for waiters: a pause point a test can use to hold a waiter at the exact moment
-/// the old blocking wait had checked the shared state and was about to name the pid.
-#[cfg(test)]
-pub(crate) mod gate {
-    use std::sync::{Arc, Mutex};
-
-    type Hook = Arc<dyn Fn() + Send + Sync>;
-
-    static HOOKS: Mutex<Vec<(u32, Hook)>> = Mutex::new(Vec::new());
-
-    /// Runs `hook` each time a waiter on `pid` reaches its pause point.
-    pub(crate) fn install(pid: u32, hook: impl Fn() + Send + Sync + 'static) {
-        let mut hooks = HOOKS.lock().unwrap_or_else(|p| p.into_inner());
-        hooks.retain(|(id, _)| *id != pid);
-        hooks.push((pid, Arc::new(hook)));
-    }
-
-    pub(crate) fn remove(pid: u32) {
-        HOOKS
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .retain(|(id, _)| *id != pid);
-    }
-
-    /// Called by a waiter after it released the child lock and before it sleeps.
-    pub(crate) fn pause(pid: u32) {
-        let hook = HOOKS
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .iter()
-            .find(|(id, _)| *id == pid)
-            .map(|(_, hook)| Arc::clone(hook));
-        if let Some(hook) = hook {
-            hook();
-        }
-    }
-}

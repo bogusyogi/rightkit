@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.3 (unpublished)
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.7.2 (unreleased)
 
 - Feature `agent_mcp`: agent MCP client manager, server config and tool bridging moved from CodeRight `coderight-mcp`.

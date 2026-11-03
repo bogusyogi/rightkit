@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.3.10
 
 - Add `agent_host` feature: modules http_client (moved from an agent host binary).

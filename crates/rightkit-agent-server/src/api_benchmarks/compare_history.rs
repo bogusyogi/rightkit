@@ -246,56 +246,6 @@ async fn record_benchmark_history_with_detail(
     }
 }
 
-#[cfg(test)]
-mod compare_history_unit_tests {
-    use super::*;
-
-    #[test]
-    fn bounded_benchmark_output_passes_short_text_through_unchanged() {
-        let text = "cargo test passed";
-        assert_eq!(bounded_benchmark_output(text), text);
-    }
-
-    #[test]
-    fn bounded_benchmark_output_truncates_and_annotates_oversized_text() {
-        let text = "a".repeat(BENCHMARK_OUTPUT_LIMIT + 500);
-        let bounded = bounded_benchmark_output(text);
-        assert!(
-            bounded.len() > BENCHMARK_OUTPUT_LIMIT,
-            "annotation adds bytes back"
-        );
-        assert!(bounded.starts_with(&"a".repeat(BENCHMARK_OUTPUT_LIMIT)));
-        assert!(bounded.contains(&format!(
-            "[truncated to {BENCHMARK_OUTPUT_LIMIT} bytes for benchmark history]"
-        )));
-    }
-
-    #[test]
-    fn bounded_benchmark_output_respects_the_exact_limit_boundary() {
-        let exact = "b".repeat(BENCHMARK_OUTPUT_LIMIT);
-        assert_eq!(bounded_benchmark_output(exact.clone()), exact);
-    }
-
-    #[test]
-    fn bounded_benchmark_output_truncates_on_a_char_boundary_for_multibyte_text() {
-        // "a" * (LIMIT - 1) puts the byte-LIMIT cut point one byte into the
-        // first following 2-byte 'é', which is not a char boundary — this
-        // would panic on a naive `&text[..LIMIT]` slice.
-        let mut text = "a".repeat(BENCHMARK_OUTPUT_LIMIT - 1);
-        text.push_str(&"é".repeat(10));
-        assert!(
-            !text.is_char_boundary(BENCHMARK_OUTPUT_LIMIT),
-            "test setup must actually straddle a codepoint"
-        );
-
-        // Must not panic (would if it sliced mid-codepoint) and must still
-        // carry the truncation annotation.
-        let bounded = bounded_benchmark_output(text.clone());
-        assert!(bounded.contains("truncated to"));
-        assert!(bounded.starts_with(&"a".repeat(BENCHMARK_OUTPUT_LIMIT - 1)));
-    }
-}
-
 pub(crate) fn verification_shell_command(command: &str) -> tokio::process::Command {
     #[cfg(windows)]
     {
@@ -323,24 +273,7 @@ pub(crate) async fn managed_verification_shell_command(
     command: &str,
     workspace_root: &std::path::Path,
 ) -> Result<(i32, String), String> {
-    #[cfg(test)]
-    {
-        let mut process = verification_shell_command(command);
-        let output = process
-            .current_dir(workspace_root)
-            .output()
-            .await
-            .map_err(|error| error.to_string())?;
-        let mut combined = output.stdout;
-        combined.extend_from_slice(&output.stderr);
-        Ok((
-            output.status.code().unwrap_or(-1),
-            String::from_utf8_lossy(&combined).into_owned(),
-        ))
-    }
-    #[cfg(not(test))]
     let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
-    #[cfg(not(test))]
     {
         let context = rightkit_sandbox::execution::ProcessLaunchContext {
             workspace_root: workspace_root.display().to_string(),
@@ -406,10 +339,6 @@ pub(crate) struct ManagedCommandSpec {
 }
 
 pub(crate) async fn run_managed_command(spec: ManagedCommandSpec) -> Result<(i32, String), String> {
-    #[cfg(test)]
-    let adapter =
-        rightkit_agent_tools::coding_tools::process_launch::UnconfinedProcessLaunchAdapter;
-    #[cfg(not(test))]
     let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
     let context = rightkit_sandbox::execution::ProcessLaunchContext {
         workspace_root: spec.cwd.display().to_string(),

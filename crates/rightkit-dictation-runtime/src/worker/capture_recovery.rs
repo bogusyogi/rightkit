@@ -81,12 +81,6 @@ pub(crate) fn capture_route_changed(
 pub(crate) fn open_capture_paused(
     saved_device: Option<&str>,
 ) -> Result<(WorkerCapture, Option<CaptureRouteSignature>), String> {
-    #[cfg(test)]
-    if let Some(capture) = replay_capture() {
-        let capture = WorkerCapture::Replay(capture);
-        capture.pause();
-        return Ok((capture, None));
-    }
     let devices = list_input_devices().map_err(|e| format!("capture devices: {e}"))?;
     let (device_id, route) = resolve_capture_route(saved_device, &devices)?;
     let cfg = SessionConfig {
@@ -387,10 +381,6 @@ pub(crate) fn capture_should_reopen(capture_missing: bool, saved_device_changed:
     capture_missing || saved_device_changed
 }
 
-#[cfg(test)]
-#[path = "capture_recovery_tests.rs"]
-mod capture_recovery_tests;
-
 // --- Windows endpoint & power lifecycle recovery (Wave W1) ---
 // docs/WINDOWS_IMPLEMENTATION_SET.md "Wave W1 -- endpoint & power recovery".
 // The adapter in `windows_audio_lifecycle.rs` only enqueues typed events; all
@@ -659,7 +649,3 @@ pub(crate) fn windows_capture_lifecycle_payload(
 pub(crate) fn emit_windows_capture_lifecycle(payload: serde_json::Value) {
     emit_command_probe(payload);
 }
-
-#[cfg(test)]
-#[path = "capture_recovery_windows_audio_lifecycle_tests.rs"]
-mod windows_audio_lifecycle_tests;

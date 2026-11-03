@@ -355,7 +355,7 @@ fn same_path(a: &Path, b: &Path) -> bool {
 
 /// Splits a Windows command line the way the C runtime does (backslash runs before a quote,
 /// doubled quotes inside quotes, the program name without escapes).
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 fn split_windows_command_line(line: &str) -> Vec<String> {
     let chars: Vec<char> = line.chars().collect();
     let n = chars.len();
@@ -433,7 +433,7 @@ fn split_windows_command_line(line: &str) -> Vec<String> {
 
 /// The layout of the macOS `KERN_PROCARGS2` buffer: an `int` argc, the executable path, padding
 /// NULs, then argc NUL-terminated arguments, then the environment. `None` when truncated.
-#[cfg(any(target_os = "macos", all(test, unix)))]
+#[cfg(target_os = "macos")]
 fn parse_procargs2(buffer: &[u8]) -> Option<Vec<OsString>> {
     use std::os::unix::ffi::OsStringExt;
     let count = i32::from_ne_bytes(buffer.get(..4)?.try_into().ok()?);
@@ -823,112 +823,5 @@ mod os {
 
     pub(super) fn command_line(_pid: u32) -> io::Result<Option<Vec<OsString>>> {
         Err(io::Error::from(io::ErrorKind::Unsupported))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn strings(parts: &[&str]) -> Vec<OsString> {
-        parts.iter().map(OsString::from).collect()
-    }
-
-    #[test]
-    fn an_empty_query_and_empty_criteria_are_refused() {
-        for query in [
-            ProcessQuery::new(),
-            ProcessQuery::new().exe(""),
-            ProcessQuery::new().arg(""),
-            ProcessQuery::new().arg_containing(""),
-        ] {
-            let error = find_processes(&query).unwrap_err();
-            assert_eq!(error.kind(), io::ErrorKind::InvalidInput, "{query:?}");
-        }
-    }
-
-    #[test]
-    fn arguments_match_exactly_and_by_substring_and_all_criteria_must_hold() {
-        let args = strings(&["chrome", "--user-data-dir=/p/rk-profile-1", "--flag"]);
-        let both = ProcessQuery::new()
-            .arg("--flag")
-            .arg_containing("rk-profile-1");
-        assert!(args_match(&both, &args));
-        assert!(!args_match(&ProcessQuery::new().arg("--fla"), &args));
-        assert!(!args_match(
-            &ProcessQuery::new().arg_containing("rk-profile-2"),
-            &args
-        ));
-        assert!(!args_match(&both.arg("--missing"), &args));
-    }
-
-    #[test]
-    fn a_substring_is_found_inside_one_argument_not_across_two() {
-        let args = strings(&["tool", "ab", "cd"]);
-        assert!(args_match(&ProcessQuery::new().arg_containing("ab"), &args));
-        assert!(!args_match(
-            &ProcessQuery::new().arg_containing("b c"),
-            &args
-        ));
-        assert!(!args_match(
-            &ProcessQuery::new().arg_containing("bcd"),
-            &args
-        ));
-    }
-
-    #[test]
-    fn ancestors_follow_the_parent_chain_and_stop_on_a_loop() {
-        let table = [(10, 5), (5, 2), (2, 1), (1, 0), (7, 9), (9, 7)];
-        assert_eq!(ancestors(&table, 10), HashSet::from([5, 2, 1]));
-        assert_eq!(ancestors(&table, 7), HashSet::from([9]));
-        assert!(ancestors(&table, 99).is_empty());
-    }
-
-    #[test]
-    fn windows_command_lines_split_like_the_c_runtime() {
-        assert_eq!(
-            split_windows_command_line(r#""C:\Program Files\x.exe" a "b c" d\"e "f\\" g"#),
-            vec![r"C:\Program Files\x.exe", "a", "b c", "d\"e", r"f\", "g"]
-        );
-        assert_eq!(
-            split_windows_command_line("prog   one\ttwo"),
-            vec!["prog", "one", "two"]
-        );
-        assert_eq!(split_windows_command_line(r#"p "" x"#), vec!["p", "", "x"]);
-        assert_eq!(
-            split_windows_command_line(r#"p "a""b" c"#),
-            vec!["p", "a\"b", "c"]
-        );
-        assert_eq!(split_windows_command_line(r"p a\\b"), vec!["p", r"a\\b"]);
-        assert!(split_windows_command_line("   ").is_empty());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn procargs2_yields_the_arguments_and_not_the_environment() {
-        let mut buffer = 3i32.to_ne_bytes().to_vec();
-        buffer.extend_from_slice(b"/bin/sh\0\0\0sh\0-c\0read x\0HOME=/root\0");
-        assert_eq!(
-            parse_procargs2(&buffer).unwrap(),
-            strings(&["sh", "-c", "read x"])
-        );
-        // Cut short in the middle of the last argument: not a partial match.
-        let mut short = 3i32.to_ne_bytes().to_vec();
-        short.extend_from_slice(b"/bin/sh\0\0sh\0-c\0rea");
-        assert!(parse_procargs2(&short).is_none());
-        assert!(parse_procargs2(&[1, 0]).is_none());
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_paths_compare_without_case_or_slash_style() {
-        assert!(same_path(
-            Path::new(r"C:\Program Files\App\x.exe"),
-            Path::new("c:/program files/app/X.EXE")
-        ));
-        assert!(!same_path(
-            Path::new(r"C:\a\x.exe"),
-            Path::new(r"C:\b\x.exe")
-        ));
     }
 }

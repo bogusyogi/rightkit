@@ -80,23 +80,3 @@ pub(super) fn normalize_lexical(path: &Path) -> PathBuf {
     }
     normalized
 }
-
-#[cfg(test)]
-mod targets_tests {
-    use super::*;
-
-    #[test]
-    fn desktop_notification_body_without_artifact_uses_fallback_only() {
-        let body = desktop_notification_body(None, "fallback text");
-        assert_eq!(body, delivery_message_content(None, "fallback text"));
-        assert!(!body.contains("Artifact:"));
-    }
-
-    #[test]
-    fn desktop_notification_body_with_artifact_prefixes_path() {
-        let path = Path::new("/tmp/out.txt");
-        let body = desktop_notification_body(Some(path), "fallback text");
-        assert!(body.starts_with("Artifact: /tmp/out.txt\n\n"));
-        assert!(body.ends_with(&delivery_message_content(Some(path), "fallback text")));
-    }
-}

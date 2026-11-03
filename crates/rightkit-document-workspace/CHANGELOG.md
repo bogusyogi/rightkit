@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4 (unpublished)
+
+- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
+
 ## 0.1.3
 
 - Added `SettingsStore::in_app_folder(app_folder, namespace)`: the store opens `settings.json` and `explorer.json` directly in the app's own data folder (rightkit-fs `AppDirs::data`), so a host needs no parent-folder resolver (viewright#57). `new(data_dir, namespace)` is unchanged and opens the same files under `<data_dir>/<namespace>/`. Additive.

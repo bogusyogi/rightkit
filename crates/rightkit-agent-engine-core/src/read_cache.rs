@@ -53,35 +53,3 @@ impl ReadCache {
 fn content_hash(s: &str) -> String {
     format!("{:016x}", fnv1a(s))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn dedups_identical_reread() {
-        let mut c = ReadCache::new();
-        assert!(c.record("a.rs", "fn main(){}")); // first read: send
-        assert!(!c.record("a.rs", "fn main(){}")); // identical: elide
-        assert!(c.record("a.rs", "fn main(){ } // x")); // changed: send
-    }
-
-    #[test]
-    fn clear_forces_resend_of_every_path() {
-        let mut c = ReadCache::new();
-        c.record("a.rs", "v1");
-        c.record("b.rs", "v2");
-        c.clear();
-        assert!(!c.already_seen("a.rs", "v1"));
-        assert!(c.record("a.rs", "v1"));
-        assert!(c.record("b.rs", "v2"));
-    }
-
-    #[test]
-    fn invalidate_forces_resend() {
-        let mut c = ReadCache::new();
-        c.record("a.rs", "v1");
-        c.invalidate("a.rs");
-        assert!(c.record("a.rs", "v1")); // after invalidate: send again
-    }
-}

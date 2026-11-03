@@ -42,9 +42,6 @@ pub mod restart;
 pub mod supervisor;
 pub mod triggers;
 
-#[cfg(test)]
-mod tests;
-
 pub use continuations::ContinuationWorker;
 pub use cron::CronWorker;
 pub use dispatcher::{

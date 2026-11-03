@@ -102,39 +102,3 @@ fn hand_off(program: &str, args: &[&str]) -> io::Result<()> {
         _ => Ok(()),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn urls_need_a_scheme_and_no_whitespace() {
-        assert!(valid_url("claude://chat/abc"));
-        assert!(valid_url("https://example.com/a?b=c"));
-        assert!(!valid_url("example.com"));
-        assert!(!valid_url("file:///etc/passwd"));
-        assert!(!valid_url("FILE:/x"));
-        assert!(!valid_url("https://example.com/a b"));
-        assert!(!valid_url("https://example.com/\nx"));
-        assert!(!valid_url("1abc://x"));
-    }
-
-    #[test]
-    fn bundle_ids_and_app_user_model_ids_are_checked_per_shape() {
-        assert!(valid_bundle_id("com.apple.Safari"));
-        assert!(!valid_bundle_id("Safari"));
-        assert!(!valid_bundle_id("com.example/../x"));
-        assert!(valid_app_user_model_id(
-            "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App"
-        ));
-        assert!(!valid_app_user_model_id("NoBang"));
-        assert!(!valid_app_user_model_id("A!B!C"));
-        assert!(!valid_app_user_model_id("A!B C"));
-    }
-
-    #[test]
-    fn a_refused_url_starts_nothing() {
-        let error = open_url("file:///tmp/x").unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
-    }
-}

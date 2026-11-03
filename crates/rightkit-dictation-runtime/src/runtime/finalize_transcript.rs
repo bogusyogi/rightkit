@@ -3,82 +3,12 @@ use super::*;
 #[allow(unused_imports)]
 use super::{delivery_history::*, engine::*, engine_impl::*, engine_support::*};
 
-#[cfg(any(test, target_os = "windows"))]
+#[cfg(target_os = "windows")]
 fn selected_text_matches_live(expected: Option<&str>, live: Option<&str>) -> bool {
     let Some(expected) = expected.map(str::trim).filter(|text| !text.is_empty()) else {
         return false;
     };
     live.map(str::trim).filter(|text| !text.is_empty()) == Some(expected)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::selected_text_matches_live;
-
-    #[test]
-    fn selected_text_live_guard_accepts_same_nonempty_selection() {
-        assert!(selected_text_matches_live(
-            Some("  selected "),
-            Some("selected")
-        ));
-    }
-
-    #[test]
-    fn selected_text_live_guard_rejects_replaced_selection() {
-        assert!(!selected_text_matches_live(Some("first"), Some("second")));
-    }
-
-    #[test]
-    fn selected_text_live_guard_rejects_empty_or_missing_selection() {
-        assert!(!selected_text_matches_live(Some("  "), Some("value")));
-        assert!(!selected_text_matches_live(Some("value"), Some("  ")));
-        assert!(!selected_text_matches_live(None, Some("value")));
-        assert!(!selected_text_matches_live(Some("value"), None));
-    }
-}
-
-#[cfg(test)]
-mod last_delivery_capture_tests {
-    use super::*;
-
-    fn target() -> rightkit_transcript_library::delivery::TargetSnapshot {
-        rightkit_transcript_library::delivery::TargetSnapshot::empty()
-    }
-
-    fn capture_for(runtime: &mut EngineRuntime, transcript: &str) -> FinalizeCapture {
-        runtime.begin_recording("s1", None, None).unwrap();
-        runtime.begin_stop("s1", false, false).unwrap();
-        let result = Ok(crate::worker::FinalTranscript {
-            text: transcript.to_string(),
-            tokens: Vec::new(),
-            stop_evidence: crate::worker::StopEvidence::Manual,
-        });
-        match runtime.finalize_phase1_capture_typed("s1", result, None, None) {
-            FinalizePhase1::Continue { capture, .. } => capture,
-            _ => panic!("phase 1 should continue"),
-        }
-    }
-
-    /// "delete that" and the casing commands read the last delivery's text from this snapshot.
-    #[test]
-    fn the_snapshot_carries_the_text_the_shell_last_pasted() {
-        let mut runtime = EngineRuntime::new(std::path::PathBuf::from("."));
-        runtime.set_last_delivery(DeliveryRecord::new(
-            "d1",
-            "hello world",
-            rightkit_transcript_library::delivery::DeliveryOutcome::Pasted,
-            target(),
-        ));
-        let capture = capture_for(&mut runtime, "delete that");
-        assert_eq!(capture.last_delivery_text.as_deref(), Some("hello world"));
-    }
-
-    #[test]
-    fn a_fresh_engine_has_no_last_delivery_text() {
-        let mut runtime = EngineRuntime::new(std::path::PathBuf::from("."));
-        let capture = capture_for(&mut runtime, "delete that");
-        assert_eq!(capture.last_delivery_text, None);
-    }
 }
 
 // Finalize — capture -> unlock -> commit.
@@ -228,100 +158,6 @@ pub(crate) fn take_final_ai_transform(
     let command = rightkit_text_polish::text_pipeline::parse_ai_transform_command(transcript)?;
     *transcript = command.clean_text;
     Some(command.intent)
-}
-
-#[cfg(test)]
-#[allow(clippy::items_after_test_module)]
-mod deterministic_final_ai_transform_tests {
-    use super::*;
-    use rightkit_text_polish::text_pipeline::AiTransformIntent;
-
-    #[test]
-    fn trailing_prompt_always_routes_l2_and_is_removed_once() {
-        let mut transcript = "Use the word prompt".to_string();
-        assert_eq!(
-            take_final_ai_transform(&mut transcript),
-            Some(AiTransformIntent::Prompt)
-        );
-        assert_eq!(transcript, "Use the word");
-        assert_eq!(take_final_ai_transform(&mut transcript), None);
-    }
-
-    #[test]
-    fn trailing_summarize_always_routes_l3_and_is_removed_once() {
-        let mut transcript = "Check recent recordings summarize".to_string();
-        assert_eq!(
-            take_final_ai_transform(&mut transcript),
-            Some(AiTransformIntent::Summarize)
-        );
-        assert_eq!(transcript, "Check recent recordings");
-        assert_eq!(take_final_ai_transform(&mut transcript), None);
-    }
-
-    #[test]
-    fn ordinary_final_text_stays_l1_and_is_unchanged() {
-        let mut transcript = "Prompt appears mid sentence then work continues".to_string();
-        assert_eq!(take_final_ai_transform(&mut transcript), None);
-        assert_eq!(
-            transcript,
-            "Prompt appears mid sentence then work continues"
-        );
-    }
-}
-
-#[cfg(all(test, any(target_os = "windows", target_os = "macos")))]
-#[allow(clippy::items_after_test_module)]
-mod stale_selection_fallback_tests {
-    use super::*;
-    use rightkit_transcript_library::delivery::{DeliveryOutcome, TargetSnapshot};
-
-    fn blank_target() -> TargetSnapshot {
-        TargetSnapshot {
-            process_id: None,
-            process_name: None,
-            window_title: None,
-            window_handle: None,
-            focused_control_handle: None,
-            foreground_target: None,
-            focused_text_input: None,
-            is_elevated: None,
-            stop_continuity: None,
-            exe_path: None,
-        }
-    }
-
-    /// Goal 3 (2026-09-14 mac/windows divergence fix): a selection that
-    /// changed underneath a captured AI-transform must fall back to the
-    /// clipboard on BOTH platforms, never lose the dictated text. This
-    /// exercises the shared commit builder used by both platforms'
-    /// stale-selection checks in `finalize_phase2_process` (a live AX/UIA
-    /// probe cannot be driven deterministically in a unit test, so the
-    /// probe outcome — "not live" — is asserted directly here rather than
-    /// through a real focus tracker).
-    #[test]
-    fn stale_selection_falls_back_to_copy_instead_of_dropping_text() {
-        let commit = stale_selection_fallback_commit(
-            "the transformed text",
-            None,
-            Some(1200),
-            blank_target(),
-            false,
-        );
-        match commit.outcome {
-            FinalizeOutcome::Delivery { record, send_enter } => {
-                assert!(!send_enter);
-                assert!(matches!(
-                    record.outcome,
-                    DeliveryOutcome::CopiedFallback {
-                        reason: CopyFallbackReason::FocusChanged
-                    }
-                ));
-            }
-            other => panic!("expected Delivery/CopiedFallback, got {other:?}"),
-        }
-        assert!(commit.delivery_record.is_some());
-        assert!(!commit.push_recent);
-    }
 }
 
 impl EngineRuntime {

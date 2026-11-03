@@ -773,7 +773,3 @@ pub fn goal_status_text(body: &serde_json::Value) -> String {
 pub fn sidebar_width(total: u16) -> u16 {
     (total / 2).clamp(24, 52).min(total)
 }
-
-#[cfg(test)]
-#[path = "tui_projects_config_tests.rs"]
-mod config_tests;

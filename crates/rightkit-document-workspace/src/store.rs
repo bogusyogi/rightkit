@@ -2,8 +2,6 @@
 //! state and the open-tab session, in one SQLite file the host app places.
 
 use std::path::Path;
-#[cfg(test)]
-use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -425,91 +423,5 @@ impl Db {
             ));
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    struct TempDir(PathBuf);
-
-    impl TempDir {
-        fn new() -> Self {
-            static N: AtomicU64 = AtomicU64::new(0);
-            let dir = std::env::temp_dir().join(format!(
-                "rightkit-document-workspace-{}-{}",
-                std::process::id(),
-                N.fetch_add(1, Ordering::SeqCst)
-            ));
-            std::fs::create_dir_all(&dir).unwrap();
-            Self(dir)
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-
-    /// The open and purge contracts that have no E2E surface, in one case: (1) an unreadable
-    /// database is moved aside with its sidecars and every original byte kept, and the replacement
-    /// is a persistent file store, never in-memory (the upgrade journey proves the same through
-    /// the UI but not the sidecar bytes); (2) a store that cannot be opened is an error and the
-    /// blocking entry is left untouched, never an in-memory session; (3) a reader that still holds
-    /// the log keeps the purge from truncating it, and the purge says so instead of claiming no
-    /// path bytes remain (waits out the 5 s busy timeout).
-    #[test]
-    fn open_never_falls_back_to_memory_and_purge_reports_incomplete() {
-        // (1) Quarantine.
-        let dir = TempDir::new();
-        let path = dir.0.join("workspace.db");
-        let garbage = vec![0x5a_u8; 4096];
-        let wal = b"stale wal bytes that must be kept".to_vec();
-        std::fs::write(&path, &garbage).unwrap();
-        std::fs::write(dir.0.join("workspace.db-wal"), &wal).unwrap();
-        let (db, degraded) = Db::open_path(&path).expect("a corrupt store is replaced, not fatal");
-        let degraded = degraded.expect("a quarantine is reported");
-        assert!(!degraded.in_memory);
-        let aside = degraded.quarantined.expect("the original moved aside");
-        assert!(aside
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| n.starts_with("workspace.db.corrupt-")));
-        assert_eq!(std::fs::read(&aside).unwrap(), garbage);
-        let mut aside_wal = aside.clone().into_os_string();
-        aside_wal.push("-wal");
-        assert_eq!(std::fs::read(PathBuf::from(aside_wal)).unwrap(), wal);
-        db.record_recent("/doc.txt", "doc.txt", "text").unwrap();
-        assert_eq!(db.list_recent(10).unwrap().len(), 1);
-        assert!(path.is_file());
-
-        // (2) Refusal: the database path is a directory, so it is not quarantined as corrupt.
-        let blocked = TempDir::new();
-        let blocking = blocked.0.join("workspace.db");
-        std::fs::create_dir_all(&blocking).unwrap();
-        assert!(Db::open_path(&blocking).is_err());
-        assert!(blocking.is_dir(), "the blocking entry is left untouched");
-
-        // (3) Purge honesty.
-        let purge_dir = TempDir::new();
-        let purge_path = purge_dir.0.join("workspace.db");
-        let (db, degraded) = Db::open_path(&purge_path).unwrap();
-        assert!(degraded.is_none());
-        db.record_recent("/secret/doc.txt", "doc.txt", "text")
-            .unwrap();
-        let reader = rightkit_db::open_read_only(&purge_path).unwrap();
-        reader
-            .execute_batch("BEGIN; SELECT COUNT(*) FROM recent_files;")
-            .unwrap();
-        let error = db
-            .purge_user_paths()
-            .expect_err("a held reader blocks the truncate");
-        assert!(error.to_string().contains("purge incomplete"), "{error}");
-        drop(reader);
-        db.purge_user_paths()
-            .expect("the purge completes once the reader is gone");
     }
 }

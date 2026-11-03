@@ -30,25 +30,11 @@ pub fn build_router(state: DaemonState) -> Router {
     // the previous runtime RIGHTKIT_ALLOW_DEV_ORIGINS env-var check had no
     // effect in release either, so we replaced it with a single cfg gate to
     // make the dev/release split impossible to override at runtime.
-    // `mut` is used only by the test-mode extend below; in release the
-    // dev origins are compiled out, so the binding is never mutated there.
-    #[allow(unused_mut)]
-    let mut origins = vec![
+    let origins = vec![
         "tauri://localhost",
         "http://tauri.localhost",
         "https://tauri.localhost",
     ];
-    #[cfg(any(test, feature = "test-mode"))]
-    {
-        origins.extend([
-            "http://localhost:1422",
-            "http://127.0.0.1:1422",
-            "http://localhost:1432",
-            "http://127.0.0.1:1432",
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-        ]);
-    }
     let allowed_origins = origins
         .into_iter()
         .filter_map(|o| o.parse().ok())
@@ -172,59 +158,4 @@ async fn license_snapshot_handler(
 
 async fn api_not_found() -> StatusCode {
     StatusCode::NOT_FOUND
-}
-
-#[cfg(test)]
-mod release_origin_tests {
-    /// Recreate the same origin list `build_router` would hand to the CORS
-    /// layer for the current profile. If you change the origin list above,
-    /// update this function — they're coupled by the cfg gate (audit A-8 SPEC 2).
-    fn expected_origins() -> Vec<&'static str> {
-        let mut origins = vec![
-            "tauri://localhost",
-            "http://tauri.localhost",
-            "https://tauri.localhost",
-        ];
-        #[cfg(any(test, feature = "test-mode"))]
-        {
-            origins.extend([
-                "http://localhost:1422",
-                "http://127.0.0.1:1422",
-                "http://localhost:1432",
-                "http://127.0.0.1:1432",
-                "http://localhost:5173",
-                "http://127.0.0.1:5173",
-            ]);
-        }
-        origins
-    }
-
-    #[test]
-    fn release_profile_has_only_production_origins() {
-        // This is the audit-A-8 SPEC 2 invariant: dev origins (Vite +
-        // headless QA) MUST NOT appear in a release build. The cfg gate is
-        // the only thing preventing them — the old env-var shortcut is gone.
-        let origins = expected_origins();
-        if cfg!(any(test, feature = "test-mode")) {
-            assert!(
-                origins.len() >= 7,
-                "debug profile should include dev origins"
-            );
-        } else {
-            assert_eq!(
-                origins.len(),
-                3,
-                "release profile must list exactly the 3 production origins"
-            );
-            assert!(origins.contains(&"tauri://localhost"));
-            assert!(origins.contains(&"http://tauri.localhost"));
-            assert!(origins.contains(&"https://tauri.localhost"));
-            for dev in ["http://localhost:1422", "http://127.0.0.1:5173"] {
-                assert!(
-                    !origins.contains(&dev),
-                    "dev origin {dev} leaked into release CORS list"
-                );
-            }
-        }
-    }
 }

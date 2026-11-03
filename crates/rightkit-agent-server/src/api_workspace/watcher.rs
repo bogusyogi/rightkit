@@ -68,11 +68,6 @@ impl WatcherRegistry {
         };
         watcher.attach_subscriber()
     }
-
-    #[cfg(test)]
-    pub fn len(&self) -> usize {
-        self.inner.lock().expect("watcher-registry poisoned").len()
-    }
 }
 
 #[derive(Debug)]
@@ -111,10 +106,6 @@ impl Subscriber {
             inner: ReceiverStream::new(rx),
             _detach: DropGuard { watcher, slot },
         }
-    }
-    #[cfg(test)]
-    pub fn close(self) {
-        self.watcher.detach_subscriber(self.slot);
     }
 }
 
