@@ -1902,7 +1902,11 @@
       "scenarios": 2,
       "surface": [
         ".",
-        "./package.json"
+        "./package.json",
+        "./schemas/job.schema.json",
+        "./schemas/result-manifest.schema.json",
+        "./schemas/shot-manifest.schema.json",
+        "./schemas/worker-manifest.schema.json"
       ],
       "closure": {
         "install": {},
@@ -1910,7 +1914,11 @@
       },
       "importClosures": {
         ".": {},
-        "./package.json": {}
+        "./package.json": {},
+        "./schemas/job.schema.json": {},
+        "./schemas/result-manifest.schema.json": {},
+        "./schemas/shot-manifest.schema.json": {},
+        "./schemas/worker-manifest.schema.json": {}
       },
       "files": {
         "ci/consumers/npm/blender-worker/README.md": "aa76ea60640e6d8752a9e0843eb566fdf254861109951f16f5e6e8e186f9115b",

@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 1.
+Flagged mismatches: 0.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -220,10 +220,10 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/agent-ui-workbench` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | agent-ui-workbench | Workbench and runtime panels for coding-agent UIs. |
 | `@rightkit/app-update` | npm | 0.4.2 | 0.4.2 | 0.4.2 | ok |  | update-policy | Shared runtime update policy helper for Right Suite Tauri apps. |
 | `@rightkit/ax` | npm | 0.3.2 | 0.3.2 | 0.3.2 | ok | right-ax | agent-experience-gates | Suite-wide agent-experience (AX) + agent-plugins.org conformance layer: plugin scaffolding/validation and AXA-1 static/conformance/behavioral gates over one product's MCP/CLI surface. |
-| `@rightkit/blender-worker` | npm | 0.1.0 | none recorded |  | **MISMATCH public package has no release record** |  |  | Blender render worker (Python): job protocol, scene authoring, product review and look development, shipped as source for a host to install. |
+| `@rightkit/blender-worker` | npm | 0.1.1 | none recorded | 0.1.1 | staged, never published |  |  | Blender render worker (Python): job protocol, scene authoring, product review and look development, shipped as source for a host to install. |
 | `@rightkit/build-control-policy` | private | 0.1.5-phase1 | none recorded |  | private | rightkit-host-gate |  | `ownership-write-hook-cli.mjs` adds secondary feedback for Claude `Write`/`Edit`/`MultiEdit` and shell (`Bash`) calls, and for Codex `apply_patch` and shell (`exec_command`) calls. Both adapters deny writes targeting ownership exception or platform trust records. `ownership-session-hook-cli.mjs` adds the current RightKit ownership index at session start. Hook feedback is fail-open for ambiguous edits; build admission remains authoritative. |
 | `@rightkit/ci` | npm | 0.3.2 | 0.3.1 | 0.3.2 | staged, not yet published | right-git | github-workflows | Public-repo-only GitHub Actions workflow layer: templates, visibility gate, sync/drift/adopt/uninstall for right-git. |
-| `@rightkit/config` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | shared-presets | Shared presets for desktop apps: TypeScript configs, a Vite base config, a flat ESLint preset and Rust toolchain, cargo-deny, cargo-audit, rustfmt and cargo-about templates. |
+| `@rightkit/config` | npm | 0.1.1 | none recorded | 0.1.1 | staged, never published |  | shared-presets | Shared presets for desktop apps: TypeScript configs, a Vite base config, a flat ESLint preset and Rust toolchain, cargo-deny, cargo-audit, rustfmt and cargo-about templates. |
 | `@rightkit/dictation-ui` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | dictation-ui | Dictation UI: recording pill, microphone and hotkey hooks, voice conversation and dictation pages. |
 | `@rightkit/doc-render` | npm | 0.2.1 | 0.2.1 | 0.2.1 | ok |  | document-rendering | Brand-neutral, read-only document renderer (Markdown, sanitized HTML, safe email frame) for Right Suite readers. |
 | `@rightkit/document-core` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | document-core | Shared base for the document editors: platform bridge, settings, state, PDF helpers and the format registry. |

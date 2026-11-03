@@ -192,7 +192,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | secret-vault | `rightkit-vault` | none | declaration-only | 0 | rightkit-vault: published 0.2.0 (crates.io) |
 | settings-persistence | `rightkit-app-settings` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-app-settings: published 0.3.0 (crates.io) |
 | settings-ui | `@rightkit/settings-ui` | none | declaration-only | 0 | @rightkit/settings-ui: published 0.7.0 (npm) |
-| shared-presets | `@rightkit/config` | none | declaration-only | 0 | @rightkit/config: staged 0.1.0, not published |
+| shared-presets | `@rightkit/config` | none | declaration-only | 0 | @rightkit/config: staged 0.1.1, not published |
 | shared-speech-service | `rightkit-speech-client` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-speech-client: published 0.4.0 (crates.io) |
 | social-analytics | `rightkit-social-analytics` | none | declaration-only | 0 | rightkit-social-analytics: staged 0.1.1, not published |
 | social-inbox | `rightkit-social-inbox` | none | declaration-only | 0 | rightkit-social-inbox: staged 0.1.1, not published |
