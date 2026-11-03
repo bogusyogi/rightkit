@@ -271,7 +271,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "libc",
  "windows",
@@ -298,7 +298,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-document-workspace"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "base64",
  "dirs",

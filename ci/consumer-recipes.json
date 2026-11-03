@@ -2267,11 +2267,11 @@
       "gateEvidence": "the child is the consumer executable itself (std::env::current_exe with a --child mode argument): no shell, network, files or ffmpeg; the strict incomplete-capture Err path is not exercised (not deterministic on a trivial child)",
       "consumes": "PK02 plan (01-packages.md:116-129): ScrapeRight and CodeRight runners; public items exercised: run (crates/rightkit-child-process/src/run.rs:192), run_with_stdin (src/run.rs:173), run_command (src/run.rs:249), run_command_capture (src/run.rs:271), RunOptions (src/run.rs:64), CaptureOptions (src/run.rs:105), OwnedCommand::new and command_mut (src/owned.rs:167,216); 0.5.5 descriptor policy surface: OwnedCommand::inherit_all_descriptors and inherit_fd (src/owned.rs:255,273)",
       "files": {
-        "Cargo.toml": "ba3a8af2b6a96af6d32f66e4512b2a8fe36dfca460bf228889feea6e6d134935",
+        "Cargo.toml": "ccdacea6726479d8212edf8592760430d279ad2688119b1f5d3abd20f8fd2c56",
         "README.md": "1cd2a069b87285744a044a1ce292fdc83d41bd8eb3ab49fd6e3f7076960959a9",
         "src/main.rs": "f755ebe9531d83e34b4ba70cbe6d3ec5d9d723840a2becd8b630320e00fcc450"
       },
-      "aggregateSha256": "98a1dc3d406858988c1cb2e60661e9390d735339ec4f59715b4762c55d11cf98"
+      "aggregateSha256": "d628b3f5ce5e3aedb0e52e20bedaef8e4e711c3bb82e3a7cccd5f273a4f656b7"
     },
     "rightkit-onnx": {
       "pkId": "PK18",
@@ -2439,11 +2439,11 @@
       "gateEvidence": "no assets needed; pure geometry, animation, colour, path and offscreen painting only, so it builds and runs on the macOS runner; no window, HWND, owner thread, DWM call, timer or file on any host (OverlayWindow::create is only refused: InvalidConfig everywhere, Unsupported off Windows)",
       "consumes": "PK08 overlay consumers (same family as rightkit-overlay; reviewed recipe, named product consumers not re-read here); rightkit-overlay-win public items used: Easing and Animation (src/anim.rs), Rgba (src/color.rs), scale_for_dpi, device_size, client_to_logical, hit_test, device_regions, HitRegion (src/geometry.rs), rounded_rect_path, parse_svg_path, transform_path (src/path.rs), bar_rects and BarStyle, PaintCtx::offscreen (src/paint.rs), OverlayWindow::create and OverlayConfig (src/window.rs)",
       "files": {
-        "Cargo.toml": "d7eafe9369d53cbe84e0e7fe6795968eec2c7ca3b5233f711ba9aa5d5af7ddc3",
+        "Cargo.toml": "6d7a827007a4a51e61377c6d0cf9ee3371c0edb7ce2190a05a537463a00357eb",
         "README.md": "fdfb60ba5d3fdcef8473ca74e2d0797d6e44e9639f7c95dc97ce6bec6ddb0f18",
         "src/main.rs": "a3e53c37dce90b1c9fa9141384f3f28d28b47881852f0869d19cc1765fa1c025"
       },
-      "aggregateSha256": "ada1d6084c05d5944081baff49cc14f99a7dedb00a1e6659baddf1c5aa362548"
+      "aggregateSha256": "2c965ecd956c7776ecfe7445ed8c4eba06d90ae46db064b7bd91a358939960c1"
     },
     "rightkit-android": {
       "pkId": "PK09",
@@ -2659,7 +2659,7 @@
       "pkId": "PK37",
       "id": "ci/consumers/rightkit-mcp/src/main.rs",
       "files": {
-        "Cargo.toml": "a606914ba7f4b3f28bc4fd5425df3bec28bedc0cf3e5ac2f87f4216a027e1268",
+        "Cargo.toml": "e810d78eaba4a2dd9e868371d8f675f2c5a67b7686e0a8583a54ccfd24364ebd",
         "README.md": "2a879657c74d42ef62b535ad98bdf0e40daea30ec272033b043c9bf0baad6fa4",
         "src/main.rs": "c24f0aac42ed0ef0dbc5ea4ff6b75110a36472f874af308eba59eafd2f2a38b6"
       }
@@ -3137,11 +3137,11 @@
       "pkId": "PK93",
       "id": "ci/consumers/rightkit-document-workspace/src/main.rs",
       "files": {
-        "Cargo.toml": "3e36ddb17252d9846923ee9d162298946338784480fe3d03dc48a83ae12c77b7",
+        "Cargo.toml": "bdae6c12f9d91294ce2b4f4ce09450b19866c69e97afc5bd61d5c3a693c318a2",
         "README.md": "5ede4146ed109cea16010d109b35430fbd8ca3b34e90e5539d78372f956c7fa8",
         "src/main.rs": "3d2631f7ac19447109b6ee3b58534719431df2d862f6585e0afd180728a65182"
       },
-      "aggregateSha256": "8a8d0c4eb23cc51a7b85968d60b96cb2daf7aa743b2587027b72181c83432e05"
+      "aggregateSha256": "88b5982d78ceea186ab058e02b1900a4d980061fd209321ea2c0bcc716d15616"
     },
     "rightkit-evidence-contracts": {
       "pkId": "PK94",

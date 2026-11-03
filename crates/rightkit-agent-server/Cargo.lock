@@ -147,16 +147,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d92bec98840b8f03a5ff5413de5293bfcd8bf96467cf5452609f939ec6f5de16"
 
 [[package]]
-name = "assert-json-diff"
-version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47e4f2b81832e72834d7518d8487a0396a28cc408186a2e8854c0f98011faf12"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "async-broadcast"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -844,15 +834,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 
 [[package]]
-name = "colored"
-version = "3.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
-dependencies = [
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "combine"
 version = "4.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1355,7 +1336,7 @@ checksum = "ad5208a115eaba24916f7456929832e310a81518c641f93fee4f89aa93aa3675"
 dependencies = [
  "cfg-if",
  "libc 0.2.191",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1477,7 +1458,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc 0.2.191",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1860,25 +1841,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "h2"
-version = "0.4.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d29020232d6aa3fb1daca64c1127cf662cf97f254ae16c18c05b8ab635fc118"
-dependencies = [
- "atomic-waker",
- "bytes",
- "fnv",
- "futures-core",
- "futures-sink",
- "http",
- "indexmap",
- "slab",
- "tokio",
- "tokio-util",
- "tracing",
-]
-
-[[package]]
 name = "half"
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2017,9 +1979,7 @@ checksum = "2c3e324da4c95177d6291d4c8730197c0d1822f8a9766814a4a44fa5ab797c9c"
 dependencies = [
  "atomic-waker",
  "bytes",
- "futures-channel",
  "futures-core",
- "h2",
  "http",
  "http-body",
  "httparse",
@@ -2841,31 +2801,6 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "mockito"
-version = "1.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90820618712cab19cfc46b274c6c22546a82affcb3c3bdf0f29e3db8e1bb92c0"
-dependencies = [
- "assert-json-diff",
- "bytes",
- "colored",
- "futures-core",
- "http",
- "http-body",
- "http-body-util",
- "hyper",
- "hyper-util",
- "log",
- "pin-project-lite",
- "rand 0.9.5",
- "regex",
- "serde_json",
- "serde_urlencoded",
- "similar",
- "tokio",
 ]
 
 [[package]]
@@ -3831,7 +3766,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4223,7 +4158,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-adapt"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-agent-engine-storage",
  "rightkit-crypto",
@@ -4235,7 +4170,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-api-integrations"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-agent-engine-runtime-middleware",
  "rightkit-agent-plugins",
@@ -4246,7 +4181,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-api-platform"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -4254,14 +4189,14 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-api-sessions"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
 ]
 
 [[package]]
 name = "rightkit-agent-engine-api-workflows"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "rightkit-adapt",
@@ -4272,7 +4207,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-attention"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "serde",
@@ -4281,7 +4216,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
 ]
@@ -4316,7 +4251,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-history"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -4324,7 +4259,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-time",
  "serde",
@@ -4334,7 +4269,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-runtime-middleware"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-fs",
  "serde",
@@ -4344,14 +4279,14 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-runtime-resources"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-fs",
 ]
 
 [[package]]
 name = "rightkit-agent-engine-storage"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-agent-engine-protocol",
  "rightkit-crypto",
@@ -4367,7 +4302,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-tasks"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-agent-engine-protocol",
  "serde",
@@ -4377,7 +4312,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-host-traits"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -4415,7 +4350,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-plugins"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -4428,7 +4363,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-policy"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "globset",
  "libc 0.2.191",
@@ -4446,7 +4381,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-recipes"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "jsonschema 0.59.0",
  "rightkit-fs",
@@ -4468,10 +4403,8 @@ dependencies = [
  "flate2",
  "futures-util",
  "getrandom 0.4.3",
- "http-body-util",
  "jsonschema 0.60.2",
  "libc 0.2.191",
- "mockito",
  "portable-pty",
  "rightkit-adapt",
  "rightkit-agent-engine-api-integrations",
@@ -4532,7 +4465,6 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "toml",
- "tower",
  "tower-http 0.7.1",
  "tracing",
  "url",
@@ -4606,7 +4538,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-settings"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "dirs",
  "rightkit-agent-policy",
@@ -4620,14 +4552,14 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.6.4"
+version = "0.6.5"
 dependencies = [
  "windows",
 ]
 
 [[package]]
 name = "rightkit-bot-messaging"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "rightkit-agent-engine-protocol",
@@ -4643,7 +4575,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-browser"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "async-tungstenite 0.35.0",
  "chromiumoxide",
@@ -4662,7 +4594,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-cache"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -4671,7 +4603,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "libc 0.2.191",
  "tokio",
@@ -4680,7 +4612,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-code-audit-provider-sdk"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -4699,7 +4631,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-context-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-context-protocol",
  "serde",
@@ -4709,7 +4641,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-context-protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-fs",
  "rightkit-logs",
@@ -4720,7 +4652,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crash"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "rightkit-fs",
  "rightkit-logs",
@@ -4732,7 +4664,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "getrandom 0.4.3",
  "secret-service",
@@ -4745,7 +4677,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crypto"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "serde_json",
@@ -4753,7 +4685,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "async-trait",
  "axum",
@@ -4782,7 +4714,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-doctor"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-crypto",
  "rightkit-engine-host",
@@ -4792,7 +4724,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-embed"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "objc2",
  "objc2-core-ml",
@@ -4808,7 +4740,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-engine-host"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "rightkit-daemon",
  "rightkit-job-queue",
@@ -4818,14 +4750,14 @@ dependencies = [
 
 [[package]]
 name = "rightkit-evidence"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "rightkit-evidence-contracts"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hex",
  "serde",
@@ -4836,7 +4768,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-evidence-effects"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hex",
  "libc 1.0.0-alpha.5",
@@ -4864,7 +4796,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-file-watch"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "notify",
  "rightkit-child-process",
@@ -4885,7 +4817,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-hooks"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "async-trait",
  "regex",
@@ -4919,7 +4851,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-job-queue"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "rightkit-child-process",
  "rightkit-db",
@@ -4932,7 +4864,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-license"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
@@ -4944,7 +4876,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-llm"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "async-stream",
  "bytes",
@@ -4971,7 +4903,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "getrandom 0.4.3",
  "libc 0.2.191",
@@ -4989,7 +4921,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-mcp"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "async-trait",
  "futures",
@@ -5035,7 +4967,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-models"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "dirs",
  "flate2",
@@ -5054,7 +4986,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-oauth"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-child-process",
@@ -5066,7 +4998,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ocr"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "image",
  "objc2",
@@ -5081,7 +5013,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-onnx"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "half",
  "ort",
@@ -5149,7 +5081,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-repo-graph-grammars"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cc",
  "tree-sitter-language",
@@ -5157,7 +5089,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sandbox"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "async-trait",
  "libc 0.2.191",
@@ -5173,11 +5105,11 @@ dependencies = [
 
 [[package]]
 name = "rightkit-search"
-version = "0.4.1"
+version = "0.4.2"
 
 [[package]]
 name = "rightkit-sidecar"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "libc 0.2.191",
  "serde",
@@ -5187,7 +5119,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-speech-client"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "rightkit-daemon",
  "rightkit-sidecar",
@@ -5198,7 +5130,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-terminal-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "crossterm",
  "diffy",
@@ -5228,11 +5160,11 @@ dependencies = [
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "rightkit-transcript"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -5241,7 +5173,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-workflow"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "blake3",
  "getrandom 0.4.3",
@@ -5338,7 +5270,7 @@ dependencies = [
  "errno",
  "libc 0.2.191",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5397,7 +5329,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5801,12 +5733,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
-name = "similar"
-version = "2.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
-
-[[package]]
 name = "siphasher"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6043,7 +5969,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6368,7 +6294,6 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "futures-util",
- "libc 0.2.191",
  "pin-project-lite",
  "tokio",
 ]
@@ -7462,7 +7387,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
