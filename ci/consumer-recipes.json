@@ -1602,6 +1602,7 @@
         "./documents/markdown/exportMarkdown",
         "./documents/markdown/insert/markdownInsertTemplates",
         "./documents/markdown/markdownDocumentActivity",
+        "./documents/markdown/markdownReading.css",
         "./documents/markdown/markdownTools",
         "./documents/markdown/projection/pmSelectionBridge",
         "./documents/markdown/properties/MarkdownWorkspacePanel",
@@ -1610,8 +1611,7 @@
         "./documents/mdx/MdxPreviewFrame",
         "./documents/mdx/mdxCompiler",
         "./package.json",
-        "./styles.css",
-        "./documents/markdown/markdownReading.css"
+        "./styles.css"
       ],
       "closure": {
         "install": {
