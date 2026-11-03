@@ -2432,7 +2432,10 @@ export function cargoReadTargetDir({ tmpRoot, roots }) {
 export async function runScans(plan, options = {}) {
   const deps = {
     // Concurrent runs need a spawn that does not block the event loop.
-    spawn: Number(options.jobs ?? 1) > 1 || options.signal ? defaultSpawnAsync : defaultSpawn,
+    // Always asynchronous (A9): a synchronous spawn holds the event loop, so no scan's time limit can fire while it runs. The 2026-11-02 runs
+    // show it: every scan that finished at the same moment reported the same inflated time (shellcheck and actionlint 1,655 s, against a
+    // 5 min limit), held by a synchronous broker call. One lane used the synchronous spawn, so a single-lane run had no working limit.
+    spawn: defaultSpawnAsync,
     // Locating a tool (rustfmt's `which`/`where` fallback) is synchronous whatever `spawn` is.
     lookupSpawn: defaultSpawn, exists: fs.existsSync, readFile: (f) => fs.readFileSync(f, "utf8"), readdir: fs.readdirSync,
     env: process.env, platform: process.platform, execPath: process.execPath,
@@ -2558,7 +2561,8 @@ export async function runScans(plan, options = {}) {
     let row = await scanRow(s, extraEnv);
     // rightkit#1459: a class A scan that timed out is run once more before it fails Class A (a hung tool, e.g. actionlint on 2026-11-02, ran
     // 27 min and failed a run whose rerun passed in 1 s). Class B and carried scans are not retried: a compile that times out is a real failure.
-    if (row.status === "fail" && row.code === "TIMEOUT" && s.class === SCAN_CLASS.A && !signal?.aborted) {
+    // Test suites are not retried either: a slow test is a finding, not a hung tool.
+    if (row.status === "fail" && row.code === "TIMEOUT" && s.class === SCAN_CLASS.A && s.kind !== "test" && !signal?.aborted) {
       const first = row;
       row = await scanRow(s, extraEnv);
       row = { ...row, retried: { code: first.code, detail: first.detail } };

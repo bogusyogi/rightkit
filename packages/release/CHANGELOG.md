@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.6.30 (unpublished)
+## 0.6.31 (unpublished)
+
+- **The gate resolves a commit in a checkout another account owns (ViewRight and PostRight on the Dell).** The commit-name lookup (`snapshot-git.mjs` `discoveryRun`) runs git with a sealed, empty global config, so the user's `safe.directory` never reached it. From 0.6.9 (4a04cee19, 2026-10-29) a checkout owned by `BUILTIN\Administrators` failed with "dubious ownership". It now passes `-c safe.directory=<checkout>` (command-line config is protected configuration git accepts for it) and `-c core.fsmonitor=false`. Proof on the Dell, non-elevated, git 2.49: without it exit 128 "dubious ownership"; with it the commit `e17782ea…`. Every other config-isolated gate git call already passes `safe.directory` or runs on a gate-owned folder with an explicit `GIT_DIR`.
+- **Scan time limits always fire (A9).** The scan runner spawns asynchronously on every run; one lane used a synchronous spawn, which holds the event loop, so no limit could fire. The 2026-11-02 runs show what that cost: every scan that finished at the same moment reported the same inflated time (shellcheck and actionlint 1,655 s against a 5 min limit), held by a synchronous broker call. The existing one-retry of a timed-out Class A scan (rightkit#1459) no longer retries test suites: a slow test is a finding, not a hung tool.
+
+## 0.6.30 — 2026-11-03
 
 Fixes found on the 2026-11-03 Mac and Dell trace runs of 0.6.29; proved on the Dell (crates/rightkit-http: every unit passes, ring and rustls included for the Linux and macOS targets) and reviewed independently before release.
 

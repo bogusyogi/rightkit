@@ -133,9 +133,18 @@ function discoveryHome() {
 }
 
 /** git run in `cwd` against the checkout's own repository (found from `cwd`), under the sealed environment (no GIT_DIR, no index) plus GIT_NO_REPLACE_OBJECTS. Returns the spawn result. */
+// The sealed environment hides the user's global git config, so the user's `safe.directory` never reaches git: a checkout owned by
+// another account (on the Dell, D:\Claude\viewright and postright belong to BUILTIN\Administrators) was refused as "dubious ownership"
+// from 0.6.9 on. The checkout itself is named on the command line (command-line config is protected configuration, which git accepts for
+// safe.directory), forward slashes as git compares them, and fsmonitor stays off so the checkout's own config can start no program.
+export function discoverySafeArgs(cwd, platform = process.platform) {
+  const dir = (platform === "win32" ? path.win32 : path).resolve(cwd);
+  return ["-c", `safe.directory=${platform === "win32" ? dir.replaceAll("\\", "/") : dir}`, "-c", "core.fsmonitor=false"];
+}
+
 export function discoveryRun(cwd, args, { platform = process.platform, input } = {}) {
   const env = sealedEnv(discoveryHome(), { platform, gitDir: null, index: false });
-  return spawnSync("git", args, { cwd, env, input, encoding: "utf8", maxBuffer: MAX_BUFFER });
+  return spawnSync("git", [...discoverySafeArgs(cwd, platform), ...args], { cwd, env, input, encoding: "utf8", maxBuffer: MAX_BUFFER });
 }
 /** As discoveryRun, returning trimmed-by-caller stdout or throwing an Error naming the command. */
 export function discoveryGit(cwd, args, options) {
