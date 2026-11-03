@@ -108,7 +108,6 @@ version = "0.1.0"
 dependencies = [
  "rightkit-crypto",
  "serde",
- "serde_json",
 ]
 
 [[package]]

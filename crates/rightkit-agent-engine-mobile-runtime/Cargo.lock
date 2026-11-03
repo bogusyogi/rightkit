@@ -2502,7 +2502,6 @@ dependencies = [
  "rightkit-memory",
  "serde",
  "serde_json",
- "tempfile",
  "tokio",
  "url",
  "wuff",

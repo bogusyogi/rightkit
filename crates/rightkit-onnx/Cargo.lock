@@ -775,7 +775,6 @@ dependencies = [
 name = "rightkit-onnx"
 version = "0.2.9"
 dependencies = [
- "flate2",
  "half",
  "ndarray",
  "ort",
@@ -784,10 +783,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "tar",
- "tempfile",
  "windows-sys 0.61.2",
- "zip",
 ]
 
 [[package]]

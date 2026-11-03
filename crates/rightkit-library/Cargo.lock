@@ -779,7 +779,6 @@ dependencies = [
  "rightkit-search",
  "rightkit-transcript",
  "serde",
- "serde_json",
  "tracing",
 ]
 

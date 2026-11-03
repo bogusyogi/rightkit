@@ -1471,15 +1471,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nu-ansi-term"
-version = "0.50.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
-dependencies = [
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "num"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2339,8 +2330,6 @@ name = "rightkit-dictation-engine"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
- "dirs",
  "libc",
  "libloading",
  "rightkit-audio",
@@ -2349,18 +2338,13 @@ dependencies = [
  "rightkit-dictation-command-host",
  "rightkit-dictation-core",
  "rightkit-dictation-inference",
- "rightkit-dictation-models",
  "rightkit-dictation-runtime",
  "rightkit-dictation-text-pipeline",
- "rightkit-job-queue",
  "rightkit-onnx",
- "rightkit-speech-client",
  "rightkit-text-polish",
  "rightkit-transcript-library",
  "serde",
  "serde_json",
- "tempfile",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -2507,8 +2491,6 @@ name = "rightkit-fs"
 version = "0.4.10"
 dependencies = [
  "libc",
- "serde",
- "serde_json",
  "sha2",
  "thiserror 2.0.21",
 ]
@@ -2528,11 +2510,9 @@ dependencies = [
 name = "rightkit-job-queue"
 version = "0.5.1"
 dependencies = [
- "rightkit-child-process",
  "rightkit-sidecar",
  "serde",
  "serde_json",
- "zeroize",
 ]
 
 [[package]]
@@ -3329,17 +3309,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tracing-log"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee855f1f400bd0e5c02d150ae5de3840039a3f54b025156404e34c23c03f47c3"
-dependencies = [
- "log",
- "once_cell",
- "tracing-core",
-]
-
-[[package]]
 name = "tracing-serde"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3356,17 +3325,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb7f578e5945fb242538965c2d0b04418d38ec25c79d160cd279bf0731c8d319"
 dependencies = [
  "matchers",
- "nu-ansi-term",
  "once_cell",
  "regex-automata",
  "serde",
  "serde_json",
  "sharded-slab",
- "smallvec",
  "thread_local",
  "tracing",
  "tracing-core",
- "tracing-log",
  "tracing-serde",
 ]
 

@@ -1073,7 +1073,6 @@ dependencies = [
  "rightkit-http",
  "serde",
  "serde_json",
- "tempfile",
  "url",
  "zeroize",
 ]

@@ -1067,7 +1067,6 @@ dependencies = [
  "realfft",
  "rightkit-ffmpeg",
  "rightkit-onnx",
- "rightkit-speech-client",
  "rightkit-transcript",
  "rightkit-vad",
  "serde",
@@ -1082,20 +1081,6 @@ name = "rightkit-child-process"
 version = "0.5.7"
 dependencies = [
  "libc",
- "windows",
-]
-
-[[package]]
-name = "rightkit-daemon"
-version = "0.5.1"
-dependencies = [
- "getrandom 0.4.3",
- "rightkit-child-process",
- "rightkit-fs",
- "rightkit-sidecar",
- "serde",
- "serde_json",
- "subtle",
  "windows",
 ]
 
@@ -1132,27 +1117,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-sidecar"
-version = "0.3.0"
-dependencies = [
- "libc",
- "serde",
- "serde_json",
- "windows-sys",
-]
-
-[[package]]
-name = "rightkit-speech-client"
-version = "0.4.1"
-dependencies = [
- "rightkit-daemon",
- "rightkit-sidecar",
- "rightkit-transcript",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "rightkit-transcript"
 version = "0.4.0"
 dependencies = [
@@ -1164,9 +1128,6 @@ dependencies = [
 [[package]]
 name = "rightkit-vad"
 version = "0.1.2"
-dependencies = [
- "rightkit-onnx",
-]
 
 [[package]]
 name = "rustfft"
@@ -1343,12 +1304,6 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
-
-[[package]]
-name = "subtle"
-version = "2.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "syn"

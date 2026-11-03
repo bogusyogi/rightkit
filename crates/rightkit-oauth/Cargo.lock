@@ -1311,7 +1311,6 @@ name = "rightkit-oauth"
 version = "0.10.0"
 dependencies = [
  "axum",
- "base64",
  "getrandom 0.4.3",
  "libc",
  "rightkit-child-process",
@@ -1321,7 +1320,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "tempfile",
  "tokio",
  "url",
  "zeroize",

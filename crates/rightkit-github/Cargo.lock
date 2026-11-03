@@ -1688,7 +1688,6 @@ dependencies = [
  "rightkit-review",
  "serde",
  "serde_json",
- "tempfile",
  "tokio-util",
  "url",
 ]

@@ -918,7 +918,6 @@ dependencies = [
 name = "rightkit-agent-policy"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "globset",
  "libc",
  "rightkit-agent-engine-protocol",

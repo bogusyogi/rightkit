@@ -769,8 +769,6 @@ name = "rightkit-fs"
 version = "0.4.10"
 dependencies = [
  "libc",
- "serde",
- "serde_json",
  "thiserror",
 ]
 

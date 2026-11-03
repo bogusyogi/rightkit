@@ -2495,7 +2495,6 @@ dependencies = [
  "rightkit-context-federation",
  "rightkit-context-protocol",
  "rightkit-context-provider-sdk",
- "rightkit-context-runtime",
  "rightkit-daemon",
  "rightkit-db",
  "rightkit-embed",
@@ -2581,8 +2580,6 @@ name = "rightkit-fs"
 version = "0.4.10"
 dependencies = [
  "libc",
- "serde",
- "serde_json",
  "sha2",
  "thiserror",
 ]

@@ -2420,7 +2420,6 @@ name = "rightkit-agents"
 version = "0.2.2"
 dependencies = [
  "async-trait",
- "futures",
  "libc",
  "rightkit-agent-engine-protocol",
  "rightkit-agent-tools",
@@ -2434,7 +2433,6 @@ dependencies = [
  "rightkit-time",
  "serde",
  "serde_json",
- "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tracing",

@@ -2923,7 +2923,6 @@ dependencies = [
  "rightkit-video-project",
  "serde",
  "serde_json",
- "tempfile",
  "thiserror",
 ]
 

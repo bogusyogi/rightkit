@@ -366,7 +366,6 @@ dependencies = [
  "libc 1.0.0-alpha.5",
  "rightkit-evidence-contracts",
  "rightkit-sandbox",
- "serde_json",
  "sha2",
  "thiserror 2.0.21",
  "tokio",
