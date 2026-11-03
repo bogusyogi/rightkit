@@ -31,7 +31,7 @@ rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto", optional = t
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 thiserror = "2"
-rightkit-compositor = { version = "0.1.0", path = "../rightkit-compositor", optional = true }
+rightkit-compositor = { version = "0.2.0", path = "../rightkit-compositor", optional = true }
 rightkit-timeline = { version = "0.1.0", path = "../rightkit-timeline", optional = true }
 rightkit-video-project = { version = "0.1.0", path = "../rightkit-video-project", optional = true }
 rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg", default-features = false, features = ["native"], optional = true }

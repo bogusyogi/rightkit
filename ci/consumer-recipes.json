@@ -2779,7 +2779,7 @@
       "pkId": "PK53",
       "id": "ci/consumers/rightkit-compositor/src/main.rs",
       "files": {
-        "Cargo.toml": "147f8f8c642790402a7a250e3631eaedeee97e4cc6381d4eee14f91449acfba6",
+        "Cargo.toml": "e91b8fb16d92e140978a03fefffab0a00bd4363dbae9c9670f6a6eea62e67013",
         "README.md": "7fcc16601884e0341fe3e67fe0558e5918f8ce7dfdf9e337501dc3dcb4bde324",
         "src/main.rs": "79bc79e614cd94ea02191a5e33e76fff6d7d351fdd5c47c9f4909c2197f4e20c"
       }
@@ -3103,7 +3103,7 @@
       "pkId": "PK93",
       "id": "ci/consumers/rightkit-document-workspace/src/main.rs",
       "files": {
-        "Cargo.toml": "774e75f90d43a1258f07abb98379c323698dbf073e20ddc1df554c02858d14f5",
+        "Cargo.toml": "3e36ddb17252d9846923ee9d162298946338784480fe3d03dc48a83ae12c77b7",
         "README.md": "5ede4146ed109cea16010d109b35430fbd8ca3b34e90e5539d78372f956c7fa8",
         "src/main.rs": "3d2631f7ac19447109b6ee3b58534719431df2d862f6585e0afd180728a65182"
       },

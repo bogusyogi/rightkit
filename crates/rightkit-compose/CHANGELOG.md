@@ -2,6 +2,7 @@
 
 ## 0.2.2 (unreleased)
 
+- The `native` feature takes rightkit-compositor 0.2.0 (wgpu 30.0.1; CutRight). `wgpu::Texture` crosses this crate's API unchanged.
 - New, additive (feature `native`, off by default): the `native` module, moved from CutRight's `cutright-compose`. It adapts an immutable evaluated timeline snapshot (`ComposeSnapshot`) to the native wgpu compositor: `mapper::compose_frame` frame descriptors and texture requirements, `audio::audio_descriptor` sample-exact mix contract, frame `identity`/`cache`/`scheduler`, `clock` A/V sync, ffmpeg frame `decode` and streamed `pcm` audio, and the offscreen `executor`. Adds optional dependencies on `rightkit-compositor`, `rightkit-timeline`, `rightkit-video-project`, `rightkit-ffmpeg` and `rightkit-fs`. The default build and the existing API are unchanged.
 
 ## 0.2.1 (unreleased)
