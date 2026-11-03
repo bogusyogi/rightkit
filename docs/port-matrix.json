@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-03T05:53:51Z",
-  "rightkitHead": "4a957e8",
+  "generatedAt": "2026-11-03T08:23:06Z",
+  "rightkitHead": "52d5355",
   "legend": [
     {
       "state": "adopted",
@@ -7224,9 +7224,9 @@
         "release-tooling"
       ],
       "private": false,
-      "source": "0.6.34",
+      "source": "0.6.35",
       "registry": "0.6.13",
-      "staged": "0.6.34",
+      "staged": "0.6.35",
       "dir": "packages/release",
       "toMoveFrom": {},
       "cells": {
@@ -10127,9 +10127,9 @@
         "agent-tools"
       ],
       "private": false,
-      "source": "0.3.1",
+      "source": "0.3.2",
       "registry": "0.3.0",
-      "staged": "0.3.1",
+      "staged": "0.3.2",
       "dir": "crates/rightkit-agent-tools",
       "toMoveFrom": {},
       "cells": {

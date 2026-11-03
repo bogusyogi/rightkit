@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2
+
+- Fix: `coding_tools` edit tools (`apply_patch`, `edit_file`, `multi_edit`, `undo_edit`, `write_file`) pass the `.rightkit` state directory to `HistoryStore::new`; with the feature on, the crate did not compile against `rightkit-agent-engine-history`. `invoke` for the web-fetch envelope uses `rightkit_http::wrap_untrusted_web_text_coderight`.
+
 ## 0.3.1 (unreleased)
 
 - Feature `coding_tools` (+ `coding_tools-host`, `-code-mode`, `-embeddings`, `-test-mode`, `-test-support`): the agent's coding tool set (file service, edit/undo, shell, search, browser, MCP bridge, web fetch, code mode) moved from CodeRight `coderight-tools`. `invoke_skill` reads skill manifests through the host-installed `rightkit_agent_host_traits::SkillCatalog` (no catalog installed: the file is returned as written).

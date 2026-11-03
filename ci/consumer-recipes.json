@@ -968,10 +968,10 @@
           "react": "19.3.1",
           "react-dom": "19.3.1",
           "@rightkit/app-update": "0.4.2",
-          "@rightkit/react-shell": "0.7.2"
+          "@rightkit/react-shell": "0.7.2",
+          "@rightkit/agent-ui-core": "0.1.0"
         },
         "declaredOnly": [
-          "@rightkit/agent-ui-core",
           "@tauri-apps/api",
           "@tauri-apps/plugin-dialog"
         ]
@@ -1453,12 +1453,12 @@
           "react": "19.3.1",
           "react-dom": "19.3.1",
           "@rightkit/platform-ui": "0.4.0",
-          "@rightkit/react-shell": "0.7.2"
+          "@rightkit/react-shell": "0.7.2",
+          "@rightkit/document-core": "0.1.0"
         },
         "declaredOnly": [
           "@codemirror/view",
           "@phosphor-icons/react",
-          "@rightkit/document-core",
           "dompurify",
           "parse5",
           "prosemirror-commands",
@@ -1618,7 +1618,8 @@
           "react-dom": "19.3.1",
           "@rightkit/doc-render": "0.2.1",
           "@rightkit/platform-ui": "0.4.0",
-          "@rightkit/react-shell": "0.7.2"
+          "@rightkit/react-shell": "0.7.2",
+          "@rightkit/document-core": "0.1.0"
         },
         "declaredOnly": [
           "@codemirror/lint",
@@ -1626,7 +1627,6 @@
           "@codemirror/view",
           "@mdx-js/mdx",
           "@phosphor-icons/react",
-          "@rightkit/document-core",
           "@tauri-apps/api",
           "dompurify",
           "github-slugger",
@@ -1791,11 +1791,10 @@
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
-          "@rightkit/react-shell": "0.7.2"
+          "@rightkit/react-shell": "0.7.2",
+          "@rightkit/agent-ui-core": "0.1.0"
         },
-        "declaredOnly": [
-          "@rightkit/agent-ui-core"
-        ]
+        "declaredOnly": []
       },
       "files": {
         "ci/consumers/npm/terminal-ui/README.md": "4ef817c49a481fe0dfe2be0e7d30184f48a2fded5769b9a277f5a0123a47e2dd",
@@ -2154,7 +2153,7 @@
       "pkId": "PK15",
       "id": "ci/consumers/rightkit-agent-tools/src/main.rs",
       "files": {
-        "Cargo.toml": "ce1089732e93d79dff78c8b53e95feddff1abbdfb6ae533e6fbb7805ca6eebe2",
+        "Cargo.toml": "24e9fb001cbdeff7050894dbb8d3cf5932c0276836a6f876db89e7709e541297",
         "README.md": "aa7dbfb189d496b1407d4cac1a2404fcb167103e60f6fc5c1a3e22ab7c89fb3b",
         "src/main.rs": "246ff9cedf046c152af85101359688c37e1152696985b24b2f7b094963137c2d"
       }

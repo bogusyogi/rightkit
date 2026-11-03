@@ -1,0 +1,15 @@
+# Port handoff: HeardRight
+
+Repo: bogusyogi/heardright. Branch of this doc: `claude/fervent-ramanujan-661oob` in bogusyogi/rightkit (read-only for you; do not push rightkit main).
+Read first: `docs/audits/2026-11-01-rightkit-package-master-plan/PORT-EXECUTION.md`, `DECISIONS.md`, `per-app/heardright-rightkit-mapping.md` (every row: NEW/EXTEND/ADOPT/VENDOR-KEEP/DROP/SHELL/CONFIG/APPTEST). Commission (Adrian): every capability moves into RightKit; app keeps only thin shell, exceptions, recipes, journey/e2e tests. An earlier survey said much was "app-specific, stays": WRONG, the mapping overrides it.
+
+Per row: (a) RightKit package published -> delete app code + moved tests, depend on exact latest published pin, adapt call sites. (b) exists in rightkit but unpublished -> record BLOCKED-PUBLISH, wait. (c) published package lacks something / no package -> record NEEDS-EXTEND or MISSING-EXTRACT in the "RightKit asks" section of `handoff/ASKS-heardright.md`-style note to the publishing session (do not hack around). (d) DROP -> delete. VENDOR-KEEP -> plain dependency.
+
+Gate rules: only `[profile.release]` with `panic = "unwind"`; no dev/debug builds, verify with `cargo check --release -p <crate>`; no test-mode features (tests isolate by injection); no `debug_assertions` dev/release switch (QA code behind `qa-native`); OS-specific code cfg-gated for 3 OSes; keep `@rightkit/release` =0.6.29; exact `=x.y.z` pins of PUBLISHED versions only (never path/git/unpublished).
+Commits: small, per row group; verify (cargo check --release, tsc/vite where applicable) BEFORE pushing to main. Check published versions: crates.io index / `npm view`. Unpublished list and publish order are owned by the publishing session; check the registry before each row.
+
+## State
+Pushed to main (3d183003..51cad537, UNVERIFIED: no compile ran, Cargo.lock hand-edited): hotkeys `ptt_policy` -> rightkit-hotkeys::ptt; rightkit-voice-commands; rightkit-text-polish; rightkit-transcript-library; rightkit-dictation-core =0.2.0; pins refreshed. ~8.1k lines removed. FIRST: `cargo check --release` of tauri-app-next workspace; fix; regenerate locks properly.
+BLOCKED-PUBLISH: rightkit-dictation-{runtime,inference,text-pipeline,command-host,engine}, rightkit-automation 0.6.4, rightkit-asr 0.4.0 (then remove `vendor/rightkit-asr` kws patch), rightkit-qa 0.10.2.
+RightKit asks (publishing session does these): dictation-core `app_paths` injection API (`set_app_data_root`/`uninjected_data_root`/`APP_DATA_DIR_NAME`), drop its `test-mode` -> unblocks telemetry/model-store/app-runtime moves; `HotkeyConflict: Serialize`; overlay `PillEvent`; sync event-driven scheduler; fs `known_folder(id)`; license 7 gaps; `@rightkit/dictation-ui` + `library-ui` wildcard `./*` exports (~70 app UI files identical to the packages); MISSING-EXTRACT: SQLCipher transcript store (`rightkit-library` row), engine-host, ml-lab.
+Not examined yet: settings-ui/onboarding/react-shell/theme/config rows, license rows, tauri-shell EXTEND rows, models/record rows, Swift/Kotlin targets.
