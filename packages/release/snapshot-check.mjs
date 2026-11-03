@@ -88,7 +88,7 @@ export function commitOf(checkout, rev, spawn = defaultSpawn) { // eslint-disabl
 export function verifySnapshotDir({ checkout, dir, commit, tree, when, ledger, admitNew }) {
   const ledgerMode = ledger !== undefined || admitNew === true;
   let inspected;
-  try { inspected = snapshotProblem({ dir, entries: treeEntries(checkout, commit), checkout, ledger, admitNew }); }
+  try { inspected = snapshotProblem({ dir, entries: treeEntries(checkout, commit), checkout, commit, ledger, admitNew }); }
   catch (e) { throw new CheckError(`cannot list snapshot ${dir} ${when}: ${e.message}`); }
   const extra = ledgerMode ? inspected.problem : inspected;
   if (extra) throw new CheckError(`snapshot ${dir} is not exactly commit ${commit}${ledgerMode ? " plus its stage-output ledger" : ""} ${when}: ${extra}`);

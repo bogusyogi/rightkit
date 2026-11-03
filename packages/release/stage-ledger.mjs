@@ -15,6 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
+import { SOURCE_IDENTITY_FILE } from "./snapshot-identity.mjs";
 
 export const LEDGER_RESERVED_SEGMENTS = Object.freeze(["target", ".right-release", ".git", "node_modules"]);
 export const NULL_DEVICE = process.platform === "win32" ? "NUL" : "/dev/null";
@@ -99,6 +100,10 @@ export function walkSnapshot({ dir, tracked, dependencyRoots = new Set(), run = 
       const bad = reserved(r);
       if (bad) { problems.push(`${r} is under the reserved path segment ${JSON.stringify(bad)} (a stage output is never written there)`); continue; }
       if (st.nlink > 1) { problems.push(`${r} has ${st.nlink} hard links (a stage output has exactly one)`); continue; }
+      // The gate's own generated source-identity file (snapshot-identity.mjs, GC-A23) is neither a stage output nor a ledger entry. Its bytes,
+      // type, mode, link count and ignore status are judged against the commit by snapshot.mjs (inspectSnapshot), which every stage-open
+      // and stage-close verify runs right after this walk; this walk only keeps it out of the ledger.
+      if (rel === "" && key === f(SOURCE_IDENTITY_FILE)) continue;
       candidates.push({ rel: r, abs: p, size: st.size, execBit: platform !== "win32" && (st.mode & 0o111) !== 0 });
     }
     return any;

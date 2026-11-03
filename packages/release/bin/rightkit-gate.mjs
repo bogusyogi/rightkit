@@ -1552,6 +1552,7 @@ async function runStages(o, args, root, git, io) {
       try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout: root, rev: selected.commit, root: snapshotsAt }); }
       catch (e) { o.err(`${tag} ${e.code === "error" ? "RK_CHECK_ERROR" : "BLOCKED"}: snapshot ${e.message}; nothing ran`); return e.code === "error" ? 2 : 1; }
       o.out(`${tag} snapshot ${synced.path} is commit ${synced.commit} tree ${synced.tree} (written=${synced.written} removed=${synced.removed} unchanged=${synced.unchanged})`);
+      if (synced.identity) o.out(`${tag} source identity ${synced.identity.file}: ${synced.identity.written ? "written" : synced.identity.kept ? "kept" : `not written (${synced.identity.reason})`}`);
       return await runStages({ ...o, buildOwnership: own, doorSnapshot: { own, path: synced.path, commit: synced.commit, tree: synced.tree, root: snapshotsAt, ledger: { entries: [] } } }, args, root, git, { ...io, buildOwnership: own });
     } finally {
       const r = own.release();
@@ -2522,6 +2523,7 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
     try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout: root, rev: commit, root: snapshotsAt }); }
     catch (e) { o.err(`${tag} ${e.code === "error" ? "RK_CHECK_ERROR" : "BLOCKED"}: snapshot ${e.message}; nothing ran`); return e.code === "error" ? 2 : 1; }
     o.out(`${tag} snapshot ${synced.path} is commit ${synced.commit} tree ${synced.tree} (written=${synced.written} removed=${synced.removed} unchanged=${synced.unchanged})`);
+    if (synced.identity) o.out(`${tag} source identity ${synced.identity.file}: ${synced.identity.written ? "written" : synced.identity.kept ? "kept" : `not written (${synced.identity.reason})`}`);
     const ds = { own, path: synced.path, commit: synced.commit, tree: synced.tree, root: snapshotsAt, ledger: { entries: [] } };
     // A unit's test or pack that reaches Cargo must never write `target/` into the snapshot (npm units included): see bindUnitCargo.
     // A check starts no unit command: its own Class A path binds read-only Cargo calls. Resolving every unit's compile output
@@ -3305,6 +3307,7 @@ export async function main(argv, io = {}) {
       try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout, rev: selected.commit, root: snapshotsAt }); }
       catch (e) { o.err(`rightkit-gate: ${e.code === "error" ? sc.CHECK_ERROR : "BLOCKED"}: snapshot ${e.message}; nothing ran`); return e.code === "error" ? 2 : 1; }
       o.out(`rightkit-gate: snapshot ${synced.path} is commit ${synced.commit} tree ${synced.tree} (written=${synced.written} removed=${synced.removed} unchanged=${synced.unchanged})`);
+      if (synced.identity) o.out(`rightkit-gate: source identity ${synced.identity.file}: ${synced.identity.written ? "written" : synced.identity.kept ? "kept" : `not written (${synced.identity.reason})`}`);
       const next = [...argv]; const ci = next.indexOf("--commit");
       if (ci >= 0) next.splice(ci, 2, "--commit", synced.commit); else next.push("--commit", synced.commit);
       next.push("--snapshot", synced.path);

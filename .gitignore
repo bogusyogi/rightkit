@@ -19,3 +19,6 @@ target/
 
 # Local registry-consumer check directories written by scripts/ci/rk-consumer-stage.mjs (pre-flight only).
 /.consumer-checks/
+
+# Written by the gate into its snapshots (rightkit#1504, GC-A23); never part of a commit.
+/.rightkit-source-identity.json

@@ -149,7 +149,7 @@ impl Retention {
             if !over_count && !over_bytes {
                 break;
             }
-            if candidate.name == added || self.protected.iter().any(|p| *p == candidate.name) {
+            if candidate.name == added || self.protected.contains(&candidate.name) {
                 continue;
             }
             count -= 1;

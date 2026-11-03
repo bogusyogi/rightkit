@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.43 (unpublished)
+
+Written from code and syntax-checked only (`node --check`); nothing was run through the gate, so the item below is unverified until the first gate run.
+
+- **Every gate snapshot carries a generated `.rightkit-source-identity.json` (rightkit#1504, rustright#176; new GATE-CONTRACT GC-A23).** A gate snapshot has no `.git`, so build scripts that read the commit they are built from (Pulse's membrane-runtime `build.rs`, this repository's rightkit-context-runtime) reported `unknown` and failed their end-to-end `g01_identity_enrolment`. `syncSnapshot` (`snapshot.mjs`) now writes `{"schema":"rightkit.source-identity.v1","commit","trees"}` into the snapshot root, with one tree id (`git rev-parse <commit>:<dir>`, sealed runner) for the root and every directory holding a `Cargo.toml`, `Package.swift` or `package.json` (`snapshot-identity.mjs`); the bytes are deterministic for a commit and an identical file is kept so Cargo's fingerprints stay warm. The exact-snapshot walk (`snapshotProblem`, used by every verify, with or without a ledger) admits it as a named allowance only when the caller names the commit, the commit tracks no such file, it is a regular non-executable one-link file, its bytes equal the recomputed file, and the commit's own ignore rules ignore it (so the tree id, which the broker computes the same way, still equals `<sha>^{tree}`); any other extra, missing or changed path, or a different byte in this file, still fails. The door's stage-output ledger walk (`stage-ledger.mjs`) keeps it out of the ledger. A repository whose `.gitignore` lacks `/.rightkit-source-identity.json` gets no file and a printed reason (the file would change the broker's tree id); that one line must be committed there (Pulse, and this repository for rightkit-context-runtime). `rightkit-gate` prints the outcome after each snapshot sync.
+
 ## 0.6.42 (unpublished)
 
 Open-issue pass over the release group (92 issues). Everything here is written from the code and syntax-checked only (`node --check`); nothing was compiled, run through the gate or tested, so each item's behaviour is unverified until the first gate run.

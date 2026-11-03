@@ -39,6 +39,7 @@ import { readDiskPolicy, scratchRoots } from "./disk-policy.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
 import { HostConfigError, hostConfigFile, readSnapshotRootConfig } from "./snapshot-root-config.mjs";
 import { discoveryGit, discoveryRun, sealedRepoInfo, sealedRun, withSealedGit } from "./snapshot-git.mjs";
+import { SOURCE_IDENTITY_FILE, sourceIdentityBytes } from "./snapshot-identity.mjs";
 import { acquireBuildOwnership, migrateBirthlessRoot, OwnershipBusy, ownershipFile, recordRootBirth } from "./build-ownership.mjs";
 // The error class and the managed-root guard live in managed-root-guard.mjs, which build-ownership.mjs imports too (decision D4 rule 1).
 import { SnapshotError, requireManagedRoot } from "./managed-root-guard.mjs";
@@ -257,7 +258,7 @@ export function snapshotTree({ checkout, dir, baseTree, repo = repositoryOf(chec
  * input even though the seeded tree id cannot see it. Never follows a link (only real directories are entered); names compare
  * case-insensitively where the host filesystem does (Mac, Windows; colliding names were refused before this runs).
  */
-function pruneToTree(dir, entries, platform = process.platform) {
+function pruneToTree(dir, entries, platform = process.platform, keepRoot = new Set()) {
   const fold = platform === "darwin" || platform === "win32" ? (n) => n.toLowerCase() : (n) => n;
   const files = new Set(entries.map((e) => fold(e.path)));
   const dirs = new Set();
@@ -268,7 +269,7 @@ function pruneToTree(dir, entries, platform = process.platform) {
       const r = rel ? `${rel}/${e.name}` : e.name;
       const p = path.join(d, e.name);
       if (e.isDirectory()) { if (dirs.has(fold(r))) walk(p, r); else { fs.rmSync(p, { recursive: true, force: true }); removed++; } }
-      else if (!files.has(fold(r))) { fs.unlinkSync(p); removed++; }
+      else if (!files.has(fold(r)) && !(rel === "" && keepRoot.has(fold(r)))) { fs.unlinkSync(p); removed++; }
     }
   };
   walk(dir, "");
@@ -324,6 +325,11 @@ function refuseCaseCollisions(entries, commit, platform = process.platform) {
  *      byte-equal to what the gate writes for THIS checkout's origin (gateGitConfigBody over `git config --get remote.origin.url`).
  *      Any other URL (`ext::sh -c id` was the r2#5 probe), any other section, any other byte is an extra. A checkout with no origin
  *      gets no `.git` at all.
+ *   3. the generated source-identity file `.rightkit-source-identity.json` at the snapshot root (snapshot-identity.mjs, GATE-CONTRACT
+ *      GC-A23; rightkit#1504): admitted only when the caller names the snapshot's `commit`, the commit tracks no file of that name, it
+ *      is a regular, non-executable file with one hard link, its bytes equal sourceIdentityBytes() for that commit exactly, and the
+ *      commit's own ignore rules ignore it (so the seeded tree id, the broker's included, still equals `<sha>^{tree}`). Without
+ *      `commit`, with other bytes, or unignored, it is an extra like any other file.
  * Nothing else is an extra the gate may leave, and the dependency bytes of allowance 1 are bound by the environment digest
  * (`rightkit-gate env-digest --snapshot`, which `verifySnapshot` takes as `environment`), so a changed or planted byte under a
  * `node_modules` is refused at the end verify even though this walk lets the directory be.
@@ -413,7 +419,7 @@ function sha256File(file) {
   return h.digest("hex");
 }
 
-function inspectSnapshot({ dir, entries, checkout, platform = process.platform, originUrl, ledger, admitNew = false }) {
+function inspectSnapshot({ dir, entries, checkout, commit, platform = process.platform, originUrl, ledger, admitNew = false }) {
   const problem = (message) => ({ problem: message, admitted: [] });
   const ledgerMode = ledger !== undefined || admitNew === true;
   const fold = foldFor(platform);
@@ -452,6 +458,22 @@ function inspectSnapshot({ dir, entries, checkout, platform = process.platform, 
     const origin = originUrl ?? originUrlOf(checkout);
     if (!origin) return `${rel} is not in the commit's tree (the checkout has no origin, so the gate writes no .git/config)`;
     if (!s?.isFile() || fs.readFileSync(config, "utf8") !== gateGitConfigBody(origin)) return `${rel}/config is not in the commit's tree (it is not byte-equal to the gate's config-only file for this checkout's origin)`;
+    return null;
+  };
+  // Allowance 3: the generated source-identity file (see the allowances above). Judged here, never as a ledger candidate, so the ledger
+  // and the tree id stay exactly what they were.
+  const identityName = fold(SOURCE_IDENTITY_FILE);
+  const identityProblem = (r, p) => {
+    if (!commit) return `${r} is not in the commit's tree (the source-identity file is admitted only when the snapshot's commit is named)`;
+    const s = lstat(p);
+    if (!s?.isFile()) return `${r} is not in the commit's tree (it is not a regular file)`;
+    if (s.nlink > 1n) return `${r} is not in the commit's tree and has ${s.nlink} hard links (the gate's source-identity file has one)`;
+    if (platform !== "win32" && (Number(s.mode) & 0o111) !== 0) return `${r} is not in the commit's tree and is executable (the gate writes the source-identity file without an exec bit)`;
+    let want;
+    try { want = sourceIdentityBytes({ checkout, commit, entries }); }
+    catch (e) { return `${r} is not in the commit's tree and the source identity of commit ${commit} cannot be recomputed to judge it: ${e.message}`; }
+    if (!fs.readFileSync(p).equals(want)) return `${r} is not in the commit's tree and is not the gate's source identity for commit ${commit} (its bytes differ from the deterministic file)`;
+    if (!neutralIgnored(dir, [r]).has(r)) return `${r} is the gate's source identity but the commit's own ignore rules do not ignore it, so it would change the tree id (add /${SOURCE_IDENTITY_FILE} to the commit's .gitignore)`;
     return null;
   };
   const fileProblem = (r, p, entry) => {
@@ -519,7 +541,7 @@ function inspectSnapshot({ dir, entries, checkout, platform = process.platform, 
         else if (dirs.has(key)) found = walk(p, r, false);
         else if (key === ".git") found = gitConfigProblem(r, p);
         else found = ledgerMode ? candidateDir(p, r) : `${r} is not in the commit's tree (a directory the commit does not have)`;
-      } else if (!inDeps) found = !byKey.has(key) ? (ledgerMode ? candidate(p, r) : `${r} is not in the commit's tree`) : fileProblem(r, p, byKey.get(key));
+      } else if (!inDeps) found = !byKey.has(key) ? (rel === "" && key === identityName ? identityProblem(r, p) : ledgerMode ? candidate(p, r) : `${r} is not in the commit's tree`) : fileProblem(r, p, byKey.get(key));
       if (found) return found;
     }
     return null;
@@ -889,17 +911,55 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), ma
       try { fs.rmdirSync(stagingRoot); } catch { /* another sync's staging, or not empty */ }
     }
 
-    // 4. Everything the commit does not hold is removed: the snapshot is exactly the commit (§1).
+    // 4. Everything the commit does not hold is removed: the snapshot is exactly the commit (§1). The one exception is the gate's own
+    // source-identity file when it already holds this commit's exact bytes (kept, so its mtime and Cargo's fingerprints stay warm).
     assertLockHeld();
-    removed += pruneToTree(dir, entries);
+    let identityBytes = null;
+    const identity = { file: SOURCE_IDENTITY_FILE, written: false, kept: false, reason: null };
+    if (repo.objectFormat !== "sha1") identity.reason = `the repository's object format is ${repo.objectFormat}, and the source identity records SHA-1 ids`;
+    else if (wanted.has(SOURCE_IDENTITY_FILE)) identity.reason = `the commit itself tracks ${SOURCE_IDENTITY_FILE}`;
+    else {
+      try { identityBytes = sourceIdentityBytes({ checkout: repo.checkout, commit, entries }); }
+      catch (e) { throw new SnapshotError("error", `the source identity of commit ${commit} cannot be computed: ${e.message}`); }
+    }
+    const identityPath = path.join(dir, SOURCE_IDENTITY_FILE);
+    const keepIdentity = (() => {
+      if (!identityBytes) return false;
+      const s = lstat(identityPath);
+      return !!s?.isFile() && s.nlink === 1n && (process.platform === "win32" || (Number(s.mode) & 0o111) === 0) && fs.readFileSync(identityPath).equals(identityBytes);
+    })();
+    removed += pruneToTree(dir, entries, process.platform, keepIdentity ? new Set([foldFor(process.platform)(SOURCE_IDENTITY_FILE)]) : new Set());
+    if (identityBytes) {
+      // Written only when the commit's own ignore rules ignore the name (they are in the snapshot now): an unignored file would change the
+      // tree id the broker computes too, so the gate would break every build of that repository. Then nothing is written and the reason is reported.
+      if (!neutralIgnored(dir, [SOURCE_IDENTITY_FILE]).has(SOURCE_IDENTITY_FILE)) {
+        identity.reason = `the commit's own ignore rules do not ignore /${SOURCE_IDENTITY_FILE}; add it to the commit's .gitignore and no source identity is written to this snapshot until then`;
+        if (keepIdentity) fs.unlinkSync(identityPath); // a copy kept from an earlier sync would now be an unignored extra
+      } else if (keepIdentity) identity.kept = true;
+      else {
+        assertLockHeld();
+        const stagingRoot2 = `${dir}.staging`;
+        const tmp = path.join(stagingRoot2, `identity-${crypto.randomUUID()}`);
+        fs.mkdirSync(stagingRoot2, { recursive: true, mode: 0o700 });
+        try {
+          fs.writeFileSync(tmp, identityBytes, { mode: 0o644, flag: "wx" });
+          if (process.platform !== "win32") fs.chmodSync(tmp, 0o644);
+          fs.renameSync(tmp, identityPath);
+          identity.written = true;
+        } finally {
+          fs.rmSync(tmp, { force: true });
+          try { fs.rmdirSync(stagingRoot2); } catch { /* another sync's staging, or not empty */ }
+        }
+      }
+    }
 
     assertLockHeld();
-    const extra = snapshotProblem({ dir, entries, checkout: repo.checkout });
+    const extra = snapshotProblem({ dir, entries, checkout: repo.checkout, commit });
     if (extra) throw new SnapshotError("mismatch", `snapshot ${dir} is not exactly commit ${commit} after sync: ${extra}`);
     const actual = snapshotTree({ checkout: repo.checkout, dir, baseTree: tree, repo });
     if (actual !== tree) throw new SnapshotError("mismatch", `snapshot ${dir} is tree ${actual} after sync, not tree ${tree} of commit ${commit}`);
     writeState(stateFile, { schema: STATE_SCHEMA, repo: repo.checkout, repoKey: repo.key, commit, tree, paths: [...wanted.keys()], stat: nextStat, syncedAt: new Date(now()).toISOString() });
-    return { schema: SNAPSHOT_SCHEMA, path: dir, repoKey: repo.key, commit, tree, written, removed, modesFixed, unchanged, linksRemoved, hardLinksReplaced, casesFixed, ms: now() - started };
+    return { schema: SNAPSHOT_SCHEMA, path: dir, repoKey: repo.key, commit, tree, written, removed, modesFixed, unchanged, linksRemoved, hardLinksReplaced, casesFixed, identity, ms: now() - started };
   } finally {
     release();
   }
@@ -930,7 +990,7 @@ export function verifySnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), 
   if (path.resolve(path.dirname(at)) === path.resolve(root)) requirePrivateRoot(root, lstat(root));
   if (!lstat(at)?.isDirectory()) throw new SnapshotError("mismatch", `no snapshot directory at ${at}`);
   // The seeded tree id cannot see an ignored file or follow a link, so the directory itself is walked first (E6, §1 exact snapshot).
-  const inspected = snapshotProblem({ dir: at, entries: treeEntries(repo.checkout, commit), checkout: repo.checkout, ledger, admitNew });
+  const inspected = snapshotProblem({ dir: at, entries: treeEntries(repo.checkout, commit), checkout: repo.checkout, commit, ledger, admitNew });
   const extra = ledger !== undefined || admitNew ? inspected.problem : inspected;
   if (extra) throw new SnapshotError("mismatch", `the snapshot at ${at} is not exactly commit ${commit}${ledger !== undefined || admitNew ? " plus its stage-output ledger" : ""}: ${extra}`);
   const actual = snapshotTree({ checkout: repo.checkout, dir: at, baseTree: tree, repo });
