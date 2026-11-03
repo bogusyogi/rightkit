@@ -1240,7 +1240,7 @@ export function planScans({
     // a later `]` (the next table header) is not an ignore (Pulse, 2026-10-27: `\S` matched the `]` itself).
     // Comments go first: the @rightkit/config template keeps a commented example inside an empty `ignore = [ ... ]`, which is no
     // ignore (CutRight, 2026-11-03).
-    const ignores = ["deny.toml", ".cargo/audit.toml"].some((f) => { try { return /\bignore\s*=\s*\[[^\]]*[^\]\s][^\]]*\]/s.test(readFile(path.join(contentRoot, dir, f)).replace(/#[^\n]*/g, "")); } catch { return false; } });
+    const ignores = ["deny.toml", ".cargo/audit.toml"].some((f) => { try { return /\bignore\s*=\s*\[[^\]]*[^\]\s][^\]]*\]/s.test(stripTomlComments(readFile(path.join(contentRoot, dir, f)))); } catch { return false; } });
     if (ignores && !(dir === "" && exists(path.join(contentRoot, "ci/advisory-exceptions.json")))) add({ id: `advisory-exceptions${dir ? `:${wsLabel(ws)}` : ""}`, class: A, internal: "advisory-exceptions", dir, exceptionsFile: ".rightkit/advisory-exceptions.json" });
   }
   // Like generated-docs, planned only when a changed file is one of the contract's inputs or projections. The generator runs from
@@ -1811,6 +1811,20 @@ export function defaultSpawnAsync(command, args, options = {}) {
  * `Tests  N passed | M skipped | K failed (T)` line. Null when neither is present. Several node:test summaries (a script that runs
  * the runner more than once) are summed. */
 /** null when a test summary is evidence of a pass; otherwise { code, detail }. Used for fresh and cached test rows alike. */
+/** TOML text without its comments: a `#` outside a basic or literal string starts one (a `#` inside quotes is kept). */
+export function stripTomlComments(text) {
+  return String(text).split("\n").map((line) => {
+    let quote = null;
+    for (let i = 0; i < line.length; i += 1) {
+      const ch = line[i];
+      if (quote) { if (ch === "\\" && quote === '"') i += 1; else if (ch === quote) quote = null; }
+      else if (ch === '"' || ch === "'") quote = ch;
+      else if (ch === "#") return line.slice(0, i);
+    }
+    return line;
+  }).join("\n");
+}
+
 export function testResultsProblem(results) {
   if (!results) return { code: "NO_TEST_SUMMARY", detail: "no test counts recorded" };
   // End-to-end tests only (Adrian, 2026-11-03: "End to end tests ONLY any unit tests need strict approval along with evidence and
