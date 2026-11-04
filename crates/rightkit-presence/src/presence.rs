@@ -6,7 +6,7 @@
 //! CoreGraphics (`CGWindowListCopyWindowInfo`, owner names need no permission), on other platforms it
 //! reports an empty observation and `controls_supported() == false` instead of inventing state.
 //!
-//! `effective_dnd = manual || auto` and gates [`crate::notify`]. Auto-DND turns on while a meeting or
+//! `effective_dnd = manual || auto` and gates `crate::notify`. Auto-DND turns on while a meeting or
 //! screen-share window is visible and the app opted in with [`AutoPrefs::auto_dnd_meetings`].
 
 use std::sync::atomic::{AtomicBool, Ordering};

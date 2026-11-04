@@ -615,6 +615,20 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
       for (const p of members) if (!Number.isFinite(p.startedMs)) throw new Error(`cannot read the start time of pid ${p.pid}`);
       return { members, byPid: new Map(rows.map((row) => [row.pid, row])), own };
     },
+    /** One fresh process table for every recorded group in this release; never retained across releases. */
+    groupSnapshots(groups) {
+      for (const group of groups) if (!Number.isInteger(group) || group <= 1) throw new Error(`no usable process group (${group})`);
+      const { rows, own } = psList();
+      const byPid = new Map(rows.map((row) => [row.pid, row]));
+      const snapshots = new Map([...new Set(groups)].map((group) => [group, { members: [], byPid, own }]));
+      for (const p of rows) {
+        const snapshot = snapshots.get(p.group);
+        if (!snapshot || own.has(p.pid)) continue;
+        if (!Number.isFinite(p.startedMs)) throw new Error(`cannot read the start time of pid ${p.pid}`);
+        snapshot.members.push(p);
+      }
+      return snapshots;
+    },
     /**
      * Pids of processes whose environment carries `<OWNERSHIP_ENV>=<handle>` (this gate's own chain left out). Linux reads
      * /proc/<pid>/environ (an unreadable entry of this user's throws: unknown); macOS reads `ps eww`, which shows the environment
@@ -1090,21 +1104,46 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
     const groups = entries.filter((n) => /^group-\d+\.json$/.test(n));
     if (timing) timing.detachedGroups = groups.length;
     const recorded = [];
+    const groupRecords = [];
     for (const name of groups) {
-      let entry;
-      try { entry = JSON.parse(fs.readFileSync(path.join(registry, name), "utf8")); } catch { throw new Error(`the detached-child entry ${name} cannot be read`); }
+      let entry, bytes, writtenMs;
+      try {
+        const entryFile = path.join(registry, name);
+        bytes = fs.readFileSync(entryFile, "utf8");
+        entry = JSON.parse(bytes);
+        writtenMs = fs.statSync(entryFile).mtimeMs;
+      } catch { throw new Error(`the detached-child entry ${name} cannot be read`); }
       if (!Number.isInteger(entry?.group) || !Number.isFinite(entry?.startedMs)) throw new Error(`the detached-child entry ${name} cannot be read`);
       recorded.push({ group: entry.group, command: entry.command });
+      groupRecords.push({ name, entry, bytes, writtenMs });
+    }
+    let snapshots = null;
+    if (groups.length && typeof probe.groupSnapshots === "function") {
+      try { snapshots = measure("detachedGroupsMs", () => probe.groupSnapshots(groupRecords.map(({ entry }) => entry.group))); }
+      catch (e) { throw new Error(`detached process groups cannot be listed (${e.message})`); }
+      if (!(snapshots instanceof Map)) throw new Error("detached process groups cannot be listed (invalid bulk process table)");
+    }
+    for (const { entry, writtenMs } of groupRecords) {
       let snapshot;
-      try { snapshot = measure("detachedGroupsMs", () => probe.groupSnapshot(entry.group)); } catch (e) { throw new Error(`detached process group ${entry.group} cannot be listed (${e.message})`); }
-      // The entry is written after the spawn returns, so the group's own leader (pid == group) started before the file's mtime. A
-      // leader that started later is a new process that took the id: the kernel reuses a group id only once that group is empty.
-      let writtenMs = NaN;
-      try { writtenMs = fs.statSync(path.join(registry, name)).mtimeMs; } catch { /* unknown: judged as before */ }
+      try { snapshot = snapshots ? snapshots.get(entry.group) : measure("detachedGroupsMs", () => probe.groupSnapshot(entry.group)); }
+      catch (e) { throw new Error(`detached process group ${entry.group} cannot be listed (${e.message})`); }
+      if (!snapshot || !Array.isArray(snapshot.members)) throw new Error(`detached process group ${entry.group} cannot be listed (missing process table)`);
+      // A later leader is a reused group ID; otherwise any member at or after the recorded lower bound holds the release.
       const leader = snapshot.members.find((m) => m.pid === entry.group);
       if (leader && Number.isFinite(writtenMs) && leader.startedMs > writtenMs + START_SLACK_MS) continue;
       const live = snapshot.members.filter((m) => m.pid !== selfPid && m.startedMs >= entry.startedMs - START_SLACK_MS).map((m) => m.pid);
       if (live.length) throw new Error(`detached process group ${entry.group} (${entry.command}) still has ${live.length} member(s): ${live.join(", ")}`);
+    }
+    // Catch changes during this sample. As with the old per-group checks, this is not an atomic spawn/release fence.
+    let after;
+    try { after = fs.readdirSync(registry); } catch (e) { if (e.code === "ENOENT" && !groups.length) after = []; else throw new Error(`the detached-child record ${registry} cannot be re-read (${e.message})`); }
+    const relevant = (names) => names.filter((n) => n.startsWith("intent-") || /^group-\d+\.json$/.test(n)).sort();
+    if (JSON.stringify(relevant(entries)) !== JSON.stringify(relevant(after))) throw new Error("the detached-child registry changed during the process sample");
+    for (const { name, bytes, writtenMs } of groupRecords) {
+      try {
+        const entryFile = path.join(registry, name);
+        if (fs.readFileSync(entryFile, "utf8") !== bytes || fs.statSync(entryFile).mtimeMs !== writtenMs) throw new Error("changed");
+      } catch { throw new Error(`the detached-child entry ${name} changed during the process sample`); }
     }
     if (groups.length) proofs.push(`the ${groups.length} detached process group(s) it started are empty`);
     // See `unreadable` in processProbe. The baseline is the later of (1) the acquisition of the last owner whose release proved zero

@@ -2885,7 +2885,7 @@ export async function runScans(plan, options = {}) {
       const args = [...lead.args.slice(0, lead.batchable.at), ...idx.flatMap((i) => ["-p", bScans[i].batchable.crate]), ...lead.args.slice(lead.batchable.at + 2)];
       const units = idx.map((i) => bScans[i].batchable.unit);
       const id = `${/^clippy/.test(lead.id) ? "clippy" : "check"}:batch:${sha256(`${lead.batchable.key}\0${units.join("\0")}`).slice(0, 8)}`;
-      return { ...plain, id, args, command: commandText({ ...plain, args }), batch: { units, members: idx.map((i) => bScans[i].id) } };
+      return { ...plain, id, args, command: commandText({ ...plain, env: {}, args }), batch: { units, members: idx.map((i) => bScans[i].id) } };
     };
     const runGroup = async (idx, extraEnv) => {
       if (idx.length === 1) { const i = idx[0]; slots[i] = await runOne(bScans[i], extraEnv).catch((error) => failedRow(i, error)); return; }
@@ -2901,12 +2901,12 @@ export async function runScans(plan, options = {}) {
         const half = Math.ceil(idx.length / 2);
         await runGroup(idx.slice(0, half), extraEnv);
         await runGroup(idx.slice(half), extraEnv);
-        for (const i of idx) if (slots[i]) slots[i] = { ...slots[i], batchFailure: slots[i].batchFailure ?? { id: bs.id, units: bs.batch.units, ...(row.detail ? { detail: row.detail } : {}) }, batchAttempts: [...(slots[i].batchAttempts ?? []), { id: bs.id, status: row.status, timing: row.timing ?? null }] };
+        for (const i of idx) if (slots[i]) slots[i] = { ...slots[i], batchFailure: slots[i].batchFailure ?? { id: bs.id, units: bs.batch.units, command: row.command, ...(row.detail ? { detail: row.detail } : {}) }, batchAttempts: [...(slots[i].batchAttempts ?? []), { id: bs.id, status: row.status, command: row.command, ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), timing: row.timing ?? null }] };
         return;
       }
       for (const i of idx) {
         const m = bScans[i];
-        const own = { id: m.id, class: m.class, command: m.command, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, status: row.status, ...(row.code ? { code: row.code } : {}), ...(row.detail ? { detail: row.status === "fail" ? `${row.id} (${idx.length} crates: ${bs.batch.units.join(", ")}): ${row.detail}` : row.detail } : {}), ...(row.cached ? { cached: true } : {}), timing: row.timing ?? null, batchedWith: { id: row.id, units: bs.batch.units }, ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), ...(row.identities ? { identities: row.identities } : {}), ...(row.log ? { log: row.log } : {}) };
+        const own = { id: m.id, class: m.class, command: m.command, batchCommand: row.command, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, status: row.status, ...(row.code ? { code: row.code } : {}), ...(row.detail ? { detail: row.status === "fail" ? `${row.id} (${idx.length} crates: ${bs.batch.units.join(", ")}): ${row.detail}` : row.detail } : {}), ...(row.cached ? { cached: true } : {}), timing: row.timing ?? null, batchedWith: { id: row.id, units: bs.batch.units }, ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), ...(row.identities ? { identities: row.identities } : {}), ...(row.log ? { log: row.log } : {}) };
         slots[i] = own; done += 1;
         try { onResult(own, { done, total, seconds: Math.round((Date.now() - started) / 1000) }); } catch { /* reporting never fails a scan */ }
       }
@@ -2949,6 +2949,17 @@ export async function runScans(plan, options = {}) {
         finally { if (lease && typeof quietLane.release === "function") { try { await quietLane.release(lease.id); } catch { /* lease expires */ } } }
       };
       const execute = async (scan) => remember(Object.freeze(await executeRaw(scan)));
+      const canGroup = (a, b) => { const i = bScans.indexOf(a); const j = bScans.indexOf(b); return i >= 0 && j >= 0 && Boolean(groupOf.get(i)) && groupOf.get(i) === groupOf.get(j); };
+      // The caller supplies only members ready on its current frontier. Reuse the existing
+      // signed batch/bisection path without admitting other members of their planned group.
+      const executeGroup = async (scans) => {
+        if (!Array.isArray(scans) || scans.length < 2) throw new Error("scheduleClassB: a batch needs at least two scans");
+        const indices = scans.map((scan) => bScans.indexOf(scan));
+        const group = groupOf.get(indices[0]);
+        if (!group || new Set(indices).size !== indices.length || indices.some((i) => i < 0 || groupOf.get(i) !== group)) throw new Error("scheduleClassB: incompatible batch members");
+        await runGroup(indices, null);
+        return indices.map((i) => remember(Object.freeze(slots[i] ?? failedRow(i, "batch produced no row"))));
+      };
       const project = (row, scan) => {
         if (!issued.has(row) || !bScans.includes(scan)) throw new Error("scheduleClassB: invalid projection");
         return remember(Object.freeze({ ...row, id: scan.id, command: scan.command }));
@@ -2957,7 +2968,7 @@ export async function runScans(plan, options = {}) {
         if (!bScans.includes(scan)) throw new Error("scheduleClassB: unknown scan");
         return remember(Object.freeze({ id: scan.id, class: scan.class, command: scan.command, status: "not-run", detail: String(detail) }));
       };
-      const rows = await options.scheduleClassB({ scans: bScans, execute, project, notRun });
+      const rows = await options.scheduleClassB({ scans: bScans, execute, executeGroup, canGroup, project, notRun });
       if (!Array.isArray(rows) || rows.length !== bScans.length || rows.some((row, i) => !row || !issued.has(row) || row.id !== bScans[i].id || typeof row.status !== "string")) throw new Error("scheduleClassB must return executor-issued results in plan order");
       rows.forEach((row, i) => { slots[i] = row; });
     } else if (brokerHost) {

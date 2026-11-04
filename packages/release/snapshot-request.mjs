@@ -560,14 +560,18 @@ export function verifyNestedChildren(evidence, receipt, { snapshotPath, checkout
  *   - timingsMs, exit, diagnosticsPath, brokerVersion and executor present with their types; the retired `verdict` and `refreshed` are refused (GB-30: Class A and its verdict reuse are the gate's).
  * `checkout` and `outputRoots` are required: without them nothing can be said about where the outputs went, so it refuses.
  */
-export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, workspace, observedEnv = {}, adapter = null, adapterEnv = {}, checkout, outputRoots, platform = process.platform, canonicalPath = (p) => fs.realpathSync.native(p), digestInputs = declaredInputDigestsOf, readInputs = readDeclaredInputs, inputPolicy = null }) {
+export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, workspace, observedEnv = {}, adapter = null, adapterEnv = {}, checkout, outputRoots, platform = process.platform, canonicalPath = (p) => fs.realpathSync.native(p), digestInputs = declaredInputDigestsOf, readInputs = readDeclaredInputs, inputPolicy = null, allowFailedCompile = false }) {
   const requestDigest = requestDigestOf(snapshotRequestCore({ argv, workspace, observedEnv, carrier, adapter, adapterEnv }));
   const payload = verifyProvenance(receipt, pins, { jobId, nonce: carrier.nonce, requestDigest });
   // The signed outcome, not the client's exit code: a passing row needs the broker to have signed SUCCEEDED with exit 0 and no
   // signal (service.rs provenance_payload `result`). An authentic FAILED, or a payload without a result, is not a success.
   const result = payload.result;
   if (!result || typeof result !== "object") fail("result", "the signed payload carries no result: the broker did not sign this request's outcome");
-  if (result.status !== "SUCCEEDED" || result.exitCode !== 0 || (result.signal !== undefined && result.signal !== null)) {
+  const success = result.status === "SUCCEEDED" && result.exitCode === 0 && (result.signal === undefined || result.signal === null);
+  // Opt in only to an authenticated, non-signal Cargo compile failure. This is evidence of failure,
+  // not proof that its cause is a compiler diagnostic or that retry is appropriate.
+  const failedCompile = allowFailedCompile === true && adapter === null && isCompileClass(argv) && result.status === "FAILED" && Number.isSafeInteger(result.exitCode) && result.exitCode > 0 && result.exitCode <= 255 && (result.signal === undefined || result.signal === null);
+  if (!success && !failedCompile) {
     // Any terminal status but SUCCEEDED fails the call, whatever the broker says about why (a tracked write is refused at exit with a
     // `snapshot exit bind: ...` message; the field that carries it is pending RustRight's confirmation, so the usual spellings are read).
     // The signed result of a broker verdict after a clean run (FAILED with exit 0: RR_UNEXPLAINED_COLD, ...) carries no reason; the receipt's own
@@ -688,7 +692,7 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   ];
   for (const [name, ok] of typed) if (!ok) fail("evidence", `receipt ${name} is missing or has the wrong type`);
   for (const name of ["verdict", "refreshed"]) if (Object.hasOwn(receipt, name)) fail("evidence", `receipt carries the retired field ${name}`);
-  if (receipt.exit !== 0 || receipt.signal !== null) fail("evidence", `receipt exit ${receipt.exit} and signal ${receipt.signal} are not a success (exit 0, no signal)`);
+  if (receipt.exit !== result.exitCode || receipt.signal !== null) fail("evidence", `receipt exit ${receipt.exit} and signal ${receipt.signal} do not match the signed result (exit ${result.exitCode}, no signal)`);
   // RustRight signs the result fields under payload.resultEvidence (service.rs provenance_payload; attestation.rs RESULT_EVIDENCE_FIELDS), never at
   // the payload's top level. Every receipt copy must equal its signed counterpart, and a receipt with no signed resultEvidence is refused: the
   // exit, signal, timings and diagnostics path it shows would otherwise be this receipt's own say-so.
@@ -709,7 +713,7 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   verifyReceiptCoverage(receipt, payload);
   verifyResultEvidence(receipt, payload);
   verifyBr19Evidence(receipt, payload);
-  return { payload, evidence, attribution, toolchain, nestedChildren, requestDigest, causeEvidence };
+  return { payload, evidence, attribution, toolchain, nestedChildren, requestDigest, causeEvidence, signedResult: { status: result.status, exitCode: result.exitCode, signal: result.signal ?? null } };
 }
 
 export { CAUSE_EVIDENCE_SCHEMA, CAUSE_UNEXPLAINED, CAUSE_UNKNOWN, ProvenanceError };

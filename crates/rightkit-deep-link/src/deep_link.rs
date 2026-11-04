@@ -6,7 +6,7 @@
 //! bug: percent-decoding now decodes UTF-8 bytes, not bytes-as-chars.
 //!
 //! Delivery paths: macOS `RunEvent::Opened`; Windows/Linux the argv of the launch (first launch
-//! or forwarded by [`crate::instance`]).
+//! or forwarded by `crate::instance`).
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Mutex;

@@ -47,4 +47,5 @@ test("verified workspace cwd combines package-selected checks and rejects interv
   assert.equal(jobs[0].cwd, ".");
   assert.deepEqual(jobs[0].argv, ["check", "--profile", "release", "--target", "aarch64-apple-darwin", "-p", "rightkit-a", "-p", "rightkit-b", "--all-targets"]);
   assert.equal(proveWorkspaceCwd({ requirement: a, snapshot: "/snapshot", checkout: "/checkout", exists: () => false, toolchainOf: (p) => p.endsWith("rightkit-a") ? "other" : "stable" }).normalized, false);
+  assert.match(proveWorkspaceCwd({ requirement: a, snapshot: "/snapshot", checkout: "/checkout", exists: () => false, toolchainOf: () => ({ error: "exit-125" }) }).reason, /snapshot workspace \(exit-125\)/);
 });

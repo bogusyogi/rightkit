@@ -13,35 +13,93 @@ const safeError = (error, fallback) => CONFIG_CODES.has(error?.reuseCode) ? erro
 
 // Hash all files, symlink targets, directory names and modes, including pnpm
 // state and tool caches. Follow linked targets once; never trust stat/mtime.
-export function dependencyDigest(snapshot, dirs) {
+export function dependencyDigest(snapshot, dirs, { manifest = null } = {}) {
   const h = crypto.createHash('sha256'), seen = new Set(), pending = [];
   let count = 0;
   const root = fs.realpathSync(snapshot);
+  const note = (kind, p, mode = null, value = null) => {
+    if (!manifest) return;
+    if (manifest.length >= 800000) { manifest.truncated = true; return; }
+    manifest.push({ kind, pathHash: hash(p), ...(mode === null ? {} : { mode }), ...(value === null ? {} : { valueHash: value }) });
+  };
   const walk = (p) => {
     if (++count > 400000) throw new Error('dependency fingerprint exceeds limit');
     const st = fs.lstatSync(p);
     h.update(`${p}\0${st.mode}\0`);
     if (st.isSymbolicLink()) {
-      h.update(`link\0${fs.readlinkSync(p)}\0`);
-      try { pending.push(fs.realpathSync(p)); } catch (e) { if (e.code !== 'ENOENT') throw e; h.update('dangling\0'); }
+      const target = fs.readlinkSync(p);
+      h.update(`link\0${target}\0`); if (manifest) note('link', p, st.mode, hash(target));
+      try { pending.push(fs.realpathSync(p)); } catch (e) { if (e.code !== 'ENOENT') throw e; h.update('dangling\0'); note('dangling', p); }
     } else if (st.isDirectory()) {
-      h.update('dir\0');
+      h.update('dir\0'); note('dir', p, st.mode);
       for (const name of fs.readdirSync(p).sort()) walk(path.join(p, name));
-    } else if (st.isFile()) h.update(`file\0${hash(fs.readFileSync(p))}\0`);
+    } else if (st.isFile()) { const digest = hash(fs.readFileSync(p)); h.update(`file\0${digest}\0`); note('file', p, st.mode, digest); }
     else throw new Error('unsupported dependency entry');
   };
   for (const dir of [...dirs].sort()) {
-    h.update(`root\0${dir}\0`);
-    try { walk(path.join(snapshot, dir)); } catch (e) { if (e.code !== 'ENOENT' && e.code !== 'ENOTDIR') throw e; h.update('absent\0'); }
+    h.update(`root\0${dir}\0`); note('root', dir);
+    try { walk(path.join(snapshot, dir)); } catch (e) { if (e.code !== 'ENOENT' && e.code !== 'ENOTDIR') throw e; h.update('absent\0'); note('absent', dir); }
   }
   while (pending.length) {
     const p = pending.shift();
     if (seen.has(p)) continue;
     seen.add(p);
     if (p === path.parse(p).root || inside(root, p)) throw new Error('dependency link resolves to snapshot ancestor');
-    h.update('target\0'); walk(p);
+    h.update('target\0'); note('target', p); walk(p);
   }
   return h.digest('hex');
+}
+
+// Opt-in diagnostics only. Never used as proof; records contain no paths,
+// file contents, link targets or environment values. The directory must
+// already exist inside the host's scratch tree.
+export function captureDependencyManifest(snapshot, dirs) {
+  const entries = [];
+  const digest = dependencyDigest(snapshot, dirs, { manifest: entries });
+  return { digest, entries, complete: !entries.truncated };
+}
+
+function dependencyProof(snapshot, dirs, diagnosticsEnabled) {
+  if (diagnosticsEnabled) {
+    try {
+      const capture = captureDependencyManifest(snapshot, dirs);
+      return { digest: capture.digest, capture };
+    } catch { /* retry the normal proof without diagnostic allocations */ }
+  }
+  return { digest: dependencyDigest(snapshot, dirs), capture: null };
+}
+
+function writeDiagnostic(dir, phase, root, inputs, components, capture) {
+  if (!dir || !path.isAbsolute(dir) || !capture.complete) return;
+  let temp;
+  try {
+    const scratch = fs.realpathSync(process.platform === 'win32' ? 'D:\\scratch' : '/Volumes/D/scratch');
+    const target = fs.realpathSync(dir);
+    if (!inside(target, scratch) || !fs.statSync(target).isDirectory()) return;
+    const file = path.join(target, `dependency-${phase}-${process.pid}-${crypto.randomBytes(8).toString('hex')}.json`);
+    temp = `${file}.tmp`;
+    fs.writeFileSync(temp, JSON.stringify({ schema: 'rightkit.dependency-manifest/1', phase, rootHash: hash(root), inputs, components, ...capture }), { flag: 'wx' });
+    fs.renameSync(temp, file);
+  } catch { if (temp) { try { fs.unlinkSync(temp); } catch {} } /* diagnostics never change a proof */ }
+}
+
+// Read-only post-Class-A capture. This never reads or updates the reuse record.
+export async function capturePostClassADiagnostics({ checkout, snapshot, commit, roots, diagnosticDir }) {
+  if (!diagnosticDir || !Array.isArray(roots)) return;
+  try {
+    const { treeEntries, dependencyDirs } = await import('./snapshot.mjs');
+    const entries = treeEntries(checkout, commit);
+    const fold = (s) => process.platform === 'darwin' || process.platform === 'win32' ? s.toLowerCase() : s;
+    const dirOf = (p) => p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '';
+    const lockRoots = entries.filter((e) => e.path === 'pnpm-lock.yaml' || e.path.endsWith('/pnpm-lock.yaml')).map((e) => fold(dirOf(e.path))).filter((p) => !p.split('/').includes('node_modules'));
+    const nearestLock = (member) => lockRoots.filter((r) => !r || member === r || member.startsWith(`${r}/`)).sort((a, b) => b.length - a.length)[0];
+    const generated = [...dependencyDirs(entries, 'linux')];
+    for (const root of roots) {
+      const owner = fold(path.relative(snapshot, path.resolve(snapshot, root)).split(path.sep).join('/'));
+      const dirs = generated.filter((d) => nearestLock(fold(dirOf(d))) === owner);
+      writeDiagnostic(diagnosticDir, 'after-a', root, null, null, captureDependencyManifest(snapshot, dirs));
+    }
+  } catch { /* diagnostics never change the gate result */ }
 }
 
 function pnpmIdentity(env) {
@@ -130,6 +188,7 @@ export function snapshotDependencyReuse({ checkout, snapshot, tree, root, dirs, 
     stage = 'input-identity';
     const components = preparationInputComponents({ source: { checkout: fs.realpathSync(checkout), snapshot: fs.realpathSync(snapshot), tree, root, dirs: [...dirs].sort(), filters }, toolchain: { pnpm: executable, version, node: [fs.realpathSync(process.execPath), hash(fs.readFileSync(process.execPath)), process.version], platform: [process.platform, process.arch], gate: packageIdentity() }, config, store: fs.realpathSync(storeDir), env });
     const inputs = hash(JSON.stringify(components));
+    const diagnosticDir = env.RIGHTKIT_PREPARATION_DIAGNOSTIC_DIR;
     let digestChecks = 0;
     diagnostic.setup = 'ready';
     return {
@@ -142,9 +201,11 @@ export function snapshotDependencyReuse({ checkout, snapshot, tree, root, dirs, 
           const record = JSON.parse(fs.readFileSync(recordPath, 'utf8'));
           if (record.schema !== 4 || !record.components || typeof record.components !== 'object' || typeof record.dependencies !== 'string') { diagnostic.match = 'record-invalid'; return false; }
           const changed = Object.keys(components).filter((key) => record.components[key] !== components[key]);
-          if (changed.length || record.inputs !== inputs) { diagnostic.match = 'record-mismatch'; diagnostic.components = changed.length ? changed.join(',') : 'aggregate'; return false; }
+          if (changed.length || record.inputs !== inputs) { diagnostic.match = 'record-mismatch'; diagnostic.components = changed.length ? changed.join(',') : 'aggregate'; if (diagnosticDir) { try { writeDiagnostic(diagnosticDir, 'lookup', root, inputs, components, captureDependencyManifest(snapshot, dirs)); } catch {} } return false; }
           phase = 'digest'; digestChecks++;
-          const ok = record.dependencies === dependencyDigest(snapshot, dirs);
+          const { digest, capture } = dependencyProof(snapshot, dirs, diagnosticDir);
+          const ok = record.dependencies === digest;
+          if (capture) writeDiagnostic(diagnosticDir, 'lookup', root, inputs, components, capture);
           diagnostic.match = ok ? 'hit' : 'dependency-mismatch'; return ok;
         } catch (e) { diagnostic.match = safeError(e, phase === 'record' && e.code === 'ENOENT' ? 'record-missing' : `${phase}-error`); return false; }
       },
@@ -154,11 +215,13 @@ export function snapshotDependencyReuse({ checkout, snapshot, tree, root, dirs, 
           if (pnpmConfigIdentity({ dir: path.resolve(snapshot, root), env, spawn }) !== config) { diagnostic.save = 'config-changed'; return; }
           phase = 'digest';
           digestChecks++;
-          const record = JSON.stringify({ schema: 4, inputs, components, dependencies: dependencyDigest(snapshot, dirs) });
+          const { digest, capture } = dependencyProof(snapshot, dirs, diagnosticDir);
+          const record = JSON.stringify({ schema: 4, inputs, components, dependencies: digest });
           phase = 'write';
           fs.mkdirSync(cacheDir, { recursive: true });
           const temp = `${recordPath}.${process.pid}.${crypto.randomBytes(8).toString('hex')}.tmp`;
           fs.writeFileSync(temp, record, { flag: 'wx' }); fs.renameSync(temp, recordPath);
+          if (capture) writeDiagnostic(diagnosticDir, 'save', root, inputs, components, capture);
           diagnostic.save = 'saved';
         } catch (e) { diagnostic.save = safeError(e, `${phase}-error`); }
       },

@@ -78,7 +78,9 @@ export function proveWorkspaceCwd({ requirement: r, snapshot, checkout, toolchai
   if (typeof toolchainOf !== "function") return no("effective toolchain is unverified");
   let toolchains;
   try { toolchains = [snapshot, checkout].flatMap((root) => [r.workspace, r.cwd].map((dir) => toolchainOf(path.resolve(root, dir)))); } catch { return no("effective toolchain probe failed"); }
-  if (toolchains.some((v) => typeof v !== "string" || !v) || new Set(toolchains).size !== 1) return no("effective toolchain differs or is unavailable");
+  const locations = ["snapshot workspace", "snapshot unit", "checkout workspace", "checkout unit"];
+  for (const [i, probe] of toolchains.entries()) if (!(typeof probe === "string" ? probe : probe?.toolchain)) return no(`effective toolchain unavailable at ${locations[i]} (${typeof probe?.error === "string" && /^(?:spawn-error|exit-(?:\d+|unknown))$/.test(probe.error) ? probe.error : "empty-result"})`);
+  if (new Set(toolchains.map((probe) => typeof probe === "string" ? probe : probe.toolchain)).size !== 1) return no("effective toolchain differs across workspace and unit");
   return { cwd: r.workspace, normalized: true, reason: "matching Cargo config and effective toolchain" };
 }
 
@@ -161,8 +163,9 @@ export async function executeUnitListCompile({ jobs, dependencies = {}, initialF
       for (const member of ready) {
         let status = "failed"; let proof = null;
         try {
-          const checked = await verify({ job: invocation, result, member });
-          if (result?.status === "pass" && checked?.ok === true && typeof checked.evidenceHash === "string" && /^[0-9a-f]{64}$/.test(checked.evidenceHash)) { status = "passed"; proof = checked.evidenceHash; }
+          const memberResult = result?.byMember instanceof Map ? result.byMember.get(member.id) : result;
+          const checked = await verify({ job: invocation, result: memberResult, member });
+          if (memberResult?.status === "pass" && checked?.ok === true && typeof checked.evidenceHash === "string" && /^[0-9a-f]{64}$/.test(checked.evidenceHash)) { status = "passed"; proof = checked.evidenceHash; }
         } catch { /* An exception cannot attest a pass. */ }
         record(member, status, proof); job.members.splice(job.members.indexOf(member), 1);
       }
@@ -180,23 +183,49 @@ export function publisherUnionScheduler({ jobs, dependencies = {}, initialFailur
   if (byId.size !== requirements.length) throw new Error("duplicate publisher requirement IDs");
   const plannedIds = jobs.flatMap((job) => job.members.map((member) => member.id));
   if (plannedIds.length !== requirements.length || new Set(plannedIds).size !== plannedIds.length || plannedIds.some((id) => !byId.has(id))) throw new Error("publisher job coverage differs from authenticated requirements");
-  return async ({ scans, execute, project, notRun }) => {
+  return async ({ scans, execute, executeGroup, canGroup, project, notRun }) => {
     const byScan = new Map(scans.map((scan, index) => [scan.id, index]));
     if (byScan.size !== scans.length || requirements.some((r) => !byScan.has(r.id))) throw new Error("publisher plan does not contain each requirement exactly once");
-    const slots = new Array(scans.length); const executed = new Map();
-    // Shared origin work is a prerequisite of the union. A red or unverified origin row blocks it.
-    for (let i = 0; i < scans.length; i += 1) if (!byId.has(scans[i].id)) slots[i] = await execute(scans[i]);
+    const slots = new Array(scans.length); const executed = new Map(); const attempts = new Map();
+    // Origin scans have no publisher per-unit sequencing; batch only members the scan runner
+    // itself marks compatible, and retain its signed bisection/attribution results.
+    for (let i = 0; i < scans.length; i += 1) if (!byId.has(scans[i].id) && !slots[i]) {
+      const peers = typeof executeGroup === "function" && typeof canGroup === "function" ? scans.map((s, j) => j > i && !slots[j] && !byId.has(s.id) && canGroup(scans[i], s) ? j : -1).filter((j) => j >= 0) : [];
+      if (!peers.length) slots[i] = await execute(scans[i]);
+      else {
+        const indices = [i, ...peers]; const rows = await executeGroup(indices.map((j) => scans[j]));
+        for (const [n, j] of indices.entries()) slots[j] = rows[n];
+      }
+    }
     const result = await executeUnitListCompile({ jobs, dependencies, initialFailures,
       run: async (job) => {
-        const representative = byId.get(job.members[0].id);
-        if (!representative) throw new Error("unknown publisher requirement");
-        const one = job.members.length === 1 && JSON.stringify(job.argv) === JSON.stringify(representative.argv);
-        const scan = one ? scans[byScan.get(representative.id)] : adapt({ ...representative, id: `publisher-batch:${digest(job.members.map((m) => m.id)).slice(0, 24)}`, cwd: job.cwd, argv: job.argv, coverageKey: digest(job.members.map((m) => m.coverageKey)) });
-        const row = await execute(scan);
-        for (const member of job.members) executed.set(member.id, row);
-        return row;
+        const byMember = new Map();
+        const runMembers = async (members) => {
+          const representative = byId.get(members[0].id);
+          if (!representative) throw new Error("unknown publisher requirement");
+          let argv = job.argv;
+          if (job.batchAt !== undefined) {
+            const at = job.batchAt; let end = at;
+            while (argv[end] === "-p" && typeof argv[end + 1] === "string") end += 2;
+            argv = [...argv.slice(0, at), ...[...new Set(members.map((m) => m.package))].flatMap((name) => ["-p", name]), ...argv.slice(end)];
+          }
+          const one = members.length === 1 && JSON.stringify(argv) === JSON.stringify(representative.argv);
+          const scan = one ? scans[byScan.get(representative.id)] : adapt({ ...representative, id: `publisher-batch:${digest(members.map((m) => m.id)).slice(0, 24)}`, cwd: job.cwd, argv, coverageKey: digest(members.map((m) => m.coverageKey)) });
+          const row = await execute(scan);
+          for (const member of members) {
+            const history = attempts.get(member.id) ?? [];
+            history.push({ id: row.id, status: row.status, ...(row.code ? { code: row.code } : {}), command: row.command, ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}) });
+            attempts.set(member.id, history);
+          }
+          if (members.length > 1 && job.batchAt !== undefined && row.status === "fail" && row.code === "EXIT") {
+            const half = Math.ceil(members.length / 2);
+            await runMembers(members.slice(0, half)); await runMembers(members.slice(half));
+          } else for (const member of members) { executed.set(member.id, row); byMember.set(member.id, row); }
+        };
+        await runMembers(job.members);
+        return { byMember };
       },
-      verify: async ({ job, result: row, member }) => verify({ job, row, member, requirement: byId.get(member.id) }),
+      verify: async ({ job, result: row, member }) => verify({ job, row, member, attempts: attempts.get(member.id) ?? [], requirement: byId.get(member.id) }),
     });
     onCoverage(result);
     for (const item of result) {

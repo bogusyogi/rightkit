@@ -4385,7 +4385,12 @@ export async function main(argv, io = {}) {
           if (!owner || !plan.scans.some((scan) => scan.class === "B" && names.some((prefix) => scan.id === prefix || scan.id.startsWith(`${prefix}:`)))) throw new Error(`${selector}: no unit-specific Class B compile or test scan was planned; declare an executable unit test or compile route`);
         }
       } catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
-      plan.notes = plan.notes.filter((n) => !n.includes("every Rust unit is in scope"));
+      plan.notes = plan.notes.filter((n) => !n.includes("every Rust unit is in scope") && !n.startsWith("class B batching:"));
+      const batchCandidates = plan.scans.filter((scan) => scan.class === "B" && scan.batchable);
+      const batchCounts = new Map();
+      for (const scan of batchCandidates) batchCounts.set(scan.batchable.key, (batchCounts.get(scan.batchable.key) ?? 0) + 1);
+      const sharedGroups = [...batchCounts.values()].filter((count) => count > 1);
+      if (batchCandidates.length) plan.notes.push(`class B batching: scoped plan has ${batchCandidates.length} eligible scan(s), including ${sharedGroups.reduce((sum, count) => sum + count, 0)} in ${sharedGroups.length} compatible group(s); actual batches depend on readiness and execution`);
       const classA = plan.scans.filter((s) => s.class === "A");
       // What actually executes: tests, executing rows and every Cargo scan (metadata, package list, deny, audit run cargo, through the broker
       // on a broker host), never only the rows that carry `executes`. The Cargo counts are named so a scoped run shows how much cargo it starts.
@@ -4432,8 +4437,8 @@ export async function main(argv, io = {}) {
         const toolchains = new Map();
         const toolchainOf = (dir) => {
           if (!toolchains.has(dir)) {
-            const result = o.spawn("rustup", ["show", "active-toolchain"], { cwd: dir, env: o.env });
-            toolchains.set(dir, failed(result) ? null : text(result).trim().split(/\s+/)[0]);
+            const result = o.spawn("rustup", ["show", "active-toolchain"], { cwd: dir, env: { ...o.env, [pathKey]: direct.path } });
+            toolchains.set(dir, failed(result) ? { error: result?.error ? "spawn-error" : `exit-${Number.isInteger(result?.status) ? result.status : "unknown"}` } : { toolchain: text(result).trim().split(/\s+/)[0] });
           }
           return toolchains.get(dir);
         };
@@ -4453,12 +4458,12 @@ export async function main(argv, io = {}) {
         };
         for (const requirement of external) plan.scans.push(adapt(requirement));
         const dependencies = Object.fromEntries(unionContext.selected.map((unit) => [unit.selector, (unit.deps ?? []).filter((dep) => unionContext.selected.some((u) => u.selector === dep))]));
-        unionScheduler = publisherUnionScheduler({ jobs, dependencies, initialFailures, requirements: external, adapt, onCoverage: (coverage) => { unionContext.coverage = coverage; }, verify: async ({ row, member, requirement }) => {
+        unionScheduler = publisherUnionScheduler({ jobs, dependencies, initialFailures, requirements: external, adapt, onCoverage: (coverage) => { unionContext.coverage = coverage; }, verify: async ({ row, member, attempts, requirement }) => {
           const verdict = verdicts.get(member.selector);
+          const proof = { commit: snapshotBCommit.commit, tree: snapshotBCommit.tree, requirement: member.coverageKey, command: row?.command ?? null, attempts, snapshotEvidence: row?.snapshotEvidence ?? null, testRun: row?.testRun ?? null, results: row?.results ?? null };
+          unionContext.commands.push({ selector: member.selector, id: member.id, ...proof });
           if (!row || row.status !== "pass" || (requirement.phase === "test" && (row.testRun?.outputTruncated || (!verdict.allowMissingAssets && (row.testRun?.skipMarkers ?? 0) > 0) || (!verdict.allowIgnored && (row.results?.skipped ?? 0) > 0)))) return { ok: false };
           if (executor.kind === "broker" && requirement.executable === "cargo" && !/^[0-9a-f]{64}$/.test(row.snapshotEvidence?.receiptSha256 ?? "")) return { ok: false };
-          const proof = { commit: snapshotBCommit.commit, tree: snapshotBCommit.tree, requirement: member.coverageKey, command: row.command, snapshotEvidence: row.snapshotEvidence ?? null, testRun: row.testRun ?? null, results: row.results ?? null };
-          unionContext.commands.push({ selector: member.selector, id: member.id, ...proof });
           return { ok: true, evidenceHash: createHash("sha256").update(JSON.stringify(proof)).digest("hex") };
         } });
         unionContext.owner = owner;
@@ -4709,7 +4714,14 @@ export async function main(argv, io = {}) {
       ...(unionScheduler ? { scheduleClassB: unionScheduler } : {}),
       onResult: (row, p) => o.out(`${tag} [${p.done}/${p.total}] ${(row.cached ? "cached" : row.status).padEnd(7)} ${row.id} (${p.seconds}s)${row.batchedWith ? ` [batch of ${row.batchedWith.units.length}]` : ""}${row.status === "fail" ? ` :: ${String(row.detail ?? "").slice(0, 300)}` : row.advice ? ` :: ${String(row.advice).slice(0, 300)}` : ""}`),
     });
-    if (unionContext) unionContext.rows = scanResult.scans.filter((row) => row.class === "B").map((row) => ({ id: row.id, status: row.status, ...(row.command ? { command: row.command } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), ...(row.testRun ? { testRun: row.testRun } : {}), ...(row.results ? { results: row.results } : {}), ...(unionContext.owner?.has(row.id) ? { publisherUnit: unionContext.owner.get(row.id) } : { sharedOrigin: true }) }));
+    if (unionContext) {
+      const scanById = new Map(plan.scans.map((scan) => [scan.id, scan]));
+      unionContext.rows = scanResult.scans.filter((row) => row.class === "B").map((row) => {
+        const scan = scanById.get(row.id);
+        const command = scan?.tool ? [scan.tool, ...(scan.args ?? [])].join(" ") : null;
+        return { id: row.id, status: row.status, ...(command ? { command } : {}), ...(row.batchCommand ? { batchCommand: row.batchCommand } : {}), ...(row.batchedWith ? { batchedWith: row.batchedWith } : {}), ...(row.batchFailure ? { batchFailure: row.batchFailure } : {}), ...(row.batchAttempts ? { batchAttempts: row.batchAttempts } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), ...(row.testRun ? { testRun: row.testRun } : {}), ...(row.results ? { results: row.results } : {}), ...(unionContext.owner?.has(row.id) ? { publisherUnit: unionContext.owner.get(row.id) } : { sharedOrigin: true }) };
+      });
+    }
     if (unionContext) unionContext.sharedClean = unionContext.rows.filter((row) => row.sharedOrigin).every((row) => row.status === "pass");
     directTiming.cargoEnd = Date.now();
     const freshness = census ? census.finish() : null;
@@ -4876,6 +4888,10 @@ export async function main(argv, io = {}) {
         if (trackedList && failed(trackedList)) { o.err(`${tag} BLOCKED: cannot list tracked files to name the checked bytes`); return 1; }
         const tracked = new Set(snapFullA || hostedFullA ? live.files : text(trackedList).split("\0").filter(Boolean).map(posix));
         o.out(`${tag} class A bytes tracked=${live.digestOf(live.files.filter((f) => tracked.has(f)))} all=${live.digest}${envStartWithCaches ? ` env-at-start=${envStartWithCaches}` : ""} env=${plan.scopeDigest ? createHash("sha256").update(`${binding.env}:${plan.scopeDigest}:${plan.scanSetDigest}`).digest("hex") : binding.env}${plan.scopeDigest ? ` scope=${plan.scopeDigest} scans=${plan.scanSetDigest}` : ""}`);
+      }
+      if (snapshotA && snapshotCommitId && o.env.RIGHTKIT_PREPARATION_DIAGNOSTIC_DIR) {
+        try { await (await import("../snapshot-dependency-reuse.mjs")).capturePostClassADiagnostics({ checkout: root, snapshot: snapshotA, commit: snapshotCommitId.commit, roots: installRoots, diagnosticDir: o.env.RIGHTKIT_PREPARATION_DIAGNOSTIC_DIR }); }
+        catch { /* Optional diagnostics never change the gate verdict. */ }
       }
       o.out(`${tag} class A ${plan.scopeDigest ? "scoped" : "full"} pass: ${scanResult.scans.length} deterministic check(s), the ones that execute repository code included, over ${changed.length} file(s) of ${base}`);
       return 0;
