@@ -2,6 +2,7 @@
 
 ## 0.1.0 (unpublished)
 
+- Fixed (Linux, Windows): `dispatch` is used only by the macOS backend and is allowed as dead code elsewhere; the Linux in-place update ignores its `Result` on purpose (the notification stays shown). Both failed the cross-target clippy rows.
 Issue #958 (neutral notifications owner and badges).
 
 - New crate: `Client`, `Notification` builder, `Handle::{update, close}`, `Permission`, `Capabilities`, activation callback, `set_badge`.

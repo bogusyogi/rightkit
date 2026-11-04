@@ -198,6 +198,7 @@ pub(crate) type ActivationHandler = Arc<dyn Fn(Activation) + Send + Sync>;
 pub(crate) static HANDLER: Mutex<Option<ActivationHandler>> = Mutex::new(None);
 
 /// Deliver an activation to the registered handler (called by the platform backends).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // only the macOS backend dispatches activations
 pub(crate) fn dispatch(activation: Activation) {
     let handler = HANDLER.lock().unwrap_or_else(|e| e.into_inner()).clone();
     if let Some(handler) = handler {

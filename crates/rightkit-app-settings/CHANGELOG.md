@@ -2,6 +2,7 @@
 
 ## 0.3.4 (unpublished)
 
+- Fixed: `agent_config::agent_config` tripped clippy's `module_inception` under `-D warnings`; the lint is allowed on that declaration, the public path is unchanged.
 - Added (rightkit#1505): the `credentials-probe` feature, with the `SecretProbe` presence adapter for `rightkit_credentials::Store`, moved from rightkit-credentials 0.4's `settings-probe` feature so RightKit can be one Cargo workspace without a dependency circle.
 
 ## 0.3.3 (unpublished)

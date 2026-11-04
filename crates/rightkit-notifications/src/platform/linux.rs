@@ -37,7 +37,8 @@ pub(crate) fn post(app_id: &str, key: &str, notification: &Notification) -> Resu
     let shown = guard.get_or_insert_with(HashMap::new);
     if let Some(handle) = shown.get_mut(key) {
         handle.summary(&notification.title).body(&notification.body);
-        handle.update();
+        // The notification stays on screen when an in-place update fails; the post is not an error.
+        let _ = handle.update();
         return Ok(());
     }
     let handle = Native::new()

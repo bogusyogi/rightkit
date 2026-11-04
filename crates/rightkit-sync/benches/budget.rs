@@ -223,7 +223,7 @@ fn main() {
     let local = Local::default();
     let mut engine = SyncEngineBuilder::new(
         Arc::new(NoteMapper),
-        Arc::new(backend.clone()),
+        Arc::new(helper.backend()),
         Arc::new(local.clone()),
         Box::new(FileStorage::new(std::env::temp_dir().join(format!(
             "rk-sync-budget-ledger-{}.json",
