@@ -936,7 +936,7 @@ fn ui_launch_env(
     }
     env
 }
-fn cli_opts(ctx: &Ctx, p: &Map<String, Value>) -> CliOptions {
+fn cli_opts(_ctx: &Ctx, p: &Map<String, Value>) -> CliOptions {
     CliOptions {
         env: env_pairs(p),
         input: pv(p, "input").cloned(),

@@ -247,7 +247,7 @@ fn fs_ctx<T>(r: rightkit_fs::Result<T>, what: &str, p: &Path) -> Result<T> {
     r.map_err(|e| Error(format!("{what} {}: {e}", p.display())))
 }
 
-fn utf8<'a>(p: &'a Path) -> Result<&'a str> {
+fn utf8(p: &Path) -> Result<&str> {
     match p.to_str() {
         Some(s) => Ok(s),
         None => err(format!("{} is not valid UTF-8", p.display())),
