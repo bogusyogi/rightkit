@@ -40,6 +40,16 @@ export function enrolledPins(sha, git) {
 export function verifyQualificationReceipts(text, { sha, git }) {
   let q;
   try { q = JSON.parse(text); } catch { refuse("the qualification input is not JSON"); }
+  return verifyReceiptStages(q, { sha, git, stages: ATTESTED_STAGES, nonceOf: ({ commit, tree, unit, stage }) => qualificationNonce({ commit, tree, unit, stage }) });
+}
+
+// CI supplies its independently bound nonce; publication always uses the fixed wrapper above.
+export function verifyCiCompileReceipts(q, { sha, git, stageNonce }) {
+  requireThat(typeof stageNonce === "string" && SHA256_HEX.test(stageNonce), "the CI compile nonce is invalid");
+  return verifyReceiptStages(q, { sha, git, stages: ["compile"], nonceOf: () => stageNonce });
+}
+
+function verifyReceiptStages(q, { sha, git, stages, nonceOf }) {
   const tree = String(git("rev-parse", `${sha}^{tree}`)).trim();
   requireThat(/^[0-9a-f]{40}$/.test(tree), `cannot read the tree of ${sha.slice(0, 12)}`);
   requireThat(q?.tree === tree, `the qualification receipt is for tree ${String(q?.tree).slice(0, 12)}, the dispatched commit's tree is ${tree.slice(0, 12)}`);
@@ -64,11 +74,11 @@ export function verifyQualificationReceipts(text, { sha, git }) {
   let primaryRoot = null, snapshotPath = null, handle = null;
   const seen = new Set();
   const verified = {};
-  for (const stage of ATTESTED_STAGES) {
+  for (const stage of stages) {
     const list = q.stages?.[stage]?.receipts;
     requireThat(Array.isArray(list) && list.length >= 1, `the qualification receipt's ${stage} stage carries no signed broker receipts; an unauthenticated qualification admits nothing`);
     requireThat(list.length <= MAX_VERIFIED_RECEIPTS, `the qualification receipt's ${stage} stage carries ${list.length} receipts (at most ${MAX_VERIFIED_RECEIPTS})`);
-    const stageNonce = qualificationNonce({ commit: sha, tree, unit, stage });
+    const stageNonce = nonceOf({ commit: sha, tree, unit, stage });
     // The nonces a receipt may carry, before its row is known: every carried call (a Cargo call, and a pnpm adapter job, rightkit#1301 B8) the
     // nonce derived for the directory of each of the stage's rows it could be and the argv it signed. The row it is assigned to (below) must
     // then be the one that fits.

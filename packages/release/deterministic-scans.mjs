@@ -18,6 +18,7 @@
 // result is a plain object (per-scan status, tool versions, scanSetDigest) usable as receipt content
 // (packages/release/pipeline-receipts.mjs); it carries no authority by itself.
 import crypto from "node:crypto";
+import { cargoWidthArgs } from "./cargo-width.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -253,7 +254,7 @@ export function fmtCheckArgs(unit = null) { return unit ? ["fmt", "-p", unit, "-
 export function metadataArgs({ noDeps = true } = {}) { return ["metadata", ...(noDeps ? ["--no-deps"] : []), "--format-version", "1", "--locked"]; }
 
 /** Translate one authenticated publisher requirement into a normal Class B scan. */
-export function publisherRequirementScan(requirement, { platform = process.platform, nativeArch = process.arch, cargoCommand = ["cargo"], cargoLiveRoot = null, targetDirs = null, quiet = false, allowIgnored = false } = {}) {
+export function publisherRequirementScan(requirement, { platform = process.platform, nativeArch = process.arch, cargoCommand = ["cargo"], cargoLiveRoot = null, targetDirs = null, quiet = false, allowIgnored = false, cargoJobs = null } = {}) {
   const { id, workspace, cwd, executable, argv, env, phase, coverageKey } = requirement ?? {};
   if (typeof id !== "string" || !id || typeof coverageKey !== "string" || !coverageKey || !Array.isArray(argv) || !argv.every((arg) => typeof arg === "string") || !env || typeof env !== "object" || Array.isArray(env) || !["compile", "test"].includes(phase)) throw new TypeError("invalid publisher requirement");
   const plainDir = (value) => typeof value === "string" && /^(?:\.|[A-Za-z0-9_@+.-]+(?:\/[A-Za-z0-9_@+.-]+)*)$/.test(value) && !value.split("/").includes("..");
@@ -267,7 +268,10 @@ export function publisherRequirementScan(requirement, { platform = process.platf
     args.push("--message-format=json");
     runOutside = { args: runArgs };
   }
-  if (executable === "cargo") args = oneOutput(isRustTest && cargoLiveRoot ? args : everyFailure(args), { platform, arch: nativeArch });
+  if (executable === "cargo") {
+    if (cargoJobs !== null) args = cargoWidthArgs(args, cargoJobs);
+    args = oneOutput(isRustTest && cargoLiveRoot ? args : everyFailure(args), { platform, arch: nativeArch });
+  }
   const scan = { id, coverageKey, ...(executable === "cargo" ? { executionWorkspace: workspace } : {}), publisherPhase: phase, class: SCAN_CLASS.B, root: executable === "cargo" && cargoLiveRoot ? "cargoLive" : "live", cwd, tool: executable === "cargo" ? cargoCommand[0] : executable, args: executable === "cargo" ? [...cargoCommand.slice(1), ...args] : args, env: { ...env, ...(targetDirs?.[workspace] ? { CARGO_TARGET_DIR: targetDirs[workspace] } : {}) }, ...(quiet && phase === "test" ? { quiet: true } : {}), ...(runOutside ? { runOutside } : {}), ...(isRustTest ? { publisherRustTest: true, allowIgnored } : {}), ...(executable === "pnpm" && phase === "test" ? { kind: "test" } : {}) };
   // Do not render the inherited publisher environment into logs or receipts.
   scan.command = commandText({ ...scan, env: {} });
@@ -904,7 +908,7 @@ export function planScans({
   changed = [], contentRoot, liveRoot = contentRoot, trustedRoot = null, exists = fs.existsSync, readFile = (f) => fs.readFileSync(f, "utf8"),
   platform = process.platform, includeTests = true, localCompile = true,
   // The host's CPU architecture for its own Rust target (oneOutput, cross-targets.mjs).
-  nativeArch = process.arch,
+  nativeArch = process.arch, cargoJobs = null,
   // Where the quiet test scans (ci/gate.config.json `quietTests`) run: "local" plans them for the quiet lane; "ci" leaves them to the
   // CI shards (one crate per runner, where the port, pipe, desktop and wall-clock conflicts that force the serial lane do not exist)
   // and records a note naming them (Adrian 2026-10-22: compile locally on the warm cache, qualify the conflicting tests on VMs).
@@ -1054,12 +1058,12 @@ export function planScans({
   const refusedScan = (error) => ({ tool: "node", args: ["-e", `console.error(${JSON.stringify(String(error.message))}); process.exit(1)`] });
   const cargoBase = (ws, args, { raw = false } = {}) => { let argv; try { argv = oneOutput(raw ? args : everyFailure(args), { platform, arch: nativeArch }); } catch (error) { return { ...refusedScan(error), ...(ws !== "." ? { cwd: ws } : {}) }; } return { tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...argv], ...(ws !== "." ? { cwd: ws } : {}), ...(targetDirs?.[ws] ? { env: { CARGO_TARGET_DIR: targetDirs[ws] } } : {}) }; };
   // Class B (compiles): started from the primary checkout on a broker host, the snapshot carrier names the source.
-  const cargoIn = (ws, ...args) => ({ ...cargoBase(ws, args), ...(cargoLiveRoot ? { root: "cargoLive" } : {}) });
+  const cargoIn = (ws, ...args) => ({ ...cargoBase(ws, cargoJobs === null ? args : cargoWidthArgs(args, cargoJobs)), ...(cargoLiveRoot ? { root: "cargoLive" } : {}) });
   // A Rust test scan on a BROKER host (cargoLiveRoot set; GATE-CONTRACT GC-A08): the broker compiles with the plain test command plus --locked and
   // --message-format=json (the broker adds --no-run itself and never executes a test), and the gate runs the listed executables outside it. --no-fail-fast and
   // --test-threads=1 are RUN arguments (runOutside.args), never part of the compile. A direct host (no broker, cargoLiveRoot unset) has nothing to keep tests
   // out of: its test scan stays the one-step `test ... --locked --no-fail-fast`, compile and run together, with no runOutside.
-  const cargoTestIn = (ws, ...args) => ({ ...cargoBase(ws, [...args, "--message-format=json"], { raw: true }), root: "cargoLive" });
+  const cargoTestIn = (ws, ...args) => ({ ...cargoBase(ws, [...(cargoJobs === null ? args : cargoWidthArgs(args, cargoJobs)), "--message-format=json"], { raw: true }), root: "cargoLive" });
   // Class A (reads Cargo inputs, compiles nothing): always the content root, the snapshot or the commit's own tree. These still execute
   // cargo (through the broker on a broker host), so a unit-scoped check follows the Rust closure for them (app-closure.mjs scopeScans reads
   // the ids `cargo-metadata|cargo-deny|cargo-audit[:<label>]` and `cargo-package-list:<unit>` and the scan's `cwd`; rename one there too).
@@ -3385,9 +3389,8 @@ export async function runScans(plan, options = {}) {
                 verified = verifySnapshotReceipt(receipt, { ...receiptOptions, allowFailedCompile: true });
                 if (verified.signedResult?.status !== "FAILED" || verified.signedResult.failureClass !== "compile" || verified.signedResult.exitCode !== r.status || verified.signedResult.signal !== null) throw original;
                 code = "BROKER_COMPILE_FAILURE";
-                // A signed compile class alone does not prove failed-process postchecks ran.
-                // Do not assert retryable until the broker signs that stronger evidence.
-                row.authenticatedFailure = { status: verified.signedResult.status, failureClass: verified.signedResult.failureClass, exitCode: verified.signedResult.exitCode };
+                // Bisection needs the fully verified, signed post-run verdict as well as the matching client exit.
+                row.authenticatedFailure = { status: verified.signedResult.status, failureClass: verified.signedResult.failureClass, exitCode: verified.signedResult.exitCode, postChecks: verified.signedResult.postChecks, retryable: verified.signedResult.postChecks?.verified === true };
               }
               const { evidence } = verified;
               row.snapshotEvidence = { receiptSha256: sha256(canonicalJson(receipt)), requestId: ref.requestId, outputDir: evidence.outputDir, cargoDir: s.cwd ?? ".", targetTriple: typeof receipt?.targetTriple === "string" && /^[A-Za-z0-9_.]+(?:-[A-Za-z0-9_.]+){1,4}$/.test(receipt.targetTriple) ? receipt.targetTriple : null, treeAtStart: evidence.snapshot.treeAtStart, treeAtExit: evidence.snapshot.treeAtExit, ...(receipt && Object.hasOwn(receipt, "testExecutables") ? { testExecutables: receipt.testExecutables, testExecutablesReason: receipt.testExecutablesReason ?? null } : {}) };

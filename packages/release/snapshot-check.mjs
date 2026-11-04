@@ -26,6 +26,7 @@ import { SnapshotError, dependencyDirs, isInside, snapshotProblem, snapshotTree,
 import { discoveryRun, sealedRun } from "./snapshot-git.mjs";
 import { snapshotDependencyReuse } from "./snapshot-dependency-reuse.mjs";
 import { gateRunsRoot } from "./managed-roots.mjs";
+import { writePerformanceDiagnostic } from "./performance-diagnostic.mjs";
 
 export const CHECK_ERROR = "RK_CHECK_ERROR";
 export const LIVE_SCANS_SCHEMA = "rightkit.live-scans/1";
@@ -119,17 +120,24 @@ export function commitOf(checkout, rev, spawn = defaultSpawn) { // eslint-disabl
  * are admitted and the ledger must still match exactly. Then the result is `{ tree, ledger: [{ path, type, size, sha256, execBit }] }`.
  */
 export function verifySnapshotDir({ checkout, dir, commit, tree, when, ledger, admitNew }) {
+  const diagnosticDir = process.env.RIGHTKIT_PREPARATION_DIAGNOSTIC_DIR;
+  const labels = new Map([["before the check", "before-check"], ["after the check", "after-check"], ["before class A", "before-class-a"], ["after class A", "after-class-a"], ["before dependency installation", "before-dependencies"], ["after dependency installation and probes", "after-dependencies"], ["after reused dependency probes", "after-reuse"], ["after failed dependency installation cleanup", "failed-dependencies"], ["before the offline store check", "before-store"], ["after the offline store check", "after-store"], ["for env-digest", "env-digest"]]);
+  const phase = labels.get(when) ?? 'other';
+  const rows = [];
+  const timed = diagnosticDir ? (label, fn) => { const start = performance.now(); try { return fn(); } finally { try { rows.push({ label: `${phase}-${label}`, ms: performance.now() - start, count: 1 }); } catch {} } } : (_label, fn) => fn();
+  try {
   const ledgerMode = ledger !== undefined || admitNew === true;
   let inspected;
-  try { inspected = snapshotProblem({ dir, entries: treeEntries(checkout, commit), checkout, commit, ledger, admitNew }); }
+  try { const entries = timed('tree-entries', () => treeEntries(checkout, commit)); inspected = timed('walk', () => snapshotProblem({ dir, entries, checkout, commit, ledger, admitNew })); }
   catch (e) { throw new CheckError(`cannot list snapshot ${dir} ${when}: ${e.message}`); }
   const extra = ledgerMode ? inspected.problem : inspected;
   if (extra) throw new CheckError(`snapshot ${dir} is not exactly commit ${commit}${ledgerMode ? " plus its stage-output ledger" : ""} ${when}: ${extra}`);
   let actual;
-  try { actual = snapshotTree({ checkout, dir, baseTree: tree }); }
+  try { actual = timed('tree-hash', () => snapshotTree({ checkout, dir, baseTree: tree })); }
   catch (e) { throw new CheckError(`cannot compute the tree of snapshot ${dir} ${when}: ${e.message}`); }
   if (actual !== tree) throw new CheckError(`snapshot ${dir} is tree ${actual} ${when}, not tree ${tree} of commit ${commit}`);
   return ledgerMode ? { tree: actual, ledger: inspected.admitted } : actual;
+  } finally { if (diagnosticDir) writePerformanceDiagnostic(diagnosticDir, 'snapshot-verify', rows); }
 }
 
 /** Every file of the commit with its blob id, from the checkout's object database: what the snapshot holds. */

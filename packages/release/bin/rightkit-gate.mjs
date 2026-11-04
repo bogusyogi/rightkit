@@ -104,9 +104,11 @@ import { createRequire } from "node:module";
 import { nativeToolRefusal, nativeToolUses } from "../native-tool-planning.mjs";
 import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, mergeCapabilityViews, parseRuntimeIdentity, queryBrokerHandshake } from "../broker-handshake.mjs";
 import net from "node:net";
+import { cargoWidthRouteProblem, cargoWidthScanProblem, cargoWidthUnitsProblem, parseCargoWidth, validateCargoWidthPool } from "../cargo-width.mjs";
 
 const PRIVATE_SCOPED_COMPILE = Symbol("private scoped compile");
 const UNIT_LIST_UNION = Symbol("unit list union");
+const CARGO_WIDTH = Symbol("Cargo width");
 const ZERO = /^0+$/;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const posix = (p) => String(p).replaceAll("\\", "/");
@@ -1514,6 +1516,10 @@ export function changedPathsAt({ git, base, commit }) {
  */
 export async function runSharedUnitList({ o, io, stage, commit, selected, inventory, receiptDir = undefined, base = null, unmatched = [], runUnit = null }) {
   const tag = "rightkit-gate:";
+  if (io[CARGO_WIDTH] !== undefined) {
+    const problem = cargoWidthUnitsProblem(selected);
+    if (problem) { o.err(`${tag} BLOCKED: ${problem}`); return 2; }
+  }
   const bySelector = new Map((inventory?.units ?? []).map((u) => [u.selector, u]));
   const rows = selected.map((s) => ({ dir: unitDirOfSelector(s.selector), reason: "listed", ...bySelector.get(s.selector), ...s }));
   const order = inventory ? dependencyFirstOrder(inventory, new Set(rows.map((r) => r.selector))) : rows.map((r) => r.selector);
@@ -2724,6 +2730,7 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
   const which = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
   const executor = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile }); applyExecutorEnv(o, executor);
   if (executor.kind === "refuse") { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
+  if (option("--ci-proof-out") && executor.kind !== "broker") { o.err(`${tag} BLOCKED: --ci-proof-out requires the managed snapshot broker`); return 1; }
   { const decided = routePlan(o, { to: option("--to"), stages: [], devTest: true, executor, capabilities: await brokerCapabilityStateWithHandshake(o, { to: option("--to"), executor }) });
     if (decided.refusal?.code === "RK_BROKER_CAPABILITY_MISSING") { o.err(`${tag} BLOCKED: ${decided.refusal.code}: ${decided.refusal.message}; nothing ran`); return 1; } }
   if (executor.kind === "broker" && !o.snapshotBroker) { o.err(`${tag} BLOCKED: RK_SNAPSHOT_CARRIER_NOT_WIRED: a broker host builds a unit snapshot only through the snapshot carrier; nothing ran`); return 1; }
@@ -2822,7 +2829,7 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
         ...(reportOut ? { writeReport: (report) => o.writeFile(path.resolve(o.cwd, reportOut), `${JSON.stringify(o.brokerException ? { ...report, brokerException: o.brokerException } : report, null, 2)}\n`) } : {}),
       });
     }
-    return await runUnitGate({ selector, to: option("--to"), root: ds.path, commonDir: path.resolve(root, text(common).trim()), commit: ds.commit, tree: ds.tree, executor, env: o.env, platform: o.platform, source, envExtra,
+    return await runUnitGate({ selector, to: option("--to"), root: ds.path, commonDir: path.resolve(root, text(common).trim()), commit: ds.commit, tree: ds.tree, executor, env: o.env, platform: o.platform, source, envExtra, ciProofOut: option("--ci-proof-out") ?? null,
       resolve: (sel, r) => resolveUnit(sel, r, { granted: () => localBuildGrantedAt(source) }),
       ...(o.loadUnitOwner ? { loadOwner: o.loadUnitOwner } : {}),
       ...(o.unitGateDeps ?? {}), // test seam: fetchReceipt, stageCommands, verifyReceipts, selfGit
@@ -3506,7 +3513,7 @@ export function doorPath(o, gateFile = o.gateFile ?? fileURLToPath(import.meta.u
  * lookup of a usable rustfmt, which the deferred Rust gate needs).
  */
 /** The gate flags a `--to <stage>` invocation takes (before a `--` separator, after which the arguments belong to right-release), and whether each takes a value. */
-const STAGE_VALUE_FLAGS = Object.freeze(["--to", "--platform", "--tier", "--commit", "--receipt-in", "--receipt-out", "--unit", "--units-file", "--all-units-exception", "--receipt-dir", "--base"]);
+const STAGE_VALUE_FLAGS = Object.freeze(["--to", "--platform", "--tier", "--commit", "--receipt-in", "--receipt-out", "--unit", "--units-file", "--all-units-exception", "--receipt-dir", "--base", "--ci-proof-out"]);
 const STAGE_BOOLEAN_FLAGS = Object.freeze(["--route", "--changed"]);
 
 /**
@@ -3540,6 +3547,39 @@ export async function main(argv, io = {}) {
     gateFile: fileURLToPath(import.meta.url), ...io,
   };
   const args = [...argv];
+  if (args.includes("--ci-proof-out")) {
+    try {
+      const problem = stageArgsProblem(args);
+      if (problem) throw new Error(problem);
+      const value = (flag) => { const i = args.indexOf(flag); return i < 0 ? null : args[i + 1]; };
+      if (args.some((arg, i) => i % 2 === 0 && !["--to", "--unit", "--commit", "--receipt-out", "--ci-proof-out"].includes(arg)) || value("--to") !== "compile" || value("--unit") !== "cargo:rightkit-decimal" || args.includes("--cargo-jobs")) throw new Error("--ci-proof-out requires the single cargo:rightkit-decimal snapshot compile route");
+      if (o.doorSnapshot || !snapshotRouteSelected(o) || !["darwin", "win32"].includes(o.platform)) throw new Error("--ci-proof-out requires the managed Mac or Windows snapshot broker route");
+      const paths = o.platform === "win32" ? path.win32 : path.posix;
+      const scratch = o.platform === "win32" ? "D:\\scratch" : "/Volumes/D/scratch";
+      const file = value("--ci-proof-out");
+      if (!file || !paths.isAbsolute(file)) throw new Error("--ci-proof-out needs an absolute path inside D scratch");
+      const scratchReal = fs.realpathSync.native(scratch);
+      const parentReal = fs.realpathSync.native(paths.dirname(file));
+      const relative = paths.relative(scratchReal, parentReal);
+      if (relative === ".." || relative.startsWith(`..${paths.sep}`) || paths.isAbsolute(relative)) throw new Error("--ci-proof-out parent is outside D scratch");
+      try { fs.lstatSync(file); throw new Error("--ci-proof-out already exists"); }
+      catch (error) { if (error.code !== "ENOENT") throw error; }
+    } catch (error) { o.err(`rightkit-gate: ${error.message}`); return 2; }
+  }
+  const widthFlags = args.reduce((found, arg, i) => arg === "--cargo-jobs" ? [...found, i] : found, []);
+  if (widthFlags.length) {
+    try {
+      if (widthFlags.length !== 1 || io[CARGO_WIDTH] !== undefined) throw new Error("--cargo-jobs may be given once");
+      const index = widthFlags[0];
+      if (args.includes("--") && index > args.indexOf("--")) throw new Error("--cargo-jobs must precede --");
+      const width = parseCargoWidth(args[index + 1]);
+      const routeProblem = cargoWidthRouteProblem(args);
+      if (routeProblem) throw new Error(routeProblem);
+      args.splice(index, 2);
+      io = { ...io, [CARGO_WIDTH]: width };
+      o[CARGO_WIDTH] = width;
+    } catch (error) { o.err(`rightkit-gate: ${error.message}`); return 2; }
+  }
   // rightkit#1463: a run that does work (a door stage, or a class A / full pass) stamps every log line with its UTC time, so phase times no longer have to be
   // rebuilt from broker receipts. Machine-readable output is never stamped: the --route JSON, a list or baseline, --json, the version, and the one
   // `verdict deterministic` marker line other tools read.
@@ -3918,9 +3958,9 @@ export async function main(argv, io = {}) {
   }
   if (option("--to") !== undefined && unitFlag) {
     const selector = option("--unit");
-    const validArgs = args.length % 2 === 0 && args.every((a, i) => i % 2 ? !a.startsWith("--") : ["--to", "--unit", "--receipt-out", "--commit"].includes(a)) && ["--to", "--unit", "--receipt-out", "--commit"].every((flag) => args.filter((a) => a === flag).length <= 1);
+    const validArgs = args.length % 2 === 0 && args.every((a, i) => i % 2 ? !a.startsWith("--") : ["--to", "--unit", "--receipt-out", "--commit", "--ci-proof-out"].includes(a)) && ["--to", "--unit", "--receipt-out", "--commit", "--ci-proof-out"].every((flag) => args.filter((a) => a === flag).length <= 1);
     if (!validArgs || !selector) {
-      o.err("rightkit-gate: unit stages take only --to, --unit and optional --receipt-out and --commit"); return 2;
+      o.err("rightkit-gate: unit stages take only --to, --unit and optional --receipt-out, --commit and --ci-proof-out"); return 2;
     }
     // Row 7.06a: on every host but hosted CI a unit stage builds the selected commit's snapshot (Linux direct, Mac and Dell through the carrier).
     if (!o.doorSnapshot && snapshotRouteSelected(o)) return await runUnitSnapshot(o, args, root, git, io, option);
@@ -3954,6 +3994,7 @@ export async function main(argv, io = {}) {
     // A door run that names no unit: RightKit refuses it unless Adrian's exception or a unit list names what runs (rightkitDoorRule).
     const door = await rightkitDoorRule(o, args, root, git, io, { unitsFileFlag, allUnitsFlag, unitList, changedFlag });
     if (door.exit !== undefined) return door.exit;
+    if (o[CARGO_WIDTH] !== undefined) { o.err("rightkit-gate: BLOCKED: --cargo-jobs requires the controlled unit-list route"); return 2; }
     return await runStages(o, args, root, git, io);
   }
   if (sub === "stage") return stageForPublisher(o, args, root, git);
@@ -3996,6 +4037,16 @@ export async function main(argv, io = {}) {
   const executor = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile }); applyExecutorEnv(o, executor);
   // A broker-managed host whose broker is unreachable refuses the moment a Cargo manifest is in the snapshot (below): a repository
   // with no Rust owes nothing to the broker (a git hook's minimal PATH, a JS-only app), and the class A scans never compile.
+  if (o[CARGO_WIDTH] !== undefined && !classAOnly) {
+    try {
+      if (executor.kind !== "broker") throw new Error("--cargo-jobs requires a broker reporting its compile-token pool");
+      const client = executor.client ?? "rustright";
+      const result = spawnBrokerClient(o.spawn, client, ["list"], { env: brokerEnvOf(o, executor), encoding: "utf8", timeout: 20_000, windowsHide: true }, { platform: o.platform, readFile: o.readFile });
+      if (failed(result)) throw new Error("cannot read broker compile-token pool");
+      const size = validateCargoWidthPool(o[CARGO_WIDTH], JSON.parse(text(result)));
+      o.out(`rightkit-gate: Cargo width ${o[CARGO_WIDTH]} (broker token pool ${size})`);
+    } catch (error) { o.err(`rightkit-gate: BLOCKED: ${error.message}`); return 1; }
+  }
   const cargoCommand = executor.cargo ?? ["cargo"];
   // The declared Linux broker route's cargo is `[<absolute validated client>, "cargo"]`, which the scan planner (planScans: `["rustright","cargo"]` or
   // `["cargo"]`) refuses, and a PATH `rustright` is never the client. So the scans are PLANNED with the logical `["rustright","cargo"]` and every spawn the
@@ -4347,6 +4398,7 @@ export async function main(argv, io = {}) {
     fullPlan = planScans({
       // Class A of a commit or tree reads only that snapshot: every scan, cargo's included, runs in the snapshot, never in the live
       // checkout (which may hold other bytes). Compiles (class B) use the live checkout, whose tree the dirty check pinned to HEAD.
+      cargoJobs: classAOnly ? null : (o[CARGO_WIDTH] ?? null),
       changed, contentRoot: repo, liveRoot: (classAOnly && snapshot) || snapshotB ? repo : root, trustedRoot: snapshotA ?? snapshotB ?? root, includeTests: true, rustScope, cargoCommand: planCargoCommand, targetDirs, cargoShim: Boolean(cargoShim),
       tier: fullA ? "release" : (option("--rule-tier") ?? "compile"), cargoLiveRoot,
       // The quiet tests (port, pipe, desktop and wall-clock bound) are proven by the CI shards, one crate per runner, unless
@@ -4399,6 +4451,10 @@ export async function main(argv, io = {}) {
       const cargoExcluded = kept.dropped.filter((s) => closureTools.isCargoScan(s)).length;
       o.out(`${tag} scope ${closure.dirs.join(", ")}: dependency directories ${closure.dependencyDirs.join(", ")}; ${closure.npm.size} npm & ${closure.rust.size} Rust unit(s); Class A ${executing} executing scan(s) (${cargoRun} Cargo), ${classA.length - executing} repository file-only scan(s); ${kept.dropped.length} unrelated executing scan(s) excluded (${cargoExcluded} Cargo); ${plan.scans.length - classA.length} closure Class B scan(s) do not run in this check; install roots ${installRoots.join(", ") || "none"}; scope digest ${plan.scopeDigest}`);
     }
+    if (o[CARGO_WIDTH] !== undefined && !classAOnly) {
+      const uncontrolled = plan.scans.find((scan) => scan.class === "B" && cargoWidthScanProblem(scan, planCargoCommand, o[CARGO_WIDTH]));
+      if (uncontrolled) { o.err(`${tag} BLOCKED: --cargo-jobs cannot control Class B scan ${uncontrolled.id}`); return 1; }
+    }
     let unionScheduler = null;
     const unionContext = o[UNIT_LIST_UNION];
     if (unionContext && snapshotB) {
@@ -4407,6 +4463,7 @@ export async function main(argv, io = {}) {
         const { publisherRequirementScan } = await import("../deterministic-scans.mjs");
         const requirements = await publisherRequirementsForUnits({ selected: unionContext.selected, snapshot: repo, rustUnits: rust.units, npmUnits: npm, platform: o.platform, env: o.env });
         unionContext.expected = new Map(requirements.map((entry) => [entry.selector, entry.requirements.length]));
+        if (o[CARGO_WIDTH] !== undefined && requirements.some((entry) => entry.requirements.some((r) => r.executable !== "cargo" && r.internal !== "scanCrateForSecrets"))) throw new Error("--cargo-jobs cannot control a nested non-Cargo publisher requirement");
         const external = []; const scoped = []; const owner = new Map(); const verdicts = new Map(); const initialFailures = new Set();
         const { directReadSpawn } = await import("../snapshot-metadata.mjs");
         const pathKey = o.platform === "win32" ? (Object.keys(o.env).find((k) => k.toUpperCase() === "PATH") ?? "Path") : "PATH";
@@ -4454,7 +4511,7 @@ export async function main(argv, io = {}) {
           const sel = owner.get(requirement.id) ?? jobs.find((job) => job.members.some((member) => member.coverageKey === requirement.coverageKey))?.members[0]?.selector;
           const unit = sel?.replace(/^cargo:/, "");
           const quiet = sel?.startsWith("cargo:") ? config.rust?.[unit]?.quietTests === true : false;
-          return publisherRequirementScan(requirement, { platform: o.platform, cargoCommand: planCargoCommand, cargoLiveRoot, targetDirs, quiet, allowIgnored: verdicts.get(sel)?.allowIgnored === true });
+          return publisherRequirementScan(requirement, { platform: o.platform, cargoCommand: planCargoCommand, cargoLiveRoot, targetDirs, quiet, allowIgnored: verdicts.get(sel)?.allowIgnored === true, cargoJobs: o[CARGO_WIDTH] ?? null });
         };
         for (const requirement of external) plan.scans.push(adapt(requirement));
         const dependencies = Object.fromEntries(unionContext.selected.map((unit) => [unit.selector, (unit.deps ?? []).filter((dep) => unionContext.selected.some((u) => u.selector === dep))]));

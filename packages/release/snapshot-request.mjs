@@ -23,7 +23,7 @@ import path from "node:path";
 import { REQUEST_OVER_CAP_CODE, requestOverCap } from "./broker-wire.mjs";
 import { ownerFileOf, writeCarrierOwner } from "./carrier-census.mjs";
 import { BROKER_COMPILE_COMMANDS, CARGO_COMMAND_ALIASES, cargoCommandIndex, cargoSubcommandOf, expandCargoAliases, isCompileCommand, isPackageObservation } from "./cargo-shapes.mjs";
-import { canonicalJson, CAUSE_EVIDENCE_SCHEMA, CAUSE_UNEXPLAINED, CAUSE_UNKNOWN, ProvenanceError, verifyBr19Evidence, verifyCauseEvidence, verifyFailureClass, verifyProvenance, verifyReceiptCoverage, verifyResultEvidence } from "./provenance-verify.mjs";
+import { canonicalJson, CAUSE_EVIDENCE_SCHEMA, CAUSE_UNEXPLAINED, CAUSE_UNKNOWN, ProvenanceError, verifyBr19Evidence, verifyCauseEvidence, verifyFailureClass, verifyPostChecks, verifyProvenance, verifyReceiptCoverage, verifyResultEvidence } from "./provenance-verify.mjs";
 
 export const SNAPSHOT_REQUEST_SCHEMA = "rustright.snapshot-request/1";
 // One spelling per variable, the current one (rustright-cli shims.rs reads RUSTRIGHT_* first, then the legacy RIGHTKIT_* spelling, which task
@@ -712,10 +712,11 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   // its four fields and six phases, and the BR19 shape (profile, stage, resources, environment; a value or a typed UNKNOWN, never absent).
   verifyReceiptCoverage(receipt, payload);
   verifyFailureClass(receipt, payload);
+  const postChecks = verifyPostChecks(receipt, payload, { snapshotAttested: true });
   if (success && Object.hasOwn(result, "failureClass") && result.failureClass !== null) fail("result", "a successful result has a non-null failureClass");
   verifyResultEvidence(receipt, payload);
   verifyBr19Evidence(receipt, payload);
-  return { payload, evidence, attribution, toolchain, nestedChildren, requestDigest, causeEvidence, signedResult: { status: result.status, exitCode: result.exitCode, signal: result.signal ?? null, ...(Object.hasOwn(result, "failureClass") ? { failureClass: result.failureClass } : {}) } };
+  return { payload, evidence, attribution, toolchain, nestedChildren, requestDigest, causeEvidence, signedResult: { status: result.status, exitCode: result.exitCode, signal: result.signal ?? null, ...(Object.hasOwn(result, "failureClass") ? { failureClass: result.failureClass } : {}), postChecks } };
 }
 
 export { CAUSE_EVIDENCE_SCHEMA, CAUSE_UNEXPLAINED, CAUSE_UNKNOWN, ProvenanceError };

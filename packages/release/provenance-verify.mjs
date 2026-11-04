@@ -147,6 +147,8 @@ export function verifyReceiptCoverage(receipt, payload) {
   const receiptClass = Object.hasOwn(receipt, "failureClass");
   const signedClass = isRecord(payload.result) && Object.hasOwn(payload.result, "failureClass");
   if (receiptClass !== signedClass || (receiptClass && !equalValue(receipt.failureClass, payload.result.failureClass))) refuse("evidence", "receipt failureClass differs from the signed result");
+  // RustRight treats a missing postChecks and null as equivalent for older receipts.
+  if (!equalValue(receipt.postChecks ?? null, payload.result?.postChecks ?? null)) refuse("evidence", "receipt postChecks differs from the signed result");
   for (const name of RETIRED_RESULT_FIELDS) {
     if (receipt[name] !== undefined || (isRecord(payload.resultEvidence) && payload.resultEvidence[name] !== undefined)) refuse("evidence", `receipt ${name} is a retired verdict-reuse field`);
   }
@@ -211,12 +213,32 @@ export function verifyFailureClass(receipt, payload) {
   if (signed && payload.result.failureClass !== null && !FAILURE_CLASSES.includes(payload.result.failureClass)) refuse("evidence", "signed failureClass is neither null nor a recognized class");
 }
 
+const POST_CHECK_FIELDS = Object.freeze(["schema", "ran", "failed", "inputClosure", "inputBoundary", "verified"]);
+/** Validate signed post-run checks. Snapshot callers additionally require applicable, signed boundary evidence. */
+export function verifyPostChecks(receipt, payload, { snapshotAttested = false } = {}) {
+  const checks = payload.result?.postChecks ?? null;
+  if (!equalValue(receipt.postChecks ?? null, checks)) refuse("evidence", "receipt postChecks differs from the signed result");
+  if (checks === null) return null;
+  const bad = () => refuse("evidence", "the signed result's postChecks is malformed");
+  if (!isRecord(checks) || Object.keys(checks).length !== POST_CHECK_FIELDS.length || POST_CHECK_FIELDS.some((key) => !Object.hasOwn(checks, key))) bad();
+  if (checks.schema !== "rustright.post-checks.v1" || typeof checks.ran !== "boolean" || typeof checks.verified !== "boolean" || !Array.isArray(checks.failed) || !checks.failed.every((name) => ["freshness", "projection", "toolchainIdentity"].includes(name))) bad();
+  if (!["verified", "inputs-mutated", "unverified", "not-applicable"].includes(checks.inputClosure) || !["intact", "violated", "unverified", "unrequested", "not-applicable"].includes(checks.inputBoundary)) bad();
+  const boundary = payload.inputBoundary?.status;
+  if (typeof boundary === "string" && boundary !== checks.inputBoundary) refuse("evidence", "postChecks.inputBoundary differs from the signed inputBoundary");
+  if (snapshotAttested && (checks.inputClosure === "not-applicable" || checks.inputBoundary === "not-applicable" || typeof boundary !== "string" || boundary !== checks.inputBoundary)) refuse("evidence", "snapshot postChecks lacks applicable signed input boundary or closure evidence");
+  const verified = checks.ran && checks.failed.length === 0 && ["verified", "not-applicable"].includes(checks.inputClosure) && ["intact", "unrequested", "not-applicable"].includes(checks.inputBoundary);
+  if (checks.verified !== verified) refuse("evidence", "the signed postChecks.verified does not follow from its checks");
+  if (payload.result?.failureClass === "compile" && !(checks.ran && checks.failed.length === 0)) refuse("evidence", "a signed compile failure whose post-run checks did not all run and pass");
+  return checks;
+}
+
 /** `verify_receipt_strict`: `verifyReceiptLenient`, then the signed result evidence and the BR19 shape. A gate applies it to every compile receipt, never the lenient form alone. */
 export function verifyReceiptStrict(receipt, pins, expected) {
   const payload = verifyReceiptLenient(receipt, pins, expected);
   verifyResultEvidence(receipt, payload);
   verifyBr19Evidence(receipt, payload);
   verifyFailureClass(receipt, payload);
+  verifyPostChecks(receipt, payload);
   return payload;
 }
 

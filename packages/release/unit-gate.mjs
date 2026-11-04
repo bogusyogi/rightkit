@@ -13,6 +13,7 @@ import { RIGHTKIT_REPOSITORY, buildDirectOrigin, directStageEvidence, verifyDire
 import { exclusionsFor } from "./pack-digest.mjs";
 import { ATTEST_STAGE_NONCE_ENV, qualificationNonce } from "./provenance-verify.mjs";
 import { verifyQualificationReceipts } from "./qualification-verify.mjs";
+import { ciCompileIdentity, ciCompileStageNonce, makeCiCompileProof, verifyCiCompileProof } from "./ci-compile-admission.mjs";
 import { assignJobs, describeCommand, directRowsNotRun, expectedStageCommands } from "./stage-commands.mjs";
 import { carriedCargoMapOf } from "./carried-cargo.mjs";
 import { UNSCOPED, readLedger } from "./cargo-ledger.mjs";
@@ -341,11 +342,16 @@ export function knownRedEntry({ unit, root, platform, toRelease = false, readTex
  * ({ start(stage), end(stage) } returning true or false) is the door's ledger verify around each stage (7.08); `envExtra` carries the
  * Cargo output pin. Without `source` every behavior is the checkout route's, unchanged.
  */
-export async function runUnitGate({ selector, to, root, commonDir, commit, tree, executor, env, platform, check, source = null, stageGuard = null, envExtra = {}, loadOwner = () => import("./local-publish.mjs"), out = console.log, err = console.error, releaser = null, loadPipeline = loadInGatePipeline, resolve = resolveUnit, writeReport, fetchReceipt = readBrokerReceipt, stageCommands = defaultStageCommands, readKnownRed, verifyReceipts = verifyQualificationReceipts, selfGit = null }) {
+export async function runUnitGate({ selector, to, root, commonDir, commit, tree, executor, env, platform, check, source = null, stageGuard = null, envExtra = {}, loadOwner = () => import("./local-publish.mjs"), out = console.log, err = console.error, releaser = null, loadPipeline = loadInGatePipeline, resolve = resolveUnit, writeReport, fetchReceipt = readBrokerReceipt, stageCommands = defaultStageCommands, readKnownRed, verifyReceipts = verifyQualificationReceipts, selfGit = null, ciProofOut = null }) {
   const stages = stagesTo(to);
   if (!stages) { err(`rightkit-gate: invalid unit stage ${to}`); return 2; }
   let unit;
   try { unit = resolve(selector, root); } catch (error) { err(`rightkit-gate: BLOCKED: ${error.message}`); return 1; }
+  const ciProof = ciProofOut !== null;
+  if (ciProof && (typeof ciProofOut !== "string" || !ciProofOut || selector !== "cargo:rightkit-decimal" || to !== "compile" || executor?.kind !== "broker" || !source || !stageGuard)) {
+    err("rightkit-gate: BLOCKED: CI compile proof requires the managed snapshot broker route for cargo:rightkit-decimal through compile");
+    return 1;
+  }
   // Before any compile (so --to compile|package|qualify|release; --to check compiles nothing): a unit recorded red is refused, not built.
   if (stages.includes("compile")) {
     try {
@@ -369,7 +375,7 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
   // is sent the stage nonce, a carried Cargo call a nonce derived from it, both bound to this commit, tree, unit and stage, so each job's
   // signed receipt can be verified hosted for exactly that and nothing else. `--to qualify` is the sanctioned no-upload route to that
   // evidence: it writes the qualification and verifies it locally exactly as the hosted admission will, and stops there.
-  const attested = stages.includes("qualify") && executor?.kind === "broker";
+  const attested = (stages.includes("qualify") || ciProof) && executor?.kind === "broker";
   // GB-29: a direct Linux origin has no broker to attest its stages; it records its own direct-origin evidence (direct-origin.mjs), verified locally as the hosted side will.
   const directLinux = stages.includes("qualify") && executor?.kind === "direct" && platform === "linux";
   const directStages = {};
@@ -381,7 +387,7 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
   };
   const stageEnv = async (stage, action) => {
     const run = startRun({ commonDir, commit, tree, stage });
-    const nonce = attested && ATTESTED_STAGES.includes(stage) ? { [ATTEST_STAGE_NONCE_ENV]: qualificationNonce({ commit, tree, unit: `${unit.kind}:${unit.name}`, stage }) } : {};
+    const nonce = attested && ATTESTED_STAGES.includes(stage) ? { [ATTEST_STAGE_NONCE_ENV]: (ciProof ? ciCompileStageNonce(ciCompileIdentity({ commit, tree })) : qualificationNonce({ commit, tree, unit: `${unit.kind}:${unit.name}`, stage })) } : {};
     try { return await action({ ...env, ...envExtra, ...nonce, ...run.env }); } finally { endRun(run); }
   };
   // The hosted admission's own verification of the qualification's receipts, run here against the commit before anything is dispatched
@@ -474,7 +480,17 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
       const qualification = directQualification();
       out(`rightkit-gate: [qualify] ${unit.kind}:${unit.name} direct-origin qualification ${qualification} verified locally; nothing was dispatched`);
     }
-    if (attested && !stages.includes("release")) {
+    if (ciProof) {
+      currentStage = "compile";
+      if (state && owner) { await owner.closeLocalUnit(state); state = null; }
+      const proof = JSON.stringify(makeCiCompileProof({ commit, tree, receipts: receipts.compile }));
+      verifyCiCompileProof(proof, { sha: commit, scope: "rust:rightkit-decimal", git: gitAt });
+      const fd = fs.openSync(ciProofOut, "wx", 0o600);
+      try { fs.writeFileSync(fd, `${proof}\n`); fs.closeSync(fd); }
+      catch (error) { try { fs.closeSync(fd); } catch {} try { fs.unlinkSync(ciProofOut); } catch {} throw error; }
+      out(`rightkit-gate: [compile] CI proof ${ciProofOut} verified locally`);
+    }
+    if (attested && !ciProof && !stages.includes("release")) {
       // --to qualify on a broker host: the qualification is written beside the artifact and verified as the hosted run will, and no upload exists.
       currentStage = "qualify";
       const qualification = writeQualification({ report, artifact, unit, commit, tree, runtime, executor });

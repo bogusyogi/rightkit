@@ -8,13 +8,12 @@
 // never prints an environment value.
 //
 //   rightkit-dispatch --probe
-//   rightkit-dispatch --workflow ci --sha <40 hex>
+//   rightkit-dispatch --workflow ci --sha <40 hex> --ci-proof <file>
 //   rightkit-dispatch --workflow publish --registry crates|npm --unit <one name> --sha <40 hex> --qualification <file>
 //                     [--allow-host-exclusion <s>] [--allow-no-test <s>] [--allow-ignored <s>] [--allow-missing-assets <s>]
 //
-// Every mode is covered: --probe sends nothing; --workflow ci is a parsed mode whose production admission is a TYPED refusal
-// ([ci-not-admitted]: there is no local admission for broad CI dispatch), and when an admission is injected it takes the same claim path as publish;
-// --workflow publish is the admitted route. Each dispatch binds the source commit, the commit's real git tree (read from GitHub and compared with the
+// Probe sends nothing. CI is limited to one compile-proof-bound fixture and remains refused until its verifier is enrolled.
+// Publication remains a separately admitted route. Each dispatch binds the source commit, the commit's real git tree (read from GitHub and compared with the
 // qualification receipt's tree BEFORE any claim or POST), the artifact digest, the allow-set policy and the route into one candidate identity.
 //
 // Exit 0: dispatched and discovered, or joined to the candidate's existing run. Exit 2: refused or pending (usage, main moved, tree mismatch, no broker
@@ -51,8 +50,8 @@ export function ghEnvironment(env = process.env) {
 }
 
 /** Runs `gh <args>` within GH_TIMEOUT_MS; returns { ok, stdout }. Nothing from the environment reaches the result. */
-export function defaultGh(args, env = process.env) {
-  const result = spawnSync(ghPath(), args, { encoding: "utf8", env: ghEnvironment(env), windowsHide: true, maxBuffer: 16 * 1024 * 1024, timeout: GH_TIMEOUT_MS });
+export function defaultGh(args, env = process.env, input = undefined) {
+  const result = spawnSync(ghPath(), args, { encoding: "utf8", input, env: ghEnvironment(env), windowsHide: true, maxBuffer: 16 * 1024 * 1024, timeout: GH_TIMEOUT_MS });
   if (result.error) return { ok: false, stdout: "" };
   return { ok: result.status === 0, stdout: result.stdout ?? "" };
 }
@@ -79,6 +78,7 @@ export function parseArgs(argv) {
     else if (arg === "--unit") opts.unit = take();
     else if (arg === "--sha") opts.sha = take();
     else if (arg === "--qualification") opts.qualification = take();
+    else if (arg === "--ci-proof") opts.ciProof = take();
     else if (arg.startsWith("--") && ALLOW_FLAGS.includes(arg.slice(2))) opts.allow[arg.slice(2).replaceAll("-", "_")] = take();
     else throw new Error(`unknown argument ${arg}`);
   }
@@ -89,7 +89,8 @@ export function parseArgs(argv) {
     if (!["crates", "npm"].includes(opts.registry)) throw new Error("--registry must be crates or npm");
     if (!/^[@a-z0-9][a-z0-9._/-]*$/i.test(opts.unit ?? "") || /\s/.test(opts.unit)) throw new Error("--unit names exactly one crate or package");
     if (typeof opts.qualification !== "string" || !opts.qualification) throw new Error("--qualification <file> is required: the rightkit-gate unit qualification receipt for this commit and unit");
-  } else if (opts.registry || opts.unit || opts.qualification || Object.keys(opts.allow).length) throw new Error("--workflow ci takes only --sha");
+    if (opts.ciProof) throw new Error("--ci-proof is only for CI");
+  } else if (opts.registry || opts.unit || opts.qualification || Object.keys(opts.allow).length || !opts.ciProof) throw new Error("--workflow ci requires --sha and --ci-proof, and no publication options");
   return opts;
 }
 
@@ -114,7 +115,7 @@ export function readQualification(file, { sha, unit, registry, readFile = (f) =>
     stages: Object.fromEntries(["check", "compile", "package", "qualify"].map((s) => [s, { ok: true, ...(s === "compile" || s === "package" ? { receipts: q.stages[s].receipts ?? [] } : {}) }])), artifactSha256: q.artifactSha256 };
 }
 
-export function dispatchInputs(opts, requestId, qualification = null) {
+export function dispatchInputs(opts, requestId, qualification = null, ciProof = null) {
   const inputs = { request_id: requestId, expected_sha: opts.sha };
   if (opts.workflow === "publish") {
     inputs.registry = opts.registry;
@@ -124,6 +125,10 @@ export function dispatchInputs(opts, requestId, qualification = null) {
     // workflow_dispatch refuses inputs over 65535 characters in all; say so here rather than as an opaque 422 after the broker job.
     if (JSON.stringify(inputs).length > 65_000) throw new Error("the qualification receipt with its broker receipts exceeds the workflow dispatch input limit");
     for (const key of ["allow_host_exclusion", "allow_no_test", "allow_ignored", "allow_missing_assets"]) inputs[key] = opts.allow[key] ?? "";
+  } else {
+    if (typeof ciProof !== "string" || !ciProof) throw new Error("CI dispatch requires its verified compile proof");
+    inputs.units = "rust:rightkit-decimal";
+    inputs.compile_proof = ciProof;
   }
   return inputs;
 }
@@ -435,6 +440,31 @@ export async function requirePreflight(opts) {
   }
 }
 
+// Filled only after the complete CI verifier import closure is reviewed and pinned. An incomplete installation refuses CI.
+const CI_VERIFIER_DIGESTS = Object.freeze({});
+// Reviewed tree must include every workflow, so a new publication successor also requires re-enrollment.
+const CI_WORKFLOW_TREE = null;
+async function requireCiProof(opts) {
+  const root = process.cwd();
+  const helper = "packages/release/ci-compile-admission.mjs";
+  if (!CI_VERIFIER_DIGESTS[helper]) throw new Error("CI compile verifier has not been enrolled in the pinned adapter");
+  for (const [relative, expected] of Object.entries(CI_VERIFIER_DIGESTS)) {
+    const file = path.join(root, relative);
+    if (!fs.existsSync(file) || sha256Hex(fs.readFileSync(file)) !== expected) throw new Error(`CI verifier dependency digest changed: ${relative}`);
+  }
+  const git = (...args) => {
+    const result = spawnSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+    if (result.status !== 0) throw new Error("cannot prove committed CI admission inputs");
+    return result.stdout.trim();
+  };
+  if (git("rev-parse", "HEAD") !== opts.sha || git("status", "--porcelain", "--untracked-files=no")) throw new Error("checkout changed since local admission");
+  if (!CI_WORKFLOW_TREE || git("rev-parse", `${opts.sha}:.github/workflows`) !== CI_WORKFLOW_TREE) throw new Error("CI workflow tree has not been reviewed and enrolled");
+  const proof = fs.readFileSync(opts.ciProof, "utf8");
+  const { verifyCiCompileProof, CI_SCOPE } = await import(pathToFileURL(path.join(root, helper)));
+  const verified = verifyCiCompileProof(proof, { sha: opts.sha, scope: CI_SCOPE, git });
+  return { proof, ...verified };
+}
+
 export async function main(argv, deps = {}) {
   const gh = deps.gh ?? defaultGh;
   const env = deps.env ?? process.env;
@@ -469,7 +499,11 @@ export async function main(argv, deps = {}) {
     err(`rightkit-dispatch: refused, main is ${mainSha.slice(0, 12)} but this request was admitted for ${opts.sha.slice(0, 12)}`);
     return 2;
   }
-  try { await (deps.admission ?? requirePreflight)(opts); }
+  let ciAdmission = null;
+  try {
+    if (opts.workflow === "ci") ciAdmission = await (deps.ciAdmission ?? requireCiProof)(opts);
+    else await (deps.admission ?? requirePreflight)(opts);
+  }
   catch (error) { err(`rightkit-dispatch: preflight refused${error.code ? ` [${error.code}]` : ""}: ${error.message}`); return 2; }
   let qualification = null;
   if (opts.workflow === "publish") {
@@ -489,10 +523,21 @@ export async function main(argv, deps = {}) {
     err(`rightkit-dispatch: refused [tree-mismatch]: the qualification receipt is for tree ${String(qualification.tree).slice(0, 12)}, but commit ${opts.sha.slice(0, 12)} has tree ${tree.slice(0, 12)}; nothing was claimed or sent`);
     return 2;
   }
+  if (ciAdmission && ciAdmission.tree !== tree) {
+    err("rightkit-dispatch: refused [tree-mismatch]: the CI compile proof is for another tree; nothing was claimed or sent");
+    return 2;
+  }
+  let inputs;
+  let dispatchBody;
+  try {
+    inputs = dispatchInputs(opts, requestId, qualification, ciAdmission?.proof);
+    dispatchBody = JSON.stringify({ ref: "main", inputs });
+    if (Buffer.byteLength(JSON.stringify(inputs), "utf8") > 65_000) throw new Error("dispatch inputs exceed the workflow input limit");
+  } catch (error) { err(`rightkit-dispatch: refused, ${error.message}`); return 2; }
   // GB-47 / RA-04 / RA-05: every mode (publish and ci) claims its candidate in the shared GitHub namespace before anything is sent: the same candidate joins
   // its existing run, a different candidate for the same registry/package/version is refused, the send intent is persisted before the POST, and a sent or
   // unknown dispatch is reconciled by its effect token, never re-sent.
-  const identity = claimIdentity({ repo: REPO, workflow: WORKFLOWS[opts.workflow], sha: opts.sha, tree, registry: opts.registry ?? "ci", unit: opts.unit ?? "ci", version: qualification?.unit.version ?? opts.sha, artifactSha256: qualification?.artifactSha256 ?? null, allow: opts.allow });
+  const identity = claimIdentity({ repo: REPO, workflow: WORKFLOWS[opts.workflow], sha: opts.sha, tree, registry: opts.registry ?? "ci", unit: opts.unit ?? ciAdmission?.scopeSha256, version: qualification?.unit.version ?? opts.sha, artifactSha256: qualification?.artifactSha256 ?? null, allow: opts.allow });
   const discoverRuns = (token) => { const listed = listRuns({ gh, env, repo: REPO, sha: opts.sha }); return { ok: listed.ok, complete: listed.ok && listed.complete, runs: matchingRuns(listed.runs, { workflow: opts.workflow, sha: opts.sha, requestId: token }) }; };
   const verifyRun = (id, token) => {
     const got = gh(["api", `repos/${REPO}/actions/runs/${id}`], env);
@@ -519,10 +564,10 @@ export async function main(argv, deps = {}) {
     err("rightkit-dispatch: claim unavailable: [claim-intent-unpersisted] the send intent could not be persisted on the claim (it moved or the namespace is unreadable); nothing was sent");
     return 3;
   }
-  const inputs = dispatchInputs(opts, requestId, qualification);
-  const fields = ["-f", "ref=main"];
-  for (const [key, value] of Object.entries(inputs)) fields.push("-f", `inputs[${key}]=${value}`);
-  const posted = gh(["api", "-X", "POST", `repos/${REPO}/actions/workflows/${WORKFLOWS[opts.workflow]}/dispatches`, ...fields], env);
+  const endpoint = `repos/${REPO}/actions/workflows/${WORKFLOWS[opts.workflow]}/dispatches`;
+  const posted = opts.workflow === "ci"
+    ? gh(["api", "-X", "POST", endpoint, "--input", "-"], env, dispatchBody)
+    : gh(["api", "-X", "POST", endpoint, "-f", "ref=main", ...Object.entries(inputs).flatMap(([key, value]) => ["-f", `inputs[${key}]=${value}`])], env);
   // A POST that did not confirm (error, timeout, dropped response) may still have been accepted: it is never re-sent and its absence of a run is not proof.
   // One listing is still taken, because a dropped response with a visible run is a success; a confirmed POST is polled for until DISCOVERY_MS.
   const deadline = now() + (posted.ok ? DISCOVERY_MS : 0);

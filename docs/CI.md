@@ -190,6 +190,15 @@ npm packages are grouped six to a job; each job builds only its packages' worksp
 Swift root-manifest check share the `root` job. `ci/shards.json` can change the sizes (`rustTargetWeight`, `npmTargetWeight`,
 `closureChunkSize`, `closureMaxJobs`) or pin units to their own job (`solo`).
 
+Rust cache paths follow Cargo workspace roots: root members share `. -> target`; a standalone crate with its own workspace uses
+`crates/<name> -> target`. Each workspace is named once per job. Cache restoration does not establish compile evidence.
+
+The scoped nonpublishing CI admission is being implemented for `rust:rightkit-decimal`; it remains disabled until the
+dispatcher verifier closure & full workflow tree are reviewed and enrolled. The intended route requires gate-enforced local
+Class A before a signed compile proof, then hosted proof & exact dispatch-claim verification and a fresh hosted Class A pass
+before native jobs. The broker does not independently attest the local Class A verdict or its ordering; broker-side
+enforcement remains outstanding. This CI run validates source and does not qualify a sealed publication artifact.
+
 Concurrency: Windows matrices cap shard jobs at 12 & closure jobs at 4; macOS caps them at 5 & 2.
 GitHub admits jobs under account-wide runner limits; these caps do not reserve capacity for other workflows.
 

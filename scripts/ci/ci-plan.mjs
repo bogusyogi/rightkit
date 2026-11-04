@@ -14,8 +14,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { planHost, planHygiene, requiredShardCommands, resolveDispatchRequest, scanBase, selectionArgs, shardsConfig } from "./shards.mjs";
+import { claimDigest, claimIdentity, claimKey } from "./rightkit-dispatch.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const CI_SCOPE = "rust:rightkit-decimal";
 const RUNNERS = [
   { key: "windows", host: "windows", label: "windows-2025" },
   { key: "macos", host: "macos", label: "xcode-27" },
@@ -47,13 +49,53 @@ function gatePlan(host, extra) {
   return plan;
 }
 
-function main() {
+async function verifyDispatch(request) {
+  if (request.kind !== "select" || request.source !== "units" || request.tokens !== CI_SCOPE) throw new Error("CI admission accepts only the exact named fixture scope");
+  const sha = git("rev-parse", "HEAD").stdout.trim();
+  if (sha !== process.env.GITHUB_SHA || process.env.GITHUB_REPOSITORY !== "bogusyogi/rightkit") throw new Error("CI admission repository or commit mismatch");
+  const readGit = (...args) => { const result = git(...args); if (result.status !== 0) throw new Error("cannot read committed CI admission input"); return result.stdout.trim(); };
+  const { verifyCiCompileProof } = await import("../../packages/release/ci-compile-admission.mjs");
+  const proof = verifyCiCompileProof(process.env.RK_COMPILE_PROOF ?? "", { sha, scope: CI_SCOPE, git: readGit });
+  const identity = claimIdentity({ repo: "bogusyogi/rightkit", workflow: "ci.yml", sha, tree: proof.tree, registry: "ci", unit: proof.scopeSha256, version: sha, allow: {} });
+  const key = claimKey(identity);
+  const token = process.env.GITHUB_TOKEN;
+  if (!token || !process.env.GITHUB_RUN_ID || !process.env.GITHUB_RUN_ATTEMPT || !process.env.RK_REQUEST_ID) throw new Error("CI claim verification is missing run context");
+  const api = async (endpoint) => {
+    const response = await fetch(`https://api.github.com/repos/bogusyogi/rightkit/${endpoint}`, { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "rightkit-ci-admission" }, signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) throw new Error("CI claim cannot be read from GitHub");
+    return response.json();
+  };
+  // Dispatcher records the run after POST; native fanout waits for that authenticated claim rather than racing it.
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const ref = await api(`git/ref/${key}`);
+    const revision = ref?.object?.sha;
+    if (!/^[0-9a-f]{40}$/.test(revision ?? "") || ref?.object?.type !== "commit") throw new Error("CI claim ref is invalid");
+    const commit = await api(`git/commits/${revision}`);
+    let claim; try { claim = JSON.parse(commit.message); } catch { throw new Error("CI claim is malformed"); }
+    if (claim?.key !== key || claim?.identityDigest !== claimDigest(identity) || claimDigest(claim.identity) !== claimDigest(identity) || claim.requestId !== process.env.RK_REQUEST_ID || claim.effect?.workflow !== "ci.yml" || claim.effect?.token !== claim.requestId) throw new Error("CI claim identity or request does not match");
+    if (claim.state === "dispatched") {
+      if (String(claim.run?.id) !== process.env.GITHUB_RUN_ID || String(claim.run?.attempt) !== process.env.GITHUB_RUN_ATTEMPT) throw new Error("CI claim names another run or attempt");
+      return;
+    }
+    if (claim.state !== "sending") throw new Error("CI claim is not in sending state");
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+  throw new Error("CI claim did not record this run before the admission deadline");
+}
+
+async function main() {
   const event = process.env.GITHUB_EVENT_NAME ?? "push";
   const request = event === "workflow_dispatch" ? resolveDispatchRequest({
     units: process.env.RK_UNITS, unitsFile: process.env.RK_UNITS_FILE, exceptionId: process.env.RK_ALL_UNITS_EXCEPTION,
     read: (file) => fs.readFileSync(path.join(ROOT, file), "utf8"),
     isTracked: (file) => git("ls-files", "--error-unmatch", "--", file).status === 0,
   }) : null;
+  if (process.argv.includes("--verify-admission")) {
+    if (!request) throw new Error("CI admission requires a workflow dispatch");
+    await verifyDispatch(request);
+    return;
+  }
+  if (request && (request.kind !== "select" || request.source !== "units" || request.tokens !== CI_SCOPE)) throw new Error("CI admission accepts only the exact named fixture scope");
   const parent = event === "push" ? git("rev-parse", "--verify", "HEAD^").stdout.trim() : null;
   const markers = argOf("--last-green");
   const config = JSON.parse(fs.readFileSync(path.join(ROOT, "ci/gate.config.json"), "utf8"));
@@ -74,6 +116,7 @@ function main() {
     const { args: extra, how } = selectionArgs({ event, request, base, parent });
     if (event === "push" && !base) console.log(`ci-plan: ${runner.label} has no last-green baseline; selecting the push diff ${parent.slice(0, 10)}..HEAD, not every unit`);
     const selection = gatePlan(runner.host, extra);
+    if (request && (selection.rust.test.length !== 1 || selection.rust.test[0] !== "rightkit-decimal" || selection.rust.check.length || selection.npm.test.length || selection.root.length || selection.swift.length)) throw new Error(`${runner.label}: planned scope differs from admitted fixture`);
     if ((selection.all || selection.rust?.all || selection.npm?.all) && request?.kind !== "all") throw new Error(`${runner.label}: the gate selected every unit (${how}); only an all-units exception may`);
     selections.push(selection);
     const plan = planHost({ host: runner.host, label: runner.label, universe, selection, config, shards });
@@ -118,4 +161,4 @@ function main() {
   }
 }
 
-try { main(); } catch (error) { console.error(`ci-plan: ${error.message}`); process.exit(1); }
+try { await main(); } catch (error) { console.error(`ci-plan: ${error.message}`); process.exit(1); }

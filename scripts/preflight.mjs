@@ -57,6 +57,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { RULES as APP_RULES, main as appCheckMain, readJson, readText, runRules as runAppRules } from "../packages/release/app-check.mjs";
+import { writePerformanceDiagnostic } from "../packages/release/performance-diagnostic.mjs";
 import { cargoRecipe } from "./ci/consumer-recipes.mjs";
 import { validatePackedClosure, validateRecipeEntry } from "./ci/npm-recipe-consumer.mjs";
 import { npmRecipePolicy } from "./ci/rk-npm-preflight.mjs";
@@ -523,7 +524,18 @@ export function runRules({ repo = REPO, ...options }) {
 
 export function main(argv, io = {}) {
   // RightKit checks itself with every rule: the compile/release tiers (app-check.mjs TIERS) exist for the apps, not for the owner.
-  return appCheckMain(argv.includes("--rule-tier") ? argv : [...argv, "--rule-tier", "release"], { defaultRepo: REPO, rules: RULES, label: "preflight", central: REPO, ...io });
+  const args = argv.includes("--rule-tier") ? argv : [...argv, "--rule-tier", "release"];
+  const options = { defaultRepo: REPO, rules: RULES, label: "preflight", central: REPO, ...io };
+  const diagnosticDir = process.env.RIGHTKIT_PREPARATION_DIAGNOSTIC_DIR;
+  if (!diagnosticDir) return appCheckMain(args, options);
+  const timings = [];
+  const known = new Set(RULES.map((rule) => rule.id));
+  options.rules = options.rules.map((rule) => ({ ...rule, run: (...values) => {
+    const started = performance.now();
+    try { return rule.run(...values); }
+    finally { try { if (known.has(rule.id)) timings.push({ label: rule.id, ms: performance.now() - started, count: 1 }); } catch {} }
+  } }));
+  return appCheckMain(args, options).finally(() => writePerformanceDiagnostic(diagnosticDir, 'preflight', timings));
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

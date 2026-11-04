@@ -13,6 +13,10 @@ on:
         description: Full commit SHA admitted by broker
         type: string
         required: true
+      compile_proof:
+        description: Signed local compile proof for the admitted CI fixture
+        type: string
+        required: true
       units:
         description: "Space separated gate tokens (rust:<crate> npm:<dir> ...). Set exactly one of units, units_file, all_units_exception"
         type: string
@@ -112,6 +116,9 @@ jobs:
           RK_UNITS: ${{ inputs.units }}
           RK_UNITS_FILE: ${{ inputs.units_file }}
           RK_ALL_UNITS_EXCEPTION: ${{ inputs.all_units_exception }}
+          RK_COMPILE_PROOF: ${{ inputs.compile_proof }}
+          RK_REQUEST_ID: ${{ inputs.request_id }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/ci/ci-plan.mjs --last-green "$RUNNER_TEMP/last-green.json" --evidence-out "$RUNNER_TEMP/ci-plan/evidence.json"
       # The evidence plan reaches the summary as a file: as a job output it exceeds the 128 KiB one environment string holds
       # once a run touches most units (run 40034020934, "Argument list too long").
@@ -141,8 +148,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # rightkit#1285: every crate is its own Cargo workspace (crates/<x>/Cargo.lock, crates/<x>/target). Name this job's crates for the Rust cache
-      # from its gate tokens (rust:<crate> and rust-check:<crate>); a job without Rust tokens names none and restores no Rust cache.
+      # Each selected workspace contributes one cache path, including the root workspace shared by its member crates.
       - name: Name the crate workspaces of the job
         id: crate-workspaces
         shell: bash
@@ -152,11 +158,20 @@ jobs:
           set -euo pipefail
           {
             echo 'workspaces<<RK_WORKSPACES'
+            root_workspace=false
             for token in $GATE_TOKENS; do
               case "$token" in
-                rust:*|rust-check:*) printf 'crates/%s -> crates/%s/target\n' "${token#*:}" "${token#*:}" ;;
+                rust:*|rust-check:*)
+                  crate="${token#*:}"
+                  test -f "crates/$crate/Cargo.toml"
+                  if grep -Eq '^[[:space:]]*\[workspace([.][^]]*)?\]' "crates/$crate/Cargo.toml"; then
+                    printf 'crates/%s -> target\n' "$crate"
+                  else
+                    root_workspace=true
+                  fi ;;
               esac
             done
+            if [[ "$root_workspace" == true ]]; then test -f Cargo.toml; echo '. -> target'; fi
             echo 'RK_WORKSPACES'
           } >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/rk-setup
@@ -213,8 +228,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # rightkit#1285: every crate is its own Cargo workspace (crates/<x>/Cargo.lock, crates/<x>/target). Name this job's crates for the Rust cache
-      # from its gate tokens (rust:<crate> and rust-check:<crate>); a job without Rust tokens names none and restores no Rust cache.
+      # Each selected workspace contributes one cache path, including the root workspace shared by its member crates.
       - name: Name the crate workspaces of the job
         id: crate-workspaces
         shell: bash
@@ -224,11 +238,20 @@ jobs:
           set -euo pipefail
           {
             echo 'workspaces<<RK_WORKSPACES'
+            root_workspace=false
             for token in $GATE_TOKENS; do
               case "$token" in
-                rust:*|rust-check:*) printf 'crates/%s -> crates/%s/target\n' "${token#*:}" "${token#*:}" ;;
+                rust:*|rust-check:*)
+                  crate="${token#*:}"
+                  test -f "crates/$crate/Cargo.toml"
+                  if grep -Eq '^[[:space:]]*\[workspace([.][^]]*)?\]' "crates/$crate/Cargo.toml"; then
+                    printf 'crates/%s -> target\n' "$crate"
+                  else
+                    root_workspace=true
+                  fi ;;
               esac
             done
+            if [[ "$root_workspace" == true ]]; then test -f Cargo.toml; echo '. -> target'; fi
             echo 'RK_WORKSPACES'
           } >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/rk-setup
@@ -285,8 +308,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # rightkit#1285: every crate is its own Cargo workspace (crates/<x>/Cargo.lock, crates/<x>/target). Name this job's crates for the Rust cache
-      # from its gate tokens (rust:<crate> and rust-check:<crate>); a job without Rust tokens names none and restores no Rust cache.
+      # Each selected workspace contributes one cache path, including the root workspace shared by its member crates.
       - name: Name the crate workspaces of the job
         id: crate-workspaces
         shell: bash
@@ -296,11 +318,20 @@ jobs:
           set -euo pipefail
           {
             echo 'workspaces<<RK_WORKSPACES'
+            root_workspace=false
             for token in $GATE_TOKENS; do
               case "$token" in
-                rust:*|rust-check:*) printf 'crates/%s -> crates/%s/target\n' "${token#*:}" "${token#*:}" ;;
+                rust:*|rust-check:*)
+                  crate="${token#*:}"
+                  test -f "crates/$crate/Cargo.toml"
+                  if grep -Eq '^[[:space:]]*\[workspace([.][^]]*)?\]' "crates/$crate/Cargo.toml"; then
+                    printf 'crates/%s -> target\n' "$crate"
+                  else
+                    root_workspace=true
+                  fi ;;
               esac
             done
+            if [[ "$root_workspace" == true ]]; then test -f Cargo.toml; echo '. -> target'; fi
             echo 'RK_WORKSPACES'
           } >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/rk-setup
@@ -349,8 +380,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # rightkit#1285: every crate is its own Cargo workspace (crates/<x>/Cargo.lock, crates/<x>/target). Name this job's crates for the Rust cache
-      # from its gate tokens (rust:<crate> and rust-check:<crate>); a job without Rust tokens names none and restores no Rust cache.
+      # Each selected workspace contributes one cache path, including the root workspace shared by its member crates.
       - name: Name the crate workspaces of the job
         id: crate-workspaces
         shell: bash
@@ -360,11 +390,20 @@ jobs:
           set -euo pipefail
           {
             echo 'workspaces<<RK_WORKSPACES'
+            root_workspace=false
             for token in $GATE_TOKENS; do
               case "$token" in
-                rust:*|rust-check:*) printf 'crates/%s -> crates/%s/target\n' "${token#*:}" "${token#*:}" ;;
+                rust:*|rust-check:*)
+                  crate="${token#*:}"
+                  test -f "crates/$crate/Cargo.toml"
+                  if grep -Eq '^[[:space:]]*\[workspace([.][^]]*)?\]' "crates/$crate/Cargo.toml"; then
+                    printf 'crates/%s -> target\n' "$crate"
+                  else
+                    root_workspace=true
+                  fi ;;
               esac
             done
+            if [[ "$root_workspace" == true ]]; then test -f Cargo.toml; echo '. -> target'; fi
             echo 'RK_WORKSPACES'
           } >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/rk-setup
@@ -409,8 +448,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      # rightkit#1285: every crate is its own Cargo workspace (crates/<x>/Cargo.lock, crates/<x>/target). Name this job's crates for the Rust cache
-      # from its gate tokens (rust:<crate> and rust-check:<crate>); a job without Rust tokens names none and restores no Rust cache.
+      # Each selected workspace contributes one cache path, including the root workspace shared by its member crates.
       - name: Name the crate workspaces of the job
         id: crate-workspaces
         shell: bash
@@ -420,11 +458,20 @@ jobs:
           set -euo pipefail
           {
             echo 'workspaces<<RK_WORKSPACES'
+            root_workspace=false
             for token in $GATE_TOKENS; do
               case "$token" in
-                rust:*|rust-check:*) printf 'crates/%s -> crates/%s/target\n' "${token#*:}" "${token#*:}" ;;
+                rust:*|rust-check:*)
+                  crate="${token#*:}"
+                  test -f "crates/$crate/Cargo.toml"
+                  if grep -Eq '^[[:space:]]*\[workspace([.][^]]*)?\]' "crates/$crate/Cargo.toml"; then
+                    printf 'crates/%s -> target\n' "$crate"
+                  else
+                    root_workspace=true
+                  fi ;;
               esac
             done
+            if [[ "$root_workspace" == true ]]; then test -f Cargo.toml; echo '. -> target'; fi
             echo 'RK_WORKSPACES'
           } >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/rk-setup
@@ -484,6 +531,17 @@ jobs:
           pnpm_config_ignore_scripts: "true"
           pnpm_config_ignore_pnpmfile: "true"
         run: pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
+      - name: Verify local compile and exact dispatch claim
+        id: ci_admission
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          RK_UNITS: ${{ inputs.units }}
+          RK_UNITS_FILE: ${{ inputs.units_file }}
+          RK_ALL_UNITS_EXCEPTION: ${{ inputs.all_units_exception }}
+          RK_COMPILE_PROOF: ${{ inputs.compile_proof }}
+          RK_REQUEST_ID: ${{ inputs.request_id }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/ci/ci-plan.mjs --verify-admission
       - name: Class A deterministic scans (every change)
         shell: bash
         env:
@@ -491,13 +549,13 @@ jobs:
           SCAN_BASE: ${{ needs.plan.outputs.scan_base }}
         run: node scripts/ci/gate.mjs --select "$HYGIENE_TOKENS" --steps scans ${SCAN_BASE:+--base "$SCAN_BASE"}
       - name: Cargo.lock and rustfmt (selected crates)
-        if: ${{ !cancelled() && needs.plan.outputs.hygiene_tokens != '' }}
+        if: ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || steps.ci_admission.outcome == 'success') && needs.plan.outputs.hygiene_tokens != '' }}
         shell: bash
         env:
           HYGIENE_TOKENS: ${{ needs.plan.outputs.hygiene_tokens }}
         run: node scripts/ci/gate.mjs --select "$HYGIENE_TOKENS" --steps lock,fmt
       - name: Secret scan (selected crates & packages)
-        if: ${{ !cancelled() && (needs.plan.outputs.scan_crates != '' || needs.plan.outputs.scan_packages != '') }}
+        if: ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || steps.ci_admission.outcome == 'success') && (needs.plan.outputs.scan_crates != '' || needs.plan.outputs.scan_packages != '') }}
         shell: bash
         env:
           SCAN_CRATES: ${{ needs.plan.outputs.scan_crates }}
@@ -509,7 +567,7 @@ jobs:
       # (the crates, e2e-app, desktop-app-template, ...), which the token-selected scans above do not. A red lock or advisory in any of them
       # fails the push here, never the publication of an unrelated unit.
       - name: Class A over the whole commit (every Cargo workspace and pnpm root, not a unit's closure)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || steps.ci_admission.outcome == 'success') }}
         shell: bash
         env:
           npm_config_ignore_scripts: "true"
