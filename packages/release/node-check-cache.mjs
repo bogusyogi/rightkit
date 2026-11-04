@@ -17,7 +17,7 @@ export function writeNodeCheckDiagnostic(dir, record) {
   let temp;
   try {
     const hex = (s) => typeof s === 'string' && /^[0-9a-f]{64}$/.test(s);
-    const scalar = ['key', 'tree', 'source', 'gate', 'gatePackage', 'helper', 'node', 'executable', 'runtime', 'cwd', 'scan', 'normalizedEnvironment'];
+    const scalar = ['key', 'tree', 'source', 'gate', 'gatePackage', 'helper', 'node', 'executable', 'runtime', 'cwd', 'scan', 'normalizedEnvironment', 'overriddenEnvironment'];
     const names = ['schema', ...scalar, 'ancestors', 'environment'];
     if (!record || Object.keys(record).length !== names.length || Object.keys(record).some((k) => !names.includes(k)) || record.schema !== 'rightkit.node-check-components/1' || !scalar.every((k) => hex(record[k]))) return;
     const pairs = (rows, nullable) => Array.isArray(rows) && rows.length <= 4096 && rows.every((r) => Array.isArray(r) && r.length === 2 && hex(r[0]) && (hex(r[1]) || (nullable && r[1] === null)));
@@ -58,7 +58,9 @@ export function createNodeCheckCacheDigest({ snapshot, tree, files, gateIdentity
         if (fs.realpathSync(cwd) !== root || fs.realpathSync(command) !== executable) return reject('runtime-path', scan.id);
         const target = path.resolve(root, file);
         if (!target.startsWith(root + path.sep) || fs.realpathSync(target) !== target || !fs.lstatSync(target).isFile()) return reject('source-path', scan.id);
-        const rows = Object.entries(childEnv).filter(([k, v]) => v !== undefined && v !== null && k !== 'RIGHTKIT_BUILD_OWNERSHIP').sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+        // These two handles identify the surrounding run, not a Node syntax
+        // check; options and preloads remain forbidden below.
+        const rows = Object.entries(childEnv).filter(([k, v]) => v !== undefined && v !== null && k !== 'RIGHTKIT_BUILD_OWNERSHIP' && k !== 'CODEX_TOOL_CALL_ID').sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
         // Options, preloads, and dynamic-loader overrides can read unbounded
         // external files, so no cache key is issued when any are present.
         const active = (pattern) => rows.some(([k, v]) => pattern.test(k) && String(v) !== '');
@@ -84,7 +86,7 @@ export function createNodeCheckCacheDigest({ snapshot, tree, files, gateIdentity
         const key = nodeCheckFingerprint({ schema: 'rightkit.node-check-cache/2', tree, root, file, source, gateIdentity, gatePackageHash, helperHash, executable, nodeHash, nodeVersion: process.version, platform: process.platform, arch: process.arch, ancestors, argv: scan.args, id: scan.id, cwd: root, environment, overridden });
         if (!captured && typeof onDiagnostic === 'function' && scan.id === diagnosticScanId) {
           captured = true;
-          try { onDiagnostic({ schema: 'rightkit.node-check-components/1', key, tree: hash(String(tree)), source, gate: hash(String(gateIdentity)), gatePackage: gatePackageHash, helper: helperHash, node: nodeHash, executable: hash(executable), runtime: nodeCheckFingerprint([process.version, process.platform, process.arch]), cwd: hash(root), scan: nodeCheckFingerprint([scan.id, scan.args]), normalizedEnvironment: nodeCheckFingerprint([environment, overridden]), ancestors: ancestors.map(([name, value]) => [hash(name), value === null ? null : hash(value)]), environment: rows.map(([name, value]) => [hash(name), hash(String(value))]) }); } catch {}
+          try { onDiagnostic({ schema: 'rightkit.node-check-components/1', key, tree: hash(String(tree)), source, gate: hash(String(gateIdentity)), gatePackage: gatePackageHash, helper: helperHash, node: nodeHash, executable: hash(executable), runtime: nodeCheckFingerprint([process.version, process.platform, process.arch]), cwd: hash(root), scan: nodeCheckFingerprint([scan.id, scan.args]), normalizedEnvironment: nodeCheckFingerprint([environment, overridden]), overriddenEnvironment: nodeCheckFingerprint(overridden), ancestors: ancestors.map(([name, value]) => [hash(name), value === null ? null : hash(value)]), environment: rows.map(([name, value]) => [hash(name), hash(String(value))]) }); } catch {}
         }
         return key;
       } catch { return reject('row-error', scan?.id); }

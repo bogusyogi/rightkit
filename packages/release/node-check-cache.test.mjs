@@ -17,7 +17,7 @@ function fixture(t) {
   fs.copyFileSync(process.execPath, nodePath);
   // planScans adds this field to every row when snapshot targets are bound.
   const scan = { id: 'node-check:entry.js', class: 'A', tool: 'node', root: 'content', args: ['--check', 'entry.js'], env: { RK_SNAPSHOT_TARGETS: '{}' } };
-  const context = { cwd: snapshot, command: nodePath, childEnv: { PATH: '/fixed', RIGHTKIT_BUILD_OWNERSHIP: 'first', NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S: 'host-hash', ...scan.env } };
+  const context = { cwd: snapshot, command: nodePath, childEnv: { PATH: '/fixed', RIGHTKIT_BUILD_OWNERSHIP: 'first', CODEX_TOOL_CALL_ID: 'first', CODEX_OTHER: 'fixed', NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S: 'host-hash', ...scan.env } };
   const make = (tree = 'tree') => createNodeCheckCacheDigest({ snapshot, tree, files: ['entry.js'], gateIdentity: 'gate', gatePackage, nodePath });
   return { base, snapshot, gatePackage, nodePath, scan, context, make };
 }
@@ -26,6 +26,8 @@ test('plain syntax check binds actual files and environment while ownership alon
   const f = fixture(t), key = () => f.make()(f.scan, f.context);
   const original = key(); assert.match(original, /^[0-9a-f]{64}$/);
   assert.equal(f.make()(f.scan, { ...f.context, childEnv: { ...f.context.childEnv, RIGHTKIT_BUILD_OWNERSHIP: 'second' } }), original);
+  assert.equal(f.make()(f.scan, { ...f.context, childEnv: { ...f.context.childEnv, CODEX_TOOL_CALL_ID: 'second' } }), original);
+  assert.notEqual(f.make()(f.scan, { ...f.context, childEnv: { ...f.context.childEnv, CODEX_OTHER: 'changed' } }), original);
   assert.notEqual(f.make('changed-tree')(f.scan, f.context), original);
   assert.notEqual(f.make()(f.scan, { ...f.context, childEnv: { ...f.context.childEnv, PATH: '/changed' } }), original);
   assert.notEqual(f.make()(f.scan, { ...f.context, childEnv: { ...f.context.childEnv, NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S: 'other-host-hash' } }), original);
@@ -81,4 +83,10 @@ test('only verified per-run wrapper paths are normalized', (t) => {
   assert.notEqual(digest(f.scan, context('two', { ...originalEnv, PATH: '/other/path' })), key);
   assert.equal(digest(f.scan, { ...second, childEnv: { ...second.childEnv, CARGO_TARGET_DIR: '/unverified' } }), null);
   assert.equal(digest(f.scan, { ...second, childEnv: { ...second.childEnv, PATH: '/unverified' } }), null);
+  const captured = [];
+  const capture = (ctx) => createNodeCheckCacheDigest({ snapshot: f.snapshot, tree: 'tree', files: ['entry.js'], gateIdentity: 'gate', gatePackage: f.gatePackage, nodePath: f.nodePath, diagnosticScanId: f.scan.id, onDiagnostic: (row) => captured.push(row) })(f.scan, ctx);
+  capture(first);
+  capture(context('two', { ...originalEnv, CARGO: '/other/cargo' }));
+  assert.match(captured[0].overriddenEnvironment, /^[0-9a-f]{64}$/);
+  assert.notEqual(captured[0].overriddenEnvironment, captured[1].overriddenEnvironment);
 });
