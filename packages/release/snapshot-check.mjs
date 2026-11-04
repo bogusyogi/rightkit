@@ -25,6 +25,7 @@ import { compileLaunch } from "./class-a-launch-guard.mjs";
 import { SnapshotError, dependencyDirs, isInside, snapshotProblem, snapshotTree, treeEntries } from "./snapshot.mjs";
 import { discoveryRun, sealedRun } from "./snapshot-git.mjs";
 import { snapshotDependencyReuse } from "./snapshot-dependency-reuse.mjs";
+import { gateRunsRoot } from "./managed-roots.mjs";
 
 export const CHECK_ERROR = "RK_CHECK_ERROR";
 export const LIVE_SCANS_SCHEMA = "rightkit.live-scans/1";
@@ -40,6 +41,37 @@ export class CheckError extends Error {
 const text = (r) => String(r?.stdout ?? "");
 const failed = (r) => !r || Boolean(r.error) || r.status !== 0;
 const tail = (r) => `${r?.stderr ?? ""}\n${r?.stdout ?? ""}`.trim().split(/\r?\n/).slice(-6).join(" | ").slice(-600);
+// Store only bounded structured diagnostics, never arbitrary pnpm output or environment values.
+const PREPARATION_CODE_LIMIT = 1000;
+export function preparationStreamEvidence(value) {
+  const bytes = Buffer.from(String(value ?? ""), "utf8");
+  const codes = []; let line = 1; let capped = false;
+  for (const part of bytes.toString("utf8").split(/\r\n|\n|\r/)) {
+    for (const match of part.matchAll(/\bERR_PNPM_[A-Z0-9_]+\b/g)) {
+      if (match[0].length <= 96 && codes.length < PREPARATION_CODE_LIMIT) codes.push({ code: match[0], line });
+      else capped = true;
+    }
+    line += 1;
+  }
+  return { sha256: crypto.createHash("sha256").update(bytes).digest("hex"), bytes: bytes.length, codes, codesTruncated: capped };
+}
+function preparationFailure(r, env) {
+  const stdout = preparationStreamEvidence(r?.stdout); const stderr = preparationStreamEvidence(r?.stderr);
+  const incomplete = Boolean(r?.error) || r?.truncated === true;
+  const diagnostic = { schema: "rightkit.preparation-diagnostic/1", captureComplete: !incomplete, captureTruncated: r?.truncated === true, stdout, stderr };
+  let file = null;
+  try {
+    const base = path.join(gateRunsRoot({ env }), "rightkit-gate-preparation");
+    fs.mkdirSync(base, { recursive: true, mode: 0o700 });
+    const dir = fs.mkdtempSync(path.join(base, "failure-"));
+    file = path.join(dir, "diagnostic.json");
+    fs.writeFileSync(file, `${JSON.stringify(diagnostic, null, 2)}\n`, { mode: 0o600 });
+  } catch { file = null; }
+  const codes = [...new Set([...stderr.codes, ...stdout.codes].map((item) => item.code))];
+  return { codes, detail: `structured diagnostics ${incomplete ? "incomplete" : "complete"}${stdout.codesTruncated || stderr.codesTruncated ? " (codes bounded)" : ""}${file ? `; file ${file}` : "; file unavailable"}` };
+}
+const safeTarballName = (name) => typeof name === "string" && /^[A-Za-z0-9][A-Za-z0-9._+-]{0,199}$/.test(name) ? name : null;
+
 // A path is outside only as `..`, `..<sep>…` or absolute: a sibling named `..x` is inside (snapshot.mjs isInside; review item5-r2 #4).
 const inside = (child, parent) => isInside(child, parent, path);
 
@@ -324,11 +356,14 @@ export function installSnapshotDependencies({ checkout, snapshot, commit, tree, 
       // and the code and its URL may be a few lines apart (Dell, 2026-11-02: the specific message never fired; only progress lines showed).
       const joined = out.replace(/(https?:\/\/)\s+/g, "$1");
       const miss = /ERR_PNPM_NO_OFFLINE_TARBALL[\s\S]{0,600}?(https?:\/\/\S+?\/-\/(\S+?)\.tgz)/.exec(joined);
-      const message = miss
-        ? `root ${root}: ${miss[2]} is missing from the store ${storeDir} (offline install, no network fallback); install the checkout's dependencies so the store holds it, then run the check again`
-        : `root ${root}: offline dependency install failed (store ${storeDir}): ${tail(r) || r?.error?.message || `exit ${r?.status}`}`;
-      try { cleanup(); } catch (error) { throw new CheckError(`${message}; dependency cleanup failed: ${error.message}`); }
-      throw new CheckError(`${message}; invalidated generated dependency output for owning lockroot ${root}`);
+      const diagnostic = preparationFailure(r, env);
+      const missingName = safeTarballName(miss?.[2]);
+      const message = miss && missingName
+        ? `root ${root}: ${missingName} is missing from the store ${storeDir} (offline install, no network fallback); install the checkout's dependencies so the store holds it, then run the check again`
+        : `root ${root}: offline dependency install failed (store ${storeDir}): ${diagnostic.codes.join(", ") || `exit ${Number.isInteger(r?.status) ? r.status : "unknown"}`}`;
+      const detail = `${message}; ${diagnostic.detail}`;
+      try { cleanup(); } catch (error) { throw new CheckError(`${detail}; dependency cleanup failed: ${error.message}`); }
+      throw new CheckError(`${detail}; invalidated generated dependency output for owning lockroot ${root}`);
     }
     const lockfileSha256 = crypto.createHash("sha256").update(fs.readFileSync(path.join(dir, "pnpm-lock.yaml"))).digest("hex");
     const skipped = probe ? probe({ dir, root, names: allowedBuilds(dir), spawn, env }) : [];
@@ -383,9 +418,12 @@ export function verifySnapshotStore({ checkout, snapshot, commit, tree, ledger, 
     if (failed(r)) {
       const joined = `${r?.stdout ?? ""}\n${r?.stderr ?? ""}`.replace(/(https?:\/\/)\s+/g, "$1");
       const miss = /ERR_PNPM_NO_OFFLINE_TARBALL[\s\S]{0,600}?(https?:\/\/\S+?\/-\/(\S+?)\.tgz)/.exec(joined);
-      throw new CheckError(miss
-        ? `root ${root}: ${miss[2]} is missing from the store ${storeDir} (offline, no network fallback); install the checkout's dependencies so the store holds it, then run the check again`
-        : `root ${root}: the offline store check failed (store ${storeDir}): ${tail(r) || r?.error?.message || `exit ${r?.status}`}`);
+      const diagnostic = preparationFailure(r, env);
+      const missingName = safeTarballName(miss?.[2]);
+      const message = miss && missingName
+        ? `root ${root}: ${missingName} is missing from the store ${storeDir} (offline, no network fallback); install the checkout's dependencies so the store holds it, then run the check again`
+        : `root ${root}: the offline store check failed (store ${storeDir}): ${diagnostic.codes.join(", ") || `exit ${Number.isInteger(r?.status) ? r.status : "unknown"}`}`;
+      throw new CheckError(`${message}; ${diagnostic.detail}`);
     }
     records.push({ root, storeDir, storeSource: source, pnpm: version, pinned: pin, lockfileSha256: crypto.createHash("sha256").update(fs.readFileSync(path.join(dir, "pnpm-lock.yaml"))).digest("hex"), ms });
   }

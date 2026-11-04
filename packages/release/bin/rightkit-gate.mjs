@@ -4616,7 +4616,14 @@ export async function main(argv, io = {}) {
         // A row field that shapes what the scan checks without changing its id or command is part of its key: a tsc row's tscWorkspace
         // (the sibling packages its check project maps; scopeScans narrows it per scope) changes the verdict on the same tree.
         const rowShape = (scan) => (scan.tscWorkspace ? `:tscws=${createHash("sha256").update(canonicalJson([...scan.tscWorkspace].sort())).digest("hex")}` : "");
-        cache = { ...store, digest: (scan) => { if (/^build-helpers(:|$)/.test(scan.id)) return null; const key = digest(scan); const full = key === null ? null : `${key}:${environment}${rowShape(scan)}`; scanKeys.set(scan.id, full); return full; } };
+        const nodeCheckDigest = snapFullA ? (await import("../node-check-cache.mjs")).createNodeCheckCacheDigest({ snapshot: liveBase, tree: digestOf(files), files, gateIdentity: gateCodeIdentity(), gatePackage: o.gatePackage, nodePath: process.execPath }) : null;
+        cache = { ...store, narrowNodeCheck: snapFullA, digest: (scan, context) => {
+          if (/^build-helpers(:|$)/.test(scan.id)) return null;
+          // This narrow key applies only to the helper's proven plain snapshot node --check.
+          // Uncertain rows miss rather than falling back to a less specific key.
+          if (nodeCheckDigest && scan.id.startsWith("node-check:")) { const key = nodeCheckDigest(scan, context); scanKeys.set(scan.id, key); return key; }
+          const key = digest(scan); const full = key === null ? null : `${key}:${environment}${rowShape(scan)}`; scanKeys.set(scan.id, full); return full;
+        } };
       } catch { cache = null; }
     }
     if (!classAOnly) {
@@ -4740,14 +4747,6 @@ export async function main(argv, io = {}) {
     // rightkit#1463: the per-scan coverage report (hit / ran / skipped, with the cache key and the reason), written beside the scan logs; a cache that never hits shows here.
     try {
       const report = buildCoverageReport({ plan, scanResult, keys: scanKeys, classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], commit: snapshotBCommit?.commit ?? snapshotCommitId?.commit ?? hostedCommitA?.commit ?? null, startedAt: new Date(directTiming.cargoStart).toISOString(), endedAt: new Date(directTiming.cargoEnd).toISOString() });
-      const timingRows = new Map(scanResult.scans.map((row) => [row.id, row]));
-      for (const scan of report.scans) {
-        const row = timingRows.get(scan.id);
-        scan.timing = row?.timing ?? null;
-        scan.scanElapsedMs = row?.scanElapsedMs ?? null;
-        if (row?.retried?.timing) scan.retryTiming = row.retried.timing;
-        if (row?.batchAttempts) scan.batchAttempts = row.batchAttempts;
-      }
       const base = gateRunsRoot({ env: o.env, platform: o.platform });
       const file = (o.writeCoverage ?? writeCoverageReport)({ dir: path.join(base, "rightkit-gate-coverage"), name: `${path.basename(root)}-${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}`, report });
       o.out(`${tag} coverage report ${file}: ${report.totals.planned} planned scan(s), ${report.totals.hit} hit, ${report.totals.ran} ran, ${report.totals.skipped} skipped; scans took ${seconds(directTiming.cargoEnd - directTiming.cargoStart)}`);

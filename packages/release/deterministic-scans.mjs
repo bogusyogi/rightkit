@@ -3103,10 +3103,18 @@ export async function runScans(plan, options = {}) {
           if (cache && !carriedRead && !s.coverageKey) {
             const cacheStarted = performance.now();
             try {
-              const digest = cache.digest(s);
+              // A plain node --check row has no guard, carrier, advisory or
+              // trusted-tool environment additions. Include its actual ledger
+              // token and sentinel (when present) in the narrow key.
+              const nodeSentinel = options.cargoSentinel && !Object.hasOwn(s.env ?? {}, "CARGO_TARGET_DIR") ? path.join(options.cargoSentinel, sha256(s.id).slice(0, 16)) : null;
+              const nodeEnv = { ...deps.env, ...(nodeSentinel ? { CARGO_TARGET_DIR: nodeSentinel, CARGO_BUILD_TARGET_DIR: nodeSentinel } : {}), ...s.env, ...(extraEnv ?? {}), ...(cargoLedger ? { [SCAN_TOKEN_ENV]: scanTokenOf(s.id) } : {}) };
+              const digest = cache.digest(s, { childEnv: nodeEnv, cwd: scanDir, command: p.command });
               // The analyzers a scan runs through (actionlint's shellcheck) judge it too, so their versions key it as well.
               const toolVersion = [p.identity ? `${p.version}@${p.identity.sha256}` : p.version, ...depVersions].join(" + ");
-              if (digest) cacheKey = scanCacheKey({ id: s.id, command: s.runOutside ? `${s.command} ;; run ${canonicalJson(s.runOutside)}` : s.command, toolVersion, env: s.env ?? {}, inheritedEnv: inheritedEnvDigest({ ...deps.env, ...s.env }), digest });
+              // The narrow node-check digest already binds the complete actual
+              // child environment (with its one explicit ownership exception).
+              const inherited = cache.narrowNodeCheck && /^node-check:/.test(s.id) ? sha256('node-check-child-env-in-digest/1') : inheritedEnvDigest({ ...deps.env, ...s.env });
+              if (digest) cacheKey = scanCacheKey({ id: s.id, command: s.runOutside ? `${s.command} ;; run ${canonicalJson(s.runOutside)}` : s.command, toolVersion, env: s.env ?? {}, inheritedEnv: inherited, digest });
             } catch { cacheKey = null; }
             const hit = cacheKey ? cache.read(cacheKey) : null;
             timing.cacheLookupMs = performance.now() - cacheStarted;
