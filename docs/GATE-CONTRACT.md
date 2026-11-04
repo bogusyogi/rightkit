@@ -156,6 +156,33 @@ Adrian, 2026-11-03: "i wnat all dev completely gone. all debug too. completely g
 - The stage-output ledger does not record it: the door's walk (`stage-ledger.mjs`) keeps the file out of the ledger, and the verify that follows every stage open and close judges its bytes against the commit.
 - A repository whose `.gitignore` does not ignore `/.rightkit-source-identity.json` gets no file: the sync writes nothing, removes any copy an earlier sync kept, and prints `source identity .rightkit-source-identity.json: not written (<reason>)` (a file written anyway would change the tree id the broker computes and refuse every build of that repository). A repository that wants the identity commits that one ignore line. A repository whose commit tracks a file of that name, or whose object format is not SHA-1, gets none either.
 
+[GC-A24] 2026-11-05: **Class A is a resident, change-driven service, and each row is keyed only on the inputs that decide its verdict.** Adrian, 2026-11-05: "So cli of being called instead of a resident process- wrong. All over instead of on changed? Wrong. Doesn't rk have fs or index or something always? ... We should use it. We're hashing based on wrong causing no cache hits? Wrong." Then: "Okay, go ahead, write it into the contract."
+- **Measured cause** (RK warm run `candidate-a-j4-diagnostic-single`, 2026-11-04, 29 s, 1,109 rows): rows took about 7 s, almost all rustfmt; about 22 s was fixed per-run setup: the build-ownership lease (2.1 s), snapshot sync and tree hash twice before the rows (4.8 s), the node_modules byte walk of the environment digest (4.6 s), the snapshot re-hashed after the rows (6.1 s) and preflight's second rule engine (4.3 s). Cache hits across three RK runs: 0 of 1,121; then node-check hit (833) and rustfmt missed; then rustfmt hit and node-check missed. Pulse: 0 hits, with 67 of 89 keys identical except their environment-digest suffix.
+- **Resident.** Class A runs in a long-lived, gate-owned process per host, never in the broker (GC-A05, GC-A11 unchanged). The `rightkit-gate` CLI is its client: it asks for the verdict of a commit and gets it from memory. The service holds the snapshot's file index, per-file content hashes, tool identities and the verdict store between runs. On start, and after any dropped or overflowed change event, it re-stats the whole tree before answering; it never answers from an index it cannot prove current.
+- **Change-driven.** The service learns what changed from RightKit's own index and watcher (`rightkit-fsindex`, `rightkit-file-watch`, extended with a per-file content-hash layer where they lack one), and from the commit diff against the last verdict. It reruns only the rows whose inputs changed. An unchanged tree runs no row. One edited `.rs` file runs one rustfmt check of that file and the per-file rows that read it (secret scan, licence).
+- **Keyed on what decides the verdict.** A row's key is its own input bytes, the identity of the tool that judges it, and the configuration that tool reads, nothing else. The gate's own code is in the key only of the rule that code implements. The installed-dependency bytes are in the key only of rows that execute them (tsc, vitest, scans marked as executing repository code). The whole-run environment digest is no longer appended to every row. Per family:
+
+| Family | Key |
+|---|---|
+| `rustfmt` | per file: bytes, rustfmt version, `rustfmt.toml`/`.rustfmt.toml` of the file's ancestors, edition |
+| `node-check` | per file: bytes, Node version |
+| `json-parse`, `toml-parse`, `yaml-parse` | per file: bytes, parser identity |
+| `actionlint` | workflow bytes, `.github/actionlint.yaml`, actionlint version |
+| `shellcheck` | per script: bytes, shellcheck version, `.shellcheckrc` |
+| `secret-scan` | per tracked file: bytes, rule-set identity |
+| `license` | per manifest or file it reads: bytes, rule identity |
+| `ownership-catalog` | the catalog and the manifest list |
+| `changelog-version` | the crate's `Cargo.toml` and `CHANGELOG.md` |
+| `cargo-metadata` | every `Cargo.toml`, `Cargo.lock`, `.cargo` and toolchain file of the workspace and its ancestors |
+| `cargo-package-list` | unchanged (crate, manifest projection, lock entry) |
+| `cargo-deny`, `cargo-audit`, `ghsa-audit`, `advisory-exceptions` | GC-A19 keys, plus the exceptions file for `advisory-exceptions`; no environment digest |
+| `pnpm-audit`, `pnpm-lockfile` | GC-A19 key for `pnpm-audit`; lock, workspace file and `package.json` set for `pnpm-lockfile` |
+| `swift-lock`, `gradle-lock`, `python-lock` | that lockfile and its manifest |
+
+- **Setup paid once.** Class A takes no build-ownership lease (it compiles nothing). The snapshot is proven by the service's index, not by re-hashing it before and after every run. Preflight's release-tier rules run as rows of the same service, under the same keys.
+- **A cache that cannot open fails loudly.** The present `catch { cache = null; }` silently ran every row; the service reports why it cannot answer and the run says so.
+- Status: decided, not implemented. Implementation and its proving runs: rightkit#1506; a proving run needs Adrian's approval.
+
 Every other clause is read around GC-A07. Adrian, 2026-11-02, relayed verbatim by the Dell HR chat: "ok, one thing we have established is we are getting rid of debug. dev is actual installer with rk qa/ it can have faster compile like fat or thin or whatever, since it is not release. and qa journey will be moved out of build. this decision is already locked. everything else has to be worked around this." To rkn the same day: "this goes in the contracts asap".
 
 ## 1. User requirements
@@ -560,6 +587,7 @@ Every operative requirement id of this contract, its subject, status (`operative
 | GC-A21 | Timestamps on every working log line, per-stage and per-phase timings, and a per-scan coverage report (hit, ran, skipped, key, reason) (2026-11-03) | operative | rightkit#1463 |
 | GC-A22 | `--to render` builds an app's declared view-render target through the carrier, runs it headless and stores the PNGs and a hashed receipt (2026-11-03) | operative | rightkit#1288 |
 | GC-A23 | Every gate snapshot carries a generated, deterministic `.rightkit-source-identity.json` (commit and tree ids), admitted by the exact-snapshot walk only when its bytes equal the recomputed file and the commit ignores it (2026-11-04) | operative | rightkit#1504, rustright#176 |
+| GC-A24 | Class A is a resident, gate-owned, change-driven service outside the broker; each row keyed only on its own inputs, tool and configuration; no environment digest on every row; no ownership lease; loud cache failure (2026-11-05) | decided, not implemented | rightkit#1506 |
 | GC-T01 | Origin host | operative | B3 |
 | GC-T02 | Native build target | operative | - |
 | GC-T03 | Qualification runner | operative | - |
