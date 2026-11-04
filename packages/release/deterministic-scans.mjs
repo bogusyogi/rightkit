@@ -3108,7 +3108,7 @@ export async function runScans(plan, options = {}) {
               // token and sentinel (when present) in the narrow key.
               const nodeSentinel = options.cargoSentinel && !Object.hasOwn(s.env ?? {}, "CARGO_TARGET_DIR") ? path.join(options.cargoSentinel, sha256(s.id).slice(0, 16)) : null;
               const nodeEnv = { ...deps.env, ...(nodeSentinel ? { CARGO_TARGET_DIR: nodeSentinel, CARGO_BUILD_TARGET_DIR: nodeSentinel } : {}), ...s.env, ...(extraEnv ?? {}), ...(cargoLedger ? { [SCAN_TOKEN_ENV]: scanTokenOf(s.id) } : {}) };
-              const digest = cache.digest(s, { childEnv: nodeEnv, cwd: scanDir, command: p.command });
+              const digest = cache.digest(s, { childEnv: nodeEnv, cwd: scanDir, command: p.command, shimProof: options.nodeCheckShimContext ?? null });
               // The analyzers a scan runs through (actionlint's shellcheck) judge it too, so their versions key it as well.
               const toolVersion = [p.identity ? `${p.version}@${p.identity.sha256}` : p.version, ...depVersions].join(" + ");
               // The narrow node-check digest already binds the complete actual

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { createNodeCheckCacheDigest } from './node-check-cache.mjs';
 
 function fixture(t) {
@@ -63,4 +64,21 @@ test('a source under an aliased directory never receives a key', (t) => {
   const scan = { ...f.scan, id: 'node-check:alias/entry.js', args: ['--check', 'alias/entry.js'] };
   const digest = createNodeCheckCacheDigest({ snapshot: f.snapshot, tree: 'tree', files: ['alias/entry.js'], gateIdentity: 'gate', gatePackage: f.gatePackage, nodePath: f.nodePath });
   assert.equal(digest(scan, f.context), null);
+});
+
+test('only verified per-run wrapper paths are normalized', (t) => {
+  const f = fixture(t), digest = f.make();
+  const originalEnv = { PATH: '/original', CARGO: '/user/cargo', CARGO_TARGET_DIR: '/user/target' };
+  const context = (name, original = originalEnv) => {
+    const dir = path.join(f.base, name), bin = path.join(dir, 'bin'), shim = path.join(bin, 'cargo'), sentinel = path.join(dir, 'unbound');
+    const perScan = path.join(sentinel, crypto.createHash('sha256').update(f.scan.id).digest('hex').slice(0, 16));
+    return { ...f.context, shimProof: { bin, shim, sentinel, originalEnv: original }, childEnv: { ...f.context.childEnv, PATH: `${bin}${path.delimiter}${original.PATH}`, CARGO: shim, CARGO_TARGET_DIR: perScan, CARGO_BUILD_TARGET_DIR: perScan } };
+  };
+  const first = context('one'), second = context('two');
+  const key = digest(f.scan, first); assert.match(key, /^[0-9a-f]{64}$/);
+  assert.equal(digest(f.scan, second), key);
+  assert.notEqual(digest(f.scan, context('two', { ...originalEnv, CARGO: '/other/cargo' })), key);
+  assert.notEqual(digest(f.scan, context('two', { ...originalEnv, PATH: '/other/path' })), key);
+  assert.equal(digest(f.scan, { ...second, childEnv: { ...second.childEnv, CARGO_TARGET_DIR: '/unverified' } }), null);
+  assert.equal(digest(f.scan, { ...second, childEnv: { ...second.childEnv, PATH: '/unverified' } }), null);
 });

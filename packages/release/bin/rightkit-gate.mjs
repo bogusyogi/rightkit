@@ -4515,7 +4515,7 @@ export async function main(argv, io = {}) {
     const nodeCheckRejects = new Map();
     let nodeCheckDiagnosticId = null; let nodeCheckDiagnosticState = "not-seen";
     const countNodeCheckRejection = (reason, scanId) => {
-      if (!["setup-error", "row-shape", "runtime-path", "source-path", "node-options", "node-environment", "loader-environment", "runtime-config-environment", "row-error"].includes(reason)) return;
+      if (!["setup-error", "row-shape", "runtime-path", "source-path", "shim-proof", "node-options", "node-environment", "loader-environment", "runtime-config-environment", "row-error"].includes(reason)) return;
       nodeCheckRejects.set(reason, (nodeCheckRejects.get(reason) ?? 0) + 1);
       if (scanId === nodeCheckDiagnosticId) nodeCheckDiagnosticState = `rejected:${reason}`;
     };
@@ -4707,7 +4707,7 @@ export async function main(argv, io = {}) {
       ...(!scanSpawn ? { cargoReadTargetRoot: gateTmpRoot({ env: o.env, platform: o.platform, exists: o.exists }) } : {}),
       // The runtime cargo wrapper is first on PATH and named in CARGO for every scan of a snapshot compile; CARGO (a path named by the
       // wrapper's identity) is in every scan's cache key, so no result cached without the wrapper or with another map is reused.
-      ...(cargoShim ? { env: cargoShim.scanEnv, ...(cargoShim.sentinel ? { cargoSentinel: cargoShim.sentinel } : {}), cargoLedger: { dir: cargoShim.ledgerDir } } : {}),
+      ...(cargoShim ? { env: cargoShim.scanEnv, nodeCheckShimContext: { shim: cargoShim.shim, bin: cargoShim.bin, sentinel: cargoShim.sentinel, originalEnv: o.env }, ...(cargoShim.sentinel ? { cargoSentinel: cargoShim.sentinel } : {}), cargoLedger: { dir: cargoShim.ledgerDir } } : {}),
       // The broker snapshot compile's seam (item 7 rows 7.20 to 7.24): the commit, snapshot, ownership, enrolled pins and receipt reader.
       ...(snapshotBroker ? { snapshotBroker } : {}),
       // `check` (and the broker's compile admission, which runs it on a captured copy of the tree without node_modules) judges the
