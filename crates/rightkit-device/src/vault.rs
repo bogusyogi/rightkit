@@ -237,6 +237,8 @@ where
         .map_err(|error| match error {
             RevocationError::Verify(error) => VaultError::Rejected(error),
             RevocationError::Revoked { id } => VaultError::Revoked(id),
+            // RevocationError is #[non_exhaustive]: a refusal this crate does not know yet is still a refusal.
+            _ => VaultError::Unlicensed(LicenseState::Invalid),
         })
     }
 }
