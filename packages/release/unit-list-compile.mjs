@@ -177,7 +177,7 @@ export async function executeUnitListCompile({ jobs, dependencies = {}, initialF
 }
 
 /** Bridge the authenticated publisher jobs to runScans' initialized Class B scheduler. */
-export function publisherUnionScheduler({ jobs, dependencies = {}, initialFailures = new Set(), requirements, adapt, verify, onCoverage = () => {} }) {
+export function publisherUnionScheduler({ jobs, dependencies = {}, initialFailures = new Set(), requirements, adapt, verify, signal = null, onCoverage = () => {} }) {
   if (!Array.isArray(requirements) || requirements.some((r) => r.internal) || typeof adapt !== "function" || typeof verify !== "function") throw new Error("publisher scheduler needs external requirements, adapter and verifier; internal scans must already be verified");
   const byId = new Map(requirements.map((r) => [r.id, r]));
   if (byId.size !== requirements.length) throw new Error("duplicate publisher requirement IDs");
@@ -200,7 +200,13 @@ export function publisherUnionScheduler({ jobs, dependencies = {}, initialFailur
     const result = await executeUnitListCompile({ jobs, dependencies, initialFailures,
       run: async (job) => {
         const byMember = new Map();
+        const budget = { remaining: Math.min(2 * job.members.length - 1, 31) };
         const runMembers = async (members) => {
+          if (budget.remaining <= 0 || signal?.aborted) {
+            for (const member of members) { const history = attempts.get(member.id) ?? []; history.push({ status: "not-run", code: signal?.aborted ? "CANCELLED" : "BATCH_BUDGET" }); attempts.set(member.id, history); }
+            return;
+          }
+          budget.remaining -= 1;
           const representative = byId.get(members[0].id);
           if (!representative) throw new Error("unknown publisher requirement");
           let argv = job.argv;
@@ -214,13 +220,17 @@ export function publisherUnionScheduler({ jobs, dependencies = {}, initialFailur
           const row = await execute(scan);
           for (const member of members) {
             const history = attempts.get(member.id) ?? [];
-            history.push({ id: row.id, status: row.status, ...(row.code ? { code: row.code } : {}), command: row.command, ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}) });
+            history.push({ id: row.id, status: row.status, ...(row.code ? { code: row.code } : {}), command: row.command, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}) });
             attempts.set(member.id, history);
           }
-          if (members.length > 1 && job.batchAt !== undefined && row.status === "fail" && row.code === "EXIT") {
+          const attributable = (row.code === "EXIT" && !row.snapshotEvidence) || (row.code === "BROKER_COMPILE_FAILURE" && row.authenticatedFailure?.retryable === true && row.authenticatedFailure?.failureClass === "compile" && row.snapshotEvidence?.receiptSha256);
+          if (members.length > 1 && job.batchAt !== undefined && row.status === "fail" && attributable) {
             const half = Math.ceil(members.length / 2);
             await runMembers(members.slice(0, half)); await runMembers(members.slice(half));
-          } else for (const member of members) { executed.set(member.id, row); byMember.set(member.id, row); }
+          }
+          // Split outcomes attribute the failure; they cannot turn the required combined
+          // invocation into a pass or unblock a selected dependent.
+          for (const member of members) { executed.set(member.id, row); byMember.set(member.id, row); }
         };
         await runMembers(job.members);
         return { byMember };

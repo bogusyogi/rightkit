@@ -4458,7 +4458,7 @@ export async function main(argv, io = {}) {
         };
         for (const requirement of external) plan.scans.push(adapt(requirement));
         const dependencies = Object.fromEntries(unionContext.selected.map((unit) => [unit.selector, (unit.deps ?? []).filter((dep) => unionContext.selected.some((u) => u.selector === dep))]));
-        unionScheduler = publisherUnionScheduler({ jobs, dependencies, initialFailures, requirements: external, adapt, onCoverage: (coverage) => { unionContext.coverage = coverage; }, verify: async ({ row, member, attempts, requirement }) => {
+        unionScheduler = publisherUnionScheduler({ jobs, dependencies, initialFailures, requirements: external, adapt, signal: ac.signal, onCoverage: (coverage) => { unionContext.coverage = coverage; }, verify: async ({ row, member, attempts, requirement }) => {
           const verdict = verdicts.get(member.selector);
           const proof = { commit: snapshotBCommit.commit, tree: snapshotBCommit.tree, requirement: member.coverageKey, command: row?.command ?? null, attempts, snapshotEvidence: row?.snapshotEvidence ?? null, testRun: row?.testRun ?? null, results: row?.results ?? null };
           unionContext.commands.push({ selector: member.selector, id: member.id, ...proof });
@@ -4737,7 +4737,7 @@ export async function main(argv, io = {}) {
       unionContext.rows = scanResult.scans.filter((row) => row.class === "B").map((row) => {
         const scan = scanById.get(row.id);
         const command = scan?.tool ? [scan.tool, ...(scan.args ?? [])].join(" ") : null;
-        return { id: row.id, status: row.status, ...(command ? { command } : {}), ...(row.batchCommand ? { batchCommand: row.batchCommand } : {}), ...(row.batchedWith ? { batchedWith: row.batchedWith } : {}), ...(row.batchFailure ? { batchFailure: row.batchFailure } : {}), ...(row.batchAttempts ? { batchAttempts: row.batchAttempts } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), ...(row.testRun ? { testRun: row.testRun } : {}), ...(row.results ? { results: row.results } : {}), ...(unionContext.owner?.has(row.id) ? { publisherUnit: unionContext.owner.get(row.id) } : { sharedOrigin: true }) };
+        return { id: row.id, status: row.status, ...(command ? { command } : {}), ...(row.batchCommand ? { batchCommand: row.batchCommand } : {}), ...(row.batchedWith ? { batchedWith: row.batchedWith } : {}), ...(row.batchFailure ? { batchFailure: row.batchFailure } : {}), ...(row.batchAttempts ? { batchAttempts: row.batchAttempts } : {}), ...(row.individualStatus ? { individualStatus: row.individualStatus, ...(row.individualCode ? { individualCode: row.individualCode } : {}) } : {}), ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), ...(row.testRun ? { testRun: row.testRun } : {}), ...(row.results ? { results: row.results } : {}), ...(unionContext.owner?.has(row.id) ? { publisherUnit: unionContext.owner.get(row.id) } : { sharedOrigin: true }) };
       });
     }
     if (unionContext) unionContext.sharedClean = unionContext.rows.filter((row) => row.sharedOrigin).every((row) => row.status === "pass");

@@ -2887,26 +2887,32 @@ export async function runScans(plan, options = {}) {
       const id = `${/^clippy/.test(lead.id) ? "clippy" : "check"}:batch:${sha256(`${lead.batchable.key}\0${units.join("\0")}`).slice(0, 8)}`;
       return { ...plain, id, args, command: commandText({ ...plain, env: {}, args }), batch: { units, members: idx.map((i) => bScans[i].id) } };
     };
-    const runGroup = async (idx, extraEnv) => {
+    const runGroup = async (idx, extraEnv, budget = { remaining: Math.min(2 * idx.length - 1, 31) }) => {
+      if (budget.remaining <= 0 || signal?.aborted) {
+        for (const i of idx) slots[i] = { ...failedRow(i, "batch attribution was not run"), code: signal?.aborted ? "CANCELLED" : "BATCH_BUDGET", detail: signal?.aborted ? "batch attribution was cancelled" : "batch attribution budget exhausted" };
+        return;
+      }
+      budget.remaining -= 1;
       if (idx.length === 1) { const i = idx[0]; slots[i] = await runOne(bScans[i], extraEnv).catch((error) => failedRow(i, error)); return; }
       const started = Date.now();
       const bs = batchScanOf(idx);
       let row;
       try { row = await scanRow(bs, extraEnv); } catch (error) { row = { id: bs.id, status: "fail", code: "SCAN_ERROR", detail: String(error?.message ?? error) }; }
-      if (row.status === "fail" && row.code === "EXIT" && !signal?.aborted) {
+      const attributable = (row.code === "EXIT" && !row.snapshotEvidence) || (row.code === "BROKER_COMPILE_FAILURE" && row.authenticatedFailure?.retryable === true && row.authenticatedFailure?.failureClass === "compile" && row.snapshotEvidence?.receiptSha256);
+      if (row.status === "fail" && attributable && !signal?.aborted) {
         // Bisect for attribution, but keep the grouped failure itself as evidence (rightkit#1458, reconciled scope
         // 2026-11-04): the splits below prove each member's own required scan; they do not erase that the combined
         // invocation failed (feature unification across the group is one way that happens, GC-I11).
         batchFailureNotes.push(`class B batching: grouped invocation ${bs.id} (${idx.length} crates: ${bs.batch.units.join(", ")}) failed (EXIT) and was bisected to attribute it; member rows carry it as batchFailure`);
         const half = Math.ceil(idx.length / 2);
-        await runGroup(idx.slice(0, half), extraEnv);
-        await runGroup(idx.slice(half), extraEnv);
-        for (const i of idx) if (slots[i]) slots[i] = { ...slots[i], batchFailure: slots[i].batchFailure ?? { id: bs.id, units: bs.batch.units, command: row.command, ...(row.detail ? { detail: row.detail } : {}) }, batchAttempts: [...(slots[i].batchAttempts ?? []), { id: bs.id, status: row.status, command: row.command, ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), timing: row.timing ?? null }] };
+        await runGroup(idx.slice(0, half), extraEnv, budget);
+        await runGroup(idx.slice(half), extraEnv, budget);
+        for (const i of idx) if (slots[i]) slots[i] = { ...slots[i], individualStatus: slots[i].individualStatus ?? slots[i].status, individualCode: slots[i].individualCode ?? slots[i].code ?? null, status: "fail", code: "BATCH_REQUIREMENT_FAILED", batchFailure: { id: bs.id, units: bs.batch.units, command: row.command, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), ...(row.detail ? { detail: row.detail } : {}) }, batchAttempts: [...(slots[i].batchAttempts ?? []), { id: bs.id, status: row.status, command: row.command, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), timing: row.timing ?? null }] };
         return;
       }
       for (const i of idx) {
         const m = bScans[i];
-        const own = { id: m.id, class: m.class, command: m.command, batchCommand: row.command, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, status: row.status, ...(row.code ? { code: row.code } : {}), ...(row.detail ? { detail: row.status === "fail" ? `${row.id} (${idx.length} crates: ${bs.batch.units.join(", ")}): ${row.detail}` : row.detail } : {}), ...(row.cached ? { cached: true } : {}), timing: row.timing ?? null, batchedWith: { id: row.id, units: bs.batch.units }, ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), ...(row.identities ? { identities: row.identities } : {}), ...(row.log ? { log: row.log } : {}) };
+        const own = { id: m.id, class: m.class, command: m.command, batchCommand: row.command, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, status: row.status, ...(row.code ? { code: row.code } : {}), ...(row.detail ? { detail: row.status === "fail" ? `${row.id} (${idx.length} crates: ${bs.batch.units.join(", ")}): ${row.detail}` : row.detail } : {}), ...(row.cached ? { cached: true } : {}), timing: row.timing ?? null, batchedWith: { id: row.id, units: bs.batch.units }, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), ...(row.identities ? { identities: row.identities } : {}), ...(row.log ? { log: row.log } : {}) };
         slots[i] = own; done += 1;
         try { onResult(own, { done, total, seconds: Math.round((Date.now() - started) / 1000) }); } catch { /* reporting never fails a scan */ }
       }
@@ -3371,7 +3377,19 @@ export async function runScans(plan, options = {}) {
             try {
               const ref = readRequestRef(path.join(carrier.refDir, "request.json"));
               const receipt = await deps.snapshotBroker.receiptOf(ref.requestId);
-              const { evidence } = verifySnapshotReceipt(receipt, { pins: deps.snapshotBroker.pins, jobId: ref.requestId, carrier: carrier.made.carrier, argv: carrier.cargoArgv, workspace: ref.workspace, observedEnv: observedEnvOf({ ...deps.env, ...s.env, ...(extraEnv ?? {}) }, deps.platform ?? process.platform), checkout: deps.snapshotBroker.checkout, outputRoots: deps.snapshotBroker.outputRoots, platform: deps.snapshotBroker.platform ?? deps.platform ?? process.platform });
+              const receiptOptions = { pins: deps.snapshotBroker.pins, jobId: ref.requestId, carrier: carrier.made.carrier, argv: carrier.cargoArgv, workspace: ref.workspace, observedEnv: observedEnvOf({ ...deps.env, ...s.env, ...(extraEnv ?? {}) }, deps.platform ?? process.platform), checkout: deps.snapshotBroker.checkout, outputRoots: deps.snapshotBroker.outputRoots, platform: deps.snapshotBroker.platform ?? deps.platform ?? process.platform };
+              let verified;
+              try { verified = verifySnapshotReceipt(receipt, receiptOptions); }
+              catch (original) {
+                if (original?.code !== "result" || status !== "fail" || code !== "EXIT" || signal?.aborted || !Number.isSafeInteger(r?.status) || r.status <= 0) throw original;
+                verified = verifySnapshotReceipt(receipt, { ...receiptOptions, allowFailedCompile: true });
+                if (verified.signedResult?.status !== "FAILED" || verified.signedResult.failureClass !== "compile" || verified.signedResult.exitCode !== r.status || verified.signedResult.signal !== null) throw original;
+                code = "BROKER_COMPILE_FAILURE";
+                // A signed compile class alone does not prove failed-process postchecks ran.
+                // Do not assert retryable until the broker signs that stronger evidence.
+                row.authenticatedFailure = { status: verified.signedResult.status, failureClass: verified.signedResult.failureClass, exitCode: verified.signedResult.exitCode };
+              }
+              const { evidence } = verified;
               row.snapshotEvidence = { receiptSha256: sha256(canonicalJson(receipt)), requestId: ref.requestId, outputDir: evidence.outputDir, cargoDir: s.cwd ?? ".", targetTriple: typeof receipt?.targetTriple === "string" && /^[A-Za-z0-9_.]+(?:-[A-Za-z0-9_.]+){1,4}$/.test(receipt.targetTriple) ? receipt.targetTriple : null, treeAtStart: evidence.snapshot.treeAtStart, treeAtExit: evidence.snapshot.treeAtExit, ...(receipt && Object.hasOwn(receipt, "testExecutables") ? { testExecutables: receipt.testExecutables, testExecutablesReason: receipt.testExecutablesReason ?? null } : {}) };
             } catch (e) {
               status = "fail"; code = "SNAPSHOT_EVIDENCE"; detail = `${s.id}: the broker's snapshot evidence did not verify (${e.code ?? "error"}: ${e.message})`;
