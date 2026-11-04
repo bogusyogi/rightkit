@@ -50,8 +50,6 @@ pub(crate) fn enter(level: Level) -> LevelGuard {
     let bit = level.bit();
     HELD.with(|held| {
         let now = held.get();
-        // Every bit at or above `bit`.
-        let at_or_after = !(bit - 1);
         held.set(now | bit);
     });
     LevelGuard {

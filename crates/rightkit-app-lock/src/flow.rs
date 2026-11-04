@@ -28,6 +28,7 @@ pub struct Methods<'a> {
 }
 
 /// The OS-side hooks. Shell-only by construction.
+#[allow(clippy::type_complexity)] // boxed closures are the hook seam
 pub struct Shell<'a> {
     /// Whether the stored preference has the lock on (fail closed).
     pub is_enabled: Box<dyn Fn() -> bool + 'a>,

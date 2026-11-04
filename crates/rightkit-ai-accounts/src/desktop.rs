@@ -295,7 +295,9 @@ fn instances_light(slots: &[Slot]) -> Vec<Instance> {
 }
 
 fn instances_with(slots: &[Slot], environ: bool) -> Vec<Instance> {
-    let mut system = System::new();
+    let Ok(mut system) = System::new() else {
+        return Vec::new();
+    };
     let mut kind = ProcessRefreshKind::nothing()
         .with_cmd(UpdateKind::Always)
         .with_exe(UpdateKind::Always);
@@ -366,7 +368,9 @@ fn instances_with(slots: &[Slot], environ: bool) -> Vec<Instance> {
 }
 
 fn alive(pid: u32, start_time: u64) -> bool {
-    let mut system = System::new();
+    let Ok(mut system) = System::new() else {
+        return false;
+    };
     let pid = Pid::from_u32(pid);
     system.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
     system
@@ -1119,7 +1123,7 @@ const CATCH_WINDOW: Duration = Duration::from_secs(600);
 /// Store app taking the sign-in).
 #[cfg(windows)]
 fn find_login_link() -> Option<(u32, u64, String)> {
-    let mut system = System::new();
+    let mut system = System::new().ok()?;
     let kind = ProcessRefreshKind::nothing().with_cmd(UpdateKind::Always);
     system.refresh_processes_specifics(ProcessesToUpdate::All, true, kind);
     for (pid, p) in system.processes() {

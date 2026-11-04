@@ -900,7 +900,7 @@ pub struct Ancestry {
 /// process table. `None` when this process is not in the process table.
 pub fn read_ancestry() -> Option<Ancestry> {
     use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
-    let mut system = System::new();
+    let mut system = System::new().ok()?;
     system.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
     let step = |p: &sysinfo::Process| AncestryStep {
         pid: p.pid().as_u32(),

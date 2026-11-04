@@ -2416,16 +2416,36 @@ const INTERNAL = {
   "dependency-freshness": async (s, ctx) => {
     let bin;
     try { bin = resolveOutdatedBin(); } catch (e) { return { advice: `dependency freshness not measured: ${e instanceof OutdatedUnavailableError ? e.message : `right-update could not be located (${e.message})`}` }; }
+    // The answer is a property of the repository's lock files and of the registry at this hour, not of the unit being gated: a run per unit of one
+    // commit asks the registry again for the same locks (88 s per crate on 2026-11-04, 6795 s over 77 crate runs). One answer per lock set and UTC hour.
+    let cachePath = null;
+    try {
+      const names = [".rightkit/update.json", "Cargo.lock", "pnpm-lock.yaml", "package.json"];
+      const h = crypto.createHash("sha256");
+      for (const n of names) { h.update(`${n}\0`); try { h.update(fs.readFileSync(path.join(ctx.contentRoot, n))); } catch { h.update("absent"); } }
+      const dir = path.join(ctx.tmpRoot ?? os.tmpdir(), "rightkit-freshness-cache");
+      cachePath = path.join(dir, `${h.digest("hex").slice(0, 32)}-${new Date().toISOString().slice(0, 13)}.json`);
+      const hit = JSON.parse(fs.readFileSync(cachePath, "utf8"));
+      if (typeof hit?.advice === "string") return { advice: hit.advice };
+    } catch { /* no cached answer: measure */ }
+    const remember = (result) => {
+      // A measurement that timed out is cached too: it is the 120 s case (41 of 81 crate runs on 2026-11-04), and asking again for every unit of the same
+      // lock set within the hour is the cost this cache removes. The advice text says "not measured", so nobody reads it as a pass.
+      if (cachePath && typeof result?.advice === "string") {
+        try { fs.mkdirSync(path.dirname(cachePath), { recursive: true }); fs.writeFileSync(cachePath, JSON.stringify({ advice: result.advice })); } catch { /* the cache is an optimisation only */ }
+      }
+      return result;
+    };
     let r;
     try { r = await ctx.deps.spawn(process.execPath, [bin, "check", "--json", "--repo", ctx.contentRoot], { cwd: ctx.contentRoot, encoding: "utf8", env: { ...ctx.deps.env, ...PNPM_NO_HOOKS_ENV }, timeout: 120_000, maxBuffer: 1 << 26 }); }
-    catch (e) { return { advice: `dependency freshness not measured: right-update check did not run (${e.message})` }; }
+    catch (e) { return remember({ advice: `dependency freshness not measured: right-update check did not run (${e.message})` }); }
     let report = null;
     try { report = JSON.parse(String(r?.stdout ?? "")); } catch { report = null; }
-    if (!report || !Array.isArray(report.entries)) return { advice: `dependency freshness not measured: right-update check printed no report${r?.status ? ` (exit ${r.status})` : ""}` };
+    if (!report || !Array.isArray(report.entries)) return remember({ advice: `dependency freshness not measured: right-update check printed no report${r?.status ? ` (exit ${r.status})` : ""}` });
     const behind = report.entries.filter((e) => e.status === "outdated");
     const unjudged = report.entries.filter((e) => e.status === "unknown" || e.error).length;
     const named = behind.slice(0, 5).map((e) => `${e.name} ${e.pinned ?? "?"} -> ${e.latest ?? "?"}`).join(", ");
-    return { advice: `${behind.length} behind latest${named ? ` (${named}${behind.length > 5 ? ", ..." : ""})` : ""}${unjudged ? `; ${unjudged} not judged` : ""}` };
+    return remember({ advice: `${behind.length} behind latest${named ? ` (${named}${behind.length > 5 ? ", ..." : ""})` : ""}${unjudged ? `; ${unjudged} not judged` : ""}` });
   },
   // The Swift type-check (rightkit#1289): Mac host only, Class A, before any compile stage. SwiftPM compiles each target with `-Xswiftc -typecheck`: swiftc type-checks every
   // source against the real SDK and the target's dependencies and writes no object file, so a labelled-argument order error fails here in seconds instead of at the

@@ -110,7 +110,15 @@
         ]
       ],
       "checkFeatureSets": [
-        []
+        [],
+        [
+          "--features",
+          "metal"
+        ],
+        [
+          "--features",
+          "vulkan"
+        ]
       ]
     },
     "rightkit-tts-qwen": {
@@ -145,15 +153,11 @@
       "checkFeatureSets": [
         [
           "--features",
-          "control,wv2-0_38"
-        ],
-        [
-          "--features",
-          "control,wv2-0_38,android,browser"
-        ],
-        [
-          "--features",
           "control,wv2-0_39"
+        ],
+        [
+          "--features",
+          "control,wv2-0_39,android,browser"
         ]
       ],
       "featureSets": [
@@ -181,7 +185,7 @@
       "checkFeatureSets": [
         [
           "--features",
-          "qa-control,wv2-0_38,offscreen-private-spi"
+          "qa-control,wv2-0_39,offscreen-private-spi"
         ]
       ],
       "allowIgnored": "tests/offscreen_windows.rs (3 tests: live_session_moves_window_off_all_displays_without_focus, hidden_at_start_window_is_placed_and_shown_without_ever_appearing_on_a_display, minimized_window_is_refused) and tests/offscreen_macos.rs (4 tests: launches_offscreen_with_native_identity, identity_cross_check_survives_after_end, never_shown_window_shows_hover_and_pressed_pixels, shown_unfocused_window_registers_hover_style_and_pressed_pixels) are #[ignore] on purpose: they create real windows in the interactive desktop session or launch the Tauri control fixture, which no runner provides, and run by hand with --ignored (3 ignored per default run on Windows, 4 on macOS); every other qa-driver test runs and asserts on every default run"
@@ -191,44 +195,49 @@
         [
           "--no-default-features",
           "--features",
-          "wv2-0_38"
+          "wv2-0_39"
         ],
         [
           "--no-default-features",
           "--features",
-          "wv2-0_38,engine"
+          "wv2-0_39,engine"
         ],
         [
           "--no-default-features",
           "--features",
-          "wv2-0_38,host-services,license,update,update-license"
+          "wv2-0_39,host-services,license,update,update-license"
         ],
         [
           "--no-default-features",
           "--features",
-          "wv2-0_38,logs,crash,overlay,models,pdf-host"
+          "wv2-0_39,logs,crash,overlay,models,pdf-host"
         ],
         [
           "--no-default-features",
           "--features",
-          "wv2-0_38,app-lock"
+          "wv2-0_39,app-lock"
+        ],
+        [
+          "--no-default-features",
+          "--features",
+          "wv2-0_39,app-update,dialog"
         ]
       ],
       "checkFeatureSets": [
         [
           "--no-default-features",
           "--features",
-          "wv2-0_38,engine,content-devtools"
+          "wv2-0_39,engine,content-devtools"
         ],
         [
           "--no-default-features",
           "--features",
-          "wv2-0_38,engine,qa-probes"
+          "wv2-0_39,engine,qa-probes"
         ],
         [
           "--no-default-features",
           "--features",
-          "wv2-0_38,engine"
+          "wv2-0_39,engine"
         ]
       ],
       "paths": [
@@ -401,6 +410,10 @@
       "checkFeatureSets": [
         [
           "--no-default-features"
+        ],
+        [
+          "--features",
+          "coding_tools-host,mcp-provider,coding_tools-embeddings,coding_tools-test-support"
         ]
       ]
     },

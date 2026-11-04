@@ -272,8 +272,14 @@ export function brokerClientRoute({ env = process.env, platform = process.platfo
   return { client, env: socket ? { ...env, RUSTRIGHT_BUILD_BROKER_SOCKET: socket } : env, mapUnavailable: platform === 'darwin' };
 }
 
+/** Cargo commands that compile nothing: Class A, run direct with the pinned toolchain and never carried by the broker (GC-A11, BROKER-CONTRACT interface item 14). */
+const NON_COMPILING_CARGO = new Set(['metadata', 'fetch', 'tree', 'locate-project', 'pkgid', 'verify-project', 'read-manifest']);
+
 export function runCargoSync(args, options = {}, { platform = process.platform, exists = existsSync, spawn = spawnSync, fsOps } = {}) {
   const env = options.env ?? process.env;
+  // The broker refuses every carried request that compiles nothing (RK_CHECK_ERROR), so right-release's `cargo metadata` of the compile and
+  // package stages runs here, directly, exactly as the gate runs its Class A cargo calls.
+  if (NON_COMPILING_CARGO.has(args[0])) return spawn("cargo", args, { ...options, env: directCargoEnv(env, platform, exists) });
   const seam = carriedSeam(args, options, { platform, spawn });
   if (seam) return seam;
   // A gate run outside the broker by Adrian's recorded exception: the real toolchain, shims off PATH, on every platform (NO_BROKER_ENV).

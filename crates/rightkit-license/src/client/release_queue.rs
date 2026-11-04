@@ -57,6 +57,7 @@ pub struct PendingReleaseEntry {
 
 /// The app's durable queue of releases that still have to reach the server. Failure is `Err(())`:
 /// the client records no reason and keeps the state it had.
+#[allow(clippy::result_unit_err)] // the client records no reason and keeps its state (see above)
 pub trait PendingReleaseQueue {
     /// Persist `release` and return the id of its row. Called before the local tombstone is
     /// written. A failure stops the removal, and the active record stays.

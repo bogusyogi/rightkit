@@ -443,7 +443,10 @@ pub fn running_process_list() -> Result<Vec<String>, String> {
 
 /// Names (lowercased) of running processes; the liveness evidence.
 pub fn running_process_names() -> Vec<String> {
-    let mut system = sysinfo::System::new();
+    // An unreadable process table gives an empty list, which `running_process_list` turns into an error (unknown liveness).
+    let Ok(mut system) = sysinfo::System::new() else {
+        return Vec::new();
+    };
     system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
     system
         .processes()

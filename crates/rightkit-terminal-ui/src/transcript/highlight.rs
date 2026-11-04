@@ -166,7 +166,7 @@ fn build_default_theme() -> Theme {
 }
 
 fn theme_lock() -> impl std::ops::Deref<Target = RwLock<Theme>> {
-    { THEME.get_or_init(|| RwLock::new(build_default_theme())) }
+    THEME.get_or_init(|| RwLock::new(build_default_theme()))
 }
 
 /// Clone the current syntax theme (e.g. to save for cancel-restore).

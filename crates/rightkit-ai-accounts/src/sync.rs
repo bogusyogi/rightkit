@@ -144,9 +144,10 @@ pub(crate) fn is_helper(cmd: &[std::ffi::OsString]) -> bool {
 /// folder through its own `--user-data-dir` or its helpers'. One whose folder is unknown (no
 /// helper yet, just launching) counts as using `root`: sync never writes into a folder that a
 /// running Desktop might own.
-fn instances_for(root: &Path) -> Vec<u32> {
+/// `None` when the process table cannot be read: unknown is not "not running".
+fn instances_for(root: &Path) -> Option<Vec<u32>> {
     use sysinfo::{ProcessesToUpdate, System};
-    let mut system = System::new();
+    let mut system = System::new().ok()?;
     system.refresh_processes(ProcessesToUpdate::All, true);
     let procs = system.processes();
     let wanted = data_dir_key(root);
@@ -190,13 +191,13 @@ fn instances_for(root: &Path) -> Vec<u32> {
             found.push(main);
         }
     }
-    found
+    Some(found)
 }
 
 /// Whether the Claude Desktop instance that uses `root` is running. Looks at the process table
 /// by executable path and `--user-data-dir`; no AppleScript, no Launch Services.
 pub fn claude_running_for(root: &Path) -> bool {
-    !instances_for(root).is_empty()
+    instances_for(root).is_none_or(|found| !found.is_empty())
 }
 
 #[cfg(target_os = "macos")]

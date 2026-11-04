@@ -411,7 +411,9 @@ pub fn running_claude_scan() -> RunningScan {
 
 fn scan_running_claude() -> RunningScan {
     use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
-    let mut system = System::new();
+    let Ok(mut system) = System::new() else {
+        return RunningScan::default();
+    };
     // Stage 1: the executable path only (cheap). Command lines (a remote memory read per
     // process) are read in stage 2 for the few that can be Claude Code: a path naming claude (a
     // native install's binary is named by version, under a `claude` folder) or a node/bun
@@ -684,7 +686,9 @@ fn claude_configs_in(root: &Path) -> Vec<PathBuf> {
 /// Is this process still running, and (where the key file records the start time)
 /// is it the same process that wrote the files?
 fn process_matches(pid: u32, recorded_start: Option<&str>, domain: Option<&str>) -> bool {
-    let mut system = sysinfo::System::new();
+    let Ok(mut system) = sysinfo::System::new() else {
+        return false;
+    };
     let target = sysinfo::Pid::from_u32(pid);
     system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[target]), true);
     if system.process(target).is_none() {

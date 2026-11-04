@@ -85,3 +85,6 @@ release = "run returns when the dump is written"
 static_note = "DUMP_LOCK is one Mutex<()> serialising DbgHelp dumps: no data, cannot grow"
 
 # One Cargo workspace and lock per crate (rightkit#1285).
+
+[dev-dependencies]
+rightkit-logs = { version = "0.3.9", path = "../rightkit-logs", features = ["http"] }

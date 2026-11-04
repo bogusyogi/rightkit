@@ -991,7 +991,7 @@ fn register_chat(harness: &str, session: &str, hook: &HookEvent) {
 /// harness's name, else the hook's parent. `None` when neither can be found.
 fn harness_pid(harness: &str) -> Option<u32> {
     use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
-    let mut system = System::new();
+    let mut system = System::new().ok()?;
     system.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
     let parent = system
         .process(Pid::from_u32(std::process::id()))?

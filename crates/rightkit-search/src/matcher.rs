@@ -183,7 +183,7 @@ impl TextMatcher {
         let folded = fold_with(text, self.opts);
         let first = positives.iter().filter_map(|n| folded.find(*n)).min()?;
         let mut acc = 0;
-        let (hit_char, hit_byte) = text.char_indices().enumerate().find_map(|(ci, (bi, c))| {
+        let (hit_char, _hit_byte) = text.char_indices().enumerate().find_map(|(ci, (bi, c))| {
             let len = folded_len(c, self.opts);
             if acc + len > first {
                 return Some((ci, bi));

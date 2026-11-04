@@ -153,7 +153,7 @@ impl PtyAttach {
             last_snapshot: String::new(),
             partial: String::new(),
             ended: false,
-            term: vt100::Parser::new(rows, cols, 0),
+            term: vt100::Parser::new(nonzero(rows), nonzero(cols), 0),
             last_human_input: None,
             agent_released: false,
             release_notice: false,
@@ -298,7 +298,9 @@ impl PtyAttach {
                 if (rows, cols) != (self.rows, self.cols) {
                     self.rows = rows;
                     self.cols = cols;
-                    self.term.screen_mut().set_size(rows, cols);
+                    self.term
+                        .screen_mut()
+                        .set_size(nonzero(rows), nonzero(cols));
                     self.intents.push(PtyIntent::Resize { rows, cols });
                 }
                 Outcome::Redraw
@@ -369,6 +371,11 @@ fn map_color(color: vt100::Color) -> ratatui::style::Color {
     }
 }
 
+/// vt100 0.18 sizes are non-zero; a zero request becomes the smallest grid.
+fn nonzero(n: u16) -> std::num::NonZeroU16 {
+    std::num::NonZeroU16::new(n).unwrap_or(std::num::NonZeroU16::MIN)
+}
+
 /// Paint `screen` into `buf` over `area` (clipped to the grid), with colors
 /// and attributes. Returns the absolute cursor position when it is visible.
 pub fn render_grid(
@@ -378,6 +385,7 @@ pub fn render_grid(
 ) -> Option<(u16, u16)> {
     use ratatui::style::{Modifier, Style};
     let (rows, cols) = screen.size();
+    let (rows, cols) = (rows.get(), cols.get());
     for row in 0..rows.min(area.height) {
         for col in 0..cols.min(area.width) {
             let Some(cell) = screen.cell(row, col) else {

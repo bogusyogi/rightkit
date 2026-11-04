@@ -236,7 +236,9 @@ struct DeliveryRecord {
 
 /// Whether a process with this pid runs.
 fn process_alive(pid: u32) -> bool {
-    let mut system = sysinfo::System::new();
+    let Ok(mut system) = sysinfo::System::new() else {
+        return false;
+    };
     let target = sysinfo::Pid::from_u32(pid);
     system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[target]), true);
     system.process(target).is_some()

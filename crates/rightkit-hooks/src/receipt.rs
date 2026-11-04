@@ -499,7 +499,7 @@ impl HookSeen {
                 )
             })
             .collect();
-        entries.sort_by(|a, b| b.0.cmp(&a.0));
+        entries.sort_by_key(|entry| std::cmp::Reverse(entry.0));
         for (index, (seconds, path)) in entries.iter().enumerate() {
             if *seconds < cutoff || index >= self.max_files {
                 let _ = std::fs::remove_file(path);

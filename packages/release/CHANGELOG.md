@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.44 (unpublished)
+
+- **`cargo metadata`, `fetch`, `tree`, `locate-project`, `pkgid`, `verify-project` and `read-manifest` of right-release run direct, never carried by the broker (rightkit#1505; RustRight broker chat, 2026-11-04).** The next broker refuses every carried request that compiles nothing (`RK_CHECK_ERROR`, GC-A11), which failed HeardRight's compile at `stage-sidecar` (`STAGE_SIDECAR_CATALOG_UNREADABLE`). `runCargoSync` in `managed-cargo.mjs` now runs those commands with the pinned toolchain and the shims off PATH, like the gate's Class A cargo calls. Not run through the gate yet.
+
 ## 0.6.43 (unpublished)
 
 Written from code and syntax-checked only (`node --check`); nothing was run through the gate, so the item below is unverified until the first gate run.
