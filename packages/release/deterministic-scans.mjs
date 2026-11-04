@@ -469,6 +469,8 @@ export const PINNED_SCAN_TOOLS = Object.freeze({ shellcheck: "0.11.0", oxlint: "
  * service. A verdict that includes them is reusable only after they are re-run (`rightkit-gate live-scans`; GATE-CONTRACT §1, E18),
  * and a red caused by one is never deterministic. Ids are `<prefix>` or `<prefix>:<root>`; rustright's REMOTE_SCANS mirrors this list. */
 export const LIVE_SCAN_IDS = Object.freeze(["pnpm-audit", "ghsa-audit"]);
+/** Internal rules whose verdict is a function of the files they read and the rule code only (GC-A24): reused by input key. */
+export const CACHEABLE_INTERNAL = new Set(["secret-scan", "json-parse", "toml-parse", "yaml-parse", "license", "changelog-version", "ownership-catalog", "swift-lock", "gradle-lock", "python-lock"]);
 export const isLiveScan = (id) => LIVE_SCAN_IDS.some((p) => id === p || String(id).startsWith(`${p}:`));
 /** Scans whose FAILURE may come from the registry rather than their inputs: `pnpm-lockfile` (`install --frozen-lockfile --lockfile-only`)
  * re-verifies lockfile entries against the registry when pnpm's cache is cold, so an outage fails it. Their pass is deterministic, but a
@@ -477,6 +479,30 @@ export const REGISTRY_SCAN_IDS = Object.freeze(["pnpm-lockfile"]);
 export const isRegistryScan = (id) => REGISTRY_SCAN_IDS.some((p) => id === p || String(id).startsWith(`${p}:`));
 /** Files per rustfmt scan: 120 paths of ~100 bytes stay under Windows' 32 KB command line with the tool and flags. */
 export const RUSTFMT_BATCH = 120;
+/** FNV-1a of a path: the stable bucket hash of rustfmtBuckets. */
+function pathBucketHash(text) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h;
+}
+/** Most bytes of file arguments one rustfmt bucket passes: Windows refuses a command line past 32,767 characters. */
+export const RUSTFMT_BUCKET_BYTES = 24000;
+/**
+ * Splits `files` into rustfmt buckets: bucket = path hash mod a power-of-two count, the smallest with at most 100 files per bucket on
+ * average whose every bucket's arguments fit RUSTFMT_BUCKET_BYTES. Empty buckets are dropped; each bucket is sorted. A file's bucket
+ * depends only on its path and the count, which changes only when the file count crosses a power of two.
+ */
+export function rustfmtBuckets(files) {
+  const sorted = [...files].sort();
+  let count = 1;
+  while (count * 100 < sorted.length) count *= 2;
+  for (;;) {
+    const buckets = Array.from({ length: count }, () => []);
+    for (const f of sorted) buckets[pathBucketHash(f) % count].push(f);
+    if (buckets.every((b) => b.reduce((n, f) => n + f.length + 3, 0) <= RUSTFMT_BUCKET_BYTES)) return buckets.filter((b) => b.length);
+    count *= 2;
+  }
+}
 
 /** True when this module is the checked repository's own in-tree copy (packages/release of `contentRoot`), where its scripts/ live. */
 export function inTreeGate(contentRoot, exists = fs.existsSync) {
@@ -1217,13 +1243,13 @@ export function planScans({
     }
     byEdition.set(found.edition, [...(byEdition.get(found.edition) ?? []), f]);
   }
-  // One rustfmt scan per edition, batched: Windows refuses a command line past ~32 KB (spawn ENAMETOOLONG on a large repository,
-  // HeardRight on the Dell, 2026-10-27), so a batch holds at most RUSTFMT_BATCH files and the first batch keeps the plain id.
+  // rustfmt runs per edition in buckets: Windows refuses a command line past ~32 KB (spawn ENAMETOOLONG on a large repository,
+  // HeardRight on the Dell, 2026-10-27), so a bucket's arguments stay under RUSTFMT_BUCKET_BYTES. A file's bucket is a hash of its path over a
+  // power-of-two bucket count (GC-A24, rightkit#1506): an edited or added file changes only its own bucket's key, where the former
+  // sorted slices shifted every later batch. The first bucket keeps the plain id.
   for (const [edition, group] of [...byEdition].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
-    const sorted = group.sort();
-    for (let i = 0; i < sorted.length; i += RUSTFMT_BATCH) {
-      const batch = sorted.slice(i, i + RUSTFMT_BATCH);
-      add({ id: `rustfmt:${edition}${i ? `:${i / RUSTFMT_BATCH + 1}` : ""}`, class: A, tool: "rustfmt", args: ["--check", "--edition", edition, ...batch], root: "content" });
+    for (const [i, bucket] of rustfmtBuckets(group).entries()) {
+      add({ id: `rustfmt:${edition}${i ? `:${i + 1}` : ""}`, class: A, tool: "rustfmt", args: ["--check", "--edition", edition, ...bucket], root: "content" });
     }
   }
   for (const f of files.filter((f) => /\.(mjs|cjs|js)$/.test(f) && !f.includes("node_modules") && !declaredFixture(f)).sort()) {
@@ -3062,12 +3088,27 @@ export async function runScans(plan, options = {}) {
       return { ...row, status: "deferred", detail: s.deferred };
     }
     try {
+      // GC-A24: a deterministic internal rule (its verdict a function of the files it reads and the rule code) is reused by its input key,
+      // with the rule code's identity (CHECKER_IDENTITY) as its tool version. Network and advice rules are never reused this way.
+      let internalKey = null;
+      if (s.internal && cache && CACHEABLE_INTERNAL.has(s.internal) && typeof CHECKER_IDENTITY === "string") {
+        try {
+          const digest = cache.digest(s, {});
+          if (digest) internalKey = scanCacheKey({ id: s.id, command: s.command ?? `internal:${s.internal}`, toolVersion: CHECKER_IDENTITY, env: {}, inheritedEnv: inheritedEnvDigest({}), digest });
+        } catch (error) { internalKey = null; row.cacheKeyError = String(error?.message ?? error).slice(0, 300); }
+        const hit = internalKey ? cache.read(internalKey) : null;
+        if (hit && hit.key === internalKey && hit.row?.status === "pass" && hit.row.id === s.id) {
+          cacheHits.push(s.id);
+          return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}` };
+        }
+      }
       if (s.internal) {
         const out = await INTERNAL[s.internal](s, ctx);
         if (out && out.missing) { status = "fail"; code = "TOOL_MISSING"; detail = out.missing; }
         else if (out && !Array.isArray(out) && out.code) { status = "fail"; code = out.code; detail = out.detail; }
         else if (out && !Array.isArray(out) && typeof out.advice === "string") { advice = out.advice; }
         else if (out.length) { status = "fail"; detail = out.join("; "); }
+        if (status === "pass" && internalKey && !advice && !signal?.aborted) cache.write(internalKey, { id: s.id, class: s.class, command: s.command ?? `internal:${s.internal}`, tool: null, toolVersion: CHECKER_IDENTITY, status: "pass" });
       } else {
         const scanDir = path.join(rootDir(s.root), s.cwd ?? "");
         // The RustRight client's version probe starts in a Cargo workspace of the primary checkout; a class A cargo scan's own directory is
@@ -3125,7 +3166,7 @@ export async function runScans(plan, options = {}) {
               // child environment (with its one explicit ownership exception).
               const inherited = cache.narrowNodeCheck && /^node-check:/.test(s.id) ? sha256('node-check-child-env-in-digest/1') : inheritedEnvDigest({ ...deps.env, ...s.env });
               if (digest) cacheKey = scanCacheKey({ id: s.id, command: s.runOutside ? `${s.command} ;; run ${canonicalJson(s.runOutside)}` : s.command, toolVersion, env: s.env ?? {}, inheritedEnv: inherited, digest });
-            } catch { cacheKey = null; }
+            } catch (error) { cacheKey = null; row.cacheKeyError = String(error?.message ?? error).slice(0, 300); }
             const hit = cacheKey ? cache.read(cacheKey) : null;
             timing.cacheLookupMs = performance.now() - cacheStarted;
             // A cached test pass counts only with the counts it recorded: without them its coverage is unknown, so it runs again.

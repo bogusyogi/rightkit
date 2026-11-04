@@ -236,20 +236,38 @@ export function resolveCommit(checkout, rev = "HEAD") {
  * object database and ignore rules; writes only objects (into the checkout's object database) and a temporary index kept outside the
  * checkout's `.git`, always removed.
  */
-export function snapshotTree({ checkout, dir, baseTree, repo = repositoryOf(checkout) }) {
+export function snapshotTree({ checkout, dir, baseTree, repo = repositoryOf(checkout), indexStore = treeIndexStoreOf(dir) }) {
   // The sealed runner (snapshot-git.mjs): a private git directory T holds the index and receives every object written; the
   // checkout's git directory is not written at all (row 5.13), and its configuration, attributes, hooks and filters cannot reach the id.
-  return withSealedGit({ commonDir: repo.commonDir, objectFormat: repo.objectFormat, snapshot: dir }, (git) => {
+  const once = (stored) => withSealedGit({ commonDir: repo.commonDir, objectFormat: repo.objectFormat, snapshot: dir }, (git) => {
+    const index = path.join(git.T, "index");
     try {
-      git.ok(["read-tree", baseTree]);
+      if (stored) fs.copyFileSync(stored, index); else git.ok(["read-tree", baseTree]);
       git.ok(["add", "-A"]);
       const id = git.ok(["write-tree"]).trim();
       if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(id)) throw new SnapshotError("error", `git write-tree printed ${JSON.stringify(id)}`);
+      if (indexStore) {
+        try { const next = `${indexStore}.${process.pid}.tmp`; fs.copyFileSync(index, next); fs.renameSync(next, indexStore); } catch { /* a cache: the next run starts fresh */ }
+      }
       return id;
     } catch (e) {
       throw e instanceof SnapshotError ? e : new SnapshotError("error", e.message);
     }
   });
+  if (indexStore && fs.existsSync(indexStore)) {
+    try { return once(indexStore); } catch { try { fs.rmSync(indexStore, { force: true }); } catch { /* best effort */ } }
+  }
+  return once(null);
+}
+
+/** Where a gate snapshot's tree index is kept (`<snapshot>.tree-index` beside it), or null for any other directory (a checkout). */
+export function treeIndexStoreOf(dir) {
+  try {
+    const resolved = path.resolve(dir);
+    if (!/^[0-9a-f]{16}$/.test(path.basename(resolved))) return null;
+    const root = snapshotRoot();
+    return path.resolve(path.dirname(resolved)) === path.resolve(root) ? `${resolved}.tree-index` : null;
+  } catch { return null; }
 }
 
 /**

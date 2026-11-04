@@ -20,7 +20,7 @@ function telemetryOf(row) {
  * The report for `plan` (the planned scans, `plan.scans`) and `scanResult` (runScans' rows). `keys` is a Map of scan id -> the input key the cache
  * looked the scan up under (null or absent: the scan is never cached or no key could be formed). `classes` are the classes this pass runs.
  */
-export function buildCoverageReport({ plan, scanResult, keys = new Map(), classes = ["A", "B"], commit = null, startedAt = null, endedAt = null }) {
+export function buildCoverageReport({ plan, scanResult, keys = new Map(), keyErrors = new Map(), cacheDisabled = null, classes = ["A", "B"], commit = null, startedAt = null, endedAt = null }) {
   const rows = new Map((scanResult?.scans ?? []).map((row) => [row.id, row]));
   const scans = (plan?.scans ?? []).map((scan) => {
     const row = rows.get(scan.id);
@@ -28,13 +28,13 @@ export function buildCoverageReport({ plan, scanResult, keys = new Map(), classe
     const telemetry = telemetryOf(row);
     if (row) {
       if (row.cached === true) return { id: scan.id, class: scan.class, ...telemetry, coverage: "hit", status: row.status, key, reason: row.detail ?? "answered from the result cache" };
-      if (row.status === "pass" || row.status === "fail") return { id: scan.id, class: scan.class, ...telemetry, coverage: "ran", status: row.status, key, reason: key === null ? "no cache key (this scan is never cached, or no key could be formed)" : "no cached result for this key", ...(row.code ? { code: row.code } : {}) };
+      if (row.status === "pass" || row.status === "fail") return { id: scan.id, class: scan.class, ...telemetry, coverage: "ran", status: row.status, key, reason: key === null ? ((keyErrors.get(scan.id) ?? row.cacheKeyError) ? `no cache key: ${keyErrors.get(scan.id) ?? row.cacheKeyError}` : cacheDisabled ?? "no cache key (this scan is never cached, or no key could be formed)") : "no cached result for this key", ...(row.code ? { code: row.code } : {}) };
       return { id: scan.id, class: scan.class, ...telemetry, coverage: "skipped", status: row.status, key, reason: row.detail ?? row.status };
     }
     return { id: scan.id, class: scan.class, ...telemetry, coverage: "skipped", status: "not-in-pass", key, reason: classes.includes(scan.class) ? "planned but no result was returned" : `class ${scan.class} is not part of this pass (classes ${classes.join("+")})` };
   });
   const count = (what) => scans.filter((s) => s.coverage === what).length;
-  return { schema: COVERAGE_SCHEMA, commit, startedAt, endedAt, totals: { planned: scans.length, hit: count("hit"), ran: count("ran"), skipped: count("skipped") }, scans };
+  return { schema: COVERAGE_SCHEMA, commit, startedAt, endedAt, ...(cacheDisabled ? { cacheDisabled } : {}), totals: { planned: scans.length, hit: count("hit"), ran: count("ran"), skipped: count("skipped") }, scans };
 }
 
 /** Writes the report as `<dir>/<name>.json` (the directory is created); returns the path. */

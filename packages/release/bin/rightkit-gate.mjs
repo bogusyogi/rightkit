@@ -123,6 +123,51 @@ export const PLATFORMS = Object.freeze(["mac", "win", "ios", "android"]);
 export const MOBILE_PLATFORMS = Object.freeze(new Set(["ios", "android"]));
 // The gate's code identity for result keys: the checker (deterministic-scans and scan-digest, CHECKER_IDENTITY) and this file, where
 // the keys are built. An unidentifiable checker gets a per-process value, so nothing is reused across runs.
+// The identity a class B (compile) result key carries (GC-A24): a key-schema version, bumped by hand whenever what a key covers changes,
+// and the code of the runtime cargo wrapper and broker carrier, which decides what a carried compile ran and how its receipt is verified.
+// The gate's own file and the checker are not in it: the verdict is cargo's, the command and tool versions are in every key already, and
+// an edit elsewhere in the gate must not discard every compile result (rightkit#1506: Pulse, RK, RustRight and Legion kept 0 class B hits).
+const CLASS_B_KEY_SCHEMA = "rightkit.class-b-key/2";
+// GC-A24: passing rule-engine verdicts (app rules, RightKit's preflight) of a snapshot, under the checkout's git common directory.
+const RULE_VERDICT_SCHEMA = "rightkit.rule-verdict/1";
+function ruleVerdictCache({ checkout, spawn }) {
+  try {
+    const common = spawn("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: checkout });
+    if (failed(common) || !text(common).trim()) return null;
+    const dir = path.join(text(common).trim(), "rightkit-gate-cache", "rule-verdicts");
+    const file = (k) => path.join(dir, `${k}.json`);
+    return {
+      key: (parts) => createHash("sha256").update(canonicalJson({ schema: RULE_VERDICT_SCHEMA, node: process.version, platform: `${process.platform}-${process.arch}`, ...parts })).digest("hex"),
+      passed: (k) => { try { return JSON.parse(fs.readFileSync(file(k), "utf8"))?.status === "pass"; } catch { return false; } },
+      pass: (k) => { try { fs.mkdirSync(dir, { recursive: true }); const tmp = `${file(k)}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify({ schema: RULE_VERDICT_SCHEMA, status: "pass", at: new Date().toISOString() })); fs.renameSync(tmp, file(k)); } catch { /* a cache */ } },
+    };
+  } catch { return null; }
+}
+/** sha256 over every file of the gate package (the rule code a rule verdict depends on). */
+const gatePackageMemo = new Map();
+function gatePackageIdentity(gatePackage = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")) {
+  if (!gatePackageMemo.has(gatePackage)) {
+    const h = createHash("sha256");
+    const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1)).forEach((e) => { if (e.name === "node_modules" || e.name.startsWith(".")) return; const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (e.isFile()) { h.update(path.relative(gatePackage, p)); h.update("\0"); h.update(fs.readFileSync(p)); } });
+    walk(gatePackage);
+    gatePackageMemo.set(gatePackage, h.digest("hex"));
+  }
+  return gatePackageMemo.get(gatePackage);
+}
+// GC-A24: the class A key schema a standalone-tool row carries in place of the environment digest; bumped when what a class A key covers changes.
+const CLASS_A_KEY_SCHEMA = "rightkit.class-a-key/2";
+/** Whether a class A row's verdict depends on the installed dependencies (GC-A24): it executes repository code, or its tool is pnpm. */
+function classAEnvironmentBound(scan) { return scan.executes === true || scan.tool === "pnpm"; }
+let classBKeyIdentityMemo = null;
+function classBKeyIdentity() {
+  if (classBKeyIdentityMemo === null) {
+    const h = createHash("sha256");
+    h.update(CLASS_B_KEY_SCHEMA);
+    for (const f of ["cargo-target-shim.mjs", "snapshot-broker.mjs", "snapshot-request.mjs", "snapshot-metadata.mjs", "provenance-verify.mjs", "cargo-ledger.mjs"]) { h.update(`\0${f}\0`); h.update(fs.readFileSync(new URL(`../${f}`, import.meta.url))); }
+    classBKeyIdentityMemo = h.digest("hex").slice(0, 24);
+  }
+  return classBKeyIdentityMemo;
+}
 let gateCodeIdentityMemo = null;
 function gateCodeIdentity() {
   if (gateCodeIdentityMemo === null) {
@@ -328,6 +373,27 @@ export const PNPM_PROBE_TIMEOUT_MS = 60_000;
 export const PNPM_PIN_REFUSAL = "RK_PNPM_VERSION_MISMATCH";
 export const TOOL_CACHE_DIRS = new Set([".vite", ".vite-temp", ".vitest-cache", ".cache"]);
 export const INSTALL_STATE_NOT_COVERED = new Set([".pnpm-task-run-state-v1"]);
+/**
+ * The bytes of a pnpm install-state file as the digests bind them: pnpm stamps the time of every install into `.modules.yaml`
+ * (`prunedAt`) and `.pnpm-workspace-state-v1.json` (`lastValidatedTimestamp`, `validation.recordedAtNs`, the lockfile's `mtimeNs`/`ctimeNs`), so an identical reinstall changed every class A key and
+ * the dependency reuse record on each run (rightkit#1506, measured 2026-11-05: those two fields were the only bytes of 858 entries that
+ * differed between runs). Only those fields are dropped; every other byte stays bound. Any other file is returned unchanged.
+ */
+export function installStateBytes(name, bytes) {
+  if (name === ".modules.yaml") return Buffer.from(String(bytes).replace(/^\s*"?prunedAt"?\s*:.*$/m, ""));
+  if (name === ".pnpm-workspace-state-v1.json") {
+    try {
+      const state = JSON.parse(String(bytes)); delete state.lastValidatedTimestamp;
+      // validation: pnpm's own fast check records when it validated and the lockfile's times; the lockfile's size and digest stay bound.
+      if (state.validation && typeof state.validation === "object") {
+        delete state.validation.recordedAtNs;
+        for (const entry of Object.values(state.validation.files ?? {})) if (entry && typeof entry === "object") { delete entry.mtimeNs; delete entry.ctimeNs; }
+      }
+      return Buffer.from(JSON.stringify(state));
+    } catch { return bytes; }
+  }
+  return bytes;
+}
 const nodeModulesDirs = (root, files) => [...new Set(files.filter((f) => /(^|\/)package\.json$/.test(f)).map((f) => path.join(path.dirname(path.join(root, f)), "node_modules")))].sort();
 function isLink(p) { try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; } }
 
@@ -398,9 +464,21 @@ export function toolCacheDrift(before, after) {
  * entry, or more than `maxFiles` files throws. Tool caches (TOOL_CACHE_DIRS) leave no trace. Bytes that change while it hashes are caught by comparing the digest at the start
  * and end of the run and again at START.
  */
-export function installedDependencyDigest({ root, files, maxFiles = 400000, includeCaches = true }) {
+export function installedDependencyDigest({ root, files, maxFiles = 400000, includeCaches = true, statIndex = dependencyStatIndexOf(root) }) {
   const h = createHash("sha256");
   const realRoot = fs.realpathSync(root);
+  const statStarted = Date.now();
+  let known = new Map(); let knownAt = 0;
+  if (statIndex) { try { const stored = JSON.parse(fs.readFileSync(statIndex, "utf8")); if (stored?.schema === DEPENDENCY_STAT_SCHEMA) { known = new Map(stored.files); knownAt = stored.writtenAt; } } catch { known = new Map(); } }
+  const next = new Map();
+  const fileSha = (p, st) => {
+    const stamp = `${st.size}:${st.mtimeNs}:${st.ino}:${st.mode}`;
+    const prior = known.get(p);
+    if (prior && prior[0] === stamp && Number(st.mtimeMs) < knownAt - 2000) { next.set(p, prior); return prior[1]; }
+    const sha = createHash("sha256").update(installStateBytes(path.basename(p), fs.readFileSync(p))).digest("hex");
+    next.set(p, [stamp, sha]);
+    return sha;
+  };
   const walkedRoots = nodeModulesDirs(root, files);
   const realWalked = walkedRoots.map((d) => { try { return fs.realpathSync(d); } catch (error) { if (error?.code === "ENOENT") return null; throw error; } }).filter(Boolean);
   const inside = (p, dir) => p === dir || p.startsWith(dir + path.sep);
@@ -408,7 +486,7 @@ export function installedDependencyDigest({ root, files, maxFiles = 400000, incl
   const seen = new Set(); const pending = []; let count = 0;
   const fail = (what, error) => { throw new Error(`cannot read ${what} for the class A environment (${error?.code ?? error?.message ?? error})`); };
   const entry = (p, name, parentIsNodeModules, fromLink) => {
-    const st = (() => { try { return fs.lstatSync(p); } catch (error) { return fail(rel(p), error); } })();
+    const st = (() => { try { return fs.lstatSync(p, { bigint: true }); } catch (error) { return fail(rel(p), error); } })();
     if (st.isSymbolicLink()) {
       let target; let real;
       try { target = fs.readlinkSync(p); } catch (error) { return fail(`the link ${rel(p)}`, error); }
@@ -426,8 +504,8 @@ export function installedDependencyDigest({ root, files, maxFiles = 400000, incl
     if (st.isDirectory()) return walk(p, fromLink);
     if (st.isFile()) {
       if (++count > maxFiles) throw new Error(`more than ${maxFiles} installed dependency files; refusing an unbounded class A environment`);
-      let bytes; try { bytes = fs.readFileSync(p); } catch (error) { return fail(rel(p), error); }
-      h.update(`${rel(p)}\tfile\t${st.mode & 0o111 ? "x" : "-"}\t${createHash("sha256").update(bytes).digest("hex")}\n`);
+      let sha; try { sha = fileSha(p, st); } catch (error) { return fail(rel(p), error); }
+      h.update(`${rel(p)}\tfile\t${st.mode & 0o111n ? "x" : "-"}\t${sha}\n`);
       return;
     }
     throw new Error(`unsupported entry ${rel(p)} in the installed dependencies`);
@@ -457,7 +535,19 @@ export function installedDependencyDigest({ root, files, maxFiles = 400000, incl
     // any of its files can be executed by a consumer (an ignored dist/, an implicit index.js, a file its entry imports).
     if (st.isDirectory()) walk(real, true); else entry(real, path.basename(real), false, true);
   }
+  if (statIndex) {
+    try { fs.mkdirSync(path.dirname(statIndex), { recursive: true }); const tmp = `${statIndex}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify({ schema: DEPENDENCY_STAT_SCHEMA, writtenAt: statStarted, files: [...next] })); fs.renameSync(tmp, statIndex); } catch { /* a cache: the next run hashes again */ }
+  }
   return h.digest("hex");
+}
+
+const DEPENDENCY_STAT_SCHEMA = "rightkit.dependency-stat-index/3";
+/** The stat index of root's installed dependencies, under the host's managed data root (null where none resolves). */
+function dependencyStatIndexOf(root) {
+  try {
+    const dataRoot = resolveManagedRoots({ env: process.env, platform: process.platform }).dataRoot;
+    return dataRoot ? path.join(dataRoot, "dependency-stat-index", `${createHash("sha256").update(fs.realpathSync(root)).digest("hex").slice(0, 16)}.json`) : null;
+  } catch { return null; }
 }
 
 /**
@@ -483,7 +573,7 @@ export function classAEnvironmentDigest({ root, files, spawn = defaultSpawn, inc
     if (failed(r) || !text(r).trim()) throw new Error(`cannot identify pnpm for the class A environment (${r?.error ? `could not run pnpm: ${r.error.code ?? r.error.message}` : why(r)})`);
     return text(r).trim();
   })();
-  const installState = files.filter((f) => /(^|\/)package\.json$/.test(f)).map((f) => path.join(path.dirname(path.join(root, f)), "node_modules", ".modules.yaml")).map((m) => `${path.relative(root, m)}:${fileDigest(m, { optional: true })}`);
+  const installState = files.filter((f) => /(^|\/)package\.json$/.test(f)).map((f) => path.join(path.dirname(path.join(root, f)), "node_modules", ".modules.yaml")).map((m) => { let d; try { d = createHash("sha256").update(installStateBytes(".modules.yaml", fs.readFileSync(m))).digest("hex"); } catch (error) { d = fileDigest(m, { optional: true }); } return `${path.relative(root, m)}:${d}`; });
   return createHash("sha256").update([`node ${process.version}`, `pnpm ${pnpmVersion}`, `platform ${process.platform}-${process.arch}`, ...gateFiles, ...installState, `installed ${installedDependencyDigest({ root, files, includeCaches })}`].join("\n")).digest("hex");
 }
 
@@ -1004,7 +1094,7 @@ function shardSoloOf(o, repo) {
   } catch { return []; }
 }
 
-export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits = [], cargoDir = ".", rustLock = null, rustLocks = null, crateFeatures = {}, listFiles = null, readBlob = null, today = () => new Date().toISOString().slice(0, 10) }) {
+export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits = [], cargoDir = ".", rustLock = null, rustLocks = null, crateFeatures = {}, listFiles = null, readBlob = null, today = () => new Date().toISOString().slice(0, 10), onKeyError = null }) {
   const memo = new Map(); const reachMemos = new Map(); const externalMemo = new Map();
   const idOf = (p) => { if (!memo.has(p)) memo.set(p, p === "." ? headTree : objectId(p)); return memo.get(p); };
   // npm: a package's test, tsc and eslint scans read the package, every workspace package it depends on (package.json
@@ -1072,7 +1162,8 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
   // projection and its own lock entry; anything else (cargo metadata, licence, ownership catalog, secret scan) on the whole tree,
   // so it is reused for a rerun of the same commit and nothing else.
   const liveScan = (id) => /^(cargo-deny|cargo-audit|pnpm-audit|pnpm-lockfile|advisory-exceptions)(:|$)/.test(id);
-  const ADVISORY_SCAN = /^(cargo-deny|cargo-audit|pnpm-audit)(:|$)/;
+  // GC-A24: pnpm-lockfile asks the registry as pnpm-audit does, so it takes the same day-bounded key (GC-A19).
+  const ADVISORY_SCAN = /^(cargo-deny|cargo-audit|pnpm-audit|pnpm-lockfile)(:|$)/;
   // The key of an advisory scan (rightkit#1464), or null when an input cannot be identified (the scan then runs). Every input that decides the
   // verdict and is not in the scan's id, command or environment is here; the advisory database's commit (cargo) is in the scan's own environment
   // (RK_ADVISORY_DB_COMMIT) and its pin object, the gate's code and advisory-db.json are in the environment digest the caller appends.
@@ -1081,7 +1172,7 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
     const dir = typeof scan.cwd === "string" && scan.cwd !== "" ? scan.cwd : ".";
     const idsOf = (paths) => [...new Set(paths)].sort().map((p) => [p, idOf(p) ?? null]);
     const all = listFiles(".");
-    if (/^pnpm-audit(:|$)/.test(scan.id)) {
+    if (/^pnpm-(audit|lockfile)(:|$)/.test(scan.id)) {
       const lock = inWs(dir, "pnpm-lock.yaml");
       if (idOf(lock) === null || idOf(lock) === undefined) return null;
       const manifests = all.filter((f) => /(^|\/)package\.json$/.test(f) && (dir === "." || f === inWs(dir, "package.json") || f.startsWith(`${dir}/`)));
@@ -1097,11 +1188,18 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
   const fileList = (scan) => {
     if (Array.isArray(scan.files) && scan.files.length) return scan.files;
     const args = Array.isArray(scan.args) ? scan.args : [];
-    if (/^rustfmt:/.test(scan.id)) return args.filter((x) => /\.rs$/.test(x));
-    if (/^node-check:/.test(scan.id)) return [scan.id.slice("node-check:".length)];
+    if (/^rustfmt:/.test(scan.id)) {
+      const rs = args.filter((x) => /\.rs$/.test(x));
+      const configs = new Set(); for (const f of rs) for (const d of ancestorDirsOf(path.posix.dirname(f))) for (const c of ["rustfmt.toml", ".rustfmt.toml"]) configs.add(inWs(d, c));
+      return [...rs, ...configs];
+    }
+    if (/^node-check:/.test(scan.id)) { const f = scan.id.slice("node-check:".length); return [f, ...ancestorDirsOf(path.posix.dirname(f)).map((d) => inWs(d, "package.json"))]; }
+    if (scan.internal === "secret-scan" && Array.isArray(scan.dirs) && typeof listFiles === "function") return [...new Set(scan.dirs.flatMap((d) => listFiles(d)))];
+    if (scan.id === "shellcheck") return [...args.filter((x) => /\.(sh|bash)$/.test(x)), ".shellcheckrc"];
     if (scan.id === "actionlint") return [...args.filter((x) => /\.ya?ml$/.test(x)), ".github/actionlint.yaml"];
     return null;
   };
+  const unitKeyMemo = new Map();
   return (scan) => {
     if (scan.class === "A") {
       if (liveScan(scan.id) && !ADVISORY_SCAN.test(scan.id)) return null;
@@ -1120,7 +1218,7 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
           return canonicalJson({ kind: "package-list", unit, dir: [head.dir, idOf(head.dir)], manifest, lock: [[crateOf(head), lock.get(crateOf(head))?.signatures ?? []]] });
         }
         return whole();
-      } catch { return null; }
+      } catch (error) { onKeyError?.(scan, error); return null; }
     }
     if (scan.class !== "B") return null;
     try {
@@ -1146,12 +1244,12 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
       }
       const keyed = rustUnitKey(unit, scan);
       return keyed === undefined ? whole() : keyed;
-    } catch { return null; }
+    } catch (error) { onKeyError?.(scan, error); return null; }
   };
   // The cache key of one Rust unit's compile or test scan, or undefined when the scan must fall back to the whole tree.
   // A unit's key is a function of the unit, whether the scan is a test scan and the commit; it never names the scan, so the 5 to 10 scans of one
   // crate share one computation (B7: per-job prep, one git read of the manifest and one closure walk per scan before).
-  const unitKeyMemo = new Map();
+  // (unitKeyMemo is declared before the returned key function; declared here it was never initialised and every Rust key threw.)
   function rustUnitKey(unit, scan) {
     const memoKey = `${unit}\0${/^test:rust(?:-serial)?:/.test(scan.id) ? "test" : "compile"}`;
     if (unitKeyMemo.has(memoKey)) return unitKeyMemo.get(memoKey);
@@ -3710,7 +3808,13 @@ export async function main(argv, io = {}) {
     const withoutScope = args.slice(1).filter((a, i, list) => a !== "--scope" && list[i - 1] !== "--scope");
     const appArgs = stripSnapshot(withoutScope.filter((a) => a !== "--full-a"));
     if (fullAdmission && !appArgs.includes("--rule-tier")) appArgs.push("--rule-tier", requestedTier);
-    const appCheck = await (o.appCheck ?? (await import("../app-check.mjs")).main)(appArgs, { out: o.out, err: o.err, label: "check", cwd: o.cwd, ...(snapshotDir && !args.includes("--worktree") ? { snapshot: snapshotDir } : {}) });
+    // GC-A24: a passing app-rule verdict of a snapshot is reused for the same commit tree, rule code, tier and arguments (ruleVerdictCache).
+    const ruleCache = snapshotDir && snapshotCommit && !args.includes("--worktree") && !o.appCheck ? ruleVerdictCache({ checkout: snapshotCheckout, spawn: o.spawn }) : null;
+    const appKey = ruleCache ? ruleCache.key({ rule: "app-check", tree: snapshotCommit.tree, args: appArgs, gate: gatePackageIdentity(o.gatePackage) }) : null;
+    const appCheck = appKey && ruleCache.passed(appKey)
+      ? (o.out(`check: ${snapshotCommit.commit.slice(0, 12)} app rules: cached pass (tree ${snapshotCommit.tree.slice(0, 12)})`), 0)
+      : await (o.appCheck ?? (await import("../app-check.mjs")).main)(appArgs, { out: o.out, err: o.err, label: "check", cwd: o.cwd, ...(snapshotDir && !args.includes("--worktree") ? { snapshot: snapshotDir } : {}) });
+    if (appKey && appCheck === 0) ruleCache.pass(appKey);
     if (args.includes("--list") || args.includes("--print-baseline") || args.includes("--only") || o.classA === false) {
       // A view of the app rules, never a class A verdict: say so, so no caller can take its exit 0 for a full check.
       // A green partial view exits PARTIAL_EXIT (3), never 0, so a caller that admits only exit 0 rejects it by status alone.
@@ -3751,15 +3855,22 @@ export async function main(argv, io = {}) {
       // The commit's own preflight reads the commit from the checkout's object database; its exports probe imports from the snapshot,
       // whose dependencies class A installed, and reports beside (never over) the commit-bound report publication reads.
       const launch = o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" }));
-      const r = launch(process.execPath, [path.join(snapshotDir, "scripts", "preflight.mjs"), "--repo", root, "--commit", snapshotCommit.commit], { cwd: root, env: o.env });
-      selfRules = r.status === 0 ? 0 : 1;
+      // GC-A24: RightKit's own preflight and exports probe execute the commit's code with its installed dependencies; a pass is reused
+      // for the same commit tree, installed-dependency bytes, node and platform (and scope), and only a pass.
       const effects = path.join(snapshotDir, "scripts", "ci", "exports-import-effects.mjs");
-      if (selfRules === 0 && o.exists(effects) && scopeForward.length === 0) {
+      let selfKey = null;
+      if (ruleCache) { try { selfKey = ruleCache.key({ rule: "rightkit-self-rules", tree: snapshotCommit.tree, scope: scopeForward, installed: installedDependencyDigest({ root: snapshotDir, files: sc.commitFiles(snapshotCheckout, snapshotCommit.commit, o.spawn).files, includeCaches: false }), effects: o.exists(effects) }); } catch { selfKey = null; } }
+      const selfCached = Boolean(selfKey && ruleCache.passed(selfKey));
+      if (selfCached) o.out(`preflight: ${snapshotCommit.commit.slice(0, 12)} cached pass (tree ${snapshotCommit.tree.slice(0, 12)}, same installed dependencies)`);
+      const r = selfCached ? { status: 0 } : launch(process.execPath, [path.join(snapshotDir, "scripts", "preflight.mjs"), "--repo", root, "--commit", snapshotCommit.commit], { cwd: root, env: o.env });
+      selfRules = r.status === 0 ? 0 : 1;
+      if (!selfCached && selfRules === 0 && o.exists(effects) && scopeForward.length === 0) {
         const common = o.spawn("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: root });
         const report = path.join(failed(common) ? path.join(root, ".git") : text(common).trim(), "rightkit-gate", "import-effects", `snapshot-${snapshotCommit.commit}.json`);
         const e = launch(process.execPath, [effects, "--root", snapshotDir, "--no-export", "--report", report], { cwd: snapshotDir, env: o.env });
         if (e.status !== 0) selfRules = 1;
       }
+      if (selfKey && !selfCached && selfRules === 0) ruleCache.pass(selfKey);
     } else if (root && selfRules === 0 && !snapshotDir && (rightkitRepository || canon(self).startsWith(canon(root) + path.sep)) && o.exists(path.join(root, "scripts", "preflight.mjs")) && appCheck === 0 && classA === 0) {
       const launch = o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" }));
       const selector = args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"];
@@ -4578,6 +4689,9 @@ export async function main(argv, io = {}) {
     };
     // rightkit#1463: the input key each scan was looked up under, for the coverage report (gate-coverage.mjs).
     const scanKeys = new Map();
+    // Why a scan got no cache key (a key builder that threw, or a cache that could not open): reported, never hidden (GC-A24).
+    const keyErrors = new Map(); let cacheDisabled = null;
+    const keyError = (scan, error) => keyErrors.set(scan.id, String(error?.message ?? error).slice(0, 300));
     // Full class A on the working tree (the door, and broker admission of the live checkout) caches on the LIVE bytes: every
     // tracked and untracked (not ignored) file is hashed raw, so the door's run and a repeat admission of the same bytes hit the
     // cache, and any edit misses it.
@@ -4673,7 +4787,7 @@ export async function main(argv, io = {}) {
         // A6: the digest bound at the start of this run is this very computation (same root, gate package, files and tool-cache setting), so it is
         // reused: each call walks every installed dependency file, and the run made three of these walks before its first scan.
         const environment = envAtStart ?? classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files, spawn: o.spawn, includeCaches: false });
-        const digest = buildCacheDigest({ objectId, headTree: digestOf(files), rustUnits: rust.units, npmUnits: npm, cargoDir: ".", rustLocks, crateFeatures, listFiles, readBlob });
+        const digest = buildCacheDigest({ objectId, headTree: digestOf(files), rustUnits: rust.units, npmUnits: npm, cargoDir: ".", rustLocks, crateFeatures, listFiles, readBlob, onKeyError: keyError });
         // A row's key is its own inputs plus the environment; the run's scope and scan set are not inputs of one row, and keying on them
         // missed every row whenever one file joined or left the plan. build-helpers is never reused: it reads the host's trace list,
         // which is outside every key (and takes seconds).
@@ -4681,16 +4795,15 @@ export async function main(argv, io = {}) {
         // (the sibling packages its check project maps; scopeScans narrows it per scope) changes the verdict on the same tree.
         const rowShape = (scan) => (scan.tscWorkspace ? `:tscws=${createHash("sha256").update(canonicalJson([...scan.tscWorkspace].sort())).digest("hex")}` : "");
         nodeCheckDiagnosticId = plan.scans.filter((scan) => scan.class === "A" && scan.id.startsWith("node-check:")).map((scan) => scan.id).sort()[0];
-        const nodeCheckModule = snapFullA ? await import("../node-check-cache.mjs") : null;
+        const nodeCheckModule = null; // GC-A24: node-check rows use the generic file key (file, ancestor package.json, node identity)
         const nodeCheckDigest = nodeCheckModule ? nodeCheckModule.createNodeCheckCacheDigest({ snapshot: liveBase, tree: digestOf(files), files, gateIdentity: gateCodeIdentity(), gatePackage: o.gatePackage, nodePath: process.execPath, onReject: countNodeCheckRejection, ...(o.env.RIGHTKIT_PREPARATION_DIAGNOSTIC_DIR && nodeCheckDiagnosticId ? { onDiagnostic: (record) => { nodeCheckDiagnosticState = "eligible"; nodeCheckModule.writeNodeCheckDiagnostic(o.env.RIGHTKIT_PREPARATION_DIAGNOSTIC_DIR, record); }, diagnosticScanId: nodeCheckDiagnosticId } : {}) }) : null;
-        cache = { ...store, narrowNodeCheck: snapFullA, digest: (scan, context) => {
+        cache = { ...store, narrowNodeCheck: false, digest: (scan, context) => {
           if (/^build-helpers(:|$)/.test(scan.id)) return null;
           // This narrow key applies only to the helper's proven plain snapshot node --check.
           // Uncertain rows miss rather than falling back to a less specific key.
-          if (nodeCheckDigest && scan.id.startsWith("node-check:")) { const key = nodeCheckDigest(scan, context); scanKeys.set(scan.id, key); return key; }
-          const key = digest(scan); const full = key === null ? null : `${key}:${environment}${rowShape(scan)}`; scanKeys.set(scan.id, full); return full;
+          const key = digest(scan); const full = key === null ? null : `${key}:${classAEnvironmentBound(scan) ? environment : CLASS_A_KEY_SCHEMA}${rowShape(scan)}`; scanKeys.set(scan.id, full); return full;
         } };
-      } catch { cache = null; }
+      } catch (error) { cache = null; cacheDisabled = `class A result cache disabled: ${error?.message ?? error}`; o.err(`${tag} note: ${cacheDisabled}`); }
     }
     if (!classAOnly) {
       try {
@@ -4715,12 +4828,15 @@ export async function main(argv, io = {}) {
             if (failed(r)) throw new Error(`git show failed: ${why(r)}`);
             return text(r);
           };
-          // The gate's identity is part of every class B key: a changed check or key logic never reuses an older verdict.
-          const rowDigest = buildCacheDigest({ objectId, headTree: treeId, rustUnits: rust.units, npmUnits: npm, cargoDir: ".", rustLocks, crateFeatures, listFiles, readBlob });
-          const gateIdentity = gateCodeIdentity();
-          cache = { ...store, digest: (scan) => { const key = rowDigest(scan); const full = key === null ? null : `${key}:${gateIdentity}`; scanKeys.set(scan.id, full); return full; } };
+          // The class B key identity (key schema and carrier code, classBKeyIdentity) is part of every class B key.
+          const rowDigest = buildCacheDigest({ objectId, headTree: treeId, rustUnits: rust.units, npmUnits: npm, cargoDir: ".", rustLocks, crateFeatures, listFiles, readBlob, onKeyError: keyError });
+          const gateIdentity = classBKeyIdentity();
+          cache = { ...store, digest: (scan) => { const key = rowDigest(scan); const full = key === null ? null : `${key}:${gateIdentity}`; scanKeys.set(scan.id, full); for (const member of scan.batch?.members ?? []) scanKeys.set(member, full); return full; } };
+        } else {
+          cacheDisabled = `class B result cache disabled: ${!headSha ? "no commit" : !treeId ? "no tree id" : `git common dir unreadable (${why(common)})`}`;
+          o.err(`${tag} note: ${cacheDisabled}`);
         }
-      } catch { cache = null; }
+      } catch (error) { cache = null; cacheDisabled = `class B result cache disabled: ${error?.message ?? error}`; o.err(`${tag} note: ${cacheDisabled}`); }
     }
     // The scan-tool policy (RA-18 / L9-03): the analyzers class A accepts (shellcheck, actionlint, cargo-deny, cargo-audit) run only from an enrolled
     // executable. It comes from this host's enrolment record under the managed data root, else (RightKit's own checkout only) from the RUNNING
@@ -4814,7 +4930,7 @@ export async function main(argv, io = {}) {
     for (const note of scanResult.notes) o.out(`${tag} ${note}`);
     // rightkit#1463: the per-scan coverage report (hit / ran / skipped, with the cache key and the reason), written beside the scan logs; a cache that never hits shows here.
     try {
-      const report = buildCoverageReport({ plan, scanResult, keys: scanKeys, classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], commit: snapshotBCommit?.commit ?? snapshotCommitId?.commit ?? hostedCommitA?.commit ?? null, startedAt: new Date(directTiming.cargoStart).toISOString(), endedAt: new Date(directTiming.cargoEnd).toISOString() });
+      const report = buildCoverageReport({ plan, scanResult, keys: scanKeys, keyErrors, cacheDisabled, classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], commit: snapshotBCommit?.commit ?? snapshotCommitId?.commit ?? hostedCommitA?.commit ?? null, startedAt: new Date(directTiming.cargoStart).toISOString(), endedAt: new Date(directTiming.cargoEnd).toISOString() });
       const base = gateRunsRoot({ env: o.env, platform: o.platform });
       const file = (o.writeCoverage ?? writeCoverageReport)({ dir: path.join(base, "rightkit-gate-coverage"), name: `${path.basename(root)}-${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}`, report });
       o.out(`${tag} coverage report ${file}: ${report.totals.planned} planned scan(s), ${report.totals.hit} hit, ${report.totals.ran} ran, ${report.totals.skipped} skipped; scans took ${seconds(directTiming.cargoEnd - directTiming.cargoStart)}`);
