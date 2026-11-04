@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { dependencyDigest, canonicalConfigFingerprint } from './snapshot-dependency-reuse.mjs';
+import { dependencyDigest, canonicalConfigFingerprint, preparationInputComponents } from './snapshot-dependency-reuse.mjs';
 
 test('dependency proof binds bytes, metadata and modes', (t) => {
   const scratch = process.platform === 'win32' ? 'D:\\scratch' : '/Volumes/D/scratch';
@@ -20,6 +20,16 @@ test('dependency proof binds bytes, metadata and modes', (t) => {
     fs.chmodSync(pkg, 0o644);
   }
   fs.rmSync(pkg); assert.notEqual(dependencyDigest(root, ['node_modules']), before);
+});
+
+test('preparation inputs ignore only per-run ownership and approved scheduling controls', () => {
+  const input = { source: 'tree', toolchain: 'tool', config: 'config', store: 'store', env: { RIGHTKIT_BUILD_OWNERSHIP: 'first', RIGHTKIT_BUILD_OWNERSHIP_FILE: '/owned', NODE_OPTIONS: 'same', RK_GATE_JOBS: '4' } };
+  const fingerprint = (env) => preparationInputComponents({ ...input, env });
+  const before = fingerprint(input.env);
+  assert.deepEqual(fingerprint({ ...input.env, RIGHTKIT_BUILD_OWNERSHIP: 'second', RK_GATE_JOBS: '8' }), before);
+  assert.notEqual(fingerprint({ ...input.env, NODE_OPTIONS: 'changed' }).environment, before.environment);
+  assert.notEqual(fingerprint({ ...input.env, RIGHTKIT_BUILD_OWNERSHIP_FILE: '/other' }).environment, before.environment);
+  assert.notEqual(preparationInputComponents({ ...input, config: 'changed' }).config, before.config);
 });
 
 test('config identity ignores object order but binds values, array order and file hashes', () => {

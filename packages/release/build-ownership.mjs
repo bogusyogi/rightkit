@@ -648,7 +648,7 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
      * with this gate's anchor. `{ owner, anchorMs, recorded }` as there. Returns `[{ pid, why }]` (held), or throws: a listing
      * that did not finish cleanly is unknown, and the caller stays busy.
      */
-    hiddenHolders({ owner, anchorMs, recorded = [] } = {}) {
+    hiddenHolders({ owner, anchorMs, recorded = [], timing = null } = {}) {
       if (platform !== "darwin") return null;
       // Without this process's own user id nothing could be told from another user's (which is skipped): unknown, never "none".
       if (!Number.isInteger(uid)) throw new Error("this process's user id is unknown");
@@ -680,7 +680,10 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
       // `launchctl blame <pid>` (LC_ALL=C, 5 s): exit 0 and a reason is a launchd job; exit 3 and the "not managed" line is a process
       // launchd does not manage (a reparented orphan) or one that is gone; anything else is unknown (rc null: it could not run).
       const blame = (pid) => {
-        const r = spawn("launchctl", ["blame", String(pid)], { encoding: "utf8", env: { ...process.env, LC_ALL: "C", LANG: "C" }, timeout: 5000, maxBuffer: 1 << 16 });
+        const started = performance.now();
+        let r;
+        try { r = spawn("launchctl", ["blame", String(pid)], { encoding: "utf8", env: { ...process.env, LC_ALL: "C", LANG: "C" }, timeout: 5000, maxBuffer: 1 << 16 }); }
+        finally { if (timing) { timing.blameCount = (timing.blameCount ?? 0) + 1; timing.blameMs = (timing.blameMs ?? 0) + performance.now() - started; } }
         if (r.error) return { rc: null, line: String(r.error.message ?? r.error) };
         const text = `${String(r.stdout ?? "")}${String(r.stderr ?? "")}`.split(/\r?\n/).find((l) => l.trim() !== "") ?? "";
         return { rc: r.status, line: text.trim() };
@@ -1033,7 +1036,8 @@ function coveredMember(m, owner, { byPid, own }) {
  * Whether the work `owner` covers, other than the process `self` (the live gate at release, null at reclaim), is proven gone.
  * Returns the proofs, or throws a reason that is busy.
  */
-function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0 }) {
+function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0, timing = null }) {
+  const measure = (name, fn) => { const start = performance.now(); try { return fn(); } finally { if (timing) timing[name] = (timing[name] ?? 0) + performance.now() - start; } };
   const proofs = [];
   let rebooted = false;
   // A reboot is only a question for a dead owner; a live gate releasing its own record has not outlived one.
@@ -1073,7 +1077,7 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
     }
   } else if (!rebooted && c.kind === "group") {
     let snap;
-    try { snap = probe.groupSnapshot(c.group); } catch (e) { throw new Error(`process group ${c.group} cannot be listed (${e.message})`); }
+    try { snap = measure("groupMs", () => probe.groupSnapshot(c.group)); } catch (e) { throw new Error(`process group ${c.group} cannot be listed (${e.message})`); }
     const children = snap.members.filter((m) => m.pid !== selfPid && coveredMember(m, owner, snap)).map((m) => m.pid);
     if (children.length) throw new Error(`process group ${c.group} still has ${children.length} member(s) started under this ownership: ${children.join(", ")}`);
     proofs.push(`process group ${c.group} has no member started under this ownership`);
@@ -1084,6 +1088,7 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
     const intents = entries.filter((n) => n.startsWith("intent-"));
     if (intents.length) throw new Error(`a detached spawn was in flight when its gate stopped (${intents[0]}), so its process group is unknown`);
     const groups = entries.filter((n) => /^group-\d+\.json$/.test(n));
+    if (timing) timing.detachedGroups = groups.length;
     const recorded = [];
     for (const name of groups) {
       let entry;
@@ -1091,7 +1096,7 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
       if (!Number.isInteger(entry?.group) || !Number.isFinite(entry?.startedMs)) throw new Error(`the detached-child entry ${name} cannot be read`);
       recorded.push({ group: entry.group, command: entry.command });
       let snapshot;
-      try { snapshot = probe.groupSnapshot(entry.group); } catch (e) { throw new Error(`detached process group ${entry.group} cannot be listed (${e.message})`); }
+      try { snapshot = measure("detachedGroupsMs", () => probe.groupSnapshot(entry.group)); } catch (e) { throw new Error(`detached process group ${entry.group} cannot be listed (${e.message})`); }
       // The entry is written after the spawn returns, so the group's own leader (pid == group) started before the file's mtime. A
       // leader that started later is a new process that took the id: the kernel reuses a group id only once that group is empty.
       let writtenMs = NaN;
@@ -1115,7 +1120,7 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
     // on a free host after a release that proved zero readers, or by a reclaim that proved the previous work gone). Never "no anchor".
     const skipBefore = baselines.length ? Math.max(...baselines) : Date.parse(owner.acquiredAt);
     let carriers;
-    try { carriers = probe.tokenHolders(owner.handle, skipBefore); } catch (e) { throw new Error(`processes carrying ${OWNERSHIP_ENV} cannot be listed (${e.message})`); }
+    try { carriers = measure("tokenHoldersMs", () => probe.tokenHolders(owner.handle, skipBefore)); } catch (e) { throw new Error(`processes carrying ${OWNERSHIP_ENV} cannot be listed (${e.message})`); }
     if (carriers) {
       const others = carriers.filter((pid) => pid !== selfPid);
       if (others.length) throw new Error(`process(es) ${others.join(", ")} still carry ${OWNERSHIP_ENV}=${owner.handle}`);
@@ -1123,7 +1128,7 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
     }
     if (owner.snapshot) {
       let users;
-      try { users = probe.snapshotUsers(owner.snapshot, skipBefore); } catch (e) { throw new Error(`processes using the snapshot cannot be listed (${e.message})`); }
+      try { users = measure("snapshotUsersMs", () => probe.snapshotUsers(owner.snapshot, skipBefore)); } catch (e) { throw new Error(`processes using the snapshot cannot be listed (${e.message})`); }
       if (users) {
         const others = users.filter((u) => u.pid !== selfPid);
         if (others.length) throw new Error(`process(es) ${others.map((u) => `${u.pid} (${u.how})`).join(", ")} still use the snapshot ${owner.snapshot}`);
@@ -1136,7 +1141,7 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
     // ownership token, an actual snapshot user, and the broker lease hold a release.
     if (typeof probe.hiddenHolders === "function") {
       let hidden;
-      try { hidden = probe.hiddenHolders({ owner, anchorMs: skipBefore, recorded }); } catch { hidden = null; }
+      try { hidden = measure("hiddenHoldersMs", () => probe.hiddenHolders({ owner, anchorMs: skipBefore, recorded, timing })); } catch { hidden = null; }
       const others = (hidden ?? []).filter((h) => h.pid !== selfPid);
       if (others.length) {
         const shown = others.slice(0, 8);
@@ -1158,7 +1163,7 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
     const waitOptions = waitMs > 0 ? { waitMs } : {};
     const settled = (sub) => unsent[sub] && typeof unsent[sub].reason === "string";
     const everyUnsent = handles.length > 0 && handles.every(settled);
-    const status = lease({ snapshot: owner.snapshot, handle: owner.handle, ...waitOptions });
+    const status = measure("leaseMs", () => lease({ snapshot: owner.snapshot, handle: owner.handle, ...waitOptions }));
     if (status.state === "ACTIVE" || (status.state !== "REAPED" && !everyUnsent)) throw new Error(`broker work may exist under this handle and its lease is ${status.state} (${status.why})`);
     if (status.state === "REAPED") proofs.push(`broker lease for ${owner.handle} is REAPED`);
     // GB-23: the answer's own member rows account for each recorded sub-handle too: a recorded one that the broker lists and does not list REAPED keeps ownership, whatever the aggregate said.
@@ -1166,7 +1171,7 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
     let neverStarted = 0;
     for (const sub of handles) {
       if (typeof sub !== "string" || !sub.startsWith(`${owner.handle}#`) || sub.length <= owner.handle.length + 1) throw new Error(`the record lists ${JSON.stringify(sub)}, which is not a sub-handle of ${owner.handle}`);
-      const one = lease({ snapshot: owner.snapshot, handle: sub, ...waitOptions });
+      const one = measure("leaseMs", () => lease({ snapshot: owner.snapshot, handle: sub, ...waitOptions }));
       const member = Array.isArray(one.members) ? one.members.find((m) => m.handle === sub) : null;
       if (one.state === "REAPED") {
         if (Array.isArray(one.members) && !(member && member.state === "REAPED")) throw new Error(`the broker answers REAPED for ${sub} but lists no completed submission under that name`);
@@ -1306,18 +1311,31 @@ export function acquireBuildOwnership({
   };
   const body = JSON.stringify(record);
   const release = () => {
-    if (!holds(file, handle)) return { released: false, why: "no longer the owner" };
-    let proofs;
-    // The record as it is now (a broker submit may have been marked since it was written).
-    try { proofs = coveredWorkGone(JSON.parse(readText(file)), { probe, lease, file, selfPid: process.pid, waitMs: RELEASE_LEASE_WAIT_MS }); }
-    catch (e) { return { released: false, why: `left for the next gate to reclaim: ${e.message}` }; }
-    finally { if (exportEnv && process.env[OWNERSHIP_ENV] === handle) { delete process.env[OWNERSHIP_ENV]; delete process.env[OWNERSHIP_FILE_ENV]; } }
-    // Only a release that proved zero readers leaves the marker; a held one leaves none (and keeps the record).
-    writeCleanMarker(file, record);
-    fs.rmSync(file, { force: true });
-    fs.rmSync(markLockFile(file), { force: true });
-    fs.rmSync(childrenDir(file, handle), { recursive: true, force: true });
-    return { released: true, proofs };
+    const timingKey = Symbol.for("rightkit.releaseTiming");
+    const timing = process[timingKey] ?? null;
+    const start = performance.now();
+    if (timing) timing.releaseStartEpochMs = performance.timeOrigin + start;
+    try {
+      if (!holds(file, handle)) return { released: false, why: "no longer the owner" };
+      let proofs;
+      // The record as it is now (a broker submit may have been marked since it was written).
+      try { proofs = coveredWorkGone(JSON.parse(readText(file)), { probe, lease, file, selfPid: process.pid, waitMs: RELEASE_LEASE_WAIT_MS, timing }); }
+      catch (e) { return { released: false, why: `left for the next gate to reclaim: ${e.message}` }; }
+      finally { if (exportEnv && process.env[OWNERSHIP_ENV] === handle) { delete process.env[OWNERSHIP_ENV]; delete process.env[OWNERSHIP_FILE_ENV]; } }
+      // Only a release that proved zero readers leaves the marker; a held one leaves none (and keeps the record).
+      writeCleanMarker(file, record);
+      fs.rmSync(file, { force: true });
+      fs.rmSync(markLockFile(file), { force: true });
+      fs.rmSync(childrenDir(file, handle), { recursive: true, force: true });
+      return { released: true, proofs };
+    } finally {
+      if (timing) {
+        timing.releaseMs = performance.now() - start;
+        timing.releaseEndEpochMs = performance.timeOrigin + performance.now();
+        delete process[timingKey];
+        try { process.stderr.write(`rightkit-release-timing ${JSON.stringify(timing)}\n`); } catch { /* diagnostics must not affect release */ }
+      }
+    }
   };
   const done = (reclaimed) => {
     // Windows: the gate enters its job before it returns, so every child it starts from here on is contained.

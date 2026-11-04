@@ -104,6 +104,14 @@ function pnpmConfigIdentity({ dir, env, spawn }) {
   return canonicalConfigFingerprint(parsed, [file(userPath), file(global)]);
 }
 
+export function preparationInputComponents({ source, toolchain, config, store, env }) {
+  // The per-run ownership handle is a gate lock token, not pnpm input. Keep
+  // every other non-scheduling variable, including the ownership file path.
+  const excluded = new Set(['RK_GATE_JOBS', 'RK_GATE_TEST_JOBS', 'RK_GATE_CLASS_B_JOBS', 'RIGHTKIT_BUILD_OWNERSHIP']);
+  const environment = Object.entries(env).filter(([name]) => !excluded.has(name)).sort(([a], [b]) => a.localeCompare(b));
+  return Object.fromEntries(Object.entries({ source, toolchain, config, store, environment }).map(([name, value]) => [name, hash(JSON.stringify(value))]));
+}
+
 export function snapshotDependencyReuse({ checkout, snapshot, tree, root, dirs, filters, storeDir, version, env, spawn, diagnostic = {} }) {
   let stage = 'pnpm-identity';
   try {
@@ -119,11 +127,9 @@ export function snapshotDependencyReuse({ checkout, snapshot, tree, root, dirs, 
     // Hash values in memory; only the final digest is persisted, never env.
     stage = 'config';
     const config = pnpmConfigIdentity({ dir: path.resolve(snapshot, root), env, spawn });
-    // These gate-only controls select scan concurrency; the install ignores
-    // scripts and pnpm's effective configuration is bound separately above.
-    const schedule = new Set(['RK_GATE_JOBS', 'RK_GATE_TEST_JOBS', 'RK_GATE_CLASS_B_JOBS']);
     stage = 'input-identity';
-    const inputs = hash(JSON.stringify({ schema: 3, checkout: fs.realpathSync(checkout), snapshot: fs.realpathSync(snapshot), tree, root, dirs: [...dirs].sort(), filters, store: fs.realpathSync(storeDir), pnpm: executable, version, node: [fs.realpathSync(process.execPath), hash(fs.readFileSync(process.execPath)), process.version], platform: [process.platform, process.arch], gate: packageIdentity(), config, env: Object.entries(env).filter(([name]) => !schedule.has(name)).sort(([a], [b]) => a.localeCompare(b)) }));
+    const components = preparationInputComponents({ source: { checkout: fs.realpathSync(checkout), snapshot: fs.realpathSync(snapshot), tree, root, dirs: [...dirs].sort(), filters }, toolchain: { pnpm: executable, version, node: [fs.realpathSync(process.execPath), hash(fs.readFileSync(process.execPath)), process.version], platform: [process.platform, process.arch], gate: packageIdentity() }, config, store: fs.realpathSync(storeDir), env });
+    const inputs = hash(JSON.stringify(components));
     let digestChecks = 0;
     diagnostic.setup = 'ready';
     return {
@@ -134,7 +140,9 @@ export function snapshotDependencyReuse({ checkout, snapshot, tree, root, dirs, 
           if (pnpmConfigIdentity({ dir: path.resolve(snapshot, root), env, spawn }) !== config) { diagnostic.match = 'config-changed'; return false; }
           phase = 'record';
           const record = JSON.parse(fs.readFileSync(recordPath, 'utf8'));
-          if (record.schema !== 3 || record.inputs !== inputs || typeof record.dependencies !== 'string') { diagnostic.match = 'record-mismatch'; return false; }
+          if (record.schema !== 4 || !record.components || typeof record.components !== 'object' || typeof record.dependencies !== 'string') { diagnostic.match = 'record-invalid'; return false; }
+          const changed = Object.keys(components).filter((key) => record.components[key] !== components[key]);
+          if (changed.length || record.inputs !== inputs) { diagnostic.match = 'record-mismatch'; diagnostic.components = changed.length ? changed.join(',') : 'aggregate'; return false; }
           phase = 'digest'; digestChecks++;
           const ok = record.dependencies === dependencyDigest(snapshot, dirs);
           diagnostic.match = ok ? 'hit' : 'dependency-mismatch'; return ok;
@@ -146,7 +154,7 @@ export function snapshotDependencyReuse({ checkout, snapshot, tree, root, dirs, 
           if (pnpmConfigIdentity({ dir: path.resolve(snapshot, root), env, spawn }) !== config) { diagnostic.save = 'config-changed'; return; }
           phase = 'digest';
           digestChecks++;
-          const record = JSON.stringify({ schema: 3, inputs, dependencies: dependencyDigest(snapshot, dirs) });
+          const record = JSON.stringify({ schema: 4, inputs, components, dependencies: dependencyDigest(snapshot, dirs) });
           phase = 'write';
           fs.mkdirSync(cacheDir, { recursive: true });
           const temp = `${recordPath}.${process.pid}.${crypto.randomBytes(8).toString('hex')}.tmp`;

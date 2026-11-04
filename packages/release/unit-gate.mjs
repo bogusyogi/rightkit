@@ -486,5 +486,9 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
     if (currentStage) { report.stages[currentStage] = { ok: false }; save(); }
     err(`rightkit-gate: unit ${selector} stopped: ${error.message}`);
     return 1;
-  } finally { if (state && owner) await owner.closeLocalUnit(state); }
+  } finally {
+    const started = performance.now();
+    try { if (state && owner) await owner.closeLocalUnit(state); }
+    finally { process[Symbol.for("rightkit.releaseTiming")] = { generatorCloseMs: performance.now() - started, generatorEndEpochMs: performance.timeOrigin + performance.now() }; }
+  }
 }
