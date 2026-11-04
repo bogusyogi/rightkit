@@ -296,13 +296,14 @@ export function installSnapshotDependencies({ checkout, snapshot, commit, tree, 
     if (pin && version !== pin) throw new CheckError(`pnpm ${version} is on PATH, but root ${root} of the commit pins pnpm@${pin} (packageManager); install the pinned pnpm`);
     const ownedDirs = generated.filter((d) => nearestLock(fold(dirOf(d))) === owner);
     const reuseStarted = performance.now();
-    const reuse = snapshotDependencyReuse({ checkout, snapshot: base, tree, root, dirs: ownedDirs, filters, storeDir, version, env, spawn });
+    const reuseDiagnostic = {};
+    const reuse = snapshotDependencyReuse({ checkout, snapshot: base, tree, root, dirs: ownedDirs, filters, storeDir, version, env, spawn, diagnostic: reuseDiagnostic });
     if (reuse?.matches()) {
       const skipped = probe ? probe({ dir, root, names: allowedBuilds(dir), spawn, env }) : [];
       if (reuse.matches()) {
         verifySnapshotDir({ checkout, dir: base, commit, tree, when: "after reused dependency probes", ...(ledger !== undefined ? { ledger } : {}) });
         const lockfileSha256 = crypto.createHash("sha256").update(fs.readFileSync(path.join(dir, "pnpm-lock.yaml"))).digest("hex");
-        records.push({ root, storeDir, storeSource: source, pnpm: version, pinned: pin, lockfileSha256, ms: 0, allowedBuildsNotRun: skipped, reused: true, reuseCheckMs: Math.round(performance.now() - reuseStarted), dependencyDigestChecks: reuse.digestChecks });
+        records.push({ root, storeDir, storeSource: source, pnpm: version, pinned: pin, lockfileSha256, ms: 0, allowedBuildsNotRun: skipped, reused: true, reuseCheckMs: Math.round(performance.now() - reuseStarted), dependencyDigestChecks: reuse.digestChecks, reuseDiagnostic });
         continue;
       }
     }
@@ -335,7 +336,7 @@ export function installSnapshotDependencies({ checkout, snapshot, commit, tree, 
     const reuseSaveStarted = performance.now();
     reuse?.save();
     const reuseSaveMs = Math.round(performance.now() - reuseSaveStarted);
-    records.push({ root, storeDir, storeSource: source, pnpm: version, pinned: pin, lockfileSha256, ms, allowedBuildsNotRun: skipped, reuseCheckMs, reuseSaveMs, dependencyDigestChecks: reuse?.digestChecks ?? 0 });
+    records.push({ root, storeDir, storeSource: source, pnpm: version, pinned: pin, lockfileSha256, ms, allowedBuildsNotRun: skipped, reuseCheckMs, reuseSaveMs, dependencyDigestChecks: reuse?.digestChecks ?? 0, reuseDiagnostic });
   }
   return records;
 }
@@ -401,7 +402,7 @@ export function describeStoreCheck(record) {
 /** One line per installed root, for the check's output and evidence. */
 export function describeInstall(record) {
   if (record.skipped) return `snapshot dependencies root=${record.root} not installed: ${record.skipped}`;
-  return `snapshot dependencies root=${record.root} pnpm=${record.pnpm}${record.pinned ? ` (pinned ${record.pinned})` : ""} store=${record.storeDir} (from ${record.storeSource}) lockfile=sha256:${record.lockfileSha256} ms=${record.ms}${record.reuseCheckMs !== undefined ? ` reuse-check-ms=${record.reuseCheckMs}${record.reuseSaveMs !== undefined ? ` reuse-save-ms=${record.reuseSaveMs}` : ""} dependency-digest-checks=${record.dependencyDigestChecks}` : ""}${record.reused ? " preparation=reused (installed bytes verified; store availability not re-proved)" : ""}${record.allowedBuildsNotRun.length ? ` build-scripts-not-run=${record.allowedBuildsNotRun.map((b) => (b.probe === "none" ? `${b.name}@${b.version}(deferred, not proven here: ${b.result})` : `${b.name}@${b.version}(usable: ${b.probe} -> ${b.result})`)).join(",")}` : ""}`;
+  return `snapshot dependencies root=${record.root} pnpm=${record.pnpm}${record.pinned ? ` (pinned ${record.pinned})` : ""} store=${record.storeDir} (from ${record.storeSource}) lockfile=sha256:${record.lockfileSha256} ms=${record.ms}${record.reuseCheckMs !== undefined ? ` reuse-check-ms=${record.reuseCheckMs}${record.reuseSaveMs !== undefined ? ` reuse-save-ms=${record.reuseSaveMs}` : ""} dependency-digest-checks=${record.dependencyDigestChecks}${record.reuseDiagnostic ? ` reuse-setup=${record.reuseDiagnostic.setup ?? 'unknown'}${record.reuseDiagnostic.match ? ` reuse-match=${record.reuseDiagnostic.match}` : ""}${record.reuseDiagnostic.save ? ` reuse-save=${record.reuseDiagnostic.save}` : ""}` : ""}` : ""}${record.reused ? " preparation=reused (installed bytes verified; store availability not re-proved)" : ""}${record.allowedBuildsNotRun.length ? ` build-scripts-not-run=${record.allowedBuildsNotRun.map((b) => (b.probe === "none" ? `${b.name}@${b.version}(deferred, not proven here: ${b.result})` : `${b.name}@${b.version}(usable: ${b.probe} -> ${b.result})`)).join(",")}` : ""}`;
 }
 
 /** The deterministic-red marker for a failed run, or null when any failure is not one a re-run of the same inputs reproduces. */

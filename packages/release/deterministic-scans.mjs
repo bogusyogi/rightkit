@@ -2790,6 +2790,7 @@ export async function runScans(plan, options = {}) {
   async function runOneBody(s, extraEnv = null) {
     if (signal?.aborted) return { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: null, status: "not-run", code: "CANCELLED", detail: "cancelled before it started" };
     const started = Date.now();
+    const scanStarted = performance.now();
     let row = await scanRow(s, extraEnv);
     // rightkit#1459: a class A scan that timed out is run once more before it fails Class A (a hung tool, e.g. actionlint on 2026-11-02, ran
     // 27 min and failed a run whose rerun passed in 1 s). Class B and carried scans are not retried: a compile that times out is a real failure.
@@ -2797,8 +2798,9 @@ export async function runScans(plan, options = {}) {
     if (row.status === "fail" && row.code === "TIMEOUT" && s.class === SCAN_CLASS.A && s.kind !== "test" && !signal?.aborted) {
       const first = row;
       row = await scanRow(s, extraEnv);
-      row = { ...row, retried: { code: first.code, detail: first.detail } };
+      row = { ...row, retried: { code: first.code, detail: first.detail, timing: first.timing ?? null } };
     }
+    row = { ...row, scanElapsedMs: performance.now() - scanStarted };
     done += 1;
     try { onResult(row, { done, total, seconds: Math.round((Date.now() - started) / 1000) }); } catch { /* reporting never fails a scan */ }
     return row;
@@ -2899,12 +2901,12 @@ export async function runScans(plan, options = {}) {
         const half = Math.ceil(idx.length / 2);
         await runGroup(idx.slice(0, half), extraEnv);
         await runGroup(idx.slice(half), extraEnv);
-        for (const i of idx) if (slots[i] && !slots[i].batchFailure) slots[i] = { ...slots[i], batchFailure: { id: bs.id, units: bs.batch.units, ...(row.detail ? { detail: row.detail } : {}) } };
+        for (const i of idx) if (slots[i]) slots[i] = { ...slots[i], batchFailure: slots[i].batchFailure ?? { id: bs.id, units: bs.batch.units, ...(row.detail ? { detail: row.detail } : {}) }, batchAttempts: [...(slots[i].batchAttempts ?? []), { id: bs.id, status: row.status, timing: row.timing ?? null }] };
         return;
       }
       for (const i of idx) {
         const m = bScans[i];
-        const own = { id: m.id, class: m.class, command: m.command, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, status: row.status, ...(row.code ? { code: row.code } : {}), ...(row.detail ? { detail: row.status === "fail" ? `${row.id} (${idx.length} crates: ${bs.batch.units.join(", ")}): ${row.detail}` : row.detail } : {}), ...(row.cached ? { cached: true } : {}), batchedWith: { id: row.id, units: bs.batch.units }, ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), ...(row.identities ? { identities: row.identities } : {}), ...(row.log ? { log: row.log } : {}) };
+        const own = { id: m.id, class: m.class, command: m.command, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, status: row.status, ...(row.code ? { code: row.code } : {}), ...(row.detail ? { detail: row.status === "fail" ? `${row.id} (${idx.length} crates: ${bs.batch.units.join(", ")}): ${row.detail}` : row.detail } : {}), ...(row.cached ? { cached: true } : {}), timing: row.timing ?? null, batchedWith: { id: row.id, units: bs.batch.units }, ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), ...(row.identities ? { identities: row.identities } : {}), ...(row.log ? { log: row.log } : {}) };
         slots[i] = own; done += 1;
         try { onResult(own, { done, total, seconds: Math.round((Date.now() - started) / 1000) }); } catch { /* reporting never fails a scan */ }
       }
@@ -3014,11 +3016,16 @@ export async function runScans(plan, options = {}) {
 
   // `extraEnv` (the quiet lease id) reaches the child but never the cache key: a lease changes nothing a scan proves.
   async function scanRow(s, extraEnv = null) {
-    // What one scan makes outside the plan and must remove when it ends: a Class A Cargo scan's output directory (cargoReadTargetDir).
+    // One invocation owns one timing, including cache lookup, probes, execution and verification.
+    const started = performance.now();
+    const timing = { invocationId: crypto.randomUUID(), elapsedMs: null, cacheLookupMs: null, executionMs: null };
     const owned = { cargoReadTarget: null };
-    try { return await scanRowIn(s, extraEnv, owned); } finally { if (owned.cargoReadTarget) fs.rmSync(owned.cargoReadTarget, { recursive: true, force: true }); }
+    try {
+      const row = await scanRowIn(s, extraEnv, owned, timing);
+      return { ...row, timing: { ...timing, elapsedMs: performance.now() - started } };
+    } finally { if (owned.cargoReadTarget) fs.rmSync(owned.cargoReadTarget, { recursive: true, force: true }); }
   }
-  async function scanRowIn(s, extraEnv, owned) {
+  async function scanRowIn(s, extraEnv, owned, timing) {
     const row = { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: null, status: "fail" };
     const scanStartedAt = Date.now();
     if (s.class === SCAN_CLASS.B && classBBlocked) {
@@ -3083,6 +3090,7 @@ export async function runScans(plan, options = {}) {
           const viaSnapshotBroker = carriedScan && Boolean(deps.snapshotBroker) && s.root === "cargoLive" && (s.tool === "rustright" || s.tool === "cargo");
           const carriedRead = cargoReadsAreCarried && s.class === SCAN_CLASS.A && (s.tool === "rustright" || s.tool === "cargo");
           if (cache && !carriedRead && !s.coverageKey) {
+            const cacheStarted = performance.now();
             try {
               const digest = cache.digest(s);
               // The analyzers a scan runs through (actionlint's shellcheck) judge it too, so their versions key it as well.
@@ -3090,6 +3098,7 @@ export async function runScans(plan, options = {}) {
               if (digest) cacheKey = scanCacheKey({ id: s.id, command: s.runOutside ? `${s.command} ;; run ${canonicalJson(s.runOutside)}` : s.command, toolVersion, env: s.env ?? {}, inheritedEnv: inheritedEnvDigest({ ...deps.env, ...s.env }), digest });
             } catch { cacheKey = null; }
             const hit = cacheKey ? cache.read(cacheKey) : null;
+            timing.cacheLookupMs = performance.now() - cacheStarted;
             // A cached test pass counts only with the counts it recorded: without them its coverage is unknown, so it runs again.
             // ...and only if it passed at least one test: a cached all-skipped "pass" (written before D17) runs again (rightkit#1236).
             // A Rust test scan (runOutside) is judged the same way: the executables are unknown until the compile, so its key is the source digest and the cached row must carry the summed libtest counts.

@@ -4728,6 +4728,14 @@ export async function main(argv, io = {}) {
     // rightkit#1463: the per-scan coverage report (hit / ran / skipped, with the cache key and the reason), written beside the scan logs; a cache that never hits shows here.
     try {
       const report = buildCoverageReport({ plan, scanResult, keys: scanKeys, classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], commit: snapshotBCommit?.commit ?? snapshotCommitId?.commit ?? hostedCommitA?.commit ?? null, startedAt: new Date(directTiming.cargoStart).toISOString(), endedAt: new Date(directTiming.cargoEnd).toISOString() });
+      const timingRows = new Map(scanResult.scans.map((row) => [row.id, row]));
+      for (const scan of report.scans) {
+        const row = timingRows.get(scan.id);
+        scan.timing = row?.timing ?? null;
+        scan.scanElapsedMs = row?.scanElapsedMs ?? null;
+        if (row?.retried?.timing) scan.retryTiming = row.retried.timing;
+        if (row?.batchAttempts) scan.batchAttempts = row.batchAttempts;
+      }
       const base = gateRunsRoot({ env: o.env, platform: o.platform });
       const file = (o.writeCoverage ?? writeCoverageReport)({ dir: path.join(base, "rightkit-gate-coverage"), name: `${path.basename(root)}-${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}`, report });
       o.out(`${tag} coverage report ${file}: ${report.totals.planned} planned scan(s), ${report.totals.hit} hit, ${report.totals.ran} ran, ${report.totals.skipped} skipped; scans took ${seconds(directTiming.cargoEnd - directTiming.cargoStart)}`);

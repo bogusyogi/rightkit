@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { dependencyDigest } from './snapshot-dependency-reuse.mjs';
+import { dependencyDigest, canonicalConfigFingerprint } from './snapshot-dependency-reuse.mjs';
 
 test('dependency proof binds bytes, metadata and modes', (t) => {
   const scratch = process.platform === 'win32' ? 'D:\\scratch' : '/Volumes/D/scratch';
@@ -20,4 +20,14 @@ test('dependency proof binds bytes, metadata and modes', (t) => {
     fs.chmodSync(pkg, 0o644);
   }
   fs.rmSync(pkg); assert.notEqual(dependencyDigest(root, ['node_modules']), before);
+});
+
+test('config identity ignores object order but binds values, array order and file hashes', () => {
+  const files = [['user', 'hash-a'], ['global', 'hash-b']];
+  const fingerprint = (config, ids = files) => canonicalConfigFingerprint(config, ids);
+  const before = fingerprint({ a: [1, 2], b: { x: 1, y: 2 } });
+  assert.equal(fingerprint({ b: { y: 2, x: 1 }, a: [1, 2] }), before);
+  assert.notEqual(fingerprint({ b: { y: 2, x: 1 }, a: [2, 1] }), before);
+  assert.notEqual(fingerprint({ b: { y: 3, x: 1 }, a: [1, 2] }), before);
+  assert.notEqual(fingerprint({ a: [1, 2], b: { x: 1, y: 2 } }, [['user', 'changed'], ['global', 'hash-b']]), before);
 });

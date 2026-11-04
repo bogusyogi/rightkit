@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 
 const hash = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 const inside = (p, dir) => p === dir || p.startsWith(dir + path.sep);
+const CONFIG_CODES = new Set(['config-list-failed', 'config-path-query-failed', 'config-list-empty', 'config-json-invalid', 'config-path-unknown', 'config-file-unreadable']);
+const safeError = (error, fallback) => CONFIG_CODES.has(error?.reuseCode) ? error.reuseCode : fallback;
 
 // Hash all files, symlink targets, directory names and modes, including pnpm
 // state and tool caches. Follow linked targets once; never trust stat/mtime.
@@ -75,58 +77,83 @@ function packageIdentity() {
 
 // Read config in memory only: neither config values nor credentials are stored
 // or logged. Unknown config locations or unreadable files disable reuse.
+export function canonicalConfigFingerprint(effective, files) {
+  const canonical = (v) => Array.isArray(v) ? v.map(canonical) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((key) => [key, canonical(v[key])])) : v;
+  return hash(JSON.stringify({ effective: canonical(effective), files }));
+}
+
 function pnpmConfigIdentity({ dir, env, spawn }) {
+  const fail = (code) => { const e = new Error(code); e.reuseCode = code; throw e; };
   const ask = (args) => {
     const r = spawn('pnpm', ['config', ...args], { cwd: dir, env, maxBuffer: 1 << 24 });
-    if (r?.status !== 0 || r?.error || r?.signal) throw new Error('cannot inspect pnpm configuration');
+    if (r?.status !== 0 || r?.error || r?.signal) fail(args[0] === 'list' ? 'config-list-failed' : 'config-path-query-failed');
     return String(r.stdout ?? '').trim();
   };
   const effective = ask(['list', '--json']);
-  if (!effective) throw new Error('empty pnpm configuration');
-  JSON.parse(effective);
+  if (!effective) fail('config-list-empty');
+  let parsed;
+  try { parsed = JSON.parse(effective); } catch { fail('config-json-invalid'); }
   const user = ask(['get', 'userconfig']);
   const global = ask(['get', 'globalconfig']);
   const userPath = user && user !== 'undefined' && user !== 'null' ? user : (env.HOME ? path.join(env.HOME, '.npmrc') : null);
-  if (!userPath || !path.isAbsolute(userPath) || !global || global === 'undefined' || global === 'null' || !path.isAbsolute(global)) throw new Error('unknown pnpm config location');
+  if (!userPath || !path.isAbsolute(userPath) || !global || global === 'undefined' || global === 'null' || !path.isAbsolute(global)) fail('config-path-unknown');
   const file = (p) => {
     try { return [p, fs.realpathSync(p), hash(fs.readFileSync(p))]; }
-    catch (e) { if (e.code === 'ENOENT') return [p, 'absent']; throw e; }
+    catch (e) { if (e.code === 'ENOENT') return [p, 'absent']; fail('config-file-unreadable'); }
   };
-  return hash(JSON.stringify({ effective, files: [file(userPath), file(global)] }));
+  return canonicalConfigFingerprint(parsed, [file(userPath), file(global)]);
 }
 
-export function snapshotDependencyReuse({ checkout, snapshot, tree, root, dirs, filters, storeDir, version, env, spawn }) {
+export function snapshotDependencyReuse({ checkout, snapshot, tree, root, dirs, filters, storeDir, version, env, spawn, diagnostic = {} }) {
+  let stage = 'pnpm-identity';
   try {
     const executable = pnpmIdentity(env);
-    if (!executable) return null;
+    if (!executable) { diagnostic.setup = 'pnpm-unresolved'; return null; }
+    stage = 'git-common';
     const git = spawn('git', ['rev-parse', '--git-common-dir'], { cwd: checkout, env });
-    if (git?.status !== 0) return null;
+    if (git?.status !== 0) { diagnostic.setup = 'git-common-failed'; return null; }
     const common = String(git.stdout ?? '').trim();
-    if (!common) return null;
+    if (!common) { diagnostic.setup = 'git-common-empty'; return null; }
     const cacheDir = path.join(path.resolve(checkout, common), 'rightkit-gate-dependency-preparation');
     const recordPath = path.join(cacheDir, `${hash(`${fs.realpathSync(snapshot)}\0${root}`)}.json`);
     // Hash values in memory; only the final digest is persisted, never env.
+    stage = 'config';
     const config = pnpmConfigIdentity({ dir: path.resolve(snapshot, root), env, spawn });
     // These gate-only controls select scan concurrency; the install ignores
     // scripts and pnpm's effective configuration is bound separately above.
     const schedule = new Set(['RK_GATE_JOBS', 'RK_GATE_TEST_JOBS', 'RK_GATE_CLASS_B_JOBS']);
+    stage = 'input-identity';
     const inputs = hash(JSON.stringify({ schema: 3, checkout: fs.realpathSync(checkout), snapshot: fs.realpathSync(snapshot), tree, root, dirs: [...dirs].sort(), filters, store: fs.realpathSync(storeDir), pnpm: executable, version, node: [fs.realpathSync(process.execPath), hash(fs.readFileSync(process.execPath)), process.version], platform: [process.platform, process.arch], gate: packageIdentity(), config, env: Object.entries(env).filter(([name]) => !schedule.has(name)).sort(([a], [b]) => a.localeCompare(b)) }));
     let digestChecks = 0;
+    diagnostic.setup = 'ready';
     return {
       get digestChecks() { return digestChecks; },
       matches() {
-        try { if (pnpmConfigIdentity({ dir: path.resolve(snapshot, root), env, spawn }) !== config) return false; const record = JSON.parse(fs.readFileSync(recordPath, 'utf8')); if (record.schema !== 3 || record.inputs !== inputs || typeof record.dependencies !== 'string') return false; digestChecks++; return record.dependencies === dependencyDigest(snapshot, dirs); } catch { return false; }
+        let phase = 'config';
+        try {
+          if (pnpmConfigIdentity({ dir: path.resolve(snapshot, root), env, spawn }) !== config) { diagnostic.match = 'config-changed'; return false; }
+          phase = 'record';
+          const record = JSON.parse(fs.readFileSync(recordPath, 'utf8'));
+          if (record.schema !== 3 || record.inputs !== inputs || typeof record.dependencies !== 'string') { diagnostic.match = 'record-mismatch'; return false; }
+          phase = 'digest'; digestChecks++;
+          const ok = record.dependencies === dependencyDigest(snapshot, dirs);
+          diagnostic.match = ok ? 'hit' : 'dependency-mismatch'; return ok;
+        } catch (e) { diagnostic.match = safeError(e, phase === 'record' && e.code === 'ENOENT' ? 'record-missing' : `${phase}-error`); return false; }
       },
       save() {
+        let phase = 'config';
         try {
-          if (pnpmConfigIdentity({ dir: path.resolve(snapshot, root), env, spawn }) !== config) return;
+          if (pnpmConfigIdentity({ dir: path.resolve(snapshot, root), env, spawn }) !== config) { diagnostic.save = 'config-changed'; return; }
+          phase = 'digest';
           digestChecks++;
           const record = JSON.stringify({ schema: 3, inputs, dependencies: dependencyDigest(snapshot, dirs) });
+          phase = 'write';
           fs.mkdirSync(cacheDir, { recursive: true });
           const temp = `${recordPath}.${process.pid}.${crypto.randomBytes(8).toString('hex')}.tmp`;
           fs.writeFileSync(temp, record, { flag: 'wx' }); fs.renameSync(temp, recordPath);
-        } catch { /* preparation remains successful; next run installs again */ }
+          diagnostic.save = 'saved';
+        } catch (e) { diagnostic.save = safeError(e, `${phase}-error`); }
       },
     };
-  } catch { return null; }
+  } catch (e) { diagnostic.setup = safeError(e, `${stage}-error`); return null; }
 }

@@ -778,7 +778,6 @@ async function* publishUnitStages(parsed, deps, batch) {
       if (feed.stagedNpm?.[unit] !== version && feed.registry?.npm?.[unit] !== version) refuse(`${unit}@${version}: stage the version in ${feedPath} and commit it before qualification`);
     }
   }
-  if (await (deps.registryHas ?? defaultRegistryHas)({ kind, name: unit, version })) refuse(`${unit}@${version} is already on the ${kind === "npm" ? "npm" : "crates.io"} registry; bump the version`);
   log(`[right-release] local publish ${kind}:${unit}@${version} at ${head.slice(0, 12)} (local-build grant, ${LOCAL_HOST_POLICIES[platform]} policy)`);
 
   // 2. The unit's own tests, exactly as the CI gate defines them.
@@ -847,6 +846,10 @@ async function* publishUnitStages(parsed, deps, batch) {
   log(`[right-release] ${plan.id}: ${verdict.executed} passed, 0 failed, ${verdict.skipped} skipped, ${verdict.ignored} ignored${isAssetGated ? " (asset-gated: RIGHTKIT_REQUIRE_ASSETS=0, skips recorded)" : ""}`);
   const packageEnv = yield { stage: "compile", kind, name: unit, version, commit: head, brokerRequests: brokerRequests.splice(0) };
   if (packageEnv) Object.assign(env, testEnv({ env: packageEnv }, isAssetGated));
+
+  // Availability is a publication/qualification precondition, not a compile precondition.
+  // A gate that stops at compile never advances past the yield above and never needs a new version.
+  if (await (deps.registryHas ?? defaultRegistryHas)({ kind, name: unit, version })) refuse(`${unit}@${version} is already on the ${kind === "npm" ? "npm" : "crates.io"} registry; bump the version`);
 
   // 3. Pack the artifact and hash it.
   // An npm pack is a broker job whose --pack-destination the adapter accepts only as an empty child of the host's scratch root, so the
