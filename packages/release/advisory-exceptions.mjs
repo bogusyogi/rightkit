@@ -392,6 +392,16 @@ export function checkCrateAdvisoryExceptions({ root = process.cwd(), now = new D
     }
     for (const p of checkAdvisoryExceptions({ root: here, now, allowPending, exceptionsFile: CRATE_EXCEPTIONS_FILE, readFile: f => readFile(path.join(here, f)) })) problems.push(`${dir}: ${p}`);
   }
+  // RightKit is one Cargo workspace with one Cargo.lock (GATE-CONTRACT GC-T24): the repository root holds the ledger, deny.toml and
+  // .cargo/audit.toml for every crate that is a member of it.
+  if (exists(path.join(root, 'Cargo.toml')) && exists(path.join(root, LOCK_FILE))) {
+    const ignores = [DENY_FILE, AUDIT_FILE].some(f => { try { return IGNORE_LIST_RE.test(readFile(path.join(root, f))); } catch { return false; } });
+    if (!exists(path.join(root, CRATE_EXCEPTIONS_FILE))) {
+      if (ignores) problems.push(`.: ${DENY_FILE} or ${AUDIT_FILE} ignores an advisory but ${CRATE_EXCEPTIONS_FILE} does not exist`);
+    } else {
+      for (const p of checkAdvisoryExceptions({ root, now, allowPending, exceptionsFile: CRATE_EXCEPTIONS_FILE, readFile: f => readFile(path.join(root, f)) })) problems.push(`.: ${p}`);
+    }
+  }
   return problems;
 }
 
