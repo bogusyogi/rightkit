@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { installIdentity } from './dependency-identity.mjs';
 
 const hash = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 const inside = (p, dir) => p === dir || p.startsWith(dir + path.sep);
@@ -59,14 +60,13 @@ export function captureDependencyManifest(snapshot, dirs) {
   return { digest, entries, complete: !entries.truncated };
 }
 
+// GC-A24 (Adrian, 2026-11-05): the proof is pnpm's own install record (installIdentity), not every installed byte; the inputs above
+// (tree, pnpm, node, platform, config, store, environment) already bind what the offline frozen install produces. The byte manifest
+// stays an opt-in diagnostic only.
 function dependencyProof(snapshot, dirs, diagnosticsEnabled) {
-  if (diagnosticsEnabled) {
-    try {
-      const capture = captureDependencyManifest(snapshot, dirs);
-      return { digest: capture.digest, capture };
-    } catch { /* retry the normal proof without diagnostic allocations */ }
-  }
-  return { digest: dependencyDigest(snapshot, dirs), capture: null };
+  let capture = null;
+  if (diagnosticsEnabled) { try { capture = captureDependencyManifest(snapshot, dirs); } catch { capture = null; } }
+  return { digest: installIdentity(snapshot, dirs), capture };
 }
 
 function writeDiagnostic(dir, phase, root, inputs, components, capture) {
@@ -199,7 +199,7 @@ export function snapshotDependencyReuse({ checkout, snapshot, tree, root, dirs, 
           if (pnpmConfigIdentity({ dir: path.resolve(snapshot, root), env, spawn }) !== config) { diagnostic.match = 'config-changed'; return false; }
           phase = 'record';
           const record = JSON.parse(fs.readFileSync(recordPath, 'utf8'));
-          if (record.schema !== 4 || !record.components || typeof record.components !== 'object' || typeof record.dependencies !== 'string') { diagnostic.match = 'record-invalid'; return false; }
+          if (record.schema !== 5 || !record.components || typeof record.components !== 'object' || typeof record.dependencies !== 'string') { diagnostic.match = 'record-invalid'; return false; }
           const changed = Object.keys(components).filter((key) => record.components[key] !== components[key]);
           if (changed.length || record.inputs !== inputs) { diagnostic.match = 'record-mismatch'; diagnostic.components = changed.length ? changed.join(',') : 'aggregate'; if (diagnosticDir) { try { writeDiagnostic(diagnosticDir, 'lookup', root, inputs, components, captureDependencyManifest(snapshot, dirs)); } catch {} } return false; }
           phase = 'digest'; digestChecks++;
@@ -216,7 +216,7 @@ export function snapshotDependencyReuse({ checkout, snapshot, tree, root, dirs, 
           phase = 'digest';
           digestChecks++;
           const { digest, capture } = dependencyProof(snapshot, dirs, diagnosticDir);
-          const record = JSON.stringify({ schema: 4, inputs, components, dependencies: digest });
+          const record = JSON.stringify({ schema: 5, inputs, components, dependencies: digest });
           phase = 'write';
           fs.mkdirSync(cacheDir, { recursive: true });
           const temp = `${recordPath}.${process.pid}.${crypto.randomBytes(8).toString('hex')}.tmp`;

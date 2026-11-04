@@ -276,7 +276,7 @@ export function treeIndexStoreOf(dir) {
  * input even though the seeded tree id cannot see it. Never follows a link (only real directories are entered); names compare
  * case-insensitively where the host filesystem does (Mac, Windows; colliding names were refused before this runs).
  */
-function pruneToTree(dir, entries, platform = process.platform, keepRoot = new Set()) {
+function pruneToTree(dir, entries, platform = process.platform, keepRoot = new Set(), keepDirs = new Set()) {
   const fold = platform === "darwin" || platform === "win32" ? (n) => n.toLowerCase() : (n) => n;
   const files = new Set(entries.map((e) => fold(e.path)));
   const dirs = new Set();
@@ -286,7 +286,9 @@ function pruneToTree(dir, entries, platform = process.platform, keepRoot = new S
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       const r = rel ? `${rel}/${e.name}` : e.name;
       const p = path.join(d, e.name);
-      if (e.isDirectory()) { if (dirs.has(fold(r))) walk(p, r); else { fs.rmSync(p, { recursive: true, force: true }); removed++; } }
+      // keepDirs: the commit's own generated pnpm dependency directories (dependencyDirs), real directories only, kept whole for the
+      // dependency step, which reuses them only when every installed byte matches its last completed install and otherwise removes them.
+      if (e.isDirectory()) { if (keepDirs.has(fold(r))) continue; if (dirs.has(fold(r))) walk(p, r); else { fs.rmSync(p, { recursive: true, force: true }); removed++; } }
       else if (!files.has(fold(r)) && !(rel === "" && keepRoot.has(fold(r)))) { fs.unlinkSync(p); removed++; }
     }
   };
@@ -946,7 +948,7 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), ma
       const s = lstat(identityPath);
       return !!s?.isFile() && s.nlink === 1n && (process.platform === "win32" || (Number(s.mode) & 0o111) === 0) && fs.readFileSync(identityPath).equals(identityBytes);
     })();
-    removed += pruneToTree(dir, entries, process.platform, keepIdentity ? new Set([foldFor(process.platform)(SOURCE_IDENTITY_FILE)]) : new Set());
+    removed += pruneToTree(dir, entries, process.platform, keepIdentity ? new Set([foldFor(process.platform)(SOURCE_IDENTITY_FILE)]) : new Set(), dependencyDirs(entries, process.platform));
     if (identityBytes) {
       // Written only when the commit's own ignore rules ignore the name (they are in the snapshot now): an unignored file would change the
       // tree id the broker computes too, so the gate would break every build of that repository. Then nothing is written and the reason is reported.

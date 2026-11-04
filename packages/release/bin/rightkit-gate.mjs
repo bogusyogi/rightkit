@@ -80,6 +80,7 @@ import path from "node:path";
 import { hostTarget } from "../cross-targets.mjs";
 import { FOREIGN_PRE_COMMIT, retireHooksIn } from "../hook-retirement.mjs";
 import { fileURLToPath } from "node:url";
+import { installIdentity, installStateBytes } from "../dependency-identity.mjs";
 import { BIOME_CONFIG_FILES, CHECKER_IDENTITY, ESLINT_CONFIG_FILES, LOCAL_CLASS_B_JOBS, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanToolPolicyFromPipeline, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
@@ -372,28 +373,8 @@ export function gateTmpRoot({ env = process.env, platform = process.platform, ex
 export const PNPM_PROBE_TIMEOUT_MS = 60_000;
 export const PNPM_PIN_REFUSAL = "RK_PNPM_VERSION_MISMATCH";
 export const TOOL_CACHE_DIRS = new Set([".vite", ".vite-temp", ".vitest-cache", ".cache"]);
+export { installStateBytes };
 export const INSTALL_STATE_NOT_COVERED = new Set([".pnpm-task-run-state-v1"]);
-/**
- * The bytes of a pnpm install-state file as the digests bind them: pnpm stamps the time of every install into `.modules.yaml`
- * (`prunedAt`) and `.pnpm-workspace-state-v1.json` (`lastValidatedTimestamp`, `validation.recordedAtNs`, the lockfile's `mtimeNs`/`ctimeNs`), so an identical reinstall changed every class A key and
- * the dependency reuse record on each run (rightkit#1506, measured 2026-11-05: those two fields were the only bytes of 858 entries that
- * differed between runs). Only those fields are dropped; every other byte stays bound. Any other file is returned unchanged.
- */
-export function installStateBytes(name, bytes) {
-  if (name === ".modules.yaml") return Buffer.from(String(bytes).replace(/^\s*"?prunedAt"?\s*:.*$/m, ""));
-  if (name === ".pnpm-workspace-state-v1.json") {
-    try {
-      const state = JSON.parse(String(bytes)); delete state.lastValidatedTimestamp;
-      // validation: pnpm's own fast check records when it validated and the lockfile's times; the lockfile's size and digest stay bound.
-      if (state.validation && typeof state.validation === "object") {
-        delete state.validation.recordedAtNs;
-        for (const entry of Object.values(state.validation.files ?? {})) if (entry && typeof entry === "object") { delete entry.mtimeNs; delete entry.ctimeNs; }
-      }
-      return Buffer.from(JSON.stringify(state));
-    } catch { return bytes; }
-  }
-  return bytes;
-}
 const nodeModulesDirs = (root, files) => [...new Set(files.filter((f) => /(^|\/)package\.json$/.test(f)).map((f) => path.join(path.dirname(path.join(root, f)), "node_modules")))].sort();
 function isLink(p) { try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; } }
 
@@ -464,90 +445,13 @@ export function toolCacheDrift(before, after) {
  * entry, or more than `maxFiles` files throws. Tool caches (TOOL_CACHE_DIRS) leave no trace. Bytes that change while it hashes are caught by comparing the digest at the start
  * and end of the run and again at START.
  */
-export function installedDependencyDigest({ root, files, maxFiles = 400000, includeCaches = true, statIndex = dependencyStatIndexOf(root) }) {
-  const h = createHash("sha256");
-  const realRoot = fs.realpathSync(root);
-  const statStarted = Date.now();
-  let known = new Map(); let knownAt = 0;
-  if (statIndex) { try { const stored = JSON.parse(fs.readFileSync(statIndex, "utf8")); if (stored?.schema === DEPENDENCY_STAT_SCHEMA) { known = new Map(stored.files); knownAt = stored.writtenAt; } } catch { known = new Map(); } }
-  const next = new Map();
-  const fileSha = (p, st) => {
-    const stamp = `${st.size}:${st.mtimeNs}:${st.ino}:${st.mode}`;
-    const prior = known.get(p);
-    if (prior && prior[0] === stamp && Number(st.mtimeMs) < knownAt - 2000) { next.set(p, prior); return prior[1]; }
-    const sha = createHash("sha256").update(installStateBytes(path.basename(p), fs.readFileSync(p))).digest("hex");
-    next.set(p, [stamp, sha]);
-    return sha;
-  };
-  const walkedRoots = nodeModulesDirs(root, files);
-  const realWalked = walkedRoots.map((d) => { try { return fs.realpathSync(d); } catch (error) { if (error?.code === "ENOENT") return null; throw error; } }).filter(Boolean);
-  const inside = (p, dir) => p === dir || p.startsWith(dir + path.sep);
-  const rel = (p) => (inside(p, realRoot) ? path.relative(realRoot, p).split(path.sep).join("/") : p);
-  const seen = new Set(); const pending = []; let count = 0;
-  const fail = (what, error) => { throw new Error(`cannot read ${what} for the class A environment (${error?.code ?? error?.message ?? error})`); };
-  const entry = (p, name, parentIsNodeModules, fromLink) => {
-    const st = (() => { try { return fs.lstatSync(p, { bigint: true }); } catch (error) { return fail(rel(p), error); } })();
-    if (st.isSymbolicLink()) {
-      let target; let real;
-      try { target = fs.readlinkSync(p); } catch (error) { return fail(`the link ${rel(p)}`, error); }
-      // A dangling link (pnpm hoists optional packages for other platforms that were never installed) resolves nothing, so it
-      // supplies no bytes; it is bound as dangling, and a target that later appears changes the digest.
-      try { real = fs.realpathSync(p); } catch (error) { if (error?.code === "ENOENT") { h.update(`${rel(p)}\tdangling\t${target}\n`); return; } return fail(`the link ${rel(p)}`, error); }
-      h.update(`${rel(p)}\tlink\t${target}\n`);
-      if (!realWalked.some((d) => inside(real, d))) pending.push(real);
-      return;
-    }
-    // pnpm's task-run state holds only completion markers, never code, and leaves no trace. Tool caches are bound byte for byte
-    // unless `includeCaches` is false (only for the start/end comparison inside one run, which writes them itself).
-    if (parentIsNodeModules && !fromLink && INSTALL_STATE_NOT_COVERED.has(name)) return;
-    if (parentIsNodeModules && !fromLink && TOOL_CACHE_DIRS.has(name) && !includeCaches) return;
-    if (st.isDirectory()) return walk(p, fromLink);
-    if (st.isFile()) {
-      if (++count > maxFiles) throw new Error(`more than ${maxFiles} installed dependency files; refusing an unbounded class A environment`);
-      let sha; try { sha = fileSha(p, st); } catch (error) { return fail(rel(p), error); }
-      h.update(`${rel(p)}\tfile\t${st.mode & 0o111n ? "x" : "-"}\t${sha}\n`);
-      return;
-    }
-    throw new Error(`unsupported entry ${rel(p)} in the installed dependencies`);
-  };
-  const walk = (dir, fromLink) => {
-    let names; try { names = fs.readdirSync(dir).sort(); } catch (error) { return fail(rel(dir), error); }
-    const nm = path.basename(dir) === "node_modules";
-    for (const name of names) {
-      const p = path.join(dir, name);
-      if (fromLink && (name === ".git" || (name === "node_modules" && walkedRoots.includes(p)))) continue;
-      entry(p, name, nm, fromLink);
-    }
-  };
-  for (const d of walkedRoots) {
-    h.update(`root\t${rel(d)}\n`);
-    try { fs.lstatSync(d); } catch (error) { if (error?.code === "ENOENT" || error?.code === "ENOTDIR") { h.update("absent\n"); continue; } fail(rel(d), error); }
-    walk(d, false);
-  }
-  while (pending.length) {
-    const real = pending.shift();
-    if (seen.has(real)) continue;
-    seen.add(real);
-    if (real === path.parse(real).root || inside(realRoot, real)) throw new Error(`a dependency link resolves to ${real}, the repository or one of its ancestors; refusing to bind it`);
-    h.update(`target\t${rel(real)}\n`);
-    const st = fs.lstatSync(real);
-    // A linked package outside the walked node_modules trees (a workspace package, or one elsewhere on disk) is hashed whole:
-    // any of its files can be executed by a consumer (an ignored dist/, an implicit index.js, a file its entry imports).
-    if (st.isDirectory()) walk(real, true); else entry(real, path.basename(real), false, true);
-  }
-  if (statIndex) {
-    try { fs.mkdirSync(path.dirname(statIndex), { recursive: true }); const tmp = `${statIndex}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify({ schema: DEPENDENCY_STAT_SCHEMA, writtenAt: statStarted, files: [...next] })); fs.renameSync(tmp, statIndex); } catch { /* a cache: the next run hashes again */ }
-  }
-  return h.digest("hex");
-}
-
-const DEPENDENCY_STAT_SCHEMA = "rightkit.dependency-stat-index/3";
-/** The stat index of root's installed dependencies, under the host's managed data root (null where none resolves). */
-function dependencyStatIndexOf(root) {
-  try {
-    const dataRoot = resolveManagedRoots({ env: process.env, platform: process.platform }).dataRoot;
-    return dataRoot ? path.join(dataRoot, "dependency-stat-index", `${createHash("sha256").update(fs.realpathSync(root)).digest("hex").slice(0, 16)}.json`) : null;
-  } catch { return null; }
+export function installedDependencyDigest({ root, files, includeCaches = true }) {
+  // GC-A24 (Adrian, 2026-11-05): the installed dependencies are identified by pnpm's own install record (dependency-identity.mjs
+  // installIdentity: install-state files with their timestamps removed, .pnpm/lock.yaml, top-level links, and whole bytes only of linked
+  // packages from outside the repository), not by reading every installed file. `includeCaches` no longer applies: tool caches are
+  // not part of the install record. The roots are the node_modules directories of every committed package.json (nodeModulesDirs).
+  void includeCaches;
+  return installIdentity(root, nodeModulesDirs(root, files));
 }
 
 /**

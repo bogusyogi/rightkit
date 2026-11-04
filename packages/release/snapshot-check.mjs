@@ -348,6 +348,9 @@ export function installSnapshotDependencies({ checkout, snapshot, commit, tree, 
       }
     }
     const reuseCheckMs = Math.round(performance.now() - reuseStarted);
+    // GC-A24: dependency directories kept by the snapshot sync that do not match their last completed install are removed before the
+    // install, so a non-reused install starts from nothing, exactly as when the sync removed them.
+    for (const d of ownedDirs) fs.rmSync(path.join(base, ...d.split("/")), { recursive: true, force: true });
     const started = now();
     // The virtual store is pinned inside the snapshot and the global virtual store off, whatever the host's pnpm config says: the
     // install writes nowhere but the snapshot (links to the existing store's content are the only reads outside it).
