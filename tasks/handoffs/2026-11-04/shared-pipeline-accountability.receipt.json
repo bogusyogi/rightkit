@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "artifact_name": "shared-pipeline-accountability.md",
+  "artifact_path": "/Volumes/D/claude/rightkit/tasks/handoffs/2026-11-04/shared-pipeline-accountability.md",
+  "sha256": "470fc1308984f751fd904742f64cb2c1d99058d0a29d66845a518dd0c2f3c626",
+  "validated_at": "2026-11-04T16:44:07.873356+00:00",
+  "validator": "handoff/validate-handoff"
+}
