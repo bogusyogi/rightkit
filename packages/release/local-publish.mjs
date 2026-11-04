@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { committedCargoWorkspace } from "./committed-cargo-workspace.mjs";
 // `right-release publish npm|cargo ... --local`: publish ONE @rightkit npm package or crate from the Mac (npm and
 // crates) or from Windows (crates only) under Adrian's local-build grant (2026-10-14, committed
 // .rightkit-local-build.json). It does not weaken the publication gate: it runs the unit's own CI tests
@@ -470,33 +471,75 @@ export function localTestPlan({ kind, unit, dir, config, manifest, batch = false
   return { id: `rust:${unit}`, featureLabels: featureSets.map((features) => features.join(" ") || "default"), consumerRows: consumers, steps };
 }
 
+/** Publisher compile-stage obligations. Caller supplies authenticated source policy and execution environment. */
+export function compileRequirements({ kind, unit, dir, config, manifest, platform = "darwin", workspace, env, assetGated = {}, allowIgnored = false, allowIgnoredUnits = [], jobs }) {
+  if (kind !== "cargo" && kind !== "npm") throw new Error(`unsupported compile requirement kind ${kind}`);
+  if (kind === "cargo" && (typeof workspace !== "string" || !workspace)) throw new Error("authenticated Cargo workspace is required");
+  if (!env || typeof env !== "object" || Array.isArray(env)) throw new Error("publisher execution environment is required");
+  if (!Array.isArray(allowIgnoredUnits)) throw new Error("allowIgnoredUnits must be an array");
+  const plan = localTestPlan({ kind, unit, dir, config, manifest, batch: false, platform });
+  const gated = Object.hasOwn(assetGated[kind === "npm" ? "npm" : "crates"] ?? {}, unit);
+  const executionEnv = testEnv({ env }, gated);
+  const configReason = kind === "cargo" && typeof config?.rust?.[unit]?.allowIgnored === "string" ? config.rust[unit].allowIgnored.trim() : "";
+  const ignoredAllowed = Boolean(allowIgnored || allowIgnoredUnits.includes(unit) || configReason);
+  const steps = [...plan.steps];
+  if (kind === "cargo") steps.unshift({ command: "cargo", args: qualifyFmtArgs(unit), test: false });
+  const requirements = [];
+  const add = (requirement) => requirements.push({ id: `publisher:${kind}:${unit}:${requirements.length}`, ...requirement, coverageKey: sha256(JSON.stringify(requirement)) });
+  if (kind === "cargo") add({ workspace, cwd: dir, executable: null, internal: "scanCrateForSecrets", argv: [dir], env: {}, phase: "check" });
+  for (const step of steps) {
+    const consumer = step.command === "cargo" && step.args.includes("--manifest-path");
+    const cwd = consumer || kind === "npm" ? "." : dir;
+    const manifestIndex = step.args.indexOf("--manifest-path");
+    const requirementWorkspace = consumer ? path.posix.dirname(step.args[manifestIndex + 1]) : kind === "cargo" ? workspace : ".";
+    const argv = step.command === "cargo" ? oneOutput(withCargoJobs(step.args, jobs), { platform }) : [...step.args];
+    add({ workspace: requirementWorkspace, cwd, executable: step.command, argv, env: { ...executionEnv, ...(step.env ?? {}) }, phase: step.test ? "test" : "compile" });
+  }
+  return {
+    unit, requirements, consumerWorkspaces: [...new Set((plan.consumerRows ?? []).map((row) => path.posix.dirname(row.manifestPath)))],
+    verdict: { source: "judgeUnit", allowNoTests: true, allowIgnored: ignoredAllowed, allowIgnoredReason: configReason || null, allowMissingAssets: gated, requireZeroFailed: true, rejectTruncatedTestOutput: true, brokerCompiledTestsRunOutsideBroker: true },
+    sourceObligations: { cleanUnitAndGateConfig: true, cleanTrackedConsumerManifestsAndLocks: true },
+  };
+}
+
 /**
  * The clippy invocations that replace each crate's own `cargo clippy -p <crate> --no-deps --all-targets
- * <featureSets[0]> -- -D warnings`: same flags and lint level, so the same lints on the same code. Every crate is its own
- * Cargo workspace with its own Cargo.lock (rightkit#1285), so cargo runs in that crate's directory and one invocation never
- * names two crates: one `-p <crate>` run per crate and feature set, in layer order. Crates with a different
- * RIGHTKIT_REQUIRE_ASSETS (asset-gated) keep their own environment.
+ * <features> -- -D warnings`: same flags and lint level, so the same lints on the same code. RightKit is one Cargo
+ * workspace (GC-T24, rightkit#1505 superseding #1285's one workspace per crate), so crates whose invocation would
+ * differ only in `-p <crate>` share ONE invocation naming every crate, run at the workspace root. Grouping is exact:
+ * same feature set, same target (or none), same asset-gated environment. A feature set that names crate-specific
+ * features (`--features`/`-F <names>`) never groups: one invocation would apply those names to every crate in it, so
+ * such a crate keeps its own invocation, exactly as deterministic-scans.mjs `batchable` refuses the same sets.
+ * Feature unification inside one invocation is the GC-I11 caveat the scan batching already carries; the members of
+ * a group share the invocation's verdict through the batch receipt, and each crate's tested/check/doc steps still
+ * run per crate in its own publish flow.
  */
-export function batchClippyInvocations(layer, { featuresOf = () => [], featureSetsOf = (unit) => [featuresOf(unit)], assetGatedOf = () => false, crossTargetsOf = () => [] } = {}) {
+export function batchClippyInvocations(layer, { featuresOf = () => [], featureSetsOf = (unit) => [featuresOf(unit)], assetGatedOf = () => false, crossTargetsOf = () => [], workspaceOf = () => "." } = {}) {
   const invocations = [];
+  const groups = new Map(); // group key -> invocation being built (its index in `invocations` stays at first sight)
+  const namesFeatures = (features) => features.some((f) => f === "--features" || f === "-F" || f.startsWith("--features=") || /^-F.+/.test(f));
+  const add = (unit, features, target) => {
+    const env = target ? crossCompileEnv(target) : null;
+    if (target && !env) throw new Error(`RK_CROSS_CC_UNPROVISIONED: the zig C toolchain for ${target} is not provisioned; run node scripts/ci/provision-zig.mjs <managed data root>/zig (or set RIGHTKIT_CROSS_CC_DIR)`);
+    const assetGated = assetGatedOf(unit);
+    const workspace = workspaceOf(unit);
+    const tail = ["--message-format=json-render-diagnostics", "--no-deps", "--all-targets", ...(target ? ["--target", target] : []), ...features, "--", "-D", "warnings"];
+    if (namesFeatures(features)) { invocations.push({ crates: [unit], workspace, assetGated, ...(env ? { env } : {}), args: ["clippy", "-p", unit, ...tail] }); return; }
+    const key = JSON.stringify([workspace, features, target, assetGated, env]);
+    const existing = groups.get(key);
+    if (existing) { existing.crates.push(unit); existing.args.splice(1 + 2 * (existing.crates.length - 1), 0, "-p", unit); return; }
+    const invocation = { crates: [unit], workspace, assetGated, ...(env ? { env } : {}), args: ["clippy", "-p", unit, ...tail] };
+    groups.set(key, invocation);
+    invocations.push(invocation);
+  };
   for (const unit of layer) {
     // Every tested feature set of a crate is linted, in order; identical sets of one crate collapse to one run.
     const sets = featureSetsOf(unit) ?? [[]];
     const unique = sets.filter((set, index) => sets.findIndex((other) => JSON.stringify(other ?? []) === JSON.stringify(set ?? [])) === index);
     for (const set of unique) {
       const features = set ?? [];
-      invocations.push({
-        crates: [unit], assetGated: assetGatedOf(unit),
-        args: ["clippy", "-p", unit, "--message-format=json-render-diagnostics", "--no-deps", "--all-targets", ...features, "--", "-D", "warnings"],
-      });
-      for (const target of crossTargetsOf(unit)) {
-        const env = crossCompileEnv(target);
-        if (!env) throw new Error(`RK_CROSS_CC_UNPROVISIONED: the zig C toolchain for ${target} is not provisioned; run node scripts/ci/provision-zig.mjs <managed data root>/zig (or set RIGHTKIT_CROSS_CC_DIR)`);
-        invocations.push({
-          crates: [unit], assetGated: assetGatedOf(unit), ...(env ? { env } : {}),
-          args: ["clippy", "-p", unit, "--message-format=json-render-diagnostics", "--no-deps", "--all-targets", "--target", target, ...features, "--", "-D", "warnings"],
-        });
-      }
+      add(unit, features, null);
+      for (const target of crossTargetsOf(unit)) add(unit, features, target);
     }
   }
   return invocations;
@@ -994,22 +1037,43 @@ async function runLocalPublishBatch(parsed, deps) {
   if (published.length) refuse(`already on the crates.io registry: ${published.join(", ")}; bump the version or remove them from the batch`);
   log(`[right-release] local publish cargo batch: ${crates.length} crate(s) in ${layers.length} layer(s) at ${head.slice(0, 12)}, concurrency ${concurrency} (local-build grant, ${LOCAL_HOST_POLICIES[platform]} policy)`);
 
-  // 3. Batch-level checks, once, at the batch commit. Each is recorded in every crate's evidence.
+  // Resolve membership independently from selected commit blobs, never from the receipt or live files.
   const env = testEnv(deps, false);
+  const workspaces = {};
+  const manifests = new Map();
+  const readCommittedManifest = (file) => {
+    if (manifests.has(file)) return manifests.get(file);
+    const entry = git(["ls-tree", "--name-only", head, "--", file], workspaceRoot);
+    if (entry === null) refuse(`cannot inspect committed ${file}`);
+    if (entry !== "" && entry !== file) refuse(`ambiguous committed ${file}`);
+    const contents = entry === "" ? null : git(["show", `${head}:${file}`], workspaceRoot);
+    if (entry !== "" && contents === null) refuse(`cannot read committed ${file}`);
+    manifests.set(file, contents);
+    return contents;
+  };
+  for (const unit of crates) {
+    try { workspaces[unit] = committedCargoWorkspace({ unitDir: `crates/${unit}`, read: readCommittedManifest }); }
+    catch (error) { refuse(`cannot resolve committed Cargo workspace for ${unit}: ${error.message}`); }
+  }
+  const workspacePaths = [...new Set(Object.values(workspaces))].flatMap((workspace) => [path.posix.join(workspace, "Cargo.toml"), path.posix.join(workspace, "Cargo.lock")]);
+  const workspaceDirty = git(["status", "--porcelain", "--", ...workspacePaths], workspaceRoot);
+  if (workspaceDirty === null || workspaceDirty !== "") refuse(`Cargo workspace manifests or locks are not clean: ${workspaceDirty ?? "cannot read git status"}`);
+
+  // Each row records the workspace and exact units covered by that invocation.
   const stamp = { commit: head, tree };
   const checks = []; const commands = [];
-  // One recorded check; `cwds` are the crate workspaces it runs in (each crate is its own Cargo workspace, #1285), once each.
-  const batchCheck = async (name, command, args, crateNames, runEnv = env, cwds = [workspaceRoot]) => {
+  const batchCheck = async (name, command, args, crateNames, runEnv = env, workspace = ".") => {
     const text = `${command} ${args.join(" ")}`;
-    log(`[right-release] batch ${name}: ${text}`);
-    for (const cwd of cwds) {
-      const result = await run(command, command === "cargo" ? oneOutput(args, { platform }) : args, { cwd, env: runEnv });
-      if (result.error || result.status !== 0) refuse(`batch ${name} failed (${result.error?.message ?? `exit ${result.status}`}): ${text}${cwd === workspaceRoot ? "" : ` (in ${path.relative(workspaceRoot, cwd)})`}\n${tail(`${result.stdout ?? ""}\n${result.stderr ?? ""}`)}`);
-    }
-    checks.push({ name, command: text, ok: true, ...stamp, ...(crateNames ? { crates: crateNames } : {}) });
+    const cwd = path.resolve(workspaceRoot, workspace);
+    log(`[right-release] batch ${name}: ${text} (in ${workspace})`);
+    const result = await run(command, command === "cargo" ? oneOutput(args, { platform }) : args, { cwd, env: runEnv });
+    if (result.error || result.status !== 0) refuse(`batch ${name} failed (${result.error?.message ?? `exit ${result.status}`}): ${text} (in ${workspace})\n${tail(`${result.stdout ?? ""}\n${result.stderr ?? ""}`)}`);
+    checks.push({ name, command: text, ok: true, ...stamp, crates: crateNames, workspace });
     commands.push(text);
   };
-  await batchCheck("fmt", "cargo", ["fmt", "--all", "--check"], undefined, env, crates.map((unit) => path.join(workspaceRoot, "crates", unit)));
+  for (const workspace of new Set(Object.values(workspaces))) {
+    await batchCheck("fmt", "cargo", ["fmt", "--all", "--check"], crates.filter((unit) => workspaces[unit] === workspace), env, workspace);
+  }
   log("[right-release] batch secret-scan: crate directories of the batch");
   const scan = deps.scanSecrets ?? scanCrateForSecrets;
   const violations = crates.flatMap((unit) => scan(path.join(workspaceRoot, "crates", unit)).map((file) => `${unit}: ${file}`));
@@ -1019,12 +1083,11 @@ async function runLocalPublishBatch(parsed, deps) {
   commands.push(scanText);
   const featureSetsOf = (unit) => gateConfig?.rust?.[unit]?.featureSets ?? [[]];
   for (const layer of layers) {
-    for (const invocation of batchClippyInvocations(layer, { featureSetsOf, assetGatedOf: isAssetGated, crossTargetsOf: (unit) => crossTargetsFor(gateConfig?.rust?.[unit], platform) })) {
-      // A cross-target invocation carries the zig C toolchain environment for its target (crossCompileEnv).
-      await batchCheck("clippy", "cargo", invocation.args, invocation.crates, { ...testEnv(deps, invocation.assetGated), ...(invocation.env ?? {}) }, invocation.crates.map((unit) => path.join(workspaceRoot, "crates", unit)));
+    for (const invocation of batchClippyInvocations(layer, { featureSetsOf, assetGatedOf: isAssetGated, crossTargetsOf: (unit) => crossTargetsFor(gateConfig?.rust?.[unit], platform), workspaceOf: (unit) => workspaces[unit] })) {
+      await batchCheck("clippy", "cargo", invocation.args, invocation.crates, { ...testEnv(deps, invocation.assetGated), ...(invocation.env ?? {}) }, invocation.workspace);
     }
   }
-  const receipt = { id: `batch-${head.slice(0, 12)}-${sha256(JSON.stringify(layers)).slice(0, 8)}`, ...stamp, crates, checks };
+  const receipt = { id: `batch-${head.slice(0, 12)}-${sha256(JSON.stringify(layers)).slice(0, 8)}`, ...stamp, crates, workspaces, checks };
 
   // 4. Publish layer by layer. A crate's publish returns only after its registry readback proved the exact
   // checksum visible in the index, so layer N+1 starts only once every layer-N dependency is visible.

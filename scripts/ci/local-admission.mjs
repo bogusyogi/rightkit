@@ -6,11 +6,13 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { validatePublicationEvidence } from "../../packages/release/publication-gate.mjs";
+import { candidateWorkspace } from "../../packages/release/committed-cargo-workspace.mjs";
+import { batchReceiptProblems, batchClippyMissingConfigurations, validatePublicationEvidence } from "../../packages/release/publication-gate.mjs";
 import { readCargoPackage } from "../../packages/release/crate-graph.mjs";
 import { readArchiveEntries } from "./archive-secret-scan.mjs";
 import { runtimeFeatureProofPolicy } from "./semantic-admission.mjs";
 import { cargoLocksFor, localRequiredScanIds, verifyLocalScanRecord } from "./scan-receipt.mjs";
+import { crossTargetsFor } from "../../packages/release/cross-targets.mjs";
 import { localTestPlan } from "../../packages/release/local-publish.mjs";
 import { LOCAL_HOST_OS } from "./upload.mjs";
 import { verifyLocalRuntimeProof } from "./runtime-supplement.mjs";
@@ -281,20 +283,28 @@ export function packagedManifestProblems({ bytes, unit, metadataText, workspaceD
  * plus fmt, the secret scan and the locked package. Every one must be recorded ok; a test step must carry an integer executed
  * count and zero failures, and the tests together must have executed something. `steps: []` is refused.
  */
-export function evidenceStepProblems({ evidence, unit, gateConfig, hostOs }) {
+export function evidenceStepProblems({ evidence, unit, gateConfig, hostOs, workspace, tree }) {
   const run = evidence?.runs?.[0];
   const recorded = Array.isArray(run?.steps) ? run.steps : null;
   if (!recorded) return ["the evidence records no steps array"];
   let plan;
-  try { plan = localTestPlan({ kind: "cargo", unit: unit.name, dir: unit.dir, config: gateConfig, manifest: null, batch: false, platform: hostOs }); }
+  try { plan = localTestPlan({ kind: "cargo", unit: unit.name, dir: unit.dir, config: gateConfig, manifest: null, batch: Boolean(run?.batch), platform: hostOs }); }
   catch (error) { return [`the source-derived qualification plan cannot be built for ${hostOs}: ${error.message}`]; }
   const wanted = [
-    { command: `cargo fmt -p ${unit.name} --check`, test: false },
-    { command: `scanCrateForSecrets ${unit.dir}`, test: false },
+    ...(!run?.batch ? [{ command: `cargo fmt -p ${unit.name} --check`, test: false },
+      { command: `scanCrateForSecrets ${unit.dir}`, test: false }] : []),
     ...plan.steps.map((step) => ({ command: `${step.command} ${step.args.join(" ")}`, test: step.test === true })),
     { command: `cargo package --locked -p ${unit.name}`, test: false },
   ];
   const problems = [];
+  if (run?.batch) {
+    problems.push(...batchReceiptProblems(run.batch, evidence, tree, workspace).map((problem) => `batch: ${problem}`));
+    try {
+      const entry = gateConfig?.rust?.[unit.name] ?? {};
+      const missing = batchClippyMissingConfigurations(run.batch, evidence, entry.featureSets ?? [[]], crossTargetsFor(entry, hostOs), workspace);
+      for (const item of missing) problems.push(`batch clippy missing ${item.features.join(" ") || "default"} @ ${item.target ?? "native"}`);
+    } catch (error) { problems.push(`batch clippy requirements: ${error.message}`); }
+  }
   let executed = 0;
   for (const want of wanted) {
     const rows = recorded.filter((row) => row?.command === want.command);
@@ -366,15 +376,19 @@ export async function localAdmission({ candidate, manifest, manifestSha256, sour
       if (runtimeFeatureProof.status === "HOLD") for (const text of runtimeFeatureProof.failures) bad(`${unit.name}: ${text}; the local runtime receipts did not qualify it (a crate without trusted runtime coverage must use publish.yml)`);
       if (!["not-applicable", "qualified", "HOLD"].includes(runtimeFeatureProof.status)) bad(`${unit.name}: runtime proof is ${runtimeFeatureProof.status}`);
     } catch (error) { bad(`${unit.name}: ${error.message}`); }
+    let workspace;
+    if (HOSTS.some((host) => receipts[host]?.units?.find((item) => item.name === unit.name)?.evidence?.runs?.some((run) => run?.batch))) {
+      try { workspace = candidateWorkspace(source, unit.dir); } catch (error) { bad(`workspace: ${error.message}`); }
+    }
     for (const host of HOSTS) {
       const policy = source.hosts?.[host]?.unitPolicies?.find((item) => item.name === unit.name);
       policies[host] = policy?.status ?? "required-positive-tests";
       if (policy?.status) bad(`${host}: ${policy.status} is explicit source policy; the publication gate requires positive native tests (policy conflict)`);
       const row = receipts[host]?.units?.find((item) => item.name === unit.name);
       if (row?.status === "allowed-exclusion") continue;
-      const result = validatePublicationEvidence({ expected: { kind: "cargo", name: unit.name, version: unit.version, commit: candidate.sourceSha, requiredHosts: [LOCAL_HOST_OS[host]] }, evidence: row?.evidence, artifactBytes: bytes });
+      const result = validatePublicationEvidence({ expected: { kind: "cargo", name: unit.name, version: unit.version, commit: candidate.sourceSha, tree: source?.source?.tree, workspace, requiredHosts: [LOCAL_HOST_OS[host]] }, evidence: row?.evidence, artifactBytes: bytes });
       for (const text of result.missing) bad(`${host}: publication gate: ${text}`);
-      for (const text of evidenceStepProblems({ evidence: row?.evidence, unit, gateConfig, hostOs: LOCAL_HOST_OS[host] })) bad(`${host}: ${text}`);
+      for (const text of evidenceStepProblems({ evidence: row?.evidence, unit, gateConfig, hostOs: LOCAL_HOST_OS[host], workspace, tree: source?.source?.tree })) bad(`${host}: ${text}`);
     }
     units.push({ name: unit.name, version: unit.version, archiveSha256: bytes ? sha256(bytes) : null, ok: problems.length === 0, failures: problems, policies, runtimeFeatureProof: { classification: runtimeFeatureProof.classification, listedOwner: runtimeFeatureProof.listedOwner, required: runtimeFeatureProof.required, status: runtimeFeatureProof.status, failures: runtimeFeatureProof.failures, ...(runtimeFeatureProof.status === "qualified" ? { proof: runtimeFeatureProof.proof } : {}) }, evidenceSha256: sha256(JSON.stringify({ rows: hosts.map((host) => receipts[host]?.units?.filter((item) => item.name === unit.name)), runtimeFeatureProof })) });
   }

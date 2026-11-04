@@ -252,6 +252,41 @@ export function fmtCheckArgs(unit = null) { return unit ? ["fmt", "-p", unit, "-
 /** `cargo metadata` that validates manifests and the lock without resolving anything new. */
 export function metadataArgs({ noDeps = true } = {}) { return ["metadata", ...(noDeps ? ["--no-deps"] : []), "--format-version", "1", "--locked"]; }
 
+/** Translate one authenticated publisher requirement into a normal Class B scan. */
+export function publisherRequirementScan(requirement, { platform = process.platform, nativeArch = process.arch, cargoCommand = ["cargo"], cargoLiveRoot = null, targetDirs = null, quiet = false, allowIgnored = false } = {}) {
+  const { id, workspace, cwd, executable, argv, env, phase, coverageKey } = requirement ?? {};
+  if (typeof id !== "string" || !id || typeof coverageKey !== "string" || !coverageKey || !Array.isArray(argv) || !argv.every((arg) => typeof arg === "string") || !env || typeof env !== "object" || Array.isArray(env) || !["compile", "test"].includes(phase)) throw new TypeError("invalid publisher requirement");
+  const plainDir = (value) => typeof value === "string" && /^(?:\.|[A-Za-z0-9_@+.-]+(?:\/[A-Za-z0-9_@+.-]+)*)$/.test(value) && !value.split("/").includes("..");
+  if (!plainDir(workspace) || !plainDir(cwd) || !["cargo", "pnpm"].includes(executable) || !Array.isArray(cargoCommand) || !cargoCommand.length || !cargoCommand.every((part) => typeof part === "string" && part)) throw new TypeError("invalid publisher requirement command or workspace");
+  const isRustTest = executable === "cargo" && phase === "test" && argv[0] === "test";
+  let args = [...argv]; let runOutside;
+  if (isRustTest && cargoLiveRoot) {
+    const separator = args.indexOf("--");
+    const runArgs = separator < 0 ? [] : args.slice(separator + 1);
+    args = (separator < 0 ? args : args.slice(0, separator)).filter((arg) => arg !== "--no-fail-fast" && !arg.startsWith("--message-format="));
+    args.push("--message-format=json");
+    runOutside = { args: runArgs };
+  }
+  if (executable === "cargo") args = oneOutput(isRustTest && cargoLiveRoot ? args : everyFailure(args), { platform, arch: nativeArch });
+  const scan = { id, coverageKey, ...(executable === "cargo" ? { executionWorkspace: workspace } : {}), publisherPhase: phase, class: SCAN_CLASS.B, root: executable === "cargo" && cargoLiveRoot ? "cargoLive" : "live", cwd, tool: executable === "cargo" ? cargoCommand[0] : executable, args: executable === "cargo" ? [...cargoCommand.slice(1), ...args] : args, env: { ...env, ...(targetDirs?.[workspace] ? { CARGO_TARGET_DIR: targetDirs[workspace] } : {}) }, ...(quiet && phase === "test" ? { quiet: true } : {}), ...(runOutside ? { runOutside } : {}), ...(isRustTest ? { publisherRustTest: true, allowIgnored } : {}), ...(executable === "pnpm" && phase === "test" ? { kind: "test" } : {}) };
+  // Do not render the inherited publisher environment into logs or receipts.
+  scan.command = commandText({ ...scan, env: {} });
+  return scan;
+}
+
+/** Deduplicate concurrent identical probes; transient outcomes are never retained. */
+export function singleFlightProbe(probe) {
+  const pending = new Map(); const completed = new Map();
+  return async (key, ...args) => {
+    if (completed.has(key)) return completed.get(key);
+    if (pending.has(key)) return pending.get(key);
+    const job = Promise.resolve().then(() => probe(...args));
+    pending.set(key, job);
+    try { const outcome = await job; if (!outcome?.transient) completed.set(key, outcome); return outcome; }
+    finally { pending.delete(key); }
+  };
+}
+
 // ---- Clippy batching (GATE-CONTRACT §1 "Clippy route & batching"; item 8 rows 8.6, 8.8, 8.15) -----------------------------------------
 
 // The batch planner itself (clippyBatchPlan, clippySelectionOf, CLIPPY_UNIVERSAL_FEATURE_FLAGS) lives in scan-digest.mjs, beside the scan
@@ -954,6 +989,11 @@ export function planScans({
   // crate and configuration, so required ids (GC-A14's three targets, scan-receipt) and GC-T14 keys are untouched; only the run is shared.
   // `shardSolo` and `clippySeparate` keep a crate out of every group, as they do for clippyBatching. Off unless the caller (rightkit-gate) asks.
   classBBatching = false,
+  // Dependency-freshness advice (rightkit#1475): planned only when the caller asks for advice in this run. It is a live
+  // registry answer that can never fail a run, and its uncached cost (a 120 s timeout in 41 of 81 crate runs,
+  // 2026-11-04) must not sit on the blocking path to a compile; update reporting (@rightkit/outdated) owns asking.
+  // A caller that wants the row passes true and gets exactly the historical scan, timeouts recorded as not measured.
+  freshnessAdvice = false,
 } = {}) {
   if (!contentRoot) throw new TypeError("planScans: contentRoot is required");
   if (!Array.isArray(cargoCommand) || cargoCommand.length === 0 || !["rustright", "cargo"].includes(cargoCommand[0]) || cargoCommand.slice(1).some((a) => a !== "cargo")) {
@@ -1255,8 +1295,9 @@ export function planScans({
   // Exceptions expire by date, not by change: checked on every run, whatever changed.
   if (exists(path.join(contentRoot, "ci/advisory-exceptions.json"))) add({ id: "advisory-exceptions", class: A, internal: "advisory-exceptions" });
   // Dependency freshness (rightkit#1475): `right-update check --json` once per repository that commits `.rightkit/update.json`. Advice only: it never
-  // fails a run (latest is a live registry answer), and the row carries "N behind latest".
-  if (exists(path.join(contentRoot, ".rightkit/update.json"))) add({ id: "dependency-freshness", class: A, internal: "dependency-freshness", advise: true });
+  // fails a run (latest is a live registry answer), and the row carries "N behind latest". Planned only on request
+  // (`freshnessAdvice`): optional advice never blocks a compile (reconciled scope, rightkit#1505).
+  if (freshnessAdvice && exists(path.join(contentRoot, ".rightkit/update.json"))) add({ id: "dependency-freshness", class: A, internal: "dependency-freshness", advise: true });
   // An app's advisory exceptions follow the same policy as RightKit's own: a Cargo workspace whose deny.toml or .cargo/audit.toml
   // ignores an advisory needs its ledger, <workspace>/.rightkit/advisory-exceptions.json, with owner, evidence, an unexpired
   // reviewBy, the exact affected versions and dependents in that workspace's Cargo.lock, and a person's approval; deny.toml and
@@ -2054,7 +2095,9 @@ export async function runTestBinaries({ scan, binaries, spawn, env, limitMs, sig
       if (r?.error?.code === "ETIMEDOUT" || r?.timedOut === true) { stopped = "TIMEOUT"; executables.push({ label, sha256: b.sha256, status: "fail" }); failures.push(`${label}: killed with its process tree at the run limit`); return; }
       const summary = parseLibtestSummary(`${r?.stdout ?? ""}\n${r?.stderr ?? ""}`);
       if (summary) { total.tests += summary.passed + summary.failed + summary.ignored; total.pass += summary.passed; total.fail += summary.failed; total.skipped += summary.ignored; }
-      const entry = { label, sha256: b.sha256, status: "pass", ...(summary ? { passed: summary.passed, failed: summary.failed, ignored: summary.ignored } : {}) };
+      const output = `${r?.stdout ?? ""}\n${r?.stderr ?? ""}`.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "");
+      const skipMarkers = output.split(/\r\n|\n|\r/).filter((line) => /(?:^|[\s\]:])SKIP(?=[\s:]|$)/.test(line)).length;
+      const entry = { label, sha256: b.sha256, outputTruncated: r?.truncated === true, skipMarkers, status: "pass", ...(summary ? { passed: summary.passed, failed: summary.failed, ignored: summary.ignored } : {}) };
       if (!r || r.error) { entry.status = "fail"; failures.push(`${label}: ${r?.error?.message ?? "no result"}`); }
       else if (r.status !== 0) { entry.status = "fail"; failures.push(`${label}: ${failureDetail(r) || `exit ${r.status}`}`); }
       else if (summary && (!summary.ok || summary.failed > 0)) { entry.status = "fail"; failures.push(`${label}: exited 0 but its summary reports ${summary.failed} failed test(s)`); }
@@ -2157,6 +2200,7 @@ function scanDirectory(scan) {
  */
 export function classBChainKey(scan, carried) {
   const dir = scanDirectory(scan);
+  if (carried && typeof scan?.executionWorkspace === "string") return scan.executionWorkspace;
   return carried ? (dir ?? ".") : `local:${dir ?? scan?.id ?? "."}`;
 }
 
@@ -2190,7 +2234,8 @@ export async function scheduleBrokerHostClassB({ scans, lanes, carried, localJob
         try { await run(i); } finally { free(); }
         continue;
       }
-      while (flight.size >= depth) await Promise.race(flight);
+      const scanDepth = scans[i].executionWorkspace ? 1 : depth;
+      while (flight.size >= scanDepth) await Promise.race(flight);
       const job = run(i).finally(() => flight.delete(job));
       flight.add(job);
     }
@@ -2199,6 +2244,7 @@ export async function scheduleBrokerHostClassB({ scans, lanes, carried, localJob
 }
 
 export function laneOf(scan) {
+  if (scan.publisherPhase === "compile") return "compile";
   if (/^(clippy|check|check-features|check-dependent):/.test(scan.id)) return "compile";
   if (/^doc:/.test(scan.id)) return "doc";
   return scan.quiet === true ? "quiet" : "tests";
@@ -2641,8 +2687,11 @@ export async function runScans(plan, options = {}) {
   // One reader for the whole run: every watched scan registers with it (first read after 1 s, then every 5 s, two reads in flight at most), instead of a client spawn per scan.
   const pollMs = options.brokerPollMs ?? ADMISSION_POLL_MS;
   const statusPoller = brokerLive ? createStatusPoller({ live: brokerLive, intervalMs: pollMs }) : null;
-  const toolVersions = {}; const toolIdentities = {}; const probed = new Map(); const advisoryDbs = new Map();
+  const toolVersions = {}; const toolIdentities = {}; const advisoryDbs = new Map();
   const results = [];
+  // Failed grouped invocations that were bisected for attribution (runGroup below): retained as run notes and on each
+  // member row (`batchFailure`), so a combined failure stays visible even when every diagnostic split then passes.
+  const batchFailureNotes = [];
   // The gate-owned cargo ledger of a wrapped snapshot compile (options.cargoLedger = { dir }): every call the wrapper decided, filed
   // under its scan's token. `ledgerSeen` is the run's one-use record of carriers and request ids across every scan.
   const cargoLedger = options.cargoLedger?.dir ? options.cargoLedger : null;
@@ -2674,8 +2723,7 @@ export async function runScans(plan, options = {}) {
   const classBBlocked = !inCallA && !priorClassAValid && options.classAEarlier !== true;
 
   const toolCommand = (tool) => (tool === "node" ? deps.execPath : tool === "rustfmt" ? deps.findRustfmt({ env: deps.env, exists: deps.exists, readdir: deps.readdir, platform: deps.platform, spawn: deps.lookupSpawn }) : tool);
-  async function probe(tool, scanDir = null) {
-    if (probed.has(tool)) return probed.get(tool);
+  const probeFlight = singleFlightProbe(async (tool, scanDir = null) => {
     let outcome;
     // A trusted analyzer is resolved ONCE, from its enrolment (never PATH), and its bytes verified before this probe runs it.
     const trust = TRUSTED_SCAN_TOOLS.includes(tool) ? resolveTrustedScanTool(tool, { policy: options.toolPolicy, platform: deps.platform, ops: options.toolOps }) : null;
@@ -2715,9 +2763,15 @@ export async function runScans(plan, options = {}) {
       }
     }
     toolVersions[tool] = outcome.ok ? outcome.version : null;
-    if (!outcome.transient) probed.set(tool, outcome);
     return outcome;
-  }
+  });
+  const probe = (tool, scanDir = null) => {
+    const trust = TRUSTED_SCAN_TOOLS.includes(tool) ? resolveTrustedScanTool(tool, { policy: options.toolPolicy, platform: deps.platform, ops: options.toolOps }) : null;
+    const command = trust ? (trust.ok ? trust.identity.path : null) : toolCommand(tool);
+    const cwd = (tool === "rustright" || (tool === "cargo" && cargoLiveRoot)) && scanDir ? scanDir : (deps.probeDir ?? probeDir());
+    const key = sha256(canonicalJson({ tool, command, cwd, args: PROBES[tool] ?? ["--version"], env: deps.env }));
+    return probeFlight(key, tool, scanDir);
+  };
 
   const jobs = Math.max(1, Number(options.jobs ?? 1) || 1);
   const testJobs = Math.max(1, Number(options.testJobs ?? jobs) || jobs);
@@ -2811,9 +2865,10 @@ export async function runScans(plan, options = {}) {
     // are one group; a group of two or more runs as ONE cargo invocation naming every member (`-p a -p b ...`) and the invocation's verdict becomes each
     // member's row, under the member's own id and command (so required scan ids and the scan-set digest are what the plan said). The invocation is a scan
     // of its own for everything else: it takes its own cache entry (the gate keys it on every member's inputs, `check:batch:` / `clippy:batch:`), cargo
-    // ledger token, signed broker receipt and run limit. A cargo failure (code EXIT: a compile diagnostic) is bisected, never reported for the group: each
+    // ledger token, signed broker receipt and run limit. A cargo failure (code EXIT: a compile diagnostic) is bisected for attribution: each
     // half runs again as a smaller invocation, down to one crate, which runs as its own per-crate scan, so a failure always names the crate that fails and
-    // the crates that pass still pass. Any other failure (a refused or unverified receipt, a timeout, a missing tool) is the group's and is not retried:
+    // the crates that pass still pass; the grouped failure itself is retained on every member row (`batchFailure`) and in the run notes, so a combined
+    // failure stays visible even when the splits pass. Any other failure (a refused or unverified receipt, a timeout, a missing tool) is the group's and is not retried:
     // running it N times would repeat it N times. Equivalence caveat (GC-I11): one invocation unifies features across its crates, so a pass here is not
     // proof that every member passes alone; the plan notes say the equivalence run has not been done.
     const groupOf = new Map();
@@ -2837,9 +2892,14 @@ export async function runScans(plan, options = {}) {
       let row;
       try { row = await scanRow(bs, extraEnv); } catch (error) { row = { id: bs.id, status: "fail", code: "SCAN_ERROR", detail: String(error?.message ?? error) }; }
       if (row.status === "fail" && row.code === "EXIT" && !signal?.aborted) {
+        // Bisect for attribution, but keep the grouped failure itself as evidence (rightkit#1458, reconciled scope
+        // 2026-11-04): the splits below prove each member's own required scan; they do not erase that the combined
+        // invocation failed (feature unification across the group is one way that happens, GC-I11).
+        batchFailureNotes.push(`class B batching: grouped invocation ${bs.id} (${idx.length} crates: ${bs.batch.units.join(", ")}) failed (EXIT) and was bisected to attribute it; member rows carry it as batchFailure`);
         const half = Math.ceil(idx.length / 2);
         await runGroup(idx.slice(0, half), extraEnv);
         await runGroup(idx.slice(half), extraEnv);
+        for (const i of idx) if (slots[i] && !slots[i].batchFailure) slots[i] = { ...slots[i], batchFailure: { id: bs.id, units: bs.batch.units, ...(row.detail ? { detail: row.detail } : {}) } };
         return;
       }
       for (const i of idx) {
@@ -2860,7 +2920,7 @@ export async function runScans(plan, options = {}) {
     };
     const drain = async (queue, extraEnv = null) => {
       const busy = new Set(); const running = new Set();
-      const keyOf = (i) => bScans[i].cwd ?? ".";
+      const keyOf = (i) => bScans[i].executionWorkspace ?? bScans[i].cwd ?? ".";
       while (queue.length || running.size) {
         const at = running.size < bJobs ? queue.findIndex((i) => !busy.has(keyOf(i))) : -1;
         if (at === -1) { await Promise.race(running); continue; }
@@ -2872,7 +2932,33 @@ export async function runScans(plan, options = {}) {
         running.add(job);
       }
     };
-    if (brokerHost) {
+    if (typeof options.scheduleClassB === "function") {
+      // A caller-supplied dependency scheduler uses this initialized executor: every job still passes Class A,
+      // tool, carrier, ledger, receipt, timeout and quiet-lease checks in the same scan path.
+      const issued = new WeakSet();
+      const remember = (row) => { issued.add(row); return row; };
+      const executeRaw = async (scan) => {
+        if (!scan.quiet) return runOne(scan);
+        if (classAFailed || classBBlocked || signal?.aborted) return runOne(scan);
+        let lease = null;
+        if (quietLane) { try { lease = (await quietLane.acquire({ ttlMs: QUIET_LEASE_MAX_MS })) ?? null; } catch { lease = null; } }
+        if (!lease && options.requireQuietLease) return { id: scan.id, class: scan.class, command: scan.command, status: "fail", code: "QUIET_LEASE_UNAVAILABLE", detail: "the broker quiet lease could not be held" };
+        try { return await runOne({ ...scan, timeoutMs: Math.min(scanTimeoutMs(scan, options), QUIET_SCAN_MAX_MS) }, lease?.env ?? null); }
+        finally { if (lease && typeof quietLane.release === "function") { try { await quietLane.release(lease.id); } catch { /* lease expires */ } } }
+      };
+      const execute = async (scan) => remember(Object.freeze(await executeRaw(scan)));
+      const project = (row, scan) => {
+        if (!issued.has(row) || !bScans.includes(scan)) throw new Error("scheduleClassB: invalid projection");
+        return remember(Object.freeze({ ...row, id: scan.id, command: scan.command }));
+      };
+      const notRun = (scan, detail) => {
+        if (!bScans.includes(scan)) throw new Error("scheduleClassB: unknown scan");
+        return remember(Object.freeze({ id: scan.id, class: scan.class, command: scan.command, status: "not-run", detail: String(detail) }));
+      };
+      const rows = await options.scheduleClassB({ scans: bScans, execute, project, notRun });
+      if (!Array.isArray(rows) || rows.length !== bScans.length || rows.some((row, i) => !row || !issued.has(row) || row.id !== bScans[i].id || typeof row.status !== "string")) throw new Error("scheduleClassB must return executor-issued results in plan order");
+      rows.forEach((row, i) => { slots[i] = row; });
+    } else if (brokerHost) {
       await scheduleBrokerHostClassB({
         scans: bScans, lanes, localJobs: bJobs, carried: (scan) => isBrokerScheduledScan(scan, carriedCtx), pipeline: options.classBPipeline ?? 1,
         run: async (i) => { try { slots[i] = await runB(i); } catch (error) { slots[i] = failedRow(i, error); } },
@@ -2882,7 +2968,7 @@ export async function runScans(plan, options = {}) {
       await drain(lanes.doc);
       await drain(lanes.tests);
     }
-    if (lanes.quiet.length) {
+    if (typeof options.scheduleClassB !== "function" && lanes.quiet.length) {
       // One lease per quiet suite, as in class A above.
       for (const i of lanes.quiet) {
         if (classAFailed || classBBlocked || signal?.aborted) {
@@ -2959,7 +3045,7 @@ export async function runScans(plan, options = {}) {
         // The RustRight client's version probe starts in a Cargo workspace of the primary checkout; a class A cargo scan's own directory is
         // in the snapshot, so its probe uses the checkout's counterpart (reading no file of it), or the checkout when it has none.
         let probeAt = scanDir;
-        if (cargoLiveRoot && s.root !== "cargoLive" && (s.tool === "rustright" || s.tool === "cargo")) {
+        if (s.class !== SCAN_CLASS.A && cargoLiveRoot && s.root !== "cargoLive" && (s.tool === "rustright" || s.tool === "cargo")) {
           const counterpart = path.join(cargoLiveRoot, s.cwd ?? "");
           let isDir = false; try { isDir = fs.statSync(counterpart).isDirectory(); } catch { isDir = false; }
           probeAt = isDir ? counterpart : cargoLiveRoot;
@@ -2996,7 +3082,7 @@ export async function runScans(plan, options = {}) {
           const carriedScan = isBrokerCarriedScan(s, carriedCtx);
           const viaSnapshotBroker = carriedScan && Boolean(deps.snapshotBroker) && s.root === "cargoLive" && (s.tool === "rustright" || s.tool === "cargo");
           const carriedRead = cargoReadsAreCarried && s.class === SCAN_CLASS.A && (s.tool === "rustright" || s.tool === "cargo");
-          if (cache && !carriedRead) {
+          if (cache && !carriedRead && !s.coverageKey) {
             try {
               const digest = cache.digest(s);
               // The analyzers a scan runs through (actionlint's shellcheck) judge it too, so their versions key it as well.
@@ -3258,7 +3344,7 @@ export async function runScans(plan, options = {}) {
               const ref = readRequestRef(path.join(carrier.refDir, "request.json"));
               const receipt = await deps.snapshotBroker.receiptOf(ref.requestId);
               const { evidence } = verifySnapshotReceipt(receipt, { pins: deps.snapshotBroker.pins, jobId: ref.requestId, carrier: carrier.made.carrier, argv: carrier.cargoArgv, workspace: ref.workspace, observedEnv: observedEnvOf({ ...deps.env, ...s.env, ...(extraEnv ?? {}) }, deps.platform ?? process.platform), checkout: deps.snapshotBroker.checkout, outputRoots: deps.snapshotBroker.outputRoots, platform: deps.snapshotBroker.platform ?? deps.platform ?? process.platform });
-              row.snapshotEvidence = { requestId: ref.requestId, outputDir: evidence.outputDir, cargoDir: s.cwd ?? ".", targetTriple: typeof receipt?.targetTriple === "string" && /^[A-Za-z0-9_.]+(?:-[A-Za-z0-9_.]+){1,4}$/.test(receipt.targetTriple) ? receipt.targetTriple : null, treeAtStart: evidence.snapshot.treeAtStart, treeAtExit: evidence.snapshot.treeAtExit, ...(receipt && Object.hasOwn(receipt, "testExecutables") ? { testExecutables: receipt.testExecutables, testExecutablesReason: receipt.testExecutablesReason ?? null } : {}) };
+              row.snapshotEvidence = { receiptSha256: sha256(canonicalJson(receipt)), requestId: ref.requestId, outputDir: evidence.outputDir, cargoDir: s.cwd ?? ".", targetTriple: typeof receipt?.targetTriple === "string" && /^[A-Za-z0-9_.]+(?:-[A-Za-z0-9_.]+){1,4}$/.test(receipt.targetTriple) ? receipt.targetTriple : null, treeAtStart: evidence.snapshot.treeAtStart, treeAtExit: evidence.snapshot.treeAtExit, ...(receipt && Object.hasOwn(receipt, "testExecutables") ? { testExecutables: receipt.testExecutables, testExecutablesReason: receipt.testExecutablesReason ?? null } : {}) };
             } catch (e) {
               status = "fail"; code = "SNAPSHOT_EVIDENCE"; detail = `${s.id}: the broker's snapshot evidence did not verify (${e.code ?? "error"}: ${e.message})`;
             }
@@ -3296,15 +3382,30 @@ export async function runScans(plan, options = {}) {
               // ADR-001 C2 (rightkit#1454): a broker that signs the compile's test executables (receipt.testExecutables, rustright) binds each one;
               // an executable whose path or sha256 is not in that signed list never runs. An older broker that signs no list leaves containment only.
               const signedProblems = viaSnapshotBroker && row.snapshotEvidence && Object.hasOwn(row.snapshotEvidence, "testExecutables") ? signedTestExecutableProblems(contained.accepted, row.snapshotEvidence.testExecutables, row.snapshotEvidence.testExecutablesReason, platform) : [];
-              if (contained.problems.length) fail("TEST_EXECUTABLE_OUTSIDE_OUTPUT", `${s.id}: ${contained.problems.slice(0, 5).join("; ")}; the row fails and nothing was run`);
+              if (s.publisherRustTest && viaSnapshotBroker && !Object.hasOwn(row.snapshotEvidence ?? {}, "testExecutables")) fail("TEST_EXECUTABLE_UNSIGNED", `${s.id}: the broker did not sign a test executable list`);
+              else if (contained.problems.length) fail("TEST_EXECUTABLE_OUTSIDE_OUTPUT", `${s.id}: ${contained.problems.slice(0, 5).join("; ")}; the row fails and nothing was run`);
               else if (signedProblems.length) fail("TEST_EXECUTABLE_UNSIGNED", `${s.id}: ${signedProblems.slice(0, 5).join("; ")}; the row fails and nothing was run`);
               else {
                 const budget = s.quiet === true ? Math.max(1, Math.min(limitMs, QUIET_SCAN_MAX_MS - (Date.now() - scanStartedAt))) : limitMs;
-                const ran = await runTestBinaries({ scan: s, binaries: contained.accepted, spawn: deps.spawn, env: { ...deps.env, ...s.env, ...(extraEnv ?? {}) }, limitMs: budget, signal, ops });
-                row.results = ran.results; row.testRun = { executables: ran.executables };
+                const ran = await runTestBinaries({ scan: s, binaries: contained.accepted, spawn: deps.spawn, env: { ...deps.env, ...s.env, ...(extraEnv ?? {}) }, limitMs: budget, signal, ops, ...(s.publisherRustTest && s.runOutside.args.includes("--test-threads=1") ? { concurrency: 1 } : {}) });
+                row.results = ran.results; row.testRun = { executables: ran.executables, outputTruncated: ran.executables.some((e) => e.outputTruncated), skipMarkers: ran.executables.reduce((n, e) => n + (e.skipMarkers ?? 0), 0) };
+                if (s.publisherRustTest && row.testRun.outputTruncated) fail("TEST_OUTPUT_TRUNCATED", `${s.id}: test output was truncated; skip evidence is incomplete`);
                 if (ran.status !== "pass") { status = ran.status; code = ran.code; detail = ran.detail; }
               }
             }
+          }
+          if (s.coverageKey && s.publisherPhase === "test" && !s.runOutside) {
+            const output = `${r?.stdout ?? ""}\n${r?.stderr ?? ""}`.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "");
+            row.testRun = { outputTruncated: r?.truncated === true, skipMarkers: output.split(/\r\n|\n|\r/).filter((line) => /(?:^|[\s\]:])SKIP(?=[\s:]|$)/.test(line)).length };
+            if (status === "pass" && row.testRun.outputTruncated) { status = "fail"; code = "TEST_OUTPUT_TRUNCATED"; detail = `${s.id}: test output was truncated; skip evidence is incomplete`; }
+          }
+          if (s.publisherRustTest && status === "pass") {
+            if (!s.runOutside) {
+              const counts = parseLibtestSummary(`${r?.stdout ?? ""}\n${r?.stderr ?? ""}`);
+              if (counts && counts.results > 0) row.results = { runner: "libtest", tests: counts.passed + counts.failed + counts.ignored, pass: counts.passed, fail: counts.failed, skipped: counts.ignored, todo: 0 };
+              else { status = "fail"; code = "NO_TEST_SUMMARY"; detail = "the Rust test command printed no recognisable libtest summary"; }
+            }
+            if (status === "pass" && !s.allowIgnored && (row.results?.skipped ?? 0) > 0) { status = "fail"; code = "IGNORED_TESTS"; detail = `${row.results.skipped} ignored Rust test(s) require an approved reason`; }
           }
           if (status === "fail" && options.scanLogDir && r) {
             try { fs.mkdirSync(options.scanLogDir, { recursive: true }); const file = path.join(options.scanLogDir, `${s.id.replace(/[^A-Za-z0-9._-]+/g, "_")}.log`); fs.writeFileSync(file, `$ ${s.command ?? s.id}\nexit ${r.status}\n--- stdout\n${r.stdout ?? ""}\n--- stderr\n${r.stderr ?? ""}\n`); row.log = file; detail = `${detail} (full output: ${file})`; } catch { /* the tail in the row remains */ }
@@ -3347,7 +3448,7 @@ export async function runScans(plan, options = {}) {
     schema: SCAN_RESULT_SCHEMA, ok: !cancelled && results.every((r) => r.status === "pass"), complete: !cancelled && results.every((r) => r.status === "pass"), classes, checker, ...(cancelled ? { cancelled: true } : {}),
     inputDigest: plan.inputDigest ?? null,
     deferred: results.filter((r) => r.status === "deferred").map((r) => r.id),
-    scans: results, toolVersions, toolIdentities, cacheHits: [...cacheHits].sort(), notes: [...(plan.notes ?? []), ...(cargoLedger ? [UNOBSERVED_NESTED_CARGO_NOTE] : [])],
+    scans: results, toolVersions, toolIdentities, cacheHits: [...cacheHits].sort(), notes: [...(plan.notes ?? []), ...batchFailureNotes, ...(cargoLedger ? [UNOBSERVED_NESTED_CARGO_NOTE] : [])],
     scanSetDigest: digestScanSet(results),
     classDigests: { A: digestScanSet(results.filter((r) => r.class === "A")), B: digestScanSet(results.filter((r) => r.class === "B")) },
   };

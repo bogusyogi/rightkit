@@ -3,7 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { enforcePublicationGate, defaultEvidencePath, provenGateSteps, singleHostOfPolicy, batchClippyMissingFeatureSets } from "./publication-gate.mjs";
+import { crossTargetsFor } from "./cross-targets.mjs";
+import { enforcePublicationGate, defaultEvidencePath, provenGateSteps, singleHostOfPolicy, batchClippyMissingConfigurations } from "./publication-gate.mjs";
 import { runCargoSync } from "./managed-cargo.mjs";
 import { assertPublishCapability, refuseHostUpload } from "./host-upload-refusal.mjs";
 import { spawnSync } from "./background-process.mjs";
@@ -394,7 +395,20 @@ export async function runCargoPublish(options, execute = (_command, args, settin
   // and artifact digest must match. Windows evidence keeps its actual win32 host policy on the Mac.
   const reuseEvidence = options.fromEvidence === true;
   if (reuseEvidence && (options.dryRun || options.allowDirty || !options.evidence)) throw new Error("--from-evidence requires a real publish, clean source and explicit evidence");
-  const proven = (reuseEvidence || options.trustEvidenceSteps === true) && !options.dryRun ? provenGateSteps(gate.evidence) : {};
+  let batchConfig;
+  if ((reuseEvidence || options.trustEvidenceSteps === true) && !options.dryRun && gate.evidence?.runs?.some((run) => run?.batch)) {
+    const status = (deps.workspaceStatus ?? ((root) => spawnSync("git", ["status", "--porcelain", "--", "ci/gate.config.json"], { cwd: root, encoding: "utf8", windowsHide: true })))(options.workspaceRoot);
+    if (status.error || status.status !== 0 || String(status.stdout ?? "").trim()) throw new Error("batch evidence reuse requires clean ci/gate.config.json");
+    try { batchConfig = JSON.parse(fs.readFileSync(path.join(options.workspaceRoot, "ci", "gate.config.json"), "utf8")); }
+    catch { throw new Error("batch evidence reuse cannot read ci/gate.config.json"); }
+    const proofHost = singleHostOfPolicy(gate.evidence) ?? "darwin";
+    for (const run of gate.evidence.runs.filter((item) => item?.host?.os === proofHost && item.batch)) {
+      const entry = batchConfig?.rust?.[options.crate] ?? {};
+      const missing = batchClippyMissingConfigurations(run.batch, gate.evidence, entry.featureSets ?? [[]], crossTargetsFor(entry, run.host.os), gate.workspace);
+      if (missing.length) throw new Error(`batch clippy missing configured feature/target coverage: ${missing.map(({ features, target }) => `${features.join(" ") || "default"} @ ${target ?? "native"}`).join("; ")}`);
+    }
+  }
+  const proven = (reuseEvidence || options.trustEvidenceSteps === true) && !options.dryRun ? provenGateSteps(gate.evidence, gate.workspace, batchConfig) : {};
   if (reuseEvidence && (proven.tests !== true || proven.clippy !== true)) throw new Error("--from-evidence requires gate-proven tests and clippy for this crate and commit");
   if (reuseEvidence) {
     const status = (deps.workspaceStatus ?? ((workspaceRoot) => spawnSync("git", ["status", "--porcelain", "--", `crates/${options.crate}/Cargo.toml`, `crates/${options.crate}/Cargo.lock`, "ci/gate.config.json", "ci/asset-gated.json"], { cwd: workspaceRoot, encoding: "utf8", windowsHide: true })))(options.workspaceRoot);
@@ -425,8 +439,9 @@ export async function runCargoPublish(options, execute = (_command, args, settin
       }
       // A batch run's clippy lives in its batch receipt, which `expected` leaves out: demand one row per feature set (0.4.1 review A2).
       if (run.batch) {
-        const missing = batchClippyMissingFeatureSets(run.batch, gate.evidence, config?.rust?.[options.crate]?.featureSets ?? [[]]);
-        if (missing.length) throw new Error(`--from-evidence missing batch clippy for feature set${missing.length === 1 ? "" : "s"}: ${missing.map((features) => features.join(" ") || "default").join("; ")}`);
+        const entry = config?.rust?.[options.crate] ?? {};
+        const missing = batchClippyMissingConfigurations(run.batch, gate.evidence, entry.featureSets ?? [[]], crossTargetsFor(entry, run.host.os), gate.workspace);
+        if (missing.length) throw new Error(`--from-evidence missing batch clippy feature/target coverage: ${missing.map(({ features, target }) => `${features.join(" ") || "default"} @ ${target ?? "native"}`).join("; ")}`);
       }
     }
   }

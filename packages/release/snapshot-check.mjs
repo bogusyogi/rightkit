@@ -24,6 +24,7 @@ import { LIVE_SCAN_IDS, defaultSpawn, isLiveScan, isRegistryScan, launchGuardEnv
 import { compileLaunch } from "./class-a-launch-guard.mjs";
 import { SnapshotError, dependencyDirs, isInside, snapshotProblem, snapshotTree, treeEntries } from "./snapshot.mjs";
 import { discoveryRun, sealedRun } from "./snapshot-git.mjs";
+import { snapshotDependencyReuse } from "./snapshot-dependency-reuse.mjs";
 
 export const CHECK_ERROR = "RK_CHECK_ERROR";
 export const LIVE_SCANS_SCHEMA = "rightkit.live-scans/1";
@@ -293,6 +294,19 @@ export function installSnapshotDependencies({ checkout, snapshot, commit, tree, 
     const version = versionOf(dir);
     if (!version) throw new CheckError("pnpm is not runnable on this host; the snapshot's dependencies cannot be installed");
     if (pin && version !== pin) throw new CheckError(`pnpm ${version} is on PATH, but root ${root} of the commit pins pnpm@${pin} (packageManager); install the pinned pnpm`);
+    const ownedDirs = generated.filter((d) => nearestLock(fold(dirOf(d))) === owner);
+    const reuseStarted = performance.now();
+    const reuse = snapshotDependencyReuse({ checkout, snapshot: base, tree, root, dirs: ownedDirs, filters, storeDir, version, env, spawn });
+    if (reuse?.matches()) {
+      const skipped = probe ? probe({ dir, root, names: allowedBuilds(dir), spawn, env }) : [];
+      if (reuse.matches()) {
+        verifySnapshotDir({ checkout, dir: base, commit, tree, when: "after reused dependency probes", ...(ledger !== undefined ? { ledger } : {}) });
+        const lockfileSha256 = crypto.createHash("sha256").update(fs.readFileSync(path.join(dir, "pnpm-lock.yaml"))).digest("hex");
+        records.push({ root, storeDir, storeSource: source, pnpm: version, pinned: pin, lockfileSha256, ms: 0, allowedBuildsNotRun: skipped, reused: true, reuseCheckMs: Math.round(performance.now() - reuseStarted), dependencyDigestChecks: reuse.digestChecks });
+        continue;
+      }
+    }
+    const reuseCheckMs = Math.round(performance.now() - reuseStarted);
     const started = now();
     // The virtual store is pinned inside the snapshot and the global virtual store off, whatever the host's pnpm config says: the
     // install writes nowhere but the snapshot (links to the existing store's content are the only reads outside it).
@@ -317,7 +331,11 @@ export function installSnapshotDependencies({ checkout, snapshot, commit, tree, 
     }
     const lockfileSha256 = crypto.createHash("sha256").update(fs.readFileSync(path.join(dir, "pnpm-lock.yaml"))).digest("hex");
     const skipped = probe ? probe({ dir, root, names: allowedBuilds(dir), spawn, env }) : [];
-    records.push({ root, storeDir, storeSource: source, pnpm: version, pinned: pin, lockfileSha256, ms, allowedBuildsNotRun: skipped });
+    verifySnapshotDir({ checkout, dir: base, commit, tree, when: "after dependency installation and probes", ...(ledger !== undefined ? { ledger } : {}) });
+    const reuseSaveStarted = performance.now();
+    reuse?.save();
+    const reuseSaveMs = Math.round(performance.now() - reuseSaveStarted);
+    records.push({ root, storeDir, storeSource: source, pnpm: version, pinned: pin, lockfileSha256, ms, allowedBuildsNotRun: skipped, reuseCheckMs, reuseSaveMs, dependencyDigestChecks: reuse?.digestChecks ?? 0 });
   }
   return records;
 }
@@ -383,7 +401,7 @@ export function describeStoreCheck(record) {
 /** One line per installed root, for the check's output and evidence. */
 export function describeInstall(record) {
   if (record.skipped) return `snapshot dependencies root=${record.root} not installed: ${record.skipped}`;
-  return `snapshot dependencies root=${record.root} pnpm=${record.pnpm}${record.pinned ? ` (pinned ${record.pinned})` : ""} store=${record.storeDir} (from ${record.storeSource}) lockfile=sha256:${record.lockfileSha256} ms=${record.ms}${record.allowedBuildsNotRun.length ? ` build-scripts-not-run=${record.allowedBuildsNotRun.map((b) => (b.probe === "none" ? `${b.name}@${b.version}(deferred, not proven here: ${b.result})` : `${b.name}@${b.version}(usable: ${b.probe} -> ${b.result})`)).join(",")}` : ""}`;
+  return `snapshot dependencies root=${record.root} pnpm=${record.pnpm}${record.pinned ? ` (pinned ${record.pinned})` : ""} store=${record.storeDir} (from ${record.storeSource}) lockfile=sha256:${record.lockfileSha256} ms=${record.ms}${record.reuseCheckMs !== undefined ? ` reuse-check-ms=${record.reuseCheckMs}${record.reuseSaveMs !== undefined ? ` reuse-save-ms=${record.reuseSaveMs}` : ""} dependency-digest-checks=${record.dependencyDigestChecks}` : ""}${record.reused ? " preparation=reused (installed bytes verified; store availability not re-proved)" : ""}${record.allowedBuildsNotRun.length ? ` build-scripts-not-run=${record.allowedBuildsNotRun.map((b) => (b.probe === "none" ? `${b.name}@${b.version}(deferred, not proven here: ${b.result})` : `${b.name}@${b.version}(usable: ${b.probe} -> ${b.result})`)).join(",")}` : ""}`;
 }
 
 /** The deterministic-red marker for a failed run, or null when any failure is not one a re-run of the same inputs reproduces. */

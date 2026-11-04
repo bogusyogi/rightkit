@@ -87,6 +87,7 @@
   ],
   "sideEffects": false,
   "scripts": {
+    "test": "node --test affected-units.test.mjs batch-workspace.test.mjs unit-list-compile.test.mjs snapshot-dependency-reuse.test.mjs publisher-requirement-scan.test.mjs",
     "test:registry-parity": "node registry-parity.mjs --allow-unpublished",
     "test:signer:windows": "node sign-release-manifest.integration.mjs",
     "prepublishOnly": "pnpm test:signer:windows && pnpm test:registry-parity",

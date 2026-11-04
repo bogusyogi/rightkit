@@ -8,6 +8,7 @@ import { publicationObligationsVerdict } from "./publication-obligations.mjs";
 import { TEST_COMMAND } from "./test-results.mjs";
 import { featureLabels } from "./publication-record.mjs";
 import { cargoRecipe, parseRuns } from "./consumer-recipes.mjs";
+import { candidateWorkspace } from "../../packages/release/committed-cargo-workspace.mjs";
 import { validatePublicationEvidence } from "../../packages/release/publication-gate.mjs";
 import { runtimeBudgetCheck, runtimeBudgetStructureCheck, crateClass, RUNTIME_BUDGET_CRATES } from "../../packages/release/runtime-budgets.mjs";
 import { authenticatedRuntimeProof } from "./runtime-supplement.mjs";
@@ -269,6 +270,10 @@ export function semanticAdmission({ candidate, manifest, source, receipts = {}, 
       packageInfo = candidate.registry === "crates" ? readCargoPackage(unitRoot) : JSON.parse(file(source.root, `${unit.dir}/package.json`));
       if (packageInfo.name !== unit.name || packageInfo.version !== unit.version) bad("unit name/version differs from authenticated source manifest");
     } catch (error) { bad(`source/archive: ${error.message}`); }
+    let workspace;
+    if (candidate.registry === "crates" && Object.values(receipts).some((receipt) => receipt?.units?.find((row) => row.name === unit.name)?.publicationEvidence?.runs?.some((run) => run?.batch))) {
+      try { workspace = candidateWorkspace(source, unit.dir); } catch (error) { bad(`workspace: ${error.message}`); }
+    }
     const records = [];
     for (const host of Object.keys(HOSTS)) {
       const plan = source?.hosts?.[host]; const policy = plan?.unitPolicies?.find((p) => p.name === unit.name); policies[host] = policy?.status ?? "required-positive-tests";
@@ -277,7 +282,7 @@ export function semanticAdmission({ candidate, manifest, source, receipts = {}, 
       if (!row || row.file !== unit.file || row.sha256 !== unit.sha256 || row.version !== unit.version || row.bytesVerified !== true) bad(`${host}: receipt does not bind exact archive`);
       if (policy?.status) bad(`${host}: ${policy.status} is explicit source policy; canonical publication gate requires positive native tests (policy conflict)`);
       const actualResults = qa[host]?.summary?.results?.filter((r) => r.unit === policy?.id) ?? [];
-      const expected = { kind: candidate.registry === "crates" ? "cargo" : "npm", name: unit.name, version: unit.version, commit: candidate.sourceSha, tree: source?.source?.tree, artifactSha256: unit.sha256 };
+      const expected = { kind: candidate.registry === "crates" ? "cargo" : "npm", name: unit.name, version: unit.version, commit: candidate.sourceSha, tree: source?.source?.tree, workspace, artifactSha256: unit.sha256 };
       for (const error of canonicalRunProblems({ evidence: row?.publicationEvidence, expected, actualResults, host })) bad(`${host}: ${error}`);
       if (row?.publicationEvidence) records.push(row.publicationEvidence);
       const report = row?.consumer;
@@ -294,7 +299,7 @@ export function semanticAdmission({ candidate, manifest, source, receipts = {}, 
     }
     // Combining real runs changes no run fields & supplies no historical metadata.
     const combined = records.length === 2 ? { ...records[0], runs: records.flatMap((record) => record.runs ?? []) } : undefined;
-    const canonical = validatePublicationEvidence({ expected: { kind: candidate?.registry === "crates" ? "cargo" : "npm", name: unit.name, version: unit.version, commit: candidate?.sourceSha, tree: source?.source?.tree }, evidence: combined, artifactBytes: bytes });
+    const canonical = validatePublicationEvidence({ expected: { kind: candidate?.registry === "crates" ? "cargo" : "npm", name: unit.name, version: unit.version, commit: candidate?.sourceSha, tree: source?.source?.tree, workspace }, evidence: combined, artifactBytes: bytes });
     canonical.missing.forEach((error) => bad(`publication gate: ${error}`));
     let runtime = null;
     let runtimeFeatureProof = null;

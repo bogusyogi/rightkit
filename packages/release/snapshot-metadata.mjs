@@ -144,7 +144,7 @@ export function directReadSpawn({ spawn, cargoCommand, snapshotRoot, directPath,
     const cargo = cmd === cargoCommand[0] && prefix.every((w, i) => args[i] === w);
     if (!cargo || typeof opts.cwd !== "string" || !within(real(opts.cwd), real(snapshotRoot))) return spawn(cmd, args, opts);
     const words = args.slice(prefix.length);
-    const shape = carriedScanRefusal(words);
+    const shape = words.length === 1 && words[0] === "--version" ? null : carriedScanRefusal(words);
     if (shape !== null) return refused(CARRIED_METADATA_REFUSED, `\`cargo ${words.join(" ")}\` would run inside the managed snapshot ${snapshotRoot} and is not one of the read-only shapes Class A runs directly (GC-A11): ${shape}`);
     const memoKey = memo && words[0] === "metadata" && opts.stdoutFile === undefined ? `${real(opts.cwd)}\0${words.join(" ")}` : null;
     if (memoKey !== null && memo.has(memoKey)) { const hit = { ...memo.get(memoKey) }; return isAsync ? Promise.resolve(hit) : hit; }

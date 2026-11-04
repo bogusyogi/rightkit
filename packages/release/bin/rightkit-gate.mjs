@@ -99,10 +99,14 @@ import { readDiskPolicy, scratchRoots } from "../disk-policy.mjs";
 import { buildDirectReceipt, directVerdict, resolveTargetDirectory, verifyDirectReceipt, writeDirectDiagnostics } from "../direct-receipt.mjs";
 import { createFreshnessCensus } from "../freshness-census.mjs";
 import { platformDirOf } from "../platform-dir.mjs";
+import { buildInventory, classifyUnitResults, dependencyFirstOrder, selectAffectedAcrossInventories, unitListReport } from "../affected-units.mjs";
+import { createRequire } from "node:module";
 import { nativeToolRefusal, nativeToolUses } from "../native-tool-planning.mjs";
 import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, mergeCapabilityViews, parseRuntimeIdentity, queryBrokerHandshake } from "../broker-handshake.mjs";
 import net from "node:net";
 
+const PRIVATE_SCOPED_COMPILE = Symbol("private scoped compile");
+const UNIT_LIST_UNION = Symbol("unit list union");
 const ZERO = /^0+$/;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const posix = (p) => String(p).replaceAll("\\", "/");
@@ -144,7 +148,7 @@ function directCargoBinOf(o) {
   return null;
 }
 
-const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify|release --unit npm:@rightkit/<name>|cargo:rightkit-<name> [--receipt-out <file>] | rightkit-gate --to tool --unit cargo:rightkit-qa|cargo:rightkit-credentials [--no-broker <exception-id>] [--receipt-out <file>] [--commit <rev>] (builds the unit's release binary from the commit and enrols it: cargo:rightkit-qa as the managed rightkit-qa runner, cargo:rightkit-credentials as the managed OS credential provider updater signing runs; Mac and Windows) | rightkit-gate --to check|compile|package|qualify --units-file <json {"units":[<selector>,...]} written for this run> | rightkit-gate --to check|compile|package|qualify --all-units-exception <id> (RightKit only: its unit is named on every run, or every unit by Adrian's entry in ci/all-units-exceptions.json of the commit) | rightkit-gate --to check|compile|package|qualify [--unit <selector>] --no-broker <exception-id> (Mac and Dell only; Adrian's recorded exception in .rightkit/broker-exceptions.json of the commit) | rightkit-gate --to dev|test [--commit <rev>] [-- <right-release args>] | rightkit-gate --to render [--commit <rev>] (builds the app's declared renderViews target from ci/gate.config.json through the carrier, runs it headless and stores the PNGs and a hashed receipt) | rightkit-gate --to check|compile|package|qualify|dev|test --route [--platform mac|win|ios|android] [--commit <rev>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] | rightkit-gate install-hook | rightkit-gate env-digest | rightkit-gate snapshot [--commit <rev>] [--verify [--env <sha256>]] [--json] | rightkit-gate live-scans --repo <root> | rightkit-gate clippy [<cargo clippy args>] | rightkit-gate env-digest [--snapshot <dir> --commit <sha>] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | rightkit-gate check --commit <sha> --full-a --snapshot <dir> | --version`;
+const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify|release --unit npm:@rightkit/<name>|cargo:rightkit-<name> [--receipt-out <file>] | rightkit-gate --to tool --unit cargo:rightkit-qa|cargo:rightkit-credentials [--no-broker <exception-id>] [--receipt-out <file>] [--commit <rev>] (builds the unit's release binary from the commit and enrols it: cargo:rightkit-qa as the managed rightkit-qa runner, cargo:rightkit-credentials as the managed OS credential provider updater signing runs; Mac and Windows) | rightkit-gate --to check|compile|package|qualify --changed [--base <ref>] [--receipt-dir <absolute dir>] | rightkit-gate --to check|compile|package|qualify --units-file <json {"units":[<selector>,...]} written for this run> [--receipt-dir <absolute dir>] | rightkit-gate --to check|compile|package|qualify --all-units-exception <id> (RightKit only: its unit is named on every run, or every unit by Adrian's entry in ci/all-units-exceptions.json of the commit) | rightkit-gate --to check|compile|package|qualify [--unit <selector>] --no-broker <exception-id> (Mac and Dell only; Adrian's recorded exception in .rightkit/broker-exceptions.json of the commit) | rightkit-gate --to dev|test [--commit <rev>] [-- <right-release args>] | rightkit-gate --to render [--commit <rev>] (builds the app's declared renderViews target from ci/gate.config.json through the carrier, runs it headless and stores the PNGs and a hashed receipt) | rightkit-gate --to check|compile|package|qualify|dev|test --route [--platform mac|win|ios|android] [--commit <rev>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] | rightkit-gate install-hook | rightkit-gate env-digest | rightkit-gate snapshot [--commit <rev>] [--verify [--env <sha256>]] [--json] | rightkit-gate live-scans --repo <root> | rightkit-gate clippy [<cargo clippy args>] | rightkit-gate env-digest [--snapshot <dir> --commit <sha>] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | rightkit-gate check --commit <sha> --full-a --snapshot <dir> | --version`;
 /** The host platform (process.platform) that constructs each platform's artifact; a platform missing here (android) builds on any host. */
 const STAGE_NATIVE_HOST = Object.freeze({ mac: "darwin", ios: "darwin", win: "win32" });
 
@@ -1405,11 +1409,192 @@ export function readUnitList(readFile, file) {
   return units;
 }
 
+const unitDirOfSelector = (sel) => { const m = /^(?:npm:@rightkit\/([a-z0-9-]+)|cargo:(rightkit-[a-z0-9-]+))$/.exec(sel); return m ? (m[1] ? `packages/${m[1]}` : `crates/${m[2]}`) : null; };
+
+/**
+ * The fixed unit inventory of one commit, read from its object database alone (never the checkout): every
+ * `crates/<x>/Cargo.toml` and `packages/<x>/package.json`, with sibling path dependencies (crate-workspaces.mjs) and
+ * `@rightkit/*` npm dependencies. Throws when the commit's tree or a manifest cannot be read: a selection computed
+ * from a partial inventory would silently skip units.
+ */
+export function inventoryAtCommit({ git, commit }) {
+  const listed = git("ls-tree", "-r", "--name-only", "-z", commit);
+  if (failed(listed)) throw new Error(`cannot list the tree of ${commit.slice(0, 12)}: ${why(listed)}`);
+  const files = new Set(text(listed).split("\0").filter(Boolean));
+  const show = (file) => { const r = git("show", `${commit}:${file}`); if (failed(r)) throw new Error(`cannot read ${file} at ${commit.slice(0, 12)}: ${why(r)}`); return text(r); };
+  const parse = createRequire(import.meta.url)("smol-toml").parse;
+  const manifests = new Map();
+  for (const file of [...files].filter((f) => f === "Cargo.toml" || /^crates\/[^/]+\/Cargo\.toml$/.test(f)).sort()) {
+    try { manifests.set(path.posix.dirname(file), parse(show(file))); }
+    catch (e) { throw new Error(`cannot parse ${file}: ${e.message}`); }
+  }
+  const crates = [...manifests].filter(([dir, m]) => dir.startsWith("crates/") && m.package);
+  const byDir = new Map(crates.map(([dir, m]) => [dir, m.package.name]));
+  const byName = new Set(byDir.values());
+  const cargo = crates.map(([dir, m]) => {
+    if (typeof m.package.name !== "string") throw new Error(`${dir}/Cargo.toml has no package name`);
+    let workspaceDir = typeof m.package.workspace === "string" ? path.posix.normalize(path.posix.join(dir, m.package.workspace)) : dir;
+    if (typeof m.package.workspace !== "string") while (workspaceDir !== "." && !manifests.get(workspaceDir)?.workspace) workspaceDir = path.posix.dirname(workspaceDir);
+    const workspace = manifests.get(workspaceDir)?.workspace;
+    const tables = [];
+    for (const holder of [m, ...Object.values(m.target ?? {})]) for (const key of ["dependencies", "dev-dependencies", "build-dependencies"]) if (holder?.[key]) tables.push(holder[key]);
+    const deps = new Set();
+    for (const table of tables) for (const [alias, original] of Object.entries(table)) {
+      let spec = original; let base = dir;
+      if (spec && typeof spec === "object" && spec.workspace === true) {
+        spec = workspace?.dependencies?.[alias]; base = workspaceDir;
+        if (!spec) throw new Error(`${dir}/Cargo.toml cannot resolve workspace dependency ${alias}`);
+      }
+      const name = typeof spec === "object" ? (spec.package ?? alias) : alias;
+      if (typeof spec === "object" && spec.path !== undefined) {
+        if (typeof spec.path !== "string") throw new Error(`${dir}: invalid path for ${alias}`);
+        const target = path.posix.normalize(path.posix.join(base, spec.path));
+        if (target.startsWith("crates/") && !byDir.has(target)) throw new Error(`${dir}: dependency ${alias} points to unknown crate ${target}`);
+        if (byDir.has(target)) { if (byDir.get(target) !== name) throw new Error(`${dir}: dependency ${alias} names ${name} but ${target} is ${byDir.get(target)}`); deps.add(name); }
+      } else if (byName.has(name) || name.startsWith("rightkit-")) deps.add(name);
+    }
+    return { dir, name: m.package.name, deps: [...deps] };
+  });
+  const npm = [];
+  for (const file of [...files].filter((f) => /^packages\/[^/]+\/package\.json$/.test(f)).sort()) {
+    let parsed;
+    try { parsed = JSON.parse(show(file)); } catch (e) { throw new Error(`cannot parse ${file}: ${e.message}`); }
+    if (typeof parsed?.name !== "string") throw new Error(`${file} has no package name`);
+    const names = [];
+    for (const key of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
+      const table = parsed[key] ?? {};
+      if (!table || typeof table !== "object" || Array.isArray(table)) throw new Error(`${file}: invalid ${key}`);
+      for (const [name, version] of Object.entries(table)) {
+        const alias = typeof version === "string" && version.match(/^npm:(@rightkit\/[^@]+)(?:@|$)/)?.[1];
+        const target = alias || name;
+        if (target.startsWith("@rightkit/")) names.push(target);
+        else if (typeof version === "string" && version.startsWith("workspace:")) throw new Error(`${file}: unsupported workspace dependency ${name}`);
+      }
+    }
+    npm.push({ dir: file.slice(0, -"/package.json".length), name: parsed.name, deps: names });
+  }
+  return buildInventory({ cargo, npm });
+}
+
+/** The paths changed between `base` and `commit` (three-dot: what the commit side changed since the merge base). */
+/** Classify a committed private unit without publication-only version rules. */
+export function privateUnitManifest({ selector, content }) {
+  const match = /^(?:npm:(@rightkit\/[a-z0-9-]+)|cargo:(rightkit-[a-z0-9-]+))$/.exec(selector);
+  if (!match) throw new Error(`invalid unit selector ${selector}`);
+  const kind = match[1] ? "npm" : "cargo";
+  let parsed;
+  try { parsed = kind === "npm" ? JSON.parse(content) : createRequire(import.meta.url)("smol-toml").parse(content); }
+  catch (error) { throw new Error(`${selector}: cannot parse manifest: ${error.message}`); }
+  const pkg = kind === "npm" ? parsed : parsed.package;
+  const name = match[1] ?? match[2];
+  if (pkg?.name !== name) throw new Error(`${selector}: manifest name does not match`);
+  return { kind, name, private: kind === "npm" ? pkg.private === true : pkg.publish === false || (Array.isArray(pkg.publish) && pkg.publish.length === 0) };
+}
+
+export function changedPathsAt({ git, base, commit }) {
+  const diff = git("diff", "--name-status", "-z", "--find-renames", `${base}...${commit}`);
+  if (failed(diff)) throw new Error(`cannot diff ${base}...${commit.slice(0, 12)}: ${why(diff)}; pass --base <ref>`);
+  const fields = text(diff).split("\0"); if (fields.at(-1) === "") fields.pop();
+  const paths = [];
+  while (fields.length) {
+    const status = fields.shift();
+    if (!/^(?:[ACDMRT]|R[0-9]+|C[0-9]+)$/.test(status) || !fields.length) throw new Error(`invalid diff status ${status}`);
+    paths.push(fields.shift());
+    if (/^[RC][0-9]+$/.test(status)) { if (!fields.length) throw new Error(`missing rename path for ${status}`); paths.push(fields.shift()); }
+  }
+  return [...new Set(paths)];
+}
+
+/**
+ * One shared execution for a selected unit list (rightkit#1505): dependency-first order, one shared Class A (the
+ * first unit's, scoped to every selected directory and remembered for the rest), every independent unit run even
+ * when another fails, a unit whose selected dependency failed recorded blocked and not run, one receipt per unit
+ * (with `--receipt-dir`) plus one aggregate report. Returns the exit the door run ends with: 0 only when every
+ * selected unit passed, else the first failing unit's code (1 when only blocked units failed the run).
+ */
+export async function runSharedUnitList({ o, io, stage, commit, selected, inventory, receiptDir = undefined, base = null, unmatched = [], runUnit = null }) {
+  const tag = "rightkit-gate:";
+  const bySelector = new Map((inventory?.units ?? []).map((u) => [u.selector, u]));
+  const rows = selected.map((s) => ({ dir: unitDirOfSelector(s.selector), reason: "listed", ...bySelector.get(s.selector), ...s }));
+  const order = inventory ? dependencyFirstOrder(inventory, new Set(rows.map((r) => r.selector))) : rows.map((r) => r.selector);
+  const ordered = order.map((sel) => rows.find((r) => r.selector === sel));
+  const unitListClassA = { dirs: [...new Set(ordered.map((r) => r.dir).filter(Boolean))], memo: new Map() };
+  if (receiptDir !== undefined) {
+    try { o.mkdir(receiptDir); } catch (e) { o.err(`${tag} BLOCKED: receipt directory must be new: ${receiptDir} (${e.message}); nothing ran`); return 2; }
+  }
+  if (stage === "compile" && !runUnit && !io.runUnitForList && ordered.length) {
+    const union = { selected: ordered, inventory, rows: null, coverage: null, internal: [], commands: [], commit, runId: randomUUID() };
+    const exit = await main(["--to", "compile", "--unit", ordered[0].selector, "--commit", commit], { ...io, unitListClassA, [UNIT_LIST_UNION]: union });
+    const results = ordered.map((unit) => {
+      const evidence = union.coverage?.filter((r) => r.selector === unit.selector) ?? [];
+      const internal = union.internal.filter((r) => r.selector === unit.selector);
+      const expected = union.expected?.get(unit.selector);
+      const all = [...internal, ...evidence];
+      const failed = !expected || all.length !== expected || all.some((r) => r.status === "failed" || r.status === "fail");
+      const blocked = !failed && all.some((r) => r.status === "blocked" || r.status === "not-run");
+      const status = failed ? "failed" : blocked ? "blocked" : union.verified && all.every((r) => r.status === "passed" || r.status === "pass") ? "passed" : "failed";
+      return { selector: unit.selector, status, ...(status === "failed" ? { code: exit || 1 } : {}) };
+    });
+    const report = unitListReport({ commit, stage, base, selected: ordered, results, unmatched }); report.runId = union.runId;
+    for (const row of report.units) {
+      const evidence = { schema: "rightkit.unit-list-compile/1", runId: union.runId, commit, unit: row.selector, status: row.status, requirements: [...union.internal.filter((r) => r.selector === row.selector), ...(union.coverage?.filter((r) => r.selector === row.selector) ?? [])], cwdProofs: (union.cwdProofs ?? []).filter((r) => union.owner?.get(r.id) === row.selector), commands: union.commands.filter((r) => r.selector === row.selector), scans: (union.rows ?? []).filter((r) => r.publisherUnit === row.selector || r.sharedOrigin === true) };
+      if (receiptDir === undefined) row.receipt = { status: "not-requested" };
+      else {
+        const name = `gate-${row.selector.replace(/^npm:@rightkit\//, "npm-").replace(/^cargo:/, "")}.json`;
+        const data = `${JSON.stringify(evidence, null, 2)}\n`; o.writeFile(path.join(receiptDir, name), data);
+        row.receipt = { status: "written", file: name, sha256: createHash("sha256").update(data).digest("hex") };
+      }
+      o.out(`${tag} unit ${row.selector}: ${row.status}`);
+    }
+    o.out(`${tag} unit report: ${report.counts.passed} passed, ${report.counts.failed} failed, ${report.counts.blocked} blocked, ${report.counts["not-run"]} not-run of ${ordered.length} on ${commit.slice(0, 12)}`);
+    if (receiptDir !== undefined) o.writeFile(path.join(receiptDir, "units-report.json"), `${JSON.stringify(report, null, 2)}\n`);
+    return report.ok ? 0 : (exit || 1);
+  }
+  const run = runUnit ?? io.runUnitForList ?? (async (selector, receipt) => main(["--to", stage, "--unit", selector, "--commit", commit, ...receipt], { ...io, unitListClassA }));
+  const outcomes = new Map();
+  const receiptEvidence = new Map();
+  const runId = randomUUID();
+  const bad = new Set(); // failed or blocked selectors, for the dependency check of later units
+  for (const [i, row] of ordered.entries()) {
+    const blocker = (bySelector.get(row.selector)?.deps ?? []).find((d) => bad.has(d));
+    if (blocker) {
+      bad.add(row.selector);
+      o.err(`${tag} unit list ${i + 1}/${ordered.length}: ${row.selector} blocked: its dependency ${blocker} did not pass; not run`);
+      continue;
+    }
+    o.out(`${tag} unit list ${i + 1}/${ordered.length}: ${row.selector} (${row.reason}${row.via ? ` via ${row.via}` : ""}) on commit ${commit.slice(0, 12)}`);
+    const receipt = receiptDir === undefined ? [] : ["--receipt-out", path.join(receiptDir, `gate-${row.selector.replace(/^npm:@rightkit\//, "npm-").replace(/^cargo:/, "")}.json`)];
+    let code = await run(row.selector, receipt, unitListClassA);
+    if (receiptDir !== undefined) {
+      const file = receipt[1];
+      try {
+        const bytes = (o.readFile ?? fs.readFileSync)(file);
+        receiptEvidence.set(row.selector, { status: "written", file: path.basename(file), sha256: createHash("sha256").update(bytes).digest("hex") });
+      } catch (error) {
+        receiptEvidence.set(row.selector, { status: "missing", file: path.basename(file) });
+        if (code === 0) { o.err(`${tag} ${row.selector}: successful run did not produce a readable receipt (${error.message})`); code = 1; }
+      }
+    }
+    outcomes.set(row.selector, { ran: true, code });
+    if (code !== 0) bad.add(row.selector);
+  }
+  const results = classifyUnitResults({ selected: ordered, inventory: inventory ?? { units: rows }, outcomes });
+  const report = unitListReport({ commit, stage, base, selected: ordered, results, unmatched });
+  report.runId = runId;
+  for (const row of report.units) row.receipt = receiptDir === undefined ? { status: "not-requested" } : (receiptEvidence.get(row.selector) ?? { status: "not-run" });
+  for (const r of report.units) o.out(`${tag} unit ${r.selector}: ${r.status}${r.status === "failed" ? ` (exit ${r.code})` : ""}${r.blockedBy ? ` (dependency ${r.blockedBy} did not pass)` : ""}`);
+  o.out(`${tag} unit report: ${report.counts.passed} passed, ${report.counts.failed} failed, ${report.counts.blocked} blocked, ${report.counts["not-run"]} not-run of ${ordered.length} on ${commit.slice(0, 12)}`);
+  if (receiptDir !== undefined) o.writeFile(path.join(receiptDir, "units-report.json"), `${JSON.stringify(report, null, 2)}\n`);
+  if (report.ok) return 0;
+  return results.find((r) => r.status === "failed")?.code || 1;
+}
+
 /**
  * RightKit names its unit on every run (#1325, Adrian 2026-10-31: "the unit has to be mentioned. Okay, so either it is one specific unit, or it is
  * a JSON file that is created at that time, or all with my exception"). A door run with no `--unit` is accepted in RightKit only with
- * `--units-file` (each listed unit runs as its own unit run, in order, on the one selected commit, stopping at the first that fails) or
- * `--all-units-exception <id>` (the whole-repository run, by Adrian's entry in the commit's ci/all-units-exceptions.json). Both flags name RightKit
+ * `--changed [--base <ref>]` (the changed units plus their dependents, planned from the commit's fixed inventory: the routine
+ * route, no handwritten list), `--units-file` (an explicit list, parsed into the same shared run) or
+ * `--all-units-exception <id>` (the whole-repository run, by Adrian's entry in the commit's ci/all-units-exceptions.json). All flags name RightKit
  * units, so a repository that is not RightKit refuses them. Returns `{ exit }` when the run ends here, or `{}` to go on as a whole door run (the
  * all-units flag and its id are removed from `args`). An unresolvable commit is runStages' own refusal, so it goes on.
  */
@@ -1424,35 +1609,59 @@ export function sampleAppOf({ o, root, git, commit }) {
   return apps.find((dir) => typeof dir === "string" && dir && !dir.includes("..") && (rel === dir || rel.startsWith(`${dir}/`))) ?? null;
 }
 
-export async function rightkitDoorRule(o, args, root, git, io, { unitsFileFlag, allUnitsFlag, unitList }) {
+export async function rightkitDoorRule(o, args, root, git, io, { unitsFileFlag, allUnitsFlag, unitList, changedFlag = false }) {
   const tag = "rightkit-gate:";
   const option = (name) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
   let pinned;
   try { pinned = (await import("../snapshot.mjs")).resolveCommit(root, option("--commit") ?? "HEAD"); } catch { return {}; }
   const inRightKit = rightkitIdentityAt(git, pinned.commit);
   if (!inRightKit) {
-    if (!unitsFileFlag && !allUnitsFlag) return {};
-    o.err(`${tag} BLOCKED: ${unitsFileFlag ? "--units-file" : "--all-units-exception"} names RightKit units and ${pinned.commit.slice(0, 12)} is not RightKit; every other repository is built whole from the ${CARGO_WORKSPACE_LIST_KEY} list committed in ${CARGO_WORKSPACE_LIST_FILE}, with no unit named; nothing ran`);
+    if (!unitsFileFlag && !allUnitsFlag && !changedFlag) return {};
+    const flag = unitsFileFlag ? "--units-file" : changedFlag ? "--changed" : "--all-units-exception";
+    o.err(`${tag} BLOCKED: ${flag} names RightKit units and ${pinned.commit.slice(0, 12)} is not RightKit; every other repository is built whole from the ${CARGO_WORKSPACE_LIST_KEY} list committed in ${CARGO_WORKSPACE_LIST_FILE}, with no unit named; nothing ran`);
     return { exit: 1 };
   }
-  if (unitsFileFlag) {
+  if (unitsFileFlag || changedFlag) {
     const stage = option("--to");
-    const given = args.filter((a, i) => a.startsWith("--") && args[i - 1] !== "--units-file" && a !== "--units-file");
-    if (given.some((a) => a !== "--to" && a !== "--commit" && a !== "--receipt-dir")) { o.err(`${tag} a unit list run takes only --to, --units-file and optional --commit and --receipt-dir (one receipt file per unit is written into the directory)`); return { exit: 2 }; }
+    const ownFlag = unitsFileFlag ? "--units-file" : "--changed";
+    const allowed = unitsFileFlag ? ["--to", "--commit", "--receipt-dir"] : ["--to", "--commit", "--receipt-dir", "--base", "--changed"];
+    const given = args.filter((a, i) => a.startsWith("--") && !(unitsFileFlag && args[i - 1] === ownFlag) && a !== ownFlag);
+    if (given.some((a) => !allowed.includes(a))) { o.err(`${tag} a unit list run takes only --to, ${ownFlag} and optional --commit and --receipt-dir${changedFlag ? " and --base" : ""} (one receipt file per unit is written into the directory)`); return { exit: 2 }; }
     const receiptDir = option("--receipt-dir");
     if (receiptDir !== undefined && (receiptDir.startsWith("--") || !path.isAbsolute(receiptDir))) { o.err(`${tag} --receipt-dir needs an absolute directory`); return { exit: 2 }; }
-    // One Class A for the whole list (rightkit#1505; Adrian, 2026-10-31: "a JSON file that is created at that time"): the first unit's Class A is scoped to
-    // every listed unit's directory (the repeatable --scope), and a pass is remembered for the commit and rule tier, so the other units do not run it again.
-    // Before this, each unit ran its own Class A: 145 s median of a 206 s unit run on 2026-11-04, the same scans on the same commit 168 times.
-    const dirOf = (sel) => { const m = /^(?:npm:@rightkit\/([a-z0-9-]+)|cargo:(rightkit-[a-z0-9-]+))$/.exec(sel); return m ? (m[1] ? `packages/${m[1]}` : `crates/${m[2]}`) : null; };
-    const unitListClassA = { dirs: [...new Set(unitList.map(dirOf).filter(Boolean))], memo: new Map() };
-    for (const [i, selector] of unitList.entries()) {
-      o.out(`${tag} unit list ${i + 1}/${unitList.length}: ${selector} on commit ${pinned.commit.slice(0, 12)}`);
-      const receipt = receiptDir === undefined ? [] : ["--receipt-out", path.join(receiptDir, `gate-${selector.replace(/^npm:@rightkit\//, "npm-").replace(/^cargo:/, "")}.json`)];
-      const code = await main(["--to", stage, "--unit", selector, "--commit", pinned.commit, ...receipt], { ...io, unitListClassA });
-      if (code !== 0) { o.err(`${tag} BLOCKED: unit ${selector} ended with exit ${code}; ${unitList.length - i - 1} unit(s) of the list did not run`); return { exit: code }; }
+    // A complete inventory is required for both selection and dependency blocking.
+    let inventory = null;
+    try { inventory = inventoryAtCommit({ git, commit: pinned.commit }); }
+    catch (e) {
+      o.err(`${tag} BLOCKED: cannot plan ${ownFlag} on ${pinned.commit.slice(0, 12)}: ${e.message}; nothing ran`); return { exit: 2 };
     }
-    return { exit: 0 };
+    if (unitsFileFlag) {
+      const unknown = unitList.filter((selector) => !inventory.units.some((u) => u.selector === selector));
+      if (unknown.length) { o.err(`${tag} BLOCKED: units missing from inventory: ${unknown.join(", ")}; nothing ran`); return { exit: 2 }; }
+      const selected = unitList.map((selector) => ({ selector, reason: "listed" }));
+      return { exit: await runSharedUnitList({ o, io, stage, commit: pinned.commit, selected, inventory, receiptDir }) };
+    }
+    // --changed (rightkit#1505): no handwritten list for routine work. Changed paths against the base select their
+    // units plus every transitive dependent (affected-units.mjs); the plan is printed before anything runs.
+    const base = option("--base") ?? "origin/main";
+    let selection;
+    try {
+      const mergeBase = git("merge-base", base, pinned.commit);
+      if (failed(mergeBase)) throw new Error(`cannot resolve merge base: ${why(mergeBase)}`);
+      const oldInventory = inventoryAtCommit({ git, commit: text(mergeBase).trim() });
+      const changedPaths = changedPathsAt({ git, base, commit: pinned.commit });
+      selection = selectAffectedAcrossInventories({ changedPaths, oldInventory, inventory });
+      if (selection.unmatched.length) throw new Error(`unclassified changed inputs: ${selection.unmatched.join(", ")}; classify their ownership before running`);
+    }
+    catch (e) { o.err(`${tag} BLOCKED: cannot plan --changed on ${pinned.commit.slice(0, 12)}: ${e.message}; nothing ran`); return { exit: 2 }; }
+    o.out(`${tag} changed plan: ${selection.selected.length} unit(s) affected by ${base}...${pinned.commit.slice(0, 12)}${selection.unmatched.length ? `; ${selection.unmatched.length} changed path(s) select no unit (${selection.unmatched.slice(0, 5).join(", ")}${selection.unmatched.length > 5 ? ", ..." : ""})` : ""}`);
+    for (const s of selection.selected) o.out(`${tag} planned ${s.selector} (${s.reason}${s.via ? ` via ${s.via}` : ""})`);
+    if (!selection.selected.length) {
+      if (receiptDir !== undefined) { try { o.mkdir(receiptDir); } catch (e) { o.err(`${tag} BLOCKED: receipt directory must be new: ${receiptDir} (${e.message}); nothing ran`); return { exit: 2 }; } o.writeFile(path.join(receiptDir, "units-report.json"), `${JSON.stringify({ ...unitListReport({ commit: pinned.commit, stage, base, selected: [], results: [], unmatched: selection.unmatched }), runId: randomUUID() }, null, 2)}\n`); }
+      o.out(`${tag} unit report: 0 passed, 0 failed, 0 blocked, 0 not-run of 0 on ${pinned.commit.slice(0, 12)}`);
+      return { exit: 0 };
+    }
+    return { exit: await runSharedUnitList({ o, io, stage, commit: pinned.commit, selected: selection.selected, inventory, receiptDir, base, unmatched: selection.unmatched }) };
   }
   if (allUnitsFlag) {
     const id = option("--all-units-exception");
@@ -1476,7 +1685,7 @@ export async function rightkitDoorRule(o, args, root, git, io, { unitsFileFlag, 
     o.out(`${tag} RightKit sample app ${sample}: built as an app, scoped to ${sample} (ci/sample-apps.json)`);
     return {};
   }
-  o.err(`${tag} BLOCKED: RK_UNIT_NOT_NAMED: RightKit names its unit on every run: --unit <cargo:rightkit-name|npm:@rightkit/name>, --units-file <json written for this run>, or --all-units-exception <id> (Adrian's entry in ${ALL_UNITS_EXCEPTIONS_FILE}); a whole-repository run is never the default; nothing ran`);
+  o.err(`${tag} BLOCKED: RK_UNIT_NOT_NAMED: RightKit names its unit on every run: --unit <cargo:rightkit-name|npm:@rightkit/name>, --changed [--base <ref>] (changed units plus dependents, planned from the commit), --units-file <json written for this run>, or --all-units-exception <id> (Adrian's entry in ${ALL_UNITS_EXCEPTIONS_FILE}); a whole-repository run is never the default; nothing ran`);
   return { exit: 1 };
 }
 
@@ -2533,17 +2742,22 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
     o.out(`${tag} snapshot ${synced.path} is commit ${synced.commit} tree ${synced.tree} (written=${synced.written} removed=${synced.removed} unchanged=${synced.unchanged})`);
     if (synced.identity) o.out(`${tag} source identity ${synced.identity.file}: ${synced.identity.written ? "written" : synced.identity.kept ? "kept" : `not written (${synced.identity.reason})`}`);
     const ds = { own, path: synced.path, commit: synced.commit, tree: synced.tree, root: snapshotsAt, ledger: { entries: [] } };
+    if (io[UNIT_LIST_UNION]) return await runUnionSnapshot({ o, io, root, git, ds, union: io[UNIT_LIST_UNION], unitListClassA: io.unitListClassA });
     // A unit's test or pack that reaches Cargo must never write `target/` into the snapshot (npm units included): see bindUnitCargo.
     // A check starts no unit command: its own Class A path binds read-only Cargo calls. Resolving every unit's compile output
     // here would run unrelated metadata before the scoped check even begins.
     // A crate's consumer rows (ci/gate.config.json rust.<crate>.consumerRows, local-publish.mjs) build their own Cargo workspaces under ci/consumers/: they
     // are part of this unit's compile, so they are bound beside the crate's workspace (read from the snapshot, which is the commit's tree).
+    let privateUnit;
+    try { privateUnit = privateUnitManifest({ selector, content: o.readFile(path.join(ds.path, manifest)) }); }
+    catch (e) { o.err(`${tag} BLOCKED: ${e.message}; nothing ran`); return 1; }
+    if (privateUnit.private && !["check", "compile"].includes(option("--to"))) { o.err(`${tag} BLOCKED: ${selector} is private and cannot be packaged, qualified or published`); return 1; }
     let consumerScope = [];
     if (match[2] && !toolRun) {
       try { consumerScope = [...new Set((JSON.parse(fs.readFileSync(path.join(ds.path, "ci", "gate.config.json"), "utf8")).rust?.[match[2]]?.consumerRows ?? []).map((row) => path.posix.dirname(String(row.manifestPath))))]; }
       catch { consumerScope = []; }
     }
-    const bound = option("--to") === "check" ? { env: {}, cleanup() {} } : await bindUnitCargo({ o, git, root, ds, executor, which, scopeDirs: [path.posix.dirname(manifest)], extraWorkspaces: consumerScope, ...(toolRun ? { onlyWorkspaces: [path.posix.dirname(manifest)] } : {}) });
+    const bound = option("--to") === "check" || privateUnit.private ? { env: {}, cleanup() {} } : await bindUnitCargo({ o, git, root, ds, executor, which, scopeDirs: [path.posix.dirname(manifest)], extraWorkspaces: consumerScope, ...(toolRun ? { onlyWorkspaces: [path.posix.dirname(manifest)] } : {}) });
     if (bound.refusal) { o.err(`${tag} BLOCKED: RK_SNAPSHOT_OUTPUT_UNPINNED: ${bound.refusal}; nothing ran`); return 1; }
     if (bound.note) o.out(`${tag} ${bound.note}`);
     const envExtra = bound.env;
@@ -2564,12 +2778,41 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
     const shared = io.unitListClassA?.dirs?.includes(unitDir) ? io.unitListClassA : null;
     const runCheck = async (tier) => {
       const memoKey = `${ds.commit}:${tier}`;
-      if (shared && shared.memo.get(memoKey) === 0) { o.out(`${tag} class A (${tier} tier) of this unit list already passed on ${ds.commit.slice(0, 12)}: not run again`); return 0; }
+      // One Class A verdict per commit and tier for the whole list, pass or fail: the scope is every listed unit's
+      // directory, so re-running it per unit after a failure would repeat the same red scans once per unit.
+      if (shared && shared.memo.has(memoKey)) { const remembered = shared.memo.get(memoKey); o.out(`${tag} class A (${tier} tier) of this unit list already ${remembered === 0 ? "passed" : `failed (exit ${remembered})`} on ${ds.commit.slice(0, 12)}: not run again`); return remembered; }
       const scopes = shared ? shared.dirs : [unitDir];
       const code = await (o.runCheck ?? (() => main(["check", "--commit", ds.commit, "--full-a", "--snapshot", ds.path, "--rule-tier", tier, ...scopes.flatMap((d) => ["--scope", d])], { ...io, cwd: root, buildOwnership: own })))(tier);
-      if (shared && code === 0) shared.memo.set(memoKey, 0);
+      if (shared) shared.memo.set(memoKey, code);
       return code;
     };
+    if (privateUnit.private) {
+      if (!localBuildGrantedAt(source)) { o.err(`${tag} BLOCKED: ${selector} requires the committed local-build grant`); return 1; }
+      if (option("--to") === "compile") {
+        try {
+          const { knownRedEntry } = await import("../unit-gate.mjs");
+          const red = knownRedEntry({ unit: privateUnit, root: ds.path, platform: o.platform });
+          if (red) { o.err(`${tag} BLOCKED: ${selector} is known red (${red.host}: ${red.reason}); nothing compiled`); return 1; }
+        } catch (e) { o.err(`${tag} BLOCKED: ${e.message}; nothing compiled`); return 1; }
+      }
+      const report = { schema: "rightkit.unit-gate-report/1", unit: privateUnit, commit: ds.commit, tree: ds.tree, executor: executor.kind, stages: {} };
+      const save = () => { if (reportOut) o.writeFile(path.resolve(o.cwd, reportOut), `${JSON.stringify(report, null, 2)}\n`); };
+      for (const stage of option("--to") === "compile" ? ["check", "compile"] : ["check"]) {
+        let code = 1;
+        if (await openSnapshotStage({ o, ds, root, stage, tag })) {
+          try {
+            code = stage === "check" ? await runCheck("compile") : await main(["--all", "--commit", ds.commit, "--snapshot", ds.path, "--scope", unitDir], {
+              ...io, cwd: root, readStdin: () => "", buildOwnership: own, classAEarlier: true, snapshotLedger: ds.ledger?.entries ?? [],
+              onCompileLedger: (entries) => { ds.compileAdmitted = entries; }, [PRIVATE_SCOPED_COMPILE]: { selector, unitDir },
+            });
+          } catch (e) { o.err(`${tag} ${selector} ${stage}: ${e.message}`); code = 1; }
+          if (!(await closeSnapshotStage({ o, ds, root, stage, step: `unit:${stage}`, tag })).ok) code = 1;
+        }
+        report.stages[stage] = { ok: code === 0, code }; save();
+        if (code !== 0) return code;
+      }
+      return 0;
+    }
     if (toolRun) {
       const { runUnitTool } = await import("../tool-build.mjs");
       return await runUnitTool({ selector, root: ds.path, commonDir: path.resolve(root, text(common).trim()), commit: ds.commit, tree: ds.tree, executor, env: o.env, platform: o.platform, source, envExtra, targetDirs: bound.targetDirs ?? {},
@@ -2591,6 +2834,50 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
     const r = own.release();
     if (r?.released === false && !own.joined) o.err(`${tag} build ownership ${own.handle} kept: ${r.why}`);
   }
+}
+
+/** One owner, one snapshot and one shared Class A before a unit-list compile. */
+async function runUnionSnapshot({ o, io, root, git, ds, union, unitListClassA }) {
+  const tag = "rightkit-gate:";
+  const { localBuildGrantedAt, consumerRows } = await import("../local-publish.mjs");
+  const { knownRedEntry } = await import("../unit-gate.mjs");
+  const source = { checkout: root, commit: ds.commit, tree: ds.tree };
+  if (!localBuildGrantedAt(source)) { o.err(`${tag} BLOCKED: unit list requires the committed local-build grant`); return 1; }
+  let config;
+  try {
+    config = JSON.parse(o.readFile(path.join(ds.path, "ci/gate.config.json")));
+    union.consumerDirs = [];
+    for (const row of union.selected) {
+      const file = row.selector.startsWith("cargo:") ? `${row.dir}/Cargo.toml` : `${row.dir}/package.json`;
+      if (failed(git("cat-file", "-e", `${ds.commit}:${file}`))) throw new Error(`${file} is absent from the selected commit`);
+      const unit = privateUnitManifest({ selector: row.selector, content: o.readFile(path.join(ds.path, file)) });
+      const red = knownRedEntry({ unit, root: ds.path, platform: o.platform });
+      if (red) throw new Error(`${row.selector} is known red (${red.host}: ${red.reason})`);
+      if (unit.kind === "cargo") for (const consumer of consumerRows(unit.name, config.rust?.[unit.name] ?? {})) {
+        for (const required of [consumer.manifestPath, consumer.manifestPath.replace(/Cargo\.toml$/, "Cargo.lock")]) if (failed(git("cat-file", "-e", `${ds.commit}:${required}`))) throw new Error(`${required} is absent from the selected commit`);
+        const dir = path.posix.dirname(consumer.manifestPath);
+        union.consumerDirs.push(dir); unitListClassA.dirs.push(dir);
+      }
+    }
+    unitListClassA.dirs = [...new Set(unitListClassA.dirs)];
+  } catch (error) { o.err(`${tag} BLOCKED: cannot prepare unit-list scope: ${error.message}`); return 1; }
+  if (!await openSnapshotStage({ o, ds, root, stage: "check", tag })) return 1;
+  let check = 1;
+  try { check = await (o.runCheck ?? (() => main(["check", "--commit", ds.commit, "--full-a", "--snapshot", ds.path, "--rule-tier", "compile", ...unitListClassA.dirs.flatMap((dir) => ["--scope", dir])], { ...io, cwd: root, buildOwnership: ds.own, [UNIT_LIST_UNION]: union })))("compile"); }
+  catch (error) { o.err(`${tag} unit-list check: ${error.message}`); }
+  if (!(await closeSnapshotStage({ o, ds, root, stage: "check", tag })).ok || check !== 0) return check || 1;
+  if (!await openSnapshotStage({ o, ds, root, stage: "compile", tag })) return 1;
+  let code = 1;
+  try {
+    code = await main(["--all", "--commit", ds.commit, "--snapshot", ds.path, ...unitListClassA.dirs.flatMap((dir) => ["--scope", dir])], {
+      ...io, cwd: root, readStdin: () => "", buildOwnership: ds.own, classAEarlier: true, snapshotLedger: ds.ledger?.entries ?? [],
+      onCompileLedger: (entries) => { ds.compileAdmitted = entries; }, [UNIT_LIST_UNION]: union,
+      verifyUnionSnapshot: async () => { await verifyDoorSnapshot(o, ds, root, { ledger: ds.ledger?.entries ?? [] }); return true; },
+    });
+  } catch (error) { o.err(`${tag} unit-list compile: ${error.message}`); }
+  const closed = await closeSnapshotStage({ o, ds, root, stage: "compile", tag });
+  union.verified = closed.ok && union.completed === true && union.sharedClean === true;
+  return closed.ok ? code : 1;
 }
 
 /**
@@ -3219,8 +3506,8 @@ export function doorPath(o, gateFile = o.gateFile ?? fileURLToPath(import.meta.u
  * lookup of a usable rustfmt, which the deferred Rust gate needs).
  */
 /** The gate flags a `--to <stage>` invocation takes (before a `--` separator, after which the arguments belong to right-release), and whether each takes a value. */
-const STAGE_VALUE_FLAGS = Object.freeze(["--to", "--platform", "--tier", "--commit", "--receipt-in", "--receipt-out", "--unit", "--units-file", "--all-units-exception", "--receipt-dir"]);
-const STAGE_BOOLEAN_FLAGS = Object.freeze(["--route"]);
+const STAGE_VALUE_FLAGS = Object.freeze(["--to", "--platform", "--tier", "--commit", "--receipt-in", "--receipt-out", "--unit", "--units-file", "--all-units-exception", "--receipt-dir", "--base"]);
+const STAGE_BOOLEAN_FLAGS = Object.freeze(["--route", "--changed"]);
 
 /**
  * Why `args` (a `--to <stage>` invocation) is not a well-formed request, or null. Every value flag needs a value that is not another flag and may be
@@ -3522,7 +3809,7 @@ export async function main(argv, io = {}) {
     // Full Class A needs a snapshot or the committed hosted checkout. The content pass (`check --commit <sha> --scope <dir>`: publication
     // admission, GC-A03) reads the commit the same way it always did (the warm snapshot, or the runner checkout proven to be that commit
     // in place) and only narrows which executing workspace scans run, so it is the one other form --scope accepts; never the live tree.
-    const scopeForm = fullA ? Boolean(snapshotA || hostedCommitA) : classAOnly && !args.includes("--worktree");
+    const scopeForm = fullA ? Boolean(snapshotA || hostedCommitA) : (classAOnly && !args.includes("--worktree")) || Boolean(snapshotB && (o[PRIVATE_SCOPED_COMPILE] || o[UNIT_LIST_UNION]) && o.classAEarlier && o.buildOwnership);
     if (!scopeForm || bad !== undefined || scopeDirs.some((d) => d === undefined)) { o.err("rightkit-gate: --scope needs full Class A of a snapshot or committed hosted CI checkout & repository-relative directories"); return 2; }
   }
   if (args.includes("--base") && (!option("--base") || option("--base").startsWith("--"))) { o.err("rightkit-gate: --base needs a ref"); return 2; }
@@ -3567,18 +3854,19 @@ export async function main(argv, io = {}) {
   // RightKit names its unit on every run (rightkitDoorRule): `--unit <selector>`, `--units-file <json written for this run>` or
   // `--all-units-exception <id>`; exactly one. The unit list is read here, before anything runs, so a bad file is a usage error (exit 2).
   const gateFlag = (name) => args.includes(name) && (separator < 0 || args.indexOf(name) < separator);
-  const unitsFileFlag = gateFlag("--units-file"); const allUnitsFlag = gateFlag("--all-units-exception");
+  const unitsFileFlag = gateFlag("--units-file"); const allUnitsFlag = gateFlag("--all-units-exception"); const changedFlag = gateFlag("--changed");
   let unitList = null;
-  if (unitsFileFlag || allUnitsFlag) {
-    const flag = unitsFileFlag ? "--units-file" : "--all-units-exception";
+  if (unitsFileFlag || allUnitsFlag || changedFlag) {
+    const flag = unitsFileFlag ? "--units-file" : changedFlag ? "--changed" : "--all-units-exception";
     if (option("--to") === undefined) { o.err(`rightkit-gate: ${flag} applies to a --to stage\n${USAGE}`); return 2; }
-    if ([unitFlag, unitsFileFlag, allUnitsFlag].filter(Boolean).length > 1) { o.err("rightkit-gate: name the unit once: --unit, --units-file or --all-units-exception, not several"); return 2; }
-    if (!option(flag) || option(flag).startsWith("--")) { o.err(`rightkit-gate: ${flag} needs a value\n${USAGE}`); return 2; }
+    if ([unitFlag, unitsFileFlag, allUnitsFlag, changedFlag].filter(Boolean).length > 1) { o.err("rightkit-gate: name the unit once: --unit, --changed, --units-file or --all-units-exception, not several"); return 2; }
+    if (!changedFlag && (!option(flag) || option(flag).startsWith("--"))) { o.err(`rightkit-gate: ${flag} needs a value\n${USAGE}`); return 2; }
     if (unitsFileFlag) {
       try { unitList = readUnitList((f) => o.readFile(path.resolve(o.cwd, f)), option("--units-file")); }
       catch (e) { o.err(`rightkit-gate: ${e.message}`); return 2; }
     }
   }
+  if (option("--to") !== undefined && gateFlag("--base") && !changedFlag) { o.err("rightkit-gate: --base on a --to stage selects the diff base of --changed; pass --changed or drop --base"); return 2; }
   // `--no-broker <exception-id>`: the one documented exception to the mandatory broker on Mac and Dell (broker-exception.mjs). The record is
   // read from the selected commit, never the working tree; every refusal is typed and nothing runs. The run then takes the same stages
   // with the direct executor, and prints and records the exception.
@@ -3622,7 +3910,7 @@ export async function main(argv, io = {}) {
   const gateArgs = separator < 0 ? args : args.slice(0, separator);
   if (gateArgs.includes("--route")) {
     const routeTo = option("--to");
-    const clash = ["--unit", "--units-file", "--all-units-exception", "--receipt-in", "--receipt-out"].filter((f) => gateArgs.includes(f));
+    const clash = ["--unit", "--units-file", "--all-units-exception", "--changed", "--receipt-in", "--receipt-out"].filter((f) => gateArgs.includes(f));
     if (routeTo === undefined) { o.err(`rightkit-gate: --route needs --to ${ROUTE_PROBE_STAGES.join("|")}\n${USAGE}`); return 2; }
     if (routeTo === "release") { o.err("rightkit-gate: --route answers for --to check|compile|package|qualify|dev|test; release uploads and has no route of its own"); return 2; }
     if (clash.length) { o.err(`rightkit-gate: --route runs nothing and takes no ${clash.join(" or ")}`); return 2; }
@@ -3664,7 +3952,7 @@ export async function main(argv, io = {}) {
   if (unitFlag) { o.err("rightkit-gate: --unit requires --to"); return 2; }
   if (option("--to") !== undefined) {
     // A door run that names no unit: RightKit refuses it unless Adrian's exception or a unit list names what runs (rightkitDoorRule).
-    const door = await rightkitDoorRule(o, args, root, git, io, { unitsFileFlag, allUnitsFlag, unitList });
+    const door = await rightkitDoorRule(o, args, root, git, io, { unitsFileFlag, allUnitsFlag, unitList, changedFlag });
     if (door.exit !== undefined) return door.exit;
     return await runStages(o, args, root, git, io);
   }
@@ -3796,6 +4084,8 @@ export async function main(argv, io = {}) {
       // consumer rows of the crates they exercise (CI treats them the same), never as units.
       let fixtures = [];
       try { const f = JSON.parse(o.readFile(path.join(repo, GATE_CONFIG))).fixtures; if (Array.isArray(f)) fixtures = f.filter((d) => typeof d === "string"); } catch { /* no config: no fixtures */ }
+      // Selected publisher consumer workspaces must participate in discovery, scoped Class A and target binding.
+      if (o[UNIT_LIST_UNION]?.consumerDirs?.length) fixtures = fixtures.filter((d) => !o[UNIT_LIST_UNION].consumerDirs.some((c) => c === d.replace(/\/$/, "") || c.startsWith(`${d.replace(/\/$/, "")}/`)));
       // A snapshot has nothing untracked; the working tree (--plan, check --worktree) names its untracked manifests as skipped.
       const untracked = () => {
         if (snapshot) return [];
@@ -4069,7 +4359,7 @@ export async function main(argv, io = {}) {
       rustUnits: rust.units, npmUnits: npm, npmRoots, cargoDir: ".", rustLocks, crateFeatures, crateDependents, externalInputs,
       // B1 (rightkit#1458): compile scans of one Cargo workspace run as one cargo invocation per configuration; ci/shards.json `solo` crates never join one.
       // Batching is on (RK_GATE_CLASS_B_BATCH=0 turns it off): the batch-equivalence run (GATE-CONTRACT GC-I11; Pulse 3b31b4ca, 2026-11-03) gave the same verdict on all 193 scans batched and per crate.
-      classBBatching: o.env.RK_GATE_CLASS_B_BATCH !== "0", shardSolo: shardSoloOf(o, repo),
+      classBBatching: !o[PRIVATE_SCOPED_COMPILE] && o.env.RK_GATE_CLASS_B_BATCH !== "0", shardSolo: shardSoloOf(o, repo),
       // The broker (or, on a direct host, the gate itself) admits compiles; no separate grant file decides it here.
       localCompile: true,
       exists: o.exists, readFile: o.readFile, platform: o.platform,
@@ -4083,8 +4373,17 @@ export async function main(argv, io = {}) {
     if (closure) {
       let kept;
       try {
+        if (o[PRIVATE_SCOPED_COMPILE] && fullPlan.scans.some((scan) => scan.class === "B" && Array.isArray(scan.batch?.units))) throw new Error("scoped private compilation cannot admit pre-grouped Class B scans; use ungrouped planning");
         kept = closureTools.scopeScans(fullPlan.scans, closure, { rustUnits: rust.units, npmUnits: npm });
         plan = closureTools.scopedPlan(fullPlan, kept.scans, closure);
+        if (o[PRIVATE_SCOPED_COMPILE]) {
+          const { selector, unitDir } = o[PRIVATE_SCOPED_COMPILE];
+          const npmUnit = npm.find((u) => u.dir === unitDir);
+          const rustUnit = rust.units.find((u) => u.dir === unitDir);
+          const owner = selector.startsWith("npm:") ? npmUnit?.name : rustUnit?.name;
+          const names = selector.startsWith("npm:") ? [`test:npm:${owner}`] : [`check:${owner}`, `check-features:${owner}`, `clippy:${owner}`];
+          if (!owner || !plan.scans.some((scan) => scan.class === "B" && names.some((prefix) => scan.id === prefix || scan.id.startsWith(`${prefix}:`)))) throw new Error(`${selector}: no unit-specific Class B compile or test scan was planned; declare an executable unit test or compile route`);
+        }
       } catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
       plan.notes = plan.notes.filter((n) => !n.includes("every Rust unit is in scope"));
       const classA = plan.scans.filter((s) => s.class === "A");
@@ -4094,6 +4393,76 @@ export async function main(argv, io = {}) {
       const cargoRun = classA.filter((s) => closureTools.isCargoScan(s)).length;
       const cargoExcluded = kept.dropped.filter((s) => closureTools.isCargoScan(s)).length;
       o.out(`${tag} scope ${closure.dirs.join(", ")}: dependency directories ${closure.dependencyDirs.join(", ")}; ${closure.npm.size} npm & ${closure.rust.size} Rust unit(s); Class A ${executing} executing scan(s) (${cargoRun} Cargo), ${classA.length - executing} repository file-only scan(s); ${kept.dropped.length} unrelated executing scan(s) excluded (${cargoExcluded} Cargo); ${plan.scans.length - classA.length} closure Class B scan(s) do not run in this check; install roots ${installRoots.join(", ") || "none"}; scope digest ${plan.scopeDigest}`);
+    }
+    let unionScheduler = null;
+    const unionContext = o[UNIT_LIST_UNION];
+    if (unionContext && snapshotB) {
+      try {
+        const { publisherRequirementsForUnits, planUnitListCompile, publisherUnionScheduler, runPublisherSecretRequirement, proveWorkspaceCwd } = await import("../unit-list-compile.mjs");
+        const { publisherRequirementScan } = await import("../deterministic-scans.mjs");
+        const requirements = await publisherRequirementsForUnits({ selected: unionContext.selected, snapshot: repo, rustUnits: rust.units, npmUnits: npm, platform: o.platform, env: o.env });
+        unionContext.expected = new Map(requirements.map((entry) => [entry.selector, entry.requirements.length]));
+        const external = []; const scoped = []; const owner = new Map(); const verdicts = new Map(); const initialFailures = new Set();
+        const { directReadSpawn } = await import("../snapshot-metadata.mjs");
+        const pathKey = o.platform === "win32" ? (Object.keys(o.env).find((k) => k.toUpperCase() === "PATH") ?? "Path") : "PATH";
+        const direct = directCargoPath({ env: { ...o.env, PATH: o.env[pathKey] }, exists: o.exists, platform: o.platform, gateWrappers: true });
+        const directSpawn = directReadSpawn({ spawn: withDeclaredClient((c, a, opts) => o.spawn(c, a, opts)), cargoCommand: planCargoCommand, snapshotRoot: repo, directPath: direct.path, pathKey, tmpRoot: gateTmpRoot({ env: o.env, platform: o.platform, exists: o.exists }), env: o.env, err: o.err });
+        for (const entry of requirements) {
+          const rows = []; verdicts.set(entry.selector, entry.verdict);
+          for (const requirement of entry.requirements) {
+            owner.set(requirement.id, entry.selector);
+            if (requirement.internal === "scanCrateForSecrets") {
+              const evidence = await runPublisherSecretRequirement({ requirement, snapshot: repo, commit: snapshotBCommit.commit, tree: snapshotBCommit.tree, verifySnapshot: o.verifyUnionSnapshot });
+              unionContext.internal.push({ selector: entry.selector, id: requirement.id, coverageKey: requirement.coverageKey, status: evidence.status, evidenceHash: evidence.evidenceHash, ...(evidence.findings.length ? { findings: evidence.findings } : {}) });
+              if (evidence.status !== "pass") { initialFailures.add(entry.selector); o.err(`${tag} ${entry.selector}: publisher secret scan failed (${evidence.findings.join(", ")})`); }
+            } else if (requirement.executable === "cargo" && requirement.argv[0] === "fmt") {
+              if (!await o.verifyUnionSnapshot()) throw new Error("snapshot changed before publisher fmt");
+              const result = directSpawn(planCargoCommand[0], [...planCargoCommand.slice(1), ...requirement.argv], { cwd: path.join(repo, requirement.cwd), env: requirement.env });
+              if (!await o.verifyUnionSnapshot()) throw new Error("snapshot changed after publisher fmt");
+              const status = failed(result) ? "fail" : "pass";
+              const evidence = { id: requirement.id, coverageKey: requirement.coverageKey, commit: snapshotBCommit.commit, tree: snapshotBCommit.tree, status };
+              unionContext.internal.push({ selector: entry.selector, ...evidence, evidenceHash: createHash("sha256").update(JSON.stringify(evidence)).digest("hex") });
+              if (status !== "pass") { initialFailures.add(entry.selector); o.err(`${tag} ${entry.selector}: publisher fmt failed: ${why(result)}`); }
+            } else { external.push(requirement); rows.push(requirement); }
+          }
+          if (!rows.length) throw new Error(`${entry.selector}: no executable publisher compile requirements`);
+          scoped.push({ selector: entry.selector, requirements: rows });
+        }
+        const normalizedCwds = new Map(); const cwdProofs = [];
+        const toolchains = new Map();
+        const toolchainOf = (dir) => {
+          if (!toolchains.has(dir)) {
+            const result = o.spawn("rustup", ["show", "active-toolchain"], { cwd: dir, env: o.env });
+            toolchains.set(dir, failed(result) ? null : text(result).trim().split(/\s+/)[0]);
+          }
+          return toolchains.get(dir);
+        };
+        for (const requirement of external) if (requirement.executable === "cargo" && requirement.phase === "compile" && ["check", "clippy"].includes(requirement.argv[0])) {
+          const proof = proveWorkspaceCwd({ requirement, snapshot: repo, checkout: root, toolchainOf, exists: o.exists });
+          if (proof.normalized) normalizedCwds.set(requirement.id, proof.cwd);
+          cwdProofs.push({ id: requirement.id, cwd: proof.cwd, normalized: proof.normalized, reason: proof.reason });
+        }
+        unionContext.cwdProofs = cwdProofs;
+        const jobs = planUnitListCompile(scoped, { normalizedCwds });
+        const config = JSON.parse(o.readFile(path.join(repo, "ci/gate.config.json")));
+        const adapt = (requirement) => {
+          const sel = owner.get(requirement.id) ?? jobs.find((job) => job.members.some((member) => member.coverageKey === requirement.coverageKey))?.members[0]?.selector;
+          const unit = sel?.replace(/^cargo:/, "");
+          const quiet = sel?.startsWith("cargo:") ? config.rust?.[unit]?.quietTests === true : false;
+          return publisherRequirementScan(requirement, { platform: o.platform, cargoCommand: planCargoCommand, cargoLiveRoot, targetDirs, quiet, allowIgnored: verdicts.get(sel)?.allowIgnored === true });
+        };
+        for (const requirement of external) plan.scans.push(adapt(requirement));
+        const dependencies = Object.fromEntries(unionContext.selected.map((unit) => [unit.selector, (unit.deps ?? []).filter((dep) => unionContext.selected.some((u) => u.selector === dep))]));
+        unionScheduler = publisherUnionScheduler({ jobs, dependencies, initialFailures, requirements: external, adapt, onCoverage: (coverage) => { unionContext.coverage = coverage; }, verify: async ({ row, member, requirement }) => {
+          const verdict = verdicts.get(member.selector);
+          if (!row || row.status !== "pass" || (requirement.phase === "test" && (row.testRun?.outputTruncated || (!verdict.allowMissingAssets && (row.testRun?.skipMarkers ?? 0) > 0) || (!verdict.allowIgnored && (row.results?.skipped ?? 0) > 0)))) return { ok: false };
+          if (executor.kind === "broker" && requirement.executable === "cargo" && !/^[0-9a-f]{64}$/.test(row.snapshotEvidence?.receiptSha256 ?? "")) return { ok: false };
+          const proof = { commit: snapshotBCommit.commit, tree: snapshotBCommit.tree, requirement: member.coverageKey, command: row.command, snapshotEvidence: row.snapshotEvidence ?? null, testRun: row.testRun ?? null, results: row.results ?? null };
+          unionContext.commands.push({ selector: member.selector, id: member.id, ...proof });
+          return { ok: true, evidenceHash: createHash("sha256").update(JSON.stringify(proof)).digest("hex") };
+        } });
+        unionContext.owner = owner;
+      } catch (error) { o.err(`${tag} BLOCKED: cannot prepare canonical unit-list compile: ${error.message}`); return 1; }
     }
     // What the plan leaves to the qualify stage (end-to-end crates, declared Swift packages): handed to the door, which records it in the compile
     // receipt and refuses to qualify without a declared run route (rightkit#1332, #1333). Never dropped silently.
@@ -4299,7 +4668,7 @@ export async function main(argv, io = {}) {
     const scanResult = await (o.runScans ?? runScans)(plan, {
       // The commit's own files (rightkit#1393): a snapshot is not a git toplevel, so the secret scan needs this list to judge tracked files only and never what a stage wrote there.
       ...(snapshot ? { trackedFiles: files } : {}),
-      classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], ...(classAEarlier ? { classAEarlier: true } : {}), jobs, testJobs, classBJobs, classBBatching: o.env.RK_GATE_CLASS_B_BATCH !== "0", classBPipeline: Math.max(1, Number(o.env.RK_GATE_CLASS_B_PIPELINE ?? 2) || 2), ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
+      classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], ...(classAEarlier ? { classAEarlier: true } : {}), jobs, testJobs, classBJobs, classBBatching: !o[PRIVATE_SCOPED_COMPILE] && o.env.RK_GATE_CLASS_B_BATCH !== "0", classBPipeline: Math.max(1, Number(o.env.RK_GATE_CLASS_B_PIPELINE ?? 2) || 2), ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
       ...(census ? { spawn: census.wrapSpawn(defaultSpawnAsync) } : {}),
       // The declared Linux broker route: the scans are planned with the logical `rustright`, which this spawn (and scanSpawn's pass-through below) starts as the
       // executor's validated client, never a PATH lookup (withDeclaredClient).
@@ -4337,8 +4706,11 @@ export async function main(argv, io = {}) {
           return path.join(base, "rightkit-gate-scan-logs", `${path.basename(root)}-${stamp}-${process.pid}`);
         } catch { return null; }
       })(),
+      ...(unionScheduler ? { scheduleClassB: unionScheduler } : {}),
       onResult: (row, p) => o.out(`${tag} [${p.done}/${p.total}] ${(row.cached ? "cached" : row.status).padEnd(7)} ${row.id} (${p.seconds}s)${row.batchedWith ? ` [batch of ${row.batchedWith.units.length}]` : ""}${row.status === "fail" ? ` :: ${String(row.detail ?? "").slice(0, 300)}` : row.advice ? ` :: ${String(row.advice).slice(0, 300)}` : ""}`),
     });
+    if (unionContext) unionContext.rows = scanResult.scans.filter((row) => row.class === "B").map((row) => ({ id: row.id, status: row.status, ...(row.command ? { command: row.command } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), ...(row.testRun ? { testRun: row.testRun } : {}), ...(row.results ? { results: row.results } : {}), ...(unionContext.owner?.has(row.id) ? { publisherUnit: unionContext.owner.get(row.id) } : { sharedOrigin: true }) }));
+    if (unionContext) unionContext.sharedClean = unionContext.rows.filter((row) => row.sharedOrigin).every((row) => row.status === "pass");
     directTiming.cargoEnd = Date.now();
     const freshness = census ? census.finish() : null;
     directTiming.diagnostics = Date.now() - directTiming.cargoEnd;
@@ -4461,6 +4833,7 @@ export async function main(argv, io = {}) {
         o.out(`${tag} direct receipt ${JSON.stringify(directReceipt)}`);
       }
     }
+    if (unionContext) unionContext.completed = true;
     if (failures.length) {
       o.err(`${tag} BLOCKED (${failures.length})`);
       for (const f of failures) o.err(`  - ${f}`);

@@ -4,6 +4,8 @@
 // passing host run receipts from that same SHA: macOS and Windows, or macOS only for Swift.
 // Format: docs/RIGHTKIT-SHARED-PACKAGES.md, "Publication gate" -> "Evidence file format".
 import crypto from "node:crypto";
+import { crossTargetsFor } from "./cross-targets.mjs";
+import { committedCargoWorkspace } from "./committed-cargo-workspace.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -71,7 +73,7 @@ const BATCH_COMMAND = Object.freeze({
 
 /** Problems with a batch receipt for the crate `evidence.name` (empty when it proves fmt, secret scan and clippy).
  * `tree` is the current HEAD tree when known; `undefined` skips only that comparison. */
-export function batchReceiptProblems(batch, evidence, tree) {
+export function batchReceiptProblems(batch, evidence, tree, expectedWorkspace) {
   if (!batch || typeof batch !== "object" || Array.isArray(batch)) return ["batch receipt must be an object"];
   const problems = [];
   if (!text(batch.id)) problems.push("batch.id");
@@ -79,6 +81,11 @@ export function batchReceiptProblems(batch, evidence, tree) {
   if (!SHA.test(String(batch.tree ?? ""))) problems.push("batch.tree (must be a 40-hex git tree)");
   else if (tree !== undefined && batch.tree !== tree) problems.push(`batch.tree (must equal the HEAD tree ${tree})`);
   if (!(Array.isArray(batch.crates) && batch.crates.includes(evidence.name))) problems.push("batch.crates (must name this crate)");
+  const workspace = batch.workspaces?.[evidence.name];
+  const validWorkspace = typeof workspace === "string" && (workspace === "." || (/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[^\\]+$/.test(workspace) && !workspace.endsWith("/")));
+  if (!validWorkspace) problems.push("batch.workspaces (must identify this crate's workspace)");
+  if (!text(expectedWorkspace)) problems.push("expected workspace is required for batch evidence");
+  else if (workspace !== expectedWorkspace) problems.push("batch workspace differs from authenticated workspace");
   const checks = Array.isArray(batch.checks) ? batch.checks : [];
   for (const name of BATCH_CHECKS) {
     const rows = checks.filter((row) => row?.name === name);
@@ -88,31 +95,32 @@ export function batchReceiptProblems(batch, evidence, tree) {
       if (row.commit !== evidence.commit || row.tree !== batch.tree) problems.push(`batch check ${name} not bound to the batch commit and tree`);
       if (!(text(row.command) && BATCH_COMMAND[name].test(row.command))) problems.push(`batch check ${name} command`);
     }
-    // fmt is workspace-wide; clippy and the secret scan name the crates they covered.
-    if (name !== "fmt" && !rows.some((row) => Array.isArray(row.crates) && row.crates.includes(evidence.name))) problems.push(`batch check ${name} does not cover this crate`);
+    if (!rows.some((row) => Array.isArray(row.crates) && row.crates.includes(evidence.name)
+      && (name === "secret-scan" || (validWorkspace && row.workspace === workspace)))) problems.push(`batch check ${name} does not cover this crate and workspace`);
   }
   return problems;
 }
 
-/**
- * Feature sets of this crate that a batch receipt did NOT lint (0.4.1 review A2). Batch mode lints each crate's tested
- * feature sets in shared `-p a -p b` runs, so a receipt from before every set was linted (0.4.0: first set only)
- * still satisfies `batchReceiptProblems`, which accepts any ONE clippy row covering the crate. Replay therefore
- * needs one passing row per feature set: bound to the evidence commit and the batch tree, naming the crate (`-p <crate>`
- * and `crates`), and ending `--no-deps --all-targets <features> -- -D warnings`. `featureSets` is the crate's
- * `ci/gate.config.json` list (`[[]]` when unset). Returns the missing sets as argument arrays.
- */
-export function batchClippyMissingFeatureSets(batch, evidence, featureSets) {
+/** Missing native and cross-target configurations, each bound to the authenticated workspace. */
+export function batchClippyMissingConfigurations(batch, evidence, featureSets, targets, expectedWorkspace) {
+  const sets = (Array.isArray(featureSets) && featureSets.length ? featureSets : [[]]);
+  if (!text(expectedWorkspace) || !Array.isArray(targets) || sets.some((set) => !Array.isArray(set) || set.some((arg) => !text(arg)))) throw new Error("invalid batch clippy requirements");
   const rows = (Array.isArray(batch?.checks) ? batch.checks : []).filter((row) => row?.name === "clippy" && row.ok === true
-    && row.commit === evidence.commit && row.tree === batch.tree && Array.isArray(row.crates) && row.crates.includes(evidence.name) && text(row.command));
-  const sets = (Array.isArray(featureSets) && featureSets.length ? featureSets : [[]]).map((set) => (Array.isArray(set) ? set : []));
-  return sets.filter((features) => {
-    const tail = ` --no-deps --all-targets${features.length ? ` ${features.join(" ")}` : ""} -- -D warnings`;
-    return !rows.some((row) => {
-      const words = row.command.split(" ");
-      return row.command.endsWith(tail) && words.some((word, index) => word === "-p" && words[index + 1] === evidence.name);
-    });
-  });
+    && row.commit === evidence.commit && row.tree === batch.tree && row.workspace === expectedWorkspace
+    && Array.isArray(row.crates) && row.crates.includes(evidence.name) && row.crates.length > 0
+    && new Set(row.crates).size === row.crates.length
+    && row.crates.every((crate) => typeof crate === "string" && /^[A-Za-z0-9_-]+$/.test(crate) && batch.workspaces?.[crate] === expectedWorkspace));
+  const missing = [];
+  for (const features of sets) for (const target of [null, ...targets]) {
+    const command = (crates) => ["cargo", "clippy", ...crates.flatMap((crate) => ["-p", crate]), "--message-format=json-render-diagnostics", "--no-deps", "--all-targets", ...(target ? ["--target", target] : []), ...features, "--", "-D", "warnings"].join(" ");
+    if (!rows.some((row) => row.command === command(row.crates))) missing.push({ features, target });
+  }
+  return missing;
+}
+
+// Historical helper keeps its feature-array result while requiring independent workspace identity.
+export function batchClippyMissingFeatureSets(batch, evidence, featureSets, expectedWorkspace) {
+  return batchClippyMissingConfigurations(batch, evidence, featureSets, [], expectedWorkspace).map((entry) => entry.features);
 }
 
 /**
@@ -122,7 +130,7 @@ export function batchClippyMissingFeatureSets(batch, evidence, featureSets) {
  * `secretScan` (a valid batch receipt covering the crate). Every run on the proving host (darwin, or win32 under a win32-only policy) at the evidence commit must prove a
  * step for it to count. Call after the gate accepted the evidence (the gate binds commit, tree and artifact).
  */
-export function provenGateSteps(evidence) {
+export function provenGateSteps(evidence, expectedWorkspace, gateConfig) {
   const none = { tests: false, clippy: false, fmt: false, secretScan: false };
   if (!evidence || !SHA.test(String(evidence.commit ?? "")) || !text(evidence.name)) return none;
   // The proving host is the one a recorded win32-only policy names; every other evidence is proved on darwin.
@@ -132,7 +140,13 @@ export function provenGateSteps(evidence) {
   const name = escapeRegExp(evidence.name);
   const stepProves = (run, pattern, needTests) => (Array.isArray(run.steps) ? run.steps : []).some((step) => step?.ok === true
     && pattern.test(String(step.command ?? "")) && (!needTests || (step.executed > 0 && step.failed === 0)));
-  const batchOk = (run) => run.batch !== undefined && batchReceiptProblems(run.batch, evidence, undefined).length === 0;
+  const batchOk = (run) => {
+    if (!gateConfig || run.batch === undefined || batchReceiptProblems(run.batch, evidence, undefined, expectedWorkspace).length) return false;
+    try {
+      const entry = gateConfig?.rust?.[evidence.name] ?? {};
+      return batchClippyMissingConfigurations(run.batch, evidence, entry.featureSets ?? [[]], crossTargetsFor(entry, run.host.os), expectedWorkspace).length === 0;
+    } catch { return false; }
+  };
   return {
     tests: runs.every((run) => stepProves(run, new RegExp(`^cargo test -p ${name}( |$)`), true)),
     clippy: runs.every((run) => batchOk(run) || stepProves(run, new RegExp(`^cargo clippy -p ${name} .*-- -D warnings$`), false)),
@@ -143,7 +157,7 @@ export function provenGateSteps(evidence) {
 
 // Names of the fields of one host run that do not qualify (empty when the run qualifies). Every run binds to
 // the same unit, commit and artifact: commit, host arch, feature set and artifactSha256 equal to the evidence.
-function invalidRunFields(run, evidence, tree) {
+function invalidRunFields(run, evidence, tree, expectedWorkspace) {
   const bad = [];
   if (run.commit !== evidence.commit) bad.push(`commit (must equal ${evidence.commit})`);
   if (!text(run.host?.arch)) bad.push("host.arch");
@@ -155,13 +169,14 @@ function invalidRunFields(run, evidence, tree) {
   if (!(Number.isInteger(run.passed) && run.passed > 0)) bad.push("passed (must be > 0)");
   if (run.failed !== 0) bad.push("failed (must be 0)");
   if (run.jobs !== undefined && !(Number.isInteger(run.jobs) && run.jobs >= 1 && run.jobs <= MAX_CARGO_JOBS)) bad.push(`jobs (must be an integer from 1 to ${MAX_CARGO_JOBS})`);
-  if (run.batch !== undefined) bad.push(...batchReceiptProblems(run.batch, evidence, tree ?? null).map((problem) => `batch: ${problem}`));
+  if (run.batch !== undefined) bad.push(...batchReceiptProblems(run.batch, evidence, tree ?? null, expectedWorkspace).map((problem) => `batch: ${problem}`));
   return bad;
 }
 
-function gateResult(missing, evidence) {
+function gateResult(missing, evidence, workspace) {
   const result = { ok: missing.length === 0, missing };
   Object.defineProperty(result, "evidence", { value: evidence });
+  Object.defineProperty(result, "workspace", { value: workspace });
   return Object.freeze(result);
 }
 
@@ -207,7 +222,7 @@ export function validatePublicationEvidence({ expected = {}, evidence, artifactB
       if (!matching.length) { missing.push(`no ${label} host run receipt`); continue; }
       // Every run on the host must qualify: a failing run is not masked by a passing run beside it.
       matching.forEach((run, index) => {
-        const fields = invalidRunFields(run, evidence, tree);
+        const fields = invalidRunFields(run, evidence, tree, expected.workspace);
         if (fields.length) missing.push(`${label} run receipt ${index} invalid: ${fields.join(", ")}`);
       });
     }
@@ -232,16 +247,34 @@ export function checkPublicationGate({ kind, name, version, packagePath, evidenc
   const runs = Array.isArray(evidence?.runs) ? evidence.runs : [];
   const tree = runs.some((run) => run?.batch !== undefined) ? git(["rev-parse", "HEAD^{tree}"], packagePath) : undefined;
   if (tree === null) missing.push(`cannot read the HEAD tree for ${packagePath}`);
+  let workspace;
+  if (runs.some((run) => run?.batch !== undefined) && SHA.test(String(head ?? ""))) {
+    try {
+      const root = git(["rev-parse", "--show-toplevel"], packagePath);
+      if (!root) throw new Error("cannot resolve repository root");
+      const unitDir = path.relative(root, packagePath).split(path.sep).join("/");
+      const read = (file) => {
+        const entry = git(["ls-tree", "--name-only", head, "--", file], root);
+        if (entry === null) throw new Error(`cannot inspect committed ${file}`);
+        if (entry === "") return null;
+        if (entry !== file) throw new Error(`ambiguous committed ${file}`);
+        const contents = git(["show", `${head}:${file}`], root);
+        if (contents === null) throw new Error(`cannot read committed ${file}`);
+        return contents;
+      };
+      workspace = committedCargoWorkspace({ unitDir, read });
+    } catch (error) { missing.push(`cannot authenticate Cargo workspace: ${error.message}`); }
+  }
   // Local publication retains its recorded single-host grant. CI callers own their policy separately.
   const singleHost = (kind === "npm" || kind === "cargo") ? singleHostOfPolicy(evidence) : null;
-  const result = validatePublicationEvidence({ expected: { kind, name, version, commit: head, tree,
+  const result = validatePublicationEvidence({ expected: { kind, name, version, commit: head, tree, workspace,
     ...(directLinux ? { directLinux: true } : singleHost ? { requiredHosts: [singleHost] } : {}) }, evidence, artifactBytes });
   for (const problem of result.missing) {
     if (problem === `evidence commit ${evidence?.commit} != expected commit ${head}`) {
       missing.push(`evidence commit ${evidence.commit} != current HEAD ${head} (${describeCommitMismatch(evidence.commit, head, packagePath, git)})`);
     } else missing.push(problem);
   }
-  return gateResult(missing, evidence);
+  return gateResult(missing, evidence, workspace);
 }
 
 // Enforce: throws on missing evidence unless dryRun (then reports and continues).
