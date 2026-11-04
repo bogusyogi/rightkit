@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.4 (unpublished)
+
+- Fixed: the `rightkit-automation` requirement was `^0.6.4`, but `InputEvent::Drag` (matched in `in_app.rs`) exists only from 0.6.7, so a lock at 0.6.4 to 0.6.6 failed to compile (Pulse, 2026-11-04). The floor is `0.6.7`.
+
 ## 0.10.3 (unpublished)
 
 - The refusal text for a binary without the QA control marker now says "QA control build" (was "test-mode/control build"; `suite` matches the new text); the doc comments no longer mention `rightkit-daemon/test-mode`.
