@@ -68,15 +68,31 @@ export function crossCcDir({ env = process.env, exists = fs.existsSync, platform
   return dir && exists(dir) ? dir : null;
 }
 
-/** cc-rs / cmake environment pointing a target's C, C++ and archiver at the provisioned zig wrappers (none when unprovisioned). */
-export function crossCompileEnv(target, dir = crossCcDir(), platform = process.platform) {
+/** The cross-target pkg-config stub's file name in the wrapper directory (scripts/ci/provision-zig.mjs writes it). */
+export const PKG_CONFIG_CROSS = "pkg-config-cross";
+/** The cross-target windres stub (non-Windows hosts; scripts/ci/provision-zig.mjs writes it). */
+export const WINDRES_CROSS = "windres-cross";
+
+/**
+ * cc-rs / cmake environment pointing a target's C, C++ and archiver at the provisioned zig wrappers (none when unprovisioned).
+ * When the wrapper directory holds the pkg-config stub, a foreign target's pkg-config is that stub (GC-A14): no host has another OS's
+ * sysroot, and a cross-target row is a clippy type-check that never links, so a -sys build script (gdk-pixbuf-sys, webkit2gtk-sys under
+ * Tauri on Linux) needs pkg-config only to answer, not to locate a library. Measured 2026-11-05: every Tauri consumer's Linux cross row
+ * failed on the Mac with "pkg-config has not been configured to support cross-compilation".
+ */
+export function crossCompileEnv(target, dir = crossCcDir(), platform = process.platform, exists = fs.existsSync) {
   if (!dir) return undefined;
   const key = target.replaceAll("-", "_");
   const ext = platform === "win32" ? ".cmd" : "";
+  const stub = path.join(dir, `${PKG_CONFIG_CROSS}${ext}`);
   return {
     [`CC_${key}`]: path.join(dir, `cc-${target}${ext}`),
     [`CXX_${key}`]: path.join(dir, `cxx-${target}${ext}`),
     [`AR_${key}`]: path.join(dir, `ar-${target}${ext}`),
+    ...(exists(stub) ? { [`PKG_CONFIG_${key}`]: stub, [`PKG_CONFIG_ALLOW_CROSS_${key}`]: "1" } : {}),
+    // A windows-gnu cross row off Windows: embed-resource (tauri-winres) needs a resource compiler; the stub answers as GNU windres and
+    // writes an empty archive (the row never links). Reported by the Pulse lane, 2026-11-05: tauri-winres NotAttempted(x86_64-w64-mingw32-windres).
+    ...(target.endsWith("-windows-gnu") && exists(path.join(dir, WINDRES_CROSS)) ? { [`RC_${key}`]: path.join(dir, WINDRES_CROSS) } : {}),
   };
 }
 
