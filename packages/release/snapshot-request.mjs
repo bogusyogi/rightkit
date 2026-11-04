@@ -23,7 +23,7 @@ import path from "node:path";
 import { REQUEST_OVER_CAP_CODE, requestOverCap } from "./broker-wire.mjs";
 import { ownerFileOf, writeCarrierOwner } from "./carrier-census.mjs";
 import { BROKER_COMPILE_COMMANDS, CARGO_COMMAND_ALIASES, cargoCommandIndex, cargoSubcommandOf, expandCargoAliases, isCompileCommand, isPackageObservation } from "./cargo-shapes.mjs";
-import { canonicalJson, CAUSE_EVIDENCE_SCHEMA, CAUSE_UNEXPLAINED, CAUSE_UNKNOWN, ProvenanceError, verifyBr19Evidence, verifyCauseEvidence, verifyProvenance, verifyReceiptCoverage, verifyResultEvidence } from "./provenance-verify.mjs";
+import { canonicalJson, CAUSE_EVIDENCE_SCHEMA, CAUSE_UNEXPLAINED, CAUSE_UNKNOWN, ProvenanceError, verifyBr19Evidence, verifyCauseEvidence, verifyFailureClass, verifyProvenance, verifyReceiptCoverage, verifyResultEvidence } from "./provenance-verify.mjs";
 
 export const SNAPSHOT_REQUEST_SCHEMA = "rustright.snapshot-request/1";
 // One spelling per variable, the current one (rustright-cli shims.rs reads RUSTRIGHT_* first, then the legacy RIGHTKIT_* spelling, which task
@@ -570,7 +570,7 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   const success = result.status === "SUCCEEDED" && result.exitCode === 0 && (result.signal === undefined || result.signal === null);
   // Opt in only to an authenticated, non-signal Cargo compile failure. This is evidence of failure,
   // not proof that its cause is a compiler diagnostic or that retry is appropriate.
-  const failedCompile = allowFailedCompile === true && adapter === null && isCompileClass(argv) && result.status === "FAILED" && Number.isSafeInteger(result.exitCode) && result.exitCode > 0 && result.exitCode <= 255 && (result.signal === undefined || result.signal === null);
+  const failedCompile = allowFailedCompile === true && adapter === null && isCompileClass(argv) && result.status === "FAILED" && result.failureClass === "compile" && Number.isSafeInteger(result.exitCode) && result.exitCode > 0 && result.exitCode <= 255 && (result.signal === undefined || result.signal === null);
   if (!success && !failedCompile) {
     // Any terminal status but SUCCEEDED fails the call, whatever the broker says about why (a tracked write is refused at exit with a
     // `snapshot exit bind: ...` message; the field that carries it is pending RustRight's confirmation, so the usual spellings are read).
@@ -711,9 +711,11 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   // against RustRight's receipt vector case for case) must also accept: no signed-only or receipt-only field anywhere, the signed result evidence with exactly
   // its four fields and six phases, and the BR19 shape (profile, stage, resources, environment; a value or a typed UNKNOWN, never absent).
   verifyReceiptCoverage(receipt, payload);
+  verifyFailureClass(receipt, payload);
+  if (success && Object.hasOwn(result, "failureClass") && result.failureClass !== null) fail("result", "a successful result has a non-null failureClass");
   verifyResultEvidence(receipt, payload);
   verifyBr19Evidence(receipt, payload);
-  return { payload, evidence, attribution, toolchain, nestedChildren, requestDigest, causeEvidence, signedResult: { status: result.status, exitCode: result.exitCode, signal: result.signal ?? null } };
+  return { payload, evidence, attribution, toolchain, nestedChildren, requestDigest, causeEvidence, signedResult: { status: result.status, exitCode: result.exitCode, signal: result.signal ?? null, ...(Object.hasOwn(result, "failureClass") ? { failureClass: result.failureClass } : {}) } };
 }
 
 export { CAUSE_EVIDENCE_SCHEMA, CAUSE_UNEXPLAINED, CAUSE_UNKNOWN, ProvenanceError };

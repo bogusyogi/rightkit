@@ -4512,6 +4512,13 @@ export async function main(argv, io = {}) {
     }
     // The result cache keys on the gated commit's object ids; the stdin check above made HEAD the pushed commit.
     let cache = null;
+    const nodeCheckRejects = new Map();
+    let nodeCheckDiagnosticId = null; let nodeCheckDiagnosticState = "not-seen";
+    const countNodeCheckRejection = (reason, scanId) => {
+      if (!["setup-error", "row-shape", "runtime-path", "source-path", "node-options", "node-environment", "loader-environment", "runtime-config-environment", "row-error"].includes(reason)) return;
+      nodeCheckRejects.set(reason, (nodeCheckRejects.get(reason) ?? 0) + 1);
+      if (scanId === nodeCheckDiagnosticId) nodeCheckDiagnosticState = `rejected:${reason}`;
+    };
     // rightkit#1463: the input key each scan was looked up under, for the coverage report (gate-coverage.mjs).
     const scanKeys = new Map();
     // Full class A on the working tree (the door, and broker admission of the live checkout) caches on the LIVE bytes: every
@@ -4616,7 +4623,9 @@ export async function main(argv, io = {}) {
         // A row field that shapes what the scan checks without changing its id or command is part of its key: a tsc row's tscWorkspace
         // (the sibling packages its check project maps; scopeScans narrows it per scope) changes the verdict on the same tree.
         const rowShape = (scan) => (scan.tscWorkspace ? `:tscws=${createHash("sha256").update(canonicalJson([...scan.tscWorkspace].sort())).digest("hex")}` : "");
-        const nodeCheckDigest = snapFullA ? (await import("../node-check-cache.mjs")).createNodeCheckCacheDigest({ snapshot: liveBase, tree: digestOf(files), files, gateIdentity: gateCodeIdentity(), gatePackage: o.gatePackage, nodePath: process.execPath }) : null;
+        nodeCheckDiagnosticId = plan.scans.filter((scan) => scan.class === "A" && scan.id.startsWith("node-check:")).map((scan) => scan.id).sort()[0];
+        const nodeCheckModule = snapFullA ? await import("../node-check-cache.mjs") : null;
+        const nodeCheckDigest = nodeCheckModule ? nodeCheckModule.createNodeCheckCacheDigest({ snapshot: liveBase, tree: digestOf(files), files, gateIdentity: gateCodeIdentity(), gatePackage: o.gatePackage, nodePath: process.execPath, onReject: countNodeCheckRejection, ...(o.env.RIGHTKIT_PREPARATION_DIAGNOSTIC_DIR && nodeCheckDiagnosticId ? { onDiagnostic: (record) => { nodeCheckDiagnosticState = "eligible"; nodeCheckModule.writeNodeCheckDiagnostic(o.env.RIGHTKIT_PREPARATION_DIAGNOSTIC_DIR, record); }, diagnosticScanId: nodeCheckDiagnosticId } : {}) }) : null;
         cache = { ...store, narrowNodeCheck: snapFullA, digest: (scan, context) => {
           if (/^build-helpers(:|$)/.test(scan.id)) return null;
           // This narrow key applies only to the helper's proven plain snapshot node --check.
@@ -4721,6 +4730,8 @@ export async function main(argv, io = {}) {
       ...(unionScheduler ? { scheduleClassB: unionScheduler } : {}),
       onResult: (row, p) => o.out(`${tag} [${p.done}/${p.total}] ${(row.cached ? "cached" : row.status).padEnd(7)} ${row.id} (${p.seconds}s)${row.batchedWith ? ` [batch of ${row.batchedWith.units.length}]` : ""}${row.status === "fail" ? ` :: ${String(row.detail ?? "").slice(0, 300)}` : row.advice ? ` :: ${String(row.advice).slice(0, 300)}` : ""}`),
     });
+    if (nodeCheckRejects.size) o.out(`${tag} node-check cache misses: ${[...nodeCheckRejects].sort(([a], [b]) => a.localeCompare(b)).map(([reason, count]) => `${reason}=${count}`).join(", ")}`);
+    if (snapFullA && o.env.RIGHTKIT_PREPARATION_DIAGNOSTIC_DIR && nodeCheckDiagnosticId) o.out(`${tag} node-check diagnostic row: ${nodeCheckDiagnosticState}`);
     if (unionContext) {
       const scanById = new Map(plan.scans.map((scan) => [scan.id, scan]));
       unionContext.rows = scanResult.scans.filter((row) => row.class === "B").map((row) => {

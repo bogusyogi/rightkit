@@ -14,8 +14,9 @@ function fixture(t) {
   fs.writeFileSync(path.join(gatePackage, 'gate.mjs'), 'export {};\n');
   const nodePath = path.join(base, 'node-copy');
   fs.copyFileSync(process.execPath, nodePath);
-  const scan = { id: 'node-check:entry.js', class: 'A', tool: 'node', root: 'content', args: ['--check', 'entry.js'] };
-  const context = { cwd: snapshot, command: nodePath, childEnv: { PATH: '/fixed', RIGHTKIT_BUILD_OWNERSHIP: 'first' } };
+  // planScans adds this field to every row when snapshot targets are bound.
+  const scan = { id: 'node-check:entry.js', class: 'A', tool: 'node', root: 'content', args: ['--check', 'entry.js'], env: { RK_SNAPSHOT_TARGETS: '{}' } };
+  const context = { cwd: snapshot, command: nodePath, childEnv: { PATH: '/fixed', RIGHTKIT_BUILD_OWNERSHIP: 'first', NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S: 'host-hash', ...scan.env } };
   const make = (tree = 'tree') => createNodeCheckCacheDigest({ snapshot, tree, files: ['entry.js'], gateIdentity: 'gate', gatePackage, nodePath });
   return { base, snapshot, gatePackage, nodePath, scan, context, make };
 }
@@ -26,6 +27,8 @@ test('plain syntax check binds actual files and environment while ownership alon
   assert.equal(f.make()(f.scan, { ...f.context, childEnv: { ...f.context.childEnv, RIGHTKIT_BUILD_OWNERSHIP: 'second' } }), original);
   assert.notEqual(f.make('changed-tree')(f.scan, f.context), original);
   assert.notEqual(f.make()(f.scan, { ...f.context, childEnv: { ...f.context.childEnv, PATH: '/changed' } }), original);
+  assert.notEqual(f.make()(f.scan, { ...f.context, childEnv: { ...f.context.childEnv, NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S: 'other-host-hash' } }), original);
+  assert.notEqual(f.make()({ ...f.scan, env: { RK_SNAPSHOT_TARGETS: '{"changed":true}' } }, { ...f.context, childEnv: { ...f.context.childEnv, RK_SNAPSHOT_TARGETS: '{"changed":true}' } }), original);
   fs.writeFileSync(path.join(f.snapshot, 'entry.js'), 'const value = 2;\n');
   assert.notEqual(key(), original);
   fs.writeFileSync(path.join(f.snapshot, 'entry.js'), 'const value = 1;\n');
@@ -42,8 +45,14 @@ test('plain syntax check binds actual files and environment while ownership alon
 test('unsafe options and non-plain rows never receive a key', (t) => {
   const f = fixture(t), digest = f.make();
   assert.equal(digest(f.scan, { ...f.context, childEnv: { ...f.context.childEnv, NODE_OPTIONS: '--require ./preload.js' } }), null);
+  assert.equal(digest(f.scan, { ...f.context, childEnv: { ...f.context.childEnv, NODE_REPL_EXTERNAL_MODULE: './preload.js' } }), null);
   assert.equal(digest({ ...f.scan, args: ['--check', 'entry.js', '--extra'] }, f.context), null);
   assert.equal(digest({ ...f.scan, executes: true }, f.context), null);
+  assert.equal(digest({ ...f.scan, env: { ...f.scan.env, UNEXPECTED: 'x' } }, f.context), null);
+  const reasons = [];
+  const diagnosed = createNodeCheckCacheDigest({ snapshot: f.snapshot, tree: 'tree', files: ['entry.js'], gateIdentity: 'gate', gatePackage: f.gatePackage, nodePath: f.nodePath, onReject: (reason) => reasons.push(reason) });
+  assert.equal(diagnosed(f.scan, { ...f.context, childEnv: { ...f.context.childEnv, NODE_OPTIONS: '--require ./preload.js' } }), null);
+  assert.deepEqual(reasons, ['node-options']);
 });
 
 test('a source under an aliased directory never receives a key', (t) => {

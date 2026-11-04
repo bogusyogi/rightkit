@@ -144,6 +144,9 @@ export function verifyReceiptCoverage(receipt, payload) {
   covered(receipt, payload, "stageEvidence", STAGE_EVIDENCE_FIELDS, "stage evidence");
   covered(receipt, payload, "resultEvidence", RESULT_EVIDENCE_FIELDS, "result evidence");
   covered(receipt, payload, "br19Evidence", BR19_EVIDENCE_FIELDS, "BR19 evidence");
+  const receiptClass = Object.hasOwn(receipt, "failureClass");
+  const signedClass = isRecord(payload.result) && Object.hasOwn(payload.result, "failureClass");
+  if (receiptClass !== signedClass || (receiptClass && !equalValue(receipt.failureClass, payload.result.failureClass))) refuse("evidence", "receipt failureClass differs from the signed result");
   for (const name of RETIRED_RESULT_FIELDS) {
     if (receipt[name] !== undefined || (isRecord(payload.resultEvidence) && payload.resultEvidence[name] !== undefined)) refuse("evidence", `receipt ${name} is a retired verdict-reuse field`);
   }
@@ -199,11 +202,21 @@ export function verifyBr19Evidence(receipt, payload) {
   if (!(typeof environment.digest === "string" && /^[0-9a-f]{64}$/.test(environment.digest) && names("forwarded") && names("dropped"))) bad("environment needs a 64-hex digest and forwarded and dropped name lists");
 }
 
+export const FAILURE_CLASSES = Object.freeze(["admission", "compile", "test", "tool", "cancelled", "timeout", "broker"]);
+/** Validate an optional signed failure class; verifyReceiptCoverage binds the receipt copy. */
+export function verifyFailureClass(receipt, payload) {
+  const signed = isRecord(payload.result) && Object.hasOwn(payload.result, "failureClass");
+  const copy = Object.hasOwn(receipt, "failureClass");
+  if (signed !== copy || (signed && !equalValue(receipt.failureClass, payload.result.failureClass))) refuse("evidence", "receipt failureClass differs from the signed result");
+  if (signed && payload.result.failureClass !== null && !FAILURE_CLASSES.includes(payload.result.failureClass)) refuse("evidence", "signed failureClass is neither null nor a recognized class");
+}
+
 /** `verify_receipt_strict`: `verifyReceiptLenient`, then the signed result evidence and the BR19 shape. A gate applies it to every compile receipt, never the lenient form alone. */
 export function verifyReceiptStrict(receipt, pins, expected) {
   const payload = verifyReceiptLenient(receipt, pins, expected);
   verifyResultEvidence(receipt, payload);
   verifyBr19Evidence(receipt, payload);
+  verifyFailureClass(receipt, payload);
   return payload;
 }
 
