@@ -85,63 +85,6 @@
       "evidence": "crates/rightkit-typeset/src/lib.rs:145; https://docs.rs/crate/mitex-spec-gen/0.2.4",
       "reviewBy": "2026-11-22",
       "approvedBy": "Astra 2026-10-22, D:/scratch/rk-888/astra-advisories-answer.md; MERGED into the one RightKit workspace lock 2026-11-04 (rightkit#1505, GATE-CONTRACT GC-T24): the same advisory, the same affected versions and the same rationale as the per-crate entries it replaces, dependents recomputed from Cargo.lock; Adrian approved the merged scope on 2026-11-04 in the chat that did the merge (answer to \"Approve the merged ledger\")"
-    },
-    {
-      "id": "RUSTSEC-2026-0367",
-      "crate": "zip",
-      "affectedVersions": [
-        "4.6.1"
-      ],
-      "dependents": [
-        "tauri-plugin-updater 2.12.0"
-      ],
-      "unaffectedVersions": [
-        "9.3.0"
-      ],
-      "path": "rightkit-tauri-shell -> tauri-plugin-updater -> zip 4.6.1",
-      "owner": "RK Fable",
-      "rationale": "tauri-plugin-updater 2.10.1 requires zip ^4 as an optional Windows-only dependency (2.14.0, the latest, still does); rightkit-tauri-shell installs only bytes returned by the plugin's minisign-verified download, identity-rechecked before install, so no unsigned archive is ever extracted.",
-      "evidence": "tauri-plugin-updater-2.10.1/src/updater.rs:652-712 download() verifies the minisign signature before returning bytes; install(bytes) at :718 does not, so crates/rightkit-tauri-shell/src/update/tauri_transport.rs:214-229 installs only the VerifiedBytes token produced by download_verified (:231-245) after an identity recheck; 2.14.0 keeps zip ^4 (Cargo.toml:198)",
-      "reviewBy": "2026-11-22",
-      "approvedBy": "Astra 2026-10-22 MODIFY (temporary; Windows bundles are raw signed installers, ZIP path signature-verified first; reassess on platform, path or key change), D:/scratch/rk-888/astra-zip-answer.md; MERGED into the one RightKit workspace lock 2026-11-04 (rightkit#1505, GATE-CONTRACT GC-T24): the same advisory, the same affected versions and the same rationale as the per-crate entries it replaces, dependents recomputed from Cargo.lock; Adrian approved the merged scope on 2026-11-04 in the chat that did the merge (answer to \"Approve the merged ledger\")"
-    },
-    {
-      "id": "RUSTSEC-2026-0368",
-      "crate": "zip",
-      "affectedVersions": [
-        "4.6.1"
-      ],
-      "dependents": [
-        "tauri-plugin-updater 2.12.0"
-      ],
-      "unaffectedVersions": [
-        "9.3.0"
-      ],
-      "path": "rightkit-tauri-shell -> tauri-plugin-updater -> zip 4.6.1",
-      "owner": "RK Fable",
-      "rationale": "tauri-plugin-updater 2.10.1 requires zip ^4 as an optional Windows-only dependency (2.14.0, the latest, still does); rightkit-tauri-shell installs only bytes returned by the plugin's minisign-verified download, identity-rechecked before install, so no unsigned archive is ever extracted.",
-      "evidence": "tauri-plugin-updater-2.10.1/src/updater.rs:652-712 download() verifies the minisign signature before returning bytes; install(bytes) at :718 does not, so crates/rightkit-tauri-shell/src/update/tauri_transport.rs:214-229 installs only the VerifiedBytes token produced by download_verified (:231-245) after an identity recheck; 2.14.0 keeps zip ^4 (Cargo.toml:198)",
-      "reviewBy": "2026-11-22",
-      "approvedBy": "Astra 2026-10-22 MODIFY (temporary; Windows bundles are raw signed installers, ZIP path signature-verified first; reassess on platform, path or key change), D:/scratch/rk-888/astra-zip-answer.md; MERGED into the one RightKit workspace lock 2026-11-04 (rightkit#1505, GATE-CONTRACT GC-T24): the same advisory, the same affected versions and the same rationale as the per-crate entries it replaces, dependents recomputed from Cargo.lock; Adrian approved the merged scope on 2026-11-04 in the chat that did the merge (answer to \"Approve the merged ledger\")"
-    },
-    {
-      "id": "RUSTSEC-2026-0369",
-      "crate": "zip",
-      "affectedVersions": [
-        "4.6.1"
-      ],
-      "dependents": [
-        "tauri-plugin-updater 2.12.0"
-      ],
-      "unaffectedVersions": [
-        "9.3.0"
-      ],
-      "path": "rightkit-tauri-shell -> tauri-plugin-updater -> zip 4.6.1",
-      "owner": "RK Fable",
-      "rationale": "tauri-plugin-updater 2.10.1 requires zip ^4 as an optional Windows-only dependency (2.14.0, the latest, still does); rightkit-tauri-shell installs only bytes returned by the plugin's minisign-verified download, identity-rechecked before install, so no unsigned archive is ever extracted.",
-      "evidence": "tauri-plugin-updater-2.10.1/src/updater.rs:652-712 download() verifies the minisign signature before returning bytes; install(bytes) at :718 does not, so crates/rightkit-tauri-shell/src/update/tauri_transport.rs:214-229 installs only the VerifiedBytes token produced by download_verified (:231-245) after an identity recheck; 2.14.0 keeps zip ^4 (Cargo.toml:198)",
-      "reviewBy": "2026-11-22",
-      "approvedBy": "Astra 2026-10-22 MODIFY (temporary; Windows bundles are raw signed installers, ZIP path signature-verified first; reassess on platform, path or key change), D:/scratch/rk-888/astra-zip-answer.md; MERGED into the one RightKit workspace lock 2026-11-04 (rightkit#1505, GATE-CONTRACT GC-T24): the same advisory, the same affected versions and the same rationale as the per-crate entries it replaces, dependents recomputed from Cargo.lock; Adrian approved the merged scope on 2026-11-04 in the chat that did the merge (answer to \"Approve the merged ledger\")"
     }
   ]
 }
