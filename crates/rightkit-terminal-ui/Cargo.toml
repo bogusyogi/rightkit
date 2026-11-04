@@ -35,7 +35,7 @@ tracing = { version = "0.1", features = ["log"] }
 diffy = { version = "0.5" }
 supports-color = { version = "3" }
 serde_json = { version = "1", features = ["preserve_order"] }
-vt100 = { version = "0.16" }
+vt100 = { version = "0.18" }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_IO", "Win32_System_Threading"] }

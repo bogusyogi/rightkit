@@ -46,7 +46,7 @@ tokio-util = { version = "0.7" }
 getrandom = { version = "0.4" }
 flate2 = { version = "1" }
 ring = { version = "0.17.14" }
-comrak = { version = "0.56", default-features = false }
+comrak = { version = "0.59", default-features = false }
 ignore = { version = "=0.4.33" }
 unicode-normalization = { version = "0.1" }
 tree-sitter = { version = "0.27" }

@@ -25,5 +25,5 @@ rightkit-evidence-governance = { version = "0.1.0", path = "../rightkit-evidence
 rightkit-policy-rules = { version = "0.1.0", path = "../rightkit-policy-rules" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
-sha2 = { version = "0.11.1" }
+sha2 = { version = "0.11" }
 tokio-util = { version = "0.7.20", features = ["rt"] }

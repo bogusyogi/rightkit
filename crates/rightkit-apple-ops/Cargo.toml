@@ -21,11 +21,11 @@ regex = { version = "1.13.1" }
 tokio = { version = "1.53.3", features = ["full"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls", "stream", "query", "form"] }
 p256 = { version = "0.14.0", default-features = false, features = ["ecdsa", "pem"] }
-base64 = { version = "0.22.1" }
+base64 = { version = "0.23" }
 rusqlite = { version = "0.41", features = ["bundled"] }
 brotli = { version = "9.0.0" }
 futures-util = { version = "0.3.34" }
-sha2 = { version = "0.11.1" }
+sha2 = { version = "0.11" }
 hex = { version = "0.4.3" }
 md-5 = { version = "0.11" }
 libc = { version = "1.0.0-alpha.5" }

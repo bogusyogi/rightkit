@@ -19,7 +19,7 @@ rightkit-identity = { version = "0.1.1", path = "../rightkit-identity" }
 thiserror = "2"
 getrandom = "0.4"
 zeroize = "1.9"
-sha2 = "0.11.1"
+sha2 = "0.11"
 hkdf = "0.13"
 x25519-dalek = { version = "3", default-features = false, features = ["static_secrets", "zeroize"] }
 chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc"] }

@@ -19,7 +19,7 @@ libc = { version = "1.0.0-alpha.5" }
 rightkit-evidence-contracts = { version = "0.1.0", path = "../rightkit-evidence-contracts" }
 tokio = { version = "1.53.3", features = ["full"] }
 tokio-util = { version = "0.7.20", features = ["rt"] }
-sha2 = { version = "0.11.1" }
+sha2 = { version = "0.11" }
 thiserror = { version = "2.0.20" }
 rightkit-sandbox = { version = "0.6.2", path = "../rightkit-sandbox" }
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Credentials", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Threading"] }

@@ -19,5 +19,5 @@ rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
-sysinfo = { version = "=0.39.6" }
+sysinfo = { version = "0.40" }
 thiserror = { version = "2" }

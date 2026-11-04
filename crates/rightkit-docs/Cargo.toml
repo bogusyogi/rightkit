@@ -29,14 +29,14 @@ files = ["dep:encoding_rs", "dep:chardetng", "dep:base64", "rightkit-fs/lock", "
 [dependencies]
 encoding_rs = { version = "0.8.42", optional = true }
 chardetng = { version = "1.0.0", optional = true }
-base64 = { version = "0.23.1", optional = true }
+base64 = { version = "0.23", optional = true }
 # PDF read and edit are rightkit-pdf's; this crate is the one-shot facade over it.
 rightkit-pdf = { version = "0.3.4", path = "../rightkit-pdf", default-features = false, features = ["edit", "merge", "extract"] }
-lopdf = { version = "0.46", default-features = false, features = ["rayon"] }
+lopdf = { version = "0.47", default-features = false, features = ["rayon"] }
 # The one writer behind every write (temp sibling, flush, rename, directory sync).
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 # XLSX read (typed cells, cached formula results) and XLSX create. Both pull zip 9.x.
-calamine = "0.37.0"
+calamine = "0.38"
 rust_xlsxwriter = "0.102"
 # Package layer and in-place part edits. Same zip line as calamine and rust_xlsxwriter so one copy links.
 zip = { version = "9", default-features = false, features = ["deflate"] }
@@ -44,7 +44,7 @@ zip = { version = "9", default-features = false, features = ["deflate"] }
 quick-xml = "0.42.0"
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.21"
-sha2 = "0.11.1"
+sha2 = "0.11"
 
 [package.metadata.rightkit]
 continuous = false

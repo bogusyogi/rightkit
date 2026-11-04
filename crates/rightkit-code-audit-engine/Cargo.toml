@@ -22,8 +22,8 @@ rightkit-code-audit-provider-sdk = { version = "0.1.0", path = "../rightkit-code
 rightkit-evidence-effects = { version = "0.1.0", path = "../rightkit-evidence-effects" }
 hmac = { version = "0.13.0" }
 hex = { version = "0.4.3" }
-getrandom = { version = "0.4.3" }
-sha2 = { version = "0.11.1" }
+getrandom = { version = "0.4" }
+sha2 = { version = "0.11" }
 sha1 = { version = "=0.11.0" }
 ed25519-dalek = { version = "=3.0.0" }
 serde = { version = "1.0.229", features = ["derive"] }

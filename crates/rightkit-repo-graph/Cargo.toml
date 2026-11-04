@@ -38,7 +38,7 @@ tree-sitter-bash = { version = "0.25" }
 tree-sitter-kotlin-ng = { version = "1" }
 tree-sitter-swift = { version = "0.7" }
 tree-sitter-scala = { version = "0.26" }
-tree-sitter-dart = { version = "0.2" }
+tree-sitter-dart = { version = "0.3" }
 tree-sitter-lua = { version = "0.5" }
 tree-sitter-json = { version = "0.24" }
 tree-sitter-yaml = { version = "0.7" }

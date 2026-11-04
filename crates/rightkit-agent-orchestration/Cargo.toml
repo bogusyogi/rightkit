@@ -19,7 +19,7 @@ rightkit-evidence-contracts = { version = "0.1.0", path = "../rightkit-evidence-
 rightkit-code-audit-provider-sdk = { version = "0.1.0", path = "../rightkit-code-audit-provider-sdk" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
-sha2 = { version = "0.11.1" }
+sha2 = { version = "0.11" }
 hex = { version = "0.4.3" }
 regex = { version = "1.13.1" }
 thiserror = { version = "2.0.20" }

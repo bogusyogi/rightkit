@@ -15,7 +15,7 @@ path = "src/lib.rs"
 
 [dependencies]
 regex = { version = "1.13.1" }
-scraper = { version = "0.27" }
+scraper = { version = "0.29" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154" }
 libloading = { version = "0.9" }

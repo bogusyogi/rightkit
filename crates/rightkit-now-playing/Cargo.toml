@@ -14,7 +14,7 @@ include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "
 [dependencies]
 # One backend per OS behind souvlaki: SMTC (Windows), MPNowPlayingInfoCenter and MPRemoteCommandCenter
 # (macOS), MPRIS (Linux). The zbus backend avoids a system libdbus link on Linux.
-souvlaki = { version = "0.8.3", default-features = false, features = ["use_zbus"] }
+souvlaki = { version = "0.9", default-features = false, features = ["use_zbus"] }
 thiserror = "2"
 
 [package.metadata.rightkit]
