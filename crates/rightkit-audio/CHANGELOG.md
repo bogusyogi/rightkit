@@ -2,6 +2,7 @@
 
 ## 0.3.4 (unpublished)
 
+- Fixed: `prewarm_ring_storage` left an unused binding after the debug assertion it fed was removed, so `-D warnings` clippy failed the crate. Behaviour unchanged.
 - Declares the permissions the default `capture` feature needs in `[[package.metadata.rightkit.permissions]]`: `NSMicrophoneUsageDescription` and `com.apple.security.device.audio-input` on macOS, so release tooling can check an app against them instead of each app rediscovering them (rightkit#1346 item 5). No source change.
 
 ## 0.3.3 (unpublished)

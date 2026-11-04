@@ -81,7 +81,8 @@ fn prewarm_ring_storage(
     consumer: &mut ringbuf::HeapCons<f32>,
     capacity: usize,
 ) {
-    let warmed = producer.push_iter(std::iter::repeat_n(0.0, capacity));
+    // The count is not needed: the ring is cleared right after; pushing is what touches the pages.
+    let _ = producer.push_iter(std::iter::repeat_n(0.0, capacity));
     consumer.clear();
 }
 
