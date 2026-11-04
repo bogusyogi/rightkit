@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.45 (unpublished)
+
+- **A `--units-file` run shares one Class A (rightkit#1505; the JSON-list order of 2026-10-31, T3111).** The first unit's Class A is scoped to every listed unit's directory (the repeatable `--scope`) and a pass is remembered for the commit and rule tier; the other units of the list do not run it again. A 168-crate list ran 168 Class As of the same commit (median 145 s each of a 206 s unit run on 2026-11-04). The new `--receipt-dir <absolute dir>` writes each unit's receipt as `gate-<unit>.json` there, so `publish-local --compile-report` still gets one receipt per unit. The units still compile one after another, each with its own receipts; batching the compile itself is not built. Not run through a gate yet.
+
 ## 0.6.44 (unpublished)
 
 - **`cargo metadata`, `fetch`, `tree`, `locate-project`, `pkgid`, `verify-project` and `read-manifest` of right-release run direct, never carried by the broker (rightkit#1505; RustRight broker chat, 2026-11-04).** The next broker refuses every carried request that compiles nothing (`RK_CHECK_ERROR`, GC-A11), which failed HeardRight's compile at `stage-sidecar` (`STAGE_SIDECAR_CATALOG_UNREADABLE`). `runCargoSync` in `managed-cargo.mjs` now runs those commands with the pinned toolchain and the shims off PATH, like the gate's Class A cargo calls. Not run through the gate yet.

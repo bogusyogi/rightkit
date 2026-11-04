@@ -1438,10 +1438,18 @@ export async function rightkitDoorRule(o, args, root, git, io, { unitsFileFlag, 
   if (unitsFileFlag) {
     const stage = option("--to");
     const given = args.filter((a, i) => a.startsWith("--") && args[i - 1] !== "--units-file" && a !== "--units-file");
-    if (given.some((a) => a !== "--to" && a !== "--commit")) { o.err(`${tag} a unit list run takes only --to, --units-file and optional --commit (a receipt is written per unit run: run the unit alone with --receipt-out)`); return { exit: 2 }; }
+    if (given.some((a) => a !== "--to" && a !== "--commit" && a !== "--receipt-dir")) { o.err(`${tag} a unit list run takes only --to, --units-file and optional --commit and --receipt-dir (one receipt file per unit is written into the directory)`); return { exit: 2 }; }
+    const receiptDir = option("--receipt-dir");
+    if (receiptDir !== undefined && (receiptDir.startsWith("--") || !path.isAbsolute(receiptDir))) { o.err(`${tag} --receipt-dir needs an absolute directory`); return { exit: 2 }; }
+    // One Class A for the whole list (rightkit#1505; Adrian, 2026-10-31: "a JSON file that is created at that time"): the first unit's Class A is scoped to
+    // every listed unit's directory (the repeatable --scope), and a pass is remembered for the commit and rule tier, so the other units do not run it again.
+    // Before this, each unit ran its own Class A: 145 s median of a 206 s unit run on 2026-11-04, the same scans on the same commit 168 times.
+    const dirOf = (sel) => { const m = /^(?:npm:@rightkit\/([a-z0-9-]+)|cargo:(rightkit-[a-z0-9-]+))$/.exec(sel); return m ? (m[1] ? `packages/${m[1]}` : `crates/${m[2]}`) : null; };
+    const unitListClassA = { dirs: [...new Set(unitList.map(dirOf).filter(Boolean))], memo: new Map() };
     for (const [i, selector] of unitList.entries()) {
       o.out(`${tag} unit list ${i + 1}/${unitList.length}: ${selector} on commit ${pinned.commit.slice(0, 12)}`);
-      const code = await main(["--to", stage, "--unit", selector, "--commit", pinned.commit], io);
+      const receipt = receiptDir === undefined ? [] : ["--receipt-out", path.join(receiptDir, `gate-${selector.replace(/^npm:@rightkit\//, "npm-").replace(/^cargo:/, "")}.json`)];
+      const code = await main(["--to", stage, "--unit", selector, "--commit", pinned.commit, ...receipt], { ...io, unitListClassA });
       if (code !== 0) { o.err(`${tag} BLOCKED: unit ${selector} ended with exit ${code}; ${unitList.length - i - 1} unit(s) of the list did not run`); return { exit: code }; }
     }
     return { exit: 0 };
@@ -2551,7 +2559,17 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
         for (const p of calls.slice(0, 10)) o.err(`${tag} RK_CHECK_ERROR: [unit:${stage}] a cargo call the unit stage made did not complete: ${typeof p === "string" ? p : JSON.stringify(p)}`);
         return calls.length === 0;
       } };
-    const runCheck = (tier) => (o.runCheck ?? (() => main(["check", "--commit", ds.commit, "--full-a", "--snapshot", ds.path, "--rule-tier", tier, "--scope", path.posix.dirname(manifest)], { ...io, cwd: root, buildOwnership: own })))(tier);
+    // A unit-list run (--units-file) shares one Class A: scoped to every listed unit's directory, run by the first unit, remembered for the rest.
+    const unitDir = path.posix.dirname(manifest);
+    const shared = io.unitListClassA?.dirs?.includes(unitDir) ? io.unitListClassA : null;
+    const runCheck = async (tier) => {
+      const memoKey = `${ds.commit}:${tier}`;
+      if (shared && shared.memo.get(memoKey) === 0) { o.out(`${tag} class A (${tier} tier) of this unit list already passed on ${ds.commit.slice(0, 12)}: not run again`); return 0; }
+      const scopes = shared ? shared.dirs : [unitDir];
+      const code = await (o.runCheck ?? (() => main(["check", "--commit", ds.commit, "--full-a", "--snapshot", ds.path, "--rule-tier", tier, ...scopes.flatMap((d) => ["--scope", d])], { ...io, cwd: root, buildOwnership: own })))(tier);
+      if (shared && code === 0) shared.memo.set(memoKey, 0);
+      return code;
+    };
     if (toolRun) {
       const { runUnitTool } = await import("../tool-build.mjs");
       return await runUnitTool({ selector, root: ds.path, commonDir: path.resolve(root, text(common).trim()), commit: ds.commit, tree: ds.tree, executor, env: o.env, platform: o.platform, source, envExtra, targetDirs: bound.targetDirs ?? {},
@@ -3201,7 +3219,7 @@ export function doorPath(o, gateFile = o.gateFile ?? fileURLToPath(import.meta.u
  * lookup of a usable rustfmt, which the deferred Rust gate needs).
  */
 /** The gate flags a `--to <stage>` invocation takes (before a `--` separator, after which the arguments belong to right-release), and whether each takes a value. */
-const STAGE_VALUE_FLAGS = Object.freeze(["--to", "--platform", "--tier", "--commit", "--receipt-in", "--receipt-out", "--unit", "--units-file", "--all-units-exception"]);
+const STAGE_VALUE_FLAGS = Object.freeze(["--to", "--platform", "--tier", "--commit", "--receipt-in", "--receipt-out", "--unit", "--units-file", "--all-units-exception", "--receipt-dir"]);
 const STAGE_BOOLEAN_FLAGS = Object.freeze(["--route"]);
 
 /**
