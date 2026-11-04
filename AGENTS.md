@@ -45,7 +45,7 @@ Built from Adrian's own words; ids in brackets point to `/Volumes/D/scratch/inst
 - Use `legion:debugger` after any failure, `legion:designer` for UI and `legion:writing` for any text a reader gets. [T2553]
 - File every Adrian decision, request and bug as an issue in the owning repository and write each decision into its contract, never `decisions.md`. [T2662]
 - Carry Adrian's words verbatim in every brief and handoff so he never repeats himself. [T2473]
-- Read files, docs, transcripts and both machines before asking anyone; message other agents directly through Pulse, or SSH when Pulse cannot reach. [T0459 T0456]
+- Read files, docs, transcripts and both machines before asking anyone; message other agents only through `pulse chat send` or `pulse chat reply`, never Claude Code's ListAgents or SendMessage, or SSH when Pulse cannot reach. Resolve the recipient with `pulse chat peers`; where chats share a name pick the lead or the most recently active one and say which, and never message a chat without checking its activity. [T0459 T0456]
 - Review each product commit against `docs/PITCH.md` and flag differences to Adrian. [T0447]
 - Never create or fork a chat without Adrian's express approval.
 - ETA: agentic critical-path wall clock only; forbid human/engineer days, ranges, & serial lane sums.
