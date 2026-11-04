@@ -27,26 +27,3 @@ continuous = false
 continuous_reason = "Build-time catalog reader and code generator; no network, no background work, spawns nothing."
 
 # One Cargo workspace and lock per crate (rightkit#1285).
-[workspace]
-
-# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
-# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
-[profile.dev]
-debug = "line-tables-only"
-
-[profile.dev.package."*"]
-debug = false
-
-[profile.dev.build-override]
-debug = false
-opt-level = 0
-
-[profile.test]
-debug = "line-tables-only"
-
-[profile.test.package."*"]
-debug = false
-
-[profile.test.build-override]
-debug = false
-opt-level = 0

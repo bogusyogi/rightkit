@@ -44,16 +44,13 @@ chrono = { version = "0.4", features = ["serde", "clock"], optional = true }
 tempfile = { version = "3", optional = true }
 rightkit-video-project = { version = "0.1.0", path = "../rightkit-video-project", optional = true }
 rightkit-timeline = { version = "0.1.0", path = "../rightkit-timeline", optional = true }
-rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg", default-features = false, optional = true }
+rightkit-ffmpeg = { version = "0.3.0", path = "../rightkit-ffmpeg", default-features = false, optional = true }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "blake3", "zip"], optional = true }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process", optional = true }
 rightkit-daemon = { version = "0.5.3", path = "../rightkit-daemon", default-features = false, features = ["remote"], optional = true }
 ring = { version = "0.17", optional = true }
 
 # Citationberg is pulled by rightkit-typeset through rightkit-captions (video-project); see the vendored fix.
-[patch.crates-io]
-citationberg = { path = "../../vendor/citationberg" }
-
 [[bin]]
 name = "rightkit-render-critic"
 path = "src/bin/rightkit-render-critic.rs"
@@ -64,37 +61,3 @@ continuous = false
 continuous_reason = "deterministic checks and a capped repair loop run per call over caller-provided descriptions; no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src (checked by runtime-budgets.mjs)"
 
 # One Cargo workspace and lock per crate (rightkit#1285).
-[workspace]
-
-# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
-# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
-[profile.dev]
-debug = "line-tables-only"
-
-[profile.dev.package."*"]
-debug = false
-
-[profile.dev.build-override]
-debug = false
-opt-level = 0
-
-[profile.test]
-debug = "line-tables-only"
-
-[profile.test.package."*"]
-debug = false
-
-[profile.release-iterate]
-inherits = "release"
-opt-level = 1
-lto = false
-codegen-units = 16
-incremental = true
-strip = "none"
-
-[profile.release-iterate.package."*"]
-incremental = false
-
-[profile.test.build-override]
-debug = false
-opt-level = 0

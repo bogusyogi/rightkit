@@ -1975,7 +1975,7 @@
       "pkId": "PK03",
       "id": "ci/consumers/rightkit-credentials/src/main.rs",
       "files": {
-        "Cargo.toml": "414143582d67ac8d9763ee3439965715734cb54d0a783a47f775a9f7f14d1ad7",
+        "Cargo.toml": "31deb8c3122bbf49fa733b39e66088dff3af12f66ae5a54eeff30f605c942ddb",
         "prepare_signed_helper.py": "5416b80b5b81ef50528033bbc9b91131a73c421a66764b3390331dd80fa0cd6c",
         "qualification-helper/entitlements.plist": "a6aa6260390ae45abe50cc5bed4d0dd2b922a67ac93f69bd58b86419666f123c",
         "qualification-helper/Info.plist": "8a865dfac7975ff5b0bd3315625676af43490ed611e3e31d2a823debc7b664ad",
@@ -2022,7 +2022,7 @@
           }
         }
       ],
-      "aggregateSha256": "523d865d4e2009a90e30a1de48d5b8e79ead8048032438d5c6b4968178724664"
+      "aggregateSha256": "18c93d5a24c041e27374915240c5c3127e26938aa9fa5283cf4bf6504801b4b9"
     },
     "rightkit-job-queue": {
       "pkId": "PK06",
@@ -2137,11 +2137,11 @@
       "gateEvidence": "ffmpeg is never resolved, verified or run; no assets needed; the embedded catalog is parsed only. Default feature native stays on (no extra gate row needed for pure items)",
       "consumes": "motion dependency (PK19 proposal; rightkit-motion encode feature uses rightkit-ffmpeg =0.2.9 per PROPOSAL.txt:157); rightkit-ffmpeg public items used: lib.rs pcm_s16le_16khz_mono_args (src/lib.rs ~1136), command::extract_args and command::transcode_audio_command (src/command.rs:220,276), encoders::EncoderInventory::parse and pick_h264 (src/encoders.rs:115,203), ArtifactCatalog::embedded and parse (src/lib.rs:237-245), MediaError (src/lib.rs:628)",
       "files": {
-        "Cargo.toml": "92fa6ba59568d529d0f1981fad388742b5348fc7439a09894ef30b102cf508aa",
+        "Cargo.toml": "bb89d34cd49d7dad203c4e904c5bcff6b5ee0c0793e2dd3f40863668ac7e4841",
         "README.md": "bf9a3d9a6f9bc80b9a7dd8e99b797c3d1257471064fc207b34ca665fc312696a",
         "src/main.rs": "fcd2cf237f28083e92e235c0682df4a8cabe260a57df6320c65e707c2da38820"
       },
-      "aggregateSha256": "57b3c678e0f5591d89c11a8c138eedb0f9f811f4a7f2c0a392ff2bfb6162bbbc"
+      "aggregateSha256": "878952ddf35c937899bba6c70b8f9a644d477f59846853b3c3237204f6d21a32"
     },
     "rightkit-sidecar": {
       "pkId": "PK06",
@@ -2165,7 +2165,7 @@
       "pkId": "PK04",
       "id": "ci/consumers/rightkit-app-settings/src/main.rs",
       "files": {
-        "Cargo.toml": "ade2dcc10b6c60c61e56c78a3c944dd43843a13a9795eea2c2ee8b65fad2c4e9",
+        "Cargo.toml": "71af7e189c412ba6a6868252c7239a39d33b313e43cedc72b85ea9363ceaa751",
         "README.md": "04f8cea23ba2127311328429b01ac3061869c251bf2a5d922853190b27806a05",
         "src/main.rs": "8b9771f1bf81a5abeb01f59bb8cdf99b4ddb2765073e2bd24813ee50e634c68e"
       }

@@ -277,7 +277,7 @@
       "checkFeatureSets": [
         [
           "--features",
-          "db-adapter,os-auth,settings-probe,rightkit-db/sqlcipher-libtomcrypt"
+          "db-adapter,os-auth,rightkit-db/sqlcipher-libtomcrypt"
         ],
         [
           "--features",

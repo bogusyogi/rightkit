@@ -25,38 +25,3 @@ hex = { version = "0.4.3" }
 sha2 = { version = "0.11.1" }
 reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "form", "json", "query", "rustls", "stream"] }
 zip = { version = "9.0.4", default-features = false, features = ["aes-crypto", "deflate64", "deflate-flate2-zlib-rs", "deflate-zopfli", "lzma", "time", "zstd", "xz"] }
-
-[workspace]
-
-# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
-# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
-[profile.dev]
-debug = "line-tables-only"
-
-[profile.dev.package."*"]
-debug = false
-
-[profile.dev.build-override]
-debug = false
-opt-level = 0
-
-[profile.test]
-debug = "line-tables-only"
-
-[profile.test.package."*"]
-debug = false
-
-[profile.release-iterate]
-inherits = "release"
-opt-level = 1
-lto = false
-codegen-units = 16
-incremental = true
-strip = "none"
-
-[profile.release-iterate.package."*"]
-incremental = false
-
-[profile.test.build-override]
-debug = false
-opt-level = 0

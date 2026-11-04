@@ -2,7 +2,7 @@
 name = "rightkit-send"
 version = "0.4.0"
 edition = "2024"
-rust-version = "1.90"
+rust-version = "1.98.0"
 description = "Nearby file and text sharing over the open LocalSend v2 protocol, with Pulse extensions: TLS identity pinning, per-device trust, and macOS Bonjour discovery. Product-neutral; the host supplies identity, paths and policy."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
@@ -37,37 +37,3 @@ name = "budget"
 harness = false
 
 # One Cargo workspace and lock per crate (rightkit#1285).
-[workspace]
-
-# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
-# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
-[profile.dev]
-debug = "line-tables-only"
-
-[profile.dev.package."*"]
-debug = false
-
-[profile.dev.build-override]
-debug = false
-opt-level = 0
-
-[profile.test]
-debug = "line-tables-only"
-
-[profile.test.package."*"]
-debug = false
-
-[profile.release-iterate]
-inherits = "release"
-opt-level = 1
-lto = false
-codegen-units = 16
-incremental = true
-strip = "none"
-
-[profile.release-iterate.package."*"]
-incremental = false
-
-[profile.test.build-override]
-debug = false
-opt-level = 0

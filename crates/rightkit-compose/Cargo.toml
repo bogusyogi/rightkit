@@ -34,50 +34,13 @@ thiserror = "2"
 rightkit-compositor = { version = "0.2.0", path = "../rightkit-compositor", optional = true }
 rightkit-timeline = { version = "0.1.0", path = "../rightkit-timeline", optional = true }
 rightkit-video-project = { version = "0.1.0", path = "../rightkit-video-project", optional = true }
-rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg", default-features = false, features = ["native"], optional = true }
+rightkit-ffmpeg = { version = "0.3.0", path = "../rightkit-ffmpeg", default-features = false, features = ["native"], optional = true }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "blake3"], optional = true }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time", optional = true }
 
 # Citationberg is pulled by rightkit-typeset through rightkit-captions (video-project); see the vendored fix.
-[patch.crates-io]
-citationberg = { path = "../../vendor/citationberg" }
-
 [package.metadata.rightkit]
 continuous = false
 continuous_reason = "pure composition model: one per-frame evaluation function over caller-provided state, no I/O loop; no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src (checked by runtime-budgets.mjs)"
 
 # One Cargo workspace and lock per crate (rightkit#1285).
-[workspace]
-
-# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
-# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
-[profile.dev]
-debug = "line-tables-only"
-
-[profile.dev.package."*"]
-debug = false
-
-[profile.dev.build-override]
-debug = false
-opt-level = 0
-
-[profile.test]
-debug = "line-tables-only"
-
-[profile.test.package."*"]
-debug = false
-
-[profile.release-iterate]
-inherits = "release"
-opt-level = 1
-lto = false
-codegen-units = 16
-incremental = true
-strip = "none"
-
-[profile.release-iterate.package."*"]
-incremental = false
-
-[profile.test.build-override]
-debug = false
-opt-level = 0

@@ -12,7 +12,7 @@ categories = ["cryptography"]
 include = ["src/**", "README.md", "API.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-rightkit-credentials = { version = "0.4.3", path = "../rightkit-credentials" }
+rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials" }
 rightkit-http = { version = "0.3.9", path = "../rightkit-http" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
@@ -27,37 +27,3 @@ continuous = false
 continuous_reason = "none: no thread, task, sleep, timer, listener, watcher or resident static of this crate; every call is one synchronous fetch, seal or unseal and returns, key material lives only in values the caller holds and is zeroed on drop, and the OS credential and HTTP calls run inside rightkit-credentials and rightkit-http and end when they return (drafted 2026-10-16, not yet reviewed)"
 
 # One Cargo workspace and lock per crate (rightkit#1285).
-[workspace]
-
-# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
-# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
-[profile.dev]
-debug = "line-tables-only"
-
-[profile.dev.package."*"]
-debug = false
-
-[profile.dev.build-override]
-debug = false
-opt-level = 0
-
-[profile.test]
-debug = "line-tables-only"
-
-[profile.test.package."*"]
-debug = false
-
-[profile.release-iterate]
-inherits = "release"
-opt-level = 1
-lto = false
-codegen-units = 16
-incremental = true
-strip = "none"
-
-[profile.release-iterate.package."*"]
-incremental = false
-
-[profile.test.build-override]
-debug = false
-opt-level = 0

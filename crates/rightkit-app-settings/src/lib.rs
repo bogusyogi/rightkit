@@ -9,6 +9,8 @@ mod manifest;
 mod options;
 mod request;
 mod secret;
+#[cfg(feature = "credentials-probe")]
+mod credentials_probe;
 #[cfg(feature = "sql")]
 mod sql;
 mod store;

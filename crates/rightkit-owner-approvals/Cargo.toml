@@ -22,7 +22,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 rightkit-fs = { version = "0.4.8", default-features = false, features = ["fs", "digest"], path = "../rightkit-fs" }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
-rightkit-credentials = { version = "0.4.2", path = "../rightkit-credentials" }
+rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials" }
 rightkit-logs = { version = "0.3.6", default-features = false, path = "../rightkit-logs" }
 rightkit-app-host = { version = "0.1.0", path = "../rightkit-app-host" }
 rightkit-device-link-types = { version = "0.1.0", path = "../rightkit-device-link-types" }
@@ -32,38 +32,3 @@ libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Cryptography"] }
-
-[workspace]
-
-# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
-# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
-[profile.dev]
-debug = "line-tables-only"
-
-[profile.dev.package."*"]
-debug = false
-
-[profile.dev.build-override]
-debug = false
-opt-level = 0
-
-[profile.test]
-debug = "line-tables-only"
-
-[profile.test.package."*"]
-debug = false
-
-[profile.release-iterate]
-inherits = "release"
-opt-level = 1
-lto = false
-codegen-units = 16
-incremental = true
-strip = "none"
-
-[profile.release-iterate.package."*"]
-incremental = false
-
-[profile.test.build-override]
-debug = false
-opt-level = 0

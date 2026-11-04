@@ -72,7 +72,7 @@ serde_json = "1.0.154"
 sha2 = "0.11"
 # `catalog` and `provision`: the native-library catalog. `provision` also needs the vetted download and
 # archive extraction.
-rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.13", optional = true }
+rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.3.0", optional = true }
 rightkit-models = { path = "../rightkit-models", version = "0.5.3", optional = true, default-features = false }
 
 # Platform accelerators. ort rc.15 compiles an execution provider only when its
@@ -141,37 +141,3 @@ scale = "one ONNX Runtime session per call: the model weights, execution-provide
 release = "Drop of the returned ort Session"
 
 # One Cargo workspace and lock per crate (rightkit#1285).
-[workspace]
-
-# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
-# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
-[profile.dev]
-debug = "line-tables-only"
-
-[profile.dev.package."*"]
-debug = false
-
-[profile.dev.build-override]
-debug = false
-opt-level = 0
-
-[profile.test]
-debug = "line-tables-only"
-
-[profile.test.package."*"]
-debug = false
-
-[profile.release-iterate]
-inherits = "release"
-opt-level = 1
-lto = false
-codegen-units = 16
-incremental = true
-strip = "none"
-
-[profile.release-iterate.package."*"]
-incremental = false
-
-[profile.test.build-override]
-debug = false
-opt-level = 0

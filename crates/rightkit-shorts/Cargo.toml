@@ -24,7 +24,7 @@ rightkit-engine-host = { version = "0.1.1", path = "../rightkit-engine-host", fe
 rightkit-ocr = { version = "0.2.3", path = "../rightkit-ocr", optional = true }
 rightkit-search = { version = "0.4.1", path = "../rightkit-search", optional = true }
 rightkit-video-project = { version = "0.1.0", path = "../rightkit-video-project", optional = true }
-rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg", default-features = false, optional = true }
+rightkit-ffmpeg = { version = "0.3.0", path = "../rightkit-ffmpeg", default-features = false, optional = true }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "digest"], optional = true }
 rightkit-captions = { version = "0.1.0", path = "../rightkit-captions" }
 rightkit-autoedit = { version = "0.1.0", path = "../rightkit-autoedit" }
@@ -34,44 +34,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 thiserror = { version = "2.0" }
 rightkit-llm = { version = "0.3.2", path = "../rightkit-llm" }
-rightkit-credentials = { version = "0.4.3", path = "../rightkit-credentials" }
+rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials" }
 
 # rightkit-typeset's citationberg 0.7.0 pins quick-xml 0.38.4 (RUSTSEC-2026-0194, RUSTSEC-2026-0195); a [patch] does not reach
 # dependents, so every workspace that links rightkit-typeset carries the same vendored fix (vendor/citationberg/VENDORED.md).
-[patch.crates-io]
-citationberg = { path = "../../vendor/citationberg" }
-
-[workspace]
-
-# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
-# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
-[profile.dev]
-debug = "line-tables-only"
-
-[profile.dev.package."*"]
-debug = false
-
-[profile.dev.build-override]
-debug = false
-opt-level = 0
-
-[profile.test]
-debug = "line-tables-only"
-
-[profile.test.package."*"]
-debug = false
-
-[profile.release-iterate]
-inherits = "release"
-opt-level = 1
-lto = false
-codegen-units = 16
-incremental = true
-strip = "none"
-
-[profile.release-iterate.package."*"]
-incremental = false
-
-[profile.test.build-override]
-debug = false
-opt-level = 0

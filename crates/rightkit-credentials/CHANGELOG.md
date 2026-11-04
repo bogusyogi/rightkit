@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.0 (unpublished)
+
+- Removed (breaking, rightkit#1505): the `settings-probe` feature and the optional `rightkit-app-settings` dependency. RightKit is one Cargo workspace with one lock (GATE-CONTRACT GC-T24), and cargo refuses a dependency circle even through an optional dependency (credentials, app-settings, daemon, oauth). The `SecretProbe` presence adapter for `Store` moved to `rightkit-app-settings` 0.3.4 behind its `credentials-probe` feature; enable that feature there instead.
+
 ## 0.4.6 (unpublished)
 
 - Removed: the `isolated-test-keychain` feature, `macos::IsolatedKeychain`, `KeychainBackend::open_isolated_file`, the CLI's `--isolated-keychain` and `--keychain-password`, and `tests/e2e.rs` (it only drove the throwaway keychain). An explicit keychain file is read and delete only in every build. Adrian, 2026-11-03: "My decision was no unit tests. Only e2e." and "dev mode, is mine. im the fucking owner, my data. no dummy data, no fucking made up shit. real data. snapshot and restore." Caller to fix: `ci/gate.config.json` still passes the feature to the crate's test run.

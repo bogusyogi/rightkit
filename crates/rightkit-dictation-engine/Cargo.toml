@@ -56,4 +56,3 @@ path = "examples/screen_vocab_smoke.rs"
 [[bin]]
 name = "rightkit-dictation-engine"
 path = "src/main.rs"
-

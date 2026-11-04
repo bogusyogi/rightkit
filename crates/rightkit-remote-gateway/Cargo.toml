@@ -26,7 +26,7 @@ rightkit-device-link-types = { version = "0.1.0", path = "../rightkit-device-lin
 rightkit-system-monitor = { version = "0.2.0", path = "../rightkit-system-monitor" }
 rightkit-automation = { version = "0.6.2", default-features = false, path = "../rightkit-automation" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
-rightkit-credentials = { version = "0.4.2", path = "../rightkit-credentials" }
+rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials" }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
 rightkit-daemon = { version = "0.5.0", default-features = false, path = "../rightkit-daemon" }
 rightkit-docs = { version = "0.1.3", path = "../rightkit-docs" }
@@ -52,38 +52,3 @@ windows = { version = "0.62", features = [
     "Win32_System_Threading",
     "Win32_UI_Shell",
 ] }
-
-[workspace]
-
-# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
-# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
-[profile.dev]
-debug = "line-tables-only"
-
-[profile.dev.package."*"]
-debug = false
-
-[profile.dev.build-override]
-debug = false
-opt-level = 0
-
-[profile.test]
-debug = "line-tables-only"
-
-[profile.test.package."*"]
-debug = false
-
-[profile.release-iterate]
-inherits = "release"
-opt-level = 1
-lto = false
-codegen-units = 16
-incremental = true
-strip = "none"
-
-[profile.release-iterate.package."*"]
-incremental = false
-
-[profile.test.build-override]
-debug = false
-opt-level = 0

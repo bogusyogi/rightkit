@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0 (unpublished)
+
+- Removed (breaking, rightkit#1505): the optional `rightkit-ocr` dependency of the `agent_media` feature. RightKit is one Cargo workspace with one lock (GATE-CONTRACT GC-T24) and cargo refuses the circle ffmpeg, ocr, onnx. `agent_media::set_ocr_provider` registers the in-process OCR function; without one, the `ocr_onnx` tool returns an error. rightkit-agent-tools registers rightkit-ocr's native backend.
+
 ## 0.2.16 (unpublished)
 
 - Renamed (breaking): `verify_ffmpeg_or_development` is now `verify_ffmpeg_handle` and `verify_ffprobe_or_development` is now `verify_ffprobe_handle`; there never was a development fallback after `dev-overrides` went. Callers change the name only.

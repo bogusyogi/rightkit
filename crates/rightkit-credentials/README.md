@@ -14,7 +14,6 @@ On macOS, use `rightkit-credentials` 0.2.0 or newer. `rightkit-secrets` 0.1.3 an
 
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
-| `settings-probe` | off | `rightkit-app-settings` | Enables the `rightkit-app-settings` presence adapter (`SecretProbe`). |
 | `os-auth` (0.4.0) | off | `objc2`, `block2`, `objc2-foundation` (macOS only), `windows` (Windows only); nothing on Linux or Android | Compiles `os_auth`: one blocking OS user-presence prompt (see "OS authentication"). It gates a UI action and returns no secret. |
 | `protected-key` | off | `rightkit-crypto`; `windows` (Windows only) | `protected_key::ProtectedKey`: a Secure Enclave P-256 key (macOS, Touch ID bound) or a Windows Hello key credential that signs, seals and unseals only after the OS verified the user; typed `Unsupported`, `NotEnrolled`, `Denied`, `Cancelled`, `Invalidated`; `Unsupported` elsewhere. Also PIN-derived and OS-store-wrapped seals. macOS needs a signed app with `keychain-access-groups`. |
 | `db-adapter` | off | `rightkit-db`, `sha2` | `db_adapter::CredentialsKeyStore` implements DB's `ProtectedKeyStore` over existing credential storage/rotation. Application must also enable its existing DB `sqlcipher-libtomcrypt` or `sqlcipher-system` provider; adapter selects neither. |

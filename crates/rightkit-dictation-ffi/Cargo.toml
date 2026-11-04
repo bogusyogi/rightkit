@@ -20,38 +20,3 @@ rightkit-text-polish = { version = "0.1.0", path = "../rightkit-text-polish" }
 rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core" }
 rightkit-asr = { version = "0.4.0", default-features = false, path = "../rightkit-asr" }
 rightkit-onnx = { version = "0.2.9", default-features = false, features = ["session"], path = "../rightkit-onnx" }
-
-[workspace]
-
-# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
-# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
-[profile.dev]
-debug = "line-tables-only"
-
-[profile.dev.package."*"]
-debug = false
-
-[profile.dev.build-override]
-debug = false
-opt-level = 0
-
-[profile.test]
-debug = "line-tables-only"
-
-[profile.test.package."*"]
-debug = false
-
-[profile.release-iterate]
-inherits = "release"
-opt-level = 1
-lto = false
-codegen-units = 16
-incremental = true
-strip = "none"
-
-[profile.release-iterate.package."*"]
-incremental = false
-
-[profile.test.build-override]
-debug = false
-opt-level = 0

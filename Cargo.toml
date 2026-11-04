@@ -1,0 +1,58 @@
+# RightKit is one Cargo workspace with one Cargo.lock (Adrian, 2026-11-04; docs/GATE-CONTRACT.md GC-T24, rightkit#1505).
+# Every crate under crates/ is a member and shares one set of dependency versions and one broker-managed output directory.
+# Publishing stays per crate (`cargo publish -p <crate>`); apps resolve their own locks.
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+# rightkit-mesh-ffi keeps its own workspace: its iOS-only [patch] of netwatch must never reach desktop builds.
+exclude = ["crates/rightkit-mesh-ffi"]
+
+# Canonical build profiles (rightkit#1285); the managed broker forbids .cargo/config.toml, so manifest profiles are the only
+# place build cost is shaped. Profiles are read from the workspace root only.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+# rightkit-record: hash and blake3 hot loops stay optimised in dev and test builds.
+[profile.dev.package.rightkit-record]
+opt-level = 3
+
+[profile.dev.package.blake3]
+opt-level = 3
+
+[profile.test.package.rightkit-record]
+opt-level = 3
+
+[profile.test.package.blake3]
+opt-level = 3
+
+# The vendored citationberg fork (rightkit-autoedit, captions, compose and the other citation crates).
+[patch.crates-io]
+citationberg = { path = "vendor/citationberg" }

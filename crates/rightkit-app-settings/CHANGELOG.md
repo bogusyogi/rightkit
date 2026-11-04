@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.4 (unpublished)
+
+- Added (rightkit#1505): the `credentials-probe` feature, with the `SecretProbe` presence adapter for `rightkit_credentials::Store`, moved from rightkit-credentials 0.4's `settings-probe` feature so RightKit can be one Cargo workspace without a dependency circle.
+
 ## 0.3.3 (unpublished)
 
 - Docs: `state_root_is_isolated` says what it checks (the state root comes from the environment); no behaviour change.

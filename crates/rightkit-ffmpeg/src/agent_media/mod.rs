@@ -511,12 +511,24 @@ async fn execute_native_media_tool(
 /// OS-native OCR through RightKit, native backend only (no ONNX fallback).
 /// Output is the newline-joined line text, the same shape the host app always returned.
 fn ocr_image_native(path: &std::path::Path) -> Result<String, String> {
-    let mut ocr = rightkit_ocr::Ocr::new(rightkit_ocr::OcrOptions::new(
-        rightkit_ocr::BackendPreference::Native,
-    ));
-    ocr.recognize_file(path)
-        .map(|result| result.text())
-        .map_err(|e| e.to_string())
+    match OCR_PROVIDER.get() {
+        Some(provider) => provider(path),
+        None => Err(
+            "no OCR provider is registered; the host calls agent_media::set_ocr_provider first"
+                .to_string(),
+        ),
+    }
+}
+
+/// The in-process OCR function the host registers (rightkit#1505: rightkit-ffmpeg no longer depends on
+/// rightkit-ocr, so the dependency circle ffmpeg, ocr, onnx is gone). It returns the newline-joined line text.
+pub type OcrProvider = fn(&std::path::Path) -> Result<String, String>;
+
+static OCR_PROVIDER: std::sync::OnceLock<OcrProvider> = std::sync::OnceLock::new();
+
+/// Register the OCR function once per process. Returns false when one is already registered.
+pub fn set_ocr_provider(provider: OcrProvider) -> bool {
+    OCR_PROVIDER.set(provider).is_ok()
 }
 
 /// In-process OS-native OCR backend (Apple Vision / Windows.Media.Ocr).

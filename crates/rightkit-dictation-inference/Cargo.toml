@@ -30,7 +30,7 @@ rightkit-audio = { version = "0.3.1", default-features = false, path = "../right
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 libloading = { version = "0.9" }
 rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
-rightkit-ffmpeg = { version = "0.2.13", default-features = false, path = "../rightkit-ffmpeg" }
+rightkit-ffmpeg = { version = "0.3.0", default-features = false, path = "../rightkit-ffmpeg" }
 rightkit-vad = { version = "0.1.2", path = "../rightkit-vad" }
 rightkit-asr = { version = "0.4.0", default-features = false, path = "../rightkit-asr" }
 
@@ -65,38 +65,3 @@ cc = { version = "1" }
 rightkit-asr = { version = "0.4.0", default-features = false, path = "../rightkit-asr", features = ["onnx-tdt"] }
 ndarray = { version = "0.17" }
 rightkit-onnx = { version = "0.2.9", default-features = false, features = ["session", "ndarray"], path = "../rightkit-onnx" }
-
-[workspace]
-
-# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
-# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
-[profile.dev]
-debug = "line-tables-only"
-
-[profile.dev.package."*"]
-debug = false
-
-[profile.dev.build-override]
-debug = false
-opt-level = 0
-
-[profile.test]
-debug = "line-tables-only"
-
-[profile.test.package."*"]
-debug = false
-
-[profile.release-iterate]
-inherits = "release"
-opt-level = 1
-lto = false
-codegen-units = 16
-incremental = true
-strip = "none"
-
-[profile.release-iterate.package."*"]
-incremental = false
-
-[profile.test.build-override]
-debug = false
-opt-level = 0

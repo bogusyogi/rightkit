@@ -64,7 +64,7 @@ url = "2"
 thiserror = {version = "2", optional = true}
 async-trait = {version = "0.1", optional = true}
 futures = {version = "0.3", optional = true}
-rightkit-credentials = {version = "0.4.3", path = "../rightkit-credentials", optional = true}
+rightkit-credentials = {version = "0.5.0", path = "../rightkit-credentials", optional = true}
 rightkit-oauth = {version = "0.10.0", default-features = false, path = "../rightkit-oauth", optional = true}
 tracing = {version = "0.1", optional = true}
 rightkit-agent-engine-runtime-resources = {version = "0.1.0", path = "../rightkit-agent-engine-runtime-resources", optional = true}
@@ -91,37 +91,3 @@ agent_mcp = ["rightkit-fs/lock", "rightkit-fs/json", "rightkit-fs/transaction", 
 name = "example_server"
 
 # One Cargo workspace and lock per crate (rightkit#1285).
-[workspace]
-
-# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
-# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
-[profile.dev]
-debug = "line-tables-only"
-
-[profile.dev.package."*"]
-debug = false
-
-[profile.dev.build-override]
-debug = false
-opt-level = 0
-
-[profile.test]
-debug = "line-tables-only"
-
-[profile.test.package."*"]
-debug = false
-
-[profile.release-iterate]
-inherits = "release"
-opt-level = 1
-lto = false
-codegen-units = 16
-incremental = true
-strip = "none"
-
-[profile.release-iterate.package."*"]
-incremental = false
-
-[profile.test.build-override]
-debug = false
-opt-level = 0

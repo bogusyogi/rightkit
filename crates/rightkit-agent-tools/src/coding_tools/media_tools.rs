@@ -155,6 +155,16 @@ pub const MEDIA_TOOL_NAMES: &[&str] = &[
     "ffmpeg_extract",
 ];
 
+/// OS-native OCR through RightKit, native backend only (no ONNX fallback): the newline-joined line text.
+fn native_ocr(path: &std::path::Path) -> Result<String, String> {
+    let mut ocr = rightkit_ocr::Ocr::new(rightkit_ocr::OcrOptions::new(
+        rightkit_ocr::BackendPreference::Native,
+    ));
+    ocr.recognize_file(path)
+        .map(|result| result.text())
+        .map_err(|e| e.to_string())
+}
+
 #[async_trait::async_trait]
 impl Tool for rightkit_ffmpeg::agent_media::NativeMediaTool {
     fn name(&self) -> &str {
@@ -180,6 +190,7 @@ impl Tool for rightkit_ffmpeg::agent_media::NativeMediaTool {
         };
         // Live daemon owner supplies process lifecycle adapter explicitly;
         // media crate no longer owns an uninjectable raw spawn seam.
+        rightkit_ffmpeg::agent_media::set_ocr_provider(native_ocr);
         let adapter = GovernedMediaProcessLaunchAdapter {
             network_required: ctx.execution_network_profile.is_some(),
         };

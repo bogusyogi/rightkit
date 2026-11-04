@@ -50,7 +50,7 @@ tokenizers = { version = "0.23.2", default-features = false, features = ["onig"]
 [target.'cfg(not(target_os = "android"))'.dependencies]
 libloading = "0.9"
 # `WhisperCpp::load_verified` checks the library set against the native-library catalog before dlopen.
-rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.13" }
+rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.3.0" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_System_SystemInformation"], optional = true }
@@ -199,37 +199,3 @@ scale = "one stream: the encoder cache tensors (fixed by the model), the beam (a
 release = "Drop"
 
 # One Cargo workspace and lock per crate (rightkit#1285).
-[workspace]
-
-# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
-# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
-[profile.dev]
-debug = "line-tables-only"
-
-[profile.dev.package."*"]
-debug = false
-
-[profile.dev.build-override]
-debug = false
-opt-level = 0
-
-[profile.test]
-debug = "line-tables-only"
-
-[profile.test.package."*"]
-debug = false
-
-[profile.release-iterate]
-inherits = "release"
-opt-level = 1
-lto = false
-codegen-units = 16
-incremental = true
-strip = "none"
-
-[profile.release-iterate.package."*"]
-incremental = false
-
-[profile.test.build-override]
-debug = false
-opt-level = 0

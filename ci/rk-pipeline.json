@@ -76,7 +76,7 @@
     "maxAttemptsPerUnit": 1,
     "exceptions": {
       "rightkit-ffmpeg": {
-        "version": "0.2.16",
+        "version": "0.3.0",
         "allow": [
           "allow_missing_assets"
         ],

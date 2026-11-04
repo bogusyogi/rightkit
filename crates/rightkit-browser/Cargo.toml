@@ -27,7 +27,7 @@ rightkit-models = { path = "../rightkit-models", version = "0.5.3", default-feat
 rightkit-fs = { path = "../rightkit-fs", version = "0.4.9", default-features = false, features = ["digest", "lock"], optional = true }
 zip = { version = "9", default-features = false, features = ["deflate"], optional = true }
 # Encrypted profile vault (feature `profile-vault`): key from the OS credential store, AEAD via ring.
-rightkit-credentials = { path = "../rightkit-credentials", version = "0.4.6", optional = true }
+rightkit-credentials = { path = "../rightkit-credentials", version = "0.5.0", optional = true }
 rightkit-crypto = { path = "../rightkit-crypto", version = "0.1.2", optional = true }
 
 [target.'cfg(any(target_os = "macos", windows))'.dependencies]
@@ -130,37 +130,3 @@ release = "process exit"
 static_note = "BASE holds exactly one Instant for the monotonic gesture clock; it is not a collection and cannot grow"
 
 # One Cargo workspace and lock per crate (rightkit#1285).
-[workspace]
-
-# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
-# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
-[profile.dev]
-debug = "line-tables-only"
-
-[profile.dev.package."*"]
-debug = false
-
-[profile.dev.build-override]
-debug = false
-opt-level = 0
-
-[profile.test]
-debug = "line-tables-only"
-
-[profile.test.package."*"]
-debug = false
-
-[profile.release-iterate]
-inherits = "release"
-opt-level = 1
-lto = false
-codegen-units = 16
-incremental = true
-strip = "none"
-
-[profile.release-iterate.package."*"]
-incremental = false
-
-[profile.test.build-override]
-debug = false
-opt-level = 0
