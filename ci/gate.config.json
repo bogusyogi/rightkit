@@ -158,6 +158,10 @@
         [
           "--features",
           "control,wv2-0_39,android,browser"
+        ],
+        [
+          "--features",
+          "control,wv2-0_38"
         ]
       ],
       "featureSets": [
@@ -186,6 +190,10 @@
         [
           "--features",
           "qa-control,wv2-0_39,offscreen-private-spi"
+        ],
+        [
+          "--features",
+          "qa-control,wv2-0_38"
         ]
       ],
       "allowIgnored": "tests/offscreen_windows.rs (3 tests: live_session_moves_window_off_all_displays_without_focus, hidden_at_start_window_is_placed_and_shown_without_ever_appearing_on_a_display, minimized_window_is_refused) and tests/offscreen_macos.rs (4 tests: launches_offscreen_with_native_identity, identity_cross_check_survives_after_end, never_shown_window_shows_hover_and_pressed_pixels, shown_unfocused_window_registers_hover_style_and_pressed_pixels) are #[ignore] on purpose: they create real windows in the interactive desktop session or launch the Tauri control fixture, which no runner provides, and run by hand with --ignored (3 ignored per default run on Windows, 4 on macOS); every other qa-driver test runs and asserts on every default run"
@@ -238,6 +246,11 @@
           "--no-default-features",
           "--features",
           "wv2-0_39,engine"
+        ],
+        [
+          "--no-default-features",
+          "--features",
+          "wv2-0_38"
         ]
       ],
       "paths": [
