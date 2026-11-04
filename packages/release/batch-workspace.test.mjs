@@ -74,7 +74,7 @@ test("publisher requirements preserve npm scripts and execution environment", as
   const { compileRequirements } = await import("./local-publish.mjs");
   const plan = compileRequirements({ kind: "npm", unit: "@rightkit/example", dir: "packages/example", config: {}, manifest: { scripts: { test: "node test.mjs" } }, env: { RIGHTKIT_ISOLATED_CHECKOUT: "1" } });
   assert.deepEqual(plan.requirements.map(({ executable, argv, phase }) => ({ executable, argv, phase })), [
-    { executable: "pnpm", argv: ["-r", "--workspace-concurrency=1", "run", "build"], phase: "compile" },
+    { executable: "pnpm", argv: ["-r", "--workspace-concurrency=1", "--filter", "@rightkit/example...", "run", "--if-present", "build"], phase: "compile" },
     { executable: "pnpm", argv: ["--dir", "packages/example", "run", "test"], phase: "test" },
   ]);
   assert.equal(plan.requirements[0].env.RIGHTKIT_ISOLATED_CHECKOUT, "1");
@@ -123,4 +123,17 @@ test("publisher requirements include secret scan, fmt, asset policy and test ver
     if (before === undefined) delete process.env.RIGHTKIT_CROSS_CC_DIR;
     else process.env.RIGHTKIT_CROSS_CC_DIR = before;
   }
+});
+
+
+test("npm build selects only the named unit and workspace dependencies", async () => {
+  const { npmBuildClosureArgs } = await import("./local-publish.mjs");
+  assert.deepEqual(npmBuildClosureArgs("@rightkit/release"), ["-r", "--workspace-concurrency=1", "--filter", "@rightkit/release...", "run", "--if-present", "build"]);
+  assert.throws(() => npmBuildClosureArgs("@rightkit/release..."), /invalid npm package name/);
+  assert.throws(() => npmBuildClosureArgs("--workspace"), /invalid npm package name/);
+  assert.equal(npmBuildClosureArgs("@rightkit/a..b")[3], "@rightkit/a..b...");
+  assert.throws(() => npmBuildClosureArgs(`@rightkit/${"a".repeat(205)}`), /invalid npm package name/);
+  const { localTestPlan } = await import("./local-publish.mjs");
+  assert.equal(localTestPlan({ kind: "npm", unit: "@rightkit/release", dir: "packages/release", manifest: { scripts: {} } }).steps.length, 1);
+  assert.equal(localTestPlan({ kind: "npm", unit: "@rightkit/release", dir: "packages/release", manifest: { scripts: { test: "node --test" } } }).steps.length, 2);
 });

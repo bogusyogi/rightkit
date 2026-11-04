@@ -424,14 +424,21 @@ export const GATE_CONFIG_FILES = Object.freeze(["ci/gate.config.json", "ci/asset
 
 export { CROSS_TARGETS, ZIG_TARGETS, CROSS_CC_ENV, crossTargetsFor, crossCompileEnv } from "./cross-targets.mjs";
 
-/** The CI gate's commands for one unit (scripts/ci/gate.mjs npmGate/rustGate), mirrored exactly. */
+/** Build a selected npm package and its workspace dependency closure, in dependency order. */
+export function npmBuildClosureArgs(unit) {
+  if (typeof unit !== "string" || unit.length > 214 || !/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/.test(unit) || unit.includes("...")) throw new Error("invalid npm package name for workspace build");
+  // Adapter registration accepts --if-present after run, not as a leading option.
+  return ["-r", "--workspace-concurrency=1", "--filter", `${unit}...`, "run", "--if-present", "build"];
+}
+
+/** Local compile and test commands for one unit, aligned with CI's selected-unit coverage. */
 export function localTestPlan({ kind, unit, dir, config, manifest, batch = false, platform = "darwin" }) {
   if (kind === "npm") {
     // End-to-end tests only (Adrian, 2026-11-03): an npm unit with no test script has no test step, as a crate with no test qualifies on its other steps.
     return {
       id: `npm:${dir}`, featureLabels: ["default"],
       steps: [
-        { command: "pnpm", args: ["-r", "--workspace-concurrency=1", "run", "build"], test: false },
+        { command: "pnpm", args: npmBuildClosureArgs(unit), test: false },
         ...(manifest?.scripts?.test ? [{ command: "pnpm", args: ["--dir", dir, "run", "test"], test: true }] : []),
       ],
     };
