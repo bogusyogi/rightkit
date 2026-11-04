@@ -1435,6 +1435,19 @@ impl OwnedChild {
             pids.push(identity.pid());
         }
         pids.retain(|p| *p != leader);
+        // Windows attaches a console host (conhost.exe, a child of the leader, inside its job) to a
+        // console leader. It is the leader's own console, not something the leader left running, so
+        // it is never a member. A table that cannot be read excludes nothing: the host is then
+        // listed, never hidden on a guess.
+        #[cfg(windows)]
+        if !pids.is_empty() {
+            let table = crate::process_table().unwrap_or_default();
+            pids.retain(|pid| {
+                !table
+                    .iter()
+                    .any(|e| e.pid == *pid && e.parent_pid == leader && is_console_host(*pid))
+            });
+        }
         pids.sort_unstable();
         pids.dedup();
         Ok(pids)
@@ -1453,6 +1466,19 @@ impl OwnedChild {
             _ => Ok(Vec::new()),
         }
     }
+}
+/// Whether `pid` runs `conhost.exe` (compared without case). An unreadable process is not one.
+#[cfg(windows)]
+fn is_console_host(pid: u32) -> bool {
+    NonZeroU32::new(pid)
+        .and_then(|pid| crate::AdoptedIdentity::capture(pid).ok().flatten())
+        .and_then(|identity| {
+            identity
+                .exe()
+                .and_then(|exe| exe.file_name())
+                .map(|name| name.eq_ignore_ascii_case("conhost.exe"))
+        })
+        .unwrap_or(false)
 }
 /// A group listing that the host could not give (`None`: too large for one listing, or the
 /// enumeration failed while the group exists) is an error, never an empty tree: a caller that
