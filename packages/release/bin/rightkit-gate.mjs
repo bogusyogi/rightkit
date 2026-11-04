@@ -4093,7 +4093,9 @@ export async function main(argv, io = {}) {
   let cargoShimDir = null;
   const cleanup = () => {
     if (cargoShimDir) fs.rmSync(cargoShimDir, { recursive: true, force: true });
-    if (snapshotGitConfig) { fs.rmSync(snapshotGitConfig, { force: true }); try { fs.rmdirSync(path.dirname(snapshotGitConfig)); } catch { /* not empty: leave it, the next exact sync prunes it */ } }
+    // GC-A24: the config-only origin file stays (snapshotProblem admits exactly it, and the sync keeps exactly it), so an unchanged
+    // snapshot is not rewritten on every run; a snapshot of a checkout whose origin changed gets it pruned by the next sync.
+    void snapshotGitConfig;
   };
   const signals = [];
   try {
@@ -4544,7 +4546,9 @@ export async function main(argv, io = {}) {
     // What the plan leaves to the qualify stage (end-to-end crates, declared Swift packages): handed to the door, which records it in the compile
     // receipt and refuses to qualify without a declared run route (rightkit#1332, #1333). Never dropped silently.
     o.onQualifyOwed?.((plan.qualifyOwed ?? []).filter((x) => x.kind !== "e2e-crate" || plan.scans.some((s) => s.id === x.id)));
-    const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? 4) || 4);
+    // GC-A24: class A lanes default to the host's cores (measured, Mac, cold RK class A rows: 4 lanes 14.4 s, 8 lanes 7.0 s, 12 lanes 5.9 s).
+    const defaultJobs = typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length;
+    const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? defaultJobs) || defaultJobs);
     const testJobs = Math.max(1, Number(o.env.RK_GATE_TEST_JOBS ?? jobs) || jobs);
     // A broker host has no gate-side build count: the broker decides it. What remains is the local limit on class B processes the broker never sees.
     const brokerHost = executor.kind === "broker";

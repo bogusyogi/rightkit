@@ -20,6 +20,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { serveRequest } from "./gate-serve.mjs";
 import { LIVE_SCAN_IDS, defaultSpawn, isLiveScan, isRegistryScan, launchGuardEnv, planScans, runScans } from "./deterministic-scans.mjs";
 import { compileLaunch } from "./class-a-launch-guard.mjs";
 import { SnapshotError, dependencyDirs, isInside, snapshotProblem, snapshotTree, treeEntries } from "./snapshot.mjs";
@@ -125,6 +126,15 @@ export function verifySnapshotDir({ checkout, dir, commit, tree, when, ledger, a
   const phase = labels.get(when) ?? 'other';
   const rows = [];
   const timed = diagnosticDir ? (label, fn) => { const start = performance.now(); try { return fn(); } finally { try { rows.push({ label: `${phase}-${label}`, ms: performance.now() - start, count: 1 }); } catch {} } } : (_label, fn) => fn();
+  // GC-A24: a plain verify asks the resident gate (gate-serve.mjs) whether this snapshot was proven this tree with no change since; a
+  // full verify takes the change generation first and records the proof after it passes. Any doubt means the full verify below.
+  const plain = ledger === undefined && admitNew !== true;
+  let generation = null;
+  if (plain) {
+    const c = serveRequest({ op: "check", dir, tree }, { root: path.dirname(path.resolve(dir)) });
+    if (c?.clean === true) { rows.push({ label: `${phase}-resident-proof`, ms: 0, count: 1 }); if (diagnosticDir) writePerformanceDiagnostic(diagnosticDir, 'snapshot-verify', rows); return tree; }
+    if (Number.isInteger(c?.generation)) generation = c.generation;
+  }
   try {
   const ledgerMode = ledger !== undefined || admitNew === true;
   let inspected;
@@ -136,6 +146,7 @@ export function verifySnapshotDir({ checkout, dir, commit, tree, when, ledger, a
   try { actual = timed('tree-hash', () => snapshotTree({ checkout, dir, baseTree: tree })); }
   catch (e) { throw new CheckError(`cannot compute the tree of snapshot ${dir} ${when}: ${e.message}`); }
   if (actual !== tree) throw new CheckError(`snapshot ${dir} is tree ${actual} ${when}, not tree ${tree} of commit ${commit}`);
+  if (plain && generation !== null) serveRequest({ op: "record", dir, tree, generation });
   return ledgerMode ? { tree: actual, ledger: inspected.admitted } : actual;
   } finally { if (diagnosticDir) writePerformanceDiagnostic(diagnosticDir, 'snapshot-verify', rows); }
 }

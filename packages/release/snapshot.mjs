@@ -948,7 +948,22 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), ma
       const s = lstat(identityPath);
       return !!s?.isFile() && s.nlink === 1n && (process.platform === "win32" || (Number(s.mode) & 0o111) === 0) && fs.readFileSync(identityPath).equals(identityBytes);
     })();
-    removed += pruneToTree(dir, entries, process.platform, keepIdentity ? new Set([foldFor(process.platform)(SOURCE_IDENTITY_FILE)]) : new Set(), dependencyDirs(entries, process.platform));
+    // GC-A24: a `.git` that holds exactly the gate's config-only origin file (gateGitConfigBody of the checkout's origin, the one
+    // allowance snapshotProblem admits) is kept, so class A does not create and remove it on every run; any other `.git` is pruned.
+    const keepGit = (() => {
+      try {
+        if (entries.some((e) => e.path === ".git" || e.path.startsWith(".git/"))) return false;
+        const g = path.join(dir, ".git"); const st = lstat(g);
+        if (!st?.isDirectory() || st.isSymbolicLink()) return false;
+        const names = fs.readdirSync(g); if (names.length !== 1 || names[0] !== "config") return false;
+        const c = lstat(path.join(g, "config")); if (!c?.isFile() || c.nlink !== 1n) return false;
+        const origin = originUrlOf(repo.checkout);
+        return Boolean(origin) && fs.readFileSync(path.join(g, "config"), "utf8") === gateGitConfigBody(origin);
+      } catch { return false; }
+    })();
+    const keepDeps = dependencyDirs(entries, process.platform);
+    if (keepGit) keepDeps.add(foldFor(process.platform)(".git"));
+    removed += pruneToTree(dir, entries, process.platform, keepIdentity ? new Set([foldFor(process.platform)(SOURCE_IDENTITY_FILE)]) : new Set(), keepDeps);
     if (identityBytes) {
       // Written only when the commit's own ignore rules ignore the name (they are in the snapshot now): an unignored file would change the
       // tree id the broker computes too, so the gate would break every build of that repository. Then nothing is written and the reason is reported.
