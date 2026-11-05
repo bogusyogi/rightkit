@@ -430,8 +430,8 @@ pub fn cluster(evidence: &[Value], near_duplicate_threshold: f64) -> Result<Clus
         if left_len < 8 {
             continue;
         }
-        for right in ids.iter().skip(i + 1) {
-            let right = right.clone();
+        for right_id in ids.iter().skip(i + 1) {
+            let right = right_id.clone();
             let right_len = shingle_map.get(&right).map_or(0, |set| set.len());
             if merger.uf.find(&left) == merger.uf.find(&right) || right_len < 8 {
                 continue;

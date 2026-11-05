@@ -1,31 +1,21 @@
-// Sibling fragment of stall_guardrail.rs — included by the parent module. Pure
-// helpers: turn a stall-guardrail outcome into the model-facing string the
-// engine injects at the right integration point.
+// Sibling fragment of stall_guardrail.rs — included via `include!()`. Pure
+// helpers: the model-facing and operator-facing text of the `repeated_call` Ask.
 
-/// Message injected on the synthetic tool result path when a call is SKIP'd.
-/// The model sees this AS the tool outcome (no real tool runs).
-pub fn skipped_message(tool_name: &str, count: u32) -> String {
+/// Reason (and policy source) of the Ask raised for a repeated call.
+pub const REPEATED_CALL_REASON: &str = "repeated_call";
+
+/// The Ask's reason line: shown on the approval card and recorded in the span.
+pub fn repeated_call_reason(tool_name: &str, count: u32) -> String {
     format!(
-        "[stall-guardrail:skipped] Tool '{tool_name}' was called {count}x in a row with no progress and has been SKIPPED to break the loop. \
-Do NOT retry it. Take a materially different approach: a different tool, a different decomposition, a different hypothesis, or stop and say so plainly."
+        "{REPEATED_CALL_REASON}: tool '{tool_name}' was called {count}x in a row with identical arguments"
     )
 }
 
-/// Message appended to the next-turn context when the call RAN with WARN
-/// severity (executed, but the model is being told to vary the approach).
-pub fn warn_message(tool_name: &str, count: u32) -> String {
+/// Tool-result text when the repeated call was denied (by the user, or at once
+/// when nothing can answer). The model reads this AS the tool outcome.
+pub fn repeated_call_denied_message(tool_name: &str) -> String {
     format!(
-        "[stall-guardrail:warn] Tool '{tool_name}' has been called {count}x consecutively with no progress. \
-          Take a different approach in your next turn instead of repeating the same argument.",
-        count = count,
-    )
-}
-
-/// Message emitted when BLOCK closes the goal as blocked (matches the
-/// existing `stalled_reason(...)` shape so the orchestration observation
-/// surface already in use is preserved).
-pub fn block_message(tool_name: &str, count: u32) -> String {
-    format!(
-        "agent stalled (per-tool-signature guardrail hard-stop): tool '{tool_name}' repeated {count}x consecutively; closing goal as blocked"
+        "{REPEATED_CALL_REASON}: tool '{tool_name}' was called three times in a row with identical arguments and this fourth call was denied, so it was not run. \
+Do NOT retry it. Take a materially different approach: a different tool, different arguments, a different hypothesis, or stop and say so plainly."
     )
 }

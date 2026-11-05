@@ -290,11 +290,38 @@ impl SessionEngine {
                     updated_input,
                 } => (updated_input, Some(reason)),
                 rightkit_hooks::agent_hooks::bus::PreToolUseOutcome::Deny(message) => {
+                    // Rule 31: a hook block is a stored event naming the call, the event and a
+                    // cause. The cause never carries the hook's command line or its output.
+                    let cause = if message.ends_with("(fail closed)") {
+                        "a PreToolUse hook failed closed (timeout, start failure, signal or invalid configuration)"
+                    } else {
+                        "a PreToolUse hook denied the call"
+                    };
+                    self.emit_tool_policy_event(
+                        &sid,
+                        &effective_call.id,
+                        "PreToolUse",
+                        "hook_block",
+                        cause,
+                    );
                     self.record_tool_error(&sid, &effective_call, message, turn_results);
                     return;
                 }
                 rightkit_hooks::agent_hooks::bus::PreToolUseOutcome::Error(message) => {
-                    eprintln!("[hook] PreToolUse error (non-blocking): {message}");
+                    // Rule 54: a non-blocking hook error leaves a recorded span naming the
+                    // call and the cause, not only a stderr line.
+                    tracing::warn!(tool = %effective_call.name, %message, "PreToolUse hook error (non-blocking)");
+                    self.record_tool_runtime_span(
+                        MiddlewarePhase::PreToolCall,
+                        "hookError",
+                        &effective_call,
+                        None,
+                        serde_json::json!({
+                            "hookEvent": "PreToolUse",
+                            "blocking": false,
+                            "cause": message,
+                        }),
+                    );
                     (None, None)
                 }
                 rightkit_hooks::agent_hooks::bus::PreToolUseOutcome::Proceed => (None, None),
@@ -526,11 +553,6 @@ impl SessionEngine {
             }
         }
 
-        // Cache only after permission, middleware, guardrail, guardian, and
-        // assurance gates have all resolved positively. This is sole runtime
-        // insertion path; failed or denied calls never prime cache.
-        self.cache_auto_approval_after_positive_resolution(call);
-
         if !is_read_only_tool && self.auto_post_edit_diagnostics {
             self.record_verification_preflight(call);
         }
@@ -640,6 +662,7 @@ impl SessionEngine {
 
         #[cfg(feature = "host")]
         let sandbox_denial = result.sandbox_denial.clone();
+        self.emit_sandbox_refusal_events(&sid, &call.id, &result);
         self.record_single_tool_result(&sid, call, pre_span_id.as_deref(), result, turn_results);
         crate::tool_dispatch_plumbing::record_production_admission_stage(
             &call.id,

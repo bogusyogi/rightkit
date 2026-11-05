@@ -24,7 +24,6 @@ use crate::{
 };
 use std::io::{Read, Write};
 use std::sync::{Condvar, Mutex};
-use std::time::Duration;
 
 /// Keep RightKit failures behind the host app's existing public error boundary.
 pub fn map_rightkit_error(error: crate::McpError) -> McpError {
@@ -92,7 +91,11 @@ impl ClientAdapter {
         Self {
             spec,
             options: ClientOptions {
-                request_timeout: Duration::from_secs(if stdio { 60 } else { 120 }),
+                request_timeout: if stdio {
+                    crate::agent_mcp::limits::MCP_STDIO_REQUEST_TIMEOUT
+                } else {
+                    crate::agent_mcp::limits::MCP_HTTP_REQUEST_TIMEOUT
+                },
                 connect_timeout: None,
                 auth: access_token.map(|token| {
                     Arc::new(BearerToken(crate::Secret::new(token))) as Arc<dyn crate::AuthProvider>

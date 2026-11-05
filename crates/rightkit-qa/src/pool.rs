@@ -328,6 +328,10 @@ pub struct WorldPlan {
     port_base: u16,
     ports_per_world: u16,
     jobs: usize,
+    /// Whether the app launched in a world serves a control socket under the world's temp dir, so
+    /// that path must fit the Unix socket limit. False for runs that launch no app (bridged
+    /// libtest binaries).
+    control_socket: bool,
 }
 
 impl WorldPlan {
@@ -352,7 +356,16 @@ impl WorldPlan {
             port_base,
             ports_per_world,
             jobs,
+            control_socket: true,
         })
+    }
+
+    /// For a run that launches no app: its worlds' temp dirs carry no control socket, so their
+    /// depth is not bounded by the Unix socket path limit.
+    #[must_use]
+    pub fn without_control_socket(mut self) -> Self {
+        self.control_socket = false;
+        self
     }
 
     pub fn run_id(&self) -> &str {
@@ -385,7 +398,7 @@ impl WorldPlan {
         // for it is refused here, before anything launches.
         let temp = dir.join("t");
         #[cfg(unix)]
-        {
+        if self.control_socket {
             let need = temp.as_os_str().len() + 1 + 33;
             if need > MAX_UNIX_SOCKET_PATH {
                 return err(format!(

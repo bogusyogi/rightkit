@@ -563,10 +563,11 @@ impl PromptCacheBreakDetector {
 }
 
 fn diff_snapshots(previous: &PromptStateInput, current: &PromptStateInput) -> PendingChanges {
-    let mut changes = PendingChanges::default();
-
-    changes.system = previous.system_hash != current.system_hash;
-    changes.system_char_delta = current.system_chars as i64 - previous.system_chars as i64;
+    let mut changes = PendingChanges {
+        system: previous.system_hash != current.system_hash,
+        system_char_delta: current.system_chars as i64 - previous.system_chars as i64,
+        ..PendingChanges::default()
+    };
 
     if previous.tools_hash() != current.tools_hash() {
         changes.tools = true;

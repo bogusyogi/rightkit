@@ -19,21 +19,10 @@ pub struct MobileSmallModelClient {
 }
 
 pub fn client_for(config: &ProviderConfig) -> Result<Arc<dyn SmallModelClient>, RuntimeError> {
-    let token_plan = config
-        .token_plan
-        .clone()
-        .map(|credential| Arc::new(tokio::sync::Mutex::new(credential)));
-    client_for_with_token_plan(config, token_plan)
-}
-
-pub fn client_for_with_token_plan(
-    config: &ProviderConfig,
-    token_plan: Option<llm::TokenPlanState>,
-) -> Result<Arc<dyn SmallModelClient>, RuntimeError> {
     // The assist client sends no schemas. It also rejects unexpected tool
     // calls before returning a typed output.
     Ok(Arc::new(MobileSmallModelClient {
-        llm: llm::assist_client_for_with_token_plan(config, token_plan)?,
+        llm: llm::assist_client_for(config)?,
     }))
 }
 

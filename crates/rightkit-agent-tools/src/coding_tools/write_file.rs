@@ -2,7 +2,7 @@
 
 use crate::coding_tools::context::ToolContext;
 use crate::coding_tools::tool_trait::{Tool, ToolResult, WorkspaceMutation, WorkspaceMutationKind};
-use rightkit_agent_engine_history::{unified_diff, HistoryStore};
+use rightkit_agent_engine_history::unified_diff;
 use rightkit_agent_policy::{CapabilityClass, PermissionDecision, PermissionEngine};
 use serde_json::{json, Value};
 
@@ -39,6 +39,16 @@ impl Tool for WriteFileTool {
                 }
             }
         })
+    }
+
+    fn write_targets(&self, args: &Value, ctx: &ToolContext) -> Vec<std::path::PathBuf> {
+        args["path"]
+            .as_str()
+            .and_then(|path| {
+                crate::coding_tools::read_file::resolve_in_workspace(path, &ctx.workspace_root).ok()
+            })
+            .into_iter()
+            .collect()
     }
 
     async fn execute(&self, args: Value, ctx: &ToolContext) -> ToolResult {
@@ -92,23 +102,23 @@ impl Tool for WriteFileTool {
                 verdict.reason, verdict.policy_source
             ));
         }
-        if verdict.decision == PermissionDecision::Ask {
+        // Test-file protection guards existing tests; creating a new one weakens nothing
+        // (same narrowing as the engine's permission flow).
+        let new_test_file = verdict.policy_source == "test-file:protected" && !path.exists();
+        if verdict.decision == PermissionDecision::Ask && !new_test_file {
             return ToolResult::error(format!(
                 "Tool requires approval before proceeding: {} (policy: {})",
                 verdict.reason, verdict.policy_source
             ));
         }
 
-        // Snapshot prior content if the file exists (skip for new files).
+        // The restore point was written by the engine before this call ran
+        // (`write_targets`); the tool only reads the prior content.
         let prior = if path.exists() {
             std::fs::read_to_string(&path).ok()
         } else {
             None
         };
-        if let Some(ref prior_content) = prior {
-            let store = HistoryStore::new(&ctx.workspace_root, ".rightkit");
-            let _ = store.snapshot(&path, prior_content);
-        }
 
         // ENG-17: preserve the file's existing line-ending convention on a
         // full overwrite rather than letting caller-supplied content

@@ -170,12 +170,6 @@ pub fn tool_glob_matches(pattern: &str, value: &str) -> bool {
 
 type InflightListing = tokio::task::JoinHandle<Result<Vec<McpToolDef>, McpError>>;
 
-/// Default bound on how long discovery waits for a server that is not ready.
-pub const DEFAULT_MCP_STARTUP_BOUND: std::time::Duration = std::time::Duration::from_secs(3);
-
-/// Default single total deadline for one MCP tool call.
-pub const DEFAULT_MCP_CALL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(120);
-
 impl Default for McpManager {
     fn default() -> Self {
         Self::new()
@@ -216,8 +210,8 @@ impl McpManager {
             canonical_membrane_endpoint: None,
             canonical_membrane_caller: None,
             elicitation_session: Mutex::new(None),
-            startup_bound: DEFAULT_MCP_STARTUP_BOUND,
-            call_deadline: DEFAULT_MCP_CALL_DEADLINE,
+            startup_bound: crate::agent_mcp::limits::MCP_STARTUP_BOUND,
+            call_deadline: crate::agent_mcp::limits::MCP_CALL_DEADLINE,
             inflight_listings: Mutex::new(HashMap::new()),
             tool_name_filter: None,
             list_changed_seen: Mutex::new(HashMap::new()),
@@ -235,7 +229,7 @@ impl McpManager {
     pub fn is_tool_name_selected(&self, qualified_name: &str) -> bool {
         self.tool_name_filter
             .as_ref()
-            .map_or(true, |filter| filter.selects(qualified_name))
+            .is_none_or(|filter| filter.selects(qualified_name))
     }
 
     /// Override the single total per-call deadline (default 120s).
@@ -425,7 +419,7 @@ impl McpManager {
     }
 
     pub fn has_canonical_membrane_read_bridge(&self, tool: &str) -> bool {
-        matches!(canonical_read_tool(tool), Some(_))
+        canonical_read_tool(tool).is_some()
             && self.canonical_membrane_binding.is_some()
             && self.canonical_membrane_caller.is_some()
             && self

@@ -27,6 +27,25 @@ impl Tool for ApplyPatchTool {
         })
     }
 
+    fn write_targets(&self, args: &Value, ctx: &ToolContext) -> Vec<PathBuf> {
+        let Some(patch) = args["patch"].as_str() else {
+            return Vec::new();
+        };
+        let mut targets: Vec<PathBuf> = Vec::new();
+        for line in parse_patch(patch) {
+            if let PatchLine::FilePath(path) = line {
+                if let Ok(resolved) =
+                    crate::coding_tools::read_file::resolve_in_workspace(&path, &ctx.workspace_root)
+                {
+                    if !targets.contains(&resolved) {
+                        targets.push(resolved);
+                    }
+                }
+            }
+        }
+        targets
+    }
+
     async fn execute(&self, args: Value, ctx: &ToolContext) -> ToolResult {
         let patch_str = match args["patch"].as_str() {
             Some(p) => p,
@@ -215,10 +234,6 @@ impl Tool for ApplyPatchTool {
                 continue;
             }
             let item = &prepared[entry.index];
-            if item.existed {
-                let store = HistoryStore::new(&ctx.workspace_root, ".rightkit");
-                let _ = store.snapshot(&item.path, &item.original);
-            }
             crate::coding_tools::lsp_notify::document_mutated(&ctx.workspace_root, &item.path)
                 .await;
             applied.push(item.path.display().to_string());

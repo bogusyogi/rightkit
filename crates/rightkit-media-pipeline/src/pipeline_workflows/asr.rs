@@ -218,7 +218,7 @@ pub fn asr_provision(ctx: &Context, input: &Value) -> GenResult<Value> {
         .map_err(|e| GenError::new("io", format!("cannot create {}: {e}", dir.display())))?;
     let url = format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{name}");
     let spec = whisper_spec(&name, want_bytes, want_sha);
-    let store = Store::new(&dir, model_store::STORE_APP);
+    let store = Store::new(&dir, model_store::store_app());
     let mut downloaded = false;
     let outcome = store
         .adopt_then_install(
@@ -255,7 +255,7 @@ pub fn asr_provision(ctx: &Context, input: &Value) -> GenResult<Value> {
 /// Largest allowlisted whisper model installed in the store, resolved to its
 /// file inside the active revision. `None` when the store has none.
 pub fn installed_whisper_model(data_dir: &Path) -> Option<PathBuf> {
-    let store = Store::new(whisper_root(data_dir), model_store::STORE_APP);
+    let store = Store::new(whisper_root(data_dir), model_store::store_app());
     WHISPER_MODELS
         .iter()
         .filter_map(|&(name, bytes, _)| {

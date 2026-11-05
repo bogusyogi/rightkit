@@ -1455,7 +1455,10 @@ const RUN_LOCK_WAIT: Duration = Duration::from_secs(5);
 /// excludes other threads of this process as well as other processes. Every read-modify-write of
 /// `run.json` runs under it, and it is held only around load -> modify -> save: never across a job
 /// cancel, a media step, or any wait.
-struct RunLock(rightkit_fs::FileLock);
+struct RunLock {
+    /// Held for the guard's lifetime; released on drop.
+    _held: rightkit_fs::FileLock,
+}
 
 impl RunLock {
     fn acquire(ctx: &Context, run_id: &str) -> GenResult<Self> {
@@ -1475,7 +1478,7 @@ impl RunLock {
         let path = dir.join(format!("pipeline-run-{safe}.lock"));
         // `Flock` (not the default record lock) so threads of this process exclude each other too.
         match rightkit_fs::FileLock::try_lock_with(&path, rightkit_fs::LockKind::Flock, RUN_LOCK_WAIT) {
-            Ok(lock) => Ok(Self(lock)),
+            Ok(lock) => Ok(Self { _held: lock }),
             Err(rightkit_fs::FsError::Locked { .. } | rightkit_fs::FsError::LockTimeout { .. }) => Err(GenError::new(
                 "run_busy",
                 format!("another process is changing pipeline run {run_id}; nothing was changed, try again"),
@@ -2273,7 +2276,7 @@ fn run_native(ctx: &Context, run: &Value, step: &Value) -> GenResult<Value> {
                     }
                 };
                 let cues: Vec<String> = script
-                    .split(|c| c == '.' || c == '!' || c == '?' || c == '\n')
+                    .split(['.', '!', '?', '\n'])
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty())
                     .collect();
@@ -2700,7 +2703,7 @@ fn step_settle(ctx: &Context, input: &Value) -> GenResult<Value> {
                     if assets.is_empty()
                         && !s["produces"]
                             .as_str()
-                            .map_or(true, |p| p == "data" || p == "text")
+                            .is_none_or(|p| p == "data" || p == "text")
                     {
                         return Err(invalid(format!(
                             "step {step_id} produced no assets to settle as succeeded"
@@ -2715,7 +2718,7 @@ fn step_settle(ctx: &Context, input: &Value) -> GenResult<Value> {
                     };
                     let mut clean_assets = Vec::new();
                     for a in assets {
-                        let kind = clean(a.get("kind").or_else(|| a.get("media")).into());
+                        let kind = clean(a.get("kind").or_else(|| a.get("media")));
                         if !want.is_empty() && !kind.is_empty() && kind != want {
                             return Err(invalid(format!(
                                 "step {step_id} expects {want} output, got {kind}"
@@ -2924,7 +2927,7 @@ fn step_status(ctx: &Context, input: &Value) -> GenResult<Value> {
         refresh(run);
         // The report is read again after refresh so a settled step shows its final status.
         for r in reports.iter_mut() {
-            if let Some(s) = run_step(&run, r["step_id"].as_str().unwrap_or("")) {
+            if let Some(s) = run_step(run, r["step_id"].as_str().unwrap_or("")) {
                 r["status"] = s["status"].clone();
             }
         }
@@ -2963,7 +2966,7 @@ fn step_cancel(ctx: &Context, input: &Value) -> GenResult<Value> {
         accrue_spend(run);
         refresh(run);
         Ok(json!({
-            "step_id": step_id, "status": run_step(&run, &step_id).map(|s| s["status"].clone()).unwrap_or(Value::Null),
+            "step_id": step_id, "status": run_step(run, &step_id).map(|s| s["status"].clone()).unwrap_or(Value::Null),
             "cancelled_job_ids": c.cancelled, "held_job_ids": c.held, "still_live_job_ids": c.still_live,
             "kept_segments": c.kept_segments, "run": run,
         }))

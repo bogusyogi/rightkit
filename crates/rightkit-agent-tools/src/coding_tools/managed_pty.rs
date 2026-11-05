@@ -124,7 +124,7 @@ fn spawn_portable(
         .take_writer()
         .map_err(|_| EffectExecutionError::SpawnFailed)?;
 
-    let mut child = pair
+    let child = pair
         .slave
         .spawn_command(command)
         .map_err(|_| EffectExecutionError::SpawnFailed)?;

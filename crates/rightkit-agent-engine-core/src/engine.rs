@@ -48,9 +48,8 @@ use rightkit_agent_engine_runtime_middleware::{
     RuntimeObservation, RuntimeSpan,
 };
 use rightkit_agent_policy::{
-    parse_capability, AutoApprovalCache, AutoApprovalClassifier, AutoApprovalContext,
-    AutoApprovalTier, PermissionDecision, PermissionEngine, PermissionMode, PermissionVerdict,
-    RuleSource, RuleStore, ToolCallFeatures, WorkspaceTrust,
+    parse_capability, PermissionDecision, PermissionEngine, PermissionMode, PermissionVerdict,
+    RuleSource, RuleStore, WorkspaceTrust,
 };
 use rightkit_agent_tools::coding_tools::{
     SubagentSpawner, SubagentSupervisor, ToolContext, ToolRegistry, WebSearchConfig,
@@ -72,6 +71,7 @@ fn canonical_rule_revision(rules: &RuleStore) -> String {
                 format!("{:?}", rule.source),
                 format!("{:?}", rule.effect),
                 rule.pattern,
+                rule.literal,
             ]))
         })
         .collect::<Vec<_>>();
@@ -285,6 +285,9 @@ pub struct SessionEngine {
     permission_mode: PermissionMode,
     workspace_trust: WorkspaceTrust,
     workspace_root: std::path::PathBuf,
+    /// The host guarantees shell commands run under an enforcing OS sandbox (or not at all):
+    /// AutoSafe then treats interpreters and test runners as routine. Set by the daemon.
+    os_sandbox_enforced: bool,
     /// Session-latched highest-risk source that can influence a subsequent
     /// model-authored durable write. Kept outside the compacted transcript so
     /// summarization cannot launder provenance.
@@ -508,14 +511,13 @@ pub struct SessionEngine {
     /// invariant across turns on the same day. Tests inject a fixed day via
     /// `SessionEngineConfig::day_key` to keep test paths clock-free.
     pub day_key: String,
-    /// Per-tool-call-signature graduated stall guardrail
-    /// (FEATURE-MATRIX par §#120). Mirrors Hermes's
-    /// `ToolCallGuardrailController` with two tiers —
-    /// `(tool_name, normalized_args_hash)` and `tool_name` alone — and a
-    /// `Allow < Warn < Skip < Block` ladder. The existing flat
-    /// `MAX_NO_PROGRESS=3` global counter stays as a separate safety net;
-    /// both paths can independently close a goal as blocked.
+    /// Cross-iteration `repeated_call` counter (sessions rule 32): the fourth
+    /// identical tool call in a row is an Ask. The flat `MAX_NO_PROGRESS=3`
+    /// global counter stays as a separate goal-level safety net.
     pub stall_guardrail: crate::engine::stall_guardrail::StallGuardrail,
+    /// Call ids the counter flagged as the fourth-or-later identical call in a
+    /// row; the permission path turns each into an Ask and removes it.
+    pub repeated_call_ids: std::collections::HashSet<String>,
     /// Context folding store for archiving sub-trajectories. When enabled,
     /// fold(subtask_id, summary) replaces sub-trajectory messages with the
     /// outcome summary; full sub-trajectory archived to disk for on-demand retrieval.
@@ -563,10 +565,6 @@ pub struct SessionEngine {
     abac_pdp: Option<Arc<rightkit_agent_policy::PolicyDecisionPoint>>,
     /// Effective deny-glob lists (defaults + configured); `None` = defaults.
     deny_globs: Option<Arc<rightkit_agent_policy::DenyGlobSet>>,
-    /// Adaptive Ask→Allow cache (FM-029, Goose discipline: negative-only, 10 min TTL).
-    /// Score >0.5 caches Allow for (tool,normalized_args); uncertainty → Ask.
-    auto_approval_classifier: AutoApprovalClassifier,
-    auto_approval_cache: Arc<Mutex<AutoApprovalCache>>,
     /// Read-time wire projection (P2-2 / mechanism 10). Borrows canonical
     /// history and returns the owned, possibly-elided payload that actually
     /// goes to the provider; canonical history is never mutated. Defaults to
@@ -970,17 +968,9 @@ impl SessionEngine {
         self.abac_pdp.clone()
     }
 
-    // --- Auto-approval adaptive cache (FM-029) ---
-
-    pub fn set_auto_approval_classifier(&mut self, clf: AutoApprovalClassifier) {
-        self.auto_approval_classifier = clf;
-    }
-
-    pub(crate) fn auto_approval_cache(&self) -> Arc<Mutex<AutoApprovalCache>> {
-        self.auto_approval_cache.clone()
-    }
-
-    pub(crate) fn auto_approval_capability_for(
+    /// The capability class of a call: the tool's declared class, else name inference only when
+    /// the tool declares none. A renamed or newly added tool is never mis-gated by the name table.
+    pub(crate) fn capability_for_call(
         &self,
         call: &ToolCall,
     ) -> rightkit_agent_policy::CapabilityClass {
@@ -993,150 +983,6 @@ impl SessionEngine {
                     .or_else(|| tool.capability_class())
             })
             .unwrap_or_else(|| parse_capability(Some(&call.name)))
-    }
-
-    /// Check context-bound adaptive cache entry. Prunes expired entries.
-    pub(crate) fn is_auto_approved_cached(
-        &self,
-        features: &ToolCallFeatures,
-        args_json: &str,
-        context: &AutoApprovalContext,
-    ) -> bool {
-        let mut cache = self
-            .auto_approval_cache
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        cache.prune_expired();
-        cache.contains_call(features, args_json, context)
-    }
-
-    /// Insert context-bound adaptive cache entry for 10 min.
-    pub(crate) fn cache_auto_approval(
-        &self,
-        features: &ToolCallFeatures,
-        args_json: &str,
-        context: &AutoApprovalContext,
-    ) -> bool {
-        let mut cache = self
-            .auto_approval_cache
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        // Use live classifier state at the insertion seam. The classifier is
-        // trainable; rebuilding defaults here could cache a call that the
-        // current model no longer considers a confident AutoEdit.
-        cache.insert_classified_call(&self.auto_approval_classifier, features, args_json, context)
-    }
-
-    /// Cache a classifier-positive permission only after all dispatch gates
-    /// have resolved positively. Context absence remains fail-closed.
-    pub(crate) fn cache_auto_approval_after_positive_resolution(&self, call: &ToolCall) -> bool {
-        let capability = self.auto_approval_capability_for(call);
-        let features = self.auto_approval_features_for(call, capability);
-        if self.auto_approval_classifier.classify(&features) != AutoApprovalTier::AutoEdit {
-            return false;
-        }
-        let Some(context) = self.auto_approval_context_for(capability) else {
-            return false;
-        };
-        let inserted = self.cache_auto_approval(&features, &call.arguments_json, &context);
-        if inserted {
-            tracing::info!(
-                tool = %call.name,
-                "auto-approval: cached after positive permission resolution"
-            );
-        }
-        inserted
-    }
-
-    /// Extract classifier features from current call facts, including resolved
-    /// capability and lexical workspace containment.
-    pub(crate) fn auto_approval_features_for(
-        &self,
-        call: &ToolCall,
-        capability: rightkit_agent_policy::CapabilityClass,
-    ) -> ToolCallFeatures {
-        let path_arg = extract_path_arg(&call.arguments_json);
-        let command_arg = extract_command_arg(&call.arguments_json);
-        let is_destructive = matches!(
-            capability,
-            rightkit_agent_policy::CapabilityClass::Destructive
-        ) || command_arg
-            .as_deref()
-            .map(|command| rightkit_agent_policy::catastrophic_reason(command).is_some())
-            .unwrap_or(false);
-        let command_len = command_arg
-            .as_deref()
-            .map(str::len)
-            .unwrap_or_else(|| call.arguments_json.len());
-        let touches_outside_workspace = path_arg.as_deref().is_some_and(|path| {
-            std::path::Path::new(path).is_absolute()
-                && !std::path::Path::new(path).starts_with(&self.workspace_root)
-        });
-
-        ToolCallFeatures::new(&call.name)
-            .with_outside_workspace(touches_outside_workspace)
-            .with_destructive(is_destructive)
-            .with_command_len(command_len)
-            .with_test_file(
-                path_arg
-                    .as_deref()
-                    .is_some_and(rightkit_agent_policy::is_test_file),
-            )
-            .with_workspace_trust(self.workspace_trust)
-    }
-
-    /// Build cache authority context from live session, workspace, policy,
-    /// and rule facts. Missing workspace identity or opaque PDP revision fails
-    /// closed so callers skip cache reuse and insertion.
-    pub(crate) fn auto_approval_context_for(
-        &self,
-        capability: rightkit_agent_policy::CapabilityClass,
-    ) -> Option<AutoApprovalContext> {
-        if self.session_id.trim().is_empty() {
-            return None;
-        }
-        let workspace_identity = std::fs::canonicalize(&self.workspace_root)
-            .ok()?
-            .to_str()?
-            .trim()
-            .to_string();
-        if workspace_identity.is_empty() {
-            return None;
-        }
-
-        // PDP rules are opaque here and expose no revision. Do not bind a
-        // guessed constant to cache entries when an external policy is live.
-        if self.abac_pdp.is_some() {
-            return None;
-        }
-
-        let rules_revision = match &self.permission_rules {
-            Some(rules) => {
-                let guard = rules.lock().unwrap_or_else(|e| e.into_inner());
-                canonical_rule_revision(&guard)
-            }
-            None => canonical_json(serde_json::json!(["rules-v1", "none"])),
-        };
-        let policy_revision = canonical_json(serde_json::json!([
-            "policy-v1",
-            format!("{:?}", self.permission_mode),
-            format!("{:?}", self.workspace_trust),
-            format!("{:?}", capability),
-        ]));
-        let permission_context = canonical_json(serde_json::json!([
-            "permission-v1",
-            self.session_id.as_str(),
-            format!("{:?}", self.permission_mode),
-            format!("{:?}", self.workspace_trust),
-            workspace_identity.as_str(),
-        ]));
-
-        Some(AutoApprovalContext::new(
-            policy_revision,
-            rules_revision,
-            workspace_identity,
-            permission_context,
-        ))
     }
 
     /// Await a durable origin write for `call`. Returns the seam's typed
@@ -1256,6 +1102,7 @@ impl SessionEngine {
             permission_mode: config.permission_mode,
             workspace_trust: config.workspace_trust,
             workspace_root,
+            os_sandbox_enforced: false,
             content_provenance: rightkit_agent_policy::ContentProvenance::session(),
             iteration_budget: IterationBudget::new(config.max_iterations),
             auto_post_edit_diagnostics: config.auto_post_edit_diagnostics,
@@ -1355,9 +1202,9 @@ impl SessionEngine {
             self_review_fork: global_self_review_fork(),
             turns_since_self_review: 0,
             self_review_turn_interval: crate::self_review::DEFAULT_SELF_REVIEW_TURN_INTERVAL,
-            // Per-tool-signature stall guardrail (Hermes pattern,
-            // FEATURE-MATRIX par §#120). Engine resets it on progress.
+            // `repeated_call` counter; the engine resets it on progress.
             stall_guardrail: crate::engine::stall_guardrail::StallGuardrail::default(),
+            repeated_call_ids: std::collections::HashSet::new(),
             // Empty config.day_key → fill from the wall clock here (the only
             // site that does so). Tests pre-set `cfg.day_key` to avoid this.
             day_key: if config.day_key.is_empty() {
@@ -1393,8 +1240,6 @@ impl SessionEngine {
             denial_tracker: config.denial_tracker,
             abac_pdp: config.abac_pdp,
             deny_globs: config.deny_globs,
-            auto_approval_classifier: AutoApprovalClassifier::new(),
-            auto_approval_cache: Arc::new(Mutex::new(AutoApprovalCache::new())),
             wire_projection: std::sync::Arc::new(crate::compaction_archive::IdentityProjection),
             internal_composition_call_ids: std::collections::HashSet::new(),
             #[cfg(feature = "host")]
@@ -1450,6 +1295,11 @@ impl SessionEngine {
     /// mutated by any projection; the payload sent to the provider is a
     /// projection over it. The daemon installs the rolling-decay projection
     /// (P2-2); tests and the default keep the identity projection.
+    /// Declare that this host runs every shell command under an enforcing OS sandbox.
+    pub fn set_os_sandbox_enforced(&mut self, enforced: bool) {
+        self.os_sandbox_enforced = enforced;
+    }
+
     pub fn set_wire_projection(
         &mut self,
         projection: std::sync::Arc<dyn crate::compaction_archive::WireProjection>,

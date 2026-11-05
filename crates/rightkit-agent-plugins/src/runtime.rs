@@ -103,11 +103,14 @@ pub async fn run_plugin_entry_with_policy_and_adapter(
         cwd: plugin_root.display().to_string(),
         context: rightkit_sandbox::execution::ProcessLaunchContext {
             workspace_root: plugin_root.display().to_string(),
-            sandbox_profile: Some("plugin".into()),
+            sandbox_profile: Some(rightkit_sandbox::execution::PLUGIN_SANDBOX_PROFILE.into()),
             sandbox_required: true,
-            network_required: effective_policy.strip_network_env,
+            // Network stays available only when the policy does not strip it.
+            network_required: !effective_policy.strip_network_env,
         },
-        env: Vec::new(),
+        // The complete environment the plugin sees. The launcher starts a `plugin` profile
+        // child from an empty environment (contract R6), so nothing else reaches it.
+        env: plugin_environment(plugin_root, &invocation, &effective_policy),
     };
     let mut child = adapter
         .spawn(spec)
@@ -281,6 +284,118 @@ fn resolve_on_path(name: &str) -> Option<String> {
         .map(|dir| dir.join(name))
         .find(|candidate| candidate.is_file())
         .map(|candidate| candidate.display().to_string())
+}
+
+/// The complete environment a plugin process starts with (contract R6). `inheritEnv=false`
+/// gives it only the minimal platform variables plus `allowedEnv`; `deniedEnv` is removed in
+/// every case; `stripNetworkEnv` removes the proxy, certificate and cloud-credential variables.
+fn plugin_environment(
+    plugin_root: &Path,
+    invocation: &PluginInvocation,
+    policy: &PluginSandboxPolicy,
+) -> Vec<(String, String)> {
+    let mut env: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    if policy.inherit_env {
+        for (key, value) in std::env::vars_os() {
+            if let (Some(key), Some(value)) = (key.to_str(), value.to_str()) {
+                env.insert(key.to_string(), value.to_string());
+            }
+        }
+    } else {
+        for key in minimal_env_keys() {
+            if let Ok(value) = std::env::var(key) {
+                env.insert((*key).to_string(), value);
+            }
+        }
+        for key in &policy.allowed_env {
+            if let Ok(value) = std::env::var(key) {
+                env.insert(key.clone(), value);
+            }
+        }
+    }
+    for key in &policy.denied_env {
+        env.remove(key);
+    }
+    if policy.strip_network_env {
+        for key in network_env_keys() {
+            env.remove(&key);
+        }
+        env.insert("RIGHTKIT_PLUGIN_NETWORK".into(), "disabled".into());
+    }
+    env.insert(
+        "RIGHTKIT_PLUGIN_ROOT".into(),
+        plugin_root.display().to_string(),
+    );
+    env.insert(
+        "RIGHTKIT_WORKSPACE_ROOT".into(),
+        invocation.workspace_root.display().to_string(),
+    );
+    env.insert(
+        "RIGHTKIT_PLUGIN_ENV_INHERITED".into(),
+        if policy.inherit_env { "true" } else { "false" }.into(),
+    );
+    env.into_iter().collect()
+}
+
+fn minimal_env_keys() -> &'static [&'static str] {
+    if cfg!(windows) {
+        &[
+            "PATH",
+            "Path",
+            "PATHEXT",
+            "SYSTEMROOT",
+            "SystemRoot",
+            "WINDIR",
+            "TEMP",
+            "TMP",
+            "USERPROFILE",
+            "LOCALAPPDATA",
+            "APPDATA",
+            "PYTHON",
+            "NODE_OPTIONS",
+        ]
+    } else {
+        &[
+            "PATH",
+            "HOME",
+            "TMPDIR",
+            "TEMP",
+            "PYTHON",
+            "NODE_OPTIONS",
+            "LANG",
+            "LC_ALL",
+        ]
+    }
+}
+
+fn network_env_keys() -> Vec<String> {
+    let base = [
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "no_proxy",
+        "REQUESTS_CA_BUNDLE",
+        "SSL_CERT_FILE",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "GITHUB_TOKEN",
+        "GH_TOKEN",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "OPENROUTER_API_KEY",
+        "GOOGLE_API_KEY",
+    ];
+    let mut keys = HashSet::new();
+    for key in base {
+        keys.insert(key.to_string());
+        keys.insert(key.to_ascii_lowercase());
+    }
+    keys.into_iter().collect()
 }
 
 fn parse_plugin_output(stdout: &str) -> PluginInvocationResult {

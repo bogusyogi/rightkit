@@ -174,16 +174,6 @@ fn retry_ledger() -> &'static std::sync::Mutex<std::collections::HashMap<String,
     LEDGER.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-/// Observe the pending retry without clearing it. Eligibility must survive a
-/// failed archive/storage commit; successful durable commit clears it.
-pub(crate) fn take_pending_retry(session_id: &str) -> Option<PendingRetry> {
-    retry_ledger()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .get(session_id)
-        .cloned()
-}
-
 pub(crate) fn pending_retry_exists(session_id: &str) -> bool {
     retry_ledger()
         .lock()

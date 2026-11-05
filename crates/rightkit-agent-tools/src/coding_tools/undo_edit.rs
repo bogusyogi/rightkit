@@ -114,7 +114,7 @@ impl Tool for UndoEditTool {
             }
         }
 
-        let store = HistoryStore::new(&ctx.workspace_root, ".rightkit");
+        let store = HistoryStore::new(&ctx.workspace_root, ".rightkit", &ctx.session_id);
         match store.peek_latest(&path) {
             Err(e) => ToolResult::error(format!(
                 "Failed to access history for '{}': {}",

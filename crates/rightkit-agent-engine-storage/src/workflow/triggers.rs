@@ -60,7 +60,7 @@ impl<'a> WorkflowTriggerWriter<'a> {
             ));
         }
         let result = (|| -> Result<TriggerAdmissionOutcome> {
-            let tx = rightkit_db::write_txn_unchecked(&self.conn)?;
+            let tx = rightkit_db::write_txn_unchecked(self.conn)?;
             if let Some((event_id, occurrence_id, run_id)) = tx.query_row(
             "SELECT a.trigger_event_id,a.occurrence_id,a.run_id FROM workflow_trigger_admissions a JOIN workflow_trigger_events e ON e.id=a.trigger_event_id WHERE e.source=?1 AND e.dedupe_key=?2",
             params![envelope.event.source,envelope.event.dedupe_key], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,Option<String>>(2)?)),
@@ -253,7 +253,7 @@ impl<'a> WorkflowTriggerWriter<'a> {
                 trigger_advanced,
             });
         }
-        let tx = rightkit_db::write_txn_unchecked(&self.conn)?;
+        let tx = rightkit_db::write_txn_unchecked(self.conn)?;
         if let Some((expected, next, updated_at)) = schedule {
             let changed = tx.execute(
                 "UPDATE workflow_triggers SET next_fire_at_unix_ms=?1,revision=revision+1,updated_at=?2 WHERE id=?3 AND enabled=1 AND kind='cron' AND next_fire_at_unix_ms=?4",

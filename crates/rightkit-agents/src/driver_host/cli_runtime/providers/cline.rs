@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 
 use crate::driver_host::cli_runtime::adapter::{
     CliAdapterError, CliAuthenticationStatus, CliDiscovery, CliLaunchRequest, CliLaunchSpec,
-    CliModelCatalog, CliProviderAdapter, NativeLoginUi,
+    CliModelCatalog, CliProviderAdapter,
 };
 use crate::driver_host::cli_runtime::ids::{
     CliAccountProfile, CliProviderCapabilities, CliProviderId, CliTransportKind,
@@ -162,67 +162,6 @@ impl CliProviderAdapter for ClineAdapter {
             ),
             observed_at: now_iso(),
         })
-    }
-
-    async fn begin_native_login(
-        &self,
-        profile: &CliAccountProfile,
-        _ui: &dyn NativeLoginUi,
-    ) -> Result<(), CliAdapterError> {
-        let executable = locate_binary().ok_or_else(|| {
-            CliAdapterError::new(
-                self.provider_id.clone(),
-                "cline_binary_not_found",
-                "no `cline` binary on PATH",
-            )
-        })?;
-        // `cline --data-dir <managed_home> login` blocks until the
-        // user completes the browser/device flow. The transport
-        // surfaces the browser URL via [`NativeLoginUi`] before we
-        // wait on the subprocess; the adapter itself only spawns the
-        // command and reports its exit code.
-        let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
-        let context = rightkit_sandbox::execution::ProcessLaunchContext {
-            workspace_root: profile.managed_home.to_string_lossy().into_owned(),
-            sandbox_profile: Some("cline-login".into()),
-            sandbox_required: true,
-            network_required: true,
-        };
-        let spec = rightkit_sandbox::execution::CommandLaunchSpec {
-            program: executable.to_string_lossy().into_owned(),
-            argv: vec![
-                "--data-dir".into(),
-                profile.managed_home.to_string_lossy().into_owned(),
-                "login".into(),
-            ],
-            cwd: context.workspace_root.clone(),
-            context,
-            env: Vec::new(),
-        };
-        let mut child = rightkit_sandbox::execution::ProcessLaunchAdapter::spawn(&adapter, spec)
-            .await
-            .map_err(|error| {
-                CliAdapterError::new(
-                    self.provider_id.clone(),
-                    "cline_login_spawn",
-                    format!("failed to spawn `cline login` under policy: {error:?}"),
-                )
-            })?;
-        let status = child.wait().await.map_err(|error| {
-            CliAdapterError::new(
-                self.provider_id.clone(),
-                "cline_login_wait",
-                format!("login wait failed: {error:?}"),
-            )
-        })?;
-        if status != 0 {
-            return Err(CliAdapterError::new(
-                self.provider_id.clone(),
-                "cline_login_failed",
-                format!("`cline login` exited non-zero: {status}"),
-            ));
-        }
-        Ok(())
     }
 
     async fn list_models(
@@ -595,10 +534,6 @@ fn fingerprint_from_output(output: &str) -> String {
         .take(16)
         .collect()
 }
-
-/// Cheap UTC ISO timestamp suitable for `observed_at` /
-/// `fetched_at`. Matches the `YYYY-MM-DDTHH:MM:SSZ` shape the daemon
-/// uses elsewhere so SQL string comparisons remain correct.
 
 /// Reject every BYOK-shaped field on the launch request. A
 /// `--key` flag, a non-Cline provider hint, or any other BYOK-shaped

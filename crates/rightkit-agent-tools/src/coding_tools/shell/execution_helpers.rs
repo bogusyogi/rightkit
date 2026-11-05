@@ -52,10 +52,16 @@ impl rightkit_sandbox::execution::ManagedChild for LinuxManagedChild {
             .map_err(|_| rightkit_sandbox::execution::EffectExecutionError::Internal)
     }
     async fn cancel(&mut self) -> Result<(), rightkit_sandbox::execution::EffectExecutionError> {
-        self.child
-            .kill()
-            .await
-            .map_err(|_| rightkit_sandbox::execution::EffectExecutionError::KillFailed)
+        // The child leads its own session: stop the whole tree, not only the
+        // root, so a `sh -c '...; sleep'` leaves no orphan holding the pipes.
+        rightkit_child_process::tokio_support::terminate_tree(
+            &mut self.child,
+            rightkit_child_process::TerminationOptions::default()
+                .with_grace(std::time::Duration::from_secs(2)),
+        )
+        .await
+        .map(|_| ())
+        .map_err(|_| rightkit_sandbox::execution::EffectExecutionError::KillFailed)
     }
 }
 
@@ -72,11 +78,22 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
         let mut command = rightkit_child_process::tokio_support::command(&spec.program);
         command
             .args(&spec.argv)
-            .current_dir(&spec.context.workspace_root)
+            // The launch's own working directory; the sandbox still confines
+            // to the workspace root.
+            .current_dir(if spec.cwd.trim().is_empty() {
+                &spec.context.workspace_root
+            } else {
+                &spec.cwd
+            })
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
-        command.envs(spec.env);
+        if spec.starts_from_empty_env() {
+            command.env_clear();
+        }
+        command.envs(spec.env.clone());
+        // Own session, so cancel can stop the whole tree (see `cancel`).
+        rightkit_child_process::tokio_support::lead_session(&mut command);
         let mut enforced = false;
         let mut network_enforced = false;
         if spec.context.sandbox_required {
@@ -96,6 +113,10 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
                 crate::coding_tools::shell::local_sandbox_config(&root)
             };
             network_enforced = config.network_denied;
+            // The launched program must be readable and executable (see process_launch).
+            let config = crate::coding_tools::process_launch::program_dirs(&spec)
+                .into_iter()
+                .fold(config, |config, dir| config.allow_read(dir));
             // RightKit prepares the confinement in the parent; a failure is a
             // refused launch, never an unconfined one.
             config
@@ -318,10 +339,16 @@ impl rightkit_sandbox::execution::ManagedChild for MacManagedChild {
             .map_err(|_| rightkit_sandbox::execution::EffectExecutionError::Internal)
     }
     async fn cancel(&mut self) -> Result<(), rightkit_sandbox::execution::EffectExecutionError> {
-        self.child
-            .kill()
-            .await
-            .map_err(|_| rightkit_sandbox::execution::EffectExecutionError::KillFailed)
+        // The child leads its own session: stop the whole tree, not only the
+        // root, so a `sh -c '...; sleep'` leaves no orphan holding the pipes.
+        rightkit_child_process::tokio_support::terminate_tree(
+            &mut self.child,
+            rightkit_child_process::TerminationOptions::default()
+                .with_grace(std::time::Duration::from_secs(2)),
+        )
+        .await
+        .map(|_| ())
+        .map_err(|_| rightkit_sandbox::execution::EffectExecutionError::KillFailed)
     }
 }
 
@@ -363,11 +390,20 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
         let mut command = rightkit_child_process::tokio_support::command(program);
         command
             .args(argv)
-            .current_dir(root)
+            .current_dir(if spec.cwd.trim().is_empty() {
+                root
+            } else {
+                std::path::PathBuf::from(&spec.cwd)
+            })
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
-        command.envs(spec.env);
+        if spec.starts_from_empty_env() {
+            command.env_clear();
+        }
+        command.envs(spec.env.clone());
+        // Own session, so cancel can stop the whole tree (see `cancel`).
+        rightkit_child_process::tokio_support::lead_session(&mut command);
         command
             .spawn()
             .map(|child| {
@@ -1027,6 +1063,17 @@ pub(crate) fn sandbox_disabled_for_workspace(workspace_root: &Path) -> bool {
     sandbox_tier_for_workspace(workspace_root).is_disabled()
 }
 
+/// Whether every shell command in `workspace_root` runs under an enforcing OS sandbox: the
+/// tier is not disabled on a platform with a sandbox backend. The shell refuses to run when
+/// the sandbox cannot start, so `true` means "confined or not run at all".
+pub fn os_sandbox_enforced(workspace_root: &Path) -> bool {
+    cfg!(any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows"
+    )) && !sandbox_disabled_for_workspace(workspace_root)
+}
+
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) fn local_sandbox_config(workspace_root: &Path) -> SandboxConfig {
     local_sandbox_config_for_tier(workspace_root, sandbox_tier_for_workspace(workspace_root))
@@ -1036,6 +1083,51 @@ pub(crate) fn local_sandbox_config_for_tier(
     workspace_root: &Path,
     tier: crate::coding_tools::sandbox::SandboxTier,
 ) -> SandboxConfig {
+    local_sandbox_config_with_home(
+        workspace_root,
+        tier,
+        std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .as_deref(),
+    )
+}
+
+/// Character devices a confined child may open for writing. Each is a device node, so a write grant
+/// reaches no file. `/dev/tty` is deliberately absent: confined shells run in their own session
+/// with no controlling terminal, and a terminal grant would let a child write escape sequences
+/// to the operator's terminal.
+#[cfg(target_os = "linux")]
+const LINUX_WRITE_DEVICES: &[&str] = &["/dev/null", "/dev/zero", "/dev/full"];
+#[cfg(target_os = "linux")]
+const LINUX_READ_DEVICES: &[&str] = &["/dev/urandom", "/dev/random"];
+/// System files a confined child may read. Specific files only: `/etc`, `/proc` and `/sys` stay closed.
+#[cfg(target_os = "linux")]
+const LINUX_SYSTEM_READ_FILES: &[&str] = &[
+    "/etc/gitconfig",
+    "/etc/alternatives",
+    "/etc/ld.so.cache",
+    "/etc/passwd",
+    "/etc/group",
+    "/etc/nsswitch.conf",
+    "/etc/hosts",
+    "/etc/resolv.conf",
+    "/etc/localtime",
+];
+/// Per-user git settings, read file by file. Never the `~/.config/git` directory: git keeps its
+/// `credentials` store there, and `~/.git-credentials` is never granted.
+#[cfg(target_os = "linux")]
+const LINUX_HOME_READ_FILES: &[&str] = &[
+    ".gitconfig",
+    ".config/git/config",
+    ".config/git/ignore",
+    ".config/git/attributes",
+];
+
+pub(crate) fn local_sandbox_config_with_home(
+    workspace_root: &Path,
+    tier: crate::coding_tools::sandbox::SandboxTier,
+    home: Option<&Path>,
+) -> SandboxConfig {
     let config = SandboxConfig::new()
         .allow_read(workspace_root)
         .allow_write(workspace_root)
@@ -1044,6 +1136,30 @@ pub(crate) fn local_sandbox_config_for_tier(
         .allow_read("/lib64")
         .allow_read("/bin")
         .allow_read("/etc/ssl");
+    // Linux Landlock denies everything it does not list, and git, ssh and most shells open
+    // `/dev/null` read-write. Git treats an unreadable config file as fatal (EACCES, not
+    // "missing"), and tools resolve users, hosts and alternatives through the `/etc` files.
+    #[cfg(target_os = "linux")]
+    let config = {
+        let config = LINUX_WRITE_DEVICES
+            .iter()
+            .fold(config, |config, device| config.allow_write(*device));
+        let config = LINUX_READ_DEVICES
+            .iter()
+            .fold(config, |config, device| config.allow_read(*device));
+        let config = LINUX_SYSTEM_READ_FILES
+            .iter()
+            .fold(config, |config, file| config.allow_read(*file));
+        home.into_iter()
+            .flat_map(|home| {
+                LINUX_HOME_READ_FILES
+                    .iter()
+                    .map(move |file| home.join(file))
+            })
+            .fold(config, |config, path| config.allow_read(path))
+    };
+    #[cfg(not(target_os = "linux"))]
+    let _ = home;
     match tier {
         crate::coding_tools::sandbox::SandboxTier::Strict => config.with_seccomp().deny_network(),
         _ => config,

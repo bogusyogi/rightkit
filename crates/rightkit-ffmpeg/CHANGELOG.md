@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Feature `agent_media`: the `transcribe` tool (`MediaToolKind::Transcribe`) is removed.
+
 ## 0.3.0 (unpublished)
 
 - Removed (breaking, rightkit#1505): the optional `rightkit-ocr` dependency of the `agent_media` feature. RightKit is one Cargo workspace with one lock (GATE-CONTRACT GC-T24) and cargo refuses the circle ffmpeg, ocr, onnx. `agent_media::set_ocr_provider` registers the in-process OCR function; without one, the `ocr_onnx` tool returns an error. rightkit-agent-tools registers rightkit-ocr's native backend.

@@ -552,6 +552,10 @@ pub trait CommandSandboxAdapter: Send + Sync {
     ) -> Result<PreparedProcessLaunch, EffectExecutionError>;
 }
 
+/// Sandbox profile name of plugin subprocesses. A child launched under it starts from an empty
+/// environment: `CommandLaunchSpec::env` is the whole environment, not an overlay on the daemon's.
+pub const PLUGIN_SANDBOX_PROFILE: &str = "plugin";
+
 /// Complete child-launch input used by daemon-owned process producers.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommandLaunchSpec {
@@ -562,6 +566,13 @@ pub struct CommandLaunchSpec {
     /// Environment passed to child process, kept in launch contract so
     /// policy adapters remain the sole process-creation boundary.
     pub env: Vec<(String, String)>,
+}
+
+impl CommandLaunchSpec {
+    /// True when the child must start from an empty environment and see only `env`.
+    pub fn starts_from_empty_env(&self) -> bool {
+        self.context.sandbox_profile.as_deref() == Some(PLUGIN_SANDBOX_PROFILE)
+    }
 }
 
 /// Initial/current PTY dimensions. This is deliberately only kernel PTY state:

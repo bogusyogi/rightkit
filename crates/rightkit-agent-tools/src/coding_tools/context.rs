@@ -583,10 +583,6 @@ pub struct ToolContext {
     /// Session-start Fly.io credential; `crate::coding_tools::context::flyio_credential`
     /// supersedes it after a mid-session refresh.
     pub flyio_config: Option<crate::coding_tools::flyio::FlyioConfig>,
-    /// Client-owned browser surface (ENG-98). Present only where a host
-    /// actually provides one; absent means the browser-control tools refuse.
-    pub client_browser_relay:
-        Option<std::sync::Arc<dyn crate::coding_tools::browser_control::ClientBrowserRelay>>,
     /// Optional sub-agent spawner (only present when the orchestration layer is wired in).
     pub spawner: Option<Arc<dyn SubagentSpawner>>,
     /// Optional live supervisor for typed child wait & subtree interruption.
@@ -675,7 +671,6 @@ impl ToolContext {
             cloudflare_config: None,
             cloud_endpoint_config: None,
             flyio_config: None,
-            client_browser_relay: None,
             spawner: None,
             subagent_supervisor: None,
             questioner: None,

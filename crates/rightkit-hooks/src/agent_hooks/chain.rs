@@ -21,12 +21,20 @@ use std::time::Duration;
 pub const DEFAULT_HOOK_TIMEOUT: Duration = Duration::from_secs(30);
 /// Upper bound accepted from configuration.
 pub const MAX_HOOK_TIMEOUT_SECS: u64 = 600;
-/// Env var holding the multi-hook configuration JSON.
+/// Env var holding the multi-hook configuration JSON (the JSON form of rule 58). The other
+/// two surfaces are the `[hooks]` config key and the project hook file; there is no per-event
+/// environment variable.
 pub const HOOKS_JSON_ENV: &str = "RIGHTKIT_HOOKS_JSON";
-/// Legacy single-command env var for `PreToolUse`; runs first in the chain.
-pub const LEGACY_PRE_TOOL_USE_ENV: &str = "RIGHTKIT_HOOK_PRE_TOOL_USE";
 
-/// Every event name in the supported taxonomy.
+/// Project hook file, relative to the workspace root. Read only in a trusted workspace (rules 13
+/// and 58).
+pub const PROJECT_HOOK_FILE: &str = ".rightkit/hooks.json";
+
+/// Every event name in the supported taxonomy (rule 58, parity list Q44): Claude Code's events
+/// including the permission-request and tool-failure events, and the Codex events this crate
+/// lacked (`PreModelRequest`, `PostModelRequest`, `PostCompact`, `SubagentStart`, `Interrupt`).
+/// The first nine are the events published on the bus as `HookEvent` variants, in that order;
+/// `PreCommit` is the auditor gate that runs outside the bus enum.
 pub const HOOK_EVENT_NAMES: &[&str] = &[
     "PreToolUse",
     "PostToolUse",
@@ -37,6 +45,14 @@ pub const HOOK_EVENT_NAMES: &[&str] = &[
     "SessionEnd",
     "PreCompact",
     "Notification",
+    "PostToolUseFailure",
+    "PermissionRequest",
+    "PreModelRequest",
+    "PostModelRequest",
+    "PostCompact",
+    "SubagentStart",
+    "Interrupt",
+    "PreCommit",
 ];
 
 /// Whether a timeout on `event` must be treated as a deny.
@@ -192,14 +208,40 @@ fn parse_result_json(stdout: &str) -> HookResult {
     result
 }
 
-/// One configured hook command.
+/// What a configured hook does when its event fires.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HookKind {
+    /// A shell command run by the chain; it can allow, ask, deny and mutate.
+    #[default]
+    Command,
+    /// A URL POSTed the event payload by the daemon (fire-and-forget).
+    Url,
+    /// A qualified MCP tool invoked with the event payload by the daemon (fire-and-forget).
+    Mcp,
+}
+
+impl HookKind {
+    /// The `type` spelling in the configuration.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            HookKind::Command => "command",
+            HookKind::Url => "url",
+            HookKind::Mcp => "mcp",
+        }
+    }
+}
+
+/// One configured hook.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HookSpec {
     /// Tool-name matcher: absent, empty, or `*` match everything; otherwise a
     /// regex that must match the whole tool name (`Edit|Write`, `mcp__.*`).
     pub matcher: Option<String>,
+    /// The command line for [`HookKind::Command`], the URL for [`HookKind::Url`], the qualified
+    /// tool name for [`HookKind::Mcp`].
     pub command: String,
     pub timeout: Duration,
+    pub kind: HookKind,
 }
 
 impl HookSpec {
@@ -208,7 +250,13 @@ impl HookSpec {
             matcher: None,
             command: command.into(),
             timeout: DEFAULT_HOOK_TIMEOUT,
+            kind: HookKind::Command,
         }
+    }
+
+    pub fn with_kind(mut self, kind: HookKind) -> Self {
+        self.kind = kind;
+        self
     }
 
     pub fn with_matcher(mut self, matcher: impl Into<String>) -> Self {
@@ -262,10 +310,17 @@ fn spec_from_entry(entry: &Value, inherited_matcher: Option<&str>) -> Result<Hoo
             Duration::from_secs(secs.clamp(1, MAX_HOOK_TIMEOUT_SECS))
         }
     };
+    let kind = match entry.get("type").and_then(Value::as_str) {
+        None | Some("command") => HookKind::Command,
+        Some("url") => HookKind::Url,
+        Some("mcp") => HookKind::Mcp,
+        Some(other) => return Err(format!("unknown hook type `{other}` (command, url or mcp)")),
+    };
     Ok(HookSpec {
         matcher,
         command: command.to_string(),
         timeout,
+        kind,
     })
 }
 
@@ -276,13 +331,29 @@ fn spec_from_entry(entry: &Value, inherited_matcher: Option<&str>) -> Result<Hoo
 /// ```
 ///
 /// The nested Claude Code shape (`{"matcher":..,"hooks":[{"command":..}]}`) is
-/// accepted too. Order of entries is execution order.
+/// accepted too. Order of entries is execution order. An event name outside the taxonomy is an
+/// error, so a typo never silently disables a hook.
 pub fn parse_hook_specs_json(json: &str, event: &str) -> Result<Vec<HookSpec>, String> {
     let root: Value =
         serde_json::from_str(json).map_err(|error| format!("invalid hooks JSON: {error}"))?;
+    parse_hook_specs_value(&root, event)
+}
+
+/// [`parse_hook_specs_json`] for an already parsed document (the `[hooks]` config table is
+/// converted to a JSON value by the config loader).
+pub fn parse_hook_specs_value(root: &Value, event: &str) -> Result<Vec<HookSpec>, String> {
     let Some(root) = root.as_object() else {
         return Err("hooks JSON must be an object keyed by event name".into());
     };
+    if let Some(unknown) = root
+        .keys()
+        .find(|name| !HOOK_EVENT_NAMES.contains(&name.as_str()))
+    {
+        return Err(format!(
+            "unknown hook event `{unknown}` (known: {})",
+            HOOK_EVENT_NAMES.join(", ")
+        ));
+    }
     let Some(entries) = root.get(event) else {
         return Ok(Vec::new());
     };
@@ -303,19 +374,124 @@ pub fn parse_hook_specs_json(json: &str, event: &str) -> Result<Vec<HookSpec>, S
     Ok(specs)
 }
 
-/// Load the configured hooks for `event`: the legacy single-command env var
-/// (PreToolUse only) first, then `RIGHTKIT_HOOKS_JSON` entries in order.
-pub fn load_hook_specs(event: &str) -> Result<Vec<HookSpec>, String> {
-    let mut specs = Vec::new();
-    if event == "PreToolUse" {
-        if let Some(command) = crate::agent_hooks::hook_env(LEGACY_PRE_TOOL_USE_ENV) {
-            specs.push(HookSpec::new(command));
+/// Hooks from the JSON-form environment variable only (`RIGHTKIT_HOOKS_JSON`), in order. The
+/// per-event command variables no longer exist (rule 58).
+pub fn env_hook_specs(event: &str) -> Result<Vec<HookSpec>, String> {
+    match crate::agent_hooks::hook_env(HOOKS_JSON_ENV) {
+        Some(json) => parse_hook_specs_json(&json, event),
+        None => Ok(Vec::new()),
+    }
+}
+
+/// Read the project hook file of `workspace_root`. A workspace that is not `trusted` yields
+/// `Ok(None)` without touching the file (project-scoped config takes no effect until trusted,
+/// rule 13). A trusted workspace with an unreadable or invalid file yields an error: the bus then
+/// fails closed for `PreToolUse` instead of dropping the hooks.
+pub fn load_project_hook_file(
+    workspace_root: &std::path::Path,
+    trusted: bool,
+) -> Result<Option<Value>, String> {
+    if !trusted {
+        return Ok(None);
+    }
+    let path = workspace_root.join(PROJECT_HOOK_FILE);
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("cannot read {}: {error}", path.display())),
+    };
+    let value: Value = serde_json::from_str(&raw)
+        .map_err(|error| format!("invalid hooks in {}: {error}", path.display()))?;
+    // Validate every entry now so one bad entry is reported once, with the file name.
+    for event in HOOK_EVENT_NAMES {
+        parse_hook_specs_value(&value, event)
+            .map_err(|error| format!("invalid hooks in {}: {error}", path.display()))?;
+    }
+    Ok(Some(value))
+}
+
+/// Hooks handed to a [`crate::agent_hooks::HookBus`] by the host from its two file-backed surfaces: the
+/// `[hooks]` config key and the project hook file. Order of execution: config, project, then the
+/// JSON environment variable.
+#[derive(Debug, Clone, Default)]
+pub struct ConfiguredHooks {
+    config: Option<Value>,
+    project: Option<Value>,
+    /// First problem found while validating either surface; makes `PreToolUse` fail closed.
+    error: Option<String>,
+}
+
+impl ConfiguredHooks {
+    /// Validate and keep both surfaces. An invalid document is recorded as an error rather than
+    /// dropped.
+    pub fn new(config: Option<Value>, project: Option<Value>) -> Self {
+        let mut error = None;
+        for (label, doc) in [("[hooks]", &config), ("project hook file", &project)] {
+            if let Some(doc) = doc {
+                for event in HOOK_EVENT_NAMES {
+                    if let Err(problem) = parse_hook_specs_value(doc, event) {
+                        error.get_or_insert(format!("{label}: {problem}"));
+                    }
+                }
+            }
+        }
+        Self {
+            config,
+            project,
+            error,
         }
     }
-    if let Some(json) = crate::agent_hooks::hook_env(HOOKS_JSON_ENV) {
-        specs.extend(parse_hook_specs_json(&json, event)?);
+
+    /// An error carried from a surface that could not be read at all (an unreadable or invalid
+    /// project file).
+    pub fn with_error(mut self, error: String) -> Self {
+        self.error.get_or_insert(error);
+        self
     }
-    Ok(specs)
+
+    /// The validation or read error, if any.
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    /// Hooks for `event` from the config key then the project file.
+    pub fn specs(&self, event: &str) -> Result<Vec<HookSpec>, String> {
+        Ok(self
+            .specs_labelled(event)?
+            .into_iter()
+            .map(|(_, spec)| spec)
+            .collect())
+    }
+
+    /// Like [`specs`](Self::specs), each tagged with its origin (`config` or `project`).
+    pub fn specs_labelled(&self, event: &str) -> Result<Vec<(&'static str, HookSpec)>, String> {
+        if let Some(error) = &self.error {
+            return Err(error.clone());
+        }
+        let mut specs = Vec::new();
+        for (origin, doc) in [("config", &self.config), ("project", &self.project)] {
+            if let Some(doc) = doc {
+                specs.extend(
+                    parse_hook_specs_value(doc, event)?
+                        .into_iter()
+                        .map(|spec| (origin, spec)),
+                );
+            }
+        }
+        Ok(specs)
+    }
+}
+
+/// A hook command shortened for messages and stored events.
+fn hook_label(command: &str) -> String {
+    const MAX: usize = 120;
+    let command = command.trim();
+    if command.chars().count() <= MAX {
+        command.to_string()
+    } else {
+        let head: String = command.chars().take(MAX).collect();
+        format!("{head}...")
+    }
 }
 
 /// Aggregated outcome of running every matching hook for one event.
@@ -331,6 +507,10 @@ pub struct ChainReport {
     pub additional_context: Vec<String>,
     /// Non-blocking failures.
     pub errors: Vec<String>,
+    /// The subset of `errors` where a hook could not run at all (timeout or failure to start), as
+    /// opposed to running and exiting with its own non-blocking verdict. Gates that audit (a
+    /// `PreCommit` hook) block on these (rule 54).
+    pub unrunnable: Vec<String>,
     /// Number of hooks that actually ran.
     pub ran: usize,
 }
@@ -367,7 +547,11 @@ pub async fn run_chain(
     let mut current = input.cloned();
     let closed = fails_closed(event);
 
-    for spec in specs.iter().filter(|spec| spec.matches(target)) {
+    // Only command hooks run here; URL and MCP hooks are daemon sinks (fire-and-forget).
+    for spec in specs
+        .iter()
+        .filter(|spec| spec.kind == HookKind::Command && spec.matches(target))
+    {
         let mut envs: Vec<(&'static str, String)> = vec![
             ("RIGHTKIT_HOOK_EVENT", event.to_string()),
             ("RIGHTKIT_HOOK_SESSION", session_id.to_string()),
@@ -395,11 +579,22 @@ pub async fn run_chain(
                 if closed {
                     return report.deny(format!("{message} (fail closed)"));
                 }
+                report.unrunnable.push(message.clone());
                 report.errors.push(message);
                 continue;
             }
             Ok(Err(error)) => {
-                report.errors.push(format!("hook failed to spawn: {error}"));
+                // Rule 54: a hook that cannot start is never a silent allow. The message names
+                // the hook and the cause so the stored event is actionable.
+                let message = format!(
+                    "{event} hook `{}` failed to start: {error}",
+                    hook_label(&spec.command)
+                );
+                if closed {
+                    return report.deny(format!("{message} (fail closed)"));
+                }
+                report.unrunnable.push(message.clone());
+                report.errors.push(message);
                 continue;
             }
             Ok(Ok(output)) => parse_hook_output(
@@ -458,12 +653,10 @@ pub async fn run_chain(
                     report.reason = result.reason;
                 }
             }
-            Some(HookDecision::Allow) => {
-                if report.decision.is_none() {
-                    report.decision = Some(HookDecision::Allow);
-                }
+            Some(HookDecision::Allow) if report.decision.is_none() => {
+                report.decision = Some(HookDecision::Allow);
             }
-            None => {}
+            Some(HookDecision::Allow) | None => {}
         }
     }
     report

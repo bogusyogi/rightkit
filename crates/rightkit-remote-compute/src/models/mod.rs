@@ -2,7 +2,7 @@
 //! rented-worker lifecycle (docs/MODEL-MANAGEMENT.md). One manifest of model
 //! entries with revision/quantization/capabilities, joined at query time with
 //! real on-disk state: bundled sd.cpp image profiles
-//! (`assets/local-image/profiles.json`), the QTS voice model folder, the
+//! (`data/local-image/profiles.json` of rightkit-local-gen), the QTS voice model folder, the
 //! provider API models, and rented-GPU route candidates.
 //!
 //! Commands (all `studio.models.<verb>`):

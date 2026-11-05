@@ -161,6 +161,10 @@ pub fn confine_driver_command(
             .allow_read(cwd)
             .allow_write(home)
             .network(rightkit_sandbox::NetworkPolicy::Allow);
+        // The driver's MCP config launches the host app's own executable (the session gateway).
+        if let Ok(own) = std::env::current_exe() {
+            policy = policy.allow_exec(own);
+        }
         // Compilers, test runners and CLIs need scratch space.
         for temp in ["/private/tmp", "/private/var/tmp", "/private/var/folders"] {
             policy = policy.allow_write(temp);
@@ -179,6 +183,10 @@ pub fn confine_driver_command(
             .allow_read("/lib")
             .allow_read("/lib64")
             .allow_read("/etc/ssl");
+        // The driver's MCP config launches the host app's own executable (the session gateway).
+        if let Ok(own) = std::env::current_exe() {
+            config = config.allow_read(own);
+        }
         if cwd_writable {
             config = config.allow_write(cwd);
         }

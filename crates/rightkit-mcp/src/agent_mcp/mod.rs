@@ -13,12 +13,14 @@
 
 pub mod config;
 mod error;
+pub mod limits;
 pub mod lsp_bridge;
 mod manager;
 pub mod oauth;
 mod pool;
 mod server_mode;
 pub mod shared_pool;
+mod stale;
 mod transport;
 pub mod trust_gate;
 mod types;
@@ -40,7 +42,7 @@ pub use manager::{
     McpToolNameFilter,
 };
 pub use oauth::{
-    detect_headless_from_env, McpOAuthLoginOptions, McpOAuthLoginResult, McpOAuthTokens,
+    detect_headless_from_env, url_origin, McpOAuthLoginOptions, McpOAuthLoginResult, McpOAuthTokens,
 };
 #[cfg(feature = "agent_mcp-os-keyring")]
 pub use oauth::{login_oauth, refresh_oauth_tokens, revoke_oauth_tokens, McpOAuthCredentialStore};
@@ -50,14 +52,16 @@ pub use server_mode::{
     RightKitMcpBackend, RightKitMcpServer,
 };
 pub use shared_pool::{get_or_init_shared_pool, get_shared_pool, init_shared_pool, SharedMcpPool};
+pub use stale::stdio_unreachable_reason;
 pub use transport::{
     initialize_params, map_rightkit_error, negotiate_version, rightkit_process_launcher,
     HttpTransport, McpTransport, SseTransport, StdioTransport, StubTransport, MCP_PROTOCOL_VERSION,
     MCP_SUPPORTED_VERSIONS,
 };
 pub use trust_gate::{
-    decide_workspace_stdio, default_trust_store_path, gate_workspace_stdio_servers,
-    load_trust_store, stdio_server_spec, PendingApproval, TrustDecision, TrustStore,
+    approve_workspace_stdio, decide_workspace_stdio, default_trust_store_path,
+    gate_workspace_stdio_servers, load_trust_store, pending_workspace_stdio, stdio_server_spec,
+    PendingApproval, TrustDecision, TrustStore,
 };
 pub use types::{
     HttpConfig, McpChannelPermissions, McpConfigFile, McpOAuthConfig, McpResourceContent,

@@ -37,9 +37,10 @@ pub struct KernelErrorOptions {
     pub cause: Option<String>,
 }
 
-/// Port of `class KernelError extends Error`.
+/// The fields of a [`KernelError`]. They live behind one `Box` so the error stays pointer-sized in
+/// every `Result` it travels through.
 #[derive(Debug, Clone)]
-pub struct KernelError {
+pub struct KernelErrorFields {
     pub code: String,
     pub message: String,
     pub category: String,
@@ -52,6 +53,23 @@ pub struct KernelError {
     pub cause: Option<String>,
 }
 
+/// Port of `class KernelError extends Error`. Fields are read and written through `Deref`.
+#[derive(Debug, Clone)]
+pub struct KernelError(Box<KernelErrorFields>);
+
+impl std::ops::Deref for KernelError {
+    type Target = KernelErrorFields;
+    fn deref(&self) -> &KernelErrorFields {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for KernelError {
+    fn deref_mut(&mut self) -> &mut KernelErrorFields {
+        &mut self.0
+    }
+}
+
 impl KernelError {
     pub fn new(
         code: impl Into<String>,
@@ -60,7 +78,7 @@ impl KernelError {
     ) -> Self {
         let category = options.category.unwrap_or_else(|| "internal".to_string());
         let exit_code = exit_code_for_category(&category);
-        KernelError {
+        KernelError(Box::new(KernelErrorFields {
             code: code.into(),
             message: message.into(),
             category,
@@ -71,7 +89,7 @@ impl KernelError {
             remediation: options.remediation,
             details: options.details,
             cause: options.cause,
-        }
+        }))
     }
 
     /// Convenience constructor matching the common `(code, message, category)` call shape.

@@ -19,6 +19,7 @@
 
 ## 0.3.1 (unreleased)
 
+- `coding_tools` sync with the product engine: new `computer` tool (Linux desktop control) and `browser_consent` (`browser_open consent=<id>`, reuse of a user's signed-in profile under a revocable receipt); tools declare `write_targets` (the engine writes the restore point, so `edit_file`, `write_file`, `multi_edit`, `apply_patch` and `notebook` no longer snapshot) and `effect_class` / `approval_class` (also on `ToolCapability`); launch hardening (scrubbed credential env, program directories readable in the Linux sandbox, own-session process trees, device and git-config reads); `ask_user` has no timer and keys answers by question index; `tool_search` is lexical only. Removed: `browser_control_*`, `mcp_auth`, `transcribe`, `browser_act secret_ref`, `browser_fetch headless`, feature `coding_tools-embeddings`.
 - Feature `coding_tools` (+ `coding_tools-host`, `-code-mode`, `-embeddings`, `-test-mode`, `-test-support`): the agent's coding tool set (file service, edit/undo, shell, search, browser, MCP bridge, web fetch, code mode) moved from CodeRight `coderight-tools`. `invoke_skill` reads skill manifests through the host-installed `rightkit_agent_host_traits::SkillCatalog` (no catalog installed: the file is returned as written).
 
 ## 0.3.0 — unpublished staging

@@ -241,6 +241,7 @@ impl SessionEngine {
         decisions
     }
 
+    #[cfg(test)]
     pub(super) fn apply_pre_tool_middleware(
         &self,
         call: &mut ToolCall,

@@ -2115,7 +2115,9 @@ fn gather_bridge(
         worlds_root.clone(),
         &host,
         jobs.len(),
-    )?;
+    )?
+    // A bridged journey runs libtest binaries and launches no app, so no control socket exists.
+    .without_control_socket();
     let run_token = control::token::mint()?;
     let exec = hooks.bridge_exec;
     let concurrency = host.workers.unwrap_or(1).max(1);

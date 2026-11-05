@@ -424,7 +424,7 @@ impl CompactionRolloutLineage {
     }
 
     /// Decode a lineage from its durable JSON form (the payload stored under
-    /// [`LINEAGE_EVENT_KIND`] by [`CompactionArchiveSink::persist_lineage`]).
+    /// [`LINEAGE_EVENT_KIND`] by `CompactionArchiveSink::persist_lineage`).
     ///
     /// S:E3: this is the archive read-back path a reopen after a crash uses to
     /// reconstruct the lineage before calling [`Self::materialize`]. A

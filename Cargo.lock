@@ -10007,6 +10007,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "futures",
+ "rightkit-agent-engine-history",
  "rightkit-agent-engine-protocol",
  "rightkit-agent-engine-runtime-middleware",
  "rightkit-agent-host-traits",
@@ -10536,6 +10537,7 @@ dependencies = [
  "rightkit-fs",
  "rightkit-media-gen",
  "serde_json",
+ "time",
 ]
 
 [[package]]
@@ -11741,6 +11743,7 @@ dependencies = [
  "regex",
  "rightkit-agent-engine-protocol",
  "rightkit-child-process",
+ "rightkit-llm",
  "rightkit-sandbox",
  "serde",
  "serde_json",
@@ -13092,6 +13095,7 @@ dependencies = [
  "rightkit-crypto",
  "rightkit-owner-approvals",
  "rightkit-remote-gateway",
+ "ring",
  "serde_json",
  "tokio",
 ]

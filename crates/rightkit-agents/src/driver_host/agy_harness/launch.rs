@@ -33,7 +33,7 @@ pub struct AgyLaunchOptions {
     /// `--conversation <id>` for session continuity across turns.
     pub conversation_id: Option<String>,
     /// `--model <id>` — an `agy models` id. Validated against
-    /// [`validate_model_id`] before reaching argv.
+    /// `validate_model_id` before reaching argv.
     pub model: Option<String>,
     /// the host app `Bypass` (yolo) permission mode: auto-approve every vendor
     /// permission request via `--dangerously-skip-permissions`. Every other

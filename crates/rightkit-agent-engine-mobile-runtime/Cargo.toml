@@ -16,12 +16,12 @@ path = "src/lib.rs"
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
-rightkit-agent-engine-protocol = {version = "0.1.0", path = "../rightkit-agent-engine-protocol"}
+rightkit-agent-engine-protocol = {version = "0.1.1", path = "../rightkit-agent-engine-protocol"}
 rightkit-agent-policy = {version = "0.1.0", path = "../rightkit-agent-policy"}
 rightkit-agent-engine-core = {version = "0.1.0", path = "../rightkit-agent-engine-core", default-features = false}
 rightkit-agent-tools = {version = "0.3.1", path = "../rightkit-agent-tools", features = ["coding_tools"]}
 rightkit-llm = {version = "0.3.2", path = "../rightkit-llm", features = ["agent_providers"]}
-rightkit-agent-engine-history = {version = "0.1.0", path = "../rightkit-agent-engine-history"}
+rightkit-agent-engine-history = {version = "0.1.1", path = "../rightkit-agent-engine-history"}
 rightkit-memory = {version = "0.1.0", path = "../rightkit-memory"}
 rightkit-mcp = {version = "0.7.2", path = "../rightkit-mcp", features = ["agent_mcp"]}
 rightkit-agent-host-traits = {version = "0.1.0", path = "../rightkit-agent-host-traits"}

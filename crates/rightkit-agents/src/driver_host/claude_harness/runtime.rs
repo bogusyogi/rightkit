@@ -237,6 +237,37 @@ struct SteeringState {
     interrupt_requested: bool,
 }
 
+/// The control request a `request_id` was issued for (issue #337).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlKind {
+    Initialize,
+    Interrupt,
+    SetModel,
+    SetPermissionMode,
+}
+
+/// A control request the CLI answered with an error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ControlRejection {
+    pub request_id: String,
+    pub kind: ControlKind,
+    pub message: String,
+}
+
+/// What the CLI has told the host over the control channel (issue #337): the capabilities it
+/// advertised in `system/init`, the typed `initialize` answer (account info, models), the last
+/// interrupt receipt and every refused control request.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ControlState {
+    /// `capabilities` of `system/init`, such as `interrupt_receipt_v1`.
+    pub capabilities: Vec<String>,
+    pub initialize: Option<crate::claude::InitializeResponse>,
+    pub interrupt_receipt: Option<crate::claude::InterruptReceipt>,
+    pub rejected: Vec<ControlRejection>,
+    /// Successful `set_model` / `set_permission_mode` answers, in order.
+    pub acknowledged: Vec<(String, ControlKind)>,
+}
+
 /// Refuse a durable binding whose authority-bearing identity differs
 /// from this open request. A binding id is not an authorization token:
 /// it remains bound to its original the host app session, agent,
@@ -284,6 +315,9 @@ pub struct ClaudeRootRuntime {
     /// Sibling `tool_use` events of a parallel-tool-call assistant line, served before the next
     /// frame is read.
     pending_events: Mutex<std::collections::VecDeque<NormalizedEvent>>,
+    /// Control requests written and not yet answered: `request_id` to what was asked.
+    pending_controls: Mutex<std::collections::HashMap<String, ControlKind>>,
+    control_state: Mutex<ControlState>,
 }
 
 impl ClaudeRootRuntime {
@@ -341,6 +375,8 @@ impl ClaudeRootRuntime {
             dedupe: Mutex::new(InMemoryEventDeduplicator::default()),
             read_offset: AtomicU64::new(0),
             pending_events: Mutex::new(std::collections::VecDeque::new()),
+            pending_controls: Mutex::new(std::collections::HashMap::new()),
+            control_state: Mutex::new(ControlState::default()),
         });
         Ok((runtime, progress_rx))
     }
@@ -483,8 +519,9 @@ impl ClaudeRootRuntime {
                 "interrupt requires an active turn, current status is {status:?}"
             )));
         }
-        let io = self.supervisor.io()?;
-        io.write_line(&interrupt_frame())?;
+        let request_id = crate::claude::next_request_id("interrupt");
+        let frame = crate::claude::interrupt_frame(&request_id);
+        self.write_control(ControlKind::Interrupt, &request_id, frame.trim_end())?;
         {
             let mut steering = self
                 .steering
@@ -494,6 +531,127 @@ impl ClaudeRootRuntime {
         }
         self.emit_host_progress("host:interrupt", HarnessProgressKind::InterruptRequested);
         Ok(())
+    }
+
+    /// Write one control request and remember which request id asked what, so the CLI's
+    /// `control_response` can be matched to it.
+    fn write_control(
+        &self,
+        kind: ControlKind,
+        request_id: &str,
+        frame: &str,
+    ) -> Result<(), HarnessError> {
+        let io = self.supervisor.io()?;
+        self.pending_controls
+            .lock()
+            .map_err(|_| HarnessError::InvalidState("control mutex poisoned".to_string()))?
+            .insert(request_id.to_string(), kind);
+        if let Err(error) = io.write_line(frame) {
+            if let Ok(mut pending) = self.pending_controls.lock() {
+                pending.remove(request_id);
+            }
+            return Err(error.into());
+        }
+        Ok(())
+    }
+
+    fn require_live_session(&self, what: &str) -> Result<(), HarnessError> {
+        let status = self.binding_snapshot().status;
+        if matches!(
+            status,
+            HarnessBindingStatus::Ready
+                | HarnessBindingStatus::Running
+                | HarnessBindingStatus::WaitingForApproval
+        ) {
+            Ok(())
+        } else {
+            Err(HarnessError::InvalidState(format!(
+                "{what} requires a started session, current status is {status:?}"
+            )))
+        }
+    }
+
+    /// Ask the CLI for its `initialize` answer (account info and models, issue #337). Returns
+    /// the request id; the typed answer lands in [`Self::control_state`] when it arrives.
+    pub fn request_initialize(&self) -> Result<String, HarnessError> {
+        self.require_live_session("initialize")?;
+        let request_id = crate::claude::next_request_id("initialize");
+        let frame = crate::claude::initialize_frame(&request_id, None);
+        self.write_control(ControlKind::Initialize, &request_id, frame.trim_end())?;
+        Ok(request_id)
+    }
+
+    /// Switch the running session's model (`None` selects the CLI default). The id is validated
+    /// by RightKit before it reaches the wire.
+    pub fn set_model(&self, model: Option<&str>) -> Result<String, HarnessError> {
+        self.require_live_session("set_model")?;
+        let request_id = crate::claude::next_request_id("set_model");
+        let frame = crate::claude::set_model_frame(&request_id, model)
+            .map_err(HarnessError::InvalidState)?;
+        self.write_control(ControlKind::SetModel, &request_id, frame.trim_end())?;
+        Ok(request_id)
+    }
+
+    /// Switch the running session's permission mode. `bypassPermissions` is refused.
+    pub fn set_permission_mode(&self, mode: &str) -> Result<String, HarnessError> {
+        self.require_live_session("set_permission_mode")?;
+        let request_id = crate::claude::next_request_id("set_permission_mode");
+        let frame = crate::claude::set_permission_mode_frame(&request_id, mode)
+            .map_err(HarnessError::InvalidState)?;
+        self.write_control(
+            ControlKind::SetPermissionMode,
+            &request_id,
+            frame.trim_end(),
+        )?;
+        Ok(request_id)
+    }
+
+    /// Everything the CLI has reported over the control channel so far.
+    pub fn control_state(&self) -> ControlState {
+        self.control_state
+            .lock()
+            .expect("claude harness control mutex poisoned")
+            .clone()
+    }
+
+    /// Match a `control_response` line to the request it answers. An answer to a request this
+    /// runtime did not make (the `can_use_tool` replies are written elsewhere) is ignored.
+    fn handle_control_response(&self, value: &Value) {
+        let Some(response) = crate::claude::parse_control_response(value) else {
+            return;
+        };
+        let Some(kind) = self
+            .pending_controls
+            .lock()
+            .ok()
+            .and_then(|mut pending| pending.remove(&response.request_id))
+        else {
+            return;
+        };
+        let Ok(mut state) = self.control_state.lock() else {
+            return;
+        };
+        match response.outcome {
+            crate::event::ControlOutcome::Success { payload } => match kind {
+                ControlKind::Initialize => {
+                    state.initialize = Some(crate::claude::parse_initialize_response(&payload));
+                }
+                ControlKind::Interrupt => {
+                    state.interrupt_receipt =
+                        crate::claude::parse_interrupt_receipt(&payload, &state.capabilities);
+                }
+                ControlKind::SetModel | ControlKind::SetPermissionMode => {
+                    state.acknowledged.push((response.request_id, kind));
+                }
+            },
+            crate::event::ControlOutcome::Error { message } => {
+                state.rejected.push(ControlRejection {
+                    request_id: response.request_id,
+                    kind,
+                    message,
+                });
+            }
+        }
     }
 
     /// Graceful stop of the persistent runtime. Idempotent: stopping
@@ -553,6 +711,10 @@ impl ClaudeRootRuntime {
                         }
                         return Ok(None);
                     };
+                    if value.get("type").and_then(Value::as_str) == Some("control_response") {
+                        self.handle_control_response(&value);
+                        continue;
+                    }
                     // The shared donor parser consumes a `&str`; serialize the
                     // frame back exactly like `ClaudeAdapter::normalize_provider_event`
                     // does (serde_json's default map keeps this deterministic).
@@ -613,6 +775,14 @@ impl ClaudeRootRuntime {
     /// progress events.
     fn apply_event(&self, event: &NormalizedEvent) -> Result<(), HarnessError> {
         let mut progress_kinds = project_progress_kinds(&event.kind);
+        if let NormalizedEventKind::SessionStarted {
+            init: Some(init), ..
+        } = &event.kind
+        {
+            if let Ok(mut state) = self.control_state.lock() {
+                state.capabilities = init.capabilities.clone();
+            }
+        }
         self.with_binding(|record| {
             record.cursor.output_offset = record.cursor.output_offset.saturating_add(1);
             record.cursor.last_event_key = Some(event.event_key.clone());
@@ -697,9 +867,7 @@ impl ClaudeRootRuntime {
     /// runs in the session cwd (which must sit inside the trusted
     /// workspace root); the vendor profile is pinned to the managed
     /// home recorded at open time via `HOME`/`CLAUDE_CONFIG_DIR`
-    /// (donor: `managed_home` is mandatory and
-    /// `begin_native_login` pins exactly those two variables), never
-    /// the ambient host profile.
+    /// (`managed_home` is mandatory), never the ambient host profile.
     fn finalize_launch(&self, launch: &CliLaunchSpec) -> Result<CliLaunchSpec, HarnessError> {
         self.trust.admit_cwd(&launch.cwd)?;
         enforce_delegation_launch_policy(launch)

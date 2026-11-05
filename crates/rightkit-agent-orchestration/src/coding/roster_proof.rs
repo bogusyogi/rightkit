@@ -36,7 +36,7 @@
 //! filled in because the task genuinely has that property, and the
 //! `rubric_tag` records which independent judgment drove the label (so a
 //! reviewer can audit that the tag, not the router's own signal weights, is
-//! doing the labeling work). [`corpus_integrity_labeled_by_rubric_not_signals`]
+//! doing the labeling work). `corpus_integrity_labeled_by_rubric_not_signals`
 //! enforces this mechanically: every entry must carry a `rubric_tag`, and the
 //! tag set must include categories that a pure signal-overlap read would NOT
 //! predict on its own (see that test for the exact check).
@@ -1285,16 +1285,9 @@ fn projected_cost(model_id: &str, prompt_tokens: u32, completion_tokens: u32) ->
 /// the routers here ever actually return `Poll::Pending`).
 pub fn block_on_sync<F: std::future::Future>(fut: F) -> F::Output {
     use std::pin::pin;
-    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+    use std::task::{Context, Poll, Waker};
 
-    fn noop(_: *const ()) {}
-    fn clone(_: *const ()) -> RawWaker {
-        RawWaker::new(std::ptr::null(), &VTABLE)
-    }
-    static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, noop, noop, noop);
-    let raw_waker = RawWaker::new(std::ptr::null(), &VTABLE);
-    let waker = unsafe { Waker::from_raw(raw_waker) };
-    let mut cx = Context::from_waker(&waker);
+    let mut cx = Context::from_waker(Waker::noop());
     let mut fut = pin!(fut);
     match fut.as_mut().poll(&mut cx) {
         Poll::Ready(output) => output,

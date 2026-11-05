@@ -14,9 +14,9 @@
 //!   bindings.
 //!
 //! Both methods share a one-MCP-server invariant: the transport
-//! refuses to invoke them unless [`AcpMcpServer::validate_single`]
+//! refuses to invoke them unless `AcpMcpServer::validate_single`
 //! has confirmed exactly one entry. That invariant is enforced
-//! upstream in [`super::AcpTransport::start`].
+//! upstream in `super::AcpTransport::start`.
 
 use crate::driver_host::cli_runtime::adapter::{
     CliMcpServerSpec, CliRuntimeError, CreateVendorSession, LoadVendorSession, StartedCliProcess,

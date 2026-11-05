@@ -20,6 +20,10 @@ pub struct Rule {
     pub pattern: String,
     pub effect: PermissionDecision,
     pub source: RuleSource,
+    /// The argument inside `Tool(arg)` is matched as the exact text, with no `*` wildcard and no
+    /// per-stage shell matching. Session grants use this so a command that contains `*` (or any
+    /// other tool's raw text) never widens into a pattern (D2, rules 4, 5 and 53).
+    pub literal: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -102,6 +106,27 @@ impl Rule {
             pattern: pattern.into(),
             effect,
             source,
+            literal: false,
+        }
+    }
+
+    /// A session allow for exactly one command of one tool. `*` in `command` is an ordinary
+    /// character, and a chained command never matches a grant for one of its parts.
+    pub fn session_command_grant(tool: &str, command: &str) -> Self {
+        Self {
+            pattern: format!("{tool}({command})"),
+            effect: PermissionDecision::Allow,
+            source: RuleSource::Session,
+            literal: true,
+        }
+    }
+
+    /// Pattern argument comparison honouring [`Rule::literal`].
+    fn arg_matches(&self, arg_pattern: &str, text: &str) -> bool {
+        if self.literal {
+            arg_pattern == text.trim()
+        } else {
+            wildcard_match(arg_pattern, text)
         }
     }
 
@@ -115,6 +140,9 @@ impl Rule {
     ///   [`RuleStore::effective_match_for`], and an unparseable one is never
     ///   auto-allowed.
     fn shell_arg_matches(&self, arg_pattern: &str, command: &str) -> bool {
+        if self.literal {
+            return arg_pattern == command.trim();
+        }
         let analysis = crate::shell_stages::analyze(command);
         if self.effect == PermissionDecision::Allow {
             return analysis.is_single() && wildcard_match(arg_pattern, command);
@@ -130,7 +158,7 @@ impl Rule {
     /// True when this is an allow rule for the shell tool whose argument
     /// pattern covers one stage of a compound command.
     fn allows_shell_stage(&self, stage: &str) -> bool {
-        if self.effect != PermissionDecision::Allow {
+        if self.effect != PermissionDecision::Allow || self.literal {
             return false;
         }
         let Some((tool_pattern, arg_pattern)) = split_qualified_pattern(self.pattern.trim()) else {
@@ -168,7 +196,7 @@ impl Rule {
                     canon_hit
                 };
             }
-            return wildcard_match(arg_pattern, value);
+            return self.arg_matches(arg_pattern, value);
         }
         tool_pattern_matches(pattern, &target.tool)
     }
@@ -605,7 +633,7 @@ impl RuleStore {
                     continue;
                 }
                 let hit = match &compound_stages {
-                    Some(stages) if rule.effect == PermissionDecision::Allow => {
+                    Some(stages) if rule.effect == PermissionDecision::Allow && !rule.literal => {
                         compound_allowed && stages.iter().any(|st| rule.allows_shell_stage(st))
                     }
                     _ => rule.matches_target(target),

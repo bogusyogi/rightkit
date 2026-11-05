@@ -18,7 +18,7 @@ pub struct ArtifactVersion {
 
 /// Manages per-artifact version history and rollback.
 pub struct ArtifactRollback {
-    /// All versions per artifact: artifact_id -> Vec<ArtifactVersion> ordered by version ascending.
+    /// All versions per artifact: artifact_id -> `Vec<ArtifactVersion>` ordered by version ascending.
     history: HashMap<String, Vec<ArtifactVersion>>,
 }
 

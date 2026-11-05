@@ -15,7 +15,7 @@
 //!
 //! Research lineage (no code donor; canon: "No compatible donor;
 //! research-informed (PAL/LLM+P/MRKL/LLMCompiler/LATM)"): see
-//! [`class`] for the per-class attribution.
+//! `class` for the per-class attribution.
 //!
 //! This module is additive: it reads nothing from and writes nothing to
 //! `dispatch.rs` or `host_router`; the daemon composes them at the

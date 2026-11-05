@@ -55,10 +55,6 @@ impl Tool for BrowserFetchTool {
                     "type": "string",
                     "enum": ["auto", "native", "js"],
                     "description": "'auto' (default): HTTP, then stealth headers, then JS rendering on a hard block. 'native': HTTP only. 'js': force JS rendering via TinyFish."
-                },
-                "headless": {
-                    "type": "boolean",
-                    "description": "DEPRECATED: pass tier='js' instead. When true, maps to tier='js'."
                 }
             }
         })
@@ -69,14 +65,7 @@ impl Tool for BrowserFetchTool {
             Some(u) => u.to_string(),
             None => return ToolResult::error("Missing required argument: url"),
         };
-        // `headless = true` predates tiers; it always meant "I need JavaScript".
-        let tier = if let Some(t) = args["tier"].as_str() {
-            t.to_string()
-        } else if args["headless"].as_bool().unwrap_or(false) {
-            "js".to_string()
-        } else {
-            "auto".to_string()
-        };
+        let tier = args["tier"].as_str().unwrap_or("auto").to_string();
 
         // Permission gate: browser_fetch is a Network-class capability, gated like Shell.
         let verdict = PermissionEngine::new().evaluate(

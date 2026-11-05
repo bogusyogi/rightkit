@@ -169,6 +169,58 @@ pub fn resolve_role_pack(
     })
 }
 
+/// Resolve a role pack for a run in single-model mode: every role, including
+/// this one, runs on the one model the user selected (orchestration rule 42).
+/// The pack still binds its persona, toolset, permissions, turn limit and cost
+/// limit, but its own model assignments are not consulted, so a pack model
+/// missing from the live catalog never refuses the spawn (D31). The verifier is
+/// the same model and the binding says it is not independent.
+pub fn resolve_role_pack_on_single_model(
+    raw: &str,
+    model_id: &str,
+    provider_family: &str,
+    persona_registry: Option<&PersonaRegistry>,
+) -> Result<ResolvedRolePack, RolePackError> {
+    let pack = parse_role_pack(raw)?;
+    validate_pack(&pack)?;
+    let model_id = model_id.trim();
+    if model_id.is_empty() {
+        return Err(RolePackError::UnknownModel(String::new()));
+    }
+    let entry = RolePackCatalogEntry {
+        id: model_id.to_string(),
+        // The user chose this model; the pack's per-role context budget is not
+        // used to qualify it.
+        context_window_tokens: pack.context_budget,
+        cheap: true,
+        provider_family: provider_family.to_string(),
+    };
+    let persona = match persona_registry {
+        Some(registry) => Some(
+            registry
+                .persona_for_role(&pack.role)
+                .cloned()
+                .ok_or_else(|| RolePackError::NoPersonaForRole(pack.role.clone()))?,
+        ),
+        None => None,
+    };
+    Ok(ResolvedRolePack {
+        pack,
+        primary: entry.clone(),
+        cheap_candidate: entry.clone(),
+        fallbacks: Vec::new(),
+        verifier: entry.clone(),
+        verifier_binding: RolePackVerifierBinding {
+            model_id: entry.id.clone(),
+            independent: false,
+            degradation_reason: Some(
+                "single-model mode: the verifier runs on the same model".to_string(),
+            ),
+        },
+        persona,
+    })
+}
+
 fn validate_pack(pack: &RolePackV2) -> Result<(), RolePackError> {
     if pack.schema_version != 1 {
         return Err(RolePackError::InvalidField("schema_version"));

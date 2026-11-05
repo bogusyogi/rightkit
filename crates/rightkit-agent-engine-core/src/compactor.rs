@@ -359,7 +359,7 @@ impl Compactor {
     /// When a [`MemoryBlockProvider`] is wired AND `session_id`/`workspace_root`
     /// resolve to a non-empty block, the rebuild path injects a fresh,
     /// sentinel-scoped memory block immediately after the post-compaction
-    /// continuation marker (see [`compactor_memory_block`]).
+    /// continuation marker (see `compactor_memory_block`).
     ///
     /// Breaker semantics: if `should_compact` returns false (either below
     /// trigger or breaker open), returns 0 without inspecting the

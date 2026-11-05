@@ -1006,7 +1006,7 @@ fn step_issue_patch(args: &ResearchOptions) -> CommandResult {
     let out_target = patch_guard::canonical_output_path(out)
         .map_err(|error| CommandError::usage(error.to_string()))?;
     let key_target = std::fs::canonicalize(key_file).map_err(io_error)?;
-    if out_target == std::path::Path::new(draft_path) || out_target == key_target {
+    if out_target == *draft_path || out_target == key_target {
         return Err(CommandError::usage(
             "--out must be distinct from --draft and --key-file",
         ));

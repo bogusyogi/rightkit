@@ -1,4 +1,4 @@
-//! Taste engine — turns a role's [`TasteScore`](crate::coding::taste::TasteScore) into
+//! Taste engine — turns a role's [`TasteScore`] into
 //! concrete, confidence-gated improvement proposals.
 //!
 //! Proposals are **inert until approved**: this engine only suggests. It reads

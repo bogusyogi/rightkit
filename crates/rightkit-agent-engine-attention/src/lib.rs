@@ -364,10 +364,61 @@ fn ensure_attention_dir(workspace_root: &str) -> Result<std::path::PathBuf, Stri
     Ok(dir)
 }
 
+/// Reads a JSON state file. A missing file is `None`. A file that exists but
+/// cannot be read or parsed is damaged: it is set aside (see
+/// [`set_aside_damaged`]) before `None` is returned, so the default the caller
+/// starts with is never saved over the only copy (orchestration rules 23, 33).
 fn read_json<T: serde::de::DeserializeOwned>(path: &std::path::Path) -> Option<T> {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|raw| serde_json::from_str::<T>(&raw).ok())
+    let raw = match std::fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(_) => {
+            set_aside_damaged(path);
+            return None;
+        }
+    };
+    match serde_json::from_str::<T>(&raw) {
+        Ok(value) => Some(value),
+        Err(_) => {
+            set_aside_damaged(path);
+            None
+        }
+    }
+}
+
+/// Moves a damaged state file to `<name>.damaged-<unix seconds>` (with `-1`,
+/// `-2`, ... when that name is taken). Best effort: a failed rename leaves the
+/// file where it is.
+fn set_aside_damaged(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    if !std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_file()) {
+        return None;
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let base = path.file_name()?.to_string_lossy().into_owned();
+    for attempt in 0..100u32 {
+        let name = if attempt == 0 {
+            format!("{base}.damaged-{stamp}")
+        } else {
+            format!("{base}.damaged-{stamp}-{attempt}")
+        };
+        let to = path.with_file_name(name);
+        if to.exists() {
+            continue;
+        }
+        if std::fs::rename(path, &to).is_ok() {
+            return Some(to);
+        }
+        return None;
+    }
+    None
+}
+
+/// The notification rows stored in `notifications.json`: empty when the file is
+/// missing, and a damaged file is set aside first.
+fn read_notification_rows(path: &std::path::Path) -> Vec<Value> {
+    read_json::<Vec<Value>>(path).unwrap_or_default()
 }
 
 fn write_json<T: Serialize>(path: &std::path::Path, value: &T) -> Result<(), String> {
@@ -446,7 +497,7 @@ async fn update_attention_state_handler(
     Path(id): Path<String>,
     Json(req): Json<UpdateAttentionStateRequest>,
 ) -> Result<Json<Value>, StatusCode> {
-    enforce_trusted_source_authority(&headers).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    enforce_trusted_source_authority(&headers)?;
     let _ = state;
     if !enforce_workspace_root(&req.workspace_root) {
         return Err(StatusCode::BAD_REQUEST);
@@ -457,12 +508,7 @@ async fn update_attention_state_handler(
     let notifications_path = std::path::PathBuf::from(&req.workspace_root)
         .join(&config().state_dir)
         .join("notifications.json");
-    let mut rows: Vec<Value> = if notifications_path.exists() {
-        let raw = std::fs::read_to_string(&notifications_path).unwrap_or_default();
-        serde_json::from_str(&raw).unwrap_or_default()
-    } else {
-        Vec::new()
-    };
+    let mut rows: Vec<Value> = read_notification_rows(&notifications_path);
     let mut updated = false;
     for row in rows.iter_mut() {
         if row.get("id").and_then(Value::as_str) == Some(id.as_str()) {
@@ -506,7 +552,7 @@ async fn snooze_attention_handler(
     Path(id): Path<String>,
     Json(req): Json<SnoozeRequest>,
 ) -> Result<Json<Value>, StatusCode> {
-    enforce_trusted_source_authority(&headers).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    enforce_trusted_source_authority(&headers)?;
     let _ = state;
     if !enforce_workspace_root(&req.workspace_root) {
         return Err(StatusCode::BAD_REQUEST);
@@ -529,7 +575,7 @@ async fn unsnooze_attention_handler(
     Path(id): Path<String>,
     Query(query): Query<WorkspaceQuery>,
 ) -> Result<Json<Value>, StatusCode> {
-    enforce_trusted_source_authority(&headers).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    enforce_trusted_source_authority(&headers)?;
     let _ = state;
     let workspace_root = query
         .workspace_root
@@ -572,7 +618,7 @@ async fn set_density_handler(
     headers: HeaderMap,
     Json(req): Json<DensityRequest>,
 ) -> Result<Json<DensityResponse>, StatusCode> {
-    enforce_trusted_source_authority(&headers).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    enforce_trusted_source_authority(&headers)?;
     let _ = state;
     if !enforce_workspace_root(&req.workspace_root) {
         return Err(StatusCode::BAD_REQUEST);
@@ -612,7 +658,7 @@ async fn set_policy_handler(
     headers: HeaderMap,
     Json(policy): Json<ProjectNotificationPolicy>,
 ) -> Result<Json<ProjectNotificationPolicy>, StatusCode> {
-    enforce_trusted_source_authority(&headers).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    enforce_trusted_source_authority(&headers)?;
     let _ = state;
     if !enforce_workspace_root(&policy.workspace_root) {
         return Err(StatusCode::BAD_REQUEST);
@@ -645,7 +691,7 @@ async fn set_quiet_hours_handler(
     headers: HeaderMap,
     Json(req): Json<QuietHoursRequest>,
 ) -> Result<Json<QuietHoursResponse>, StatusCode> {
-    enforce_trusted_source_authority(&headers).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    enforce_trusted_source_authority(&headers)?;
     let _ = state;
     if !enforce_workspace_root(&req.workspace_root) {
         return Err(StatusCode::BAD_REQUEST);
@@ -673,7 +719,7 @@ async fn resolve_deeplink_handler(
     headers: HeaderMap,
     Json(req): Json<DeeplinkRequest>,
 ) -> Result<Json<DeeplinkResolution>, StatusCode> {
-    enforce_trusted_source_authority(&headers).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    enforce_trusted_source_authority(&headers)?;
     let _ = state;
     if !enforce_workspace_root(&req.workspace_root) {
         return Err(StatusCode::BAD_REQUEST);
@@ -741,8 +787,7 @@ async fn get_attention_banner_handler(
 
 fn load_density(workspace_root: &str) -> TranscriptDensity {
     let path = density_path(workspace_root);
-    let raw = std::fs::read_to_string(&path).unwrap_or_default();
-    let value: Value = serde_json::from_str(&raw).unwrap_or_default();
+    let value: Value = read_json(&path).unwrap_or_default();
     match value
         .get("density")
         .and_then(Value::as_str)
@@ -821,12 +866,7 @@ fn build_attention_items(workspace_root: &str, density: TranscriptDensity) -> Ve
     let notifications_path = std::path::PathBuf::from(workspace_root)
         .join(&config().state_dir)
         .join("notifications.json");
-    let mut rows: Vec<Value> = if notifications_path.exists() {
-        let raw = std::fs::read_to_string(&notifications_path).unwrap_or_default();
-        serde_json::from_str(&raw).unwrap_or_default()
-    } else {
-        Vec::new()
-    };
+    let mut rows: Vec<Value> = read_notification_rows(&notifications_path);
     // Apply density: summary collapses non-failed, non-needs-input rows.
     if matches!(density, TranscriptDensity::Summary) {
         rows.retain(|row| {

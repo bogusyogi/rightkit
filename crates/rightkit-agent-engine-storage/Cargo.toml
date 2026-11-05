@@ -16,7 +16,7 @@ path = "src/lib.rs"
 [dependencies]
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
-rightkit-agent-engine-protocol = { version = "0.1.0", path = "../rightkit-agent-engine-protocol" }
+rightkit-agent-engine-protocol = { version = "0.1.1", path = "../rightkit-agent-engine-protocol" }
 rightkit-db = { version = "0.5.3", features = ["bundled", "statement-cache"], path = "../rightkit-db" }
 rightkit-search = { version = "0.4.1", default-features = false, path = "../rightkit-search" }
 rightkit-fs = { version = "0.4.9", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs" }

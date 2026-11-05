@@ -1,20 +1,6 @@
 use super::*;
 
-impl SessionEngine {
-    /// Broker task identity is valid only while an engine turn is active;
-    /// manual post-turn compaction must never reuse a closed task.
-    pub(crate) fn active_compaction_task_id(&self) -> Option<String> {
-        if !self.idle_grace.is_active_turn() {
-            return None;
-        }
-        self.assurance_broker.as_ref().and_then(|broker| {
-            broker
-                .lock()
-                .ok()
-                .and_then(|broker| broker.contract().map(|contract| contract.task_id.clone()))
-        })
-    }
-}
+impl SessionEngine {}
 
 // ---------------------------------------------------------------------------
 // CR-18 (mechanism 3-1): the post-call envelope meter.
@@ -127,7 +113,17 @@ pub fn retire_session_compaction_state(session_id: &str) {
     rightkit_agent_tools::coding_tools::context::retire_flyio_credential(session_id);
     rightkit_agent_tools::coding_tools::async_inbox::retire_session(session_id);
     crate::engine::tool_dispatch::retire_session_async_state(session_id);
-    rightkit_agent_tools::coding_tools::tunnel::retire_tunnel_session(session_id);
+    // A tunnel stop that fails leaves a public exposure possibly live (#376): record it at error
+    // level with the leaked resources instead of discarding the failures.
+    let leaked_exposures =
+        rightkit_agent_tools::coding_tools::tunnel::retire_tunnel_session(session_id);
+    if !leaked_exposures.is_empty() {
+        tracing::error!(
+            session_id,
+            leaked = ?leaked_exposures,
+            "session ended with tunnel exposures that could not be stopped; they may still be live"
+        );
+    }
     crate::compaction_coordinator::retire_session(session_id);
     if let Some((_, task)) = prefire_tasks()
         .lock()
@@ -1007,7 +1003,15 @@ impl SessionEngine {
             Err(error) => {
                 self.emit_compaction_failed(command.kind, &command_id, &error.to_string())
             }
-            _ => {}
+            // Tools rule 58 `PostCompact`: fires after a compaction that changed
+            // the transcript. Like `PreCompact` it cannot veto anything.
+            Ok(_) => {
+                self.run_lifecycle_hooks(
+                    "PostCompact",
+                    &[("RIGHTKIT_HOOK_TRIGGER", trigger.to_string())],
+                )
+                .await;
+            }
         }
         result
     }
@@ -1848,9 +1852,9 @@ impl SessionEngine {
         // Emit each distinct hint at most once per transcript. This ran on
         // every UserPromptSubmit and every PreToolUse, appending a new pinned
         // System message each time: the model was told to `invoke_skill` (a
-        // deferred tool, so a `tool_search` call and its multi-second
-        // embedder cold start first) on every turn, and each appended system
-        // message mutated the provider's cached system prefix.
+        // deferred tool, so a `tool_search` call first) on every turn, and
+        // each appended system message mutated the provider's cached system
+        // prefix.
         let already_hinted = self.transcript.messages().iter().any(|message| {
             matches!(
                 message,
@@ -1879,8 +1883,10 @@ impl SessionEngine {
                 ..
             } = message
             {
-                self.content_provenance
-                    .absorb(tool_dispatch::tool_source_provenance(&trust.source));
+                if tool_dispatch::tool_result_carries_content(&trust.source) {
+                    self.content_provenance
+                        .absorb(tool_dispatch::tool_source_provenance(&trust.source));
+                }
             }
         }
         let mut all = self.transcript.messages().to_vec();
@@ -1903,6 +1909,22 @@ impl SessionEngine {
     ) -> Option<String> {
         self.transcript
             .trim_before_user_matching(matches, nth_from_end)
+    }
+
+    /// Rewind that keeps what it removed: the chosen prompt and everything
+    /// after it, for a later [`Self::restore_messages`].
+    pub fn take_tail_before_user_matching(
+        &mut self,
+        matches: impl Fn(&str) -> bool,
+        nth_from_end: usize,
+    ) -> Option<Vec<TranscriptMessage>> {
+        self.transcript
+            .take_tail_from_user_matching(matches, nth_from_end)
+    }
+
+    /// Put back messages a rewind removed (redo).
+    pub fn restore_messages(&mut self, messages: Vec<TranscriptMessage>) {
+        self.transcript.extend_messages(messages);
     }
 
     pub(super) fn emit(&self, make: impl FnOnce(i64) -> ProtocolEvent) {

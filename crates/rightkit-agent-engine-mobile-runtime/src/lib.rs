@@ -77,11 +77,6 @@ pub struct ProviderConfig {
     /// xhigh. Absent leaves provider/model default untouched.
     #[serde(default)]
     pub reasoning_effort: Option<String>,
-    /// Prepaid token-plan auth, distinct from API key/OAuth. It crosses this
-    /// process boundary only in memory from iOS Keychain; checkpoints never
-    /// serialize provider configuration.
-    #[serde(default)]
-    pub token_plan: Option<rightkit_llm::agent_providers::TokenPlanCredential>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -300,9 +295,6 @@ pub struct MobileRuntime {
     github_configured: bool,
     cloudflare_configured: bool,
     engine: tokio::sync::Mutex<SessionEngine>,
-    /// Shared with every text/small-model request so quota is reserved before
-    /// transport and a rotated refresh credential becomes active immediately.
-    token_plan: Option<llm::TokenPlanState>,
     /// Session-scoped, tool-free assist transport used by recap, goal audit,
     /// and user-requested diff narration. It shares this session's provider
     /// credentials but never receives its tool registry or engine handle.
@@ -415,19 +407,9 @@ impl MobileRuntime {
         config.provider.session_id = Some(config.session_id.clone());
         let github_configured = config.github_token.is_some();
         let cloudflare_configured = config.cloudflare.is_some();
-        let token_plan = config
-            .provider
-            .token_plan
-            .clone()
-            .map(|credential| Arc::new(tokio::sync::Mutex::new(credential)));
-        let llm: Arc<dyn LlmClient> = llm::client_for_with_token_plan(
-            &config.provider,
-            github_configured,
-            cloudflare_configured,
-            token_plan.clone(),
-        )?;
-        let small_model =
-            small_model::client_for_with_token_plan(&config.provider, token_plan.clone())?;
+        let llm: Arc<dyn LlmClient> =
+            llm::client_for(&config.provider, github_configured, cloudflare_configured)?;
+        let small_model = small_model::client_for(&config.provider)?;
         let mut tools = ToolRegistry::build_default();
         if wasm::is_wasm_executor_installed() {
             tools.replace(Box::new(
@@ -550,17 +532,15 @@ impl MobileRuntime {
         // Image generation owns a separate catalog/transport, but an exact
         // OpenAI image endpoint may reuse this account's Keychain-supplied
         // key. Custom/OpenAI-compatible text endpoints never receive it.
-        if config.provider.token_plan.is_none() {
-            if let Some(image_provider) =
-                rightkit_agent_tools::coding_tools::image_generate::image_provider_for_base_url(
-                    &config.provider.base_url,
-                )
-            {
-                engine.set_image_provider_key(
-                    image_provider.to_string(),
-                    config.provider.api_key.clone(),
-                );
-            }
+        if let Some(image_provider) =
+            rightkit_agent_tools::coding_tools::image_generate::image_provider_for_base_url(
+                &config.provider.base_url,
+            )
+        {
+            engine.set_image_provider_key(
+                image_provider.to_string(),
+                config.provider.api_key.clone(),
+            );
         }
         let mut mcp = rightkit_mcp::agent_mcp::McpManager::new();
         for server in config.mcp_servers {
@@ -664,7 +644,6 @@ impl MobileRuntime {
             github_configured,
             cloudflare_configured,
             engine: tokio::sync::Mutex::new(engine),
-            token_plan,
             small_model,
             goal: Mutex::new(goal),
             conduit,
@@ -1176,44 +1155,6 @@ impl MobileRuntime {
             .append(crate::audit_log::AuditEventKind::CredentialRefreshed {
                 provider: "cloudflare".to_string(),
             });
-    }
-
-    /// Snapshot the current in-memory token-plan credential for iOS Keychain
-    /// persistence after a request. It never enters checkpoints or journals.
-    pub async fn token_plan_credential(
-        &self,
-    ) -> Option<rightkit_llm::agent_providers::TokenPlanCredential> {
-        let state = self.token_plan.as_ref()?;
-        Some(state.lock().await.clone())
-    }
-
-    /// Replace live token-plan state before Swift persists a rotated refresh
-    /// credential. The next provider request observes this full credential.
-    pub async fn update_token_plan_credential(
-        &self,
-        credential: rightkit_llm::agent_providers::TokenPlanCredential,
-    ) -> Result<(), RuntimeError> {
-        let Some(state) = &self.token_plan else {
-            return Err(RuntimeError::Config(
-                "runtime has no token-plan account".into(),
-            ));
-        };
-        if credential.plan_id.trim().is_empty()
-            || credential.refresh_endpoint.trim().is_empty()
-            || credential
-                .refresh_token
-                .as_deref()
-                .is_none_or(|token| token.trim().is_empty())
-        {
-            return Err(RuntimeError::Config(
-                "token-plan credential is incomplete".into(),
-            ));
-        }
-        *state.lock().await = credential;
-        self.append_journal(crate::journal::JournalEventKind::CredentialRefreshed {
-            provider: "token-plan".to_string(),
-        });
-        Ok(())
     }
 
     /// Names of the tools this host actually offers the model. The host shows

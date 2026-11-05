@@ -160,6 +160,13 @@ impl RecoveringWorker {
     }
 }
 
+/// Every refusal the spawn admission path produces ends with "refusing to
+/// spawn" (`daemon_state.rs`), so one phrase identifies it across depth, run
+/// budget, tier ceiling and role-pack refusals.
+fn is_terminal_spawn_refusal(output: &str) -> bool {
+    output.contains("refusing to spawn")
+}
+
 #[async_trait]
 impl Worker for RecoveringWorker {
     async fn run(&self, task: &WorkerTask) -> WorkerResult {
@@ -174,6 +181,13 @@ impl Worker for RecoveringWorker {
                         result.rollback_step = StepLocator::last_good_step(&steps);
                     }
                     self.note(task, attempt, false, result.rollback_step);
+                    // A refused spawn (depth, concurrent, cumulative budget, cost
+                    // ceiling, role pack) is a terminal task failure, not a
+                    // transient one: retrying only burns the cumulative budget
+                    // that caused it (orchestration rule 7, D7).
+                    if is_terminal_spawn_refusal(&result.output) {
+                        return result;
+                    }
                     last = Some(result);
                 }
                 Err(_) => {

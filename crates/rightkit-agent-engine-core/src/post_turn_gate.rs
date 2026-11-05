@@ -6,6 +6,7 @@
 use rightkit_agent_engine_protocol::ToolCall;
 use rightkit_hooks::agent_hooks::HookOutcome;
 
+#[cfg(test)]
 use crate::post_edit_diagnostics::{DiagnosticSeverity, DiagnosticSource, PostEditReport};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,6 +79,34 @@ impl Default for PostTurnGateState {
     }
 }
 
+/// Largest hook or verification text the gate puts into the transcript. Stop
+/// hook output is bounded only by the hook's 256 KiB capture, and the
+/// re-entry instruction is kept as the latest user message through every
+/// compaction (audit M9), so it takes the same 4000-byte bound as a tool
+/// result preview.
+pub(crate) const MAX_GATE_TEXT_BYTES: usize = 4000;
+
+/// `text` cut to [`MAX_GATE_TEXT_BYTES`] at a character boundary, with the
+/// original size named when anything was dropped.
+pub(crate) fn bound_gate_text(text: &str) -> String {
+    bound_text(text, MAX_GATE_TEXT_BYTES)
+}
+
+pub(crate) fn bound_text(text: &str, max_bytes: usize) -> String {
+    if text.len() <= max_bytes {
+        return text.to_string();
+    }
+    let mut end = max_bytes;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!(
+        "{}... [truncated, {} bytes total]",
+        &text[..end],
+        text.len()
+    )
+}
+
 impl PostTurnGateState {
     pub const MAX_CONSECUTIVE_STOP_BLOCKS: usize = 8;
 
@@ -90,6 +119,7 @@ impl PostTurnGateState {
     /// files (or rule out the unverifiable claim) before continuing. Warnings
     /// are surfaced but do NOT block the turn — that is a deliberate
     /// difference from the prior string-prefix renderer.
+    #[cfg(test)]
     pub fn after_diagnostics_report(&mut self, report: &PostEditReport) -> PostTurnGateDecision {
         let blocking: Vec<_> = report
             .findings
@@ -173,6 +203,7 @@ impl PostTurnGateState {
                 PostTurnGateDecision::Proceed
             }
             HookOutcome::Error(msg) => {
+                let msg = bound_gate_text(&msg);
                 self.consecutive_stop_blocks = 0;
                 PostTurnGateDecision::ForceFinish {
                     warning: format!(
@@ -181,6 +212,7 @@ impl PostTurnGateState {
                 }
             }
             HookOutcome::Deny(msg) => {
+                let msg = bound_gate_text(&msg);
                 self.consecutive_stop_blocks += 1;
                 if self.consecutive_stop_blocks >= self.max_consecutive_stop_blocks {
                     PostTurnGateDecision::ForceFinish {
@@ -202,6 +234,7 @@ impl PostTurnGateState {
     }
 }
 
+#[cfg(test)]
 fn render_blocking_instruction<'a, I>(findings: I) -> String
 where
     I: Iterator<Item = &'a crate::post_edit_diagnostics::DiagnosticFinding>,

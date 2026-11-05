@@ -1,6 +1,6 @@
 use super::*;
 #[path = "engine_tool_dispatch_concurrent.rs"]
-mod concurrent;
+pub(in crate::engine) mod concurrent;
 #[path = "engine_tool_dispatch_single.rs"]
 mod single;
 #[path = "engine_tool_dispatch_approval.rs"]
@@ -31,7 +31,7 @@ fn required_process_launch_authority(
     tool_name: &str,
     args: &serde_json::Value,
     workspace_root: &std::path::Path,
-) -> Result<Option<ProcessLaunchAuthority>, rightkit_agent_tools::coding_tools::ToolResult> {
+) -> Result<Option<ProcessLaunchAuthority>, Box<rightkit_agent_tools::coding_tools::ToolResult>> {
     let Some(tool) = tools.get(tool_name) else {
         return Ok(None);
     };
@@ -39,14 +39,18 @@ fn required_process_launch_authority(
         return Ok(None);
     };
     let governor = rightkit_agent_tools::coding_tools::process_resource_authority::require_process_resource_governor()
-        .map_err(|error| rightkit_agent_tools::coding_tools::ToolResult::error(error.to_string()))?;
+        .map_err(|error| {
+            Box::new(rightkit_agent_tools::coding_tools::ToolResult::error(
+                error.to_string(),
+            ))
+        })?;
     if !governor.capability_available(kind) {
-        return Err(rightkit_agent_tools::coding_tools::ToolResult::error(
-            format!(
+        return Err(Box::new(
+            rightkit_agent_tools::coding_tools::ToolResult::error(format!(
                 "{}: tool '{}' requires unavailable resource {kind:?}",
                 rightkit_sandbox::execution::EffectExecutionError::ResourceLimitsMissing,
                 tool_name
-            ),
+            )),
         ));
     }
     let launch_context = rightkit_sandbox::execution::ProcessLaunchContext {
@@ -273,6 +277,9 @@ impl SessionEngine {
     }
 
     pub(super) fn observe_tool_result_provenance(&mut self, tool_name: &str) {
+        if !tool_result_carries_content(tool_name) {
+            return;
+        }
         self.content_provenance
             .absorb(tool_source_provenance(tool_name));
     }
@@ -412,6 +419,8 @@ impl SessionEngine {
             .unwrap_or(false)
             && call.name != "exec"
             && self.hook_bus.is_none()
+            // A repeated call is an Ask, so it never takes the no-approval fast path.
+            && !self.repeated_call_ids.contains(&call.id)
             && self.permission_verdict_for(call).decision == PermissionDecision::Allow
             && !pre_tool_middleware_matches_call(&pre_tool_middleware, call)
             && assurance_ok
@@ -1109,6 +1118,15 @@ fn pre_tool_middleware_matches_call(definitions: &[MiddlewareDefinition], call: 
     definitions
         .iter()
         .any(|definition| middleware_matches_call(definition, call, &args))
+}
+
+/// `tool_search` only lists the tool catalog the session already offers; its
+/// result carries no repository, web or MCP content, so loading a deferred
+/// tool must not move later durable writes (`memory_save`, contract rules 16
+/// and 45) out of the user's own session origin.
+pub(super) fn tool_result_carries_content(tool_name: &str) -> bool {
+    let name = tool_name.strip_prefix("tool:").unwrap_or(tool_name);
+    !name.eq_ignore_ascii_case("tool_search")
 }
 
 pub(super) fn tool_source_provenance(source: &str) -> rightkit_agent_policy::ContentProvenance {

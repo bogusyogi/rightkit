@@ -34,7 +34,6 @@ use rightkit_agent_engine_protocol::TranscriptMessage;
 use rightkit_agent_tools::coding_tools::registry::ToolRegistry;
 use rightkit_llm::agent_providers::anthropic_client::AnthropicCompatClient;
 use rightkit_llm::agent_providers::client::{CompletedTurn, OpenAiCompatClient};
-use rightkit_llm::agent_providers::{refresh_mobile_token_plan, TokenPlanCredential};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Duration;
@@ -327,11 +326,6 @@ enum Route {
     Responses(ResponsesClient),
 }
 
-/// Shared mutable token-plan state for one iOS runtime. The Swift host owns
-/// durable Keychain persistence; this value lets every provider request use
-/// latest rotated credential before Swift reads it back through FFI.
-pub type TokenPlanState = Arc<tokio::sync::Mutex<TokenPlanCredential>>;
-
 struct ResponsesClient {
     http: rightkit_http::AsyncClient,
     extra_headers: Vec<(String, String)>,
@@ -349,9 +343,6 @@ pub struct MobileLlmClient {
     /// configured `fallback_models` — behavior is then identical to before
     /// this field existed.
     fallback: Vec<Route>,
-    route_config: ProviderConfig,
-    fallback_configs: Vec<ProviderConfig>,
-    token_plan: Option<TokenPlanState>,
     /// Frozen at construction from the host's registry, so the schema the
     /// model sees can never drift from the tools the host can run.
     tool_schemas: Vec<Value>,
@@ -384,19 +375,6 @@ pub fn client_for(
     github_configured: bool,
     cloudflare_configured: bool,
 ) -> Result<Arc<dyn LlmClient>, RuntimeError> {
-    let token_plan = config
-        .token_plan
-        .clone()
-        .map(|credential| Arc::new(tokio::sync::Mutex::new(credential)));
-    client_for_with_token_plan(config, github_configured, cloudflare_configured, token_plan)
-}
-
-pub fn client_for_with_token_plan(
-    config: &ProviderConfig,
-    github_configured: bool,
-    cloudflare_configured: bool,
-    token_plan: Option<TokenPlanState>,
-) -> Result<Arc<dyn LlmClient>, RuntimeError> {
     if matches!(
         config.protocol.trim().to_ascii_lowercase().as_str(),
         "on-device" | "foundation-models"
@@ -414,9 +392,6 @@ pub fn client_for_with_token_plan(
     Ok(Arc::new(MobileLlmClient {
         route,
         fallback: Vec::new(),
-        route_config: config.clone(),
-        fallback_configs: Vec::new(),
-        token_plan,
         tool_schemas: tool_schemas_for_host(github_configured, cloudflare_configured),
         // Anthropic requires an explicit ceiling; OpenAI-compatible ignores it.
         max_output_tokens: Some(8_192),
@@ -427,17 +402,6 @@ pub fn client_for_with_token_plan(
 /// session client it exposes no tool schemas, so recap, goal-audit, & diff
 /// narration requests cannot solicit a workspace mutation.
 pub fn assist_client_for(config: &ProviderConfig) -> Result<Arc<dyn LlmClient>, RuntimeError> {
-    let token_plan = config
-        .token_plan
-        .clone()
-        .map(|credential| Arc::new(tokio::sync::Mutex::new(credential)));
-    assist_client_for_with_token_plan(config, token_plan)
-}
-
-pub fn assist_client_for_with_token_plan(
-    config: &ProviderConfig,
-    token_plan: Option<TokenPlanState>,
-) -> Result<Arc<dyn LlmClient>, RuntimeError> {
     if matches!(
         config.protocol.trim().to_ascii_lowercase().as_str(),
         "on-device" | "foundation-models"
@@ -463,9 +427,6 @@ pub fn assist_client_for_with_token_plan(
     Ok(Arc::new(MobileLlmClient {
         route,
         fallback: Vec::new(),
-        route_config: config.clone(),
-        fallback_configs: Vec::new(),
-        token_plan,
         tool_schemas: Vec::new(),
         max_output_tokens: Some(512),
     }))
@@ -484,23 +445,14 @@ pub fn client_for_route(
 ) -> Result<Arc<dyn LlmClient>, RuntimeError> {
     let primary = build_route(&route.config)?;
     let mut fallback = Vec::with_capacity(route.fallback_models.len());
-    let mut fallback_configs = Vec::with_capacity(route.fallback_models.len());
     for model in &route.fallback_models {
         let mut config = route.config.clone();
         model.clone_into(&mut config.model);
         fallback.push(build_route(&config)?);
-        fallback_configs.push(config);
     }
     Ok(Arc::new(MobileLlmClient {
         route: primary,
         fallback,
-        route_config: route.config.clone(),
-        fallback_configs,
-        token_plan: route
-            .config
-            .token_plan
-            .clone()
-            .map(|credential| Arc::new(tokio::sync::Mutex::new(credential))),
         tool_schemas: tool_schemas_for_host(github_configured, cloudflare_configured),
         max_output_tokens: Some(8_192),
     }))
@@ -994,41 +946,6 @@ impl LlmClient for OnDeviceLlmClient {
 }
 
 impl MobileLlmClient {
-    /// Reserve one plan unit immediately before each provider request. A
-    /// zero/insufficient plan refreshes through shared bounded client before
-    /// any text transport is constructed, so exhausted plans never emit a
-    /// plausible provider request.
-    async fn token_plan_routes(&self) -> Result<Option<(Route, Vec<Route>)>, String> {
-        let Some(state) = &self.token_plan else {
-            return Ok(None);
-        };
-        let mut credential = state.lock().await;
-        if credential.remaining_quota < 1 {
-            refresh_mobile_token_plan(&mut credential)
-                .await
-                .map_err(|error| format!("token-plan refresh failed: {error}"))?;
-        }
-        credential.try_spend(1).map_err(|error| error.to_string())?;
-        let refresh_token = credential
-            .refresh_token
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| "token-plan refresh credential is not configured".to_string())?
-            .to_string();
-        drop(credential);
-
-        let mut primary_config = self.route_config.clone();
-        primary_config.api_key = refresh_token.clone();
-        let primary = build_route(&primary_config).map_err(|error| error.to_string())?;
-        let mut fallback = Vec::with_capacity(self.fallback_configs.len());
-        for config in &self.fallback_configs {
-            let mut config = config.clone();
-            config.api_key = refresh_token.clone();
-            fallback.push(build_route(&config).map_err(|error| error.to_string())?);
-        }
-        Ok(Some((primary, fallback)))
-    }
-
     /// Run one completion attempt against `route`, classifying any failure
     /// (ENG-31) so the caller can decide whether to fail over. Reuses each
     /// client's own internal retry/backoff ladder unchanged — this function
@@ -1081,11 +998,7 @@ fn error_allows_failover(error: &rightkit_llm::agent_providers::transport::Provi
 impl LlmClient for MobileLlmClient {
     async fn complete(&self, messages: &[TranscriptMessage]) -> Result<LlmResponse, String> {
         let wire = project(messages);
-        let dynamic_routes = self.token_plan_routes().await?;
-        let (primary, fallback): (&Route, &[Route]) = match dynamic_routes.as_ref() {
-            Some((primary, fallback)) => (primary, fallback),
-            None => (&self.route, &self.fallback),
-        };
+        let (primary, fallback): (&Route, &[Route]) = (&self.route, &self.fallback);
         // ENG-31: try the primary route first. Nothing below this layer has
         // dispatched a tool call or applied any other effect yet — tool
         // dispatch happens one layer up in the engine's turn loop, after

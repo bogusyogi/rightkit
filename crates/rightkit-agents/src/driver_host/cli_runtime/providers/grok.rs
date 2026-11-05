@@ -44,7 +44,7 @@ use std::sync::LazyLock;
 
 use crate::driver_host::cli_runtime::adapter::{
     CliAdapterError, CliAuthenticationStatus, CliDiscovery, CliLaunchRequest, CliLaunchSpec,
-    CliModelCatalog, CliProviderAdapter, NativeLoginUi,
+    CliModelCatalog, CliProviderAdapter,
 };
 use crate::driver_host::cli_runtime::ids::{
     CliAccountProfile, CliAuthMode, CliProviderCapabilities, CliProviderId, CliTransportKind,
@@ -73,7 +73,7 @@ pub const GROK_MODELS: &[&str] = &["grok-4", "grok-3", "grok-code"];
 
 /// Resume strategy for the Grok adapter. Per the architecture plan
 /// §12.5 and the hard ceiling on
-/// [`ResumeStrategy`](crate::driver_host::cli_runtime::ids::ResumeStrategy),
+/// [`ResumeStrategy`],
 /// "replay visible transcript into a new session" is **not** a
 /// permitted variant; Grok uses process restart with the vendor
 /// session id forwarded as `--resume <id>`.
@@ -206,62 +206,6 @@ impl CliProviderAdapter for GrokAdapter {
             ),
             observed_at: now_iso(),
         })
-    }
-
-    async fn begin_native_login(
-        &self,
-        profile: &CliAccountProfile,
-        _ui: &dyn NativeLoginUi,
-    ) -> Result<(), CliAdapterError> {
-        // Discovery/attestation owns installed-binary admission. Building a
-        // deterministic launch spec must remain testable before installation.
-        let executable = locate_binary().unwrap_or_else(|| PathBuf::from("grok"));
-        // `grok --profile-dir <managed_home> login` runs the
-        // browser/device flow under the the host app-managed profile
-        // and blocks until the user completes it. The transport
-        // surfaces the browser URL via [`NativeLoginUi`] before
-        // we wait on the subprocess; the adapter itself only
-        // spawns the command and reports its exit code.
-        let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
-        let context = rightkit_sandbox::execution::ProcessLaunchContext {
-            workspace_root: profile.managed_home.to_string_lossy().into_owned(),
-            sandbox_profile: Some("grok-login".into()),
-            sandbox_required: true,
-            network_required: true,
-        };
-        let spec = rightkit_sandbox::execution::CommandLaunchSpec {
-            program: executable.to_string_lossy().into_owned(),
-            argv: vec![
-                "--profile-dir".into(),
-                profile.managed_home.to_string_lossy().into_owned(),
-                "login".into(),
-            ],
-            cwd: context.workspace_root.clone(),
-            context,
-            env: Vec::new(),
-        };
-        let mut child = adapter.spawn(spec).await.map_err(|error| {
-            CliAdapterError::new(
-                self.provider_id.clone(),
-                "grok_login_spawn",
-                format!("failed to spawn `grok login` under policy: {error:?}"),
-            )
-        })?;
-        let status = child.wait().await.map_err(|error| {
-            CliAdapterError::new(
-                self.provider_id.clone(),
-                "grok_login_wait",
-                format!("login wait failed: {error:?}"),
-            )
-        })?;
-        if status != 0 {
-            return Err(CliAdapterError::new(
-                self.provider_id.clone(),
-                "grok_login_failed",
-                format!("`grok login` exited non-zero: {status}"),
-            ));
-        }
-        Ok(())
     }
 
     async fn list_models(
@@ -621,11 +565,6 @@ fn reject_byok_string(
     }
     Ok(())
 }
-
-/// Cheap UTC ISO timestamp suitable for `observed_at` /
-/// `fetched_at`. Matches the `YYYY-MM-DDTHH:MM:SSZ` shape the
-/// qualification runner uses so SQL string comparisons stay
-/// correct.
 
 /// Translate one ACP inbound JSON-RPC 2.0 envelope into a
 /// [`NormalizedEvent`]. Grok's `session/update` notifications

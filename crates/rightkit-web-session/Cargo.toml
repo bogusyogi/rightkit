@@ -21,6 +21,7 @@ browser = ["dep:rightkit-browser", "dep:chromiumoxide", "dep:tokio"]
 
 [dependencies]
 serde_json = { version = "1" }
+ring = "0.17"
 rightkit-app-host = { version = "0.1.0", path = "../rightkit-app-host" }
 rightkit-owner-approvals = { version = "0.1.0", path = "../rightkit-owner-approvals" }
 rightkit-remote-gateway = { version = "0.1.0", path = "../rightkit-remote-gateway" }

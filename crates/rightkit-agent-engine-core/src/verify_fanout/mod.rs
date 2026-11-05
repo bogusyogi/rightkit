@@ -51,9 +51,38 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
-use rightkit_agent_tools::coding_tools::{ToolContext, ToolResult};
+use rightkit_agent_tools::coding_tools::{ToolContext, ToolResult, WorkspaceMutation};
 
-use crate::post_edit_diagnostics::normalize_workspace_mutations;
+/// Sort, dedupe, and absolute-resolve a list of mutations the engine just
+/// collected. This is the single seam where `path` strings become typed
+/// `WorkspaceMutation`s the rest of the diagnostic pipeline reads. Read-only
+/// turns never call this.
+pub(crate) fn normalize_workspace_mutations(
+    workspace_root: &Path,
+    mutations: Vec<WorkspaceMutation>,
+) -> Vec<WorkspaceMutation> {
+    let mut normalized: Vec<WorkspaceMutation> = Vec::with_capacity(mutations.len());
+    for m in mutations {
+        let absolute = if m.path.is_absolute() {
+            m.path.clone()
+        } else {
+            workspace_root.join(&m.path)
+        };
+        let canonical = absolute;
+        if !normalized
+            .iter()
+            .any(|existing| existing.path == canonical && existing.kind == m.kind)
+        {
+            normalized.push(WorkspaceMutation {
+                path: canonical,
+                kind: m.kind,
+                previous_content: m.previous_content,
+            });
+        }
+    }
+    normalized.sort_by(|a, b| a.path.cmp(&b.path));
+    normalized
+}
 
 /// Tool-context inputs shared by every verifier unit.
 #[derive(Clone, Debug)]

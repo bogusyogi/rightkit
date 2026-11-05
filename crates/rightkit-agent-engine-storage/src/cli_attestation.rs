@@ -89,7 +89,7 @@ impl Storage {
     /// The UNIQUE constraint on the eight address inputs is enforced
     /// by the database even if the caller skipped the SHA-256
     /// computation — but we always compute it ourselves in
-    /// `Storage::record_cli_harness_attestation` via the typed
+    /// [`Storage::upsert_cli_harness_attestation`] via the typed
     /// signature below.
     ///
     /// Address-as-key invariant: the `id` MUST equal the SHA-256 of

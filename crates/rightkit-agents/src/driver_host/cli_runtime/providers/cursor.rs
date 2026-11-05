@@ -41,7 +41,7 @@ use std::sync::LazyLock;
 
 use crate::driver_host::cli_runtime::adapter::{
     CliAdapterError, CliAuthenticationStatus, CliDiscovery, CliLaunchRequest, CliLaunchSpec,
-    CliModelCatalog, CliProviderAdapter, NativeLoginUi,
+    CliModelCatalog, CliProviderAdapter,
 };
 use crate::driver_host::cli_runtime::auth;
 use crate::driver_host::cli_runtime::ids::{
@@ -63,9 +63,7 @@ pub const TRANSPORT: CliTransportKind = CliTransportKind::Acp;
 /// resolved (so a non-PATH install location still works).
 pub const CURSOR_BINARY: &str = "cursor-agent";
 
-/// URL the desktop shell opens during
-/// [`begin_native_login`](CliProviderAdapter::begin_native_login).
-/// The browser-login flow completes outside the host app. Authentication
+/// URL of Cursor's browser login. The flow completes outside the host app. Authentication
 /// is subsequently checked only through Cursor's structured CLI status.
 pub const CURSOR_LOGIN_URL: &str = "https://cursor.com/login";
 
@@ -75,7 +73,7 @@ pub const CURSOR_LOGIN_URL: &str = "https://cursor.com/login";
 pub const CURSOR_RESUME_STRATEGY: ResumeStrategy = ResumeStrategy::ProtocolLoadById;
 
 /// Cursor adapter. Implements the open
-/// [`CliProviderAdapter`](crate::driver_host::cli_runtime::adapter::CliProviderAdapter)
+/// [`CliProviderAdapter`]
 /// contract for the Cursor Agent CLI.
 ///
 /// The struct holds no per-call state; the adapter is stateless
@@ -232,42 +230,6 @@ impl CliProviderAdapter for CursorAdapter {
             source_label: "cursor agent status --json".into(),
             observed_at: now_iso_label(),
         })
-    }
-
-    async fn begin_native_login(
-        &self,
-        profile: &CliAccountProfile,
-        ui: &dyn NativeLoginUi,
-    ) -> Result<(), CliAdapterError> {
-        // The Cursor login flow is browser-based; the host app surfaces
-        // the URL to the desktop shell and waits for the user to
-        // complete the flow. We never read or write the resulting
-        // session cookie — that lives in the browser cookie store
-        // and is opaque to the host app.
-        ui.present_browser_url(CURSOR_LOGIN_URL)
-            .await
-            .map_err(|error| {
-                CliAdapterError::new(
-                    self.provider_id.clone(),
-                    "cursor_login_browser_url",
-                    format!(
-                        "desktop shell refused to present the Cursor login URL for profile {}: {}",
-                        profile.id, error
-                    ),
-                )
-            })?;
-        ui.report_progress(
-            "Complete browser login, then Agent will re-run Cursor CLI structured status.",
-        )
-        .await
-        .map_err(|error| {
-            CliAdapterError::new(
-                self.provider_id.clone(),
-                "cursor_login_progress",
-                format!("desktop shell refused to surface login progress: {error}"),
-            )
-        })?;
-        Ok(())
     }
 
     async fn list_models(

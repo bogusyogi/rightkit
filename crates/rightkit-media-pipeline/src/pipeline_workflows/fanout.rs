@@ -6,8 +6,8 @@
 //!
 //! - `segment_ids`  every segment the step must end up with, in order;
 //! - `expected`     the segments this attempt issues, each `{segment_id, request_id, prompt}`; the
-//!                  request id is `<run>:<step>:a<attempt>:<segment_id>`, so a resubmission after a
-//!                  crash lands on the same job (the job store dedups on request id);
+//!   request id is `<run>:<step>:a<attempt>:<segment_id>`, so a resubmission after a
+//!   crash lands on the same job (the job store dedups on request id);
 //! - `jobs`         the attached jobs, `{segment_id, job_id, request_id, state, error, asset}`;
 //! - `kept`         completed clips carried over from earlier attempts, `{segment_id, prompt,
 //!                  attempt, job_id, asset}`, reused by a retry (the clips are paid for);

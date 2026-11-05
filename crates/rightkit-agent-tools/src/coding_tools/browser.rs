@@ -186,7 +186,6 @@ struct BrowserControlState {
     generation: AtomicU64,
     observation: std::sync::Mutex<ObservationState>,
     host_policy: Arc<std::sync::Mutex<HashMap<String, BrowserNetworkDecisionV1>>>,
-    secrets: std::sync::Mutex<HashMap<String, String>>,
     action_loop: std::sync::Mutex<ActionLoopState>,
 }
 
@@ -222,20 +221,31 @@ impl BrowserNavigationTrustV1 {
 
 impl BrowserControlState {
     fn new(owner_session_id: String) -> Self {
-        Self {
+        Self::with_profile(
             owner_session_id,
-            profile: BrowserProfileV1 {
+            BrowserProfileV1 {
                 kind: "ephemeral".to_string(),
                 label: None,
                 ephemeral: true,
             },
-            mode: std::sync::Mutex::new(BrowserModeV1::Headless),
+            BrowserModeV1::Headless,
+        )
+    }
+
+    fn with_profile(
+        owner_session_id: String,
+        profile: BrowserProfileV1,
+        mode: BrowserModeV1,
+    ) -> Self {
+        Self {
+            owner_session_id,
+            profile,
+            mode: std::sync::Mutex::new(mode),
             lease_owner: std::sync::Mutex::new(None),
             operator_paused: std::sync::Mutex::new(false),
             generation: AtomicU64::new(1),
             observation: std::sync::Mutex::new(ObservationState::default()),
             host_policy: Arc::new(std::sync::Mutex::new(HashMap::new())),
-            secrets: std::sync::Mutex::new(HashMap::new()),
             action_loop: std::sync::Mutex::new(ActionLoopState::default()),
         }
     }
@@ -426,10 +436,14 @@ pub struct BrowserSession {
     approved_origin: Arc<tokio::sync::RwLock<Option<String>>>,
     navigation_trust: Arc<std::sync::Mutex<BrowserNavigationTrustV1>>,
     /// Chrome refuses remote debugging against the default profile, and two sessions
-    /// sharing one profile fight over it. Each session therefore gets a throwaway
-    /// profile, deleted when the session drops — which also means a browser the host app
-    /// opens can never touch the user's real Chrome profile, cookies, or logins.
+    /// sharing one profile fight over it. An ordinary session therefore gets a throwaway
+    /// profile in this directory, deleted when the session drops. A consented session
+    /// (R22) runs on a private copy of the user's profile under the consent folder and
+    /// keeps only its downloads here. Either way a browser the host app opens never touches
+    /// the user's live Chrome profile.
     _profile: tempfile::TempDir,
+    /// The consent receipt this session runs under, when it reuses the user's sign-ins.
+    consent_id: Option<String>,
     download_root: PathBuf,
     /// ResourceGovernor permits are owned by the same object that owns Chrome.
     /// Dropping the BrowserSession therefore releases the BrowserProcess,
@@ -480,6 +494,48 @@ impl BrowserSession {
         navigation_trust: BrowserNavigationTrustV1,
         initial_host_policy: Vec<(String, BrowserNetworkDecisionV1)>,
     ) -> Result<Self, String> {
+        Self::launch(
+            url,
+            owner_session_id,
+            navigation_trust,
+            initial_host_policy,
+            None,
+        )
+        .await
+    }
+
+    /// Launch a session that reuses the user's real sign-ins under a consent receipt
+    /// (R3, R22, R25): a private copy of the consented profile, confined to the consented
+    /// domains, stopped when the consent is revoked.
+    pub async fn open_consented(
+        url: &str,
+        owner_session_id: &str,
+        navigation_trust: BrowserNavigationTrustV1,
+        initial_host_policy: Vec<(String, BrowserNetworkDecisionV1)>,
+        consent: crate::coding_tools::browser_consent::ConsentedLaunch,
+    ) -> Result<Arc<Self>, String> {
+        let receipt_id = consent.receipt.id.clone();
+        let session = Arc::new(
+            Self::launch(
+                url,
+                owner_session_id,
+                navigation_trust,
+                initial_host_policy,
+                Some(consent),
+            )
+            .await?,
+        );
+        crate::coding_tools::browser_consent::register_session(&receipt_id, &session);
+        Ok(session)
+    }
+
+    async fn launch(
+        url: &str,
+        owner_session_id: &str,
+        navigation_trust: BrowserNavigationTrustV1,
+        initial_host_policy: Vec<(String, BrowserNetworkDecisionV1)>,
+        consent: Option<crate::coding_tools::browser_consent::ConsentedLaunch>,
+    ) -> Result<Self, String> {
         navigation_trust.validate()?;
         let profile = tempfile::tempdir()
             .map_err(|e| format!("could not create a browser profile directory: {e}"))?;
@@ -494,11 +550,33 @@ impl BrowserSession {
         // host policy. Keep one Fetch interceptor while RightKit owns Chrome's
         // discovery, process tree & bounded graceful shutdown.
         let mut options = rightkit_browser::LaunchOptions::default()
-            .system_chrome()
-            .named_profile(&profile_path, "chrome")
             .network(rightkit_browser::NetworkPolicy::unrestricted())
             .on_event(|event| tracing::debug!(?event, "browser lifecycle"));
         options.download_dir = Some(download_root.clone());
+        // Chrome cannot run its own sandbox as root. Containers and CI run as root,
+        // so the operator may opt out of Chrome's sandbox there explicitly; without
+        // that opt-in a root launch is refused with the reason, never weakened.
+        if running_as_root() {
+            if std::env::var("RIGHTKIT_BROWSER_NO_SANDBOX").as_deref() == Ok("1") {
+                options.extra_args.push("--no-sandbox".to_string());
+            } else {
+                return Err(
+                    "the browser cannot start as root: Chrome refuses to run its sandbox for \
+                     the root user. Run the host app as a normal user, or, in a disposable container \
+                     or CI, set RIGHTKIT_BROWSER_NO_SANDBOX=1 to run Chrome without its sandbox."
+                        .to_string(),
+                );
+            }
+        }
+        let consent_plan = match &consent {
+            None => {
+                options = options
+                    .system_chrome()
+                    .named_profile(&profile_path, "chrome");
+                None
+            }
+            Some(consent) => Some(consented_launch_options(consent, &mut options)?),
+        };
 
         // Chromium bypasses the generic ProcessLaunchAdapter, so acquire its
         // process reservation immediately before the only actual spawn point.
@@ -531,14 +609,33 @@ impl BrowserSession {
                 }
             };
 
-        let browser = rightkit_browser::BrowserSession::launch(options)
-            .await
-            .map_err(|e| {
-                format!(
-                    "failed to launch Chrome with isolated profile {}: {e}",
-                    profile_path.display()
+        let browser = match (&consent, consent_plan) {
+            (Some(consent), Some(ConsentedPlan::Attach)) => {
+                rightkit_browser::BrowserSession::attach_user_browser_revocable(
+                    consent.receipt.clone(),
+                    consent.revocation.clone(),
+                    consent.profiles_root.clone(),
+                    options,
                 )
-            })?;
+                .await
+                .map_err(|e| {
+                    format!("failed to attach to a private copy of the consented profile: {e}")
+                })?
+            }
+            (Some(_), _) => rightkit_browser::BrowserSession::launch(options)
+                .await
+                .map_err(|e| {
+                    format!("failed to open a private copy of the consented profile: {e}")
+                })?,
+            (None, _) => rightkit_browser::BrowserSession::launch(options)
+                .await
+                .map_err(|e| {
+                    format!(
+                        "failed to launch Chrome with isolated profile {}: {e}",
+                        profile_path.display()
+                    )
+                })?,
+        };
 
         let page = browser
             .new_page("about:blank")
@@ -552,7 +649,25 @@ impl BrowserSession {
 
         let approved_origin = Arc::new(tokio::sync::RwLock::new(None));
         let navigation_trust = Arc::new(std::sync::Mutex::new(navigation_trust));
-        let control = BrowserControlState::new(owner_session_id.to_string());
+        let control = match &consent {
+            None => BrowserControlState::new(owner_session_id.to_string()),
+            Some(consent) => BrowserControlState::with_profile(
+                owner_session_id.to_string(),
+                BrowserProfileV1 {
+                    kind: "imported".to_string(),
+                    label: Some(consent.receipt.id.clone()),
+                    ephemeral: false,
+                },
+                match consent.mode {
+                    crate::coding_tools::browser_consent::ConsentedMode::Import => {
+                        BrowserModeV1::Headless
+                    }
+                    crate::coding_tools::browser_consent::ConsentedMode::Attach => {
+                        BrowserModeV1::Visible
+                    }
+                },
+            ),
+        };
         control
             .host_policy
             .lock()
@@ -576,6 +691,7 @@ impl BrowserSession {
             approved_origin,
             navigation_trust,
             _profile: profile,
+            consent_id: consent.as_ref().map(|c| c.receipt.id.clone()),
             download_root,
             _resource_admission: resource_admission,
             _context_admission: context_admission,
@@ -586,6 +702,11 @@ impl BrowserSession {
 
     pub fn owner_session_id(&self) -> &str {
         &self.control.owner_session_id
+    }
+
+    /// The consent receipt this session runs under, or `None` for an ephemeral session.
+    pub fn consent_id(&self) -> Option<&str> {
+        self.consent_id.as_deref()
     }
 
     pub fn profile(&self) -> BrowserProfileV1 {
@@ -662,26 +783,6 @@ impl BrowserSession {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = trust;
         Ok(())
-    }
-
-    /// Install a value through a trusted daemon-side adapter. Model tool
-    /// input can name this opaque id but cannot create or enumerate secrets.
-    pub fn install_secret(&self, secret_id: impl Into<String>, value: impl Into<String>) {
-        self.control
-            .secrets
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(secret_id.into(), value.into());
-    }
-
-    fn resolve_secret(&self, secret_id: &str) -> Result<String, String> {
-        self.control
-            .secrets
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(secret_id)
-            .cloned()
-            .ok_or_else(|| "secret reference is unavailable or unauthorized".to_string())
     }
 
     pub async fn navigate(&self, url: &str) -> Result<(), String> {
@@ -1573,16 +1674,7 @@ fn action_signature(args: &Value) -> String {
 
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     for field in [
-        "action",
-        "ref",
-        "selector",
-        "text",
-        "secret_ref",
-        "key",
-        "url",
-        "dx",
-        "dy",
-        "path",
+        "action", "ref", "selector", "text", "key", "url", "dx", "dy", "path",
     ] {
         field.hash(&mut hasher);
         let value = args.get(field).map(|value| {
@@ -1636,6 +1728,61 @@ fn repeated_action_cycle_depth(recent: &VecDeque<String>) -> usize {
         }
     }
     depth
+}
+
+enum ConsentedPlan {
+    Import,
+    Attach,
+}
+
+/// Point the launch options at the consented browser's executable and a private copy of
+/// its profile. Chromium-family only; the consent must still be active.
+fn consented_launch_options(
+    consent: &crate::coding_tools::browser_consent::ConsentedLaunch,
+    options: &mut rightkit_browser::LaunchOptions,
+) -> Result<ConsentedPlan, String> {
+    use crate::coding_tools::browser_consent::ConsentedMode;
+    use rightkit_browser::{BrowserKind, BrowserSource, ImportSpec};
+
+    let receipt = &consent.receipt;
+    receipt.check_active().map_err(|e| e.to_string())?;
+    let source = match receipt.browser {
+        BrowserKind::Chrome => BrowserSource::Chrome,
+        BrowserKind::Edge => BrowserSource::Edge,
+        other => {
+            return Err(format!(
+                "reusing sign-ins supports Chrome and Edge; {} is not covered",
+                other.name()
+            ))
+        }
+    };
+    let exe = rightkit_browser::browser_executable(receipt.browser)
+        .ok_or_else(|| format!("{} is not installed", receipt.browser.name()))?;
+    options.chrome_path = Some(exe);
+    options.use_system_chrome_only = false;
+    options.allow_system_chrome = false;
+    match consent.mode {
+        ConsentedMode::Attach => {
+            options.headless = false;
+            Ok(ConsentedPlan::Attach)
+        }
+        ConsentedMode::Import => {
+            options.headless = true;
+            options.profile = rightkit_browser::ProfileSpec::ImportedFrom {
+                root: consent.profiles_root.clone(),
+                name: crate::coding_tools::browser_consent::imported_profile_name(receipt),
+                import: ImportSpec {
+                    browser: source,
+                    source_profile: Some(receipt.profile.clone()),
+                    domains: receipt.domains.clone(),
+                    consent: receipt.clone(),
+                    revocation: consent.revocation.clone(),
+                    reimport: false,
+                },
+            };
+            Ok(ConsentedPlan::Import)
+        }
+    }
 }
 
 /// Use the ordinary Windows spelling for Chromium command-line paths.
@@ -1697,11 +1844,19 @@ async fn state_summary(session: &BrowserSession, action: &str) -> String {
         .into_iter()
         .filter(|l| l.level == "error" || l.level == "exception")
         .collect();
+    // The URL and title come from the page, so they are wrapped as untrusted text (R9); the
+    // session id is ours and stays outside the wrapper where the model can read it.
     let mut out = format!(
-        "{action}\nsession: {}\nurl: {}\ntitle: {}",
+        "{action}\nsession: {}\n{}",
         session.id,
-        session.url().await,
-        session.title().await
+        wrap_untrusted_web_text(
+            "browser_open",
+            &format!(
+                "url: {}\ntitle: {}",
+                session.url().await,
+                session.title().await
+            )
+        )
     );
     if !problems.is_empty() {
         out.push_str(&format!(
@@ -1721,7 +1876,7 @@ impl Tool for BrowserOpenTool {
     }
 
     fn description(&self) -> &str {
-        "Open a real Chrome browser at a URL and return a session id. Use this to look at a running app — including a local dev server (http://localhost:5173) — then drive it with browser_read, browser_act, browser_screenshot, and browser_console. Close it with browser_close when done. Fail: no Chrome or Edge installed, or the URL does not load."
+        "Open a real Chrome browser at a URL and return a session id. Use this to look at a running app — including a local dev server (http://localhost:5173) — then drive it with browser_read, browser_act, browser_screenshot, and browser_console. Close it with browser_close when done. To reuse the user's signed-in session, pass `consent` with the id of a consent the user already granted (you cannot grant one); the page then runs on a private copy of their profile, limited to the domains they consented to. Fail: no Chrome or Edge installed, the URL does not load, or the consent is unknown, revoked, expired or does not cover the URL."
     }
 
     fn capability_class(&self) -> Option<CapabilityClass> {
@@ -1733,7 +1888,9 @@ impl Tool for BrowserOpenTool {
             "type": "object",
             "required": ["url"],
             "properties": {
-                "url": { "type": "string", "description": "URL to open, e.g. http://localhost:5173" }
+                "url": { "type": "string", "description": "URL to open, e.g. http://localhost:5173" },
+                "consent": { "type": "string", "description": "Id of a browser consent the user granted. Reuses their signed-in session for the consented domains only." },
+                "mode": { "type": "string", "enum": ["import", "attach"], "description": "With `consent`: `import` (default) is headless on a private copy of their sign-ins; `attach` is a visible window on the same private copy. Never the live browser." }
             }
         })
     }
@@ -1755,9 +1912,49 @@ impl Tool for BrowserOpenTool {
             return ToolResult::error("Browser sessions are not available in this context.");
         };
 
-        let session = match BrowserSession::open_owned(url, &ctx.session_id).await {
-            Ok(s) => Arc::new(s),
-            Err(e) => return ToolResult::error(e),
+        let session = match args["consent"].as_str() {
+            None => match BrowserSession::open_owned(url, &ctx.session_id).await {
+                Ok(s) => Arc::new(s),
+                Err(e) => return ToolResult::error(e),
+            },
+            Some(consent_id) => {
+                let mode = match args["mode"].as_str() {
+                    None => crate::coding_tools::browser_consent::ConsentedMode::Import,
+                    Some(raw) => {
+                        match crate::coding_tools::browser_consent::ConsentedMode::parse(raw) {
+                            Some(mode) => mode,
+                            None => {
+                                return ToolResult::error(format!(
+                                    "Unknown mode '{raw}': use import or attach"
+                                ))
+                            }
+                        }
+                    }
+                };
+                let launch = match crate::coding_tools::browser_consent::ConsentStore::product()
+                    .and_then(|store| store.launch_for(consent_id, mode))
+                {
+                    Ok(launch) => launch,
+                    Err(e) => return ToolResult::error(e),
+                };
+                if !launch.receipt.permits_url(url) {
+                    return ToolResult::error(format!(
+                        "Refusing to open '{url}': it is outside the domains the user consented to."
+                    ));
+                }
+                match BrowserSession::open_consented(
+                    url,
+                    &ctx.session_id,
+                    BrowserNavigationTrustV1::default(),
+                    Vec::new(),
+                    launch,
+                )
+                .await
+                {
+                    Ok(s) => s,
+                    Err(e) => return ToolResult::error(e),
+                }
+            }
         };
         let summary = state_summary(&session, "Opened.").await;
         store
@@ -1859,7 +2056,6 @@ impl Tool for BrowserActTool {
                 "ref": { "type": "string", "description": "Same-epoch scoped ref from browser_read. Preferred over selector." },
                 "selector": { "type": "string", "description": "Unique CSS selector: click, type, scroll (optional), wait_for, select, hover, upload" },
                 "text": { "type": "string", "description": "Text to type (action=type), or the option to choose (action=select)" },
-                "secret_ref": { "type": "string", "description": "Opaque id installed by an authorized daemon input adapter; usable instead of text for action=type and never returned" },
                 "key": { "type": "string", "description": "Key name, e.g. Enter or Escape, for action=press" },
                 "url": { "type": "string", "description": "URL, for action=navigate" },
                 "dx": { "type": "number", "description": "Horizontal scroll in px (default 0)" },
@@ -1892,27 +2088,11 @@ impl Tool for BrowserActTool {
             Ok(notice) => notice,
             Err(error) => return ToolResult::error(error),
         };
-        let type_text =
-            if action == "type" {
-                match (args["text"].as_str(), args["secret_ref"].as_str()) {
-                    (Some(_), Some(_)) => {
-                        return ToolResult::error(
-                            "action=type accepts exactly one of text or secret_ref",
-                        )
-                    }
-                    (Some(text), None) if text.contains("{{secret:") => return ToolResult::error(
-                        "secret placeholders must use secret_ref and an authorized input adapter",
-                    ),
-                    (Some(text), None) => Some(text.to_string()),
-                    (None, Some(secret_id)) => match session.resolve_secret(secret_id) {
-                        Ok(secret) => Some(secret),
-                        Err(error) => return ToolResult::error(error),
-                    },
-                    (None, None) => None,
-                }
-            } else {
-                None
-            };
+        let type_text = if action == "type" {
+            args["text"].as_str().map(str::to_string)
+        } else {
+            None
+        };
         let selector = match args["ref"].as_str() {
             Some(node_ref) => match session.resolve_ref(node_ref) {
                 Ok(selector) => Some(selector),
@@ -2036,8 +2216,13 @@ impl Tool for BrowserActTool {
                     Ok(observation) => ToolResult::ok(format!(
                         "{done}\n{}{}",
                         // Compact: an action result rides in every later
-                        // request, so whitespace is pure token cost.
-                        serde_json::to_string(&observation).unwrap_or_default(),
+                        // request, so whitespace is pure token cost. Page-derived text goes
+                        // through the injection scan and the untrusted wrapper like
+                        // browser_read does (contract R9).
+                        wrap_untrusted_web_text(
+                            "browser_act",
+                            &serde_json::to_string(&observation).unwrap_or_default()
+                        ),
                         watchdog_notice
                             .as_deref()
                             .map(|notice| format!("\nwatchdog: {notice}"))
@@ -2229,5 +2414,18 @@ impl Tool for BrowserCloseTool {
             }
             None => ToolResult::error(format!("No open browser session '{id}'.")),
         }
+    }
+}
+
+/// True when this process runs as the Linux root user.
+fn running_as_root() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        // SAFETY: geteuid has no preconditions and cannot fail.
+        unsafe { libc::geteuid() == 0 }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
     }
 }

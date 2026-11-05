@@ -49,6 +49,15 @@ fn run_hook_blocking(
         .arg(flag)
         .arg(cmd)
         .envs(envs.iter().map(|(k, v)| (*k, v.as_str())));
+    // Providers R46: no credential, daemon token or licence locator reaches a hook process.
+    for (name, _) in std::env::vars_os() {
+        if name
+            .to_str()
+            .is_some_and(rightkit_llm::agent_providers::host_credentials::is_credential_env_name)
+        {
+            owned.command_mut().env_remove(name);
+        }
+    }
     let options = rightkit_child_process::StreamOptions::new()
         .stdout_tail_cap(0)
         .stderr_tail_cap(0);
@@ -251,6 +260,8 @@ pub struct HookBus {
     tx: broadcast::Sender<HookEvent>,
     launcher: std::sync::Arc<dyn ProcessLaunchAdapter>,
     launch_context: rightkit_sandbox::execution::ProcessLaunchContext,
+    /// Hooks from the `[hooks]` config key and the project hook file; shared by every clone.
+    configured: std::sync::Arc<std::sync::RwLock<crate::agent_hooks::chain::ConfiguredHooks>>,
 }
 
 impl HookBus {
@@ -269,6 +280,7 @@ impl HookBus {
                 sandbox_required: false,
                 network_required: false,
             },
+            configured: Default::default(),
         }
     }
 
@@ -282,7 +294,44 @@ impl HookBus {
             tx,
             launcher,
             launch_context,
+            configured: Default::default(),
         }
+    }
+
+    /// Install the hooks of the `[hooks]` config key and the project hook file (rule 58). The
+    /// host passes the project file only for a trusted workspace
+    /// ([`crate::agent_hooks::chain::load_project_hook_file`]). Every clone of this bus sees the change.
+    pub fn set_configured_hooks(&self, hooks: crate::agent_hooks::chain::ConfiguredHooks) {
+        *self
+            .configured
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = hooks;
+    }
+
+    pub(crate) fn configured_specs_labelled(
+        &self,
+        event: &str,
+    ) -> Result<Vec<(&'static str, crate::agent_hooks::chain::HookSpec)>, String> {
+        self.configured
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .specs_labelled(event)
+    }
+
+    /// Every hook for `event`, in execution order: the `[hooks]` key, the project file, then the
+    /// `RIGHTKIT_HOOKS_JSON` entries. An invalid surface is an error (fail closed for
+    /// `PreToolUse`).
+    pub fn specs_for(
+        &self,
+        event: &str,
+    ) -> Result<Vec<crate::agent_hooks::chain::HookSpec>, String> {
+        let mut specs = self
+            .configured
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .specs(event)?;
+        specs.extend(crate::agent_hooks::chain::env_hook_specs(event)?);
+        Ok(specs)
     }
 
     /// Subscribe to future events.
@@ -304,9 +353,9 @@ impl HookBus {
 
     /// Run the ordered `PreToolUse` hook chain.
     ///
-    /// Hooks come from `RIGHTKIT_HOOK_PRE_TOOL_USE` (legacy single command,
-    /// runs first) followed by the `PreToolUse` entries of
-    /// `RIGHTKIT_HOOKS_JSON`. With none configured this returns `Proceed`.
+    /// Hooks come from the `[hooks]` config key, the project hook file and the
+    /// `RIGHTKIT_HOOKS_JSON` entries, in that order ([`specs_for`](Self::specs_for)).
+    /// With none configured this returns `Proceed`.
     ///
     /// Semantics (see `chain`): exit 0 = ok (optional typed JSON), exit 2 =
     /// deny with stderr as reason, any deny wins, mutations compose in order,
@@ -330,8 +379,8 @@ impl HookBus {
         tool_name: &str,
         args: &serde_json::Value,
     ) -> PreToolUseReport {
-        use crate::agent_hooks::chain::{load_hook_specs, run_chain, HookDecision};
-        let specs = match load_hook_specs("PreToolUse") {
+        use crate::agent_hooks::chain::{run_chain, HookDecision};
+        let specs = match self.specs_for("PreToolUse") {
             Ok(specs) => specs,
             Err(error) => {
                 return PreToolUseReport {
@@ -387,9 +436,8 @@ impl HookBus {
         }
     }
 
-    /// Run the configured `RIGHTKIT_HOOKS_JSON` chain for any event in the
-    /// taxonomy (`UserPromptSubmit`, `Stop`, `SubagentStop`, `SessionStart`,
-    /// `SessionEnd`, `PreCompact`, `Notification`, `PostToolUse`).
+    /// Run the configured chain for any event in the taxonomy
+    /// (`chain::HOOK_EVENT_NAMES`).
     /// `target` is the matcher subject (tool name) when the event has one.
     pub async fn run_event_hooks(
         &self,
@@ -399,7 +447,7 @@ impl HookBus {
         input: Option<&serde_json::Value>,
         extra_envs: &[(&'static str, String)],
     ) -> crate::agent_hooks::chain::ChainReport {
-        let specs = match crate::agent_hooks::chain::load_hook_specs(event) {
+        let specs = match self.specs_for(event) {
             Ok(specs) => specs,
             Err(error) => {
                 let mut report = crate::agent_hooks::chain::ChainReport::default();
@@ -431,16 +479,14 @@ impl HookBus {
     /// invalid, which fails closed). Callers use this to keep hook-governed
     /// calls on the serial approval path.
     pub fn has_pre_tool_use_hooks(&self) -> bool {
-        match crate::agent_hooks::chain::load_hook_specs("PreToolUse") {
+        match self.specs_for("PreToolUse") {
             Ok(specs) => !specs.is_empty(),
             Err(_) => true,
         }
     }
 
-    /// Run the blocking `Stop` hooks: the legacy single command in
-    /// `RIGHTKIT_HOOK_STOP_BLOCKING` first, then the `Stop` entries of
-    /// `RIGHTKIT_HOOKS_JSON`. A deny from either (exit 2, `decision`
-    /// `block`/`deny`, or `continue:false`) keeps the agent going with the
+    /// Run the blocking `Stop` hooks (the `Stop` entries of the configured chain). A deny (exit
+    /// 2, `decision` `block`/`deny`, or `continue:false`) keeps the agent going with the
     /// reason.
     ///
     /// This intentionally does not change `publish(HookEvent::Stop)`, because the
@@ -456,8 +502,7 @@ impl HookBus {
     }
 
     /// Like [`run_blocking_stop`](Self::run_blocking_stop) for an explicit
-    /// event: `"Stop"` (legacy env var plus JSON) or `"SubagentStop"` (JSON
-    /// only).
+    /// event: `"Stop"` or `"SubagentStop"`.
     pub async fn run_blocking_stop_event(
         &self,
         event: &str,
@@ -474,23 +519,19 @@ impl HookBus {
         ];
         self.run_blocking_event(
             event,
-            if event == "Stop" {
-                hook_var!("RIGHTKIT_HOOK_STOP_BLOCKING")
-            } else {
-                None
-            },
             session_id,
             extras,
             "Completion denied by blocking Stop hook",
             "Blocking Stop hook exited with error (exit 1)",
+            // Rule 54: a blocking Stop hook that cannot run still proceeds, with an `Error`.
+            false,
         )
         .await
     }
 
     /// Run the blocking PreCommit hooks (WS-3).
     ///
-    /// The legacy command in `RIGHTKIT_HOOK_PRE_COMMIT` runs first, then the
-    /// `PreCommit` entries of `RIGHTKIT_HOOKS_JSON`. With neither configured
+    /// Runs the `PreCommit` entries of the configured chain. With none configured
     /// this is a no-op returning `HookOutcome::Proceed` — the gate is
     /// **off by default**.
     ///
@@ -503,113 +544,49 @@ impl HookBus {
     ///   1  → `Error(stdout)` — non-blocking error; logged, commit proceeds
     ///   2  → `Deny(stdout)` — commit is blocked; stdout is the reason
     ///   other → treated as `Error`
+    ///   timeout or cannot start → `Deny` (rule 54: an auditor gate that cannot run blocks)
     pub async fn run_pre_commit(&self, session_id: &str, diff: &str) -> HookOutcome {
         self.run_blocking_event(
             "PreCommit",
-            hook_var!("RIGHTKIT_HOOK_PRE_COMMIT"),
             session_id,
             vec![("RIGHTKIT_HOOK_DIFF", diff.to_string())],
             "Commit denied by PreCommit auditor gate",
             "PreCommit hook exited with error (exit 1)",
+            // Rule 54: an auditor gate that cannot run (timeout, cannot start) blocks the commit.
+            // Exit 1 is the hook's own verdict and stays a non-blocking error.
+            true,
         )
         .await
     }
 
-    /// Shared blocking-event driver: legacy env command (if any), then the
-    /// JSON chain. Any deny wins; otherwise a legacy error, then chain
-    /// errors, are reported as `Error`.
+    /// Shared blocking-event driver: runs the configured chain for `event`. Any deny wins;
+    /// otherwise chain errors are reported as `Error`.
     async fn run_blocking_event(
         &self,
         event: &str,
-        legacy_env: Option<&str>,
         session_id: &str,
         extras: Vec<(&'static str, String)>,
         default_deny: &'static str,
         default_error: &'static str,
+        unrunnable_blocks: bool,
     ) -> HookOutcome {
-        let mut legacy = HookOutcome::Proceed;
-        if let Some(cmd) = legacy_env.and_then(crate::agent_hooks::hook_env) {
-            let mut envs = vec![
-                ("RIGHTKIT_HOOK_EVENT", event.to_string()),
-                ("RIGHTKIT_HOOK_SESSION", session_id.to_string()),
-            ];
-            envs.extend(extras.iter().cloned());
-            legacy = run_blocking_command_with_launcher(
-                self.launcher.clone(),
-                self.launch_context.clone(),
-                cmd,
-                envs,
-                default_deny,
-                default_error,
-            )
-            .await;
-            if matches!(legacy, HookOutcome::Deny(_)) {
-                return legacy;
-            }
-        }
+        let _ = default_error;
         let report = self
             .run_event_hooks(event, session_id, None, None, &extras)
             .await;
         if report.is_denied() {
             return HookOutcome::Deny(report.reason.unwrap_or_else(|| default_deny.to_string()));
         }
-        if matches!(legacy, HookOutcome::Error(_)) {
-            return legacy;
+        if unrunnable_blocks && !report.unrunnable.is_empty() {
+            return HookOutcome::Deny(format!(
+                "{event} hook could not run (blocked): {}",
+                report.unrunnable.join("; ")
+            ));
         }
         if !report.errors.is_empty() {
             return HookOutcome::Error(report.errors.join("; "));
         }
         HookOutcome::Proceed
-    }
-}
-
-async fn run_blocking_command_with_launcher(
-    launcher: std::sync::Arc<dyn ProcessLaunchAdapter>,
-    _launch_context: rightkit_sandbox::execution::ProcessLaunchContext,
-    cmd: String,
-    envs: Vec<(&'static str, String)>,
-    default_deny: &'static str,
-    default_error: &'static str,
-) -> HookOutcome {
-    let result = tokio::time::timeout(
-        std::time::Duration::from_secs(30),
-        launcher.run(cmd, envs, _launch_context),
-    )
-    .await;
-
-    match result {
-        Ok(Ok(output)) => {
-            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            match output.status.code() {
-                Some(0) => HookOutcome::Proceed,
-                // `code() == None` means no exit evidence — the hook was
-                // signal-killed. Report it honestly rather than as a clean
-                // exit so a killed gate can never masquerade as Proceed.
-                None => {
-                    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                    HookOutcome::Error(if stderr.is_empty() {
-                        "hook terminated by signal".to_string()
-                    } else {
-                        format!("hook terminated by signal: {stderr}")
-                    })
-                }
-                Some(2) => HookOutcome::Deny(if stdout.is_empty() {
-                    default_deny.to_string()
-                } else {
-                    stdout
-                }),
-                Some(1) => HookOutcome::Error(if stdout.is_empty() {
-                    default_error.to_string()
-                } else {
-                    stdout
-                }),
-                Some(code) => {
-                    HookOutcome::Error(format!("hook exited with unexpected code {code}: {stdout}"))
-                }
-            }
-        }
-        Ok(Err(e)) => HookOutcome::Error(format!("hook failed to spawn: {e}")),
-        Err(_) => HookOutcome::Error("hook timed out or panicked".to_string()),
     }
 }
 

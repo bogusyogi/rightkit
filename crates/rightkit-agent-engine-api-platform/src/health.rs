@@ -25,17 +25,21 @@ pub struct ProviderKeyStorageStatus {
     pub keychain_failure_observed: bool,
 }
 
+/// The client-API contract version the daemon serves. A client accepts the daemon only when this
+/// and [`PROTOCOL_VERSION`] sit inside its compiled range; the app `version` is displayed, never compared.
+pub const CONTRACT_VERSION: u32 = 1;
+/// The daemon discovery-record protocol version (`daemon.port` `ProtocolVersion`).
+pub const PROTOCOL_VERSION: u16 = 1;
+
+/// The unauthenticated `GET /health` body: exactly these five fields (client API R37). Everything
+/// else (`port`, `databasePath`, storage pool, provider-key posture) is behind the bearer on
+/// `/machine/info` and `/machine/status`.
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HealthResponse {
     pub ok: bool,
     pub service: String,
-    pub port: u16,
-    pub database_path: String,
-    pub utc_now: String,
-    pub storage_read_pool_idle: Option<usize>,
-    /// Non-secret provider credential-store posture. Plaintext fallback is
-    /// never implicit; when enabled or used this object makes the degraded
-    /// state visible to every daemon client.
-    pub provider_key_storage: ProviderKeyStorageStatus,
+    pub version: String,
+    pub contract_version: u32,
+    pub protocol_version: u16,
 }

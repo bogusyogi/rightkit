@@ -14,6 +14,7 @@
 ## 0.2.1 (unreleased)
 
 - Feature `agent_hooks`: agent lifecycle hook runner and hook protocol moved from CodeRight `coderight-hooks`.
+- `agent_hooks` sync: hooks come from the `[hooks]` config key (`HookBus::set_configured_hooks`, `ConfiguredHooks`), the project hook file (`.rightkit/hooks.json`, trusted workspaces only, `load_project_hook_file`) and `RIGHTKIT_HOOKS_JSON`; the per-event `RIGHTKIT_HOOK_*` command variables are gone. New events `PostToolUseFailure`, `PermissionRequest`, `PreModelRequest`, `PostModelRequest`, `PostCompact`, `SubagentStart`, `Interrupt` and `PreCommit` in `HOOK_EVENT_NAMES`; `HookKind` (`command`, `url`, `mcp`); an unknown event name in a hooks document is an error; hooks that cannot start are reported in `ChainReport::unrunnable` and a failing `PreCommit` gate blocks; no credential variable reaches a hook process (needs `rightkit-llm`); hooks have ids (`<Event>#<n>`, `IdentifiedHook`, `HookBus::hooks_for`, `inventory`).
 
 ## 0.2.0 (2026-10-17)
 

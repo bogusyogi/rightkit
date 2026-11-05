@@ -1,5 +1,5 @@
 //! `media_tools` — registers the `host_media` crate's native media
-//! tools (OCR / transcribe / web-extract / media-fetch / ffmpeg-extract)
+//! tools (OCR / web-extract / media-fetch / ffmpeg-extract)
 //! as first-class agent tools in the [`ToolRegistry`].
 //!
 //! WS-7, FEATURE-MATRIX `media / HR-SR tool coverage`. The
@@ -149,7 +149,6 @@ fn exit_status(code: i32) -> std::process::ExitStatus {
 pub const MEDIA_TOOL_NAMES: &[&str] = &[
     "ocr",
     "ocr_onnx",
-    "transcribe",
     "web_extract",
     "media_fetch",
     "ffmpeg_extract",

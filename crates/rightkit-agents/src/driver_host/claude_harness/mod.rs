@@ -58,7 +58,7 @@
 //!    `DelegationBypassDetected` progress event, and
 //! 3. every child spawn is resolved through
 //!    `cli_runtime::policy::resolve_child_runtime` via
-//!    [`delegation::delegate_through_coderight`], which records a
+//!    `delegation::delegate_through_coderight`, which records a
 //!    receipt (backend, resolution source, session-policy digest) and
 //!    enforces the session's `max_parallel_children` budget
 //!    ([`delegation::DelegationLedger`]).
@@ -81,8 +81,8 @@ pub use delegation::{
     LaunchPolicyViolation, NativeChildSpawn, HOST_MCP_TOOL_SCOPE, NATIVE_CHILD_SPAWN_TOOL_NAMES,
 };
 pub use runtime::{
-    interrupt_frame, project_progress_kinds, steer_frame, ClaudeRootRuntime, HarnessProgressEvent,
-    HarnessProgressKind,
+    interrupt_frame, project_progress_kinds, steer_frame, ClaudeRootRuntime, ControlKind,
+    ControlRejection, ControlState, HarnessProgressEvent, HarnessProgressKind,
 };
 pub use supervisor::{ClaudeHarnessSupervisor, HarnessSpawner, SupervisedProcessInfo};
 pub use workspace::{

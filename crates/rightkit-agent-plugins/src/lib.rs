@@ -1,10 +1,9 @@
-//! host_plugins — plugin marketplace and runtime loader.
+//! host_plugins — local-folder plugin loader and runtime (no marketplace).
 //!
 //! This crate provides a plugin system with:
 //! - Manifest loading and serialization (JSON)
 //! - Runtime plugin discovery and state management (enable/disable)
-//! - Version tracking per plugin
-//! - Marketplace registry with search and installation
+//! - Atomic local install (stage, swap, no retained previous version)
 
 pub mod error;
 pub mod execution_trust;
@@ -20,7 +19,7 @@ pub use execution_trust::{
     classify_plugin_policy, extension_trust_catalog, ExtensionIsolationGuarantee,
     ExtensionTrustClass, ExtensionTrustDiagnostic,
 };
-pub use loader::PluginLoader;
+pub use loader::{validate_plugin_id, InstalledPlugin, PluginLoader};
 pub use manifest::{
     PluginCommandMetadata, PluginDataAccess, PluginIsolationMode, PluginManifest,
     PluginMiddlewareCondition, PluginMiddlewareContribution, PluginPromptContribution,

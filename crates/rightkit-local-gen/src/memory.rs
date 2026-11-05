@@ -5,7 +5,7 @@
 //! 1.2 GB, VAE 0.7 GB). That swaps a 24 GB Mac and does not run on a 16 GB one.
 //!
 //! A mode is a fixed list of real `sd-server` options (names verbatim from the pinned server's
-//! `--help`, upstream tag `master-929-3f8527a`, see `assets/local-image/runtime-manifest.json`):
+//! `--help`, upstream tag `master-929-3f8527a`, see `data/local-image/runtime-manifest.json`):
 //!
 //! | mode          | options added to the profile's arguments                                  |
 //! |---------------|----------------------------------------------------------------------------|

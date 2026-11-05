@@ -119,17 +119,39 @@ pub fn durable_write_requires_approval(provenance: &ContentProvenance) -> bool {
     provenance.origin.is_external()
 }
 
-/// Apply provenance as a most-restrictive-wins policy layer. External durable
-/// writes ask even when ordinary mode/rules produced Allow (including Bypass).
+/// Memory writes are stricter than the other durable sinks (contract
+/// `context-membrane-memory.md` rules 16 and 45): Membrane stores no memory
+/// provenance yet, so a write whose origin is not the user's own session
+/// (tool output counts, not only web and MCP content) needs the operator's
+/// approval of that exact call.
+pub fn memory_write_requires_approval(provenance: &ContentProvenance) -> bool {
+    provenance.origin != ContentOrigin::SessionOrigin
+}
+
+fn kind_requires_approval(kind: DurableWriteKind, provenance: &ContentProvenance) -> bool {
+    match kind {
+        DurableWriteKind::Memory => memory_write_requires_approval(provenance),
+        _ => durable_write_requires_approval(provenance),
+    }
+}
+
+/// Apply provenance as a most-restrictive-wins policy layer. Durable writes
+/// that need approval ask even when ordinary mode/rules produced Allow
+/// (including Bypass).
 pub fn enforce_durable_write_provenance(
     base: PermissionVerdict,
     kind: DurableWriteKind,
     provenance: &ContentProvenance,
 ) -> PermissionVerdict {
-    if base.decision == PermissionDecision::Deny || !durable_write_requires_approval(provenance) {
+    if base.decision == PermissionDecision::Deny || !kind_requires_approval(kind, provenance) {
         return base;
     }
 
+    let source = if provenance.origin.is_external() {
+        "provenance:external-durable-write"
+    } else {
+        "provenance:non-session-memory-write"
+    };
     PermissionVerdict::new(
         PermissionDecision::Ask,
         format!(
@@ -138,7 +160,7 @@ pub fn enforce_durable_write_provenance(
             provenance.origin.label(),
             provenance.source
         ),
-        "provenance:external-durable-write",
+        source,
     )
 }
 
@@ -149,4 +171,13 @@ pub fn durable_write_is_authorized(
     explicitly_approved: bool,
 ) -> bool {
     !durable_write_requires_approval(provenance) || explicitly_approved
+}
+
+/// Sink-side backstop for `memory_save`: the user's own session writes freely,
+/// any other origin needs the operator's approval of this exact call.
+pub fn memory_write_is_authorized(
+    provenance: &ContentProvenance,
+    explicitly_approved: bool,
+) -> bool {
+    !memory_write_requires_approval(provenance) || explicitly_approved
 }

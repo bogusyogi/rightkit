@@ -16,13 +16,14 @@ path = "src/lib.rs"
 [dependencies]
 rightkit-crypto = {version = "0.1.0", path = "../rightkit-crypto"}
 rightkit-child-process = {version = "0.5.7", features = ["tokio"], path = "../rightkit-child-process"}
-rightkit-agent-engine-protocol = {version = "0.1.0", path = "../rightkit-agent-engine-protocol"}
+rightkit-agent-engine-protocol = {version = "0.1.1", path = "../rightkit-agent-engine-protocol"}
 rightkit-cache = {version = "0.2.3", path = "../rightkit-cache"}
 rightkit-fs = {version = "0.4.9", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs"}
 rightkit-agent-policy = {version = "0.1.0", path = "../rightkit-agent-policy"}
+rightkit-agent-engine-history = {version = "0.1.1", path = "../rightkit-agent-engine-history"}
 rightkit-mcp = {version = "0.7.2", features = ["advanced-http", "agent_mcp"], path = "../rightkit-mcp"}
 rightkit-agent-tools = {version = "0.3.1", path = "../rightkit-agent-tools", features = ["coding_tools"]}
-rightkit-sandbox = {version = "0.6.2", path = "../rightkit-sandbox", features = ["execution"]}
+rightkit-sandbox = {version = "0.6.3", path = "../rightkit-sandbox", features = ["execution"]}
 rightkit-hooks = {version = "0.2.1", path = "../rightkit-hooks", features = ["agent_hooks"]}
 rightkit-agent-host-traits = {version = "0.1.0", path = "../rightkit-agent-host-traits"}
 rightkit-agent-engine-runtime-middleware = {version = "0.1.0", path = "../rightkit-agent-engine-runtime-middleware"}

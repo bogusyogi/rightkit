@@ -219,7 +219,7 @@ impl SessionEngine {
             &self.workspace_root,
         ) {
             Ok(process_launch) => process_launch,
-            Err(result) => return Some(result),
+            Err(result) => return Some(*result),
         };
 
         if let Some(bus) = &self.hook_bus {
@@ -378,7 +378,23 @@ impl SessionEngine {
                     if let Some(ref m) = self.mcp {
                         ctx = ctx.with_mcp(m.clone());
                     }
-                    let result = if call.name == "exec" {
+                    // Sessions rule 41: the engine's write path writes the restore
+                    // point before a write tool runs. A call that cannot get one
+                    // fails with `history_unavailable` and never edits.
+                    let write_targets = tool.write_targets(&args, &ctx);
+                    let history = (!write_targets.is_empty()).then(|| {
+                        rightkit_agent_engine_history::HistoryStore::new(
+                            &self.workspace_root,
+                            ".rightkit",
+                            &self.session_id,
+                        )
+                    });
+                    let history_failure = history
+                        .as_ref()
+                        .and_then(|store| store.snapshot_targets(&write_targets).err());
+                    let result = if let Some(failure) = history_failure {
+                        rightkit_agent_tools::coding_tools::ToolResult::error(failure)
+                    } else if call.name == "exec" {
                         crate::engine::composition::execute_exec_call(
                             self,
                             call,
@@ -410,6 +426,15 @@ impl SessionEngine {
                         )
                         .await
                     };
+                    if let Some(store) = history.as_ref() {
+                        for path in store.record_after_targets(&write_targets) {
+                            tracing::warn!(
+                                session_id = %self.session_id,
+                                path = %path.display(),
+                                "history: the post-edit state was not recorded; a rewind will not verify this file"
+                            );
+                        }
+                    }
                     output_coalescer.finish();
                     drop(cancel_guard);
                     result

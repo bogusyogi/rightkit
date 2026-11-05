@@ -9,7 +9,7 @@
 //! transport interface. The new transports delegate argv construction
 //! to the legacy [`crate::driver_host::ClaudeLaunchOptions::launch_spec`] and
 //! [`crate::driver_host::CodexLaunchOptions::launch_spec`] so byte-equivalence is
-//! preserved; the [`_argv_snapshot`] module freezes the pre-refactor
+//! preserved; the `_argv_snapshot` module freezes the pre-refactor
 //! argv lists so the byte-equivalence tests fail if the transports
 //! ever drift.
 

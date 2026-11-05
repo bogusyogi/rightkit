@@ -135,14 +135,14 @@ pub(crate) fn hooks() -> &'static dyn ApprovalHooks {
     HOOKS.get_or_init(|| Box::new(NoHooks)).as_ref()
 }
 
+/// One owner-check key as the service lists it: `(key id, device, public key hex)`.
+pub type OwnerKeyEntry = (String, String, String);
+
 /// The elevated Windows service that holds the owner-check keys (a folder only administrators can
 /// write). Install one with [`set_owner_key_service`] on Windows; elsewhere it is never asked.
-/// One owner key as `(key id, device, public key hex)`.
-pub type OwnerKeyRow = (String, String, String);
-
 pub trait OwnerKeyService: Send + Sync {
     /// The service's keys as `(key id, device, public key hex)`; `None` when it is not installed.
-    fn owner_keys(&self) -> std::result::Result<Option<Vec<OwnerKeyRow>>, String>;
+    fn owner_keys(&self) -> std::result::Result<Option<Vec<OwnerKeyEntry>>, String>;
     /// Whether the service program is installed.
     fn service_installed(&self) -> bool;
     /// Runs one elevated change of the service's key list (`owner-enrol ...`, `owner-revoke ...`).

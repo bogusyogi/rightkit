@@ -15,7 +15,7 @@
 //!
 //! **Projection only.** Every operation here builds a
 //! [`rightkit_agent_engine_tasks::TaskGraph`] from the caller's `Vec<TaskNode>`
-//! (the shape [`DaemonState::tasks`] already stores —
+//! (the shape `DaemonState::tasks` already stores —
 //! `engine/host-app/src/api_state_types.rs`), performs the mutation
 //! through `TaskGraph`'s own methods (`add_task`, `mark_done`,
 //! `recompute_states`, `ready_tasks`), and returns the updated flat list.

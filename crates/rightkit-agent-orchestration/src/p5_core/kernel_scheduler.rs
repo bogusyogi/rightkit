@@ -37,7 +37,8 @@ pub struct LaneContext<'a> {
     pub node_id: &'a str,
 }
 
-type LaneRun = Box<dyn Fn(&LaneContext) -> Result<Value, KernelError>>;
+/// The work of one lane.
+pub type LaneRun = Box<dyn Fn(&LaneContext) -> Result<Value, KernelError>>;
 
 pub struct LaneNode {
     pub id: String,

@@ -7,5 +7,6 @@
 
 ## 0.1.0 (unreleased)
 
+- Synced with CodeRight: literal session command grants (`Rule::session_command_grant`), `EffectClass` / `ApprovalClass` / `effect_class_for_tool`, `TrustPolicy::bypass_refusal`, `evaluate_shell_command_in` / `classify_shell_command` (interpreters and test runners are routine under an enforcing OS sandbox), memory writes from any non-session origin ask, an ABAC Allow no longer relaxes the untrusted-workspace clamp; the auto-approval classifier and cache are removed and `transcribe` is no longer a media capability alias.
 - Feature `legion`: effect adapter and authorization receipts binding agent policy decisions to sandbox effects, moved from CodeRight `coderight-legion-policy`.
 - First RightKit release, moved from `coderight-policy` (engine).

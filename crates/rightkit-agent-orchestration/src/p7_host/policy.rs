@@ -270,7 +270,10 @@ pub fn classify_lineage(input: &LineageInput) -> &'static str {
 
 // ---- org/index.mjs ----
 
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "ported one-to-one from the JS organizationPolicy constructor, whose positional shape callers keep"
+)]
 pub fn organization_policy(
     id: &str,
     version: &Value,

@@ -22,6 +22,7 @@ mod binary_lookup;
 mod claude;
 pub mod claude_harness;
 mod claude_permission;
+mod claude_usage_scan;
 pub mod cli_runtime;
 mod codex;
 mod contracts;
@@ -39,6 +40,7 @@ pub use claude_permission::{
     claude_permission_response_frame, enable_stdio_permission_prompt_for_spec,
     parse_claude_can_use_tool, ClaudePermissionDecision, ClaudePermissionRequest,
 };
+pub use claude_usage_scan::{scan_claude_account_usage, ClaudeAccountHome, ClaudeAccountUsage};
 pub use codex::{
     apply_codex_account_env, parse_codex_jsonrpc_line, parse_codex_usage_limit_event,
     CodexLaunchOptions, CodexMessage,

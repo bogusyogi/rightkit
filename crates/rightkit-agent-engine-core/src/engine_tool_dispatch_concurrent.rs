@@ -21,6 +21,7 @@ impl SessionEngine {
     /// Build one governed concurrent execution future without borrowing the
     /// engine. The caller must apply the same 5a classifier used by the
     /// completed-response path before enqueueing this future.
+    #[cfg(test)]
     pub(in crate::engine) fn streaming_concurrent_tool_future(
         &self,
         call: ToolCall,
@@ -105,7 +106,7 @@ impl SessionEngine {
                                 Some(format!("PreToolUse hook requires approval: {reason}"));
                         }
                         rightkit_hooks::agent_hooks::bus::PreToolUseOutcome::Error(message) => {
-                            eprintln!("[hook] PreToolUse error (non-blocking): {message}");
+                            tracing::warn!(tool = %call.name, %message, "PreToolUse hook error (non-blocking)");
                         }
                         rightkit_hooks::agent_hooks::bus::PreToolUseOutcome::Proceed => {}
                     }
@@ -121,7 +122,7 @@ impl SessionEngine {
                 &workspace_root,
             ) {
                 Ok(process_launch) => process_launch,
-                Err(result) => return (call, result),
+                Err(result) => return (call, *result),
             };
             let mut ctx = rightkit_agent_tools::coding_tools::ToolContext::new(
                 &session_id,
@@ -254,6 +255,7 @@ impl SessionEngine {
     ) {
         let sid = self.session_id.clone();
         let mut result = result;
+        self.emit_sandbox_refusal_events(&sid, &call.id, &result);
         if let Err(error) = self.record_assurance_receipt(&call, &result) {
             result.is_error = true;
             result.content = format!(
@@ -680,7 +682,7 @@ impl SessionEngine {
                                 rightkit_hooks::agent_hooks::bus::PreToolUseOutcome::Error(
                                     message,
                                 ) => {
-                                    eprintln!("[hook] PreToolUse error (non-blocking): {message}");
+                                    tracing::warn!(tool = %call.name, %message, "PreToolUse hook error (non-blocking)");
                                 }
                                 rightkit_hooks::agent_hooks::bus::PreToolUseOutcome::Proceed => {}
                             }
@@ -696,7 +698,7 @@ impl SessionEngine {
                         &workspace_root,
                     ) {
                         Ok(process_launch) => process_launch,
-                        Err(result) => return (call, result),
+                        Err(result) => return (call, *result),
                     };
                     let mut ctx = rightkit_agent_tools::coding_tools::ToolContext::new(
                         &session_id,
@@ -832,6 +834,8 @@ impl SessionEngine {
             // another fails), and the engine must observe the union, not
             // whichever call returned last.
             let mut result = result;
+            let batch_sid = self.session_id.clone();
+            self.emit_sandbox_refusal_events(&batch_sid, &call.id, &result);
             if let Err(error) = self.record_assurance_receipt(&call, &result) {
                 result.is_error = true;
                 result.content = format!(

@@ -35,7 +35,9 @@ pub struct RateLimitSnapshot {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "camelCase")]
+#[derive(Default)]
 pub enum RateLimitState {
+    #[default]
     NoData,
     ProbeFailed {
         message: String,
@@ -48,12 +50,6 @@ pub enum RateLimitState {
     Known {
         snapshot: Box<RateLimitSnapshot>,
     },
-}
-
-impl Default for RateLimitState {
-    fn default() -> Self {
-        Self::NoData
-    }
 }
 
 impl From<&RateLimitSnapshot> for RateLimitInfo {

@@ -38,7 +38,7 @@ hyper-util = { version = "0.1", features = ["tokio", "service", "server-graceful
 
 # Windows named pipes with a current-user-only DACL. cfg(windows) only: this
 # backend compiles on the Windows host (see API.md for the exact command).
-rightkit-agent-engine-protocol = {version = "0.1.0", path = "../rightkit-agent-engine-protocol", optional = true}
+rightkit-agent-engine-protocol = {version = "0.1.1", path = "../rightkit-agent-engine-protocol", optional = true}
 async-trait = {version = "0.1", optional = true}
 # Peer code-signature check (`peer_signature`, rightkit#1319): Security.framework on macOS,
 # WinVerifyTrust on Windows.

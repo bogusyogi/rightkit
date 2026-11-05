@@ -124,11 +124,11 @@ impl<'a> WorkflowDefinitionWriter<'a> {
 
     /// Begin a transaction for atomic publish. Caller commits.
     pub fn begin_publish(&self) -> Result<Transaction<'_>> {
-        Ok(rightkit_db::write_txn_unchecked(&self.conn)?)
+        Ok(rightkit_db::write_txn_unchecked(self.conn)?)
     }
 
     pub fn publish_version(&self, workflow_id: &str, version_id: &str, now: &str) -> Result<bool> {
-        let tx = rightkit_db::write_txn_unchecked(&self.conn)?;
+        let tx = rightkit_db::write_txn_unchecked(self.conn)?;
         let changed = tx.execute("UPDATE workflow_versions SET publication_state='published',published_at=?1 WHERE id=?2 AND workflow_id=?3 AND publication_state='draft'", params![now, version_id, workflow_id])?;
         if changed != 1 {
             tx.rollback()?;

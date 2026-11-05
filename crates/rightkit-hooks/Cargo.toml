@@ -15,8 +15,9 @@ include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 async-trait = {version = "0.1", optional = true}
-rightkit-agent-engine-protocol = {version = "0.1.0", path = "../rightkit-agent-engine-protocol", optional = true}
-rightkit-sandbox = {version = "0.6.2", path = "../rightkit-sandbox", features = ["execution"], optional = true}
+rightkit-agent-engine-protocol = {version = "0.1.1", path = "../rightkit-agent-engine-protocol", optional = true}
+rightkit-sandbox = {version = "0.6.3", path = "../rightkit-sandbox", features = ["execution"], optional = true}
+rightkit-llm = {version = "0.3.2", path = "../rightkit-llm", features = ["agent_providers"], optional = true}
 regex = {version = "1", optional = true}
 rightkit-child-process = {version = "0.5.7", features = ["tokio"], path = "../rightkit-child-process", optional = true}
 thiserror = {version = "2", optional = true}
@@ -29,4 +30,4 @@ continuous_reason = "thread-spawn: one short-lived thread per module per dispatc
 # One Cargo workspace and lock per crate (rightkit#1285).
 [features]
 agent_hooks-host-env = ["agent_hooks"]
-agent_hooks = ["dep:async-trait", "dep:rightkit-agent-engine-protocol", "dep:rightkit-sandbox", "dep:regex", "dep:rightkit-child-process", "dep:thiserror", "dep:tokio"]
+agent_hooks = ["dep:async-trait", "dep:rightkit-agent-engine-protocol", "dep:rightkit-sandbox", "dep:rightkit-llm", "dep:regex", "dep:rightkit-child-process", "dep:thiserror", "dep:tokio"]

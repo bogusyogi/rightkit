@@ -3,84 +3,68 @@
 use rightkit_agent_engine_protocol::ToolCall;
 use std::collections::HashMap;
 
-/// Per-tool-call-signature graduated stall guardrail.
+/// Cross-iteration repeated-call bound (sessions rule 32).
 ///
-/// Mirrors Hermes's ToolCallGuardrailController (FEATURE-MATRIX par §#120,
-/// "No-progress / stall bound", flips row from `worse` to `done` once shipped).
-/// Two repeat-count stores are tracked independently for diagnostics:
+/// The idle and no-progress limits bound one provider or tool call, not the
+/// loop. A tool call that repeats the same tool with identical arguments three
+/// times in a row is a loop: the fourth identical call is raised as an Ask with
+/// reason `repeated_call` (OpenCode's `doom_loop`: "the same tool call repeats
+/// 3 times with identical input", default `ask`). Unattended, the Ask is denied
+/// at once under headless R8 and the model is told. The turn loop only counts;
+/// the Ask itself goes through the permission path
+/// (`resolve_single_tool_permission`), so the policy verdict stays with the
+/// permission layer.
 ///
-/// * signature: `(tool_name, normalized_args_hash)` — same tool + same args.
-/// * tool: `tool_name` alone — same tool, ANY args (observability only).
-///
-/// Only identical signatures drive enforcement. Different arguments are normal
-/// for coding tools such as shell, search, and read_file; the broader runaway
-/// detector handles pathological same-name sequences at much higher bounds.
-/// Severity ladder: `Allow < Warn < Skip < Block`.
-/// Thresholds are `const` so they are easy to tune without editing logic.
+/// "In a row" is strict: any other call in between restarts the count. A repeat
+/// whose result changed since the last identical call (a re-read after the
+/// page or file moved on) made progress and restarts the count at that call.
 #[derive(Debug, Clone, Default)]
 pub struct StallGuardrail {
-    signature_counts: HashMap<(String, u64), u32>,
-    tool_counts: HashMap<String, u32>,
-    /// Last result hash per signature: a repeated call whose result changed
-    /// (a re-read after the page or file moved on) made progress.
+    /// Signature of the previous call and how many identical calls in a row
+    /// ended with it.
+    last: Option<(String, u64)>,
+    run: u32,
+    /// Last result hash per signature, for the progress check.
     last_results: HashMap<(String, u64), u64>,
 }
 
-/// Outcome emitted by `StallGuardrail::record`. `count` is the post-increment
-/// consecutive-call count for whichever tier produced the tier (signature or
-/// tool-name). Reading `StallSeverity::count()` is the canonical way to surface
-/// it in messages, regardless of which tier fired.
+/// Outcome of `StallGuardrail::record`. `count` is the number of identical
+/// calls in a row including this one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StallSeverity {
     Allow,
-    Warn { count: u32 },
-    Skip { count: u32 },
-    Block { count: u32 },
+    /// The call repeats the same tool with identical arguments for the fourth
+    /// (or later) time in a row: raise an Ask with reason `repeated_call`.
+    Ask {
+        count: u32,
+    },
 }
 
 impl StallSeverity {
-    pub fn count(self) -> u32 {
-        match self {
-            StallSeverity::Allow => 0,
-            StallSeverity::Warn { count }
-            | StallSeverity::Skip { count }
-            | StallSeverity::Block { count } => count,
-        }
-    }
-
-    pub fn is_skip(self) -> bool {
-        matches!(self, StallSeverity::Skip { .. })
-    }
-
-    pub fn is_block(self) -> bool {
-        matches!(self, StallSeverity::Block { .. })
+    pub fn is_ask(self) -> bool {
+        matches!(self, StallSeverity::Ask { .. })
     }
 }
 
 impl StallGuardrail {
-    /// WARN fires on the second consecutive identical call.
-    pub const WARN_AT: u32 = 2;
-    /// SKIP fires on the fourth consecutive identical call.
-    pub const SKIP_AT: u32 = 4;
-    /// BLOCK fires on the sixth consecutive identical call — the same terminal
-    /// behavior as the legacy `GoalState::MAX_NO_PROGRESS=3` global cap.
-    pub const BLOCK_AT: u32 = 6;
+    /// The Ask fires on the fourth identical call in a row: three have run.
+    pub const ASK_AT: u32 = 4;
 
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Clear BOTH tier counts. Invoke when a turn made progress (the engine
-    /// calls this just before re-entering the loop after `ContinueAfterGoal`).
+    /// Clear the run. Invoke when a turn made progress (the engine calls this
+    /// just before re-entering the loop after `ContinueAfterGoal`).
     pub fn reset(&mut self) {
-        self.signature_counts.clear();
-        self.tool_counts.clear();
+        self.last = None;
+        self.run = 0;
         self.last_results.clear();
     }
 
-    /// Feed a dispatched call's result back. When the same signature returns
-    /// a different result than last time, the repeat observed progress, so
-    /// its count restarts at this one call.
+    /// Feed a dispatched call's result back. When the same signature returns a
+    /// different result than last time, the repeat observed progress, so the
+    /// run restarts at this one call.
     pub fn observe_result(&mut self, call: &ToolCall, output: &str) {
         use std::hash::{Hash, Hasher};
         let key = (call.name.clone(), normalize_args_hash(&call.arguments_json));
@@ -88,24 +72,22 @@ impl StallGuardrail {
         output.hash(&mut hasher);
         let result = hasher.finish();
         if let Some(previous) = self.last_results.insert(key.clone(), result) {
-            if previous != result {
-                self.signature_counts.insert(key, 1);
+            if previous != result && self.last.as_ref() == Some(&key) {
+                self.run = 1;
             }
         }
     }
 
-    /// Record one tool call and return the resulting severity. Increments BOTH
-    /// tier counters before evaluating (so count == post-increment total).
+    /// Record one tool call and return the resulting severity.
     pub fn record(&mut self, name: &str, args_hash: u64) -> StallSeverity {
-        let sig_entry = self
-            .signature_counts
-            .entry((name.to_string(), args_hash))
-            .or_insert(0);
-        *sig_entry += 1;
-        let tool_entry = self.tool_counts.entry(name.to_string()).or_insert(0);
-        *tool_entry += 1;
-
-        severity_for_count(*sig_entry)
+        let key = (name.to_string(), args_hash);
+        if self.last.as_ref() == Some(&key) {
+            self.run = self.run.saturating_add(1);
+        } else {
+            self.last = Some(key);
+            self.run = 1;
+        }
+        severity_for_count(self.run)
     }
 
     /// Convenience wrapper that hashes the call's `arguments_json` canonically
@@ -115,31 +97,15 @@ impl StallGuardrail {
         self.record(&call.name, hash)
     }
 
-    /// Introspect the per-signature count directly — used by tests to prove
-    /// that two `(tool_name, args_hash)` buckets are independent. Returns 0
-    /// for unseen signatures.
-    pub fn signature_count(&self, name: &str, args_hash: u64) -> u32 {
-        self.signature_counts
-            .get(&(name.to_string(), args_hash))
-            .copied()
-            .unwrap_or(0)
-    }
-
-    /// Introspect the per-tool-name count directly — used by tests to prove
-    /// the same-tool-any-args tier accumulates independently of the per-
-    /// signature tier. Returns 0 for unseen tools.
-    pub fn tool_count(&self, name: &str) -> u32 {
-        self.tool_counts.get(name).copied().unwrap_or(0)
+    /// Identical calls in a row so far. Used by tests.
+    pub fn run_length(&self) -> u32 {
+        self.run
     }
 }
 
 fn severity_for_count(count: u32) -> StallSeverity {
-    if count >= StallGuardrail::BLOCK_AT {
-        StallSeverity::Block { count }
-    } else if count >= StallGuardrail::SKIP_AT {
-        StallSeverity::Skip { count }
-    } else if count >= StallGuardrail::WARN_AT {
-        StallSeverity::Warn { count }
+    if count >= StallGuardrail::ASK_AT {
+        StallSeverity::Ask { count }
     } else {
         StallSeverity::Allow
     }

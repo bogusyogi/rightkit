@@ -54,8 +54,7 @@ pub struct ConsolidationRunOutcome {
 }
 
 /// Thread-safe handle to the consolidation-cycle status projection.
-/// Clone-friendly for Axum state, mirroring `MemoryRoutingState`'s shape in
-/// `engine/host-app/src/memory.rs`.
+/// Clone-friendly for Axum state.
 #[derive(Clone, Default)]
 pub struct ConsolidationStatusState {
     inner: Arc<Mutex<ConsolidationRunStatus>>,

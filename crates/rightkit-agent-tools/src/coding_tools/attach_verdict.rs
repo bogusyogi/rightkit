@@ -31,11 +31,14 @@ impl Tool for AttachVerdictTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolContext) -> ToolResult {
-        self.execute_with_trust_path(
-            args,
-            ctx,
-            &rightkit_app_settings::agent_config::workspace_trust_store_path(),
-        )
+        // No state root means no trust store: the tool refuses rather than read a fallback file.
+        let Some(trust_store) = rightkit_app_settings::agent_config::workspace_trust_store_path()
+        else {
+            return ToolResult::error(
+                "The state directory is unavailable, so workspace trust cannot be checked.",
+            );
+        };
+        self.execute_with_trust_path(args, ctx, &trust_store)
     }
 }
 

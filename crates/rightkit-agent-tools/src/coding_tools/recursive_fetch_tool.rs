@@ -23,6 +23,10 @@ impl Tool for RecursiveFetchTool {
         true
     }
 
+    fn capability_class(&self) -> Option<rightkit_agent_policy::CapabilityClass> {
+        Some(rightkit_agent_policy::CapabilityClass::Network)
+    }
+
     fn description(&self) -> &str {
         "Crawl a URL and follow same-origin links breadth-first. Returns {url, text}[] up to max_depth and max_pages. Fail: invalid URL, max exceeded, network error."
     }

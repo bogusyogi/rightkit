@@ -15,6 +15,7 @@
 ## 0.7.2 (unreleased)
 
 - Feature `agent_mcp`: agent MCP client manager, server config and tool bridging moved from CodeRight `coderight-mcp`.
+- `agent_mcp` sync: new `limits` module (startup, call, request and elicitation limits; replaces `DEFAULT_MCP_STARTUP_BOUND` / `DEFAULT_MCP_CALL_DEADLINE`); OAuth tokens record their issuing `token_url` and attach or refresh only for the origin that issued them (`url_origin`, `McpOAuthTokens::issued_for_server`, `may_refresh_with`); stdio servers whose script is gone are not spawned (`stdio_unreachable_reason`); `approve_workspace_stdio` and `pending_workspace_stdio` in the trust gate. Removed: the built-in default context7 server (`default_mcp_servers`, `RIGHTKIT_DISABLE_DEFAULT_MCP`).
 
 ## 0.7.1 (unpublished)
 

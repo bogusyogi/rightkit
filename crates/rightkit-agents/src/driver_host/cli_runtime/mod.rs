@@ -68,8 +68,7 @@ pub use adapter::{
     AgentRuntimeHandle, AgentTurnRequest, AgentTurnResult, AgentTurnStatus, CliAdapterError,
     CliDiscovery, CliLaunchRequest, CliLaunchSpec, CliMcpServerSpec, CliModelCatalog, CliPrompt,
     CliProviderAdapter, CliRuntimeError, CliTransport, CreateVendorSession, ExecutorKind,
-    LoadVendorSession, NativeLoginUi, OpenAgentRequest, StartedCliProcess, VendorSessionHandle,
-    VendorTurnHandle,
+    LoadVendorSession, OpenAgentRequest, StartedCliProcess, VendorSessionHandle, VendorTurnHandle,
 };
 pub use attestation::AttestationInputs;
 pub use executor::{

@@ -63,6 +63,18 @@ struct RetainedEvent {
 /// A subscription to the conduit's live event stream.
 pub struct ConduitSubscription {
     rx: broadcast::Receiver<ProtocolEvent>,
+    /// Present only for a human client ([`Conduit::subscribe_human`]); counts it as attached
+    /// until the subscription is dropped.
+    _human: Option<HumanClientGuard>,
+}
+
+/// Keeps one human client counted in [`Conduit::human_subscriber_count`] while it lives.
+struct HumanClientGuard(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for HumanClientGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 
 impl ConduitSubscription {
@@ -97,6 +109,10 @@ pub struct Conduit {
     /// Carries the first latch reason (set exactly once) when the failure latches, so owners of
     /// in-flight work can cancel it without polling.
     latch_signal: tokio::sync::watch::Sender<Option<String>>,
+    /// Live subscriptions opened for a human client (tools rule 1: only these can answer an
+    /// approval or a question). Headless streams, orchestrators and tests use plain
+    /// [`Conduit::subscribe`] and are not counted.
+    human_subscribers: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 /// A durable fact was refused because session persistence has failed.
@@ -138,6 +154,7 @@ impl Conduit {
             persistence_gate: Mutex::new(None),
             persistence_failure: Mutex::new(None),
             latch_signal: tokio::sync::watch::channel(None).0,
+            human_subscribers: Default::default(),
         }
     }
 
@@ -188,7 +205,27 @@ impl Conduit {
     pub fn subscribe(&self) -> ConduitSubscription {
         ConduitSubscription {
             rx: self.tx.subscribe(),
+            _human: None,
         }
+    }
+
+    /// Subscribe as a human client (desktop, web, TUI, remote card surface): while the returned
+    /// subscription lives the session counts as attended, so an approval or question waits for
+    /// an answer instead of being denied as `unattended` (tools rule 1). A headless `run` stream
+    /// must use [`subscribe`](Self::subscribe).
+    pub fn subscribe_human(&self) -> ConduitSubscription {
+        self.human_subscribers
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        ConduitSubscription {
+            rx: self.tx.subscribe(),
+            _human: Some(HumanClientGuard(self.human_subscribers.clone())),
+        }
+    }
+
+    /// Human clients currently attached ([`subscribe_human`](Self::subscribe_human)).
+    pub fn human_subscriber_count(&self) -> usize {
+        self.human_subscribers
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// Allocate and return the next seq value.
@@ -201,7 +238,7 @@ impl Conduit {
 
     /// Install the persistence admission queue. Every sequenced event enters
     /// this queue before persistence. Live projections are still broadcast
-    /// immediately; durable facts are withheld until [`publish_committed`].
+    /// immediately; durable facts are withheld until [`Conduit::publish_committed`].
     /// This explicit ingress avoids making durability depend on subscribing to
     /// the same broadcast that durable facts are intentionally withheld from.
     pub fn install_persistence_gate(&self) -> mpsc::UnboundedReceiver<ProtocolEvent> {
@@ -411,6 +448,7 @@ pub fn seq_of(e: &ProtocolEvent) -> i64 {
         | ToolCallStarted { seq, .. }
         | ToolApprovalRequested { seq, .. }
         | ToolApprovalResolved { seq, .. }
+        | ToolPolicyEvent { seq, .. }
         | ToolResultAdded { seq, .. }
         | SessionTurnFinished { seq, .. }
         | StreamResyncRequired { seq, .. }

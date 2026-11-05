@@ -31,7 +31,7 @@ rightkit-credentials = { path = "../rightkit-credentials", version = "0.5.0", op
 rightkit-crypto = { path = "../rightkit-crypto", version = "0.1.2", optional = true }
 
 [target.'cfg(any(target_os = "macos", windows))'.dependencies]
-rightkit-sandbox = { path = "../rightkit-sandbox", version = "0.6.2", default-features = false }
+rightkit-sandbox = { path = "../rightkit-sandbox", version = "0.6.3", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 async-tungstenite = { version = "0.35", default-features = false, features = ["tokio-runtime"] }

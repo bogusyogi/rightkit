@@ -24,7 +24,6 @@ pub enum MediaToolKind {
     /// In-process OS-native OCR (rightkit-ocr: Apple Vision / Windows.Media.Ocr, no
     /// models). Falls back to Ocr (tesseract) only when the tool is unavailable.
     OcrOnnx,
-    Transcribe,
     WebExtract,
     MediaFetch,
     FfmpegExtract,
@@ -132,7 +131,6 @@ impl MediaToolKind {
         match self {
             Self::Ocr => "ocr",
             Self::OcrOnnx => "ocr_onnx",
-            Self::Transcribe => "transcribe",
             Self::WebExtract => "web_extract",
             Self::MediaFetch => "media_fetch",
             Self::FfmpegExtract => "ffmpeg_extract",
@@ -145,9 +143,6 @@ impl MediaToolKind {
                 "Run Tesseract OCR on an image/PDF page via the installed tesseract binary."
             },
             Self::OcrOnnx => "In-process OCR using the operating system's own text-recognition framework (Apple Vision on macOS, Windows.Media.Ocr on Windows). No models to download or bundle. This is the default OCR backend; use the ocr tool only if you specifically need Tesseract. Name retained for tool-contract stability — it no longer uses ONNX.",
-            Self::Transcribe => {
-                "Run a local speech-to-text binary such as whisper or parakeet on an audio/video file."
-            }
             Self::WebExtract => {
                 "Run an installed web extraction/scraping CLI against a URL and return its output."
             }
@@ -181,19 +176,6 @@ impl MediaToolKind {
                     "language": { "type": "string", "description": "Reserved for future multilingual support; currently ignored." },
                     "timeout_ms": { "type": "integer", "description": "Timeout in milliseconds, max 3600000." },
                     "extra_args": { "type": "array", "items": { "type": "string" }, "description": "Reserved for future CLI flags." }
-                }
-            }),
-            Self::Transcribe => json!({
-                "type": "object",
-                "required": ["media_path"],
-                "properties": {
-                    "media_path": { "type": "string", "description": "Audio or video file to transcribe." },
-                    "engine": { "type": "string", "enum": ["whisper", "parakeet"], "description": "Default binary family when binary is not provided." },
-                    "binary": { "type": "string", "description": "Override binary path. Defaults to engine, then whisper." },
-                    "model": { "type": "string", "description": "Optional model name/path passed as --model." },
-                    "language": { "type": "string", "description": "Optional language code passed as --language." },
-                    "timeout_ms": { "type": "integer", "description": "Timeout in milliseconds, max 3600000." },
-                    "extra_args": { "type": "array", "items": { "type": "string" }, "description": "Additional argv tokens appended to the binary invocation." }
                 }
             }),
             Self::WebExtract => json!({
@@ -264,28 +246,6 @@ impl MediaToolKind {
                 return Err(MediaToolResult::error(
                     "ocr_onnx is an in-process backend and has no CommandSpec; use NativeMediaTool::execute instead.",
                 ));
-            }
-            Self::Transcribe => {
-                let media_path = required_string(args, "media_path")?;
-                let engine = optional_string(args, "engine").unwrap_or_else(|| "whisper".into());
-                if engine != "whisper" && engine != "parakeet" {
-                    return Err(MediaToolResult::error(
-                        "Invalid engine: expected 'whisper' or 'parakeet'.",
-                    ));
-                }
-                let mut argv = vec![media_path];
-                if let Some(model) = optional_string(args, "model") {
-                    argv.extend(["--model".to_string(), model]);
-                }
-                if let Some(language) = optional_string(args, "language") {
-                    argv.extend(["--language".to_string(), language]);
-                }
-                argv.extend(extra_args);
-                CommandSpec {
-                    program: optional_string(args, "binary").unwrap_or(engine),
-                    args: argv,
-                    timeout_ms,
-                }
             }
             Self::WebExtract => {
                 let url = required_string(args, "url")?;
@@ -370,7 +330,6 @@ pub fn native_media_tools() -> Vec<NativeMediaTool> {
     vec![
         NativeMediaTool::new(MediaToolKind::Ocr),
         NativeMediaTool::new(MediaToolKind::OcrOnnx),
-        NativeMediaTool::new(MediaToolKind::Transcribe),
         NativeMediaTool::new(MediaToolKind::WebExtract),
         NativeMediaTool::new(MediaToolKind::MediaFetch),
         NativeMediaTool::new(MediaToolKind::FfmpegExtract),

@@ -54,6 +54,10 @@ impl Tool for Context7Tool {
         true
     }
 
+    fn capability_class(&self) -> Option<rightkit_agent_policy::CapabilityClass> {
+        Some(rightkit_agent_policy::CapabilityClass::Network)
+    }
+
     fn description(&self) -> &str {
         "Fetch up-to-date library documentation from context7.com. \
         Use 'resolve-library-id' first to find the library's context7 ID, \

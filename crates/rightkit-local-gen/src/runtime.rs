@@ -147,7 +147,10 @@ impl SdServer {
     /// stdout/stderr log drains, and records `runtime_start`. The OwnedChild
     /// is its process-group leader (unix) / Job Object member (Windows), so
     /// `stop`/Drop cleanup behaves identically to `start`.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "private adopt step: the child, its identity, lock and tail inputs arrive together from the one spawn site"
+    )]
     fn attach(
         cfg: &SdServerConfig,
         port: u16,
@@ -1109,4 +1112,17 @@ fn backend_tail<R: std::io::Read + Send + 'static>(
                 );
         },
     )
+}
+
+#[cfg(test)]
+mod unload_now_tests {
+    use super::*;
+
+    #[test]
+    fn unload_with_no_server_stops_nothing() {
+        let dir = std::env::temp_dir();
+        let mut server: Option<SdServer> = None;
+        assert_eq!(unload_now(&mut server, &dir), Ok(false));
+        assert!(server.is_none());
+    }
 }

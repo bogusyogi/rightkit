@@ -202,6 +202,7 @@ pub fn event_seq(e: &ProtocolEvent) -> i64 {
         | ToolCallStarted { seq, .. }
         | ToolApprovalRequested { seq, .. }
         | ToolApprovalResolved { seq, .. }
+        | ToolPolicyEvent { seq, .. }
         | ToolResultAdded { seq, .. }
         | SessionTurnFinished { seq, .. }
         | StreamResyncRequired { seq, .. }

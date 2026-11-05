@@ -102,6 +102,10 @@ pub struct ToolCapability {
     pub description: String,
     pub category: String,
     pub read_only: bool,
+    /// `read`, `write`, `external`, `spend` or `destroy` (rule 50a).
+    pub effect_class: String,
+    /// `none`, `yes` or `in_app` (rule 50a).
+    pub approval_class: String,
 }
 
 /// Finite render class for a tool call, owned by the production registry.
@@ -129,7 +133,7 @@ pub fn tool_render_class(name: &str) -> ToolRenderClass {
         "write_file" | "edit_file" | "multi_edit" | "undo_edit" | "apply_patch" | "todo_write"
         | "notebook" | "file_service" | "git_write" => ToolRenderClass::FileWrite,
         "shell" | "powershell" | "repl" | "kill_shell" | "process" | "ocr" | "ocr_onnx"
-        | "transcribe" | "web_extract" | "media_fetch" | "ffmpeg_extract" => ToolRenderClass::Shell,
+        | "web_extract" | "media_fetch" | "ffmpeg_extract" => ToolRenderClass::Shell,
         "search" | "tool_search" => ToolRenderClass::Search,
         "web_search" | "browser_fetch" | "browser_open" | "browser_read" | "browser_act"
         | "browser_screenshot" | "browser_console" | "browser_close" | "recursive_fetch"

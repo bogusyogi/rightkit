@@ -24,7 +24,7 @@ impl PredicateEvaluator {
     /// Supported predicate forms (heuristic, extensible):
     ///   - "tests pass" / "tests_pass" → success && output mentions passing tests, no "FAILED"
     ///   - "exit 0" / "exit_zero" → exit_code == Some(0) or (success when no code)
-    ///   - "contains:<substr>" → output contains substr (case-insensitive)
+    ///   - `contains:<substr>` → output contains substr (case-insensitive)
     ///   - "no_errors" → output has no "error"/"panic"/"failed"
     ///   - "compiles" → output mentions "Finished"/"compiled" and not "error["
     ///   - anything else → satisfied = success (fallback: trust worker success)

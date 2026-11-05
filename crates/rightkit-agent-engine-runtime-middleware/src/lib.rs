@@ -136,10 +136,18 @@ pub struct MiddlewareRegistrySnapshot {
     pub observations: Vec<RuntimeObservation>,
 }
 
-/// Retention caps for the runtime middleware store. It is rewritten in full on
-/// every record, so these bound both file size and per-write cost.
+/// Retention caps for the runtime middleware store. It is rewritten in full, so
+/// these bound both file size and per-write cost.
 const MAX_RETAINED_SPANS: usize = 5000;
 const MAX_RETAINED_OBSERVATIONS: usize = 5000;
+/// The store file is rewritten at most once per second (sessions rule 36):
+/// span and observation records arrive many times a second, and each write is
+/// the whole file. Enabled-state changes and [`RuntimeMiddlewareRegistry::flush`]
+/// write at once.
+const MIN_PERSIST_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+/// The store file never exceeds 1 MiB. The oldest spans and observations are
+/// dropped from memory and file until the serialized snapshot fits.
+const MAX_STORE_BYTES: usize = 1024 * 1024;
 /// A span can carry arbitrarily rich execution detail. The durable execution
 /// observation is a compact contract projection, never a second unbounded copy
 /// of that detail.
@@ -151,6 +159,8 @@ pub struct RuntimeMiddlewareRegistry {
     spans: BTreeMap<String, RuntimeSpan>,
     observations: BTreeMap<String, RuntimeObservation>,
     store_path: Option<PathBuf>,
+    last_persisted_at: Option<std::time::Instant>,
+    dirty: bool,
 }
 
 impl Default for RuntimeMiddlewareRegistry {
@@ -166,6 +176,8 @@ impl RuntimeMiddlewareRegistry {
             spans: BTreeMap::new(),
             observations: BTreeMap::new(),
             store_path: None,
+            last_persisted_at: None,
+            dirty: false,
         };
         for definition in builtin_middleware() {
             registry
@@ -209,26 +221,68 @@ impl RuntimeMiddlewareRegistry {
         registry
     }
 
-    fn persist(&self) {
-        let Some(path) = &self.store_path else {
+    /// Write the store now, within the size cap.
+    fn persist(&mut self) {
+        let Some(path) = self.store_path.clone() else {
             return;
         };
-        let snapshot = PersistedRuntimeMiddleware {
-            middleware: self.middleware(),
-            spans: self.spans(None),
-            observations: self.observations(None),
-        };
-        if let Ok(body) = serde_json::to_string_pretty(&snapshot) {
-            // Atomic replace (`rightkit-fs`): a crash leaves the previous snapshot, not a torn
-            // file.
-            let _ = rightkit_fs::atomic_write_with(
-                path,
-                rightkit_fs::AtomicOptions {
-                    create_parents: true,
-                    ..rightkit_fs::AtomicOptions::default()
-                },
-                |file| std::io::Write::write_all(file, body.as_bytes()),
+        let body = loop {
+            let snapshot = PersistedRuntimeMiddleware {
+                middleware: self.middleware(),
+                spans: self.spans(None),
+                observations: self.observations(None),
+            };
+            let Ok(body) = serde_json::to_string(&snapshot) else {
+                return;
+            };
+            if body.len() <= MAX_STORE_BYTES
+                || (self.spans.is_empty() && self.observations.is_empty())
+            {
+                break body;
+            }
+            // Over the cap: drop the oldest tenth of each map and measure again.
+            let spans = self.spans.len();
+            let observations = self.observations.len();
+            Self::evict_oldest(&mut self.spans, spans - spans.div_ceil(10), |s| {
+                s.started_at.clone()
+            });
+            Self::evict_oldest(
+                &mut self.observations,
+                observations - observations.div_ceil(10),
+                |o| o.created_at.clone(),
             );
+        };
+        // Atomic replace (`rightkit-fs`): a crash leaves the previous snapshot, not a torn
+        // file.
+        let _ = rightkit_fs::atomic_write_with(
+            &path,
+            rightkit_fs::AtomicOptions {
+                create_parents: true,
+                ..rightkit_fs::AtomicOptions::default()
+            },
+            |file| std::io::Write::write_all(file, body.as_bytes()),
+        );
+        self.last_persisted_at = Some(std::time::Instant::now());
+        self.dirty = false;
+    }
+
+    /// Write after a span or observation record, at most once per
+    /// [`MIN_PERSIST_INTERVAL`]. A record inside the interval stays in memory
+    /// and is written by the next record after the interval, or by `flush`.
+    fn persist_throttled(&mut self) {
+        self.dirty = true;
+        let due = self
+            .last_persisted_at
+            .is_none_or(|at| at.elapsed() >= MIN_PERSIST_INTERVAL);
+        if due {
+            self.persist();
+        }
+    }
+
+    /// Write any records still held back by the once-per-second limit.
+    pub fn flush(&mut self) {
+        if self.dirty {
+            self.persist();
         }
     }
 
@@ -286,7 +340,7 @@ impl RuntimeMiddlewareRegistry {
         Self::evict_oldest(&mut self.observations, MAX_RETAINED_OBSERVATIONS, |o| {
             o.created_at.clone()
         });
-        self.persist();
+        self.persist_throttled();
     }
 
     pub fn record_observation(&mut self, observation: RuntimeObservation) {
@@ -295,7 +349,7 @@ impl RuntimeMiddlewareRegistry {
         Self::evict_oldest(&mut self.observations, MAX_RETAINED_OBSERVATIONS, |o| {
             o.created_at.clone()
         });
-        self.persist();
+        self.persist_throttled();
     }
 
     /// Drop the oldest entries once `map` exceeds `cap`.

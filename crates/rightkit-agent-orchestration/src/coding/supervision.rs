@@ -47,7 +47,7 @@ pub struct WorktreeEnterRequest {
 }
 
 /// Planned outcome of entering a worktree lifecycle. Pure — no filesystem
-/// or git call has happened yet; [`GitWorktreeExecutor::enter`] carries it
+/// or git call has happened yet; `GitWorktreeExecutor::enter` carries it
 /// out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorktreeEnterPlan {

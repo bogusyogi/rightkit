@@ -354,9 +354,8 @@ fn build_args(
     let trim = || Filter::new("atrim").pos(0).pos(video_duration);
     let pad = || Filter::new("apad").opt("whole_dur", video_duration);
     let music_gain = || Filter::new("volume").pos(0.22);
-    if !audio.is_empty() && music_in.is_some() {
+    if let (false, Some(mi)) = (audio.is_empty(), music_in) {
         let ai = n;
-        let mi = music_in.unwrap();
         let amix = Filter::new("amix")
             .opt("inputs", 2)
             .opt("duration", "first")

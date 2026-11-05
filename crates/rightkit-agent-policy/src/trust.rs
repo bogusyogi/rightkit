@@ -25,4 +25,15 @@ impl TrustPolicy {
     pub fn requires_isolation(mode: PermissionMode, trust: WorkspaceTrust) -> bool {
         mode == PermissionMode::Bypass && trust != WorkspaceTrust::Sandboxed
     }
+
+    /// Rule 62: `Bypass` is refused in an `Untrusted` workspace (no trust record, or the label
+    /// `untrusted`). Returns the error text, which names the trust state, when a session create
+    /// or a mode change would combine the two.
+    pub fn bypass_refusal(mode: PermissionMode, trust: WorkspaceTrust) -> Option<String> {
+        (mode == PermissionMode::Bypass && trust == WorkspaceTrust::Untrusted).then(|| {
+            "Bypass is refused in an untrusted workspace (workspace trust: untrusted); \
+             trust the workspace first"
+                .to_string()
+        })
+    }
 }

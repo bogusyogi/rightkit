@@ -3,7 +3,7 @@
 //! When a tool call discovers, mid-execution, that it needs a credential the
 //! session does not currently hold (e.g. a Cloudflare API token, a Fly.io
 //! deploy key, or some other provider secret not supplied at session start),
-//! the turn should pause — the same way [`crate::engine_tool_dispatch_approval`]
+//! the turn should pause — the same way `engine_tool_dispatch_approval`
 //! pauses a turn for a tool-approval prompt — ask the operator for the
 //! specific credential, and resume the *same* pending tool call with the
 //! supplied value rather than failing the whole turn.
@@ -33,7 +33,7 @@
 //!   `"requested_for"` rather than `"credential_name"` — using a forbidden
 //!   fragment here would silently drop the (harmless, non-secret) name too,
 //!   which would degrade the audit record without protecting anything.
-//! - Once [`take_and_resolve`] delivers a [`CredentialResume::Supplied`] value
+//! - Once [`PendingCredentialRequests::take_and_resolve`] delivers a [`CredentialResume::Supplied`] value
 //!   to the waiting tool call, the sender side of the channel is removed from
 //!   the registry (see "Single-use binding" below) so the same secret cannot
 //!   be redelivered or replayed into a second call.

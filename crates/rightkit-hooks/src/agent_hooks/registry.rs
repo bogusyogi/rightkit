@@ -2,16 +2,16 @@
 //!
 //! Tracks hooks that the operator has revoked via `host app hooks revoke <id>`
 //! for the lifetime of the daemon process, and offers a synchronous dry-run
-//! path that exercises matching env-var hook commands without publishing on
-//! the event bus.
+//! path that exercises matching configured command hooks without publishing
+//! on the event bus.
 
-use crate::agent_hooks::bus::HookOutcome;
+use crate::agent_hooks::bus::{HookBus, HookOutcome};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::RwLock;
 
 /// Shared, in-memory set of hook IDs the operator has revoked for the current
-/// daemon session. Keys are env-var names such as
-/// `RIGHTKIT_HOOK_PRE_TOOL_USE`.
+/// daemon session. Keys are hook ids such as `PreToolUse#0`
+/// ([`IdentifiedHook::id`]).
 #[derive(Default, Debug)]
 pub struct HookRegistry {
     revoked: RwLock<HashSet<String>>,
@@ -118,19 +118,19 @@ impl HookRegistry {
     }
 }
 
-/// Result of a `dry_run_hook` invocation.
+/// Result of a [`dry_run_hook_with_adapter`] invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HookDryRunReport {
-    /// Whether at least one matching env-var hook actually ran during the
+    /// Whether at least one matching command hook actually ran during the
     /// dry-run (i.e. was both configured and not revoked).
     pub ran: bool,
     /// `Proceed` / `Deny` / `Error` synthesized from the hook's exit code.
     pub outcome: HookOutcome,
-    /// Env var keys that were run.
+    /// Ids of the hooks that were run.
     pub invoked: Vec<String>,
-    /// Env var keys that exist but were skipped because they were revoked.
+    /// Ids of hooks that exist but were skipped because they were revoked.
     pub revoked: Vec<String>,
-    /// True when no env-var hook matched the requested event and matcher.
+    /// True when no command hook matched the requested event and matcher.
     pub no_match: bool,
 }
 
@@ -158,7 +158,7 @@ impl HookDryRunReport {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HookAdmissionV1 {
     /// A real host command actually ran (spawned and produced a result).
-    /// `invoked` names the env-var-keyed hooks that ran.
+    /// `invoked` names the ids of the hooks that ran.
     Admitted { invoked: Vec<String> },
     /// No real host execution backs this event; nothing is admitted.
     Rejected { reason: HookRejectionReasonV1 },
@@ -170,7 +170,7 @@ pub enum HookRejectionReasonV1 {
     /// The operator revoked this hook id for the current session.
     Revoked,
     /// No matching hook actually ran: unknown event, no configured command,
-    /// empty env var, or the process never produced a confirmed result
+    /// or the process never produced a confirmed result
     /// (spawn denial, I/O failure, or timeout). The event firing alone is
     /// never treated as proof of execution.
     NoRealExecution,
@@ -207,36 +207,107 @@ impl HookAdmissionV1 {
     }
 }
 
-/// Adapter-aware entry point reserved for daemon callers during migration.
+/// One configured hook with the identity operators revoke it by.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdentifiedHook {
+    /// `<Event>#<n>`: `n` counts that event's entries in execution order (config key, project
+    /// file, then `RIGHTKIT_HOOKS_JSON`). It changes when the configuration changes.
+    pub id: String,
+    pub event: String,
+    /// `config`, `project` or `env-json`.
+    pub origin: &'static str,
+    pub spec: crate::agent_hooks::chain::HookSpec,
+}
+
+impl HookBus {
+    /// Every configured hook for `event`, identified, in execution order.
+    pub fn hooks_for(&self, event: &str) -> Result<Vec<IdentifiedHook>, String> {
+        let mut labelled = self.configured_specs_labelled(event)?;
+        labelled.extend(
+            crate::agent_hooks::chain::env_hook_specs(event)?
+                .into_iter()
+                .map(|spec| ("env-json", spec)),
+        );
+        Ok(labelled
+            .into_iter()
+            .enumerate()
+            .map(|(n, (origin, spec))| IdentifiedHook {
+                id: format!("{event}#{n}"),
+                event: event.to_string(),
+                origin,
+                spec,
+            })
+            .collect())
+    }
+
+    /// Every configured hook of every event in the taxonomy (`GET /hooks/list`).
+    pub fn inventory(&self) -> Result<Vec<IdentifiedHook>, String> {
+        let mut all = Vec::new();
+        for event in crate::agent_hooks::chain::HOOK_EVENT_NAMES {
+            all.extend(self.hooks_for(event)?);
+        }
+        Ok(all)
+    }
+}
+
+/// Dry-run the command hooks of `event_name` without publishing on the hook bus. `hooks` is
+/// `bus.hooks_for(event_name)`. The optional `matcher` is a tool name tested against each hook's
+/// own matcher. Revoked hooks are skipped. The first deny wins, then an error, else proceed.
+///
+/// If no command hook applies, the report has `ran = false`, `outcome = HookOutcome::Proceed`,
+/// and `no_match = true`.
 pub async fn dry_run_hook_with_adapter(
     event_name: &str,
     matcher: Option<&str>,
     registry: Option<&HookRegistry>,
+    hooks: &[IdentifiedHook],
     adapter: &dyn rightkit_sandbox::execution::ProcessLaunchAdapter,
     context: &rightkit_sandbox::execution::ProcessLaunchContext,
 ) -> HookDryRunReport {
-    // Unit tests retain deterministic shell semantics when exercising the
-    // registry; daemon callers always provide a required governed context.
+    let candidates: Vec<&IdentifiedHook> = hooks
+        .iter()
+        .filter(|hook| hook.event == event_name)
+        .filter(|hook| hook.spec.kind == crate::agent_hooks::chain::HookKind::Command)
+        .filter(|hook| hook.spec.matches(matcher))
+        .collect();
+    if candidates.is_empty() {
+        return HookDryRunReport::no_match();
+    }
+    let mut revoked = Vec::new();
+    let mut invoked = Vec::new();
+    let mut outcome = HookOutcome::Proceed;
+    for hook in candidates {
+        if registry.is_some_and(|reg| reg.is_revoked(&hook.id)) {
+            revoked.push(hook.id.clone());
+            continue;
+        }
+        let result =
+            run_dry_run_command(hook.spec.command.clone(), event_name, adapter, context).await;
+        invoked.push(hook.id.clone());
+        match (&outcome, result) {
+            (HookOutcome::Deny(_), _) => {}
+            (_, deny @ HookOutcome::Deny(_)) => outcome = deny,
+            (HookOutcome::Proceed, error @ HookOutcome::Error(_)) => outcome = error,
+            _ => {}
+        }
+    }
+    HookDryRunReport {
+        ran: !invoked.is_empty(),
+        outcome,
+        invoked,
+        revoked,
+        no_match: false,
+    }
+}
 
-    let env_var = match hook_command_env_var(event_name) {
-        Some(v) => v,
-        None => return HookDryRunReport::no_match(),
-    };
-    if matcher.is_some_and(|m| !m.is_empty() && !env_var.contains(m)) {
-        return HookDryRunReport::no_match();
-    }
-    if registry.is_some_and(|reg| reg.is_revoked(&env_var)) {
-        return HookDryRunReport {
-            ran: false,
-            outcome: HookOutcome::Proceed,
-            invoked: Vec::new(),
-            revoked: vec![env_var],
-            no_match: false,
-        };
-    }
-    let Some(command) = crate::agent_hooks::hook_env(&env_var) else {
-        return HookDryRunReport::no_match();
-    };
+async fn run_dry_run_command(
+    command: String,
+    event_name: &str,
+    adapter: &dyn rightkit_sandbox::execution::ProcessLaunchAdapter,
+    context: &rightkit_sandbox::execution::ProcessLaunchContext,
+) -> HookOutcome {
+    // Unit tests retain deterministic shell semantics when exercising the registry; daemon
+    // callers always provide a required governed context.
     #[cfg(windows)]
     let (program, argv) = ("cmd".to_string(), vec!["/C".to_string(), command]);
     #[cfg(not(windows))]
@@ -248,7 +319,7 @@ pub async fn dry_run_hook_with_adapter(
         context: context.clone(),
         env: vec![("RIGHTKIT_HOOK_EVENT".to_string(), event_name.to_string())],
     };
-    let outcome = match adapter.spawn(spec).await {
+    match adapter.spawn(spec).await {
         Ok(mut child) => {
             use tokio::io::AsyncReadExt;
             let result = tokio::time::timeout(std::time::Duration::from_secs(30), async {
@@ -275,13 +346,6 @@ pub async fn dry_run_hook_with_adapter(
             }
         }
         Err(error) => HookOutcome::Error(format!("hook failed to spawn: {error:?}")),
-    };
-    HookDryRunReport {
-        ran: true,
-        outcome,
-        invoked: vec![env_var],
-        revoked: Vec::new(),
-        no_match: false,
     }
 }
 
@@ -308,18 +372,4 @@ fn hook_exit_outcome(
             "hook exited with unexpected code {other}: {message}"
         )),
     }
-}
-
-fn hook_command_env_var(event_name: &str) -> Option<String> {
-    let base = match event_name {
-        "PreToolUse" => hook_var!("RIGHTKIT_HOOK_PRE_TOOL_USE"),
-        "PostToolUse" => hook_var!("RIGHTKIT_HOOK_POST_TOOL_USE"),
-        "UserPromptSubmit" => hook_var!("RIGHTKIT_HOOK_USER_PROMPT_SUBMIT"),
-        "Notification" => hook_var!("RIGHTKIT_HOOK_NOTIFICATION"),
-        "SubagentStop" => hook_var!("RIGHTKIT_HOOK_SUBAGENT_STOP"),
-        "Stop" => hook_var!("RIGHTKIT_HOOK_STOP_BLOCKING"),
-        "PreCommit" => hook_var!("RIGHTKIT_HOOK_PRE_COMMIT"),
-        _ => None,
-    };
-    base.map(str::to_string)
 }

@@ -34,6 +34,8 @@
 
 ## 0.5.1 (unreleased)
 
+- `agent_daemon_core`: `DaemonSettingsStore` drops `global_monthly_max_usd`, `warning_at`, `max_jury_calls_per_run`, `max_escalation_depth`; adds `turn_max_wall_clock_minutes`; spend caps default to 0 and `max_wall_clock_minutes` to 10 (CodeRight sync).
+
 - Features `agent_daemon_core` (source-trust authority, daemon discovery) and `agent_daemon_runtime` moved from CodeRight `coderight-daemon-core` and `coderight-daemon-runtime`.
 
 ## Unreleased (rightkit#1222)

@@ -36,7 +36,7 @@ use std::sync::{Arc, Mutex};
 ///
 /// The orchestrator wires a real implementation over the provider catalog
 /// (the same resolver `main_runtime_server`/`api_state_impl_02` use to build
-/// the chat-turn `LlmClient`) into [`build_default_summarizer`]; this crate
+/// the chat-turn `LlmClient`) into `build_default_summarizer`; this crate
 /// only defines the seam so `default_compaction.rs` never needs to depend on
 /// the provider crate directly.
 #[async_trait::async_trait]
@@ -285,6 +285,7 @@ impl FallibleSummarizer for ActiveModelCompactionSummarizer {
 /// [`build_default_summarizer_with_route_resolver`] once the orchestrator
 /// wires a provider-catalog resolver through the hub (see the module-level
 /// wiring note); this function remains for compatibility until that lands.
+#[cfg(test)]
 pub(crate) fn build_default_summarizer(llm: Arc<dyn LlmClient>) -> Arc<dyn FallibleSummarizer> {
     build_default_summarizer_with_route_resolver(llm, None)
 }

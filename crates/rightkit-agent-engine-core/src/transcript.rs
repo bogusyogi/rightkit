@@ -160,6 +160,21 @@ impl Transcript {
         matches: impl Fn(&str) -> bool,
         nth_from_end: usize,
     ) -> Option<String> {
+        let tail = self.take_tail_from_user_matching(matches, nth_from_end)?;
+        match tail.first() {
+            Some(TranscriptMessage::User { content, .. }) => Some(content.clone()),
+            _ => None,
+        }
+    }
+
+    /// Like [`Self::trim_before_user_matching`], but hands back the removed
+    /// messages (the matched prompt and everything after it) so a redo can put
+    /// them back with [`Self::extend_messages`].
+    pub fn take_tail_from_user_matching(
+        &mut self,
+        matches: impl Fn(&str) -> bool,
+        nth_from_end: usize,
+    ) -> Option<Vec<TranscriptMessage>> {
         let pos = self
             .messages
             .iter()
@@ -170,12 +185,12 @@ impl Transcript {
             )
             .nth(nth_from_end)
             .map(|(pos, _)| pos)?;
-        let text = match &self.messages[pos] {
-            TranscriptMessage::User { content, .. } => content.clone(),
-            _ => return None,
-        };
-        self.messages.truncate(pos);
-        Some(text)
+        Some(self.messages.split_off(pos))
+    }
+
+    /// Append messages (redo of a rewind).
+    pub fn extend_messages(&mut self, messages: Vec<TranscriptMessage>) {
+        self.messages.extend(messages);
     }
 }
 

@@ -40,7 +40,8 @@ impl EventCorrelationV1 {
                 correlation.tool_call_id = Some(call.id.clone());
             }
             ProtocolEvent::ToolApprovalResolved { tool_call_id, .. }
-            | ProtocolEvent::ToolApprovalReviewed { tool_call_id, .. } => {
+            | ProtocolEvent::ToolApprovalReviewed { tool_call_id, .. }
+            | ProtocolEvent::ToolPolicyEvent { tool_call_id, .. } => {
                 correlation.tool_call_id = Some(tool_call_id.clone());
             }
             ProtocolEvent::CredentialRequested { tool_call_id, .. } => {

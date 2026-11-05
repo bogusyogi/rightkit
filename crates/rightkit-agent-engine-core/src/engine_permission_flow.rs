@@ -5,7 +5,7 @@ impl SessionEngine {
         // Prefer a tool-declared capability class; fall back to name inference
         // only when the tool doesn't declare one. This stops a renamed or newly
         // added tool from being silently mis-gated by the name table.
-        let capability = self.auto_approval_capability_for(call);
+        let capability = self.capability_for_call(call);
         // ABAC + engine evaluation: hard denials remain the backstop, but ABAC
         // is consulted before the `RuleStore` seam (FM-026).
         let path_arg = extract_path_arg(&call.arguments_json);
@@ -21,7 +21,7 @@ impl SessionEngine {
         if let Some(pdp) = &self.abac_pdp {
             engine.set_pdp((**pdp).clone());
         }
-        let base = engine.evaluate_with_request(
+        let mut base = engine.evaluate_with_request(
             Some(&request),
             capability,
             self.permission_mode,
@@ -29,13 +29,61 @@ impl SessionEngine {
             path_arg.as_deref(),
             false,
         );
+        // Test-file protection guards existing tests from being rewritten to pass. A test
+        // file that does not exist yet weakens nothing, so creating one keeps the mode's
+        // allow (the protection was the only escalation when it is the verdict's source).
+        if base.policy_source == "test-file:protected" {
+            let is_new_file = path_arg.as_deref().is_some_and(|path| {
+                let path = std::path::Path::new(path);
+                let full = if path.is_absolute() {
+                    path.to_path_buf()
+                } else {
+                    self.workspace_root.join(path)
+                };
+                !full.exists()
+            });
+            if is_new_file {
+                base = rightkit_agent_policy::PermissionVerdict::new(
+                    PermissionDecision::Allow,
+                    "a new test file weakens no existing test",
+                    "test-file:new",
+                );
+            }
+        }
 
         // If ABAC matched, `base` already carries `abac:<id>` and we must not
         // let the glob `RuleStore` overwrite it (ABAC first, glob second).
         let is_abac = base.policy_source.starts_with("abac:");
 
-        let verdict = if is_hard_denial(&base) || is_abac {
+        let verdict = if is_hard_denial(&base) {
             base
+        } else if is_abac {
+            // Rule 51: an ABAC match keeps its own verdict, except that a persisted or session
+            // Deny rule (including the fail-closed `*` deny of a corrupt rule file) still wins
+            // over an ABAC Allow or Ask.
+            let mut v = base;
+            if v.decision != PermissionDecision::Deny {
+                if let Some(rules) = &self.permission_rules {
+                    let target = rule_target_for_call(call);
+                    let denied = rules
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .effective_match_for(&target)
+                        .filter(|rule| rule.effect == PermissionDecision::Deny);
+                    if let Some(rule) = denied {
+                        v = PermissionVerdict::new(
+                            PermissionDecision::Deny,
+                            format!(
+                                "Deny by {} permission rule '{}' (outranks ABAC)",
+                                rule_source_label(rule.source),
+                                rule.pattern
+                            ),
+                            format!("rule:{}:{}", rule_source_label(rule.source), rule.pattern),
+                        );
+                    }
+                }
+            }
+            v
         } else {
             let mut v = base;
             // A base Deny (mode/trust/capability) is never overridden by a
@@ -78,74 +126,7 @@ impl SessionEngine {
             None => verdict,
         };
 
-        // --- Adaptive Ask→Allow cache (FM-029, Goose discipline) ---
-        // Bind every lookup/insertion to current call features and authority
-        // context. Missing context skips cache reuse/insertion fail-closed.
-        if final_verdict.decision == PermissionDecision::Ask {
-            let features = self.auto_approval_features_for(call, capability);
-            let context = self.auto_approval_context_for(capability);
-            let cached = context.as_ref().is_some_and(|context| {
-                self.is_auto_approved_cached(&features, &call.arguments_json, context)
-            });
-            if cached {
-                tracing::info!(
-                    tool = %call.name,
-                    "auto-approval cache hit → Allow (Goose negative-only)"
-                );
-                final_verdict = PermissionVerdict::new(
-                    PermissionDecision::Allow,
-                    "auto-approval:cached allow (Goose: negative-only cache)",
-                    "auto_approval:cached",
-                );
-            } else {
-                let score = self.auto_approval_classifier.score(&features);
-                let (tier, gray_zone) =
-                    self.auto_approval_classifier.classify_reviewable(&features);
-                // classify() is FM-029 decision seam; cache insertion is deferred
-                // until dispatch has received final positive permission resolution.
-                //
-                // S:B4: a near-threshold result is never an auto-allow. Route
-                // it through the existing approval path; unavailable review
-                // times out as denial, so uncertainty cannot reach an effect.
-                if tier == AutoApprovalTier::AutoEdit && !gray_zone {
-                    tracing::info!(
-                        tool = %call.name,
-                        score = score,
-                        gray_zone = gray_zone,
-                        "auto-approval classify → Allow (cache deferred until positive resolution)"
-                    );
-                    final_verdict = PermissionVerdict::new(
-                        PermissionDecision::Allow,
-                        format!(
-                            "auto-approval:allow score={:.2} (Goose: negative-only cache)",
-                            score
-                        ),
-                        "auto_approval:allow",
-                    );
-                } else {
-                    tracing::info!(
-                        tool = %call.name,
-                        score = score,
-                        tier = ?tier,
-                        gray_zone = gray_zone,
-                        "auto-approval classify → Ask (uncertainty or gray-zone, not cached)"
-                    );
-                    if gray_zone {
-                        final_verdict = PermissionVerdict::new(
-                            PermissionDecision::Ask,
-                            format!(
-                                "auto-approval gray-zone score={:.2}; explicit review required",
-                                score
-                            ),
-                            "auto_approval:gray-zone-review",
-                        );
-                    }
-                }
-            }
-        }
-
-        // Command classification is escalation-only & must also fence cached
-        // adaptive allows. Windows shell calls use PowerShell, whose classifier
+        // Command classification is escalation-only. Windows shell calls use PowerShell, whose classifier
         // deliberately requires explicit approval until parsing is supported.
         if capability == rightkit_agent_policy::CapabilityClass::Shell
             && self.permission_mode == PermissionMode::AutoSafe
@@ -157,11 +138,12 @@ impl SessionEngine {
             } else {
                 rightkit_agent_policy::ShellDialect::Posix
             };
-            let shell_verdict = engine.evaluate_shell_command(
+            let shell_verdict = engine.evaluate_shell_command_in(
                 self.permission_mode,
                 self.workspace_trust,
                 &command,
                 dialect,
+                self.os_sandbox_enforced,
             );
             if shell_verdict.decision != PermissionDecision::Allow {
                 final_verdict = shell_verdict;

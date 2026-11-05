@@ -149,11 +149,7 @@ impl SessionStateSummary {
         let bullets = |lines: &[String]| -> Vec<String> {
             lines
                 .iter()
-                .map(|line| {
-                    line.trim_start_matches(|c: char| c == '-' || c == '*' || c == '+')
-                        .trim()
-                        .to_string()
-                })
+                .map(|line| line.trim_start_matches(['-', '*', '+']).trim().to_string())
                 .filter(|line| !line.is_empty())
                 .collect()
         };

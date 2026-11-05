@@ -65,37 +65,6 @@ pub struct PostEditReport {
 
 impl PostEditReport {}
 
-/// Sort, dedupe, and absolute-resolve a list of mutations the engine just
-/// collected. This is the single seam where `path` strings become typed
-/// `WorkspaceMutation`s the rest of the diagnostic pipeline reads. Read-only
-/// turns never call this.
-pub fn normalize_workspace_mutations(
-    workspace_root: &Path,
-    mutations: Vec<WorkspaceMutation>,
-) -> Vec<WorkspaceMutation> {
-    let mut normalized: Vec<WorkspaceMutation> = Vec::with_capacity(mutations.len());
-    for m in mutations {
-        let absolute = if m.path.is_absolute() {
-            m.path.clone()
-        } else {
-            workspace_root.join(&m.path)
-        };
-        let canonical = absolute;
-        if !normalized
-            .iter()
-            .any(|existing| existing.path == canonical && existing.kind == m.kind)
-        {
-            normalized.push(WorkspaceMutation {
-                path: canonical,
-                kind: m.kind,
-                previous_content: m.previous_content,
-            });
-        }
-    }
-    normalized.sort_by(|a, b| a.path.cmp(&b.path));
-    normalized
-}
-
 /// Extensions we have a known language server for (mirrors `lsp_tool`'s set).
 fn is_code_ext(path: &str) -> bool {
     matches!(

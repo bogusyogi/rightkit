@@ -16,7 +16,7 @@
 //!
 //! Library registration: every run has a caller (`--caller <name>`, else `<PREFIX>_CALLER`, else
 //! `cli`). An INSTALLED engine (release build, no `<PREFIX>_QA`) also registers each delivered image
-//! in the user's own library under that caller, so the Gallery lists it ("From <caller>")
+//! in the user's own library under that caller, so the Gallery lists it ("From `<caller>`")
 //! beside the project copy under `<project>/exports/`. QA-marked engines never touch
 //! the user's library (see `registration_for`). Registration problems are reported on the
 //! deliverable row (`library`) and never fail a delivery whose project files are already placed.
@@ -714,16 +714,28 @@ fn request_id(
 
 /// A deliverable that did not finish. `status` is the row status: `refused` (nothing was
 /// started), `failed`, or `timed_out`.
-struct Fail {
+struct Fail(Box<FailData>);
+
+struct FailData {
     status: &'static str,
     error: GenError,
 }
 
-fn fail(status: &'static str, code: impl Into<String>, message: impl Into<String>) -> Fail {
-    Fail {
-        status,
-        error: GenError::new(code, message),
+impl std::ops::Deref for Fail {
+    type Target = FailData;
+    fn deref(&self) -> &FailData {
+        &self.0
     }
+}
+
+impl Fail {
+    fn new(status: &'static str, error: GenError) -> Self {
+        Fail(Box::new(FailData { status, error }))
+    }
+}
+
+fn fail(status: &'static str, code: impl Into<String>, message: impl Into<String>) -> Fail {
+    Fail::new(status, GenError::new(code, message))
 }
 
 fn io_fail(context: String, e: impl std::fmt::Display) -> Fail {
@@ -842,7 +854,7 @@ fn execute(
     for (deliverable, images) in &items {
         let deliverable = *deliverable;
         let outcome = match (images, model.as_deref()) {
-            (Err(e), _) => Err(Fail { status: "refused", error: e.clone() }),
+            (Err(e), _) => Err(Fail::new("refused", e.clone())),
             (Ok(_), None) => Err(spend_refusal(
                 "no keyless local image model is installed (the only 0 USD image route), and every other image route is paid",
             )),
@@ -980,10 +992,7 @@ fn image_request(
 /// The money gate: the existing dry-run estimate must be exactly 0 USD for the pinned keyless
 /// provider before anything is submitted.
 fn guard_free(ctx: &Context, request: &Value) -> Result<(), Fail> {
-    let estimate = api::generate(ctx, request, true).map_err(|e| Fail {
-        status: "failed",
-        error: e,
-    })?;
+    let estimate = api::generate(ctx, request, true).map_err(|e| Fail::new("failed", e))?;
     match estimate["est_usd"].as_f64() {
         Some(usd) if usd <= 0.0 => Ok(()),
         other => Err(spend_refusal(&format!(
@@ -1039,11 +1048,8 @@ fn deliver(
             live["wait_timeout_s"] = json!(left.as_secs_f64());
         }
         // In this process, through the run's warm provider: the model stays loaded between images.
-        let record =
-            api::generate_wait_with(ctx, providers, &live, &run_options()).map_err(|e| Fail {
-                status: "failed",
-                error: e,
-            })?;
+        let record = api::generate_wait_with(ctx, providers, &live, &run_options())
+            .map_err(|e| Fail::new("failed", e))?;
         // A brief that stops waiting (timeout) leaves nothing running: a local job holds a
         // ~10 GB model server, and nobody will collect the result.
         cancel_if_unfinished(ctx, providers, &record);
@@ -1246,12 +1252,8 @@ fn review_mode(brief: &ContentBrief) -> &'static str {
 /// does not require it and the result says so.
 fn review_gate(brief: &ContentBrief, produced: &[Produced]) -> Result<Value, Fail> {
     let files: Vec<PathBuf> = produced.iter().map(|p| p.src.clone()).collect();
-    rightkit_approvals::eyes::review_gate(review_mode(brief), &files, "brief delivery").map_err(
-        |error| Fail {
-            status: "refused",
-            error,
-        },
-    )
+    rightkit_approvals::eyes::review_gate(review_mode(brief), &files, "brief delivery")
+        .map_err(|error| Fail::new("refused", error))
 }
 
 /// The run's providers: the production registry with `local-image` replaced by a provider that

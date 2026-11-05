@@ -173,12 +173,12 @@ fn parse_unified(diff: &str) -> Result<Vec<Hunk>, PatcherError> {
 
     for line in &lines {
         let without_ending = line_without_ending(line);
-        if let Some(header) = without_ending.strip_prefix("diff --git ") {
+        if let Some(header_paths) = without_ending.strip_prefix("diff --git ") {
             if git_file_header_seen || !hunks.is_empty() || current.is_some() {
                 return Err(error("multi-file diffs are not allowed"));
             }
             git_file_header_seen = true;
-            let mut paths = header.split_whitespace();
+            let mut paths = header_paths.split_whitespace();
             let old = paths
                 .next()
                 .ok_or_else(|| error("invalid diff --git header"))?;

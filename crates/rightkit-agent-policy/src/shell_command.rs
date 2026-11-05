@@ -47,6 +47,22 @@ impl PermissionEngine {
         command: &str,
         dialect: ShellDialect,
     ) -> PermissionVerdict {
+        self.evaluate_shell_command_in(mode, trust, command, dialect, false)
+    }
+
+    /// [`Self::evaluate_shell_command`] for a command that will run under an enforcing OS
+    /// sandbox (writes confined to the workspace, network denied; the shell refuses to run
+    /// when the sandbox cannot start). There AutoSafe also treats interpreters and test
+    /// runners as routine, as Codex's workspace sandbox does. Destructive patterns, redirects outside the
+    /// workspace and everything else still escalate.
+    pub fn evaluate_shell_command_in(
+        &self,
+        mode: PermissionMode,
+        trust: WorkspaceTrust,
+        command: &str,
+        dialect: ShellDialect,
+        os_sandbox_enforced: bool,
+    ) -> PermissionVerdict {
         // Owning-process protection is unconditional: it applies in every mode,
         // including bypass, and cannot be approved.
         if let Some(reason) =
@@ -62,7 +78,7 @@ impl PermissionEngine {
             return self.evaluate(CapabilityClass::Shell, mode, trust, None, false);
         }
 
-        match classify_shell_command(command, dialect) {
+        match classify_shell_command_in(command, dialect, os_sandbox_enforced) {
             ShellCommandClassification::Routine => {
                 self.evaluate(CapabilityClass::Shell, mode, trust, None, false)
             }
@@ -92,6 +108,15 @@ impl PermissionEngine {
 }
 
 pub fn classify_shell_command(command: &str, dialect: ShellDialect) -> ShellCommandClassification {
+    classify_shell_command_in(command, dialect, false)
+}
+
+/// [`classify_shell_command`] with the sandbox-only routine tier enabled when `sandboxed`.
+pub fn classify_shell_command_in(
+    command: &str,
+    dialect: ShellDialect,
+    sandboxed: bool,
+) -> ShellCommandClassification {
     if command.trim().is_empty() {
         return approval("empty shell command");
     }
@@ -99,11 +124,11 @@ pub fn classify_shell_command(command: &str, dialect: ShellDialect) -> ShellComm
         ShellDialect::PowerShell => approval(
             "PowerShell AutoSafe classification is not available; explicit approval is required",
         ),
-        ShellDialect::Posix => classify_posix(command, 0),
+        ShellDialect::Posix => classify_posix(command, 0, sandboxed),
     }
 }
 
-fn classify_posix(command: &str, depth: usize) -> ShellCommandClassification {
+fn classify_posix(command: &str, depth: usize, sandboxed: bool) -> ShellCommandClassification {
     if depth >= 8 {
         return approval("shell command nesting exceeds the approval classifier limit");
     }
@@ -133,7 +158,7 @@ fn classify_posix(command: &str, depth: usize) -> ShellCommandClassification {
             if let ShellCommandClassification::RequiresApproval {
                 reason,
                 destructive,
-            } = classify_posix(script, depth + 1)
+            } = classify_posix(script, depth + 1, sandboxed)
             {
                 return approval_with_destructive(
                     format!("nested shell requires approval: {reason}"),
@@ -142,7 +167,7 @@ fn classify_posix(command: &str, depth: usize) -> ShellCommandClassification {
             }
             continue;
         }
-        if !command_is_routine(inner) {
+        if !(command_is_routine(inner) || (sandboxed && command_is_routine_when_sandboxed(inner))) {
             return approval_with_destructive(
                 format!(
                     "shell segment is not on the AutoSafe command allowlist: {}",
@@ -592,6 +617,32 @@ fn command_is_routine(words: &[String]) -> bool {
         | "whoami" | "hostname" | "uname" | "nproc" | "printenv" | "stat" | "file" | "basename"
         | "dirname" | "realpath" | "readlink" | "strings" | "sleep" | "df" | "du" | "ps"
         | "top" | "htop" | "cd" | "pushd" | "popd" | "set" => true,
+        _ => false,
+    }
+}
+
+/// Interpreters and test runners: arbitrary code, so routine only inside an enforcing OS
+/// sandbox (writes confined to the workspace, no network), never outside one.
+fn command_is_routine_when_sandboxed(words: &[String]) -> bool {
+    let Some(raw_head) = words.first() else {
+        return false;
+    };
+    if raw_head.contains('/') || raw_head.contains('\\') {
+        return false;
+    }
+    let head = raw_head.to_ascii_lowercase();
+    let sub = |allowed: &[&str]| {
+        words
+            .get(1)
+            .is_some_and(|word| allowed.contains(&word.to_ascii_lowercase().as_str()))
+    };
+    match head.as_str() {
+        "python" | "python3" | "node" | "deno" | "bun" | "ruby" | "pytest" | "make" => true,
+        "cargo" => sub(&[
+            "test", "build", "check", "run", "clippy", "fmt", "bench", "doc",
+        ]),
+        "npm" | "pnpm" | "yarn" => sub(&["test", "run", "build", "exec", "t"]),
+        "go" => sub(&["test", "build", "vet", "run"]),
         _ => false,
     }
 }
