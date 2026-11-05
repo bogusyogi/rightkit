@@ -249,6 +249,7 @@ Adrian, 2026-11-03: "i wnat all dev completely gone. all debug too. completely g
 | NN14 | Preflight and app rules run once per tree | a warm run runs them (the repository under test must have them) |
 | NN15 | Advice scans are cached per lock set and UTC day or hour | `dependency-freshness`, `ghsa-audit`, `pnpm-audit`, `cargo-deny`, `cargo-audit` run on a warm run of the same day |
 | NN17 | All levers parallel ("did you also look at parallel inside a and b? And for compile? All levers checked?"): Class A lanes equal the host's cores; Class B batches compatible rows | fewer lanes than cores, or a compatible group runs as separate invocations |
+| NN39 | The parallelism is real, not configured ("Serial work when it should be parallel? How does the system detect and fail that?", 2026-11-05) | from the ledger's start and end times: while independent work is queued, fewer processes run than the lanes allow (a lane sits idle while work waits), beyond a stated tolerance |
 
 **D. Keys** ("We're hashing based on wrong causing no cache hits? Wrong")
 
