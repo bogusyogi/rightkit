@@ -176,3 +176,18 @@ test("reclaim: an unreadable mark lock left by a crash is removed, a live-lookin
   assert.ok(!fs.existsSync(markLockFile(ctx.file)) || JSON.parse(fs.readFileSync(markLockFile(ctx.file), "utf8")).schema);
   r.release?.();
 });
+
+test("the Rust-signed reverse vector (RustRight, TEST-ONLY scalar-1 key) verifies in JS; any change refuses", async () => {
+  const r = JSON.parse(fs.readFileSync(new URL("./handle-revocation.rust-vector.json", import.meta.url), "utf8"));
+  const v = JSON.parse(fs.readFileSync(new URL("./handle-revocation.vectors.json", import.meta.url), "utf8"));
+  const { verifyRevocation } = await import("./handle-revocation.mjs");
+  const p = r.envelope.payload;
+  // the P-256 generator point: the public half of private scalar 1, a test key that is never enrolled
+  assert.ok(r.pins.publicKey.startsWith("046b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"));
+  const expected = { ownerFile: p.ownerFile, dataRoot: p.dataRoot, ownerBytes: Buffer.from(v.ownerBytes), owner: { handle: p.ownership.split("#")[0], snapshot: p.snapshot }, sub: p.ownership };
+  assert.deepStrictEqual(verifyRevocation(Buffer.from(JSON.stringify(r.envelope)), r.pins, expected), p);
+  const flipped = { ...r.envelope, payload: { ...p, proofSha256: "e".repeat(64) } };
+  assert.throws(() => verifyRevocation(Buffer.from(JSON.stringify(flipped)), r.pins, expected), /signature does not verify/);
+  assert.throws(() => verifyRevocation(Buffer.from(JSON.stringify(r.envelope)), { ...v.pins }, expected), /pinned broker key|key id/);
+  assert.throws(() => verifyRevocation(Buffer.from(JSON.stringify(r.envelope)), r.pins, { ...expected, ownerBytes: Buffer.from(v.ownerBytes + " ") }), /other owner record bytes/);
+});
