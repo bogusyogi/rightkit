@@ -67,7 +67,9 @@ import { spawn as spawnDetachedDefault, spawnSync } from "./background-process.m
 import { managedRuntimeClient } from "./managed-cargo.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
 import { requireManagedRoot } from "./managed-root-guard.mjs";
-import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, OwnershipBusy, holds, markBrokerSubmit, markBrokerUnsent, markCarriedSend, markLockFile } from "./ownership-mark.mjs";
+import { readEnrolledPins } from "./broker-pins.mjs";
+import { readRevocation, revocationFile, verifyRevocation } from "./handle-revocation.mjs";
+import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, OwnershipBusy, holds, markBrokerSubmit, markBrokerUnsent, markCarriedSend, markLockFile, withMarkLock } from "./ownership-mark.mjs";
 
 // The mark itself lives in a leaf module (ownership-mark.mjs): snapshot-broker.mjs records carried sends through it, and importing this
 // file from there would close a cycle (this file -> managed-cargo -> cargo-target-shim -> snapshot-broker).
@@ -1050,7 +1052,7 @@ function coveredMember(m, owner, { byPid, own }) {
  * Whether the work `owner` covers, other than the process `self` (the live gate at release, null at reclaim), is proven gone.
  * Returns the proofs, or throws a reason that is busy.
  */
-function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0, timing = null }) {
+function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0, timing = null, revoked = null, processOnly = false }) {
   const measure = (name, fn) => { const start = performance.now(); try { return fn(); } finally { if (timing) timing[name] = (timing[name] ?? 0) + performance.now() - start; } };
   const proofs = [];
   let rebooted = false;
@@ -1190,7 +1192,9 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
   } else if (!rebooted) {
     throw new Error(`the record names no containment (${JSON.stringify(c)})`);
   }
-  if (owner.broker?.submitted) {
+  if (processOnly) {
+    proofs.push("broker work NOT judged: a process-only proof (rightkit#1511) says nothing about broker leases");
+  } else if (owner.broker?.submitted) {
     // Every submission under this handle must be accounted for by NAME, never by the bare handle (GB-21, GB-23, GB-85). The bare handle answers REAPED when at least one
     // member completed and none is held (rustright snapshot.rs `status`), so it proves only that no lease is held now: a completed sibling never stands in for an
     // unknown submission. Each recorded sub-handle (broker.handles, recorded before its send) is asked by its exact name and must be one of
@@ -1201,13 +1205,17 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
     const unsent = owner.broker.unsent && typeof owner.broker.unsent === "object" ? owner.broker.unsent : {};
     const waitOptions = waitMs > 0 ? { waitMs } : {};
     const settled = (sub) => unsent[sub] && typeof unsent[sub].reason === "string";
-    const everyUnsent = handles.length > 0 && handles.every(settled);
+    // rightkit#1511: a sub-handle the broker can no longer answer may instead carry the broker's signed revocation of exactly that sub-handle, bound to
+    // this record's bytes (handle-revocation.mjs). It is offered only by a dead owner's reclaim (judgeOwner), never by a release; a bad revocation throws.
+    const revokedOf = new Map();
+    const revocation = (sub) => { if (!revoked) return null; if (!revokedOf.has(sub)) revokedOf.set(sub, revoked(sub)); return revokedOf.get(sub); };
+    const everyUnsent = () => handles.length > 0 && handles.every((sub) => settled(sub) || revocation(sub) !== null);
     const status = measure("leaseMs", () => lease({ snapshot: owner.snapshot, handle: owner.handle, ...waitOptions }));
-    if (status.state === "ACTIVE" || (status.state !== "REAPED" && !everyUnsent)) throw new Error(`broker work may exist under this handle and its lease is ${status.state} (${status.why})`);
+    if (status.state === "ACTIVE" || (status.state !== "REAPED" && !everyUnsent())) throw new Error(`broker work may exist under this handle and its lease is ${status.state} (${status.why})`);
     if (status.state === "REAPED") proofs.push(`broker lease for ${owner.handle} is REAPED`);
     // GB-23: the answer's own member rows account for each recorded sub-handle too: a recorded one that the broker lists and does not list REAPED keeps ownership, whatever the aggregate said.
     if (Array.isArray(status.members)) for (const sub of handles) { const row = status.members.find((m) => m.handle === sub); if (row && row.state !== "REAPED") throw new Error(`the broker lists sub-handle ${sub} as ${row.state} among the members of ${owner.handle}`); }
-    let neverStarted = 0;
+    let neverStarted = 0; let revokedCount = 0;
     for (const sub of handles) {
       if (typeof sub !== "string" || !sub.startsWith(`${owner.handle}#`) || sub.length <= owner.handle.length + 1) throw new Error(`the record lists ${JSON.stringify(sub)}, which is not a sub-handle of ${owner.handle}`);
       const one = measure("leaseMs", () => lease({ snapshot: owner.snapshot, handle: sub, ...waitOptions }));
@@ -1217,11 +1225,35 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
         continue;
       }
       if (settled(sub) && one.state === "UNKNOWN" && Array.isArray(one.members) && one.members.length === 0) { proofs.push(`${sub} never started (${unsent[sub].reason}) and the broker holds nothing under it`); neverStarted += 1; continue; }
+      // The revocation settles only what the broker cannot answer: UNKNOWN, no member row for it here or in the owner's answer. ACTIVE or a listed member always holds.
+      const listed = Array.isArray(status.members) && status.members.some((m) => m.handle === sub);
+      const rev = one.state === "UNKNOWN" && Array.isArray(one.members) && one.members.length === 0 && !listed ? revocation(sub) : null;
+      if (rev) { proofs.push(`${sub} is UNKNOWN to the broker and revoked by its signed revocation ${rev.file} (proof ${rev.payload.proofSha256})`); revokedCount += 1; continue; }
       throw new Error(`broker work may exist under sub-handle ${sub} and its lease is ${one.state} (${one.why})`);
     }
-    if (handles.length) proofs.push(neverStarted === 0 ? `broker lease for each of ${handles.length} sub-handle(s) is REAPED` : `every one of ${handles.length} sub-handle(s) is accounted for: ${handles.length - neverStarted} REAPED, ${neverStarted} proven never started`);
+    if (handles.length) proofs.push(neverStarted === 0 && revokedCount === 0 ? `broker lease for each of ${handles.length} sub-handle(s) is REAPED` : `every one of ${handles.length} sub-handle(s) is accounted for: ${handles.length - neverStarted - revokedCount} REAPED, ${neverStarted} proven never started, ${revokedCount} revoked by the broker`);
   }
   return proofs;
+}
+
+/**
+ * rightkit#1511 (rustright#228): the process half of a dead owner's reclaim, for RustRight's offline revocation helper to bind before it signs: the owner pid is
+ * gone (or now runs another process) and every process check of a reclaim passes (detached groups, token holders, snapshot users, containment), with NO broker
+ * lease judged and nothing written. Returns `{ schema, ownerFile, dataRoot, ownerSha256, ownerHandle, snapshot, host, proofs, provedAt }`; throws OwnershipBusy
+ * naming what is still live or unknown. It never stands in for a reclaim: the reclaim still runs every check, the broker's included.
+ */
+export const OWNER_PROCESS_PROOF_SCHEMA = "rightkit.owner-process-proof/1";
+export function proveOwnerProcessesGone({ file, platform = process.platform, probe = processProbe({ platform }), host = os.hostname(), now = () => new Date() }) {
+  const observed = readText(file);
+  if (observed === null) throw new OwnershipBusy(`build ownership ${file}: no record`);
+  const noLease = () => { throw new Error("a process-only proof asks the broker nothing"); };
+  const { owner, proofs } = judgeOwner(observed, { file, probe, lease: noLease, host, processOnly: true });
+  if (readText(file) !== observed) throw new OwnershipBusy(`build ownership ${file} changed while its processes were judged`);
+  return {
+    schema: OWNER_PROCESS_PROOF_SCHEMA, ownerFile: fs.realpathSync.native(file), dataRoot: fs.realpathSync.native(dataRootOf(file)),
+    ownerSha256: crypto.createHash("sha256").update(Buffer.from(observed, "utf8")).digest("hex"), ownerHandle: owner.handle, snapshot: owner.snapshot ?? null,
+    host, proofs, provedAt: now().toISOString(),
+  };
 }
 
 /**
@@ -1244,7 +1276,7 @@ export function judgeClaimant(text, { probe, host }) {
  * Why the record `observed` may be reclaimed (`{ owner, proofs }`), or an OwnershipBusy throw naming what is still live or
  * unknown. Pure apart from the probes.
  */
-export function judgeOwner(observed, { file, probe, lease, host = os.hostname() }) {
+export function judgeOwner(observed, { file, probe, lease, host = os.hostname(), pins = null, processOnly = false }) {
   let owner = null;
   try { owner = JSON.parse(observed); } catch { owner = null; }
   const busy = (why, detail = {}) => new OwnershipBusy(`build ownership ${file}: ${why}`, { owner, ...detail });
@@ -1258,8 +1290,18 @@ export function judgeOwner(observed, { file, probe, lease, host = os.hostname() 
     throw busy(`held by pid ${owner.pid} (${owner.stage ?? "stage"} of ${owner.commit ?? "a commit"}) since ${owner.acquiredAt}`);
   }
   const proofs = [self.alive ? `owner pid ${owner.pid} now runs another process (started ${new Date(self.startedMs).toISOString()}, owner started ${new Date(owner.startedMs).toISOString()})` : `owner pid ${owner.pid} is gone`];
-  try { proofs.push(...coveredWorkGone(owner, { probe, lease, file })); } catch (e) { throw busy(`owner pid ${owner.pid} is gone but ${e.message}`); }
-  return { owner, proofs };
+  // rightkit#1511: revocations are judged against the exact bytes judged here; the reclaim rereads both under its claim before it removes anything.
+  const revocations = [];
+  const revoked = pins ? (sub) => {
+    const at = revocationFile(file, owner.handle, sub, owner.snapshot);
+    const bytes = readRevocation(at);
+    if (bytes === null) return null;
+    const payload = verifyRevocation(bytes, pins, { ownerFile: fs.realpathSync.native(file), dataRoot: fs.realpathSync.native(dataRootOf(file)), ownerBytes: Buffer.from(observed, "utf8"), owner, sub });
+    revocations.push({ file: at, bytes });
+    return { file: at, payload };
+  } : null;
+  try { proofs.push(...coveredWorkGone(owner, { probe, lease, file, revoked, processOnly })); } catch (e) { throw busy(`owner pid ${owner.pid} is gone but ${e.message}`); }
+  return { owner, proofs, revocations };
 }
 
 /**
@@ -1280,6 +1322,7 @@ export function acquireBuildOwnership({
   hooks = {},
   managedRoot,
   device,
+  brokerPins,
 } = {}) {
   // First, before the environment, the record or any write: the managed root exists (decision D4). `managedRoot` and `device` are
   // fixtures' seams; a production caller passes neither.
@@ -1400,7 +1443,7 @@ export function acquireBuildOwnership({
   if (publish(file, body)) return done(null);
   const observed = readText(file);
   if (observed === null) { if (publish(file, body)) return done(null); throw new OwnershipBusy(`build ownership ${file} was taken by another process`); }
-  const judged = judgeOwner(observed, { file, probe, lease });
+  const judged = judgeOwner(observed, { file, probe, lease, pins: brokerPins === undefined ? enrolledPinsFor(file, platform) : brokerPins });
   hooks.afterJudge?.();
   // A reclaim means the previous release was not clean (a crash, or a release that ended held): nothing unreadable is skipped.
   record.cleanBefore = null;
@@ -1418,19 +1461,34 @@ export function acquireBuildOwnership({
   }
   try {
     hooks.afterClaim?.(reclaim);
+    // rightkit#1511: the reread, the removal and the new record run under the record's mark lock too, so no submit or unsent mark of the old owner can land
+    // between the reread and the removal (a mark after it finds another handle and refuses). The lock is released by withMarkLock, not removed here.
+    withMarkLock(file, () => {
     if (readText(file) !== observed) throw new OwnershipBusy(`build ownership ${file} changed before it could be reclaimed`);
+    for (const r of judged.revocations) { let now = null; try { now = readRevocation(r.file); } catch { now = null; } if (!now || !now.equals(r.bytes)) throw new OwnershipBusy(`build ownership ${file}: the broker revocation ${r.file} changed before the record could be reclaimed`); }
     fs.rmSync(file, { force: true });
-    fs.rmSync(markLockFile(file), { force: true });
     fs.rmSync(holderFile(file, judged.owner.handle), { force: true });
     fs.rmSync(holderScriptFile(holderFile(file, judged.owner.handle)), { force: true });
     fs.rmSync(childrenDir(file, judged.owner.handle), { recursive: true, force: true });
     if (!publish(file, reclaimBody)) throw new OwnershipBusy(`build ownership ${file} was taken by another process`);
+    });
   } finally {
     // Token-checked: only this reclaim's own claim is removed (a successor's claim, published after this one was judged dead, stays).
     if (readText(reclaim) === reclaimBody) fs.rmSync(reclaim, { force: true });
   }
   return done({ from: judged.owner.handle, pid: judged.owner.pid, proofs: judged.proofs });
 }
+
+/**
+ * rightkit#1511: the host's ENROLLED broker pin (`<managed root>/pins/broker-<platform>.json`; the record is `<managed root>/build-ownership/<key>/owner.json`),
+ * or null when none is enrolled or it cannot be read: then no revocation is honoured and the reclaim proofs stand as before. Never the checkout fallback.
+ */
+function enrolledPinsFor(file, platform) {
+  try { return readEnrolledPins({ dataRoot: dataRootOf(file), platform }); } catch { return null; }
+}
+
+/** The managed data root a record `<root>/build-ownership/<key>/owner.json` lives under. */
+const dataRootOf = (file) => path.dirname(path.dirname(path.dirname(file)));
 
 /** Replaces the record atomically while it is still `handle`'s. */
 function rewriteRecord(file, handle, change) {
