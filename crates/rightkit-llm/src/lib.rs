@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)] // errors carry structured diagnostic context by design, as in rightkit-agent-orchestration
 //! `rightkit-llm`: BYOK LLM provider clients for Right Suite apps.
 //!
 //! - [`anthropic::AnthropicProvider`] (Messages API) and

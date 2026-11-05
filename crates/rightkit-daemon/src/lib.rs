@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)] // errors carry structured diagnostic context by design, as in rightkit-agent-orchestration
 //! rightkit-daemon: the one discovery and authentication convention for local
 //! Right Suite services (the shared speech service, the in-app control server,
 //! `right-ctl`).

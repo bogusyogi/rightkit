@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)] // errors carry structured diagnostic context by design, as in rightkit-agent-orchestration
 //! Native Blueprint foundation and in-process service lifecycle.
 //!
 //! Blueprint is exposed as typed Rust modules. Resident ownership is provided

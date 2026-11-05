@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)] // errors carry structured diagnostic context by design, as in rightkit-agent-orchestration
 #![deny(unsafe_code)]
 //! Shared engine base: job store, runner, and stdio/CLI command contract.
 

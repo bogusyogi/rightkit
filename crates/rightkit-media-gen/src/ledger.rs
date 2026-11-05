@@ -949,7 +949,7 @@ pub(crate) fn reserve_attempt_on(l: &Ledger, conn: &Connection, a: &Attempt) -> 
         SpendError::AllowanceExceeded {
             remaining_micro, ..
         } => daily_refusal(lim.cap_micro - remaining_micro),
-        SpendError::OverrunUnacknowledged { count } => {
+        SpendError::OverrunUnacknowledged { count, .. } => {
             jerr(unacknowledged_error("daily allowance", count))
         }
         e => spend_jerr(e),
@@ -973,7 +973,7 @@ pub(crate) fn reserve_attempt_on(l: &Ledger, conn: &Connection, a: &Attempt) -> 
         SpendError::AllowanceExceeded {
             remaining_micro, ..
         } => monthly_refusal(lim.monthly_micro - remaining_micro),
-        SpendError::OverrunUnacknowledged { count } => {
+        SpendError::OverrunUnacknowledged { count, .. } => {
             jerr(unacknowledged_error("monthly allowance", count))
         }
         e => spend_jerr(e),
@@ -1001,7 +1001,7 @@ pub(crate) fn reserve_attempt_on(l: &Ledger, conn: &Connection, a: &Attempt) -> 
                 SpendError::AllowanceExceeded {
                     remaining_micro, ..
                 } => refusal(d.limit_micro - remaining_micro),
-                SpendError::OverrunUnacknowledged { count } => {
+                SpendError::OverrunUnacknowledged { count, .. } => {
                     jerr(unacknowledged_error("device allowance", count))
                 }
                 e => spend_jerr(e),
