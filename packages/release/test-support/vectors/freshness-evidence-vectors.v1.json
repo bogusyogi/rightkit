@@ -1,6 +1,6 @@
 {
  "schema": "rustright.freshness-evidence-vectors.v1",
- "description": "Shared evidence semantics for a Cargo compile's freshness census (BROKER-CONTRACT section 16, GB-68). RustRight's broker (rustright-policy cargo_freshness, rustright-broker cargo_evidence) is tested against these; RightKit's direct census (packages/release/freshness-census.mjs) is expected to produce the same unit, kind, cause, scope and completeness for the same inputs. A census that cannot read what exists is unavailable, never empty, and never a first build.",
+ "description": "Shared evidence semantics for a Cargo compile's freshness census (BROKER-CONTRACT section 16, GB-68). RustRight checks `profileDirectory`, `wantsJson`, `scope` and `census` (rustright-policy tests/freshness_vectors.rs, over cargo_freshness) and `causes`, `caps`, `explainedCauses` and `logs` (rustright-broker cargo_evidence, module contract_vectors); RightKit's direct census (packages/release/freshness-census.mjs) is expected to produce the same unit, kind, cause, scope and completeness for the same inputs. A census that cannot read what exists is unavailable, never empty, and never a first build.",
  "caps": {
   "reasons": 10000,
   "reasonTextChars": 512

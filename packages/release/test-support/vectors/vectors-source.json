@@ -27,15 +27,15 @@
       "commit": "396151ba0f4780c77223f287fd71507b22c0ed0c"
     },
     "declared-inputs.fixtures.json": {
-      "sha256": "dbc485ef69c35f307fa4e8e23cec3fc042b6696b6c3841e75992cb8e9f7e2c40",
+      "sha256": "537eece19bab29a9e09fa0ed954faad52022807ccff8cba50a23103c17dc294b",
       "schema": "rustright.declared-inputs.fixtures.v1",
-      "commit": "a6a2a5047b0916ac5885b4a5d4a4064af7966a29",
+      "commit": "396151ba0f4780c77223f287fd71507b22c0ed0c",
       "note": "GC-I22: copied byte for byte from rustright docs/contracts at a6a2a50 (identical at main b0f14c7f), which adds the two absent-input cases of GC-I14 (14 cases; the pin at c839d1f held 12)"
     },
     "freshness-evidence-vectors.v1.json": {
-      "sha256": "86e61829596978fc70798e0789c69912bb5316c2636668f24aa32bec88e654bd",
+      "sha256": "8ecb02382284c0a54c2f463bae014db69019bfee42779f6c4324c2a12c30a5dd",
       "schema": "rustright.freshness-evidence-vectors.v1",
-      "commit": "30520f79084f7210fa5f8703a004bdf964925203",
+      "commit": "396151ba0f4780c77223f287fd71507b22c0ed0c",
       "note": "copied byte for byte from rustright docs/contracts at 30520f7 (explainedCauses, caps.reasons 10000); 30520f7 is a local rustright commit, re-pin to its pushed sha once Adrian approves the push"
     },
     "lease-status-vectors.v1.json": {

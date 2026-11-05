@@ -1,6 +1,6 @@
 {
  "schema": "rustright.declared-inputs.fixtures.v1",
- "note": "GB-49 shared vectors. Owner: RustRight (the broker's declared-input digest); consumer: every RightKit reader of the declaration must give the same inputs and the same digests. The declaration is `.rustright/compile-inputs.json`; the legacy `.rightkit/compile-inputs.json` is read only when the canonical file is absent (a present but invalid canonical file is an error, never a fallback). Each input is digested in place: for every regular file under it, in directory order sorted by name bytes, the file's name (its path components joined by `/` on every platform, UTF-8, no Unicode normalisation) + NUL + the file's bytes + NUL are fed to one SHA-256 per input; `files` and `bytes` total the regular files of all inputs. A link, a non-regular file, an absolute or `..` or `.git` path, and a path overlapping either declaration file are refused. The Rust test (broker check_admission tests) builds each case in a temporary directory and compares; the expected digests here were computed independently (Python), not by the broker.",
+ "note": "GB-49 shared vectors. Owner: RustRight (the broker's declared-input digest); consumer: every RightKit reader of the declaration must give the same inputs and the same digests. The declaration is `.rustright/compile-inputs.json`; the legacy `.rightkit/compile-inputs.json` is read only when the canonical file is absent (a present but invalid canonical file is an error, never a fallback). Each input is digested in place: for every regular file under it, in directory order sorted by name bytes, the file's name (its path components joined by `/` on every platform, UTF-8, no Unicode normalisation) + NUL + the file's bytes + NUL are fed to one SHA-256 per input; `files` and `bytes` total the regular files of all inputs. A link, a non-regular file, an absolute or `..` or `.git` path, and a path overlapping either declaration file are refused. The digests here were computed independently (Python), not by the broker. The Rust test (broker check_admission.rs, module contract_vectors) builds each case in a temporary directory, runs check_admission::snapshot_inputs and compares.",
  "cases": [
   {
    "name": "a single file, canonical declaration",
@@ -238,8 +238,8 @@
    }
   },
   {
-   "name": "an absent input of a request that compiles nothing is recorded as absent",
-   "note": "A carried read-only request (version probe, locate-project, read-manifest, metadata, fetch, ...) may declare build outputs the dev stage produces later: the broker records exactly {path, absent: true} (no sha256), contributing 0 files and 0 bytes. The exit bind proves it is still absent. `allowAbsent` is the case's request class: true for a request that compiles nothing.",
+   "name": "an absent input is recorded as absent",
+   "note": "A snapshot request may declare build outputs an earlier stage has not produced yet (web-build writes dist, a sidecar compile writes src-tauri/binaries): the broker records exactly {path, absent: true} (no sha256), contributing 0 files and 0 bytes. The exit bind proves it is still absent. `allowAbsent` is the parameter of the broker's snapshot_inputs; every request class the broker admits passes true (BROKER-CONTRACT GB-49, producers).",
    "allowAbsent": true,
    "files": {
     "a.txt": "1"
@@ -262,8 +262,9 @@
    }
   },
   {
-   "name": "an absent input of a compile request is refused and named",
-   "allowAbsent": false,
+   "name": "an absent input of a compile request is recorded as absent too",
+   "note": "A cargo compile is admitted with a declared input absent from the snapshot, recorded the same way; it is refused at exit (RK_INPUT_CHANGED) if the input appeared while it ran, so its receipt names exactly the bytes, or the absence, it could read. Refusing the absent input at admission (allowAbsent false) is not a broker request class.",
+   "allowAbsent": true,
    "files": {
     "a.txt": "1"
    },
@@ -274,7 +275,14 @@
     "dist"
    ],
    "expect": {
-    "error": "dist: "
+    "declared": [
+     {
+      "path": "dist",
+      "absent": true
+     }
+    ],
+    "files": 0,
+    "bytes": 0
    }
   }
  ]
