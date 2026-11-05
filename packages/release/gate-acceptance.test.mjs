@@ -299,7 +299,7 @@ const step = (id, checks) => ({ id, title: id, checks, notes: [] });
 test("result: ok needs a passing clause, no failing clause, no failing or unfinished step, no failing step-only check", () => {
   const empty = rb({});
   assert.equal(empty.schema, "rightkit.gate-acceptance/1"); assert.equal(empty.clauses.length, 67); assert.equal(empty.totals.pass, 0); assert.equal(empty.ok, false);
-  assert.equal(rb({ clauseChecks: passing(), steps: [step("S1", ["pass"])] }).ok, true);
+  assert.equal(rb({ clauseChecks: passing(), steps: [step("S1", ["pass"])] }).ok, false, "NN34: a partial run never passes");
   const bad = rb({ clauseChecks: passing({ "GC-A21": [{ status: "fail", evidence: ["l"], problems: ["p"] }] }) });
   assert.equal(bad.ok, false); assert.equal(bad.totals.fail, 1);
   // old behaviour: ok ignored the steps, so a failed S9 / S0 / S1 check printed PASS
@@ -307,15 +307,15 @@ test("result: ok needs a passing clause, no failing clause, no failing or unfini
   assert.equal(rb({ clauseChecks: passing(), steps: [step("S1", ["pass"]), step("S0", ["fail"])] }).ok, false);
   assert.equal(rb({ clauseChecks: passing(), steps: [step("S3", [])] }).ok, false);
   assert.match(rb({ clauseChecks: passing(), steps: [step("S3", [])] }).blockers.join(), /step S3 did not run as specified/);
-  assert.equal(rb({ clauseChecks: passing(), steps: [step("S5", [])] }).ok, true, "S5 is unchecked by design");
+  assert.equal(rb({ clauseChecks: passing(), steps: STEPS.map((x) => step(x.id, x.byDesignUnchecked ? [] : ["pass"])) }).ok, true, "S5 is unchecked by design: a full run with it unchecked passes");
   assert.equal(rb({ clauseChecks: passing(), steps: [step("S1", ["pass"])], stepChecks: [{ step: "S1", name: "qualify refusal", ok: false, problems: ["x"] }] }).ok, false);
   assert.equal(rb({ clauseChecks: passing(), steps: [step("S1", ["pass", "unchecked"])] }).ok, false);
 });
 
 test("verdict text: PASS always carries the asserted and unchecked counts, never a bare PASS", () => {
   const ok = rb({ clauseChecks: passing(), steps: [step("S1", ["pass"])] });
-  assert.equal(ok.verdict, "PASS (1 of 67 asserted, 66 unchecked; non-negotiables 19 of 19 passed; partial run: steps S1 only)");
-  assert.match(formatSummary(ok), /^gate acceptance PASS \(1 of 67 asserted, 66 unchecked; non-negotiables 19 of 19 passed/);
+  assert.equal(ok.verdict, "NOT PASSED (1 of 67 asserted, 66 unchecked; non-negotiables 19 of 19 passed; partial run: steps S1 only; 0 failed clause(s); 1 blocker(s))");
+  assert.match(formatSummary(ok), /^gate acceptance NOT PASSED \(1 of 67 asserted, 66 unchecked; non-negotiables 19 of 19 passed/);
   for (const text of [formatSummary(ok), formatSummary(rb({}))]) assert.doesNotMatch(text, /(?<!NOT )PASS(?! \()/);
   const full = rb({ clauseChecks: passing(), steps: STEPS.map((x) => step(x.id, x.byDesignUnchecked ? [] : ["pass"])) });
   assert.equal(full.verdict, "PASS (1 of 67 asserted, 66 unchecked; non-negotiables 19 of 19 passed)");
@@ -914,7 +914,7 @@ test("a subset run evaluates only the non-negotiables whose steps all ran and ma
   assert.equal(s.NN01, "pass"); assert.equal(s.NN18, "pass"); assert.equal(s.NN19, "pass");
   for (const id of ["NN03", "NN04", "NN06", "NN07", "NN16"]) assert.equal(s[id], "not-evaluated", id);
   const r = buildResult({ host: "mac", gate: {}, broker: {}, commit: COMMIT, steps: [{ id: "S2", title: "S2", checks: ["pass"], notes: [] }], clauseChecks: { ...allUnchecked(), "GC-A04": [{ status: "pass", evidence: ["r"], problems: [] }] }, startedAt: "a", endedAt: "b", nonNegotiables: evaluateNonNegotiables(ctx) });
-  assert.equal(r.ok, true); assert.match(r.verdict, /non-negotiables 9 of 19 passed, 10 not evaluated \(steps not selected\); partial run: steps S2 only/);
+  assert.equal(r.ok, false, "NN34: a partial run never passes"); assert.match(r.verdict, /non-negotiables 9 of 19 passed, 10 not evaluated \(steps not selected\); partial run: steps S2 only/);
 });
 
 test("the verdict includes the non-negotiables: a failed one blocks, and a full run with one missing or not evaluated is not a pass", () => {
@@ -928,7 +928,7 @@ test("the verdict includes the non-negotiables: a failed one blocks, and a full 
   assert.match(formatSummary(failed), /NN07 fail: x/);
   assert.match(run(nn({ NN03: "not-evaluated" })).blockers.join(), /NN03 was not evaluated in a full run/);
   assert.match(run(nn().slice(1)).blockers.join(), /NN01 has no result/);
-  assert.equal(run(nn({ NN03: "not-evaluated" }), [step("S1", ["pass"])]).ok, true, "a partial run may leave them not-evaluated");
+  assert.equal(run(nn({ NN03: "not-evaluated" }), [step("S1", ["pass"])]).ok, false, "a partial run may leave them not-evaluated but never passes (NN34)");
 });
 
 test("the plan lists the non-negotiables per step and the S10 unit-list step exists", () => {

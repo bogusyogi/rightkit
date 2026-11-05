@@ -15,8 +15,374 @@
       "stages": {
         "ownership": 5625,
         "snapshotSync": 674,
-        "dependencyStep": 2315,
+        "dependencyStep": 563,
         "planning": 1353
+      },
+      "workloads": {
+        "fixture": {
+          "warm-check": {
+            "totalMs": 4500,
+            "metadataHitMs": 125,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": 63,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": 563,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "warm-compile": {
+            "totalMs": null,
+            "metadataHitMs": 125,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": 63,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": 563,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "edited-check": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "edited-compile": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "cold-check": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "cold-compile": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          }
+        },
+        "rightkit": {
+          "warm-check": {
+            "totalMs": 9000,
+            "metadataHitMs": 125,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": 63,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": 563,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "warm-compile": {
+            "totalMs": null,
+            "metadataHitMs": 125,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": 63,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": 563,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "edited-check": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "edited-compile": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "cold-check": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "cold-compile": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          }
+        },
+        "heardright": {
+          "warm-check": {
+            "totalMs": 6625,
+            "metadataHitMs": 125,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": 63,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": 563,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "warm-compile": {
+            "totalMs": null,
+            "metadataHitMs": 125,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": 63,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": 563,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "edited-check": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "edited-compile": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "cold-check": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "cold-compile": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          }
+        },
+        "pulse": {
+          "warm-check": {
+            "totalMs": null,
+            "metadataHitMs": 125,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": 63,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": 563,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "warm-compile": {
+            "totalMs": null,
+            "metadataHitMs": 125,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": 63,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": 563,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "edited-check": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "edited-compile": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "cold-check": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "cold-compile": {
+            "totalMs": 88625,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          }
+        }
       }
     },
     "dell": {
@@ -27,6 +393,372 @@
         "snapshotSync": null,
         "dependencyStep": null,
         "planning": null
+      },
+      "workloads": {
+        "fixture": {
+          "warm-check": {
+            "totalMs": null,
+            "metadataHitMs": null,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "warm-compile": {
+            "totalMs": null,
+            "metadataHitMs": null,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "edited-check": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "edited-compile": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "cold-check": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "cold-compile": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          }
+        },
+        "rightkit": {
+          "warm-check": {
+            "totalMs": null,
+            "metadataHitMs": null,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "warm-compile": {
+            "totalMs": null,
+            "metadataHitMs": null,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "edited-check": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "edited-compile": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "cold-check": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "cold-compile": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          }
+        },
+        "heardright": {
+          "warm-check": {
+            "totalMs": null,
+            "metadataHitMs": null,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "warm-compile": {
+            "totalMs": null,
+            "metadataHitMs": null,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "edited-check": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "edited-compile": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "cold-check": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "cold-compile": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          }
+        },
+        "pulse": {
+          "warm-check": {
+            "totalMs": null,
+            "metadataHitMs": null,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "warm-compile": {
+            "totalMs": null,
+            "metadataHitMs": null,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "edited-check": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "edited-compile": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "cold-check": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          },
+          "cold-compile": {
+            "totalMs": null,
+            "windows": {
+              "startup": null,
+              "ownership": null,
+              "snapshotSync": null,
+              "stageStart": null,
+              "snapshotVerify": null,
+              "appRules": null,
+              "planning": null,
+              "dependencyStep": null,
+              "scans": null,
+              "finish": null
+            }
+          }
+        }
       }
     }
   },
@@ -76,5 +808,13 @@
       "note": "ownership is 4.5 s on a compile (the lease acquisition the gate pays today); a --to check takes 0.2-0.4 s of it today and 0 once NN13 holds."
     }
   },
-  "note": "Budgets are targets from the optimized state, never from a slow run. warmCheckMs is the best measured warm fixture check (3.6 s, 2026-11-05 12:47Z, 37 of 39 rows hit) x1.25. ownership is the compile-stage lease ceiling (a compile legitimately takes the lease); a lease on --to check is NN13's failure, not a budget. snapshotSync, dependencyStep and planning were measured on 2026-11-05 runs that still reinstalled and ran real cargo metadata, so they are loose and are lowered once the gate passes NN07 and NN10-NN12. Values are only ever lowered."
+  "note": "Budgets are targets from the optimized state, never from a slow run. warmCheckMs is the best measured warm fixture check (3.6 s, 2026-11-05 12:47Z, 37 of 39 rows hit) x1.25. ownership is the compile-stage lease ceiling (a compile legitimately takes the lease); a lease on --to check is NN13's failure, not a budget. snapshotSync, dependencyStep and planning were measured on 2026-11-05 runs that still reinstalled and ran real cargo metadata, so they are loose and are lowered once the gate passes NN07 and NN10-NN12. Values are only ever lowered.",
+  "fixture": {
+    "repo": "rk-witness-fixture",
+    "commit": "654e8b6634049a4a4a5a9639e2fdcb4fa0a6dd77",
+    "note": "the fixture pin (NN36): a run against any other commit is a development run"
+  },
+  "workloadMethod": "hosts.<host>.workloads.<workload>.<profile>: windows tile the run from launch to exit (startup, ownership, snapshotSync, stageStart, snapshotVerify, appRules, planning, dependencyStep, scans, finish; ownership is budgeted on compile profiles only). Values come only from optimized-state measurements (fixture warm check 3.6 s, HeardRight warm check 5.3 s, RightKit warm check 7.2 s, dependency digest 0.45 s, resident verify 50 ms, cargo-metadata hit 100 ms, Pulse compile 70.9 s), each x1.25 like warmCheckMs; every other cell is null and a null FAILS NN18. The Pulse compile is recorded as cold-compile: the measurement does not say whether the gate cache was warm.",
+  "reviews": [],
+  "waivers": []
 }
