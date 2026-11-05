@@ -1785,6 +1785,7 @@ fn findings_command(args: &AuditArgs) -> CommandResult {
 ///   result into the follow-up and recomputes the parent report, whose
 ///   `security-variant-analysis-pending` gap clears only when the follow-up is
 ///   complete and its digest chain verifies.
+///
 /// `audit next --run <dir>`: the resumable dispatch driver (see
 ///   `rightkit_code_audit_engine::next`). Lease length defaults to 20 minutes;
 ///   `RIGHTKIT_AUDIT_LEASE_MINUTES` overrides it.
