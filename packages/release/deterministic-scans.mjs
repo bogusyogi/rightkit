@@ -1410,8 +1410,10 @@ export function planScans({
   for (const name of withChangelog) add({ id: rustScanId.changelog(name), class: A, internal: "changelog-version", files: [inDir(rustDir(name), "Cargo.toml"), inDir(rustDir(name), "CHANGELOG.md")] });
   if (crateDirs.length || pkgDirs.length) {
     add({ id: "license", class: A, internal: "license", files: [...crateDirs.map((d) => inDir(d, "Cargo.toml")), ...pkgDirs.map((d) => inDir(d, "package.json"))] });
-    add({ id: "secret-scan", class: A, internal: "secret-scan", dirs: [...crateDirs, ...pkgDirs] });
   }
+  // Every tracked file of the commit, not only crate and package directories (GATE-CONTRACT GC-A20 "the commit's tracked files"; a token in
+  // docs/ passed before, found by the GC-A27 acceptance run N02, rightkit#1514). Ignored and stage-written paths are skipped as before.
+  add({ id: "secret-scan", class: A, internal: "secret-scan", dirs: ["."] });
 
   // ---- class B: needs the compiler or runs tests or repository code
   // The docs generator is code. It runs only from the TRUSTED checkout (liveRoot), with the exported commit
