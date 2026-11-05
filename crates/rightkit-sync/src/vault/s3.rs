@@ -156,7 +156,8 @@ impl S3ConditionalStore {
             "{ALGORITHM}\n{stamp}\n{scope}\n{}",
             hex(digest::digest(&digest::SHA256, canonical_request.as_bytes()).as_ref())
         );
-        let signature = hex(hmac_sha256(self.signing_key(&date).as_ref(), to_sign.as_bytes()).as_ref());
+        let signature =
+            hex(hmac_sha256(self.signing_key(&date).as_ref(), to_sign.as_bytes()).as_ref());
         let authorization = format!(
             "{ALGORITHM} Credential={}/{scope}, SignedHeaders={signed_headers}, Signature={signature}",
             self.credentials.access_key_id
