@@ -2,6 +2,7 @@
 
 ## 0.5.3 (unpublished)
 
+- Docs: `spawn_heartbeat_with` no longer links the private `write_atomic_with` (rustdoc `-D warnings` failed).
 - Removed (breaking, rightkit#384, #1437): `suite::refuse_build_tool_real_data` and `refuse_build_tool_real_data_for_mode`. They refused a build-tool run against the real suite root, which contradicts Adrian's rule (2026-11-03): "dev mode, is mine. im the fucking owner, my data. no dummy data ... real data. snapshot and restore." QA runs against the real install under rightkit-qa snapshot/restore. Also repairs a doc comment that had swallowed the function header (the crate did not parse).
 - Removed: `loopback::http::Request::for_test` (a test constructor; Adrian, 2026-11-03: e2e only, no test-only code in product crates). Requests come from the real loopback listener.
 - Changed (rightkit#965): `remote::pairing` no longer carries its own copy of the `rk-pair/1` commitment and code (`pairing_commit`, `pairing_code`, `label_bytes`, framing, domain strings, `NONCE_BYTES`, `MAX_LABEL_CHARS`, `CODE_DIGITS`); it re-exports the ones `rightkit-identity` 0.1.1 owns, under the same paths. The bytes and the wire format are identical. `link` (so `relay` and `remote`) now depends on `rightkit-identity` 0.1.1. `Cargo.lock` needs the new edge: apply the CI `Cargo.lock.patch`. Written without compiling.

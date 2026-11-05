@@ -1230,10 +1230,10 @@ fn process_tree_quiescent(pid: Option<u32>) -> bool {
             return false;
         };
         // Observation only (signal 0); an error or a refused group id is "not quiescent".
-        return matches!(
+        matches!(
             rightkit_child_process::tokio_support::process_group_exists(pgid),
             Ok(false)
-        );
+        )
     }
     #[cfg(not(unix))]
     {

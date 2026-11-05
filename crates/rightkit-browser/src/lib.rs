@@ -25,10 +25,10 @@
 //!   With feature `cookie-export`, `CookieExport` goes the other way: it keeps the cookies of
 //!   declared domains and publishes them as a private Netscape file through rightkit-fs; an
 //!   empty or invalid export never replaces the previous file.
-//! * With feature `profile-vault`, [`ProfileVault`] and [`LaunchOptions::encrypted_profile`] keep
+//! * With feature `profile-vault`, `ProfileVault` and `LaunchOptions::encrypted_profile` keep
 //!   a persistent profile as one authenticated-encrypted file at rest: decrypted to a private
 //!   working directory for the session, re-sealed and wiped at stop, recovered after a crash, and
-//!   refused with a typed [`VaultError`] when the credential-store key is unavailable.
+//!   refused with a typed `VaultError` when the credential-store key is unavailable.
 //! * [`capture`] loads one real URL and returns a typed [`CaptureReport`]: load result, PNG,
 //!   metrics, console and (feature `axe`) axe-core output, each hashed and bound to the session,
 //!   process, profile, page, frame, loader and context that produced it, with the terminal

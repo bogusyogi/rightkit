@@ -1284,7 +1284,7 @@ impl BrowserSession {
 
     /// [`Self::shutdown`] that reports failure. `Err` when Chrome's process tree did not stop
     /// cleanly ([`BrowserError::Stop`]) or the profile was not released: a temporary profile that
-    /// still exists, or an encrypted profile ([`ProfileSpec::Encrypted`], feature `profile-vault`)
+    /// still exists, or an encrypted profile (`ProfileSpec::Encrypted`, feature `profile-vault`)
     /// that could not be sealed or whose plaintext working directory could not be wiped (the tree
     /// is then left in place and the next start recovers it). A profile failure is reported first.
     pub async fn close(&self) -> Result<()> {

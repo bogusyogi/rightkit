@@ -1,4 +1,4 @@
-//! A secret the caller wants written into a password or card field ([`Action::FillSecret`]).
+//! A secret the caller wants written into a password or card field ([`Action::FillSecret`](crate::Action::FillSecret)).
 //!
 //! The engine never types credentials: a `SetValue` or `TypeText` payload that looks like one,
 //! and any secure or credential-labelled target, is refused. `FillSecret` is the one owned

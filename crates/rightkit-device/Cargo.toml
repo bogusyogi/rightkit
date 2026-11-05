@@ -11,7 +11,7 @@ include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE
 
 [features]
 default = []
-credentials = ["dep:rightkit-credentials", "dep:serde"]
+credentials = ["dep:rightkit-credentials"]
 # `impl rightkit_license::DeviceIdSource for DeviceService<CredentialStore>`: the licence client's device source,
 # so an app stops hand-writing the adapter. Needs the licence crate's native client.
 license-client = ["credentials", "rightkit-license/client"]
@@ -20,8 +20,8 @@ license-client = ["credentials", "rightkit-license/client"]
 getrandom = "0.4"
 rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials", optional = true }
 rightkit-license = { version = "0.2.6", path = "../rightkit-license" }
-# The licence vault (`credentials` feature) serialises the status it hands to a webview.
-serde = { version = "1", features = ["derive"], optional = true }
+# The licence vault serialises the status it hands to a webview.
+serde = { version = "1", features = ["derive"] }
 
 [package.metadata.rightkit]
 continuous = false

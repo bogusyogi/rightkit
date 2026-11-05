@@ -92,7 +92,7 @@ impl Default for HeartbeatOptions {
 /// [`poll`](HeartbeatOptions::poll). When it differs from the state last written, the record is
 /// written durably at once ([`write_atomic`]: a reader and a crash both see the change). When it is
 /// unchanged the record is only rewritten, without `fsync`
-/// ([`write_atomic_with`] with `durable` false), once per [`interval`](HeartbeatOptions::interval),
+/// (`write_atomic_with` with `durable` false), once per [`interval`](HeartbeatOptions::interval),
 /// so `updated_ms` still advances and a reader can tell a live host from a dead one. The first
 /// write is durable and immediate. A failed write is passed to `on_error` and the next look tries
 /// again (a failed change is still a change, so it is retried durably).
