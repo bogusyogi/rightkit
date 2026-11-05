@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-05T12:28:47Z",
-  "rightkitHead": "40ecdba",
+  "generatedAt": "2026-11-05T21:16:03Z",
+  "rightkitHead": "c11a114",
   "legend": [
     {
       "state": "adopted",
@@ -3038,7 +3038,7 @@
       "group": "mandatory-set app",
       "dir": "/Volumes/D/claude/pulse",
       "present": true,
-      "head": "9799b17",
+      "head": "ac7b4ca",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -3082,7 +3082,7 @@
         },
         "releasePin": {
           "state": "ahead",
-          "req": "0.6.46",
+          "req": "0.6.47",
           "latest": "0.6.13",
           "current": true,
           "dev": true
@@ -4496,38 +4496,81 @@
       "group": "tool consumer",
       "dir": "/Volumes/D/claude/legion",
       "present": true,
-      "head": "e8edb2b",
-      "profile": null,
-      "inMandatorySet": false,
+      "head": "5b61f22",
+      "profile": "cli",
+      "inMandatorySet": true,
       "declaration": {
-        "present": false,
+        "present": true,
         "error": "",
         "notApplicable": [],
         "ignored": []
       },
       "scan": {
-        "manifests": 53,
+        "manifests": 42,
         "parseErrors": 0,
         "pins": 48,
         "vendored": 0
       },
       "progress": {
         "foundation": {
-          "profile": null,
-          "rowsTotal": 0,
-          "rowsDeclared": 0,
+          "profile": "cli",
+          "rowsTotal": 10,
+          "rowsDeclared": 4,
           "rowsRuled": 0,
-          "rowsOpen": 0,
-          "openRows": [],
-          "ownersRequired": 0,
-          "ownersPinned": 0,
-          "ownersCurrent": 0,
-          "percent": null
+          "rowsOpen": 6,
+          "openRows": [
+            {
+              "id": "M9",
+              "name": "Database",
+              "missing": [
+                "rightkit-db"
+              ]
+            },
+            {
+              "id": "M10",
+              "name": "Settings",
+              "missing": [
+                "rightkit-app-settings"
+              ]
+            },
+            {
+              "id": "M11",
+              "name": "Secrets",
+              "missing": [
+                "rightkit-credentials"
+              ]
+            },
+            {
+              "id": "M15",
+              "name": "Logging",
+              "missing": [
+                "rightkit-logs"
+              ]
+            },
+            {
+              "id": "M16",
+              "name": "Crash reporting",
+              "missing": [
+                "rightkit-crash"
+              ]
+            },
+            {
+              "id": "M20",
+              "name": "QA",
+              "missing": [
+                "rightkit-qa"
+              ]
+            }
+          ],
+          "ownersRequired": 10,
+          "ownersPinned": 4,
+          "ownersCurrent": 4,
+          "percent": 40
         },
         "addons": {
-          "total": 89,
-          "adopted": 11,
-          "current": 11,
+          "total": 79,
+          "adopted": 7,
+          "current": 7,
           "stale": 0,
           "local": 0
         },
@@ -4560,7 +4603,150 @@
         "journeys": false,
         "releaseConfig": "code"
       },
-      "foundationRows": [],
+      "foundationRows": [
+        {
+          "id": "M5",
+          "name": "Other child processes",
+          "status": "declared",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "rightkit-child-process",
+              "state": "adopted"
+            }
+          ],
+          "missing": []
+        },
+        {
+          "id": "M8",
+          "name": "Safe file writes",
+          "status": "declared",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "rightkit-fs",
+              "state": "ahead"
+            }
+          ],
+          "missing": []
+        },
+        {
+          "id": "M9",
+          "name": "Database",
+          "status": "open",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "rightkit-db",
+              "state": "missing"
+            }
+          ],
+          "missing": [
+            "rightkit-db"
+          ]
+        },
+        {
+          "id": "M10",
+          "name": "Settings",
+          "status": "open",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "rightkit-app-settings",
+              "state": "missing"
+            }
+          ],
+          "missing": [
+            "rightkit-app-settings"
+          ]
+        },
+        {
+          "id": "M11",
+          "name": "Secrets",
+          "status": "open",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "rightkit-credentials",
+              "state": "missing"
+            }
+          ],
+          "missing": [
+            "rightkit-credentials"
+          ]
+        },
+        {
+          "id": "M15",
+          "name": "Logging",
+          "status": "open",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "rightkit-logs",
+              "state": "missing"
+            }
+          ],
+          "missing": [
+            "rightkit-logs"
+          ]
+        },
+        {
+          "id": "M16",
+          "name": "Crash reporting",
+          "status": "open",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "rightkit-crash",
+              "state": "missing"
+            }
+          ],
+          "missing": [
+            "rightkit-crash"
+          ]
+        },
+        {
+          "id": "M17",
+          "name": "HTTP",
+          "status": "declared",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "rightkit-http",
+              "state": "ahead"
+            }
+          ],
+          "missing": []
+        },
+        {
+          "id": "M19",
+          "name": "Release tooling",
+          "status": "declared",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "@rightkit/release",
+              "state": "ahead"
+            }
+          ],
+          "missing": []
+        },
+        {
+          "id": "M20",
+          "name": "QA",
+          "status": "open",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "rightkit-qa",
+              "state": "missing"
+            }
+          ],
+          "missing": [
+            "rightkit-qa"
+          ]
+        }
+      ],
       "appleTargets": [],
       "rkReady": [],
       "toMove": []
@@ -7808,9 +7994,9 @@
         "release-tooling"
       ],
       "private": false,
-      "source": "0.6.47",
+      "source": "0.6.48",
       "registry": "0.6.13",
-      "staged": "0.6.47",
+      "staged": "0.6.48",
       "dir": "packages/release",
       "toMoveFrom": {},
       "cells": {
@@ -7887,7 +8073,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.6.46 > 0.6.13 dev",
+          "detail": "0.6.47 > 0.6.13 dev",
           "rows": [
             "M19"
           ]
@@ -7922,7 +8108,10 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.6.40 > 0.6.13 dev"
+          "detail": "0.6.40 > 0.6.13 dev",
+          "rows": [
+            "M19"
+          ]
         }
       }
     },
@@ -11727,8 +11916,11 @@
           "detail": ""
         },
         "legion": {
-          "state": "unused",
-          "detail": ""
+          "state": "missing",
+          "detail": "M10",
+          "rows": [
+            "M10"
+          ]
         }
       }
     },
@@ -12956,7 +13148,10 @@
         },
         "legion": {
           "state": "adopted",
-          "detail": "=0.5.7, 4 pins"
+          "detail": "=0.5.7, 4 pins",
+          "rows": [
+            "M5"
+          ]
         }
       }
     },
@@ -14457,8 +14652,11 @@
           "detail": ""
         },
         "legion": {
-          "state": "unused",
-          "detail": ""
+          "state": "missing",
+          "detail": "M16",
+          "rows": [
+            "M16"
+          ]
         }
       }
     },
@@ -14589,8 +14787,11 @@
           "detail": ""
         },
         "legion": {
-          "state": "unused",
-          "detail": ""
+          "state": "missing",
+          "detail": "M11",
+          "rows": [
+            "M11"
+          ]
         }
       }
     },
@@ -14928,8 +15129,11 @@
           "detail": ""
         },
         "legion": {
-          "state": "unused",
-          "detail": ""
+          "state": "missing",
+          "detail": "M9",
+          "rows": [
+            "M9"
+          ]
         }
       }
     },
@@ -17441,7 +17645,10 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.4.9 > 0.4.7"
+          "detail": "0.4.9 > 0.4.7",
+          "rows": [
+            "M8"
+          ]
         }
       }
     },
@@ -18027,7 +18234,10 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.3.9 > 0.3.8"
+          "detail": "0.3.9 > 0.3.8",
+          "rows": [
+            "M17"
+          ]
         }
       }
     },
@@ -18963,8 +19173,11 @@
           "detail": ""
         },
         "legion": {
-          "state": "unused",
-          "detail": ""
+          "state": "missing",
+          "detail": "M15",
+          "rows": [
+            "M15"
+          ]
         }
       }
     },
@@ -21431,8 +21644,11 @@
           "detail": ""
         },
         "legion": {
-          "state": "unused",
-          "detail": ""
+          "state": "missing",
+          "detail": "M20",
+          "rows": [
+            "M20"
+          ]
         }
       }
     },
