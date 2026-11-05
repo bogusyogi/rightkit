@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- A failing run-outside Rust test row's log now carries each test executable's own exit, stdout and stderr after the cargo compile output, which it labels as such. Before, the log said "full output" but held only the compile (rightkit#1512, reported by RustRight).
 - A dead owner's reclaim may settle a sub-handle the broker can no longer answer (UNKNOWN, no member row) by the broker's signed revocation of exactly that sub-handle, verified against the host's enrolled broker pin and bound to the exact owner record bytes, snapshot and broker runtime (`handle-revocation.mjs`, schema `rustright.snapshot-revocation.v1`, proposed; GATE-CONTRACT GC-A25; rightkit#1511, rustright#228). It never overrides ACTIVE or a listed member, never fabricates REAPED or UNSENT, and is never offered to a live release.
 - Every reclaim now rereads and replaces the record under its mark lock as well as its reclaim claim, so no broker submit mark of the dead owner can land between the reread and the removal (rightkit#1511).
 - `proveOwnerProcessesGone` and `owner-process-proof.mjs`: the process half of a dead owner's reclaim as a read-only JSON proof, with no broker lease judged (rightkit#1511).

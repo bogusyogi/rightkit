@@ -2111,6 +2111,8 @@ export async function runTestBinaries({ scan, binaries, spawn, env, limitMs, sig
   // ADR-001 C2 (kept by Adrian 2026-11-02, rightkit#1454): the executables run in parallel, `concurrency` at a time (physical cores minus 2), each
   // recording into its own slot so the report keeps the listing order.
   const slots = new Array(binaries.length);
+  // rightkit#1512: each executable's own stdout/stderr, kept for the row's failure log (the cargo compile output is not the test run's).
+  const outputs = new Array(binaries.length);
   const runOne = async (b, index) => {
     const executables = { push: (e) => { slots[index] = e; } };
     {
@@ -2123,6 +2125,7 @@ export async function runTestBinaries({ scan, binaries, spawn, env, limitMs, sig
       try { r = await spawn(b.real, args, { cwd: b.manifestDir, env: childEnv, signal: runSignal, boundedMs: remaining }); } catch (e) { r = { error: e }; }
       if (runSignal.aborted && (!r || r.error || r.status !== 0)) { stopped = signal?.aborted ? "CANCELLED" : "TIMEOUT"; executables.push({ label, sha256: b.sha256, status: "not-run" }); return; }
       if (r?.error?.code === "ETIMEDOUT" || r?.timedOut === true) { stopped = "TIMEOUT"; executables.push({ label, sha256: b.sha256, status: "fail" }); failures.push(`${label}: killed with its process tree at the run limit`); return; }
+      outputs[index] = { label, exit: r?.status ?? null, signal: r?.signal ?? null, stdout: String(r?.stdout ?? ""), stderr: String(r?.stderr ?? "") };
       const summary = parseLibtestSummary(`${r?.stdout ?? ""}\n${r?.stderr ?? ""}`);
       if (summary) { total.tests += summary.passed + summary.failed + summary.ignored; total.pass += summary.passed; total.fail += summary.failed; total.skipped += summary.ignored; }
       const output = `${r?.stdout ?? ""}\n${r?.stderr ?? ""}`.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "");
@@ -2141,12 +2144,12 @@ export async function runTestBinaries({ scan, binaries, spawn, env, limitMs, sig
     for (const e of slots) if (e) executables.push(e);
   } finally { clearTimeout(clock); }
   const results = { runner: "libtest", ...total, binaries: executables.length };
-  if (stopped === "CANCELLED") return { status: "not-run", code: "CANCELLED", detail: "cancelled while running", results, executables };
-  if (stopped === "TIMEOUT") return { status: "fail", code: "TIMEOUT", detail: `${scan.id}: its test executables ran longer than the ${Math.round(limitMs / 1000)} s run limit and were killed with their process tree${failures.length ? `; ${failures.slice(0, 3).join(" | ")}` : ""}`, results, executables };
-  if (failures.length) return { status: "fail", code: "TEST_FAILED", detail: `${failures.length} of ${executables.length} test executable(s) failed: ${failures.slice(0, 5).join(" | ")}`.slice(0, 4000), results, executables };
+  if (stopped === "CANCELLED") return { status: "not-run", code: "CANCELLED", detail: "cancelled while running", results, executables, outputs: outputs.filter(Boolean) };
+  if (stopped === "TIMEOUT") return { status: "fail", code: "TIMEOUT", detail: `${scan.id}: its test executables ran longer than the ${Math.round(limitMs / 1000)} s run limit and were killed with their process tree${failures.length ? `; ${failures.slice(0, 3).join(" | ")}` : ""}`, results, executables, outputs: outputs.filter(Boolean) };
+  if (failures.length) return { status: "fail", code: "TEST_FAILED", detail: `${failures.length} of ${executables.length} test executable(s) failed: ${failures.slice(0, 5).join(" | ")}`.slice(0, 4000), results, executables, outputs: outputs.filter(Boolean) };
   const problem = testResultsProblem(results);
-  if (problem) return { status: "fail", code: problem.code, detail: `${problem.detail} (summed over ${executables.length} test executable(s) of ${scan.id})`, results, executables };
-  return { status: "pass", results, executables };
+  if (problem) return { status: "fail", code: problem.code, detail: `${problem.detail} (summed over ${executables.length} test executable(s) of ${scan.id})`, results, executables, outputs: outputs.filter(Boolean) };
+  return { status: "pass", results, executables, outputs: outputs.filter(Boolean) };
 }
 
 /** The largest inline `run:` script a workflow may carry while the pinned actionlint is 1.7.12 (rhysd/actionlint#702). */
@@ -3311,6 +3314,7 @@ export async function runScans(plan, options = {}) {
           const sentinelEnv = sentinel ? { CARGO_TARGET_DIR: sentinel, CARGO_BUILD_TARGET_DIR: sentinel } : {};
           // A Rust test scan's JSON listing (every compiler-artifact record) streams whole to a file of its own: the kept tail of a spawn would lose the early artifact records of a noisy compile.
           let listingDir = null; let listingFile = null; let listingText = ""; let listingCut = false;
+          let testOutputs = null;
           if (s.runOutside) { listingDir = fs.mkdtempSync(path.join(tmpRoot, "rk-testlist-")); listingFile = path.join(listingDir, "listing.jsonl"); }
           try {
           // The ownership records this request's sub-handle immediately before it is sent (the reclaim proof reads broker.submitted): a
@@ -3478,6 +3482,7 @@ export async function runScans(plan, options = {}) {
               else {
                 const budget = s.quiet === true ? Math.max(1, Math.min(limitMs, QUIET_SCAN_MAX_MS - (Date.now() - scanStartedAt))) : limitMs;
                 const ran = await runTestBinaries({ scan: s, binaries: contained.accepted, spawn: deps.spawn, env: { ...deps.env, ...s.env, ...(extraEnv ?? {}) }, limitMs: budget, signal, ops, ...(s.publisherRustTest && s.runOutside.args.includes("--test-threads=1") ? { concurrency: 1 } : {}) });
+                testOutputs = ran.outputs ?? null;
                 row.results = ran.results; row.testRun = { executables: ran.executables, outputTruncated: ran.executables.some((e) => e.outputTruncated), skipMarkers: ran.executables.reduce((n, e) => n + (e.skipMarkers ?? 0), 0) };
                 if (s.publisherRustTest && row.testRun.outputTruncated) fail("TEST_OUTPUT_TRUNCATED", `${s.id}: test output was truncated; skip evidence is incomplete`);
                 if (ran.status !== "pass") { status = ran.status; code = ran.code; detail = ran.detail; }
@@ -3498,7 +3503,7 @@ export async function runScans(plan, options = {}) {
             if (status === "pass" && !s.allowIgnored && (row.results?.skipped ?? 0) > 0) { status = "fail"; code = "IGNORED_TESTS"; detail = `${row.results.skipped} ignored Rust test(s) require an approved reason`; }
           }
           if (status === "fail" && options.scanLogDir && r) {
-            try { fs.mkdirSync(options.scanLogDir, { recursive: true }); const file = path.join(options.scanLogDir, `${s.id.replace(/[^A-Za-z0-9._-]+/g, "_")}.log`); fs.writeFileSync(file, `$ ${s.command ?? s.id}\nexit ${r.status}\n--- stdout\n${r.stdout ?? ""}\n--- stderr\n${r.stderr ?? ""}\n`); row.log = file; detail = `${detail} (full output: ${file})`; } catch { /* the tail in the row remains */ }
+            try { fs.mkdirSync(options.scanLogDir, { recursive: true }); const file = path.join(options.scanLogDir, `${s.id.replace(/[^A-Za-z0-9._-]+/g, "_")}.log`); fs.writeFileSync(file, `$ ${s.command ?? s.id}\nexit ${r.status}\n--- ${s.runOutside ? "cargo (compile) " : ""}stdout\n${r.stdout ?? ""}\n--- ${s.runOutside ? "cargo (compile) " : ""}stderr\n${r.stderr ?? ""}\n${s.runOutside ? (testOutputs?.length ? testOutputs.map((o) => `=== test executable ${o.label} (exit ${o.exit ?? "none"}${o.signal ? `, signal ${o.signal}` : ""}) ${s.runOutside.args.join(" ")}\n--- stdout\n${o.stdout}\n--- stderr\n${o.stderr}\n`).join("") : "=== test executables: none ran (the row failed before or without running them)\n") : ""}`); row.log = file; detail = `${detail} (full output: ${file})`; } catch { /* the tail in the row remains */ }
           }
           if (s.kind === "test" && r && !r.error && r.status === 0) {
             // What the suite executed and skipped is evidence, not decoration: a later stage reuses this row only with these counts.
