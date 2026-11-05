@@ -108,6 +108,9 @@ export function judgeLockHolder(rec, { identity, host = os.hostname() }) {
 }
 
 /** Creates `target` holding `record` atomically and exclusively: the content is complete the moment the name exists (write a temp file, hard-link it). */
+/** Whether `text` is a well-formed mark lock. A lock is published only fully written (createExclusive links a complete file), so an unreadable one is crash debris. */
+export const isMarkLockText = (text) => parseLock(text ?? "") !== null;
+
 function createExclusive(target, record) {
   const tmp = `${target}.${record.nonce}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(record), { flag: "wx", mode: 0o600 });

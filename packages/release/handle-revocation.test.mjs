@@ -150,6 +150,8 @@ test("process-only proof: judges the owner and processes, never the broker, writ
   assert.strictEqual(proof.ownerSha256, crypto.createHash("sha256").update(ctx.observed).digest("hex"));
   assert.strictEqual(proof.ownerFile, fs.realpathSync.native(ctx.file));
   assert.ok(proof.proofs.some((p) => /broker work NOT judged/.test(p)));
+  assert.strictEqual(proof.probe.package, "@rightkit/release");
+  assert.match(proof.probe.moduleSha256, /^[0-9a-f]{64}$/);
   assert.strictEqual(fs.readFileSync(ctx.file, "utf8"), before);
 });
 
@@ -157,4 +159,20 @@ test("process-only proof refuses a live owner", () => {
   const ctx = setup();
   const live = { identity: () => ({ alive: true, startedMs: 1 }), bootTime: () => 0 };
   assert.throws(() => proveOwnerProcessesGone({ file: ctx.file, probe: live }), /held by pid 4242/);
+});
+
+test("reclaim: an unreadable mark lock left by a crash is removed, a live-looking one is honoured", async () => {
+  const { acquireBuildOwnership } = await import("./build-ownership.mjs");
+  const { markLockFile } = await import("./ownership-mark.mjs");
+  const ctx = setup();
+  for (const d of [path.dirname(path.dirname(ctx.file)), path.dirname(ctx.file)]) fs.chmodSync(d, 0o700);
+  fs.writeFileSync(markLockFile(ctx.file), "");
+  const { processProbe } = await import("./build-ownership.mjs");
+  const real = processProbe();
+  const done = { ...real, identity: (pid) => (pid === 4242 ? { alive: false } : real.identity(pid)), bootTime: () => Date.now() };
+  let r;
+  r = acquireBuildOwnership({ file: ctx.file, stage: "t", snapshot: "/snap/x", commit: "c", probe: done, lease: leaseWith({ state: "REAPED", members: [{ handle: LOST, state: "REAPED" }] }), exportEnv: false });
+  assert.ok(r.reclaimed);
+  assert.ok(!fs.existsSync(markLockFile(ctx.file)) || JSON.parse(fs.readFileSync(markLockFile(ctx.file), "utf8")).schema);
+  r.release?.();
 });

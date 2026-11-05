@@ -69,7 +69,7 @@ import { resolveManagedRoots } from "./managed-roots.mjs";
 import { requireManagedRoot } from "./managed-root-guard.mjs";
 import { readEnrolledPins } from "./broker-pins.mjs";
 import { isRevocationEnvelope, readRevocation, revocationFile, verifyRevocation } from "./handle-revocation.mjs";
-import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, OwnershipBusy, holds, markBrokerSubmit, markBrokerUnsent, markCarriedSend, markLockFile, withMarkLock } from "./ownership-mark.mjs";
+import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, OwnershipBusy, holds, markBrokerSubmit, markBrokerUnsent, isMarkLockText, markCarriedSend, markLockFile, withMarkLock } from "./ownership-mark.mjs";
 
 // The mark itself lives in a leaf module (ownership-mark.mjs): snapshot-broker.mjs records carried sends through it, and importing this
 // file from there would close a cycle (this file -> managed-cargo -> cargo-target-shim -> snapshot-broker).
@@ -1242,6 +1242,12 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
  * lease judged and nothing written. Returns `{ schema, ownerFile, dataRoot, ownerSha256, ownerHandle, snapshot, host, proofs, provedAt }`; throws OwnershipBusy
  * naming what is still live or unknown. It never stands in for a reclaim: the reclaim still runs every check, the broker's included.
  */
+/** Which RightKit code produced a process proof: this package's name and version and the SHA-256 of build-ownership.mjs itself. */
+function probeIdentity() {
+  const here = new URL(import.meta.url);
+  const pkg = JSON.parse(fs.readFileSync(new URL("./package.json", here), "utf8"));
+  return { package: pkg.name, version: pkg.version, moduleSha256: crypto.createHash("sha256").update(fs.readFileSync(here)).digest("hex") };
+}
 export const OWNER_PROCESS_PROOF_SCHEMA = "rightkit.owner-process-proof/1";
 export function proveOwnerProcessesGone({ file, platform = process.platform, probe = processProbe({ platform }), host = os.hostname(), now = () => new Date() }) {
   const observed = readText(file);
@@ -1252,7 +1258,7 @@ export function proveOwnerProcessesGone({ file, platform = process.platform, pro
   return {
     schema: OWNER_PROCESS_PROOF_SCHEMA, ownerFile: fs.realpathSync.native(file), dataRoot: fs.realpathSync.native(dataRootOf(file)),
     ownerSha256: crypto.createHash("sha256").update(Buffer.from(observed, "utf8")).digest("hex"), ownerHandle: owner.handle, snapshot: owner.snapshot ?? null,
-    host, proofs, provedAt: now().toISOString(),
+    host, proofs, provedAt: now().toISOString(), probe: probeIdentity(),
   };
 }
 
@@ -1467,6 +1473,10 @@ export function acquireBuildOwnership({
     hooks.afterClaim?.(reclaim);
     // rightkit#1511: the reread, the removal and the new record run under the record's mark lock too, so no submit or unsent mark of the old owner can land
     // between the reread and the removal (a mark after it finds another handle and refuses). The lock is released by withMarkLock, not removed here.
+    // A mark lock that cannot be read was left by a crash (it is only ever published whole). The owner and every process under it are proven gone and this
+    // reclaim holds the claim, so no marker of this record can exist: that exact debris is removed, compare-by-content, instead of blocking every later gate.
+    const debris = readText(markLockFile(file));
+    if (debris !== null && !isMarkLockText(debris) && readText(markLockFile(file)) === debris) fs.rmSync(markLockFile(file), { force: true });
     withMarkLock(file, () => {
     if (readText(file) !== observed) throw new OwnershipBusy(`build ownership ${file} changed before it could be reclaimed`);
     for (const r of judged.revocations) { let now = null; try { now = readRevocation(r.file); } catch { now = null; } if (!now || !now.equals(r.bytes)) throw new OwnershipBusy(`build ownership ${file}: the broker revocation ${r.file} changed before the record could be reclaimed`); }
