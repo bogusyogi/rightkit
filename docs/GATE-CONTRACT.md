@@ -209,30 +209,87 @@ Adrian, 2026-11-03: "i wnat all dev completely gone. all debug too. completely g
 - **Verdict.** It prints `PASS (N of M asserted, K unchecked)` only when every asserted clause, every step, every step-only check and every non-negotiable below passed; otherwise `NOT PASSED` with the blockers. A clause with no evidence in that run is unchecked with its reason, never passed. A non-negotiable is never unchecked on a host that can run it: missing evidence for one fails the run.
 - **Negatives and kills.** A negative passes only on the named scan row or the exact rule code the gate emits for it, never on a word in the log. A kill must be followed by a run that reclaims the record ([GC-A26]) and passes.
 - **Safety.** It never pushes, publishes or bypasses the cache. `--to dev` and `--to qualify` install an app, so they run only with `--allow-install`, which needs Adrian's approval each time. The fixture checkout is restored exactly.
-- **Non-negotiables: no reruns, no repeat calls, nothing redone that has not changed** (Adrian, 2026-11-05: "each implement like cache etc should be written into part of an e2e test i.e. final state. so anything that breaks it next time fails"; "no reruns, no repeat calls. no going over things that haven't changed. fully optimizations ... every optimizations that were tested previously are in there as non negotiables"). Every optimization measured on 2026-11-04/05 (GC-A24, GC-T24; commits 21281d567, 2dddd6d81, 860de45c6, adec5ac76, a707d4914, 9fcf09968, 73a0edb02, 59373bf80, af0704a05) is a final-state property the runner asserts on the installed gate, on the Mac and the Dell. Evidence comes from the run itself: the coverage report, the receipt, the gate log, and the gate's spawn ledger (every child process the run starts, written when `RK_GATE_SPAWN_LEDGER` names a file; `RK_GATE_*` never enters a key).
+- **Non-negotiables.** Adrian's non-negotiables for the gate, each a final-state property the contract test asserts on the installed gate, on the Mac and the Dell. His words: "each implement like cache etc should be written into part of an e2e test i.e. final state. so anything that breaks it next time fails" and "no reruns, no repeat calls. no going over things that haven't changed. fully optimizations ... every optimizations that were tested previously are in there as non negotiables" and "so when i ask for optimizations, that should fucking stay" (2026-11-05). Every optimization measured on 2026-11-04/05 (GC-A24, GC-T24; commits 21281d567, 2dddd6d81, 860de45c6, adec5ac76, a707d4914, 9fcf09968, 73a0edb02, 59373bf80, af0704a05) is one. Evidence comes only from the run itself: the coverage report, the receipt, the gate log, and the spawn ledger (every child process of the run and of every process it starts, the resident gate included, written when `RK_GATE_SPAWN_LEDGER` names a file). Where a log line is the evidence, the ledger or the coverage report must agree with it; a gate describing itself is never sufficient alone.
 
-| Id | Property | Evidence | Fails when |
-|---|---|---|---|
-| NN01 | An unchanged commit runs no Class A row | warm `--to check`, coverage | any Class A row is `ran` |
-| NN02 | An unchanged commit runs no Class B row | warm `--to compile`, coverage | any Class B row is `ran` (a row that failed before and still fails is reported, never re-run silently) |
-| NN03 | One edited `.rs` file reruns only the rows that read it | S3 coverage | a row that does not read the file ran, or more than one rustfmt bucket ran |
-| NN04 | One edited manifest reruns only its workspace's rows | S4 coverage | a row of another workspace ran |
-| NN05 | Keys are stable across identical runs | two warm runs, coverage keys | any row's key differs |
-| NN06 | Only executing rows carry the environment digest | coverage keys | a non-executing row's key carries it |
-| NN07 | No identical child process twice in one run | spawn ledger | the same program and arguments start twice (an allowlisted probe excepted, each named with its reason) |
-| NN08 | rustfmt is one process per bucket; no `cargo fmt` at all | spawn ledger | a `cargo fmt` starts, or rustfmt starts more than once per bucket |
-| NN09 | Non-compiling cargo never goes through the broker | spawn ledger | `rustright cargo` runs metadata, fetch, tree, locate-project, pkgid, verify-project or read-manifest |
-| NN10 | Inside a snapshot the resident gate answers `cargo metadata` | gate log | a warm run starts a real `cargo metadata` for an unchanged snapshot |
-| NN11 | A warm run proves the snapshot from the resident index, without re-hashing it | gate log, spawn ledger | the snapshot tree is hashed more than once per run, or a warm verify walks it |
-| NN12 | Installed dependencies are identified by pnpm's install record and reused | gate log (`reuse-match=hit`), spawn ledger | a warm run reinstalls (`pnpm install`) an unchanged install, or the dependency digest changes between identical runs |
-| NN13 | Class A takes no build-ownership lease | gate log | `--to check` logs build ownership held |
-| NN14 | Preflight and app rules run once per tree | gate log | a warm run does not report them cached |
-| NN15 | Advice scans are cached per lock set and UTC day or hour | coverage | `dependency-freshness`, `ghsa-audit`, `pnpm-audit`, `cargo-deny`, `cargo-audit` ran on a warm run of the same day |
-| NN16 | A unit list shares one Class A and runs no per-unit format check | `--units-file` log, spawn ledger | Class A runs more than once, or `cargo fmt -p` starts |
-| NN17 | Class A lanes equal the host's cores; Class B batches compatible rows | gate log | fewer lanes than cores, or a compatible group runs as separate invocations |
-| NN18 | Warm time stays inside the host's budget | timestamps | warm `--to check` or a fixed setup stage (ownership, snapshot sync, dependency step, planning) exceeds `ci/gate-acceptance-budgets.json` for the host; each budget is set from a measured run and only ever lowered |
-| NN19 | The gate under test is the installed sealed gate | `--version`, launcher | a run uses a checkout gate without `--gate` naming it |
-- Status: NN01–NN19 asserted by the runner (84 pure tests, each NN with a synthetic violation). First real run, checkout gate on the Mac (2026-11-05): 6 of 19 pass (NN06, NN08, NN09, NN14, NN15, NN17); the gate fails NN01–NN05, NN07, NN10–NN13, NN16 and NN18 and is fixed against them next. Budgets: `ci/gate-acceptance-budgets.json`.
+**A. Nothing redone that has not changed** ("no going over things that haven't changed"; "All over instead of on changed? Wrong", 2026-11-04)
+
+| Id | Property | Fails when |
+|---|---|---|
+| NN01 | An unchanged commit runs no Class A row | any Class A row is `ran` on a warm run, or a row reported `hit` started its tool (ledger) |
+| NN02 | An unchanged commit runs no Class B row | any Class B row is `ran` on a warm compile, a failed row included: a failure is reported from its record, not recompiled |
+| NN03 | One edited `.rs` file is read once | a row that does not read the file runs, or any row reads more files than the edited ones (rustfmt checks exactly the edited files; secret scan and licence read exactly them) |
+| NN04 | One edited manifest reruns only its workspace | a row of another workspace runs, on `--to check` or `--to compile` |
+| NN20 | One edited crate recompiles only that crate and its dependents | a Class B row of a crate the edit cannot affect runs |
+| NN21 | One edited lockfile reruns only the rows that read it | a row that does not read the lockfile runs |
+| NN22 | A warm snapshot sync writes and removes nothing | the sync line is not `written=0 removed=0`, or the ledger shows a tree walk |
+| NN23 | A gate upgrade that changes no key-relevant code keeps every hit | a hit row of the previous gate runs again |
+| NN24 | The cache survives the resident gate's restart and idle exit | a warm run after a restart or idle exit runs a row |
+
+**B. No repeat calls** ("no repeat calls"; "watching thousands of unnecessary processes repeat themselves", 2026-11-04)
+
+| Id | Property | Fails when |
+|---|---|---|
+| NN07 | No identical child process twice in one run | the same program, arguments and directory start twice; argument parts that change every run (temp paths, pids) are normalised first |
+| NN25 | A warm run on an unchanged commit starts no child process of these families: git after the resident proof, tool version probes, pnpm, ownership probes (`ps`, `lsof`, `launchctl`, `sysctl`), real cargo | the ledger shows one; a probe that must run names its reason in the runner's allowlist, which Adrian approves |
+| NN08 | rustfmt is one process per changed set; no `cargo fmt` at all | a `cargo fmt` starts, or rustfmt starts more than once for one run's edited files |
+| NN09 | Non-compiling cargo never goes through the broker | `rustright cargo` runs `--version`, metadata, fetch, tree, locate-project, pkgid, verify-project or read-manifest |
+| NN10 | Inside a snapshot the resident gate answers `cargo metadata` | any run starts a real `cargo metadata` for an unchanged workspace (ledger, resident gate included) |
+| NN26 | The gate asks the resident gate over its socket, in process | a run starts a process to ask it (`node gate-serve.mjs ask`) |
+| NN27 | Never two compiler passes over one crate, target and feature set | a `check` row runs where a clippy row covers the same configuration, or two rows compile the same configuration |
+| NN16 | A unit list shares one Class A and runs no per-unit format check | Class A runs more than once, or `cargo fmt -p` starts |
+
+**C. Setup paid once** ("So cli of being called instead of a resident process- wrong"; "Doesn't rk have fs or index or something always? ... We should use it"; "We're hashing based on wrong causing no cache hits? Wrong", 2026-11-04)
+
+| Id | Property | Fails when |
+|---|---|---|
+| NN11 | A warm run proves the snapshot from the resident index, without re-hashing it | the tree is hashed more than once per run, or a warm verify walks it (ledger and log agree) |
+| NN28 | Change detection comes from RightKit's file index and watcher (`rightkit-fsindex`, `rightkit-file-watch`) | the resident gate learns changes any other way |
+| NN12 | Installed dependencies are identified by pnpm's install record and reused, never their bytes ("Yeah, if that's the best shape, do it") | a warm run reinstalls an unchanged install, or the dependency digest changes between identical runs |
+| NN13 | Class A holds no build-ownership lease across its scans | `--to check` holds the lease while Class A rows run, or starts an ownership probe |
+| NN14 | Preflight and app rules run once per tree | a warm run runs them (the repository under test must have them) |
+| NN15 | Advice scans are cached per lock set and UTC day or hour | `dependency-freshness`, `ghsa-audit`, `pnpm-audit`, `cargo-deny`, `cargo-audit` run on a warm run of the same day |
+| NN17 | All levers parallel ("did you also look at parallel inside a and b? And for compile? All levers checked?"): Class A lanes equal the host's cores; Class B batches compatible rows | fewer lanes than cores, or a compatible group runs as separate invocations |
+
+**D. Keys** ("We're hashing based on wrong causing no cache hits? Wrong")
+
+| Id | Property | Fails when |
+|---|---|---|
+| NN05 | Keys are stable across identical runs | any row's key differs |
+| NN06 | Only executing rows carry the environment digest | a non-executing row's key carries it |
+| NN29 | Per-run identities never enter a key or a reuse record | a run whose tool-call id, terminal session, temp dir, ownership handle or `RK_GATE_*` differ gets a different key or a reuse miss |
+
+**E. Time** (budgets in `ci/gate-acceptance-budgets.json`)
+
+| Id | Property | Fails when |
+|---|---|---|
+| NN18 | Warm, edited and cold runs stay inside the host's budgets, for every stage of the run (no unbudgeted window) and for each workload: the fixture, RightKit, HeardRight, the Pulse compile | any measured window exceeds its budget, or a budget for the host is missing; budgets are set from the optimized state, never from a slow run, and only ever lowered |
+
+**F. The real target** ("You measured and implemented and measured and implemented ... why would there be a deployment gap?", 2026-11-05)
+
+| Id | Property | Fails when |
+|---|---|---|
+| NN19 | The gate under test is the installed sealed gate | the run uses any other gate; a checkout gate run is development evidence and never counts |
+| NN30 | Both hosts pass | a release lacks a passing run from the Mac or the Dell |
+| NN31 | No gate is released or installed as trusted without a passing contract test | publish, upload or trusted-gate install proceeds without a passing receipt for that exact commit from both hosts; a candidate is installed beside the trusted gate, tested, then promoted |
+
+**G. Recovery** ("No reboot; this is a system, there has to be a way to fix it without reboot"; "It should ideally auto recover", 2026-11-05)
+
+| Id | Property | Fails when |
+|---|---|---|
+| NN32 | A killed run's ownership recovers by itself on both hosts | the next run after a kill (SIGKILL, SIGINT, Windows terminate) does not reclaim and pass |
+
+**H. The test itself** (Adrian's process, 2026-11-05: "If I ask for a feature, it gets written into the contract ... from that contract it is immediately written into the test ... making that test pass is the goal of the agents")
+
+| Id | Property | Fails when |
+|---|---|---|
+| NN33 | The contract and the test match | the runner reads this table and fails if any NN id here has no check, or a check names an id not here |
+| NN34 | Missing evidence fails; a partial run never passes | an NN or clause without evidence counts as passed, or a run of some steps prints PASS |
+| NN35 | The verdict shows coverage, and a release needs all of it | the verdict omits `N of M`; a release proceeds with an operative clause unchecked and not waived by Adrian by name |
+| NN36 | The test is locked | the runner, this table, the budgets or the fixture pin change in a commit that does not cite Adrian's approval; a budget rises |
+| NN37 | The test's author is not the implementer | a check is added or changed without an independent review recorded against Adrian's words |
+| NN38 | Cross-target rows built with stand-ins are limited evidence (GC-A14, "Limited-evidence check") | such a row lacks `evidence: "type-check-only"` in coverage and receipt, or a foreign target's qualification cites it |
+
+- Status: NN01–NN19 asserted by the runner (2666d00e3); NN20–NN38 and the tightened NN01–NN04, NN07, NN09, NN10, NN11, NN13, NN18, NN19 added 2026-11-05 after the independent review and are being implemented. First real run, checkout gate on the Mac (2026-11-05): 7 of 19 pass. Budgets: `ci/gate-acceptance-budgets.json`.
 
 Every other clause is read around GC-A07. Adrian, 2026-11-02, relayed verbatim by the Dell HR chat: "ok, one thing we have established is we are getting rid of debug. dev is actual installer with rk qa/ it can have faster compile like fat or thin or whatever, since it is not release. and qa journey will be moved out of build. this decision is already locked. everything else has to be worked around this." To rkn the same day: "this goes in the contracts asap".
 
