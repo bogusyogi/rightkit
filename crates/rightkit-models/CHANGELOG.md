@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Docs: intra-doc links rustdoc could not resolve (feature-only, private or out-of-scope items) are plain code, so the doc build (`-D warnings`) passes.
+
 ## 0.5.8
 
 - Removed the test-mode residue (Adrian, 2026-11-03: no test-mode code; real data with snapshot and restore). Deleted `ModelHttpOptions::allow_loopback_for_tests`, `ModelHttp::for_loopback_tests` and `Store::with_loopback_for_tests`, which only a `Mode::Test` could ever enable, and the private `loopback_test_policy`. Removed `suite::paths::SUITE_ROOT_ENV`, `ORTHIC_SHARED_DIR_ENV` and `RIGHTKIT_SUITE_ROOT_ENV`, which named overrides no build reads. The `legacy_suite_root` and `app_data_base` redirect branches are gone; they were unreachable without an override. Doc comments no longer describe a test build. Public behaviour is unchanged. `dev-worker-override` is a development worker allowance, not test mode, and is kept.

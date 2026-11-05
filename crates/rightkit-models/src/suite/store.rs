@@ -203,7 +203,7 @@ pub fn resolve_ready_dir(models_root: &Path, spec: &ModelSpec) -> Option<PathBuf
     (status.state == EntryState::Ready).then_some(status.dir)
 }
 
-/// What [`seed_from_dir_at`] did with a bundled copy.
+/// What `seed_from_dir_at` did with a bundled copy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SeedOutcome {
     /// The source directory does not exist. Nothing was touched.

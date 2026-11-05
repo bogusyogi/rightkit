@@ -4,14 +4,14 @@
 //!
 //! A QA run of an app whose rendering follows those preferences (reduced motion, translucency,
 //! overlay or legacy scrollers) is only meaningful when the preferences are what the journey
-//! assumes, so a journey asks [`require`]: it fails closed when a preference differs. On a
-//! continuous-integration machine (`CI` or `GITHUB_ACTIONS` set) [`require`] may be allowed to write
+//! assumes, so a journey asks `require`: it fails closed when a preference differs. On a
+//! continuous-integration machine (`CI` or `GITHUB_ACTIONS` set) `require` may be allowed to write
 //! the expected values first (`allow_write_on_ci`); on the owner's machine it never writes, because
 //! the preferences are the owner's (Adrian, 2026-11-03: "my data ... snapshot and restore").
 //!
 //! The values are read with `defaults` from `com.apple.universalaccess` and the global domain: the
 //! stored preference, which is what the system settings pane writes. `AppleShowScrollBars` of
-//! `Automatic` follows the attached pointing device at run time, so [`scroller_style`] reports it as
+//! `Automatic` follows the attached pointing device at run time, so `scroller_style` reports it as
 //! `automatic` and does not resolve it. Reading from other platforms is an error.
 
 use crate::process::output_bounded;

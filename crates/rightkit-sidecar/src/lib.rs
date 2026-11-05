@@ -32,9 +32,9 @@
 //!   handle (overlapped I/O on Windows), and report [`FrameError::TimedOut`]
 //!   with the bytes already transferred. [`DeadlineFramed`] owns the stream.
 //!   Available on Unix and Windows only. The blocking API above is unchanged.
-//! - With the `tokio` feature, [`tokio_io`] reads and writes the same JSON lines over
+//! - With the `tokio` feature, `tokio_io` reads and writes the same JSON lines over
 //!   `tokio::io::AsyncBufRead` and `AsyncWrite` with the same bounds, resynchronisation and
-//!   errors (see [`read_json_line_async`]).
+//!   errors (see `read_json_line_async`).
 
 #[cfg(any(unix, windows))]
 pub mod deadline;

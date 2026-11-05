@@ -1,6 +1,6 @@
 //! Android journeys: an `adb`-backed launcher for an emulator or a USB device (feature `android`).
 //!
-//! One [`AndroidSession`] installs the app's dev APK, starts it, records
+//! One `AndroidSession` installs the app's dev APK, starts it, records
 //! logcat for the app's pid into the run directory, optionally forwards the app's in-app control
 //! server (dev builds only) to a loopback port, and at teardown force-stops the package (and removes it
 //! only when this session installed it fresh and the config asks). Every `adb` call is bounded (an overrunning call is killed, the same rule as the
@@ -11,8 +11,8 @@
 //! * The device is chosen by serial and the serial is required: there is no "the only attached
 //!   device" shortcut, so a developer's personal phone is never picked by accident. Every call
 //!   after `adb devices` is `adb -s <serial> ...`.
-//! * The package must be a [`TestPackage`]: a valid package name whose last segment is `dev`, `qa`,
-//!   `test` or `debug` (or a segment the caller names with [`TestPackage::with_segments`]). Install,
+//! * The package must be a `TestPackage`: a valid package name whose last segment is `dev`, `qa`,
+//!   `test` or `debug` (or a segment the caller names with `TestPackage::with_segments`). Install,
 //!   `am start`, force-stop, uninstall, `run-as` and the pid lookup are only ever built for that one
 //!   name, so no command of this module can name another package.
 //! * `run-as` (the app's private data dir) works only for a debuggable build, and the control
@@ -23,7 +23,7 @@
 //!   is device-wide).
 //!
 //! The command builders (`args_*`) and the output parsers (`parse_*`) are pure and tested against
-//! recorded `adb` output; the session logic is tested through the [`AdbRunner`] seam with a
+//! recorded `adb` output; the session logic is tested through the `AdbRunner` seam with a
 //! scripted runner. No real `adb` and no device were used to write them.
 
 use crate::process::{output_bounded, Tracker};

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Docs: intra-doc links rustdoc could not resolve (feature-only, private or out-of-scope items) are plain code, so the doc build (`-D warnings`) passes.
 - Fixed: `process_tree_quiescent` ended its Unix block with a `return` clippy rejects (`needless_return`); same result.
 
 ## 0.6.4 (unpublished)

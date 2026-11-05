@@ -12,9 +12,9 @@
 //!
 //! Adrian, 2026-11-03: "no dummy data, no fucking made up shit. real data." A made-up fixture WAV is
 //! exactly that, so this module plays only a recording the owner supplied: `[audio.mic] recordings`
-//! names the owner's own folder of recordings, and [`play`] refuses any file that does not resolve,
+//! names the owner's own folder of recordings, and `play` refuses any file that does not resolve,
 //! symlinks followed, inside it, is not a RIFF/WAVE file, or is missing. `rightkit-qa` ships no audio
-//! and generates none. The record of each play ([`MicPlay`]: the file, its sha256 and size, the
+//! and generates none. The record of each play (`MicPlay`: the file, its sha256 and size, the
 //! device, the player and the start and end times) is written as evidence by the `mic_play` step, so a
 //! receipt says which recording played and when.
 //!

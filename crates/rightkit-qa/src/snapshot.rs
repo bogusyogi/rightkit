@@ -5,7 +5,7 @@
 //! made up shit. real data. snapshot and restore." A journey runs on the installed dev app and its
 //! real data. This module is what keeps that safe:
 //!
-//! 1. [`arm`] refuses to start while the app runs, then claims one restore marker per app
+//! 1. `arm` refuses to start while the app runs, then claims one restore marker per app
 //!    (`<managed root>/snapshots/<app>/restore-marker.json`, created with `create_new`) **before it
 //!    touches anything**. The marker names the snapshot id, app, owner process, live paths and, once
 //!    the copy is verified, the sha256 of the manifest.
@@ -15,7 +15,7 @@
 //!    and exports the declared credential items through `rightkit-credentials` (the real OS store)
 //!    into an owner-only file in the same directory. Any failure before the marker reads `armed`
 //!    deletes only the snapshot's own files and changes nothing live.
-//! 3. [`Armed::restore`] (also run from `Drop`, so a failure, a panic or an early return restores)
+//! 3. `Armed::restore` (also run from `Drop`, so a failure, a panic or an early return restores)
 //!    puts every root back to the manifest exactly (content, kind, symlink targets, unix modes,
 //!    nothing extra), re-puts or deletes each credential item, verifies all of it against the
 //!    manifest, and only then removes the marker and the snapshot.
@@ -23,7 +23,7 @@
 //!    shared model store and service records) and to an Android app's package data on a device
 //!    (`[snapshot.android]`, see [`crate::snapshot_android`]), which is copied and restored with `adb`
 //!    and `run-as` and verified against a path and file-hash listing.
-//! 4. A kill or crash leaves the marker. [`recover_all`] runs at the next `rightkit-qa` start, before
+//! 4. A kill or crash leaves the marker. `recover_all` runs at the next `rightkit-qa` start, before
 //!    anything else: state `snapshotting` discards the half-built snapshot, `armed` or `restoring`
 //!    restores. A marker whose owner process is still alive is left alone.
 //!

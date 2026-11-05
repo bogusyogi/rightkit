@@ -148,7 +148,7 @@ fn claims() -> std::sync::MutexGuard<'static, Vec<(u64, Hosted)>> {
     CLAIMS.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Keep a hosted endpoint alive for the process (or until [`destroy`]). Returns its token.
+/// Keep a hosted endpoint alive for the process (or until `destroy`). Returns its token.
 pub fn hold(hosted: Hosted) -> u64 {
     let token = NEXT_CLAIM.fetch_add(1, Ordering::Relaxed);
     claims().push((token, hosted));

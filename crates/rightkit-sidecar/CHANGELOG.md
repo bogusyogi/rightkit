@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Docs: intra-doc links rustdoc could not resolve (feature-only, private or out-of-scope items) are plain code, so the doc build (`-D warnings`) passes.
+
 ## 0.3.1 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

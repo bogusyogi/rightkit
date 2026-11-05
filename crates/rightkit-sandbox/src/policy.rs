@@ -198,7 +198,7 @@ pub struct SandboxPolicy {
     /// blanket reads of `/Applications` and `/etc` (issue #711). Default `false` (unchanged). See
     /// [`SandboxPolicy::allow_global_metadata()`].
     pub restrict_metadata: bool,
-    /// Paths and globs the child can never execute. See [`SandboxPolicy::deny_exec()`].
+    /// Paths and globs the child can never execute. See `SandboxPolicy::deny_exec()`.
     pub deny_exec: Vec<DenyReadEntry>,
     /// Unix-socket reach when the network is denied. Default [`UnixSocketPolicy::Local`].
     pub unix_sockets: UnixSocketPolicy,

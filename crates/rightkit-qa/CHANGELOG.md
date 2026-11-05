@@ -2,6 +2,7 @@
 
 ## 0.10.4 (unpublished)
 
+- Docs: intra-doc links rustdoc could not resolve (feature-only, private or out-of-scope items) are plain code, so the doc build (`-D warnings`) passes.
 - Fixed: the `rightkit-automation` requirement was `^0.6.4`, but `InputEvent::Drag` (matched in `in_app.rs`) exists only from 0.6.7, so a lock at 0.6.4 to 0.6.6 failed to compile (Pulse, 2026-11-04). The floor is `0.6.7`.
 
 ## 0.10.3 (unpublished)
