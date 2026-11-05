@@ -706,12 +706,16 @@ fn held_open_one(path: &Path) -> Option<String> {
 /// all count as in use: liveness is proven only by a complete, clean walk.
 #[cfg(windows)]
 fn held_open(path: &Path) -> Option<String> {
+    let started = std::time::Instant::now();
     let mut stack = vec![path.to_path_buf()];
     let mut seen = 0usize;
     while let Some(current) = stack.pop() {
         seen += 1;
         if seen > MAX_ENTRIES_PER_ITEM {
             return Some("Too many files to check whether any is in use".into());
+        }
+        if started.elapsed() > HELD_OPEN_BUDGET {
+            return Some("Too slow to check whether any file is in use".into());
         }
         if let Some(why) = held_open_one(&current) {
             return Some(why);

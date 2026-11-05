@@ -15,7 +15,7 @@
 //! `notify_retry` events that rightkit-http does not emit.
 
 use bytes::Bytes;
-use futures::{Stream, StreamExt};
+use futures::Stream;
 use rightkit_http::{
     AddressPolicy, AsyncClient, AsyncStreamResponse, ClientConfig, HttpError, ProxyMode, Request,
     RetryPolicy,

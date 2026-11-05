@@ -291,10 +291,9 @@ impl NowPlaying {
     pub fn set_volume(&mut self, volume: f64) -> Result<(), Error> {
         #[cfg(target_os = "linux")]
         {
-            return self
-                .controls
+            self.controls
                 .set_volume(volume.clamp(0.0, 1.0))
-                .map_err(backend);
+                .map_err(backend)
         }
         #[cfg(not(target_os = "linux"))]
         {

@@ -12,7 +12,7 @@ categories = ["development-tools"]
 include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
-agent_host = ["dep:rightkit-agent-engine-protocol", "dep:rightkit-mcp", "dep:tokio", "dep:tracing"]
+agent_host = ["driver_host", "dep:rightkit-agent-engine-protocol", "dep:rightkit-mcp", "dep:tokio", "dep:tracing"]
 default = []
 claude = []
 codex = []

@@ -18,6 +18,7 @@ pub mod extension_registration;
 pub mod github;
 mod github_guard;
 pub mod health;
+pub mod host_credentials;
 mod http;
 pub mod key_migration;
 pub mod keystore;

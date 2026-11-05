@@ -342,20 +342,17 @@ impl ScreenBackend for MacScreen {
         let mut dropped_seen = 0u64;
         let mut finished: Option<Value> = None;
         let mut failure: Option<Value> = None;
-        loop {
-            match running.events.recv_timeout(FINISH_WAIT) {
-                Ok(value) => match value["event"].as_str().unwrap_or("") {
-                    "finished" => {
-                        finished = Some(value);
-                        break;
-                    }
-                    "failed" => failure = Some(value),
-                    "dropped" => {
-                        dropped_seen += value["count"].as_u64().unwrap_or(0);
-                    }
-                    _ => {}
-                },
-                Err(_) => break,
+        while let Ok(value) = running.events.recv_timeout(FINISH_WAIT) {
+            match value["event"].as_str().unwrap_or("") {
+                "finished" => {
+                    finished = Some(value);
+                    break;
+                }
+                "failed" => failure = Some(value),
+                "dropped" => {
+                    dropped_seen += value["count"].as_u64().unwrap_or(0);
+                }
+                _ => {}
             }
         }
         let tail = running.stderr.snapshot();

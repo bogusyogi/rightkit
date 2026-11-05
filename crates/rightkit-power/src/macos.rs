@@ -26,12 +26,15 @@ use crate::{Ack, Event, Shared};
 const SCREEN_LOCKED: &str = "com.apple.screenIsLocked";
 const SCREEN_UNLOCKED: &str = "com.apple.screenIsUnlocked";
 
+/// One registration: the center it was added to and the token `removeObserver:` takes.
+type Observer = (
+    Retained<NSNotificationCenter>,
+    Retained<ProtocolObject<dyn NSObjectProtocol>>,
+);
+
 /// The registered observers, for as long as the `Power` lives.
 pub(crate) struct Reader {
-    observers: Vec<(
-        Retained<NSNotificationCenter>,
-        Retained<ProtocolObject<dyn NSObjectProtocol>>,
-    )>,
+    observers: Vec<Observer>,
 }
 
 // SAFETY: the notification centers are thread-safe and the tokens are opaque objects only ever

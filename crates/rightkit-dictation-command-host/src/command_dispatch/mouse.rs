@@ -1,6 +1,8 @@
 // Mouse — click / scroll via mouse_event (Windows SendInput / macOS CGEvent).
 
-use super::entry::{DispatchError, DispatchOutcome, DispatchResult};
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use super::entry::DispatchOutcome;
+use super::entry::{DispatchError, DispatchResult};
 
 #[cfg(target_os = "windows")]
 pub(super) fn dispatch_mouse(

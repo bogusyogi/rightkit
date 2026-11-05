@@ -489,8 +489,10 @@ const MIGRATIONS: &[Migration] = &[Migration::code(1, "baseline", baseline)];
 /// Run pending migrations through rightkit-db. A database written by a newer build is
 /// opened as-is, never lowered.
 fn apply_migrations(conn: &Connection, path: Option<&Path>) -> Result<()> {
-    let mut options = MigrateOptions::default();
-    options.forward_compatible = Some(|_| true);
+    let options = MigrateOptions {
+        forward_compatible: Some(|_| true),
+        ..Default::default()
+    };
     migrate(conn, path, MIGRATIONS, &options)
         .map(|_| ())
         .map_err(db_error_to_sql_error)

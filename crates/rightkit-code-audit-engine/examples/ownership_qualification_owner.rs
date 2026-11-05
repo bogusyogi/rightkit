@@ -1,10 +1,46 @@
 //! Qualification transport only: actual RightKit Scanner, embedded catalog & production
 //! protected trust. No test trust loader, substitute catalog, source rules or admission.
 //! Root integration builds this helper through managed CI, then explicitly pins its binary.
-use rightkit_code_audit_engine::native_providers::legacy::ownership_sdk::NativeOwner;
-use rightkit_ownership::{ScanContext, Scanner, SystemClock};
+use rightkit_code_audit_engine::native_providers::legacy::ownership_sdk::{
+    NativeOwner, OwnershipDecision, OwnershipPolicy,
+};
+use rightkit_ownership::{
+    ownership_cache_key, ownership_verdict, ScanContext, Scanner, SystemClock,
+};
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, fs, io::Read, path::Path, sync::Arc};
+
+/// Host policy over the RightKit ownership crate: each method maps to the same-named function there.
+#[derive(Debug)]
+struct RightKitOwnershipPolicy;
+
+impl OwnershipPolicy for RightKitOwnershipPolicy {
+    fn scanner_version(&self) -> String {
+        rightkit_ownership::SCANNER_VERSION.to_string()
+    }
+    fn scanner_policy_digest(&self) -> String {
+        rightkit_ownership::scanner_policy_digest()
+    }
+    fn catalog_digest(&self) -> String {
+        rightkit_ownership::scan::catalog_digest(rightkit_ownership::catalog_value())
+    }
+    fn validate_inputs(&self, inputs: &Value) -> Result<(), String> {
+        ownership_cache_key(inputs)
+            .map(|_| ())
+            .map_err(|e| e.message)
+    }
+    fn verdict(&self, report: &Value, trust: &Value) -> OwnershipDecision {
+        let decision = ownership_verdict(report, trust);
+        OwnershipDecision {
+            admit: decision.admit,
+            code: decision.code.to_string(),
+            problems: decision.problems,
+        }
+    }
+    fn content_digest(&self, value: &Value) -> String {
+        rightkit_ownership::approval::sha256_value(value)
+    }
+}
 
 fn inventory(root: &Path) -> Result<Value, String> {
     let mut listed = rightkit_ownership::inventory::git_listed_inventory(
@@ -13,6 +49,7 @@ fn inventory(root: &Path) -> Result<Value, String> {
         &[],
         &|_| 64 * 1024 * 1024,
         root,
+        true,
     );
     rightkit_ownership::inventory::listed_coverage(&mut listed);
     if !listed.coverage.is_empty() {
@@ -79,8 +116,11 @@ fn run() -> Result<Value, String> {
         return Err("expected ROOT [--inputs]".into());
     }
     let root = fs::canonicalize(&args[0]).map_err(|e| e.to_string())?;
-    let identity =
-        NativeOwner::pin(&std::env::current_exe().map_err(|e| e.to_string())?)?.identity();
+    let identity = NativeOwner::pin(
+        &std::env::current_exe().map_err(|e| e.to_string())?,
+        Arc::new(RightKitOwnershipPolicy),
+    )?
+    .identity();
     let scanner = Scanner::with_embedded_catalog(ScanContext {
         clock: Arc::new(SystemClock),
         host: rightkit_ownership::host_string(),

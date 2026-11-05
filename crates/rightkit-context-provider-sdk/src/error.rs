@@ -45,8 +45,9 @@ pub enum ProviderError {
         code: String,
         /// Human-readable message.
         message: String,
-        /// Optional operation-specific details.
-        details: Option<serde_json::Value>,
+        /// Optional operation-specific details, boxed so the error stays small enough
+        /// for `Result` returns (clippy `result_large_err`).
+        details: Option<Box<serde_json::Value>>,
     },
 
     /// The provider is not currently able to serve the request (transient).

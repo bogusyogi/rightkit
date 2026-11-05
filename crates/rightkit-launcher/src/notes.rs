@@ -264,7 +264,7 @@ pub fn purge(base: &Path, now: u64) {
 pub fn ago(at: u64, now: u64) -> String {
     let seconds = now.saturating_sub(at);
     match seconds {
-        0..=59 => crate::host::t("just now"),
+        0..=59 => crate::host::t("just now").to_string(),
         60..=3599 => {
             let minutes = crate::host::tf("{} min", &[&(seconds / 60).to_string()]);
             crate::host::tf("{} ago", &[&minutes])

@@ -18,6 +18,7 @@
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 use std::time::Instant;
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use super::keystrokes::{send_enter_keystroke, send_paste_keystroke};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use super::targets::target_ready_for_input;
@@ -43,6 +44,7 @@ pub(crate) const TERMINAL_PASTE_SETTLE_MS: u64 = 1_000;
 /// A posted OS keystroke without proof is an explicit clipboard fallback,
 /// never a `Pasted` record and never authority to submit Enter.
 pub(crate) enum InsertResult {
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     Confirmed {
         steps: Vec<DeliveryTimingStep>,
         proof: InsertionProof,

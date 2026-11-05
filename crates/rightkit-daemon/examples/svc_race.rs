@@ -74,9 +74,11 @@ fn main() {
         Err(HostError::Held(_)) => {
             let mut last = String::from("no attempt");
             for _ in 0..50 {
-                match Client::connect(&suite, &service, "alpha")
-                    .and_then(|c| c.call("echo", json!({"id": id})))
-                {
+                let attempt = match Client::connect(&suite, &service, "alpha") {
+                    Ok(client) => client.call("echo", json!({"id": id})),
+                    Err(e) => Err(e),
+                };
+                match attempt {
                     Ok(_) => {
                         println!("FORWARDED {id}");
                         let _ = std::io::stdout().flush();

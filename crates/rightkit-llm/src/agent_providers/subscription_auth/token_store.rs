@@ -359,16 +359,18 @@ pub fn open_subscription_store() -> Result<Store, KeyStoreError> {
 }
 
 fn oauth_client(config: OAuthConfig) -> Result<OAuthClient, OAuthError> {
-    let mut http = rightkit_http::ClientConfig::default();
-    http.connect_timeout = Some(Duration::from_secs(10));
-    // The retired refresh was bounded at 15 s.
-    http.request_timeout = Duration::from_secs(15);
-    // A token endpoint is a credential boundary: never follow a redirect with a refresh token.
-    http.max_redirects = 0;
-    // One attempt, like the retired reqwest refresh; the caller decides about retrying.
-    http.retry = rightkit_http::RetryPolicy::none();
-    // The same network path as the provider inference client (environment proxy honoured).
-    http.proxy = rightkit_http::ProxyMode::Environment;
+    let http = rightkit_http::ClientConfig {
+        connect_timeout: Some(Duration::from_secs(10)),
+        // The retired refresh was bounded at 15 s.
+        request_timeout: Duration::from_secs(15),
+        // A token endpoint is a credential boundary: never follow a redirect with a refresh token.
+        max_redirects: 0,
+        // One attempt, like the retired reqwest refresh; the caller decides about retrying.
+        retry: rightkit_http::RetryPolicy::none(),
+        // The same network path as the provider inference client (environment proxy honoured).
+        proxy: rightkit_http::ProxyMode::Environment,
+        ..Default::default()
+    };
     OAuthClient::new(config, rightkit_http::Client::new(http))
 }
 

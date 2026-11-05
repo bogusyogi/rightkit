@@ -3,6 +3,7 @@
 use crate::wav;
 use rightkit_transcript::{TimedWord, Transcript};
 use std::path::Path;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::process::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

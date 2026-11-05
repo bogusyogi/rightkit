@@ -535,7 +535,7 @@ impl CommandCodeOAuth {
 }
 impl Default for CommandCodeOAuth {
     fn default() -> Self {
-        Self::new(Arc::new(CommandCodeApiKeyValidator::default()))
+        Self::new(Arc::new(CommandCodeApiKeyValidator))
     }
 }
 impl SubscriptionLogin for CommandCodeOAuth {

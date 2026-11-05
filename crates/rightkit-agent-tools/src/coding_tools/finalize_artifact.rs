@@ -27,9 +27,7 @@ impl Tool for FinalizeArtifactTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolContext) -> ToolResult {
-        // No state root means no trust store: the tool refuses rather than read a fallback file.
-        let Some(trust_store) = rightkit_app_settings::agent_config::workspace_trust_store_path()
-        else {
+        let Some(trust_store) = crate::coding_tools::attach_verdict::host_trust_store() else {
             return ToolResult::error(
                 "The state directory is unavailable, so workspace trust cannot be checked.",
             );

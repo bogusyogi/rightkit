@@ -42,7 +42,7 @@ fn macos_window_target_matches(current: &TargetSnapshot, expected: &TargetSnapsh
         && current.focused_text_input != Some(false)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
 fn macos_window_target_matches(_: &TargetSnapshot, _: &TargetSnapshot) -> bool {
     false
 }

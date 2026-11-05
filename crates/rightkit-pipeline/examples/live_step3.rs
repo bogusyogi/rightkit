@@ -12,9 +12,8 @@
 //!
 //! In a temp CutRight project directory it: checks the engine is contract v2;
 //! submits one image and one voice (and with `--video` one video); waits by
-//! polling `job status` with progress events; then proves crash safety:
-//!   * image: crashes between the media copy and the journal write, then a
-//!     fresh orchestrator imports again;
+//! polling `job status` with progress events; then proves crash safety
+//! (the image copy/journal crash case left with the failpoint seam, 8811af2d2):
 //!   * voice: forgets the job mapping (crash after `generate`, before the job
 //!     id was journaled) and `recover()` re-finds the same job by request id.
 //!
@@ -29,7 +28,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rightkit_fs::digest::sha256_bytes;
 use rightkit_pipeline::journal::import_key;
-use rightkit_pipeline::orchestrator::Failpoint;
 use rightkit_pipeline::{
     Error, GenerateSpec, JobListQuery, JobRecord, MediaKind, Orchestrator, RequestState,
     WaitOptions,
@@ -212,28 +210,6 @@ fn main() -> R {
         &format!("{progress_events} progress events were observed while waiting"),
     )?;
 
-    // ---- crash 1: image, after the media copy and before the journal write
-    let (img_rid, img_job) = subs[0].clone();
-    o.set_failpoint(Some(Failpoint::AfterCopyBeforeJournal));
-    let crashed = o.import(&img_rid);
-    check(
-        matches!(crashed, Err(Error::Injected(_))),
-        "image import crashed between copy and journal",
-    )?;
-    check(
-        o.imports()?.is_empty(),
-        "no import record survived the crash",
-    )?;
-    let files_after_crash = media_files(&project);
-    check(
-        files_after_crash.len() == 1,
-        &format!("the copied file is on disk ({files_after_crash:?})"),
-    )?;
-    let rec = o.client().job_status(&img_job)?;
-    check(
-        rec.acked_by.is_none(),
-        "image job not acked after the crash",
-    )?;
     drop(o);
 
     // ---- crash 2: voice, mapping lost after generate (before job id journaled)
@@ -271,7 +247,7 @@ fn main() -> R {
         imported.extend(recs);
     }
     check(
-        o2.import(&img_rid)?.len() == 1,
+        o2.import(&subs[0].0)?.len() == 1,
         "re-running import is a no-op",
     )?;
 
@@ -295,7 +271,7 @@ fn main() -> R {
             &format!("{} sha256 re-hashed", r.asset_id),
         )?;
         check(
-            blake3::hash(&bytes).to_hex().to_string() == r.blake3,
+            rightkit_fs::digest::blake3_bytes(&bytes) == r.blake3,
             &format!("{} blake3 re-hashed", r.asset_id),
         )?;
         check(

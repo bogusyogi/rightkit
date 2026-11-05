@@ -14,6 +14,7 @@ pub use rightkit_transcript_library::delivery::*;
 mod clipboard;
 mod deliver;
 mod insert;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 mod keystrokes;
 mod targets;
 

@@ -41,3 +41,6 @@ rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "
 rightkit-cache = { version = "0.2.3", path = "../rightkit-cache" }
 rightkit-agents = { version = "0.2.2", features = ["claude"], path = "../rightkit-agents" }
 rightkit-agent-tools = { version = "0.3.1", default-features = false, path = "../rightkit-agent-tools" }
+
+[dev-dependencies]
+rightkit-ownership = { version = "0.4.6", path = "../rightkit-ownership" }

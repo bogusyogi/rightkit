@@ -23,7 +23,7 @@ pub(crate) fn write_clipboard_text(text: &str) -> Result<(), CopyFallbackReason>
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-pub(crate) fn write_clipboard_text(text: &str) -> Result<(), CopyFallbackReason> {
+pub(crate) fn write_clipboard_text(_text: &str) -> Result<(), CopyFallbackReason> {
     Err(CopyFallbackReason::UnsupportedPlatform)
 }
 

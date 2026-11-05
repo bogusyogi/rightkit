@@ -2292,7 +2292,7 @@ fn repair(target: &Path, sources: &[PathBuf]) -> usize {
                 .and_then(Value::as_str)
                 .map(str::to_string);
             if map.contains_key("transcriptUnavailable")
-                && id.as_deref().is_some_and(&transcript_exists)
+                && id.as_deref().is_some_and(transcript_exists)
             {
                 map.remove("transcriptUnavailable");
                 changed = true;

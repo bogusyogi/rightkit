@@ -2,6 +2,7 @@
 
 ## 0.3.4 (unpublished)
 
+- `agent_providers::host_credentials`: the credential variable names (providers, GitHub, web search, route `RIGHTKIT_<NAME>_API_KEY`, daemon secrets, licence locators) and `is_credential_env_name`, the R46 rule every child launcher scrubs by. Name checks only; where a key is stored is not part of it.
 - Removed (breaking, Adrian, 2026-11-03: "no dummy data, no fucking made up shit. real data."): `agent_providers::keystore::InMemoryKeyStore`, the in-memory key store fake. Nothing in the repository used it; keys live in the OS keychain through `OsKeyStore`.
 - Issue #658: `attempt` module. `AnthropicProvider`, `OpenAiCompatProvider` and `ImageGenerationClient` gain `with_attempt_observer`, which reports every physical HTTP attempt as an `AttemptNotice` with a `SubmissionReceipt` (`Submitted`, `Rejected`, `SubmissionUnknown`) and a `retry_notice()` ("retrying in N s (reason)") when another attempt follows. Built on `rightkit-http`'s per-attempt outcome hook.
 - Issue #658: `attempt::separate_budget_retry(transport_attempts, status_attempts)`: connection failures and retryable statuses get separate budgets; the connection ladder starts at 5 s and `Retry-After` is honoured.

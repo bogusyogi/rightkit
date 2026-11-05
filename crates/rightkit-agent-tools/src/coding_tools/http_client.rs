@@ -75,20 +75,6 @@ pub(crate) fn client_following(url: &str, timeout: Duration) -> Result<AsyncClie
     build(config_for(url, timeout, 10))
 }
 
-/// Client for fetching arbitrary URLs from the open web: public addresses only,
-/// up to 10 redirects, every hop vetted. No host is exempt from the address policy.
-pub(crate) fn public_client(timeout: Duration) -> Result<AsyncClient, String> {
-    build(ClientConfig {
-        user_agent: "Agent/0.1".into(),
-        request_timeout: timeout,
-        response_timeout: Some(timeout),
-        retry: RetryPolicy::none(),
-        proxy: ProxyMode::Environment,
-        max_redirects: 10,
-        ..ClientConfig::default()
-    })
-}
-
 /// Client for one page of a crawl started from a user-supplied URL. The crawl's SSRF guard
 /// (`browser_fetch::ssrf_guard_reject_reason`) allows loopback, and `browser_fetch` gives the
 /// URL's own host the same local-dev carve-out; this client matches that. Loopback only, and

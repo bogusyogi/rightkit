@@ -406,14 +406,3 @@ impl Storage {
         Ok(out)
     }
 }
-
-/// Format a Unix timestamp (seconds since epoch) as a zero-padded RFC 3339 string
-/// in UTC (`YYYY-MM-DDTHH:MM:SSZ`). Used so ISO string comparisons in SQL work
-/// correctly against timestamps produced by `now_iso()` in the daemon.
-fn format_unix_as_iso(secs: u64) -> String {
-    i64::try_from(secs)
-        .ok()
-        .and_then(|secs| rightkit_time::DateTime::from_unix(secs, 0))
-        .map(|dt| dt.format_rfc3339())
-        .unwrap_or_default()
-}

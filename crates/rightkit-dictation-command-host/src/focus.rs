@@ -4,7 +4,9 @@
 use rightkit_dictation_core::engine::RecordingContext;
 #[cfg(target_os = "windows")]
 pub(crate) use rightkit_transcript_library::delivery::windows_terminal_target;
-use rightkit_transcript_library::delivery::{ForegroundTarget, TargetSnapshot};
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use rightkit_transcript_library::delivery::ForegroundTarget;
+use rightkit_transcript_library::delivery::TargetSnapshot;
 #[cfg(target_os = "macos")]
 use std::hash::{Hash, Hasher};
 
@@ -322,6 +324,7 @@ pub(crate) fn focused_field_text_for_undo() -> Option<String> {
     focused_field_context_for_pid(pid, FIELD_CONTEXT_MAX_CHARS)?.field_text
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn truncate_middle(text: &str, max_chars: usize) -> String {
     let chars: Vec<char> = text.chars().collect();
     if chars.len() <= max_chars {
@@ -338,6 +341,7 @@ fn truncate_middle(text: &str, max_chars: usize) -> String {
     out
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn normalize_context_text(value: Option<&str>, max_chars: usize) -> Option<String> {
     value
         .map(str::trim)
@@ -374,6 +378,7 @@ pub fn field_text_without_selection(
     (!remaining.is_empty()).then_some(remaining)
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn focused_field_context_from_values(
     is_password: bool,
     window_title: Option<&str>,

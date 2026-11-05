@@ -105,6 +105,7 @@ pub fn t(key: &str) -> &'static str {
     leaked
 }
 
+#[cfg(windows)]
 pub(crate) fn quit_label() -> String {
     HOST.get()
         .map_or_else(|| "Quit".to_string(), |host| host.quit_label())

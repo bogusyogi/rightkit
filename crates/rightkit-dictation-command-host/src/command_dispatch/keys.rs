@@ -1,6 +1,8 @@
 // Key sequence dispatch + app launch — SendInput (Windows) / CGEvent (macOS).
 
-use super::entry::{DispatchError, DispatchOutcome, DispatchResult};
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use super::entry::DispatchOutcome;
+use super::entry::{DispatchError, DispatchResult};
 #[cfg(target_os = "windows")]
 use rightkit_automation::win::{send_input_batch, RawInput, RawKey};
 

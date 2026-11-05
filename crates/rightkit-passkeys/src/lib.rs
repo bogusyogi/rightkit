@@ -24,12 +24,11 @@ use passkey_authenticator::{
     UserCheck, UserValidationMethod,
 };
 use passkey_crypto::CryptoBackend;
-use passkey_types::ctap2::aaguid::Aaguid;
-use passkey_types::ctap2::make_credential::Options;
-use passkey_types::ctap2::{Ctap2Error, StatusCode};
-use passkey_types::webauthn::{
-    PublicKeyCredentialDescriptor, PublicKeyCredentialRpEntity, PublicKeyCredentialUserEntity,
+use passkey_types::ctap2::make_credential::{
+    Options, PublicKeyCredentialRpEntity, PublicKeyCredentialUserEntity,
 };
+use passkey_types::ctap2::{Aaguid, Ctap2Error, StatusCode};
+use passkey_types::webauthn::PublicKeyCredentialDescriptor;
 
 pub use passkey_types::Passkey;
 
@@ -233,7 +232,7 @@ impl<U: UserVerifier> UserValidationMethod for VerifierAdapter<U> {
             UiHint::InformNoCredentialsFound => UserRequest::InformNoCredentials,
             UiHint::RequestNewCredential(user, rp) => UserRequest::Create {
                 rp_id: rp.id.clone(),
-                user_name: Some(user.name.clone()),
+                user_name: user.name.clone(),
             },
             UiHint::RequestExistingCredential(passkey) => UserRequest::Use {
                 rp_id: passkey.rp_id.clone(),

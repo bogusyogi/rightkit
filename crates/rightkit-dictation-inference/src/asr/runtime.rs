@@ -1464,7 +1464,6 @@ fn coreml_file_transcript(text: String, words: Vec<crate::coreml_asr::TimedTok>)
 
 #[derive(Debug)]
 struct Static15Checkpoint {
-    start_sample: usize,
     end_sample: usize,
     text: String,
     overlap_bytes: usize,
@@ -1549,7 +1548,6 @@ impl ScheduledStatic15 {
             .unwrap_or_default()
             .to_vec();
         self.checkpoints.push(Static15Checkpoint {
-            start_sample,
             end_sample,
             text: text.to_string(),
             overlap_bytes,
@@ -1601,10 +1599,6 @@ impl ScheduledStatic15 {
             }
         }
         let mut combined = self.committed_text.clone();
-        let mut expected_start = 0;
-        for checkpoint in &self.checkpoints {
-            expected_start = checkpoint.end_sample;
-        }
         if self.committed_samples < samples.len() {
             let tail_samples = samples.len() - self.committed_samples;
             let tail_offset = self.committed_samples as f32 / SAMPLE_RATE as f32;

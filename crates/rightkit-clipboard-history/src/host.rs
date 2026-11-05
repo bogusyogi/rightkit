@@ -171,6 +171,7 @@ pub(crate) fn switch_on(key: &str) -> bool {
     HOST.get().is_none_or(|host| host.switch_on(key))
 }
 
+#[cfg(windows)]
 pub(crate) fn own_write_format() -> String {
     HOST.get().map_or_else(
         || "RightKitOwnWrite".to_string(),
@@ -178,6 +179,7 @@ pub(crate) fn own_write_format() -> String {
     )
 }
 
+#[cfg(windows)]
 pub(crate) fn drag_copy_dir() -> String {
     HOST.get()
         .map_or_else(|| "RightKitClip".to_string(), |host| host.drag_copy_dir())
@@ -194,6 +196,7 @@ pub(crate) fn log_info(event: &str, fields: &[(&str, &str)]) {
     }
 }
 
+#[cfg(windows)]
 pub(crate) fn excluded_apps() -> Vec<String> {
     HOST.get()
         .map_or_else(Vec::new, |host| host.excluded_apps())

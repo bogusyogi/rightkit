@@ -229,6 +229,8 @@ pub(super) fn engine_launch_for(config: &crate::SupervisorConfig) -> EngineLaunc
     }
 }
 
+// The provider signature is fixed by rightkit-job-queue `with_launch_frame`, whose JobError is large by design (that crate allows the lint).
+#[allow(clippy::result_large_err)]
 fn launch_frame_for_generation(_generation: u64) -> Result<LaunchFrame, JobError> {
     LaunchFrame::new(
         LAUNCH_SCHEMA,

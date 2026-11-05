@@ -74,7 +74,7 @@ impl BackgroundChild {
 
 #[cfg(windows)]
 async fn run_windows_background(
-    mut cmd: Command,
+    mut cmd: tokio::process::Command,
     program: String,
     args: Vec<String>,
     workspace_root: std::path::PathBuf,

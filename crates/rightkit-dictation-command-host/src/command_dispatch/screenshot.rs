@@ -1,9 +1,12 @@
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use std::path::{Path, PathBuf};
 
 #[cfg(target_os = "windows")]
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use super::{DispatchError, DispatchOutcome, DispatchResult};
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use super::DispatchOutcome;
+use super::{DispatchError, DispatchResult};
 
 #[cfg(target_os = "windows")]
 const SCREENSHOT_PNG_NAME_PREFIX: &str = "Screenshot";
@@ -60,14 +63,6 @@ pub(super) fn dispatch_windows_screenshot() -> DispatchResult {
         ),
     };
     result
-}
-
-#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-pub(super) fn dispatch_windows_screenshot() -> DispatchResult {
-    Err(DispatchError::new(
-        "E_UNSUPPORTED",
-        "native Windows screenshot is unsupported on this platform",
-    ))
 }
 
 #[cfg(target_os = "macos")]

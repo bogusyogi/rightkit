@@ -79,6 +79,10 @@ fn hide_console(command: &mut Command) {
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         command.creation_flags(CREATE_NO_WINDOW);
     }
+    #[cfg(not(windows))]
+    {
+        let _ = command;
+    }
 }
 
 #[derive(Debug, Clone)]

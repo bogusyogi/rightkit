@@ -55,16 +55,19 @@ const SHORTCUT_FINAL_SCAN_TIMEOUT: std::time::Duration = std::time::Duration::fr
 #[cfg(target_os = "macos")]
 const MAX_SHORTCUT_OUTPUT_BYTES: usize = 256 * 1024;
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use rightkit_voice_commands::command_recognition::edit_distance;
 
 /// Minimum match score to actually launch — below this we return `None` so the
 /// words get typed as dictation instead of firing a wrong app.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 const MATCH_THRESHOLD: i32 = 50;
 
 /// Collapse to lowercase alphanumerics only — drops spaces AND punctuation so a
 /// single-word app name spoken as several words ("view right" / "view, right?"
 /// -> "viewright") compares equal. This is the key to matching Right Suite app
 /// names, which are one CamelCase word the ASR reliably splits.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn squash(s: &str) -> String {
     s.chars()
         .filter(|c| c.is_ascii_alphanumeric())
@@ -558,6 +561,7 @@ fn best_match(q: &str, apps: &[String]) -> Option<String> {
 /// (more specific) scored name. `name_of` extracts what gets scored/compared
 /// from a candidate — the lowercased app name on macOS, the display name on
 /// Windows — so each platform's existing lookup key stays exactly as it was.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn best_match_generic<'a, T>(
     q: &str,
     items: &'a [T],
@@ -585,6 +589,7 @@ fn best_match_generic<'a, T>(
 
 /// Conservative similarity score between the spoken query and a lowercased app
 /// name. 0 = no match. Tuned so common spoken names hit and stray words don't.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn score_match(q: &str, name: &str) -> i32 {
     let qn = q.chars().count();
     // Exact full-name match — always safe ("figma" -> "Figma").

@@ -38,7 +38,7 @@ pub(crate) fn spawn(
     program: &str,
     argv: &[String],
     proof: SandboxProcessProof,
-    sandbox_tier: Option<crate::coding_tools::sandbox::SandboxTier>,
+    _sandbox_tier: Option<crate::coding_tools::sandbox::SandboxTier>,
 ) -> Result<Box<dyn ManagedChild>, EffectExecutionError> {
     if program.is_empty()
         || program.contains('\0')
@@ -62,11 +62,11 @@ pub(crate) fn spawn(
     }
     #[cfg(windows)]
     {
-        return windows_backend::spawn(spec, size, program, argv, proof, sandbox_tier);
+        return windows_backend::spawn(spec, size, program, argv, proof, _sandbox_tier);
     }
     #[cfg(target_os = "linux")]
     {
-        return linux_backend::spawn(spec, size, program, argv, proof, sandbox_tier);
+        return linux_backend::spawn(spec, size, program, argv, proof, _sandbox_tier);
     }
     #[cfg(all(unix, not(target_os = "linux")))]
     {

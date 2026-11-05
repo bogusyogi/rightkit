@@ -2436,9 +2436,10 @@ impl ReplyHub {
                             hub.handle(conn, &key);
                         });
                     }
-                    // A peer that is not this user was closed unread; one that left before it
-                    // could be identified (a probe, the stop's wake-up) is nothing.
-                    Ok(Accepted::Rejected(_) | Accepted::Vanished) => {}
+                    // A peer that is not this user, or that could not be identified, was closed
+                    // unread; this loop has no event sink for it. One that left before it could
+                    // be identified (a probe, the stop's wake-up) is nothing.
+                    Ok(Accepted::Rejected(_) | Accepted::Unidentified(_) | Accepted::Vanished) => {}
                     Err(_) => std::thread::sleep(Duration::from_millis(500)),
                 }
             }

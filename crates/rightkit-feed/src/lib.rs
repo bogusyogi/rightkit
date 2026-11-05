@@ -364,10 +364,10 @@ impl<'l> Builder<'l> {
                 }
             }
             // RSS links are element text; `atom:link` and the like inside an RSS item are ignored.
-            (FeedKind::Rss2 | FeedKind::Rss1, "link") if full == "link" => {
-                if self.item.link.is_none() {
-                    self.item.link = value.and_then(|v| clean_link(&v, max));
-                }
+            (FeedKind::Rss2 | FeedKind::Rss1, "link")
+                if full == "link" && self.item.link.is_none() =>
+            {
+                self.item.link = value.and_then(|v| clean_link(&v, max));
             }
             _ => {}
         }

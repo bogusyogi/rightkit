@@ -41,7 +41,6 @@ const MAX_POLL_TRANSPORT_ERRORS: u32 = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
-#[derive(Default)]
 pub enum RuntimeState {
     #[default]
     Stopped,

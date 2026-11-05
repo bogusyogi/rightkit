@@ -190,7 +190,7 @@ impl Store {
     fn release(&self, bytes: u64) {
         let _ = self
             .stored
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
                 Some(v.saturating_sub(bytes))
             });
     }
@@ -348,7 +348,7 @@ impl Store {
             // Reserve the bytes before writing, so two deposits cannot both pass the cap.
             let reserved = self
                 .stored
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
                     v.checked_add(size)
                         .filter(|total| *total <= limits.global_bytes)
                 });

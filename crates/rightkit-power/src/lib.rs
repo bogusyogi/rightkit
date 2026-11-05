@@ -200,8 +200,9 @@ impl Shared {
 /// Watches the system's power and session state for the app.
 pub struct Power {
     shared: Arc<Shared>,
+    /// Held only for its `Drop`, which removes the OS registrations; Windows never reads it.
     #[cfg(any(target_os = "windows", target_os = "macos"))]
-    reader: Option<Reader>,
+    _reader: Option<Reader>,
 }
 
 impl Power {
@@ -226,7 +227,7 @@ impl Power {
         Self {
             shared,
             #[cfg(any(target_os = "windows", target_os = "macos"))]
-            reader,
+            _reader: reader,
         }
     }
 
@@ -235,7 +236,7 @@ impl Power {
     /// the app like any other.
     pub fn conditions(&self) -> Conditions {
         #[cfg(target_os = "macos")]
-        if self.reader.is_some() {
+        if self._reader.is_some() {
             macos::read_low_power(&self.shared);
         }
         *self

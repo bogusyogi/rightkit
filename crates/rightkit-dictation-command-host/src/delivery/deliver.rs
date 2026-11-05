@@ -44,6 +44,7 @@ pub fn deliver_text_with_enter(
     // The user's existing clipboard is saved before the write and restored after the
     // paste so dictation never clobbers it (Wispr/Superwhisper pattern).
     match insert_transcript(transcript, &target, send_enter) {
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         Ok(InsertResult::Confirmed {
             steps: mut insert_steps,
             proof,

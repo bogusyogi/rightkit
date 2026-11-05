@@ -516,3 +516,14 @@ fn error_response(id: Option<Value>, code: i64, message: impl Into<String>) -> V
         }
     })
 }
+
+// The vendor MCP pipe (Windows) answers each request through this server (rightkit-agents `VendorMcpHandler`).
+#[cfg(windows)]
+impl rightkit_agents::vendor_mcp_pipe::VendorMcpHandler for McpStdioServer {
+    fn handle_request(
+        &mut self,
+        request: Value,
+    ) -> impl std::future::Future<Output = Option<Value>> + Send {
+        McpStdioServer::handle_request(self, request)
+    }
+}

@@ -347,9 +347,7 @@ impl CoreMlParakeet {
                 let predicted = {
                     let chunk_size = batch_chunk_size(states.len());
                     let mut predicted = Vec::with_capacity(states.len());
-                    for (state_chunk, index_chunk) in
-                        states.chunks(chunk_size).zip(missing.chunks(chunk_size))
-                    {
+                    for state_chunk in states.chunks(chunk_size) {
                         let model_call_started = std::time::Instant::now();
                         if state_chunk.len() > 1 {
                             predicted.extend(self.predict_hypotheses(state_chunk)?);
@@ -444,7 +442,7 @@ impl CoreMlParakeet {
                     decoder_model_wall += model_call_started.elapsed();
                     (predictor, logits)
                 };
-                let (g, new_h, new_c) = (&predictor.0, &predictor.1, &predictor.2);
+                let (new_h, new_c) = (&predictor.1, &predictor.2);
                 joint_calls += 1;
                 let bonuses = self
                     .bias

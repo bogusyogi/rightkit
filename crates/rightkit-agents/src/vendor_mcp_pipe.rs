@@ -5,6 +5,16 @@ use tokio::net::windows::named_pipe::{ClientOptions, ServerOptions};
 
 const MAX_FRAME: u64 = 1024 * 1024;
 
+/// The host-side MCP request handler behind the pipe. The host owns policy, session and
+/// context authority; this crate only moves framed JSON-RPC requests to it.
+pub trait VendorMcpHandler: Send + 'static {
+    /// Answer one MCP request. `None` acknowledges a notification with no response.
+    fn handle_request(
+        &mut self,
+        request: serde_json::Value,
+    ) -> impl std::future::Future<Output = Option<serde_json::Value>> + Send;
+}
+
 pub struct VendorMcpPipe {
     name: String,
     key: String,
@@ -12,7 +22,7 @@ pub struct VendorMcpPipe {
 }
 
 impl VendorMcpPipe {
-    pub fn start(mut server: rightkit_mcp::mcp_server::McpStdioServer) -> Result<Self, String> {
+    pub fn start<H: VendorMcpHandler>(mut server: H) -> Result<Self, String> {
         let name = format!(
             r"\\.\pipe\coderight-vendor-{}",
             rightkit_agent_engine_protocol::uuid_v7()

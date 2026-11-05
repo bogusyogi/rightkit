@@ -21,6 +21,7 @@
 //!     embeddinggemma2-q4).
 
 pub mod embedder;
+use rightkit_mail::fusion;
 pub mod index;
 mod index_commit;
 pub(crate) mod invalidate;

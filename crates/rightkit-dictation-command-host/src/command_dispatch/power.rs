@@ -1,6 +1,8 @@
 // Power dispatch (typed enum, NOT raw shell) + macOS Shortcuts runner.
 
-use super::entry::{DispatchError, DispatchOutcome, DispatchResult};
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use super::entry::DispatchOutcome;
+use super::entry::{DispatchError, DispatchResult};
 
 /// Launch a fire-and-forget system command through RightKit process ownership. The child must
 /// outlive this process (`shutdown /s /t 60`, `pmset`, a long `shortcuts run`), so it is launched

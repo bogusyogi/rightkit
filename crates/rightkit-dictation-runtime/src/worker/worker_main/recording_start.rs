@@ -85,14 +85,6 @@ impl Worker {
             if let Some(seed) = start.seed {
                 session.ingest(&seed.samples, &mut self.speech_vad, seed.at);
             }
-            if let Some(cal) = start.calibration {
-                self.speech_vad.calibrate(&cal);
-                tracing::info!(
-                    "vad auto-calibrated: noise_floor={:.5} speech_threshold={:.4}",
-                    self.speech_vad.noise_floor_rms(),
-                    self.speech_vad.speech_threshold(),
-                );
-            }
             if let Some(repaired_at) = start.repaired_at {
                 // Share the session's one-repair budget with streaming health.
                 session.capture_zero_guard.repair_attempted = true;

@@ -1,7 +1,9 @@
 // Special ops (backspace-last / clear-clipboard / always-on-top) + last-paste
 // transform (undo + clipboard rewrite + paste).
 
-use super::entry::{DispatchError, DispatchOutcome, DispatchResult};
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use super::entry::DispatchOutcome;
+use super::entry::{DispatchError, DispatchResult};
 
 // ---------------------------------------------------------------------------
 // Special — small set of misc actions
@@ -68,7 +70,7 @@ pub(super) fn dispatch_special(op: &str, last_text: Option<&str>) -> DispatchRes
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-pub(super) fn dispatch_special(op: &str, last_text: Option<&str>) -> DispatchResult {
+pub(super) fn dispatch_special(op: &str, _last_text: Option<&str>) -> DispatchResult {
     Err(DispatchError::new(
         "E_UNSUPPORTED",
         format!("special op not supported: {}", op),
@@ -230,6 +232,7 @@ pub(super) fn dispatch_last_paste_transform(
     ))
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn transform_last_text(text: &str, transform: &str) -> Result<String, DispatchError> {
     match transform {
         "upper" => Ok(text.to_uppercase()),

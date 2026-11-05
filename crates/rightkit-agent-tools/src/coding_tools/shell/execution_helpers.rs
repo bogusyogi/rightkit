@@ -158,7 +158,6 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
 }
 
 #[cfg(all(feature = "coding_tools-host", target_os = "windows"))]
-
 struct WindowsManagedChild {
     child: crate::coding_tools::sandbox::ConfinedPipedChild,
     network_enforced: bool,
@@ -368,6 +367,7 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
         }
         let mut enforced = false;
         let mut network_enforced = false;
+        let starts_from_empty_env = spec.starts_from_empty_env();
         let (program, argv) = if spec.context.sandbox_required {
             let tier = if spec.context.network_required {
                 crate::coding_tools::sandbox::SandboxTier::WorkspaceWrite
@@ -398,7 +398,7 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
-        if spec.starts_from_empty_env() {
+        if starts_from_empty_env {
             command.env_clear();
         }
         command.envs(spec.env.clone());
@@ -962,9 +962,8 @@ pub(crate) fn spawn_windows_appcontainer_with_grant(
     network_allowed: bool,
     grant: Option<&crate::coding_tools::sandbox::SandboxGrant>,
 ) -> std::io::Result<crate::coding_tools::sandbox::ConfinedPipedChild> {
-    let mut profile =
-        crate::coding_tools::sandbox::AppContainerProfile::for_workspace(workspace_root)?
-            .with_network(network_allowed || grant.is_some_and(|grant| grant.network));
+    let profile = crate::coding_tools::sandbox::AppContainerProfile::for_workspace(workspace_root)?
+        .with_network(network_allowed || grant.is_some_and(|grant| grant.network));
     if let Some(grant) = grant {
         for path in &grant.read_paths {
             profile.lease_extra_access(path, false)?;

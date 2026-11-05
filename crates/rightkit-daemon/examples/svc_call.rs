@@ -16,7 +16,11 @@ fn main() {
         .get(4)
         .map(|s| serde_json::from_str(s).expect("params json"))
         .unwrap_or_else(|| json!({}));
-    match Client::connect(&suite, &a[1], &a[2]).and_then(|c| c.call(&a[3], params)) {
+    let outcome = match Client::connect(&suite, &a[1], &a[2]) {
+        Ok(client) => client.call(&a[3], params),
+        Err(e) => Err(e),
+    };
+    match outcome {
         Ok(v) => println!("{v}"),
         Err(e) => {
             println!("{}", json!({"error": e.to_value()}));

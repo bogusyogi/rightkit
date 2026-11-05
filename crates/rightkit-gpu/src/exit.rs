@@ -47,6 +47,12 @@ pub fn wait_idle(timeout: Duration) -> bool {
     GATE.wait_idle(timeout)
 }
 
+impl Default for GpuGate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GpuGate {
     pub const fn new() -> GpuGate {
         GpuGate {

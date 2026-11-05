@@ -18,8 +18,8 @@
 //! instead of weakening this function.
 use super::data_dir::DirKind;
 use super::migration_backup::{self, FreeBytes};
-use super::migrations::{migrate_with, BackupPlan};
-use super::{migrate, Connection, SCHEMA_VERSION};
+use super::migrations::{migrate, migrate_with, BackupPlan};
+use super::{Connection, SCHEMA_VERSION};
 use crate::host::{host, Channel};
 use rightkit_db::rusqlite::params;
 use rightkit_db::DbError;

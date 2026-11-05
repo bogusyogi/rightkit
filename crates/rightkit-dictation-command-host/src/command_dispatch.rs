@@ -8,6 +8,7 @@ mod entry;
 mod keys;
 mod mouse;
 mod power;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 mod screenshot;
 mod transforms;
 

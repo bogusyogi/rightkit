@@ -236,7 +236,7 @@ pub struct Identity {
 }
 
 fn default_alias() -> String {
-    let host = sysinfo::System::host_name().unwrap_or_else(|| "Computer".to_string());
+    let host = sysinfo::System::host_name().unwrap_or_else(|_| "Computer".to_string());
     clean_alias(host.trim_end_matches(".local"))
 }
 

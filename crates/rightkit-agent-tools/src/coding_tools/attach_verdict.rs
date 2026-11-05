@@ -7,6 +7,20 @@ use serde_json::{json, Value};
 
 pub struct AttachVerdictTool;
 
+/// The workspace trust store, only when the host names it: the state root's store, or the explicit override
+/// (`RIGHTKIT_WORKSPACE_TRUST_STORE`, honoured by app-settings with its host-env feature). With neither, `None`: a
+/// trust-checking tool refuses rather than read the working-directory fallback that `workspace_trust_store_path`
+/// returns, which a checked-out repository could supply itself.
+pub(crate) fn host_trust_store() -> Option<std::path::PathBuf> {
+    use rightkit_app_settings::agent_config::workspace_trust::WORKSPACE_TRUST_STORE_ENV;
+    use rightkit_app_settings::agent_config::{state_root, workspace_trust_store_path};
+    let path = workspace_trust_store_path();
+    let overridden = std::env::var_os(WORKSPACE_TRUST_STORE_ENV)
+        .is_some_and(|v| std::path::PathBuf::from(v) == path);
+    let under_state_root = state_root().is_some_and(|root| path.starts_with(root));
+    (overridden || under_state_root).then_some(path)
+}
+
 #[async_trait::async_trait]
 impl Tool for AttachVerdictTool {
     fn name(&self) -> &str {
@@ -31,9 +45,7 @@ impl Tool for AttachVerdictTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolContext) -> ToolResult {
-        // No state root means no trust store: the tool refuses rather than read a fallback file.
-        let Some(trust_store) = rightkit_app_settings::agent_config::workspace_trust_store_path()
-        else {
+        let Some(trust_store) = host_trust_store() else {
             return ToolResult::error(
                 "The state directory is unavailable, so workspace trust cannot be checked.",
             );

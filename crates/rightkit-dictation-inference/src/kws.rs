@@ -138,16 +138,6 @@ impl KwsOnsetMethod {
         }
     }
 
-    fn parse(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "emission" => Some(Self::Emission),
-            "posterior" => Some(Self::Posterior),
-            "aligned" => Some(Self::Aligned),
-            "acoustic" => Some(Self::Acoustic),
-            _ => None,
-        }
-    }
-
     /// This method's candidate, when it was estimated.
     fn candidate(self, onset: &rust_kws::KeywordOnset) -> Option<rust_kws::OnsetEstimate> {
         match self {
