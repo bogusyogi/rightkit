@@ -15,11 +15,14 @@
 //    at the end. The one checkout write is S6's dirty-checkout setup, which refuses a dirty fixture and restores it exactly.
 //  * The verdict is PASS only when no clause, step or step-only check failed and every step ran as specified; it is always printed with the
 //    count of unchecked clauses ("PASS (N of 67 asserted, M unchecked)"), never as a bare PASS.
-//  * Timing is relative and informational only: the contract gives no latency threshold, so wall time never fails a clause.
+//  * The 19 non-negotiables NN01-NN19 (GATE-CONTRACT [GC-A27]) are asserted on every run from the run's own evidence (coverage, log, spawn ledger, budgets
+//    file). Every gate invocation is started with RK_GATE_SPAWN_LEDGER naming a per-run file under --out. A selected non-negotiable with missing evidence
+//    FAILS; it is never "unchecked". Wall time is judged only by NN18 against ci/gate-acceptance-budgets.json (a null budget fails: "no budget measured").
 // The pure assertion functions are exported and tested by gate-acceptance.test.mjs; `--plan` prints the steps and clause mapping and runs nothing.
 import { createHash } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { keyPath, repoKey } from "./snapshot.mjs";
@@ -354,12 +357,10 @@ export function brokerDigestProblems({ manifest, pins }) {
   return { ok: problems.length === 0, problems };
 }
 
-const WARM_UNCACHED_CLASS_A = /^(pnpm-lockfile|advisory-exceptions)(:|$)/;
-
 /**
- * S2 (GC-A24, GC-A19): a warm rerun of the same commit. Against the first run `prev` (id -> row) and the rerun `next`:
- *  - every scan of the rerun that is not an uncached family answered `hit` (a `ran` there is a failure, a skipped row is a failure);
- *  - the two uncached families (pnpm-lockfile, advisory-exceptions) ran, never hit;
+ * S2 (GC-A24, GC-A19, NN01): a warm rerun of the same commit. Against the first run `prev` (id -> row) and the rerun `next`:
+ *  - every Class A scan of the rerun answered `hit` (a `ran` there is a failure, a skipped row is a failure). There is no uncached family any more:
+ *    pnpm-lockfile and advisory-exceptions took GC-A19/GC-A24 keys (commit af0704a05, 2026-11-05), so NN01 ("any Class A row is ran") covers them too;
  *  - the key of every row equals the first run's key byte for byte.
  */
 export function assertWarmRerun(prev, next) {
@@ -367,9 +368,7 @@ export function assertWarmRerun(prev, next) {
   let hits = 0;
   for (const [id, row] of next) {
     if (row.coverage === "skipped" && row.status === "not-in-pass") continue;
-    const uncached = row.class === "A" && WARM_UNCACHED_CLASS_A.test(id);
     if (row.coverage === "skipped") { problems.push(`${id}: skipped (${row.reason}); a skipped row is never a pass`); continue; }
-    if (uncached) { if (row.coverage !== "ran") problems.push(`${id}: uncached family answered ${row.coverage}, expected ran`); continue; }
     if (row.class === "A" && row.coverage !== "hit") problems.push(`${id}: Class A row ${row.coverage} on an unchanged commit, expected hit${row.key === null ? " (no cache key)" : ""}`);
     if (row.class === "A" && row.coverage === "hit") hits += 1;
     const before = prev.get(id);
@@ -386,7 +385,7 @@ export function assertWarmRerun(prev, next) {
  */
 export function assertOneFileEdit(prev, next, { perFile = /^(secret-scan|licen[cs]e)/ } = {}) {
   const problems = [];
-  const ranA = [...next.values()].filter((r) => r.class === "A" && r.coverage === "ran" && !WARM_UNCACHED_CLASS_A.test(r.id));
+  const ranA = [...next.values()].filter((r) => r.class === "A" && r.coverage === "ran");
   const rustfmt = ranA.filter((r) => r.id.startsWith("rustfmt"));
   if (rustfmt.length !== 1) problems.push(`${rustfmt.length} rustfmt rows ran, expected exactly 1 (${rustfmt.map((r) => r.id).join(", ")})`);
   for (const r of ranA) if (!r.id.startsWith("rustfmt") && !perFile.test(r.id)) problems.push(`${r.id}: ran but does not read the edited file`);
@@ -607,6 +606,40 @@ export function launchSpec(gate, args, { platform = process.platform, comspec = 
 // ---------------------------------------------------------------------------------------------------------------------------------------------
 // The run sequence (criteria.md section 3) and the clauses each step asserts.
 // ---------------------------------------------------------------------------------------------------------------------------------------------
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+// Non-negotiables NN01-NN19 (GATE-CONTRACT [GC-A27]). Adrian, 2026-11-05: "each implement like cache etc should be written into part of an e2e test i.e.
+// final state. so anything that breaks it next time fails"; "no reruns, no repeat calls. no going over things that haven't changed. fully optimizations".
+// `steps` are the S-steps that produce each one's evidence. A non-negotiable is never "unchecked" on a host that can run it: when its step ran, missing
+// evidence is a failure with the reason; when its step was not selected (a `--steps` subset) it is "not-evaluated" and the verdict says the run is partial.
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+export const NN = Object.freeze([
+  { id: "NN01", steps: ["S2"], title: "An unchanged commit runs no Class A row", evidence: "warm --to check and --to compile coverage, twice" },
+  { id: "NN02", steps: ["S2"], title: "An unchanged commit runs no Class B row", evidence: "warm --to compile coverage, twice" },
+  { id: "NN03", steps: ["S3"], title: "One edited .rs file reruns only the rows that read it", evidence: "S3 coverage" },
+  { id: "NN04", steps: ["S4"], title: "One edited manifest reruns only its workspace's rows", evidence: "S4 coverage" },
+  { id: "NN05", steps: ["S2"], title: "Keys are stable across identical runs", evidence: "coverage keys of two warm runs of check and of compile" },
+  { id: "NN06", steps: ["S1", "S2"], title: "Only executing rows carry the environment digest", evidence: "coverage keys, the log's env digest" },
+  { id: "NN07", steps: ["S1", "S2", "S3", "S4", "S10"], title: "No identical child process twice in one run", evidence: "spawn ledger" },
+  { id: "NN08", steps: ["S1", "S2", "S3", "S4", "S10"], title: "rustfmt is one process per bucket; no cargo fmt", evidence: "spawn ledger, coverage" },
+  { id: "NN09", steps: ["S1", "S2", "S3", "S4", "S10"], title: "Non-compiling cargo never goes through the broker", evidence: "spawn ledger" },
+  { id: "NN10", steps: ["S2"], title: "Inside a snapshot the resident gate answers cargo metadata", evidence: "spawn ledger of the warm runs" },
+  { id: "NN11", steps: ["S1", "S2"], title: "A warm run proves the snapshot from the resident index, without re-hashing it", evidence: "gate log (`snapshot proof:` line)" },
+  { id: "NN12", steps: ["S2"], title: "Installed dependencies are identified by pnpm's install record and reused", evidence: "gate log (reuse-match=hit), spawn ledger, env digest" },
+  { id: "NN13", steps: ["S1", "S2", "S3", "S4", "S10"], title: "Class A takes no build-ownership lease", evidence: "gate log of every --to check" },
+  { id: "NN14", steps: ["S2"], title: "Preflight and app rules run once per tree", evidence: "gate log of the warm runs" },
+  { id: "NN15", steps: ["S2"], title: "Advice scans are cached per lock set and UTC day or hour", evidence: "warm coverage" },
+  { id: "NN16", steps: ["S10"], title: "A unit list shares one Class A and runs no per-unit format check", evidence: "--units-file log, spawn ledger" },
+  { id: "NN17", steps: ["S1", "S2"], title: "Class A lanes equal the host's cores; Class B batches compatible rows", evidence: "gate log, spawn ledger" },
+  { id: "NN18", steps: ["S2"], title: "Warm time stays inside the host's budget", evidence: "run wall time and stamped log lines against ci/gate-acceptance-budgets.json" },
+  { id: "NN19", steps: ["S0"], always: true, title: "The gate under test is the installed sealed gate", evidence: "--version, launcher" },
+]);
+export const NN_IDS = Object.freeze(NN.map((n) => n.id));
+export const nnForStep = (stepId) => NN.filter((n) => n.steps.includes(stepId)).map((n) => n.id);
+/** The labels of the four warm runs of S2 (two of check, two of compile), in run order. */
+export const WARM_LABELS = Object.freeze(["S2:check", "S2:compile", "S2:check2", "S2:compile2"]);
+export const BUDGETS_SCHEMA = "rightkit.gate-acceptance-budgets/1";
+export const BUDGETS_FILE = path.resolve(here, "..", "..", "ci", "gate-acceptance-budgets.json");
+
 export const LADDER = Object.freeze(["check", "compile", "test", "render", "dev", "package", "qualify"]);
 /** Stages that install an app on the host; they run only with `--allow-install` (Adrian's approval), never by default. */
 export const INSTALL_STAGES = Object.freeze(["dev", "qualify"]);
@@ -637,16 +670,17 @@ export const KILLS_UNCHECKED = Object.freeze({
 });
 
 export const STEPS = Object.freeze([
-  { id: "S0", title: "preflight (static)", runs: [], clauses: ["GC-I22", "GC-I18", "GC-I01", "GC-I15", "GC-T20"], note: "fixture clean, listings recorded, vector hashes, broker digest manifest vs pins" },
-  { id: "S1", title: "baseline ladder on C0", runs: ladderStages().map((s) => `--to ${s}`), clauses: ["GC-A04", "GC-A15", "GC-A21", "GC-A22-render", "GC-A22-classA", "GC-A23", "GC-T04", "GC-T05", "GC-T19", "GC-I01", "GC-I03", "GC-I05"], note: "--to dev and --to qualify install an app: only with --allow-install (Adrian's approval); with it, --to qualify may refuse with a named release-tier rule, asserted as such" },
-  { id: "S2", title: "warm rerun, same commit", runs: ["--to check", "--to compile"], clauses: ["GC-A24", "GC-A19", "GC-A21"], note: "Class A rows hit with first-run keys; only pnpm-lockfile and advisory-exceptions run" },
-  { id: "S3", title: "one-file edit (ephemeral commit)", runs: ["--to check"], clauses: ["GC-A24"], note: "needs a tracked rk/**/src/lib.rs (or --leaf-file); else unchecked" },
-  { id: "S4", title: "manifest edit (ephemeral commit)", runs: ["--to check"], clauses: ["GC-A19"], note: "needs a tracked Cargo.toml (or --manifest-file); else unchecked" },
-  { id: "S5", title: "lock edit", runs: [], clauses: ["GC-A19", "GC-A24"], note: "unchecked by design: a lock edit needs the fixture's own resolver; not generated by this runner", byDesignUnchecked: true },
-  { id: "S6", title: "dirty checkout", runs: ["--to compile"], clauses: ["GC-A02", "GC-A04", "GC-T06"], note: "refuses a dirty fixture; ephemeral commit (a compile not yet recorded) built while the checkout has a dirty tracked edit, an untracked file and a pushed stash; the snapshot is compared with the commit; the checkout and the stash list are restored exactly" },
-  { id: "S7", title: "negatives", runs: NEGATIVES.map((n) => n.id), clauses: ["GC-T05", "GC-A01", "GC-T14", "GC-A15", "GC-1A-R2", "GC-1A-R4"], note: "ephemeral commits under refs/witness/*; the rest listed unchecked with their reason" },
-  { id: "S8", title: "kill and recover", runs: KILLS.map((k) => k.id), clauses: ["GC-T06", "GC-A24"], note: "SIGKILL (during compile and during Class A) and SIGINT; ownership-recover.mjs dry run must explain the record; the next run reclaims it and passes" },
-  { id: "S9", title: "end invariants", runs: [], clauses: ["GC-A01", "GC-A02", "GC-T14", "GC-T06", "GC-I15", "GC-T20"], note: "listings equal S0; one snapshot dir and no new one; one worktree; no upload; broker pid and start unchanged" },
+  { id: "S0", nn: nnForStep("S0"), title: "preflight (static)", runs: [], clauses: ["GC-I22", "GC-I18", "GC-I01", "GC-I15", "GC-T20"], note: "fixture clean, listings recorded, vector hashes, broker digest manifest vs pins" },
+  { id: "S1", nn: nnForStep("S1"), title: "baseline ladder on C0", runs: ladderStages().map((s) => `--to ${s}`), clauses: ["GC-A04", "GC-A15", "GC-A21", "GC-A22-render", "GC-A22-classA", "GC-A23", "GC-T04", "GC-T05", "GC-T19", "GC-I01", "GC-I03", "GC-I05"], note: "--to dev and --to qualify install an app: only with --allow-install (Adrian's approval); with it, --to qualify may refuse with a named release-tier rule, asserted as such" },
+  { id: "S2", nn: nnForStep("S2"), title: "warm rerun, same commit (twice)", runs: ["--to check", "--to compile", "--to check", "--to compile"], clauses: ["GC-A24", "GC-A19", "GC-A21"], note: "every Class A row hits with its first-run key; no Class B row runs; the second pair of runs is the identical rerun NN05 compares" },
+  { id: "S3", nn: nnForStep("S3"), title: "one-file edit (ephemeral commit)", runs: ["--to check"], clauses: ["GC-A24"], note: "needs a tracked rk/**/src/lib.rs (or --leaf-file); else unchecked" },
+  { id: "S4", nn: nnForStep("S4"), title: "manifest edit (ephemeral commit)", runs: ["--to check"], clauses: ["GC-A19"], note: "needs a tracked Cargo.toml (or --manifest-file); else unchecked" },
+  { id: "S5", nn: nnForStep("S5"), title: "lock edit", runs: [], clauses: ["GC-A19", "GC-A24"], note: "unchecked by design: a lock edit needs the fixture's own resolver; not generated by this runner", byDesignUnchecked: true },
+  { id: "S6", nn: nnForStep("S6"), title: "dirty checkout", runs: ["--to compile"], clauses: ["GC-A02", "GC-A04", "GC-T06"], note: "refuses a dirty fixture; ephemeral commit (a compile not yet recorded) built while the checkout has a dirty tracked edit, an untracked file and a pushed stash; the snapshot is compared with the commit; the checkout and the stash list are restored exactly" },
+  { id: "S7", nn: nnForStep("S7"), title: "negatives", runs: NEGATIVES.map((n) => n.id), clauses: ["GC-T05", "GC-A01", "GC-T14", "GC-A15", "GC-1A-R2", "GC-1A-R4"], note: "ephemeral commits under refs/witness/*; the rest listed unchecked with their reason" },
+  { id: "S8", nn: nnForStep("S8"), title: "kill and recover", runs: KILLS.map((k) => k.id), clauses: ["GC-T06", "GC-A24"], note: "SIGKILL (during compile and during Class A) and SIGINT; ownership-recover.mjs dry run must explain the record; the next run reclaims it and passes" },
+  { id: "S10", nn: nnForStep("S10"), title: "unit list (--units-file, two fixture units)", runs: ["--to check --units-file"], clauses: [], note: "NN16: the list shares one Class A and runs no cargo fmt -p; needs two units of the gate's unit grammar (crates/rightkit-<x>, packages/<x>) in the fixture, else NN16 fails naming the gap" },
+  { id: "S9", nn: nnForStep("S9"), title: "end invariants", runs: [], clauses: ["GC-A01", "GC-A02", "GC-T14", "GC-T06", "GC-I15", "GC-T20"], note: "listings equal S0; one snapshot dir and no new one; one worktree; no upload; broker pid and start unchanged" },
 ]);
 
 /** The plan `--plan` prints (and tests read): steps, runs and the clause mapping, with implemented vs unchecked. */
@@ -654,7 +688,8 @@ export function buildPlan({ steps = STEPS.map((s) => s.id), allowInstall = false
   const chosen = STEPS.filter((s) => steps.includes(s.id));
   const implemented = new Set(Object.keys(CHECKS));
   const clauses = Object.values(CLAUSES).map((c) => ({ id: c.id, ev: c.ev, title: c.title, implemented: implemented.has(c.id), steps: chosen.filter((s) => s.clauses.includes(c.id)).map((s) => s.id), ...(implemented.has(c.id) ? {} : { unchecked: installReason(c.id, allowInstall) ?? UNCHECKED_WHY[c.id] ?? NO_EVIDENCE }) }));
-  return { schema: "rightkit.gate-acceptance-plan/1", allowInstall, installStagesSkipped: allowInstall ? [] : [...INSTALL_STAGES], steps: chosen, negativesUnchecked: NEGATIVES_UNCHECKED, killsUnchecked: KILLS_UNCHECKED, clauses };
+  const nonNegotiables = NN.map((n) => ({ id: n.id, title: n.title, steps: n.steps, evidence: n.evidence, selected: Boolean(n.always) || n.steps.every((x) => chosen.some((c) => c.id === x)) }));
+  return { schema: "rightkit.gate-acceptance-plan/1", allowInstall, installStagesSkipped: allowInstall ? [] : [...INSTALL_STAGES], steps: chosen, nonNegotiables, negativesUnchecked: NEGATIVES_UNCHECKED, killsUnchecked: KILLS_UNCHECKED, clauses };
 }
 
 /** The reason a clause that needs `--to dev` / `--to qualify` evidence is unchecked while installs are not approved; null otherwise. */
@@ -662,7 +697,7 @@ export const installReason = (id, allowInstall) => (!allowInstall && INSTALL_CLA
 
 export function formatPlan(plan) {
   const out = [];
-  for (const s of plan.steps) out.push(`${s.id}  ${s.title}${s.runs.length ? `  [${s.runs.join(", ")}]` : ""}`, `      clauses: ${s.clauses.join(" ") || "-"}`, `      ${s.note}`);
+  for (const s of plan.steps) out.push(`${s.id}  ${s.title}${s.runs.length ? `  [${s.runs.join(", ")}]` : ""}`, `      clauses: ${s.clauses.join(" ") || "-"}`, `      non-negotiables: ${s.nn?.join(" ") || "-"}${s.nn?.includes("NN19") ? " (evaluated in every run)" : ""}`, `      ${s.note}`);
   const impl = plan.clauses.filter((c) => c.implemented);
   const un = plan.clauses.filter((c) => !c.implemented);
   out.push("", `clauses: ${plan.clauses.length} total, ${impl.length} asserted, ${un.length} unchecked by design`);
@@ -670,6 +705,8 @@ export function formatPlan(plan) {
   out.push(`unchecked: ${un.map((c) => `${c.id}(${c.ev})`).join(" ")}`);
   if (plan.installStagesSkipped?.length) out.push(`install stages not run: --to ${plan.installStagesSkipped.join(", --to ")} (they install an app; pass --allow-install only with Adrian's approval); clauses needing them: ${INSTALL_CLAUSES.join(" ")}`);
   out.push(`negatives not built: ${Object.keys(plan.negativesUnchecked).join(" ")}`, `kills not built: ${Object.keys(plan.killsUnchecked).join(" ")}`);
+  out.push("", `non-negotiables (${(plan.nonNegotiables ?? []).length}; never unchecked on a host that can run them: missing evidence fails the run):`);
+  for (const n of plan.nonNegotiables ?? []) out.push(`  ${n.id}  steps ${n.steps.join("+")}${n.selected ? "" : " (not selected)"}  ${n.title}  [${n.evidence}]`);
   return out.join("\n");
 }
 
@@ -697,6 +734,561 @@ export function ruleTierProblems(receipt, stage) {
   const tier = receipt?.stages?.check?.ruleTier;
   const want = stage === "qualify" || stage === "release" ? "release" : "compile";
   return tier === want ? { ok: true, problems: [] } : { ok: false, problems: [`receipt.stages.check.ruleTier is ${JSON.stringify(tier)}, expected ${JSON.stringify(want)} for --to ${stage}`] };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+// Non-negotiable assertions (pure). Each returns { ok, problems[] } and fails closed: evidence that is missing is a problem, never a pass.
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+
+/** One ledger line per child process (spawn-ledger.mjs): {pid, at, ms, sync, cmd, args[], cwd, status}. Malformed lines are problems. */
+export function parseLedger(text) {
+  const entries = []; const problems = [];
+  String(text ?? "").split(/\r?\n/).forEach((line, i) => {
+    if (!line.trim()) return;
+    try {
+      const e = JSON.parse(line);
+      if (!isObject(e) || typeof e.cmd !== "string" || !Array.isArray(e.args) || typeof e.cwd !== "string") throw new Error("not a ledger entry {cmd, args[], cwd}");
+      entries.push(e);
+    } catch (err) { problems.push(`ledger line ${i + 1}: ${err.message}`); }
+  });
+  return { entries, problems };
+}
+
+/** The program name of a ledger command: its basename without a Windows launcher suffix. */
+export const programOf = (cmd) => String(cmd).replace(/\\/g, "/").split("/").pop().replace(/\.(exe|cmd|bat)$/i, "");
+
+/** `{ program, args, cwd }` of an entry. A shell-string start (execSync: cmd holds the whole line, args is empty) is split on whitespace. */
+export function normalizeSpawn(e) {
+  const args = e.args.map(String);
+  if (args.length === 0 && /\s/.test(String(e.cmd).trim())) { const [first, ...rest] = String(e.cmd).trim().split(/\s+/); return { program: programOf(first), args: rest, cwd: e.cwd, shim: false }; }
+  return { program: programOf(e.cmd), args, cwd: e.cwd, shim: /rk-cargo-shim/.test(String(e.cmd)) };
+}
+
+const CARGO_VALUE_FLAGS = new Set(["-C", "-Z", "--config", "--color", "--manifest-path"]);
+/** The cargo subcommand a start carries and how it is routed: `{ via: "cargo"|"shim"|"rustright", sub }`, or null when the start is no cargo call. */
+export function cargoCall(entry) {
+  const n = entry.program ? entry : normalizeSpawn(entry);
+  let rest;
+  let via;
+  if (n.program === "cargo-fmt") return { via: "cargo", sub: "fmt" };
+  if (n.program === "rustright") { const i = n.args.indexOf("cargo"); if (i < 0) return null; rest = n.args.slice(i + 1); via = "rustright"; }
+  else if (n.program === "cargo") { rest = n.args; via = n.shim ? "shim" : "cargo"; }
+  else return null;
+  for (let i = 0; i < rest.length; i += 1) {
+    const a = rest[i];
+    if (a.startsWith("+")) continue;
+    if (CARGO_VALUE_FLAGS.has(a)) { i += 1; continue; }
+    if (a.startsWith("-")) continue;
+    return { via, sub: a };
+  }
+  return { via, sub: null };
+}
+
+/** The allowlist of NN07: probes that truly must repeat inside one gate invocation. Each entry names its program, its exact args and a reason. Empty by decision: nothing in the code needs a repeat. */
+export const NN07_ALLOWLIST = Object.freeze([]);
+
+const spawnKey = (n) => `${n.program}\u0000${n.args.join("\u0000")}\u0000${n.cwd}`;
+const shortArgs = (args) => args.join(" ").replace(/\s+/g, " ").slice(0, 150);
+
+/** NN07: the same program basename with the same arguments in the same directory starts once per gate invocation (parent and children together). */
+export function assertNoDuplicateSpawns(entries, { allow = NN07_ALLOWLIST } = {}) {
+  const problems = [];
+  for (const a of allow) if (!isObject(a) || typeof a.program !== "string" || !Array.isArray(a.args) || typeof a.reason !== "string" || !a.reason.trim()) problems.push(`NN07 allowlist entry without program, args and a reason: ${JSON.stringify(a)}`);
+  const allowed = new Set(allow.filter((a) => isObject(a) && typeof a.reason === "string" && a.reason.trim()).map((a) => `${a.program}\u0000${(a.args ?? []).join("\u0000")}`));
+  const seen = new Map();
+  for (const e of entries) {
+    const n = normalizeSpawn(e);
+    if (allowed.has(`${n.program}\u0000${n.args.join("\u0000")}`)) continue;
+    const k = spawnKey(n);
+    const prev = seen.get(k);
+    if (prev) prev.count += 1; else seen.set(k, { count: 1, n });
+  }
+  const repeats = [...seen.values()].filter((v) => v.count > 1).sort((a, b) => b.count - a.count);
+  for (const v of repeats.slice(0, 25)) problems.push(`${v.count}x ${v.n.program} ${shortArgs(v.n.args)} (cwd ${v.n.cwd})`);
+  if (repeats.length > 25) problems.push(`... and ${repeats.length - 25} more repeated start(s)`);
+  if (repeats.length) problems.unshift(`${repeats.length} identical child process(es) started more than once (${repeats.reduce((s, v) => s + v.count - 1, 0)} redundant start(s) of ${entries.length})`);
+  return { ok: problems.length === 0, problems, distinct: seen.size, starts: entries.length, repeats: repeats.length };
+}
+
+const RUSTFMT_PROBE = /^(--version|-V|-v|--help|-h)$/;
+/** NN08: no `cargo fmt` (through cargo, the shim or rustright), and rustfmt formats once per bucket that ran (a `--version` probe is not a format). `rows` is the run's coverage map. */
+export function assertRustfmtSpawns(entries, rows) {
+  const problems = [];
+  if (!rows) problems.push("no coverage rows: the rustfmt buckets that ran cannot be counted");
+  const ns = entries.map(normalizeSpawn);
+  const fmt = ns.filter((n) => cargoCall(n)?.sub === "fmt");
+  for (const n of fmt.slice(0, 5)) problems.push(`cargo fmt started: ${n.program} ${shortArgs(n.args)} (cwd ${n.cwd})`);
+  const buckets = rows ? [...rows.values()].filter((r) => /^rustfmt(:|$)/.test(r.id) && r.coverage === "ran").length : 0;
+  const formats = ns.filter((n) => n.program === "rustfmt" && !(n.args.length === 1 && RUSTFMT_PROBE.test(n.args[0])));
+  if (rows && formats.length > buckets) problems.push(`${formats.length} rustfmt process(es) formatted for ${buckets} rustfmt bucket(s) that ran: ${formats.slice(0, 3).map((n) => shortArgs(n.args)).join(" | ")}`);
+  return { ok: problems.length === 0, problems, formats: formats.length, buckets };
+}
+
+export const BROKER_FORBIDDEN_CARGO = Object.freeze(["metadata", "fetch", "tree", "locate-project", "pkgid", "verify-project", "read-manifest"]);
+/** NN09: `rustright cargo <non-compiling subcommand>` (or the gate's shim, which carries into the broker) never starts. */
+export function assertNoBrokerNonCompiling(entries) {
+  const problems = [];
+  for (const e of entries) {
+    const n = normalizeSpawn(e); const c = cargoCall(n);
+    if (c && c.via !== "cargo" && c.sub && BROKER_FORBIDDEN_CARGO.includes(c.sub)) problems.push(`${c.via === "rustright" ? "rustright cargo" : "shim cargo"} ${c.sub} went through the broker: ${shortArgs(n.args)} (cwd ${n.cwd})`);
+  }
+  return { ok: problems.length === 0, problems };
+}
+
+/** NN10: a warm run starts no real `cargo metadata` (direct, shim or broker) for the unchanged snapshot: the resident gate answers it. */
+export function assertNoRealCargoMetadata(entries) {
+  const problems = [];
+  const hits = entries.map(normalizeSpawn).filter((n) => cargoCall(n)?.sub === "metadata");
+  if (hits.length) problems.push(`${hits.length} real cargo metadata start(s) in a warm run: ${[...new Set(hits.map((n) => n.cwd))].slice(0, 6).join(", ")}`);
+  return { ok: problems.length === 0, problems, starts: hits.length };
+}
+
+/** `snapshot proof: tree-hashes=<n> verify-walks=<n> resident-proofs=<n>`: the line the gate must print once per run that touches a snapshot (the evidence NN11 needs). */
+export const SNAPSHOT_PROOF = /snapshot proof: tree-hashes=(\d+) verify-walks=(\d+) resident-proofs=(\d+)/;
+/** NN11: the snapshot tree is hashed at most once per run, and a warm run walks it never (the resident index proves it). */
+export function assertSnapshotProof(log, { warm }) {
+  const problems = [];
+  const m = SNAPSHOT_PROOF.exec(String(log));
+  if (!m) return { ok: false, problems: ["the log has no `snapshot proof: tree-hashes=<n> verify-walks=<n> resident-proofs=<n>` line: the gate does not report how often it hashed or walked the snapshot, so NN11 cannot be judged"] };
+  const [hashes, walks, resident] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  if (hashes > 1) problems.push(`the snapshot tree was hashed ${hashes} times in one run, at most 1 is allowed`);
+  if (warm && walks > 0) problems.push(`a warm run walked the snapshot ${walks} time(s) to verify it (${resident} resident proof(s)); the resident index must prove it`);
+  if (warm && resident < 1) problems.push("a warm run reports no resident proof of the snapshot");
+  return { ok: problems.length === 0, problems, hashes, walks, resident };
+}
+
+const DEP_LINE = /snapshot dependencies root=(\S+)(.*)$/gm;
+/** The `env=` digest of the log's `class A bytes ...` line, and `env-at-start=`; null when the line is absent. */
+export function envDigestOf(log) {
+  const line = /class A bytes [^\n]*/.exec(String(log))?.[0];
+  if (!line) return null;
+  return { env: /\benv=([0-9a-f]{64})/.exec(line)?.[1] ?? null, start: /\benv-at-start=([0-9a-f]{64})/.exec(line)?.[1] ?? null };
+}
+/** NN12: every installed root's record matched (`reuse-match=hit`), no `pnpm install` started, and the dependency digest did not change inside the run. */
+export function assertDependencyReuse(log, entries) {
+  const problems = [];
+  const roots = [...String(log).matchAll(DEP_LINE)].filter((m) => !/ not installed:/.test(m[2]));
+  if (roots.length === 0) problems.push("the log has no `snapshot dependencies root=...` line for an installed root");
+  for (const m of roots) { const v = /reuse-match=(\S+)/.exec(m[2])?.[1]; if (v !== "hit") problems.push(`root ${m[1]}: reuse-match=${v ?? "(absent)"}, expected hit`); }
+  const installs = entries.map(normalizeSpawn).filter((n) => n.program === "pnpm" && n.args.includes("install"));
+  for (const n of installs.slice(0, 3)) problems.push(`pnpm install started on a warm run (cwd ${n.cwd})`);
+  const d = envDigestOf(log);
+  if (!d || !d.env || !d.start) problems.push("the log has no `class A bytes ... env-at-start=<digest> env=<digest>` line");
+  else if (d.env !== d.start) problems.push(`the dependency digest changed during the run (env-at-start ${d.start.slice(0, 12)} -> env ${d.env.slice(0, 12)})`);
+  return { ok: problems.length === 0, problems };
+}
+/** NN12 (two identical runs): the dependency digest is the same. */
+export function assertDigestStable(a, b) {
+  const da = envDigestOf(a); const db = envDigestOf(b);
+  if (!da?.env || !db?.env) return { ok: false, problems: ["a warm run's log has no `class A bytes ... env=<digest>` line"] };
+  return da.env === db.env ? { ok: true, problems: [] } : { ok: false, problems: [`the dependency digest differs between identical runs: ${da.env.slice(0, 12)} vs ${db.env.slice(0, 12)}`] };
+}
+
+/** NN13: a `--to check` log never reports build ownership held or joined. */
+export function assertNoOwnershipOnCheck(log) {
+  const lines = String(log).split(/\r?\n/).filter((l) => /build ownership (held|joined) /.test(l));
+  return lines.length === 0 ? { ok: true, problems: [] } : { ok: false, problems: [`--to check took the build-ownership lease: ${lines[0].replace(/^\S+ /, "").slice(0, 120)}`] };
+}
+
+/** NN14: a warm run reports the app rules cached, and any preflight line it prints says cached too. */
+export function assertRulesCached(log) {
+  const problems = [];
+  const text = String(log);
+  if (!/app rules: cached pass/.test(text)) problems.push("the log has no `app rules: cached pass` line: the app rules ran again on an unchanged tree");
+  for (const l of text.split(/\r?\n/)) if (/\bpreflight: /.test(l) && !/cached pass/.test(l)) problems.push(`preflight ran again on an unchanged tree: ${l.replace(/^\S+ /, "").slice(0, 120)}`);
+  return { ok: problems.length === 0, problems };
+}
+
+export const ADVICE_ROW = /^(dependency-freshness|ghsa-audit|pnpm-audit|cargo-deny|cargo-audit)(:|$)/;
+const utcDay = (iso) => String(iso).slice(0, 10); const utcHour = (iso) => String(iso).slice(0, 13);
+/**
+ * NN15: no advice scan runs on a warm run of the same UTC day. The one exception is a row whose key moved while the two runs straddle a UTC day or hour
+ * boundary (the key carries the day or hour). `startedAt`/`prevStartedAt` are the coverage reports' own timestamps.
+ */
+export function assertAdviceCached(prev, next, { startedAt, prevStartedAt } = {}) {
+  const problems = [];
+  const advice = [...next.values()].filter((r) => ADVICE_ROW.test(r.id));
+  if (advice.length === 0) problems.push("no advice rows (dependency-freshness, ghsa-audit, pnpm-audit, cargo-deny, cargo-audit) in the warm run's coverage");
+  const crossed = Boolean(startedAt && prevStartedAt && (utcDay(startedAt) !== utcDay(prevStartedAt) || utcHour(startedAt) !== utcHour(prevStartedAt)));
+  for (const r of advice) {
+    if (r.coverage === "skipped" && r.status !== "not-in-pass") problems.push(`${r.id}: skipped (${r.reason})`);
+    if (r.coverage !== "ran") continue;
+    const before = prev?.get(r.id);
+    if (crossed && before && before.key !== r.key) continue;
+    problems.push(`${r.id}: ran on a warm run of the same UTC day${r.key === null ? " (no cache key)" : before && before.key === r.key ? " with the key it already had" : ""}`);
+  }
+  return { ok: problems.length === 0, problems, advice: advice.length };
+}
+
+/** NN16: a unit list runs Class A once (one coverage report; the later units say it is not run again) and starts no `cargo fmt`. */
+export function assertUnitListShare(log, entries, { units }) {
+  const problems = [];
+  if (!Number.isInteger(units) || units < 2) problems.push(`the unit list names ${units} unit(s), NN16 needs two`);
+  const reports = coveragePaths(log).length;
+  if (reports !== 1) problems.push(`Class A produced ${reports} coverage report(s) for the unit list, expected exactly 1`);
+  const memo = String(log).split(/\r?\n/).filter((l) => /class A \(\w+ tier\) of this unit list already (passed|failed)[^\n]*not run again/.test(l)).length;
+  if (units >= 2 && memo < units - 1) problems.push(`${memo} later unit(s) reused the shared Class A, expected ${units - 1}`);
+  for (const n of entries.map(normalizeSpawn)) { const c = cargoCall(n); if (c?.sub === "fmt") problems.push(`cargo fmt started for a unit list: ${n.program} ${shortArgs(n.args)}`); }
+  return { ok: problems.length === 0, problems, reports, memo };
+}
+
+/** NN17 lanes: every Class A plan line reports as many lanes as the host has cores. */
+export function assertLanes(log, { cores, jobsOverride = undefined }) {
+  const problems = [];
+  if (jobsOverride !== undefined && jobsOverride !== "") problems.push(`RK_GATE_JOBS=${jobsOverride} is set in the runner's environment: the lane count is not the default`);
+  const lanes = [...String(log).matchAll(/class A scans (\d+) at a time/g)].map((m) => Number(m[1]));
+  if (lanes.length === 0) problems.push("the log has no `class A scans N at a time` line");
+  for (const n of lanes) if (n !== cores) problems.push(`class A ran ${n} lane(s) on a ${cores}-core host`);
+  return { ok: problems.length === 0, problems, lanes };
+}
+const COMPILING_CARGO = new Set(["check", "clippy", "build", "test", "doc", "rustc", "nextest", "run", "bench"]);
+/** NN17 batching: the compile log reports shared groups, and the number of compiling cargo starts stays within the groups plus the named solo scans. */
+export function assertBatching(log, entries, { exit }) {
+  const problems = [];
+  const text = String(log);
+  const note = /class B batching: (\d+) compile scan\(s\) in (\d+) configuration group\(s\)[^\n]*?\((\d+) scan\(s\) in (\d+) shared group\(s\)\)/.exec(text);
+  if (!note) return { ok: false, problems: ["the compile log has no `class B batching: N compile scan(s) in G configuration group(s) ... (M scan(s) in K shared group(s))` note"] };
+  const [scans, groups, shared, sharedGroups] = note.slice(1).map(Number);
+  const solo = [...text.matchAll(/class B batching: (\d+) compile scan\(s\) stay their own invocation/g)].reduce((s, m) => s + Number(m[1]), 0);
+  if (scans >= 2 && (shared === 0 || sharedGroups === 0)) problems.push(`${scans} Class B scans planned and no compatible group was batched (${shared} scan(s) in ${sharedGroups} shared group(s))`);
+  if (exit === 0) {
+    const invocations = entries.map(normalizeSpawn).filter((n) => { const c = cargoCall(n); return c && c.via !== "cargo" && COMPILING_CARGO.has(c.sub); });
+    if (invocations.length > groups + solo) problems.push(`${invocations.length} compiling cargo invocation(s) for ${groups} configuration group(s) and ${solo} solo scan(s): a compatible group ran as separate invocations`);
+  }
+  return { ok: problems.length === 0, problems, scans, groups, shared, sharedGroups, solo };
+}
+
+const EXECUTING_ROW = /^(tsc|eslint|biome|vitest|test|generated-docs|swift-typecheck|pnpm-lockfile|pnpm-audit|pnpm)(:|$)/;
+/** Whether a Class A row executes repository code or installed dependencies and may therefore carry the environment digest (gate: `executes` or tool pnpm). */
+export const isExecutingRow = (id) => EXECUTING_ROW.test(id);
+/** Whether a coverage key carries one of the environment digests (verbatim, or as the value of a property named like env). */
+export function keyCarriesEnvironment(key, digests) {
+  if (typeof key !== "string") return false;
+  for (const d of digests) if (key.includes(d) || key.includes(d.slice(0, 32))) return true;
+  try {
+    const walk = (v, name) => {
+      if (typeof v === "string") return /env/i.test(name) && /^[0-9a-f]{32,64}$/.test(v);
+      if (Array.isArray(v)) return v.some((x) => walk(x, name));
+      if (isObject(v)) return Object.entries(v).some(([k, x]) => walk(x, k));
+      return false;
+    };
+    return walk(JSON.parse(key), "");
+  } catch { return false; }
+}
+/** NN06: no non-executing row's key carries the environment digest. `digests` are the env digests the runs' logs print. */
+export function assertEnvDigestScope(rows, digests) {
+  const problems = [];
+  if (digests.length === 0) return { ok: false, problems: ["no run log prints a class A `env=<digest>`: the digest a non-executing key must not carry cannot be identified"] };
+  for (const r of rows.values()) {
+    if (r.class !== "A" || r.coverage === "skipped" || isExecutingRow(r.id)) continue;
+    if (keyCarriesEnvironment(r.key, digests)) problems.push(`${r.id}: a non-executing row's key carries the environment digest`);
+  }
+  return { ok: problems.length === 0, problems };
+}
+
+/** NN05: two identical runs give every row the same key. A scan answered in only one run, or one without a key, cannot show stability and fails. */
+export function assertKeysStable(a, b) {
+  const problems = [];
+  const answered = (r) => r && !(r.coverage === "skipped" && r.status === "not-in-pass");
+  for (const id of new Set([...a.keys(), ...b.keys()])) {
+    const x = a.get(id); const y = b.get(id);
+    if (!answered(x) && !answered(y)) continue;
+    if (!answered(x) || !answered(y)) { problems.push(`${id}: present in only one of the two runs`); continue; }
+    if (x.coverage === "skipped" && y.coverage === "skipped") continue;
+    if (x.key === null || y.key === null) { problems.push(`${id}: no cache key in ${x.key === null ? "the first" : "the second"} run, so its stability cannot be shown`); continue; }
+    if (x.key !== y.key) problems.push(`${id}: key differs between identical runs`);
+  }
+  return { ok: problems.length === 0, problems };
+}
+
+/** NN01: no Class A row ran on an unchanged commit. */
+export function assertNoClassARan(rows) {
+  const ran = [...rows.values()].filter((r) => r.class === "A" && r.coverage === "ran");
+  return { ok: ran.length === 0, problems: ran.map((r) => `${r.id}: Class A row ran on an unchanged commit (${r.reason})`), ran: ran.map((r) => r.id) };
+}
+/** NN02: no Class B row ran on an unchanged commit. A row that failed in `prev` and fails again is reported in `reported`, never counted as a pass of the run. */
+export function assertNoClassBRan(rows, prev = null) {
+  const problems = []; const reported = [];
+  const b = [...rows.values()].filter((r) => r.class === "B");
+  if (b.length === 0) problems.push("the compile coverage has no Class B row");
+  for (const r of b) {
+    if (r.coverage !== "ran") continue;
+    const before = prev?.get(r.id);
+    if (r.status === "fail" && before?.status === "fail") { reported.push(`${r.id}: failed before and still fails (reported, not re-run silently)`); continue; }
+    problems.push(`${r.id}: Class B row ran on an unchanged commit (${r.status})`);
+  }
+  return { ok: problems.length === 0, problems, reported };
+}
+
+const WORKSPACE_FAMILY = /^(cargo-metadata|cargo-deny|cargo-audit|ghsa-audit|cargo-package-list|clippy|check)(:|$)/;
+/** NN04: after a manifest edit no workspace-scoped row of another workspace ran. */
+export function assertOtherWorkspacesIdle(next, { workspace, workspaces = [], crates = {} }) {
+  const problems = [];
+  if (typeof workspace !== "string") return { ok: false, problems: ["the edited manifest's workspace is not known"] };
+  const wsOf = (label) => (workspaces.includes(label) ? label : workspaces.find((w) => w === `crates/${label}`) ?? Object.entries(crates).find(([, names]) => names.includes(label.includes(":") ? label.slice(label.lastIndexOf(":") + 1) : label))?.[0] ?? null);
+  let seenOwn = false;
+  for (const r of next.values()) {
+    const m = WORKSPACE_FAMILY.exec(r.id);
+    if (!m) continue;
+    const label = r.id.slice(m[0].length);
+    const ws = m[1] === "cargo-metadata" && r.id === "cargo-metadata" ? "." : wsOf(label);
+    if (ws === workspace) seenOwn = true;
+    if (r.coverage !== "ran") continue;
+    if (ws === null) problems.push(`${r.id}: ran and belongs to no known workspace`);
+    else if (ws !== workspace) problems.push(`${r.id}: a row of workspace ${JSON.stringify(ws)} ran for an edit in workspace ${JSON.stringify(workspace)}`);
+  }
+  if (!seenOwn) problems.push(`no workspace-scoped row of ${JSON.stringify(workspace)} exists in the run`);
+  return { ok: problems.length === 0, problems };
+}
+
+// ---- NN18: budgets and stage timings -------------------------------------------------------------------------------------------------------
+
+const stampOf = (line) => { const m = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z) /.exec(line); return m ? Date.parse(m[1]) : null; };
+/**
+ * Stage durations from the stamped log. The line pairs (also written into ci/gate-acceptance-budgets.json):
+ *  ownership       run start (the runner's launch time) -> first `build ownership held|joined` line; 0 when the run takes no lease (a `--to check`, NN13)
+ *  snapshotSync    ownership line (else run start) -> `snapshot <dir> is commit <sha> tree <sha> (written=...` line
+ *  planning        `rightkit-gate: --to <stage> for <sha12>: ...` line -> `<n> scan(s) for <m> changed file(s) vs <sha12>; class A scans <j> at a time` line
+ *  dependencyStep  that plan line -> the first `snapshot dependencies root=` line (a compile prints a second one later, after Class A)
+ * A named line that is missing is a problem (the stage cannot be timed), except the ownership line, whose absence is the stage being 0.
+ */
+export function stageMarks(log, startedMs) {
+  const lines = String(log).split(/\r?\n/);
+  const first = (re) => lines.find((l) => re.test(l));
+  const last = (re) => [...lines].reverse().find((l) => re.test(l));
+  const problems = [];
+  const t = (line, what) => { const ms = line ? stampOf(line) : null; if (ms === null) problems.push(`no stamped \`${what}\` line`); return ms; };
+  const own = first(/build ownership (held|joined) /);
+  const ownT = own ? stampOf(own) : null;
+  const sync = t(first(/snapshot \S+ is commit [0-9a-f]{40} tree [0-9a-f]{40} \(written=/), "snapshot ... is commit ... (written=");
+  const stageStart = t(first(/rightkit-gate: --to \w+ for [0-9a-f]{12}/), "--to <stage> for <sha>");
+  const plan = t(first(/\d+ scan\(s\) for \d+ changed file\(s\) vs [0-9a-f]{12}; class A scans \d+ at a time/), "<n> scan(s) for <m> changed file(s) ...; class A scans <j> at a time");
+  const deps = t(first(/snapshot dependencies root=/), "snapshot dependencies root=");
+  const span = (a, b, what) => { if (a === null || b === null) return null; if (b < a) { problems.push(`${what}: the closing line is stamped before the opening line`); return null; } return b - a; };
+  const marks = {
+    ownership: own ? span(startedMs, ownT, "ownership") : 0,
+    snapshotSync: span(ownT ?? startedMs, sync, "snapshotSync"),
+    planning: span(stageStart, plan, "planning"),
+    dependencyStep: span(plan, deps, "dependencyStep"),
+  };
+  return { marks, problems };
+}
+
+export const BUDGET_STAGES = Object.freeze(["ownership", "snapshotSync", "dependencyStep", "planning"]);
+/** Validates the budgets file: schema, a hosts object with mac and dell, every number positive or null. */
+export function validateBudgets(b) {
+  const problems = [];
+  if (!isObject(b)) return { ok: false, problems: ["budgets file is not an object"] };
+  if (b.schema !== BUDGETS_SCHEMA) problems.push(`budgets.schema is ${JSON.stringify(b.schema)}, expected ${BUDGETS_SCHEMA}`);
+  if (!isObject(b.hosts)) problems.push("budgets.hosts is not an object");
+  else for (const host of ["mac", "dell"]) {
+    const h = b.hosts[host];
+    if (!isObject(h)) { problems.push(`budgets.hosts.${host} is missing`); continue; }
+    const num = (v, where) => { if (v !== null && !(Number.isFinite(v) && v > 0)) problems.push(`${where} is neither null nor a positive number`); };
+    num(h.warmCheckMs, `hosts.${host}.warmCheckMs`); num(h.warmCompileMs, `hosts.${host}.warmCompileMs`);
+    if (!isObject(h.stages)) problems.push(`hosts.${host}.stages is missing`); else for (const s of BUDGET_STAGES) { if (!(s in h.stages)) problems.push(`hosts.${host}.stages.${s} is missing`); else num(h.stages[s], `hosts.${host}.stages.${s}`); }
+  }
+  return { ok: problems.length === 0, problems };
+}
+export function loadBudgets(file = BUDGETS_FILE) {
+  let parsed; try { parsed = JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { return { budgets: null, problem: `cannot read ${file}: ${e.message}` }; }
+  const v = validateBudgets(parsed);
+  return v.ok ? { budgets: parsed, problem: null } : { budgets: null, problem: `${file}: ${v.problems.join("; ")}` };
+}
+/**
+ * NN18: each warm run's wall time and fixed-stage durations stay inside the host's budget. `runs` is `[{ label, kind: "check"|"compile", ms, marks }]`.
+ * A null budget FAILS ("no budget measured"): a host with no measurement is never passed.
+ */
+export function assertBudget({ host, budgets, runs }) {
+  const problems = [];
+  const h = budgets?.hosts?.[host];
+  if (!h) return { ok: false, problems: [`no budget for host ${host} in ${BUDGETS_FILE}`] };
+  const need = (v, what) => { if (v === null || v === undefined) { problems.push(`no budget measured for ${host}: ${what}`); return false; } return true; };
+  for (const r of runs) {
+    const total = r.kind === "compile" ? h.warmCompileMs : h.warmCheckMs;
+    if (need(total, r.kind === "compile" ? "warmCompileMs" : "warmCheckMs") && r.ms > total) problems.push(`${r.label}: warm --to ${r.kind} took ${r.ms} ms, budget ${total} ms`);
+    for (const s of BUDGET_STAGES) {
+      const v = r.marks?.[s];
+      if (v === null || v === undefined) { problems.push(`${r.label}: stage ${s} could not be timed`); continue; }
+      if (need(h.stages?.[s], `stages.${s}`) && v > h.stages[s]) problems.push(`${r.label}: stage ${s} took ${v} ms, budget ${h.stages[s]} ms`);
+    }
+  }
+  if (runs.length === 0) problems.push("no warm run to measure");
+  return { ok: problems.length === 0, problems };
+}
+
+// ---- NN19: the gate under test ----------------------------------------------------------------------------------------------------------------
+
+/** The newest sealed install under `<managed root>/trusted-gates` (a folder named by the sha256 of its manifest, as agent-bin/rightkit-host-gate trusts it): `{ version, entry }` or null. */
+export function findInstalledGate(managedRoot, { read = (f) => fs.readFileSync(f), list = (d) => fs.readdirSync(d) } = {}) {
+  const root = path.join(managedRoot, "trusted-gates");
+  let names; try { names = list(root); } catch { return null; }
+  const found = [];
+  for (const name of names) {
+    if (!/^[a-f0-9]{64}$/.test(name)) continue;
+    try {
+      if (sha256(read(path.join(root, `${name}.manifest.txt`))) !== name) continue;
+      const pkgDir = path.join(root, name, "node_modules", "@rightkit", "release");
+      const pkg = JSON.parse(String(read(path.join(pkgDir, "package.json"))));
+      if (pkg?.name === "@rightkit/release" && /^\d+\.\d+\.\d+$/.test(pkg.version)) found.push({ version: pkg.version, entry: path.join(pkgDir, "bin", "rightkit-gate.mjs") });
+    } catch { /* not a sealed install */ }
+  }
+  const key = (v) => v.split(".").map(Number);
+  found.sort((a, b) => { const x = key(a.version); const y = key(b.version); for (let i = 0; i < 3; i += 1) if (x[i] !== y[i]) return y[i] - x[i]; return 0; });
+  return found[0] ?? null;
+}
+/**
+ * NN19: the gate that runs is the installed sealed gate. Without `--gate` the default launcher must exist, report the newest sealed install's version
+ * and not exec the checkout's gate; a checkout gate is accepted only when `--gate` names it (and the result then says so: `kind: "named"`).
+ */
+export function gateIdentityProblems({ gateArg, defaultGate, launcherExists, launcherVersion, launcherText = "", installed, checkoutRoot }) {
+  const problems = [];
+  const named = gateArg !== undefined && gateArg !== null && path.normalize(gateArg) !== path.normalize(defaultGate);
+  if (!launcherExists) problems.push(`the launcher ${named ? gateArg : defaultGate} does not exist`);
+  if (!launcherVersion) problems.push("`--version` of the launcher printed no version");
+  if (!named) {
+    const entry = path.join(checkoutRoot, "packages", "release", "bin", "rightkit-gate.mjs");
+    if (String(launcherText).includes(entry)) problems.push(`the default launcher runs the checkout gate ${entry} and no --gate names it`);
+    if (!installed) problems.push("no sealed installed gate under trusted-gates, so the installed gate's identity cannot be established");
+    else if (launcherVersion && launcherVersion !== installed.version) problems.push(`the launcher reports ${launcherVersion}, the newest sealed install is ${installed.version}: not the installed gate`);
+  }
+  return { ok: problems.length === 0, problems, kind: named ? "named" : "installed" };
+}
+
+// ---- Evaluation over a run's evidence --------------------------------------------------------------------------------------------------------
+
+const PREV_WARM = Object.freeze({ "S2:check": "S1:check", "S2:compile": "S1:compile", "S2:check2": "S2:check", "S2:compile2": "S2:compile" });
+const kindOf = (label) => (/compile/.test(label) ? "compile" : "check");
+const bad = (label, problems, evidence = []) => ({ label, ok: false, problems, evidence });
+const checkFor = (label, res, evidence) => ({ label, ok: res.ok, problems: res.problems, evidence });
+
+/** A run usable as warm or edit evidence: it executed, exited 0 and wrote coverage rows; otherwise a failing check names why. */
+function usableRun(ctx, label, { rows = true, red = false } = {}) {
+  const run = ctx.runs[label];
+  if (!run) return { fail: bad(label, [`run ${label} did not execute, so its evidence does not exist`]) };
+  // `red`: Class A coverage, keys, ledger and log lines of a compile that failed in Class B are still evidence of the Class A properties (NN01, 05, 06, 10, 12, 14, 15).
+  if (run.exit !== 0 && !(red && run.rows)) return { fail: bad(label, [`run ${label} exited ${run.exit}${run.timedOut ? " (timed out)" : ""}: its evidence cannot stand for a passing run`], [run.logPath]) };
+  if (rows && !run.rows) return { fail: bad(label, [`run ${label} wrote no readable coverage report`], [run.logPath]) };
+  return { run };
+}
+/** The run's spawn ledger entries, or a failing check: the gate under test must emit it (RK_GATE_SPAWN_LEDGER). */
+function ledgerOf(run, label) {
+  if (!run.ledgerPath) return { fail: bad(label, [`run ${label} was not started with RK_GATE_SPAWN_LEDGER`]) };
+  if (!run.ledger) return { fail: bad(label, [`run ${label} wrote no spawn ledger at ${run.ledgerPath}: the gate under test does not emit RK_GATE_SPAWN_LEDGER (spawn-ledger.mjs installed by the gate entry)`], [run.ledgerPath]) };
+  if (run.ledger.problems.length) return { fail: bad(label, run.ledger.problems.slice(0, 5), [run.ledgerPath]) };
+  if (run.ledger.entries.length === 0) return { fail: bad(label, [`the spawn ledger ${run.ledgerPath} is empty: a gate run starts child processes, so it was not recorded`], [run.ledgerPath]) };
+  return { entries: run.ledger.entries };
+}
+const warmRuns = (ctx, opts = {}) => WARM_LABELS.map((label) => ({ label, ...usableRun(ctx, label, opts) }));
+const RED = { red: true };
+const ledgerRuns = (ctx) => Object.entries(ctx.runs).filter(([, r]) => r.ledgerPath !== undefined && !r.kill);
+
+const NN_EVAL = {
+  NN01: (ctx) => warmRuns(ctx, RED).map((w) => w.fail ?? checkFor(w.label, assertNoClassARan(w.run.rows), w.run.coveragePaths)),
+  NN02: (ctx) => ["S2:compile", "S2:compile2"].map((label) => {
+    const w = usableRun(ctx, label); if (w.fail) return w.fail;
+    const prev = ctx.runs["S1:compile"]?.rows ?? null;
+    const r = assertNoClassBRan(w.run.rows, prev);
+    return { ...checkFor(label, r, w.run.coveragePaths), reported: r.reported };
+  }),
+  NN03: (ctx) => {
+    const s3 = usableRun(ctx, "S3:check"); if (s3.fail) return [{ ...s3.fail, problems: [...s3.fail.problems, ctx.s3Why ?? ""].filter(Boolean) }];
+    const prev = ctx.runs["S2:check2"]?.rows ?? ctx.runs["S2:check"]?.rows ?? ctx.runs["S1:check"]?.rows;
+    if (!prev) return [bad("S3:check", ["no earlier check run to compare the edit against"])];
+    return [checkFor("S3:check", assertOneFileEdit(prev, s3.run.rows), [...s3.run.coveragePaths])];
+  },
+  NN04: (ctx) => {
+    const s4 = usableRun(ctx, "S4:check"); if (s4.fail) return [{ ...s4.fail, problems: [...s4.fail.problems, ctx.s4Why ?? ""].filter(Boolean) }];
+    if (!s4.run.manifestInfo) return [bad("S4:check", ["the edited manifest's workspace is not known"])];
+    return [checkFor("S4:check", assertOtherWorkspacesIdle(s4.run.rows, s4.run.manifestInfo), s4.run.coveragePaths)];
+  },
+  NN05: (ctx) => [["S2:check", "S2:check2"], ["S2:compile", "S2:compile2"]].map(([a, b]) => {
+    const x = usableRun(ctx, a, RED); const y = usableRun(ctx, b, RED);
+    if (x.fail || y.fail) return x.fail ?? y.fail;
+    return checkFor(`${a} vs ${b}`, assertKeysStable(x.run.rows, y.run.rows), [...x.run.coveragePaths, ...y.run.coveragePaths]);
+  }),
+  NN06: (ctx) => {
+    const labels = ["S1:check", "S1:compile", ...WARM_LABELS, "S3:check", "S4:check"].filter((l) => ctx.runs[l]);
+    const digests = new Set();
+    for (const l of labels) { const d = envDigestOf(ctx.runs[l].log); if (d?.env) digests.add(d.env); if (d?.start) digests.add(d.start); }
+    const out = [];
+    for (const l of labels) { const w = usableRun(ctx, l, RED); if (w.fail) { out.push(w.fail); continue; } out.push(checkFor(l, assertEnvDigestScope(w.run.rows, [...digests]), w.run.coveragePaths)); }
+    return out.length ? out : [bad("S1/S2", ["no check or compile run produced coverage keys"])];
+  },
+  NN07: (ctx) => ledgerRuns(ctx).map(([label, run]) => { const l = ledgerOf(run, label); return l.fail ?? checkFor(label, assertNoDuplicateSpawns(l.entries), [run.ledgerPath]); }),
+  NN08: (ctx) => ledgerRuns(ctx).filter(([, r]) => r.exit === 0).map(([label, run]) => { const l = ledgerOf(run, label); return l.fail ?? checkFor(label, assertRustfmtSpawns(l.entries, run.rows), [run.ledgerPath, ...run.coveragePaths]); }),
+  NN09: (ctx) => ledgerRuns(ctx).map(([label, run]) => { const l = ledgerOf(run, label); return l.fail ?? checkFor(label, assertNoBrokerNonCompiling(l.entries), [run.ledgerPath]); }),
+  NN10: (ctx) => warmRuns(ctx, RED).map((w) => { if (w.fail) return w.fail; const l = ledgerOf(w.run, w.label); return l.fail ?? checkFor(w.label, assertNoRealCargoMetadata(l.entries), [w.run.ledgerPath]); }),
+  NN11: (ctx) => {
+    const cold = ["S1:check", "S1:compile"].filter((l) => ctx.runs[l]);
+    const out = cold.map((label) => checkFor(label, assertSnapshotProof(ctx.runs[label].log, { warm: false }), [ctx.runs[label].logPath]));
+    for (const w of warmRuns(ctx, RED)) out.push(w.fail ?? checkFor(w.label, assertSnapshotProof(w.run.log, { warm: true }), [w.run.logPath]));
+    return out;
+  },
+  NN12: (ctx) => {
+    const out = warmRuns(ctx, RED).map((w) => { if (w.fail) return w.fail; const l = ledgerOf(w.run, w.label); return l.fail ?? checkFor(w.label, assertDependencyReuse(w.run.log, l.entries), [w.run.logPath, w.run.ledgerPath]); });
+    for (const [a, b] of [["S2:check", "S2:check2"], ["S2:compile", "S2:compile2"]]) {
+      const x = ctx.runs[a]; const y = ctx.runs[b];
+      if (x && y) out.push(checkFor(`${a} vs ${b}`, assertDigestStable(x.log, y.log), [x.logPath, y.logPath]));
+    }
+    return out;
+  },
+  NN13: (ctx) => {
+    const out = Object.entries(ctx.runs).filter(([, r]) => r.stage === "check" && r.ledgerPath !== undefined && !r.kill).map(([label, r]) => checkFor(label, assertNoOwnershipOnCheck(r.log), [r.logPath]));
+    return out;
+  },
+  NN14: (ctx) => warmRuns(ctx, RED).map((w) => w.fail ?? checkFor(w.label, assertRulesCached(w.run.log), [w.run.logPath])),
+  NN15: (ctx) => warmRuns(ctx, RED).map((w) => {
+    if (w.fail) return w.fail;
+    const prevRun = ctx.runs[PREV_WARM[w.label]];
+    return checkFor(w.label, assertAdviceCached(prevRun?.rows ?? null, w.run.rows, { startedAt: w.run.coverageStarts?.[0], prevStartedAt: prevRun?.coverageStarts?.[0] }), w.run.coveragePaths);
+  }),
+  NN16: (ctx) => {
+    const run = ctx.runs["S10:units"];
+    if (!run) return [bad("S10:units", [ctx.unitsWhy ?? "the unit-list run did not execute"])];
+    if (run.exit !== 0) return [bad("S10:units", [`the unit-list run exited ${run.exit}`], [run.logPath])];
+    const l = ledgerOf(run, "S10:units"); if (l.fail) return [l.fail];
+    return [checkFor("S10:units", assertUnitListShare(run.log, l.entries, { units: run.units?.length ?? 0 }), [run.logPath, run.ledgerPath])];
+  },
+  NN17: (ctx) => {
+    const labels = Object.keys(ctx.runs).filter((l) => /^S[12]:/.test(l) && ctx.runs[l].ledgerPath !== undefined && /class A scans \d+ at a time/.test(ctx.runs[l].log));
+    const out = labels.map((l) => checkFor(`lanes ${l}`, assertLanes(ctx.runs[l].log, { cores: ctx.cores, jobsOverride: ctx.jobsEnv }), [ctx.runs[l].logPath]));
+    if (!out.length) out.push(bad("lanes", ["no run's log has a `class A scans N at a time` line"]));
+    const compiles = ["S1:compile", "S2:compile", "S2:compile2"].filter((l) => ctx.runs[l]);
+    if (!compiles.length) out.push(bad("batching", ["no compile run to read the class B batching note from"]));
+    for (const l of compiles) { const run = ctx.runs[l]; const le = ledgerOf(run, l); out.push(le.fail ?? checkFor(`batching ${l}`, assertBatching(run.log, le.entries, { exit: run.exit }), [run.logPath, run.ledgerPath])); }
+    return out;
+  },
+  NN18: (ctx) => {
+    const runs = []; const out = [];
+    if (ctx.budgetProblem) out.push(bad("budgets", [ctx.budgetProblem], [BUDGETS_FILE]));
+    for (const w of warmRuns(ctx)) {
+      if (w.fail) { out.push(w.fail); continue; }
+      const m = stageMarks(w.run.log, w.run.startedMs);
+      if (m.problems.length) out.push(bad(w.label, m.problems, [w.run.logPath]));
+      runs.push({ label: w.label, kind: kindOf(w.label), ms: w.run.ms, marks: m.marks });
+    }
+    if (!ctx.budgetProblem) out.push(checkFor("budget", assertBudget({ host: ctx.host, budgets: ctx.budgets, runs }), [BUDGETS_FILE]));
+    out.measured = runs;
+    return out;
+  },
+  NN19: (ctx) => [checkFor("gate", ctx.gateIdentity ?? { ok: false, problems: ["the gate's identity was not established"] }, [ctx.gateIdentityEvidence ?? "--version, launcher"])],
+};
+
+/** One result per non-negotiable: `{ id, title, steps, status: "pass"|"fail"|"not-evaluated", problems[], checks[], evidence[] }`. A selected NN with no evidence fails. */
+export function evaluateNonNegotiables(ctx) {
+  const wanted = new Set(ctx.wanted ?? []);
+  return NN.map((nn) => {
+    const base = { id: nn.id, title: nn.title, steps: nn.steps, evidenceSource: nn.evidence };
+    // Evaluated only when every step that produces its evidence was selected: a subset run cannot judge it, and says so (the verdict marks the run partial).
+    if (!nn.always && !nn.steps.every((s) => wanted.has(s))) return { ...base, status: "not-evaluated", problems: [`steps ${nn.steps.filter((x) => !wanted.has(x)).join(", ")} not selected`], checks: [], evidence: [] };
+    let checks;
+    try { checks = NN_EVAL[nn.id](ctx); } catch (e) { checks = [bad("assertion", [`assertion threw: ${e.stack ?? e.message}`])]; }
+    const measured = checks.measured;
+    if (!checks.length) checks = [bad("evidence", [`no evidence for ${nn.id}: ${nn.evidence}`])];
+    const failed = checks.filter((c) => !c.ok);
+    return { ...base, status: failed.length ? "fail" : "pass", problems: failed.flatMap((c) => c.problems.map((p) => (c.label ? `${c.label}: ${p}` : p))), checks: checks.map((c) => ({ label: c.label, ok: c.ok, ...(c.reported?.length ? { reported: c.reported } : {}) })), evidence: [...new Set(checks.flatMap((c) => c.evidence ?? []))], ...(measured ? { measured } : {}) };
+  });
 }
 
 export const CHECKS = {
@@ -940,7 +1532,7 @@ export function summarizeClause(id, checks, { allowInstall = true } = {}) {
 /** Steps a PASS tolerates as unchecked: unchecked by design (S5). Any other selected step that did not pass blocks the verdict. */
 const BY_DESIGN_UNCHECKED = new Set(STEPS.filter((s) => s.byDesignUnchecked).map((s) => s.id));
 
-export function buildResult({ host, gate, broker, commit, steps, clauseChecks, startedAt, endedAt, notes = [], allowInstall = true, stepChecks = [] }) {
+export function buildResult({ host, gate, broker, commit, steps, clauseChecks, startedAt, endedAt, notes = [], allowInstall = true, stepChecks = [], nonNegotiables = [] }) {
   const clauses = Object.keys(CLAUSES).map((id) => summarizeClause(id, clauseChecks[id], { allowInstall }));
   const counts = { pass: 0, fail: 0, unchecked: 0 };
   for (const c of clauses) counts[c.status] += 1;
@@ -951,19 +1543,30 @@ export function buildResult({ host, gate, broker, commit, steps, clauseChecks, s
     ...stepsOut.filter((s) => s.status === "unchecked" && !BY_DESIGN_UNCHECKED.has(s.id)).map((s) => `step ${s.id} did not run as specified`),
     ...stepChecks.filter((c) => !c.ok).map((c) => `${c.step} check "${c.name}" failed`),
   ];
-  if (counts.pass === 0) blockers.push("no clause passed");
   const partial = stepsOut.length < STEPS.length;
+  // Non-negotiables (GC-A27): any failure blocks; in a full run every one must be present and passing (never unchecked, never absent).
+  const nnById = new Map(nonNegotiables.map((n) => [n.id, n]));
+  const nnCounts = { pass: 0, fail: 0, notEvaluated: 0 };
+  for (const id of NN_IDS) {
+    const n = nnById.get(id);
+    if (n?.status === "pass") nnCounts.pass += 1;
+    else if (n?.status === "not-evaluated" && partial) nnCounts.notEvaluated += 1;
+    else { nnCounts.fail += 1; blockers.push(n ? (n.status === "fail" ? `non-negotiable ${id} failed` : `non-negotiable ${id} was not evaluated in a full run`) : `non-negotiable ${id} has no result`); }
+  }
+  if (counts.pass === 0) blockers.push("no clause passed");
   const ok = blockers.length === 0;
   const asserted = counts.pass + counts.fail;
-  const tail = `${asserted} of ${clauses.length} asserted, ${counts.unchecked} unchecked`;
+  const nnText = `non-negotiables ${nnCounts.pass} of ${NN_IDS.length} passed${nnCounts.notEvaluated ? `, ${nnCounts.notEvaluated} not evaluated (steps not selected)` : ""}${nnCounts.fail ? `, ${nnCounts.fail} failed` : ""}`;
+  const tail = `${asserted} of ${clauses.length} asserted, ${counts.unchecked} unchecked; ${nnText}`;
   const verdictText = ok ? `PASS (${tail}${partial ? `; partial run: steps ${stepsOut.map((s) => s.id).join(",")} only` : ""})` : `NOT PASSED (${tail}; ${counts.fail} failed clause(s); ${blockers.length} blocker(s))`;
-  return { schema: RESULT_SCHEMA, host, gate, broker, fixtureCommit: commit, startedAt, endedAt, steps: stepsOut, stepChecks, clauses, totals: { clauses: clauses.length, ...counts }, ok, verdict: verdictText, blockers, partial, notes };
+  return { schema: RESULT_SCHEMA, host, gate, broker, fixtureCommit: commit, startedAt, endedAt, steps: stepsOut, stepChecks, clauses, nonNegotiables, totals: { clauses: clauses.length, ...counts, nonNegotiables: nnCounts }, ok, verdict: verdictText, blockers, partial, notes };
 }
 
 export function formatSummary(result) {
   const lines = [`gate acceptance ${result.verdict}  host ${result.host}  commit ${String(result.fixtureCommit).slice(0, 12)}`, `clauses: ${result.totals.pass} pass, ${result.totals.fail} fail, ${result.totals.unchecked} unchecked of ${result.totals.clauses}`];
   for (const b of result.blockers) lines.push(`  BLOCKER ${b}`);
   for (const c of result.clauses.filter((x) => x.status === "fail")) lines.push(`  FAIL ${c.id}: ${c.problems.slice(0, 2).join(" | ").slice(0, 200)}  [${c.evidence.slice(0, 2).join(", ")}]`);
+  for (const n of (result.nonNegotiables ?? [])) lines.push(`  ${n.id} ${n.status}${n.status === "fail" ? `: ${n.problems.slice(0, 2).join(" | ").slice(0, 220)}` : ""}`);
   for (const sc of (result.stepChecks ?? []).filter((x) => !x.ok)) lines.push(`  FAIL ${sc.step} ${sc.name}: ${sc.problems.slice(0, 2).join(" | ").slice(0, 200)}`);
   for (const s of result.steps) lines.push(`  ${s.id} ${s.status} ${s.title}`);
   return lines.join("\n");
@@ -982,6 +1585,16 @@ function git(cwd, args, { env = {}, input, buffer = false } = {}) {
 }
 
 /** Workspace directory a Cargo manifest belongs to: the nearest ancestor directory in `wsDirs`, else the manifest's own directory (a standalone package). */
+/** Up to `n` unit selectors of the gate's grammar (crate and npm units named by a commit's tracked files), in sorted order. */
+export function unitSelectorsOf(tracked, n = 2) {
+  const out = [];
+  for (const f of [...tracked].sort()) {
+    const c = /^crates\/(rightkit-[a-z0-9-]+)\/Cargo\.toml$/.exec(f); const p = /^packages\/([a-z0-9-]+)\/package\.json$/.exec(f);
+    if (c) out.push(`cargo:${c[1]}`); else if (p) out.push(`npm:@rightkit/${p[1]}`);
+  }
+  return out.slice(0, n);
+}
+
 export function cargoWorkspaceOf(file, wsDirs) {
   const dir = path.posix.dirname(file);
   for (let d = dir; ; d = path.posix.dirname(d)) {
@@ -1139,11 +1752,11 @@ function signalGroup(child, signal) {
 function runGate({ gate, cwd, args, env = process.env, timeoutMs = 3_600_000 }) {
   return new Promise((resolve) => {
     const t0 = Date.now(); let log = ""; let timedOut = false; let child;
-    try { child = launch({ gate, args, cwd, env }); } catch (e) { resolve({ exit: null, signal: null, log: `spawn error: ${e.message}`, ms: 0, timedOut: false }); return; }
+    try { child = launch({ gate, args, cwd, env }); } catch (e) { resolve({ exit: null, signal: null, log: `spawn error: ${e.message}`, ms: 0, startedMs: t0, timedOut: false }); return; }
     const timer = setTimeout(() => { timedOut = true; signalGroup(child, "SIGKILL"); }, timeoutMs);
     child.stdout.on("data", (d) => { log += d; }); child.stderr.on("data", (d) => { log += d; });
-    child.on("close", (exit, signal) => { clearTimeout(timer); resolve({ exit, signal, log: timedOut ? `${log}\ngate-acceptance: timed out after ${timeoutMs} ms; the process group was killed` : log, ms: Date.now() - t0, timedOut }); });
-    child.on("error", (e) => { clearTimeout(timer); resolve({ exit: null, signal: null, log: `${log}\nspawn error: ${e.message}`, ms: Date.now() - t0, timedOut }); });
+    child.on("close", (exit, signal) => { clearTimeout(timer); resolve({ exit, signal, log: timedOut ? `${log}\ngate-acceptance: timed out after ${timeoutMs} ms; the process group was killed` : log, ms: Date.now() - t0, startedMs: t0, timedOut }); });
+    child.on("error", (e) => { clearTimeout(timer); resolve({ exit: null, signal: null, log: `${log}\nspawn error: ${e.message}`, ms: Date.now() - t0, startedMs: t0, timedOut }); });
   });
 }
 
@@ -1204,7 +1817,7 @@ function readSourceIdentity(snapshotPath, commit, g) {
 
 async function main(argv) {
   const opt = (name) => { const i = argv.indexOf(name); return i < 0 ? undefined : argv[i + 1]; };
-  const known = new Set(["--fixture", "--host", "--steps", "--out", "--plan", "--gate", "--commit", "--leaf-file", "--manifest-file", "--kill-after-ms", "--allow-install", "--help"]);
+  const known = new Set(["--fixture", "--host", "--steps", "--out", "--plan", "--gate", "--commit", "--leaf-file", "--manifest-file", "--kill-after-ms", "--allow-install", "--budgets", "--help"]);
   for (const a of argv) if (a.startsWith("--") && !known.has(a)) { console.error(`gate-acceptance: unknown option ${a} (no cache bypass or other gate flag is ever passed)`); return 64; }
   const host = opt("--host") ?? (process.platform === "win32" ? "dell" : "mac");
   if (!["mac", "dell"].includes(host)) { console.error("gate-acceptance: --host must be mac or dell"); return 64; }
@@ -1215,7 +1828,7 @@ async function main(argv) {
   if (argv.includes("--plan")) { console.log(formatPlan(buildPlan({ steps: wanted, allowInstall }))); return 0; }
   const fixture = opt("--fixture");
   if (!fixture) { console.error("usage: node gate-acceptance.mjs --fixture <dir> [--host mac|dell] [--steps S0,S1,...] [--out <dir>] [--plan] [--gate <path>] [--commit <sha>] [--allow-install]"); return 64; }
-  return execute({ fixture, host, wanted, gate: opt("--gate") ?? defaultGate(host), out: opt("--out"), commitArg: opt("--commit"), leafFile: opt("--leaf-file"), manifestFile: opt("--manifest-file"), killAfterMs: Number(opt("--kill-after-ms") ?? 3000), allowInstall });
+  return execute({ fixture, host, wanted, gate: opt("--gate") ?? defaultGate(host), gateArg: opt("--gate"), budgetsFile: opt("--budgets"), out: opt("--out"), commitArg: opt("--commit"), leafFile: opt("--leaf-file"), manifestFile: opt("--manifest-file"), killAfterMs: Number(opt("--kill-after-ms") ?? 3000), allowInstall });
 }
 
 async function execute(options) {
@@ -1228,7 +1841,7 @@ async function execute(options) {
   }
 }
 
-async function executeRun({ fixture, host, wanted, gate, out, commitArg, leafFile, manifestFile, killAfterMs, allowInstall, g, scratch }) {
+async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, out, commitArg, leafFile, manifestFile, killAfterMs, allowInstall, g, scratch }) {
   const startedAt = new Date().toISOString();
   const platform = host === "dell" ? "win32" : "darwin";
   const managedRoot = managedRootOf(host);
@@ -1247,6 +1860,23 @@ async function executeRun({ fixture, host, wanted, gate, out, commitArg, leafFil
   const gateFile = path.join(here, "bin", "rightkit-gate.mjs");
   const gateIdentity = { launcher: gate, launcherSha256: (() => { try { return sha256(fs.readFileSync(gate)); } catch { return null; } })(), runnerPackageVersion: readJson(path.join(here, "package.json")).value?.version ?? null, packageGateSha256: (() => { try { return sha256(fs.readFileSync(gateFile)); } catch { return null; } })(), receiptGateSha256: null };
 
+  // NN19: the gate under test. `--version` of the launcher is its only output and carries no stamp.
+  const launcherProbe = () => {
+    const exists = fs.existsSync(gate); let version = null; let text = "";
+    if (exists) {
+      try { text = fs.readFileSync(gate, "utf8").slice(0, 65536); } catch { /* a binary launcher: no text to read */ }
+      try { const spec = launchSpec(gate, ["--version"]); const r = spawnSync(spec.command, spec.args, { encoding: "utf8", timeout: 60_000, windowsHide: true, ...spec.options }); if (r.status === 0) version = String(r.stdout).trim().split(/\r?\n/).pop() || null; } catch { /* reported as no version */ }
+    }
+    return { exists, version, text };
+  };
+  const probe = launcherProbe();
+  const installedGate = findInstalledGate(managedRoot);
+  ctx.gateIdentity = gateIdentityProblems({ gateArg, defaultGate: defaultGate(host), launcherExists: probe.exists, launcherVersion: probe.version, launcherText: probe.text, installed: installedGate, checkoutRoot: workspaceRootOf() });
+  ctx.gateIdentityEvidence = `${gate} --version -> ${probe.version ?? "(none)"}; newest sealed install ${installedGate ? installedGate.version : "(none)"}`;
+  gateIdentity.kind = ctx.gateIdentity.kind; gateIdentity.version = probe.version; gateIdentity.installedVersion = installedGate?.version ?? null;
+  const budgetLoad = loadBudgets(budgetsFile ?? BUDGETS_FILE);
+  Object.assign(ctx, { wanted, host, budgets: budgetLoad.budgets, budgetProblem: budgetLoad.problem, cores: typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length, jobsEnv: process.env.RK_GATE_JOBS });
+
   const key = repositoryKey(g.canonical, platform);
   const ownerFile = ownershipFile({ platform, repository: key });
   const readOwner = () => { try { return JSON.parse(fs.readFileSync(ownerFile, "utf8")); } catch { return null; } };
@@ -1260,11 +1890,14 @@ async function executeRun({ fixture, host, wanted, gate, out, commitArg, leafFil
   };
   const exitOk = (r) => ({ ok: r.exit === 0, problems: r.exit === 0 ? [] : [`exit ${r.exit}${r.timedOut ? " (timed out)" : ""}`] });
 
-  async function doRun({ label, stage, commit: c = commit, args = [], ladder = false, step, extra = {} }) {
-    const receiptPath = RECEIPT_STAGES.has(stage) ? path.join(outDir, `${label.replace(/[^\w.-]/g, "_")}.receipt.json`) : null;
+  async function doRun({ label, stage, commit: c = commit, args = [], ladder = false, step, extra = {}, receipt = true }) {
+    const receiptPath = receipt && RECEIPT_STAGES.has(stage) ? path.join(outDir, `${label.replace(/[^\w.-]/g, "_")}.receipt.json`) : null;
     const full = ["--to", stage, "--commit", c, ...(receiptPath ? ["--receipt-out", receiptPath] : []), ...args];
-    const res = await runGate({ gate, cwd: g.canonical, args: full });
-    return finishRun({ label, stage, commit: c, full, res, receiptPath, ladder, step, extra });
+    // Every gate invocation writes its own spawn ledger (GC-A27 NN07-NN12, NN16). RK_GATE_* never enters a cache key, so this changes no result.
+    const ledgerPath = path.join(outDir, `${label.replace(/[^\w.-]/g, "_")}.ledger.jsonl`);
+    fs.rmSync(ledgerPath, { force: true });
+    const res = await runGate({ gate, cwd: g.canonical, args: full, env: { ...process.env, RK_GATE_SPAWN_LEDGER: ledgerPath } });
+    return finishRun({ label, stage, commit: c, full, res, receiptPath, ladder, step, extra: { ledgerPath, ...extra } });
   }
   function finishRun({ label, stage, commit: c, full, res, receiptPath, ladder = false, step, extra = {} }) {
     const logPath = path.join(outDir, `${label.replace(/[^\w.-]/g, "_")}.log`);
@@ -1276,7 +1909,9 @@ async function executeRun({ fixture, host, wanted, gate, out, commitArg, leafFil
     if (receipt?.binding?.gate) gateIdentity.receiptGateSha256 = receipt.binding.gate;
     const snapPath = receipt?.stages?.check?.snapshot?.path ?? receipt?.stages?.compile?.snapshot?.path;
     const sourceIdentity = res.exit === 0 && snapPath ? readSourceIdentity(snapPath, c, g) : null;
-    const run = { label, stage, commit: c, tree: g.tree(c), args: full, exit: res.exit, signal: res.signal, timedOut: res.timedOut === true, ms: res.ms, log: res.log, logPath, receipt, receiptPath, coveragePaths: cov, coverageProblems, rows: reports.length ? mergeCoverage(reports) : null, ladder, stageIndex: LADDER.indexOf(stage), timings: stageTimings(res.log), sourceIdentity, ...extra };
+    let ledger = null;
+    if (extra.ledgerPath && fs.existsSync(extra.ledgerPath)) ledger = parseLedger(fs.readFileSync(extra.ledgerPath, "utf8"));
+    const run = { label, stage, commit: c, tree: g.tree(c), args: full, exit: res.exit, signal: res.signal, timedOut: res.timedOut === true, ms: res.ms, startedMs: res.startedMs, ledger, coverageStarts: reports.map((r) => r.startedAt), log: res.log, logPath, receipt, receiptPath, coveragePaths: cov, coverageProblems, rows: reports.length ? mergeCoverage(reports) : null, ladder, stageIndex: LADDER.indexOf(stage), timings: stageTimings(res.log), sourceIdentity, ...extra };
     runs[label] = run; if (step) stepOf(step)?.notes.push(`${label}: exit ${res.exit}, ${(res.ms / 1000).toFixed(1)}s`);
     return run;
   }
@@ -1305,14 +1940,15 @@ async function executeRun({ fixture, host, wanted, gate, out, commitArg, leafFil
     if (!allowInstall) stepOf("S1").notes.push(`--to ${INSTALL_STAGES.join(" and --to ")} not run: ${NEEDS_INSTALL_APPROVAL}`);
   }
   // S2 --------------------------------------------------------------------------------------------------------------------------------------
-  if (wanted.includes("S2")) for (const stage of ["check", "compile"]) { const r = await doRun({ label: `S2:${stage}`, stage, ladder: true, step: "S2" }); check("S2", `--to ${stage} exits 0`, exitOk(r)); }
+  // Two warm pairs on the same commit: NN01/NN02 judge every one of them, NN05 compares the keys of the first pair with the second.
+  if (wanted.includes("S2")) for (const [label, stage] of [["S2:check", "check"], ["S2:compile", "compile"], ["S2:check2", "check"], ["S2:compile2", "compile"]]) { const r = await doRun({ label, stage, ladder: true, step: "S2" }); check("S2", `${label}: --to ${stage} exits 0`, exitOk(r)); }
 
   // S3, S4 (ephemeral edits) ----------------------------------------------------------------------------------------------------------------
   const tracked = g.tracked(commit);
   const layout = (wanted.includes("S4") || wanted.includes("S7")) ? g.cargoLayout(commit, tracked) : null;
   const editStep = async (id, name, file, edit, label, extraOf = () => ({})) => {
     if (!wanted.includes(id)) return;
-    if (!file) { stepOf(id).notes.push(`unchecked: ${NEEDS_FIXTURE}`); return; }
+    if (!file) { stepOf(id).notes.push(`unchecked: ${NEEDS_FIXTURE}`); ctx[`${id.toLowerCase()}Why`] = `${id} made no run: the fixture has no tracked ${id === "S3" ? "rk/**/src/lib.rs (or pass --leaf-file)" : "rk/**/Cargo.toml of a non-workspace-root crate (or pass --manifest-file)"}`; return; }
     const c = g.witnessCommit(commit, name, [{ path: file, content: edit(g.show(commit, file)) }]);
     const r = await doRun({ label, stage: "check", commit: c, ladder: true, step: id, extra: extraOf(file) });
     check(id, `--to check on the edited commit exits 0`, exitOk(r));
@@ -1407,6 +2043,21 @@ async function executeRun({ fixture, host, wanted, gate, out, commitArg, leafFil
     check("S8", `${k.id} ${k.signal}: dead owner reclaimed by the next run, which passes`, recovery);
   }
 
+  // S10 unit list (NN16) ----------------------------------------------------------------------------------------------------------------------
+  // `--units-file` names units in the gate's own grammar (crates/rightkit-<x>, packages/<x>). The run shares one Class A and starts no per-unit format check.
+  if (wanted.includes("S10")) {
+    const units = unitSelectorsOf(tracked, 2);
+    if (units.length < 2) {
+      ctx.unitsWhy = `the fixture commit has ${units.length} unit(s) in the gate's unit grammar (crates/rightkit-<x>/Cargo.toml, packages/<x>/package.json); --units-file needs two`;
+      check("S10", "the fixture names two units for --units-file", { ok: false, problems: [ctx.unitsWhy] });
+    } else {
+      const unitsFile = path.join(outDir, "units.json");
+      fs.writeFileSync(unitsFile, `${JSON.stringify({ units })}\n`);
+      const r = await doRun({ label: "S10:units", stage: "check", args: ["--units-file", unitsFile], ladder: false, step: "S10", extra: { units }, receipt: false });
+      check("S10", "--to check --units-file exits 0", exitOk(r));
+    }
+  }
+
   // S9 ---------------------------------------------------------------------------------------------------------------------------------------
   if (wanted.includes("S9")) {
     const brokerEnd = runningBrokerProcess() ?? null; const owner = readOwner();
@@ -1428,9 +2079,11 @@ async function executeRun({ fixture, host, wanted, gate, out, commitArg, leafFil
     let r; try { r = CHECKS[id](ctx); } catch (e) { r = { status: "fail", evidence: [], problems: [`assertion threw: ${e.message}`] }; }
     clauseChecks[id].push(...(Array.isArray(r) ? r : [r]));
   }
-  const notes = [`out ${outDir}`, "timing is relative and informational: the contract gives no latency threshold"];
+  const nonNegotiables = evaluateNonNegotiables(ctx);
+  const notes = [`out ${outDir}`, "wall time is judged only by the NN18 budgets in ci/gate-acceptance-budgets.json"];
+  if (ctx.gateIdentity.kind === "named") notes.push(`the gate under test is ${gate}, named by --gate: NOT the installed sealed gate; acceptance of the installed gate is still owed`);
   if (!allowInstall) notes.push(`--to ${INSTALL_STAGES.join(" and --to ")} not run: ${NEEDS_INSTALL_APPROVAL}`);
-  const result = buildResult({ host, gate: gateIdentity, broker: { runtimeManifest: ctx.broker.manifest ? { path: ctx.broker.manifestPath, brokerDigest: ctx.broker.manifest.brokerDigest, version: ctx.broker.manifest.version } : null, pinsBrokerDigest: ctx.broker.pins?.brokerDigest ?? null, processAtStart: ctx.s0?.broker ?? null }, commit, steps: stepRecords, clauseChecks, startedAt, endedAt: new Date().toISOString(), notes, allowInstall, stepChecks });
+  const result = buildResult({ host, gate: gateIdentity, broker: { runtimeManifest: ctx.broker.manifest ? { path: ctx.broker.manifestPath, brokerDigest: ctx.broker.manifest.brokerDigest, version: ctx.broker.manifest.version } : null, pinsBrokerDigest: ctx.broker.pins?.brokerDigest ?? null, processAtStart: ctx.s0?.broker ?? null }, commit, steps: stepRecords, clauseChecks, startedAt, endedAt: new Date().toISOString(), notes, allowInstall, stepChecks, nonNegotiables });
   result.timings = Object.fromEntries(Object.entries(runs).map(([k, v]) => [k, { ms: v.ms, stages: v.timings }]));
   fs.writeFileSync(path.join(outDir, "result.json"), `${JSON.stringify(result, null, 2)}\n`);
   const summary = formatSummary(result); fs.writeFileSync(path.join(outDir, "summary.txt"), `${summary}\n`);

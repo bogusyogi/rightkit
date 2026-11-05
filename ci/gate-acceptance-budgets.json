@@ -1,0 +1,80 @@
+{
+  "schema": "rightkit.gate-acceptance-budgets/1",
+  "contract": "docs/GATE-CONTRACT.md [GC-A27] NN18: warm --to check and each fixed setup stage stay inside the host's budget. A null budget FAILS NN18 on that host (\"no budget measured\"), it never passes. A budget is only ever lowered, and only from a new measured run.",
+  "method": "Mac: three sessions of the runner's S2 step (`gate-acceptance.mjs --steps S2 --gate checkout-gate.sh`) against /Volumes/D/claude/rk-witness-fixture at 654e8b663404 on 2026-11-05, each session = two warm --to check and two warm --to compile runs with the spawn ledger on. Per session the worst of its runs is taken (warmCheckMs: the slower check run; each stage: the largest value over its four runs); the budget is the median of the three sessions times 1.25 (median x 1.25), rounded up to a millisecond.",
+  "stageLines": {
+    "ownership": "the runner's launch time -> the first `build ownership held|joined` line; 0 for a run that takes no lease",
+    "snapshotSync": "the ownership line (else the launch time) -> the `snapshot <dir> is commit <sha> tree <sha> (written=...` line",
+    "planning": "the `rightkit-gate: --to <stage> for <sha12>: ...` line -> the `<n> scan(s) for <m> changed file(s) vs <sha12>; class A scans <j> at a time` line",
+    "dependencyStep": "that plan line -> the first `snapshot dependencies root=` line"
+  },
+  "hosts": {
+    "mac": {
+      "warmCheckMs": 4500,
+      "warmCompileMs": null,
+      "stages": {
+        "ownership": 0,
+        "snapshotSync": 674,
+        "dependencyStep": 2315,
+        "planning": 1353
+      }
+    },
+    "dell": {
+      "warmCheckMs": null,
+      "warmCompileMs": null,
+      "stages": {
+        "ownership": null,
+        "snapshotSync": null,
+        "dependencyStep": null,
+        "planning": null
+      }
+    }
+  },
+  "measured": {
+    "mac": {
+      "commit": "654e8b6634049a4a4a5a9639e2fdcb4fa0a6dd77",
+      "gate": "checkout gate (packages/release/bin/rightkit-gate.mjs, uncommitted working tree of 2026-11-05) via checkout-gate.sh",
+      "sessions": [
+        {
+          "checkMs": [
+            7864,
+            7165
+          ],
+          "worstStagesMs": {
+            "ownership": 4489,
+            "snapshotSync": 539,
+            "dependencyStep": 1926,
+            "planning": 991
+          }
+        },
+        {
+          "checkMs": [
+            12414,
+            7543
+          ],
+          "worstStagesMs": {
+            "ownership": 4834,
+            "snapshotSync": 536,
+            "dependencyStep": 1852,
+            "planning": 1161
+          }
+        },
+        {
+          "checkMs": [
+            7239,
+            7395
+          ],
+          "worstStagesMs": {
+            "ownership": 4500,
+            "snapshotSync": 543,
+            "dependencyStep": 1771,
+            "planning": 1082
+          }
+        }
+      ],
+      "warmCompileMs": "unmeasured: no passing warm --to compile exists on the fixture. Every --to compile of 654e8b663404 exits 1 (clippy windows-gnu linker 'couldn't create cache file xcrun_db', gdk-pixbuf-sys, witness_app build script) and a failing row is never cached, so each rerun took 47-157 s of real compiling. NN02 fails for the same reason. Set this from a measurement once the fixture compile is green.",
+      "note": "ownership is 4.5 s on a compile (the lease acquisition the gate pays today); a --to check takes 0.2-0.4 s of it today and 0 once NN13 holds."
+    }
+  },
+  "note": "Budgets are targets from the optimized state, never from a slow run: ownership is 0 because Class A takes no lease (NN13); warmCheckMs is the best measured warm fixture check (3.6 s, 2026-11-05 12:47Z, 37 of 39 rows hit) x1.25. snapshotSync, dependencyStep and planning are from the 2026-11-05 S2 sessions and are lowered once the gate passes NN07, NN10-NN12. Values are only ever lowered."
+}

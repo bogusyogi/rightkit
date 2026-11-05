@@ -232,7 +232,7 @@ Adrian, 2026-11-03: "i wnat all dev completely gone. all debug too. completely g
 | NN17 | Class A lanes equal the host's cores; Class B batches compatible rows | gate log | fewer lanes than cores, or a compatible group runs as separate invocations |
 | NN18 | Warm time stays inside the host's budget | timestamps | warm `--to check` or a fixed setup stage (ownership, snapshot sync, dependency step, planning) exceeds `ci/gate-acceptance-budgets.json` for the host; each budget is set from a measured run and only ever lowered |
 | NN19 | The gate under test is the installed sealed gate | `--version`, launcher | a run uses a checkout gate without `--gate` naming it |
-- Status: runner and pure tests landed; the clause list, fixture rows F1–F15 and the case list are in the runner's registry. Not yet run against the real gate.
+- Status: NN01–NN19 asserted by the runner (84 pure tests, each NN with a synthetic violation). First real run, checkout gate on the Mac (2026-11-05): 6 of 19 pass (NN06, NN08, NN09, NN14, NN15, NN17); the gate fails NN01–NN05, NN07, NN10–NN13, NN16 and NN18 and is fixed against them next. Budgets: `ci/gate-acceptance-budgets.json`.
 
 Every other clause is read around GC-A07. Adrian, 2026-11-02, relayed verbatim by the Dell HR chat: "ok, one thing we have established is we are getting rid of debug. dev is actual installer with rk qa/ it can have faster compile like fat or thin or whatever, since it is not release. and qa journey will be moved out of build. this decision is already locked. everything else has to be worked around this." To rkn the same day: "this goes in the contracts asap".
 

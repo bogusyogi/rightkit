@@ -13,6 +13,13 @@ import {
   validateSourceIdentity, vectorsProblems, workspaceRootOf, worktreeCount,
 } from "./gate-acceptance.mjs";
 
+import {
+  BROKER_FORBIDDEN_CARGO, BUDGETS_SCHEMA, BUDGET_STAGES, NN, NN07_ALLOWLIST, NN_IDS, assertAdviceCached, assertBatching, assertBudget, assertDependencyReuse, assertDigestStable,
+  assertEnvDigestScope, assertKeysStable, assertLanes, assertNoBrokerNonCompiling, assertNoClassARan, assertNoClassBRan, assertNoDuplicateSpawns, assertNoOwnershipOnCheck,
+  assertNoRealCargoMetadata, assertOtherWorkspacesIdle, assertRulesCached, assertRustfmtSpawns, assertSnapshotProof, assertUnitListShare, evaluateNonNegotiables, findInstalledGate,
+  gateIdentityProblems, isExecutingRow, loadBudgets, nnForStep, normalizeSpawn, parseLedger, programOf, stageMarks, unitSelectorsOf, validateBudgets,
+} from "./gate-acceptance.mjs";
+
 const sha = (s) => createHash("sha256").update(s).digest("hex");
 const row = (id, coverage, o = {}) => ({ id, class: "A", coverage, status: "pass", key: `k:${id}`, reason: "r", ...o });
 const report = (scans, extra = {}) => {
@@ -133,14 +140,14 @@ test("Class A before compile; output dirs one set and no debug", () => {
   assert.equal(outputDirsProblems({ stages: { check: {} } }).ok, false);
 });
 
-test("warm rerun: a ran or skipped row on an unchanged commit fails; uncached families must run", () => {
-  const prev = map([row("rustfmt:1", "ran"), row("pnpm-lockfile", "ran", { key: null }), row("secret-scan", "ran")]);
-  const next = map([row("rustfmt:1", "hit", { key: "k:rustfmt:1" }), row("pnpm-lockfile", "ran", { key: null }), row("secret-scan", "hit", { key: "k:secret-scan" })]);
+test("warm rerun: a ran or skipped row on an unchanged commit fails; there is no uncached family (NN01)", () => {
+  const prev = map([row("rustfmt:1", "ran"), row("pnpm-lockfile:app", "ran"), row("secret-scan", "ran")]);
+  const next = map([row("rustfmt:1", "hit", { key: "k:rustfmt:1" }), row("pnpm-lockfile:app", "hit", { key: "k:pnpm-lockfile:app" }), row("secret-scan", "hit", { key: "k:secret-scan" })]);
   assert.ok(assertWarmRerun(prev, next).ok);
   assert.match(assertWarmRerun(prev, map([row("rustfmt:1", "ran"), row("secret-scan", "hit")])).problems.join(), /rustfmt:1: Class A row ran/);
   assert.match(assertWarmRerun(prev, map([row("rustfmt:1", "hit", { key: "other" }), row("secret-scan", "hit")])).problems.join(), /key changed/);
   assert.match(assertWarmRerun(prev, map([row("rustfmt:1", "hit"), row("secret-scan", "skipped", { status: "skipped" })])).problems.join(), /never a pass/);
-  assert.match(assertWarmRerun(prev, map([row("rustfmt:1", "hit"), row("pnpm-lockfile", "hit"), row("secret-scan", "hit")])).problems.join(), /uncached family answered hit/);
+  assert.match(assertWarmRerun(prev, map([row("rustfmt:1", "hit"), row("pnpm-lockfile:app", "ran"), row("secret-scan", "hit")])).problems.join(), /pnpm-lockfile:app: Class A row ran/);
   assert.match(assertWarmRerun(prev, map([])).problems.join(), /proves nothing/);
 });
 
@@ -284,7 +291,8 @@ test("clause summary: no evidence is unchecked never pass; any fail wins; a bloc
 });
 
 const allUnchecked = () => Object.fromEntries(Object.keys(CLAUSES).map((id) => [id, []]));
-const rb = (o) => buildResult({ host: "mac", gate: {}, broker: {}, commit: COMMIT, steps: [], clauseChecks: allUnchecked(), startedAt: "a", endedAt: "b", ...o });
+const nnAllPass = () => NN_IDS.map((id) => ({ id, status: "pass", problems: [] }));
+const rb = (o) => buildResult({ host: "mac", gate: {}, broker: {}, commit: COMMIT, steps: [], clauseChecks: allUnchecked(), startedAt: "a", endedAt: "b", nonNegotiables: nnAllPass(), ...o });
 const passing = (extra = {}) => ({ ...allUnchecked(), "GC-A04": [{ status: "pass", evidence: ["r.json"], problems: [] }], ...extra });
 const step = (id, checks) => ({ id, title: id, checks, notes: [] });
 
@@ -306,13 +314,13 @@ test("result: ok needs a passing clause, no failing clause, no failing or unfini
 
 test("verdict text: PASS always carries the asserted and unchecked counts, never a bare PASS", () => {
   const ok = rb({ clauseChecks: passing(), steps: [step("S1", ["pass"])] });
-  assert.equal(ok.verdict, "PASS (1 of 67 asserted, 66 unchecked; partial run: steps S1 only)");
-  assert.match(formatSummary(ok), /^gate acceptance PASS \(1 of 67 asserted, 66 unchecked/);
+  assert.equal(ok.verdict, "PASS (1 of 67 asserted, 66 unchecked; non-negotiables 19 of 19 passed; partial run: steps S1 only)");
+  assert.match(formatSummary(ok), /^gate acceptance PASS \(1 of 67 asserted, 66 unchecked; non-negotiables 19 of 19 passed/);
   for (const text of [formatSummary(ok), formatSummary(rb({}))]) assert.doesNotMatch(text, /(?<!NOT )PASS(?! \()/);
   const full = rb({ clauseChecks: passing(), steps: STEPS.map((x) => step(x.id, x.byDesignUnchecked ? [] : ["pass"])) });
-  assert.equal(full.verdict, "PASS (1 of 67 asserted, 66 unchecked)");
+  assert.equal(full.verdict, "PASS (1 of 67 asserted, 66 unchecked; non-negotiables 19 of 19 passed)");
   const bad = rb({ clauseChecks: passing({ "GC-A21": [{ status: "fail", evidence: [], problems: ["p"] }] }) });
-  assert.match(bad.verdict, /^NOT PASSED \(2 of 67 asserted, 65 unchecked; 1 failed clause\(s\)/);
+  assert.match(bad.verdict, /^NOT PASSED \(2 of 67 asserted, 65 unchecked; non-negotiables 19 of 19 passed; 1 failed clause\(s\)/);
   assert.match(formatSummary(bad), /BLOCKER clause GC-A21 failed/);
 });
 
@@ -548,4 +556,389 @@ test("S6 dirty checkout: a restore that cannot find its stash reports it instead
     assert.equal(g(dir, "stash", "list", "--format=%H").trim(), userStash);
     assert.equal(fs.readFileSync(path.join(dir, "README.md"), "utf8"), "hello\n");
   } finally { cleanup(dir); }
+});
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+// Non-negotiables NN01-NN19: one pure test per assertion, each failing on a synthetic violation and passing on a clean input; then the same violations
+// injected into a whole clean evidence set, so the wiring (which run, which evidence) is tested too.
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+const rowB = (id, coverage, o = {}) => row(id, coverage, { class: "B", ...o });
+const led = (cmd, args = [], cwd = "/w", o = {}) => ({ pid: 1, at: "2026-11-05T12:00:00.000Z", ms: 1, sync: true, cmd, args, cwd, status: 0, ...o });
+
+test("parseLedger reads one JSON entry per line and names malformed lines; programOf and normalizeSpawn", () => {
+  const ok = parseLedger(`${JSON.stringify(led("/usr/bin/git", ["status"]))}\n\n${JSON.stringify(led("node", []))}\n`);
+  assert.equal(ok.entries.length, 2); assert.deepEqual(ok.problems, []);
+  const badLines = parseLedger(`{nope\n${JSON.stringify({ cmd: "x" })}\n`);
+  assert.equal(badLines.entries.length, 0); assert.equal(badLines.problems.length, 2);
+  assert.equal(programOf("C:\\Tools\\rustright.exe"), "rustright"); assert.equal(programOf("/a/b/git"), "git");
+  assert.deepEqual(normalizeSpawn(led("git rev-parse HEAD", [], "/r")).args, ["rev-parse", "HEAD"]);
+});
+
+test("NN01: an unchanged commit runs no Class A row", () => {
+  assert.ok(assertNoClassARan(map([row("rustfmt:2021", "hit"), row("pnpm-lockfile:app", "hit"), rowB("clippy:x", "ran")])).ok, "a Class B row is NN02's");
+  const r = assertNoClassARan(map([row("rustfmt:2021", "hit"), row("swift-typecheck:x", "ran", { key: null })]));
+  assert.equal(r.ok, false); assert.match(r.problems.join(), /swift-typecheck:x: Class A row ran on an unchanged commit/);
+  assert.equal(assertNoClassARan(map([row("pnpm-lockfile:app", "ran")])).ok, false, "no uncached family is exempt any more");
+});
+
+test("NN02: an unchanged commit runs no Class B row; a row that failed before and fails again is reported, not re-run silently", () => {
+  assert.ok(assertNoClassBRan(map([rowB("clippy:a", "hit"), row("rustfmt:2021", "ran")])).ok);
+  const r = assertNoClassBRan(map([rowB("clippy:a", "hit"), rowB("clippy:b", "ran")]));
+  assert.equal(r.ok, false); assert.match(r.problems.join(), /clippy:b: Class B row ran/);
+  const known = assertNoClassBRan(map([rowB("clippy:a", "ran", { status: "fail" })]), map([rowB("clippy:a", "ran", { status: "fail" })]));
+  assert.ok(known.ok); assert.match(known.reported.join(), /failed before and still fails/);
+  assert.equal(assertNoClassBRan(map([rowB("clippy:a", "ran", { status: "pass" })]), map([rowB("clippy:a", "ran", { status: "fail" })])).ok, false, "a row that passes now but ran again is a rerun");
+  assert.equal(assertNoClassBRan(map([row("rustfmt:2021", "hit")])).ok, false, "no Class B row at all is no evidence");
+});
+
+test("NN03: one edited .rs file reruns only the rows that read it (no exemption for pnpm-lockfile)", () => {
+  const prev = map([row("rustfmt:2021", "hit"), row("secret-scan", "hit"), row("pnpm-lockfile:app", "hit"), row("tsc:app", "hit")]);
+  assert.ok(assertOneFileEdit(prev, map([row("rustfmt:2021", "ran", { key: "n" }), row("secret-scan", "ran", { key: "n" }), row("pnpm-lockfile:app", "hit"), row("tsc:app", "hit")])).ok);
+  const lock = assertOneFileEdit(prev, map([row("rustfmt:2021", "ran", { key: "n" }), row("pnpm-lockfile:app", "ran", { key: "n" })]));
+  assert.equal(lock.ok, false); assert.match(lock.problems.join(), /pnpm-lockfile:app: ran but does not read the edited file/);
+  assert.equal(assertOneFileEdit(prev, map([row("rustfmt:a", "ran", { key: "n" }), row("rustfmt:b", "ran", { key: "m" })])).ok, false, "two rustfmt buckets");
+});
+
+test("NN04: one edited manifest reruns only its workspace's rows", () => {
+  const info = { workspace: "rk", workspaces: [".", "rk", "tools"], crates: {} };
+  const clean = map([row("cargo-metadata:rk", "ran", { key: "n" }), row("cargo-metadata:tools", "hit"), row("ghsa-audit:tools", "hit"), row("cargo-deny:rk", "hit")]);
+  assert.ok(assertOtherWorkspacesIdle(clean, info).ok);
+  for (const id of ["cargo-metadata:tools", "ghsa-audit:tools", "cargo-audit:tools", "cargo-deny:tools"]) {
+    const r = assertOtherWorkspacesIdle(map([row("cargo-metadata:rk", "ran", { key: "n" }), row(id, "ran", { key: "n" })]), info);
+    assert.equal(r.ok, false, id); assert.match(r.problems.join(), /workspace "tools" ran/);
+  }
+  assert.equal(assertOtherWorkspacesIdle(map([row("cargo-metadata:tools", "hit")]), info).ok, false, "no row of the edited workspace is no evidence");
+  assert.equal(assertOtherWorkspacesIdle(clean, { workspace: undefined }).ok, false);
+});
+
+test("NN05: keys are stable across two identical runs", () => {
+  const a = map([row("rustfmt:2021", "hit"), row("secret-scan", "hit"), rowB("clippy:a", "hit")]);
+  assert.ok(assertKeysStable(a, map([row("rustfmt:2021", "hit"), row("secret-scan", "hit"), rowB("clippy:a", "hit")])).ok);
+  assert.match(assertKeysStable(a, map([row("rustfmt:2021", "hit", { key: "other" }), row("secret-scan", "hit"), rowB("clippy:a", "hit")])).problems.join(), /rustfmt:2021: key differs/);
+  assert.match(assertKeysStable(a, map([row("rustfmt:2021", "hit"), row("secret-scan", "hit")])).problems.join(), /clippy:a: present in only one/);
+  assert.match(assertKeysStable(map([row("x", "ran", { key: null })]), map([row("x", "ran", { key: null })])).problems.join(), /no cache key/);
+  assert.ok(assertKeysStable(map([row("x", "skipped", { status: "not-in-pass", key: null })]), map([])).ok, "a not-in-pass row is no answer");
+});
+
+test("NN06: only executing rows carry the environment digest", () => {
+  const D = "d".repeat(64);
+  const clean = map([row("rustfmt:2021", "hit", { key: '{"files":[["a","1"]]}' }), row("tsc:app", "hit", { key: `{"id":"tsc:app","env":"${D}"}` }), row("oxlint:app", "hit", { key: '{"files":[]}' })]);
+  assert.ok(assertEnvDigestScope(clean, [D]).ok, "tsc executes and may carry it");
+  for (const key of [`{"files":[],"suffix":"${D}"}`, `{"env":"${D.slice(0, 40)}"}`, `x:${D}`]) {
+    const r = assertEnvDigestScope(map([row("rustfmt:2021", "hit", { key })]), [D]);
+    assert.equal(r.ok, false, key); assert.match(r.problems.join(), /rustfmt:2021: a non-executing row's key carries the environment digest/);
+  }
+  assert.equal(assertEnvDigestScope(clean, []).ok, false, "no digest in any log is no evidence");
+  assert.equal(isExecutingRow("pnpm-lockfile:app"), true); assert.equal(isExecutingRow("secret-scan"), false);
+});
+
+test("NN07: no identical child process twice in one run; an allowlisted probe needs a reason", () => {
+  assert.ok(assertNoDuplicateSpawns([led("/usr/bin/git", ["rev-parse", "HEAD"]), led("git", ["rev-parse", "HEAD"], "/other"), led("git", ["status"])]).ok, "another cwd and other args are not repeats");
+  const r = assertNoDuplicateSpawns([led("/usr/bin/git", ["rev-parse", "--show-toplevel"]), led("git", ["rev-parse", "--show-toplevel"]), led("ps", ["-A"])]);
+  assert.equal(r.ok, false); assert.match(r.problems.join(), /2x git rev-parse --show-toplevel/); assert.equal(r.repeats, 1);
+  assert.equal(assertNoDuplicateSpawns([led("git rev-parse HEAD"), led("git", ["rev-parse", "HEAD"])]).ok, false, "a shell-string start is the same as the argv one");
+  const dup = [led("ps", ["-A"]), led("ps", ["-A"])];
+  assert.ok(assertNoDuplicateSpawns(dup, { allow: [{ program: "ps", args: ["-A"], reason: "the process table must be re-read after the broker starts" }] }).ok);
+  assert.match(assertNoDuplicateSpawns(dup, { allow: [{ program: "ps", args: ["-A"], reason: "" }] }).problems.join(), /allowlist entry without/);
+  assert.deepEqual(NN07_ALLOWLIST, [], "the allowlist is empty until a repeat is justified from the code");
+});
+
+test("NN08: rustfmt is one process per bucket and no cargo fmt starts", () => {
+  const ran = map([row("rustfmt:2021", "ran"), row("rustfmt:2018", "hit")]);
+  assert.ok(assertRustfmtSpawns([led("rustfmt", ["--version"]), led("rustfmt", ["--edition", "2021", "a.rs", "b.rs"])], ran).ok);
+  assert.ok(assertRustfmtSpawns([led("rustfmt", ["--version"])], map([row("rustfmt:2021", "hit")])).ok, "a warm run formats nothing");
+  assert.match(assertRustfmtSpawns([led("rustfmt", ["a.rs"]), led("rustfmt", ["b.rs"])], ran).problems.join(), /2 rustfmt process\(es\) formatted for 1 rustfmt bucket/);
+  assert.match(assertRustfmtSpawns([led("rustfmt", ["a.rs"])], map([row("rustfmt:2021", "hit")])).problems.join(), /1 rustfmt process\(es\) formatted for 0/);
+  for (const e of [led("cargo", ["fmt", "--check"]), led("cargo", ["+stable", "fmt", "-p", "x"]), led("rustright", ["cargo", "fmt"]), led("cargo-fmt", ["--check"])]) assert.match(assertRustfmtSpawns([e], ran).problems.join(), /cargo fmt started/, JSON.stringify(e));
+  assert.equal(assertRustfmtSpawns([], null).ok, false);
+});
+
+test("NN09: non-compiling cargo never goes through the broker", () => {
+  assert.ok(assertNoBrokerNonCompiling([led("rustright", ["cargo", "clippy", "--workspace"]), led("cargo", ["metadata"]), led("rustright", ["cargo", "--version"])]).ok, "compiling calls and direct cargo are not this rule");
+  for (const sub of BROKER_FORBIDDEN_CARGO) {
+    const r = assertNoBrokerNonCompiling([led("/bin/rustright", ["cargo", sub, "--x"])]);
+    assert.equal(r.ok, false, sub); assert.match(r.problems.join(), new RegExp(`rustright cargo ${sub}`));
+  }
+  assert.equal(assertNoBrokerNonCompiling([led("/tmp/rk-cargo-shim-1/bin/cargo", ["metadata", "--no-deps"])]).ok, false, "the gate's shim carries into the broker");
+  assert.equal(assertNoBrokerNonCompiling([led("rustright", ["--root", "/r", "cargo", "+nightly", "tree"])]).ok, false);
+});
+
+test("NN10: a warm run starts no real cargo metadata", () => {
+  assert.ok(assertNoRealCargoMetadata([led("cargo", ["--version"], "/s/rk"), led("git", ["status"])]).ok);
+  const r = assertNoRealCargoMetadata([led("/Users/a/.cargo/bin/cargo", ["metadata", "--no-deps", "--format-version", "1"], "/snap/rk"), led("cargo", ["metadata"], "/snap/tools")]);
+  assert.equal(r.ok, false); assert.equal(r.starts, 2); assert.match(r.problems.join(), /2 real cargo metadata start/);
+  assert.equal(assertNoRealCargoMetadata([led("rustright", ["cargo", "metadata"])]).ok, false);
+});
+
+test("NN11: a warm run proves the snapshot from the resident index; the tree is hashed at most once per run", () => {
+  const line = (h, w, r) => `2026-11-05T12:00:00.000Z rightkit-gate: snapshot proof: tree-hashes=${h} verify-walks=${w} resident-proofs=${r}\n`;
+  assert.ok(assertSnapshotProof(line(0, 0, 2), { warm: true }).ok);
+  assert.ok(assertSnapshotProof(line(1, 1, 0), { warm: false }).ok, "a cold run hashes once and walks");
+  assert.match(assertSnapshotProof(line(2, 0, 2), { warm: false }).problems.join(), /hashed 2 times/);
+  assert.match(assertSnapshotProof(line(0, 1, 1), { warm: true }).problems.join(), /walked the snapshot 1 time/);
+  assert.match(assertSnapshotProof(line(0, 0, 0), { warm: true }).problems.join(), /no resident proof/);
+  assert.match(assertSnapshotProof("no such line\n", { warm: true }).problems.join(), /has no `snapshot proof:/);
+});
+
+const D1 = "1".repeat(64);
+const depLine = (match) => `2026-11-05T12:00:00.000Z rightkit-gate: snapshot dependencies root=app pnpm=11.25.0 (pinned 11.25.0) store=/s lockfile=sha256:abc ms=40 reuse-check-ms=20 dependency-digest-checks=1 reuse-setup=ready reuse-match=${match} reuse-components=none\n2026-11-05T12:00:01.000Z rightkit-gate: class A bytes tracked=a all=a env-at-start=${D1} env=${D1}\n`;
+test("NN12: installed dependencies are reused from pnpm's install record and the digest is stable", () => {
+  assert.ok(assertDependencyReuse(depLine("hit"), [led("pnpm", ["--version"], "/s/app")]).ok);
+  assert.match(assertDependencyReuse(depLine("record-mismatch"), []).problems.join(), /reuse-match=record-mismatch, expected hit/);
+  assert.match(assertDependencyReuse(depLine("hit"), [led("pnpm", ["install", "--offline", "--frozen-lockfile"], "/s/app")]).problems.join(), /pnpm install started on a warm run/);
+  assert.match(assertDependencyReuse("nothing\n", []).problems.join(), /no `snapshot dependencies root=/);
+  assert.match(assertDependencyReuse(depLine("hit").replace(`env=${D1}`, `env=${"2".repeat(64)}`), []).problems.join(), /changed during the run/);
+  assert.match(assertDependencyReuse("snapshot dependencies root=app not installed: no lockfile\n", []).problems.join(), /no `snapshot dependencies root/, "a not-installed root is no reuse evidence");
+  assert.ok(assertDigestStable(depLine("hit"), depLine("hit")).ok);
+  assert.match(assertDigestStable(depLine("hit"), depLine("hit").replaceAll(D1, "3".repeat(64))).problems.join(), /differs between identical runs/);
+  assert.equal(assertDigestStable("x", depLine("hit")).ok, false);
+});
+
+test("NN13: --to check takes no build-ownership lease", () => {
+  assert.ok(assertNoOwnershipOnCheck("2026-11-05T12:00:00.000Z rightkit-gate: snapshot /s is commit x\n").ok);
+  for (const word of ["held", "joined"]) assert.match(assertNoOwnershipOnCheck(`2026-11-05T12:00:00.000Z rightkit-gate: build ownership ${word} abc-123\n`).problems.join(), /took the build-ownership lease/);
+});
+
+test("NN14: preflight and the app rules run once per tree", () => {
+  assert.ok(assertRulesCached("2026-11-05T12:00:00.000Z check: 654e8b663404 app rules: cached pass (tree 0b7e)\n2026-11-05T12:00:00.000Z preflight: 654e8b663404 cached pass (tree 0b7e)\n").ok);
+  assert.match(assertRulesCached("2026-11-05T12:00:00.000Z check: 654e8b663404 passed 14 rules (compile tier) in 0.1s\n").problems.join(), /app rules ran again/);
+  assert.match(assertRulesCached("2026-11-05T12:00:00.000Z check: x app rules: cached pass (tree y)\n2026-11-05T12:00:00.000Z preflight: ok in 4.3s\n").problems.join(), /preflight ran again/);
+});
+
+test("NN15: advice scans are cached per lock set and UTC day or hour", () => {
+  const prev = map([row("ghsa-audit:rk", "hit"), row("cargo-deny:rk", "hit"), row("pnpm-audit:app", "hit")]);
+  assert.ok(assertAdviceCached(prev, map([row("ghsa-audit:rk", "hit"), row("cargo-deny:rk", "hit"), row("pnpm-audit:app", "hit")]), { startedAt: "2026-11-05T12:00:00Z", prevStartedAt: "2026-11-05T11:59:00Z" }).ok);
+  for (const id of ["dependency-freshness", "ghsa-audit:rk", "pnpm-audit:app", "cargo-deny:rk", "cargo-audit:rk"]) {
+    const r = assertAdviceCached(map([row(id, "hit")]), map([row(id, "ran")]), { startedAt: "2026-11-05T12:00:00Z", prevStartedAt: "2026-11-05T11:59:00Z" });
+    assert.equal(r.ok, false, id); assert.match(r.problems.join(), /ran on a warm run of the same UTC day/);
+  }
+  const crossed = assertAdviceCached(prev, map([row("ghsa-audit:rk", "ran", { key: "new-day" }), row("cargo-deny:rk", "hit")]), { startedAt: "2026-11-06T00:00:01Z", prevStartedAt: "2026-11-05T23:59:59Z" });
+  assert.ok(crossed.ok, "a moved key across a UTC boundary is explained");
+  assert.equal(assertAdviceCached(prev, map([row("ghsa-audit:rk", "ran")]), { startedAt: "2026-11-06T00:00:01Z", prevStartedAt: "2026-11-05T23:59:59Z" }).ok, false, "the same key across a boundary is still a rerun");
+  assert.equal(assertAdviceCached(prev, map([row("rustfmt:2021", "hit")])).ok, false, "no advice row is no evidence");
+});
+
+test("NN16: a unit list shares one Class A and runs no per-unit format check", () => {
+  const rep = (n) => `2026-11-05T12:00:00.000Z rightkit-gate: coverage report /r/${n}.json: 3 planned scan(s), 3 hit, 0 ran, 0 skipped\n`;
+  const memo = "2026-11-05T12:00:01.000Z rightkit-gate: [unit:check] class A (compile tier) of this unit list already passed on 654e8b663404: not run again\n";
+  assert.ok(assertUnitListShare(rep(1) + memo, [led("git", ["status"])], { units: 2 }).ok);
+  assert.match(assertUnitListShare(rep(1) + rep(2) + memo, [], { units: 2 }).problems.join(), /2 coverage report\(s\)/);
+  assert.match(assertUnitListShare(rep(1), [], { units: 2 }).problems.join(), /0 later unit\(s\) reused the shared Class A/);
+  assert.match(assertUnitListShare(rep(1) + memo, [led("cargo", ["fmt", "-p", "rightkit-a", "--check"])], { units: 2 }).problems.join(), /cargo fmt started for a unit list/);
+  assert.match(assertUnitListShare(rep(1), [], { units: 1 }).problems.join(), /needs two/);
+});
+
+test("NN17: Class A lanes equal the host's cores and Class B batches compatible rows", () => {
+  assert.ok(assertLanes("x class A scans 12 at a time, class B: y", { cores: 12 }).ok);
+  assert.match(assertLanes("x class A scans 4 at a time", { cores: 12 }).problems.join(), /4 lane\(s\) on a 12-core host/);
+  assert.match(assertLanes("x class A scans 12 at a time", { cores: 12, jobsOverride: "4" }).problems.join(), /RK_GATE_JOBS=4/);
+  assert.match(assertLanes("no plan line", { cores: 12 }).problems.join(), /no `class A scans N at a time` line/);
+  const note = "t rightkit-gate: note: class B batching: 37 compile scan(s) in 12 configuration group(s); each group runs as one invocation (29 scan(s) in 4 shared group(s)), a failed group is bisected\nt rightkit-gate: note: class B batching: 4 compile scan(s) stay their own invocation: sidecar-bound\n";
+  const few = Array.from({ length: 10 }, (_, i) => led("rustright", ["cargo", "clippy", "-p", `c${i}`], `/s/rk${i}`));
+  assert.ok(assertBatching(note, few, { exit: 0 }).ok);
+  const many = Array.from({ length: 40 }, (_, i) => led("rustright", ["cargo", "clippy", "-p", `c${i}`], `/s/rk${i}`));
+  assert.match(assertBatching(note, many, { exit: 0 }).problems.join(), /40 compiling cargo invocation\(s\) for 12 configuration group\(s\) and 4 solo/);
+  assert.match(assertBatching(note.replace("(29 scan(s) in 4 shared group(s))", "(0 scan(s) in 0 shared group(s))"), few, { exit: 0 }).problems.join(), /no compatible group was batched/);
+  assert.match(assertBatching("no note", few, { exit: 0 }).problems.join(), /no `class B batching:/);
+  assert.ok(assertBatching(note, many, { exit: 1 }).ok, "a failed run bisects: the invocation bound is judged only on a passing run");
+});
+
+test("NN18: stage times come from named stamped lines; a budget that is null fails", () => {
+  const t0 = Date.parse("2026-11-05T12:00:00.000Z"); const ts = (ms) => new Date(t0 + ms).toISOString();
+  const log = [`${ts(200)} rightkit-gate: build ownership held h`, `${ts(500)} rightkit-gate: snapshot /s/abc is commit ${"a".repeat(40)} tree ${"b".repeat(40)} (written=0 removed=0 unchanged=77)`,
+    `${ts(600)} rightkit-gate: --to compile for aaaaaaaaaaaa: check -> compile; executor broker`, `${ts(1000)} rightkit-gate: 120 scan(s) for 77 changed file(s) vs aaaaaaaaaaaa; class A scans 12 at a time`,
+    `${ts(1400)} rightkit-gate: snapshot dependencies root=app pnpm=1`, `${ts(1500)} rightkit-gate: snapshot dependencies root=lib pnpm=1`].join("\n");
+  const m = stageMarks(log, t0);
+  assert.deepEqual(m.problems, []); assert.deepEqual(m.marks, { ownership: 200, snapshotSync: 300, planning: 400, dependencyStep: 400 });
+  assert.equal(stageMarks(log.replace(/^.*build ownership.*\n/, ""), t0).marks.ownership, 0, "a run that takes no lease has no ownership stage");
+  assert.equal(stageMarks(log.replace(/^.*build ownership.*\n/, ""), t0).marks.snapshotSync, 500, "...and its sync is timed from the run start");
+  assert.match(stageMarks(log.replace(/^.*class A scans.*\n/m, ""), t0).problems.join(), /no stamped `<n> scan\(s\)/);
+  const budgets = { schema: BUDGETS_SCHEMA, hosts: { mac: { warmCheckMs: 5000, warmCompileMs: 6000, stages: { ownership: 400, snapshotSync: 400, dependencyStep: 600, planning: 500 } }, dell: { warmCheckMs: null, warmCompileMs: null, stages: { ownership: null, snapshotSync: null, dependencyStep: null, planning: null } } } };
+  assert.ok(validateBudgets(budgets).ok);
+  const run = (o = {}) => ({ label: "S2:check", kind: "check", ms: 4000, marks: m.marks, ...o });
+  assert.ok(assertBudget({ host: "mac", budgets, runs: [run(), run({ kind: "compile", ms: 5999 })] }).ok);
+  assert.match(assertBudget({ host: "mac", budgets, runs: [run({ ms: 5001 })] }).problems.join(), /took 5001 ms, budget 5000 ms/);
+  assert.match(assertBudget({ host: "mac", budgets, runs: [run({ marks: { ...m.marks, dependencyStep: 601 } })] }).problems.join(), /stage dependencyStep took 601 ms, budget 600 ms/);
+  assert.match(assertBudget({ host: "mac", budgets, runs: [run({ marks: { ...m.marks, planning: null } })] }).problems.join(), /stage planning could not be timed/);
+  const dell = assertBudget({ host: "dell", budgets, runs: [run()] });
+  assert.equal(dell.ok, false); assert.match(dell.problems.join(), /no budget measured for dell: warmCheckMs/); assert.match(dell.problems.join(), /no budget measured for dell: stages\.snapshotSync/);
+  assert.equal(assertBudget({ host: "mac", budgets, runs: [] }).ok, false);
+  assert.equal(assertBudget({ host: "linux", budgets, runs: [run()] }).ok, false);
+  assert.equal(validateBudgets({ ...budgets, schema: "x" }).ok, false);
+  assert.equal(validateBudgets({ ...budgets, hosts: { mac: { ...budgets.hosts.mac, warmCheckMs: 0 }, dell: budgets.hosts.dell } }).ok, false, "a budget is positive or null");
+  assert.equal(validateBudgets({ ...budgets, hosts: { mac: budgets.hosts.mac } }).ok, false);
+});
+
+test("NN18: the committed budgets file is valid, names its measurement, and leaves the Dell unmeasured (null)", () => {
+  const loaded = loadBudgets();
+  assert.equal(loaded.problem, null, loaded.problem ?? "");
+  const mac = loaded.budgets.hosts.mac;
+  assert.equal(mac.warmCompileMs, null, "no passing warm compile was measured, so it stays null and NN18 fails on it");
+  for (const v of [mac.warmCheckMs, ...BUDGET_STAGES.map((s) => mac.stages[s])]) assert.ok(Number.isFinite(v) && v > 0);
+  assert.match(loaded.budgets.method, /median x ?1\.25/);
+  assert.ok(Array.isArray(loaded.budgets.measured?.mac?.sessions) && loaded.budgets.measured.mac.sessions.length === 3, "three measured sessions on the Mac");
+  assert.equal(loaded.budgets.hosts.dell.warmCheckMs, null);
+  assert.equal(loadBudgets("/nonexistent/budgets.json").budgets, null);
+});
+
+test("NN19: the gate under test is the installed sealed gate; a checkout gate must be named by --gate", () => {
+  const installed = { version: "0.6.46", entry: "/m/trusted-gates/x/node_modules/@rightkit/release/bin/rightkit-gate.mjs" };
+  const base = { gateArg: undefined, defaultGate: "/m/agent-bin/rightkit-host-gate", launcherExists: true, launcherVersion: "0.6.46", launcherText: "#!/usr/bin/env node\n", installed, checkoutRoot: "/w/rightkit" };
+  const ok = gateIdentityProblems(base);
+  assert.ok(ok.ok); assert.equal(ok.kind, "installed");
+  assert.match(gateIdentityProblems({ ...base, launcherVersion: "0.6.47" }).problems.join(), /not the installed gate/);
+  assert.match(gateIdentityProblems({ ...base, launcherText: "exec node /w/rightkit/packages/release/bin/rightkit-gate.mjs \"$@\"" }).problems.join(), /runs the checkout gate \S+ and no --gate names it/);
+  assert.match(gateIdentityProblems({ ...base, installed: null }).problems.join(), /no sealed installed gate/);
+  assert.match(gateIdentityProblems({ ...base, launcherExists: false, launcherVersion: null }).problems.join(), /does not exist/);
+  assert.match(gateIdentityProblems({ ...base, launcherVersion: null }).problems.join(), /printed no version/);
+  const named = gateIdentityProblems({ ...base, gateArg: "/s/checkout-gate.sh", launcherText: "exec node /w/rightkit/packages/release/bin/rightkit-gate.mjs", launcherVersion: "0.6.47" });
+  assert.ok(named.ok); assert.equal(named.kind, "named", "named by --gate: accepted, and recorded as not the installed gate");
+  assert.equal(gateIdentityProblems({ ...base, gateArg: base.defaultGate }).kind, "installed");
+  // findInstalledGate: a sealed folder (named by its manifest's sha256) with the newest version wins; an unsealed one never does.
+  const files = new Map(); const mk = (version, sealed = true) => { const manifest = `m${version}\n`; const name = sealed ? sha(manifest) : "f".repeat(64); files.set(`/m/trusted-gates/${name}.manifest.txt`, manifest); files.set(`/m/trusted-gates/${name}/node_modules/@rightkit/release/package.json`, JSON.stringify({ name: "@rightkit/release", version })); return name; };
+  mk("0.6.9"); mk("0.6.46"); mk("0.6.99", false);
+  const found = findInstalledGate("/m", { list: () => [...new Set([...files.keys()].map((k) => k.split("/")[3]).filter((n) => /^[a-f0-9]{64}$/.test(n)))], read: (f) => { if (!files.has(f)) throw new Error("ENOENT"); return files.get(f); } });
+  assert.equal(found.version, "0.6.46");
+  assert.equal(findInstalledGate("/nowhere"), null);
+});
+
+// ---- the same violations, injected into a whole clean evidence set -------------------------------------------------------------------------------
+
+const T0 = Date.parse("2026-11-05T12:00:00.000Z"); const tsAt = (ms) => new Date(T0 + ms).toISOString();
+const ENV = "e".repeat(64); const CORES = 12;
+const cleanLog = (stage, { n = 1, lease = stage !== "check", match = "hit", walks = 0, hashes = 0, resident = 2, lanes = CORES, rulesCached = true, shared = 29 } = {}) => [
+  lease && `${tsAt(200)} rightkit-gate: build ownership held h${n}`,
+  `${tsAt(300)} rightkit-gate: snapshot /s/abc is commit ${"a".repeat(40)} tree ${"b".repeat(40)} (written=0 removed=0 unchanged=77)`,
+  `${tsAt(400)} rightkit-gate: --to ${stage} for aaaaaaaaaaaa: ${stage}; executor broker`,
+  `${tsAt(500)} ${rulesCached ? "check: aaaaaaaaaaaa app rules: cached pass (tree bbbbbbbbbbbb)" : "check: aaaaaaaaaaaa passed 14 rules (compile tier) in 0.1s"}`,
+  stage === "compile" && `${tsAt(550)} rightkit-gate: note: class B batching: 37 compile scan(s) in 12 configuration group(s); each group runs as one invocation (${shared} scan(s) in ${shared ? 4 : 0} shared group(s)), bisected`,
+  stage === "compile" && `${tsAt(560)} rightkit-gate: note: class B batching: 4 compile scan(s) stay their own invocation: sidecar-bound`,
+  `${tsAt(700)} rightkit-gate: 120 scan(s) for 77 changed file(s) vs aaaaaaaaaaaa; class A scans ${lanes} at a time, class B: the broker queues`,
+  `${tsAt(900)} rightkit-gate: snapshot dependencies root=app pnpm=11.25.0 store=/s lockfile=sha256:abc ms=40 reuse-check-ms=20 dependency-digest-checks=1 reuse-setup=ready reuse-match=${match}`,
+  `${tsAt(1000)} rightkit-gate: coverage report /r/c${n}.json: 4 planned scan(s), 4 hit, 0 ran, 0 skipped`,
+  `${tsAt(1100)} rightkit-gate: class A bytes tracked=a all=a env-at-start=${ENV} env=${ENV}`,
+  `${tsAt(1200)} rightkit-gate: snapshot proof: tree-hashes=${hashes} verify-walks=${walks} resident-proofs=${resident}`,
+].filter(Boolean).join("\n");
+const baseRows = (cov = "hit", over = {}) => map([
+  row("rustfmt:2021", cov, { key: '{"id":"rustfmt:2021","files":[["a","1"]]}', ...over["rustfmt:2021"] }), row("secret-scan", cov, { key: '{"id":"secret-scan"}', ...over["secret-scan"] }), row("license", cov, { key: '{"id":"license"}', ...over.license }),
+  row("cargo-metadata:rk", cov, { key: '{"id":"cargo-metadata:rk"}', ...over["cargo-metadata:rk"] }), row("cargo-metadata:tools", cov, { key: '{"id":"cargo-metadata:tools"}', ...over["cargo-metadata:tools"] }),
+  row("ghsa-audit:rk", cov, { key: '{"day":"2026-11-05","id":"ghsa-audit:rk"}', ...over["ghsa-audit:rk"] }), row("cargo-deny:tools", cov, { key: '{"day":"2026-11-05","id":"cargo-deny:tools"}', ...over["cargo-deny:tools"] }),
+  row("tsc:app", cov, { key: `{"id":"tsc:app","env":"${ENV}"}`, ...over["tsc:app"] }), row("pnpm-lockfile:app", cov, { key: `{"id":"pnpm-lockfile:app","env":"${ENV}"}` }),
+  rowB("clippy:rk-core", cov, { key: '{"id":"clippy:rk-core"}', ...over["clippy:rk-core"] }),
+]);
+const cleanLedger = (extra = []) => [led("git", ["rev-parse", "--show-toplevel"], "/w"), led("git", ["rev-parse", "HEAD"], "/w"), led("rustfmt", ["--version"], "/tmp"), led("pnpm", ["--version"], "/s/app"), led("node", ["--version"], "/w"), ...extra];
+function cleanCtx() {
+  const mkRun = (label, stage, o = {}) => ({ label, stage, exit: 0, ms: stage === "compile" ? 4000 : 3000, startedMs: T0, args: ["--to", stage], log: cleanLog(stage, { n: label.length }), logPath: `/o/${label}.log`, coveragePaths: [`/r/${label}.json`], ledgerPath: `/o/${label}.jsonl`, ledger: { entries: cleanLedger(), problems: [] }, coverageStarts: ["2026-11-05T12:00:00.000Z"], rows: baseRows("hit"), ...o });
+  const runs = {};
+  for (const [label, stage] of [["S1:check", "check"], ["S1:compile", "compile"], ["S2:check", "check"], ["S2:compile", "compile"], ["S2:check2", "check"], ["S2:compile2", "compile"]]) runs[label] = mkRun(label, stage);
+  const editRows = (over) => baseRows("hit", over);
+  runs["S3:check"] = mkRun("S3:check", "check", { rows: map([row("rustfmt:2021", "ran", { key: "new-1" }), row("secret-scan", "ran", { key: "new-2" }), row("license", "ran", { key: "new-3" }), ...[...baseRows("hit").values()].filter((r) => !["rustfmt:2021", "secret-scan", "license"].includes(r.id))]) });
+  runs["S4:check"] = mkRun("S4:check", "check", { rows: map([row("cargo-metadata:rk", "ran", { key: "new-m" }), ...[...baseRows("hit").values()].filter((r) => r.id !== "cargo-metadata:rk")]), manifestInfo: { workspace: "rk", workspaces: [".", "rk", "tools"], crates: {} } });
+  void editRows;
+  runs["S10:units"] = mkRun("S10:units", "check", { units: ["cargo:rightkit-a", "cargo:rightkit-b"], log: `${cleanLog("check")}\n${tsAt(1300)} rightkit-gate: [unit:check] class A (compile tier) of this unit list already passed on aaaaaaaaaaaa: not run again` });
+  const budgets = { schema: BUDGETS_SCHEMA, hosts: { mac: { warmCheckMs: 5000, warmCompileMs: 6000, stages: { ownership: 1000, snapshotSync: 1000, dependencyStep: 3000, planning: 1000 } }, dell: { warmCheckMs: null, warmCompileMs: null, stages: { ownership: null, snapshotSync: null, dependencyStep: null, planning: null } } } };
+  return { runs, wanted: STEPS.map((s) => s.id), host: "mac", budgets, budgetProblem: null, cores: CORES, jobsEnv: undefined, gateIdentity: { ok: true, problems: [], kind: "installed" }, gateIdentityEvidence: "x" };
+}
+const nnStatus = (ctx) => Object.fromEntries(evaluateNonNegotiables(ctx).map((r) => [r.id, r.status]));
+const logOf = (ctx, label, f) => { ctx.runs[label].log = f(ctx.runs[label].log); };
+const ledgerAdd = (ctx, label, ...entries) => { ctx.runs[label].ledger.entries.push(...entries); };
+
+test("a clean evidence set passes all 19 non-negotiables", () => {
+  const results = evaluateNonNegotiables(cleanCtx());
+  assert.equal(results.length, 19);
+  for (const r of results) assert.equal(r.status, "pass", `${r.id}: ${r.problems.join(" | ")}`);
+});
+
+const MUTATIONS = {
+  NN01: (c) => { c.runs["S2:check2"].rows = baseRows("hit", { "rustfmt:2021": { coverage: "ran" } }); },
+  NN02: (c) => { c.runs["S2:compile2"].rows = baseRows("hit", { "clippy:rk-core": { coverage: "ran" } }); },
+  NN03: (c) => { c.runs["S3:check"].rows.set("cargo-metadata:tools", row("cargo-metadata:tools", "ran", { key: "moved" })); },
+  NN04: (c) => { c.runs["S4:check"].rows.set("cargo-metadata:tools", row("cargo-metadata:tools", "ran", { key: "moved" })); },
+  NN05: (c) => { c.runs["S2:compile2"].rows = baseRows("hit", { "clippy:rk-core": { key: "drifted" } }); },
+  NN06: (c) => { c.runs["S2:check"].rows = baseRows("hit", { "rustfmt:2021": { key: `{"id":"rustfmt:2021","x":"${ENV}"}` } }); },
+  NN07: (c) => ledgerAdd(c, "S2:check", led("git", ["rev-parse", "--show-toplevel"], "/w")),
+  NN08: (c) => ledgerAdd(c, "S1:check", led("cargo", ["fmt", "--check"], "/s/rk")),
+  NN09: (c) => ledgerAdd(c, "S3:check", led("rustright", ["cargo", "metadata", "--no-deps"], "/s/rk")),
+  NN10: (c) => ledgerAdd(c, "S2:compile2", led("cargo", ["metadata", "--no-deps"], "/s/rk")),
+  NN11: (c) => logOf(c, "S2:check2", (l) => l.replace("verify-walks=0", "verify-walks=2")),
+  NN12: (c) => logOf(c, "S2:compile", (l) => l.replace("reuse-match=hit", "reuse-match=record-mismatch")),
+  NN13: (c) => logOf(c, "S4:check", (l) => `${tsAt(100)} rightkit-gate: build ownership held h9\n${l}`),
+  NN14: (c) => logOf(c, "S2:check", (l) => l.replace("app rules: cached pass", "passed 14 rules")),
+  NN15: (c) => { c.runs["S2:check2"].rows = baseRows("hit", { "ghsa-audit:rk": { coverage: "ran" } }); },
+  NN16: (c) => { c.runs["S10:units"].log = `${c.runs["S10:units"].log}\n${tsAt(1400)} rightkit-gate: coverage report /r/second.json: 1 planned scan(s)`; },
+  NN17: (c) => logOf(c, "S2:check", (l) => l.replace(`class A scans ${CORES} at a time`, "class A scans 4 at a time")),
+  NN18: (c) => { c.runs["S2:check2"].ms = 5001; },
+  NN19: (c) => { c.gateIdentity = { ok: false, problems: ["checkout gate without --gate"], kind: "installed" }; },
+};
+for (const nn of NN) {
+  test(`${nn.id} wiring: ${nn.title} -- fails exactly on its own violation`, () => {
+    assert.ok(MUTATIONS[nn.id], `${nn.id} has a mutation`);
+    const ctx = cleanCtx(); MUTATIONS[nn.id](ctx);
+    const status = nnStatus(ctx);
+    assert.equal(status[nn.id], "fail", `${nn.id} must fail on its violation`);
+  });
+}
+test("a violation of one non-negotiable does not fail the unrelated ones", () => {
+  for (const [id, mutate] of [["NN13", MUTATIONS.NN13], ["NN19", MUTATIONS.NN19], ["NN18", MUTATIONS.NN18], ["NN04", MUTATIONS.NN04]]) {
+    const ctx = cleanCtx(); mutate(ctx);
+    const failed = Object.entries(nnStatus(ctx)).filter(([, s]) => s === "fail").map(([k]) => k);
+    assert.deepEqual(failed, [id], `${id} alone`);
+  }
+});
+
+test("missing evidence fails a selected non-negotiable and never leaves it unchecked", () => {
+  const noLedger = cleanCtx(); for (const r of Object.values(noLedger.runs)) r.ledger = null;
+  const s = nnStatus(noLedger);
+  for (const id of ["NN07", "NN08", "NN09", "NN10", "NN12", "NN16", "NN17"]) assert.equal(s[id], "fail", `${id} without a ledger`);
+  assert.match(evaluateNonNegotiables(noLedger).find((r) => r.id === "NN07").problems.join(), /does not emit RK_GATE_SPAWN_LEDGER/);
+  const noWarm = cleanCtx(); delete noWarm.runs["S2:check2"];
+  const w = nnStatus(noWarm); for (const id of ["NN01", "NN05", "NN10", "NN14", "NN15", "NN18"]) assert.equal(w[id], "fail", `${id} without the second warm run`);
+  const noUnits = cleanCtx(); delete noUnits.runs["S10:units"]; noUnits.unitsWhy = "the fixture has 0 units";
+  assert.match(evaluateNonNegotiables(noUnits).find((r) => r.id === "NN16").problems.join(), /fixture has 0 units/);
+  const nullBudget = cleanCtx(); nullBudget.host = "dell";
+  const d = evaluateNonNegotiables(nullBudget).find((r) => r.id === "NN18");
+  assert.equal(d.status, "fail"); assert.match(d.problems.join(), /no budget measured for dell/);
+  const failedRun = cleanCtx(); failedRun.runs["S2:compile2"].exit = 1;
+  assert.equal(nnStatus(failedRun).NN02, "fail", "a red compile is no evidence of a quiet Class B");
+  assert.equal(nnStatus(failedRun).NN18, "fail");
+  assert.equal(nnStatus(failedRun).NN01, "pass", "its Class A rows are still evidence of NN01");
+  const noRows = cleanCtx(); noRows.runs["S2:check"].exit = 1; noRows.runs["S2:check"].rows = null;
+  assert.equal(nnStatus(noRows).NN01, "fail");
+  const noS3 = cleanCtx(); delete noS3.runs["S3:check"]; noS3.s3Why = "S3 made no run: the fixture has no tracked rk/**/src/lib.rs";
+  assert.match(evaluateNonNegotiables(noS3).find((r) => r.id === "NN03").problems.join(), /no tracked rk/);
+});
+
+test("a subset run evaluates only the non-negotiables whose steps all ran and marks the rest not-evaluated; NN19 is always evaluated", () => {
+  const ctx = cleanCtx(); ctx.wanted = ["S2"];
+  const s = nnStatus(ctx);
+  assert.equal(s.NN01, "pass"); assert.equal(s.NN18, "pass"); assert.equal(s.NN19, "pass");
+  for (const id of ["NN03", "NN04", "NN06", "NN07", "NN16"]) assert.equal(s[id], "not-evaluated", id);
+  const r = buildResult({ host: "mac", gate: {}, broker: {}, commit: COMMIT, steps: [{ id: "S2", title: "S2", checks: ["pass"], notes: [] }], clauseChecks: { ...allUnchecked(), "GC-A04": [{ status: "pass", evidence: ["r"], problems: [] }] }, startedAt: "a", endedAt: "b", nonNegotiables: evaluateNonNegotiables(ctx) });
+  assert.equal(r.ok, true); assert.match(r.verdict, /non-negotiables 9 of 19 passed, 10 not evaluated \(steps not selected\); partial run: steps S2 only/);
+});
+
+test("the verdict includes the non-negotiables: a failed one blocks, and a full run with one missing or not evaluated is not a pass", () => {
+  const nn = (over = {}) => NN_IDS.map((id) => ({ id, status: over[id] ?? "pass", problems: over[id] ? ["x"] : [] }));
+  const full = STEPS.map((x) => step(x.id, x.byDesignUnchecked ? [] : ["pass"]));
+  const run = (nonNegotiables, steps = full) => rb({ clauseChecks: passing(), steps, nonNegotiables });
+  const ok = run(nn());
+  assert.equal(ok.ok, true); assert.equal(ok.verdict, "PASS (1 of 67 asserted, 66 unchecked; non-negotiables 19 of 19 passed)");
+  const failed = run(nn({ NN07: "fail" }));
+  assert.equal(failed.ok, false); assert.match(failed.blockers.join(), /non-negotiable NN07 failed/); assert.match(failed.verdict, /^NOT PASSED .*non-negotiables 18 of 19 passed, 1 failed/);
+  assert.match(formatSummary(failed), /NN07 fail: x/);
+  assert.match(run(nn({ NN03: "not-evaluated" })).blockers.join(), /NN03 was not evaluated in a full run/);
+  assert.match(run(nn().slice(1)).blockers.join(), /NN01 has no result/);
+  assert.equal(run(nn({ NN03: "not-evaluated" }), [step("S1", ["pass"])]).ok, true, "a partial run may leave them not-evaluated");
+});
+
+test("the plan lists the non-negotiables per step and the S10 unit-list step exists", () => {
+  const plan = buildPlan(); const text = formatPlan(plan);
+  assert.equal(plan.nonNegotiables.length, 19);
+  assert.match(text, /S2  warm rerun, same commit \(twice\)[^\n]*\n[^\n]*\n\s+non-negotiables: NN01 NN02 NN05 NN06 NN07/);
+  assert.match(text, /S10  unit list/); assert.match(text, /NN16  steps S10/);
+  assert.match(text, /NN19: ?|NN19 \(evaluated in every run\)/);
+  assert.deepEqual(nnForStep("S3"), ["NN03", "NN07", "NN08", "NN09", "NN13"]);
+  assert.equal(buildPlan({ steps: ["S2"] }).nonNegotiables.find((n) => n.id === "NN03").selected, false);
+  assert.deepEqual(unitSelectorsOf(["crates/rightkit-b/Cargo.toml", "packages/pkg/package.json", "crates/rightkit-a/Cargo.toml", "rk/crates/x/Cargo.toml"], 2), ["cargo:rightkit-a", "cargo:rightkit-b"]);
+  assert.deepEqual(unitSelectorsOf(["rk/crates/x/Cargo.toml"], 2), []);
 });
