@@ -171,5 +171,26 @@ export function sealedRepoInfo(checkout) {
 /** A single sealed git command against `checkout`'s object database (T is made and removed around it). Returns the spawn result. */
 export function sealedRun(checkout, args, options = {}) {
   const info = options.repo ?? sealedRepoInfo(checkout);
-  return withSealedGit({ ...info, snapshot: options.snapshot }, (git) => git.run(args, options));
+  // A full tree listing of a commit named by its full object id is immutable: one gate run asked for the same listing 11 times
+  // (HeardRight warm check, 0.9 s), so a successful one is reused within this process. Keyed on the object database, the exact
+  // arguments and the output encoding; at most TREE_LISTING_MEMO_MAX listings are kept.
+  const memoKey = immutableListingKey(info, args, options);
+  if (memoKey !== null && treeListingMemo.has(memoKey)) return { ...treeListingMemo.get(memoKey) };
+  const result = withSealedGit({ ...info, snapshot: options.snapshot }, (git) => git.run(args, options));
+  if (memoKey !== null && result && result.status === 0 && !result.error) {
+    if (treeListingMemo.size >= TREE_LISTING_MEMO_MAX) treeListingMemo.delete(treeListingMemo.keys().next().value);
+    treeListingMemo.set(memoKey, result);
+  }
+  return result;
+}
+
+const TREE_LISTING_MEMO_MAX = 4;
+const treeListingMemo = new Map();
+/** The memo key of an `ls-tree -r ... --full-tree <full object id>` call, or null for anything else (never cached). */
+function immutableListingKey(info, args, options) {
+  if (!Array.isArray(args) || args[0] !== "ls-tree" || !args.includes("-r") || !args.includes("--full-tree")) return null;
+  const target = args[args.length - 1];
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(String(target))) return null;
+  if (args.slice(1, -1).some((a) => !/^-/.test(String(a)))) return null;
+  return JSON.stringify([info.commonDir, info.objectFormat, args, options.encoding ?? null, options.maxBuffer ?? null]);
 }
