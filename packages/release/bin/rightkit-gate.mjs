@@ -96,6 +96,13 @@ import { LINUX_BROKER_ROUTE, NO_BROKER_ENV, directCargoPath, directPlatform, lin
 import { createBrokerLive } from "../broker-admission.mjs";
 import { bindingOf, compileOutputsRecord, compileReuseProblem, endRun, readReceipt, RECEIPT_SCHEMA, receiptKey, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, STAGE_SOURCES, writeReceipt } from "../gate-stages.mjs";
 import { spawnSync as spawnInherit } from "../background-process.mjs";
+// GC-A21: a run that stamps its own lines also stamps its inherited-output children's lines, through stamp-relay.mjs in front of the child
+// (the launch stays synchronous and the output still streams). Set by main() when the run stamps; off for machine-readable runs.
+let stampChildLines = false;
+const STAMP_RELAY = fileURLToPath(new URL("../stamp-relay.mjs", import.meta.url));
+const inheritLaunch = (cmd, a, opts) => (stampChildLines
+  ? spawnInherit(process.execPath, [STAMP_RELAY, cmd, ...a], { ...opts, stdio: "inherit" })
+  : spawnInherit(cmd, a, { ...opts, stdio: "inherit" }));
 import { readDiskPolicy, scratchRoots } from "../disk-policy.mjs";
 import { buildDirectReceipt, directVerdict, resolveTargetDirectory, verifyDirectReceipt, writeDirectDiagnostics } from "../direct-receipt.mjs";
 import { createFreshnessCensus } from "../freshness-census.mjs";
@@ -1858,7 +1865,7 @@ async function runStages(o, args, root, git, io) {
     let childOk = false;
     try {
       o.out(`${tag} [${stage}] right-release ${cliArgs.join(" ")}${sourceOf ? ` (from the snapshot ${ds.path})` : ""}`);
-      const r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [cli, ...cliArgs], { cwd: sourceOf ? snapshotAppRootOf(ds.path, appDir) : appRoot, env: carriedEnv(carrier, { ...o.env, ...run.env }, extraEnv) });
+      const r = (o.spawnInherit ?? inheritLaunch)(process.execPath, [cli, ...cliArgs], { cwd: sourceOf ? snapshotAppRootOf(ds.path, appDir) : appRoot, env: carriedEnv(carrier, { ...o.env, ...run.env }, extraEnv) });
       childOk = r.status === 0;
     } finally { endRun(run); }
     const carriedOk = await carrier.finish({ stage });
@@ -2469,7 +2476,7 @@ export async function stageWebBuildOnce({ o, ds, root, git = null, appDir, cli, 
     let r = restored ? { status: 0 } : null;
     if (!restored) try {
       o.out(`${tag} [${stage}] right-release web-build --config ${path.join(ds.path, config)} (from the snapshot ${ds.path}; declared input(s) ${absent().join(", ")} are absent)`);
-      r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [cli, "web-build", "--config", path.join(ds.path, config)], { cwd: snapshotAppRootOf(ds.path, appDir), env: carriedEnv(carrier, { ...cleanEnv, ...run.env }) });
+      r = (o.spawnInherit ?? inheritLaunch)(process.execPath, [cli, "web-build", "--config", path.join(ds.path, config)], { cwd: snapshotAppRootOf(ds.path, appDir), env: carriedEnv(carrier, { ...cleanEnv, ...run.env }) });
     } finally { endRun(run); }
     const carriedOk = await carrier.finish({ stage });
     if (!r || r.status !== 0) { o.err(`${tag} [${stage}] web-build for ${config} failed${r?.error ? ` (${r.error.message})` : ""}`); return false; }
@@ -3481,7 +3488,7 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
       if (ds && !(await closeSnapshotStage({ o, ds, root, stage: to, step: to, tag })).ok) { o.err(`${tag} --to ${to} stopped: the result covers no known bytes`); return 2; }
       return rendered === 0 && carriedRendered ? 0 : 1;
     }
-    const r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [cli, to, ...passthrough], { cwd: source ? snapshotAppRootOf(ds.path, appDir) : appRoot, env: childEnv });
+    const r = (o.spawnInherit ?? inheritLaunch)(process.execPath, [cli, to, ...passthrough], { cwd: source ? snapshotAppRootOf(ds.path, appDir) : appRoot, env: childEnv });
     const carriedOk = await carrier.finish({ stage: to });
     if (ds && !(await closeSnapshotStage({ o, ds, root, stage: to, step: to, tag })).ok) { o.err(`${tag} --to ${to} stopped: the result covers no known bytes`); return 2; }
     return r.status === 0 && carriedOk ? 0 : 1;
@@ -3588,8 +3595,10 @@ export async function main(argv, io = {}) {
   const stampsLines = (args.includes("--to") || args.includes("--full-a") || args.includes("--all"))
     && !args.some((a) => ["--route", "--list", "--print-baseline", "--json", "--plan", "--version", "-v", "--help", "-h"].includes(a));
   if (stampsLines) {
-    const stamped = (write) => (m) => write(/^rightkit-gate: verdict deterministic/.test(String(m)) ? m : `${new Date().toISOString()} ${m}`);
+    // Every line of a multi-line message carries the stamp, not only its first.
+    const stamped = (write) => (m) => { if (/^rightkit-gate: verdict deterministic/.test(String(m))) return write(m); const at = new Date().toISOString(); return write(String(m).split("\n").map((l) => `${at} ${l}`).join("\n")); };
     o.out = stamped(o.out); o.err = stamped(o.err);
+    stampChildLines = true;
   }
   // The cache bypass is retired (GC-T14; workspace rule: never write or run a no-cache option). Refused by name so an old caller learns why.
   if (args.includes("--no-cache") || (io.env ?? process.env).RK_GATE_CACHE === "0") {
@@ -3758,7 +3767,7 @@ export async function main(argv, io = {}) {
     if (root && selfRules === 0 && snapshotDir && rightkitRepository && appCheck === 0 && classA === 0) {
       // The commit's own preflight reads the commit from the checkout's object database; its exports probe imports from the snapshot,
       // whose dependencies class A installed, and reports beside (never over) the commit-bound report publication reads.
-      const launch = o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" }));
+      const launch = o.spawnInherit ?? inheritLaunch;
       // GC-A24: RightKit's own preflight and exports probe execute the commit's code with its installed dependencies; a pass is reused
       // for the same commit tree, installed-dependency bytes, node and platform (and scope), and only a pass.
       const effects = path.join(snapshotDir, "scripts", "ci", "exports-import-effects.mjs");
@@ -3776,7 +3785,7 @@ export async function main(argv, io = {}) {
       }
       if (selfKey && !selfCached && selfRules === 0) ruleCache.pass(selfKey);
     } else if (root && selfRules === 0 && !snapshotDir && (rightkitRepository || canon(self).startsWith(canon(root) + path.sep)) && o.exists(path.join(root, "scripts", "preflight.mjs")) && appCheck === 0 && classA === 0) {
-      const launch = o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" }));
+      const launch = o.spawnInherit ?? inheritLaunch;
       const selector = args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"];
       const r = launch(process.execPath, [path.join(root, "scripts", "preflight.mjs"), "--repo", root, ...selector], { cwd: root, env: o.env });
       selfRules = r.status === 0 ? 0 : 1;

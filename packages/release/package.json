@@ -87,7 +87,7 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "test": "node --test affected-units.test.mjs batch-workspace.test.mjs unit-list-compile.test.mjs snapshot-dependency-reuse.test.mjs publisher-requirement-scan.test.mjs node-check-cache.test.mjs preparation-diagnostics.test.mjs gate-coverage-timing.test.mjs failure-class.test.mjs cargo-width.test.mjs ci-compile-admission.test.mjs ownership-mark-note.test.mjs handle-revocation.test.mjs test-run-output.test.mjs ownership-auto-recover.test.mjs gate-acceptance.test.mjs",
+    "test": "node --test affected-units.test.mjs batch-workspace.test.mjs unit-list-compile.test.mjs snapshot-dependency-reuse.test.mjs publisher-requirement-scan.test.mjs node-check-cache.test.mjs preparation-diagnostics.test.mjs gate-coverage-timing.test.mjs failure-class.test.mjs cargo-width.test.mjs ci-compile-admission.test.mjs ownership-mark-note.test.mjs handle-revocation.test.mjs test-run-output.test.mjs ownership-auto-recover.test.mjs gate-acceptance.test.mjs stamp-relay.test.mjs",
     "test:registry-parity": "node registry-parity.mjs --allow-unpublished",
     "test:signer:windows": "node sign-release-manifest.integration.mjs",
     "prepublishOnly": "pnpm test:signer:windows && pnpm test:registry-parity",
