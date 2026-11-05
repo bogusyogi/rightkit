@@ -71,14 +71,6 @@ export function wrappers(zig, platform = process.platform, { node = realNode(), 
         : `#!/bin/sh\nexec "${node}" "$(dirname "$0")/zig-filter.mjs" '${spec.replace(/'/g, "'\\''")}' "$@"\n`;
     }
   }
-  // pkg-config for a foreign target (cross-targets.mjs PKG_CONFIG_CROSS): cross rows type-check and never link, so it reports every
-  // package present, with a high version for --modversion and no flags. Used only through PKG_CONFIG_<foreign target>.
-  files[platform === "win32" ? "pkg-config-cross.cmd" : "pkg-config-cross"] = platform === "win32"
-    ? `@echo off\r\nfor %%a in (%*) do if "%%~a"=="--modversion" echo 99.0.0\r\nexit /b 0\r\n`
-    : `#!/bin/sh\n# Foreign-target pkg-config for type-check-only cross rows: every package present, no flags.\nfor a in "$@"; do [ "$a" = "--modversion" ] && echo 99.0.0; done\nexit 0\n`;
-  // windres for the windows-gnu cross row off Windows (cross-targets.mjs WINDRES_CROSS): answers the -V probe as GNU windres and writes
-  // an empty archive to --output; the row type-checks and never links.
-  if (platform !== "win32") files["windres-cross"] = `#!/bin/sh\n# Foreign-target windres for type-check-only cross rows.\nout=""; prev=""\nfor a in "$@"; do\n  case "$a" in -V|--version) echo "GNU windres (RightKit cross type-check stub) 2.42"; exit 0;; --output=*) out="\${a#--output=}";; esac\n  [ "$prev" = "--output" ] && out="$a"\n  prev="$a"\ndone\n[ -n "$out" ] && printf '!<arch>\\n' > "$out"\nexit 0\n`;
   return files;
 }
 
