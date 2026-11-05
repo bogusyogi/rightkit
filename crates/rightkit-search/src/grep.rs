@@ -222,7 +222,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 }
 
 fn hex_decode(text: &str) -> Option<Vec<u8>> {
-    if text.len() % 2 != 0 {
+    if !text.len().is_multiple_of(2) {
         return None;
     }
     (0..text.len())
@@ -450,7 +450,7 @@ pub fn grep_page(req: &GrepRequest, cancel: &AtomicBool) -> Result<GrepPage, Gre
         let lines = split_lines(&data);
         match req.mode {
             GrepMode::Count => {
-                let count = lines.iter().filter(|l| regex.is_match(*l)).count() as u64;
+                let count = lines.iter().filter(|l| regex.is_match(l)).count() as u64;
                 if count > 0 {
                     if page.items.len() >= max_results {
                         page.status = GrepStatus::Truncated;
@@ -464,7 +464,7 @@ pub fn grep_page(req: &GrepRequest, cancel: &AtomicBool) -> Result<GrepPage, Gre
                 }
             }
             GrepMode::FilesWithMatches => {
-                if lines.iter().any(|l| regex.is_match(*l)) {
+                if lines.iter().any(|l| regex.is_match(l)) {
                     if page.items.len() >= max_results {
                         page.status = GrepStatus::Truncated;
                         page.next = Some(encode_cursor(&digest, &here));

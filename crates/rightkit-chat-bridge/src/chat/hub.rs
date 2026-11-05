@@ -203,7 +203,7 @@ fn register_in(dir: &std::path::Path, alias: &str, primary: bool) {
     let domain_owned = format!(
         "win32:{}",
         sysinfo::System::host_name()
-            .unwrap_or_else(|| "pc".to_string())
+            .unwrap_or_else(|_| "pc".to_string())
             .to_lowercase()
     );
     #[cfg(windows)]

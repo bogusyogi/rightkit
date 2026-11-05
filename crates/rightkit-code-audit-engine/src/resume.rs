@@ -572,7 +572,7 @@ pub fn verify_retained_receipts(dir: &Path, key: &[u8], events: &[AuditEvent]) -
 pub enum ProviderSeed {
     /// Verified completed result from a signed receipt.
     Reuse {
-        execution: ProviderExecution,
+        execution: Box<ProviderExecution>,
         attempts: u32,
     },
     /// Explicit failure (gap, kept failure, kept skip). Never reads as clean.

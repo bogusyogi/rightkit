@@ -59,7 +59,6 @@ pub struct FilesystemInventorySource {
     only_paths: Option<BTreeSet<String>>,
 }
 
-pub type InventorySourceDyn = dyn InventorySource;
 pub type InventorySnapshot = InventoryEnvelope;
 
 impl FilesystemInventorySource {
@@ -369,11 +368,7 @@ fn is_oversize_entry(entry: &InventoryEntry) -> bool {
         return false;
     };
     bytes > 32 * 1024 * 1024
-        && digest
-            == format!(
-                "{}",
-                crate::snapshot::uncovered_file_digest(&entry.path, bytes)
-            )
+        && digest == crate::snapshot::uncovered_file_digest(&entry.path, bytes).to_string()
 }
 
 /// Dependency names declared by a recognised manifest (`Cargo.toml`,

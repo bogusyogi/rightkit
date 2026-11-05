@@ -589,7 +589,9 @@ pub fn destroy_in_progress(w: &Value, now: f64) -> bool {
 /// Exclusive advisory lock over the rented-worker records (`<data>/locks/rentals.lock`). The
 /// records are one JSON array in the settings table, so every read-modify-write of it, in this
 /// process or another, runs under this lock. Released on drop (or process death).
-pub struct RentalLock(rightkit_fs::FileLock);
+pub struct RentalLock {
+    _lock: rightkit_fs::FileLock,
+}
 
 impl RentalLock {
     pub fn acquire(ctx: &Context, wait: Duration) -> GenResult<Self> {
@@ -599,7 +601,7 @@ impl RentalLock {
         let path = dir.join("rentals.lock");
         // `Flock` (not the default record lock) so threads of this process exclude each other too.
         match rightkit_fs::FileLock::try_lock_with(&path, rightkit_fs::LockKind::Flock, wait) {
-            Ok(lock) => Ok(Self(lock)),
+            Ok(lock) => Ok(Self { _lock: lock }),
             Err(rightkit_fs::FsError::Locked { .. } | rightkit_fs::FsError::LockTimeout { .. }) => {
                 Err(GenError::new(
                     "rentals_busy",
@@ -651,7 +653,7 @@ fn resolve_unknown(ctx: &Context, now: f64, have_key: bool, report: &mut Value) 
     };
     let candidates: Vec<Value> = super::load_workers(ctx)?
         .into_iter()
-        .filter(|w| is_vast_rental(w))
+        .filter(is_vast_rental)
         .filter(|w| match status(w) {
             "outcome_unknown" => true,
             "renting" => {

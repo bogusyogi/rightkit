@@ -1279,8 +1279,18 @@ mod imp {
             // NUL-terminated ASCII export name.
             let (get, set) = unsafe {
                 (
-                    GetProcAddress(module, b"NetworkIsolationGetAppContainerConfig\0".as_ptr()),
-                    GetProcAddress(module, b"NetworkIsolationSetAppContainerConfig\0".as_ptr()),
+                    GetProcAddress(
+                        module,
+                        c"NetworkIsolationGetAppContainerConfig"
+                            .as_ptr()
+                            .cast::<u8>(),
+                    ),
+                    GetProcAddress(
+                        module,
+                        c"NetworkIsolationSetAppContainerConfig"
+                            .as_ptr()
+                            .cast::<u8>(),
+                    ),
                 )
             };
             if get.is_null() || set.is_null() {
@@ -2264,7 +2274,7 @@ mod imp {
                 // DACL lease there would only fail (git, node, ...).
                 let under_program_files = ["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"]
                     .iter()
-                    .filter_map(|key| std::env::var_os(key))
+                    .filter_map(std::env::var_os)
                     .any(|root| {
                         let root = root.to_string_lossy().to_ascii_lowercase();
                         !root.is_empty()
@@ -2309,7 +2319,7 @@ mod imp {
             // launch proceeds so the child reports the access failure itself.
             let user_dirs: Vec<PathBuf> = ["USERPROFILE", "LOCALAPPDATA", "APPDATA"]
                 .iter()
-                .filter_map(|key| std::env::var_os(key))
+                .filter_map(std::env::var_os)
                 .map(PathBuf::from)
                 .collect();
             for root in super::parse_sandbox_read_roots(extra_env) {

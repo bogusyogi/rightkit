@@ -121,7 +121,7 @@ pub fn build_coverage_matrix(spec: &Value) -> Value {
         .unwrap_or_default();
     let capture_keys = captures
         .iter()
-        .map(|capture| case_key(capture))
+        .map(case_key)
         .collect::<std::collections::BTreeSet<_>>();
     let cases = expected.iter().map(|item| {
         let key = case_key(item);
@@ -868,16 +868,16 @@ pub fn audit_visual_artifacts(input: &ProviderInput<'_>, spec: &Value) -> Value 
     json!({"schemaVersion":1,"kind":"audit-visual-result","status":if !findings.is_empty(){"fail"}else if unproven{"unproven"}else{"pass"},"complete":!unproven,"reviewRequired":review,"coverage":coverage,"denominator":{"kind":"visual-artifacts","expected":expected_cases(spec).len(),"examined":rows.iter().filter(|row|row.get("status").and_then(Value::as_str)!=Some("unproven")).count()},"captures":rows,"findings":findings,"coverageGaps":gaps})
 }
 
-fn projected_findings(
-    analysis: &Value,
-    spec_digest: &str,
-) -> (
+/// Findings plus their evidence, location, title and message maps.
+type ProjectedFindings = (
     Vec<rightkit_evidence_contracts::FindingRef>,
     BTreeMap<String, Value>,
     BTreeMap<String, Value>,
     BTreeMap<String, Value>,
     BTreeMap<String, Value>,
-) {
+);
+
+fn projected_findings(analysis: &Value, spec_digest: &str) -> ProjectedFindings {
     let items = analysis
         .get("findings")
         .and_then(Value::as_array)
@@ -1021,14 +1021,16 @@ fn unavailable(
 ) -> Result<rightkit_evidence_contracts::ProviderResult, crate::error::AuditError> {
     let mut result = super::common::result(
         input,
-        ProviderStatus::Partial,
-        false,
         selected,
-        0,
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        BTreeMap::new(),
+        super::common::ResultParts {
+            status: ProviderStatus::Partial,
+            complete: false,
+            examined: 0,
+            findings: Vec::new(),
+            gaps: Vec::new(),
+            degradation: Vec::new(),
+            details: BTreeMap::new(),
+        },
     )?;
     crate::native_providers::availability::mark_unavailable(&mut result, reason);
     Ok(result)
@@ -1062,14 +1064,16 @@ pub fn execute(
             details.insert("analysis".into(), analysis);
             return super::common::result(
                 input,
-                ProviderStatus::Partial,
-                false,
                 &selected,
-                selected.entries.len(),
-                Vec::new(),
-                gaps.clone(),
-                gaps,
-                details,
+                super::common::ResultParts {
+                    status: ProviderStatus::Partial,
+                    complete: false,
+                    examined: selected.entries.len(),
+                    findings: Vec::new(),
+                    gaps: gaps.clone(),
+                    degradation: gaps,
+                    details,
+                },
             );
         }
         return unavailable(input, &selected, SPEC_NOT_SUPPLIED);
@@ -1077,14 +1081,16 @@ pub fn execute(
     if !spec.is_object() {
         return super::common::result(
             input,
-            ProviderStatus::Partial,
-            false,
             &selected,
-            0,
-            Vec::new(),
-            vec!["visual-spec-invalid".into()],
-            vec!["visual-spec-invalid".into()],
-            BTreeMap::new(),
+            super::common::ResultParts {
+                status: ProviderStatus::Partial,
+                complete: false,
+                examined: 0,
+                findings: Vec::new(),
+                gaps: vec!["visual-spec-invalid".into()],
+                degradation: vec!["visual-spec-invalid".into()],
+                details: BTreeMap::new(),
+            },
         );
     }
     if !has_captures(spec) {
@@ -1132,13 +1138,15 @@ pub fn execute(
     };
     super::common::result(
         input,
-        status,
-        complete,
         &selected,
-        selected.entries.len(),
-        findings,
-        gaps.clone(),
-        gaps,
-        details,
+        super::common::ResultParts {
+            status,
+            complete,
+            examined: selected.entries.len(),
+            findings,
+            gaps: gaps.clone(),
+            degradation: gaps,
+            details,
+        },
     )
 }

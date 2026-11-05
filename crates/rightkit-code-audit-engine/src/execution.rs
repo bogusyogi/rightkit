@@ -532,11 +532,13 @@ async fn run_async(
             .iter()
             .map(|(index, context, attempts)| {
                 Box::pin(run_unit_async(
-                    executor,
-                    plan,
-                    &plan.providers()[*index],
-                    inventory,
-                    context,
+                    UnitRequest {
+                        executor,
+                        plan,
+                        provider: &plan.providers()[*index],
+                        inventory,
+                        prior: context,
+                    },
                     *attempts,
                     cancellation.clone(),
                     sink,
@@ -610,16 +612,28 @@ fn run_unit_sync(
     }
 }
 
+/// One provider unit's frozen inputs for the async scheduler.
+struct UnitRequest<'a> {
+    executor: &'a dyn ProviderExecutor,
+    plan: &'a FrozenPlan,
+    provider: &'a AuditProvider,
+    inventory: &'a InventoryEnvelope,
+    prior: &'a [ProviderExecution],
+}
+
 async fn run_unit_async(
-    executor: &dyn ProviderExecutor,
-    plan: &FrozenPlan,
-    provider: &AuditProvider,
-    inventory: &InventoryEnvelope,
-    prior: &[ProviderExecution],
+    unit: UnitRequest<'_>,
     max_attempts: u32,
     cancellation: CancellationToken,
     recorder: Option<&RunRecorder>,
 ) -> UnitOutcome {
+    let UnitRequest {
+        executor,
+        plan,
+        provider,
+        inventory,
+        prior,
+    } = unit;
     let context = ExecutionContext {
         plan_digest: plan.digest(),
         prior_results: prior,
@@ -2199,7 +2213,7 @@ fn stamp_executed_toolchain(provider: &AuditProvider, result: &mut ProviderResul
         found.sort();
         found.dedup();
         // Every receipt must identify its tool; mixed or partial identity is UNKNOWN.
-        (found.len() >= 1 && receipts.iter().all(|r| receipt_toolchain(r).is_some()))
+        (!found.is_empty() && receipts.iter().all(|r| receipt_toolchain(r).is_some()))
             .then(|| found.join("+"))
     };
     if let Some(identity) = identity {

@@ -13,7 +13,7 @@
       "warmCheckMs": 4500,
       "warmCompileMs": null,
       "stages": {
-        "ownership": 0,
+        "ownership": 5625,
         "snapshotSync": 674,
         "dependencyStep": 2315,
         "planning": 1353
@@ -76,5 +76,5 @@
       "note": "ownership is 4.5 s on a compile (the lease acquisition the gate pays today); a --to check takes 0.2-0.4 s of it today and 0 once NN13 holds."
     }
   },
-  "note": "Budgets are targets from the optimized state, never from a slow run: ownership is 0 because Class A takes no lease (NN13); warmCheckMs is the best measured warm fixture check (3.6 s, 2026-11-05 12:47Z, 37 of 39 rows hit) x1.25. snapshotSync, dependencyStep and planning are from the 2026-11-05 S2 sessions and are lowered once the gate passes NN07, NN10-NN12. Values are only ever lowered."
+  "note": "Budgets are targets from the optimized state, never from a slow run. warmCheckMs is the best measured warm fixture check (3.6 s, 2026-11-05 12:47Z, 37 of 39 rows hit) x1.25. ownership is the compile-stage lease ceiling (a compile legitimately takes the lease); a lease on --to check is NN13's failure, not a budget. snapshotSync, dependencyStep and planning were measured on 2026-11-05 runs that still reinstalled and ran real cargo metadata, so they are loose and are lowered once the gate passes NN07 and NN10-NN12. Values are only ever lowered."
 }

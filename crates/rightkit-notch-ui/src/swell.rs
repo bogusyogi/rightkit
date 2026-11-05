@@ -72,3 +72,9 @@ impl Swell {
         true
     }
 }
+
+impl Default for Swell {
+    fn default() -> Self {
+        Self::new()
+    }
+}

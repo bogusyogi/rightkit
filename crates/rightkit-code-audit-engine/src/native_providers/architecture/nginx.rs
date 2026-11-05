@@ -497,7 +497,6 @@ enum Tok {
 #[derive(Clone, Debug)]
 struct Arg {
     value: String,
-    quoted: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -716,7 +715,7 @@ fn make_directive(
     let args = taken
         .into_iter()
         .skip(1)
-        .map(|(value, quoted, _)| Arg { value, quoted })
+        .map(|(value, _, _)| Arg { value })
         .collect();
     Directive {
         name,
@@ -965,7 +964,7 @@ impl<'a> Resolver<'a> {
 
 fn parse_version(value: &str) -> Option<(u32, u32, u32)> {
     let core = value.trim().trim_start_matches("nginx/");
-    let mut it = core.split(|c: char| c == '.' || c == '-' || c == ' ');
+    let mut it = core.split(['.', '-', ' ']);
     Some((
         it.next()?.parse().ok()?,
         it.next()?.parse().ok()?,
@@ -1578,8 +1577,7 @@ fn candidate(
     rule: &str,
     loc_id: &str,
     n: usize,
-    file: &str,
-    line: u32,
+    (file, line): (&str, u32),
     message: String,
     basis: Vec<String>,
     evidence: Value,
@@ -1640,8 +1638,7 @@ pub fn evaluate_nginx(facts: &NginxFacts, policy: &NginxPolicy) -> NginxEvaluati
                             "tls-weak-protocol",
                             &server.id,
                             serial,
-                            &server.file,
-                            server.line,
+                            (&server.file, server.line),
                             "TLS listener enables a deprecated protocol".into(),
                             Vec::new(),
                             json!({"sslProtocols": list}),
@@ -1653,7 +1650,7 @@ pub fn evaluate_nginx(facts: &NginxFacts, policy: &NginxPolicy) -> NginxEvaluati
                     Some(false) => {
                         serial += 1;
                         push(&mut out, candidate(
-                            "tls-weak-protocol", &server.id, serial, &server.file, server.line,
+                            "tls-weak-protocol", &server.id, serial, (&server.file, server.line),
                             "ssl_protocols unset and this nginx version defaults to TLSv1/TLSv1.1".into(),
                             Vec::new(), json!({"version": facts.version, "default": "TLSv1 TLSv1.1 TLSv1.2"}),
                         ));
@@ -1688,8 +1685,7 @@ pub fn evaluate_nginx(facts: &NginxFacts, policy: &NginxPolicy) -> NginxEvaluati
                         "forwarded-host-trust",
                         &server.id,
                         serial,
-                        &server.file,
-                        server.line,
+                        (&server.file, server.line),
                         "set_real_ip_from trusts a source outside the declared edge".into(),
                         basis,
                         json!({"setRealIpFrom": from, "broad": broad}),
@@ -1710,8 +1706,7 @@ pub fn evaluate_nginx(facts: &NginxFacts, policy: &NginxPolicy) -> NginxEvaluati
                             "body-limit",
                             &server.id,
                             serial,
-                            &server.file,
-                            server.line,
+                            (&server.file, server.line),
                             "client_max_body_size 0 disables the body limit".into(),
                             vec!["maxBodyBytes".into()],
                             json!({"configured": configured}),
@@ -1726,8 +1721,7 @@ pub fn evaluate_nginx(facts: &NginxFacts, policy: &NginxPolicy) -> NginxEvaluati
                             "body-limit",
                             &server.id,
                             serial,
-                            &server.file,
-                            server.line,
+                            (&server.file, server.line),
                             "client_max_body_size exceeds declared ceiling".into(),
                             vec!["maxBodyBytes".into()],
                             json!({"configured": configured, "max": max}),
@@ -1758,7 +1752,7 @@ pub fn evaluate_nginx(facts: &NginxFacts, policy: &NginxPolicy) -> NginxEvaluati
                             None => {
                                 serial += 1;
                                 push(&mut out, candidate(
-                                    "header-inheritance-loss", &loc.id, serial, &loc.file, loc.line,
+                                    "header-inheritance-loss", &loc.id, serial, (&loc.file, loc.line),
                                     format!("required header `{want}` absent from effective response headers (add_header replaces inherited sets unless merged)"),
                                     vec!["requiredHeaders".into()],
                                     json!({"effectiveHeaders": e.headers.iter().map(|h| &h.name).collect::<Vec<_>>(),
@@ -1768,7 +1762,7 @@ pub fn evaluate_nginx(facts: &NginxFacts, policy: &NginxPolicy) -> NginxEvaluati
                             Some(h) if !h.always => {
                                 serial += 1;
                                 push(&mut out, candidate(
-                                    "header-status-coverage", &loc.id, serial, &h.file, h.line,
+                                    "header-status-coverage", &loc.id, serial, (&h.file, h.line),
                                     format!("required header `{want}` lacks `always`; not sent on 4xx/5xx"),
                                     vec!["requiredHeaders".into()], json!({"header": want}),
                                 ));
@@ -1790,7 +1784,7 @@ pub fn evaluate_nginx(facts: &NginxFacts, policy: &NginxPolicy) -> NginxEvaluati
                 if version_at_least(version, ADD_HEADER_INHERIT_MIN_VERSION) == Some(false) {
                     serial += 1;
                     push(&mut out, candidate(
-                        "add-header-inherit-version", &loc.id, serial, &loc.file, loc.line,
+                        "add-header-inherit-version", &loc.id, serial, (&loc.file, loc.line),
                         "add_header_inherit used but deployed nginx predates it (1.29.3); nginx -t would reject it and merge semantics do not apply".into(),
                         Vec::new(), json!({"mode": mode, "version": facts.version}),
                     ));
@@ -1803,14 +1797,14 @@ pub fn evaluate_nginx(facts: &NginxFacts, policy: &NginxPolicy) -> NginxEvaluati
                 if prefix_loc && !loc.pattern.ends_with('/') && alias.ends_with('/') {
                     serial += 1;
                     push(&mut out, candidate(
-                        "alias-path-traversal", &loc.id, serial, &loc.file, loc.line,
+                        "alias-path-traversal", &loc.id, serial, (&loc.file, loc.line),
                         "prefix location without trailing slash + alias with trailing slash permits path escape (off-by-slash)".into(),
                         Vec::new(), json!({"location": loc.pattern, "alias": alias}),
                     ));
                 } else if prefix_loc && loc.pattern.ends_with('/') && !alias.ends_with('/') {
                     serial += 1;
                     push(&mut out, candidate(
-                        "alias-path-mismatch", &loc.id, serial, &loc.file, loc.line,
+                        "alias-path-mismatch", &loc.id, serial, (&loc.file, loc.line),
                         "location ends with slash but alias does not; resolved paths are malformed".into(),
                         Vec::new(), json!({"location": loc.pattern, "alias": alias}),
                     ));
@@ -1842,8 +1836,7 @@ pub fn evaluate_nginx(facts: &NginxFacts, policy: &NginxPolicy) -> NginxEvaluati
                                 "proxy-pass-client-target",
                                 &loc.id,
                                 serial,
-                                &loc.file,
-                                loc.line,
+                                (&loc.file, loc.line),
                                 "proxy_pass target derives from client-controlled variable".into(),
                                 Vec::new(),
                                 json!({"target": target}),
@@ -1857,7 +1850,7 @@ pub fn evaluate_nginx(facts: &NginxFacts, policy: &NginxPolicy) -> NginxEvaluati
                         Some("/") if !loc.pattern.ends_with('/') => {
                             serial += 1;
                             push(&mut out, candidate(
-                                "proxy-pass-slash-mismatch", &loc.id, serial, &loc.file, loc.line,
+                                "proxy-pass-slash-mismatch", &loc.id, serial, (&loc.file, loc.line),
                                 "prefix location without trailing slash proxied to a `/` URI yields double-slash/path confusion".into(),
                                 Vec::new(), json!({"location": loc.pattern, "proxyPass": target}),
                             ));
@@ -1865,7 +1858,7 @@ pub fn evaluate_nginx(facts: &NginxFacts, policy: &NginxPolicy) -> NginxEvaluati
                         Some(u) if loc.pattern.ends_with('/') && !u.ends_with('/') => {
                             serial += 1;
                             push(&mut out, candidate(
-                                "proxy-pass-slash-mismatch", &loc.id, serial, &loc.file, loc.line,
+                                "proxy-pass-slash-mismatch", &loc.id, serial, (&loc.file, loc.line),
                                 "location ends with slash but proxy_pass URI does not; joined path loses its separator".into(),
                                 Vec::new(), json!({"location": loc.pattern, "proxyPass": target}),
                             ));
@@ -1894,8 +1887,7 @@ pub fn evaluate_nginx(facts: &NginxFacts, policy: &NginxPolicy) -> NginxEvaluati
                                 "forwarded-host-trust",
                                 &loc.id,
                                 serial,
-                                &h.file,
-                                h.line,
+                                (&h.file, h.line),
                                 format!(
                                     "`{}` forwards a client-supplied value unvalidated",
                                     h.name
@@ -1920,7 +1912,7 @@ pub fn evaluate_nginx(facts: &NginxFacts, policy: &NginxPolicy) -> NginxEvaluati
                     if !propagated {
                         serial += 1;
                         push(&mut out, candidate(
-                            "request-id-propagation", &loc.id, serial, &loc.file, loc.line,
+                            "request-id-propagation", &loc.id, serial, (&loc.file, loc.line),
                             format!("proxied location does not set `{rid}` upstream (proxy_set_header replaces inherited sets)"),
                             vec!["requestIdHeader".into()],
                             json!({"effectiveProxyHeaders": e.proxy_headers.iter().map(|h| &h.name).collect::<Vec<_>>()}),
@@ -1941,8 +1933,7 @@ pub fn evaluate_nginx(facts: &NginxFacts, policy: &NginxPolicy) -> NginxEvaluati
                                     "timeout-ceiling",
                                     &loc.id,
                                     serial,
-                                    &loc.file,
-                                    loc.line,
+                                    (&loc.file, loc.line),
                                     format!("{name} exceeds declared ceiling"),
                                     vec!["maxTimeoutSeconds".into()],
                                     json!({"directive": name, "value": value, "max": max}),
@@ -1966,7 +1957,7 @@ pub fn evaluate_nginx(facts: &NginxFacts, policy: &NginxPolicy) -> NginxEvaluati
             if authed && e.cache_enabled && !has_cacheless_partition(e) {
                 serial += 1;
                 push(&mut out, candidate(
-                    "cache-private-shared", &loc.id, serial, &loc.file, loc.line,
+                    "cache-private-shared", &loc.id, serial, (&loc.file, loc.line),
                     "authenticated location enables a shared cache without credential partitioning (confirm with runtime evidence)".into(),
                     Vec::new(),
                     json!({"cacheKey": e.cache_key, "ignoreHeaders": e.cache_ignore_headers}),
@@ -1987,7 +1978,7 @@ pub fn evaluate_nginx(facts: &NginxFacts, policy: &NginxPolicy) -> NginxEvaluati
                 if !exists {
                     serial += 1;
                     push(&mut out, candidate(
-                        "auth-request-target-missing", &loc.id, serial, &loc.file, loc.line,
+                        "auth-request-target-missing", &loc.id, serial, (&loc.file, loc.line),
                         "auth_request subrequest target has no matching location in this server".into(),
                         Vec::new(), json!({"target": target}),
                     ));
@@ -2001,8 +1992,7 @@ pub fn evaluate_nginx(facts: &NginxFacts, policy: &NginxPolicy) -> NginxEvaluati
                         "satisfy-any-bypass",
                         &loc.id,
                         serial,
-                        &loc.file,
-                        loc.line,
+                        (&loc.file, loc.line),
                         "satisfy any lets an allow rule bypass authentication".into(),
                         Vec::new(),
                         json!({"satisfy": "any"}),
@@ -2063,7 +2053,7 @@ pub fn evaluate_nginx(facts: &NginxFacts, policy: &NginxPolicy) -> NginxEvaluati
             if !authed && !denied {
                 serial += 1;
                 push(&mut out, candidate(
-                    "auth-routing-gap", &kind_id, serial, &file, line,
+                    "auth-routing-gap", &kind_id, serial, (&file, line),
                     format!("declared private prefix `{prefix}` resolves to a location with no auth_request/auth_basic"),
                     vec!["privatePathPrefixes".into()], json!({"prefix": prefix}),
                 ));
@@ -2078,7 +2068,7 @@ pub fn evaluate_nginx(facts: &NginxFacts, policy: &NginxPolicy) -> NginxEvaluati
                 if ignores || !has_cacheless_partition(e) {
                     serial += 1;
                     push(&mut out, candidate(
-                        "cache-private-shared", &kind_id, serial, &file, line,
+                        "cache-private-shared", &kind_id, serial, (&file, line),
                         format!("declared private prefix `{prefix}` is served from a shared cache without credential partitioning"),
                         vec!["privatePathPrefixes".into()],
                         json!({"prefix": prefix, "ignoresUpstreamCacheControl": ignores, "cacheKey": e.cache_key}),

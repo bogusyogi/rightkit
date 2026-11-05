@@ -44,7 +44,7 @@
 //! locks shared with the interactive session path — it opens its own
 //! `git2::Repository` handle per call via [`crate::git::execute`] and holds
 //! nothing across steps. Callers are expected to invoke it from a background
-//! queue exactly as [`crate::LocalRuntime`]'s Swift counterpart pushes
+//! queue exactly as the Swift counterpart `LocalRuntime` pushes
 //! `submit` off the calling thread (see `LocalRuntime.swift`); this module
 //! does not spawn threads itself so the host controls exactly which thread
 //! and priority the sync work runs at.

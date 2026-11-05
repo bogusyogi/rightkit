@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
-    path::{Component, Path, PathBuf},
+    path::{Component, Path},
     process::Stdio,
     time::Duration,
 };

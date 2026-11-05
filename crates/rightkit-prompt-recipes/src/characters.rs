@@ -198,7 +198,7 @@ fn engine_routes() -> &'static [EngineRoute] {
         let mut out = Vec::new();
         for p in rightkit_media_gen::providers::registry() {
             for mi in p.models() {
-                let kind = serde_json::to_value(&mi.kind)
+                let kind = serde_json::to_value(mi.kind)
                     .ok()
                     .and_then(|v| v.as_str().map(str::to_string))
                     .unwrap_or_default();
@@ -293,7 +293,7 @@ pub fn route_inconsistencies() -> Vec<Value> {
     // Reverse: an image route the engine serves with a `loras` input but the studio table has no
     // LoRA base model for. Its base compatibility is unknown, so it cannot be locked.
     for e in Catalogue::get().entries() {
-        let kind = serde_json::to_value(&e.kind)
+        let kind = serde_json::to_value(e.kind)
             .ok()
             .and_then(|v| v.as_str().map(str::to_string))
             .unwrap_or_default();

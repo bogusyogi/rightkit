@@ -472,18 +472,28 @@ pub fn rendered_input(prompt: &Value) -> Result<String, AuditError> {
     ))
 }
 
+/// Identity and frozen output allowance of one native physical call.
+pub(super) struct NativeCall<'a> {
+    pub call_id: &'a str,
+    pub reservation_id: &'a str,
+    pub output_limit: u64,
+}
+
 pub fn invoke(
     binary: &Path,
     cwd: &Path,
     options: &RuntimeOptions,
     execution: &super::model::ExecutionSelection,
-    call_id: &str,
-    reservation_id: &str,
-    output_limit: u64,
-    system: &str,
-    schema: &Value,
+    call: NativeCall<'_>,
+    contract: super::CallContract<'_>,
     frame: String,
 ) -> Observation {
+    let NativeCall {
+        call_id,
+        reservation_id,
+        output_limit,
+    } = call;
+    let super::CallContract { system, schema } = contract;
     // Claude Code counts thinking tokens against CLAUDE_CODE_MAX_OUTPUT_TOKENS: the native cap is
     // the frozen text allowance plus an effort-sized thinking allowance (see thinking_allowance).
     let native_output_cap =
@@ -798,33 +808,41 @@ fn schema_repair_capture_complete(
 fn native_terminal_failure(raw: &Value) -> String {
     // Keep protocol categories only: native errors/result bodies can contain
     // arbitrary model output, source, or credentials.
-    let subtype = match raw.get("subtype").and_then(Value::as_str) {
-        Some(
-            subtype @ ("error_during_execution"
-            | "error_max_turns"
-            | "error_max_budget_usd"
-            | "error_max_structured_output_retries"),
-        ) => subtype,
-        _ => "unknown",
-    };
+    let subtype = raw
+        .get("subtype")
+        .and_then(Value::as_str)
+        .filter(|subtype| {
+            matches!(
+                *subtype,
+                "error_during_execution"
+                    | "error_max_turns"
+                    | "error_max_budget_usd"
+                    | "error_max_structured_output_retries"
+            )
+        })
+        .unwrap_or("unknown");
     let turns = raw
         .get("num_turns")
         .and_then(Value::as_u64)
         .and_then(|turns| u32::try_from(turns).ok())
         .map(|turns| turns.to_string())
         .unwrap_or_else(|| "unknown".into());
-    let stop_reason = match raw.get("stop_reason").and_then(Value::as_str) {
-        Some(
-            reason @ ("end_turn"
-            | "max_tokens"
-            | "stop_sequence"
-            | "tool_use"
-            | "pause_turn"
-            | "refusal"
-            | "model_context_window_exceeded"),
-        ) => reason,
-        _ => "unknown",
-    };
+    let stop_reason = raw
+        .get("stop_reason")
+        .and_then(Value::as_str)
+        .filter(|reason| {
+            matches!(
+                *reason,
+                "end_turn"
+                    | "max_tokens"
+                    | "stop_sequence"
+                    | "tool_use"
+                    | "pause_turn"
+                    | "refusal"
+                    | "model_context_window_exceeded"
+            )
+        })
+        .unwrap_or("unknown");
     format!("native result failed/refused; subtype={subtype}; num_turns={turns}; stop_reason={stop_reason}; raw usage retained")
 }
 
@@ -852,7 +870,7 @@ fn decode_stream_with_schema(
     let mut session = None;
     let mut strict_boundary = false;
     let mut repair_events_valid = true;
-    for line in std::str::from_utf8(&bytes)
+    for line in std::str::from_utf8(bytes)
         .map_err(|_| "invalid UTF-8 native output")?
         .lines()
         .filter(|line| !line.trim().is_empty())

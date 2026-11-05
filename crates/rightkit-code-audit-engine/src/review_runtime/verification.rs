@@ -1,5 +1,5 @@
 //! Fresh reviewer contexts bind actual process observations to each author finding.
-use super::{digest, invalid, native, Controller, Observation};
+use super::{digest, invalid, native, CallContract, Controller, Observation};
 use crate::{
     error::AuditError,
     native_providers::reasoning::{ingest, ReasoningInvocation},
@@ -533,8 +533,10 @@ pub(super) fn verify_pending(
             controller.call_once(
                 seat.as_ref().unwrap(),
                 prompt,
-                SYSTEM,
-                &schema,
+                CallContract {
+                    system: SYSTEM,
+                    schema: &schema,
+                },
                 None,
                 &execution,
                 None,

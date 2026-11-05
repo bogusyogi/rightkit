@@ -201,18 +201,31 @@ struct Probe {
     gaps: Vec<String>,
 }
 
-async fn probe(
-    executor: &NativeLegacyCheckExecutor,
-    plan: &crate::FrozenPlan,
-    provider: &AuditProvider,
-    scratch: &AuditScratch,
+/// The run-wide context shared by every npm probe of one check.
+#[derive(Clone, Copy)]
+struct ProbeSite<'a> {
+    executor: &'a NativeLegacyCheckExecutor,
+    plan: &'a crate::FrozenPlan,
+    provider: &'a AuditProvider,
+    scratch: &'a AuditScratch,
     deadline: std::time::Instant,
+}
+
+async fn probe(
+    site: ProbeSite<'_>,
     ordinal: usize,
     label: &str,
     mut args: Vec<String>,
     exits: &[i32],
     cancellation: CancellationToken,
 ) -> Result<Probe, AuditError> {
+    let ProbeSite {
+        executor,
+        plan,
+        provider,
+        scratch,
+        deadline,
+    } = site;
     let cache = scratch.cache_dir().join(format!("npm-outdated-{ordinal}"));
     std::fs::create_dir(&cache)
         .map_err(|e| AuditError::Provider(format!("npm-outdated-fresh-cache:{e}")))?;
@@ -374,7 +387,7 @@ async fn probe(
         && state == LegacyCheckProcessState::Completed
         && exits.contains(&receipt.exit_code.unwrap_or(-1))
         && stderr.is_some())
-    .then(|| stdout.as_deref().and_then(|bytes| strict_json(bytes)))
+    .then(|| stdout.as_deref().and_then(strict_json))
     .flatten()
     .filter(|value| value.is_object() && value.get("error").is_none());
     let raw = json!({"label":label,"receipt":crate::execution_policy::receipt_json(&receipt),
@@ -542,11 +555,13 @@ pub(super) async fn execute(
                     .unwrap_or(120_000),
             );
         let outdated = probe(
-            executor,
-            plan,
-            provider,
-            &scratch,
-            deadline,
+            ProbeSite {
+                executor,
+                plan,
+                provider,
+                scratch: &scratch,
+                deadline,
+            },
             0,
             "outdated",
             vec!["outdated".into(), "--json".into()],
@@ -567,11 +582,13 @@ pub(super) async fn execute(
         // Missing executable/admission is terminal; never attempt alternate tool.
         if process_state == LegacyCheckProcessState::Completed {
             let ls = probe(
-                executor,
-                plan,
-                provider,
-                &scratch,
-                deadline,
+                ProbeSite {
+                    executor,
+                    plan,
+                    provider,
+                    scratch: &scratch,
+                    deadline,
+                },
                 1,
                 "installed",
                 vec![
@@ -595,11 +612,13 @@ pub(super) async fn execute(
                     break;
                 }
                 let exact = probe(
-                    executor,
-                    plan,
-                    provider,
-                    &scratch,
-                    deadline,
+                    ProbeSite {
+                        executor,
+                        plan,
+                        provider,
+                        scratch: &scratch,
+                        deadline,
+                    },
                     2 + index * 2,
                     &format!("exact:{name}"),
                     vec!["view".into(), format!("{name}@{declared}"), "--json".into()],
@@ -608,11 +627,13 @@ pub(super) async fn execute(
                 )
                 .await?;
                 let latest = probe(
-                    executor,
-                    plan,
-                    provider,
-                    &scratch,
-                    deadline,
+                    ProbeSite {
+                        executor,
+                        plan,
+                        provider,
+                        scratch: &scratch,
+                        deadline,
+                    },
                     3 + index * 2,
                     &format!("latest:{name}"),
                     vec!["view".into(), format!("{name}@latest"), "--json".into()],

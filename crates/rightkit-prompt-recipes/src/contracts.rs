@@ -85,7 +85,7 @@ pub(crate) fn truthy(v: &Value) -> bool {
     match v {
         Value::Null => false,
         Value::Bool(b) => *b,
-        Value::Number(n) => n.as_f64().map_or(true, |f| f != 0.0 && !f.is_nan()),
+        Value::Number(n) => n.as_f64().is_none_or(|f| f != 0.0 && !f.is_nan()),
         Value::String(s) => !s.is_empty(),
         _ => true,
     }
@@ -102,7 +102,7 @@ pub(crate) fn first_present<'a>(candidates: &[Option<&'a Value>]) -> Option<&'a 
 }
 
 pub(crate) fn is_nullish(v: Option<&Value>) -> bool {
-    v.map_or(true, Value::is_null)
+    v.is_none_or(Value::is_null)
 }
 
 fn js_number(n: &serde_json::Number) -> String {
@@ -215,7 +215,7 @@ pub fn has_contract(slug: &str) -> bool {
     contracts_map().contains_key(slug)
 }
 
-pub fn load_contract(slug: &str) -> Result<&'static Value, ContractError> {
+pub fn load_contract(slug: &str) -> Result<&'static Value, Box<ContractError>> {
     contracts_map().get(slug).ok_or_else(|| {
         ContractError::single(
             slug,
@@ -278,12 +278,12 @@ pub struct ContractError {
 }
 
 impl ContractError {
-    fn single(model_slug: &str, v: Violation) -> Self {
-        Self {
+    fn single(model_slug: &str, v: Violation) -> Box<Self> {
+        Box::new(Self {
             model_slug: model_slug.to_string(),
             all: vec![v.clone()],
             first: v,
-        }
+        })
     }
     pub fn message(&self) -> &str {
         &self.first.message
@@ -602,15 +602,12 @@ fn find_series_count(lower: &str) -> Option<f64> {
     let mut from = 0;
     while let Some(pos) = lower[from..].find(NEEDLE) {
         let at = from + pos;
-        let boundary_before = lower[..at]
-            .chars()
-            .next_back()
-            .map_or(true, |c| !is_word(c));
+        let boundary_before = lower[..at].chars().next_back().is_none_or(|c| !is_word(c));
         if boundary_before {
             let rest = &lower[at + NEEDLE.len()..];
             let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
             let after = rest[digits.len()..].chars().next();
-            if !digits.is_empty() && after.map_or(true, |c| !is_word(c)) {
+            if !digits.is_empty() && after.is_none_or(|c| !is_word(c)) {
                 return digits.parse().ok();
             }
         }
@@ -1104,7 +1101,11 @@ fn run_unknown_field_rule(payload: &Value, contract: &Value) -> Option<Violation
 
 /// Validate `payload` against the model's contract. `ctx` carries the JS
 /// override flags (`allow_negative_phrases`, `allow_legacy_cref`, ...).
-pub fn validate_contract(slug: &str, payload: &Value, ctx: &Value) -> Result<(), ContractError> {
+pub fn validate_contract(
+    slug: &str,
+    payload: &Value,
+    ctx: &Value,
+) -> Result<(), Box<ContractError>> {
     let contract = load_contract(slug)?;
     let mut violations: Vec<Violation> = Vec::new();
     if !ctx_flag(ctx, "_skip_post_render_rules") && !ctx_flag(ctx, "_skip_unknown_fields") {
@@ -1166,11 +1167,11 @@ pub fn validate_contract(slug: &str, payload: &Value, ctx: &Value) -> Result<(),
     }
     match violations.first().cloned() {
         None => Ok(()),
-        Some(first) => Err(ContractError {
+        Some(first) => Err(Box::new(ContractError {
             model_slug: slug.to_string(),
             first,
             all: violations,
-        }),
+        })),
     }
 }
 
@@ -1285,7 +1286,7 @@ pub(crate) fn flux_pro_route_params(i: &Value) -> (Map<String, Value>, Vec<Strin
     (params, warnings)
 }
 
-fn render_flux(i: &Value, contract: &Value) -> Result<Rendered, ContractError> {
+fn render_flux(i: &Value, contract: &Value) -> Result<Rendered, Box<ContractError>> {
     let g = |k: &str| obj_get(i, k);
     let policy = obj_get(contract, "negative_prompt_policy");
     let table = policy.and_then(|p| obj_get(p, "rewrite_table"));
@@ -1511,7 +1512,7 @@ fn render_seedream(i: &Value) -> Rendered {
     }
 }
 
-fn render_mj(i: &Value, ctx: &Value) -> Result<Rendered, ContractError> {
+fn render_mj(i: &Value, ctx: &Value) -> Result<Rendered, Box<ContractError>> {
     let g = |k: &str| obj_get(i, k);
     let body = join_slots(
         &[
@@ -1583,7 +1584,7 @@ pub fn render_contract(
     slug: &str,
     internal: &Value,
     ctx: &Value,
-) -> Result<Rendered, ContractError> {
+) -> Result<Rendered, Box<ContractError>> {
     let contract = load_contract(slug)?;
     let mut for_validate = internal.clone();
     if !obj_get(&for_validate, "prompt").is_some_and(truthy) {

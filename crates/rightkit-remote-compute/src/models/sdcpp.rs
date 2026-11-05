@@ -8,7 +8,7 @@
 //! studio's install session and record plumbing from [`super::install`].
 //!
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use rightkit_local_gen::paths::{self, EnvValues};
 use rightkit_local_gen::profiles::{self, InstallProgress, ProfileSpec};

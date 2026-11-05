@@ -7,7 +7,7 @@ use rightkit_fs::state::StateDir;
 use rightkit_fs::{FileLock, LockOptions};
 use serde::{Deserialize, Serialize};
 use sha1::Digest as Sha1Digest;
-use sha2::{Digest as Sha2Digest, Sha256};
+use sha2::Sha256;
 use std::collections::{BTreeMap, HashSet};
 use std::io;
 use std::path::{Component, Path, PathBuf};

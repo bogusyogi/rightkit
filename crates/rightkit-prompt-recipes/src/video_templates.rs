@@ -122,8 +122,10 @@ lib!(templates_lib, "shot_contract_templates.json");
 lib!(routes_lib, "model_routes.json");
 lib!(camera_params_lib, "camera_params.json");
 
+type LibraryEntry = (&'static str, &'static str, fn() -> &'static Lib);
+
 /// (library id, label, loader). The order is the order shown in the UI.
-const LIBRARIES: &[(&str, &str, fn() -> &'static Lib)] = &[
+const LIBRARIES: &[LibraryEntry] = &[
     ("camera_moves", "Camera moves", camera_moves_lib),
     ("ad_patterns", "Ad patterns", ad_patterns_lib),
     ("aesthetics", "Aesthetics", aesthetics_lib),
@@ -1489,8 +1491,8 @@ fn compile_negatives(negatives: &[String], quirks_key: Option<&str>) -> (String,
             .iter()
             .map(|raw| {
                 let lower = raw.to_lowercase().trim().to_string();
-                let stripped = if lower.starts_with("no ") {
-                    lower[3..].trim().to_string()
+                let stripped = if let Some(rest) = lower.strip_prefix("no ") {
+                    rest.trim().to_string()
                 } else {
                     lower.clone()
                 };
@@ -1791,10 +1793,10 @@ fn resolve_refs(input: &Value, route: &Route) -> GenResult<(Value, Map<String, V
             let start = normalize_image_ref(input.get("start_frame_url"), "start_frame_url")?;
             params.insert("image_url".into(), json!(start));
             let mut flf = json!({"start_frame_url": start});
-            if route.min_refs >= 2 || route.end_frame == "required" {
-                if !present(input.get("end_frame_url")) {
-                    return Err(bad("invalid_input", format!("end_frame_url is required for {} (rule 1: storyboard start AND end frames)", route.model)));
-                }
+            if (route.min_refs >= 2 || route.end_frame == "required")
+                && !present(input.get("end_frame_url"))
+            {
+                return Err(bad("invalid_input", format!("end_frame_url is required for {} (rule 1: storyboard start AND end frames)", route.model)));
             }
             if present(input.get("end_frame_url")) {
                 let end = normalize_image_ref(input.get("end_frame_url"), "end_frame_url")?;

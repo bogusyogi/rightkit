@@ -12,7 +12,7 @@
 //!   unreachable from the generic lifecycle (`provision` gates it) and is
 //!   bracketed by the spend ledger in `rental.rs` (reserve before, settle at destroy).
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use serde_json::{json, Map, Value};
@@ -538,13 +538,15 @@ impl VastDriver {
         path: &str,
         key: &str,
         body: Option<&Value>,
-    ) -> Result<(u16, Value), ApiFail> {
+    ) -> Result<(u16, Value), Box<ApiFail>> {
         let url = format!("{}{}", self.base, path);
         let http = Self::http_for(&self.base);
         let auth = format!("Bearer {key}");
-        let not_sent = |e: HttpError| ApiFail {
-            error: GenError::new("transport", redact(&format!("vast api: {e}"), key)),
-            delivered: false,
+        let not_sent = |e: HttpError| {
+            Box::new(ApiFail {
+                error: GenError::new("transport", redact(&format!("vast api: {e}"), key)),
+                delivered: false,
+            })
         };
         let base = match method {
             "GET" => Request::get(&url),
@@ -552,10 +554,10 @@ impl VastDriver {
             "PUT" => Request::put(&url),
             "POST" => Request::post(&url),
             _ => {
-                return Err(ApiFail {
+                return Err(Box::new(ApiFail {
                     error: GenError::new("invalid_input", format!("unsupported method {method}")),
                     delivered: false,
-                })
+                }))
             }
         };
         let req = base.secret_header("Authorization", &auth);
@@ -564,15 +566,19 @@ impl VastDriver {
             ("PUT" | "POST", Some(b)) => req.json(b).map_err(not_sent)?,
             _ => req,
         };
-        let resp = http.send(req).map_err(|e| ApiFail {
-            delivered: rightkit_media_gen::providers::error_may_have_reached(&e),
-            error: GenError::new("transport", redact(&format!("vast api: {e}"), key)),
+        let resp = http.send(req).map_err(|e| {
+            Box::new(ApiFail {
+                delivered: rightkit_media_gen::providers::error_may_have_reached(&e),
+                error: GenError::new("transport", redact(&format!("vast api: {e}"), key)),
+            })
         })?;
         let status = resp.status;
         // The reply is capped at rightkit's default, 32 MiB. A reply that cannot be read was sent.
-        let v: Value = resp.json().map_err(|e| ApiFail {
-            error: GenError::new("bad_response", format!("vast api non-JSON: {e}")),
-            delivered: true,
+        let v: Value = resp.json().map_err(|e| {
+            Box::new(ApiFail {
+                error: GenError::new("bad_response", format!("vast api non-JSON: {e}")),
+                delivered: true,
+            })
         })?;
         Ok((status, v))
     }
@@ -723,7 +729,12 @@ impl VastDriver {
     /// have reached Vast (timeout after send, 5xx/408/429, an unreadable or id-less 2xx reply);
     /// the caller then HOLDS the reservation. A refused connection or a definite 4xx is not
     /// delivered and the caller releases.
-    pub fn create(&self, worker: &Value, p: &RentParams, dph: f64) -> Result<Value, RentError> {
+    pub fn create(
+        &self,
+        worker: &Value,
+        p: &RentParams,
+        dph: f64,
+    ) -> Result<Value, Box<RentError>> {
         let body = json!({
             "client_id": namespace(),
             "image": worker["spec"]["vast"]["image"].as_str().unwrap_or("pytorch/pytorch:latest"),
@@ -739,25 +750,27 @@ impl VastDriver {
                 &p.key,
                 Some(&body),
             )
-            .map_err(|f| RentError {
-                error: f.error,
-                delivered: f.delivered,
+            .map_err(|f| {
+                Box::new(RentError {
+                    error: f.error,
+                    delivered: f.delivered,
+                })
             })?;
         if !(200..300).contains(&status) {
             let body = redact(&v.to_string().chars().take(300).collect::<String>(), &p.key);
-            return Err(RentError {
+            return Err(Box::new(RentError {
                 error: GenError::new("vast", format!("create HTTP {status}: {body}")),
                 delivered: matches!(status, 408 | 429 | 500..=599),
-            });
+            }));
         }
         if v["new_contract"].as_i64().is_none() {
-            return Err(RentError {
+            return Err(Box::new(RentError {
                 error: GenError::new(
                     "vast",
                     "create answered 2xx without an instance id; an instance may exist",
                 ),
                 delivered: true,
-            });
+            }));
         }
         Ok(json!({
             "instance_id": v["new_contract"], "offer_id": p.offer_id,

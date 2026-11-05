@@ -76,23 +76,6 @@ pub(super) fn prompt(requests: &[&ReasoningInvocation], snapshot_key: &str) -> V
     json!({"stage":"evidence-gathering","task":"Select narrow supplementary context requests for these source-review lanes. Inventory paths and lens questions are metadata; mandatory excerpts will be separately supplied to specialist. Use audit.list_files for omitted inventory when useful. No findings or coverage decisions are accepted from this stage.","snapshotKey":snapshot_key,"lanes":lanes,"inventoryPaths":listed,"inventoryCount":count,"inventoryListingTruncated":listed.len()<count,"contextTools":tools::specs(),"maxRequests":MAX_REQUESTS})
 }
 
-pub(super) fn initial_request_sizes(
-    works: &[PendingLensWork],
-) -> Result<super::RequestSizes, AuditError> {
-    let requests = works.iter().map(|work| &work.request).collect::<Vec<_>>();
-    let snapshot_key = requests
-        .first()
-        .and_then(|request| request.packet.pointer("/reviewContext/snapshotKey"))
-        .and_then(Value::as_str)
-        .unwrap_or("sha256:0000000000000000000000000000000000000000000000000000000000000000");
-    super::planning_sizes(
-        &prompt(&requests, snapshot_key),
-        &schema(),
-        model::planning_gatherer_candidates()?,
-        |_| GATHER_SYSTEM,
-    )
-}
-
 impl Controller<'_> {
     pub(super) fn gather_for_author(
         &mut self,

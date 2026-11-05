@@ -590,17 +590,19 @@ pub fn execute(
     );
     super::common::result(
         input,
-        if complete {
-            ProviderStatus::Complete
-        } else {
-            ProviderStatus::Partial
-        },
-        complete,
         &selected,
-        files.len(),
-        Vec::new(),
-        gaps.clone(),
-        gaps,
-        details,
+        super::common::ResultParts {
+            status: if complete {
+                ProviderStatus::Complete
+            } else {
+                ProviderStatus::Partial
+            },
+            complete,
+            examined: files.len(),
+            findings: Vec::new(),
+            gaps: gaps.clone(),
+            degradation: gaps,
+            details,
+        },
     )
 }

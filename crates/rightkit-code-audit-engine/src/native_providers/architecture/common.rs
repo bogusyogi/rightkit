@@ -88,16 +88,17 @@ pub fn string_gap(value: &Value) -> String {
         .unwrap_or_else(|| value.to_string())
 }
 
+/// `denominator` is the frozen `(digest, count)` pair of the denominator.
 pub fn provider_result(
     provider: &str,
     required: bool,
-    denominator_digest: String,
-    expected: usize,
+    denominator: (String, usize),
     analysis: &Analysis,
     input: Value,
     errors: Vec<Value>,
     denominator_paths: &[String],
 ) -> Result<ProviderResult, String> {
+    let (denominator_digest, expected) = denominator;
     let provider_id = ProviderId::new(provider).map_err(|error| error.to_string())?;
     let mut details = BTreeMap::new();
     details.insert("nativeInput".into(), input);

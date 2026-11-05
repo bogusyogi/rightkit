@@ -2,6 +2,7 @@
 
 ## 0.1.2 (unpublished)
 
+- `project::shorts_path` is public, like `transcript_path`, `envelope_path` and `timemap_path`.
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 - Removed the last `#[cfg(test)]` unit test in `data_folder.rs`.
 - `data_folder`: removed `require_isolated`, `default_refusal` and `DataFolderRefusal` (Adrian, 2026-11-03: "dev mode, is mine ... real data. snapshot and restore."). The engine uses the app's real data folder; QA protects it by snapshot and restore. `qa_marked` stays for `doctor`.

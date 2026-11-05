@@ -511,7 +511,7 @@ fn validate(graph: &Value) -> Value {
             if !done.contains(id)
                 && edges
                     .get(id)
-                    .map_or(true, |ds| ds.iter().all(|d| done.contains(d)))
+                    .is_none_or(|ds| ds.iter().all(|d| done.contains(d)))
             {
                 done.insert(id.clone());
             }
@@ -589,7 +589,7 @@ fn registry_models() -> &'static [(String, String, String)] {
         let mut out = Vec::new();
         for p in rightkit_media_gen::providers::registry() {
             for mi in p.models() {
-                let kind = serde_json::to_value(&mi.kind)
+                let kind = serde_json::to_value(mi.kind)
                     .ok()
                     .and_then(|v| v.as_str().map(str::to_string))
                     .unwrap_or_default();
@@ -609,7 +609,7 @@ fn route_of(n: &Value) -> Option<(String, String)> {
 }
 
 fn kind_name(e: &Entry) -> String {
-    serde_json::to_value(&e.kind)
+    serde_json::to_value(e.kind)
         .ok()
         .and_then(|v| v.as_str().map(str::to_string))
         .unwrap_or_default()

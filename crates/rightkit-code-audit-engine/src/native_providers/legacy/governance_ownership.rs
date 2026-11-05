@@ -22,7 +22,7 @@ use std::collections::BTreeMap;
 use rightkit_evidence_contracts::{FindingRef, ProviderStatus};
 use serde_json::{json, Value};
 
-use super::common::{denominator, digest_text, finding, result, ProviderInput};
+use super::common::{denominator, digest_text, finding, result, ProviderInput, ResultParts};
 use crate::error::AuditError;
 
 /// Environment variable carrying the host-declared scan command (JSON argv).
@@ -252,22 +252,24 @@ pub(crate) fn execute_bound(
         .any(|gap| gap == crate::execution_policy::ADMISSION_UNAVAILABLE);
     let mut output = result(
         input,
-        if complete {
-            ProviderStatus::Complete
-        } else {
-            ProviderStatus::Partial
-        },
-        complete,
         &denominator,
-        if complete {
-            denominator.entries.len()
-        } else {
-            0
+        ResultParts {
+            status: if complete {
+                ProviderStatus::Complete
+            } else {
+                ProviderStatus::Partial
+            },
+            complete,
+            examined: if complete {
+                denominator.entries.len()
+            } else {
+                0
+            },
+            findings,
+            gaps: gaps.clone(),
+            degradation: gaps,
+            details,
         },
-        findings,
-        gaps.clone(),
-        gaps,
-        details,
     )?;
     if admission_refused {
         crate::native_providers::availability::mark_unavailable(

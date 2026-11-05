@@ -111,9 +111,9 @@ fn unchanged_runtime_metadata(
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        return Ok(unchanged
+        Ok(unchanged
             && before.ctime() == after.ctime()
-            && before.ctime_nsec() == after.ctime_nsec());
+            && before.ctime_nsec() == after.ctime_nsec())
     }
     #[cfg(not(unix))]
     Ok(unchanged)
@@ -612,14 +612,6 @@ impl InitialRequestSizer {
         planning_author_sizes(&prompt, works).map(Some)
     }
 
-    pub(crate) fn shared_request_bytes(
-        &mut self,
-        works: &[PendingLensWork],
-    ) -> Result<Option<u64>, AuditError> {
-        self.shared_request_sizes(works)
-            .map(|sizes| sizes.map(|sizes| sizes.host_envelope_bytes))
-    }
-
     pub(crate) fn request_sizes(
         &mut self,
         works: &[PendingLensWork],
@@ -763,21 +755,11 @@ fn planning_author_sizes(
     )
 }
 
-/// Initial physical host envelopes, including JSON escaping, schemas & tools.
-/// Additional context/verification calls & native hidden overhead are not
-/// predicted here; each actual call still requires its own authorization.
-pub(crate) fn initial_seat_request_bytes(works: &[PendingLensWork]) -> Result<u64, AuditError> {
-    InitialRequestSizer::default().request_bytes(works)
-}
-
-pub(crate) fn shared_seat_supported(works: &[PendingLensWork]) -> Result<bool, AuditError> {
-    Ok(InitialRequestSizer::default()
-        .shared_request_bytes(works)?
-        .is_some())
-}
-
-pub(crate) fn initial_gather_request_bytes(works: &[PendingLensWork]) -> Result<u64, AuditError> {
-    gather::initial_request_sizes(works).map(|sizes| sizes.host_envelope_bytes)
+/// Frozen system prompt and output schema for one physical call.
+#[derive(Clone, Copy)]
+pub(super) struct CallContract<'a> {
+    system: &'a str,
+    schema: &'a Value,
 }
 
 pub(super) struct Controller<'a> {
@@ -1036,7 +1018,7 @@ fn repair_prompt(mut prompt: Value, diagnostic: &native::SchemaRejection) -> Val
     prompt
 }
 impl Controller<'_> {
-    pub(super) fn call(
+    fn call(
         &mut self,
         seat: &Value,
         prompt: Value,
@@ -1048,8 +1030,7 @@ impl Controller<'_> {
         let (observation, failed_call_id) = self.call_once(
             seat,
             prompt.clone(),
-            system,
-            schema,
+            CallContract { system, schema },
             initial,
             execution,
             None,
@@ -1067,8 +1048,7 @@ impl Controller<'_> {
                     .call_once(
                         seat,
                         repair_prompt(prompt, diagnostic),
-                        system,
-                        schema,
+                        CallContract { system, schema },
                         None,
                         execution,
                         Some(&failed_call_id),
@@ -1083,12 +1063,12 @@ impl Controller<'_> {
         &mut self,
         seat: &Value,
         prompt: Value,
-        system: &str,
-        schema: &Value,
+        contract: CallContract<'_>,
         initial: Option<String>,
         execution: &model::ExecutionSelection,
         repair_of: Option<&str>,
     ) -> Result<(Observation, String), AuditError> {
+        let CallContract { system, schema } = contract;
         if let Some(error) = &self.fatal_error {
             return Err(invalid(error.clone()));
         }
@@ -1210,11 +1190,12 @@ impl Controller<'_> {
             &self.cwd,
             self.options,
             execution,
-            &call_id,
-            reservation,
-            call.output_token_limit,
-            system,
-            schema,
+            native::NativeCall {
+                call_id: &call_id,
+                reservation_id: reservation,
+                output_limit: call.output_token_limit,
+            },
+            contract,
             frame,
         );
         if observation.model_policy_violation.is_some() {

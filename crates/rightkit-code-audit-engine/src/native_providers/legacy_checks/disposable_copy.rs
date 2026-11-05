@@ -580,51 +580,6 @@ fn array_empty(receipt: &Value, key: &str) -> bool {
         .is_some_and(Vec::is_empty)
 }
 
-fn no_survivors(receipt: &Value) -> bool {
-    match receipt.get("survivors") {
-        None => true,
-        Some(Value::Array(items)) => items.is_empty(),
-        Some(_) => false,
-    }
-}
-
-fn valid_broker_digest(value: Option<&Value>) -> bool {
-    value.and_then(Value::as_str).is_some_and(|value| {
-        value.len() == 64
-            && value
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    })
-}
-
-fn is_expected_test_command(value: Option<&str>, expected: &str) -> bool {
-    value == Some(expected)
-}
-
-fn is_known_cargo_argv_normalization(
-    receipt: &Value,
-    expected_command: &str,
-    expected_argv: &[String],
-    actual_argv: &[String],
-) -> bool {
-    if expected_command != "cargo test"
-        || expected_argv.len() != 1
-        || expected_argv[0] != "test"
-        || actual_argv.len() != 5
-        || actual_argv[0] != "test"
-        || actual_argv[1] != "--target"
-        || actual_argv[2].is_empty()
-        || actual_argv[3] != "--target-dir"
-        || !Path::new(&actual_argv[4]).is_absolute()
-        || receipt.get("targetTriple").and_then(Value::as_str) != Some(actual_argv[2].as_str())
-        || receipt.pointer("/target/path").and_then(Value::as_str) != Some(actual_argv[4].as_str())
-    {
-        return false;
-    }
-    let expected_effective_command = format!("cargo {}", actual_argv.join(" "));
-    receipt.get("command").and_then(Value::as_str) == Some(&expected_effective_command)
-}
-
 fn valid_hex_digest(value: Option<&Value>) -> bool {
     value.and_then(Value::as_str).is_some_and(|value| {
         value.len() == 64
@@ -634,21 +589,41 @@ fn valid_hex_digest(value: Option<&Value>) -> bool {
     })
 }
 
+/// The expectations a broker attestation payload must match, gathered from the
+/// managed run that produced it.
+struct AttestedPayloadBinding<'a> {
+    status: &'a Value,
+    id: &'a str,
+    nonce: &'a str,
+    request_digest: &'a str,
+    copy: &'a PreparedCopy,
+    enrollment: &'a AttestedRunsEnrollment,
+    family: &'a str,
+    runner: &'a str,
+    adapter: Option<&'a AdapterEnrollment>,
+    requested_argv: &'a [String],
+    outputs: &'a [PathBuf],
+    submitted_exit: i32,
+}
+
 fn validate_attested_payload(
     payload: &Value,
-    status: &Value,
-    id: &str,
-    nonce: &str,
-    request_digest: &str,
-    copy: &PreparedCopy,
-    enrollment: &AttestedRunsEnrollment,
-    family: &str,
-    runner: &str,
-    adapter: Option<&super::attested_runs::AdapterEnrollment>,
-    requested_argv: &[String],
-    outputs: &[PathBuf],
-    submitted_exit: i32,
+    binding: AttestedPayloadBinding<'_>,
 ) -> Result<i32, String> {
+    let AttestedPayloadBinding {
+        status,
+        id,
+        nonce,
+        request_digest,
+        copy,
+        enrollment,
+        family,
+        runner,
+        adapter,
+        requested_argv,
+        outputs,
+        submitted_exit,
+    } = binding;
     let request = payload
         .get("request")
         .filter(|value| value.is_object())
@@ -766,15 +741,14 @@ fn validate_attested_payload(
         {
             return Err("provenance-script-combined-with-prefix".into());
         }
-    } else if executable.get("argsPrefix").is_some() {
-        if executable.get("prefixAttested").and_then(Value::as_bool) != Some(false)
+    } else if executable.get("argsPrefix").is_some()
+        && (executable.get("prefixAttested").and_then(Value::as_bool) != Some(false)
             || executable
                 .get("argsPrefix")
                 .and_then(Value::as_array)
-                .is_none()
-        {
-            return Err("provenance-native-prefix-invalid".into());
-        }
+                .is_none())
+    {
+        return Err("provenance-native-prefix-invalid".into());
     }
     let descendants = payload
         .get("descendants")
@@ -862,15 +836,17 @@ pub(super) fn incomplete(
             tool: "cargo",
             args: &[],
         },
-        LegacyCheckProcessState::CleanupUnconfirmed,
-        None,
-        Vec::new(),
-        Vec::new(),
+        super::TerminalOutcome {
+            state: LegacyCheckProcessState::CleanupUnconfirmed,
+            exit_code: None,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            parser_ok: false,
+            error: None,
+        },
         output,
         vec![format!("preflight-incomplete:{message}")],
         super::now_ms(),
-        false,
-        None,
     );
     // Keep legacy cleanup state separate from canonical terminal state. With
     // no observation, the full receipt records internal/unknown plus explicit
@@ -1203,21 +1179,40 @@ fn copied_request(
 
 /// Run a frozen Rust test declaration on a materialized copy. Only terminal,
 /// source-unchanged broker receipts produce a pass or failing-test finding.
+/// The frozen run inputs for one managed Rust test declaration.
+pub(super) struct ManagedTestRequest<'a> {
+    pub(super) plan_digest: &'a str,
+    pub(super) preparation_authorizer: Option<&'a dyn rightkit_evidence_effects::PolicyAuthorizer>,
+    pub(super) root: &'a Path,
+    pub(super) command: &'a ResolvedCommand,
+    pub(super) source: &'a Value,
+    pub(super) provider: &'a AuditProvider,
+    pub(super) inventory: &'a InventoryEnvelope,
+    pub(super) input: &'a LegacyCheckInput,
+    pub(super) scratch: &'a AuditScratch,
+    pub(super) cancellation: CancellationToken,
+    pub(super) timeout_ms: u64,
+    pub(super) enrollment: Option<&'a AttestedRunsEnrollment>,
+}
+
 pub(super) async fn execute(
     tool: &dyn ExternalProjectTool,
-    plan_digest: &str,
-    preparation_authorizer: Option<&dyn rightkit_evidence_effects::PolicyAuthorizer>,
-    root: &Path,
-    command: &ResolvedCommand,
-    source: &Value,
-    provider: &AuditProvider,
-    inventory: &InventoryEnvelope,
-    input: &LegacyCheckInput,
-    scratch: &AuditScratch,
-    cancellation: CancellationToken,
-    timeout_ms: u64,
-    enrollment: Option<&AttestedRunsEnrollment>,
+    request: ManagedTestRequest<'_>,
 ) -> LegacyCheckExecution {
+    let ManagedTestRequest {
+        plan_digest,
+        preparation_authorizer,
+        root,
+        command,
+        source,
+        provider,
+        inventory,
+        input,
+        scratch,
+        cancellation,
+        timeout_ms,
+        enrollment,
+    } = request;
     if let Some(enrollment) = enrollment {
         if let Err(error) = enrollment.validate() {
             let command_shape = super::spec(&input.provider_id)
@@ -1821,18 +1816,20 @@ pub(super) async fn execute(
     let expected_adapter = adapter;
     let exit = match validate_attested_payload(
         payload,
-        &status_json,
-        &id,
-        &nonce,
-        request_digest,
-        &copy,
-        enrollment,
-        family,
-        runner_label,
-        expected_adapter,
-        &requested_argv,
-        &outputs,
-        submitted_exit,
+        AttestedPayloadBinding {
+            status: &status_json,
+            id: &id,
+            nonce: &nonce,
+            request_digest,
+            copy: &copy,
+            enrollment,
+            family,
+            runner: runner_label,
+            adapter: expected_adapter,
+            requested_argv: &requested_argv,
+            outputs: &outputs,
+            submitted_exit,
+        },
     ) {
         Ok(exit) => exit,
         Err(message) => {

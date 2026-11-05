@@ -323,14 +323,3 @@ pub(super) fn planning_author_candidates(
         })
         .collect()
 }
-
-pub(super) fn planning_gatherer_candidates() -> Result<Vec<ExecutionSelection>, AuditError> {
-    ["claude-code", "codex"]
-        .into_iter()
-        .map(|host| {
-            let mut execution = selection_for_host(true, false, &RuntimeOptions::default(), host)?;
-            execution.stage = "evidence-gathering";
-            Ok(execution)
-        })
-        .collect()
-}

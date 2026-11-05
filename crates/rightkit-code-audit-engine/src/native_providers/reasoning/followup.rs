@@ -481,49 +481,6 @@ pub(super) fn variant_receipt_paths(
     Ok((findings, withdrawn))
 }
 
-pub(super) fn variant_receipt_counts(
-    run_dir: &Path,
-) -> Result<(u64, u64, Vec<String>), AuditError> {
-    let dir = run_dir.join(LENS_RECEIPT_DIR);
-    let single = format!("{VARIANT_PROVIDER_ID}.json");
-    let prefix = format!("{VARIANT_PROVIDER_ID}.part-");
-    let (mut confirmed, mut rejected, mut reasons) = (0u64, 0u64, Vec::new());
-    let mut names = Vec::new();
-    for entry in fs::read_dir(&dir)
-        .map_err(|error| io(error, "could not list the variant receipts"))?
-        .filter_map(Result::ok)
-    {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if name == single || (name.starts_with(&prefix) && name.ends_with(".json")) {
-            names.push(entry.path());
-        }
-    }
-    names.sort();
-    for path in names {
-        let receipt = read_json(&path)?;
-        confirmed += receipt
-            .pointer("/result/details/lensFindings")
-            .and_then(Value::as_array)
-            .map_or(0, |items| items.len() as u64);
-        for entry in receipt
-            .pointer("/result/details/withdrawnFindings")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            rejected += 1;
-            reasons.push(
-                entry
-                    .get("reason")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned(),
-            );
-        }
-    }
-    Ok((confirmed, rejected, reasons))
-}
-
 /// Called by the variant-lens ingest: seal `<followup>/variant-ledger.json`
 /// from the authenticated receipts plus the host-recorded per-part inputs. The
 /// optional result field `variantLedger` carries `unresolved`, `matched` and
@@ -716,7 +673,7 @@ pub enum FollowupState {
     /// The follow-up exists but its chain does not verify against the parent.
     Invalid(String),
     /// Ingested, complete, and verified.
-    Complete(FollowupDone),
+    Complete(Box<FollowupDone>),
 }
 
 #[derive(Clone, Debug)]
@@ -1717,14 +1674,14 @@ fn check(
         }
         Err(error) => return Err(io(error, "could not read the variant ledger")),
     };
-    Ok(FollowupState::Complete(FollowupDone {
+    Ok(FollowupState::Complete(Box::new(FollowupDone {
         variant_ledger,
         plan_digest: digest,
         parent_plan_digest: parent_digest,
         confirmed_paths: paths,
         analysis_paths: expected_analysis_paths,
         findings: recomputed.report.findings,
-    }))
+    })))
 }
 
 /// True when `<run>/followup` exists (compiled or not yet verified).

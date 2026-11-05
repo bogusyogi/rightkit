@@ -76,8 +76,7 @@ pub fn seat_part_cap_bytes(seat_tokens: u64, lenses: usize, context_bytes: usize
     let reserve = lenses.saturating_mul(SEAT_PACKET_RESERVE_BYTES + context_bytes) + 4096;
     seat_bytes
         .saturating_sub(reserve.min(seat_bytes / 2))
-        .max(1)
-        .min(super::excerpts::MAX_TOTAL_EXCERPT_BYTES)
+        .clamp(1, super::excerpts::MAX_TOTAL_EXCERPT_BYTES)
 }
 
 /// Digest of the review set a lens actually examines after findings
@@ -878,8 +877,9 @@ pub fn plan_coverage_with_witnesses(
     if deficit_share > 0 {
         for bundle in &present {
             if full_cost[bundle.id] * 100 > budget_tokens[bundle.id] * COMMIT_PERCENT {
+                let share = surplus * u64::from(bundle.budget_share_bp);
                 *budget_tokens.get_mut(bundle.id).expect("present bundle") +=
-                    surplus * u64::from(bundle.budget_share_bp) / deficit_share;
+                    share.checked_div(deficit_share).unwrap_or(0);
             }
         }
         for bundle in &present {

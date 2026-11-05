@@ -34,7 +34,7 @@ use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 /// On-disk format version for the journal body. Bumped only for a
-/// backward-incompatible record change; [`journal_repair`] refuses to open a
+/// backward-incompatible record change; `journal_repair` refuses to open a
 /// journal whose header names a version newer than this crate understands.
 pub const JOURNAL_FORMAT_VERSION: u32 = 1;
 
@@ -68,9 +68,9 @@ pub struct JournalEvent {
     /// Contiguous, monotonically increasing starting at 1. Never reused.
     pub sequence: u64,
     /// Idempotency key. Replaying a nonce already seen is a no-op from the
-    /// caller's point of view (ENG-34): [`ReplayResult::events`] still
-    /// contains a record's first occurrence, but [`ReplayResult::is_duplicate`]
-    /// style dedup happens via [`Journal::replay`] collapsing repeats.
+    /// caller's point of view (ENG-34): [`Journal::replay`] still
+    /// contains a record's first occurrence, and its nonce dedup collapses
+    /// repeats to that first occurrence.
     pub nonce: String,
     pub kind: JournalEventKind,
 }

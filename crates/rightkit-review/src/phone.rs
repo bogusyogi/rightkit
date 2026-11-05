@@ -445,7 +445,7 @@ impl PhoneSurface {
     pub fn handle(&self, request: &Request) -> Response {
         let grant = match self.authenticate(request) {
             Ok(grant) => grant,
-            Err(response) => return response,
+            Err(response) => return *response,
         };
         let Some(rest) = request.params.get("*") else {
             return error(404, "not_found");
@@ -474,16 +474,16 @@ impl PhoneSurface {
         self.limiter.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    fn authenticate(&self, request: &Request) -> Result<TokenGrant, Response> {
+    fn authenticate(&self, request: &Request) -> Result<TokenGrant, Box<Response>> {
         let Some(header) = request.header("authorization") else {
-            return Err(unauthorized());
+            return Err(Box::new(unauthorized()));
         };
         let presented = header
             .split_once(' ')
             .filter(|(scheme, _)| scheme.eq_ignore_ascii_case("bearer"))
             .map(|(_, token)| token.trim());
         let Some(presented) = presented else {
-            return Err(unauthorized());
+            return Err(Box::new(unauthorized()));
         };
         if let Some(grant) = self.tokens.authenticate(presented, now_secs()) {
             return Ok(grant);
@@ -492,10 +492,12 @@ impl PhoneSurface {
         let now = Instant::now();
         let mut limiter = self.limiter();
         if limiter.refuses_unverified(source, now) {
-            return Err(error(429, "rate_limited").with_header("retry-after", "60"));
+            return Err(Box::new(
+                error(429, "rate_limited").with_header("retry-after", "60"),
+            ));
         }
         limiter.record_failure(source, now);
-        Err(unauthorized())
+        Err(Box::new(unauthorized()))
     }
 
     fn list(&self, grant: &TokenGrant) -> Response {

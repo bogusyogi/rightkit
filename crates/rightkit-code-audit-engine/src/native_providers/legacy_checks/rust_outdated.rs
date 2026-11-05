@@ -261,15 +261,17 @@ pub(super) fn refusal(
     super::terminal_execution(
         input,
         command,
-        LegacyCheckProcessState::Failed,
-        None,
-        vec![],
-        vec![],
+        super::TerminalOutcome {
+            state: LegacyCheckProcessState::Failed,
+            exit_code: None,
+            stdout: vec![],
+            stderr: vec![],
+            parser_ok: false,
+            error: Some(&reason),
+        },
         output,
         vec![gap],
         super::now_ms(),
-        false,
-        Some(&reason),
     )
 }
 
@@ -403,84 +405,80 @@ pub(super) fn prepare(
     })
 }
 
+/// The shared state of one post-image tree walk.
+struct PostimageWalk<'a> {
+    root: &'a Path,
+    deadline: Instant,
+    cancellation: &'a CancellationToken,
+    files: BTreeMap<String, String>,
+    visited: usize,
+    total: u64,
+}
+
+fn walk(ctx: &mut PostimageWalk<'_>, path: &Path, depth: usize) -> Result<(), String> {
+    if ctx.cancellation.is_cancelled() || Instant::now() >= ctx.deadline {
+        return Err("copy-postimage-cancelled-or-deadline".into());
+    }
+    ctx.visited += 1;
+    if ctx.visited > MAX_FILES * 2 || depth > 128 {
+        return Err("copy-postimage-tree-limit".into());
+    }
+    let metadata = fs::symlink_metadata(path).map_err(|_| "copy-postimage-unavailable")?;
+    if metadata.file_type().is_symlink() {
+        return Err("copy-postimage-symlink".into());
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if metadata.file_attributes() & 0x400 != 0 {
+            return Err("copy-postimage-reparse-point".into());
+        }
+    }
+    if metadata.is_dir() {
+        for entry in fs::read_dir(path).map_err(|_| "copy-postimage-unreadable")? {
+            walk(
+                ctx,
+                &entry.map_err(|_| "copy-postimage-unreadable")?.path(),
+                depth + 1,
+            )?;
+        }
+    } else if metadata.is_file() && ctx.files.len() < MAX_FILES {
+        ctx.total = ctx.total.saturating_add(metadata.len());
+        if ctx.total > MAX_TOTAL_BYTES {
+            return Err("copy-postimage-total-size-limit".into());
+        }
+        let relative = path
+            .strip_prefix(ctx.root)
+            .map_err(|_| "copy-postimage-outside-root")?
+            .to_str()
+            .ok_or("copy-postimage-non-utf8")?
+            .replace('\\', "/");
+        let digest_value = digest(&regular_bytes(ctx.root, &relative)?);
+        ctx.files.insert(relative, digest_value);
+    } else {
+        return Err("copy-postimage-size-or-type".into());
+    }
+    if ctx.cancellation.is_cancelled() || Instant::now() >= ctx.deadline {
+        return Err("copy-postimage-cancelled-or-deadline".into());
+    }
+    Ok(())
+}
+
 fn copied_files(
     root: &Path,
     deadline: Instant,
     cancellation: &CancellationToken,
 ) -> Result<BTreeMap<String, String>, String> {
-    fn walk(
-        root: &Path,
-        path: &Path,
-        files: &mut BTreeMap<String, String>,
-        visited: &mut usize,
-        total: &mut u64,
-        depth: usize,
-        deadline: Instant,
-        cancellation: &CancellationToken,
-    ) -> Result<(), String> {
-        if cancellation.is_cancelled() || Instant::now() >= deadline {
-            return Err("copy-postimage-cancelled-or-deadline".into());
-        }
-        *visited += 1;
-        if *visited > MAX_FILES * 2 || depth > 128 {
-            return Err("copy-postimage-tree-limit".into());
-        }
-        let metadata = fs::symlink_metadata(path).map_err(|_| "copy-postimage-unavailable")?;
-        if metadata.file_type().is_symlink() {
-            return Err("copy-postimage-symlink".into());
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::MetadataExt;
-            if metadata.file_attributes() & 0x400 != 0 {
-                return Err("copy-postimage-reparse-point".into());
-            }
-        }
-        if metadata.is_dir() {
-            for entry in fs::read_dir(path).map_err(|_| "copy-postimage-unreadable")? {
-                walk(
-                    root,
-                    &entry.map_err(|_| "copy-postimage-unreadable")?.path(),
-                    files,
-                    visited,
-                    total,
-                    depth + 1,
-                    deadline,
-                    cancellation,
-                )?;
-            }
-        } else if metadata.is_file() && files.len() < MAX_FILES {
-            *total = total.saturating_add(metadata.len());
-            if *total > MAX_TOTAL_BYTES {
-                return Err("copy-postimage-total-size-limit".into());
-            }
-            let relative = path
-                .strip_prefix(root)
-                .map_err(|_| "copy-postimage-outside-root")?
-                .to_str()
-                .ok_or("copy-postimage-non-utf8")?
-                .replace('\\', "/");
-            files.insert(relative.clone(), digest(&regular_bytes(root, &relative)?));
-        } else {
-            return Err("copy-postimage-size-or-type".into());
-        }
-        if cancellation.is_cancelled() || Instant::now() >= deadline {
-            return Err("copy-postimage-cancelled-or-deadline".into());
-        }
-        Ok(())
-    }
-    let mut files = BTreeMap::new();
-    walk(
+    let mut ctx = PostimageWalk {
         root,
-        root,
-        &mut files,
-        &mut 0,
-        &mut 0,
-        0,
         deadline,
         cancellation,
-    )?;
-    Ok(files)
+        files: BTreeMap::new(),
+        visited: 0,
+        total: 0,
+    };
+    walk(&mut ctx, root, 0)?;
+    Ok(ctx.files)
 }
 
 pub(super) fn capture(

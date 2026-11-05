@@ -1,3 +1,5 @@
+// JobStore closures return rightkit-job-queue's JobResult, whose JobError is large by design (that crate allows this lint for the same reason).
+#![allow(clippy::result_large_err)]
 //! Local and rented model compute. [`models`] is the local model catalogue, hardware fit, the
 //! memory-aware governor for heavy local models, installs and the `studio.models.*` commands.
 //! Rented GPU workers: the register, stage, run and teardown lifecycle of remote workers, the

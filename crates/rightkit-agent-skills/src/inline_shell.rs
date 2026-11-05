@@ -2,7 +2,7 @@
 //!
 //! Claude Code semantics: a custom command body may embed shell commands that
 //! run before the prompt is sent and whose output replaces the marker. Claude
-//! Code spells it !`cmd` (https://code.claude.com/docs/en/slash-commands,
+//! Code spells it !`cmd` (<https://code.claude.com/docs/en/slash-commands>,
 //! "Bash command execution"); the host app also accepts `!{cmd}` (pi inline-bash).
 //!
 //! This module only parses and splices. Running a command is delegated to a

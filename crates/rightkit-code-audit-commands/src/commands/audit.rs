@@ -445,20 +445,19 @@ fn continuation_output_path(
 
 fn reject_accepted_continuation_receipts(parent: &std::path::Path) -> Result<(), CommandError> {
     let receipts = parent.join("lens-receipts");
-    if receipts.try_exists().map_err(super::io_error)? {
-        if std::fs::symlink_metadata(&receipts)
+    if receipts.try_exists().map_err(super::io_error)?
+        && (std::fs::symlink_metadata(&receipts)
             .map_err(super::io_error)?
             .file_type()
             .is_symlink()
             || std::fs::read_dir(receipts)
                 .map_err(super::io_error)?
                 .next()
-                .is_some()
-        {
-            return Err(CommandError::incomplete(
-                "continuation version 1 cannot rematerialize accepted semantic receipts",
-            ));
-        }
+                .is_some())
+    {
+        return Err(CommandError::incomplete(
+            "continuation version 1 cannot rematerialize accepted semantic receipts",
+        ));
     }
     Ok(())
 }
@@ -703,12 +702,8 @@ pub async fn run(mut args: AuditArgs, cancellation: CancellationToken) -> Comman
             direct_gaps = gaps;
             (Arc::new(application), notices, None, false)
         } else if let Some(manifest) = &args.native_rule_manifest {
-            let (application, notices) = native_rule_diagnostic_application(
-                &args,
-                &root,
-                manifest,
-                inventory_filter.as_ref(),
-            )?;
+            let (application, notices) =
+                native_rule_diagnostic_application(&root, manifest, inventory_filter.as_ref())?;
             (Arc::new(application), notices, None, false)
         } else if native_application_configured {
             (
@@ -1791,8 +1786,8 @@ fn findings_command(args: &AuditArgs) -> CommandResult {
 ///   `security-variant-analysis-pending` gap clears only when the follow-up is
 ///   complete and its digest chain verifies.
 /// `audit next --run <dir>`: the resumable dispatch driver (see
-/// `rightkit_code_audit_engine::next`). Lease length defaults to 20 minutes;
-/// `RIGHTKIT_AUDIT_LEASE_MINUTES` overrides it.
+///   `rightkit_code_audit_engine::next`). Lease length defaults to 20 minutes;
+///   `RIGHTKIT_AUDIT_LEASE_MINUTES` overrides it.
 fn next_command(args: &AuditArgs) -> CommandResult {
     let run = args
         .ingest_run
@@ -2699,28 +2694,6 @@ fn audit_dir_ignore_notice(root: &std::path::Path) -> Option<String> {
     })
 }
 
-fn validate_output_dir(
-    root: &std::path::Path,
-    requested: &std::path::Path,
-) -> Result<(), CommandError> {
-    let base = std::env::current_dir().map_err(super::io_error)?;
-    let output = if requested.is_absolute() {
-        requested.to_path_buf()
-    } else {
-        base.join(requested)
-    };
-    let output = lexical_normalize(&output);
-    let scope = lexical_normalize(&root.join(".audit"));
-    if output == scope || !output.starts_with(&scope) {
-        return Err(CommandError::usage(format!(
-            "--out must stay under the run-owned .audit scope ({}); received {}",
-            scope.display(),
-            output.display()
-        )));
-    }
-    Ok(())
-}
-
 fn lexical_normalize(path: &std::path::Path) -> std::path::PathBuf {
     let mut normalized = std::path::PathBuf::new();
     for component in path.components() {
@@ -2846,7 +2819,7 @@ fn native_audit_parity_gaps(
         gaps.push("native-provider-plan-not-fully-executed".into());
     }
     if !plan_digest.starts_with("sha256:")
-        || plan_signature.map_or(true, |signature| signature.trim().is_empty())
+        || plan_signature.is_none_or(|signature| signature.trim().is_empty())
     {
         gaps.push("native-provider-plan-not-signed-and-sealed".into());
     }
@@ -3651,6 +3624,9 @@ fn valid_runtime_probe_action(action: &Value) -> bool {
     }
 }
 
+/// Resolved surface targets (`label`, URL) and the labels of unsupported entries.
+type RuntimeSurfaceInputs = (Vec<(String, String)>, Vec<String>);
+
 /// `--surfaces` is either a comma-separated list of origin-relative paths
 /// (`/settings`) or absolute http(s) URLs, or a JSON array file whose entries
 /// carry `url` or `route`/`path` (with an optional `label`). Entries that name
@@ -3659,7 +3635,7 @@ fn valid_runtime_probe_action(action: &Value) -> bool {
 fn runtime_surface_inputs(
     args: &AuditArgs,
     base_url: &str,
-) -> Result<(Vec<(String, String)>, Vec<String>), CommandError> {
+) -> Result<RuntimeSurfaceInputs, CommandError> {
     let Some(raw) = args
         .surfaces
         .as_deref()
@@ -3711,9 +3687,7 @@ fn resolve_surface_url(base_url: &str, target: &str) -> Result<String, CommandEr
     if target.starts_with('/') && !target.starts_with("//") {
         if let Some(scheme_end) = base_url.find("://").map(|at| at + 3) {
             let rest = &base_url[scheme_end..];
-            let origin_len = rest
-                .find(|c| c == '/' || c == '?' || c == '#')
-                .unwrap_or(rest.len());
+            let origin_len = rest.find(['/', '?', '#']).unwrap_or(rest.len());
             return Ok(format!(
                 "{}{}{}",
                 &base_url[..scheme_end],
@@ -3904,13 +3878,6 @@ impl AuditScope {
                 || scope_type_selects_changes(&self.scope_type))
     }
 
-    /// The changed-file set the frozen denominator is restricted to, or
-    /// `None` for a whole-repository (or `--dir`-only) run.
-    fn inventory_filter(&self) -> Option<std::collections::BTreeSet<String>> {
-        self.narrows_inventory()
-            .then(|| self.changed_files.iter().cloned().collect())
-    }
-
     fn plan_json(&self) -> Value {
         let mut scope = json!({
             "mode": self.mode,
@@ -3971,24 +3938,6 @@ fn clean_path(input: &str) -> Option<String> {
     }
 }
 
-fn in_scope(file: &str, dir: Option<&str>) -> bool {
-    match dir {
-        None => true,
-        Some(dir) => file == dir || file.starts_with(&format!("{dir}/")),
-    }
-}
-
-fn validate_git_ref(reference: &str) -> bool {
-    !reference.is_empty()
-        && reference
-            .chars()
-            .next()
-            .is_some_and(|first| first.is_ascii_alphanumeric())
-        && reference.chars().all(|character| {
-            character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '/' | '@' | '-')
-        })
-}
-
 fn git_stdout(root: &std::path::Path, git_args: &[&str]) -> Option<String> {
     rightkit_code_audit_engine::scope::GitRunner::new(root)
         .text(git_args)
@@ -4016,82 +3965,6 @@ pub(super) fn inventory_filter_from_facts(
             .map(ToOwned::to_owned)
             .collect(),
     )
-}
-
-/// Merges `git diff -U0` hunk headers (`@@ -a,b +c,d @@` under `+++ b/path`)
-/// into per-path new-file line ranges. A pure deletion (`d == 0`) is anchored
-/// at the line it follows. Pure function over the diff text.
-fn parse_diff_hunks(
-    diff: &str,
-    hunks: &mut std::collections::BTreeMap<String, Vec<(usize, usize)>>,
-) {
-    let mut current: Option<String> = None;
-    for line in diff.lines() {
-        if let Some(path) = line.strip_prefix("+++ ") {
-            current = path
-                .strip_prefix("b/")
-                .and_then(clean_path)
-                .filter(|_| path != "/dev/null");
-        } else if line.starts_with("@@ ") {
-            let Some(path) = current.as_ref() else {
-                continue;
-            };
-            let Some(new) = line.split_whitespace().find(|part| part.starts_with('+')) else {
-                continue;
-            };
-            let mut numbers = new[1..].split(',');
-            let start = numbers.next().and_then(|n| n.parse::<usize>().ok());
-            let count = numbers.next().map_or(Some(1), |n| n.parse::<usize>().ok());
-            if let (Some(start), Some(count)) = (start, count) {
-                let start = start.max(1);
-                let end = if count == 0 { start } else { start + count - 1 };
-                hunks.entry(path.clone()).or_default().push((start, end));
-            }
-        }
-    }
-}
-
-fn audit_changed_hunks(
-    root: &std::path::Path,
-    scope_type: &str,
-    scope_base: Option<&str>,
-    scope_base_commit: Option<&str>,
-    scope_dir: Option<&str>,
-) -> std::collections::BTreeMap<String, Vec<(usize, usize)>> {
-    let mut hunks = std::collections::BTreeMap::new();
-    let mut add = |git_args: &[&str]| {
-        if let Some(diff) = git_stdout(root, git_args) {
-            parse_diff_hunks(&diff, &mut hunks);
-        }
-    };
-    if scope_type == "local" {
-        add(&["diff", "-U0", "--no-color", "--no-ext-diff", "HEAD"]);
-        let upstream = git_stdout(
-            root,
-            &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
-        )
-        .map(|reference| reference.trim().to_string())
-        .filter(|reference| !reference.is_empty());
-        if let Some(upstream) = upstream {
-            let range = format!("{upstream}..HEAD");
-            add(&["diff", "-U0", "--no-color", "--no-ext-diff", &range]);
-        }
-    } else if let Some(commit) = scope_base_commit {
-        add(&["diff", "-U0", "--no-color", "--no-ext-diff", commit]);
-    } else if let Some(base) = scope_base {
-        let range = format!("{base}...HEAD");
-        add(&["diff", "-U0", "--no-color", "--no-ext-diff", &range]);
-    } else if scope_type == "uncommitted" {
-        add(&["diff", "-U0", "--no-color", "--no-ext-diff"]);
-    } else if scope_type == "committed" {
-        add(&["diff", "-U0", "--no-color", "--no-ext-diff", "HEAD~1..HEAD"]);
-    }
-    hunks.retain(|path, ranges| {
-        ranges.sort_unstable();
-        ranges.dedup();
-        in_scope(path, scope_dir)
-    });
-    hunks
 }
 
 fn review_context(root: &std::path::Path, scope: &AuditScope) -> Value {
@@ -4213,7 +4086,6 @@ fn review_context(root: &std::path::Path, scope: &AuditScope) -> Value {
 }
 
 fn native_rule_diagnostic_application(
-    args: &AuditArgs,
     root: &std::path::Path,
     manifest: &std::path::Path,
     only_paths: Option<&std::collections::BTreeSet<String>>,
@@ -5431,7 +5303,7 @@ fn begin_journal(
                     )));
                 }
                 ProviderSeed::Reuse {
-                    execution: stored.body.execution,
+                    execution: Box::new(stored.body.execution),
                     attempts: stored.body.attempts,
                 }
             }

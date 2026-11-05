@@ -92,7 +92,7 @@ fn redact_call_diagnostic(value: &Value) -> Value {
             items
                 .iter()
                 .map(|(key, value)| {
-                    let normalized = key.to_ascii_lowercase().replace('-', "").replace('_', "");
+                    let normalized = key.to_ascii_lowercase().replace(['-', '_'], "");
                     let sensitive = [
                         "password",
                         "secret",

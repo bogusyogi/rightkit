@@ -581,7 +581,7 @@ pub fn parse_initialize_response(payload: &Value) -> InitializeResponse {
 /// The typed interrupt answer. `queued_user_messages` counts the messages the CLI reports as
 /// queued when the turn was interrupted; `pending` holds those messages as sent, so a host can
 /// re-queue them. Unverified key name (`queuedUserMessages`).
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct InterruptReceipt {
     pub queued_user_messages: u64,
     pub pending: Vec<Value>,

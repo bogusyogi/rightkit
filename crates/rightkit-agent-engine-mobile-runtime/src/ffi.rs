@@ -973,7 +973,7 @@ pub unsafe extern "C" fn host_mobile_runtime_free(handle: *mut RuntimeHandle) {
 
 /// Reason for the most recent failure from a journal entry point below, or
 /// null if the last call on this thread succeeded. Journal FFI is not tied
-/// to a `RuntimeHandle` — see [`JOURNAL_LAST_ERROR`] — so this is the journal
+/// to a `RuntimeHandle` — see `JOURNAL_LAST_ERROR` — so this is the journal
 /// equivalent of [`host_mobile_runtime_last_error`].
 #[no_mangle]
 pub extern "C" fn host_mobile_journal_last_error() -> *mut c_char {

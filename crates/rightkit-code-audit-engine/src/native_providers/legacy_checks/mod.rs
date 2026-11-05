@@ -433,7 +433,7 @@ impl AuditScratch {
     }
 
     pub(super) fn finish_attested_request(&self) {
-        let previous = self.pending_attested.fetch_sub(1, Ordering::AcqRel);
+        self.pending_attested.fetch_sub(1, Ordering::AcqRel);
     }
 
     /// Sandbox profiles.
@@ -1093,11 +1093,7 @@ impl NativeLegacyCheckExecutor {
                     } else {
                         LegacyCheckProcessState::Failed
                     };
-                    let message = if matches!(&error, ResolveError::NotConfigured(_)) {
-                        error.message()
-                    } else {
-                        error.message()
-                    };
+                    let message = error.message();
                     let gap = if unavailable {
                         message.clone()
                     } else {
@@ -1117,15 +1113,17 @@ impl NativeLegacyCheckExecutor {
                     let execution = terminal_execution(
                         &input,
                         contract.command,
-                        state,
-                        None,
-                        Vec::new(),
-                        Vec::new(),
+                        TerminalOutcome {
+                            state,
+                            exit_code: None,
+                            stdout: Vec::new(),
+                            stderr: Vec::new(),
+                            parser_ok: false,
+                            error: Some(&message),
+                        },
                         output,
                         vec![gap],
                         now_ms(),
-                        false,
-                        Some(&message),
                     );
                     return dispatcher
                         .project_result(provider, &input, execution)
@@ -1133,7 +1131,7 @@ impl NativeLegacyCheckExecutor {
                 }
             }
         }
-        if test_command_source.is_some() {
+        if let Some(source) = test_command_source.as_ref() {
             let Some(tool) = &self.external_project_tool else {
                 let mut execution = execute_external(&input, contract.command, now_ms());
                 attach_test_command_source(&mut execution, test_command_source.as_ref());
@@ -1160,20 +1158,20 @@ impl NativeLegacyCheckExecutor {
             };
             let execution = disposable_copy::execute(
                 effective_tool,
-                plan.digest(),
-                self.fixture_policy_authorizer.as_deref(),
-                &self.root,
-                resolved,
-                test_command_source
-                    .as_ref()
-                    .expect("resolved test source metadata"),
-                provider,
-                inventory,
-                &input,
-                &scratch,
-                cancellation,
-                timeout,
-                self.attested_runs.as_deref(),
+                disposable_copy::ManagedTestRequest {
+                    plan_digest: plan.digest(),
+                    preparation_authorizer: self.fixture_policy_authorizer.as_deref(),
+                    root: &self.root,
+                    command: resolved,
+                    source,
+                    provider,
+                    inventory,
+                    input: &input,
+                    scratch: &scratch,
+                    cancellation,
+                    timeout_ms: timeout,
+                    enrollment: self.attested_runs.as_deref(),
+                },
             )
             .await;
             return dispatcher
@@ -1247,7 +1245,7 @@ impl NativeLegacyCheckExecutor {
                 Ok(prepared) => args = prepared,
                 Err(execution) => {
                     return dispatcher
-                        .project_result(provider, &input, execution)
+                        .project_result(provider, &input, *execution)
                         .map_err(|error| AuditError::Provider(error.to_string()))
                 }
             }
@@ -1482,15 +1480,17 @@ impl NativeLegacyCheckExecutor {
                 let execution = terminal_execution(
                     &input,
                     contract.command,
-                    state,
-                    None,
-                    Vec::new(),
-                    Vec::new(),
+                    TerminalOutcome {
+                        state,
+                        exit_code: None,
+                        stdout: Vec::new(),
+                        stderr: Vec::new(),
+                        parser_ok: false,
+                        error: Some(&gap),
+                    },
                     output,
                     vec![gap.clone()],
                     now_ms(),
-                    false,
-                    Some(&gap),
                 );
                 dispatcher
                     .project_result(provider, &input, execution)
@@ -1776,15 +1776,17 @@ fn python_input_refusal(
     let mut execution = terminal_execution(
         input,
         command,
-        LegacyCheckProcessState::Failed,
-        None,
-        vec![],
-        vec![],
+        TerminalOutcome {
+            state: LegacyCheckProcessState::Failed,
+            exit_code: None,
+            stdout: vec![],
+            stderr: vec![],
+            parser_ok: false,
+            error: Some(&reason),
+        },
         output,
         vec![gap],
         now_ms(),
-        false,
-        Some(&reason),
     );
     if let Some(output) = execution.output.as_mut() {
         if let Some(receipt) = output.details.get_mut("executionReceipt") {
@@ -2374,15 +2376,17 @@ fn execute_input(input: &LegacyCheckInput, contract: &LegacyCheckSpec) -> Legacy
         return terminal_execution(
             input,
             contract.command,
-            LegacyCheckProcessState::Failed,
-            None,
-            Vec::new(),
-            Vec::new(),
+            TerminalOutcome {
+                state: LegacyCheckProcessState::Failed,
+                exit_code: None,
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+                parser_ok: false,
+                error: Some(message),
+            },
             empty_output(gaps.clone()),
             gaps,
             started,
-            false,
-            Some(message),
         );
     }
     match contract.command {
@@ -2402,19 +2406,21 @@ fn execute_input(input: &LegacyCheckInput, contract: &LegacyCheckSpec) -> Legacy
             } else {
                 LegacyCheckProcessState::Failed
             };
-            let error = hard_gap.then(|| "native source analysis was incomplete");
+            let error = hard_gap.then_some("native source analysis was incomplete");
             terminal_execution(
                 input,
                 contract.command,
-                state,
-                Some(0),
-                Vec::new(),
-                Vec::new(),
+                TerminalOutcome {
+                    state,
+                    exit_code: Some(0),
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                    parser_ok: true,
+                    error,
+                },
                 output,
                 gaps,
                 started,
-                true,
-                error,
             )
         }
         command => execute_external(input, command, started),
@@ -2489,15 +2495,17 @@ fn execute_external(
     let mut execution = terminal_execution(
         input,
         command,
-        LegacyCheckProcessState::Unauthorized,
-        None,
-        Vec::new(),
-        Vec::new(),
+        TerminalOutcome {
+            state: LegacyCheckProcessState::Unauthorized,
+            exit_code: None,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            parser_ok: false,
+            error: Some(message),
+        },
         output,
         vec![gap],
         started,
-        false,
-        Some(message),
     );
     // This is refusal evidence, not a policy grant or a process receipt from a
     // tool we did not run. Preserve explicit not-started/not-attempted facts.
@@ -2550,15 +2558,17 @@ pub(super) fn unavailable_test_refusal(
     let mut execution = terminal_execution(
         input,
         command,
-        LegacyCheckProcessState::MissingExecutable,
-        None,
-        Vec::new(),
-        Vec::new(),
+        TerminalOutcome {
+            state: LegacyCheckProcessState::MissingExecutable,
+            exit_code: None,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            parser_ok: false,
+            error: None,
+        },
         output,
         vec![gap],
         now_ms(),
-        false,
-        None,
     );
     if let Some(receipt) = execution
         .output
@@ -2603,15 +2613,17 @@ pub(super) fn invalid_test_enrollment(
     let mut execution = terminal_execution(
         input,
         command,
-        LegacyCheckProcessState::Failed,
-        None,
-        Vec::new(),
-        Vec::new(),
+        TerminalOutcome {
+            state: LegacyCheckProcessState::Failed,
+            exit_code: None,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            parser_ok: false,
+            error: Some(&message),
+        },
         output,
         vec![gap],
         now_ms(),
-        false,
-        Some(&message),
     );
     if let Some(receipt) = execution
         .output
@@ -2713,18 +2725,23 @@ fn managed_test_refusal(
             .is_some_and(Value::is_null)
 }
 
-fn terminal_execution(
-    input: &LegacyCheckInput,
-    command: CommandShape,
+/// The process facts of one terminal legacy-check execution.
+struct TerminalOutcome<'a> {
     state: LegacyCheckProcessState,
     exit_code: Option<i32>,
     stdout: Vec<u8>,
     stderr: Vec<u8>,
+    parser_ok: bool,
+    error: Option<&'a str>,
+}
+
+fn terminal_execution(
+    input: &LegacyCheckInput,
+    command: CommandShape,
+    outcome: TerminalOutcome<'_>,
     mut output: LegacyCheckOutput,
     gaps: Vec<String>,
     started: u64,
-    parser_ok: bool,
-    error: Option<&str>,
 ) -> LegacyCheckExecution {
     let completed = now_ms().max(started);
     let receipt_id = format!(
@@ -2737,19 +2754,15 @@ fn terminal_execution(
             .as_bytes()
         ))
     );
-    let receipt = execution_receipt(
-        input,
-        command,
+    let receipt = execution_receipt(input, command, &outcome, started, completed, &gaps);
+    let TerminalOutcome {
         state,
         exit_code,
-        &stdout,
-        &stderr,
-        started,
-        completed,
-        &gaps,
-        parser_ok && error.is_none(),
+        stdout,
+        stderr,
         error,
-    );
+        ..
+    } = outcome;
     output.details.insert("executionReceipt".into(), receipt);
     LegacyCheckExecution {
         state,
@@ -2770,16 +2783,17 @@ fn terminal_execution(
 fn execution_receipt(
     input: &LegacyCheckInput,
     command: CommandShape,
-    state: LegacyCheckProcessState,
-    exit_code: Option<i32>,
-    stdout: &[u8],
-    stderr: &[u8],
+    outcome: &TerminalOutcome<'_>,
     started: u64,
     completed: u64,
     gaps: &[String],
-    parser_ok: bool,
-    error: Option<&str>,
 ) -> Value {
+    let state = outcome.state;
+    let exit_code = outcome.exit_code;
+    let stdout = outcome.stdout.as_slice();
+    let stderr = outcome.stderr.as_slice();
+    let error = outcome.error;
+    let parser_ok = outcome.parser_ok && error.is_none();
     let (executable, args) = command_parts(command);
     let executable_path = format!("native://legion-audit/{}", input.check);
     let requested = if executable == "native" {
@@ -3127,7 +3141,7 @@ fn native_decomposition(
             ));
         }
     }
-    oversized.sort_by(|a, b| b.1.cmp(&a.1));
+    oversized.sort_by_key(|a| std::cmp::Reverse(a.1));
 
     // Mechanical-split detection: group `*_parts/`-dir or `partNN.<ext>`-named
     // files by containing directory and reconstruct the logical-unit LOC.
@@ -3185,7 +3199,7 @@ fn native_decomposition(
         };
         mechanical_splits.push((dir.clone(), gfiles.len(), logical_loc, class));
     }
-    mechanical_splits.sort_by(|a, b| b.2.cmp(&a.2));
+    mechanical_splits.sort_by_key(|a| std::cmp::Reverse(a.2));
 
     let runtime_count = oversized.iter().filter(|(_, _, c)| *c == "runtime").count()
         + mechanical_splits

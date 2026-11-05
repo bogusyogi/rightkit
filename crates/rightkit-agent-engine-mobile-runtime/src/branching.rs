@@ -6,7 +6,7 @@
 //! A [`Branch`] is a labelled snapshot of a conversation at one durable
 //! journal sequence: it freezes the caller-supplied `checkpoint_json` blob
 //! (the same opaque value [`crate::MobileRuntime::checkpoint_json`] already
-//! produces and [`crate::MobileConfig::checkpoint_json`] already consumes —
+//! produces and [`crate::RuntimeConfig::checkpoint_json`] already consumes —
 //! see `lib.rs`) alongside the [`crate::journal::Journal`] sequence it was
 //! taken at. Creating a branch never mutates the parent session's own
 //! journal, checkpoint, or transcript: it only appends a new record to a
@@ -72,7 +72,7 @@
 //! - `checkpoint_json` production/validation stays owned by
 //!   `MobileCheckpoint` in `lib.rs` (private to that module); this module
 //!   only stores and returns the blob verbatim, exactly as
-//!   `MobileConfig::checkpoint_json` already does at the FFI boundary.
+//!   `RuntimeConfig::checkpoint_json` already does at the FFI boundary.
 //!
 //! Wanted verification (not run in this lane): `rustright cargo test
 //! --manifest-path engine/Cargo.toml -p host_mobile-runtime branching`.
@@ -118,7 +118,7 @@ pub struct Branch {
     /// branch was taken. Rollback and future replay both anchor on this.
     pub fork_sequence: u64,
     /// Frozen `checkpoint_json` blob (opaque to this module; see the module
-    /// doc comment) a host can hand back to [`crate::MobileConfig`] to
+    /// doc comment) a host can hand back to [`crate::RuntimeConfig`] to
     /// resume exactly this point.
     pub checkpoint_json: String,
     pub status: BranchStatus,

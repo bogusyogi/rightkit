@@ -158,7 +158,7 @@ fn event(rec: &mut Value, action: &str, detail: Value) {
 }
 
 fn gen_error(e: &rightkit_models::Error) -> GenError {
-    GenError::new(&model_store::error_code(e), e.message.clone())
+    GenError::new(model_store::error_code(e), e.message.clone())
 }
 
 // ---------- command handlers -------------------------------------------------------
@@ -246,7 +246,7 @@ pub fn launch(
         .name(format!("model-install-{id}"))
         .spawn(move || {
             let ctx = Context::new(data_dir);
-            let result = run(&ctx, &id_owned, &*sess);
+            let result = run(&ctx, &id_owned, &sess);
             match result {
                 Ok(dir) => {
                     let _ = record(&ctx, &id_owned, |r| {

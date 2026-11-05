@@ -103,38 +103,47 @@ impl ProviderExecutor for NativeRuleProviderExecutor {
             })
             .transpose()?
             .unwrap_or_default();
+        let spec = NativeRuleSpec {
+            provider_id: &provider.id,
+            required: provider.required,
+            selector: &selector,
+            packs: &packs,
+        };
         evaluate_native_rules(
             &self.root,
             &self.manifest,
-            &provider.id,
-            provider.required,
-            &selector,
-            &packs,
+            &spec,
             self.max_file_bytes,
             inventory,
         )
     }
 }
 
+/// The provider-specific inputs of one native rule evaluation, bundled so the
+/// evaluator keeps a short argument list.
+struct NativeRuleSpec<'a> {
+    provider_id: &'a str,
+    required: bool,
+    selector: &'a Value,
+    packs: &'a [String],
+}
+
 fn evaluate_native_rules(
     root: &Path,
     manifest_path: &Path,
-    provider_id: &str,
-    required: bool,
-    selector: &Value,
-    packs: &[String],
+    spec: &NativeRuleSpec<'_>,
     max_file_bytes: u64,
     inventory: &InventoryEnvelope,
 ) -> Result<ProviderResult, AuditError> {
-    let provider = ProviderId::new(provider_id).map_err(AuditError::from)?;
+    let provider = ProviderId::new(spec.provider_id).map_err(AuditError::from)?;
     let manifest = std::fs::read_to_string(manifest_path).map_err(|error| {
         AuditError::Provider(format!("native rule manifest unavailable: {error}"))
     })?;
     let compiled = RuleCompiler::compile_manifest_json(&manifest)
         .map_err(|error| AuditError::Provider(error.to_string()))?;
     let selected =
-        select_packs(compiled, packs).map_err(|error| AuditError::Provider(error.message))?;
-    let denominator = inventory.denominator_entries(selector)?;
+        select_packs(compiled, spec.packs).map_err(|error| AuditError::Provider(error.message))?;
+    let denominator = inventory.denominator_entries(spec.selector)?;
 
     let mut files = Vec::new();
     let mut gaps = Vec::new();
@@ -229,7 +238,7 @@ fn evaluate_native_rules(
         schema_version: 1,
         provider,
         applicable: true,
-        required,
+        required: spec.required,
         status: if complete {
             ProviderStatus::Complete
         } else {

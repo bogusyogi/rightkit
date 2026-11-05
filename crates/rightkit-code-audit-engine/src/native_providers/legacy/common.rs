@@ -70,17 +70,31 @@ pub fn finding(rule_id: &str, severity: &str, file: &str, line: usize) -> Findin
     }
 }
 
+/// The per-provider outcome that `result` projects onto the audit boundary.
+pub struct ResultParts {
+    pub status: ProviderStatus,
+    pub complete: bool,
+    pub examined: usize,
+    pub findings: Vec<FindingRef>,
+    pub gaps: Vec<String>,
+    pub degradation: Vec<String>,
+    pub details: BTreeMap<String, Value>,
+}
+
 pub fn result(
     input: &ProviderInput<'_>,
-    status: ProviderStatus,
-    complete: bool,
     denominator: &InventoryDenominator,
-    examined: usize,
-    findings: Vec<FindingRef>,
-    gaps: Vec<String>,
-    degradation: Vec<String>,
-    details: BTreeMap<String, Value>,
+    parts: ResultParts,
 ) -> Result<ProviderResult, AuditError> {
+    let ResultParts {
+        status,
+        complete,
+        examined,
+        findings,
+        gaps,
+        degradation,
+        details,
+    } = parts;
     let provider = provider_id(input.provider)?;
     let mut gaps = gaps;
     gaps.sort();
@@ -289,6 +303,14 @@ impl ProviderExecutor for ProviderExecutorAdapter {
     }
 }
 
+/// The ownership run's host-side inputs: the enrolled owner, the external
+/// project tool that runs it, and the directory its artifacts land in.
+pub struct OwnershipHost<'a> {
+    pub owner: &'a super::ownership_sdk::NativeOwner,
+    pub tool: &'a dyn rightkit_code_audit_provider_sdk::ExternalProjectTool,
+    pub artifacts_root: &'a Path,
+}
+
 impl ProviderExecutorAdapter {
     /// Explicit host enrollment only; this supplies no policy admission.
     pub async fn execute_ownership_async(
@@ -296,17 +318,15 @@ impl ProviderExecutorAdapter {
         plan: &crate::FrozenPlan,
         provider: &AuditProvider,
         inventory: &InventoryEnvelope,
-        owner: &super::ownership_sdk::NativeOwner,
-        tool: &dyn rightkit_code_audit_provider_sdk::ExternalProjectTool,
-        artifacts_root: &Path,
+        host: OwnershipHost<'_>,
         cancellation: tokio_util::sync::CancellationToken,
     ) -> Result<ProviderResult, AuditError> {
         super::ownership_sdk::execute(
             &self.input(provider, inventory),
             plan,
-            owner,
-            tool,
-            artifacts_root,
+            host.owner,
+            host.tool,
+            host.artifacts_root,
             cancellation,
         )
         .await

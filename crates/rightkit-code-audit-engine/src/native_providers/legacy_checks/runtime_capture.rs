@@ -1163,7 +1163,6 @@ async fn capture_surface(ctx: &Ctx<'_>, index: usize, label: &str, url: &str) ->
         return outcome;
     }
 
-    let mut request = request;
     if let Some(owner) = &ctx.owner {
         if let Err(gap) = super::owner_request::apply_owner(
             owner,

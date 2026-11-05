@@ -352,12 +352,14 @@ impl ReasoningProviderExecutor {
                 sizer.use_admission(admission)?;
             }
             build_invocations(
-                plan,
-                provider,
-                inventory,
-                &denominator,
-                &self.invocation_epoch,
-                &source,
+                InvocationInputs {
+                    plan,
+                    provider,
+                    inventory,
+                    denominator: &denominator,
+                    invocation_epoch: &self.invocation_epoch,
+                    source: &source,
+                },
                 sizer,
                 None,
                 false,
@@ -394,21 +396,21 @@ impl ReasoningProviderExecutor {
                 AuditError::Provider("reasoning replay guard is unavailable".into())
             })?;
             if !used.insert(request.request_id.clone()) {
-                return Ok(failure_result(
+                return failure_result(
                     provider,
                     &denominator,
                     "reasoning-replay-detected",
                     "replay-detected",
-                )?);
+                );
             }
         }
         let Some(host) = &self.host else {
-            return Ok(failure_result(
+            return failure_result(
                 provider,
                 &denominator,
                 "reasoning-host-unavailable",
                 "host-unavailable",
-            )?);
+            );
         };
         // Never spend a host invocation whose response cannot be authenticated.
         let key = self.verification_key.as_deref().ok_or_else(|| {
@@ -422,23 +424,23 @@ impl ReasoningProviderExecutor {
                         ("reasoning-host-unavailable", "host-unavailable")
                     }
                     ReasoningHostError::Degraded(reason) => {
-                        return Ok(failure_result(
+                        return failure_result(
                             provider,
                             &denominator,
                             format!("reasoning-host-degraded:{reason}"),
                             "host-degraded",
-                        )?);
+                        );
                     }
                     ReasoningHostError::Invocation(reason) => {
-                        return Ok(failure_result(
+                        return failure_result(
                             provider,
                             &denominator,
                             format!("reasoning-host-invocation-failed:{reason}"),
                             "host-invocation-failed",
-                        )?);
+                        );
                     }
                 };
-                return Ok(failure_result(provider, &denominator, gap, degradation)?);
+                return failure_result(provider, &denominator, gap, degradation);
             }
         };
         verify_response(&request, &denominator, &response, key)
@@ -1028,6 +1030,17 @@ pub fn validate_delivery_evidence(
     Ok(())
 }
 
+/// Borrowed inputs shared by every packet-building step for one provider.
+#[derive(Clone, Copy)]
+struct InvocationInputs<'a, 'b> {
+    plan: &'a FrozenPlan,
+    provider: &'a AuditProvider,
+    inventory: &'a InventoryEnvelope,
+    denominator: &'a InventoryDenominator,
+    invocation_epoch: &'a str,
+    source: &'a excerpts::SourceReader<'b>,
+}
+
 /// Builds every packet part for one provider. The frozen denominator is
 /// partitioned deterministically (stable path order) so each denominator path
 /// is homed in exactly one part; a provider whose denominator fits one part
@@ -1036,16 +1049,17 @@ pub fn validate_delivery_evidence(
 /// envelope, so the plan digest binding and receipt denominator checks are
 /// identical for every part.
 fn build_invocations(
-    plan: &FrozenPlan,
-    provider: &AuditProvider,
-    inventory: &InventoryEnvelope,
-    denominator: &InventoryDenominator,
-    invocation_epoch: &str,
-    source: &excerpts::SourceReader<'_>,
+    inputs: InvocationInputs<'_, '_>,
     sizer: &mut crate::review_runtime::InitialRequestSizer,
     scanner_candidates: Option<&[ScannerCandidate]>,
     allow_deferred: bool,
 ) -> Result<(Vec<ReasoningInvocation>, Option<Value>), AuditError> {
+    let InvocationInputs {
+        plan,
+        provider,
+        invocation_epoch,
+        ..
+    } = inputs;
     if let Some(candidates) = scanner_candidates {
         candidate_routing::validate_identities(candidates).map_err(AuditError::Invalid)?;
     }
@@ -1066,29 +1080,10 @@ fn build_invocations(
         .and_then(Value::as_u64)
         .map(ingest::physical_planning_input_bytes);
     let (Some(target), Some(budget)) = (target, budget) else {
-        return build_invocations_with_budget(
-            plan,
-            provider,
-            inventory,
-            denominator,
-            invocation_epoch,
-            source,
-            scanner_candidates,
-            budget,
-        );
+        return build_invocations_with_budget(inputs, scanner_candidates, budget);
     };
     let mut build_uncached = |budget, source_only, docs| {
-        let mut built = build_invocations_with_docs(
-            plan,
-            provider,
-            inventory,
-            denominator,
-            invocation_epoch,
-            source,
-            scanner_candidates,
-            budget,
-            docs,
-        )?;
+        let mut built = build_invocations_with_docs(inputs, scanner_candidates, budget, docs)?;
         if source_only {
             for (index, request) in built.0.iter_mut().enumerate() {
                 request.packet["candidateContext"] = json!([]);
@@ -1379,7 +1374,7 @@ fn append_candidate_parts(
         let mut low = 0;
         let mut high = routed.len() - offset;
         while low < high {
-            let count = low + (high - low + 1) / 2;
+            let count = low + (high - low).div_ceil(2);
             template.packet["candidateContext"] = json!(&routed[offset..offset + count]);
             refresh_request_identity(&mut template, epoch)?;
             if measure_invocations(std::slice::from_ref(&template), provider, sizer)? != u64::MAX {
@@ -1565,22 +1560,12 @@ fn provider_card_budget(provider: &AuditProvider) -> Option<u64> {
 }
 
 fn build_invocations_with_budget(
-    plan: &FrozenPlan,
-    provider: &AuditProvider,
-    inventory: &InventoryEnvelope,
-    denominator: &InventoryDenominator,
-    invocation_epoch: &str,
-    source: &excerpts::SourceReader<'_>,
+    inputs: InvocationInputs<'_, '_>,
     scanner_candidates: Option<&[ScannerCandidate]>,
     part_budget: Option<excerpts::PartBudget>,
 ) -> Result<(Vec<ReasoningInvocation>, Option<Value>), AuditError> {
     build_invocations_with_docs(
-        plan,
-        provider,
-        inventory,
-        denominator,
-        invocation_epoch,
-        source,
+        inputs,
         scanner_candidates,
         part_budget,
         packet_context::DocBudget::Full,
@@ -1590,16 +1575,19 @@ fn build_invocations_with_budget(
 /// Same as `build_invocations_with_budget`, with the lens documentation budget
 /// chosen by the caller so documentation shrinks before source excerpts do.
 fn build_invocations_with_docs(
-    plan: &FrozenPlan,
-    provider: &AuditProvider,
-    inventory: &InventoryEnvelope,
-    denominator: &InventoryDenominator,
-    invocation_epoch: &str,
-    source: &excerpts::SourceReader<'_>,
+    inputs: InvocationInputs<'_, '_>,
     scanner_candidates: Option<&[ScannerCandidate]>,
     part_budget: Option<excerpts::PartBudget>,
     doc_budget: packet_context::DocBudget,
 ) -> Result<(Vec<ReasoningInvocation>, Option<Value>), AuditError> {
+    let InvocationInputs {
+        plan,
+        provider,
+        inventory,
+        denominator,
+        invocation_epoch,
+        source,
+    } = inputs;
     if let Some(candidates) = scanner_candidates {
         candidate_routing::validate_identities(candidates).map_err(AuditError::Invalid)?;
     }
@@ -2230,7 +2218,7 @@ fn sampled_review(
     for (canonical, members) in ordered {
         let mode = members
             .iter()
-            .map(|member| mode_of(*member))
+            .map(|member| mode_of(member))
             .max_by_key(|mode| mode_strength(*mode))
             .unwrap_or(default_mode);
         for member in &members {
@@ -2950,12 +2938,14 @@ fn pending_lens_work_from_source(
         // One work item per packet part (a single item, with the unnumbered
         // packet shape, when the denominator fits one part).
         let (requests, promotion) = build_invocations(
-            plan,
-            provider,
-            inventory,
-            &denominator,
-            "pending-host",
-            source,
+            InvocationInputs {
+                plan,
+                provider,
+                inventory,
+                denominator: &denominator,
+                invocation_epoch: "pending-host",
+                source,
+            },
             sizer,
             scanner_candidates,
             true,

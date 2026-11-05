@@ -69,15 +69,17 @@ fn refusal(input: &LegacyCheckInput, reason: &str) -> LegacyCheckExecution {
         spec(&input.provider_id)
             .expect("validated SAST contract")
             .command,
-        LegacyCheckProcessState::Failed,
-        None,
-        vec![],
-        vec![],
+        super::TerminalOutcome {
+            state: LegacyCheckProcessState::Failed,
+            exit_code: None,
+            stdout: vec![],
+            stderr: vec![],
+            parser_ok: false,
+            error: Some(reason),
+        },
         output,
         vec![reason.into()],
         now_ms(),
-        false,
-        Some(reason),
     );
     if let Some(receipt) = execution
         .output
@@ -154,8 +156,9 @@ pub(super) fn prepare(
     provider: &AuditProvider,
     scratch: &AuditScratch,
     args: &[String],
-) -> Result<Vec<String>, LegacyCheckExecution> {
-    prepared_args(input, provider, scratch, args).map_err(|reason| refusal(input, &reason))
+) -> Result<Vec<String>, Box<LegacyCheckExecution>> {
+    prepared_args(input, provider, scratch, args)
+        .map_err(|reason| Box::new(refusal(input, &reason)))
 }
 fn path(value: &Value) -> Option<&str> {
     let value = value.as_str()?;

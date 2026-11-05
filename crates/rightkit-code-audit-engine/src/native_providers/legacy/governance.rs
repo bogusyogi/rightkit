@@ -204,17 +204,19 @@ pub fn execute(
     let complete = gaps.is_empty();
     super::common::result(
         input,
-        if complete {
-            ProviderStatus::Complete
-        } else {
-            ProviderStatus::Partial
-        },
-        complete,
         &denominator,
-        denominator.entries.len(),
-        findings,
-        gaps.clone(),
-        gaps,
-        details,
+        super::common::ResultParts {
+            status: if complete {
+                ProviderStatus::Complete
+            } else {
+                ProviderStatus::Partial
+            },
+            complete,
+            examined: denominator.entries.len(),
+            findings,
+            gaps: gaps.clone(),
+            degradation: gaps,
+            details,
+        },
     )
 }

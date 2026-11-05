@@ -17,7 +17,7 @@ use std::{
 use rightkit_evidence_contracts::{ProviderResult, ProviderStatus};
 use serde_json::Value;
 
-use super::common::{denominator, result, source_files, ProviderInput};
+use super::common::{denominator, result, source_files, ProviderInput, ResultParts};
 use crate::error::AuditError;
 use crate::native_providers::p11d_quality::{data_suite, infrastructure_suite};
 
@@ -78,18 +78,20 @@ fn execute_candidate_suite(
     details.insert("status".to_owned(), Value::String(status_label.to_owned()));
     result(
         input,
-        if complete {
-            ProviderStatus::Complete
-        } else {
-            ProviderStatus::Partial
-        },
-        complete,
         &selected,
-        files.len(),
-        Vec::new(),
-        gaps.clone(),
-        gaps,
-        details,
+        ResultParts {
+            status: if complete {
+                ProviderStatus::Complete
+            } else {
+                ProviderStatus::Partial
+            },
+            complete,
+            examined: files.len(),
+            findings: Vec::new(),
+            gaps: gaps.clone(),
+            degradation: gaps,
+            details,
+        },
     )
 }
 

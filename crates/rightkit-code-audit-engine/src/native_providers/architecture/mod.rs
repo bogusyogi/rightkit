@@ -130,17 +130,19 @@ impl ProviderExecutorAdapter {
                 return common::provider_result(
                     &provider.id,
                     provider.required,
-                    provider
-                        .configuration
-                        .get("denominatorDigest")
-                        .and_then(Value::as_str)
-                        .unwrap_or(&denominator.digest)
-                        .to_owned(),
-                    provider
-                        .configuration
-                        .get("denominatorCount")
-                        .and_then(Value::as_u64)
-                        .map_or(denominator.entries.len(), |v| v as usize),
+                    (
+                        provider
+                            .configuration
+                            .get("denominatorDigest")
+                            .and_then(Value::as_str)
+                            .unwrap_or(&denominator.digest)
+                            .to_owned(),
+                        provider
+                            .configuration
+                            .get("denominatorCount")
+                            .and_then(Value::as_u64)
+                            .map_or(denominator.entries.len(), |v| v as usize),
+                    ),
                     &analysis,
                     serde_json::json!({}),
                     vec![],
@@ -297,8 +299,7 @@ impl ProviderExecutorAdapter {
         let mut result = common::provider_result(
             &provider.id,
             provider.required,
-            frozen_digest,
-            frozen_count,
+            (frozen_digest, frozen_count),
             &analysis,
             original_input,
             Vec::new(),
@@ -371,8 +372,7 @@ impl ProviderExecutorAdapter {
         common::provider_result(
             &provider.id,
             provider.required,
-            frozen_digest,
-            frozen_count,
+            (frozen_digest, frozen_count),
             &analysis,
             serde_json::json!({"producer": {"kind": "self-sourced", "mode": "frozen-denominator"}}),
             Vec::new(),

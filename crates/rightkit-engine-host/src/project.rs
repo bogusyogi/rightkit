@@ -106,7 +106,8 @@ pub fn timemap_path(project: &Path, source_id: &str) -> PathBuf {
     analysis_dir(project).join(format!("timemap-{source_id}.json"))
 }
 
-fn shorts_path(project: &Path, source_id: &str) -> PathBuf {
+/// The shorts analysis file of one source, beside its transcript, envelope and time map.
+pub fn shorts_path(project: &Path, source_id: &str) -> PathBuf {
     analysis_dir(project).join(format!("shorts-{source_id}.json"))
 }
 
@@ -362,7 +363,6 @@ pub fn settings_object(path: &Path) -> Result<Map<String, Value>, ProjectError> 
 }
 
 /// Finishing defaults the Settings screen saves app-wide. A project's own value wins;
-
 pub const PROJECT_FONT_KEY: &str = "font";
 pub const PROJECT_FONT_HASH_KEY: &str = "font_blake3";
 

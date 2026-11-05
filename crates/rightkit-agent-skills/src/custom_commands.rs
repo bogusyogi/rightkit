@@ -1,6 +1,6 @@
 //! Claude Code-style custom slash commands (Fixes #132).
 //!
-//! Spec: https://code.claude.com/docs/en/slash-commands ("Custom commands").
+//! Spec: <https://code.claude.com/docs/en/slash-commands> ("Custom commands").
 //!
 //! A custom command is a Markdown file. Its file stem is the command name,
 //! each subdirectory below the commands root becomes a `namespace:` prefix

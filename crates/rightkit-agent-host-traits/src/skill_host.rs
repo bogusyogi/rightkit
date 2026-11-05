@@ -347,7 +347,7 @@ pub mod commands {
 
     /// Registry of all registered slash commands.
     ///
-    /// Built directly from [`COMMAND_SPECS`]: every row carrying a
+    /// Built directly from [`command_specs()`]: every row carrying a
     /// [`CommandSpec::daemon_handler`] registers under its canonical bare name,
     /// so the executor set and the name table cannot drift apart.
     pub struct CommandRegistry {

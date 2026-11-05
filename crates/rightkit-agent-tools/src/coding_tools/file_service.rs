@@ -198,7 +198,7 @@ pub struct MutationConflict {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MutationError {
-    Conflict(MutationConflict),
+    Conflict(Box<MutationConflict>),
     InvalidIntent(String),
     Io(String),
 }
@@ -1477,12 +1477,12 @@ impl FileService {
     ) -> Result<(), MutationError> {
         let current = self.observe_preimage(path)?;
         if &current != expected {
-            return Err(MutationError::Conflict(MutationConflict {
+            return Err(MutationError::Conflict(Box::new(MutationConflict {
                 intent,
                 path: path.to_path_buf(),
                 expected: expected.clone(),
                 current,
-            }));
+            })));
         }
         Ok(())
     }

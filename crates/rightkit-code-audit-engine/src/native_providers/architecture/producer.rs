@@ -155,6 +155,10 @@ lazy_re!(
     aspnet_sdk_re,
     r#"(?s)^\s*(?:<\?xml[^?]*\?>\s*)?<Project\b[^>]*\bSdk[ \t]*=[ \t]*['"]Microsoft\.NET\.Sdk\.Web['"]"#
 );
+lazy_re!(
+    gradle_coordinate_re,
+    r#"(?m)^[ \t]*(?:implementation|api|compile|compileOnly|runtimeOnly)[ \t]*\(?[ \t]*["']([^"':\s]+):([^"':\s]+)(?::[^"'\s]+)?["']"#
+);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Lang {
@@ -1399,7 +1403,7 @@ fn is_generated_name(name: &str) -> bool {
 
 fn build_tests(ctx: &Ctx, facts: &mut Facts) {
     let mut importers: HashMap<&str, Vec<&str>> = HashMap::new();
-    for ((from, to), _) in &facts.edges.map {
+    for (from, to) in facts.edges.map.keys() {
         importers
             .entry(to.as_str())
             .or_default()
@@ -1632,13 +1636,11 @@ fn manifest_framework_dependencies(ctx: &Ctx) -> Vec<(String, String, Vec<String
             } else if matches!(name, "build.gradle" | "build.gradle.kts") {
                 // Inventory's shallow coordinate parser omits versioned literals.
                 // Keep original frozen inventory intact; read this named manifest.
-                static COORDINATE: OnceLock<Regex> = OnceLock::new();
                 let (lexical, unsupported) = backend_lexical(text, "gradle");
                 if !unsupported {
-                    for capture in COORDINATE.get_or_init(|| Regex::new(
-                        r#"(?m)^[ \t]*(?:implementation|api|compile|compileOnly|runtimeOnly)[ \t]*\(?[ \t]*["']([^"':\s]+):([^"':\s]+)(?::[^"'\s]+)?["']"#
-                    ).expect("Gradle dependency regex")).captures_iter(&lexical) {
-                        dependencies.push(format!("{}:{}", &capture[1], &capture[2]).to_ascii_lowercase());
+                    for capture in gradle_coordinate_re().captures_iter(&lexical) {
+                        dependencies
+                            .push(format!("{}:{}", &capture[1], &capture[2]).to_ascii_lowercase());
                     }
                 }
             } else if name.ends_with(".csproj")
@@ -2080,17 +2082,15 @@ pub fn reconcile(facts: &Facts, provider: &str, analysis: &mut Analysis) {
                 }
             }
         }
-        "test-quality.core" => {
-            if facts.test_obs.is_empty() {
-                // The producer's denominator is the files it classified: a
-                // clean scan is a measured zero, not an empty denominator.
-                analysis.coverage_gaps.retain(|g| {
-                    g.get("kind").and_then(Value::as_str) != Some("test-quality-denominator-zero")
-                });
-                if analysis.coverage_gaps.is_empty() {
-                    analysis.status = "pass".into();
-                    analysis.complete = true;
-                }
+        "test-quality.core" if facts.test_obs.is_empty() => {
+            // The producer's denominator is the files it classified: a
+            // clean scan is a measured zero, not an empty denominator.
+            analysis.coverage_gaps.retain(|g| {
+                g.get("kind").and_then(Value::as_str) != Some("test-quality-denominator-zero")
+            });
+            if analysis.coverage_gaps.is_empty() {
+                analysis.status = "pass".into();
+                analysis.complete = true;
             }
         }
         _ => {}

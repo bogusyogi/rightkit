@@ -254,6 +254,12 @@ fn project(value: &str, extension: &str) -> Result<(Vec<String>, bool), String> 
         "OptionInfer",
         "Compile",
     ];
+    let package_shape = Regex::new(
+        r#"^Include="[A-Za-z0-9_.-]+" Version="[0-9]+\.[0-9]+\.[0-9]+(?:[.-][A-Za-z0-9.-]+)?"$"#,
+    )
+    .map_err(|_| "project-parser")?;
+    let compile_shape =
+        Regex::new(r#"^Include="[A-Za-z0-9_./-]+\.fs"$"#).map_err(|_| "project-parser")?;
     for captures in tag.captures_iter(value) {
         let raw = captures[1]
             .trim()
@@ -271,15 +277,12 @@ fn project(value: &str, extension: &str) -> Result<(Vec<String>, bool), String> 
         match name {
             "Project" if attributes == "Sdk=\"Microsoft.NET.Sdk\"" || attributes.is_empty() => {}
             "PackageReference" => {
-                let shape = Regex::new(r#"^Include="[A-Za-z0-9_.-]+" Version="[0-9]+\.[0-9]+\.[0-9]+(?:[.-][A-Za-z0-9.-]+)?"$"#).map_err(|_| "project-parser")?;
-                if !shape.is_match(attributes) {
+                if !package_shape.is_match(attributes) {
                     return Err("package-reference-unsupported".into());
                 }
             }
             "Compile" if extension == "fsproj" => {
-                let shape = Regex::new(r#"^Include="[A-Za-z0-9_./-]+\.fs"$"#)
-                    .map_err(|_| "project-parser")?;
-                if !shape.is_match(attributes)
+                if !compile_shape.is_match(attributes)
                     || attributes.contains("..")
                     || attributes.contains(":")
                 {
@@ -775,6 +778,8 @@ pub(super) fn results(command: &Planned) -> Result<Value, String> {
 fn test_counts(value: &Value) -> Result<(), String> {
     let counter = Regex::new(r#"<Counters\b([^>]*)/?>"#).map_err(|_| "trx-parser")?;
     let attr = Regex::new(r#"([A-Za-z]+)="([0-9]+)""#).map_err(|_| "trx-parser")?;
+    let units =
+        Regex::new(r#"<UnitTestResult\b[^>]*\boutcome="Passed""#).map_err(|_| "trx-parser")?;
     let rows = value.as_array().ok_or("trx-results")?;
     if rows.is_empty() {
         return Err("test-no-standard-results".into());
@@ -802,8 +807,6 @@ fn test_counts(value: &Value) -> Result<(), String> {
         {
             return Err("test-not-nonempty-success".into());
         }
-        let units =
-            Regex::new(r#"<UnitTestResult\b[^>]*\boutcome="Passed""#).map_err(|_| "trx-parser")?;
         if units.find_iter(content).count() as u64 != count("executed") {
             return Err("test-results-counter-mismatch".into());
         }

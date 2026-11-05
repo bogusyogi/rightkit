@@ -7,7 +7,7 @@
 //! `<fixture>.cases.json`; rows with `ruled: false` are never scored.
 
 use rightkit_child_process::OwnedCommand;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::fs::{self, File};
@@ -497,8 +497,11 @@ fn report_metrics(report: &Value) -> Value {
     })
 }
 
+/// A candidate anchor: normalized path plus optional start and end lines.
+type CandidateAnchor = (Option<String>, Option<u32>, Option<u32>);
+
 fn raw_candidate_location(candidate: &Value) -> Option<Loc> {
-    fn anchor(value: &Value) -> Result<(Option<String>, Option<u32>, Option<u32>), ()> {
+    fn anchor(value: &Value) -> Result<CandidateAnchor, ()> {
         let path = value
             .get("path")
             .filter(|value| !value.is_null())
@@ -1597,32 +1600,6 @@ impl BenchTelemetry {
         for (total, value) in self.runtime_tokens.iter_mut().zip(other.runtime_tokens) {
             *total = total.saturating_add(value);
         }
-    }
-
-    fn to_json(&self) -> Value {
-        let latency_known = self.planned_cases > 0 && self.timed_cases == self.planned_cases;
-        let usage = if !self.runtime_requested {
-            json!({"status":"not-requested","callCount":null,"inputTokens":null,"outputTokens":null,"cachedInputTokens":null,"retryTokens":null,"actualCost":{"status":"unknown","value":null}})
-        } else {
-            json!({
-                "status": if self.runtime_usage_known { "reported" } else { "unknown" },
-                "callCount": if self.runtime_usage_known { Some(self.runtime_calls) } else { None },
-                "inputTokens": if self.runtime_usage_known { Some(self.runtime_tokens[0]) } else { None },
-                "outputTokens": if self.runtime_usage_known { Some(self.runtime_tokens[1]) } else { None },
-                "cachedInputTokens": if self.runtime_usage_known { Some(self.runtime_tokens[2]) } else { None },
-                "retryTokens": if self.runtime_usage_known { Some(self.runtime_tokens[3]) } else { None },
-                "actualCost":{"status":"unknown","value":null}
-            })
-        };
-        json!({
-            "wallTimeMs": {
-                "status": if latency_known { "reported" } else { "unknown" },
-                "value": if latency_known { Some(self.wall_time_ms) } else { None },
-                "measuredCases": self.timed_cases,
-                "plannedCases": self.planned_cases
-            },
-            "runtimeUsage": usage
-        })
     }
 }
 

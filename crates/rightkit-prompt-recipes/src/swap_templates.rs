@@ -331,7 +331,7 @@ fn import_with(
 }
 
 fn kind_of(e: &rightkit_media_gen::catalogue::Entry) -> String {
-    serde_json::to_value(&e.kind)
+    serde_json::to_value(e.kind)
         .ok()
         .and_then(|v| v.as_str().map(String::from))
         .unwrap_or_default()

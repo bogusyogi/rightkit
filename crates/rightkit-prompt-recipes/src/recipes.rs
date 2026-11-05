@@ -276,7 +276,7 @@ fn positivize(prompt: &str, model: &str) -> String {
 pub enum ComposeError {
     Message(String),
     /// The composed payload failed the model's contract.
-    Contract(ContractError),
+    Contract(Box<ContractError>),
 }
 
 impl ComposeError {
@@ -308,8 +308,8 @@ impl std::fmt::Display for ComposeError {
     }
 }
 
-impl From<ContractError> for ComposeError {
-    fn from(e: ContractError) -> Self {
+impl From<Box<ContractError>> for ComposeError {
+    fn from(e: Box<ContractError>) -> Self {
         ComposeError::Contract(e)
     }
 }
@@ -1678,7 +1678,7 @@ fn violation(position: usize, name: &str, code: &str, problem: impl Into<String>
 }
 
 fn kind_name(e: &Entry) -> String {
-    serde_json::to_value(&e.kind)
+    serde_json::to_value(e.kind)
         .ok()
         .and_then(|v| v.as_str().map(str::to_string))
         .unwrap_or_default()

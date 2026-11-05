@@ -1146,22 +1146,35 @@ fn truncated_message(message: &str) -> String {
     }
 }
 
+/// Inputs to [`parse_sarif_report`], one field per former positional argument.
+pub struct SarifReportRequest<'a> {
+    pub bytes: &'a [u8],
+    pub scope: &'a FrozenDetektScope,
+    pub pin: &'a DetektToolPin,
+    pub plugins: &'a [PluginQualification],
+    pub receipt: ReceiptLink,
+    pub base_prefix: Option<&'a str>,
+    pub explicit_input_list_proven: bool,
+    pub max_findings: usize,
+}
+
 /// Parse one detekt SARIF report against the frozen scope. Distinguishes
 /// rule findings, malformed/truncated report, zero-file scan, compiler/
 /// tool notifications and unsupported syntax. `explicit_input_list_proven`
 /// must come from root's sealed receipt argv (every scanned file was an
 /// individual `--input`); without it or matching SARIF artifacts, a
 /// findings-free report is `detekt-scanned-set-unproven`, never clean.
-pub fn parse_sarif_report(
-    bytes: &[u8],
-    scope: &FrozenDetektScope,
-    pin: &DetektToolPin,
-    plugins: &[PluginQualification],
-    receipt: ReceiptLink,
-    base_prefix: Option<&str>,
-    explicit_input_list_proven: bool,
-    max_findings: usize,
-) -> DetektOutcome {
+pub fn parse_sarif_report(request: SarifReportRequest<'_>) -> DetektOutcome {
+    let SarifReportRequest {
+        bytes,
+        scope,
+        pin,
+        plugins,
+        receipt,
+        base_prefix,
+        explicit_input_list_proven,
+        max_findings,
+    } = request;
     let provider_id = scope.provider_id.as_str();
     let report_digest = sha256_hex(bytes);
     if scope.scope_digest != scope_digest(scope) {

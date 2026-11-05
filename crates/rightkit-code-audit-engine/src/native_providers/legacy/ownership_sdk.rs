@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
 use super::{
-    common::{denominator, digest_bytes, finding, result, ProviderInput},
+    common::{denominator, digest_bytes, finding, result, ProviderInput, ResultParts},
     governance_ownership,
 };
 use crate::{AuditError, FrozenPlan};
@@ -525,17 +525,19 @@ pub async fn execute(
     let complete = gaps.is_empty();
     result(
         input,
-        if complete {
-            ProviderStatus::Complete
-        } else {
-            ProviderStatus::Partial
-        },
-        complete,
         &denom,
-        if complete { denom.entries.len() } else { 0 },
-        findings,
-        gaps.clone(),
-        gaps,
-        details,
+        ResultParts {
+            status: if complete {
+                ProviderStatus::Complete
+            } else {
+                ProviderStatus::Partial
+            },
+            complete,
+            examined: if complete { denom.entries.len() } else { 0 },
+            findings,
+            gaps: gaps.clone(),
+            degradation: gaps,
+            details,
+        },
     )
 }

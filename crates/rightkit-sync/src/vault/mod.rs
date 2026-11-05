@@ -750,7 +750,7 @@ impl Vault {
                 ));
             }
         }
-        let remote_changed = ledger.map_or(true, |l| l.state_key != head.state);
+        let remote_changed = ledger.is_none_or(|l| l.state_key != head.state);
         let local_changed = local != base;
         if !remote_changed && !local_changed {
             return Ok(Attempt::Done(VaultSync {

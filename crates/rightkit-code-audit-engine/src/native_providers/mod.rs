@@ -256,9 +256,11 @@ impl ProviderExecutor for NativeProviderRegistry {
                         plan,
                         provider,
                         inventory,
-                        owner,
-                        tool.as_ref(),
-                        &scratch.artifacts_dir(),
+                        legacy::common::OwnershipHost {
+                            owner,
+                            tool: tool.as_ref(),
+                            artifacts_root: &scratch.artifacts_dir(),
+                        },
                         cancellation,
                     )
                     .await;

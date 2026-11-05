@@ -110,7 +110,7 @@ fn positive_tabindex_offsets(text: &str) -> Vec<usize> {
         } else {
             bytes
                 .get(cursor)
-                .map_or(true, |byte| byte.is_ascii_whitespace() || *byte == b'>')
+                .is_none_or(|byte| byte.is_ascii_whitespace() || *byte == b'>')
         };
         if whole_value {
             offsets.push(offset);
@@ -346,18 +346,20 @@ pub fn execute(
     let complete = gaps.is_empty() && files.len() == selected.entries.len();
     super::common::result(
         input,
-        // Findings do not make a run partial; unproven coverage does.
-        if complete {
-            ProviderStatus::Complete
-        } else {
-            ProviderStatus::Partial
-        },
-        complete,
         &selected,
-        files.len(),
-        findings,
-        gaps.clone(),
-        gaps,
-        details,
+        // Findings do not make a run partial; unproven coverage does.
+        super::common::ResultParts {
+            status: if complete {
+                ProviderStatus::Complete
+            } else {
+                ProviderStatus::Partial
+            },
+            complete,
+            examined: files.len(),
+            findings,
+            gaps: gaps.clone(),
+            degradation: gaps,
+            details,
+        },
     )
 }

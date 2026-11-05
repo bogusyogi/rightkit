@@ -302,7 +302,7 @@ fn main() -> R {
         let mine: Vec<_> = page
             .jobs
             .iter()
-            .filter(|j| j.request_id.as_deref() == Some(rid))
+            .filter(|j| j.request_id.as_deref() == Some(rid.as_str()))
             .collect();
         check(
             mine.len() == 1 && mine[0].job_id == *job,

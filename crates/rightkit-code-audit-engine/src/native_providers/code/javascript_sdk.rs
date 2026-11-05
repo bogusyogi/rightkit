@@ -79,6 +79,7 @@ pub(super) fn plan(
     for tool in ["build", "test"] {
         plan.not_planned.insert(tool, "no-declared-pnpm-script");
     }
+    let exact = Regex::new(r"^pnpm@(\d+\.\d+\.\d+)$").expect("constant regex");
     for dir in dirs {
         let package = root.join(&dir).join("package.json");
         let manifest = read(&package, MAX_MANIFEST_BYTES as usize)
@@ -93,7 +94,6 @@ pub(super) fn plan(
             .get("packageManager")
             .and_then(Value::as_str)
             .unwrap_or("");
-        let exact = Regex::new(r"^pnpm@(\d+\.\d+\.\d+)$").expect("constant regex");
         if !exact.is_match(manager) {
             plan.notes
                 .push(format!("javascript-package-manager-unproven:{dir}"));
@@ -731,10 +731,10 @@ fn emitted(
 // actual `answer()` assertion target. Unsupported module syntax is a gap.
 fn assertion_module(source: &str) -> Result<(), String> {
     let source = source.strip_prefix("debugger;\n").unwrap_or(source);
-    let source = if source.starts_with("const bad: number = 'wrong';\n") {
-        &source["const bad: number = 'wrong';\n".len()..]
-    } else if source.starts_with("/** @type {number} */ const bad = 'wrong';\n") {
-        &source["/** @type {number} */ const bad = 'wrong';\n".len()..]
+    let source = if let Some(rest) = source.strip_prefix("const bad: number = 'wrong';\n") {
+        rest
+    } else if let Some(rest) = source.strip_prefix("/** @type {number} */ const bad = 'wrong';\n") {
+        rest
     } else {
         source
     };

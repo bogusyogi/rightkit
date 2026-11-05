@@ -1,6 +1,6 @@
 //! Skills catalog (ENG-105): a read-only listing of every discovered skill
 //! with the metadata a browsing UI needs, independent of whether the skill
-//! is currently active. Distinct from [`crate::discover_skill_roots`], which
+//! is currently active. Distinct from [`crate::manifest::discover_skill_roots`], which
 //! is the runtime discovery/precedence resolver used to decide *which*
 //! manifest wins by name — this module wraps that same discovery output into
 //! a stable, serializable shape a client (the iOS `SkillsCatalogView`, a
