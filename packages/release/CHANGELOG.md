@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.47
+
 - Every log line of a stamping run carries its UTC time (GC-A21): each line of a multi-line gate message, and every line its inherited-output children (right-release, cargo through it) write, through the new `stamp-relay.mjs` placed in front of the child. Exit codes and signals pass through unchanged.
 - `swift-typecheck` builds the package (`swift build`, objects in the gate's scratch root) instead of `-Xswiftc -typecheck`: with Swift 6.4 that flag writes no object while SwiftPM still links an executable target, so every package with one failed "unexpected input file". Swift's coloured diagnostics are read with the escapes stripped.
 - `secret-scan` reads every tracked file of the commit, not only crate and package directories (a token-shaped string in `docs/` passed before).
