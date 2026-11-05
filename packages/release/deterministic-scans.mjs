@@ -472,6 +472,19 @@ export const LIVE_SCAN_IDS = Object.freeze(["pnpm-audit", "ghsa-audit"]);
 /** Internal rules whose verdict is a function of the files they read and the rule code only (GC-A24): reused by input key. */
 // ghsa-audit and advisory-exceptions are keyed by lock, files and UTC day (GATE-CONTRACT GC-A24 table, GC-A19 keys), so only a same-day pass is reused.
 export const CACHEABLE_INTERNAL = new Set(["ghsa-audit", "advisory-exceptions", "feature-coverage", "secret-scan", "json-parse", "toml-parse", "yaml-parse", "license", "changelog-version", "ownership-catalog", "swift-lock", "gradle-lock", "python-lock"]);
+/** NN41: internal rules whose failure is never reused: their answer depends on the UTC day or a remote service, not only on their inputs. */
+export const FAILURE_UNCACHEABLE_INTERNAL = new Set(["ghsa-audit", "advisory-exceptions"]);
+/** NN41: the key namespace of a cached failure, so a failure never shares a key with a pass of the same scan. */
+export const FAILURE_KEY_SCHEMA = "deterministic-failure/1";
+/** NN41: the compile scans whose failure can be deterministic: check, clippy and doc rows (single or batched, native or cross). Test runs are never among them. */
+export const isFailureCacheableCompileId = (id) => /^(?:check|check-features|check-dependent|clippy|doc)(?::|$)/.test(String(id));
+/** NN41: a plain (non-broker) compile exit whose output carries compiler error diagnostics and no sign of the environment failing (network, disk, signal, internal compiler error). */
+export function isDeterministicCompileDiagnostics(text) {
+  const t = String(text ?? "");
+  const diagnostics = /(?:^|\n)\s*error(?:\[[A-Za-z]\d+\])?: /.test(t) || /could not compile|aborting due to/.test(t);
+  const environmental = /failed to (?:download|fetch|get|update|load source|create|write|open|remove)|network|spurious|timed out|No space left|Too many open files|Permission denied|Resource temporarily|Text file busy|internal compiler error|panicked at|signal: |SIGKILL|SIGSEGV|Killed/i.test(t);
+  return diagnostics && !environmental;
+}
 export const isLiveScan = (id) => LIVE_SCAN_IDS.some((p) => id === p || String(id).startsWith(`${p}:`));
 /** Scans whose FAILURE may come from the registry rather than their inputs: `pnpm-lockfile` (`install --frozen-lockfile --lockfile-only`)
  * re-verifies lockfile entries against the registry when pnpm's cache is cold, so an outage fails it. Their pass is deterministic, but a
@@ -1461,10 +1474,12 @@ export function planScans({
         add({ id, class: B, batchUnit: name, ...scan, env: { ...(scan.env ?? {}), ...crossEnv } });
       });
     }
-    // rustdoc flags go after `--` for this crate's library only: the broker owns RUSTDOCFLAGS and refuses
-    // a request that sets it. A crate with no library has no API docs to check.
+    // NN40 (GC-A27): docs build as one command per workspace and configuration. The row is the doc subcommand with --no-deps, --lib, one `-p <crate>`,
+    // the lint set and --locked, with a batchUnit, so class B batching groups the doc rows of one workspace and configuration into one invocation
+    // naming every crate. The request never sets RUSTDOCFLAGS: the broker sets "-D warnings" itself on doc and refuses any other value.
+    // A crate with no library has no API docs to check.
     if (exists(path.join(contentRoot, rustDir(name), "src", "lib.rs"))) {
-      add({ id: rustScanId.doc(name), class: B, ...cargoIn(ws, "rustdoc", "-p", crate, "--lib", ...lintSets[0], "--locked", "--", ...DOC_RUSTDOC_ARGS) });
+      add({ id: rustScanId.doc(name), class: B, batchUnit: name, ...cargoIn(ws, "doc", "--no-deps", "--lib", "-p", crate, ...lintSets[0], "--locked") });
     }
   }
   // Class A, file-only (rightkit#1231): no feature of a crate's Cargo.toml may be left out of every planned feature set, so feature-gated code is never
@@ -2007,6 +2022,46 @@ export function parseTestListing(text) {
   }
   out.binaries.sort((a, b) => (a.executable < b.executable ? -1 : a.executable > b.executable ? 1 : 0));
   return out;
+}
+
+/** What a cargo `--message-format=json` stream says per package (NN40): the error diagnostics and whether a build artifact was reported. `{ records, errors: {name: {count, rendered[]}}, artifacts: {name: count} }`. */
+export function summarizeCargoJson(text) {
+  const out = { records: 0, errors: {}, artifacts: {} };
+  for (const raw of String(text ?? "").split(/\r?\n/)) {
+    const line = raw.trimStart();
+    if (!line.startsWith("{")) continue;
+    let v; try { v = JSON.parse(line); } catch { continue; }
+    if (!v || typeof v.reason !== "string") continue;
+    out.records += 1;
+    const name = packageOfId(v.package_id).name;
+    if (!name) continue;
+    if (v.reason === "compiler-message") {
+      const level = String(v.message?.level ?? "");
+      if (level !== "error" && !level.startsWith("error: internal")) continue;
+      const e = (out.errors[name] ??= { count: 0, rendered: [] });
+      e.count += 1;
+      if (e.rendered.length < 4 && typeof v.message?.rendered === "string") e.rendered.push(v.message.rendered.trimEnd().slice(0, 700));
+    } else if (v.reason === "compiler-artifact") {
+      if ((Array.isArray(v.target?.kind) ? v.target.kind : []).includes("custom-build")) continue;
+      out.artifacts[name] = (out.artifacts[name] ?? 0) + 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * The per-crate verdicts of a failed grouped doc invocation, from its JSON summary: `[{ unit, fail, detail }]` in member order, or null when the messages
+ * cannot attribute (no records, or no member reported an artifact, so "no artifact" would prove nothing): the caller then bisects as for any grouped failure.
+ */
+export function docVerdicts(summary, units, crates) {
+  if (!summary || !(summary.records > 0) || !Array.isArray(units) || units.length !== crates.length) return null;
+  if (!crates.some((c) => summary.artifacts?.[c] > 0)) return null;
+  return units.map((unit, k) => {
+    const err = summary.errors?.[crates[k]];
+    if (err?.count) return { unit, fail: true, detail: `${err.count} error(s) in ${crates[k]}: ${err.rendered.join(" | ")}` };
+    if (!(summary.artifacts?.[crates[k]] > 0)) return { unit, fail: true, detail: `no documentation artifact for ${crates[k]}: it did not build (a dependency or build script failed before it; see the invocation's output)` };
+    return { unit, fail: false, detail: "" };
+  });
 }
 
 /** The text a failed compile leaves for a reader: the rendered error diagnostics of the JSON listing plus every non-JSON line (a broker refusal). */
@@ -2913,7 +2968,7 @@ export async function runScans(plan, options = {}) {
     const groupOf = new Map();
     if (options.classBBatching === true) {
       const byKey = new Map();
-      bScans.forEach((s, i) => { if (s.batchable && !s.deferred && laneOf(s) === "compile") { if (!byKey.has(s.batchable.key)) byKey.set(s.batchable.key, []); byKey.get(s.batchable.key).push(i); } });
+      bScans.forEach((s, i) => { if (s.batchable && !s.deferred && (laneOf(s) === "compile" || laneOf(s) === "doc")) { if (!byKey.has(s.batchable.key)) byKey.set(s.batchable.key, []); byKey.get(s.batchable.key).push(i); } });
       for (const members of byKey.values()) if (members.length > 1) { const group = { members, promise: null }; for (const i of members) groupOf.set(i, group); }
     }
     const batchScanOf = (idx) => {
@@ -2921,7 +2976,10 @@ export async function runScans(plan, options = {}) {
       const { batchable: _batchable, ...plain } = lead; void _batchable;
       const args = [...lead.args.slice(0, lead.batchable.at), ...idx.flatMap((i) => ["-p", bScans[i].batchable.crate]), ...lead.args.slice(lead.batchable.at + 2)];
       const units = idx.map((i) => bScans[i].batchable.unit);
-      const id = `${/^clippy/.test(lead.id) ? "clippy" : "check"}:batch:${sha256(`${lead.batchable.key}\0${units.join("\0")}`).slice(0, 8)}`;
+      const stage = /^clippy/.test(lead.id) ? "clippy" : /^doc:/.test(lead.id) ? "doc" : "check";
+      const id = `${stage}:batch:${sha256(`${lead.batchable.key}\0${units.join("\0")}`).slice(0, 8)}`;
+      // A doc group asks for cargo's JSON messages (NN40): each crate's verdict is read from them (docVerdicts), never found by bisection.
+      if (stage === "doc") { const jargs = [...args, "--message-format=json"]; return { ...plain, id, args: jargs, captureJson: true, command: commandText({ ...plain, env: {}, args: jargs }), batch: { units, members: idx.map((i) => bScans[i].id) } }; }
       return { ...plain, id, args, command: commandText({ ...plain, env: {}, args }), batch: { units, members: idx.map((i) => bScans[i].id) } };
     };
     const runGroup = async (idx, extraEnv, budget = { remaining: Math.min(2 * idx.length - 1, 31) }) => {
@@ -2935,7 +2993,21 @@ export async function runScans(plan, options = {}) {
       const bs = batchScanOf(idx);
       let row;
       try { row = await scanRow(bs, extraEnv); } catch (error) { row = { id: bs.id, status: "fail", code: "SCAN_ERROR", detail: String(error?.message ?? error) }; }
-      const attributable = (row.code === "EXIT" && !row.snapshotEvidence) || (row.code === "BROKER_COMPILE_FAILURE" && row.authenticatedFailure?.retryable === true && row.authenticatedFailure?.failureClass === "compile" && row.snapshotEvidence?.receiptSha256);
+      // A failure reused from the result cache (NN41) was authenticated or diagnosed when it was written, so it attributes the same way.
+      const attributable = (row.code === "EXIT" && !row.snapshotEvidence) || (row.code === "BROKER_COMPILE_FAILURE" && row.authenticatedFailure?.retryable === true && row.authenticatedFailure?.failureClass === "compile" && row.snapshotEvidence?.receiptSha256) || (row.failureCached === true && (row.code === "EXIT" || row.code === "BROKER_COMPILE_FAILURE"));
+      // NN40: a failed doc invocation is attributed from its own JSON messages: a crate with an error message fails, a crate with no artifact while
+      // another member has one fails, the rest pass. Without usable messages (none, or no artifact for any member) it falls back to bisection below.
+      const verdicts = row.status === "fail" && attributable && bs.captureJson ? docVerdicts(row.jsonSummary, bs.batch.units, idx.map((i) => bScans[i].batchable.crate)) : null;
+      if (verdicts && !signal?.aborted) {
+        batchFailureNotes.push(`class B batching: grouped doc invocation ${bs.id} (${idx.length} crates: ${bs.batch.units.join(", ")}) failed (EXIT) and was attributed per crate from its --message-format=json output, not bisected; failing: ${verdicts.filter((v) => v.fail).map((v) => v.unit).join(", ") || "none named"}`);
+        idx.forEach((i, k) => {
+          const m = bScans[i]; const v = verdicts[k];
+          const own = { id: m.id, class: m.class, command: m.command, batchCommand: row.command, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, status: v.fail ? "fail" : "pass", ...(v.fail ? { code: "EXIT", detail: `${row.id} (${idx.length} crates: ${bs.batch.units.join(", ")}): ${v.detail}` } : {}), ...(row.cached ? { cached: true } : {}), timing: row.timing ?? null, batchedWith: { id: row.id, units: bs.batch.units }, batchFailure: { id: bs.id, units: bs.batch.units, command: row.command, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), detail: "the grouped doc invocation failed; this row's verdict is its own, read from the invocation's JSON messages" }, ...(row.identities ? { identities: row.identities } : {}) };
+          slots[i] = own; done += 1;
+          try { onResult(own, { done, total, seconds: Math.round((Date.now() - started) / 1000) }); } catch { /* reporting never fails a scan */ }
+        });
+        return;
+      }
       if (row.status === "fail" && attributable && !signal?.aborted) {
         // Bisect for attribution, but keep the grouped failure itself as evidence (rightkit#1458, reconciled scope
         // 2026-11-04): the splits below prove each member's own required scan; they do not erase that the combined
@@ -3097,16 +3169,27 @@ export async function runScans(plan, options = {}) {
     try {
       // GC-A24: a deterministic internal rule (its verdict a function of the files it reads and the rule code) is reused by its input key,
       // with the rule code's identity (CHECKER_IDENTITY) as its tool version. Network and advice rules are never reused this way.
-      let internalKey = null;
+      let internalKey = null; let internalFailKey = null;
       if (s.internal && cache && CACHEABLE_INTERNAL.has(s.internal) && typeof CHECKER_IDENTITY === "string") {
         try {
           const digest = cache.digest(s, {});
-          if (digest) internalKey = scanCacheKey({ id: s.id, command: s.command ?? `internal:${s.internal}`, toolVersion: CHECKER_IDENTITY, env: {}, inheritedEnv: inheritedEnvDigest({}), digest });
-        } catch (error) { internalKey = null; row.cacheKeyError = String(error?.message ?? error).slice(0, 300); }
+          if (digest) {
+            internalKey = scanCacheKey({ id: s.id, command: s.command ?? `internal:${s.internal}`, toolVersion: CHECKER_IDENTITY, env: {}, inheritedEnv: inheritedEnvDigest({}), digest });
+            // NN41: a file-only rule's violation list is a function of the same inputs, so it is keyed like its pass plus the rule code (CHECKER_IDENTITY);
+            // a rule whose answer depends on the day or a remote service (FAILURE_UNCACHEABLE_INTERNAL) never has its failure reused.
+            if (!FAILURE_UNCACHEABLE_INTERNAL.has(s.internal)) internalFailKey = scanCacheKey({ id: s.id, command: `${s.command ?? `internal:${s.internal}`} ;; ${FAILURE_KEY_SCHEMA}`, toolVersion: CHECKER_IDENTITY, env: {}, inheritedEnv: inheritedEnvDigest({}), digest });
+          }
+        } catch (error) { internalKey = null; internalFailKey = null; row.cacheKeyError = String(error?.message ?? error).slice(0, 300); }
         const hit = internalKey ? cache.read(internalKey) : null;
         if (hit && hit.key === internalKey && hit.row?.status === "pass" && hit.row.id === s.id) {
           cacheHits.push(s.id);
           return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}` };
+        }
+        const failHit = internalFailKey ? cache.read(internalFailKey) : null;
+        if (failHit && failHit.key === internalFailKey && failHit.row?.status === "fail" && failHit.row.id === s.id && typeof failHit.row.detail === "string" && failHit.row.detail !== "") {
+          cacheHits.push(s.id);
+          if (s.class === SCAN_CLASS.A) classAFailed = true;
+          return { ...row, status: "fail", cached: true, failureCached: true, detail: failHit.row.detail };
         }
       }
       if (s.internal) {
@@ -3116,6 +3199,8 @@ export async function runScans(plan, options = {}) {
         else if (out && !Array.isArray(out) && typeof out.advice === "string") { advice = out.advice; }
         else if (out.length) { status = "fail"; detail = out.join("; "); }
         if (status === "pass" && internalKey && !advice && !signal?.aborted) cache.write(internalKey, { id: s.id, class: s.class, command: s.command ?? `internal:${s.internal}`, tool: null, toolVersion: CHECKER_IDENTITY, status: "pass" });
+        // NN41: only a violation list (the rule ran and named what is wrong) is a deterministic failure; a missing tool or a coded refusal is the environment's.
+        else if (status === "fail" && !code && internalFailKey && Array.isArray(out) && out.length && !signal?.aborted) cache.write(internalFailKey, { id: s.id, class: s.class, command: s.command ?? `internal:${s.internal}`, tool: null, toolVersion: CHECKER_IDENTITY, status: "fail", detail });
       } else {
         const scanDir = path.join(rootDir(s.root), s.cwd ?? "");
         // The RustRight client's version probe starts in a Cargo workspace of the primary checkout; a class A cargo scan's own directory is
@@ -3150,7 +3235,7 @@ export async function runScans(plan, options = {}) {
         else if (missingDep) { status = "fail"; code = "TOOL_MISSING"; detail = `${s.tool} needs ${missingDep}, which is missing or not runnable; without it the scan would pass unchecked, so it fails`; }
         else if (depVersionProblem) { status = "fail"; code = "TOOL_VERSION"; detail = `TOOL_VERSION: ${s.tool} runs ${depVersionProblem}`; }
         else {
-          let cacheKey = null;
+          let cacheKey = null; let failKey = null; let ledgerProblem = false;
           // GATE-CONTRACT GC-T14: every unchanged scan result is reused by its full input key, a broker-carried compile included (measured
           // 2026-11-02: HR class B re-ran 92 broker jobs, most with no dirty unit, because carried compiles were never cached). The key covers the
           // crate's closure, its lock entries, the toolchain files, the tool version and the build environment; a miss runs the compile and
@@ -3172,7 +3257,13 @@ export async function runScans(plan, options = {}) {
               // The narrow node-check digest already binds the complete actual
               // child environment (with its one explicit ownership exception).
               const inherited = cache.narrowNodeCheck && /^node-check:/.test(s.id) ? sha256('node-check-child-env-in-digest/1') : inheritedEnvDigest({ ...deps.env, ...s.env });
-              if (digest) cacheKey = scanCacheKey({ id: s.id, command: s.runOutside ? `${s.command} ;; run ${canonicalJson(s.runOutside)}` : s.command, toolVersion, env: s.env ?? {}, inheritedEnv: inherited, digest });
+              if (digest) {
+                cacheKey = scanCacheKey({ id: s.id, command: s.runOutside ? `${s.command} ;; run ${canonicalJson(s.runOutside)}` : s.command, toolVersion, env: s.env ?? {}, inheritedEnv: inherited, digest });
+                // NN41: a deterministic compile failure is keyed like the pass plus the tool version (the client's, its identity digest), the installed broker runtime
+                // identity (options.failureIdentity: version, clientDigest, brokerDigest) and the failure namespace; the digest already binds the unit closure, lock entries and toolchain files.
+                // No identity from the caller means no failure is ever stored or reused.
+                if (typeof options.failureIdentity === "string" && options.failureIdentity !== "" && isFailureCacheableCompileId(s.id) && !s.runOutside && s.kind !== "test" && !s.publisherRustTest && (s.tool === "rustright" || s.tool === "cargo")) failKey = scanCacheKey({ id: s.id, command: `${s.command} ;; ${FAILURE_KEY_SCHEMA}`, toolVersion: `${toolVersion} ;; broker-runtime ${options.failureIdentity}`, env: s.env ?? {}, inheritedEnv: inherited, digest });
+              }
             } catch (error) { cacheKey = null; row.cacheKeyError = String(error?.message ?? error).slice(0, 300); }
             const hit = cacheKey ? cache.read(cacheKey) : null;
             timing.cacheLookupMs = performance.now() - cacheStarted;
@@ -3183,6 +3274,12 @@ export async function runScans(plan, options = {}) {
             if (hit && hit.key === cacheKey && hit.row?.status === "pass" && hit.row.id === s.id && hit.row.command === s.command && testEvidence) {
               cacheHits.push(s.id);
               return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}`, ...(s.kind === "test" ? { results: hit.row.results } : {}) };
+            }
+            // NN41: the same inputs, toolchain and broker runtime already failed this compile deterministically: report that failure, marked cached, without running it.
+            const failHit = failKey ? cache.read(failKey) : null;
+            if (failHit && failHit.key === failKey && failHit.row?.status === "fail" && failHit.row.id === s.id && failHit.row.command === s.command && failHit.row.failureIdentity === options.failureIdentity && (failHit.row.code === "EXIT" || failHit.row.code === "BROKER_COMPILE_FAILURE") && typeof failHit.row.detail === "string" && failHit.row.detail !== "") {
+              cacheHits.push(s.id);
+              return { ...row, status: "fail", code: failHit.row.code, cached: true, failureCached: true, detail: `cached failure ${String(failHit.at ?? "").slice(0, 10) || "earlier"} (same inputs, toolchain and broker runtime): ${failHit.row.detail}`, ...(failHit.row.authenticatedFailure ? { authenticatedFailure: failHit.row.authenticatedFailure } : {}), ...(failHit.row.jsonSummary ? { jsonSummary: failHit.row.jsonSummary } : {}) };
             }
           }
           // Every cargo call the wrapper decides during this scan is filed under this token in the gate's ledger: the scan's own call AND the
@@ -3319,7 +3416,7 @@ export async function runScans(plan, options = {}) {
           // A Rust test scan's JSON listing (every compiler-artifact record) streams whole to a file of its own: the kept tail of a spawn would lose the early artifact records of a noisy compile.
           let listingDir = null; let listingFile = null; let listingText = ""; let listingCut = false;
           let testOutputs = null;
-          if (s.runOutside) { listingDir = fs.mkdtempSync(path.join(tmpRoot, "rk-testlist-")); listingFile = path.join(listingDir, "listing.jsonl"); }
+          if (s.runOutside || s.captureJson) { listingDir =fs.mkdtempSync(path.join(tmpRoot, "rk-testlist-")); listingFile = path.join(listingDir, "listing.jsonl"); }
           try {
           // The ownership records this request's sub-handle immediately before it is sent (the reclaim proof reads broker.submitted): a
           // missing hook or a mark that did not land sends nothing.
@@ -3374,11 +3471,13 @@ export async function runScans(plan, options = {}) {
             admission.start();
           }
           try { r = await deps.spawn(p.command, spawnArgs, { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...readTargetEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...(carrier ? carrier.made.env : {}), ...refEnv, ...(carriedScan && !watched ? scanOperationEnv({ ...deps.env, ...s.env }, limitMs) : {}), ...trustEnv }, signal: scanSignal, ...(listingFile ? { stdoutFile: listingFile } : {}), ...(watched ? {} : { timeout: limitMs }) }); } finally { stopClock(); advisory?.cleanup?.(); }
-          if (s.runOutside && r && !r.error) {
+          if ((s.runOutside || s.captureJson) && r && !r.error) {
             // The whole listing: the file the spawn streamed, else (a spawn that does not know stdoutFile) its stdout. What a reader sees of a failed compile is the rendered errors.
             let fromFile = false;
             try { if (fs.existsSync(listingFile) && fs.statSync(listingFile).size > 0) { listingText = fs.readFileSync(listingFile, "utf8"); fromFile = true; } } catch { /* falls back to stdout */ }
             if (!fromFile) { listingText = String(r.stdout ?? ""); listingCut = r.truncated === true; }
+            // A grouped doc invocation's per-crate verdicts come from this stream (NN40); a cut stream proves nothing per crate, so it is not summarized.
+            if (s.captureJson && !listingCut) row.jsonSummary = summarizeCargoJson(listingText);
             r = { ...r, stdout: listingFailureText(listingText) };
           }
           }
@@ -3407,6 +3506,7 @@ export async function runScans(plan, options = {}) {
               problems = [...ledger.problems, ...(deps.snapshotBroker ? await verifyBrokerLedger(ledger.entries, deps.snapshotBroker, { seen: ledgerSeen }) : [])];
             } catch (e) { problems = [`the cargo ledger cannot be read (${e.message})`]; }
             if (problems.length) {
+              ledgerProblem = true;
               const text = `${s.id}: the gate's cargo ledger records ${problems.length} cargo call(s) that did not complete as a verified success: ${problems.slice(0, 5).join("; ")}`;
               if (status === "pass") { status = "fail"; code = "RK_CARGO_LEDGER"; detail = text; } else detail = `${detail ? `${detail}; ` : ""}${text}`;
             }
@@ -3518,6 +3618,11 @@ export async function runScans(plan, options = {}) {
             // One rule for fresh and cached rows (testResultsProblem): tests ran, none failed, at least one passed.
             const problem = status === "pass" && row.results ? testResultsProblem(row.results) : null;
             if (problem) { status = "fail"; code = problem.code; detail = problem.detail; }
+          }
+          // NN41: store a deterministic compile failure only: the broker's authenticated compile failure, or a plain exit of a compile with compiler error diagnostics and no sign of
+          // the environment failing. Never a timeout, abort, SCAN_ERROR, refusal, unverified receipt, ledger problem, test run or infrastructure error (those return or carry another code).
+          if (status === "fail" && failKey && !signal?.aborted && !ledgerProblem && typeof detail === "string" && detail !== "" && ((code === "BROKER_COMPILE_FAILURE" && row.authenticatedFailure?.failureClass === "compile") || (code === "EXIT" && !carriedScan && !carrier && isDeterministicCompileDiagnostics(`${r?.stdout ?? ""}\n${r?.stderr ?? ""}`)))) {
+            cache.write(failKey, { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "fail", code, detail: detail.slice(0, 6000), failureIdentity: options.failureIdentity, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.jsonSummary ? { jsonSummary: row.jsonSummary } : {}) });
           }
           if (status === "pass" && cacheKey && !signal?.aborted) cache.write(cacheKey, { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "pass", ...(row.results ? { results: row.results } : {}) });
         }

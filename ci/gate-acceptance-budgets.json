@@ -1,7 +1,7 @@
 {
   "schema": "rightkit.gate-acceptance-budgets/1",
   "contract": "docs/GATE-CONTRACT.md [GC-A27] NN18: warm --to check and each fixed setup stage stay inside the host's budget. A null budget FAILS NN18 on that host (\"no budget measured\"), it never passes. A budget is only ever lowered, and only from a new measured run.",
-  "method": "Mac: three sessions of the runner's S2 step (`gate-acceptance.mjs --steps S2 --gate checkout-gate.sh`) against /Volumes/D/claude/rk-witness-fixture at 654e8b663404 on 2026-11-05, each session = two warm --to check and two warm --to compile runs with the spawn ledger on. Per session the worst of its runs is taken (warmCheckMs: the slower check run; each stage: the largest value over its four runs); the budget is the median of the three sessions times 1.25 (median x 1.25), rounded up to a millisecond.",
+  "method": "Provisional ceiling (EGM, 2026-11-06, adopted by Adrian): each value is the best measured optimized-state time x1.25. It is lowered per window to a noise-based margin (median of repeated runs plus measured run-to-run spread, with a millisecond floor) once repeated runs exist; values only ever go down. Only a value measured on that host and workload counts; a null fails NN18. Sources: fixture warm check 3.6 s (2026-11-05 12:47Z, 37 of 39 rows hit); RightKit warm check 7.2 s; HeardRight warm check 5.3 s; Pulse compile 70.9 s (warm: 90 of 95 compile rows cached, so it is a warm-compile budget, not cold); fixture resident verify 50 ms, metadata hit 75-100 ms, dependency digest 0.45 s (fixture only). Earlier text describing median-of-worst-runs x1.25 is superseded.",
   "stageLines": {
     "ownership": "the runner's launch time -> the first `build ownership held|joined` line; 0 for a run that takes no lease",
     "snapshotSync": "the ownership line (else the launch time) -> the `snapshot <dir> is commit <sha> tree <sha> (written=...` line",
@@ -113,31 +113,31 @@
         "rightkit": {
           "warm-check": {
             "totalMs": 9000,
-            "metadataHitMs": 125,
+            "metadataHitMs": null,
             "windows": {
               "startup": null,
               "snapshotSync": null,
               "stageStart": null,
-              "snapshotVerify": 63,
+              "snapshotVerify": null,
               "appRules": null,
               "planning": null,
-              "dependencyStep": 563,
+              "dependencyStep": null,
               "scans": null,
               "finish": null
             }
           },
           "warm-compile": {
             "totalMs": null,
-            "metadataHitMs": 125,
+            "metadataHitMs": null,
             "windows": {
               "startup": null,
               "ownership": null,
               "snapshotSync": null,
               "stageStart": null,
-              "snapshotVerify": 63,
+              "snapshotVerify": null,
               "appRules": null,
               "planning": null,
-              "dependencyStep": 563,
+              "dependencyStep": null,
               "scans": null,
               "finish": null
             }
@@ -204,31 +204,31 @@
         "heardright": {
           "warm-check": {
             "totalMs": 6625,
-            "metadataHitMs": 125,
+            "metadataHitMs": null,
             "windows": {
               "startup": null,
               "snapshotSync": null,
               "stageStart": null,
-              "snapshotVerify": 63,
+              "snapshotVerify": null,
               "appRules": null,
               "planning": null,
-              "dependencyStep": 563,
+              "dependencyStep": null,
               "scans": null,
               "finish": null
             }
           },
           "warm-compile": {
             "totalMs": null,
-            "metadataHitMs": 125,
+            "metadataHitMs": null,
             "windows": {
               "startup": null,
               "ownership": null,
               "snapshotSync": null,
               "stageStart": null,
-              "snapshotVerify": 63,
+              "snapshotVerify": null,
               "appRules": null,
               "planning": null,
-              "dependencyStep": 563,
+              "dependencyStep": null,
               "scans": null,
               "finish": null
             }
@@ -295,31 +295,31 @@
         "pulse": {
           "warm-check": {
             "totalMs": null,
-            "metadataHitMs": 125,
+            "metadataHitMs": null,
             "windows": {
               "startup": null,
               "snapshotSync": null,
               "stageStart": null,
-              "snapshotVerify": 63,
+              "snapshotVerify": null,
               "appRules": null,
               "planning": null,
-              "dependencyStep": 563,
+              "dependencyStep": null,
               "scans": null,
               "finish": null
             }
           },
           "warm-compile": {
-            "totalMs": null,
-            "metadataHitMs": 125,
+            "totalMs": 88625,
+            "metadataHitMs": null,
             "windows": {
               "startup": null,
               "ownership": null,
               "snapshotSync": null,
               "stageStart": null,
-              "snapshotVerify": 63,
+              "snapshotVerify": null,
               "appRules": null,
               "planning": null,
-              "dependencyStep": 563,
+              "dependencyStep": null,
               "scans": null,
               "finish": null
             }
@@ -368,7 +368,6 @@
             }
           },
           "cold-compile": {
-            "totalMs": 88625,
             "windows": {
               "startup": null,
               "ownership": null,
@@ -808,7 +807,7 @@
       "note": "ownership is 4.5 s on a compile (the lease acquisition the gate pays today); a --to check takes 0.2-0.4 s of it today and 0 once NN13 holds."
     }
   },
-  "note": "Budgets are targets from the optimized state, never from a slow run. warmCheckMs is the best measured warm fixture check (3.6 s, 2026-11-05 12:47Z, 37 of 39 rows hit) x1.25. ownership is the compile-stage lease ceiling (a compile legitimately takes the lease); a lease on --to check is NN13's failure, not a budget. snapshotSync, dependencyStep and planning were measured on 2026-11-05 runs that still reinstalled and ran real cargo metadata, so they are loose and are lowered once the gate passes NN07 and NN10-NN12. Values are only ever lowered.",
+  "note": "Provisional ceiling (EGM, 2026-11-06, adopted by Adrian): each value is the best measured optimized-state time x1.25. It is lowered per window to a noise-based margin (median of repeated runs plus measured run-to-run spread, with a millisecond floor) once repeated runs exist; values only ever go down. Only a value measured on that host and workload counts; a null fails NN18. Sources: fixture warm check 3.6 s (2026-11-05 12:47Z, 37 of 39 rows hit); RightKit warm check 7.2 s; HeardRight warm check 5.3 s; Pulse compile 70.9 s (warm: 90 of 95 compile rows cached, so it is a warm-compile budget, not cold); fixture resident verify 50 ms, metadata hit 75-100 ms, dependency digest 0.45 s (fixture only). Earlier text describing median-of-worst-runs x1.25 is superseded.",
   "fixture": {
     "repo": "rk-witness-fixture",
     "commit": "7a5b3ee8bdae4134d9a824dcc0b24de4ad18608c",

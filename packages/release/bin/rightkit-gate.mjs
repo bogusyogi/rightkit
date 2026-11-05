@@ -61,7 +61,7 @@
 // path the closure's sources include from outside their crate; the whole HEAD tree for Rust tests unless ci/gate.config.json
 // rust.<crate>.testInputs lists the paths they read, for npm, node and docs scans, and whenever a reference cannot be resolved
 // statically) are all identical. Stored in <git common dir>/rightkit-gate-cache; a hit prints
-// `cached` and is listed in the result's cacheHits. Failures, deferrals and class A scans are never cached.
+// `cached` and is listed in the result's cacheHits. A deterministic failure (NN41: a compile's authenticated or diagnosed failure, a file-only rule's violations) is cached too and prints `cached-fail`; timeouts, aborts, refusals, infrastructure errors and test runs never are.
 // RK_GATE_JOBS (default 4) sets class A scan concurrency. Class B on a broker host (rightkit#1367 step 2): the gate does not count builds; every
 // component's broker-carried scans (cargo, rustright, carried Swift, and npm suites that declare a broker call) start without a limit, each component in plan order,
 // and the broker queues and orders them. A carried scan's run limit is a stopwatch that stops while the broker holds all its requests QUEUED (broker-admission.mjs),
@@ -1177,7 +1177,7 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
       // every member it names: each member's own compile key, in member order, plus the batch's own id and command (its member list, target and
       // environment). Any member that falls back to the whole tree makes the batch fall back too. A changed member changes the key, so the
       // batch runs again as a whole (cargo is incremental); no member's result is ever taken from another invocation's.
-      if (/^(?:clippy|check):batch:/.test(String(scan.id)) && Array.isArray(scan.batch?.units) && scan.batch.units.length && scan.batch.units.every((n) => known.has(n))) {
+      if (/^(?:clippy|check|doc):batch:/.test(String(scan.id)) && Array.isArray(scan.batch?.units) && scan.batch.units.length && scan.batch.units.every((n) => known.has(n))) {
         const keys = scan.batch.units.map((n) => rustUnitKey(n, scan));
         return keys.includes(undefined) ? whole() : canonicalJson({ kind: "rust-batch", id: scan.id, units: scan.batch.units.map((n, i) => [n, keys[i]]) });
       }
@@ -3231,6 +3231,35 @@ export function readAnsweringRoots({ endpoint, identity, connect = (target) => n
   });
 }
 
+/**
+ * NN41: the installed broker runtime's identity as one string (`<version>:<brokerDigest>:<clientDigest>` from the `runtime-manifest.json` beside the client), or null when it cannot
+ * be read. A cached compile failure is keyed on it, so a broker or toolchain change inside the runtime reruns the failure; with no identity no failure is ever cached.
+ * `clients` are tried in order; a bare name is looked up on PATH (a .exe/.cmd/.bat on win32).
+ */
+export function brokerRuntimeIdentityText({ clients, env = {}, platform = process.platform, readFile = (f) => fs.readFileSync(f, "utf8"), realpath = (f) => fs.realpathSync.native(f), exists = fs.existsSync } = {}) {
+  const sep = platform === "win32" ? ";" : ":";
+  const pathKey = Object.keys(env).find((k) => k.toLowerCase() === "path") ?? "PATH";
+  const candidates = (client) => {
+    const name = String(client ?? ""); if (!name) return [];
+    if (/[\\/]/.test(name)) return [name];
+    const exts = platform === "win32" ? ["", ".exe", ".cmd", ".bat"] : [""];
+    return String(env[pathKey] ?? "").split(sep).filter(Boolean).flatMap((dir) => exts.map((e) => path.join(dir, `${name}${e}`)));
+  };
+  for (const client of clients ?? []) {
+    for (const candidate of candidates(client)) {
+      try {
+        if (!exists(candidate)) continue;
+        let file = candidate;
+        try { file = resolveBrokerClient(candidate, { platform, readFile }).file; } catch { continue; }
+        let real = file; try { real = realpath(file); } catch { real = file; }
+        const identity = parseRuntimeIdentity(readFile(path.join(path.dirname(real), RUNTIME_MANIFEST_FILE)));
+        if (identity.ok) return `${identity.identity.version}:${identity.identity.brokerDigest}:${identity.identity.clientDigest}`;
+      } catch { /* the next candidate */ }
+    }
+  }
+  return null;
+}
+
 /** The declared Linux broker's data root: what it reports on the wire (the validated client, its runtime manifest, the declared endpoint), `{ ok, dataRoot }` or `{ ok: false, problem }`. */
 export async function queryBrokerDataRoot(o, executor) {
   try {
@@ -4812,6 +4841,8 @@ export async function main(argv, io = {}) {
       // The commit's own files (rightkit#1393): a snapshot is not a git toplevel, so the secret scan needs this list to judge tracked files only and never what a stage wrote there.
       ...(snapshot ? { trackedFiles: files } : {}),
       classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], ...(classAEarlier ? { classAEarlier: true } : {}), jobs, testJobs, classBJobs, classBBatching: !o[PRIVATE_SCOPED_COMPILE] && o.env.RK_GATE_CLASS_B_BATCH !== "0", classBPipeline: Math.max(1, Number(o.env.RK_GATE_CLASS_B_PIPELINE ?? 2) || 2), ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
+      // NN41: the installed broker runtime's identity keys every cached compile failure; null (a direct host, an unreadable manifest) means no failure is cached.
+      ...(brokerHost && cache ? (() => { const identity = brokerRuntimeIdentityText({ clients: [brokerClient, executor?.client, cargoCommand[0]], env: { ...o.env, ...(executor.env ?? {}) }, platform: o.platform }); return identity ? { failureIdentity: identity } : {}; })() : {}),
       ...(census ? { spawn: census.wrapSpawn(defaultSpawnAsync) } : {}),
       // The declared Linux broker route: the scans are planned with the logical `rustright`, which this spawn (and scanSpawn's pass-through below) starts as the
       // executor's validated client, never a PATH lookup (withDeclaredClient).
@@ -4850,7 +4881,7 @@ export async function main(argv, io = {}) {
         } catch { return null; }
       })(),
       ...(unionScheduler ? { scheduleClassB: unionScheduler } : {}),
-      onResult: (row, p) => o.out(`${tag} [${p.done}/${p.total}] ${(row.cached ? "cached" : row.status).padEnd(7)} ${row.id} (${p.seconds}s)${row.batchedWith ? ` [batch of ${row.batchedWith.units.length}]` : ""}${row.status === "fail" ? ` :: ${String(row.detail ?? "").slice(0, 300)}` : row.advice ? ` :: ${String(row.advice).slice(0, 300)}` : ""}`),
+      onResult: (row, p) => o.out(`${tag} [${p.done}/${p.total}] ${(row.cached ? (row.status === "pass" ? "cached" : "cached-fail") : row.status).padEnd(11)} ${row.id} (${p.seconds}s)${row.batchedWith ? ` [batch of ${row.batchedWith.units.length}]` : ""}${row.status === "fail" ? ` :: ${String(row.detail ?? "").slice(0, 300)}` : row.advice ? ` :: ${String(row.advice).slice(0, 300)}` : ""}`),
     });
     if (nodeCheckRejects.size) o.out(`${tag} node-check cache misses: ${[...nodeCheckRejects].sort(([a], [b]) => a.localeCompare(b)).map(([reason, count]) => `${reason}=${count}`).join(", ")}`);
     if (snapFullA && o.env.RIGHTKIT_PREPARATION_DIAGNOSTIC_DIR && nodeCheckDiagnosticId) o.out(`${tag} node-check diagnostic row: ${nodeCheckDiagnosticState}`);
