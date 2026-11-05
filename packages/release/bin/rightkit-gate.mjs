@@ -1074,7 +1074,8 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
   // so it is reused for a rerun of the same commit and nothing else.
   const liveScan = (id) => /^(cargo-deny|cargo-audit|pnpm-audit|pnpm-lockfile|advisory-exceptions)(:|$)/.test(id);
   // GC-A24: pnpm-lockfile asks the registry as pnpm-audit does, so it takes the same day-bounded key (GC-A19).
-  const ADVISORY_SCAN = /^(cargo-deny|cargo-audit|pnpm-audit|pnpm-lockfile)(:|$)/;
+  // GC-A24 table: ghsa-audit and advisory-exceptions take GC-A19 keys (their inputs plus the UTC day) like cargo-deny and cargo-audit.
+  const ADVISORY_SCAN = /^(cargo-deny|cargo-audit|pnpm-audit|pnpm-lockfile|ghsa-audit|advisory-exceptions)(:|$)/;
   // The key of an advisory scan (rightkit#1464), or null when an input cannot be identified (the scan then runs). Every input that decides the
   // verdict and is not in the scan's id, command or environment is here; the advisory database's commit (cargo) is in the scan's own environment
   // (RK_ADVISORY_DB_COMMIT) and its pin object, the gate's code and advisory-db.json are in the environment digest the caller appends.
@@ -1088,6 +1089,18 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
       if (idOf(lock) === null || idOf(lock) === undefined) return null;
       const manifests = all.filter((f) => /(^|\/)package\.json$/.test(f) && (dir === "." || f === inWs(dir, "package.json") || f.startsWith(`${dir}/`)));
       return canonicalJson({ kind: "pnpm-audit", id: scan.id, day: today(), inputs: idsOf([lock, inWs(dir, "pnpm-workspace.yaml"), inWs(dir, ".npmrc"), ".npmrc", ...manifests]) });
+    }
+    if (scan.internal === "ghsa-audit") {
+      // The verdict reads the committed lockfile and OSV's answer of the day (ghsa-audit.mjs); its rule code is the checker identity.
+      if (typeof scan.lockFile !== "string" || idOf(scan.lockFile) === null || idOf(scan.lockFile) === undefined) return null;
+      return canonicalJson({ kind: "ghsa-audit", id: scan.id, day: today(), inputs: idsOf([scan.lockFile]) });
+    }
+    if (scan.internal === "advisory-exceptions") {
+      // Exceptions must match deny.toml, .cargo/audit.toml and the locked versions, and an expired one fails, so the day is part of the key.
+      const at = typeof scan.dir === "string" && scan.dir !== "" ? scan.dir : ".";
+      const files = [inWs(at, "deny.toml"), inWs(at, ".cargo/audit.toml"), inWs(at, "Cargo.lock"), "ci/advisory-exceptions.json"];
+      if (typeof scan.exceptionsFile === "string") files.push(inWs(at, scan.exceptionsFile));
+      return canonicalJson({ kind: "advisory-exceptions", id: scan.id, day: today(), inputs: idsOf(files) });
     }
     const lock = inWs(dir, "Cargo.lock");
     if (idOf(lock) === null || idOf(lock) === undefined) return null;
