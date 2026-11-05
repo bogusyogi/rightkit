@@ -471,7 +471,7 @@ export const PINNED_SCAN_TOOLS = Object.freeze({ shellcheck: "0.11.0", oxlint: "
 export const LIVE_SCAN_IDS = Object.freeze(["pnpm-audit", "ghsa-audit"]);
 /** Internal rules whose verdict is a function of the files they read and the rule code only (GC-A24): reused by input key. */
 // ghsa-audit and advisory-exceptions are keyed by lock, files and UTC day (GATE-CONTRACT GC-A24 table, GC-A19 keys), so only a same-day pass is reused.
-export const CACHEABLE_INTERNAL = new Set(["ghsa-audit", "advisory-exceptions", "secret-scan", "json-parse", "toml-parse", "yaml-parse", "license", "changelog-version", "ownership-catalog", "swift-lock", "gradle-lock", "python-lock"]);
+export const CACHEABLE_INTERNAL = new Set(["ghsa-audit", "advisory-exceptions", "feature-coverage", "secret-scan", "json-parse", "toml-parse", "yaml-parse", "license", "changelog-version", "ownership-catalog", "swift-lock", "gradle-lock", "python-lock"]);
 export const isLiveScan = (id) => LIVE_SCAN_IDS.some((p) => id === p || String(id).startsWith(`${p}:`));
 /** Scans whose FAILURE may come from the registry rather than their inputs: `pnpm-lockfile` (`install --frozen-lockfile --lockfile-only`)
  * re-verifies lockfile entries against the registry when pnpm's cache is cold, so an outage fails it. Their pass is deterministic, but a

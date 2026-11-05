@@ -136,7 +136,10 @@ export function validateCoverage(report) {
     if (typeof row.status !== "string" || !row.status) problems.push(`${where}: status is not a non-empty string`);
     if (typeof row.reason !== "string" || !row.reason) problems.push(`${where}: reason is not a non-empty string`);
     if (!(row.key === null || (typeof row.key === "string" && row.key))) problems.push(`${where}: key is neither null nor a string`);
-    if (row.coverage === "hit" && row.status !== "pass") problems.push(`${where}: a hit row has status ${JSON.stringify(row.status)}, expected pass`);
+    // A member whose own result is a cached pass still fails when its grouped invocation failed (rightkit#1458: BATCH_REQUIREMENT_FAILED keeps
+    // the grouped failure as evidence), so hit + fail is valid exactly when a batch attempt of that row failed.
+    const batchFailed = Array.isArray(row.batchAttempts) && row.batchAttempts.some((a) => a?.status === "fail");
+    if (row.coverage === "hit" && row.status !== "pass" && !(row.status === "fail" && batchFailed)) problems.push(`${where}: a hit row has status ${JSON.stringify(row.status)}, expected pass`);
     if (row.coverage === "ran" && row.status !== "pass" && row.status !== "fail") problems.push(`${where}: a ran row has status ${JSON.stringify(row.status)}, expected pass|fail`);
   }
   if (isObject(report.totals)) {
@@ -1314,9 +1317,11 @@ async function executeRun({ fixture, host, wanted, gate, out, commitArg, leafFil
     const r = await doRun({ label, stage: "check", commit: c, ladder: true, step: id, extra: extraOf(file) });
     check(id, `--to check on the edited commit exits 0`, exitOk(r));
   };
-  await editStep("S3", "s3-one-file", leafFile ?? tracked.find((f) => /^rk\/.*\/src\/lib\.rs$/.test(f)), (t) => `${t}${t.endsWith("\n") ? "" : "\n"}// gate-acceptance one-file edit\n`, "S3:check");
+  // A fresh nonce per run: the same edit bytes as an earlier acceptance run would hit that run's cache entries, so "the edited row ran" could not be judged.
+  const editNonce = `${Date.now()}-${process.pid}`;
+  await editStep("S3", "s3-one-file", leafFile ?? tracked.find((f) => /^rk\/.*\/src\/lib\.rs$/.test(f)), (t) => `${t}${t.endsWith("\n") ? "" : "\n"}// gate-acceptance one-file edit ${editNonce}\n`, "S3:check");
   const manifest = manifestFile ?? (layout ? layout.manifests.find((f) => /^rk\/.*\/Cargo\.toml$/.test(f) && !layout.wsDirs.includes(path.posix.dirname(f))) : undefined);
-  await editStep("S4", "s4-manifest", manifest, (t) => `${t}${t.endsWith("\n") ? "" : "\n"}\n[package.metadata.gate-acceptance]\nedit = "manifest"\n`, "S4:check", (file) => {
+  await editStep("S4", "s4-manifest", manifest, (t) => `${t}${t.endsWith("\n") ? "" : "\n"}\n[package.metadata.gate-acceptance]\nedit = "manifest ${editNonce}"\n`, "S4:check", (file) => {
     const ws = cargoWorkspaceOf(file, layout.wsDirs);
     return { manifestInfo: { workspace: ws, workspaces: [...new Set([...layout.wsDirs, ws])], crates: layout.crates } };
   });

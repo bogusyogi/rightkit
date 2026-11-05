@@ -81,7 +81,7 @@ import { hostTarget } from "../cross-targets.mjs";
 import { FOREIGN_PRE_COMMIT, retireHooksIn } from "../hook-retirement.mjs";
 import { fileURLToPath } from "node:url";
 import { installIdentity, installStateBytes } from "../dependency-identity.mjs";
-import { BIOME_CONFIG_FILES, CHECKER_IDENTITY, ESLINT_CONFIG_FILES, LOCAL_CLASS_B_JOBS, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanToolPolicyFromPipeline, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
+import { BIOME_CONFIG_FILES, CHECKER_IDENTITY, OXLINT_CONFIG_FILES, ESLINT_CONFIG_FILES, LOCAL_CLASS_B_JOBS, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanToolPolicyFromPipeline, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
 // The gate's own executor: an outer gate's cargo wrapper on PATH is never this gate's cargo (gate-executor.mjs `gateWrappers`).
@@ -1117,11 +1117,36 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
       const configs = new Set(); for (const f of rs) for (const d of ancestorDirsOf(path.posix.dirname(f))) for (const c of ["rustfmt.toml", ".rustfmt.toml"]) configs.add(inWs(d, c));
       return [...rs, ...configs];
     }
+    if (/^cargo-metadata(:|$)/.test(scan.id) && typeof listFiles === "function") {
+      // GC-A24 table: every Cargo.toml, Cargo.lock, .cargo and toolchain file of the workspace and its ancestors, so an edit in one
+      // workspace never reruns another's metadata (GC-A19; acceptance run 3 saw app/engine rerun for an rk edit).
+      const ws = typeof scan.cwd === "string" && scan.cwd !== "" ? scan.cwd : ".";
+      const cargoFile = (f) => /(^|\/)(Cargo\.toml|Cargo\.lock|rust-toolchain|rust-toolchain\.toml)$/.test(f) || /(^|\/)\.cargo\//.test(f);
+      const own = listFiles(ws).filter(cargoFile);
+      const above = ancestorDirsOf(ws).flatMap((d) => ["Cargo.toml", "Cargo.lock", "rust-toolchain", "rust-toolchain.toml", ".cargo/config", ".cargo/config.toml"].map((f) => inWs(d, f)));
+      return [...own, ...above];
+    }
+    // feature-coverage reads each planned crate's Cargo.toml and the sets ci/gate.config.json declares for it.
+    if (scan.internal === "feature-coverage" && Array.isArray(scan.crates)) return [...scan.crates.map((c) => c.manifest).filter((m) => typeof m === "string"), "ci/gate.config.json"];
+    if (/^oxlint:/.test(scan.id) && typeof listFiles === "function" && typeof scan.cwd === "string" && scan.cwd !== "") {
+      // Oxlint reads the package's own files and the nearest config at or above it; the enrolled binary is in the row's tool identity.
+      return [...listFiles(scan.cwd), ...ancestorDirsOf(scan.cwd).flatMap((d) => OXLINT_CONFIG_FILES.map((f) => inWs(d, f)))];
+    }
     if (/^node-check:/.test(scan.id)) { const f = scan.id.slice("node-check:".length); return [f, ...ancestorDirsOf(path.posix.dirname(f)).map((d) => inWs(d, "package.json"))]; }
     if (scan.internal === "secret-scan" && Array.isArray(scan.dirs) && typeof listFiles === "function") return [...new Set(scan.dirs.flatMap((d) => listFiles(d)))];
     if (scan.id === "shellcheck") return [...args.filter((x) => /\.(sh|bash)$/.test(x)), ".shellcheckrc"];
     if (scan.id === "actionlint") return [...args.filter((x) => /\.ya?ml$/.test(x)), ".github/actionlint.yaml"];
     return null;
+  };
+  // npm package scans (class A tsc, eslint, biome; class B test:npm): the package's workspace closure plus the root npm inputs, or
+  // undefined when the scan is not one of them or its closure does not resolve (the caller then keys on the whole tree).
+  const npmScanKey = (scan) => {
+    if (typeof readBlob !== "function") return undefined;
+    const npmMatch = /^(test:npm|tsc|eslint|biome):(.+)$/.exec(scan.id);
+    if (!npmMatch || !npmByUnit.has(npmMatch[2])) return undefined;
+    const { members, unresolved } = npmClosure(npmByUnit.get(npmMatch[2]));
+    if (unresolved) return undefined;
+    return canonicalJson({ kind: "npm", id: scan.id, members: members.map((m) => [m.name, m.dir, idOf(m.dir)]), shared: sharedNpmInputs(members) });
   };
   const unitKeyMemo = new Map();
   return (scan) => {
@@ -1141,7 +1166,8 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
           try { manifest = manifestCompileProjection(readBlob(manifestPath)); } catch { manifest = ["raw", manifestPath, idOf(manifestPath)]; }
           return canonicalJson({ kind: "package-list", unit, dir: [head.dir, idOf(head.dir)], manifest, lock: [[crateOf(head), lock.get(crateOf(head))?.signatures ?? []]] });
         }
-        return whole();
+        // GC-A24: a package's tsc, eslint and biome rows are keyed on its workspace closure, not the whole tree (acceptance S3 saw tsc rerun for an rk edit).
+        return npmScanKey(scan) ?? whole();
       } catch (error) { onKeyError?.(scan, error); return null; }
     }
     if (scan.class !== "B") return null;
@@ -1156,15 +1182,7 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
       }
       const unit = rustUnitOfScanId(scan.id, known);
       if (!unit) {
-        if (typeof readBlob !== "function") return whole();
-        // npm package scans: the package's workspace closure plus the root npm inputs.
-        const npmMatch = /^(test:npm|tsc|eslint|biome):(.+)$/.exec(scan.id);
-        if (npmMatch && npmByUnit.has(npmMatch[2])) {
-          const { members, unresolved } = npmClosure(npmByUnit.get(npmMatch[2]));
-          if (unresolved) return whole();
-          return canonicalJson({ kind: "npm", id: scan.id, members: members.map((m) => [m.name, m.dir, idOf(m.dir)]), shared: sharedNpmInputs(members) });
-        }
-        return whole();
+        return npmScanKey(scan) ?? whole();
       }
       const keyed = rustUnitKey(unit, scan);
       return keyed === undefined ? whole() : keyed;
