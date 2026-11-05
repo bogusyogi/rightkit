@@ -1,8 +1,11 @@
 # Changelog
 
-## 0.6.4 (unpublished)
+## Unreleased
 
 - Fixed: `process_tree_quiescent` ended its Unix block with a `return` clippy rejects (`needless_return`); same result.
+
+## 0.6.4 (unpublished)
+
 - Removed (Windows, Adrian, 2026-11-03: no test-only code in product crates; e2e only): the doc-hidden `appcontainer_profile_name_for_test`, `appcontainer_profile_exists_for_test` and `delete_appcontainer_profile_for_test`, the CI-or-opt-in gate in `tests/common`, and the profile cleanup in `tests/sandbox_exec.rs`. The remaining Windows test runs the real `rightkit-sandbox-exec` binary and registers the real per-user AppContainer profile like any spawn; `remove_unused_appcontainer_profiles` is the maintenance call.
 All additions are opt-in; every default is unchanged, so a 0.6.3 policy builds the same profile and ruleset. Decision (Adrian's standing rule that a patch never changes a default behind a consumer, and PTY children and interactive tools need the terminal nodes): the narrowing is a switch each consumer sets, and CodeRight and Legion set it. Struct-update construction (`SandboxPolicy { .., ..Default::default() }`) keeps compiling.
 
@@ -102,7 +105,6 @@ rights on newer kernels and the seccomp architecture check). Nothing here was co
   secret. Windows: an ALL APPLICATION PACKAGES read/execute ACE (so readable by every AppContainer app on the
   machine), added once and removed with the last handle unless the DACL already allowed it. Elsewhere the roots
   join the read and execute roots of each confined spawn.
-
 
 ## 0.4.0
 

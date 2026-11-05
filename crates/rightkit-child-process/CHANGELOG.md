@@ -1,8 +1,11 @@
 # Changelog
 
-## 0.5.9 (unpublished)
+## Unreleased
 
 - Fixed (Windows): `OwnedChild::tree_members` no longer lists the leader's own console host (`conhost.exe` whose parent is the leader). Windows attaches it to a console leader inside the same job, so a caller recording survivors saw a false "descendant outlived the child" (Pulse membrane g01 on the Dell, 2026-11-05, 3 of 3 runs). A process table that cannot be read excludes nothing. Source only: not compiled or run here; needs a Windows run of Pulse's `e2e_binaries` without its `without_console_host` workaround.
+
+## 0.5.9 (unpublished)
+
 - Removed the no-op `pause_for_test` hook in `unix_child.rs` (test seam). Release behaviour unchanged.
 
 Issues #872, #1116, #737, #592, #694, #403, #741, #819, #1115, #1141, #1281, #555, #557 (support for `rightkit-pty`); #1408 is not fixed (see below). Source only: not compiled or run here; the root integration owns the check batch.

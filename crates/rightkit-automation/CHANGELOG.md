@@ -1,8 +1,11 @@
 # Changelog
 
-## 0.6.7 (unpublished)
+## Unreleased
 
 - Docs: the `secret` module links `Action::FillSecret` by its crate path; the doc build (`-D warnings`) failed on the unresolved link.
+
+## 0.6.7 (unpublished)
+
 Removed (breaking): `mock::MockPlatform`, `MockState` and `MockEl`, the simulated desktop, and `PlatformKind::Mock` (Adrian, 2026-11-03: "no dummy data, no fucking made up shit. real data."). Only the real `macos` and `windows` platforms remain.
 
 Code-only: nothing here was compiled or run when written (no compile in this pass); the gate and the Windows build are the verification. Adds enum variants (`Action::Drag`, `Action::FillSecret`, `InputEvent::Drag`): code that matches `Action` or `InputEvent` exhaustively outside this crate needs new arms; constructing and calling code is unaffected. `Platform` gains two methods with defaults.
