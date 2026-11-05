@@ -49,7 +49,7 @@ function writeRevocation(ctx, { privateKey, pins }, change = {}, { signWith = pr
   const payload = payloadFor(ctx, pins, change);
   const value = crypto.sign("sha256", revocationSignedBytes(payload), { key: signWith, dsaEncoding: "ieee-p1363" }).toString("hex");
   const body = { schema: REVOCATION_SCHEMA, payload: tamper ? { ...payload, ...tamper } : payload, signature: { alg: "ES256", keyId: pins.keyId, value } };
-  const at = revocationFile(ctx.file, OWNER, sub, ctx.owner.snapshot);
+  const at = revocationFile(fs.realpathSync.native(path.dirname(path.dirname(path.dirname(ctx.file)))), OWNER, sub, ctx.owner.snapshot);
   fs.mkdirSync(path.dirname(at), { recursive: true });
   fs.writeFileSync(at, JSON.stringify(body));
   return at;
@@ -116,11 +116,19 @@ test("a link at the revocation path refuses", () => {
   assert.throws(() => judge(ctx, k.pins), /not a plain file/);
 });
 
-test("revocationFile: only a sub-handle of the owner; name is sha256 of canonical [snapshot, ownership]", () => {
-  assert.throws(() => revocationFile("/x/owner.json", OWNER, "zz#1", "/snap/x"), /not a sub-handle/);
-  assert.throws(() => revocationFile("/x/owner.json", OWNER, `${OWNER}#../x`, "/snap/x"), /not a sub-handle/);
+test("revocationFile: the f227 completion key <dataRoot>/snapshot-leases/completed/<sha256 canonical [snapshot, ownership]>, no suffix", () => {
+  assert.throws(() => revocationFile("/root", OWNER, "zz#1", "/snap/x"), /not a sub-handle/);
+  assert.throws(() => revocationFile("/root", OWNER, `${OWNER}#../x`, "/snap/x"), /not a sub-handle/);
+  assert.throws(() => revocationFile("rel", OWNER, LOST, "/snap/x"), /not absolute/);
   const name = crypto.createHash("sha256").update('["/snap/x","a1b2#lost"]').digest("hex");
-  assert.strictEqual(revocationFile("/x/owner.json", OWNER, LOST, "/snap/x"), `/x/broker-revocations/${name}.json`);
+  assert.strictEqual(revocationFile("/root", OWNER, LOST, "/snap/x"), `/root/snapshot-leases/completed/${name}`);
+});
+
+test("a legacy completion record at the key is not a revocation: ignored, the UNKNOWN sub-handle still holds", () => {
+  const ctx = setup(); const k = keyPair();
+  const at = writeRevocation(ctx, k);
+  fs.writeFileSync(at, JSON.stringify({ schema: "rustright.snapshot-completion/1", handle: LOST }));
+  assert.throws(() => judge(ctx, k.pins), /sub-handle a1b2#lost and its lease is UNKNOWN/);
 });
 
 test("the shared golden fixture verifies: signed bytes, file name, signature", async () => {
@@ -128,7 +136,7 @@ test("the shared golden fixture verifies: signed bytes, file name, signature", a
   const { verifyRevocation, revocationName, revocationSignedBytes: bytesOf } = await import("./handle-revocation.mjs");
   assert.strictEqual(bytesOf(v.payload).toString("utf8"), v.signedBytesUtf8);
   assert.strictEqual(crypto.createHash("sha256").update(bytesOf(v.payload)).digest("hex"), v.signedBytesSha256);
-  assert.strictEqual(`${revocationName(v.payload.snapshot, v.payload.ownership)}.json`, v.fileName);
+  assert.strictEqual(revocationName(v.payload.snapshot, v.payload.ownership), v.fileName);
   const owner = { handle: v.payload.ownership.split("#")[0], snapshot: v.payload.snapshot };
   const expected = { ownerFile: v.payload.ownerFile, dataRoot: v.payload.dataRoot, ownerBytes: Buffer.from(v.ownerBytes), owner, sub: v.payload.ownership };
   assert.deepStrictEqual(verifyRevocation(Buffer.from(JSON.stringify(v.envelope)), v.pins, expected), v.payload);

@@ -68,7 +68,7 @@ import { managedRuntimeClient } from "./managed-cargo.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
 import { requireManagedRoot } from "./managed-root-guard.mjs";
 import { readEnrolledPins } from "./broker-pins.mjs";
-import { readRevocation, revocationFile, verifyRevocation } from "./handle-revocation.mjs";
+import { isRevocationEnvelope, readRevocation, revocationFile, verifyRevocation } from "./handle-revocation.mjs";
 import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, OwnershipBusy, holds, markBrokerSubmit, markBrokerUnsent, markCarriedSend, markLockFile, withMarkLock } from "./ownership-mark.mjs";
 
 // The mark itself lives in a leaf module (ownership-mark.mjs): snapshot-broker.mjs records carried sends through it, and importing this
@@ -1293,10 +1293,11 @@ export function judgeOwner(observed, { file, probe, lease, host = os.hostname(),
   // rightkit#1511: revocations are judged against the exact bytes judged here; the reclaim rereads both under its claim before it removes anything.
   const revocations = [];
   const revoked = pins ? (sub) => {
-    const at = revocationFile(file, owner.handle, sub, owner.snapshot);
+    const dataRoot = fs.realpathSync.native(dataRootOf(file));
+    const at = revocationFile(dataRoot, owner.handle, sub, owner.snapshot);
     const bytes = readRevocation(at);
-    if (bytes === null) return null;
-    const payload = verifyRevocation(bytes, pins, { ownerFile: fs.realpathSync.native(file), dataRoot: fs.realpathSync.native(dataRootOf(file)), ownerBytes: Buffer.from(observed, "utf8"), owner, sub });
+    if (bytes === null || !isRevocationEnvelope(bytes)) return null;
+    const payload = verifyRevocation(bytes, pins, { ownerFile: fs.realpathSync.native(file), dataRoot, ownerBytes: Buffer.from(observed, "utf8"), owner, sub });
     revocations.push({ file: at, bytes });
     return { file: at, payload };
   } : null;
@@ -1443,7 +1444,10 @@ export function acquireBuildOwnership({
   if (publish(file, body)) return done(null);
   const observed = readText(file);
   if (observed === null) { if (publish(file, body)) return done(null); throw new OwnershipBusy(`build ownership ${file} was taken by another process`); }
-  const judged = judgeOwner(observed, { file, probe, lease, pins: brokerPins === undefined ? enrolledPinsFor(file, platform) : brokerPins });
+  // GC-A25 is proposed, not operative: RustRight has not frozen the revocation's authoritative path (its f227 completion key fences legacy reuse; a record
+  // only beside this one does not) nor its publication sequence. Until then no production reclaim honours a revocation; only a caller that passes
+  // `brokerPins` explicitly (fixtures) exercises the branch. Enable by defaulting to enrolledPinsFor(file, platform) once GC-A25 is operative.
+  const judged = judgeOwner(observed, { file, probe, lease, pins: brokerPins ?? null });
   hooks.afterJudge?.();
   // A reclaim means the previous release was not clean (a crash, or a release that ended held): nothing unreadable is skipped.
   record.cleanBefore = null;

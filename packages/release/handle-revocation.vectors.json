@@ -4,14 +4,14 @@
   "domain": "rustright-snapshot-revocation-v1",
   "pins": {
     "host": "fixture-host",
-    "keyId": "a046f54d642a2f986d3d8aacfb20492f7307edb1079ca5675a7a294e9d8a9670",
-    "publicKey": "04b77ffec8ec6ca3d6f1cbf84797bb27f41e62e0a27164b19870357d043c29d93100a15b7c9ec311d282d592899a21d42798c76d99df76ab077101c74e1614f0e2",
+    "keyId": "588caca3ea3415184feb9075c98ec15d92b0ed9aae918b27eff229f77cada0cc",
+    "publicKey": "04c51817454bc646c6b036d7c1ff156f4e2e2938173bbf5b00da7387f44f95e3f7f21c0fff3995ccd03c3c1985dcc12b483e85b37e3793e6da4e3529245f02b86a",
     "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
   },
   "ownerBytes": "{\"schema\":\"rightkit.build-ownership/1\",\"handle\":\"26e12157-e275-4bfd-95a2-f1ff48f56e50\",\"host\":\"fixture-host\",\"pid\":4242,\"snapshot\":\"/Volumes/D/.rightkit-managed/snapshots/770a65dcafd91981\"}",
   "payload": {
     "schema": "rustright.snapshot-revocation.v1",
-    "keyId": "a046f54d642a2f986d3d8aacfb20492f7307edb1079ca5675a7a294e9d8a9670",
+    "keyId": "588caca3ea3415184feb9075c98ec15d92b0ed9aae918b27eff229f77cada0cc",
     "host": "fixture-host",
     "runtime": {
       "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -23,15 +23,16 @@
     "ownerSha256": "be6603d17ef691daaece03448790d3927c98d606a6576d105fbe6bfcc467a5a5",
     "proofSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
   },
-  "signedBytesUtf8": "rustright-snapshot-revocation-v1\n{\"dataRoot\":\"/Volumes/D/.rightkit-managed\",\"host\":\"fixture-host\",\"keyId\":\"a046f54d642a2f986d3d8aacfb20492f7307edb1079ca5675a7a294e9d8a9670\",\"ownerFile\":\"/Volumes/D/.rightkit-managed/build-ownership/770a65dcafd91981/owner.json\",\"ownerSha256\":\"be6603d17ef691daaece03448790d3927c98d606a6576d105fbe6bfcc467a5a5\",\"ownership\":\"26e12157-e275-4bfd-95a2-f1ff48f56e50#bf51a9c8-2f5d-4b80-9fa4-72a0be202da8\",\"proofSha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"runtime\":{\"brokerDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"},\"schema\":\"rustright.snapshot-revocation.v1\",\"snapshot\":\"/Volumes/D/.rightkit-managed/snapshots/770a65dcafd91981\"}",
-  "signedBytesSha256": "415f3317b644bfc9dacb13551f32f86981a0e224e0eb3e9ae1a1576f36d2d3b7",
+  "signedBytesUtf8": "rustright-snapshot-revocation-v1\n{\"dataRoot\":\"/Volumes/D/.rightkit-managed\",\"host\":\"fixture-host\",\"keyId\":\"588caca3ea3415184feb9075c98ec15d92b0ed9aae918b27eff229f77cada0cc\",\"ownerFile\":\"/Volumes/D/.rightkit-managed/build-ownership/770a65dcafd91981/owner.json\",\"ownerSha256\":\"be6603d17ef691daaece03448790d3927c98d606a6576d105fbe6bfcc467a5a5\",\"ownership\":\"26e12157-e275-4bfd-95a2-f1ff48f56e50#bf51a9c8-2f5d-4b80-9fa4-72a0be202da8\",\"proofSha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"runtime\":{\"brokerDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"},\"schema\":\"rustright.snapshot-revocation.v1\",\"snapshot\":\"/Volumes/D/.rightkit-managed/snapshots/770a65dcafd91981\"}",
+  "signedBytesSha256": "61fd2ace1fa136a1e5dc77fb9c23fa0eca8d9079cc2288a21d7553c39d692623",
   "fileNameInput": "[\"/Volumes/D/.rightkit-managed/snapshots/770a65dcafd91981\",\"26e12157-e275-4bfd-95a2-f1ff48f56e50#bf51a9c8-2f5d-4b80-9fa4-72a0be202da8\"]",
-  "fileName": "bf1857c7d0d283fdacc8d62dc941ef413ad234c1dbed42dcc55825e9e4d93cb4.json",
+  "fileName": "bf1857c7d0d283fdacc8d62dc941ef413ad234c1dbed42dcc55825e9e4d93cb4",
+  "expectedPath": "/Volumes/D/.rightkit-managed/snapshot-leases/completed/bf1857c7d0d283fdacc8d62dc941ef413ad234c1dbed42dcc55825e9e4d93cb4",
   "envelope": {
     "schema": "rustright.snapshot-revocation.v1",
     "payload": {
       "schema": "rustright.snapshot-revocation.v1",
-      "keyId": "a046f54d642a2f986d3d8aacfb20492f7307edb1079ca5675a7a294e9d8a9670",
+      "keyId": "588caca3ea3415184feb9075c98ec15d92b0ed9aae918b27eff229f77cada0cc",
       "host": "fixture-host",
       "runtime": {
         "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -45,8 +46,8 @@
     },
     "signature": {
       "alg": "ES256",
-      "keyId": "a046f54d642a2f986d3d8aacfb20492f7307edb1079ca5675a7a294e9d8a9670",
-      "value": "dd96fad9387df4b88bbe4fde1ce50aab99f7329d7ee058712fa2b4238f3617d141cf451711618549eb404669f40a5ae3cc50c101de80df2225f0947a04ce54e9"
+      "keyId": "588caca3ea3415184feb9075c98ec15d92b0ed9aae918b27eff229f77cada0cc",
+      "value": "dbd7e96246ce60b3393cd544bb3d1368bbdfe0b99083cf6fd235458ff4df6de21cad283712ec51769c0486c8af164cca72d20eb61a8377c5b40db28475c1face"
     }
   }
 }

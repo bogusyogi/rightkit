@@ -7,8 +7,10 @@
 // checkout. The signature scheme is the broker's provenance scheme (ES256, P-256, canonical JSON) under its own domain string, so a receipt can
 // never be replayed as a revocation, or the reverse.
 //
-// Location: exactly `<ownership dir>/broker-revocations/<name>.json`, where name is the lowercase SHA-256 of the canonical JSON array
-// [snapshot, ownership] (the f227 completion file name). Nothing else is read; a link or a non-file refuses.
+// Location: exactly `<data root>/snapshot-leases/completed/<name>` (no suffix), where name is the lowercase SHA-256 of the canonical JSON array
+// [snapshot, ownership]: the broker's own f227 completion key for that sub-handle, so the revocation also fences legacy exact-handle reuse (Terra,
+// 2026-11-05). One file, read, authenticated and reread there; no sidecar. A file there with another schema (a legacy completion) is not a revocation
+// and is ignored here; a link or a non-file refuses.
 import { createHash, createPublicKey, verify } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -16,7 +18,7 @@ import { canonicalJson } from "./provenance-verify.mjs";
 
 export const REVOCATION_SCHEMA = "rustright.snapshot-revocation.v1";
 export const REVOCATION_DOMAIN = "rustright-snapshot-revocation-v1";
-export const REVOCATION_DIR = "broker-revocations";
+export const REVOCATION_DIR = path.join("snapshot-leases", "completed");
 /** The signed payload's fields, exactly (Terra's proposal, 2026-11-05; not frozen until the shared golden fixture agrees). */
 export const REVOCATION_FIELDS = Object.freeze(["dataRoot", "host", "keyId", "ownerFile", "ownerSha256", "ownership", "proofSha256", "runtime", "schema", "snapshot"]);
 const SHA = /^[0-9a-f]{64}$/;
@@ -35,12 +37,13 @@ export const revocationSignedBytes = (payload) => Buffer.from(`${REVOCATION_DOMA
 /** The f227 completion name of one sub-handle of one snapshot: lowercase SHA-256 of canonical JSON `[snapshot, ownership]`. */
 export const revocationName = (snapshot, ownership) => sha256Hex(Buffer.from(canonicalJson([snapshot, ownership]), "utf8"));
 
-/** The one path a revocation of `sub` (`<ownerHandle>#<id>`) of `snapshot` under the record `ownershipFile` may live at. */
-export function revocationFile(ownershipFile, ownerHandle, sub, snapshot) {
+/** The one path a revocation of `sub` (`<ownerHandle>#<id>`) of `snapshot` may live at under the managed data root `dataRoot`. */
+export function revocationFile(dataRoot, ownerHandle, sub, snapshot) {
   if (typeof ownerHandle !== "string" || !ID.test(ownerHandle)) refuse("handle", `${JSON.stringify(ownerHandle)} is not an owner handle`);
   if (typeof sub !== "string" || !sub.startsWith(`${ownerHandle}#`) || !ID.test(sub.slice(ownerHandle.length + 1))) refuse("handle", `${JSON.stringify(sub)} is not a sub-handle of ${ownerHandle}`);
   if (typeof snapshot !== "string" || !path.isAbsolute(snapshot)) refuse("root", "the owner record names no absolute snapshot");
-  return path.join(path.dirname(ownershipFile), REVOCATION_DIR, `${revocationName(snapshot, sub)}.json`);
+  if (typeof dataRoot !== "string" || !path.isAbsolute(dataRoot)) refuse("root", "the managed data root is not absolute");
+  return path.join(dataRoot, REVOCATION_DIR, revocationName(snapshot, sub));
 }
 
 /** The revocation's bytes, or null when none exists. A link, a directory or an unreadable entry is a refusal, never null. */
@@ -49,6 +52,11 @@ export function readRevocation(file) {
   try { meta = fs.lstatSync(file); } catch (e) { if (e.code === "ENOENT") return null; return refuse("read", `${file} cannot be read (${e.code ?? e.message})`); }
   if (!meta.isFile()) refuse("read", `${file} is not a plain file`);
   return fs.readFileSync(file);
+}
+
+/** Whether `bytes` claim to be a snapshot revocation at all (its envelope schema); anything else at the completion key is the broker's own record. */
+export function isRevocationEnvelope(bytes) {
+  try { return JSON.parse(Buffer.isBuffer(bytes) ? bytes.toString("utf8") : String(bytes))?.schema === REVOCATION_SCHEMA; } catch { return false; }
 }
 
 const publicKeyOf = (hex) => {
