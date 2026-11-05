@@ -1518,6 +1518,17 @@ const dataRootOf = (file) => path.dirname(path.dirname(path.dirname(file)));
  * established. A broker that has run continuously since before an ownership was acquired saw every request of that run.
  */
 export function runningBrokerProcess({ platform = process.platform, run = spawnSync, uid = process.getuid?.() } = {}) {
+  if (platform === "win32") {
+    // The Dell's broker runs as rustright-broker.exe (D:\.rustright\runtime). Exactly one such process, else unknown (fail safe).
+    try {
+      const script = "$p = @(Get-Process -Name rustright-broker -ErrorAction SilentlyContinue); if ($p.Count -eq 1) { \"$($p[0].Id) $($p[0].StartTime.ToUniversalTime().ToString('o'))\" }";
+      const r = run("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], { encoding: "utf8", timeout: 15000, windowsHide: true });
+      const m = /^(\d+) (\S+)\s*$/m.exec(String(r.stdout ?? ""));
+      if (!m) return null;
+      const pid = Number(m[1]); const startedMs = Date.parse(m[2]);
+      return Number.isInteger(pid) && pid > 0 && Number.isFinite(startedMs) ? { pid, startedMs } : null;
+    } catch { return null; }
+  }
   if (platform !== "darwin") return null;
   try {
     const lc = run("launchctl", ["print", `gui/${uid}/dev.rustright.broker`], { encoding: "utf8", timeout: 5000 });

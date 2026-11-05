@@ -2743,7 +2743,7 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
   let own;
   try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot, repository: snap.repositoryOf(root).key }), stage: `door:unit:${option("--to")}`, snapshot: path.join(snapshotsAt, snap.repositoryOf(root).key), commit, platform: o.platform, env: o.env }); }
   catch (e) { if (e.code !== "busy" && e.code !== "refused") throw e; o.err(`${tag} BLOCKED: ${e.message}; nothing ran${e.code === "refused" ? ", nothing created" : ""}`); return 1; }
-  o.out(`${tag} build ownership ${own.joined ? "joined" : "held"} ${own.handle}`);
+  o.out(`${tag} build ownership ${own.joined ? "joined" : "held"} ${own.handle}${own.reclaimed ? ` (reclaimed from ${own.reclaimed.from}: ${own.reclaimed.proofs.join("; ")})` : ""}`);
   try {
     let synced;
     try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout: root, rev: commit, root: snapshotsAt }); }

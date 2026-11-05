@@ -4,7 +4,7 @@ import assert from "node:assert";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { judgeOwner } from "./build-ownership.mjs";
+import { judgeOwner, runningBrokerProcess } from "./build-ownership.mjs";
 
 const OWNER = "a1b2"; const LOST = `${OWNER}#lost`; const DONE = `${OWNER}#done`;
 const ACQUIRED = "2026-11-04T23:56:10.802Z";
@@ -38,3 +38,14 @@ test("a member row the broker lists still holds", () => {
 test("listed as non-REAPED in the owner's answer still holds", () => {
   assert.throws(() => judge(setup(), before, leaseWith(undefined, [{ handle: DONE, state: "REAPED" }, { handle: LOST, state: "ACTIVE" }])), /ACTIVE/);
 });
+
+// Dell: the broker identity comes from Get-Process rustright-broker (rightkit#1513).
+const winRun = (stdout) => (cmd, args) => { assert.equal(cmd, "powershell.exe"); assert.ok(args.includes("-EncodedCommand")); return { stdout }; };
+test("win32: one rustright-broker process gives its pid and UTC start", () => {
+  assert.deepEqual(runningBrokerProcess({ platform: "win32", run: winRun("60764 2026-11-05T14:57:59.0000000Z\r\n") }), { pid: 60764, startedMs: Date.parse("2026-11-05T14:57:59Z") });
+});
+test("win32: none or several (no line printed) is unknown", () => {
+  assert.equal(runningBrokerProcess({ platform: "win32", run: winRun("") }), null);
+  assert.equal(runningBrokerProcess({ platform: "win32", run: () => { throw new Error("no powershell"); } }), null);
+});
+test("linux: unknown", () => { assert.equal(runningBrokerProcess({ platform: "linux", run: () => assert.fail("no spawn") }), null); });
