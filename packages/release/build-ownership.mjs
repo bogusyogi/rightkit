@@ -1052,7 +1052,7 @@ function coveredMember(m, owner, { byPid, own }) {
  * Whether the work `owner` covers, other than the process `self` (the live gate at release, null at reclaim), is proven gone.
  * Returns the proofs, or throws a reason that is busy.
  */
-function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0, timing = null, revoked = null, processOnly = false }) {
+function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0, timing = null, revoked = null, processOnly = false, broker = null }) {
   const measure = (name, fn) => { const start = performance.now(); try { return fn(); } finally { if (timing) timing[name] = (timing[name] ?? 0) + performance.now() - start; } };
   const proofs = [];
   let rebooted = false;
@@ -1209,7 +1209,13 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
     // this record's bytes (handle-revocation.mjs). It is offered only by a dead owner's reclaim (judgeOwner), never by a release; a bad revocation throws.
     const revokedOf = new Map();
     const revocation = (sub) => { if (!revoked) return null; if (!revokedOf.has(sub)) revokedOf.set(sub, revoked(sub)); return revokedOf.get(sub); };
-    const everyUnsent = () => handles.length > 0 && handles.every((sub) => settled(sub) || revocation(sub) !== null);
+    // rightkit#1513 (Adrian, 2026-11-05: "It should ideally auto recover"): in a dead owner's reclaim (never a live release), after every process
+    // proof above passed, a sub-handle the broker answers UNKNOWN with no member row was never received when the SAME broker process has run since
+    // before this ownership was acquired: that broker would hold a claim, lease or member row for anything it got, and no process remains to send it.
+    const acquiredMs = Date.parse(owner.acquiredAt);
+    const brokerUpThroughout = selfPid === null && broker && Number.isFinite(broker.startedMs) && Number.isFinite(acquiredMs) && broker.startedMs + 2000 < acquiredMs;
+    const neverReceived = new Set();
+    const everyUnsent = () => handles.length > 0 && handles.every((sub) => settled(sub) || revocation(sub) !== null || brokerUpThroughout);
     const status = measure("leaseMs", () => lease({ snapshot: owner.snapshot, handle: owner.handle, ...waitOptions }));
     if (status.state === "ACTIVE" || (status.state !== "REAPED" && !everyUnsent())) throw new Error(`broker work may exist under this handle and its lease is ${status.state} (${status.why})`);
     if (status.state === "REAPED") proofs.push(`broker lease for ${owner.handle} is REAPED`);
@@ -1229,9 +1235,11 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
       const listed = Array.isArray(status.members) && status.members.some((m) => m.handle === sub);
       const rev = one.state === "UNKNOWN" && Array.isArray(one.members) && one.members.length === 0 && !listed ? revocation(sub) : null;
       if (rev) { proofs.push(`${sub} is UNKNOWN to the broker and revoked by its signed revocation ${rev.file} (proof ${rev.payload.proofSha256})`); revokedCount += 1; continue; }
+      if (brokerUpThroughout && one.state === "UNKNOWN" && Array.isArray(one.members) && one.members.length === 0 && !listed) { neverReceived.add(sub); continue; }
       throw new Error(`broker work may exist under sub-handle ${sub} and its lease is ${one.state} (${one.why})`);
     }
-    if (handles.length) proofs.push(neverStarted === 0 && revokedCount === 0 ? `broker lease for each of ${handles.length} sub-handle(s) is REAPED` : `every one of ${handles.length} sub-handle(s) is accounted for: ${handles.length - neverStarted - revokedCount} REAPED, ${neverStarted} proven never started, ${revokedCount} revoked by the broker`);
+    if (neverReceived.size) proofs.push(`${neverReceived.size} sub-handle(s) never reached the broker: UNKNOWN with no member row to broker pid ${broker.pid}, up since ${new Date(broker.startedMs).toISOString()}, before this ownership (${owner.acquiredAt}), and no process of the run remains (${[...neverReceived].slice(0, 3).join(", ")}${neverReceived.size > 3 ? ", ..." : ""})`);
+    if (handles.length) proofs.push(neverStarted === 0 && revokedCount === 0 && neverReceived.size === 0 ? `broker lease for each of ${handles.length} sub-handle(s) is REAPED` : `every one of ${handles.length} sub-handle(s) is accounted for: ${handles.length - neverStarted - revokedCount - neverReceived.size} REAPED, ${neverStarted} proven never started, ${neverReceived.size} never reached the broker, ${revokedCount} revoked by the broker`);
   }
   return proofs;
 }
@@ -1282,7 +1290,7 @@ export function judgeClaimant(text, { probe, host }) {
  * Why the record `observed` may be reclaimed (`{ owner, proofs }`), or an OwnershipBusy throw naming what is still live or
  * unknown. Pure apart from the probes.
  */
-export function judgeOwner(observed, { file, probe, lease, host = os.hostname(), pins = null, processOnly = false }) {
+export function judgeOwner(observed, { file, probe, lease, host = os.hostname(), pins = null, processOnly = false, broker = null }) {
   let owner = null;
   try { owner = JSON.parse(observed); } catch { owner = null; }
   const busy = (why, detail = {}) => new OwnershipBusy(`build ownership ${file}: ${why}`, { owner, ...detail });
@@ -1307,7 +1315,7 @@ export function judgeOwner(observed, { file, probe, lease, host = os.hostname(),
     revocations.push({ file: at, bytes });
     return { file: at, payload };
   } : null;
-  try { proofs.push(...coveredWorkGone(owner, { probe, lease, file, revoked, processOnly })); } catch (e) { throw busy(`owner pid ${owner.pid} is gone but ${e.message}`); }
+  try { proofs.push(...coveredWorkGone(owner, { probe, lease, file, revoked, processOnly, broker })); } catch (e) { throw busy(`owner pid ${owner.pid} is gone but ${e.message}`); }
   return { owner, proofs, revocations };
 }
 
@@ -1330,6 +1338,7 @@ export function acquireBuildOwnership({
   managedRoot,
   device,
   brokerPins,
+  brokerIdentity,
 } = {}) {
   // First, before the environment, the record or any write: the managed root exists (decision D4). `managedRoot` and `device` are
   // fixtures' seams; a production caller passes neither.
@@ -1453,7 +1462,7 @@ export function acquireBuildOwnership({
   // GC-A25 is proposed, not operative: RustRight has not frozen the revocation's authoritative path (its f227 completion key fences legacy reuse; a record
   // only beside this one does not) nor its publication sequence. Until then no production reclaim honours a revocation; only a caller that passes
   // `brokerPins` explicitly (fixtures) exercises the branch. Enable by defaulting to enrolledPinsFor(file, platform) once GC-A25 is operative.
-  const judged = judgeOwner(observed, { file, probe, lease, pins: brokerPins ?? null });
+  const judged = judgeOwner(observed, { file, probe, lease, pins: brokerPins ?? null, broker: brokerIdentity === undefined ? runningBrokerProcess({ platform }) : brokerIdentity });
   hooks.afterJudge?.();
   // A reclaim means the previous release was not clean (a crash, or a release that ended held): nothing unreadable is skipped.
   record.cleanBefore = null;
@@ -1503,6 +1512,22 @@ function enrolledPinsFor(file, platform) {
 
 /** The managed data root a record `<root>/build-ownership/<key>/owner.json` lives under. */
 const dataRootOf = (file) => path.dirname(path.dirname(path.dirname(file)));
+
+/**
+ * rightkit#1513: the running RustRight broker's pid and start time (epoch ms), from launchd and ps (macOS); null when it cannot be
+ * established. A broker that has run continuously since before an ownership was acquired saw every request of that run.
+ */
+export function runningBrokerProcess({ platform = process.platform, run = spawnSync, uid = process.getuid?.() } = {}) {
+  if (platform !== "darwin") return null;
+  try {
+    const lc = run("launchctl", ["print", `gui/${uid}/dev.rustright.broker`], { encoding: "utf8", timeout: 5000 });
+    const pid = Number(/^\s*pid = (\d+)$/m.exec(String(lc.stdout ?? ""))?.[1]);
+    if (!Number.isInteger(pid) || pid <= 0) return null;
+    const ps = run("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", timeout: 5000, env: { ...process.env, LC_ALL: "C", LANG: "C" } });
+    const startedMs = Date.parse(String(ps.stdout ?? "").trim());
+    return Number.isFinite(startedMs) ? { pid, startedMs } : null;
+  } catch { return null; }
+}
 
 /** Replaces the record atomically while it is still `handle`'s. */
 function rewriteRecord(file, handle, change) {

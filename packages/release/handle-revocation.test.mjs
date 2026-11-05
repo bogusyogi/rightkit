@@ -67,7 +67,7 @@ test("a valid signed revocation settles exactly that sub-handle", () => {
   writeRevocation(ctx, k);
   const judged = judge(ctx, k.pins);
   assert.ok(judged.proofs.some((p) => /a1b2#lost is UNKNOWN to the broker and revoked/.test(p)));
-  assert.ok(judged.proofs.some((p) => /1 REAPED, 0 proven never started, 1 revoked/.test(p)));
+  assert.ok(judged.proofs.some((p) => /1 REAPED, 0 proven never started, 0 never reached the broker, 1 revoked/.test(p)));
   assert.strictEqual(judged.revocations.length, 1);
 });
 
