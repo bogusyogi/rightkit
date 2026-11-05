@@ -2526,9 +2526,9 @@ const INTERNAL = {
     const named = behind.slice(0, 5).map((e) => `${e.name} ${e.pinned ?? "?"} -> ${e.latest ?? "?"}`).join(", ");
     return remember({ advice: `${behind.length} behind latest${named ? ` (${named}${behind.length > 5 ? ", ..." : ""})` : ""}${unjudged ? `; ${unjudged} not judged` : ""}` });
   },
-  // The Swift type-check (rightkit#1289): Mac host only, Class A, before any compile stage. SwiftPM compiles each target with `-Xswiftc -typecheck`: swiftc type-checks every
-  // source against the real SDK and the target's dependencies and writes no object file, so a labelled-argument order error fails here in seconds instead of at the
-  // end of the Xcode compile (Pulse, 2026-10-29, exit 65 after the Rust stages). The committed Package.resolved decides the dependencies (`--disable-automatic-resolution`);
+  // The Swift type-check (rightkit#1289): Mac host only, Class A, before any compile stage. SwiftPM builds the package (`swift build`) into the scratch root:
+  // every source compiles against the real SDK and the target's dependencies, so a labelled-argument order error fails here in seconds instead of at the
+  // end of the Xcode compile (Pulse, 2026-10-29, exit 65 after the Rust stages). Not `-Xswiftc -typecheck`: with Swift 6.4 it writes no object and SwiftPM still links an executable target, so every package with one failed with "unexpected input file" (rightkit#1514 acceptance run). The committed Package.resolved decides the dependencies (`--disable-automatic-resolution`);
   // SwiftPM's state lives under the gate's scratch root, never in the snapshot. A pass is exit 0. A failure with Swift diagnostics lists them; a failure with none is the
   // build system's (it did not complete) and still fails: never a pass that checked nothing.
   "swift-typecheck": async (s, ctx) => {
@@ -2538,11 +2538,12 @@ const INTERNAL = {
     fs.mkdirSync(scratch, { recursive: true });
     const packageDir = path.join(ctx.contentRoot, s.dir === "." ? "" : s.dir);
     let r;
-    try { r = await ctx.deps.spawn("swift", ["build", "--disable-automatic-resolution", "--package-path", packageDir, "--scratch-path", scratch, "-Xswiftc", "-typecheck"], { cwd: packageDir, encoding: "utf8", env: { ...ctx.deps.env, ...PNPM_NO_HOOKS_ENV }, timeout: 10 * 60_000, maxBuffer: 1 << 26 }); }
+    try { r = await ctx.deps.spawn("swift", ["build", "--disable-automatic-resolution", "--package-path", packageDir, "--scratch-path", scratch], { cwd: packageDir, encoding: "utf8", env: { ...ctx.deps.env, ...PNPM_NO_HOOKS_ENV }, timeout: 10 * 60_000, maxBuffer: 1 << 26 }); }
     catch (e) { return { code: "TOOL_MISSING", detail: `${s.id}: swift could not be started (${e.message}); the Swift type-check is required on the Mac host and is never skipped` }; }
     if (r?.error) return { code: "TOOL_MISSING", detail: `${s.id}: swift could not be started (${r.error.message}); the Swift type-check is required on the Mac host and is never skipped` };
     if (r?.status === 0) return [];
-    const output = `${r?.stdout ?? ""}\n${r?.stderr ?? ""}`;
+    // Swift 6.4 colours its diagnostics even into a pipe; strip the escapes before reading them.
+    const output = `${r?.stdout ?? ""}\n${r?.stderr ?? ""}`.replace(/\x1b\[[0-9;]*m/g, "");
     const diagnostics = [...new Set(output.split(/\r?\n/).filter((l) => /\.swift:\d+:\d+: error:/.test(l)).map((l) => l.trim().replace(/^.*?(?=[^/\\\s]+\.swift:\d+:\d+: error:)/, "")))];
     if (diagnostics.length) return diagnostics.slice(0, 8).map((d) => `${s.dir === "." ? "" : `${s.dir}: `}${d}`);
     return [`${s.dir === "." ? "swift package" : s.dir}: the Swift type-check did not complete (exit ${r?.status ?? "none"}) and printed no Swift diagnostic: ${failureDetail(r)}`];
