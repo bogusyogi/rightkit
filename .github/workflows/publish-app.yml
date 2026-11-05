@@ -27,6 +27,7 @@ on:
           - bogusyogi/scraperight
           - bogusyogi/viewright
           - Orthic-Labs/ember
+          - Orthic-Labs/legion
       app_dir:
         description: Directory of the app's package.json inside the repository (. for the root)
         required: true
