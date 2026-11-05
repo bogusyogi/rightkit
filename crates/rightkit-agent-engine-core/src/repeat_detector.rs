@@ -86,18 +86,6 @@ impl RepeatDetector {
             occurrence: *count,
         }
     }
-
-    /// Drop all tracked state for a session. Not required for correctness
-    /// (state is bounded to one turn per session already) but available for
-    /// callers that want to release memory promptly on session teardown.
-    #[cfg(test)]
-    pub fn clear_session(session_id: &str) {
-        if let Ok(mut guard) = STATE.lock() {
-            if let Some(sessions) = guard.as_mut() {
-                sessions.remove(session_id);
-            }
-        }
-    }
 }
 
 /// Canonicalize `tool_name` + `args` into a stable string signature so that

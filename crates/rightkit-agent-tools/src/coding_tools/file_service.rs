@@ -2851,7 +2851,7 @@ fn hash_file_contents(path: &Path) -> Result<[u8; 32], String> {
         }
         hasher.update(&buffer[..read]);
     }
-    Ok(hasher.finalize_bytes().into())
+    Ok(hasher.finalize_bytes())
 }
 
 fn revision(path: &Path) -> Result<FileRevision, String> {

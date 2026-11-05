@@ -20,7 +20,6 @@ pub mod run;
 pub mod schedule;
 pub mod state;
 
-use rightkit_code_audit_engine::InventorySource as _;
 use serde_json::Value;
 use std::{
     ffi::OsString,

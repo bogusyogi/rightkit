@@ -7,8 +7,8 @@
 //! recurs at least `repeat_threshold` times within the last `window_size`
 //! actions, or the window's distinct-signature ratio collapses, a MOP fires.
 
-use crate::cache::fnv1a;
 use rightkit_agent_engine_protocol::ToolCall;
+use rightkit_cache::prefix::fnv1a_64;
 use std::collections::{HashMap, VecDeque};
 
 /// Sliding-window meltdown detector.
@@ -71,10 +71,10 @@ impl MopDetector {
 }
 
 /// Hash an action (e.g. a tool name + argument digest) into a signature.
-/// Shares the one FNV-1a implementation (`crate::cache::fnv1a`); the constants are
-/// identical, so meltdown signatures are unchanged.
+/// Hashed with standard FNV-1a 64 (`rightkit_cache::prefix::fnv1a_64`). Signatures exist only
+/// in this process's sliding window, never on disk, so no persisted key depends on the basis.
 pub fn signature(action: &str) -> u64 {
-    fnv1a(action)
+    fnv1a_64(action)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

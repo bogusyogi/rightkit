@@ -318,7 +318,7 @@ pub(crate) fn note_attempt_failed_with_class(
 }
 
 /// Clear any pending retry after a successful attempt (defensive: the entry
-/// is normally consumed by `take_pending_retry` before the attempt runs).
+/// is normally consumed before the attempt runs).
 pub(crate) fn note_attempt_succeeded(session_id: &str) {
     retry_ledger()
         .lock()

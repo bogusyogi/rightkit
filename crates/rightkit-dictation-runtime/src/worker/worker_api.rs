@@ -316,18 +316,6 @@ impl WorkerCapture {
         }
     }
 
-    pub(crate) fn read_f32_blocking(
-        &mut self,
-        min_samples: usize,
-        timeout_ms: u64,
-    ) -> Result<Vec<f32>, String> {
-        match self {
-            Self::Live(capture) => capture
-                .read_f32_blocking(min_samples, timeout_ms)
-                .map_err(|error| error.to_string()),
-        }
-    }
-
     pub(crate) fn wait_first_buffer(
         &mut self,
         min_samples: usize,

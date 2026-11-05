@@ -146,23 +146,6 @@ impl SessionEngine {
         self.dispatch_tool_call(call, turn_results).await;
     }
 
-    #[cfg(test)]
-    pub(in crate::engine) fn streaming_tool_is_concurrent_safe(&self, call: &ToolCall) -> bool {
-        let schema = self.tools.get(&call.name).map(|tool| tool.input_schema());
-        let (args, parse_error) = crate::tool_dispatch_plumbing::parse_tool_arguments_attributed(
-            &call.arguments_json,
-            schema.as_ref(),
-            Some(&call.name),
-            self.repair_attribution.as_ref(),
-        );
-        if parse_error.is_some() {
-            return false;
-        }
-        let mut canonical_call = call.clone();
-        canonical_call.arguments_json = args.to_string();
-        self.can_dispatch_readonly_fast(&&canonical_call)
-    }
-
     pub(in crate::engine) async fn dispatch_response_tools_and_post_checks(
         &mut self,
         response: &mut crate::llm::LlmResponse,

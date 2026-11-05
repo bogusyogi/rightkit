@@ -45,7 +45,7 @@ pub struct Target {
 
 impl Target {
     fn store(&self) -> Store {
-        let store = Store::new(&self.store_root, model_store::STORE_APP);
+        let store = Store::new(&self.store_root, model_store::store_app());
         let store = match &self.legacy_dir {
             Some(dir) => model_store::with_legacy_alias(store, &self.spec.id, dir),
             None => store,

@@ -4,6 +4,8 @@
 //! parse_iso_day) are owned by the published `rightkit-cache` crate. This shim
 //! preserves the historical crate::cache::* import paths inside the engine crate.
 
+// keys already persisted with this basis (the provider prompt-cache routing key in engine_loop)
+#[allow(deprecated)]
 pub use rightkit_cache::prefix::{
     parse_iso_day, system_prompt_only_cache_key, CacheStatus, CacheTracker, ConductorStableKey,
     StableCacheKey, CONDUCTOR_CACHE_KEY_PREFIX,

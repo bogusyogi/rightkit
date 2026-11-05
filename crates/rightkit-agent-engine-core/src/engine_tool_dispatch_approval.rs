@@ -491,16 +491,3 @@ impl SessionEngine {
         }
     }
 }
-
-/// Cheap, deterministic content hash (FNV-1a) used only to fingerprint an
-/// approval prompt to the exact argument bytes it was raised for — not a
-/// security primitive, just a tamper-evident tag so a stale prompt showing
-/// different content is visibly not the same fingerprint.
-#[cfg(test)]
-fn simple_content_hash(content: &str) -> u64 {
-    const FNV_OFFSET: u64 = 0xcbf29ce484222325;
-    const FNV_PRIME: u64 = 0x100000001b3;
-    content.bytes().fold(FNV_OFFSET, |hash, byte| {
-        (hash ^ byte as u64).wrapping_mul(FNV_PRIME)
-    })
-}

@@ -1725,7 +1725,6 @@ pub(crate) fn open_installed_lexical_store() -> Result<crate::MemoryStore, Strin
 pub(crate) struct Runtime {
     pub(crate) workspace_root: PathBuf,
     pub(crate) db: PathBuf,
-    pub(crate) origin: &'static str,
     pub(crate) stable_current: Option<PathBuf>,
     pub(crate) version_root: Option<PathBuf>,
 }
@@ -1746,7 +1745,6 @@ pub(crate) fn runtime_from_installed_exe(exe: &Path) -> Result<Runtime, String> 
     Ok(Runtime {
         db: crate::cli::cortex_db_path(),
         workspace_root: state,
-        origin: "installed",
         stable_current: Some(helpers.to_path_buf()),
         version_root: Some(helpers.to_path_buf()),
     })

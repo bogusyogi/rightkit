@@ -615,7 +615,7 @@ pub(crate) fn condition_file_audio(buffer: &[f32]) -> Vec<f32> {
     rightkit_dictation_core::audio_conditioning::condition_for_asr(
         buffer,
         SAMPLE_RATE,
-        &audio_policy,
+        audio_policy,
     )
     .to_vec()
 }
@@ -650,7 +650,7 @@ where
     let conditioned = rightkit_dictation_core::audio_conditioning::condition_for_asr(
         buffer,
         SAMPLE_RATE,
-        &audio_policy,
+        audio_policy,
     );
     let raw_rms = rightkit_dictation_core::audio_conditioning::rms(buffer);
 

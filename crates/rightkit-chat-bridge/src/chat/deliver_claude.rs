@@ -2064,7 +2064,7 @@ impl ConnectionSlot {
     /// A slot, or None (logged) when 64 connections are already open.
     fn take() -> Option<ConnectionSlot> {
         let taken = OPEN_REPLIES
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
                 (n < MAX_REPLY_CONNECTIONS).then_some(n + 1)
             })
             .is_ok();

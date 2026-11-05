@@ -173,6 +173,18 @@ pub(crate) fn delete_message_recipients(
     Ok(())
 }
 
+/// One backfill scan row: rowid, account, message id, then the header columns.
+type BackfillRow = (
+    i64,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
 /// One-time batched backfill from the existing header-string columns into
 /// `message_recipients`, run inside the v11 migration txn. Batches by rowid
 /// range so a large mailbox doesn't build one giant prepared-statement list;
@@ -184,16 +196,7 @@ pub(crate) fn backfill_message_recipients(conn: &Connection) -> Result<usize, St
     let mut inserted = 0usize;
     let mut last_rowid = 0i64;
     loop {
-        let rows: Vec<(
-            i64,
-            String,
-            String,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        )> = crate::db::query_map_collect(
+        let rows: Vec<BackfillRow> = crate::db::query_map_collect(
             conn,
             "SELECT rowid, account_id, id, from_addr, from_name, to_addrs, cc_addrs, bcc_addrs
                  FROM messages WHERE rowid > ?1 ORDER BY rowid ASC LIMIT ?2",

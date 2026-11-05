@@ -107,7 +107,7 @@ pub fn delivery_recorded_payload(
 
 /// Stages of the start sequence (issue #160). Production and tests implement
 /// the same trait; the order lives only in `run_start_sequence`.
-pub(crate) trait StartSteps {
+pub trait StartSteps {
     /// Observe the hotkey-time target. Evidence only; never a destination.
     fn observe_target(&mut self);
     /// Allocate the session/interaction (prepare under the runtime lock).

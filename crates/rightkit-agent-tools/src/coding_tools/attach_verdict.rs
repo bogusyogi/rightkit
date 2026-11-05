@@ -16,7 +16,7 @@ pub(crate) fn host_trust_store() -> Option<std::path::PathBuf> {
     use rightkit_app_settings::agent_config::{state_root, workspace_trust_store_path};
     let path = workspace_trust_store_path();
     let overridden = std::env::var_os(WORKSPACE_TRUST_STORE_ENV)
-        .is_some_and(|v| std::path::PathBuf::from(v) == path);
+        .is_some_and(|v| std::path::Path::new(&v) == path.as_path());
     let under_state_root = state_root().is_some_and(|root| path.starts_with(root));
     (overridden || under_state_root).then_some(path)
 }

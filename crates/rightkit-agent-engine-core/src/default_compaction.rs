@@ -276,20 +276,6 @@ impl FallibleSummarizer for ActiveModelCompactionSummarizer {
     }
 }
 
-/// Default fail-closed summarizer built from the live session model, with no
-/// compaction-stage route resolver wired. Kept for callers that have not
-/// (yet) injected a [`CompactionModelRouteResolver`] -- behavior is
-/// unchanged from before S:E2: the chat-turn model writes every summary.
-///
-/// `SessionEngine::new` should migrate to
-/// [`build_default_summarizer_with_route_resolver`] once the orchestrator
-/// wires a provider-catalog resolver through the hub (see the module-level
-/// wiring note); this function remains for compatibility until that lands.
-#[cfg(test)]
-pub(crate) fn build_default_summarizer(llm: Arc<dyn LlmClient>) -> Arc<dyn FallibleSummarizer> {
-    build_default_summarizer_with_route_resolver(llm, None)
-}
-
 /// S:E2: default summarizer that actually consults
 /// `WorkflowStageBindingV1::primary`/`fallbacks` through `route_resolver`
 /// before falling back to the passed-in chat-turn `llm`. This is the

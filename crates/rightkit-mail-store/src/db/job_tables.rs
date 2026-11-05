@@ -82,7 +82,7 @@ pub(crate) fn pending_ops_table() -> &'static JobTable {
 }
 
 /// Create both job tables (and the crate's side tables) on `conn`. Idempotent.
-pub(crate) fn init_schemas(conn: &Connection) -> Result<(), JobError> {
+pub(crate) fn init_schemas(conn: &Connection) -> Result<(), Box<JobError>> {
     outbox_table().init_schema(conn)?;
     pending_ops_table().init_schema(conn)?;
     Ok(())

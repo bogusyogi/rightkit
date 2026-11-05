@@ -123,6 +123,11 @@ pub unsafe extern "C" fn host_mobile_bytes_free(pointer: *mut u8, len: usize) {
 
 /// Execute a typed workspace Git operation from JSON. Returned JSON is
 /// always `{ok,value}` or `{ok:false,error}` and excludes credentials.
+///
+/// # Safety
+/// `request_json` must be null or a valid NUL-terminated UTF-8 C string. Null
+/// or invalid UTF-8 yields a JSON error. The returned string is owned by the
+/// caller and must be released with [`host_mobile_string_free`].
 #[no_mangle]
 pub unsafe extern "C" fn host_mobile_git_execute(request_json: *const c_char) -> *mut c_char {
     let Some(raw) = (unsafe { borrow_str(request_json) }) else {
@@ -288,6 +293,11 @@ pub unsafe extern "C" fn host_mobile_runtime_update_cloudflare_credential(
 }
 
 /// Register one deferred work item owned by this embedded session.
+///
+/// # Safety
+/// `handle` must be a live handle from [`host_mobile_runtime_new`] that has not
+/// been freed; a null handle is refused. `tool_call_id` must be null or a valid
+/// NUL-terminated UTF-8 C string.
 #[no_mangle]
 pub unsafe extern "C" fn host_mobile_runtime_defer_inbox_work(
     handle: *mut RuntimeHandle,
@@ -317,6 +327,11 @@ pub unsafe extern "C" fn host_mobile_runtime_defer_inbox_work(
 }
 
 /// Resolve one deferred item & publish its completion to this session inbox.
+///
+/// # Safety
+/// `handle` must be a live handle from [`host_mobile_runtime_new`] that has not
+/// been freed; a null handle is refused. `tool_call_id`, `content` and
+/// `data_json` must each be null or a valid NUL-terminated UTF-8 C string.
 #[no_mangle]
 pub unsafe extern "C" fn host_mobile_runtime_resolve_inbox_work(
     handle: *mut RuntimeHandle,
@@ -373,6 +388,11 @@ pub unsafe extern "C" fn host_mobile_runtime_resolve_inbox_work(
 }
 
 /// Publish one iOS-local completion outside active turn flow.
+///
+/// # Safety
+/// `handle` must be a live handle from [`host_mobile_runtime_new`] that has not
+/// been freed; a null handle is refused. `channel`, `body` and `data_json` must
+/// each be null or a valid NUL-terminated UTF-8 C string.
 #[no_mangle]
 pub unsafe extern "C" fn host_mobile_runtime_post_local_inbox_message(
     handle: *mut RuntimeHandle,
@@ -429,6 +449,11 @@ pub unsafe extern "C" fn host_mobile_runtime_post_local_inbox_message(
 }
 
 /// Read a bounded oldest-first inbox snapshot as JSON.
+///
+/// # Safety
+/// `handle` must be a live handle from [`host_mobile_runtime_new`] that has not
+/// been freed; a null handle is refused. The returned string is owned by the
+/// caller and must be released with [`host_mobile_string_free`].
 #[no_mangle]
 pub unsafe extern "C" fn host_mobile_runtime_read_async_inbox(
     handle: *mut RuntimeHandle,
@@ -452,6 +477,10 @@ pub unsafe extern "C" fn host_mobile_runtime_read_async_inbox(
 }
 
 /// Acknowledge all inbox messages through `through_id`.
+///
+/// # Safety
+/// `handle` must be a live handle from [`host_mobile_runtime_new`] that has not
+/// been freed; a null handle is refused.
 #[no_mangle]
 pub unsafe extern "C" fn host_mobile_runtime_acknowledge_async_inbox(
     handle: *mut RuntimeHandle,
@@ -551,6 +580,12 @@ pub unsafe extern "C" fn host_mobile_runtime_checkpoint(handle: *mut RuntimeHand
 
 /// Generate a recap from this runtime's actual transcript. The response is a
 /// JSON string or null; failure detail is available through `last_error`.
+///
+/// # Safety
+/// `handle` must be a live handle from [`host_mobile_runtime_new`] that has not
+/// been freed; a null handle is refused. A null return signals failure; the
+/// caller owns any non-null string and must release it with
+/// [`host_mobile_string_free`].
 #[no_mangle]
 pub unsafe extern "C" fn host_mobile_runtime_session_recap(
     handle: *mut RuntimeHandle,
@@ -579,6 +614,12 @@ pub unsafe extern "C" fn host_mobile_runtime_session_recap(
 
 /// Generate complete recap/follow-up/pinned-knowledge briefing from current
 /// local session. The host displays it but never auto-submits its suggestion.
+///
+/// # Safety
+/// `handle` must be a live handle from [`host_mobile_runtime_new`] that has not
+/// been freed; a null handle is refused. A null return signals failure; the
+/// caller owns any non-null string and must release it with
+/// [`host_mobile_string_free`].
 #[no_mangle]
 pub unsafe extern "C" fn host_mobile_runtime_session_briefing(
     handle: *mut RuntimeHandle,
@@ -606,6 +647,12 @@ pub unsafe extern "C" fn host_mobile_runtime_session_briefing(
 }
 
 /// Create one explicit, durable local autonomous-audit goal.
+///
+/// # Safety
+/// `handle` must be a live handle from [`host_mobile_runtime_new`] that has not
+/// been freed; a null handle is refused. `goal` must be null or a valid NUL-
+/// terminated UTF-8 C string. The returned string is owned by the caller and
+/// must be released with [`host_mobile_string_free`].
 #[no_mangle]
 pub unsafe extern "C" fn host_mobile_runtime_goal_create(
     handle: *mut RuntimeHandle,
@@ -638,6 +685,12 @@ pub unsafe extern "C" fn host_mobile_runtime_goal_create(
 }
 
 /// Current local goal state, encoded as JSON or `null` when no goal exists.
+///
+/// # Safety
+/// `handle` must be a live handle from [`host_mobile_runtime_new`] that has not
+/// been freed; a null handle is refused. The returned string, or null, is owned
+/// by the caller and must be released with [`host_mobile_string_free`] when
+/// non-null.
 #[no_mangle]
 pub unsafe extern "C" fn host_mobile_runtime_goal_status(
     handle: *mut RuntimeHandle,
@@ -659,6 +712,12 @@ pub unsafe extern "C" fn host_mobile_runtime_goal_status(
 }
 
 /// Run a bounded progress-audit loop for an already-created local goal.
+///
+/// # Safety
+/// `handle` must be a live handle from [`host_mobile_runtime_new`] that has not
+/// been freed; a null handle is refused. The returned string, or null, is owned
+/// by the caller and must be released with [`host_mobile_string_free`] when
+/// non-null.
 #[no_mangle]
 pub unsafe extern "C" fn host_mobile_runtime_goal_audit(handle: *mut RuntimeHandle) -> *mut c_char {
     if handle.is_null() {
@@ -685,6 +744,12 @@ pub unsafe extern "C" fn host_mobile_runtime_goal_audit(handle: *mut RuntimeHand
 
 /// Stop an in-flight or future local goal audit. Returns JSON null when no
 /// goal was created for this session.
+///
+/// # Safety
+/// `handle` must be a live handle from [`host_mobile_runtime_new`] that has not
+/// been freed; a null handle is refused. The returned string, or null, is owned
+/// by the caller and must be released with [`host_mobile_string_free`] when
+/// non-null.
 #[no_mangle]
 pub unsafe extern "C" fn host_mobile_runtime_goal_stop(handle: *mut RuntimeHandle) -> *mut c_char {
     if handle.is_null() {
@@ -719,6 +784,12 @@ struct DiffWalkthroughResponseHunk {
 
 /// Generate an explicitly requested diff walkthrough. The caller supplies
 /// current diff bytes, so no stale workspace snapshot is implied.
+///
+/// # Safety
+/// `handle` must be a live handle from [`host_mobile_runtime_new`] that has not
+/// been freed; a null handle is refused. `request_json` must be null or a valid
+/// NUL-terminated UTF-8 C string. The returned string, or null, is owned by the
+/// caller and must be released with [`host_mobile_string_free`] when non-null.
 #[no_mangle]
 pub unsafe extern "C" fn host_mobile_runtime_diff_walkthrough(
     handle: *mut RuntimeHandle,
@@ -1258,6 +1329,11 @@ struct MobileCapabilityCatalogRequest {
 /// Return capabilities with actual iOS On-Demand Resource availability.
 /// Request: `{fetchedResourcePacks: [String], onDeviceInferenceAvailable: Bool,
 /// wasmComputeAvailable: Bool}`. Caller owns result.
+///
+/// # Safety
+/// `request_json` must be null or a valid NUL-terminated UTF-8 C string. The
+/// returned string is owned by the caller and must be released with
+/// [`host_mobile_string_free`].
 #[no_mangle]
 pub unsafe extern "C" fn host_mobile_runtime_dispatch_capabilities_with_resources(
     request_json: *const c_char,
@@ -1399,6 +1475,11 @@ fn default_probe_workspace() -> String {
 /// tools are invoked through the same tool implementation used by the mobile
 /// runtime; missing orchestration links and external artifacts return their
 /// typed unavailable reason rather than a fabricated success.
+///
+/// # Safety
+/// `request_json` must be null or a valid NUL-terminated UTF-8 C string. The
+/// returned string is owned by the caller and must be released with
+/// [`host_mobile_string_free`].
 #[no_mangle]
 pub unsafe extern "C" fn host_mobile_runtime_dispatch_capability(
     request_json: *const c_char,

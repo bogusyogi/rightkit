@@ -552,10 +552,9 @@ impl StreamDrain {
                 // so a stalled producer never strands the tail of a delta.
                 let read = if live && !carry.is_empty() {
                     let deadline = last_flush + DELTA_FLUSH_INTERVAL;
-                    match tokio::time::timeout_at(deadline, stream.read(&mut buf)).await {
-                        Ok(r) => Some(r),
-                        Err(_) => None,
-                    }
+                    tokio::time::timeout_at(deadline, stream.read(&mut buf))
+                        .await
+                        .ok()
                 } else {
                     Some(stream.read(&mut buf).await)
                 };

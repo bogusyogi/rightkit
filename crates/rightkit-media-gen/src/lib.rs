@@ -8,7 +8,10 @@
     clippy::slow_vector_initialization,
     clippy::repeat_vec_with_capacity,
     clippy::large_enum_variant,
-    clippy::type_complexity
+    clippy::type_complexity,
+    // JobStore read/write closures return rightkit-job-queue's JobResult and GenError carries structured details by design;
+    // both crates allow this lint for the same reason (rightkit-job-queue lib.rs).
+    clippy::result_large_err
 )]
 
 pub mod api;

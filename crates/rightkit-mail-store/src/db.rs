@@ -178,14 +178,6 @@ pub fn open_read_pool(db_path: &str) -> Option<ReadPool> {
         .ok()
 }
 
-/// Open a connection, apply the SQLCipher key, and verify it decrypts the file
-/// (or initializes a fresh one). Returns the keyed, verified writer connection.
-pub(crate) fn open_keyed(db_path: &Path, key: &str) -> Result<Connection, String> {
-    db_options(db_path, key)
-        .open_writer()
-        .map_err(|e| format!("open database: {e}"))
-}
-
 /// Truncate the WAL back into the main DB file. Called at sync-PASS boundaries
 /// (after the writer lock/txn for the pass has been released) and at
 /// quit/lock (NOT at open: see `open_at`), so the WAL can't grow unbounded: the app keeps a

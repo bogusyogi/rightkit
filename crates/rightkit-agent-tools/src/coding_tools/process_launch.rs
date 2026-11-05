@@ -345,7 +345,7 @@ async fn spawn_pty_with_decision(
             enforced: true,
             network_enforced: decision.tier.denies_network(),
         };
-        return crate::coding_tools::managed_pty::spawn(&spec, size, &program, &argv, proof, None);
+        crate::coding_tools::managed_pty::spawn(&spec, size, &program, &argv, proof, None)
     }
 
     #[cfg(any(target_os = "windows", target_os = "linux"))]

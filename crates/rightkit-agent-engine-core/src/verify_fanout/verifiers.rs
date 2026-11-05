@@ -960,6 +960,8 @@ pub(crate) fn launch_read_roots_env(read_roots: &[PathBuf]) -> Vec<(String, Stri
 }
 
 #[cfg(feature = "host")]
+// VerifierOutcome is the verifier result contract shared by every verifier; boxing it would change them all.
+#[allow(clippy::result_large_err)]
 async fn run_process_capture(
     verifier: &VerifierId,
     spec_id: &str,

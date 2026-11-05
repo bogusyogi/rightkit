@@ -12,9 +12,8 @@
 //! push and freshness logic behind `explicit_memory_response`; the
 //! endpoint's ops (`pull`, `push`, `blueprint`, `status`, `hook`) are answered in `service`.
 
-use crate::catalog::{self, ContextCatalog, CATALOG_SCHEMA_VERSION};
+use crate::catalog::ContextCatalog;
 use crate::memdb::MemDb;
-use crate::pull::planner::{ContextCandidateSetV1, PlannerError, PlannerInput};
 use crate::scope::{normalize_scope, scope_chain};
 use crate::store::{
     ExternalLifecycleStage, MemoryBatchError, MemoryBatchRequest, MemoryEventContext,
@@ -30,7 +29,6 @@ use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
 const MAX_BODY_BYTES: usize = 1 << 20;
-const MAX_PUSH_BODY_BYTES: usize = 8 << 20;
 
 /// Existing request-owned control passed into Push by the transport integrator.
 /// Serve owns request lifetime; Push only observes this control.
@@ -2945,8 +2943,8 @@ mod sys {
     unsafe extern "C" {
         fn signal(signum: c_int, handler: usize) -> usize;
         fn pipe(fds: *mut c_int) -> c_int;
-        fn read(fd: c_int, buf: *mut u8, count: usize) -> isize;
-        fn write(fd: c_int, buf: *const u8, count: usize) -> isize;
+        fn read(fd: c_int, buf: *mut std::ffi::c_void, count: usize) -> isize;
+        fn write(fd: c_int, buf: *const std::ffi::c_void, count: usize) -> isize;
     }
 
     extern "C" fn on_stop(_signal: c_int) {
@@ -2955,7 +2953,7 @@ mod sys {
         if fd >= 0 {
             let byte = 1u8;
             unsafe {
-                write(fd, &byte, 1);
+                write(fd, std::ptr::addr_of!(byte).cast(), 1);
             }
         }
     }
@@ -2970,7 +2968,7 @@ mod sys {
         }
         let mut byte = 0u8;
         unsafe {
-            read(fd, &mut byte, 1);
+            read(fd, std::ptr::addr_of_mut!(byte).cast(), 1);
         }
     }
 

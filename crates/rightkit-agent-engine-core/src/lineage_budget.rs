@@ -65,7 +65,7 @@ impl LineageBudget {
     fn add_spent(&self, amount: u64) {
         let _ = self
             .spent_microusd
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |current| {
                 Some(current.saturating_add(amount))
             });
     }
@@ -74,7 +74,7 @@ impl LineageBudget {
         let ceiling = self.ceiling_microusd.unwrap_or(0);
         let _ =
             self.remaining_microusd
-                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                .try_update(Ordering::AcqRel, Ordering::Acquire, |current| {
                     Some(current.saturating_add(amount).min(ceiling))
                 });
     }

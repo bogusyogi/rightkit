@@ -15,6 +15,7 @@
 //!     prefixed by `export` / `declare`)
 //!   - generic parameters on `function` declarations and explicit type
 //!     arguments on calls / `new` (`new Map<string, number>()`)
+//!
 //! Not supported: enums, namespaces, classes with modifiers, decorators,
 //! conditional types, arrow generics (`<T>(x) =>`).
 //!

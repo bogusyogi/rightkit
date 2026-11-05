@@ -89,8 +89,8 @@ impl WasmRuntime for MobileWasmRuntime {
             .copied()
             .ok_or(WasmComputeError::RuntimeNotConfigured)?;
         let request = serde_json::json!({
-            "module_base64": rightkit_crypto::base64_encode(&*module),
-            "input_base64": rightkit_crypto::base64_encode(&*input),
+            "module_base64": rightkit_crypto::base64_encode(module),
+            "input_base64": rightkit_crypto::base64_encode(input),
             "max_memory_bytes": bounds.max_memory_bytes,
             "max_fuel": bounds.max_fuel,
             "max_wall_time_ms": bounds.max_wall_time_ms,

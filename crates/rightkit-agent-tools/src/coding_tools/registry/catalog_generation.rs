@@ -22,7 +22,7 @@ impl ToolCatalogGenerationTracker {
         definitions: &[serde_json::Value],
     ) -> Result<ToolCatalogSnapshot, serde_json::Error> {
         let encoded = serde_json::to_vec(definitions)?;
-        let digest: [u8; 32] = rightkit_crypto::sha256(AsRef::<[u8]>::as_ref(&encoded)).into();
+        let digest: [u8; 32] = rightkit_crypto::sha256(AsRef::<[u8]>::as_ref(&encoded));
         if self.last_digest != Some(digest) {
             self.generation = self.generation.saturating_add(1);
             self.last_digest = Some(digest);

@@ -241,16 +241,6 @@ impl SessionEngine {
         decisions
     }
 
-    #[cfg(test)]
-    pub(super) fn apply_pre_tool_middleware(
-        &self,
-        call: &mut ToolCall,
-    ) -> Vec<AppliedMiddlewareDecision> {
-        let mut decisions = self.apply_pre_tool_arg_transforms(call);
-        decisions.extend(self.evaluate_pre_tool_policy(call));
-        decisions
-    }
-
     pub(super) fn apply_pre_tool_arg_transforms(
         &self,
         call: &mut ToolCall,

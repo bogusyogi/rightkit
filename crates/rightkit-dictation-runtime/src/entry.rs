@@ -74,7 +74,7 @@ pub fn run() -> anyhow::Result<()> {
         {
             let policy = "default";
             let conditioned = rightkit_dictation_core::audio_conditioning::condition_for_asr(
-                &samples, 16_000, &policy,
+                &samples, 16_000, policy,
             );
             let probe_start = result
                 .attempts

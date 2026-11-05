@@ -2470,18 +2470,6 @@ fn db_path(db: &MemDb) -> Option<PathBuf> {
         })
 }
 
-fn detailed_database_status(
-    probe: crate::memdb::MemDbProbe,
-    memory_count: Option<i64>,
-    startup_wal_degraded: bool,
-) -> &'static str {
-    match (probe, memory_count) {
-        (crate::memdb::MemDbProbe::Ok, Some(0)) => "empty",
-        (crate::memdb::MemDbProbe::Ok, _) if startup_wal_degraded => "degraded",
-        _ => probe.status(),
-    }
-}
-
 fn workspace_root_for_store(db_path: Option<&Path>) -> Option<PathBuf> {
     let db_path = db_path?;
     // The database's own path is authoritative whenever it sits under the
@@ -8345,42 +8333,6 @@ impl MemoryStore {
             "last_persist_error": h.last_persist_error,
             "query_embedding_cache": query_embedding_cache,
         })
-    }
-
-    /// Detailed service health adds a nonblocking, point-in-time probe of the live SQLite handle.
-    /// This is separate from `health_json` so ordinary in-process status reads retain their legacy
-    /// behavior and cannot fail merely because another operation briefly owns the one connection.
-    pub(crate) fn detailed_health_json(&self) -> serde_json::Value {
-        let mut health = self.health_json();
-        let database = self.db.health_probe();
-        // A structurally reachable database can still be semantically empty (e.g. the service
-        // opened the wrong file, or the corpus was lost). Zero rows in a database that exists is
-        // degraded, not ok — surface the count and a non-"ok" status so an empty corpus cannot
-        // read as healthy, without overloading the probe's busy/error taxonomy.
-        let memory_count: Option<i64> = if database == crate::memdb::MemDbProbe::Ok {
-            self.db
-                .lock()
-                .query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))
-                .ok()
-        } else {
-            None
-        };
-        let startup_wal = self.db.startup_wal_reports();
-        let startup_wal_degraded = startup_wal.iter().any(|report| report.status != "ok");
-        let database_status =
-            detailed_database_status(database, memory_count, startup_wal_degraded);
-        health["database"] = serde_json::json!({
-            "status": database_status,
-            "memoryCount": memory_count,
-            "startupWal": {
-                "main": startup_wal[0],
-                "eventLedger": startup_wal[1],
-            },
-        });
-        if database != crate::memdb::MemDbProbe::Ok || startup_wal_degraded {
-            health["ok"] = serde_json::Value::Bool(false);
-        }
-        health
     }
 
     fn persist_error(&self, err: String) -> String {

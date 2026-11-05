@@ -236,6 +236,11 @@ fn result_json<T: Serialize>(result: Result<T, String>) -> *mut c_char {
 
 /// Import a strict named fleet plus user-owned shared context.
 /// Request: `{storageDir, manifestJson, sharedContext: {section: content}}`.
+///
+/// # Safety
+/// `request_json` must be null or a valid NUL-terminated UTF-8 C string; null
+/// or invalid UTF-8 yields an `{ok:false}` JSON error. The returned string is
+/// owned by the caller and must be released with `host_mobile_string_free`.
 #[no_mangle]
 pub unsafe extern "C" fn host_mobile_team_fleet_import(request_json: *const c_char) -> *mut c_char {
     result_json((|| {
@@ -248,6 +253,11 @@ pub unsafe extern "C" fn host_mobile_team_fleet_import(request_json: *const c_ch
 /// Dispatch to one named peer after an explicit host-side user approval.
 /// Request adds `{requesterPeerId, targetPeerId, task, depth, userApproved}`.
 /// This returns after durable mailbox admission; it never waits on peer work.
+///
+/// # Safety
+/// `request_json` must be null or a valid NUL-terminated UTF-8 C string; null
+/// or invalid UTF-8 yields an `{ok:false}` JSON error. The returned string is
+/// owned by the caller and must be released with `host_mobile_string_free`.
 #[no_mangle]
 pub unsafe extern "C" fn host_mobile_team_fleet_dispatch_after_user_approval(
     request_json: *const c_char,
@@ -260,6 +270,11 @@ pub unsafe extern "C" fn host_mobile_team_fleet_dispatch_after_user_approval(
 
 /// Read outstanding direct work for one named peer. Shared context is only a
 /// prompt fragment in this projection: this bridge exposes no agent write API.
+///
+/// # Safety
+/// `request_json` must be null or a valid NUL-terminated UTF-8 C string; null
+/// or invalid UTF-8 yields an `{ok:false}` JSON error. The returned string is
+/// owned by the caller and must be released with `host_mobile_string_free`.
 #[no_mangle]
 pub unsafe extern "C" fn host_mobile_team_fleet_receive(
     request_json: *const c_char,
@@ -282,6 +297,11 @@ pub unsafe extern "C" fn host_mobile_team_fleet_receive(
 /// Project one queued peer delegation into its target's exact prompt without
 /// consuming mailbox work. Shared context is injected read-only; a later
 /// local peer-runtime turn owns execution and acknowledgement.
+///
+/// # Safety
+/// `request_json` must be null or a valid NUL-terminated UTF-8 C string; null
+/// or invalid UTF-8 yields an `{ok:false}` JSON error. The returned string is
+/// owned by the caller and must be released with `host_mobile_string_free`.
 #[no_mangle]
 pub unsafe extern "C" fn host_mobile_team_fleet_execute_next(
     request_json: *const c_char,

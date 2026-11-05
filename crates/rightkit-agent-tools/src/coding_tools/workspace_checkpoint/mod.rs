@@ -514,10 +514,7 @@ pub fn find_turn_checkpoint(
         }
         // `list()` is oldest-first, so `>=` lets a later retake of the same
         // turn number win.
-        if best
-            .as_ref()
-            .map_or(true, |(current, _)| number >= *current)
-        {
+        if best.as_ref().is_none_or(|(current, _)| number >= *current) {
             best = Some((number, record));
         }
     }

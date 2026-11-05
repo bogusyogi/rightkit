@@ -1003,8 +1003,10 @@ impl MobileRuntime {
                     ))
                 })?
             };
-            let mut config = rightkit_agent_orchestration::coding::goal_loop::GoalLoopConfig::default();
-            config.interval = std::time::Duration::from_millis(250);
+            let config = rightkit_agent_orchestration::coding::goal_loop::GoalLoopConfig {
+                interval: std::time::Duration::from_millis(250),
+                ..Default::default()
+            };
             let budget = rightkit_agent_orchestration::coding::small_model_utility::SmallModelBudget::new(
                 config.max_iterations,
                 config.max_iterations

@@ -459,7 +459,7 @@ pub(crate) fn migrate_with(
         let db_name = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| super::db_file());
+            .unwrap_or_else(super::db_file);
         options.backup_name = Some(std::sync::Arc::new(backup_name_for(db_name)));
         options.verify_backup = Some(std::sync::Arc::new(verify_backup_with(
             plan.key.to_string(),

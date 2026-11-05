@@ -331,7 +331,7 @@ pub(crate) fn transcribe_probe_buffer_timed(
     let conditioned = rightkit_dictation_core::audio_conditioning::condition_for_asr(
         buffer,
         SAMPLE_RATE,
-        &audio_policy,
+        audio_policy,
     );
     model.transcribe_probe_result(&conditioned)
 }

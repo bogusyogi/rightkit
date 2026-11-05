@@ -12,8 +12,6 @@ use crate::host::ffmpeg::FfmpegBinary;
 use rightkit_child_process::{OwnedCommand, RunOptions};
 use serde_json::{json, Map, Value};
 use std::fs;
-#[cfg_attr(not(any(target_os = "macos", windows)), allow(unused_imports))]
-use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Mutex;
@@ -1215,8 +1213,7 @@ fn monitor_blender(
     };
     let mut last_event: Option<Value> = None;
     let mut encode: Option<EncodeRun> = None;
-    #[cfg_attr(not(any(target_os = "macos", windows)), allow(unused_mut))]
-    let mut result: Option<(String, Option<i32>, bool, Option<String>)>;
+    let result: Option<(String, Option<i32>, bool, Option<String>)>;
     loop {
         for event in event_rx.try_iter() {
             last_event = Some(event);

@@ -374,7 +374,6 @@ fn acquire_owner_lock() -> Result<crate::service::EngineOwner, String> {
     let runtime = crate::service::Runtime {
         workspace_root: state,
         db: cortex_db_path(),
-        origin: "installed",
         stable_current: None,
         version_root: None,
     };

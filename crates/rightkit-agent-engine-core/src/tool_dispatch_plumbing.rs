@@ -480,26 +480,6 @@ pub enum EffectAdmissionStage {
     Settle,
 }
 
-impl EffectAdmissionStage {
-    /// The canonical order. A surface may legitimately SKIP a stage that does
-    /// not apply to it (a read-only call needs no approval), but it may never
-    /// reorder them, and it may never reach `Execute` after a denial.
-    #[cfg(test)]
-    pub fn canonical_order() -> [EffectAdmissionStage; 9] {
-        [
-            Self::Validate,
-            Self::Transform,
-            Self::Normalize,
-            Self::Policy,
-            Self::Approval,
-            Self::Resource,
-            Self::Execute,
-            Self::Verify,
-            Self::Settle,
-        ]
-    }
-}
-
 /// Records the admission stages one effect traversed, so a fixture can prove
 /// that different surfaces converge on the same authority.
 #[derive(Debug, Default)]
@@ -527,32 +507,5 @@ impl EffectAdmissionTrace {
         if let Ok(mut stages) = self.stages.lock() {
             stages.push((call_id.to_string(), stage));
         }
-    }
-
-    #[cfg(test)]
-    pub fn stages_for(&self, call_id: &str) -> Vec<EffectAdmissionStage> {
-        self.stages
-            .lock()
-            .map(|stages| {
-                stages
-                    .iter()
-                    .filter(|(id, _)| id == call_id)
-                    .map(|(_, stage)| *stage)
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    /// True when the recorded stages appear in canonical order (skips allowed).
-    #[cfg(test)]
-    pub fn is_canonically_ordered(&self, call_id: &str) -> bool {
-        let observed = self.stages_for(call_id);
-        observed.windows(2).all(|pair| pair[0] <= pair[1])
-    }
-
-    #[cfg(test)]
-    pub fn reached_execute(&self, call_id: &str) -> bool {
-        self.stages_for(call_id)
-            .contains(&EffectAdmissionStage::Execute)
     }
 }

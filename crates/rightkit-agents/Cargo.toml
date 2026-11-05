@@ -19,7 +19,7 @@ codex = []
 # Session lifecycle: spawn, event stream, approvals, cancel, tree teardown. Pulls in both protocol clients.
 session = ["claude", "codex"]
 agent_acp = []
-driver_host = ["dep:rightkit-crypto", "dep:async-trait", "dep:rightkit-agent-tools", "rightkit-child-process/tokio", "dep:rightkit-app-settings", "dep:rightkit-sandbox", "dep:rightkit-fs", "dep:rightkit-sidecar", "dep:rightkit-time", "dep:thiserror", "dep:tokio", "dep:libc"]
+driver_host = ["claude", "codex", "dep:rightkit-crypto", "dep:async-trait", "dep:rightkit-agent-tools", "rightkit-child-process/tokio", "dep:rightkit-app-settings", "dep:rightkit-sandbox", "dep:rightkit-fs", "dep:rightkit-sidecar", "dep:rightkit-time", "dep:thiserror", "dep:tokio", "dep:libc"]
 
 [dependencies]
 rightkit-agent-engine-protocol = { version = "0.1.0", path = "../rightkit-agent-engine-protocol", optional = true }

@@ -795,8 +795,8 @@ impl SessionEngine {
                             continue;
                         }
                         if crate::overflow_recovery::is_reactive_context_overflow(&e) {
-                            let state = match reactive_overflow_recovery.overflow_detected() {
-                                Ok(state) => state,
+                            match reactive_overflow_recovery.overflow_detected() {
+                                Ok(_) => {}
                                 Err(_) => {
                                     self.record_session_end(
                                         session_span_id.as_deref(),
@@ -805,7 +805,7 @@ impl SessionEngine {
                                     );
                                     return Err(EngineError::Llm(e));
                                 }
-                            };
+                            }
                             if reactive_overflow_recovery.retry_budget_exhausted() {
                                 reactive_overflow_recovery.exhaust();
                                 self.emit_overflow_recovery_outcome(

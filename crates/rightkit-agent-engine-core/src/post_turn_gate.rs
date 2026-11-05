@@ -6,9 +6,6 @@
 use rightkit_agent_engine_protocol::ToolCall;
 use rightkit_hooks::agent_hooks::HookOutcome;
 
-#[cfg(test)]
-use crate::post_edit_diagnostics::{DiagnosticSeverity, DiagnosticSource, PostEditReport};
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PostTurnGateDecision {
     Proceed,
@@ -114,59 +111,6 @@ impl PostTurnGateState {
         self.consecutive_stop_blocks
     }
 
-    /// Build a reentry instruction from a typed diagnostic report. Errors and
-    /// unverified items always fail closed: the engine is told to fix the
-    /// files (or rule out the unverifiable claim) before continuing. Warnings
-    /// are surfaced but do NOT block the turn — that is a deliberate
-    /// difference from the prior string-prefix renderer.
-    #[cfg(test)]
-    pub fn after_diagnostics_report(&mut self, report: &PostEditReport) -> PostTurnGateDecision {
-        let blocking: Vec<_> = report
-            .findings
-            .iter()
-            .filter(|f| {
-                matches!(
-                    f.severity,
-                    DiagnosticSeverity::Error | DiagnosticSeverity::Unverified
-                )
-            })
-            .collect();
-
-        if blocking.is_empty() {
-            return PostTurnGateDecision::Proceed;
-        }
-
-        // Required diagnostic uncertainty or infrastructure failure fails
-        // closed: any Unverified finding means we lack the ability to certify
-        // the edit, so the turn does NOT proceed.
-        let has_unverified = blocking
-            .iter()
-            .any(|f| f.severity == DiagnosticSeverity::Unverified);
-        if has_unverified
-            && blocking
-                .iter()
-                .all(|f| f.severity == DiagnosticSeverity::Unverified)
-        {
-            self.diagnostic_infrastructure_failures += 1;
-            return PostTurnGateDecision::ForceFinish {
-                warning: format!(
-                    "[Loop-safety gate: required diagnostic infrastructure could not verify {} edited file(s); failing closed. Files: {}]",
-                    blocking.len(),
-                    blocking
-                        .iter()
-                        .map(|f| f.path.display().to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
-            };
-        }
-
-        PostTurnGateDecision::Reenter {
-            instruction: render_blocking_instruction(blocking.iter().copied()),
-            reason: "post_edit_diagnostics".into(),
-        }
-    }
-
     /// Decide what to do after the engine has aggregated one turn's
     /// mutations AND the post-edit diagnostics failed closed. Returns
     /// `ForceFinish` if the mutation list includes a successful tool whose
@@ -232,34 +176,4 @@ impl PostTurnGateState {
             }
         }
     }
-}
-
-#[cfg(test)]
-fn render_blocking_instruction<'a, I>(findings: I) -> String
-where
-    I: Iterator<Item = &'a crate::post_edit_diagnostics::DiagnosticFinding>,
-{
-    let mut sections: Vec<String> = Vec::new();
-    for finding in findings {
-        let label = match finding.severity {
-            DiagnosticSeverity::Error => "Error",
-            DiagnosticSeverity::Unverified => "Unverified",
-            DiagnosticSeverity::Warning => "Warning",
-        };
-        let source = match finding.source {
-            DiagnosticSource::StructuredConfig => "structured-config",
-            DiagnosticSource::LanguageServer => "language-server",
-        };
-        sections.push(format!(
-            "{} ({} via {}): {}",
-            finding.path.display(),
-            label,
-            source,
-            finding.message
-        ));
-    }
-    format!(
-        "[auto-diagnostics] Typed findings require fixing before this turn can proceed:\n\n{}",
-        sections.join("\n\n")
-    )
 }

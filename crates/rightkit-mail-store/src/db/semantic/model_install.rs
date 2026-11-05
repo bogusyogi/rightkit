@@ -101,7 +101,7 @@ pub fn bundle_spec() -> ModelSpec {
 
 /// The per-user model store.
 pub fn default_store() -> Store {
-    Store::new(store_root(), &store_app())
+    Store::new(store_root(), store_app())
 }
 
 /// The per-user models directory; a temp folder inside test binaries.

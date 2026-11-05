@@ -2,7 +2,7 @@
 //! repeat read of an unchanged file can be elided to a short reference instead
 //! of re-sending full contents to the model.
 
-use crate::cache::fnv1a;
+use rightkit_cache::prefix::fnv1a_64;
 use std::collections::HashMap;
 
 #[derive(Default)]
@@ -51,5 +51,5 @@ impl ReadCache {
 }
 
 fn content_hash(s: &str) -> String {
-    format!("{:016x}", fnv1a(s))
+    format!("{:016x}", fnv1a_64(s))
 }

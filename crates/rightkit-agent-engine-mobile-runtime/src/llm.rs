@@ -323,7 +323,7 @@ impl OnDeviceInferenceBackend for FoundationModelsBridgeBackend {
 enum Route {
     OpenAi(Box<OpenAiCompatClient>),
     Anthropic(Box<AnthropicCompatClient>),
-    Responses(ResponsesClient),
+    Responses(Box<ResponsesClient>),
 }
 
 struct ResponsesClient {
@@ -496,7 +496,7 @@ fn build_route(config: &ProviderConfig) -> Result<Route, RuntimeError> {
 
     let route = match config.protocol.to_ascii_lowercase().as_str() {
         "openai" | "openai-compatible" if uses_responses_api(config) => {
-            Route::Responses(ResponsesClient {
+            Route::Responses(Box::new(ResponsesClient {
                 http: responses_http_client(&config.base_url)
                     .map_err(|error| RuntimeError::Config(format!("HTTP client: {error}")))?,
                 extra_headers: headers,
@@ -504,7 +504,7 @@ fn build_route(config: &ProviderConfig) -> Result<Route, RuntimeError> {
                 api_key: config.api_key.clone(),
                 model: config.model.clone(),
                 reasoning_effort: reasoning_effort.clone(),
-            })
+            }))
         }
         "openai" | "openai-compatible" => {
             let mut client = OpenAiCompatClient::new(

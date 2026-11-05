@@ -26,6 +26,8 @@ type ProcessLaunchAuthority = (
 );
 
 #[cfg(feature = "host")]
+// ToolResult is the dispatch error contract shared by every caller; boxing it would change them all.
+#[allow(clippy::result_large_err)]
 fn required_process_launch_authority(
     tools: &rightkit_agent_tools::coding_tools::ToolRegistry,
     tool_name: &str,
@@ -1106,7 +1108,7 @@ fn output_ref_for(
 
 /// True when any of `definitions` (already filtered to enabled, local-plugin
 /// `PreToolCall` middleware) matches `call`. Reuses the exact same matcher
-/// `apply_pre_tool_middleware` applies on the sequential path, so a call
+/// the pre-tool middleware applies on the sequential path, so a call
 /// judged "unaffected" here really is unaffected there — no separate
 /// heuristic to drift out of sync with the real gate.
 fn pre_tool_middleware_matches_call(definitions: &[MiddlewareDefinition], call: &ToolCall) -> bool {

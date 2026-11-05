@@ -5,8 +5,10 @@
 //! It does not parse terminal escape sequences or own a terminal grid,
 //! scrollback, font shaping, rendering, tabs, or panes.
 
+#[cfg(all(unix, not(target_os = "linux")))]
+use portable_pty::{native_pty_system, CommandBuilder};
 #[cfg(unix)]
-use portable_pty::{native_pty_system, Child, ChildKiller, CommandBuilder, MasterPty};
+use portable_pty::{Child, ChildKiller, MasterPty};
 #[cfg(unix)]
 use rightkit_child_process::AdoptedSignal;
 #[cfg(unix)]
@@ -85,7 +87,10 @@ pub(crate) fn spawn(
 /// resolution before entering this function. `program`/`argv` may therefore
 /// be a sandbox wrapper around the original `spec` program on platforms where
 /// the native sandbox composes with a PTY.
-#[cfg(unix)]
+///
+/// Only the non-Linux Unix branch of [`spawn`] calls this (Linux and Windows
+/// use their own backends), so it is gated to that branch.
+#[cfg(all(unix, not(target_os = "linux")))]
 fn spawn_portable(
     spec: &CommandLaunchSpec,
     size: PtySize,

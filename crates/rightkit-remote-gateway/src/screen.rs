@@ -1387,6 +1387,13 @@ mod imp {
             },
             Action::Scroll { dx, dy } => format!("scroll {dx:.0},{dy:.0}"),
             Action::MenuPress(path) => format!("choose menu {}", path.join(" > ")),
+            Action::Drag { from, to, .. } => match from {
+                Some((x, y)) => format!("drag from {x:.0},{y:.0} to {:.0},{:.0}", to.0, to.1),
+                None => format!("drag to {:.0},{:.0}", to.0, to.1),
+            },
+            Action::FillSecret { origin, .. } => {
+                format!("fill a secret value into a field on {origin} (the value is never shown)")
+            }
         };
         match element {
             Some((role, name)) if name.is_empty() => format!("{what} on a {role}"),

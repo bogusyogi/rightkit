@@ -123,7 +123,7 @@ impl ObservedVersion {
             }
             hasher.update(&buffer[..read]);
         }
-        Ok(hasher.finalize_bytes().into())
+        Ok(hasher.finalize_bytes())
     }
 
     fn from_metadata(path: &Path, metadata: &std::fs::Metadata) -> Result<Self, String> {

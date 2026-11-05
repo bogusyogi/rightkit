@@ -43,10 +43,7 @@ impl ReplTool {
         // authority (admission + sandbox policy). REPL code is arbitrary
         // model code, so it must never own a launcher of its own.
         let governed = ctx.process_launch_adapter.is_some();
-        let adapter = {
-            let adapter = ctx.process_launch_adapter.clone();
-            adapter
-        };
+        let adapter = ctx.process_launch_adapter.clone();
         let Some(adapter) = adapter else {
             return Err(ToolResult::error(
                 "resource_limits_missing: process authority was not injected",

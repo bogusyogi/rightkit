@@ -273,7 +273,7 @@ pub fn ago(at: u64, now: u64) -> String {
             let hours = crate::host::tf("{} h", &[&(seconds / 3600).to_string()]);
             crate::host::tf("{} ago", &[&hours])
         }
-        86_400..=172_799 => crate::host::t("1 day ago"),
+        86_400..=172_799 => crate::host::t("1 day ago").to_string(),
         _ => crate::host::tf("{} days ago", &[&(seconds / 86_400).to_string()]),
     }
 }

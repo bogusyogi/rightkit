@@ -205,7 +205,7 @@ impl ConsentStore {
                 Err(error) => broken.push((path, error)),
             }
         }
-        receipts.sort_by(|a, b| b.granted_at_ms.cmp(&a.granted_at_ms));
+        receipts.sort_by_key(|receipt| std::cmp::Reverse(receipt.granted_at_ms));
         Ok((receipts, broken))
     }
 

@@ -341,7 +341,7 @@ pub fn tool_defs_for_messages(
 pub fn fixed_v1_tool_defs(tools: &ToolRegistry) -> Vec<serde_json::Value> {
     FIXED_V1_TOOL_NAMES
         .iter()
-        .filter_map(|name| tools.get(*name))
+        .filter_map(|name| tools.get(name))
         .map(|tool| {
             serde_json::json!({
                 "type": "function",

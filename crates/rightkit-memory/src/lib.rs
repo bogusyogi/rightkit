@@ -23,9 +23,6 @@ pub mod api_memright;
 pub mod blueprint_tools;
 #[cfg(feature = "agent_host")]
 #[allow(missing_docs, clippy::all, rustdoc::all, unused)]
-pub mod memory;
-#[cfg(feature = "agent_host")]
-#[allow(missing_docs, clippy::all, rustdoc::all, unused)]
 pub mod memory_provenance;
 #[cfg(feature = "agent_host")]
 #[allow(missing_docs, clippy::all, rustdoc::all, unused)]

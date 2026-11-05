@@ -44,7 +44,7 @@ impl WorkBudget {
     pub fn charge_bytes(&self, amount: usize) -> Result<(), String> {
         self.check()?;
         self.bytes
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
                 n.checked_add(amount)
                     .filter(|total| *total <= self.max_bytes)
             })
@@ -54,7 +54,7 @@ impl WorkBudget {
     pub fn visit(&self) -> Result<(), String> {
         self.check()?;
         self.items
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
                 n.checked_add(1).filter(|total| *total <= self.max_items)
             })
             .map(|_| ())
