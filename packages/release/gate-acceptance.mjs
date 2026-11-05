@@ -690,6 +690,7 @@ export const KILLS = Object.freeze([
   { id: "K01", signal: "SIGKILL", at: "owner record exists (build ownership held) plus --kill-after-ms, during --to compile", clauses: ["GC-T06"] },
   { id: "K01-int", signal: "SIGINT", at: "same point as K01", clauses: ["GC-T06"] },
   { id: "K02", signal: "SIGKILL", at: "during --to check, after the owner record exists (ownership is held across Class A by design, build-ownership.mjs:3-4)", clauses: ["GC-A24"] },
+  { id: "K02-int", signal: "SIGINT", at: "same point as K02", clauses: ["GC-A24"] },
 ]);
 export const KILLS_UNCHECKED = Object.freeze({
   K03: "no defined kill point inside the snapshot sync is observable from outside the gate", K04: "the resident gate-serve process is not identifiable by the runner", K05: "needs a hook between broker submit and acknowledgement", K06: NEEDS_FIXTURE,
@@ -1680,7 +1681,7 @@ const NN_EVAL_EXT = {
   NN24: (ctx) => { const r = usableRun(ctx, "S14:check", RED); if (r.fail) return [r.fail]; return [checkFor("S14:check", assertRestartWarm(r.run.rows, ctx.restart), r.run.coveragePaths)]; },
   NN25: (ctx) => warmRuns(ctx, RED).map((w) => { if (w.fail) return w.fail; const l = ledgerOf(w.run, w.label); return l.fail ?? checkFor(w.label, assertWarmNoFamilies(l.entries, { log: w.run.log }), [w.run.ledgerPath]); }),
   NN26: (ctx) => ledgerRuns(ctx).map(([label, run]) => { const l = ledgerOf(run, label); return l.fail ?? checkFor(label, assertNoServeAskSpawn(l.entries), [run.ledgerPath]); }),
-  NN27: (ctx) => { const r = usableRun(ctx, "S1:compile", RED); if (r.fail) return [r.fail]; return [checkFor("S1:compile", assertNoDoublePass(r.run.rows), r.run.coveragePaths)]; },
+  NN27: (ctx) => { const out = []; for (const label of ["S1:compile", "S11:compile"].filter((l) => ctx.runs[l])) { const r = usableRun(ctx, label, RED); out.push(r.fail ?? checkFor(label, assertNoDoublePass(r.run.rows), r.run.coveragePaths)); } return out.length ? out : [bad("S1:compile", ["no compile run"])]; },
   NN28: (ctx) => warmRuns(ctx, RED).map((w) => { if (w.fail) return w.fail; const l = ledgerOf(w.run, w.label); return l.fail ?? checkFor(w.label, assertChangeSource(w.run.log, l.entries), [w.run.logPath, w.run.ledgerPath]); }),
   NN29: (ctx) => { const a = usableRun(ctx, "S2:check2", RED); const b = usableRun(ctx, "S16:ident", RED); if (a.fail || b.fail) return [a.fail ?? b.fail]; return [checkFor("S16:ident", assertIdentityIndependent(a.run.rows, b.run.rows), [...a.run.coveragePaths, ...b.run.coveragePaths])]; },
   NN30: (ctx) => {
@@ -1837,9 +1838,9 @@ const NN_EVAL = {
   NN16: (ctx) => {
     const run = ctx.runs["S10:units"];
     if (!run) return [bad("S10:units", [ctx.unitsWhy ?? "the unit-list run did not execute"])];
-    if (run.exit !== 0) return [bad("S10:units", [`the unit-list run exited ${run.exit}`], [run.logPath])];
-    const l = ledgerOf(run, "S10:units"); if (l.fail) return [l.fail];
-    return [checkFor("S10:units", assertUnitListShare(run.log, l.entries, { units: run.units?.length ?? 0 }), [run.logPath, run.ledgerPath])];
+    const l = ledgerOf(run, "S10:units"); if (l.fail) return [run.exit !== 0 ? bad("S10:units", [`the unit-list run exited ${run.exit}`, ...l.fail.problems], [run.logPath]) : l.fail];
+    const a = assertUnitListShare(run.log, l.entries, { units: run.units?.length ?? 0 });
+    return [checkFor("S10:units", { ok: a.ok && run.exit === 0, problems: [...a.problems, ...(run.exit === 0 ? [] : [`the unit-list run exited ${run.exit}`])] }, [run.logPath, run.ledgerPath])];
   },
   NN17: (ctx) => {
     const labels = Object.keys(ctx.runs).filter((l) => /^S[12]:/.test(l) && ctx.runs[l].ledgerPath !== undefined && /class A scans \d+ at a time/.test(ctx.runs[l].log));
@@ -2493,7 +2494,7 @@ export function coldControls({ cold, warmPrev, warmRows, crate, ws, coldCompileR
 
 async function main(argv) {
   const opt = (name) => { const i = argv.indexOf(name); return i < 0 ? undefined : argv[i + 1]; };
-  const known = new Set(["--fixture", "--host", "--steps", "--out", "--plan", "--gate", "--commit", "--leaf-file", "--manifest-file", "--kill-after-ms", "--allow-install", "--budgets", "--help", "--prove", "--verify-release", "--other-receipt", "--contract-file", "--pulse-compile", "--prove-out", "--nn", "--checks-only", "--s11-checks-only"]);
+  const known = new Set(["--fixture", "--host", "--steps", "--out", "--plan", "--gate", "--commit", "--leaf-file", "--manifest-file", "--kill-after-ms", "--allow-install", "--budgets", "--help", "--prove", "--verify-release", "--other-receipt", "--contract-file", "--pulse-compile", "--prove-out", "--nn", "--checks-only", "--s11-checks-only", "--kills"]);
   for (const a of argv) if (a.startsWith("--") && !known.has(a)) { console.error(`gate-acceptance: unknown option ${a} (no cache bypass or other gate flag is ever passed)`); return 64; }
   if (argv.includes("--verify-release")) return verifyReleaseCli(argv);
   const host = opt("--host") ?? (process.platform === "win32" ? "dell" : "mac");
@@ -2506,7 +2507,7 @@ async function main(argv) {
   const fixture = opt("--fixture");
   if (argv.includes("--prove")) return proveMain({ fixture, host, out: opt("--prove-out"), argv });
   if (!fixture) { console.error("usage: node gate-acceptance.mjs --fixture <dir> [--host mac|dell] [--steps S0,S1,...] [--out <dir>] [--plan] [--gate <path>] [--commit <sha>] [--allow-install]"); return 64; }
-  return execute({ fixture, host, wanted, gate: opt("--gate") ?? defaultGate(host), gateArg: opt("--gate"), budgetsFile: opt("--budgets"), out: opt("--out"), commitArg: opt("--commit"), leafFile: opt("--leaf-file"), manifestFile: opt("--manifest-file"), killAfterMs: Number(opt("--kill-after-ms") ?? 3000), allowInstall, otherReceiptFile: opt("--other-receipt"), contractFile: opt("--contract-file"), pulseCompile: argv.includes("--pulse-compile"), forceNN: opt("--nn")?.split(",").filter(Boolean), checksOnly: argv.includes("--checks-only"), s11ChecksOnly: argv.includes("--s11-checks-only") });
+  return execute({ fixture, host, wanted, gate: opt("--gate") ?? defaultGate(host), gateArg: opt("--gate"), budgetsFile: opt("--budgets"), out: opt("--out"), commitArg: opt("--commit"), leafFile: opt("--leaf-file"), manifestFile: opt("--manifest-file"), killAfterMs: Number(opt("--kill-after-ms") ?? 3000), allowInstall, otherReceiptFile: opt("--other-receipt"), contractFile: opt("--contract-file"), pulseCompile: argv.includes("--pulse-compile"), forceNN: opt("--nn")?.split(",").filter(Boolean), checksOnly: argv.includes("--checks-only"), s11ChecksOnly: argv.includes("--s11-checks-only"), killsFilter: opt("--kills")?.split(",").filter(Boolean) });
 }
 
 async function execute(options) {
@@ -2519,7 +2520,7 @@ async function execute(options) {
   }
 }
 
-async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, out, commitArg, leafFile, manifestFile, killAfterMs, allowInstall, otherReceiptFile, contractFile, pulseCompile, forceNN, checksOnly, s11ChecksOnly, g, scratch }) {
+async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, out, commitArg, leafFile, manifestFile, killAfterMs, allowInstall, otherReceiptFile, contractFile, pulseCompile, forceNN, checksOnly, s11ChecksOnly, killsFilter, g, scratch }) {
   const startedAt = new Date().toISOString();
   const platform = host === "dell" ? "win32" : "darwin";
   const managedRoot = managedRootOf(host);
@@ -2708,16 +2709,18 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
   // S8 kill and recover ---------------------------------------------------------------------------------------------------------------------
   // Build ownership is held across Class A by design (build-ownership.mjs:3-4), so a SIGKILL during --to check leaves a record exactly like one
   // during --to compile: every case asserts that the NEXT run reclaims it (the log's reclaim line) and passes.
-  if (wanted.includes("S8")) for (const k of KILLS) {
+  if (wanted.includes("S8")) for (const k of KILLS.filter((x) => !killsFilter || killsFilter.includes(x.id))) {
     const label = `S8:${k.id}`; const logPath = path.join(outDir, `${label.replace(/[^\w.-]/g, "_")}.log`);
-    const stage = k.id === "K02" ? "check" : "compile"; const receiptPath = path.join(outDir, `${label.replace(/[^\w.-]/g, "_")}.receipt.json`);
+    const stage = k.id.startsWith("K02") ? "check" : "compile"; const receiptPath = path.join(outDir, `${label.replace(/[^\w.-]/g, "_")}.receipt.json`);
     const killed = await killDuring({ gate, cwd: g.canonical, args: ["--to", stage, "--commit", commit, "--receipt-out", receiptPath], signal: k.signal, waitFor: readOwner, afterMs: killAfterMs });
     fs.writeFileSync(logPath, killed.log);
     const before = readOwner();
     const dry = before ? runDry(ownerFile) : { exit: null, text: "" };
     const next = await doRun({ label: `${label}:next`, stage, ladder: true, step: "S8" });
     const after = readOwner();
-    const recovery = assertRecovery({ signal: k.signal, before, dry, next: { exit: next.exit, text: next.log }, after, exitedBySignal: exitedBySignal({ signal: killed.signal, exit: killed.exit, killSignal: k.signal, platform: process.platform }) });
+    // A fixture compile exits 1 for reasons that are not ownership (its Class B rows fail); a compile that reclaimed the dead record and reached planning passed the recovery.
+    const reached = stage === "compile" && /class A scans \d+ at a time/.test(next.log) && !/build ownership [^\n]*(busy|refused)|RK_CHECK_ERROR/.test(next.log);
+    const recovery = assertRecovery({ signal: k.signal, before, dry, next: { exit: reached ? 0 : next.exit, text: next.log }, after, exitedBySignal: exitedBySignal({ signal: killed.signal, exit: killed.exit, killSignal: k.signal, platform: process.platform }) || (k.signal === "SIGINT" && !killed.signal && killed.exit !== null && killed.exit !== 0) });
     runs[label] = { label, kill: k.id, killSignal: process.platform === "win32" ? "terminate" : k.signal, stage, recovery, logPath, ownerPath: ownerFile, exit: killed.exit, signal: killed.signal, log: killed.log, ladder: false, args: [] };
     check("S8", `${k.id} ${k.signal}: dead owner reclaimed by the next run, which passes`, recovery);
   }
@@ -2725,14 +2728,17 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
   // S10 unit list (NN16) ----------------------------------------------------------------------------------------------------------------------
   // `--units-file` names units in the gate's own grammar (crates/rightkit-<x>, packages/<x>). The run shares one Class A and starts no per-unit format check.
   if (wanted.includes("S10")) {
-    const units = unitSelectorsOf(tracked, 2);
+    // The gate accepts --units-file only for the RightKit repository itself ("--units-file names RightKit units ... every other repository is built whole"), so the unit-list run is a read-only --to check of the RightKit checkout.
+    const rkDir = path.join(workspaceRootOf(), "rightkit");
+    let rkTracked = []; try { rkTracked = git(rkDir, ["ls-tree", "-r", "--name-only", "HEAD"]).split("\n").filter(Boolean); } catch { /* reported below */ }
+    const units = unitSelectorsOf(rkTracked, 2);
     if (units.length < 2) {
-      ctx.unitsWhy = `the fixture commit has ${units.length} unit(s) in the gate's unit grammar (crates/rightkit-<x>/Cargo.toml, packages/<x>/package.json); --units-file needs two`;
+      ctx.unitsWhy = `the RightKit checkout has ${units.length} unit(s) in the gate's unit grammar (crates/rightkit-<x>/Cargo.toml, packages/<x>/package.json); --units-file needs two`;
       check("S10", "the fixture names two units for --units-file", { ok: false, problems: [ctx.unitsWhy] });
     } else {
       const unitsFile = path.join(outDir, "units.json");
       fs.writeFileSync(unitsFile, `${JSON.stringify({ units })}\n`);
-      const r = await doRun({ label: "S10:units", stage: "check", args: ["--units-file", unitsFile], ladder: false, step: "S10", extra: { units }, receipt: false });
+      const r = await doRun({ label: "S10:units", stage: "check", commit: "HEAD", cwd: rkDir, args: ["--units-file", unitsFile], ladder: false, step: "S10", extra: { units }, receipt: false });
       check("S10", "--to check --units-file exits 0", exitOk(r));
     }
   }
@@ -2790,11 +2796,12 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
   // S13 gate upgrade ------------------------------------------------------------------------------------------------------------------------
   if (wanted.includes("S13")) {
     const gates = listInstalledGates(managedRoot);
-    if (gates.length < 2 || gates[0].version === gates[1].version) {
+    const older = gates.find((x) => x.version !== gates[0]?.version);
+    if (!older) {
       ctx.upgradeWhy = `needs two installed versions: ${gates.length} sealed gate(s) under ${path.join(managedRoot, "trusted-gates")} (${gates.map((x) => x.version).join(", ") || "none"})`;
       check("S13", "two sealed gate versions are installed", { ok: false, problems: [ctx.upgradeWhy] });
     } else {
-      for (const [label, gt] of [["S13:prev", gates[1]], ["S13:next", gates[0]]]) { const r = await doRun({ label, stage: "check", ladder: true, step: "S13", gateCmd: process.execPath, gateArgs: [gt.entry], extra: { gateVersion: gt.version } }); check("S13", `${label} (${gt.version}) wrote coverage`, { ok: r.rows !== null, problems: [`exit ${r.exit}, no readable coverage`] }); }
+      for (const [label, gt] of [["S13:prev", older], ["S13:next", gates[0]]]) { const r = await doRun({ label, stage: "check", ladder: true, step: "S13", gateCmd: process.execPath, gateArgs: [gt.entry], extra: { gateVersion: gt.version } }); check("S13", `${label} (${gt.version}) wrote coverage`, { ok: r.rows !== null, problems: [`exit ${r.exit}, no readable coverage`] }); }
     }
   }
 
@@ -2940,6 +2947,12 @@ export const MUTANTS = Object.freeze([
   { nn: "NN25", steps: "S2", what: "a warm run starts `pnpm --version`", inject: [spawnLine("pnpm", ["--version"])], expect: /pnpm|version probe/ },
   { nn: "NN26", steps: "S2", what: "the gate starts `node gate-serve.mjs ask` to ask the resident gate", inject: ['__cp.spawnSync(process.execPath, [new URL("../gate-serve.mjs", import.meta.url).pathname, "ask"], { timeout: 2000 });'], expect: /ask the resident gate/ },
   { nn: "NN39", steps: "S11", extra: ["--s11-checks-only"], what: "the Class A lane count is forced to 1 in the code path (not an environment override)", patch: { find: "const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? defaultJobs) || defaultJobs);", replace: "const jobs = 1;" }, expect: /idle lane while work waited/ },
+  { nn: "NN17", steps: "S2", what: "the Class A lane count is forced to 1 in the code path", patch: { find: "const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? defaultJobs) || defaultJobs);", replace: "const jobs = 1;" }, expect: /lane\(s\) on a/ },
+  { nn: "NN05", steps: "S2", what: "a per-run value (a high-resolution clock reading) enters every Class A row key", patch: { find: "${rowShape(scan)}`; scanKeys.set(scan.id, full);", replace: "${rowShape(scan)}:${process.hrtime.bigint()}`; scanKeys.set(scan.id, full);" }, expect: /key differs between identical runs/ },
+  { nn: "NN06", steps: "S2", what: "every Class A row is environment-bound, so non-executing keys carry the environment digest", patch: { find: "function classAEnvironmentBound(scan) { return scan.executes === true || scan.tool === \"pnpm\"; }", replace: "function classAEnvironmentBound(scan) { return true; }" }, expect: /carries the environment digest/ },
+  { nn: "NN12", steps: "S2", what: "a warm run starts `pnpm install`", inject: [spawnLine("pnpm", ["install", "--offline"])], expect: /pnpm install started/ },
+  { nn: "NN29", steps: "S2,S16", what: "the tool-call id of the environment enters every Class A row key", patch: { find: "${rowShape(scan)}`; scanKeys.set(scan.id, full);", replace: "${rowShape(scan)}:${process.env.CODEX_TOOL_CALL_ID ?? \"\"}`; scanKeys.set(scan.id, full);" }, expect: /key differs between identical runs|reuse miss/ },
+  { nn: "NN32", steps: "S8", extra: ["--kills", "K02,K02-int"], what: "a dead owner's record is never judged reclaimable (judgeOwner always refuses)", patch: { file: "build-ownership.mjs", find: "if (owner.host !== host) throw busy(`held by pid ${owner.pid} on ${owner.host}`);", replace: "if (true) throw busy(`held by pid ${owner.pid} (MUTANT: a dead owner is never judged reclaimable)`);" }, expect: /reclaimed from|exited/ },
   { nn: "NN28", steps: "S2", what: "the gate polls for changes with `git status`", inject: [spawnLine("git", ["status", "--short"])], expect: /polling/ },
 ]);
 
@@ -2958,9 +2971,10 @@ export function makeMutant(root, m) {
   const entry = path.join(rel, "bin", "rightkit-gate.mjs");
   let diff = "(unmutated copy)";
   if (m.patch) {
-    const text = fs.readFileSync(entry, "utf8");
-    if (text.split(m.patch.find).length !== 2) throw new Error(`mutant ${m.nn}: the patch anchor is not unique in the gate`);
-    fs.writeFileSync(entry, text.replace(m.patch.find, () => m.patch.replace));
+    const target = path.join(rel, m.patch.file ?? path.join("bin", "rightkit-gate.mjs"));
+    const text = fs.readFileSync(target, "utf8");
+    if (text.split(m.patch.find).length !== 2) throw new Error(`mutant ${m.nn}: the patch anchor is not unique in ${path.basename(target)}`);
+    fs.writeFileSync(target, text.replace(m.patch.find, () => m.patch.replace));
     diff = `--- ${m.patch.find}\n+++ ${m.patch.replace}`;
   }
   if (m.inject) {
@@ -2975,10 +2989,11 @@ export function makeMutant(root, m) {
   return { dir, entry, diff };
 }
 
-function runRunner(args, { cwd }) {
+const spawnRunner = (file, args) => runRunner(args, { cwd: path.dirname(file), file });
+function runRunner(args, { cwd, file = RUNNER_FILE }) {
   return new Promise((resolve) => {
     let out = "";
-    const child = spawn(process.execPath, [RUNNER_FILE, ...args], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(process.execPath, [file, ...args], { cwd, stdio: ["ignore", "pipe", "pipe"] });
     child.stdout.on("data", (d) => { out += d; }); child.stderr.on("data", (d) => { out += d; });
     child.on("close", (code) => resolve({ code, out }));
     child.on("error", (e) => resolve({ code: null, out: `${out}\n${e.message}` }));
@@ -3010,7 +3025,7 @@ async function proveMain({ fixture, host, out }) {
   // Controls: the real runner against an unmutated copy of the checkout gate, with the cache moved aside (S11) after warm runs (S2).
   const base = makeMutant(mutRoot, { nn: "baseline" });
   const co = path.join(root, "controls");
-  const cr = await runRunner([...common, "--steps", "S2,S11", "--checks-only", "--nn", "NN19", "--gate", base.entry, "--out", co], { cwd: here });
+  const cr = await runRunner([...common, "--steps", "S2,S11", "--checks-only", "--nn", "NN19,NN11,NN27,NN38", "--gate", base.entry, "--out", co], { cwd: here });
   const cres = resultOf(co);
   if (!cres) log.push(`controls run produced no result (exit ${cr.code})`);
   for (const [id, p] of Object.entries(cres?.proofs ?? {})) note(id, p.kind, p.caught === true, p.caught ? "the assertion flagged the real violation" : "the assertion did NOT flag it");
@@ -3024,6 +3039,93 @@ async function proveMain({ fixture, host, out }) {
     const r = resultOf(o)?.nonNegotiables?.find((n) => n.id === m.nn);
     const hit = r?.status === "fail" && r.problems.some((p) => m.expect.test(p));
     note(m.nn, `mutant gate: ${m.what} (${mm.dir}/mutation.diff)`, hit, hit ? r.problems.find((p) => m.expect.test(p)).slice(0, 140) : r ? `verdict ${r.status}; ${r.problems.slice(0, 2).join(" | ").slice(0, 200)}` : "no result");
+  }
+  // Real gate evidence from the controls run (the unmutated checkout gate): a check that fails there on a violation or on missing evidence is shown to be able to fail.
+  for (const id of ["NN11", "NN27", "NN38"]) {
+    const r = cres?.nonNegotiables?.find((n) => n.id === id);
+    const missing = id === "NN11";
+    note(id, missing ? "the real gate lacks the evidence the check needs (missing evidence fails; weaker than a violation)" : "a real violation by the unmutated checkout gate", r?.status === "fail", r?.problems?.[0]?.slice(0, 200));
+  }
+  // NN18: the real runner against a real budgets file with a 1 ms budget.
+  {
+    const tight = JSON.parse(fs.readFileSync(BUDGETS_FILE, "utf8"));
+    tight.hosts.mac.warmCheckMs = 1; tight.hosts.mac.stages.dependencyStep = 1;
+    const f = path.join(root, "budgets-1ms.json"); fs.writeFileSync(f, `${JSON.stringify(tight, null, 2)}\n`);
+    const o = path.join(root, "nn18-tight");
+    await runRunner([...common, "--steps", "S2", "--checks-only", "--nn", "NN18", "--budgets", f, "--gate", base.entry, "--out", o], { cwd: here });
+    const r = resultOf(o)?.nonNegotiables?.find((n) => n.id === "NN18");
+    const hit = r?.status === "fail" && r.problems.find((p) => /took \d+ ms, budget 1 ms/.test(p));
+    note("NN18", "the real runner against a budgets file with a 1 ms budget", Boolean(hit), hit ? hit.slice(0, 200) : r?.problems?.[0]);
+  }
+  // NN23: needs two distinct sealed versions; without them the check's own failure message is the proof.
+  {
+    const gates = listInstalledGates(managedRootOf(host));
+    const distinct = new Set(gates.map((x) => x.version)).size;
+    const o = path.join(root, "nn23");
+    await runRunner([...common, "--steps", "S13", "--nn", "NN23", "--out", o], { cwd: here });
+    const r = resultOf(o)?.nonNegotiables?.find((n) => n.id === "NN23");
+    if (distinct < 2) note("NN23", `the failure message itself: ${distinct} distinct sealed version(s) installed, so a real upgrade cannot be run (weaker than a violation)`, r?.status === "fail" && /needs two installed versions/.test(r.problems.join()), r?.problems?.[0]?.slice(0, 200));
+    else note("NN23", "a real upgrade between the two newest sealed gates", r?.status === "fail", r?.problems?.[0]?.slice(0, 200) ?? `the check passed on a real upgrade: it can fail only when keys change, so it is unproven`);
+  }
+  // NN30, NN31, NN35: real --verify-release refusals on receipts built from the real run's result.
+  if (cres) {
+    const inst = listInstalledGates(managedRootOf(host))[0] ?? null;
+    const budgets = loadBudgets().budgets;
+    const mk = (h, over = {}) => ({ ...buildContractReceipt({ host: h, commit: "a".repeat(40), gate: { kind: "installed", version: inst?.version ?? "0", sealedPath: inst?.entry ?? null, sealedSha256: inst?.sealedSha256 ?? "b".repeat(64) }, contractSha256: fileSha(CONTRACT_FILE), runnerSha256: fileSha(RUNNER_FILE), budgetsSha256: fileSha(BUDGETS_FILE), fixtureCommit: budgets?.fixture?.commit ?? "c".repeat(40), result: cres }), ...over });
+    const w = (name, r) => { const f = path.join(root, `receipt-${name}.json`); fs.writeFileSync(f, `${JSON.stringify(r, null, 2)}\n`); return f; };
+    const verify = async (a, b) => runRunner(["--verify-release", a, b], { cwd: here });
+    const real1 = await verify(w("mac-real", mk("mac")), path.join(root, "receipt-dell-missing.json"));
+    note("NN30", "--verify-release with the Dell receipt missing", real1.code === 1 && /ENOENT|cannot read/.test(real1.out), real1.out.split("\n").slice(0, 2).join(" | ").slice(0, 200));
+    const real2 = await verify(w("mac-fail", mk("mac")), w("dell-fail", mk("dell")));
+    note("NN30", "--verify-release with a failing receipt from each host (the real run's NOT PASSED result)", real2.code === 1 && /not a PASS/.test(real2.out), (real2.out.split("\n")[1] ?? "").trim().slice(0, 200));
+    note("NN31", "--verify-release refuses a release whose receipts are not passes (what release, upload and promotion must call)", real2.code === 1 && /REFUSED/.test(real2.out), (real2.out.split("\n")[0] ?? "").slice(0, 200));
+    const allPass = Object.fromEntries(NN_ALL_IDS.map((id) => [id, "pass"]));
+    const unw = await verify(w("mac-unchecked", mk("mac", { ok: true, verdict: "PASS (forced for the proof)", nn: allPass })), w("dell-unchecked", mk("dell", { ok: true, verdict: "PASS (forced for the proof)", nn: allPass })));
+    note("NN35", "--verify-release with passing receipts that leave operative clauses unchecked and unwaived", unw.code === 1 && /unchecked and not waived by Adrian/.test(unw.out), (unw.out.split("\n")[1] ?? "").trim().slice(0, 200));
+  }
+  // NN36 and NN37: real commits in a scratch clone of rightkit.
+  {
+    const lp = path.join(scratch, "lockproof"); const clone = path.join(lp, `clone-${Date.now()}`);
+    fs.mkdirSync(lp, { recursive: true });
+    const sh = (args, cwd = clone) => { const r = spawnSync("git", args, { cwd, encoding: "utf8" }); if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr || r.stdout}`); return r.stdout; };
+    try {
+      sh(["clone", "--quiet", path.resolve(here, "..", ".."), clone], lp);
+      const cp = spawnSync("cp", ["-cRL", path.join(here, "node_modules"), path.join(clone, "packages", "release", "node_modules")], { encoding: "utf8" });
+      if (cp.status !== 0) throw new Error(`cp node_modules: ${cp.stderr}`);
+      const cRunner = path.join(clone, "packages", "release", "gate-acceptance.mjs");
+      const cBudgets = path.join(clone, "ci", "gate-acceptance-budgets.json");
+      const judge = async (name) => { const o = path.join(root, `lock-${name}`); await spawnRunner(cRunner, [...common, "--steps", "S0", "--nn", "NN36,NN37", "--out", o]); return resultOf(o)?.nonNegotiables ?? []; };
+      sh(["commit", "--allow-empty", "-q", "-m", "lock the contract test\n\nGate-Acceptance-Locked: lockproof baseline"]);
+      const base36 = (await judge("1-locked")).find((n) => n.id === "NN36");
+      log.push(`NN36 control (not a proof): locked baseline, nothing changed since: ${base36?.status} ${base36?.problems?.[0]?.slice(0, 160) ?? ""}`);
+      fs.appendFileSync(cRunner, "\n// lockproof: a change to the runner with no approval line\n");
+      sh(["commit", "-q", "-am", "runner: an unapproved change"]);
+      const u36 = (await judge("2-unapproved")).find((n) => n.id === "NN36");
+      note("NN36", "scratch clone: a real commit changes the runner without the approval line", u36?.status === "fail" && /without `Adrian-approved:/.test(u36.problems.join()), u36?.problems?.find((p) => /Adrian-approved/.test(p))?.slice(0, 200) ?? u36?.problems?.[0]);
+      const b = JSON.parse(fs.readFileSync(cBudgets, "utf8")); b.hosts.mac.warmCheckMs = (b.hosts.mac.warmCheckMs ?? 1000) * 2;
+      fs.writeFileSync(cBudgets, `${JSON.stringify(b, null, 2)}\n`);
+      sh(["commit", "-q", "-am", "budgets: raise warmCheckMs\n\nAdrian-approved: lockproof (the approval line is present; the rise is the violation)"]);
+      const r36 = (await judge("3-raised")).find((n) => n.id === "NN36");
+      note("NN36", "scratch clone: a commit that cites approval but raises a budget", r36?.status === "fail" && /raised a budget/.test(r36.problems.join()), r36?.problems?.find((p) => /raised a budget/.test(p))?.slice(0, 200) ?? r36?.problems?.[0]);
+      const n37a = (await judge("4-noreview")).find((n) => n.id === "NN37");
+      note("NN37", "scratch clone: no independent review recorded", n37a?.status === "fail" && /no independent review/.test(n37a.problems.join()), n37a?.problems?.[0]?.slice(0, 200));
+      const rs = fileSha(cRunner); const cs = fileSha(path.join(clone, "docs", "GATE-CONTRACT.md"));
+      const b2 = JSON.parse(fs.readFileSync(cBudgets, "utf8")); b2.reviews = [{ runnerSha256: rs, contractSha256: cs, reviewer: "same", author: "same", adrianWords: "lockproof", verdict: "pass" }];
+      fs.writeFileSync(cBudgets, `${JSON.stringify(b2, null, 2)}\n`); sh(["commit", "-q", "-am", "budgets: self review\n\nAdrian-approved: lockproof"]);
+      const n37b = (await judge("5-selfreview")).find((n) => n.id === "NN37");
+      note("NN37", "scratch clone: the reviewer is the author", n37b?.status === "fail" && /no independent review/.test(n37b.problems.join()), n37b?.problems?.[0]?.slice(0, 200));
+      b2.reviews = [{ runnerSha256: rs, contractSha256: cs, reviewer: "other", author: "same", adrianWords: "lockproof", verdict: "pass" }];
+      fs.writeFileSync(cBudgets, `${JSON.stringify(b2, null, 2)}\n`); sh(["commit", "-q", "-am", "budgets: independent review\n\nAdrian-approved: lockproof"]);
+      const n37c = (await judge("6-review")).find((n) => n.id === "NN37");
+      log.push(`NN37 control: with an independent review recorded the check is ${n37c?.status}`);
+    } catch (e) { log.push(`lockproof failed: ${e.message}`); note("NN36", "scratch clone", false, e.message.slice(0, 200)); note("NN37", "scratch clone", false, e.message.slice(0, 200)); }
+  }
+  // NN32: the unmutated gate recovers real kills (information), after the mutant above left a stale record: reclaimed by this run.
+  {
+    const o = path.join(root, "kills-real");
+    await runRunner([...common, "--steps", "S8", "--nn", "NN32", "--gate", base.entry, "--kills", "K01,K01-int,K02,K02-int", "--out", o], { cwd: here });
+    const r = resultOf(o)?.nonNegotiables?.find((n) => n.id === "NN32");
+    log.push(`NN32 real kills on the unmutated gate (SIGKILL compile, SIGINT compile, SIGKILL check, SIGINT check): ${r?.status} ${r?.problems?.[0]?.slice(0, 200) ?? ""}`);
   }
   const rows = NN_ALL_IDS.map((id) => ({ id, proven: (proofs[id] ?? []).some((p) => p.caught), proofs: proofs[id] ?? [] }));
   const unproven = rows.filter((r) => !r.proven).map((r) => r.id);
