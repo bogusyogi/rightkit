@@ -8,7 +8,7 @@ use crate::{llm, ProviderConfig, RuntimeError};
 use async_trait::async_trait;
 use rightkit_agent_engine_core::llm::{LlmClient, LlmRequestMetadata};
 use rightkit_agent_engine_protocol::{now_iso, TranscriptMessage};
-use rightkit_agent_orchestration::small_model_utility::{
+use rightkit_agent_orchestration::coding::small_model_utility::{
     parse_small_model_output, SmallModelBudget, SmallModelClient, SmallModelError, SmallModelInput,
     SmallModelOutput, SmallModelTask, DEFAULT_CALL_TOKEN_ESTIMATE,
 };

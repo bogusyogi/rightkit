@@ -7,6 +7,8 @@
 
 ## Unreleased
 
+- Removed `is_dev_storage_url`, left behind when the development-only provider base override was removed; it no longer compiles against `providers` without `PROVIDER_BASE_OVERRIDES` and could never match.
+
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 
 ## 0.1.0 (unreleased)

@@ -821,7 +821,7 @@ pub unsafe extern "C" fn host_mobile_runtime_diff_walkthrough(
             return std::ptr::null_mut();
         }
     };
-    use rightkit_agent_orchestration::diff_walkthrough::DiffHunkNarration;
+    use rightkit_agent_orchestration::coding::diff_walkthrough::DiffHunkNarration;
     let hunks: Vec<DiffWalkthroughResponseHunk> = walkthrough
         .hunks
         .into_iter()

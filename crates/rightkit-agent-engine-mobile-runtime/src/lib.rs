@@ -230,7 +230,7 @@ pub struct MobileGoalStatus {
 #[derive(Debug)]
 struct MobileGoalState {
     status: MobileGoalStatus,
-    watchdog: rightkit_agent_orchestration::watchdog::RunWatchdog,
+    watchdog: rightkit_agent_orchestration::coding::watchdog::RunWatchdog,
 }
 
 /// Complete user-visible briefing. Pinned knowledge is copied from this
@@ -306,7 +306,8 @@ pub struct MobileRuntime {
     /// Session-scoped, tool-free assist transport used by recap, goal audit,
     /// and user-requested diff narration. It shares this session's provider
     /// credentials but never receives its tool registry or engine handle.
-    small_model: Arc<dyn rightkit_agent_orchestration::small_model_utility::SmallModelClient>,
+    small_model:
+        Arc<dyn rightkit_agent_orchestration::coding::small_model_utility::SmallModelClient>,
     /// Active autonomous audit survives Swift view detachment & is carried in
     /// checkpoints across relaunch. The watchdog lets an explicit Stop reach
     /// an in-flight bounded model loop.
@@ -653,7 +654,7 @@ impl MobileRuntime {
                     status.stop_reason = Some("Audit interrupted by host restart".to_string());
                 }
                 MobileGoalState {
-                    watchdog: rightkit_agent_orchestration::watchdog::RunWatchdog::new(3),
+                    watchdog: rightkit_agent_orchestration::coding::watchdog::RunWatchdog::new(3),
                     status,
                 }
             });
@@ -877,11 +878,11 @@ impl MobileRuntime {
                 RuntimeError::Engine(format!("could not encode transcript for recap: {error}"))
             })?
         };
-        let budget = rightkit_agent_orchestration::small_model_utility::SmallModelBudget::new(
+        let budget = rightkit_agent_orchestration::coding::small_model_utility::SmallModelBudget::new(
             1,
-            rightkit_agent_orchestration::small_model_utility::DEFAULT_CALL_TOKEN_ESTIMATE,
+            rightkit_agent_orchestration::coding::small_model_utility::DEFAULT_CALL_TOKEN_ESTIMATE,
         );
-        rightkit_agent_orchestration::session_recap::summarize_session(
+        rightkit_agent_orchestration::coding::session_recap::summarize_session(
             self.small_model.as_ref(),
             &transcript,
             &budget,
@@ -938,11 +939,11 @@ impl MobileRuntime {
             };
             (session_content, knowledge_briefing)
         };
-        let mut budget = rightkit_agent_orchestration::small_model_utility::SmallModelBudget::new(
+        let mut budget = rightkit_agent_orchestration::coding::small_model_utility::SmallModelBudget::new(
             2,
-            2 * rightkit_agent_orchestration::small_model_utility::DEFAULT_CALL_TOKEN_ESTIMATE,
+            2 * rightkit_agent_orchestration::coding::small_model_utility::DEFAULT_CALL_TOKEN_ESTIMATE,
         );
-        rightkit_agent_orchestration::session_recap::brief_session(
+        rightkit_agent_orchestration::coding::session_recap::brief_session(
             self.small_model.as_ref(),
             &session_content,
             &knowledge_briefing,
@@ -979,7 +980,7 @@ impl MobileRuntime {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(MobileGoalState {
             status: status.clone(),
-            watchdog: rightkit_agent_orchestration::watchdog::RunWatchdog::new(3),
+            watchdog: rightkit_agent_orchestration::coding::watchdog::RunWatchdog::new(3),
         });
         Ok(status)
     }
@@ -1023,14 +1024,14 @@ impl MobileRuntime {
                     ))
                 })?
             };
-            let mut config = rightkit_agent_orchestration::goal_loop::GoalLoopConfig::default();
+            let mut config = rightkit_agent_orchestration::coding::goal_loop::GoalLoopConfig::default();
             config.interval = std::time::Duration::from_millis(250);
-            let budget = rightkit_agent_orchestration::small_model_utility::SmallModelBudget::new(
+            let budget = rightkit_agent_orchestration::coding::small_model_utility::SmallModelBudget::new(
                 config.max_iterations,
                 config.max_iterations
-                    * rightkit_agent_orchestration::small_model_utility::DEFAULT_CALL_TOKEN_ESTIMATE,
+                    * rightkit_agent_orchestration::coding::small_model_utility::DEFAULT_CALL_TOKEN_ESTIMATE,
             );
-            rightkit_agent_orchestration::goal_loop::run_goal_loop(
+            rightkit_agent_orchestration::coding::goal_loop::run_goal_loop(
                 self.small_model.as_ref(),
                 &goal,
                 &context,
@@ -1069,10 +1070,10 @@ impl MobileRuntime {
             state.status.blockers = report.blockers;
             state.status.stop_reason = Some(format!("{:?}", report.stop_reason));
             state.status.state = match report.stop_reason {
-                rightkit_agent_orchestration::goal_loop::GoalLoopStopReason::WatchdogCancelled => {
+                rightkit_agent_orchestration::coding::goal_loop::GoalLoopStopReason::WatchdogCancelled => {
                     "stopped".to_string()
                 }
-                rightkit_agent_orchestration::goal_loop::GoalLoopStopReason::WatchdogStalled => {
+                rightkit_agent_orchestration::coding::goal_loop::GoalLoopStopReason::WatchdogStalled => {
                     "blocked".to_string()
                 }
                 _ => "active".to_string(),
@@ -1099,13 +1100,14 @@ impl MobileRuntime {
     pub async fn diff_walkthrough(
         &self,
         diff: &str,
-    ) -> Result<rightkit_agent_orchestration::diff_walkthrough::DiffWalkthrough, RuntimeError> {
-        let mut budget = rightkit_agent_orchestration::small_model_utility::SmallModelBudget::new(
+    ) -> Result<rightkit_agent_orchestration::coding::diff_walkthrough::DiffWalkthrough, RuntimeError>
+    {
+        let mut budget = rightkit_agent_orchestration::coding::small_model_utility::SmallModelBudget::new(
             8,
-            8 * rightkit_agent_orchestration::small_model_utility::DEFAULT_CALL_TOKEN_ESTIMATE,
+            8 * rightkit_agent_orchestration::coding::small_model_utility::DEFAULT_CALL_TOKEN_ESTIMATE,
         );
         Ok(
-            rightkit_agent_orchestration::diff_walkthrough::narrate_diff_walkthrough(
+            rightkit_agent_orchestration::coding::diff_walkthrough::narrate_diff_walkthrough(
                 self.small_model.as_ref(),
                 diff,
                 &mut budget,

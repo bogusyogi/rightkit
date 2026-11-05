@@ -321,7 +321,9 @@ pub(super) fn bulk_children_bounded(
 // statvfs field widths vary across Unix ABIs.
 #[allow(clippy::unnecessary_cast)]
 pub(super) fn volume_usage(volume: &VolumeIdentity) -> Result<VolumeUsage, FsError> {
-    for disk in sysinfo::Disks::new_with_refreshed_list().list() {
+    // sysinfo 0.40 returns the disk list as a Result; an unreadable list leaves the usage unknown, as below.
+    let disks = sysinfo::Disks::new_with_refreshed_list().ok();
+    for disk in disks.iter().flat_map(|disks| disks.list()) {
         let mount = disk.mount_point();
         // Same identity function as inspection, so UUID ids match.
         let Ok(mount_metadata) = fs::symlink_metadata(mount) else {

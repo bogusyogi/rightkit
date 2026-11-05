@@ -519,19 +519,7 @@ fn parse_date(s: &str) -> Option<Date> {
 /// A url-type input value: an https URL or a local file path (uploaded to the user's own fal storage per run).
 fn is_url_or_local(s: &str) -> bool {
     is_https(s)
-        || is_dev_storage_url(s)
         || (crate::fal_storage::local_path(s).is_some() && !s.contains(' ') && s.trim() == s)
-}
-
-/// A URL under the development-only fal REST base override (the e2e mock's upload target). Uploaded
-/// files are rewritten to such URLs before submit validates them again; in a release build the
-/// override is ignored, so this never matches there.
-fn is_dev_storage_url(s: &str) -> bool {
-    if !crate::providers::PROVIDER_BASE_OVERRIDES || s.chars().any(char::is_whitespace) {
-        return false;
-    }
-    let base = crate::fal_storage::rest_base();
-    base != "https://rest.alpha.fal.ai" && s.starts_with(&format!("{base}/"))
 }
 
 fn is_https(s: &str) -> bool {

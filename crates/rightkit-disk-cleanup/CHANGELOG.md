@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `volume_usage`: sysinfo 0.40 returns the disk list as a `Result`; an unreadable list leaves the usage unknown (it no longer fails to compile).
+
 ## 0.1.2 (unpublished)
 
 - rightkit#1499, Adrian's rule "unknown liveness is never eligible for cleanup":

@@ -11,8 +11,8 @@ use std::collections::BTreeMap;
 use std::ffi::{c_char, CStr, CString};
 use std::path::PathBuf;
 
-use rightkit_agent_orchestration::teams::section_context::SectionContext;
-use rightkit_agent_orchestration::teams::{
+use rightkit_agent_orchestration::coding::teams::section_context::SectionContext;
+use rightkit_agent_orchestration::coding::teams::{
     import_manifest, DelegationRequest, PeerDispatch, ReceivedPeerDelegation,
     TeamCoordinationStore, TeamRuntime,
 };
