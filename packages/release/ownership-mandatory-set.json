@@ -26,6 +26,29 @@
     "apple": {
       "description": "Table 1-Apple is an unratified draft. Profile is supported by the data model; no Apple rows are shipped.",
       "ratified": false
+    },
+    "cli": {
+      "description": "A command-line tool or agent plugin with no window, no background engine and no paid tier (e.g. Legion). It owes the rows every process that runs on a user's machine needs; window, app-frame, engine-supervision, local-service, licence, entitlement, legal-UI and agent-surface rows are desktop concerns.",
+      "ratified": true,
+      "ratifiedBy": "Adrian, 2026-11-05, typed in the Legion chat (pulse chat said): \"2 yes tell buggy to fix that in rk for cli tool\", answering whether Legion, a command-line tool, must owe every desktop row M1-M20 (OW-05).",
+      "notOwed": {
+        "M1": "no window host",
+        "M2": "no app frame",
+        "M3": "no supervised background engine",
+        "M4": "no window-to-engine protocol",
+        "M6": "its owner is the desktop daemon; a CLI keeps its data under the settings state root (M10)",
+        "M7": "no local services",
+        "M12": "no licence or device binding (a paid CLI uses the desktop profile)",
+        "M13": "no Pro tier",
+        "M14": "no legal or onboarding UI",
+        "M22": "no agent surface of its own"
+      },
+      "ownersDropped": {
+        "@rightkit/settings-ui": "desktop settings UI package; a CLI has no UI to own it",
+        "@rightkit/logs": "desktop web/UI log view package; a CLI has no UI to own it",
+        "@rightkit/qa": "desktop app UI QA package; a CLI has no UI to own it",
+        "@rightkit/qa-chrome": "desktop browser QA package; a CLI has no UI to own it"
+      }
     }
   },
   "rows": [
@@ -389,6 +412,138 @@
           "registryMax": "0.2.0"
         }
       ]
+    },
+    {
+      "id": "M5",
+      "name": "Other child processes",
+      "profile": "cli",
+      "owners": [
+        {
+          "name": "rightkit-child-process",
+          "ecosystem": "cargo",
+          "min": "0.5.2",
+          "registryMax": "0.5.2"
+        }
+      ]
+    },
+    {
+      "id": "M8",
+      "name": "Safe file writes",
+      "profile": "cli",
+      "owners": [
+        {
+          "name": "rightkit-fs",
+          "ecosystem": "cargo",
+          "min": "0.4.4",
+          "registryMax": "0.4.4"
+        }
+      ]
+    },
+    {
+      "id": "M9",
+      "name": "Database",
+      "profile": "cli",
+      "owners": [
+        {
+          "name": "rightkit-db",
+          "ecosystem": "cargo",
+          "min": "0.5.0",
+          "registryMax": "0.5.0"
+        }
+      ]
+    },
+    {
+      "id": "M10",
+      "name": "Settings",
+      "profile": "cli",
+      "owners": [
+        {
+          "name": "rightkit-app-settings",
+          "ecosystem": "cargo",
+          "min": "0.2.4",
+          "registryMax": "0.2.4"
+        }
+      ]
+    },
+    {
+      "id": "M11",
+      "name": "Secrets",
+      "profile": "cli",
+      "owners": [
+        {
+          "name": "rightkit-credentials",
+          "ecosystem": "cargo",
+          "min": "0.4.2",
+          "registryMax": "0.4.2"
+        }
+      ]
+    },
+    {
+      "id": "M15",
+      "name": "Logging",
+      "profile": "cli",
+      "owners": [
+        {
+          "name": "rightkit-logs",
+          "ecosystem": "cargo",
+          "min": "0.3.3",
+          "registryMax": "0.3.3"
+        }
+      ]
+    },
+    {
+      "id": "M16",
+      "name": "Crash reporting",
+      "profile": "cli",
+      "owners": [
+        {
+          "name": "rightkit-crash",
+          "ecosystem": "cargo",
+          "min": "0.3.3",
+          "registryMax": "0.3.3"
+        }
+      ]
+    },
+    {
+      "id": "M17",
+      "name": "HTTP",
+      "profile": "cli",
+      "owners": [
+        {
+          "name": "rightkit-http",
+          "ecosystem": "cargo",
+          "min": "0.3.6",
+          "registryMax": "0.3.6"
+        }
+      ]
+    },
+    {
+      "id": "M19",
+      "name": "Release tooling",
+      "profile": "cli",
+      "owners": [
+        {
+          "name": "@rightkit/release",
+          "ecosystem": "npm",
+          "min": "0.4.1",
+          "registryMax": "0.4.1",
+          "allowDev": true
+        }
+      ]
+    },
+    {
+      "id": "M20",
+      "name": "QA",
+      "profile": "cli",
+      "owners": [
+        {
+          "name": "rightkit-qa",
+          "ecosystem": "cargo",
+          "min": "0.7.0",
+          "registryMax": "0.7.0",
+          "allowDev": true
+        }
+      ]
     }
   ],
   "pendingRows": [
@@ -476,6 +631,13 @@
           "allowDev": true
         }
       ]
+    },
+    {
+      "id": "M18",
+      "name": "Updates",
+      "profile": "cli",
+      "ownerPending": "A CLI shipped as a DMG or setup.exe updates itself, but @rightkit/app-update is the desktop updater UI; a CLI updater owner is not chosen yet.",
+      "pendingOwners": []
     }
   ],
   "applicabilityRecords": {

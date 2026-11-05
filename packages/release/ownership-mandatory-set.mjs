@@ -8,7 +8,7 @@
 // Mode switching of the ownership gate itself (Report -> Enforce) is a separate step; this check
 // is read-only and never changes ownership mode.
 //
-//   right-release ownership-mandatory [--workspace <dir>] [--app <name|dir>]... [--profile desktop|apple]
+//   right-release ownership-mandatory [--workspace <dir>] [--app <name|dir>]... [--profile desktop|apple|cli]
 //                                     [--amendment v2.1] [--enforce] [--json]
 //
 // App-side declaration (optional): <app>/rightkit-mandatory.json

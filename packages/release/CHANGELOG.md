@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Mandatory foundation (OW-05): a ratified `cli` profile for a command-line tool or agent plugin (Adrian, 2026-11-05). It owes M5, M8, M9, M10, M11, M15, M16, M17, M19 and M20 with their non-UI owners; M18 (updates) is pending for it; the window, engine, local-service, licence, entitlement, legal-UI and agent-surface rows are not owed, each with its reason in `ownership-mandatory-set.json`. An app selects it with `{"profile": "cli"}` in `rightkit-mandatory.json`.
 ## 0.6.47
 
 - Every log line of a stamping run carries its UTC time (GC-A21): each line of a multi-line gate message, and every line its inherited-output children (right-release, cargo through it) write, through the new `stamp-relay.mjs` placed in front of the child. Exit codes and signals pass through unchanged.
