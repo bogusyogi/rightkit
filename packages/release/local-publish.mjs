@@ -479,7 +479,7 @@ export function localTestPlan({ kind, unit, dir, config, manifest, batch = false
 }
 
 /** Publisher compile-stage obligations. Caller supplies authenticated source policy and execution environment. */
-export function compileRequirements({ kind, unit, dir, config, manifest, platform = "darwin", workspace, env, assetGated = {}, allowIgnored = false, allowIgnoredUnits = [], jobs }) {
+export function compileRequirements({ kind, unit, dir, config, manifest, platform = "darwin", workspace, env, assetGated = {}, allowIgnored = false, allowIgnoredUnits = [], jobs, formatProven = false }) {
   if (kind !== "cargo" && kind !== "npm") throw new Error(`unsupported compile requirement kind ${kind}`);
   if (kind === "cargo" && (typeof workspace !== "string" || !workspace)) throw new Error("authenticated Cargo workspace is required");
   if (!env || typeof env !== "object" || Array.isArray(env)) throw new Error("publisher execution environment is required");
@@ -490,7 +490,9 @@ export function compileRequirements({ kind, unit, dir, config, manifest, platfor
   const configReason = kind === "cargo" && typeof config?.rust?.[unit]?.allowIgnored === "string" ? config.rust[unit].allowIgnored.trim() : "";
   const ignoredAllowed = Boolean(allowIgnored || allowIgnoredUnits.includes(unit) || configReason);
   const steps = [...plan.steps];
-  if (kind === "cargo") steps.unshift({ command: "cargo", args: qualifyFmtArgs(unit), test: false });
+  // A gate run that already passed class A's rustfmt rows over every Rust file of this same snapshot passes formatProven: the crate's own
+  // `cargo fmt -p <crate> --check` would repeat that check, one crate at a time (a 140-crate unit list spent minutes on it, 2026-11-05).
+  if (kind === "cargo" && !formatProven) steps.unshift({ command: "cargo", args: qualifyFmtArgs(unit), test: false });
   const requirements = [];
   const add = (requirement) => requirements.push({ id: `publisher:${kind}:${unit}:${requirements.length}`, ...requirement, coverageKey: sha256(JSON.stringify(requirement)) });
   if (kind === "cargo") add({ workspace, cwd: dir, executable: null, internal: "scanCrateForSecrets", argv: [dir], env: {}, phase: "check" });

@@ -269,7 +269,8 @@ export async function publisherRequirementsForUnits({ selected, snapshot, rustUn
     const manifest = npm ? readJson(`${dir}/package.json`) : null;
     if (npm && manifest?.name !== unit) throw new Error(`${row.selector}: npm manifest identity differs`);
     if (npm && manifest.private === true && !manifest.scripts?.build && !manifest.scripts?.test) throw new Error(`${row.selector}: private unit has no own build or test script; recursive workspace build cannot prove its coverage`);
-    const planned = compileRequirements({ kind, unit, dir, config, manifest, platform, workspace: cargo ? discovered.cargoDir : ".", env, assetGated });
+    // Class A's full pass (rustfmt over every Rust file of this snapshot) precedes these requirements in the same run: no per-crate fmt (GC-A24).
+    const planned = compileRequirements({ kind, unit, dir, config, manifest, platform, workspace: cargo ? discovered.cargoDir : ".", env, assetGated, formatProven: true });
     out.push({ selector: row.selector, dir, ...planned });
   }
   return out;
