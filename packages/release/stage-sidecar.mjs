@@ -2208,9 +2208,12 @@ export async function stageSidecars({ appRoot, manifest, target, cacheRoot, ifSt
   };
   validateStageSidecarReceipt(receipt, { target: plan.target.triple });
   const receiptFile = path.resolve(appRoot, plan.receiptPath);
-  // A receipt that would differ only in `stagedAt` is kept as it is: staging the same target again with the same results (the gate staged it
-  // first in a split, rightkit-gate stageSidecarsOnce) leaves every byte unchanged, so the gate's stage ledger sees no change to its staged outputs.
-  const sameAs = (old) => { const { stagedAt: _a, ...a } = old; const { stagedAt: _b, ...b } = receipt; return JSON.stringify(a) === JSON.stringify(b); };
+  // A receipt that would differ only in what a run observes about itself is kept as it is: staging the same target again with the same results (the gate staged it
+  // first in a split, rightkit-gate stageSidecarsOnce) leaves every byte unchanged, so the gate's stage ledger sees no change to its staged outputs. The observations are
+  // `stagedAt`, each file's `changed` (written this run) and `cached` (download already cached), and `wiped` (stale files this run removed): the first run sees changed true,
+  // cached false and a wiped list, the repeat sees changed false, cached true and none, for the same staged bytes (Pulse Mac dev install, 2026-11-06).
+  const stable = (r) => { const { stagedAt: _t, wiped: _w, files, ...rest } = r; return JSON.stringify({ ...rest, files: (files ?? []).map(({ changed: _c, cached: _k, ...file }) => file) }); };
+  const sameAs = (old) => stable(old) === stable(receipt);
   let previous = null;
   try { previous = JSON.parse(fs.readFileSync(receiptFile, "utf8")); } catch { previous = null; }
   if (previous && sameAs(previous)) return { receipt: previous, receiptPath: receiptFile, files: previous.files, externalBinNames: previous.files.filter((file) => file.externalBin).map((file) => file.name), unchanged: true };
