@@ -17,7 +17,7 @@ import {
   BROKER_FORBIDDEN_CARGO, BUDGETS_SCHEMA, BUDGET_STAGES, NN, NN07_ALLOWLIST, NN_IDS, assertAdviceCached, assertBatching, assertBudget, assertDependencyReuse, assertDigestStable,
   assertEnvDigestScope, assertKeysStable, assertLanes, assertNoBrokerNonCompiling, assertNoClassARan, assertNoClassBRan, assertNoDuplicateSpawns, assertNoOwnershipOnCheck,
   assertNoRealCargoMetadata, assertOtherWorkspacesIdle, assertRulesCached, assertRustfmtSpawns, assertSnapshotProof, assertUnitListShare, evaluateNonNegotiables, findInstalledGate,
-  gateIdentityProblems, isExecutingRow, loadBudgets, nnForStep, normalizeSpawn, parseLedger, programOf, stageMarks, unitSelectorsOf, validateBudgets,
+  gateIdentityProblems, isExecutingRow, loadBudgets, nnForStep, normalizeSpawn, parseLedger, programOf, risenBudgets, stageMarks, unitSelectorsOf, validateBudgets,
 } from "./gate-acceptance.mjs";
 
 const sha = (s) => createHash("sha256").update(s).digest("hex");
@@ -775,7 +775,9 @@ test("NN18: the committed budgets file is valid, names its measurement, and leav
   const mac = loaded.budgets.hosts.mac;
   assert.equal(mac.warmCompileMs, null, "no passing warm compile was measured, so it stays null and NN18 fails on it");
   for (const v of [mac.warmCheckMs, ...BUDGET_STAGES.map((s) => mac.stages[s])]) assert.ok(Number.isFinite(v) && v > 0);
-  assert.match(loaded.budgets.method, /median x ?1\.25/);
+  assert.match(loaded.budgets.method, /best measured optimized-state time x ?1\.25/);
+  assert.match(loaded.budgets.method, /Provisional/);
+  assert.match(loaded.budgets.method, /only ever go down/);
   assert.ok(Array.isArray(loaded.budgets.measured?.mac?.sessions) && loaded.budgets.measured.mac.sessions.length === 3, "three measured sessions on the Mac");
   assert.equal(loaded.budgets.hosts.dell.warmCheckMs, null);
   assert.equal(loadBudgets("/nonexistent/budgets.json").budgets, null);
@@ -941,4 +943,10 @@ test("the plan lists the non-negotiables per step and the S10 unit-list step exi
   assert.equal(buildPlan({ steps: ["S2"] }).nonNegotiables.find((n) => n.id === "NN03").selected, false);
   assert.deepEqual(unitSelectorsOf(["crates/rightkit-b/Cargo.toml", "packages/pkg/package.json", "crates/rightkit-a/Cargo.toml", "rk/crates/x/Cargo.toml"], 2), ["cargo:rightkit-a", "cargo:rightkit-b"]);
   assert.deepEqual(unitSelectorsOf(["rk/crates/x/Cargo.toml"], 2), []);
+});
+
+test("NN36: a budget number changed to null counts as a change; a null that was never measured does not", () => {
+  const was = { hosts: { mac: { a: 5, b: null, c: 3 } } };
+  assert.equal(risenBudgets(was, { hosts: { mac: { a: null, b: null, c: 3 } } }).length, 1);
+  assert.equal(risenBudgets(was, { hosts: { mac: { a: 5, b: null, c: 3 } } }).length, 0);
 });

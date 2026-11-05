@@ -142,7 +142,7 @@ export function validateCoverage(report) {
     // A member whose own result is a cached pass still fails when its grouped invocation failed (rightkit#1458: BATCH_REQUIREMENT_FAILED keeps
     // the grouped failure as evidence), so hit + fail is valid exactly when a batch attempt of that row failed.
     const batchFailed = Array.isArray(row.batchAttempts) && row.batchAttempts.some((a) => a?.status === "fail");
-    if (row.coverage === "hit" && row.status !== "pass" && !(row.status === "fail" && batchFailed)) problems.push(`${where}: a hit row has status ${JSON.stringify(row.status)}, expected pass`);
+    if (row.coverage === "hit" && row.status !== "pass" && !(row.status === "fail" && (batchFailed || row.class === "B"))) problems.push(`${where}: a hit row has status ${JSON.stringify(row.status)}, expected pass`);
     if (row.coverage === "ran" && row.status !== "pass" && row.status !== "fail") problems.push(`${where}: a ran row has status ${JSON.stringify(row.status)}, expected pass|fail`);
   }
   if (isObject(report.totals)) {
@@ -634,7 +634,7 @@ export const NN = Object.freeze([
   { id: "NN19", steps: ["S0"], always: true, title: "The gate under test is the installed sealed gate", evidence: "--version, launcher" },
 ]);
 export const NN_IDS = Object.freeze(NN.map((n) => n.id));
-/** NN20-NN38 (GC-A27 as extended 2026-11-05). `post` ones are judged from the finished result (NN34, NN35). */
+/** NN20-NN42 (GC-A27 as extended 2026-11-05). `post` ones are judged from the finished result (NN34, NN35). */
 export const NN_EXT = Object.freeze([
   { id: "NN20", steps: ["S12"], title: "One edited crate recompiles only that crate and its dependents", evidence: "S12 crate-edit compile coverage" },
   { id: "NN21", steps: ["S12"], title: "One edited lockfile reruns only the rows that read it", evidence: "S12 lock-edit coverage" },
@@ -656,6 +656,9 @@ export const NN_EXT = Object.freeze([
   { id: "NN37", steps: ["S0"], always: true, title: "The test's author is not the implementer", evidence: "budgets.reviews" },
   { id: "NN38", steps: ["S1"], title: "Cross-target rows built with stand-ins are limited evidence", evidence: "coverage and receipt of the compile" },
   { id: "NN39", steps: ["S11"], title: "The parallelism is real, not configured", evidence: "spawn ledger start and end times of the cold runs" },
+  { id: "NN40", steps: ["S2"], title: "Docs build as one command per workspace and feature round, on every compile", evidence: "spawn ledger and doc coverage rows of every compile run" },
+  { id: "NN41", steps: ["S17"], title: "A deterministic failure is cached like a pass", evidence: "coverage of the failing commit run three times (same inputs twice, then a changed toolchain identity)" },
+  { id: "NN42", steps: ["S2"], title: "Cross targets of one stage go in one broker command naming every --target", evidence: "spawn ledger and log of every compile run" },
 ]);
 export const NN_ALL = Object.freeze([...NN, ...NN_EXT]);
 export const NN_ALL_IDS = Object.freeze(NN_ALL.map((n) => n.id));
@@ -713,6 +716,7 @@ export const STEPS = Object.freeze([
   { id: "S14", nn: nnForStepAll("S14"), title: "resident gate restart", runs: ["--to check"], clauses: [], note: "kills the resident gate (SIGTERM, a plain process stop), then a warm check must run no row (NN24)" },
   { id: "S15", nn: nnForStepAll("S15"), title: "workloads: RightKit and HeardRight warm check (read-only), Pulse compile with --pulse-compile", runs: ["--to check (rightkit)", "--to check (heardright)"], clauses: [], note: "NN18 per-workload budgets; no compile unless --pulse-compile" },
   { id: "S16", nn: nnForStepAll("S16"), title: "per-run identities differ", runs: ["--to check"], clauses: [], note: "NN29: a fake tool-call id, terminal session, temp dir and RK_GATE_* value; every key equals the warm run's" },
+  { id: "S17", nn: nnForStepAll("S17"), title: "cached failure: a commit with a real compile error, run twice, then with another toolchain", runs: ["--to compile (failing commit)", "--to compile (same commit again)", "--to compile (RUSTUP_TOOLCHAIN changed)"], clauses: [], note: "NN41; ephemeral commit under refs/witness/* that adds compile_error! to one fixture crate; the second run's failing rows must be hit, the third (another installed toolchain) must run them again" },
   { id: "S9", nn: nnForStep("S9"), title: "end invariants", runs: [], clauses: ["GC-A01", "GC-A02", "GC-T14", "GC-T06", "GC-I15", "GC-T20"], note: "listings equal S0; one snapshot dir and no new one; one worktree; no upload; broker pid and start unchanged" },
 ]);
 
@@ -740,7 +744,7 @@ export function formatPlan(plan) {
   out.push(`negatives not built: ${Object.keys(plan.negativesUnchecked).join(" ")}`, `kills not built: ${Object.keys(plan.killsUnchecked).join(" ")}`);
   out.push("", `non-negotiables (${(plan.nonNegotiables ?? []).length}; never unchecked on a host that can run them: missing evidence fails the run):`);
   for (const n of plan.nonNegotiables ?? []) out.push(`  ${n.id}  steps ${n.steps.join("+")}${n.selected ? "" : " (not selected)"}  ${n.title}  [${n.evidence}]`);
-  out.push("", `extended non-negotiables NN20-NN38 (${NN_EXT.length}):`);
+  out.push("", `extended non-negotiables NN20-NN42 (${NN_EXT.length}):`);
   for (const n of NN_EXT) out.push(`  ${n.id}  steps ${n.steps.join("+")}${n.always ? " (every run)" : ""}  ${n.title}  [${n.evidence}]`);
   return out.join("\n");
 }
@@ -1574,10 +1578,14 @@ export function releaseToolingCallsVerify(files) {
 
 // ---- NN36 / NN37: the lock and the review ----------------------------------------------------------------------------------------------------------
 const numbersOf = (v, p = "") => (typeof v === "number" ? [[p, v]] : Array.isArray(v) ? v.flatMap((x, i) => numbersOf(x, `${p}[${i}]`)) : isObject(v) ? Object.entries(v).flatMap(([k, x]) => numbersOf(x, `${p}.${k}`)) : []);
-/** Budgets that rose between two versions of the file (a null becoming a number is a new measurement, not a rise). */
+/** Budgets that rose between two versions of the file (a null becoming a number is a new measurement, not a rise). A number becoming null is a change too (it removes a measured ceiling), so it needs Adrian's approval like a rise. */
 export function risenBudgets(before, after) {
   const was = new Map(numbersOf(before?.hosts ?? {}));
-  return numbersOf(after?.hosts ?? {}).filter(([p, v]) => was.has(p) && v > was.get(p)).map(([p, v]) => `${p}: ${was.get(p)} -> ${v}`);
+  const is = new Map(numbersOf(after?.hosts ?? {}));
+  const nullAt = (obj, p) => { try { return p.split(/\.|(?=\[)/).filter(Boolean).reduce((o, k) => o?.[k.replace(/^\[(\d+)\]$/, "$1")], obj) === null; } catch { return false; } };
+  const out = [...is].filter(([p, v]) => was.has(p) && v > was.get(p)).map(([p, v]) => `${p}: ${was.get(p)} -> ${v}`);
+  for (const [p, v] of was) if (!is.has(p) && nullAt(after?.hosts ?? {}, p.replace(/^\./, ""))) out.push(`${p}: ${v} -> null (a measured budget removed)`);
+  return out;
 }
 export function lockProblems({ rootDir, paths, budgetsRel, contractRel, fixtureCommit, pin, run = (args) => git(rootDir, args) }) {
   const problems = [];
@@ -1668,6 +1676,82 @@ export function assertRealParallelism(entries, { lanes, ranA = 0, label = "" }) 
   return { ok: problems.length === 0, problems };
 }
 
+
+/** Cargo argv without the unit selectors (`-p x`, `--package x`, `-px`, `--package=x`): the feature round and configuration of an invocation. */
+const withoutUnits = (args) => { const out = []; for (let i = 0; i < args.length; i += 1) { const a = args[i]; if (a === "-p" || a === "--package") { i += 1; continue; } if (/^(-p.+|--package=.*)$/.test(a)) continue; out.push(a); } return out; };
+const cargoArgsOf = (n) => { const i = n.args.indexOf("cargo"); return n.program === "rustright" ? n.args.slice(i + 1) : n.args; };
+/** The rows of a coverage map that belong to the doc stage (`doc:<workspace>:<crate>`). */
+const docRowsOf = (rows) => [...rows.values()].filter((r) => cargoBFamily(r.id)?.fam === "doc");
+/**
+ * NN40: docs are one command per workspace and feature round, on every compile. Fails on a `cargo rustdoc` start, on doc invocations of one
+ * workspace and configuration (the argv without its `-p` units) running more than once, on doc rows that ran with no doc invocation in the
+ * ledger, and on a compile run that answers no doc row at all (the doc stage was skipped).
+ */
+export function assertDocOneCommand(rows, entries, { label = "" } = {}) {
+  const problems = []; const p = label ? `${label}: ` : "";
+  const calls = entries.map(normalizeSpawn).map((n) => ({ n, c: cargoCall(n) })).filter(({ c }) => c && (c.sub === "doc" || c.sub === "rustdoc"));
+  for (const { n, c } of calls) if (c.sub === "rustdoc") problems.push(`${p}a cargo rustdoc started (${n.program} ${shortArgs(n.args)}, cwd ${n.cwd}): docs must be one \`cargo doc\` per workspace and feature round`);
+  const groups = new Map();
+  for (const { n, c } of calls) { if (c.sub !== "doc") continue; const key = `${normalizeRunPart(n.cwd)}\u0000${withoutUnits(cargoArgsOf(n)).map(normalizeRunPart).join(" ")}`; (groups.get(key) ?? groups.set(key, []).get(key)).push(n); }
+  for (const [key, list] of groups) if (list.length > 1) problems.push(`${p}${list.length} doc invocations for one workspace and configuration (${key.replace("\u0000", " | ")}): ${list.slice(0, 3).map((n) => shortArgs(n.args)).join(" ;; ")}`);
+  const docRows = docRowsOf(rows).filter((r) => r.coverage !== "skipped");
+  if (docRows.length === 0) problems.push(`${p}the compile answered no doc row (every doc row is skipped or absent): the doc stage was skipped`);
+  const ranDoc = docRows.filter((r) => r.coverage === "ran");
+  if (ranDoc.length && !calls.some(({ c }) => c.sub === "doc")) problems.push(`${p}${ranDoc.length} doc row(s) ran (${ranDoc.slice(0, 3).map((r) => r.id).join(", ")}) and the ledger has no \`cargo doc\` start: the doc stage is not one command`);
+  return { ok: problems.length === 0, problems, docRows: docRows.length, ranDoc: ranDoc.length, invocations: calls.length };
+}
+
+/** The `--target` values of a cargo argv. */
+const targetsOf = (args) => { const t = []; for (let i = 0; i < args.length; i += 1) { if (args[i] === "--target" && args[i + 1]) { t.push(args[i + 1]); i += 1; } else if (/^--target=./.test(args[i])) t.push(args[i].slice(9)); } return t; };
+const withoutTargets = (args) => { const out = []; for (let i = 0; i < args.length; i += 1) { if (args[i] === "--target") { i += 1; continue; } if (/^--target=/.test(args[i])) continue; out.push(args[i]); } return out; };
+export const NN42_MISSING = "installed broker refuses several --target per invocation (RK_TARGET_INVALID)";
+/**
+ * NN42: the cross targets of one stage go in one broker command naming every `--target`. Fails when the log carries RK_TARGET_INVALID (the broker
+ * refused several), or when one stage sends one command per cross target (same unit selection and configuration, a different single target each).
+ * Both name the missing broker capability. A run that built no cross-target row is no evidence either way (`crossRan` 0).
+ */
+export function assertCrossTargetsOneCommand(log, entries, rows, { label = "" } = {}) {
+  const problems = []; const p = label ? `${label}: ` : "";
+  const crossRan = rows ? [...rows.values()].filter((r) => /@[^@:]+$/.test(r.id) && r.coverage === "ran").length : 0;
+  if (/RK_TARGET_INVALID/.test(String(log))) problems.push(`${p}${NN42_MISSING}: the log carries RK_TARGET_INVALID; the broker needs a capability to accept several --target in one command`);
+  const groups = new Map();
+  for (const n of entries.map(normalizeSpawn)) {
+    const c = cargoCall(n); if (!c || c.via === "cargo" || (!COMPILING_CARGO.has(c.sub) && c.sub !== "rustdoc")) continue;
+    const a = cargoArgsOf(n); const t = targetsOf(a); if (!t.length) continue;
+    const key = `${normalizeRunPart(n.cwd)}\u0000${c.sub}\u0000${withoutTargets(withoutUnits(a)).map(normalizeRunPart).join(" ")}`;
+    (groups.get(key) ?? groups.set(key, []).get(key)).push(t);
+  }
+  for (const [key, list] of groups) {
+    const all = [...new Set(list.flat())];
+    if (list.length > 1 && all.length > 1 && list.every((t) => t.length === 1)) problems.push(`${p}${NN42_MISSING}: the stage sent ${list.length} commands for the cross targets ${all.join(", ")} (${key.split("\u0000")[1]} in ${key.split("\u0000")[0]}), one per target; one broker command naming every --target is missing`);
+  }
+  return { ok: problems.length === 0, problems, crossRan, groups: groups.size };
+}
+
+/**
+ * NN41: run 1 and run 2 are the same commit; every row that really failed in run 1 must be a cache hit that still says fail in run 2. Run 3 changes the
+ * toolchain identity; every such row must run again (a cached failure is never reused after the identity changed, an environment fix must rerun it).
+ */
+export function assertCachedFailure(first, second, third, { identity = "" } = {}) {
+  const problems = [];
+  const failed = first ? [...first.values()].filter((r) => r.class === "B" && r.coverage === "ran" && r.status === "fail") : [];
+  if (failed.length === 0) problems.push("the failing commit's first run has no Class B row that ran and failed: the fixture did not fail deterministically, so no cached failure can be judged");
+  for (const f of failed) {
+    const r = second?.get(f.id);
+    if (!r) problems.push(`${f.id}: absent from the second run of the same commit`);
+    else if (r.coverage !== "hit") problems.push(`${f.id}: failed, and with unchanged inputs, toolchain and broker identity it ${r.coverage === "ran" ? "ran again" : `is ${r.coverage}`} (a failure must be a cache hit)`);
+    else if (r.status !== "fail") problems.push(`${f.id}: a cached failure came back with status ${r.status}`);
+    else if (f.key && r.key && f.key !== r.key) problems.push(`${f.id}: the key changed between two identical runs`);
+  }
+  if (!third) problems.push(`no third run with a changed toolchain identity (${identity || "none chosen"}): the reuse after an identity change cannot be judged; the evidence needed is a second installed toolchain the gate keys on (RUSTUP_TOOLCHAIN)`);
+  else for (const f of failed) {
+    const r = third.get(f.id);
+    if (!r) problems.push(`${f.id}: absent from the run with a changed toolchain identity`);
+    else if (r.coverage === "hit") problems.push(`${f.id}: a cached failure was reused after the toolchain identity changed (${identity}): an environment fix must rerun it`);
+  }
+  return { ok: problems.length === 0, problems, failed: failed.map((f) => f.id) };
+}
+
 /** The NN a step-less (release-level or structural) check cannot judge from a run: names the evidence the gate or the tooling must add. */
 const NN_EVAL_EXT = {
   NN20: (ctx) => { const r = usableRun(ctx, "S12:crate", { red: true }); if (r.fail) return [r.fail]; if (!ctx.crateEdit) return [bad("S12:crate", ["the edited crate's workspace and dependencies are not known"])]; return [checkFor("S12:crate", assertCrateEditScope(r.run.rows, ctx.crateEdit), r.run.coveragePaths)]; },
@@ -1727,6 +1811,21 @@ const NN_EVAL_EXT = {
       out.push(checkFor(label, assertRealParallelism(l.entries, { lanes: ctx.cores, ranA }), [w.run.ledgerPath]));
     }
     return out;
+  },
+  NN40: (ctx) => {
+    const labels = Object.keys(ctx.runs).filter((l) => ctx.runs[l].stage === "compile" && ctx.runs[l].ladder && !ctx.runs[l].kill && /^(S1|S2|S11):compile\d?$/.test(l));
+    if (!labels.length) return [bad("S2:compile", ["no compile run exists, so no doc evidence exists (a run with --checks-only has none)"])];
+    return labels.map((label) => { const w = usableRun(ctx, label, RED); if (w.fail) return w.fail; const l = ledgerOf(w.run, label); return l.fail ?? checkFor(label, assertDocOneCommand(w.run.rows, l.entries, { label }), [w.run.ledgerPath, ...w.run.coveragePaths]); });
+  },
+  NN41: (ctx) => {
+    const a = usableRun(ctx, "S17:fail1", RED); const b = usableRun(ctx, "S17:fail2", RED); if (a.fail || b.fail) return [a.fail ?? b.fail];
+    const c = ctx.runs["S17:fail3"] ? usableRun(ctx, "S17:fail3", RED) : null; if (c?.fail) return [c.fail];
+    return [checkFor("S17", assertCachedFailure(a.run.rows, b.run.rows, c?.run.rows ?? null, { identity: ctx.identityChange ?? "" }), [...a.run.coveragePaths, ...b.run.coveragePaths, ...(c?.run.coveragePaths ?? [])])];
+  },
+  NN42: (ctx) => {
+    const labels = Object.keys(ctx.runs).filter((l) => ctx.runs[l].stage === "compile" && ctx.runs[l].ladder && !ctx.runs[l].kill && /^(S1|S2|S11):compile\d?$/.test(l));
+    if (!labels.length) return [bad("S2:compile", ["no compile run exists, so no cross-target evidence exists"])];
+    return labels.map((label) => { const w = usableRun(ctx, label, RED); if (w.fail) return w.fail; const l = ledgerOf(w.run, label); return l.fail ?? checkFor(label, assertCrossTargetsOneCommand(w.run.log, l.entries, w.run.rows, { label }), [w.run.ledgerPath, w.run.logPath]); });
   },
   NN38: (ctx) => [{ label: "limited evidence", ...assertLimitedEvidence(ctx.runs), evidence: Object.values(ctx.runs).flatMap((r) => r.coveragePaths ?? []).slice(0, 3) }],
 };
@@ -2624,7 +2723,7 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
 
   // S3, S4 (ephemeral edits) ----------------------------------------------------------------------------------------------------------------
   const tracked = g.tracked(commit);
-  const layout = (wanted.includes("S4") || wanted.includes("S7") || wanted.includes("S11") || wanted.includes("S12")) ? g.cargoLayout(commit, tracked) : null;
+  const layout = (wanted.includes("S4") || wanted.includes("S7") || wanted.includes("S11") || wanted.includes("S12") || wanted.includes("S17")) ? g.cargoLayout(commit, tracked) : null;
   const editStep = async (id, name, file, edit, label, extraOf = () => ({})) => {
     if (!wanted.includes(id)) return;
     if (!file) { stepOf(id).notes.push(`unchecked: ${NEEDS_FIXTURE}`); ctx[`${id.toLowerCase()}Why`] = `${id} made no run: the fixture has no tracked ${id === "S3" ? "rk/**/src/lib.rs (or pass --leaf-file)" : "rk/**/Cargo.toml of a non-workspace-root crate (or pass --manifest-file)"}`; return; }
@@ -2746,7 +2845,7 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
   // S11 cold run ----------------------------------------------------------------------------------------------------------------------------
   // The gate's scan-result cache (<git common dir>/rightkit-gate-cache, rule verdicts inside) is MOVED ASIDE under scratch (never deleted) and put back afterwards.
   ctx.cellWhy = {}; ctx.proofs = {};
-  const crateInfo = layout && (wanted.includes("S11") || wanted.includes("S12")) ? crateEditInfo({ layout, tracked, ws: "rk" }) : null;
+  const crateInfo = layout && (wanted.includes("S11") || wanted.includes("S12") || wanted.includes("S17")) ? crateEditInfo({ layout, tracked, ws: "rk" }) : null;
   if (crateInfo && !crateInfo.why) ctx.crateEdit = { workspace: crateInfo.workspace, crate: crateInfo.crate, deps: crateInfo.deps };
   if (wanted.includes("S11")) {
     const common = path.resolve(g.canonical, g.run(["rev-parse", "--git-common-dir"]).trim());
@@ -2847,6 +2946,26 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
     check("S16", "the run with different per-run identities wrote coverage", { ok: r.rows !== null, problems: [`exit ${r.exit}, no readable coverage`] });
   }
 
+  // S17 cached failure ----------------------------------------------------------------------------------------------------------------------
+  // One witness commit that adds a real compile error to one fixture crate; the same commit runs twice (the failing rows must be hits the second
+  // time), then once more with RUSTUP_TOOLCHAIN naming another installed toolchain (a keyed environment input: the failing rows must run again).
+  if (wanted.includes("S17")) {
+    if (!crateInfo || crateInfo.why) check("S17", "a crate to break exists", { ok: false, problems: [crateInfo?.why ?? "no cargo layout"] });
+    else {
+      const cf = g.witnessCommit(commit, "s17-fail", [{ path: crateInfo.file, content: `${g.show(commit, crateInfo.file)}\ncompile_error!("gate-acceptance NN41: a deterministic compile failure");\n` }]);
+      const f1 = await doRun({ label: "S17:fail1", stage: "compile", commit: cf, ladder: true, step: "S17", profile: "edited-compile" });
+      check("S17", "the failing commit's first compile wrote coverage", { ok: f1.rows !== null, problems: [`exit ${f1.exit}, no readable coverage`] });
+      const f2 = await doRun({ label: "S17:fail2", stage: "compile", commit: cf, ladder: true, step: "S17", profile: "edited-compile" });
+      check("S17", "the failing commit's second compile wrote coverage", { ok: f2.rows !== null, problems: [`exit ${f2.exit}, no readable coverage`] });
+      const other = otherToolchain(f1.receipt?.binding?.toolchain?.rustc);
+      if (!other) { ctx.identityChange = "no second installed toolchain found under RUSTUP_HOME/toolchains"; check("S17", "a second installed toolchain exists to change the identity", { ok: false, problems: [ctx.identityChange] }); }
+      else {
+        ctx.identityChange = `RUSTUP_TOOLCHAIN=${other}`;
+        await doRun({ label: "S17:fail3", stage: "compile", commit: cf, ladder: true, step: "S17", profile: "edited-compile", env: { RUSTUP_TOOLCHAIN: other } });
+      }
+    }
+  }
+
   // S9 ---------------------------------------------------------------------------------------------------------------------------------------
   if (wanted.includes("S9")) {
     const brokerEnd = runningBrokerProcess() ?? null; const owner = readOwner();
@@ -2945,7 +3064,7 @@ export const MUTANTS = Object.freeze([
   { nn: "NN16", steps: "S10", what: "a unit-list run starts the per-unit format check through cargo", inject: [spawnLine(CARGO, ["fmt", "-p", "rk-core", "--check"])], expect: /cargo fmt started for a unit list/ },
   { nn: "NN22", steps: "S2", what: "a warm run walks the tree with `find`", inject: [spawnLine("find", [".", "-maxdepth", "1"])], expect: /tree walk/ },
   { nn: "NN25", steps: "S2", what: "a warm run starts `pnpm --version`", inject: [spawnLine("pnpm", ["--version"])], expect: /pnpm|version probe/ },
-  { nn: "NN26", steps: "S2", what: "the gate starts `node gate-serve.mjs ask` to ask the resident gate", inject: ['__cp.spawnSync(process.execPath, [new URL("../gate-serve.mjs", import.meta.url).pathname, "ask"], { timeout: 2000 });'], expect: /ask the resident gate/ },
+  { nn: "NN26", steps: "S2", what: "the gate starts `node gate-serve.mjs ask` to ask the resident gate", inject: ['__cp.spawnSync(process.execPath, [process.getBuiltinModule("node:url").fileURLToPath(new URL("../gate-serve.mjs", import.meta.url)), "ask"], { timeout: 2000 });'], expect: /ask the resident gate/ },
   { nn: "NN39", steps: "S11", extra: ["--s11-checks-only"], what: "the Class A lane count is forced to 1 in the code path (not an environment override)", patch: { find: "const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? defaultJobs) || defaultJobs);", replace: "const jobs = 1;" }, expect: /idle lane while work waited/ },
   { nn: "NN17", steps: "S2", what: "the Class A lane count is forced to 1 in the code path", patch: { find: "const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? defaultJobs) || defaultJobs);", replace: "const jobs = 1;" }, expect: /lane\(s\) on a/ },
   { nn: "NN05", steps: "S2", what: "a per-run value (a high-resolution clock reading) enters every Class A row key", patch: { find: "${rowShape(scan)}`; scanKeys.set(scan.id, full);", replace: "${rowShape(scan)}:${process.hrtime.bigint()}`; scanKeys.set(scan.id, full);" }, expect: /key differs between identical runs/ },
@@ -2953,6 +3072,9 @@ export const MUTANTS = Object.freeze([
   { nn: "NN12", steps: "S2", what: "a warm run starts `pnpm install`", inject: [spawnLine("pnpm", ["install", "--offline"])], expect: /pnpm install started/ },
   { nn: "NN29", steps: "S2,S16", what: "the tool-call id of the environment enters every Class A row key", patch: { find: "${rowShape(scan)}`; scanKeys.set(scan.id, full);", replace: "${rowShape(scan)}:${process.env.CODEX_TOOL_CALL_ID ?? \"\"}`; scanKeys.set(scan.id, full);" }, expect: /key differs between identical runs|reuse miss/ },
   { nn: "NN32", steps: "S8", extra: ["--kills", "K02,K02-int"], what: "a dead owner's record is never judged reclaimable (judgeOwner always refuses)", patch: { file: "build-ownership.mjs", find: "if (owner.host !== host) throw busy(`held by pid ${owner.pid} on ${owner.host}`);", replace: "if (true) throw busy(`held by pid ${owner.pid} (MUTANT: a dead owner is never judged reclaimable)`);" }, expect: /reclaimed from|exited/ },
+  { nn: "NN40", steps: "S2", compile: true, control: true, what: "the gate starts per-crate `cargo rustdoc` again (two crates of the fixture workspace, two starts)", inject: [spawnLine("rustright", ["cargo", "rustdoc", "-p", "rk-core", "--lib", "--help"]), spawnLine("rustright", ["cargo", "rustdoc", "-p", "rk-util", "--lib", "--help"])], expect: /a cargo rustdoc started/ },
+  { nn: "NN41", steps: "S17", control: true, what: "the gate refuses to reuse a cached failure (every failing cache entry is dropped before the run)", inject: ['try { const __fs = process.getBuiltinModule("node:fs"); const __p = process.getBuiltinModule("node:path"); const __d = __p.join(process.cwd(), ".git", "rightkit-gate-cache"); for (const __f of __fs.readdirSync(__d)) { const __x = __p.join(__d, __f); try { if (JSON.parse(__fs.readFileSync(__x, "utf8"))?.row?.status === "fail") __fs.rmSync(__x); } catch { /* not an entry */ } } } catch { /* no cache dir */ }'], expect: /ran again \(a failure must be a cache hit\)/ },
+  { nn: "NN42", steps: "S2", compile: true, control: true, what: "the stage sends one broker command per cross target (two single-target commands of one configuration)", inject: [spawnLine("rustright", ["cargo", "check", "--help", "--target", "aarch64-unknown-linux-gnu"]), spawnLine("rustright", ["cargo", "check", "--help", "--target", "x86_64-pc-windows-msvc"])], expect: /one per target/ },
   { nn: "NN28", steps: "S2", what: "the gate polls for changes with `git status`", inject: [spawnLine("git", ["status", "--short"])], expect: /polling/ },
 ]);
 
@@ -2989,6 +3111,16 @@ export function makeMutant(root, m) {
   return { dir, entry, diff };
 }
 
+/** An installed rustup toolchain other than the one the gate recorded (`rustc 1.96.1 (...)`): the newest remaining one, or null. */
+function otherToolchain(recordedRustc) {
+  const home = process.env.RUSTUP_HOME || path.join(os.homedir(), ".rustup");
+  let names = []; try { names = fs.readdirSync(path.join(home, "toolchains")); } catch { return null; }
+  const rec = /rustc (\d+\.\d+\.\d+)/.exec(String(recordedRustc ?? ""))?.[1] ?? null;
+  const ver = (n) => (/^(\d+)\.(\d+)\.(\d+)/.exec(n) ?? []).slice(1).map(Number);
+  const cmp = (a, b) => { for (let i = 0; i < 3; i += 1) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (b[i] ?? 0) - (a[i] ?? 0); return 0; };
+  const cands = names.filter((n) => /^\d+\.\d+\.\d+/.test(n) && (!rec || !n.startsWith(`${rec}-`))).sort((a, b) => cmp(ver(a), ver(b)));
+  return cands[0] ?? null;
+}
 const spawnRunner = (file, args) => runRunner(args, { cwd: path.dirname(file), file });
 function runRunner(args, { cwd, file = RUNNER_FILE }) {
   return new Promise((resolve) => {
@@ -3007,7 +3139,7 @@ async function proveMain({ fixture, host, out }) {
   const root = out ?? path.join(scratch, "prove", new Date().toISOString().replace(/[:.]/g, "-"));
   const mutRoot = path.join(scratch, "mutants");
   fs.mkdirSync(root, { recursive: true }); fs.mkdirSync(mutRoot, { recursive: true });
-  const proofs = {}; const log = [];
+  const proofs = {}; const log = []; const controls = [];
   const note = (id, how, caught, detail) => { (proofs[id] ??= []).push({ how, caught, detail }); log.push(`${id} ${caught ? "CAUGHT" : "not caught"} by ${how}${detail ? `: ${detail}` : ""}`); };
   const resultOf = (dir) => { try { return JSON.parse(fs.readFileSync(path.join(dir, "result.json"), "utf8")); } catch { return null; } };
   const common = ["--fixture", fixture, "--host", host];
@@ -3033,11 +3165,20 @@ async function proveMain({ fixture, host, out }) {
   for (const m of MUTANTS) {
     let mm; try { mm = makeMutant(mutRoot, m); } catch (e) { note(m.nn, `mutant gate (${m.what})`, false, e.message); continue; }
     const o = path.join(root, `mutant-${m.nn}`);
-    const args = [...common, "--steps", m.steps, "--nn", m.nn, "--gate", mm.entry, "--out", o]; if (m.steps === "S2") args.push("--checks-only");
+    const args = [...common, "--steps", m.steps, "--nn", m.nn, "--gate", mm.entry, "--out", o]; if (m.steps === "S2" && !m.compile) args.push("--checks-only");
     if (m.extra) args.push(...m.extra);
     await runRunner(args, { cwd: here });
     const r = resultOf(o)?.nonNegotiables?.find((n) => n.id === m.nn);
     const hit = r?.status === "fail" && r.problems.some((p) => m.expect.test(p));
+    if (m.control) {
+      // The unmutated control: the same run against the unmutated copy of the gate must NOT show the mutant's failure.
+      const oc = path.join(root, `control-${m.nn}`);
+      await runRunner([...args.slice(0, args.indexOf("--gate")), "--gate", base.entry, "--out", oc, ...(m.extra ?? [])], { cwd: here });
+      const cr2 = resultOf(oc)?.nonNegotiables?.find((n) => n.id === m.nn);
+      const shown = cr2?.problems?.find((x) => m.expect.test(x));
+      controls.push({ id: m.nn, ok: Boolean(cr2) && !shown, detail: !cr2 ? "no result" : shown ? `the unmutated gate SHOWS the failure: ${shown.slice(0, 200)}` : `the unmutated gate does not show it (verdict ${cr2.status}${cr2.status === "fail" ? `: ${cr2.problems[0]?.slice(0, 160)}` : ""})`, out: oc });
+      log.push(`${m.nn} control (unmutated gate, same run): ${controls[controls.length - 1].ok ? "does not show the failure" : "SHOWS the failure"}: ${controls[controls.length - 1].detail}`);
+    }
     note(m.nn, `mutant gate: ${m.what} (${mm.dir}/mutation.diff)`, hit, hit ? r.problems.find((p) => m.expect.test(p)).slice(0, 140) : r ? `verdict ${r.status}; ${r.problems.slice(0, 2).join(" | ").slice(0, 200)}` : "no result");
   }
   // Real gate evidence from the controls run (the unmutated checkout gate): a check that fails there on a violation or on missing evidence is shown to be able to fail.
@@ -3129,9 +3270,11 @@ async function proveMain({ fixture, host, out }) {
   }
   const rows = NN_ALL_IDS.map((id) => ({ id, proven: (proofs[id] ?? []).some((p) => p.caught), proofs: proofs[id] ?? [] }));
   const unproven = rows.filter((r) => !r.proven).map((r) => r.id);
-  const summary = { schema: "rightkit.gate-acceptance-prove/1", host, ok: unproven.length === 0, unproven, rows, log };
+  const badControls = controls.filter((c) => !c.ok);
+  const summary = { schema: "rightkit.gate-acceptance-prove/1", host, ok: unproven.length === 0 && badControls.length === 0, unproven, controls, rows, log };
   fs.writeFileSync(path.join(root, "prove-result.json"), `${JSON.stringify(summary, null, 2)}\n`);
-  console.log(`prove ${summary.ok ? "OK" : "FAILED"}: ${rows.length - unproven.length} of ${rows.length} non-negotiables have a proof that they can fail`);
+  console.log(`prove ${summary.ok ? "OK" : "FAILED"}: ${rows.length - unproven.length} of ${rows.length} non-negotiables have a proof that they can fail; ${controls.length - badControls.length} of ${controls.length} unmutated controls are clean`);
+  for (const c of controls) console.log(`  control ${c.id} ${c.ok ? "clean" : "SHOWS THE FAILURE"}: ${c.detail}`);
   for (const r of rows) console.log(`  ${r.id} ${r.proven ? "proven" : "UNPROVEN"}${r.proofs.filter((p) => p.caught).map((p) => ` [${p.how.slice(0, 70)}]`).join("")}`);
   console.log(`result: ${path.join(root, "prove-result.json")}`);
   return summary.ok ? 0 : 1;
