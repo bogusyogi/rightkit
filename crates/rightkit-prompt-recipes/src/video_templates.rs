@@ -2224,11 +2224,6 @@ fn approval_inputs_of(draft: &Value) -> (Value, String) {
     )
 }
 
-/// Approval inputs of a stored draft, for `studio.approvals.challenge`.
-pub(crate) fn approval_inputs(ctx: &Context, id: &str) -> GenResult<(Value, String)> {
-    Ok(approval_inputs_of(&read_draft(ctx, id)?))
-}
-
 /// Record the user's in-app approval of a draft. Needs an approval token only the app shell can
 /// mint (`approvals`); `operator_approved` alone is refused. Refuses a draft whose engine request
 /// no longer matches the fingerprint taken at preflight, and one whose approval inputs changed

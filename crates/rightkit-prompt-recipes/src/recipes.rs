@@ -1528,11 +1528,6 @@ fn approval_inputs_of(draft: &Value) -> (Value, String) {
     )
 }
 
-/// Approval inputs of a stored draft, for `studio.approvals.challenge`.
-pub(crate) fn approval_inputs(ctx: &Context, id: &str) -> GenResult<(Value, String)> {
-    Ok(approval_inputs_of(&read_draft(ctx, id)?))
-}
-
 /// Preflight plus the single-use approval challenge (returned with the response, not stored in the draft).
 fn preflight_with_challenge(ctx: &Context, input: &Value) -> GenResult<Value> {
     let mut draft = make_draft(ctx, input, true)?;
@@ -2392,11 +2387,6 @@ fn tpl_approval_inputs_of(doc: &Value) -> (Value, String) {
         inputs,
         doc["request_hash"].as_str().unwrap_or_default().to_string(),
     )
-}
-
-/// Approval inputs of a stored template draft, for `studio.approvals.challenge` (kind `recipe_templates`).
-pub(crate) fn tpl_approval_inputs(ctx: &Context, id: &str) -> GenResult<(Value, String)> {
-    Ok(tpl_approval_inputs_of(&tpl_read(ctx, id)?))
 }
 
 /// The single-use approval challenge for one template draft (returned with the response, never stored in the draft).

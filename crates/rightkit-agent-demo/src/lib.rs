@@ -18,6 +18,12 @@
 //! | `badge.rs`, `kill.rs`, `tray.rs` | the always-visible badge window, the kill hotkey and the tray "Stop demo" item |
 //! | `catalog.rs`, `store.rs` | the app catalog and deny list; the flag, bundles and audit log |
 //! | `commands.rs` | the Tauri commands the UI calls |
+//!
+//! Platform scope: the driver needs `rightkit-automation`'s native backend and the recorder needs
+//! `rightkit-record`'s native backend, and both exist only on macOS and Windows. On other targets the
+//! crate compiles to nothing, so no demo code is built there.
+
+#![cfg(any(target_os = "macos", windows))]
 
 use std::sync::{Arc, OnceLock};
 

@@ -14,10 +14,10 @@ use rightkit_dictation_core::engine::FileTranscript;
 use rightkit_dictation_core::engine::TimedWord;
 
 use super::models::configured_backend;
+#[cfg(not(target_os = "macos"))]
+use super::models::{initial_context_bias, model_subdir_for};
 #[cfg(target_os = "windows")]
-use super::models::{
-    initial_context_bias, model_subdir_for, probe_directml_embedded, try_load_whisper_win,
-};
+use super::models::{probe_directml_embedded, try_load_whisper_win};
 #[cfg(target_os = "macos")]
 use super::models::{try_load_coreml_parakeet, try_load_coreml_whisper};
 use super::windowing::{
@@ -763,6 +763,7 @@ impl AsrRuntime {
         // never consult it, so binding it there is an unused-variable warning.
         #[cfg(target_os = "macos")]
         let persisted_route = crate::settings::persisted_recognition_route();
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         crate::calibration::apply_persisted_active_route();
         #[cfg(target_os = "macos")]
         {
@@ -912,7 +913,11 @@ impl AsrRuntime {
                 )
             })?;
             let bias = initial_context_bias(&model);
+            #[cfg(target_os = "windows")]
             let dml_device_id = crate::calibration::active_route().dml_device_id;
+            // No DirectML adapter exists off Windows, so no route can be persisted there.
+            #[cfg(not(target_os = "windows"))]
+            let dml_device_id: Option<i32> = None;
             #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
             let mut dml_adapter_name: Option<String> = None;
             #[cfg(target_os = "windows")]
@@ -1075,6 +1080,8 @@ impl AsrRuntime {
         &mut self,
         samples: &[f32],
     ) -> Result<TranscriptionResult, String> {
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        let _ = samples;
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         if let AsrRuntime::Kws(model) = self {
             return model.transcribe_result(samples);
@@ -1099,6 +1106,8 @@ impl AsrRuntime {
         live_total_sample: usize,
         confirmation_armed: bool,
     ) -> Result<(TranscriptionResult, Option<usize>), String> {
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        let _ = (snapshot_start_sample, live_total_sample, confirmation_armed);
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         if let AsrRuntime::Kws(model) = self {
             return model.transcribe_cascade_result_with_wake_start(
@@ -1132,6 +1141,13 @@ impl AsrRuntime {
         confirmation_armed: bool,
         use_fresh_confirmation: bool,
     ) -> Result<(TranscriptionResult, Option<usize>, bool), String> {
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        let _ = (
+            snapshot_start_sample,
+            live_total_sample,
+            confirmation_armed,
+            use_fresh_confirmation,
+        );
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         if let AsrRuntime::Kws(model) = self {
             return model.transcribe_scheduled_probe_result_with_wake_start(
@@ -1244,6 +1260,8 @@ impl AsrRuntime {
     }
 
     pub fn start_idle_wake(&mut self, threshold: f32) -> Result<(), String> {
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        let _ = threshold;
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         if let AsrRuntime::Kws(model) = self {
             return model.start_idle_wake(threshold);
@@ -1264,6 +1282,8 @@ impl AsrRuntime {
         start_sample: usize,
         live_total_sample: usize,
     ) -> Result<Option<(usize, usize)>, String> {
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        let _ = (samples, start_sample, live_total_sample);
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         if let AsrRuntime::Kws(model) = self {
             return model.feed_idle_wake(samples, start_sample, live_total_sample);
@@ -1301,8 +1321,14 @@ impl AsrRuntime {
             finished,
             verbatim,
         } = job;
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        let _ = (cursor, verbatim);
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         let mut policy = rightkit_asr::parakeet_core::DetokPolicy::canonical_rust();
-        policy.strip_fillers = !*verbatim;
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        {
+            policy.strip_fillers = !*verbatim;
+        }
         let outcome: Result<Option<FileTranscript>, String> = match self {
             #[cfg(target_os = "macos")]
             AsrRuntime::CoreMlParakeet(m) => {

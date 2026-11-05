@@ -7,8 +7,8 @@
     clippy::manual_clamp
 )]
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 /// The TDT/RNN-T beam emission reward: the platform default from `rightkit-asr`.
+/// Every target's ONNX and CoreML beam decoders call it.
 pub fn beam_emit_reward() -> f32 {
     rightkit_asr::parakeet_core::tdt_beam::default_emit_reward()
 }
@@ -19,7 +19,7 @@ pub mod av_decode;
 // Onboarding calibration drives `asr`, which exists only on macOS and Windows.
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub mod calibration;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+// Platform-neutral transcript cleanup; `asr::runtime` names its `Alignment` on every target.
 pub mod control_cleanup;
 #[cfg(target_os = "macos")]
 pub mod coreml;
