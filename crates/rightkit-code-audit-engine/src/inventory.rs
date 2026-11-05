@@ -367,8 +367,7 @@ fn is_oversize_entry(entry: &InventoryEntry) -> bool {
     let Ok(bytes) = bytes.parse::<u64>() else {
         return false;
     };
-    bytes > 32 * 1024 * 1024
-        && digest == crate::snapshot::uncovered_file_digest(&entry.path, bytes).to_string()
+    bytes > 32 * 1024 * 1024 && digest == crate::snapshot::uncovered_file_digest(&entry.path, bytes)
 }
 
 /// Dependency names declared by a recognised manifest (`Cargo.toml`,

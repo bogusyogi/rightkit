@@ -131,6 +131,9 @@ impl Drop for Prepared {
             if let Ok(meta) = fs::symlink_metadata(path) {
                 if meta.is_file() && !meta.file_type().is_symlink() {
                     let mut permissions = meta.permissions();
+                    // Windows only: this clears FILE_ATTRIBUTE_READONLY so the snapshot can be removed. The lint warns
+                    // about Unix, where it would make the file world-writable; std has no other way to clear the attribute.
+                    #[allow(clippy::permissions_set_readonly_false)]
                     permissions.set_readonly(false);
                     let _ = fs::set_permissions(path, permissions);
                 }

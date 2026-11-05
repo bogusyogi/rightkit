@@ -10237,6 +10237,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "axum",
+ "base64 0.23.1",
  "clap",
  "clap_complete",
  "ed25519-dalek",
@@ -10245,6 +10246,7 @@ dependencies = [
  "getrandom 0.4.3",
  "jsonschema",
  "libc 0.2.191",
+ "mach2",
  "rightkit-adapt",
  "rightkit-agent-engine-api-integrations",
  "rightkit-agent-engine-api-platform",
@@ -10764,9 +10766,11 @@ name = "rightkit-clipboard-history"
 version = "0.1.0"
 dependencies = [
  "rightkit-automation",
+ "rightkit-child-process",
  "rightkit-fs",
  "rightkit-hotkeys",
  "rightkit-notch-ui",
+ "rightkit-overlay",
  "rightkit-time",
  "rightkit-win-ui",
  "serde",

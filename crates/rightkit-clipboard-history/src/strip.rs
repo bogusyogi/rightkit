@@ -1500,7 +1500,7 @@ impl Strip {
         self.previous = hwnd_key(unsafe { GetForegroundWindow() });
         self.offset = rightkit_win_ui::clock::local_offset_secs();
         self.snap = clip::snapshot();
-        self.size_class = CardSize::named(host::card_size());
+        self.size_class = CardSize::named(&host::card_size());
         self.numbers = host::switch_on("clipboardShowNumbers");
         // Filters reset when the strip closes; the board stays for the session, and across
         // sessions when asked.

@@ -333,7 +333,7 @@ struct Brush<'a> {
 type Point = (f32, f32);
 
 /// Points of a circular arc, angles in degrees clockwise from 3 o'clock (y points down).
-pub(crate) fn arc(centre: Point, radius: f32, from: f32, to: f32) -> Vec<Point> {
+pub fn arc(centre: Point, radius: f32, from: f32, to: f32) -> Vec<Point> {
     let steps = ((to - from).abs() / 10.0).ceil().max(1.0) as usize;
     (0..=steps)
         .map(|step| {

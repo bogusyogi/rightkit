@@ -1,6 +1,6 @@
 use rightkit_mcp::agent_mcp::{
-    McpServerModePolicy, RequestContext, RightKitMcpBackend, RightKitMcpError, RightKitMcpServer,
-    ToolDescriptor, MCP_SUPPORTED_VERSIONS,
+    McpServerModePolicy, RequestContext, RightKitMcpBackend as McpBackend, RightKitMcpError,
+    RightKitMcpServer, ToolDescriptor, MCP_SUPPORTED_VERSIONS,
 };
 use serde_json::{json, Value};
 use std::io::BufRead;
@@ -275,7 +275,7 @@ impl RightKitMcpBackend {
     }
 }
 
-impl RightKitMcpBackend for RightKitMcpBackend {
+impl McpBackend for RightKitMcpBackend {
     fn should_audit(&self, name: &str) -> bool {
         !(self.vendor_permissions && name == "permission_prompt")
     }

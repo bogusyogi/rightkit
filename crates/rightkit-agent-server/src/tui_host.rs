@@ -813,7 +813,7 @@ fn clipboard_copy_notice(text: &str) -> String {
         strategy,
         rightkit_terminal_ui::terminal::ClipboardStrategy::NativeWithOsc52Fallback
     ) {
-        crate::doctor::try_copy_to_clipboard(text)
+        rightkit_doctor::probe::copy_to_clipboard(text)
             .map(|tool| format!("native:{tool}"))
             .or_else(|_| {
                 let mut out = std::io::stdout();

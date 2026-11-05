@@ -1,11 +1,13 @@
 //! Fixed native-owner transaction, never a command runner or transferable grant.
 //! Only protected enrollment selects adapters. Native owner retains its record
 //! lock & immutable prepared inputs until commit/complete on this same pipe.
-use rightkit_policy_rules::rules::frozen_scope::{self as policy, Operation};
+use rightkit_policy_rules::rules::frozen_scope::Operation;
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, time::Instant};
 
+#[cfg(unix)]
 const CAP: usize = 32 * 1024;
+#[cfg(unix)]
 const PROTOCOL: &str = "legion-native-consume-v1";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -71,6 +73,7 @@ pub struct PendingConsume {
     pub prepared: PreparedEffect,
 }
 
+#[cfg(unix)]
 #[derive(Deserialize)]
 #[serde(tag = "phase", rename_all = "snake_case", deny_unknown_fields)]
 enum Response {
@@ -101,6 +104,7 @@ fn digest(value: &str) -> bool {
 fn pin_digest(value: &str) -> bool {
     value.strip_prefix("sha256:").is_some_and(digest)
 }
+#[cfg(unix)]
 fn oid(value: &str) -> bool {
     matches!(value.len(), 40 | 64)
         && value
@@ -140,6 +144,7 @@ pub fn validate_enrollment(
     Ok(())
 }
 
+#[cfg(unix)]
 fn prepared(
     response: Response,
     adapter: &AdapterConfig,
@@ -173,6 +178,7 @@ fn prepared(
     Ok(effect)
 }
 
+#[cfg(unix)]
 fn complete(response: Response, nonce: &str, expected: &str) -> Result<(), String> {
     match response {
         Response::Complete {
@@ -196,6 +202,7 @@ fn deadline_check(deadline: Instant, now: Instant) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(unix)]
 fn authorize_and_commit<A, C, N>(
     effect: PreparedEffect,
     nonce: String,
@@ -229,6 +236,7 @@ where
 mod unix {
     use super::*;
     use rightkit_child_process::OwnedCommand;
+    use rightkit_policy_rules::rules::frozen_scope as policy;
     use sha2::{Digest, Sha256};
     use std::{
         fs,

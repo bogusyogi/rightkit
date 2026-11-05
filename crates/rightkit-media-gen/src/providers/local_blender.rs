@@ -956,7 +956,7 @@ impl Provider for LocalBlender {
                 .ok()
                 .and_then(|v| v["identity"].as_str().map(str::to_owned))
                 .as_deref()
-                == Some(&identity)
+                == Some(identity.as_str())
         {
             return Ok(());
         }
@@ -1542,7 +1542,7 @@ fn verify_manifest(
         || manifest["recipe"]["version"].as_str()
             != worker.recipe_manifest["recipes"][job["recipe"].as_str().unwrap_or("")]["version"]
                 .as_str()
-        || manifest["recipe"]["sha256"].as_str() != Some(&worker.recipe_hash)
+        || manifest["recipe"]["sha256"].as_str() != Some(worker.recipe_hash.as_str())
     {
         return Err(unavailable("result manifest recipe does not match request"));
     }

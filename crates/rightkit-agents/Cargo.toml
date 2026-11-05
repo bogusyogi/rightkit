@@ -37,7 +37,7 @@ rightkit-fs = {version = "0.4.9", features = ["fs", "lock", "json", "digest", "t
 rightkit-sidecar = {version = "0.3.0", path = "../rightkit-sidecar", optional = true}
 rightkit-time = {version = "0.1.1", path = "../rightkit-time", optional = true}
 thiserror = {version = "2", optional = true}
-tokio = {version = "1", features = ["rt", "macros", "process", "io-util", "sync", "time"], optional = true}
+tokio = {version = "1", features = ["rt", "macros", "process", "io-util", "sync", "time", "net"], optional = true}
 
 [package.metadata.rightkit]
 continuous = "held-resource"

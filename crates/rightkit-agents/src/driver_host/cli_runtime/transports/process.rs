@@ -5,7 +5,6 @@
 
 use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
-#[cfg(not(windows))]
 use std::process::{ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
 

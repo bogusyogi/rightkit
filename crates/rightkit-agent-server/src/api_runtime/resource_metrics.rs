@@ -849,7 +849,7 @@ fn daemon_rss_bytes() -> Option<u64> {
         let mut info: libc::mach_task_basic_info = std::mem::zeroed();
         let mut count = libc::MACH_TASK_BASIC_INFO_COUNT;
         let result = libc::task_info(
-            libc::mach_task_self(),
+            mach2::traps::mach_task_self(),
             libc::MACH_TASK_BASIC_INFO,
             &mut info as *mut libc::mach_task_basic_info as libc::task_info_t,
             &mut count,

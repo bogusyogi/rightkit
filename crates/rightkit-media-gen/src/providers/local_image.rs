@@ -485,7 +485,7 @@ pub fn job_backend_status(job_id: &str, provider_job_id: Option<&str>) -> Option
     };
     let job = jobs
         .iter()
-        .find(|job| job.runtime_session_id.as_deref() == Some(&instance.session_id))?;
+        .find(|job| job.runtime_session_id.as_deref() == Some(instance.session_id.as_str()))?;
     Some(json!({"pid": instance.pid, "owner_pid": instance.owner_pid,
         "session_id": instance.session_id, "state": job.state.as_str(), "stage": job.stage}))
 }

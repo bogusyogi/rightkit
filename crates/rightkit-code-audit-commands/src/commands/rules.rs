@@ -259,7 +259,7 @@ fn evaluate_native_rules(
             ("findingLocations".into(), Value::Object(locations)),
             ("findingTitles".into(), Value::Object(titles)),
             ("findingMessages".into(), Value::Object(messages)),
-            ("selector".into(), selector.clone()),
+            ("selector".into(), spec.selector.clone()),
             (
                 "packs".into(),
                 json!(selected.keys().cloned().collect::<Vec<_>>()),
