@@ -17,12 +17,14 @@
       "schema": "rustright.attribution-detail-vectors.v1"
     },
     "cargo-shapes.fixtures.json": {
-      "sha256": "fe1df98dcd7a58c6bcfc5b7f04424cf5d3bfba2a8ff80a2c288d4abfbb81f70c",
-      "schema": "rustright.cargo-shapes.fixtures.v1"
+      "sha256": "6c8b476dfc2925858ba897b6c668998fdfce154a56556a8d43005b5bd27aebca",
+      "schema": "rustright.cargo-shapes.fixtures.v1",
+      "commit": "396151ba0f4780c77223f287fd71507b22c0ed0c"
     },
     "control-status-vectors.v1.json": {
-      "sha256": "a3a1e7439918d931fc355c3a8314b4caffba6c520521f3075fc2875b5c240381",
-      "schema": "rustright.control-status-vectors.v1"
+      "sha256": "2f21d88caa19df1501fc0b477192a289269af0b8374be3faf01b2678f2e3a358",
+      "schema": "rustright.control-status-vectors.v1",
+      "commit": "396151ba0f4780c77223f287fd71507b22c0ed0c"
     },
     "declared-inputs.fixtures.json": {
       "sha256": "dbc485ef69c35f307fa4e8e23cec3fc042b6696b6c3841e75992cb8e9f7e2c40",

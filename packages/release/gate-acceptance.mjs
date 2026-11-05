@@ -615,7 +615,7 @@ export const NEGATIVES = Object.freeze([
   { id: "N02", title: "secret-shaped string in a tracked file", signals: [], expectRows: [{ id: "secret-scan", coverage: "ran", status: "fail" }], later: ["compile"], clauses: ["GC-T05", "GC-A22-classA"], build: "secret-file" },
   { id: "N13", title: "--no-cache and RK_GATE_CACHE=0 refused", signals: [], later: ["check"], clauses: ["GC-A01", "GC-T14"], build: "bypass" },
   { id: "N15", title: "[profile.dev] in a Cargo.toml", signals: [/\[profile-extra\]/, "[profile.dev] is not allowed"], later: ["compile"], clauses: ["GC-A15"], build: "profile-dev" },
-  { id: "N26", title: "extra Cargo workspace not in ci/gate.config.json", signals: [/RK_CARGO_WORKSPACE_LIST_MISSING/], later: ["compile"], clauses: ["GC-1A-R4"], build: "extra-workspace" },
+  { id: "N26", title: "extra Cargo workspace not in ci/gate.config.json", signals: [/RK_CARGO_WORKSPACE_LIST_DIFFERS/], later: ["compile"], clauses: ["GC-1A-R4"], build: "extra-workspace" },
   { id: "N27", title: "--no-broker x with no exception entry", signals: [/RK_BROKER_EXCEPTION_MISSING/], later: ["compile"], clauses: ["GC-1A-R2"], build: "no-broker", args: ["--no-broker", "acceptance-no-such-exception"] },
 ]);
 export const NEGATIVES_UNCHECKED = Object.freeze({
