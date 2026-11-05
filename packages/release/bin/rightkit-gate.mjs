@@ -112,6 +112,7 @@ import { createRequire } from "node:module";
 import { nativeToolRefusal, nativeToolUses } from "../native-tool-planning.mjs";
 import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, mergeCapabilityViews, parseRuntimeIdentity, queryBrokerHandshake } from "../broker-handshake.mjs";
 import net from "node:net";
+import { installSpawnLedger } from "../spawn-ledger.mjs";
 import { cargoWidthRouteProblem, cargoWidthScanProblem, cargoWidthUnitsProblem, parseCargoWidth, validateCargoWidthPool } from "../cargo-width.mjs";
 
 const PRIVATE_SCOPED_COMPILE = Symbol("private scoped compile");
@@ -5068,6 +5069,8 @@ const invokedDirectly = (() => {
  * path (rustright reads it from RUSTRIGHT_CALLING_GATE; a missing or different path is refused). */
 export const callingGatePath = () => fs.realpathSync(fileURLToPath(import.meta.url));
 if (invokedDirectly) {
+  // GC-A27 NN07-NN12: with RK_GATE_SPAWN_LEDGER set, every child process of this run is recorded (spawn-ledger.mjs). Off otherwise.
+  installSpawnLedger();
   // Every child this run starts that can reach rustright (scans, unit stages, right-release dev/test, their builds) inherits it.
   process.env.RUSTRIGHT_CALLING_GATE = callingGatePath();
   delete process.env.RIGHTKIT_CALLING_GATE; // one spelling, never both

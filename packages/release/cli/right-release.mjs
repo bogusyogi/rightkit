@@ -3,6 +3,7 @@ import path from "node:path";
 import { spawn } from "../background-process.mjs";
 import { fileURLToPath } from "node:url";
 import { assertReleaseExecutionAllowed } from "../execution-policy.mjs";
+import { installSpawnLedger } from "../spawn-ledger.mjs";
 import { hostUploadRefusalMessage } from "../host-upload-refusal.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -63,6 +64,7 @@ const commands = new Map([
   ["ios-credentials", "ios-credentials-command.mjs"],
 ]);
 
+installSpawnLedger(); // GC-A27: record children when RK_GATE_SPAWN_LEDGER is set
 const args = process.argv.slice(2);
 const first = args[0];
 // The commands that compile, package, sign, ship or inspect a release run the app check (../app-check.mjs, CHECKED_COMMANDS) in this

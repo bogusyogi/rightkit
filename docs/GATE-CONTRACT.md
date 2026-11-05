@@ -206,9 +206,32 @@ Adrian, 2026-11-03: "i wnat all dev completely gone. all debug too. completely g
 
 [GC-A27] 2026-11-05: **One end-to-end acceptance run shows what a gate pass is, against the whole contract.** Adrian, 2026-11-05: "does the gate have a e2e test that shows what pass looks like? one that achieves the full contract?" / "isn't that the right call?" (rightkit#1514).
 - **Runner.** `packages/release/gate-acceptance.mjs --fixture <dir> [--host mac|dell] [--steps ...] [--plan] [--allow-install]` drives the real installed gate (never a mock) through S0–S9 against the witness fixture (`rk-witness-fixture`), then judges every operative clause from that run's own artifacts: coverage reports, the door receipt, the owner record, render receipts and log lines.
-- **Verdict.** It prints `PASS (N of 67 asserted, M unchecked)` only when every asserted clause, every step and every step-only check passed; otherwise `NOT PASSED` with the blockers. A clause with no evidence in that run is unchecked with its reason, never passed. Timing is recorded, never judged.
+- **Verdict.** It prints `PASS (N of M asserted, K unchecked)` only when every asserted clause, every step, every step-only check and every non-negotiable below passed; otherwise `NOT PASSED` with the blockers. A clause with no evidence in that run is unchecked with its reason, never passed. A non-negotiable is never unchecked on a host that can run it: missing evidence for one fails the run.
 - **Negatives and kills.** A negative passes only on the named scan row or the exact rule code the gate emits for it, never on a word in the log. A kill must be followed by a run that reclaims the record ([GC-A26]) and passes.
 - **Safety.** It never pushes, publishes or bypasses the cache. `--to dev` and `--to qualify` install an app, so they run only with `--allow-install`, which needs Adrian's approval each time. The fixture checkout is restored exactly.
+- **Non-negotiables: no reruns, no repeat calls, nothing redone that has not changed** (Adrian, 2026-11-05: "each implement like cache etc should be written into part of an e2e test i.e. final state. so anything that breaks it next time fails"; "no reruns, no repeat calls. no going over things that haven't changed. fully optimizations ... every optimizations that were tested previously are in there as non negotiables"). Every optimization measured on 2026-11-04/05 (GC-A24, GC-T24; commits 21281d567, 2dddd6d81, 860de45c6, adec5ac76, a707d4914, 9fcf09968, 73a0edb02, 59373bf80, af0704a05) is a final-state property the runner asserts on the installed gate, on the Mac and the Dell. Evidence comes from the run itself: the coverage report, the receipt, the gate log, and the gate's spawn ledger (every child process the run starts, written when `RK_GATE_SPAWN_LEDGER` names a file; `RK_GATE_*` never enters a key).
+
+| Id | Property | Evidence | Fails when |
+|---|---|---|---|
+| NN01 | An unchanged commit runs no Class A row | warm `--to check`, coverage | any Class A row is `ran` |
+| NN02 | An unchanged commit runs no Class B row | warm `--to compile`, coverage | any Class B row is `ran` (a row that failed before and still fails is reported, never re-run silently) |
+| NN03 | One edited `.rs` file reruns only the rows that read it | S3 coverage | a row that does not read the file ran, or more than one rustfmt bucket ran |
+| NN04 | One edited manifest reruns only its workspace's rows | S4 coverage | a row of another workspace ran |
+| NN05 | Keys are stable across identical runs | two warm runs, coverage keys | any row's key differs |
+| NN06 | Only executing rows carry the environment digest | coverage keys | a non-executing row's key carries it |
+| NN07 | No identical child process twice in one run | spawn ledger | the same program and arguments start twice (an allowlisted probe excepted, each named with its reason) |
+| NN08 | rustfmt is one process per bucket; no `cargo fmt` at all | spawn ledger | a `cargo fmt` starts, or rustfmt starts more than once per bucket |
+| NN09 | Non-compiling cargo never goes through the broker | spawn ledger | `rustright cargo` runs metadata, fetch, tree, locate-project, pkgid, verify-project or read-manifest |
+| NN10 | Inside a snapshot the resident gate answers `cargo metadata` | gate log | a warm run starts a real `cargo metadata` for an unchanged snapshot |
+| NN11 | A warm run proves the snapshot from the resident index, without re-hashing it | gate log, spawn ledger | the snapshot tree is hashed more than once per run, or a warm verify walks it |
+| NN12 | Installed dependencies are identified by pnpm's install record and reused | gate log (`reuse-match=hit`), spawn ledger | a warm run reinstalls (`pnpm install`) an unchanged install, or the dependency digest changes between identical runs |
+| NN13 | Class A takes no build-ownership lease | gate log | `--to check` logs build ownership held |
+| NN14 | Preflight and app rules run once per tree | gate log | a warm run does not report them cached |
+| NN15 | Advice scans are cached per lock set and UTC day or hour | coverage | `dependency-freshness`, `ghsa-audit`, `pnpm-audit`, `cargo-deny`, `cargo-audit` ran on a warm run of the same day |
+| NN16 | A unit list shares one Class A and runs no per-unit format check | `--units-file` log, spawn ledger | Class A runs more than once, or `cargo fmt -p` starts |
+| NN17 | Class A lanes equal the host's cores; Class B batches compatible rows | gate log | fewer lanes than cores, or a compatible group runs as separate invocations |
+| NN18 | Warm time stays inside the host's budget | timestamps | warm `--to check` or a fixed setup stage (ownership, snapshot sync, dependency step, planning) exceeds `ci/gate-acceptance-budgets.json` for the host; each budget is set from a measured run and only ever lowered |
+| NN19 | The gate under test is the installed sealed gate | `--version`, launcher | a run uses a checkout gate without `--gate` naming it |
 - Status: runner and pure tests landed; the clause list, fixture rows F1–F15 and the case list are in the runner's registry. Not yet run against the real gate.
 
 Every other clause is read around GC-A07. Adrian, 2026-11-02, relayed verbatim by the Dell HR chat: "ok, one thing we have established is we are getting rid of debug. dev is actual installer with rk qa/ it can have faster compile like fat or thin or whatever, since it is not release. and qa journey will be moved out of build. this decision is already locked. everything else has to be worked around this." To rkn the same day: "this goes in the contracts asap".
