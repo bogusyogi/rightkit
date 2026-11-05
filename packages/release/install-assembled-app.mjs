@@ -23,6 +23,7 @@ import { installApp } from "./install-app.mjs";
 import { previousPathOf } from "./in-place-install.mjs";
 import { resolveXcodeStorage } from "./ios-host.mjs";
 import { resolveTargetRoot } from "./cargo-target.mjs";
+import { readSourceSplit } from "./source-split.mjs";
 import { ASSEMBLED_APP_KIND, AssembledAppError, assembleMacBundle, assembleWindowsPayload, containedRelative, loadStageReceipt, platformPath, resolveAssembly, resolveNestedApp, verifyMacBundle, verifyWindowsPayload } from "./assembled-app.mjs";
 
 export { ASSEMBLED_APP_KIND };
@@ -145,7 +146,10 @@ export function buildOuterApp({ root, spec, storage, profile, env = process.env,
 }
 
 export function resolveAssemblyStorage({ root, profile, env, run }) {
-  return resolveXcodeStorage({ env, run, cwd: root, fallbackRoot: path.join(root, ".right-release", "assembled-app") }); // one Xcode build folder, never one per profile (GC-A15)
+  // Inside the door's source split `root` is the snapshot, where `.right-release` is a reserved path (the stage-output ledger refuses it): the fallback build folder
+  // stays with the checkout's same app-relative directory, as the release lock and the Linux artifacts do (release.mjs, linux-artifacts.mjs).
+  const split = readSourceSplit({ env, cwd: root, run });
+  return resolveXcodeStorage({ env, run, cwd: root, fallbackRoot: path.join(split ? split.checkoutAppRoot : root, ".right-release", "assembled-app") }); // one Xcode build folder, never one per profile (GC-A15)
 }
 
 // ---- macOS --------------------------------------------------------------------------------------------------------

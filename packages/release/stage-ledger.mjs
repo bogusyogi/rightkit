@@ -55,7 +55,7 @@ export function neutralIgnored({ dir, paths, run = spawnSync, env = process.env 
  * Walks `dir` and returns what it holds beyond the commit: `{ entries, problems }`. `tracked` is the set of every path in
  * `ls-tree <commit>` (posix); `dependencyRoots` the `node_modules` directories the gate installed under 5.09a (posix, relative; their
  * bytes are bound by the class A environment digest, not here). `entries` are admissible ledger entries; `problems` name every write
- * that cannot be one (not ignored, a link, a hard link, reserved, an empty directory, a `.git` holding more than the gate's config).
+ * that cannot be one (not ignored, a link, a hard link, reserved, an empty directory the commit's ignore rules do not ignore, a `.git` holding more than the gate's config).
  */
 export function walkSnapshot({ dir, tracked, dependencyRoots = new Set(), run = spawnSync, env = process.env, platform = process.platform }) {
   const f = fold(platform);
@@ -63,7 +63,7 @@ export function walkSnapshot({ dir, tracked, dependencyRoots = new Set(), run = 
   const trackedDirs = new Set();
   for (const p of tracked) { const parts = f(p).split("/"); for (let i = 1; i < parts.length; i++) trackedDirs.add(parts.slice(0, i).join("/")); }
   const deps = new Set([...dependencyRoots].map(f));
-  const candidates = []; const problems = [];
+  const candidates = []; const problems = []; const emptyDirs = [];
   const reserved = (rel) => rel.split("/").find((seg) => LEDGER_RESERVED_SEGMENTS.includes(f(seg)));
   const walk = (abs, rel) => {
     let names;
@@ -90,9 +90,10 @@ export function walkSnapshot({ dir, tracked, dependencyRoots = new Set(), run = 
         if (trackedDirs.has(key)) { walk(p, r); continue; }
         const bad = reserved(r);
         if (bad) { problems.push(`${r} is under the reserved path segment ${JSON.stringify(bad)} (a stage output is never written there)`); continue; }
-        const before = candidates.length + problems.length;
+        const before = candidates.length + problems.length + emptyDirs.length;
         walk(p, r);
-        if (candidates.length + problems.length === before) problems.push(`${r} is an empty directory the commit does not have`);
+        // A tool-created empty directory (xcodebuild's `.swiftpm/xcode`) holds no byte: it is judged below like a file, admitted when the commit's own ignore rules ignore it.
+        if (candidates.length + problems.length + emptyDirs.length === before) emptyDirs.push(r);
         continue;
       }
       if (!st.isFile()) { problems.push(`${r} is neither a regular file nor a directory`); continue; }
@@ -110,9 +111,10 @@ export function walkSnapshot({ dir, tracked, dependencyRoots = new Set(), run = 
   };
   walk(dir, "");
   let ignored;
-  try { ignored = neutralIgnored({ dir, paths: candidates.map((c) => c.rel), run, env }); }
+  try { ignored = neutralIgnored({ dir, paths: [...candidates.map((c) => c.rel), ...emptyDirs], run, env }); }
   catch (e) { return { entries: [], problems: [...problems, `the ignore rules of the commit could not be evaluated: ${e.message}`] }; }
   const ignoredFolded = new Set([...ignored].map(f));
+  for (const d of emptyDirs) if (!ignoredFolded.has(f(d))) problems.push(`${d} is an empty directory the commit does not have and the commit's own ignore rules do not ignore (an empty directory is admitted only when they do)`);
   const entries = [];
   for (const c of candidates) {
     // A split package stage writes a declared root output (a DMG, an updater tarball) into the snapshot as a generated entry (row 7.04c R-T2 rule 5): it must be

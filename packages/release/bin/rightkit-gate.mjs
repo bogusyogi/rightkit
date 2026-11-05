@@ -2366,6 +2366,9 @@ export function committedSidecarConfigs({ o, git, commit, appDir = ".", base }) 
  * staged files become immutable `staged` ledger entries. Returns true when nothing is owed or staging passed.
  */
 export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appDir, cli, commonDir, commit, tree, stage, executor = null, tag = "rightkit-gate:", target = null }) {
+  // The `dev` stage stages in dev mode (RIGHTKIT_BUILD_MODE=dev, the mode `right-release dev` gives every step it runs): the app's own `stage-sidecar` step in its dev build then finds the
+  // same mode, features and bytes already staged and changes nothing. Staged in release mode first, its dev re-stage rewrote pulse-engine, membrane and the receipt, which the ledger refuses as a
+  // changed staged entry (Pulse Mac dev install, 2026-11-06; docs/GATE-CONTRACT.md [GC-A28]).
   // Once per door run PER TARGET TRIPLE: `target` null is the host (the compile stage: stage-sidecar's own default, no `--target` passed), anything else is the triple the
   // package recipe stages for (universal-apple-darwin on a Mac recipe with `stageSidecars`), passed to stage-sidecar as `--target`. stage-sidecar is a no-op for a target whose
   // receipt and files are already current, so the recipe's own prepare step afterwards changes nothing.
@@ -2386,7 +2389,7 @@ export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appD
     let r;
     try {
       o.out(`${tag} [${stage}] right-release stage-sidecar --config ${path.join(ds.path, config)}${target ? ` --target ${target}` : ""} (from the snapshot ${ds.path})`);
-      r = (o.spawnCapture ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, encoding: "utf8", maxBuffer: 1 << 26 })))(process.execPath, [cli, "stage-sidecar", "--config", path.join(ds.path, config), ...(target ? ["--target", target] : []), "--json"], { cwd: snapshotAppRootOf(ds.path, appDir), env: carriedEnv(carrier, { ...cleanEnv, ...run.env }) });
+      r = (o.spawnCapture ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, encoding: "utf8", maxBuffer: 1 << 26 })))(process.execPath, [cli, "stage-sidecar", "--config", path.join(ds.path, config), ...(target ? ["--target", target] : []), "--json"], { cwd: snapshotAppRootOf(ds.path, appDir), env: carriedEnv(carrier, { ...cleanEnv, ...run.env, ...(stage === "dev" ? { RIGHTKIT_BUILD_MODE: "dev" } : {}) }) });
     } finally { endRun(run); }
     const carriedOk = await carrier.finish({ stage });
     if (r?.stderr) o.err(String(r.stderr).trimEnd());
@@ -3517,6 +3520,16 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
   }
   const commonDir = path.resolve(root, common);
   const source = ds ? sourceSplitOf({ root, ds, appDir }) : null;
+  // The snapshot's `.git` is a config-only stub, so right-release cannot count commits there (assembled-app.mjs commitCount, ASSEMBLY_VERSION_UNAVAILABLE): the gate
+  // counts the commit in the checkout and hands the number down (docs/GATE-CONTRACT.md [GC-A28]). A shallow history or an unreadable count hands down nothing and says
+  // so; only an app whose build stamps CFBundleVersion needs the number, and right-release refuses there (it cannot count in the stub either).
+  let buildNumber = {};
+  if (ds) {
+    const shallow = git("rev-parse", "--is-shallow-repository");
+    const count = failed(shallow) || text(shallow).trim() === "true" ? null : git("rev-list", "--count", commit);
+    if (count && !failed(count) && /^[1-9][0-9]*$/.test(text(count).trim())) buildNumber = { RIGHT_BUILD_NUMBER: text(count).trim() };
+    else o.out(`${tag} note: no build number for ${commit.slice(0, 12)} (the checkout is shallow or cannot count its history); an app that stamps CFBundleVersion will refuse with ASSEMBLY_VERSION_UNAVAILABLE`);
+  }
   // GB-58 (GATE dev/test exact stage; E19): the selected app's declared sidecars are staged ONCE under this snapshot's ownership before the dependent
   // build, through the same planner and ledger as the compile and package stages (a Tauri crate with externalBin refuses to build without them). The
   // app's own prepare step may stage them too; the ledger's attribution check, not an environment marker, is what keeps that single and exact.
@@ -3541,7 +3554,7 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
     // The door's own RightKit runs every sub-step: a dev target's `right-release web-build|stage-sidecar` steps resolve `right-release`
     // on PATH, which found the app's node_modules copy (HeardRight on the Dell, 2026-10-27: the app's 0.6.8 guard refused what the
     // door's 0.6.9 admitted). An installed gate (node_modules/@rightkit/release/bin) has its package's bin shims two levels up.
-    const childEnv = carriedEnv(carrier, { ...o.env, ...run.env }, { ...doorPath({ ...o, env: { ...o.env, ...carrier.env } }), ...(pin.dir ? { CARGO_TARGET_DIR: pin.dir } : (pinMulti?.env ?? {})) });
+    const childEnv = carriedEnv(carrier, { ...o.env, ...run.env, ...buildNumber }, { ...doorPath({ ...o, env: { ...o.env, ...carrier.env } }), ...(pin.dir ? { CARGO_TARGET_DIR: pin.dir } : (pinMulti?.env ?? {})) });
     // rightkit#1288: `--to render` builds the app's declared view-render target through the carrier and runs it headless; no right-release child is involved.
     if (to === "render") {
       const rendered = ds ? await runRenderStage({ o, ds, root, appDir, commit, tree, env: childEnv, pinnedTarget: pin.dir ?? null, targetDirs: pinMulti?.targetDirs ?? {}, tag }) : (o.err(`${tag} BLOCKED: --to render runs on the snapshot route only; nothing compiled`), 1);

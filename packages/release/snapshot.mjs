@@ -594,6 +594,12 @@ function inspectSnapshot({ dir, entries, checkout, commit, platform = process.pl
 
   // The ledger's entries, keyed like the walk's, must all be here and byte-identical; anything else the walk met is new.
   const held = new Map((ledger ?? []).map((e) => [fold(e.path), e]));
+  // A tool-created empty directory the commit's own ignore rules ignore (xcodebuild's `.swiftpm/xcode`) holds no byte and is no ledger entry: dropped here, deepest first so a
+  // directory left holding only such directories goes too. One the rules do not ignore stays a candidate and is refused below, as are reserved paths (refused above).
+  const ignored = neutralIgnored(dir, candidates.map((c) => c.path));
+  for (const d of candidates.filter((c) => c.type === "dir" && ignored.has(c.path) && !held.has(fold(c.path))).sort((a, b) => b.path.length - a.path.length)) {
+    if (!candidates.some((c) => c !== d && c.path.startsWith(`${d.path}/`))) candidates.splice(candidates.indexOf(d), 1);
+  }
   const seen = new Map(candidates.map((c) => [fold(c.path), c]));
   for (const [key, want] of held) {
     const have = seen.get(key);
@@ -609,8 +615,7 @@ function inspectSnapshot({ dir, entries, checkout, commit, platform = process.pl
     const key = fold(c.path);
     if (!held.has(key) && !(c.type === "dir" && parents.has(key)) && !admitNew) return problem(`${c.path} is not in the commit's tree and not in the stage-output ledger (new stage outputs are admitted only at the end of a stage)`);
   }
-  // Every candidate, ledger or new, must be ignored by the commit's own rules, as the neutral oracle judges them.
-  const ignored = neutralIgnored(dir, candidates.map((c) => c.path));
+  // Every candidate, ledger or new, must be ignored by the commit's own rules, as the neutral oracle judges them (`ignored`, above).
   // Git's own semantics for a directory: `git status` shows nothing for one whose every entry is ignored (or that holds nothing), even
   // when no rule names the directory itself (a root rule `src-tauri/gen/schemas/` leaves `src-tauri/gen` unnamed). Judged deepest
   // first, so a directory counts as ignored exactly when every file and subdirectory below it does; a single unignored file still refuses.

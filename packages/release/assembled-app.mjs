@@ -277,8 +277,13 @@ export function resolveNestedApp({ root, entry, spec, profile, deps = {} }) {
   return app;
 }
 
-/** CFBundleVersion: the commit count of the source revision. A shallow clone is refused (no network, so no unshallow). */
+/**
+ * CFBundleVersion: the commit count of the source revision. A shallow clone is refused (no network, so no unshallow).
+ * Inside the door's source split `root` is the snapshot, whose `.git` is a config-only stub that cannot answer: the gate counts the commit in the
+ * checkout and hands the number down as RIGHT_BUILD_NUMBER (docs/GATE-CONTRACT.md [GC-A28]); a positive integer there is used as given, anything else falls through to git.
+ */
 export function commitCount({ root, env = process.env, run = spawnSync }) {
+  if (/^[1-9][0-9]*$/.test(env.RIGHT_BUILD_NUMBER ?? "")) return env.RIGHT_BUILD_NUMBER;
   const git = (args) => {
     const result = run("git", args, { cwd: root, env, encoding: "utf8", windowsHide: true, shell: false });
     if (result.error || result.status !== 0) refuse("ASSEMBLY_VERSION_UNAVAILABLE", `git ${args.join(" ")} failed (${result.status ?? result.error?.message})`);
