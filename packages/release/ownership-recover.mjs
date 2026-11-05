@@ -9,6 +9,7 @@
 // Dry run by default: prints the evidence and the plan, changes nothing. Exit 0 recovered (or nothing to do / plan clean), 2 refused, 64 usage.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { acquireBuildOwnership, brokerLeaseState, proveOwnerProcessesGone, runningBrokerProcess } from "./build-ownership.mjs";
 
 const SETTLE_MS = 2000;
@@ -68,7 +69,7 @@ export async function recover({ file, apply = false, waitMs = 600_000, log = con
   return 0;
 }
 
-if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(new URL(import.meta.url).pathname)) {
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {
   const args = process.argv.slice(2);
   const file = args.find((a) => !a.startsWith("--"));
   const waitAt = args.indexOf("--wait-ms");
