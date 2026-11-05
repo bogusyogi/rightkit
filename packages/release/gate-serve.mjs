@@ -42,6 +42,9 @@ export async function serve({ root, idleMs = Number(process.env.RK_GATE_SERVE_ID
   const watchedRoot = fs.realpathSync(root);
   const generation = new Map(); // snapshot key -> change count
   const proven = new Map(); // snapshot key -> { tree, generation }
+  // GC-A11 non-compiling cargo answers (cargo metadata), keyed on the request and the snapshot's change count: an unchanged snapshot is answered
+  // from memory, any change to it (or a restart) runs cargo again. Bounded: oldest dropped past 64 entries.
+  const cargoAnswers = new Map(); // request digest -> { key, generation, status, stdout, stderr }
   let watcher = null; let healthy = false; let cookieSeq = 0;
   const cookies = new Map(); // cookie name -> resolve
   // Only entries inside a snapshot directory (`<16 hex>/...`) are snapshot content; `<key>.tree-index`, `<key>.state.json` and the like
@@ -88,6 +91,7 @@ export async function serve({ root, idleMs = Number(process.env.RK_GATE_SERVE_ID
     if (key === null) return { ok: false, why: "not a snapshot directory name" };
     if (!(await cookieSync())) return { ok: false, why: "watcher not current" };
     if (req.op === "begin") return { ok: true, generation: generation.get(key) ?? 0 };
+    if (req.op === "cargo-metadata") return cargoMetadataOp(req, key, real);
     if (req.op === "record") {
       if (typeof req.tree !== "string" || !Number.isInteger(req.generation)) return { ok: false, why: "bad record" };
       if ((generation.get(key) ?? 0) !== req.generation) return { ok: false, why: "changed during the proof" };
@@ -102,7 +106,37 @@ export async function serve({ root, idleMs = Number(process.env.RK_GATE_SERVE_ID
     }
     return { ok: false, why: "unknown op" };
   };
+  async function cargoMetadataOp(req, key, snapshotDir) {
+    const args = Array.isArray(req.args) ? req.args.map(String) : null;
+    if (!args || args[0] !== "metadata") return { ok: false, why: "only cargo metadata is served" };
+    if (typeof req.cargo !== "string" || !path.isAbsolute(req.cargo) || typeof req.cwd !== "string") return { ok: false, why: "bad cargo request" };
+    let cwd; try { cwd = fs.realpathSync(req.cwd); } catch { return { ok: false, why: "no such cwd" }; }
+    if (cwd !== snapshotDir && !cwd.startsWith(`${snapshotDir}${path.sep}`)) return { ok: false, why: "cwd outside the snapshot" };
+    const env = req.env && typeof req.env === "object" ? Object.fromEntries(Object.entries(req.env).map(([k, v]) => [k, String(v)])) : {};
+    let cargoId; try { const st = fs.statSync(req.cargo); cargoId = `${st.size}:${st.mtimeMs}:${st.ino}`; } catch { return { ok: false, why: "no such cargo" }; }
+    const digest = crypto.createHash("sha256").update(JSON.stringify({ key, cwd, args, cargo: req.cargo, cargoId, env: Object.entries(env).sort() })).digest("hex");
+    const hit = cargoAnswers.get(digest);
+    const now = generation.get(key) ?? 0;
+    if (hit && hit.generation === now) return { ok: true, cached: true, status: hit.status, stdout: hit.stdout, stderr: hit.stderr };
+    const before = now;
+    const result = await new Promise((resolve) => {
+      let child; try { child = spawn(req.cargo, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); } catch (error) { resolve({ status: -1, stdout: "", stderr: String(error?.message ?? error) }); return; }
+      const out = []; const err = [];
+      child.stdout.on("data", (d) => out.push(d)); child.stderr.on("data", (d) => err.push(d));
+      child.on("error", (error) => resolve({ status: -1, stdout: "", stderr: String(error?.message ?? error) }));
+      child.on("close", (status) => resolve({ status: status ?? -1, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8") }));
+    });
+    // Cached only when cargo succeeded and nothing in the snapshot changed while it ran (the cookie makes every earlier event visible first).
+    if (result.status === 0 && (await cookieSync()) && (generation.get(key) ?? 0) === before) {
+      cargoAnswers.set(digest, { key, generation: before, ...result });
+      while (cargoAnswers.size > 64) cargoAnswers.delete(cargoAnswers.keys().next().value);
+    }
+    return { ok: true, cached: false, ...result };
+  }
   const sock = socketPath();
+  // One server per host: a second one started in the same instant must not steal the socket from a live first one (seen 2026-11-05).
+  const live = await new Promise((resolve) => { const c = net.connect(sock); c.on("connect", () => { c.destroy(); resolve(true); }); c.on("error", () => resolve(false)); });
+  if (live) { log("another server already answers on the socket; exiting"); process.exit(0); }
   if (process.platform !== "win32") { fs.mkdirSync(path.dirname(sock), { recursive: true }); try { fs.unlinkSync(sock); } catch { /* none */ } }
   const server = net.createServer((conn) => {
     let buf = "";
@@ -119,7 +153,12 @@ export async function serve({ root, idleMs = Number(process.env.RK_GATE_SERVE_ID
   });
   await new Promise((resolve, reject) => { server.once("error", reject); server.listen(sock, resolve); });
   log(`serving ${watchedRoot} on ${sock} (pid ${process.pid}, identity ${IDENTITY})`);
-  const idle = setInterval(() => { if (Date.now() - lastRequest > idleMs) { log("idle; exiting"); process.exit(0); } }, 10_000);
+  // Exit when idle, or as soon as the socket is no longer this server's (another server replaced it): no orphan lingers.
+  let sockIno = null; try { sockIno = fs.statSync(sock).ino; } catch { sockIno = null; }
+  const idle = setInterval(() => {
+    if (Date.now() - lastRequest > idleMs) { log("idle; exiting"); process.exit(0); }
+    if (process.platform !== "win32") { let ino = null; try { ino = fs.statSync(sock).ino; } catch { ino = null; } if (ino !== sockIno) { log("socket replaced; exiting"); process.exit(0); } }
+  }, 10_000);
   idle.unref?.();
   return server;
 }
@@ -141,9 +180,10 @@ async function ask(req, timeoutMs) {
 /** One synchronous request to the resident server; null when it is disabled, unreachable or did not answer. Starts it when absent. */
 export function serveRequest(req, { env = process.env, root = null, timeoutMs = 3000 } = {}) {
   if (env.RK_GATE_SERVE === "0") return null;
-  const r = spawnSync(process.execPath, [SELF, "ask", JSON.stringify(req), String(timeoutMs)], { encoding: "utf8", timeout: timeoutMs + 2000, env: { ...env } });
+  const r = spawnSync(process.execPath, [SELF, "ask", JSON.stringify(req), String(timeoutMs)], { encoding: "utf8", timeout: timeoutMs + 2000, maxBuffer: 1 << 28, env: { ...env } });
   let res = null; try { res = JSON.parse(String(r.stdout ?? "").trim().split("\n").pop()); } catch { res = null; }
-  if ((!res || res.unreachable) && root) startServer({ root, env });
+  // Start a server only when none is listening; a bad reply or a timeout from a live one never starts a second.
+  if (res?.unreachable && root) startServer({ root, env });
   return res && res.ok ? res : null;
 }
 
@@ -162,6 +202,27 @@ function startServer({ root, env }) {
   } catch { /* the next run tries again; this one verifies in full */ }
 }
 
+/**
+ * GC-A11 `cargo metadata` for a directory inside a gate snapshot, answered by the resident gate (cached per snapshot while it is unchanged), else
+ * run directly with `cargo` (an absolute path) and `env`. Returns `{ status, stdout, stderr, served, cached }`. Never through the broker.
+ */
+export function snapshotCargoMetadata({ cwd, args, cargo, env, snapshotRootDir, run = spawnSync }) {
+  let snapshotDir = null;
+  try {
+    const realRoot = fs.realpathSync(snapshotRootDir); const realCwd = fs.realpathSync(cwd);
+    const rel = path.relative(realRoot, realCwd);
+    const first = rel.split(path.sep)[0];
+    if (rel && !rel.startsWith("..") && !path.isAbsolute(rel) && /^[0-9a-f]{16}$/.test(first)) snapshotDir = path.join(realRoot, first);
+  } catch { snapshotDir = null; }
+  if (snapshotDir && cargo) {
+    const keep = Object.fromEntries(Object.entries(env ?? {}).filter(([k]) => /^(PATH|Path|HOME|USERPROFILE|SYSTEMROOT|SystemRoot|TMPDIR|TEMP|TMP|CARGO.*|RUSTUP.*|RUSTC.*|RUSTFLAGS|RUSTDOCFLAGS)$/.test(k)));
+    const res = serveRequest({ op: "cargo-metadata", dir: snapshotDir, cwd, args, cargo, env: keep }, { env, root: snapshotRootDir, timeoutMs: 120_000 });
+    if (res && Number.isInteger(res.status)) return { status: res.status, stdout: res.stdout ?? "", stderr: res.stderr ?? "", served: true, cached: res.cached === true };
+  }
+  const r = run(cargo ?? "cargo", args, { cwd, env, encoding: "utf8", maxBuffer: 1 << 28 });
+  return { status: r.status, stdout: String(r.stdout ?? ""), stderr: String(r.stderr ?? ""), served: false, cached: false };
+}
+
 // ---- entry --------------------------------------------------------------------------------------------------------------------------------
 
 if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(SELF)) {
@@ -170,7 +231,8 @@ if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(SELF
     serve({ root: a, log: (m) => console.log(`${new Date().toISOString()} gate-serve: ${m}`) }).catch((error) => { console.log(`${new Date().toISOString()} gate-serve: cannot serve: ${error?.message ?? error}`); process.exit(1); });
   } else if (cmd === "ask") {
     let req = null; try { req = JSON.parse(a); } catch { req = null; }
-    ask(req ?? {}, Number(b) || 3000).then((res) => { process.stdout.write(`${JSON.stringify(res)}\n`); process.exit(0); });
+    // Exit only after the reply is flushed: process.exit right after a large write to a pipe truncates it (a cargo metadata answer is megabytes).
+    ask(req ?? {}, Number(b) || 3000).then((res) => { process.stdout.write(`${JSON.stringify(res)}\n`, () => process.exit(0)); });
   } else if (cmd === "status") {
     ask({ op: "status" }, 3000).then((res) => { console.log(JSON.stringify(res, null, 2)); process.exit(res.ok ? 0 : 1); });
   } else { console.error("usage: gate-serve.mjs serve <snapshot-root> | status"); process.exit(2); }

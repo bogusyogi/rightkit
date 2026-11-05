@@ -3,6 +3,7 @@
 // published versions, and (with --apply) move them forward and refresh the lockfiles.
 // Self-contained (node: built-ins only) so the SessionStart hook can carry a byte copy of it.
 //   node rightkit-drift.mjs [--apply [--all]] [app-root]   (--all also adopts breaking bumps)
+import { nonCompilingCargoEnv } from "./managed-cargo.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { existsSync, readFileSync, writeFileSync, realpathSync } from "node:fs";
 import path from "node:path";
@@ -83,9 +84,9 @@ export function launchOf(command, args, { platform = process.platform, spawn = s
   return { command: target, args, shell: false };
 }
 
-function run(command, args, cwd, { spawn = spawnSync, platform = process.platform, readFile } = {}) {
+function run(command, args, cwd, { spawn = spawnSync, platform = process.platform, readFile, env } = {}) {
   const launch = launchOf(command, args, { platform, spawn, readFile });
-  const result = spawn(launch.command, launch.args, { cwd, stdio: "inherit", windowsHide: true, shell: launch.shell });
+  const result = spawn(launch.command, launch.args, { cwd, stdio: "inherit", windowsHide: true, shell: launch.shell, ...(env ? { env } : {}) });
   if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed in ${cwd} (exit ${result.status ?? result.error?.message})`);
 }
 
@@ -113,7 +114,7 @@ export function applyRightkitAdoption(appRoot, versions = loadRightkitVersions()
     for (const file of byFile.keys()) {
       const dir = path.join(appRoot, path.dirname(file));
       if (file.endsWith("package.json")) run("pnpm", ["install", "--lockfile-only", "--ignore-scripts"], dir, runOptions);
-      else run("rustright", ["cargo", "metadata", "--format-version", "1", "--manifest-path", path.join(appRoot, file)], dir, runOptions);
+      else run("cargo", ["metadata", "--format-version", "1", "--manifest-path", path.join(appRoot, file)], dir, { ...runOptions, env: nonCompilingCargoEnv(runOptions?.env ?? process.env) });
     }
   }
   return drift;

@@ -202,6 +202,17 @@ export function directCargoPath({ env = process.env, exists = existsSync, readHe
   return { path: kept.join(win ? ";" : ":"), dropped, cargo };
 }
 
+/**
+ * GC-A11 (Adrian, 2026-11-02: "Class a never in the broker. Any cargo things that are cheap and non compiling are in class a, can run outside the
+ * broker"): the environment for a NON-COMPILING cargo call (metadata, locate-project, tree, package --no-verify) on any host: PATH with the broker's
+ * own toolchain first and every RustRight shim dropped, so `cargo` is the real binary. The broker refuses such a request from inside a snapshot.
+ */
+export function nonCompilingCargoEnv(env = process.env, platform = process.platform) {
+  const pathKey = platform === "win32" ? (Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "Path") : "PATH";
+  const direct = directCargoPath({ env: { ...env, PATH: env[pathKey] }, platform, gateWrappers: true });
+  return { ...env, [pathKey]: direct.path };
+}
+
 /** `env` for a direct host: PATH without RustRight shim directories. Unchanged on Mac, Windows and a declared Linux broker route. */
 export function directCargoEnv(env = process.env, platform = process.platform, exists = existsSync) {
   if (!directHost(platform, env)) return env; // Mac, Windows, and a Linux host that declared a broker route (no direct cargo there)

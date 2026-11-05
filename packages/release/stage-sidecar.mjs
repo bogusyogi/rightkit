@@ -40,7 +40,21 @@ import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
 import { resolveCommand } from "./development.mjs";
 import { carriedCargoMapOf } from "./carried-cargo.mjs";
 import { BUILD_LAUNCH_REFUSED, buildLaunch } from "./build-launch.mjs";
-import { directHost, managedHost, runCargoSync } from "./managed-cargo.mjs";
+import { directCargoPath, directHost, managedHost, nonCompilingCargoEnv, runCargoSync } from "./managed-cargo.mjs";
+import { snapshotCargoMetadata } from "./gate-serve.mjs";
+import { snapshotRoot } from "./snapshot.mjs";
+
+/**
+ * `cargo metadata` for the sidecar (GC-A11: non-compiling, never through the broker). Inside a gate snapshot the resident gate answers it, cached
+ * while the snapshot is unchanged; elsewhere, or when the resident gate is unavailable, the real cargo runs directly.
+ */
+function sidecarCargoMetadata(cwd, args, env) {
+  const cargoEnv = nonCompilingCargoEnv(env);
+  const pathKey = process.platform === "win32" ? (Object.keys(cargoEnv).find((k) => k.toUpperCase() === "PATH") ?? "Path") : "PATH";
+  const cargo = directCargoPath({ env: { ...cargoEnv, PATH: cargoEnv[pathKey] }, platform: process.platform }).cargo;
+  let root = null; try { root = snapshotRoot({ env }); } catch { root = null; }
+  return snapshotCargoMetadata({ cwd, args, cargo, env: cargoEnv, snapshotRootDir: root ?? "/nonexistent" });
+}
 import { APPROVAL_MACHO_STRIP_LINKEDIT_V1, APPROVAL_RAW_SHA256, approvalDigest } from "./macho-approval-hash.mjs";
 import {
   bundledFileName, planMediaSidecar, sourceOfferText, stagedFileName, validateMediaSidecarConfig, verifyStagedSidecars, writeMediaSidecarNotices,
@@ -782,7 +796,9 @@ function resolveCatalogFile(spec, ctx, kind) {
   if (spec.via === "absolute") return requireSnapshotSource(ctx, spec.file, `the ${label} catalog`);
   if (spec.via === "path") return requireSnapshotSource(ctx, path.resolve(ctx.appRoot, spec.file), `the ${label} catalog`);
   if (spec.via === "crate") {
-    const meta = ctx.run("rustright", ["cargo", "metadata", "--frozen", "--format-version", "1"], { cwd: ctx.appRoot, env: ctx.env });
+    // Non-compiling cargo runs directly, never through the broker (GC-A11): from inside a gate snapshot the broker refuses a root request
+    // ("a root request cannot run inside a managed snapshot"), which made every crate-located catalog unreadable in a gate compile.
+    const meta = sidecarCargoMetadata(ctx.appRoot, ["metadata", "--frozen", "--format-version", "1"], ctx.env ?? process.env);
     let packages;
     try { packages = JSON.parse(meta.stdout).packages; } catch { /* refused below */ }
     if (meta?.status !== 0 || !Array.isArray(packages)) fail("STAGE_SIDECAR_CATALOG_UNREADABLE", `the ${label} catalog crate ${spec.crate} cannot be located: the workspace metadata query failed`, { crate: spec.crate });
@@ -926,7 +942,7 @@ function requireSnapshotSource(ctx, file, label) {
  * A path outside the snapshot (an absolute CARGO_TARGET_DIR, a target-dir set in the user's Cargo home) stands as reported.
  */
 function snapshotTargetDirectory(ctx, env, manifest) {
-  const resolved = ctx.run("rustright", ["cargo", "metadata", "--offline", "--format-version", "1", "--no-deps", ...(manifest ? ["--manifest-path", manifest] : [])], { cwd: ctx.appRoot, env });
+  const resolved = sidecarCargoMetadata(ctx.appRoot, ["metadata", "--offline", "--format-version", "1", "--no-deps", ...(manifest ? ["--manifest-path", manifest] : [])], env);
   let dir;
   try { dir = JSON.parse(resolved?.stdout).target_directory; } catch { /* reported below */ }
   if (resolved?.error || resolved?.status !== 0 || typeof dir !== "string" || !path.isAbsolute(dir)) return { error: resolved?.error?.message ?? `exit ${resolved?.status}` };
@@ -1109,7 +1125,7 @@ function stageCargoBuild(entry, ctx, triple) {
     source = candidates.find((file) => fs.existsSync(file));
     if (!source) fail("STAGE_SIDECAR_BINARY_NOT_FOUND", `the build did not produce ${entry.bin} (looked in ${candidates.join(", ")})`, { bin: entry.bin, candidates });
   } else if (!source || !fs.existsSync(source)) {
-    const meta = run("rustright", ["cargo", "metadata", "--format-version", "1", "--no-deps", ...(manifestFile ? ["--manifest-path", manifestFile] : [])], { cwd: appRoot, env: buildEnv });
+    const meta = sidecarCargoMetadata(appRoot, ["metadata", "--format-version", "1", "--no-deps", ...(manifestFile ? ["--manifest-path", manifestFile] : [])], buildEnv);
     let targetDir;
     try { targetDir = JSON.parse(meta.stdout).target_directory; } catch { /* refused below */ }
     if (meta?.status !== 0 || typeof targetDir !== "string" || !path.isAbsolute(targetDir)) targetDir = undefined;
