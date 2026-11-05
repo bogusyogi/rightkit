@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.6.49
+
+- `--to dev` on the snapshot route (GC-A28): the gate counts the commit in the checkout and passes RIGHT_BUILD_NUMBER to right-release, so assembly no longer runs git in the snapshot; the assembled-app Xcode folder stays in the checkout; the door stages sidecars in dev mode for `--to dev`; an empty directory the commit's own ignore rules ignore is admitted like an ignored file.
+
 ## 0.6.48
 
 - Mandatory foundation (OW-05): a ratified `cli` profile for a command-line tool or agent plugin (Adrian, 2026-11-05). It owes M5, M8, M9, M10, M11, M15, M16, M17, M19 and M20 with their non-UI owners; M18 (updates) is pending for it; the window, engine, local-service, licence, entitlement, legal-UI and agent-surface rows are not owed, each with its reason in `ownership-mandatory-set.json`. An app selects it with `{"profile": "cli"}` in `rightkit-mandatory.json`.
