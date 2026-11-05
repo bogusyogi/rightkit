@@ -123,7 +123,7 @@ export function createSnapshotBroker({ env = process.env, platform = process.pla
   return {
     carrierSweep,
     controlRoot: roots.controlRoot, commit: { sha: commit.sha, tree: commit.tree }, snapshot: { path: snapshot.path, expectedTree: snapshot.expectedTree },
-    declaredInputs: readDeclaredInputs(snapshot.path), handle: ownership.handle, markBrokerSubmit: (callHandle) => ownership.markBrokerSubmit(callHandle), markBrokerUnsent: typeof ownership.markBrokerUnsent === "function" ? (callHandle, reason) => ownership.markBrokerUnsent(callHandle, reason) : undefined,
+    declaredInputs: readDeclaredInputs(snapshot.path), handle: ownership.handle, markBrokerSubmit: (callHandle, note) => ownership.markBrokerSubmit(callHandle, note), markBrokerUnsent: typeof ownership.markBrokerUnsent === "function" ? (callHandle, reason) => ownership.markBrokerUnsent(callHandle, reason) : undefined,
     pins: { host: pins.host, keyId: pins.keyId, publicKey: pins.publicKey, brokerDigest: pins.brokerDigest }, pinsSource: pins.source,
     checkout: fs.realpathSync.native(checkout), outputRoots: brokerOutputRoots({ dataRoot: managedData }), platform, client,
     receiptOf: async (requestId) => receiptSync({ client, requestId, env, spawn, platform }),

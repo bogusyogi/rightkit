@@ -29,6 +29,9 @@ export function holds(file, handle) {
  * while it is still this handle's, under a short lock beside the record (carried calls of parallel children, in other
  * processes, mark the same record).
  */
+/** The row id a caller names, else this process's command line (no environment), cut to 240 characters. */
+const carryNote = (note) => (typeof note === "string" && note ? note : process.argv.slice(1).join(" ")).slice(0, 240);
+
 export function markBrokerSubmit(file, handle, callHandle, options = {}) {
   if (typeof callHandle !== "string" || callHandle.length <= handle.length + 1 || !callHandle.startsWith(`${handle}#`) || !/^[A-Za-z0-9._-]+$/.test(callHandle.slice(handle.length + 1))) {
     throw new OwnershipBusy(`build ownership ${file}: a broker submit is recorded only for a carried request's sub-handle of ${handle} (<handle>#<id>), not ${JSON.stringify(callHandle ?? null)}`);
@@ -39,7 +42,10 @@ export function markBrokerSubmit(file, handle, callHandle, options = {}) {
     if (owner?.handle !== handle) throw new OwnershipBusy(`build ownership ${file} is no longer held by ${handle}; no broker request may be submitted`);
     const seen = Array.isArray(owner.broker?.handles) ? owner.broker.handles : [];
     if (owner.broker?.submitted && seen.includes(callHandle)) return owner;
-    const next = { ...owner, broker: { ...(owner.broker ?? {}), submitted: true, at: owner.broker?.at ?? new Date().toISOString(), handles: [...seen, callHandle] } };
+    // rightkit#1510: which process and which row or command carried each sub-handle, so a sub-handle left UNKNOWN can be traced to its
+    // request. Diagnostic only: no reclaim proof reads it, and handle order never maps concurrent rows.
+    const sent = { ...(owner.broker?.sent ?? {}), [callHandle]: { at: new Date().toISOString(), pid: process.pid, note: carryNote(options.note) } };
+    const next = { ...owner, broker: { ...(owner.broker ?? {}), submitted: true, at: owner.broker?.at ?? new Date().toISOString(), handles: [...seen, callHandle], sent } };
     const tmp = `${file}.${crypto.randomUUID()}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(next), { flag: "wx", mode: 0o600 });
     try { fs.renameSync(tmp, file); } finally { fs.rmSync(tmp, { force: true }); }

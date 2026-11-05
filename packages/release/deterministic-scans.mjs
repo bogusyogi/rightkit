@@ -3318,7 +3318,7 @@ export async function runScans(plan, options = {}) {
           if (carrier) {
             const sub = carrier.made.carrier.ownership.handle;
             let marked = null; let why = null;
-            try { if (typeof deps.snapshotBroker.markBrokerSubmit !== "function") throw new Error("no build-ownership submit hook"); marked = deps.snapshotBroker.markBrokerSubmit(sub); } catch (e) { why = e.message; }
+            try { if (typeof deps.snapshotBroker.markBrokerSubmit !== "function") throw new Error("no build-ownership submit hook"); marked = deps.snapshotBroker.markBrokerSubmit(sub, s.id); } catch (e) { why = e.message; }
             if (marked?.broker?.submitted !== true || marked.handle !== deps.snapshotBroker.handle || !marked.broker.handles?.includes(sub)) {
               stopClock(); advisory?.cleanup?.();
               return { ...row, status: "fail", code: "SNAPSHOT_REQUEST", detail: `the snapshot request for ${s.id} was not sent: the build ownership did not record the broker submit under ${deps.snapshotBroker.handle}${why ? ` (${why})` : ""}` };

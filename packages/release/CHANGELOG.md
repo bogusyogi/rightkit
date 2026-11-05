@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The build-ownership record now notes, for each broker sub-handle, when it was sent, the carrying process id and the gate row (or the carrier's command line) (rightkit#1510). A sub-handle left UNKNOWN can be traced to its request; handle order alone cannot map concurrent rows. Diagnostic only: no reclaim proof reads it.
+
 ## 0.6.46
 
 Measured on the Mac (2026-11-05; rightkit#1506; GATE-CONTRACT GC-A24). Evidence: /Volumes/D/scratch/gate-ready.

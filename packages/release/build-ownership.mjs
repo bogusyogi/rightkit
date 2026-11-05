@@ -1311,7 +1311,7 @@ export function acquireBuildOwnership({
       if (!live.alive || (Number.isFinite(owner.startedMs) && Number.isFinite(live.startedMs) && !sameStart(live.startedMs, owner.startedMs))) {
         throw new OwnershipBusy(`build ownership ${file}: ${OWNERSHIP_ENV}=${inherited} names a record whose owner pid ${owner.pid} is no longer the process that took it; a nested gate joins only a live owner's record`);
       }
-      return { handle: inherited, file, joined: true, reclaimed: null, owner, markBrokerSubmit: (callHandle) => markBrokerSubmit(file, inherited, callHandle), markBrokerUnsent: (callHandle, reason) => markBrokerUnsent(file, inherited, callHandle, reason), held: () => holds(file, inherited), release: () => ({ released: false, joined: true }) };
+      return { handle: inherited, file, joined: true, reclaimed: null, owner, markBrokerSubmit: (callHandle, note) => markBrokerSubmit(file, inherited, callHandle, { note }), markBrokerUnsent: (callHandle, reason) => markBrokerUnsent(file, inherited, callHandle, reason), held: () => holds(file, inherited), release: () => ({ released: false, joined: true }) };
     }
     throw new OwnershipBusy(`build ownership ${file}: ${OWNERSHIP_ENV}=${inherited} is not the current owner; a nested gate never takes ownership of its own`);
   }
@@ -1395,7 +1395,7 @@ export function acquireBuildOwnership({
       catch (e) { if (holds(file, handle)) fs.rmSync(file, { force: true }); throw new OwnershipBusy(`build ownership ${file}: the containment could not be recorded (${e.code ?? e.message}: ${e.message})`); }
     }
     if (exportEnv) { process.env[OWNERSHIP_ENV] = handle; process.env[OWNERSHIP_FILE_ENV] = file; }
-    return { handle, file, joined: false, reclaimed, owner: record, contained: platform === "win32" ? record.containment.contained === true : true, markBrokerSubmit: (callHandle) => markBrokerSubmit(file, handle, callHandle), markBrokerUnsent: (callHandle, reason) => markBrokerUnsent(file, handle, callHandle, reason), held: () => holds(file, handle), release };
+    return { handle, file, joined: false, reclaimed, owner: record, contained: platform === "win32" ? record.containment.contained === true : true, markBrokerSubmit: (callHandle, note) => markBrokerSubmit(file, handle, callHandle, { note }), markBrokerUnsent: (callHandle, reason) => markBrokerUnsent(file, handle, callHandle, reason), held: () => holds(file, handle), release };
   };
   if (publish(file, body)) return done(null);
   const observed = readText(file);
