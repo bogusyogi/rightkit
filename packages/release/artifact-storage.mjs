@@ -17,7 +17,7 @@ import os from "node:os";
 import { spawnSync } from "./background-process.mjs";
 
 export const ARTIFACT_MARKER_SCHEMA = 1;
-export const DEFAULT_MANAGED_ROOT = resolveManagedRoots().dataRoot;
+export const DEFAULT_MANAGED_ROOT = resolveManagedRoots().gateRoot;
 
 const SAFE_COMPONENT = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,159}$/;
 
@@ -37,7 +37,7 @@ export function canonicalManagedRoot(root, { realpath = realpathSync.native } = 
 }
 
 export function resolveManagedRoot({ env = process.env, exists = existsSync } = {}) {
-  if (env.RIGHTKIT_DATA_ROOT || env.RIGHTKIT_MANAGED_ROOT || env.RIGHTKIT_EXTERNAL_ROOT) return path.resolve(resolveManagedRoots({ env }).dataRoot);
+  if (env.RIGHTKIT_DATA_ROOT || env.RIGHTKIT_MANAGED_ROOT || env.RIGHTKIT_EXTERNAL_ROOT) return path.resolve(resolveManagedRoots({ env }).gateRoot);
   // Workstation default only when its drive exists; hosted CI runners fall back to RUNNER_TEMP, then the system temp dir.
   const volume = process.platform === "win32" ? "D:\\" : "/Volumes/D";
   if (exists(volume)) return path.resolve(DEFAULT_MANAGED_ROOT);

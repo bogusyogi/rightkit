@@ -133,7 +133,7 @@ function mainWith(argv, { env, platform, run, log, err, judged = new Set(), conf
   const at = rest.indexOf("--manifest-path");
   const manifestPath = at >= 0 ? rest[at + 1] : undefined;
   if (platform !== "darwin" && platform !== "win32") { log(`right-release build-helpers ${sub}: nothing to do on ${platform}; only broker hosts (Mac, Dell) vet build helpers`); return 0; }
-  const listFile = hostListPath(resolveManagedRoots({ env, platform }).dataRoot, platform);
+  const listFile = hostListPath(resolveManagedRoots({ env, platform }).gateRoot, platform);
   let inv;
   try { inv = inventory({ manifestPath, run, platform }); } catch (e) { err(`right-release build-helpers: ${e.message}`); return 2; }
   // The host's own list and the repository's committed list (.rightkit/build-helper-trace.json): CI and every host read the same reviewed

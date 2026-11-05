@@ -140,7 +140,7 @@ export async function loadInGatePipeline({ coordinator = trustedCoordinator(), e
 }
 
 /** The managed snapshots root of this host (`<data root>/snapshots`), or null when the host's roots cannot be resolved. */
-const managedSnapshotsRoot = ({ env, platform }) => { try { return (platform === "win32" ? path.win32 : path.posix).join(resolveManagedRoots({ env, platform }).dataRoot, "snapshots"); } catch { return null; } };
+const managedSnapshotsRoot = ({ env, platform }) => { try { return (platform === "win32" ? path.win32 : path.posix).join(resolveManagedRoots({ env, platform }).gateRoot, "snapshots"); } catch { return null; } };
 
 const requireBrokerHost = (executor) => { if (executor?.kind !== "broker") throw new Error("unit release runs only on a broker-managed host (the hosted qualification is dispatched by the RustRight rightkit-dispatch adapter); a direct host has no gate-owned release route, so no upload was started"); };
 

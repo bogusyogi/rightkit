@@ -28,8 +28,9 @@ export function signingAgentPaths(home = os.userInfo().homedir) {
     config: path.join(directory, "config.json"), runtime: path.join(directory, "runtime"),
     log: path.join(directory, "requests.jsonl"), plist: path.join(home, "Library/LaunchAgents", `${AGENT_LABEL}.plist`) };
 }
-export function defaultSigningRoots(home = os.userInfo().homedir, managedRoot = resolveManagedRoots({ home }).dataRoot, cargoTargetDirs = []) {
-  return [...new Set(["/Volumes/D/claude", managedRoot, "/Volumes/D/rightkit-build-control",
+export function defaultSigningRoots(home = os.userInfo().homedir, managedRoot = resolveManagedRoots({ home }).gateRoot, cargoTargetDirs = []) {
+  // Both the gate root (RightKit's data) and the broker's data root stay allowed: a root missing from the list refuses a signing request, and a host's roots differ before and after the managed-roots migration.
+  return [...new Set(["/Volumes/D/claude", managedRoot, resolveManagedRoots({ home }).dataRoot, "/Volumes/D/rightkit-build-control",
     path.join(home, "Library/Caches/RightSuite/release"), "/tmp", "/private/tmp", os.tmpdir(), ...cargoTargetDirs])];
 }
 export const within = (root, file) => file === root || file.startsWith(`${root}${path.sep}`);

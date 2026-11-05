@@ -47,7 +47,8 @@ export const BROKER_REFUSAL_STATUS = 101;
 export const CALLING_GATE_ENV = "RUSTRIGHT_CALLING_GATE";
 
 /** The managed `ws` roots a broker pins its generation targets under (BROKER-CONTRACT output pinning). */
-export const brokerOutputRoots = ({ dataRoot }) => [path.join(dataRoot, "rightkit-build-control", "ws")];
+/** The broker pins outputs under its build directory (`<data root>/build-control`, `rightkit-build-control` on a host that has not migrated): `buildControl` is the resolver's. */
+export const brokerOutputRoots = ({ buildControl }) => [path.join(buildControl, "ws")];
 
 /**
  * The longest a read waits for a job that is still live although its client already exited (A7). The client can return before the broker
@@ -114,8 +115,10 @@ export function createSnapshotBroker({ env = process.env, platform = process.pla
   // so no child re-resolves (or spawns) a .cmd (broker-client.mjs). A shim of any other shape refuses with RK_BROKER_CLIENT_UNRESOLVED.
   try { client = resolveBrokerClient(client, { platform }).file; } catch (e) { throw new SnapshotRequestError(e.code ?? BROKER_CLIENT_UNRESOLVED, e.message); }
   const roots = resolveManagedRoots({ env, platform });
-  const managedData = dataRoot ?? roots.dataRoot;
-  const pins = loadPins({ dataRoot: managedData, platform, gateFile, checkout, spawn });
+  // `dataRoot` injected names ONE root for everything (a lab or a test); otherwise the pins are RightKit's (gate root) and the outputs the broker's (its build directory).
+  const pinsRoot = dataRoot ?? roots.gateRoot;
+  const buildControl = dataRoot === undefined ? roots.buildControl : resolveManagedRoots({ env, platform, dataRoot }).buildControl;
+  const pins = loadPins({ dataRoot: pinsRoot, platform, gateFile, checkout, spawn });
   // GB-76: carriers a crashed gate left behind are retired on proof (creator dead, nothing live or unknown at the broker under their sub-handle), counted otherwise. Best-effort: a
   // sweep that cannot run never stops a build, and nothing is deleted without proof.
   let carrierSweep = null;
@@ -125,7 +128,7 @@ export function createSnapshotBroker({ env = process.env, platform = process.pla
     controlRoot: roots.controlRoot, commit: { sha: commit.sha, tree: commit.tree }, snapshot: { path: snapshot.path, expectedTree: snapshot.expectedTree },
     declaredInputs: readDeclaredInputs(snapshot.path), handle: ownership.handle, markBrokerSubmit: (callHandle, note) => ownership.markBrokerSubmit(callHandle, note), markBrokerUnsent: typeof ownership.markBrokerUnsent === "function" ? (callHandle, reason) => ownership.markBrokerUnsent(callHandle, reason) : undefined,
     pins: { host: pins.host, keyId: pins.keyId, publicKey: pins.publicKey, brokerDigest: pins.brokerDigest }, pinsSource: pins.source,
-    checkout: fs.realpathSync.native(checkout), outputRoots: brokerOutputRoots({ dataRoot: managedData }), platform, client,
+    checkout: fs.realpathSync.native(checkout), outputRoots: brokerOutputRoots({ buildControl }), platform, client,
     receiptOf: async (requestId) => receiptSync({ client, requestId, env, spawn, platform }),
     // The broker's lease status of one sub-handle (SNAPSHOT_LEASE_STATUS, with the bounded wait): what a cancelled call is reconciled against.
     ...(typeof lease === "function" ? { leaseStatus: ({ handle, waitMs = 0 }) => lease({ snapshot: snapshot.path, handle, env, platform, spawn, client, waitMs }) } : {}),

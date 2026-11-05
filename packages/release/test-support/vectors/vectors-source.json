@@ -43,14 +43,16 @@
       "schema": "rustright.lease-status-vectors.v1"
     },
     "managed-roots.fixtures.json": {
-      "sha256": "a95c128cafd72691a5876169423fe6b108cfb8f74afe6e3b5367c39dbe716189",
-      "schema": "rustright.managed-roots.fixtures.v1",
-      "commit": "303c6c6fc8cb9026d6a1e954102cd0da5622941c",
-      "note": "copied byte for byte from rustright docs/contracts at 07829c05 (branch claude/wave4-partial): adds the case \"linux no-env defaults to the account state directory\" (14 cases, same key set)"
+      "sha256": "1e664d6e0867c8919518bd7d368badaf2f954a7b828525de18caf1103a852224",
+      "schema": "rustright.managed-roots.fixtures.v2",
+      "commit": "f4fb0ecadf442c2adcf67bddf0fcc6d5d3337b66",
+      "note": "GC-I22: copied byte for byte from rustright docs/contracts at f4fb0ec (the deployed broker and RustRight HEAD)"
     },
     "receipt-vectors.v1.json": {
-      "sha256": "51c104f94a19a12c92a7911491405fdfe05e754bfb91036280a19f2d694df848",
-      "schema": "rustright.receipt-vectors.v1"
+      "sha256": "ac429471bf59648613bfa9d17e70e20a18e67ac10226ee27789e404e922633e3",
+      "schema": "rustright.receipt-vectors.v1",
+      "commit": "f4fb0ecadf442c2adcf67bddf0fcc6d5d3337b66",
+      "note": "GC-I22: copied byte for byte from rustright docs/contracts at f4fb0ec (the deployed broker and RustRight HEAD)"
     }
   }
 }

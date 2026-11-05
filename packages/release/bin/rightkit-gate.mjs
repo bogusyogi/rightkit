@@ -4793,7 +4793,7 @@ export async function main(argv, io = {}) {
     let scanTools;
     try {
       scanTools = await (o.loadScanToolPolicy ?? (async (q) => (await import("../scan-tool-enrolment.mjs")).loadScanToolPolicy(q)))({
-        dataRoot: resolveManagedRoots({ env: o.env, platform: o.platform }).dataRoot, platform: o.platform, gateFile: callingGatePath(), checkout: root, fromPipeline: scanToolPolicyFromPipeline, // reads the gate's own repository with real git, never the run's (possibly injected) spawn
+        dataRoot: resolveManagedRoots({ env: o.env, platform: o.platform }).gateRoot, platform: o.platform, gateFile: callingGatePath(), checkout: root, fromPipeline: scanToolPolicyFromPipeline, // reads the gate's own repository with real git, never the run's (possibly injected) spawn
       });
     } catch (error) { o.err(`${tag} BLOCKED: ${error.code ?? "RK_SCAN_TOOLS"}: ${error.message}; no scan ran`); return 1; }
     const enrolledTools = Object.keys(scanTools?.policy ?? {});

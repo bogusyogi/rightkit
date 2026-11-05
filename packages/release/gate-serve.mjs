@@ -28,9 +28,12 @@ import { resolveManagedRoots } from "./managed-roots.mjs";
 const SELF = fileURLToPath(import.meta.url);
 const SCHEMA = "rightkit.gate-serve/1";
 const COOKIE_PREFIX = "0000000000000000.gate-serve-cookie-";
-const IDENTITY = (() => { try { return crypto.createHash("sha256").update(fs.readFileSync(SELF)).digest("hex").slice(0, 16); } catch { return "unknown"; } })();
+// The server's identity covers every local module it runs (this file and managed-roots.mjs, its only local import), so a client never
+// takes answers from a server whose code differs from its own, e.g. one started from an edited checkout answering a sealed gate.
+const SERVER_MODULES = [SELF, fileURLToPath(new URL("./managed-roots.mjs", import.meta.url))];
+const IDENTITY = (() => { try { const h = crypto.createHash("sha256"); for (const f of SERVER_MODULES) { h.update(path.basename(f)); h.update("\0"); h.update(fs.readFileSync(f)); h.update("\0"); } return h.digest("hex").slice(0, 16); } catch { return "unknown"; } })();
 
-function dataRoot(env = process.env) { return resolveManagedRoots({ env, platform: process.platform }).dataRoot; }
+function dataRoot(env = process.env) { return resolveManagedRoots({ env, platform: process.platform }).gateRoot; }
 export function socketPath(env = process.env) {
   if (process.platform === "win32") return `\\\\.\\pipe\\rightkit-gate-serve-${(os.userInfo().username || "user").replace(/[^A-Za-z0-9_-]/g, "_")}`;
   return path.join(dataRoot(env), "gate-serve", "serve.sock");

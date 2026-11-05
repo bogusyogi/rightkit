@@ -130,7 +130,7 @@ export async function runUnitTool({
     stage = "enrol";
     let enrolled;
     try {
-      const root_ = dataRoot ?? resolveManagedRoots({ env }).dataRoot;
+      const root_ = dataRoot ?? resolveManagedRoots({ env }).gateRoot;
       enrolled = plan.enrols === "credential-provider"
         ? enrollProvider({ dataRoot: root_, platform: plan.runnerPlatform, binary: built, version: unit.version })
         : enroll({ dataRoot: root_, platform: plan.runnerPlatform, runner: built, version: unit.version });

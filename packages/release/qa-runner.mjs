@@ -137,7 +137,7 @@ export function main(argv, { out = (m) => process.stdout.write(`${m}\n`), err = 
   const opt = (name) => { const i = rest.indexOf(name); return i < 0 ? undefined : rest[i + 1]; };
   try {
     const platform = opt("--platform") ?? HOST_PLATFORM[process.platform];
-    const dataRoot = opt("--data-root") ?? resolveManagedRoots({ env }).dataRoot;
+    const dataRoot = opt("--data-root") ?? resolveManagedRoots({ env }).gateRoot;
     if (command === "enroll") {
       const r = enrollQaRunner({ dataRoot, platform, runner: opt("--runner") && path.resolve(opt("--runner")), version: opt("--version"), rotate: rest.includes("--rotate"), ...(spawn ? { spawn } : {}) });
       out(`enrolled rightkit-qa ${r.entry.version} for ${platform} (sha256 ${r.entry.sha256}) at ${r.runnerFile}${r.rotated ? " (rotation)" : ""}; approve it for admission with \`right-release qa policy approve-runner --runner ${r.runnerFile} --version ${r.entry.version} --platform ${platform} --set-by <name>\``);

@@ -121,7 +121,7 @@ export function ownershipFile({ platform = process.platform, home, beside, repos
     if (typeof beside !== "string" || beside === "") throw new TypeError(`ownershipFile: beside must be a path (${JSON.stringify(beside)})`);
     return paths.join(paths.dirname(beside), OWNERSHIP_DIRNAME, repository, "owner.json");
   }
-  if (platform === "darwin" || platform === "win32") return paths.join(resolveManagedRoots({ env: {}, platform, home: "" }).dataRoot, OWNERSHIP_DIRNAME, repository, "owner.json");
+  if (platform === "darwin" || platform === "win32") return paths.join(resolveManagedRoots({ env: {}, platform, home: "" }).gateRoot, OWNERSHIP_DIRNAME, repository, "owner.json");
   let base = home;
   if (base === undefined) {
     try { base = os.userInfo().homedir; } catch (e) { throw new OwnershipBusy(`build ownership: this account's home directory cannot be read (${e.message}), so the repository's owner record has no location`); }
@@ -138,7 +138,7 @@ export function ownershipFile({ platform = process.platform, home, beside, repos
  */
 function guardManagedRoot(file, { platform, managedRoot, device }) {
   if (platform !== "darwin" && platform !== "win32") return;
-  const root = managedRoot ?? resolveManagedRoots({ env: {}, platform, home: "" }).dataRoot;
+  const root = managedRoot ?? resolveManagedRoots({ env: {}, platform, home: "" }).gateRoot;
   if (managedRoot === undefined) {
     const paths = platform === "win32" ? path.win32 : path.posix;
     const fold = (x) => paths.resolve(x).toLowerCase();   // both volumes are case-insensitive by default

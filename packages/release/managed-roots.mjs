@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir, userInfo } from 'node:os';
 import { posix, win32 } from 'node:path';
 import path from 'node:path';
@@ -27,27 +27,59 @@ export const envNamed = (env, name) => {
  * way (rustright 07829c05, pinned in the shared fixtures as "linux no-env defaults to the account state directory"). The broker's answering roots, not either
  * resolver's guess, say where a running broker keeps its state.
  */
-export function resolveManagedRoots({ env = process.env, platform = process.platform, home = homedir(), controlRoot, dataRoot, runtimeRoot, windowsControlDefault = 'localappdata' } = {}) {
+export function resolveManagedRoots({ env = process.env, platform = process.platform, home = homedir(), controlRoot, dataRoot, gateRoot, runtimeRoot, layout, windowsControlDefault = 'localappdata', isDir } = {}) {
   const paths = platform === 'win32' ? win32 : posix;
+  layout ??= platform === process.platform ? detectLayout({ env, platform, home, controlRoot, dataRoot, gateRoot, runtimeRoot, windowsControlDefault, isDir }) : 'rustright';
+  if (layout !== 'rustright' && layout !== 'legacy') throw new Error(`managed roots layout must be rustright or legacy, not ${String(layout)}`);
+  const legacyLayout = layout === 'legacy';
   const legacyRoot = platform === 'win32' ? 'D:\\.rightkit-managed' : '/Volumes/D/.rightkit-managed';
   const managedPlatform = platform === 'darwin' || platform === 'win32';
-  dataRoot ??= envNamed(env, 'DATA_ROOT') || envNamed(env, 'MANAGED_ROOT') || envNamed(env, 'EXTERNAL_ROOT') || (managedPlatform ? legacyRoot : paths.join(home, '.local', 'state', 'rightkit'));
+  // RightKit's own default root: the pre-rename managed root, or the account's state directory off Mac and Windows (never the Mac volume).
+  const previousDataRoot = managedPlatform ? legacyRoot : paths.join(home, '.local', 'state', 'rightkit');
+  const defaultDataRoot = legacyLayout ? previousDataRoot
+    : platform === 'win32' ? 'D:\\.rustright' : platform === 'darwin' ? '/Volumes/D/.rustright' : paths.join(home, '.local', 'state', 'rustright');
+  const namedDataRoot = dataRoot ?? (envNamed(env, 'DATA_ROOT') || envNamed(env, 'MANAGED_ROOT') || envNamed(env, 'EXTERNAL_ROOT'));
+  dataRoot = namedDataRoot ?? defaultDataRoot;
+  // The gate root (RightKit's own data) is the data root on the legacy layout; else explicit, else GATE_ROOT, else the data root when one was named (a lab or test names one root for everything), else RightKit's own default.
+  gateRoot = legacyLayout ? dataRoot : gateRoot ?? (envNamed(env, 'GATE_ROOT') || namedDataRoot) ?? previousDataRoot;
+  const buildLeaf = legacyLayout ? LEGACY_BUILD_DIR : BUILD_DIR;
   // rustright#54 (Adrian, 2026-11-02: "all apps are installed in internal drives ... doesn't rr belong there? the dev workspace sits on d"): the
-  // Windows control root (config, logs, policy, agent-bin, attestation) is %LOCALAPPDATA%\RightKit\build-control, as the Mac's is under Application
-  // Support; build data (ws, sccache, cargo home, snapshots) stays on the data root. Flipped together with rustright-config WindowsControlDefault.
+  // Windows control root (config, logs, policy, attestation) is %LOCALAPPDATA%\RustRight\build-control (RightKit\build-control on the legacy layout; Adrian, 2026-11-04,
+  // the broker's data leaves RightKit), as the Mac's is under Application Support; build data (ws, sccache, cargo home, snapshots) stays on the data root.
+  const product = legacyLayout ? 'RightKit' : 'RustRight';
   const localAppData = () => env.LOCALAPPDATA || paths.join(home, 'AppData', 'Local');
   controlRoot ??= envNamed(env, 'CONTROL_ROOT') || (platform === 'darwin'
-    ? paths.join(home, 'Library', 'Application Support', 'RightKit', 'build-control')
-    : platform === 'win32' && windowsControlDefault === 'localappdata' ? paths.join(localAppData(), 'RightKit', 'build-control') : dataRoot);
+    ? paths.join(home, 'Library', 'Application Support', product, 'build-control')
+    : platform === 'win32' && windowsControlDefault === 'localappdata' ? paths.join(localAppData(), product, 'build-control') : dataRoot);
   runtimeRoot ??= envNamed(env, 'RUNTIME_ROOT') || (platform === 'darwin' ? paths.join(home, 'Library', 'Application Support', 'RustRight') : platform === 'win32' ? (windowsControlDefault === 'localappdata' ? paths.join(localAppData(), 'RustRight') : 'D:\\.rustright') : controlRoot);
-  return Object.freeze({ controlRoot, dataRoot, legacyRoot, runtimeCurrent: paths.join(controlRoot, 'runtime'), runtimeRoot, liveRuntime: paths.join(runtimeRoot, 'runtime'),
+  return Object.freeze({ controlRoot, dataRoot, gateRoot, legacyRoot, buildControl: paths.join(dataRoot, buildLeaf), runtimeCurrent: paths.join(controlRoot, 'runtime'), runtimeRoot, liveRuntime: paths.join(runtimeRoot, 'runtime'),
     configPath: paths.join(controlRoot, 'config.json'), socket: platform === 'win32' ? null : paths.join(controlRoot, 'broker.sock'),
-    // rustright 303c6c6: on Windows agent-bin stays on the data root (agents' PATH and broker job PATH use D:\\.rightkit-managed\\agent-bin).
+    // On Windows agent-bin stays on the data root (agents' PATH and the broker's job PATH name <data root>\agent-bin). `sharedAgentBin` is the directory the broker puts first on every
+    // job's PATH; `forwardedAgentBin` is the pre-migration PATH entry every app still names (a link to the shared one once a host has migrated).
     logs: paths.join(controlRoot, 'logs'), agentBin: platform === 'win32' ? paths.join(dataRoot, 'agent-bin') : paths.join(controlRoot, 'agent-bin'),
+    sharedAgentBin: paths.join(dataRoot, 'agent-bin'), forwardedAgentBin: paths.join(gateRoot, 'agent-bin'),
     agentPolicy: paths.join(controlRoot, 'agent-policy'), ownershipInstall: paths.join(controlRoot, 'ownership-install'),
     // The Mac signing agent already lives on the internal disk; moving it would force a re-provision.
     signingAgent: platform === 'darwin' ? paths.join(home, 'Library', 'Application Support', 'Orthic Labs', 'shared', 'signing-agent')
       : paths.join(controlRoot, 'signing-agent') });
+}
+
+/** The broker's data directory inside the data root: `build-control`, and `rightkit-build-control` before the managed-roots migration (rustright_core::layout). */
+export const BUILD_DIR = 'build-control';
+export const LEGACY_BUILD_DIR = 'rightkit-build-control';
+
+/**
+ * The layout a host is on (RustRight's `detect_layout`): `rustright` when `<data root>/build-control` is a directory, else `legacy` when only the legacy data root's
+ * `rightkit-build-control` is, else (a fresh host, or a root that holds neither) `rustright`. The data root is the one the options resolve to under each layout. The
+ * installer's migration renames the build directory in one step, so a host is never on both. `isDir` is injectable.
+ */
+export function detectLayout(options = {}) {
+  const { isDir = (dir) => { try { return statSync(dir).isDirectory(); } catch { return false; } }, ...rest } = options;
+  const paths = (rest.platform ?? process.platform) === 'win32' ? win32 : posix;
+  const current = resolveManagedRoots({ ...rest, layout: 'rustright' });
+  if (isDir(paths.join(current.dataRoot, BUILD_DIR))) return 'rustright';
+  const previous = resolveManagedRoots({ ...rest, layout: 'legacy' });
+  return isDir(paths.join(previous.dataRoot, LEGACY_BUILD_DIR)) ? 'legacy' : 'rustright';
 }
 
 /**
@@ -59,7 +91,7 @@ export function resolveManagedRoots({ env = process.env, platform = process.plat
  */
 export function gateRunsRoot({ env = process.env, platform = process.platform, home = homedir() } = {}) {
   if (env.RIGHTKIT_SCRATCH_ROOT) return env.RIGHTKIT_SCRATCH_ROOT;
-  return (platform === 'win32' ? win32 : posix).join(resolveManagedRoots({ env, platform, home }).dataRoot, 'runs');
+  return (platform === 'win32' ? win32 : posix).join(resolveManagedRoots({ env, platform, home }).gateRoot, 'runs'); // `runs` is RightKit's: the gate root, never the broker's data root
 }
 
 export function managedControlCandidates(options = {}) {
@@ -68,8 +100,12 @@ export function managedControlCandidates(options = {}) {
     const env = options.env ?? process.env;
     return [...new Set([options.controlRoot, envNamed(env, 'CONTROL_ROOT'), options.dataRoot, envNamed(env, 'DATA_ROOT'), envNamed(env, 'MANAGED_ROOT'), envNamed(env, 'EXTERNAL_ROOT'), options.clientRoot].filter(Boolean))];
   }
-  const roots = resolveManagedRoots(options);
-  return [...new Set([roots.controlRoot, roots.dataRoot, options.clientRoot, roots.legacyRoot].filter(Boolean))];
+  // Both layouts are tried, the RustRight roots first (RustRight's `managed_control_candidates`): a host that migrated its roots has its broker there, one that has not has it at the
+  // old ones, and the old paths of a migrated host are forwarding links. A path a host does not have is skipped by the probe.
+  const current = resolveManagedRoots({ ...options, layout: 'rustright' });
+  const previous = resolveManagedRoots({ ...options, layout: 'legacy' });
+  const homeKnown = platform === 'win32' || Boolean(options.home ?? homedir());
+  return [...new Set([current.controlRoot, current.dataRoot, options.clientRoot, homeKnown ? previous.controlRoot : undefined, previous.dataRoot, current.legacyRoot].filter(Boolean))];
 }
 
 /** The pipe RustRight's installer enforces, and the pre-rename one still named by processes started before the cutover (which means the same broker). */

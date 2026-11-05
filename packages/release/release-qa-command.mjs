@@ -168,7 +168,7 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, deps = 
   let runnerFile = deps.runnerFile;
   if (!runnerFile) {
     if (!config.qa.runner && isRunnerVersion(config.qa.version)) {
-      managedRunner = (deps.resolveManagedRunner ?? resolveManagedQaRunner)({ dataRoot: resolveManagedRoots({ env: deps.env ?? process.env }).dataRoot, platform, version: String(config.qa.version) });
+      managedRunner = (deps.resolveManagedRunner ?? resolveManagedQaRunner)({ dataRoot: resolveManagedRoots({ env: deps.env ?? process.env }).gateRoot, platform, version: String(config.qa.version) });
       runnerFile = managedRunner.file;
     } else runnerFile = resolveRunner({ qa: config.qa, appRoot });
   }

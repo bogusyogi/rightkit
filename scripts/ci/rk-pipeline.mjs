@@ -929,7 +929,7 @@ export async function runPipeline({ argv, root, env = process.env, platform = pr
       const parsed = { ...probe, root: rootOf(root), stateFile };
       // The broker refuses an uncarried root request inside a managed snapshot (RK_CHECK_ERROR), so the control plane is never one: refused before anything starts.
       let snapshotsRoot = null;
-      try { snapshotsRoot = (platform === "win32" ? path.win32 : path.posix).join(resolveManagedRoots({ env, platform }).dataRoot, "snapshots"); } catch { snapshotsRoot = null; }
+      try { snapshotsRoot = (platform === "win32" ? path.win32 : path.posix).join(resolveManagedRoots({ env, platform }).gateRoot, "snapshots"); } catch { snapshotsRoot = null; }
       const apart = controlPlaneProblem({ checkout: parsed.root, snapshotsRoot, pathApi: platform === "win32" ? path.win32 : path.posix });
       if (apart) throw new Error(`${apart}; nothing was started`);
       const stages = deps ?? inGateDeps(parsed, { env, ...(toolsRoot ? { toolsRoot } : {}), ...(load ? { load } : {}) });

@@ -118,7 +118,7 @@ export function resolveLinuxBrokerRoute({ env = process.env, platform = process.
   return { declared: true, ok: true, client, socket, clientSha256 };
 }
 
-const MANAGED_AGENT_BIN = /(?:^|\/)(?:\.rightkit-managed|rightkitmanagedagent|rightkit\/build-control)\/agent-bin\/?$/i;
+const MANAGED_AGENT_BIN = /(?:^|\/)(?:\.rightkit-managed|\.rustright|rightkitmanagedagent|rightkit\/build-control|rustright\/build-control)\/agent-bin\/?$/i;
 function fileHead(file) {
   let fd = null;
   try { fd = openSync(file, "r"); const b = Buffer.alloc(4096); const n = readSync(fd, b, 0, 4096, 0); return b.subarray(0, n).toString("latin1"); }
@@ -233,7 +233,7 @@ export function managedRuntimeCommand(client, args) {
 export function acquireManagedRunLease({ command, env = process.env, platform = process.platform, exists = existsSync, pid = process.pid } = {}) {
   const client = managedRuntimeClient(env, platform, exists);
   if (!client) return { path: null, release() {} };
-  const runs = path.join(resolveManagedRoots({ env, platform }).dataRoot, "rightkit-build-control", "global", "runs");
+  const runs = path.join(resolveManagedRoots({ env, platform }).buildControl, "global", "runs");
   const file = path.join(runs, `${pid}-${randomUUID()}.json`);
   try {
     mkdirSync(runs, { recursive: true });
@@ -249,7 +249,7 @@ export function managedHost(env, platform = process.platform) {
   // Linux is broker-managed only through the explicit declared route (linuxBrokerDeclared), whatever else the env names.
   if (directPlatform(platform)) return linuxBrokerDeclared(env, platform);
   return Boolean(env.RUSTRIGHT_BUILD_BROKER_SOCKET || env.RIGHTKIT_BUILD_BROKER_SOCKET)
-    || /(?:^|[;:])[^;:]*[/\\](?:\.rightkit-managed|rightkitmanagedagent|rightkit[/\\]build-control)[/\\]agent-bin(?:[;:]|$)/i.test(String(env.PATH ?? ""));
+    || /(?:^|[;:])[^;:]*[/\\](?:\.rightkit-managed|\.rustright|rightkitmanagedagent|rightkit[/\\]build-control|rustright[/\\]build-control)[/\\]agent-bin(?:[;:]|$)/i.test(String(env.PATH ?? ""));
 }
 
 /**

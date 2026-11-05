@@ -127,7 +127,7 @@ export function snapshotRoot({ platform = process.platform, env = process.env, h
   const paths = platform === "win32" ? path.win32 : path.posix;
   let root; let source;
   if (platform === "darwin" || platform === "win32") {
-    const base = resolveManagedRoots({ env: {}, platform, home }).dataRoot;
+    const base = resolveManagedRoots({ env: {}, platform, home }).gateRoot;
     root = paths.join(base, "snapshots");
     source = `the host's managed root ${base}`;
   } else {
@@ -158,7 +158,7 @@ const foldHost = (platform) => (platform === "darwin" || platform === "win32" ? 
 export function hostManagedRootFor(root, { platform = process.platform, home = os.homedir() } = {}) {
   if (platform !== "darwin" && platform !== "win32") return null;
   const paths = platform === "win32" ? path.win32 : path.posix;
-  const managed = resolveManagedRoots({ env: {}, platform, home }).dataRoot;
+  const managed = resolveManagedRoots({ env: {}, platform, home }).gateRoot;
   const fold = foldHost(platform);
   return isInside(fold(paths.resolve(root)), fold(paths.resolve(managed)), paths) ? managed : null;
 }

@@ -146,7 +146,7 @@ export function resolveCredentialProvider({ dataRoot, platform }) {
 export function updaterCredentialProvider({ env = process.env, hostPlatform = process.platform, dataRoot, resolve = resolveCredentialProvider } = {}) {
   const platform = providerPlatformOf(hostPlatform);
   if (!platform) return { file: "rightkit-credentials", managed: false };
-  return { file: resolve({ dataRoot: dataRoot ?? resolveManagedRoots({ env, platform: hostPlatform }).dataRoot, platform }).file, managed: true };
+  return { file: resolve({ dataRoot: dataRoot ?? resolveManagedRoots({ env, platform: hostPlatform }).gateRoot, platform }).file, managed: true };
 }
 
 /** `node credential-provider.mjs enroll --platform mac|win --binary <built rightkit-credentials> --version <v> [--data-root <dir>] [--rotate]` or `show`. */
@@ -155,7 +155,7 @@ export function main(argv, { out = (m) => process.stdout.write(`${m}\n`), err = 
   const opt = (name) => { const i = rest.indexOf(name); return i < 0 ? undefined : rest[i + 1]; };
   try {
     const platform = opt("--platform") ?? HOST_PLATFORM[process.platform];
-    const dataRoot = opt("--data-root") ?? resolveManagedRoots({ env }).dataRoot;
+    const dataRoot = opt("--data-root") ?? resolveManagedRoots({ env }).gateRoot;
     if (command === "enroll") {
       const r = enrollCredentialProvider({ dataRoot, platform, binary: opt("--binary") && path.resolve(opt("--binary")), version: opt("--version"), rotate: rest.includes("--rotate"), ...(spawn ? { spawn } : {}) });
       out(`enrolled rightkit-credentials ${r.entry.version} for ${platform} (sha256 ${r.entry.sha256}) at ${r.providerFile}${r.rotated ? " (rotation)" : ""}`);

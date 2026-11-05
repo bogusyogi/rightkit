@@ -30,7 +30,7 @@ export function signingAgentPlist({ paths, node = process.execPath, home }) {
 }
 export function installSigningAgent({ home = os.userInfo().homedir, username = os.userInfo().username,
   uid = process.getuid?.(), platform = process.platform, run = spawnSync, io = fs, node = process.execPath,
-  managedRoot = resolveManagedRoots({ home }).dataRoot, cargoTargetDirs = [], health = requestSigningAgentSync,
+  managedRoot = resolveManagedRoots({ home }).gateRoot, cargoTargetDirs = [], health = requestSigningAgentSync,
   now = Date.now, sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) } = {}) {
   if (platform !== "darwin") throw new SigningAgentError("MAC_SIGNING_AGENT_PLATFORM", "Signing agent requires macOS");
   requireMacGuiSession({ run, uid });

@@ -137,7 +137,7 @@ export function resolveRealRustc({ env = process.env, run = spawnSync } = {}) {
 export function resolveManagedCargoShim({ env = process.env, platform = process.platform, exists = existsSync } = {}) {
   const win = platform === "win32" || platform === "win";
   const delimiter = win ? ";" : ":";
-  const agentBin = /(?:^|[\\/])(?:\.rightkit-managed|rightkitmanagedagent|rightkit[\\/]build-control)[\\/]agent-bin[\\/]?$/i;
+  const agentBin = /(?:^|[\\/])(?:\.rightkit-managed|\.rustright|rightkitmanagedagent|rightkit[\\/]build-control|rustright[\\/]build-control)[\\/]agent-bin[\\/]?$/i;
   // Every extension cargo-contract.mjs managedCargoShimOnPath accepts (PATHEXT, else .COM;.EXE;.BAT;.CMD), so a shim that predicate sees is a shim this finds.
   const extensions = win ? String(env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean).map((extension) => extension.toLowerCase()) : [""];
   for (const directory of String(env.PATH ?? "").split(delimiter).filter(Boolean)) {
