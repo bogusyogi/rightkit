@@ -4986,7 +4986,7 @@ export async function main(argv, io = {}) {
       // Adrian 2026-11-06: "when we change something, we know exactly which rows are going to be called. Anything other than that needs approval."
       // A row that misses ONLY because files in its own key changed (new content ids, no tool, toolchain, broker or environment change) is one this
       // change must call: it runs, listed. Every other miss (nothing changed, no stored result, a tool or environment change) needs approval.
-      const expected = (r) => r.cacheMiss?.kind === "changed" && (r.cacheMiss.why?.inputsChanged ?? 0) > 0 && !r.cacheMiss.why.tool && !r.cacheMiss.why.env && !r.cacheMiss.why.inheritedEnv;
+      const expected = (r) => r.cacheMiss?.kind === "changed" && (r.cacheMiss.why?.inputsChanged ?? 0) > 0 && r.cacheMiss.why.contentOnly === true && !r.cacheMiss.why.tool && !r.cacheMiss.why.env && !r.cacheMiss.why.inheritedEnv;
       const called = allMisses.filter(expected);
       if (called.length) o.out(`${tag} cache lookup: ${called.length} row(s) rerun because their own files changed: ${called.slice(0, 12).map((r) => `${r.id} (${(r.cacheMiss.why.inputs ?? []).slice(0, 2).map((k) => k.replace(/^[^/]*\//, "")).join(", ")})`).join("; ")}${called.length > 12 ? "; ..." : ""}`);
       const misses = allMisses.filter((r) => !expected(r));

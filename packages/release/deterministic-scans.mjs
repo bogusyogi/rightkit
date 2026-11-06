@@ -486,8 +486,11 @@ export function explainKeyChange(before, after) {
   const a = flat(before?.inputs ?? ""); const b = flat(after?.inputs ?? "");
   const inputs = [...new Set([...a.keys(), ...b.keys()])].filter((k) => a.get(k) !== b.get(k)).sort();
   const envKeys = [...new Set([...Object.keys(before?.env ?? {}), ...Object.keys(after?.env ?? {})])].filter((k) => (before?.env ?? {})[k] !== (after?.env ?? {})[k]).sort();
+  // A real file edit changes one content id into another (git blob ids: 40 or 64 hex). Anything else (a key entry whose form changed) is not a file change.
+  const blob = (v) => typeof v === "string" && /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(v);
+  const contentOnly = inputs.length > 0 && inputs.every((k) => blob(a.get(k)) && blob(b.get(k)));
   return {
-    inputs: inputs.slice(0, 12), inputsChanged: inputs.length,
+    inputs: inputs.slice(0, 12), inputsChanged: inputs.length, contentOnly,
     ...(before?.toolVersion !== after?.toolVersion ? { tool: { from: before?.toolVersion ?? null, to: after?.toolVersion ?? null } } : {}),
     ...(envKeys.length ? { env: envKeys.slice(0, 12) } : {}),
     ...(before?.inherited !== after?.inherited ? { inheritedEnv: true } : {}),
