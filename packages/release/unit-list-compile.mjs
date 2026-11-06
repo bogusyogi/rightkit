@@ -217,7 +217,7 @@ export async function executeUnitListCompile({ jobs, dependencies = {}, initialF
 }
 
 /** Bridge the authenticated publisher jobs to runScans' initialized Class B scheduler. */
-export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, jobs, dependencies = {}, initialFailures = new Set(), requirements, adapt, verify, signal = null, onCoverage = () => {} }) {
+export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, originConcurrency = 8, jobs, dependencies = {}, initialFailures = new Set(), requirements, adapt, verify, signal = null, onCoverage = () => {} }) {
   if (!Array.isArray(requirements) || requirements.some((r) => r.internal) || typeof adapt !== "function" || typeof verify !== "function") throw new Error("publisher scheduler needs external requirements, adapter and verifier; internal scans must already be verified");
   const byId = new Map(requirements.map((r) => [r.id, r]));
   if (byId.size !== requirements.length) throw new Error("duplicate publisher requirement IDs");
@@ -231,23 +231,6 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, j
     const byScan = new Map(scans.map((scan, index) => [scan.id, index]));
     if (byScan.size !== scans.length || requirements.some((r) => !byScan.has(r.id))) throw new Error("publisher plan does not contain each requirement exactly once");
     const slots = new Array(scans.length); const executed = new Map(); const attempts = new Map();
-    // Origin scans have no publisher per-unit sequencing; batch only members the scan runner
-    // itself marks compatible, and retain its signed bisection/attribution results.
-    for (let i = 0; i < scans.length; i += 1) if (!byId.has(scans[i].id) && !slots[i]) {
-      const peers = typeof executeGroup === "function" && typeof canGroup === "function" ? scans.map((s, j) => j > i && !slots[j] && !byId.has(s.id) && canGroup(scans[i], s) ? j : -1).filter((j) => j >= 0) : [];
-      if (!peers.length) slots[i] = await execute(scans[i]);
-      else {
-        const indices = [i, ...peers]; const rows = await executeGroup(indices.map((j) => scans[j]));
-        for (const [n, j] of indices.entries()) slots[j] = rows[n];
-      }
-    }
-    // Passing plan rows that prove a compile (NN27), with the evidence a publisher verify needs on a broker host.
-    const proofs = new Map();
-    for (let i = 0; i < scans.length; i += 1) {
-      if (byId.has(scans[i].id) || !wouldPass(slots[i])) continue;
-      if (!lookupOnly && scans[i].root === "cargoLive" && !/^[0-9a-f]{64}$/.test(slots[i].snapshotEvidence?.receiptSha256 ?? "")) continue;
-      for (const as of ["check", "clippy"]) { const key = compileProofKey(scans[i], as); if (key !== null && !proofs.has(key)) proofs.set(key, { id: scans[i].id, row: slots[i] }); }
-    }
     // A quiet suite needs the broker drained for its quiet lease: a job with a quiet member runs alone (exclusive), the others share.
     let shared = 0; let exclusive = false; const waiters = [];
     const wake = () => { const ready = waiters.splice(0); for (const w of ready) w(); };
@@ -258,6 +241,31 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, j
       }
     };
     const release = (alone) => { if (alone) exclusive = false; else shared -= 1; wake(); };
+    // Origin scans have no publisher per-unit sequencing; batch only members the scan runner itself marks compatible, and retain its signed
+    // bisection/attribution results. NN17/NN39 (Mac 2026-11-07: the broker never ran two jobs at once; 30 single rows ran one at a time, 8 rows/min):
+    // the groups and single rows are formed first, then submitted `originConcurrency` at a time in plan order; the broker orders and runs them.
+    const work = []; const claimed = new Set();
+    for (let i = 0; i < scans.length; i += 1) if (!byId.has(scans[i].id) && !claimed.has(i)) {
+      const peers = typeof executeGroup === "function" && typeof canGroup === "function" ? scans.map((s, j) => j > i && !claimed.has(j) && !byId.has(s.id) && canGroup(scans[i], s) ? j : -1).filter((j) => j >= 0) : [];
+      const indices = [i, ...peers]; for (const j of indices) claimed.add(j); work.push(indices);
+    }
+    const runWork = async (indices) => {
+      const alone = indices.some((j) => scans[j]?.quiet === true);
+      await acquire(alone);
+      try {
+        if (indices.length === 1) slots[indices[0]] = await execute(scans[indices[0]]);
+        else { const rows = await executeGroup(indices.map((j) => scans[j])); for (const [n, j] of indices.entries()) slots[j] = rows[n]; }
+      } finally { release(alone); }
+    };
+    const queue = [...work];
+    await Promise.all(Array.from({ length: Math.max(1, Math.min(Number(originConcurrency) || 1, queue.length)) }, async () => { while (queue.length) await runWork(queue.shift()); }));
+    // Passing plan rows that prove a compile (NN27), with the evidence a publisher verify needs on a broker host.
+    const proofs = new Map();
+    for (let i = 0; i < scans.length; i += 1) {
+      if (byId.has(scans[i].id) || !wouldPass(slots[i])) continue;
+      if (!lookupOnly && scans[i].root === "cargoLive" && !/^[0-9a-f]{64}$/.test(slots[i].snapshotEvidence?.receiptSha256 ?? "")) continue;
+      for (const as of ["check", "clippy"]) { const key = compileProofKey(scans[i], as); if (key !== null && !proofs.has(key)) proofs.set(key, { id: scans[i].id, row: slots[i] }); }
+    }
     const result = await executeUnitListCompile({ concurrency, jobs, dependencies, initialFailures, lookupOnly,
       run: async (job) => {
         const alone = job.members.some((member) => scans[byScan.get(member.id)]?.quiet === true);

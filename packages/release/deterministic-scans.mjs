@@ -2433,7 +2433,11 @@ const FAILURE_LINE = /(^|[\s\[])(FAILED|panicked at|error(\[E\d+\])?:|error\[|^f
 export function failureDetail(r) {
   const lines = (text) => String(text ?? "").split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim());
   const out = lines(r?.stdout); const err = lines(r?.stderr);
-  const named = [...out, ...err].filter((l) => FAILURE_LINE.test(l)).slice(0, 12);
+  // Compiler errors lead: a warning's quoted tool output (rustc's "warning: linker stderr: cc: error: ...") also matches, and listed first it hid
+  // the real errors (Mac 2026-11-07: four rows read as a broker sandbox failure; the errors were unresolved imports and a cmake archiver).
+  const hits = [...out, ...err].filter((l) => FAILURE_LINE.test(l));
+  const quoted = (l) => /^\s*(warning:|\|)/.test(l) || /warning: linker std(err|out)/.test(l);
+  const named = [...hits.filter((l) => !quoted(l)), ...hits.filter(quoted)].slice(0, 12);
   const ends = [...out.slice(-4), ...err.slice(-4)];
   // `cargo audit` / `cargo deny` without the cargo-audit / cargo-deny binary: cargo's own "no such command" text told a reader to
   // search crates.io; the scan's tool is required and missing, which is what actionlint's row already says (E2E L9-02).
