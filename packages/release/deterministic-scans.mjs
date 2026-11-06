@@ -167,7 +167,9 @@ const BUILD_ENV_PREFIXES = ["CARGO_", "RUST", "SCCACHE_", "RK_", "RIGHTKIT_", "R
 // snapshot request and cargo map, the direct receipt path.
 // A network proxy (NPM_CONFIG_HTTPS_PROXY, NPM_CONFIG_NOPROXY, ...) changes how a download is routed, never what a scan proves, and a
 // cloud host sets it per session (measured 2026-11-06: the cloud's NPM_CONFIG_HTTPS_PROXY moved between two runs and 1,115 rows missed).
-const BUILD_ENV_EXCLUDED = /^(RK_GATE_|RUSTRIGHT_QUIET_LEASE$|RIGHTKIT_BUILD_OWNERSHIP$|RIGHTKIT_CARRIED_CARGO_MAP$|RUSTRIGHT_ATTEST_NONCE$|RUSTRIGHT_REQUEST_ID_FILE$|RUSTRIGHT_SNAPSHOT_REQUEST$|RK_DIRECT_RECEIPT$|.*PROXY)/;
+const BUILD_ENV_EXCLUDED = /^(RK_GATE_|RUSTRIGHT_QUIET_LEASE$|RIGHTKIT_BUILD_OWNERSHIP$|RIGHTKIT_CARRIED_CARGO_MAP$|RUSTRIGHT_ATTEST_NONCE$|RUSTRIGHT_REQUEST_ID_FILE$|RUSTRIGHT_SNAPSHOT_REQUEST$|RK_DIRECT_RECEIPT$|RIGHTKIT_CROSS_CC_DIR$|.*PROXY)/;
+// RIGHTKIT_CROSS_CC_DIR is where the zig wrappers live, not what they are: a cross clippy row keys on its own CC_/CXX_/AR_ variables
+// (scan env), and no Class A row uses it (measured 2026-11-06: setting it on the cloud host made 1,121 Class A rows miss).
 // Per-run parts of a value are normalised: the runtime cargo wrapper's fresh parent (`rk-gate-shim-XXXXXX`) and its folder name
 // (`rk-cargo-shim-<identity>`), whose identity hashes the run's broker section and so differs on every run (measured 2026-11-03: two identical
 // Class A runs of rightkit-asr shared no key, only CARGO differed). The wrapper's CODE keys the result through the gate identity instead
