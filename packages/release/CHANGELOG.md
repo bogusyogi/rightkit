@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.6.53
+
+- Carry-over: a pass stored under an earlier cache-key form is reused when the row's real inputs provably did not change, so a key change no longer reruns rows or asks for approval; a row whose own files were edited reruns with no approval (#1526).
+- A unit-list run submits its shared compile rows up to `RK_GATE_ORIGIN_JOBS` (8) at a time instead of one after another; quiet suites still run alone (NN17/NN39, #1526).
+- The cache lookup reaches every row a run would execute (grouped members, rows behind a missing dependency); a unit passes only on a run that exited 0 (#1526).
+- Network proxy variables and `RIGHTKIT_CROSS_CC_DIR` leave the cache key; Linux finds zig at `~/.local/state/rightkit/zig/cross-cc` (#1526).
+- A missing system library is never cached as a deterministic failure (`deterministic-failure/3`); a failed scan's summary leads with compiler errors (#1526).
+- A miss approval is consumed by its own bytes, so a new approval of the same report is its own single use (#1526).
+- The second plan of a run reuses unchanged file digests; the unit-list check does not re-prove a snapshot the door just proved (NN07, #1526).
+- Contract test: NN30/NN31 per host; S11 and S17's toolchain-change run prove the cache-miss stop; S15 names its RightKit unit; fixture pin 3a017e99 (pnpm 12.16.1) (#1514).
+
 ## 0.6.52
 
 - In a door run the app's own `right-release web-build` reuses the web outputs the door produced, so a Tauri crate that embeds them is not rebuilt after its sidecar was staged (#1522).
