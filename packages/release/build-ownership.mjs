@@ -1531,9 +1531,13 @@ export function runningBrokerProcess({ platform = process.platform, run = spawnS
   }
   if (platform !== "darwin") return null;
   try {
-    const lc = run("launchctl", ["print", `gui/${uid}/dev.rustright.broker`], { encoding: "utf8", timeout: 5000 });
-    const pid = Number(/^\s*pid = (\d+)$/m.exec(String(lc.stdout ?? ""))?.[1]);
-    if (!Number.isInteger(pid) || pid <= 0) return null;
+    // The broker alternates between two launchd entries at each cutover (rustright-install entries.rs: `dev.rustright.broker` and
+    // `dev.rustright.broker.b`). Exactly one of them running is the broker; none or both (mid-cutover) is unknown (fail safe).
+    const pids = ["dev.rustright.broker", "dev.rustright.broker.b"]
+      .map((label) => Number(/^\s*pid = (\d+)$/m.exec(String(run("launchctl", ["print", `gui/${uid}/${label}`], { encoding: "utf8", timeout: 5000 }).stdout ?? ""))?.[1]))
+      .filter((pid) => Number.isInteger(pid) && pid > 0);
+    if (pids.length !== 1) return null;
+    const pid = pids[0];
     const ps = run("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", timeout: 5000, env: { ...process.env, LC_ALL: "C", LANG: "C" } });
     const startedMs = Date.parse(String(ps.stdout ?? "").trim());
     return Number.isFinite(startedMs) ? { pid, startedMs } : null;
