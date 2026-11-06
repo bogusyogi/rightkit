@@ -2921,7 +2921,8 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
   if (wanted.includes("S15")) {
     for (const [wl, dir] of [["rightkit", workspaceRootOf() + "/rightkit"], ["heardright", workspaceRootOf() + "/heardright"]]) {
       if (!fs.existsSync(dir)) { ctx.cellWhy[`${wl}:warm-check`] = `${dir} does not exist`; check("S15", `${wl} checkout exists`, { ok: false, problems: [`${dir} does not exist`] }); continue; }
-      const r = await doRun({ label: `S15:${wl}`, stage: "check", commit: "HEAD", cwd: dir, receipt: false, ladder: false, step: "S15", profile: "warm-check", workload: wl });
+      // RightKit names its unit on every run (RK_UNIT_NOT_NAMED); the warm check names one small, stable crate so the measured window is the same each time.
+      const r = await doRun({ label: `S15:${wl}`, stage: "check", commit: "HEAD", cwd: dir, receipt: false, ladder: false, step: "S15", profile: "warm-check", workload: wl, args: wl === "rightkit" ? ["--unit", "cargo:rightkit-time"] : [] });
       check("S15", `${wl} --to check exits 0`, exitOk(r));
     }
     if (pulseCompile) {
