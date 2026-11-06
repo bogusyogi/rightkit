@@ -494,7 +494,7 @@ export const INTERNAL_RULES_SCHEMA = "rightkit.internal-rules/1";
 /** Why a row's cache key moved, from the stored pass's key parts to this run's: the input entries that differ (paths and the like), the tool
  * version, the environment variables that differ. Bounded lists; evidence for Adrian's approval of a miss. */
 /** A key's raw inputs as {path-like entry: value} (the files list entries become `files.N/<path>`), with the key suffix as "(key suffix)". */
-export function flatKeyInputs(text) { const out = new Map(); const walk = (v, at) => { if (v && typeof v === "object") { if (Array.isArray(v) && v.length === 2 && typeof v[0] === "string" && typeof v[1] !== "object") { out.set(`${at}/${v[0]}`, String(v[1])); return; } for (const [k, x] of Object.entries(v)) walk(x, at ? `${at}.${k}` : k); } else out.set(at, String(v)); }; const s = String(text); const m = /^([\[{][\s\S]*[\]}]):([^:]+)$/.exec(s); try { walk(JSON.parse(m ? m[1] : s), ""); if (m) out.set("(key suffix)", m[2]); } catch { out.set("inputs", s); } return out; }
+export function flatKeyInputs(text) { const out = new Map(); const walk = (v, at) => { if (v && typeof v === "object") { if (Array.isArray(v) && v.length === 2 && typeof v[0] === "string" && typeof v[1] !== "object") { out.set(`${String(at).replace(/\.\d+$/, "")}/${v[0]}`, String(v[1])); return; } for (const [k, x] of Object.entries(v)) walk(x, at ? `${at}.${k}` : k); } else out.set(at, String(v)); }; const s = String(text); const m = /^([\[{][\s\S]*[\]}]):([^:]+)$/.exec(s); try { walk(JSON.parse(m ? m[1] : s), ""); if (m) out.set("(key suffix)", m[2]); } catch { out.set("inputs", s); } return out; }
 const isBlobId = (v) => typeof v === "string" && /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(v);
 /**
  * Carry-over (Adrian 2026-11-07: a key change must not rerun or ask for approval what did not change). A stored pass keyed under an earlier key FORM is
@@ -536,13 +536,15 @@ export function carryOverProof(before, after, { entryNow }) {
 }
 
 export function explainKeyChange(before, after) {
-  const flat = (text) => { const out = new Map(); const walk = (v, at) => { if (v && typeof v === "object") { if (Array.isArray(v) && v.length === 2 && typeof v[0] === "string" && typeof v[1] !== "object") { out.set(`${at}/${v[0]}`, String(v[1])); return; } for (const [k, x] of Object.entries(v)) walk(x, at ? `${at}.${k}` : k); } else out.set(at, String(v)); }; const s = String(text); const m = /^([\[{][\s\S]*[\]}]):([^:]+)$/.exec(s); try { walk(JSON.parse(m ? m[1] : s), ""); if (m) out.set("(key suffix)", m[2]); } catch { out.set("inputs", s); } return out; };
+  const flat = (text) => { const out = new Map(); const walk = (v, at) => { if (v && typeof v === "object") { if (Array.isArray(v) && v.length === 2 && typeof v[0] === "string" && typeof v[1] !== "object") { out.set(`${String(at).replace(/\.\d+$/, "")}/${v[0]}`, String(v[1])); return; } for (const [k, x] of Object.entries(v)) walk(x, at ? `${at}.${k}` : k); } else out.set(at, String(v)); }; const s = String(text); const m = /^([\[{][\s\S]*[\]}]):([^:]+)$/.exec(s); try { walk(JSON.parse(m ? m[1] : s), ""); if (m) out.set("(key suffix)", m[2]); } catch { out.set("inputs", s); } return out; };
   const a = flat(before?.inputs ?? ""); const b = flat(after?.inputs ?? "");
   const inputs = [...new Set([...a.keys(), ...b.keys()])].filter((k) => a.get(k) !== b.get(k)).sort();
   const envKeys = [...new Set([...Object.keys(before?.env ?? {}), ...Object.keys(after?.env ?? {})])].filter((k) => (before?.env ?? {})[k] !== (after?.env ?? {})[k]).sort();
   // A real file edit changes one content id into another (git blob ids: 40 or 64 hex). Anything else (a key entry whose form changed) is not a file change.
   const blob = (v) => typeof v === "string" && /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(v);
-  const contentOnly = inputs.length > 0 && inputs.every((k) => blob(a.get(k)) && blob(b.get(k)));
+  // A file entry is keyed by its path, never its position in the list (one added file shifted every later position and read as thousands of key-form
+  // changes: secret-scan, Mac 2026-11-07). An added or removed file is the row's own change, like an edited one.
+  const contentOnly = inputs.length > 0 && inputs.every((k) => (blob(a.get(k)) || !a.has(k)) && (blob(b.get(k)) || !b.has(k)) && (a.has(k) || b.has(k)));
   return {
     inputs: inputs.slice(0, 12), inputsChanged: inputs.length, contentOnly,
     ...(before?.toolVersion !== after?.toolVersion ? { tool: { from: before?.toolVersion ?? null, to: after?.toolVersion ?? null } } : {}),
