@@ -60,7 +60,7 @@ impl ServiceId {
     /// Account session commands (`rightkit_account_*`, `host::account::AccountHostService`, feature `license`).
     pub const ACCOUNT: Self = Self("account");
     /// Boot probation and the allowlisted fetch bridge (`rightkit_boot_*`, `rightkit_app_update_fetch`,
-    /// [`crate::host::app_update::AppUpdateHostService`], feature `app-update`).
+    /// `host::app_update::AppUpdateHostService`, feature `app-update`).
     pub const APP_UPDATE: Self = Self("app-update");
     /// Update commands (registered by the update package).
     pub const UPDATE: Self = Self("update");

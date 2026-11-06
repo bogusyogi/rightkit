@@ -19,7 +19,7 @@
 //!
 //! # Who is calling
 //!
-//! The first call of every command is [`account_service`] over the facts of the invoking `Webview`
+//! The first call of every command is `account_service` over the facts of the invoking `Webview`
 //! (label and current URL from Tauri's native context, never an argument). A caller the
 //! [`HostCallerPolicy`](super::HostCallerPolicy) does not trust for the action is refused before the
 //! client is touched.
