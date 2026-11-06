@@ -960,7 +960,13 @@ export function externalInputs({ dir, files, readBlob, exists, includeRuntimePat
       for (const m of text.matchAll(RERUN_LITERAL)) consider(file, [dir], m[1].trim());
       if (BUILD_LEAVES_CRATE.test(text)) stop(`${file}: a build script that reads files and navigates out of its crate`);
     }
-    if (includeRuntimePaths && !build && !external && leavesCrate === null && TEST_LEAVES_CRATE.test(text.replace(/\/\/[^\n]*/g, ""))) leavesCrate = file;
+    // Only TEST code can make a test read files outside the crate: an integration test or bench file, or the #[cfg(test)] part of a source file.
+    // Library code that resolves a caller's relative path (std::env::current_dir) does not (rightkit-fs; it keyed every dependent's tests on the whole tree, NN20).
+    if (includeRuntimePaths && !build && !external && leavesCrate === null) {
+      const at = text.indexOf("#[cfg(test)]");
+      const testText = /(^|\/)(?:tests|benches)\//.test(file) ? text : at >= 0 ? text.slice(at) : "";
+      if (testText && TEST_LEAVES_CRATE.test(testText.replace(/\/\/[^\n]*/g, ""))) leavesCrate = file;
+    }
   };
   for (const file of files) if (file.endsWith(".rs")) enqueue(file, { build: path.posix.basename(file) === "build.rs" && path.posix.dirname(file) === dir });
   // Fixed point: an out-of-crate .rs file that is reached is itself a source, so its own references are followed, and theirs.
@@ -1262,7 +1268,8 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
       for (const member of closure) {
         const found = externalOf(member);
         if (found.unresolved) return undefined;
-        if (testScan && !declaredInputs && found.leavesCrate) return undefined;
+        // A dependency's own tests never run here: only the tested crate's test code decides whether its tests leave the crate.
+        if (testScan && !declaredInputs && found.leavesCrate && member === head) return undefined;
         for (const p of found.paths) extra.add(p);
       }
       // The shared inputs, projected to what this crate consumes.
