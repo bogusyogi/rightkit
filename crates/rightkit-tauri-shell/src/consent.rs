@@ -282,18 +282,20 @@ fn ask_windows(prompt: &ConsentPrompt) -> Result<ConsentChoice, ShellError> {
         },
     ];
 
-    let mut config = TASKDIALOGCONFIG::default();
-    config.cbSize = std::mem::size_of::<TASKDIALOGCONFIG>() as u32;
-    config.hwndParent = HWND(prompt.parent_window.unwrap_or(0) as *mut std::ffi::c_void);
-    config.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION;
-    config.pszWindowTitle = PCWSTR(title.as_ptr());
-    config.pszMainInstruction = PCWSTR(heading.as_ptr());
+    let mut config = TASKDIALOGCONFIG {
+        cbSize: std::mem::size_of::<TASKDIALOGCONFIG>() as u32,
+        hwndParent: HWND(prompt.parent_window.unwrap_or(0) as *mut std::ffi::c_void),
+        dwFlags: TDF_ALLOW_DIALOG_CANCELLATION,
+        pszWindowTitle: PCWSTR(title.as_ptr()),
+        pszMainInstruction: PCWSTR(heading.as_ptr()),
+        cButtons: buttons.len() as u32,
+        pButtons: buttons.as_ptr(),
+        nDefaultButton: ID_DENY,
+        ..Default::default()
+    };
     if !prompt.detail.is_empty() {
         config.pszContent = PCWSTR(detail.as_ptr());
     }
-    config.cButtons = buttons.len() as u32;
-    config.pButtons = buttons.as_ptr();
-    config.nDefaultButton = ID_DENY;
 
     let mut pressed: i32 = 0;
     // SAFETY: `config` is fully initialised for this call (`cbSize` set; every pointer it holds is a
