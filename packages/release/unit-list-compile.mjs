@@ -241,8 +241,26 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, j
       if (scans[i].root === "cargoLive" && !/^[0-9a-f]{64}$/.test(slots[i].snapshotEvidence?.receiptSha256 ?? "")) continue;
       for (const as of ["check", "clippy"]) { const key = compileProofKey(scans[i], as); if (key !== null && !proofs.has(key)) proofs.set(key, { id: scans[i].id, row: slots[i] }); }
     }
+    // A quiet suite needs the broker drained for its quiet lease: a job with a quiet member runs alone (exclusive), the others share.
+    let shared = 0; let exclusive = false; const waiters = [];
+    const wake = () => { const ready = waiters.splice(0); for (const w of ready) w(); };
+    const acquire = async (alone) => {
+      for (;;) {
+        if (alone ? (!exclusive && shared === 0) : !exclusive) { if (alone) exclusive = true; else shared += 1; return; }
+        await new Promise((resolve) => waiters.push(resolve));
+      }
+    };
+    const release = (alone) => { if (alone) exclusive = false; else shared -= 1; wake(); };
     const result = await executeUnitListCompile({ concurrency, jobs, dependencies, initialFailures,
       run: async (job) => {
+        const alone = job.members.some((member) => scans[byScan.get(member.id)]?.quiet === true);
+        await acquire(alone);
+        try { return await runJob(job); } finally { release(alone); }
+      },
+      verify: async ({ job, result: row, member }) => verify({ job, row, member, attempts: attempts.get(member.id) ?? [], requirement: byId.get(member.id) }),
+    });
+    async function runJob(job) {
+      {
         const byMember = new Map();
         const budget = { remaining: Math.min(2 * job.members.length - 1, 31) };
         const runMembers = async (members) => {
@@ -296,9 +314,8 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, j
         };
         await runMembers(job.members);
         return { byMember };
-      },
-      verify: async ({ job, result: row, member }) => verify({ job, row, member, attempts: attempts.get(member.id) ?? [], requirement: byId.get(member.id) }),
-    });
+      }
+    }
     onCoverage(result);
     for (const item of result) {
       const index = byScan.get(item.id); const scan = scans[index]; const row = executed.get(item.id);
