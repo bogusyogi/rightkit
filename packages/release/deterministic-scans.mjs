@@ -482,7 +482,7 @@ export const INTERNAL_RULES_SCHEMA = "rightkit.internal-rules/1";
 /** Why a row's cache key moved, from the stored pass's key parts to this run's: the input entries that differ (paths and the like), the tool
  * version, the environment variables that differ. Bounded lists; evidence for Adrian's approval of a miss. */
 export function explainKeyChange(before, after) {
-  const flat = (text) => { const out = new Map(); const walk = (v, at) => { if (v && typeof v === "object") { if (Array.isArray(v) && v.length === 2 && typeof v[0] === "string" && typeof v[1] !== "object") { out.set(`${at}/${v[0]}`, String(v[1])); return; } for (const [k, x] of Object.entries(v)) walk(x, at ? `${at}.${k}` : k); } else out.set(at, String(v)); }; try { walk(JSON.parse(text), ""); } catch { out.set("inputs", String(text)); } return out; };
+  const flat = (text) => { const out = new Map(); const walk = (v, at) => { if (v && typeof v === "object") { if (Array.isArray(v) && v.length === 2 && typeof v[0] === "string" && typeof v[1] !== "object") { out.set(`${at}/${v[0]}`, String(v[1])); return; } for (const [k, x] of Object.entries(v)) walk(x, at ? `${at}.${k}` : k); } else out.set(at, String(v)); }; const s = String(text); const m = /^([\[{][\s\S]*[\]}]):([^:]+)$/.exec(s); try { walk(JSON.parse(m ? m[1] : s), ""); if (m) out.set("(key suffix)", m[2]); } catch { out.set("inputs", s); } return out; };
   const a = flat(before?.inputs ?? ""); const b = flat(after?.inputs ?? "");
   const inputs = [...new Set([...a.keys(), ...b.keys()])].filter((k) => a.get(k) !== b.get(k)).sort();
   const envKeys = [...new Set([...Object.keys(before?.env ?? {}), ...Object.keys(after?.env ?? {})])].filter((k) => (before?.env ?? {})[k] !== (after?.env ?? {})[k]).sort();
@@ -3214,14 +3214,14 @@ export async function runScans(plan, options = {}) {
           if (digest) {
             // NN23: keyed on the internal rules' schema (bumped by hand when a rule's verdict changes), not on the checker's source bytes.
             internalKey = scanCacheKey({ id: s.id, command: s.command ?? `internal:${s.internal}`, toolVersion: INTERNAL_RULES_SCHEMA, env: {}, inheritedEnv: inheritedEnvDigest({}), digest });
-            internalIndex = { key: sha256(`rk-row-index/1\0${s.id}`), inputs: sha256(String(digest)), env: INTERNAL_RULES_SCHEMA };
+            internalIndex = { key: sha256(`rk-row-index/1\0${s.id}`), inputs: sha256(String(digest)), env: INTERNAL_RULES_SCHEMA, raw: { inputs: String(digest), toolVersion: INTERNAL_RULES_SCHEMA, env: {}, inherited: null } };
             // NN41: a file-only rule's violation list is a function of the same inputs, so it is keyed like its pass plus the rule code (CHECKER_IDENTITY);
             // a rule whose answer depends on the day or a remote service (FAILURE_UNCACHEABLE_INTERNAL) never has its failure reused.
             if (!FAILURE_UNCACHEABLE_INTERNAL.has(s.internal)) internalFailKey = scanCacheKey({ id: s.id, command: `${s.command ?? `internal:${s.internal}`} ;; ${FAILURE_KEY_SCHEMA}`, toolVersion: INTERNAL_RULES_SCHEMA, env: {}, inheritedEnv: inheritedEnvDigest({}), digest });
           }
         } catch (error) { internalKey = null; internalFailKey = null; row.cacheKeyError = String(error?.message ?? error).slice(0, 300); }
         const hit = internalKey ? cache.read(internalKey) : null;
-        if (internalIndex) { const idx = cache.read(internalIndex.key)?.row ?? null; row.cacheMiss = { kind: !idx ? "new" : idx.inputs === internalIndex.inputs && idx.env === internalIndex.env ? "unchanged" : "changed", ...(idx ? { last: idx.at ?? null } : {}) }; }
+        if (internalIndex) { const idx = cache.read(internalIndex.key)?.row ?? null; row.cacheMiss = { kind: !idx ? "new" : idx.inputs === internalIndex.inputs && idx.env === internalIndex.env ? "unchanged" : "changed", ...(idx ? { last: idx.at ?? null } : {}), ...(idx?.raw ? { why: explainKeyChange(idx.raw, internalIndex.raw) } : {}), now: { inputs: internalIndex.raw.inputs.slice(0, 4000) } }; }
         if (hit && hit.key === internalKey && hit.row?.status === "pass" && hit.row.id === s.id) {
           cacheHits.push(s.id);
           return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}` };
@@ -3240,7 +3240,7 @@ export async function runScans(plan, options = {}) {
         else if (out && !Array.isArray(out) && out.code) { status = "fail"; code = out.code; detail = out.detail; }
         else if (out && !Array.isArray(out) && typeof out.advice === "string") { advice = out.advice; }
         else if (out.length) { status = "fail"; detail = out.join("; "); }
-        if (status === "pass" && internalKey && !advice && !signal?.aborted && internalIndex) cache.write(internalIndex.key, { id: s.id, inputs: internalIndex.inputs, env: internalIndex.env, at: new Date().toISOString() });
+        if (status === "pass" && internalKey && !advice && !signal?.aborted && internalIndex) cache.write(internalIndex.key, { id: s.id, inputs: internalIndex.inputs, env: internalIndex.env, raw: internalIndex.raw, at: new Date().toISOString() });
         if (status === "pass" && internalKey && !advice && !signal?.aborted) cache.write(internalKey, { id: s.id, class: s.class, command: s.command ?? `internal:${s.internal}`, tool: null, toolVersion: CHECKER_IDENTITY, status: "pass" });
         // NN41: only a violation list (the rule ran and named what is wrong) is a deterministic failure; a missing tool or a coded refusal is the environment's.
         else if (status === "fail" && !code && internalFailKey && Array.isArray(out) && out.length && !signal?.aborted) cache.write(internalFailKey, { id: s.id, class: s.class, command: s.command ?? `internal:${s.internal}`, tool: null, toolVersion: CHECKER_IDENTITY, status: "fail", detail });
