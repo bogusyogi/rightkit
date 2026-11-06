@@ -5000,7 +5000,8 @@ export async function main(argv, io = {}) {
         const envs = [...new Set(entries.flatMap((e) => e.evidence?.env ?? []))];
         const commitOfRun = snapshotBCommit?.commit ?? snapshotCommitId?.commit ?? null;
         const body = { schema: "rightkit.gate-miss-report/1", commit: commitOfRun, planned: lookup.scans.length, hit: lookup.scans.filter((r) => r.cached).length, uncacheable: lookup.scans.filter((r) => r.uncacheable).length, misses: entries.length, byCause, topChangedInputs: Object.entries(changedInputs).sort((a, b) => b[1] - a[1]).slice(0, 20), tools, env: envs, rows: entries };
-        const digest = createHash("sha256").update(JSON.stringify(body)).digest("hex");
+        // The digest names WHAT would run and WHY (commit, row ids, causes), never evidence noise, so the same misses on a rerun match the same approval.
+        const digest = createHash("sha256").update(JSON.stringify({ schema: body.schema, commit: body.commit, rows: entries.map((e) => [e.id, e.cause]) })).digest("hex");
         const reportFile = path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-gate-misses", `${path.basename(root)}-${new Date().toISOString().replace(/[:.]/g, "-")}-${digest.slice(0, 12)}.json`);
         try { fs.mkdirSync(path.dirname(reportFile), { recursive: true }); fs.writeFileSync(reportFile, `${JSON.stringify({ ...body, digest }, null, 2)}\n`); } catch { /* the summary below still names everything */ }
         const approval = missApproval(o, digest, commitOfRun);

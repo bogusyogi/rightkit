@@ -178,6 +178,11 @@ export const buildEnvName = (name) => {
 };
 
 /** sha256 of the build-relevant part (buildEnvName) of the environment a scan's child receives. Pass the merged `{ ...deps.env, ...scan.env }`. */
+/** The build-relevant variables of `env` as {NAME: sha256 of the normalised value}: miss evidence names which ones moved, never their values. */
+export function inheritedEnvShape(env = {}) {
+  return Object.fromEntries(Object.entries(env).filter(([name, value]) => value !== undefined && value !== null && buildEnvName(name)).map(([name, value]) => [String(name).toUpperCase(), sha256(normalizeRunTemp(value)).slice(0, 16)]).sort((x, y) => (x[0] < y[0] ? -1 : 1)));
+}
+
 export function inheritedEnvDigest(env = {}) {
   const rows = Object.entries(env).filter(([name, value]) => value !== undefined && value !== null && buildEnvName(name)).map(([name, value]) => [String(name).toUpperCase(), normalizeRunTemp(value)]);
   rows.sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0));
@@ -493,7 +498,7 @@ export function explainKeyChange(before, after) {
     inputs: inputs.slice(0, 12), inputsChanged: inputs.length, contentOnly,
     ...(before?.toolVersion !== after?.toolVersion ? { tool: { from: before?.toolVersion ?? null, to: after?.toolVersion ?? null } } : {}),
     ...(envKeys.length ? { env: envKeys.slice(0, 12) } : {}),
-    ...(before?.inherited !== after?.inherited ? { inheritedEnv: true } : {}),
+    ...(before?.inherited !== after?.inherited ? { inheritedEnv: before?.inheritedShape && after?.inheritedShape ? [...new Set([...Object.keys(before.inheritedShape), ...Object.keys(after.inheritedShape)])].filter((k) => before.inheritedShape[k] !== after.inheritedShape[k]).sort().slice(0, 20) : true } : {}),
   };
 }
 /** NN41: the compile scans whose failure can be deterministic: check, clippy and doc rows (single or batched, native or cross). Test runs are never among them. */
@@ -3309,7 +3314,7 @@ export async function runScans(plan, options = {}) {
               const inherited = cache.narrowNodeCheck && /^node-check:/.test(s.id) ? sha256('node-check-child-env-in-digest/1') : inheritedEnvDigest(keyEnv({ ...deps.env, ...s.env }));
               if (digest) {
                 cacheKey = scanCacheKey({ id: s.id, command: s.runOutside ? `${s.command} ;; run ${canonicalJson(s.runOutside)}` : s.command, toolVersion, env: keyEnv(s.env ?? {}), inheritedEnv: inherited, digest });
-                keyParts = { inputs: sha256(String(digest)), env: sha256(canonicalJson({ toolVersion, env: keyEnv(s.env ?? {}), inherited })), raw: { inputs: String(digest), toolVersion, env: keyEnv(s.env ?? {}), inherited } };
+                keyParts = { inputs: sha256(String(digest)), env: sha256(canonicalJson({ toolVersion, env: keyEnv(s.env ?? {}), inherited })), raw: { inputs: String(digest), toolVersion, env: keyEnv(s.env ?? {}), inherited, inheritedShape: inheritedEnvShape(keyEnv({ ...deps.env, ...s.env })) } };
                 // NN41: a deterministic compile failure is keyed like the pass plus the tool version (the client's, its identity digest), the installed broker runtime
                 // identity (options.failureIdentity: version, clientDigest, brokerDigest) and the failure namespace; the digest already binds the unit closure, lock entries and toolchain files.
                 // No identity from the caller means no failure is ever stored or reused.
