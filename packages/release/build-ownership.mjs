@@ -1214,8 +1214,10 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
     // before this ownership was acquired: that broker would hold a claim, lease or member row for anything it got, and no process remains to send it.
     const acquiredMs = Date.parse(owner.acquiredAt);
     const brokerUpThroughout = selfPid === null && broker && Number.isFinite(broker.startedMs) && Number.isFinite(acquiredMs) && broker.startedMs + 2000 < acquiredMs;
+    // The broker holding no work at all (brokerIdle) proves the same for a broker that restarted after this ownership was acquired.
+    const brokerHoldsNothing = selfPid === null && Boolean(broker?.idle);
     const neverReceived = new Set();
-    const everyUnsent = () => handles.length > 0 && handles.every((sub) => settled(sub) || revocation(sub) !== null || brokerUpThroughout);
+    const everyUnsent = () => handles.length > 0 && handles.every((sub) => settled(sub) || revocation(sub) !== null || brokerUpThroughout || brokerHoldsNothing);
     const status = measure("leaseMs", () => lease({ snapshot: owner.snapshot, handle: owner.handle, ...waitOptions }));
     if (status.state === "ACTIVE" || (status.state !== "REAPED" && !everyUnsent())) throw new Error(`broker work may exist under this handle and its lease is ${status.state} (${status.why})`);
     if (status.state === "REAPED") proofs.push(`broker lease for ${owner.handle} is REAPED`);
@@ -1235,10 +1237,10 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
       const listed = Array.isArray(status.members) && status.members.some((m) => m.handle === sub);
       const rev = one.state === "UNKNOWN" && Array.isArray(one.members) && one.members.length === 0 && !listed ? revocation(sub) : null;
       if (rev) { proofs.push(`${sub} is UNKNOWN to the broker and revoked by its signed revocation ${rev.file} (proof ${rev.payload.proofSha256})`); revokedCount += 1; continue; }
-      if (brokerUpThroughout && one.state === "UNKNOWN" && Array.isArray(one.members) && one.members.length === 0 && !listed) { neverReceived.add(sub); continue; }
+      if ((brokerUpThroughout || brokerHoldsNothing) && one.state === "UNKNOWN" && Array.isArray(one.members) && one.members.length === 0 && !listed) { neverReceived.add(sub); continue; }
       throw new Error(`broker work may exist under sub-handle ${sub} and its lease is ${one.state} (${one.why})`);
     }
-    if (neverReceived.size) proofs.push(`${neverReceived.size} sub-handle(s) never reached the broker: UNKNOWN with no member row to broker pid ${broker.pid}, up since ${new Date(broker.startedMs).toISOString()}, before this ownership (${owner.acquiredAt}), and no process of the run remains (${[...neverReceived].slice(0, 3).join(", ")}${neverReceived.size > 3 ? ", ..." : ""})`);
+    if (neverReceived.size) proofs.push(`${neverReceived.size} sub-handle(s) hold no broker work: UNKNOWN with no member row, ${brokerUpThroughout ? `to broker pid ${broker.pid}, up since ${new Date(broker.startedMs).toISOString()}, before this ownership (${owner.acquiredAt})` : `and the broker holds no work at all (READY, recovery complete, nothing in flight, no owner)`}, and no process of the run remains (${[...neverReceived].slice(0, 3).join(", ")}${neverReceived.size > 3 ? ", ..." : ""})`);
     if (handles.length) proofs.push(neverStarted === 0 && revokedCount === 0 && neverReceived.size === 0 ? `broker lease for each of ${handles.length} sub-handle(s) is REAPED` : `every one of ${handles.length} sub-handle(s) is accounted for: ${handles.length - neverStarted - revokedCount - neverReceived.size} REAPED, ${neverStarted} proven never started, ${neverReceived.size} never reached the broker, ${revokedCount} revoked by the broker`);
   }
   return proofs;
@@ -1462,7 +1464,7 @@ export function acquireBuildOwnership({
   // GC-A25 is proposed, not operative: RustRight has not frozen the revocation's authoritative path (its f227 completion key fences legacy reuse; a record
   // only beside this one does not) nor its publication sequence. Until then no production reclaim honours a revocation; only a caller that passes
   // `brokerPins` explicitly (fixtures) exercises the branch. Enable by defaulting to enrolledPinsFor(file, platform) once GC-A25 is operative.
-  const judged = judgeOwner(observed, { file, probe, lease, pins: brokerPins ?? null, broker: brokerIdentity === undefined ? runningBrokerProcess({ platform }) : brokerIdentity });
+  const judged = judgeOwner(observed, { file, probe, lease, pins: brokerPins ?? null, broker: brokerIdentity === undefined ? { ...(runningBrokerProcess({ platform }) ?? {}), idle: brokerIdle({ platform }) } : brokerIdentity });
   hooks.afterJudge?.();
   // A reclaim means the previous release was not clean (a crash, or a release that ended held): nothing unreadable is skipped.
   record.cleanBefore = null;
@@ -1517,6 +1519,23 @@ const dataRootOf = (file) => path.dirname(path.dirname(path.dirname(file)));
  * rightkit#1513: the running RustRight broker's pid and start time (epoch ms), from launchd and ps (macOS); null when it cannot be
  * established. A broker that has run continuously since before an ownership was acquired saw every request of that run.
  */
+/**
+ * rightkit#1513 (Adrian: "It should ideally auto recover"): the broker's own answer that it holds no work at all: phase READY, its restart
+ * recovery complete, nothing in flight, no build owner and no quiet lease (`rustright list`). With that answer a sub-handle the broker calls
+ * UNKNOWN with no member row has no work anywhere, even when the broker restarted after the ownership was acquired. Any other answer is null.
+ */
+export function brokerIdle({ env = process.env, platform = process.platform, spawn = spawnSync, client = managedRuntimeClient(env, platform) } = {}) {
+  if (!client) return null;
+  try {
+    const r = run(spawn, client, ["list"], env);
+    if (r.error || r.status !== 0) return null;
+    const d = JSON.parse(String(r.stdout ?? "").trim());
+    const b = d?.broker;
+    const idle = b?.phase === "READY" && b?.recovery?.complete === true && b?.quietLease === null && Array.isArray(d?.inFlight) && d.inFlight.length === 0 && Array.isArray(d?.owners) && d.owners.length === 0;
+    return idle ? { phase: b.phase, recovered: b.recovery?.recovered ?? null } : null;
+  } catch { return null; }
+}
+
 export function runningBrokerProcess({ platform = process.platform, run = spawnSync, uid = process.getuid?.() } = {}) {
   if (platform === "win32") {
     // The Dell's broker runs as rustright-broker.exe (D:\.rustright\runtime). Exactly one such process, else unknown (fail safe).
