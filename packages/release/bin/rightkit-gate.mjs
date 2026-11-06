@@ -4878,7 +4878,8 @@ export async function main(argv, io = {}) {
         nodeCheckDiagnosticId = plan.scans.filter((scan) => scan.class === "A" && scan.id.startsWith("node-check:")).map((scan) => scan.id).sort()[0];
         const nodeCheckModule = null; // GC-A24: node-check rows use the generic file key (file, ancestor package.json, node identity)
         const nodeCheckDigest = nodeCheckModule ? nodeCheckModule.createNodeCheckCacheDigest({ snapshot: liveBase, tree: digestOf(files), files, gateIdentity: gateCodeIdentity(), gatePackage: o.gatePackage, nodePath: process.execPath, onReject: countNodeCheckRejection, ...(o.env.RIGHTKIT_PREPARATION_DIAGNOSTIC_DIR && nodeCheckDiagnosticId ? { onDiagnostic: (record) => { nodeCheckDiagnosticState = "eligible"; nodeCheckModule.writeNodeCheckDiagnostic(o.env.RIGHTKIT_PREPARATION_DIAGNOSTIC_DIR, record); }, diagnosticScanId: nodeCheckDiagnosticId } : {}) }) : null;
-        cache = { ...store, narrowNodeCheck: false, digest: (scan, context) => {
+        // entryNow: a path's content id in this run's tree, for carryOverProof (a pass stored under an earlier key form is carried when its files are unchanged).
+        cache = { ...store, narrowNodeCheck: false, entryNow: (p) => objectId(p), digest: (scan, context) => {
           if (/^build-helpers(:|$)/.test(scan.id)) return null;
           // This narrow key applies only to the helper's proven plain snapshot node --check.
           // Uncertain rows miss rather than falling back to a less specific key.

@@ -493,6 +493,43 @@ export const FAILURE_KEY_SCHEMA = "deterministic-failure/3";
 export const INTERNAL_RULES_SCHEMA = "rightkit.internal-rules/1";
 /** Why a row's cache key moved, from the stored pass's key parts to this run's: the input entries that differ (paths and the like), the tool
  * version, the environment variables that differ. Bounded lists; evidence for Adrian's approval of a miss. */
+/** A key's raw inputs as {path-like entry: value} (the files list entries become `files.N/<path>`), with the key suffix as "(key suffix)". */
+export function flatKeyInputs(text) { const out = new Map(); const walk = (v, at) => { if (v && typeof v === "object") { if (Array.isArray(v) && v.length === 2 && typeof v[0] === "string" && typeof v[1] !== "object") { out.set(`${at}/${v[0]}`, String(v[1])); return; } for (const [k, x] of Object.entries(v)) walk(x, at ? `${at}.${k}` : k); } else out.set(at, String(v)); }; const s = String(text); const m = /^([\[{][\s\S]*[\]}]):([^:]+)$/.exec(s); try { walk(JSON.parse(m ? m[1] : s), ""); if (m) out.set("(key suffix)", m[2]); } catch { out.set("inputs", s); } return out; }
+const isBlobId = (v) => typeof v === "string" && /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(v);
+/**
+ * Carry-over (Adrian 2026-11-07: a key change must not rerun or ask for approval what did not change). A stored pass keyed under an earlier key FORM is
+ * the same result under the new key when the row's real inputs provably did not change: the same tool and scan environment; inherited variables
+ * that differ only in names the key no longer includes (buildEnvName false now); and every input entry that differs going from a file's content id
+ * (the old form) to a value derived from that file (the new form, e.g. a package.json's "type") while the file's content id NOW is still the old
+ * one. Anything else (an edited file, an entry added or removed, a schema suffix change, a tool or environment change) is not carried.
+ */
+export function carryOverProof(before, after, { entryNow }) {
+  const no = (why) => ({ ok: false, why });
+  if (!before || !after) return no("no stored key parts");
+  if (before.toolVersion !== after.toolVersion) return no("tool changed");
+  if (canonicalJson(before.env ?? {}) !== canonicalJson(after.env ?? {})) return no("scan environment changed");
+  if (before.inherited !== after.inherited) {
+    if (!before.inheritedShape || !after.inheritedShape) return no("inherited environment changed (no shape to compare)");
+    const names = [...new Set([...Object.keys(before.inheritedShape), ...Object.keys(after.inheritedShape)])].filter((k) => before.inheritedShape[k] !== after.inheritedShape[k]);
+    const kept = names.filter((k) => buildEnvName(k));
+    if (kept.length) return no(`inherited environment changed: ${kept.slice(0, 5).join(", ")}`);
+  }
+  const a = flatKeyInputs(before.inputs ?? ""); const b = flatKeyInputs(after.inputs ?? "");
+  const changed = [...new Set([...a.keys(), ...b.keys()])].filter((k) => a.get(k) !== b.get(k));
+  const carried = [];
+  for (const k of changed) {
+    if (!a.has(k) || !b.has(k)) return no(`input entry ${k} added or removed`);
+    if (k === "(key suffix)" || k === "inputs") return no(`${k} changed`);
+    const was = a.get(k); const now = b.get(k);
+    if (!isBlobId(was) || isBlobId(now)) return no(`${k}: not a content id becoming a derived value`);
+    const file = k.slice(k.indexOf("/") + 1);
+    let id = null; try { id = entryNow(file); } catch { id = null; }
+    if (id !== was) return no(`${k}: the file changed since the stored pass`);
+    carried.push(file);
+  }
+  return { ok: true, carried };
+}
+
 export function explainKeyChange(before, after) {
   const flat = (text) => { const out = new Map(); const walk = (v, at) => { if (v && typeof v === "object") { if (Array.isArray(v) && v.length === 2 && typeof v[0] === "string" && typeof v[1] !== "object") { out.set(`${at}/${v[0]}`, String(v[1])); return; } for (const [k, x] of Object.entries(v)) walk(x, at ? `${at}.${k}` : k); } else out.set(at, String(v)); }; const s = String(text); const m = /^([\[{][\s\S]*[\]}]):([^:]+)$/.exec(s); try { walk(JSON.parse(m ? m[1] : s), ""); if (m) out.set("(key suffix)", m[2]); } catch { out.set("inputs", s); } return out; };
   const a = flat(before?.inputs ?? ""); const b = flat(after?.inputs ?? "");
@@ -3338,7 +3375,7 @@ export async function runScans(plan, options = {}) {
                 if (typeof options.failureIdentity === "string" && options.failureIdentity !== "" && isFailureCacheableCompileId(s.id) && !s.runOutside && s.kind !== "test" && !s.publisherRustTest && (s.tool === "rustright" || s.tool === "cargo")) failKey = scanCacheKey({ id: s.id, command: `${s.command} ;; ${FAILURE_KEY_SCHEMA}`, toolVersion: `${toolVersion} ;; broker-runtime ${options.failureIdentity}`, env: s.env ?? {}, inheritedEnv: inherited, digest });
               }
             } catch (error) { cacheKey = null; row.cacheKeyError = String(error?.message ?? error).slice(0, 300); }
-            const hit = cacheKey ? cache.read(cacheKey) : null;
+            let hit = cacheKey ? cache.read(cacheKey) : null;
             // Adrian 2026-11-06: a rerun that misses the cache fails unless the miss is explained. Each stored pass leaves a per-row index
             // (its inputs digest and environment digest); a later miss is "unchanged" (inputs and environment the same: the cache failed),
             // "changed" (an input or the environment moved: a legitimate rerun) or "new" (no stored pass: a new row, or a cold run).
@@ -3349,6 +3386,19 @@ export async function runScans(plan, options = {}) {
               const idx = cache.read(rowIndexKey)?.row ?? null;
               row.cacheMiss = { kind: !idx ? "new" : idx.inputs === inputsDigest && idx.env === envDigest ? "unchanged" : "changed", ...(idx ? { last: idx.at ?? null } : {}), ...(idx?.raw ? { why: explainKeyChange(idx.raw, keyParts.raw) } : {}), now: { inputs: keyParts.raw.inputs.slice(0, 4000), toolVersion: keyParts.raw.toolVersion, inherited: keyParts.raw.inherited } };
               row.rowIndex = { key: rowIndexKey, inputs: inputsDigest, env: envDigest, raw: keyParts.raw };
+              // Carry-over (carryOverProof): a pass stored under an earlier key form, whose real inputs provably did not change, is this row's pass.
+              if (!(hit && hit.key === cacheKey && hit.row?.status === "pass") && idx?.raw && row.cacheMiss.kind === "changed" && typeof cache.entryNow === "function") {
+                const proof = carryOverProof(idx.raw, keyParts.raw, { entryNow: cache.entryNow });
+                if (proof.ok) {
+                  const oldKey = scanCacheKey({ id: s.id, command: s.runOutside ? `${s.command} ;; run ${canonicalJson(s.runOutside)}` : s.command, toolVersion: idx.raw.toolVersion, env: idx.raw.env ?? {}, inheritedEnv: idx.raw.inherited, digest: idx.raw.inputs });
+                  const old = cache.read(oldKey);
+                  if (old && old.key === oldKey && old.row?.status === "pass" && old.row.id === s.id && old.row.command === s.command) {
+                    hit = { ...old, key: cacheKey };
+                    row.carriedOver = { from: oldKey.slice(0, 16), files: proof.carried };
+                    if (!options.cacheLookupOnly) { try { cache.write(cacheKey, old.row); cache.write(rowIndexKey, { id: s.id, inputs: inputsDigest, env: envDigest, raw: keyParts.raw, at: new Date().toISOString() }); } catch { /* the pass stands; the next run carries it again */ } }
+                  }
+                }
+              }
             }
             timing.cacheLookupMs = performance.now() - cacheStarted;
             // A cached test pass counts only with the counts it recorded: without them its coverage is unknown, so it runs again.
