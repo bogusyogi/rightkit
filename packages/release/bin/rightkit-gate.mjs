@@ -838,6 +838,8 @@ export function rustUnitOfScanId(id, known = null) {
   let rest;
   if (["clippy", "check", "check-features", "check-dependent", "doc"].includes(parts[0])) rest = parts.slice(1);
   else if (parts[0] === "test" && (parts[1] === "rust" || parts[1] === "rust-serial")) rest = parts.slice(2);
+  // A publisher row (`publisher:cargo:<crate>:<n>`) reads the same crate closure as that crate's own rows (NN02: an unchanged crate reruns none of them).
+  else if (parts[0] === "publisher" && parts[1] === "cargo" && /^\d+$/.test(parts[parts.length - 1] ?? "")) rest = parts.slice(2, -1);
   else return null;
   if (!(known instanceof Set)) return rest[0] ?? null;
   for (let take = rest.length; take >= 1; take -= 1) { const name = rest.slice(0, take).join(":"); if (known.has(name)) return name; }
@@ -1177,7 +1179,7 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
       // every member it names: each member's own compile key, in member order, plus the batch's own id and command (its member list, target and
       // environment). Any member that falls back to the whole tree makes the batch fall back too. A changed member changes the key, so the
       // batch runs again as a whole (cargo is incremental); no member's result is ever taken from another invocation's.
-      if (/^(?:clippy|check|doc):batch:/.test(String(scan.id)) && Array.isArray(scan.batch?.units) && scan.batch.units.length && scan.batch.units.every((n) => known.has(n))) {
+      if (/^(?:clippy|check|doc|test):batch:/.test(String(scan.id)) && Array.isArray(scan.batch?.units) && scan.batch.units.length && scan.batch.units.every((n) => known.has(n))) {
         const keys = scan.batch.units.map((n) => rustUnitKey(n, scan));
         return keys.includes(undefined) ? whole() : canonicalJson({ kind: "rust-batch", id: scan.id, units: scan.batch.units.map((n, i) => [n, keys[i]]) });
       }
@@ -1194,7 +1196,7 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
   // crate share one computation (B7: per-job prep, one git read of the manifest and one closure walk per scan before).
   // (unitKeyMemo is declared before the returned key function; declared here it was never initialised and every Rust key threw.)
   function rustUnitKey(unit, scan) {
-    const memoKey = `${unit}\0${/^test:rust(?:-serial)?:/.test(scan.id) ? "test" : "compile"}`;
+    const memoKey = `${unit}\0${/^test:(?:rust(?:-serial)?|batch):/.test(scan.id) || scan.publisherPhase === "test" ? "test" : "compile"}`;
     if (unitKeyMemo.has(memoKey)) return unitKeyMemo.get(memoKey);
     const keyed = rustUnitKeyOf(unit, scan);
     unitKeyMemo.set(memoKey, keyed);
@@ -1204,7 +1206,7 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
       const head = byName.get(unit);
       const ws = wsOf(head); const lock = lockFor(ws);
       if (!lock || typeof listFiles !== "function" || typeof readBlob !== "function") return undefined;
-      const testScan = /^test:rust(?:-serial)?:/.test(scan.id);
+      const testScan = /^test:(?:rust(?:-serial)?|batch):/.test(scan.id) || scan.publisherPhase === "test";
       const ownConfig = crateFeatures?.[unit] ?? crateFeatures?.[crateOf(head)] ?? null;
       let testInputs = []; let declaredInputs = false;
       if (testScan) {
@@ -1213,7 +1215,7 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
           if (!Array.isArray(declared) || declared.length === 0 || !declared.every(plainRelative)) return undefined;
           testInputs = [...new Set(declared)].sort(); declaredInputs = true;
         }
-      } else if (!COMPILE_SCAN_PREFIXES.has(String(scan.id).split(":")[0])) return undefined;
+      } else if (!COMPILE_SCAN_PREFIXES.has(String(scan.id).split(":")[0]) && scan.publisherPhase !== "compile") return undefined;
       if (!reachMemos.has(ws)) reachMemos.set(ws, new Map());
       const reached = [...reach(lock, crateOf(head), reachMemos.get(ws))];
       // A crate that is its own workspace (one workspace and lock per crate) holds its sibling crates in its lock as path packages: the

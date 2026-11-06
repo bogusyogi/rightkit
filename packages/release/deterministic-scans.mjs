@@ -3264,7 +3264,8 @@ export async function runScans(plan, options = {}) {
           const carriedScan = isBrokerCarriedScan(s, carriedCtx);
           const viaSnapshotBroker = carriedScan && Boolean(deps.snapshotBroker) && s.root === "cargoLive" && (s.tool === "rustright" || s.tool === "cargo");
           const carriedRead = cargoReadsAreCarried && s.class === SCAN_CLASS.A && (s.tool === "rustright" || s.tool === "cargo");
-          if (cache && !carriedRead && !s.coverageKey) {
+          // NN02: a publisher row (coverageKey) is cached too, with the signed broker receipt and test-run evidence its publisher verify needs.
+          if (cache && !carriedRead) {
             const cacheStarted = performance.now();
             try {
               // A plain node --check row has no guard, carrier, advisory or
@@ -3292,9 +3293,10 @@ export async function runScans(plan, options = {}) {
             // ...and only if it passed at least one test: a cached all-skipped "pass" (written before D17) runs again (rightkit#1236).
             // A Rust test scan (runOutside) is judged the same way: the executables are unknown until the compile, so its key is the source digest and the cached row must carry the summed libtest counts.
             const testEvidence = (s.kind !== "test" && !s.runOutside) || testResultsProblem(hit?.row?.results) === null;
-            if (hit && hit.key === cacheKey && hit.row?.status === "pass" && hit.row.id === s.id && hit.row.command === s.command && testEvidence) {
+            const publisherEvidence = !s.coverageKey || !viaSnapshotBroker || /^[0-9a-f]{64}$/.test(hit?.row?.snapshotEvidence?.receiptSha256 ?? "");
+            if (hit && hit.key === cacheKey && hit.row?.status === "pass" && hit.row.id === s.id && hit.row.command === s.command && testEvidence && publisherEvidence) {
               cacheHits.push(s.id);
-              return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}`, ...(s.kind === "test" ? { results: hit.row.results } : {}) };
+              return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}`, ...(s.kind === "test" || s.runOutside || s.coverageKey ? { results: hit.row.results } : {}), ...(s.coverageKey ? { snapshotEvidence: hit.row.snapshotEvidence ?? null, testRun: hit.row.testRun ?? null } : {}) };
             }
             // NN41: the same inputs, toolchain and broker runtime already failed this compile deterministically: report that failure, marked cached, without running it.
             const failHit = failKey ? cache.read(failKey) : null;
@@ -3664,7 +3666,7 @@ export async function runScans(plan, options = {}) {
           if (status === "fail" && failKey && !signal?.aborted && !ledgerProblem && typeof detail === "string" && detail !== "" && ((code === "BROKER_COMPILE_FAILURE" && row.authenticatedFailure?.failureClass === "compile") || (code === "EXIT" && !carriedScan && !carrier && isDeterministicCompileDiagnostics(`${r?.stdout ?? ""}\n${r?.stderr ?? ""}`)))) {
             cache.write(failKey, { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "fail", code, detail: detail.slice(0, 6000), failureIdentity: options.failureIdentity, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.jsonSummary ? { jsonSummary: row.jsonSummary } : {}) });
           }
-          if (status === "pass" && cacheKey && !signal?.aborted) cache.write(cacheKey, { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "pass", ...(row.results ? { results: row.results } : {}) });
+          if (status === "pass" && cacheKey && !signal?.aborted) cache.write(cacheKey, { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "pass", ...(s.coverageKey ? { snapshotEvidence: row.snapshotEvidence ?? null, testRun: row.testRun ?? null } : {}), ...(row.results ? { results: row.results } : {}) });
         }
       }
     } catch (e) { status = "fail"; code = "SCAN_ERROR"; detail = e.message; }
