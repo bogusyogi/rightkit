@@ -391,6 +391,7 @@ pub fn uuid4() -> String {
     )
 }
 
+#[cfg(windows)]
 #[allow(non_snake_case)]
 #[link(name = "advapi32")]
 unsafe extern "system" {
@@ -400,8 +401,16 @@ unsafe extern "system" {
 
 fn random_bytes<const N: usize>() -> [u8; N] {
     let mut bytes = [0u8; N];
+    #[cfg(windows)]
     // SAFETY: the buffer is `N` writable bytes that live through the call.
     let filled = unsafe { SystemFunction036(bytes.as_mut_ptr(), N as u32) } != 0;
+    #[cfg(not(windows))]
+    let filled = {
+        use std::io::Read;
+        fs::File::open("/dev/urandom")
+            .and_then(|mut file| file.read_exact(&mut bytes))
+            .is_ok()
+    };
     if !filled {
         // No system randomness: mix the clock and a counter through SHA-256 instead.
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
