@@ -6,6 +6,7 @@
 // Shared by local-publish.mjs (unit plans and batch clippy), deterministic-scans.mjs (the gate's class B scans), stage-sidecar.mjs and
 // scripts/ci/gate.mjs. Imports only node:fs and node:path.
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 export const CROSS_TARGETS = Object.freeze({ linux: "x86_64-unknown-linux-gnu", darwin: "aarch64-apple-darwin", win32: "x86_64-pc-windows-gnu" });
@@ -59,11 +60,12 @@ export function scopedCrossTargets(entry = {}, platform = "darwin") {
 
 /**
  * The provisioned zig wrapper directory: RIGHTKIT_CROSS_CC_DIR, else `<managed data root>/zig/cross-cc` (where scripts/ci/provision-zig.mjs
- * writes on a Mac or Dell), else null.
+ * writes on a Mac or Dell; on Linux the account's state directory, `$XDG_STATE_HOME/rightkit`, else `~/.local/state/rightkit`, as
+ * managed-roots.mjs resolves it), else null. Linux had no default (cloud 2026-11-06: zig provisioned at ~/.local/state/rightkit/zig was not found).
  */
-export function crossCcDir({ env = process.env, exists = fs.existsSync, platform = process.platform } = {}) {
+export function crossCcDir({ env = process.env, exists = fs.existsSync, platform = process.platform, home = os.homedir() } = {}) {
   if (env[CROSS_CC_ENV]) return env[CROSS_CC_ENV];
-  const managed = platform === "win32" ? "D:\\.rightkit-managed" : platform === "darwin" ? "/Volumes/D/.rightkit-managed" : null;
+  const managed = platform === "win32" ? "D:\\.rightkit-managed" : platform === "darwin" ? "/Volumes/D/.rightkit-managed" : path.join(env.XDG_STATE_HOME || path.join(home, ".local", "state"), "rightkit");
   const dir = managed ? path.join(managed, "zig", "cross-cc") : null;
   return dir && exists(dir) ? dir : null;
 }

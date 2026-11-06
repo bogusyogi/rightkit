@@ -174,14 +174,16 @@ let classBKeyIdentityMemo = null;
 function missApproval(o, digest, commit) {
   const file = o.env?.RK_GATE_MISS_APPROVAL;
   if (!file) return { ok: false, why: "no approval given" };
-  let e; try { e = JSON.parse(fs.readFileSync(file, "utf8")); } catch (error) { return { ok: false, why: `${file} unreadable (${error.message})` }; }
+  let raw; let e; try { raw = fs.readFileSync(file, "utf8"); e = JSON.parse(raw); } catch (error) { return { ok: false, why: `${file} unreadable (${error.message})` }; }
   if (e?.by !== "adrian") return { ok: false, why: `${file} is not by adrian` };
   if (e?.digest !== digest) return { ok: false, why: `${file} approves report ${String(e?.digest).slice(0, 12)}, this run's report is ${digest.slice(0, 12)}` };
   if (typeof e?.reason !== "string" || !e.reason.trim()) return { ok: false, why: `${file} gives no reason` };
-  // Single use (Adrian 2026-11-06: "why would it be recorded for 2 hours if it's for a single run?"): the run it permits consumes it.
-  const used = path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-gate-misses", "consumed", `${digest}.json`);
+  // Single use (Adrian 2026-11-06: "why would it be recorded for 2 hours if it's for a single run?"): the run it permits consumes THIS approval. The
+  // record is keyed by the approval's own bytes, so a new approval from Adrian for the same report (a second cold run of the same commit, the contract
+  // test's fixture) is its own single use; the same file never permits two runs.
+  const used = path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-gate-misses", "consumed", `${digest}-${createHash("sha256").update(raw).digest("hex").slice(0, 16)}.json`);
   try { fs.mkdirSync(path.dirname(used), { recursive: true }); fs.writeFileSync(used, JSON.stringify({ digest, commit, file, reason: e.reason, at: new Date().toISOString() }), { flag: "wx" }); }
-  catch (error) { return { ok: false, why: error?.code === "EEXIST" ? `report ${digest.slice(0, 12)} was already approved for one run and that run has used it` : `the approval could not be recorded as used (${error.message})` }; }
+  catch (error) { return { ok: false, why: error?.code === "EEXIST" ? `this approval of report ${digest.slice(0, 12)} was already used by one run; a new run needs a new approval from Adrian` : `the approval could not be recorded as used (${error.message})` }; }
   return { ok: true, note: `cache-miss approval ${file} (attested, not authenticated): by adrian for this one run of report ${digest.slice(0, 12)} on ${String(commit).slice(0, 12)}: ${e.reason}` };
 }
 
@@ -2989,7 +2991,7 @@ async function runUnionSnapshot({ o, io, root, git, ds, union, unitListClassA })
   } catch (error) { o.err(`${tag} BLOCKED: cannot prepare unit-list scope: ${error.message}`); return 1; }
   if (!await openSnapshotStage({ o, ds, root, stage: "check", tag })) return 1;
   let check = 1;
-  try { check = await (o.runCheck ?? (() => main(["check", "--commit", ds.commit, "--full-a", "--snapshot", ds.path, "--rule-tier", "compile", ...unitListClassA.dirs.flatMap((dir) => ["--scope", dir])], { ...io, cwd: root, buildOwnership: ds.own, [UNIT_LIST_UNION]: union })))("compile"); }
+  try { check = await (o.runCheck ?? (() => main(["check", "--commit", ds.commit, "--full-a", "--snapshot", ds.path, "--rule-tier", "compile", ...unitListClassA.dirs.flatMap((dir) => ["--scope", dir])], { ...io, cwd: root, buildOwnership: ds.own, [UNIT_LIST_UNION]: union, ...((ds.ledger?.entries ?? []).length === 0 ? { snapshotProvedBefore: ds.path } : {}) })))("compile"); }
   catch (error) { o.err(`${tag} unit-list check: ${error.message}`); }
   if (!(await closeSnapshotStage({ o, ds, root, stage: "check", tag })).ok || check !== 0) return check || 1;
   if (!await openSnapshotStage({ o, ds, root, stage: "compile", tag })) return 1;
@@ -3853,8 +3855,13 @@ export async function main(argv, io = {}) {
         snapshotCheckout = fs.realpathSync.native(path.resolve(text(top0).trim()));
         snapshotDir = sc.snapshotOption(args, { checkout: snapshotCheckout });
         snapshotCommit = sc.commitOf(snapshotCheckout, option("--commit"), o.spawn);
-        sc.verifySnapshotDir({ checkout: snapshotCheckout, dir: snapshotDir, ...snapshotCommit, when: "before the check" });
-        o.out(`rightkit-gate: snapshot ${snapshotDir} is commit ${snapshotCommit.commit} tree ${snapshotCommit.tree} (verified before the check)`);
+        // NN07 (no repeated work): the door's stage opener has just proved this snapshot against the commit with an empty ledger (nothing staged
+        // before the check), which is this same proof; the check does not walk the tree a second time.
+        if (o.snapshotProvedBefore === snapshotDir) o.out(`rightkit-gate: snapshot ${snapshotDir} is commit ${snapshotCommit.commit} tree ${snapshotCommit.tree} (proved by the door before the check)`);
+        else {
+          sc.verifySnapshotDir({ checkout: snapshotCheckout, dir: snapshotDir, ...snapshotCommit, when: "before the check" });
+          o.out(`rightkit-gate: snapshot ${snapshotDir} is commit ${snapshotCommit.commit} tree ${snapshotCommit.tree} (verified before the check)`);
+        }
       } catch (e) { o.err(`rightkit-gate: ${sc.CHECK_ERROR}: ${e.message}`); return 2; }
     }
     if (args.filter((arg) => arg === "--rule-tier").length > 1 || (args.includes("--rule-tier") && option("--rule-tier") === undefined)) {
