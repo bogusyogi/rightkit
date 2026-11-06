@@ -485,7 +485,8 @@ export const CACHEABLE_INTERNAL = new Set(["ghsa-audit", "advisory-exceptions", 
 export const FAILURE_UNCACHEABLE_INTERNAL = new Set(["ghsa-audit", "advisory-exceptions"]);
 /** NN41: the key namespace of a cached failure, so a failure never shares a key with a pass of the same scan. */
 // /2: a broker-authenticated compile failure is stored only when its output shows compiler diagnostics and no tool or environment failure (a build-script tool panic is environmental; Dell pulse-hub, 2026-11-06).
-export const FAILURE_KEY_SCHEMA = "deterministic-failure/2";
+// /3 (2026-11-06): a missing system library (pkg-config, system-deps) is the host, not the inputs; failures stored under /2 may be one.
+export const FAILURE_KEY_SCHEMA = "deterministic-failure/3";
 /** NN23: the version of the internal (file-only) rules; bump when any internal rule's verdict for the same inputs changes. */
 export const INTERNAL_RULES_SCHEMA = "rightkit.internal-rules/1";
 /** Why a row's cache key moved, from the stored pass's key parts to this run's: the input entries that differ (paths and the like), the tool
@@ -511,7 +512,7 @@ export const isFailureCacheableCompileId = (id) => /^(?:check|check-features|che
 export function isDeterministicCompileDiagnostics(text) {
   const t = String(text ?? "");
   const diagnostics = /(?:^|\n)\s*error(?:\[[A-Za-z]\d+\])?: /.test(t) || /could not compile|aborting due to/.test(t);
-  const environmental = /failed to (?:download|fetch|get|update|load source|create|write|open|remove)|network|spurious|timed out|No space left|Too many open files|Permission denied|Resource temporarily|Text file busy|internal compiler error|panicked at|signal: |SIGKILL|SIGSEGV|Killed/i.test(t);
+  const environmental = /failed to (?:download|fetch|get|update|load source|create|write|open|remove)|network|spurious|timed out|No space left|Too many open files|Permission denied|Resource temporarily|Text file busy|internal compiler error|panicked at|pkg-config|PKG_CONFIG|system library|was not found in the pkg-config search path|Package [^\n]* was not found|linker `[^`]*` not found|unable to find library|cannot find -l|signal: |SIGKILL|SIGSEGV|Killed/i.test(t);
   return diagnostics && !environmental;
 }
 export const isLiveScan = (id) => LIVE_SCAN_IDS.some((p) => id === p || String(id).startsWith(`${p}:`));
