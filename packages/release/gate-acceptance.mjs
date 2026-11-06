@@ -646,7 +646,7 @@ export const NN_EXT = Object.freeze([
   { id: "NN27", steps: ["S1"], title: "Never two compiler passes over one crate, target and feature set", evidence: "S1 compile coverage" },
   { id: "NN28", steps: ["S2"], title: "Change detection comes from RightKit's file index and watcher", evidence: "gate log (change-source), spawn ledger" },
   { id: "NN29", steps: ["S16"], title: "Per-run identities never enter a key or a reuse record", evidence: "coverage keys of a run with different identities" },
-  { id: "NN30", steps: ["S0"], always: true, title: "Both hosts pass", evidence: "the other host's contract-test receipt" },
+  { id: "NN30", steps: ["S0"], always: true, title: "The releasing host passes (per host)", evidence: "this host's own run; another host's receipt is never required" },
   { id: "NN31", steps: ["S0"], always: true, title: "No gate is released or installed as trusted without a passing contract test", evidence: "release and install tooling calls --verify-release" },
   { id: "NN32", steps: ["S8"], title: "A killed run's ownership recovers by itself on both hosts", evidence: "S8 kill cases" },
   { id: "NN33", steps: ["S0"], always: true, title: "The contract and the test match", evidence: "docs/GATE-CONTRACT.md NN table" },
@@ -1545,12 +1545,13 @@ export function buildContractReceipt({ host, commit, gate, contractSha256, runne
   return { schema: CONTRACT_RECEIPT_SCHEMA, host, commit, gate, contractSha256, runnerSha256, budgetsSha256, fixtureCommit, startedAt: result.startedAt, endedAt: result.endedAt, verdict: result.verdict, ok: result.ok, nn: Object.fromEntries(result.nonNegotiables.map((n) => [n.id, n.status])), uncheckedClauses: result.clauses.filter((c) => c.status === "unchecked").map((c) => c.id), waivers: result.waivers ?? [] };
 }
 export const validWaiver = (w) => isObject(w) && typeof w.clause === "string" && /^GC-/.test(w.clause) && w.by === "Adrian" && typeof w.words === "string" && w.words.trim().length > 0;
-/** `--verify-release`: both receipts pass, for one gate commit and one sealed gate, with the contract and runner they were judged by. */
-export function verifyReleaseReceipts(a, b, { commit = null, contractSha256 = null, runnerSha256 = null, waivers = [] } = {}) {
+/** `--verify-release`: the receipt of the host that releases or installs passes, for the gate commit and sealed gate, with the contract and runner it was
+ * judged by. Per host (Adrian 2026-11-07: "why would both machines be tied to each other in such a way for anything?"): one host's receipt never
+ * stands for or blocks the other. `b` is optional; when given, each receipt is judged on its own. */
+export function verifyReleaseReceipts(a, b = null, { commit = null, contractSha256 = null, runnerSha256 = null, waivers = [], host = null } = {}) {
   const problems = [];
-  const hosts = [a?.host, b?.host].sort().join("+");
-  if (hosts !== "dell+mac") problems.push(`the two receipts are from ${hosts || "no host"}, expected one from the mac and one from the dell`);
-  for (const [name, r] of [["first", a], ["second", b]]) {
+  if (host && a?.host !== host) problems.push(`the receipt is from ${a?.host ?? "no host"}, this host is ${host}`);
+  for (const [name, r] of (b ? [["first", a], ["second", b]] : [["the", a]])) {
     const w = `${name} receipt (${r?.host})`;
     if (!isObject(r) || r.schema !== CONTRACT_RECEIPT_SCHEMA) { problems.push(`${w}: not a ${CONTRACT_RECEIPT_SCHEMA}`); continue; }
     if (r.ok !== true || !/^PASS /.test(String(r.verdict))) problems.push(`${w}: verdict ${JSON.stringify(r.verdict)} is not a PASS`);
@@ -1561,12 +1562,10 @@ export function verifyReleaseReceipts(a, b, { commit = null, contractSha256 = nu
     const open = (r.uncheckedClauses ?? []).filter((id) => !waivers.some((x) => validWaiver(x) && x.clause === id));
     if (open.length) problems.push(`${w}: ${open.length} operative clause(s) unchecked and not waived by Adrian by name (${open.slice(0, 8).join(", ")}${open.length > 8 ? ", ..." : ""})`);
   }
-  if (isObject(a) && isObject(b)) {
-    for (const k of ["commit", "contractSha256", "runnerSha256", "fixtureCommit"]) if (a[k] !== b[k]) problems.push(`the receipts differ in ${k}: ${a[k]} vs ${b[k]}`);
-    if (a.gate?.sealedSha256 !== b.gate?.sealedSha256) problems.push("the receipts name different sealed gates");
-    if (commit && a.commit !== commit) problems.push(`the receipts are for commit ${a.commit}, the release is ${commit}`);
-    if (contractSha256 && a.contractSha256 !== contractSha256) problems.push("the contract changed after the receipts were written");
-    if (runnerSha256 && a.runnerSha256 !== runnerSha256) problems.push("the runner changed after the receipts were written");
+  for (const r of (b ? [a, b] : [a]).filter(isObject)) {
+    if (commit && r.commit !== commit) problems.push(`the ${r.host} receipt is for commit ${r.commit}, the release is ${commit}`);
+    if (contractSha256 && r.contractSha256 !== contractSha256) problems.push(`the contract changed after the ${r.host} receipt was written`);
+    if (runnerSha256 && r.runnerSha256 !== runnerSha256) problems.push(`the runner changed after the ${r.host} receipt was written`);
   }
   return { ok: problems.length === 0, problems };
 }
@@ -1768,16 +1767,9 @@ const NN_EVAL_EXT = {
   NN27: (ctx) => { const out = []; for (const label of ["S1:compile", "S11:compile"].filter((l) => ctx.runs[l])) { const r = usableRun(ctx, label, RED); out.push(r.fail ?? checkFor(label, assertNoDoublePass(r.run.rows), r.run.coveragePaths)); } return out.length ? out : [bad("S1:compile", ["no compile run"])]; },
   NN28: (ctx) => warmRuns(ctx, RED).map((w) => { if (w.fail) return w.fail; const l = ledgerOf(w.run, w.label); return l.fail ?? checkFor(w.label, assertChangeSource(w.run.log, l.entries), [w.run.logPath, w.run.ledgerPath]); }),
   NN29: (ctx) => { const a = usableRun(ctx, "S2:check2", RED); const b = usableRun(ctx, "S16:ident", RED); if (a.fail || b.fail) return [a.fail ?? b.fail]; return [checkFor("S16:ident", assertIdentityIndependent(a.run.rows, b.run.rows), [...a.run.coveragePaths, ...b.run.coveragePaths])]; },
-  NN30: (ctx) => {
-    const other = ctx.otherReceipt;
-    if (!other) return [bad("other host", [`no passing receipt from the ${ctx.host === "mac" ? "dell" : "mac"} for this commit was given (--other-receipt <file>); a release needs both hosts`])];
-    if (other.error) return [bad("other host", [other.error])];
-    const own = { ...other }; const problems = [];
-    if (other.host === ctx.host) problems.push(`the other receipt is from this host (${ctx.host})`);
-    if (other.ok !== true) problems.push(`the ${other.host} receipt is not a pass (${other.verdict})`);
-    if (other.commit !== ctx.gateCommit) problems.push(`the ${other.host} receipt is for ${other.commit}, this run is for ${ctx.gateCommit}`);
-    return [{ label: `${other.host} receipt`, ok: problems.length === 0, problems, evidence: [ctx.otherReceiptPath ?? "--other-receipt"] , own }];
-  },
+  // Per host (Adrian 2026-11-07: "why would both machines be tied to each other in such a way for anything?"): this run IS the host's evidence;
+  // its verdict is the receipt --verify-release reads on this host. No other host's receipt is asked for.
+  NN30: (ctx) => [{ label: `${ctx.host} (this run)`, ok: true, problems: [], evidence: ["this run's own receipt"] }],
   NN31: (ctx) => {
     const calling = ctx.tooling?.calling ?? [];
     if (calling.length) return [{ label: "tooling", ok: true, problems: [], evidence: calling }];
@@ -3030,20 +3022,22 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
 // ---------------------------------------------------------------------------------------------------------------------------------------------
 // --verify-release and --prove
 // ---------------------------------------------------------------------------------------------------------------------------------------------
-/** `node gate-acceptance.mjs --verify-release <receipt-mac> <receipt-dell> [--commit <gate commit>]`: exit 0 only when both hosts' receipts pass for one gate commit (NN30, NN31, NN35). Release, upload and trusted-gate promotion tooling must call this. */
+/** `node gate-acceptance.mjs --verify-release <receipt> [--host mac|dell|linux] [--commit <gate commit>]`: exit 0 only when THIS host's receipt passes for the
+ * gate commit (NN30, NN31, NN35, per host). Release, upload and trusted-gate install tooling must call this. */
 function verifyReleaseCli(argv) {
   const i = argv.indexOf("--verify-release");
-  const files = [argv[i + 1], argv[i + 2]];
-  if (!files[0] || !files[1] || files.some((f) => f.startsWith("--"))) { console.error("usage: node gate-acceptance.mjs --verify-release <receipt-mac> <receipt-dell> [--commit <sha>]"); return 64; }
+  const files = [argv[i + 1]];
+  if (!files[0] || files[0].startsWith("--")) { console.error("usage: node gate-acceptance.mjs --verify-release <receipt> [--host mac|dell|linux] [--commit <sha>]"); return 64; }
   const read = files.map((f) => readJson(f));
   const problems = read.filter((r) => r.error).map((r) => r.error);
   const j = argv.indexOf("--commit");
   if (!problems.length) {
     const budgets = loadBudgets().budgets;
     const waivers = (Array.isArray(budgets?.waivers) ? budgets.waivers : []).filter(validWaiver);
-    problems.push(...verifyReleaseReceipts(read[0].value, read[1].value, { commit: j < 0 ? null : argv[j + 1], contractSha256: fileSha(CONTRACT_FILE), runnerSha256: fileSha(RUNNER_FILE), waivers }).problems);
+    const h = argv.indexOf("--host");
+    problems.push(...verifyReleaseReceipts(read[0].value, null, { commit: j < 0 ? null : argv[j + 1], contractSha256: fileSha(CONTRACT_FILE), runnerSha256: fileSha(RUNNER_FILE), waivers, host: h < 0 ? null : argv[h + 1] }).problems);
   }
-  console.log(problems.length ? `verify-release REFUSED (${problems.length} problem(s))` : "verify-release OK: both hosts pass for one gate commit");
+  console.log(problems.length ? `verify-release REFUSED (${problems.length} problem(s))` : "verify-release OK: this host's receipt passes for the gate commit");
   for (const p of problems) console.log(`  ${p}`);
   return problems.length ? 1 : 0;
 }
@@ -3214,14 +3208,14 @@ async function proveMain({ fixture, host, out }) {
     const budgets = loadBudgets().budgets;
     const mk = (h, over = {}) => ({ ...buildContractReceipt({ host: h, commit: "a".repeat(40), gate: { kind: "installed", version: inst?.version ?? "0", sealedPath: inst?.entry ?? null, sealedSha256: inst?.sealedSha256 ?? "b".repeat(64) }, contractSha256: fileSha(CONTRACT_FILE), runnerSha256: fileSha(RUNNER_FILE), budgetsSha256: fileSha(BUDGETS_FILE), fixtureCommit: budgets?.fixture?.commit ?? "c".repeat(40), result: cres }), ...over });
     const w = (name, r) => { const f = path.join(root, `receipt-${name}.json`); fs.writeFileSync(f, `${JSON.stringify(r, null, 2)}\n`); return f; };
-    const verify = async (a, b) => runRunner(["--verify-release", a, b], { cwd: here });
-    const real1 = await verify(w("mac-real", mk("mac")), path.join(root, "receipt-dell-missing.json"));
-    note("NN30", "--verify-release with the Dell receipt missing", real1.code === 1 && /ENOENT|cannot read/.test(real1.out), real1.out.split("\n").slice(0, 2).join(" | ").slice(0, 200));
-    const real2 = await verify(w("mac-fail", mk("mac")), w("dell-fail", mk("dell")));
-    note("NN30", "--verify-release with a failing receipt from each host (the real run's NOT PASSED result)", real2.code === 1 && /not a PASS/.test(real2.out), (real2.out.split("\n")[1] ?? "").trim().slice(0, 200));
+    const verify = async (a) => runRunner(["--verify-release", a, "--host", "mac"], { cwd: here });
+    const real1 = await verify(w("dell-for-mac", mk("dell")));
+    note("NN30", "--verify-release on the mac with a receipt from another host", real1.code === 1 && /this host is mac/.test(real1.out), real1.out.split("\n").slice(0, 2).join(" | ").slice(0, 200));
+    const real2 = await verify(w("mac-fail", mk("mac")));
+    note("NN30", "--verify-release with this host's failing receipt (the real run's NOT PASSED result)", real2.code === 1 && /not a PASS/.test(real2.out), (real2.out.split("\n")[1] ?? "").trim().slice(0, 200));
     note("NN31", "--verify-release refuses a release whose receipts are not passes (what release, upload and promotion must call)", real2.code === 1 && /REFUSED/.test(real2.out), (real2.out.split("\n")[0] ?? "").slice(0, 200));
     const allPass = Object.fromEntries(NN_ALL_IDS.map((id) => [id, "pass"]));
-    const unw = await verify(w("mac-unchecked", mk("mac", { ok: true, verdict: "PASS (forced for the proof)", nn: allPass })), w("dell-unchecked", mk("dell", { ok: true, verdict: "PASS (forced for the proof)", nn: allPass })));
+    const unw = await verify(w("mac-unchecked", mk("mac", { ok: true, verdict: "PASS (forced for the proof)", nn: allPass })));
     note("NN35", "--verify-release with passing receipts that leave operative clauses unchecked and unwaived", unw.code === 1 && /unchecked and not waived by Adrian/.test(unw.out), (unw.out.split("\n")[1] ?? "").trim().slice(0, 200));
   }
   // NN36 and NN37: real commits in a scratch clone of rightkit.

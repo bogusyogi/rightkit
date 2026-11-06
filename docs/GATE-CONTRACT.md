@@ -279,8 +279,8 @@ Adrian, 2026-11-03: "i wnat all dev completely gone. all debug too. completely g
 | Id | Property | Fails when |
 |---|---|---|
 | NN19 | The gate under test is the installed sealed gate | the run uses any other gate; a checkout gate run is development evidence and never counts |
-| NN30 | Both hosts pass | a release lacks a passing run from the Mac or the Dell |
-| NN31 | No gate is released or installed as trusted without a passing contract test | publish, upload or trusted-gate install proceeds without a passing receipt for that exact commit from both hosts; a candidate is installed beside the trusted gate, tested, then promoted |
+| NN30 | The releasing host passes (per host; Adrian 2026-11-07: "why would both machines be tied to each other in such a way for anything?") | a release lacks a passing run from the host that performs it; one host's result never stands for or blocks another |
+| NN31 | No gate is released or installed as trusted without a passing contract test | publish, upload or trusted-gate install on a host proceeds without a passing receipt for that exact commit from that host; a candidate is installed beside the trusted gate, tested, then promoted |
 
 **G. Recovery** ("No reboot; this is a system, there has to be a way to fix it without reboot"; "It should ideally auto recover", 2026-11-05)
 
