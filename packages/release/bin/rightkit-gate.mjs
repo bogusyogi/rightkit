@@ -169,7 +169,7 @@ const CLASS_A_KEY_SCHEMA = "rightkit.class-a-key/3";
 /** Whether a class A row's verdict depends on the installed dependencies (GC-A24): it executes repository code, or its tool is pnpm. */
 function classAEnvironmentBound(scan) { return scan.executes === true || scan.tool === "pnpm"; }
 let classBKeyIdentityMemo = null;
-/** Adrian's approval of one cache-miss report: RK_GATE_MISS_APPROVAL names a JSON file {digest, by: "adrian", reason, expires}. Attested, not
+/** Adrian's approval of one cache-miss report for ONE run: RK_GATE_MISS_APPROVAL names a JSON file {digest, by: "adrian", reason}. Attested, not
  * authenticated (an agent could write it) until Adrian picks a trust root; every run prints it. */
 function missApproval(o, digest, commit) {
   const file = o.env?.RK_GATE_MISS_APPROVAL;
@@ -177,9 +177,12 @@ function missApproval(o, digest, commit) {
   let e; try { e = JSON.parse(fs.readFileSync(file, "utf8")); } catch (error) { return { ok: false, why: `${file} unreadable (${error.message})` }; }
   if (e?.by !== "adrian") return { ok: false, why: `${file} is not by adrian` };
   if (e?.digest !== digest) return { ok: false, why: `${file} approves report ${String(e?.digest).slice(0, 12)}, this run's report is ${digest.slice(0, 12)}` };
-  if (!(Date.parse(e?.expires) > Date.now())) return { ok: false, why: `${file} expired (${e?.expires})` };
   if (typeof e?.reason !== "string" || !e.reason.trim()) return { ok: false, why: `${file} gives no reason` };
-  return { ok: true, note: `cache-miss approval ${file} (attested, not authenticated): by adrian for report ${digest.slice(0, 12)} on ${String(commit).slice(0, 12)}, until ${e.expires}: ${e.reason}` };
+  // Single use (Adrian 2026-11-06: "why would it be recorded for 2 hours if it's for a single run?"): the run it permits consumes it.
+  const used = path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-gate-misses", "consumed", `${digest}.json`);
+  try { fs.mkdirSync(path.dirname(used), { recursive: true }); fs.writeFileSync(used, JSON.stringify({ digest, commit, file, reason: e.reason, at: new Date().toISOString() }), { flag: "wx" }); }
+  catch (error) { return { ok: false, why: error?.code === "EEXIST" ? `report ${digest.slice(0, 12)} was already approved for one run and that run has used it` : `the approval could not be recorded as used (${error.message})` }; }
+  return { ok: true, note: `cache-miss approval ${file} (attested, not authenticated): by adrian for this one run of report ${digest.slice(0, 12)} on ${String(commit).slice(0, 12)}: ${e.reason}` };
 }
 
 function classBKeyIdentity() {
@@ -4949,7 +4952,7 @@ export async function main(argv, io = {}) {
         if (tools.length) o.out(`${tag} cache lookup: tool changes ${tools.slice(0, 5).join("; ")}`);
         if (envs.length) o.out(`${tag} cache lookup: environment changes ${envs.slice(0, 10).join(", ")}`);
         if (!approval.ok) {
-          o.err(`${tag} BLOCKED: RK_CACHE_MISS: ${body.misses} row(s) would miss the cache; nothing ran. Bring the report to Adrian; his approval names its digest (RK_GATE_MISS_APPROVAL=<file>: {digest: "${digest}", by: "adrian", reason, expires})${approval.why ? ` (${approval.why})` : ""}`);
+          o.err(`${tag} BLOCKED: RK_CACHE_MISS: ${body.misses} row(s) would miss the cache; nothing ran. Bring the report to Adrian; his approval names its digest and covers one run (RK_GATE_MISS_APPROVAL=<file>: {digest: "${digest}", by: "adrian", reason})${approval.why ? ` (${approval.why})` : ""}`);
           void prior;
           return 1;
         }
