@@ -513,6 +513,20 @@
     },
     "rightkit-dictation-text-pipeline": {
       "allowIgnored": "five live-provider and bench tests (l3_cleanup/tests/more.rs, text_polish/bench.rs) are #[ignore] on purpose: they call real model providers with real API keys and run by hand with --ignored"
+    },
+    "rightkit-dictation-runtime": {
+      "platforms": [
+        "darwin",
+        "win32"
+      ],
+      "platformsReason": "its ASR, keyword-spotting and trigger-audio paths (rightkit-dictation-inference asr, kws, trigger_audio_cut) exist only on macOS and Windows; on Linux it does not compile (Mac release run 2026-11-07: 34 errors on x86_64-unknown-linux-gnu)"
+    },
+    "rightkit-dictation-engine": {
+      "platforms": [
+        "darwin",
+        "win32"
+      ],
+      "platformsReason": "its ASR, keyword-spotting and trigger-audio paths (rightkit-dictation-inference asr, kws, trigger_audio_cut) exist only on macOS and Windows; on Linux it does not compile (Mac release run 2026-11-07: 34 errors on x86_64-unknown-linux-gnu)"
     }
   },
   "scratchCheckoutAllowlist": [

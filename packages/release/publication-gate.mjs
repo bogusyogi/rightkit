@@ -4,7 +4,7 @@
 // passing host run receipts from that same SHA: macOS and Windows, or macOS only for Swift.
 // Format: docs/RIGHTKIT-SHARED-PACKAGES.md, "Publication gate" -> "Evidence file format".
 import crypto from "node:crypto";
-import { crossTargetsFor } from "./cross-targets.mjs";
+import { crossTargetsFor, scopedCrossTargets } from "./cross-targets.mjs";
 import { committedCargoWorkspace } from "./committed-cargo-workspace.mjs";
 import fs from "node:fs";
 import os from "node:os";
@@ -144,7 +144,7 @@ export function provenGateSteps(evidence, expectedWorkspace, gateConfig) {
     if (!gateConfig || run.batch === undefined || batchReceiptProblems(run.batch, evidence, undefined, expectedWorkspace).length) return false;
     try {
       const entry = gateConfig?.rust?.[evidence.name] ?? {};
-      return batchClippyMissingConfigurations(run.batch, evidence, entry.featureSets ?? [[]], crossTargetsFor(entry, run.host.os), expectedWorkspace).length === 0;
+      return batchClippyMissingConfigurations(run.batch, evidence, entry.featureSets ?? [[]], scopedCrossTargets(entry, run.host.os), expectedWorkspace).length === 0;
     } catch { return false; }
   };
   return {

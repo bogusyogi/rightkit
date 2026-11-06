@@ -1821,9 +1821,17 @@ export function planScans({
     else if (clippySeparate instanceof Map && clippySeparate.has(unit)) why = String(clippySeparate.get(unit));
     else if (sidecarBoundCrate({ dir: path.join(contentRoot, rustDir(unit)), exists, readFile }).bound) why = "sidecar-bound";
     if (why) { batchNotes.set(why, (batchNotes.get(why) ?? 0) + 1); return plain; }
-    const key = sha256(canonicalJson({ tool: x.tool, cwd: x.cwd ?? ".", root: x.root, env: x.env, rest, at })).slice(0, 16);
+    // NN42 (LOCKED 2026-11-06): one check/clippy per stage names every --target. The target is not part of the group key: rows that differ only
+    // in their `--target <triple>` and that triple's own variables (CC_/CXX_/AR_/PKG_CONFIG_/RC_<triple>) share a key, and runScans runs crates
+    // with the same set of targets as ONE invocation naming all of them, so Cargo overlaps the triples' graphs under one build lock.
+    const ti = rest.indexOf("--target");
+    const target = ti >= 0 && typeof rest[ti + 1] === "string" ? rest[ti + 1] : null;
+    const tripleKey = target ? target.replace(/-/g, "_") : null;
+    const keyRest = target ? [...rest.slice(0, ti), "--target", "*", ...rest.slice(ti + 2)] : rest;
+    const keyEnv = target ? Object.fromEntries(Object.entries(x.env ?? {}).filter(([k]) => !(k.endsWith(`_${tripleKey}`) || k.toUpperCase().endsWith(`_${tripleKey.toUpperCase()}`)))) : x.env;
+    const key = sha256(canonicalJson({ tool: x.tool, cwd: x.cwd ?? ".", root: x.root, env: keyEnv, rest: keyRest, at })).slice(0, 16);
     groupCount.set(key, (groupCount.get(key) ?? 0) + 1);
-    return { ...plain, batchable: { key, at, crate, unit } };
+    return { ...plain, batchable: { key, at, crate, unit, ...(target ? { target } : {}) } };
   });
   if (groupCount.size) {
     const grouped = [...groupCount.values()].filter((n) => n > 1);
@@ -2878,6 +2886,7 @@ export async function runScans(plan, options = {}) {
   const cargoLedger = options.cargoLedger?.dir ? options.cargoLedger : null;
   const claimedTokens = new Set(); const ledgerSeen = { nonces: new Set(), ids: new Set() };
   // options.cache ={ read(key), write(key, row), digest(scan) => string | null } (null: not cacheable, which is how the live class A checks opt out).
+  const probeScans = new WeakSet(); // scans looked up for runGroup's per-crate cache (answered like a lookup, never run)
   const cache = options.cache && typeof options.cache.read === "function" && typeof options.cache.write === "function" && typeof options.cache.digest === "function" ? options.cache : null;
   const cacheHits = [];
   // The GitHub advisory scan's same-UTC-day answers live beside the pinned RustSec checkout; a run with no cache (the door's live-scans refresh) asks again.
@@ -3065,23 +3074,68 @@ export async function runScans(plan, options = {}) {
     if (options.classBBatching === true) {
       const byKey = new Map();
       bScans.forEach((s, i) => { if (s.batchable && !s.deferred && (laneOf(s) === "compile" || laneOf(s) === "doc" || (options.groupTests !== false && laneOf(s) === "tests" && s.runOutside && /^test:rust/.test(s.id)))) { if (!byKey.has(s.batchable.key)) byKey.set(s.batchable.key, []); byKey.get(s.batchable.key).push(i); } });
-      for (const members of byKey.values()) if (members.length > 1) { const group = { members, promise: null }; for (const i of members) groupOf.set(i, group); }
+      for (const all of byKey.values()) {
+        // NN42: within one key, crates with the same set of targets form one invocation (crates x targets is exactly its members).
+        const targetsOf = new Map();
+        for (const i of all) { const c = bScans[i].batchable.crate; if (!targetsOf.has(c)) targetsOf.set(c, new Set()); targetsOf.get(c).add(bScans[i].batchable.target ?? ""); }
+        const parts = new Map();
+        for (const i of all) { const sig = [...targetsOf.get(bScans[i].batchable.crate)].sort().join("\0"); if (!parts.has(sig)) parts.set(sig, []); parts.get(sig).push(i); }
+        for (const members of parts.values()) if (members.length > 1) { const group = { members, promise: null }; for (const i of members) groupOf.set(i, group); }
+      }
     }
     const batchScanOf = (idx) => {
       const lead = bScans[idx[0]];
       const { batchable: _batchable, ...plain } = lead; void _batchable;
-      const args = [...lead.args.slice(0, lead.batchable.at), ...idx.flatMap((i) => ["-p", bScans[i].batchable.crate]), ...lead.args.slice(lead.batchable.at + 2)];
-      const units = idx.map((i) => bScans[i].batchable.unit);
+      const crates = [...new Set(idx.map((i) => bScans[i].batchable.crate))];
+      const targets = [...new Set(idx.map((i) => bScans[i].batchable.target).filter(Boolean))];
+      let args = [...lead.args.slice(0, lead.batchable.at), ...crates.flatMap((c) => ["-p", c]), ...lead.args.slice(lead.batchable.at + 2)];
+      if (targets.length > 1) { const t = args.indexOf("--target"); if (t >= 0) args = [...args.slice(0, t), ...targets.flatMap((x) => ["--target", x]), ...args.slice(t + 2)]; }
+      if (targets.length > 1) plain.env = Object.assign({}, ...idx.map((i) => bScans[i].env ?? {}));
+      const units = [...new Set(idx.map((i) => bScans[i].batchable.unit))].map((u) => targets.length > 1 ? u : u);
+      const memberKey = idx.map((i) => `${bScans[i].batchable.unit}@${bScans[i].batchable.target ?? ""}`);
       const stage = /^clippy/.test(lead.id) ? "clippy" : /^doc:/.test(lead.id) ? "doc" : /^test:rust/.test(lead.id) ? "test" : "check";
-      const id = `${stage}:batch:${sha256(`${lead.batchable.key}\0${units.join("\0")}`).slice(0, 8)}`;
+      const id = `${stage}:batch:${sha256(`${lead.batchable.key}\0${memberKey.join("\0")}`).slice(0, 8)}`;
       // A doc group asks for cargo's JSON messages (NN40): each crate's verdict is read from them (docVerdicts), never found by bisection.
       if (stage === "doc") { const jargs = [...args, "--message-format=json"]; return { ...plain, id, args: jargs, captureJson: true, command: commandText({ ...plain, env: {}, args: jargs }), batch: { units, members: idx.map((i) => bScans[i].id) } }; }
       // NN17/NN39: a test group compiles once (one broker command naming every crate) and each member's own test executables then run in
       // parallel outside the broker; each member keeps its own verdict (runOne `testGroup`, memberRuns).
       if (stage === "test") return { ...plain, id, args, testGroup: idx.map((i) => ({ id: bScans[i].id, crate: bScans[i].batchable.crate })), command: commandText({ ...plain, env: {}, args }), batch: { units, members: idx.map((i) => bScans[i].id) } };
+      // NN40 for check and clippy too (Mac 2026-11-07: one crate's Linux error failed a 186-crate batch whole): the group asks for cargo's JSON messages,
+      // so each crate's verdict is read from them (docVerdicts: its own errors, or no artifact because a dependency failed), never one verdict for all.
+      if (!args.some((a) => /^--message-format/.test(a))) {
+        const cut = args.indexOf("--"); const jargs = cut < 0 ? [...args, "--message-format=json"] : [...args.slice(0, cut), "--message-format=json", ...args.slice(cut)];
+        return { ...plain, id, args: jargs, captureJson: true, command: commandText({ ...plain, env: {}, args: jargs }), batch: { units, members: idx.map((i) => bScans[i].id) } };
+      }
       return { ...plain, id, args, command: commandText({ ...plain, env: {}, args }), batch: { units, members: idx.map((i) => bScans[i].id) } };
     };
-    const runGroup = async (idx, extraEnv, budget = { remaining: Math.min(2 * idx.length - 1, 31) }) => {
+    // Per-crate cache (Mac 2026-11-07: a batch's pass was stored only under the batch's own key, its exact set of crates, so any change in how
+    // crates were grouped reran every one of them). Before a group runs, each member is looked up on its own key; a member that hits is its own
+    // cached row, only the members that miss run (as a smaller group, or alone), and each member that then passes is stored under its OWN key
+    // and row index, as if it had run alone. In a cache lookup the members are reported one by one, each with its own cause.
+    const runGroup = async (idx, extraEnv, budget, probed = false) => {
+      if (probed || !cache || idx.length < 2 || signal?.aborted) return runGroupBody(idx, extraEnv, budget);
+      const started = Date.now();
+      const looked = await Promise.all(idx.map(async (i) => { const copy = { ...bScans[i] }; probeScans.add(copy); try { return [i, await scanRow(copy, extraEnv)]; } catch (error) { return [i, { ...failedRow(i, error) }]; } }));
+      const missing = [];
+      for (const [i, r] of looked) {
+        if (r.cached === true) { slots[i] = { ...r, id: bScans[i].id, command: bScans[i].command }; done += 1; try { onResult(slots[i], { done, total, seconds: Math.round((Date.now() - started) / 1000) }); } catch { /* reporting never fails a scan */ } }
+        else if (options.cacheLookupOnly) slots[i] = { ...r, id: bScans[i].id, command: bScans[i].command };
+        else missing.push([i, r.memberWrite ?? null]);
+      }
+      if (options.cacheLookupOnly || !missing.length) return;
+      const run = missing.map(([i]) => i);
+      if (run.length === 1) slots[run[0]] = await runOne(bScans[run[0]], extraEnv).catch((error) => failedRow(run[0], error));
+      else await runGroupBody(run, extraEnv, budget);
+      for (const [i, w] of missing) {
+        const own = slots[i];
+        if (!w || own?.status !== "pass" || own.cached || signal?.aborted || run.length === 1) continue; // a single run wrote its own entry
+        try {
+          cache.write(w.key, { id: bScans[i].id, class: bScans[i].class, command: bScans[i].command, tool: bScans[i].tool ?? null, toolVersion: own.toolVersion ?? null, status: "pass", ...(own.results ? { results: own.results } : {}) });
+          if (w.index) cache.write(w.index.key, { id: bScans[i].id, inputs: w.index.inputs, env: w.index.env, raw: w.index.raw, at: new Date().toISOString() });
+        } catch { /* the pass stands; the next run runs the member again */ }
+      }
+    };
+    const runGroupBody = async (idx, extraEnv, budget = { remaining: Math.min(2 * idx.length - 1, 31) }) => {
       if (budget.remaining <= 0 || signal?.aborted) {
         for (const i of idx) slots[i] = { ...failedRow(i, "batch attribution was not run"), code: signal?.aborted ? "CANCELLED" : "BATCH_BUDGET", detail: signal?.aborted ? "batch attribution was cancelled" : "batch attribution budget exhausted" };
         return;
@@ -3105,7 +3159,7 @@ export async function runScans(plan, options = {}) {
       const attributable = (row.code === "EXIT" && !row.snapshotEvidence) || (row.code === "BROKER_COMPILE_FAILURE" && row.authenticatedFailure?.retryable === true && row.authenticatedFailure?.failureClass === "compile" && row.snapshotEvidence?.receiptSha256) || (row.failureCached === true && (row.code === "EXIT" || row.code === "BROKER_COMPILE_FAILURE"));
       // NN40: a failed doc invocation is attributed from its own JSON messages: a crate with an error message fails, a crate with no artifact while
       // another member has one fails, the rest pass. Without usable messages (none, or no artifact for any member) it falls back to bisection below.
-      const verdicts = row.status === "fail" && attributable && bs.captureJson ? docVerdicts(row.jsonSummary, bs.batch.units, idx.map((i) => bScans[i].batchable.crate)) : null;
+      const verdicts = row.status === "fail" && bs.captureJson && row.jsonSummary?.records > 0 && !signal?.aborted ? docVerdicts(row.jsonSummary, idx.map((i) => bScans[i].batchable.unit), idx.map((i) => bScans[i].batchable.crate)) : null;
       if (verdicts && !signal?.aborted) {
         batchFailureNotes.push(`class B batching: grouped doc invocation ${bs.id} (${idx.length} crates: ${bs.batch.units.join(", ")}) failed (EXIT) and was attributed per crate from its --message-format=json output, not bisected; failing: ${verdicts.filter((v) => v.fail).map((v) => v.unit).join(", ") || "none named"}`);
         idx.forEach((i, k) => {
@@ -3114,6 +3168,13 @@ export async function runScans(plan, options = {}) {
           slots[i] = own; done += 1;
           try { onResult(own, { done, total, seconds: Math.round((Date.now() - started) / 1000) }); } catch { /* reporting never fails a scan */ }
         });
+        // NN42: cargo's messages name the crate, not the target. A crate that failed in an invocation naming several targets runs each of its
+        // targets alone, so the verdict names the target that fails and the others pass on their own.
+        const multi = new Set(idx.map((i) => bScans[i].batchable.target).filter(Boolean)).size > 1;
+        if (multi && !signal?.aborted) {
+          const redo = idx.filter((i) => slots[i]?.status === "fail");
+          await Promise.all(redo.map(async (i) => { const alone = await runOne(bScans[i], extraEnv).catch((error) => failedRow(i, error)); slots[i] = { ...alone, batchFailure: { id: bs.id, units: bs.batch.units, command: row.command, detail: "the multi-target invocation failed for this crate; this target ran alone" } }; }));
+        }
         return;
       }
       if (row.status === "fail" && attributable && !signal?.aborted) {
@@ -3428,7 +3489,8 @@ export async function runScans(plan, options = {}) {
             }
           }
           // Adrian 2026-11-06: the cache is looked up for every planned row BEFORE anything runs (options.cacheLookupOnly): a miss is reported with its cause, never run.
-          if (options.cacheLookupOnly) return { ...row, status: "not-run", lookupMiss: Boolean(cacheKey), uncacheable: !cacheKey, detail: cacheKey ? "would miss the cache" : "has no cache key" };
+          // A probe (runGroup's per-crate lookup) answers like a lookup and carries what a later per-crate write needs.
+          if (options.cacheLookupOnly || probeScans.has(s)) return { ...row, status: "not-run", lookupMiss: Boolean(cacheKey), uncacheable: !cacheKey, detail: cacheKey ? "would miss the cache" : "has no cache key", ...(cacheKey && row.rowIndex ? { memberWrite: { key: cacheKey, index: row.rowIndex } } : {}) };
           // Every cargo call the wrapper decides during this scan is filed under this token in the gate's ledger: the scan's own call AND the
           // calls the scan itself makes before it (the cargo-deny row's prefetch and its full metadata), so none is filed "unscoped" and fails the run.
           const ledgerToken = cargoLedger ? scanTokenOf(s.id) : null;

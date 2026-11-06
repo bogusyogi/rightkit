@@ -33,7 +33,7 @@ import { recordPublished, stageSourceVersions, workspaceFeedOptions } from "./ri
 import { prepareSwapHelper, SWAP_HELPER_CARGO_ARGS, SWAP_HELPER_PACKAGE } from "./swap-helper-bundle.mjs";
 import { exclusionsFor, npmContentDigest } from "./pack-digest.mjs";
 import { requireDoorRun, gateStateDir } from "./gate-stages.mjs";
-import { crossCompileEnv, crossTargetsFor, oneOutput } from "./cross-targets.mjs";
+import { crossCompileEnv, crossTargetsFor, oneOutput, scopedCrossTargets } from "./cross-targets.mjs";
 
 export const LOCAL_OPERATOR = "agent (local-build grant)";
 export const LOCAL_HOST_POLICY_REASON = "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run";
@@ -459,7 +459,8 @@ export function localTestPlan({ kind, unit, dir, config, manifest, batch = false
   if (!batch) for (const features of featureSets) steps.push({ command: "cargo", args: ["clippy", "-p", unit, "--message-format=json-render-diagnostics", "--no-deps", "--all-targets", ...features, "--", "-D", "warnings"], test: false });
   // Every crate is checked for the other two OS targets too, every tested feature set, -D warnings (CROSS_TARGETS). Batch mode
   // lints them with the batch's own clippy (batchClippyInvocations crossTargetsOf).
-  if (!batch) for (const target of crossTargetsFor(entry, platform)) {
+  // A crate scoped to some OSes (ci/gate.config.json platforms) is checked only for those OSes' targets, as planScans does (scopedCrossTargets).
+  if (!batch) for (const target of scopedCrossTargets(entry, platform)) {
     for (const features of featureSets) {
       const env = crossCompileEnv(target);
       // GC-A14: a host without the zig C toolchain fails the check, never skips it.
@@ -1098,7 +1099,7 @@ async function runLocalPublishBatch(parsed, deps) {
   commands.push(scanText);
   const featureSetsOf = (unit) => gateConfig?.rust?.[unit]?.featureSets ?? [[]];
   for (const layer of layers) {
-    for (const invocation of batchClippyInvocations(layer, { featureSetsOf, assetGatedOf: isAssetGated, crossTargetsOf: (unit) => crossTargetsFor(gateConfig?.rust?.[unit], platform), workspaceOf: (unit) => workspaces[unit] })) {
+    for (const invocation of batchClippyInvocations(layer, { featureSetsOf, assetGatedOf: isAssetGated, crossTargetsOf: (unit) => scopedCrossTargets(gateConfig?.rust?.[unit], platform), workspaceOf: (unit) => workspaces[unit] })) {
       await batchCheck("clippy", "cargo", invocation.args, invocation.crates, { ...testEnv(deps, invocation.assetGated), ...(invocation.env ?? {}) }, invocation.workspace);
     }
   }
