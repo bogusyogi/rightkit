@@ -4187,7 +4187,15 @@ export async function main(argv, io = {}) {
   // first, in the tier asked for (compile by default), and plans nothing while they are red. --plan and --class-a (which runs them in
   // `check`) are untouched.
   if (snapshot && !classAOnly) {
-    const appRules = await (o.appCheck ?? (await import("../app-check.mjs")).main)(["--repo", root, "--commit", snapshot, "--rule-tier", option("--rule-tier") ?? "compile"], { out: o.out, err: o.err, label: "check", cwd: o.cwd });
+    // NN07/NN02: the same app-rule verdict for the same tree, rules, tier and arguments is reused (ruleVerdictCache, as `check` does): a warm run reran it every time.
+    const appArgv = ["--repo", root, "--commit", snapshot, "--rule-tier", option("--rule-tier") ?? "compile"];
+    const appTree = o.appCheck ? null : git("rev-parse", `${snapshot}^{tree}`);
+    const appCache = appTree && !failed(appTree) ? ruleVerdictCache({ checkout: root, spawn: o.spawn }) : null;
+    const appRulesKey = appCache ? appCache.key({ rule: "app-check-entry", tree: text(appTree).trim(), args: appArgv.slice(2), gate: gatePackageIdentity(o.gatePackage) }) : null;
+    const appRules = appRulesKey && appCache.passed(appRulesKey)
+      ? (o.out(`check: ${String(snapshot).slice(0, 12)} app rules (${option("--rule-tier") ?? "compile"} tier): cached pass (tree ${text(appTree).trim().slice(0, 12)})`), 0)
+      : await (o.appCheck ?? (await import("../app-check.mjs")).main)(appArgv, { out: o.out, err: o.err, label: "check", cwd: o.cwd });
+    if (appRulesKey && appRules === 0) appCache.pass(appRulesKey);
     if (appRules !== 0) { const id = git("rev-parse", String(snapshot)); o.err(`${tag} BLOCKED: the app rules are red for ${(failed(id) ? String(snapshot) : text(id).trim()).slice(0, 12)}; no scan was planned or run`); return appRules; }
   }
 
