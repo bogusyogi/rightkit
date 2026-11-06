@@ -1,7 +1,7 @@
-//! Desktop tweaks for Windows: the global keyboard layer ([`keys`]) with Mac-style editing
+//! Desktop tweaks for Windows: the global keyboard layer (`keys`) with Mac-style editing
 //! shortcuts, screenshot hot keys, a hook hub for other features, and key injection. Windows
 //! only; the crate is empty elsewhere. The application supplies its services through
-//! [`services`].
+//! `services`.
 
 #[cfg(windows)]
 pub mod keys;

@@ -66,8 +66,8 @@ pub enum Event {
 }
 
 /// Holds back the system, for a bounded time, until the app has handled an event the system
-/// will not wait long for. `Ack::default()` makes one for an [`Event`] sent with
-/// [`Power::send`].
+/// will not wait long for. `Ack::default()` makes one for an [`Event`] that
+/// [`Power::events`] returns.
 #[derive(Clone, Default)]
 pub struct Ack(Arc<(Mutex<bool>, Condvar)>);
 
