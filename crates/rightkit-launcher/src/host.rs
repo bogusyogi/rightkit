@@ -89,6 +89,18 @@ pub struct Drive {
     pub external: bool,
 }
 
+impl Drive {
+    /// The used share of the capacity, 0.0 to 1.0; 0.0 for a drive that reports no capacity.
+    #[must_use]
+    pub fn used_fraction(&self) -> f32 {
+        if self.total == 0 {
+            return 0.0;
+        }
+        let used = self.total.saturating_sub(self.free);
+        (used as f64 / self.total as f64) as f32
+    }
+}
+
 /// Services the embedding application provides.
 pub trait Host: Send + Sync + 'static {
     /// The text for `key` in the user's language; the key itself when there is no translation.
