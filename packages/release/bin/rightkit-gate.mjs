@@ -169,6 +169,19 @@ const CLASS_A_KEY_SCHEMA = "rightkit.class-a-key/3";
 /** Whether a class A row's verdict depends on the installed dependencies (GC-A24): it executes repository code, or its tool is pnpm. */
 function classAEnvironmentBound(scan) { return scan.executes === true || scan.tool === "pnpm"; }
 let classBKeyIdentityMemo = null;
+/** Adrian's exception for a cold run: RK_GATE_COLD_EXCEPTION names a JSON file {commit, by: "adrian", reason, expires}. Attested, not authenticated
+ * (any agent could write it) until Adrian picks a trust root; every verdict prints it. */
+function coldException(o, commit) {
+  const file = o.env?.RK_GATE_COLD_EXCEPTION;
+  if (!file) return { ok: false, why: "none given" };
+  let e; try { e = JSON.parse(fs.readFileSync(file, "utf8")); } catch (error) { return { ok: false, why: `${file} unreadable (${error.message})` }; }
+  if (e?.by !== "adrian") return { ok: false, why: `${file} is not by adrian` };
+  if (!commit || e?.commit !== commit) return { ok: false, why: `${file} names commit ${e?.commit}, this run is ${commit}` };
+  if (!(Date.parse(e?.expires) > Date.now())) return { ok: false, why: `${file} expired (${e?.expires})` };
+  if (typeof e?.reason !== "string" || !e.reason.trim()) return { ok: false, why: `${file} gives no reason` };
+  return { ok: true, note: `cold-run exception ${file} (attested, not authenticated): by adrian for ${commit.slice(0, 12)}, until ${e.expires}: ${e.reason}` };
+}
+
 function classBKeyIdentity() {
   if (classBKeyIdentityMemo === null) {
     const h = createHash("sha256");
@@ -4927,13 +4940,29 @@ export async function main(argv, io = {}) {
     const failures = scanFailures(scanResult);
     const deferrals = scanDeferrals(scanResult);
     for (const line of deferrals) failures.push(`DEFERRED ${line}`);
+    // Adrian 2026-11-06: "if cache is not hit on class a or b, it fails"; "only a truly cold one goes through with exception".
+    {
+      const ran = scanResult.scans.filter((r) => (r.status === "pass" || r.status === "fail") && !r.cached && r.cacheMiss);
+      const hits = scanResult.scans.filter((r) => r.cached).length;
+      const unchanged = ran.filter((r) => r.cacheMiss.kind === "unchanged");
+      const cold = ran.length > 0 && hits === 0 && ran.every((r) => r.cacheMiss.kind === "new");
+      const exception = coldException(o, snapshotBCommit?.commit ?? snapshotCommitId?.commit ?? null);
+      if (exception.note) o.out(`${tag} ${exception.note}`);
+      for (const r of unchanged.slice(0, 20)) failures.push(`RK_NN02_CACHE_MISS ${r.id}: missed the cache with the same inputs and environment as its stored pass (${r.cacheMiss.last ?? "earlier"}); the cache failed`);
+      if (unchanged.length > 20) failures.push(`RK_NN02_CACHE_MISS ... and ${unchanged.length - 20} more`);
+      if (cold && !exception.ok) failures.push(`RK_COLD_RUN: ${ran.length} scan(s) ran with no stored result to reuse (a cold run); a cold run needs Adrian's exception (RK_GATE_COLD_EXCEPTION=<file>: {commit, by: "adrian", reason, expires})${exception.why ? `: ${exception.why}` : ""}`);
+      if (unchanged.length && exception.ok) failures.splice(0, failures.length, ...failures.filter((f) => !f.startsWith("RK_NN02_CACHE_MISS")));
+      const miss = ran.reduce((m, r) => ((m[r.cacheMiss.kind] = (m[r.cacheMiss.kind] ?? 0) + 1), m), {});
+      o.out(`${tag} cache: ${hits} hit, ${ran.length} ran (${Object.entries(miss).map(([k, n]) => `${n} ${k}`).join(", ") || "none"}); ${unchanged.length} unexplained miss(es)${cold ? "; cold run" : ""}`);
+    }
     for (const note of scanResult.notes) o.out(`${tag} ${note}`);
     // rightkit#1463: the per-scan coverage report (hit / ran / skipped, with the cache key and the reason), written beside the scan logs; a cache that never hits shows here.
     try {
       const report = buildCoverageReport({ plan, scanResult, keys: scanKeys, keyErrors, cacheDisabled, classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], commit: snapshotBCommit?.commit ?? snapshotCommitId?.commit ?? hostedCommitA?.commit ?? null, startedAt: new Date(directTiming.cargoStart).toISOString(), endedAt: new Date(directTiming.cargoEnd).toISOString() });
       const base = gateRunsRoot({ env: o.env, platform: o.platform });
       const file = (o.writeCoverage ?? writeCoverageReport)({ dir: path.join(base, "rightkit-gate-coverage"), name: `${path.basename(root)}-${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}`, report });
-      o.out(`${tag} coverage report ${file}: ${report.totals.planned} planned scan(s), ${report.totals.hit} hit, ${report.totals.ran} ran, ${report.totals.skipped} skipped; scans took ${seconds(directTiming.cargoEnd - directTiming.cargoStart)}`);
+      const otherPass = (report.scans ?? []).filter((s) => s.coverage === "skipped" && /is not part of this pass/.test(String(s.reason ?? ""))).length;
+      o.out(`${tag} coverage report ${file}: ${report.totals.planned - otherPass} scan(s) in this pass (class ${classAOnly ? "A" : classAEarlier ? "B" : "A+B"}), ${report.totals.hit} hit, ${report.totals.ran} ran, ${report.totals.skipped - otherPass} skipped; ${otherPass} belong to the other pass; scans took ${seconds(directTiming.cargoEnd - directTiming.cargoStart)}`);
     } catch (error) { o.out(`${tag} note: the coverage report could not be written (${error.message})`); }
     // What a full class A verdict binds, green or red: the bytes it judged, unchanged from start to end, and the environment it judged
     // in (gate, tools, installed dependencies, tool caches), unchanged too. A verdict whose binding moved covers nothing: a green one is

@@ -3257,7 +3257,7 @@ export async function runScans(plan, options = {}) {
         else if (missingDep) { status = "fail"; code = "TOOL_MISSING"; detail = `${s.tool} needs ${missingDep}, which is missing or not runnable; without it the scan would pass unchecked, so it fails`; }
         else if (depVersionProblem) { status = "fail"; code = "TOOL_VERSION"; detail = `TOOL_VERSION: ${s.tool} runs ${depVersionProblem}`; }
         else {
-          let cacheKey = null; let failKey = null; let ledgerProblem = false;
+          let cacheKey = null; let failKey = null; let ledgerProblem = false; let keyParts = null;
           // GATE-CONTRACT GC-T14: every unchanged scan result is reused by its full input key, a broker-carried compile included (measured
           // 2026-11-02: HR class B re-ran 92 broker jobs, most with no dirty unit, because carried compiles were never cached). The key covers the
           // crate's closure, its lock entries, the toolchain files, the tool version and the build environment; a miss runs the compile and
@@ -3285,6 +3285,7 @@ export async function runScans(plan, options = {}) {
               const inherited = cache.narrowNodeCheck && /^node-check:/.test(s.id) ? sha256('node-check-child-env-in-digest/1') : inheritedEnvDigest(keyEnv({ ...deps.env, ...s.env }));
               if (digest) {
                 cacheKey = scanCacheKey({ id: s.id, command: s.runOutside ? `${s.command} ;; run ${canonicalJson(s.runOutside)}` : s.command, toolVersion, env: keyEnv(s.env ?? {}), inheritedEnv: inherited, digest });
+                keyParts = { inputs: sha256(String(digest)), env: sha256(canonicalJson({ toolVersion, env: keyEnv(s.env ?? {}), inherited })) };
                 // NN41: a deterministic compile failure is keyed like the pass plus the tool version (the client's, its identity digest), the installed broker runtime
                 // identity (options.failureIdentity: version, clientDigest, brokerDigest) and the failure namespace; the digest already binds the unit closure, lock entries and toolchain files.
                 // No identity from the caller means no failure is ever stored or reused.
@@ -3292,6 +3293,17 @@ export async function runScans(plan, options = {}) {
               }
             } catch (error) { cacheKey = null; row.cacheKeyError = String(error?.message ?? error).slice(0, 300); }
             const hit = cacheKey ? cache.read(cacheKey) : null;
+            // Adrian 2026-11-06: a rerun that misses the cache fails unless the miss is explained. Each stored pass leaves a per-row index
+            // (its inputs digest and environment digest); a later miss is "unchanged" (inputs and environment the same: the cache failed),
+            // "changed" (an input or the environment moved: a legitimate rerun) or "new" (no stored pass: a new row, or a cold run).
+            if (cacheKey && keyParts) {
+              const rowIndexKey = sha256(`rk-row-index/1\0${s.id}`);
+              const inputsDigest = keyParts.inputs;
+              const envDigest = keyParts.env;
+              const idx = cache.read(rowIndexKey)?.row ?? null;
+              row.cacheMiss = { kind: !idx ? "new" : idx.inputs === inputsDigest && idx.env === envDigest ? "unchanged" : "changed", ...(idx ? { last: idx.at ?? null } : {}) };
+              row.rowIndex = { key: rowIndexKey, inputs: inputsDigest, env: envDigest };
+            }
             timing.cacheLookupMs = performance.now() - cacheStarted;
             // A cached test pass counts only with the counts it recorded: without them its coverage is unknown, so it runs again.
             // ...and only if it passed at least one test: a cached all-skipped "pass" (written before D17) runs again (rightkit#1236).
@@ -3670,6 +3682,7 @@ export async function runScans(plan, options = {}) {
           if (status === "fail" && failKey && !signal?.aborted && !ledgerProblem && typeof detail === "string" && detail !== "" && ((code === "BROKER_COMPILE_FAILURE" && row.authenticatedFailure?.failureClass === "compile") || (code === "EXIT" && !carriedScan && !carrier)) && isDeterministicCompileDiagnostics(`${r?.stdout ?? ""}\n${r?.stderr ?? ""}`)) {
             cache.write(failKey, { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "fail", code, detail: detail.slice(0, 6000), failureIdentity: options.failureIdentity, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.jsonSummary ? { jsonSummary: row.jsonSummary } : {}) });
           }
+          if (status === "pass" && cacheKey && !signal?.aborted && row.rowIndex) cache.write(row.rowIndex.key, { id: s.id, inputs: row.rowIndex.inputs, env: row.rowIndex.env, at: new Date().toISOString() });
           if (status === "pass" && cacheKey && !signal?.aborted) cache.write(cacheKey, { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "pass", ...(s.coverageKey ? { snapshotEvidence: row.snapshotEvidence ?? null, testRun: row.testRun ?? null } : {}), ...(row.results ? { results: row.results } : {}) });
         }
       }
