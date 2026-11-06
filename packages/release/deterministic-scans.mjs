@@ -1820,7 +1820,6 @@ export function planScans({
     else if (shardSolo.includes(unit) || shardSolo.includes(crateOf(unit))) why = "ci/shards.json solo";
     else if (clippySeparate instanceof Map && clippySeparate.has(unit)) why = String(clippySeparate.get(unit));
     else if (sidecarBoundCrate({ dir: path.join(contentRoot, rustDir(unit)), exists, readFile }).bound) why = "sidecar-bound";
-    if (why) { batchNotes.set(why, (batchNotes.get(why) ?? 0) + 1); return plain; }
     // NN42 (LOCKED 2026-11-06): one check/clippy per stage names every --target. The target is not part of the group key: rows that differ only
     // in their `--target <triple>` and that triple's own variables (CC_/CXX_/AR_/PKG_CONFIG_/RC_<triple>) share a key, and runScans runs crates
     // with the same set of targets as ONE invocation naming all of them, so Cargo overlaps the triples' graphs under one build lock.
@@ -1829,6 +1828,16 @@ export function planScans({
     const tripleKey = target ? target.replace(/-/g, "_") : null;
     const keyRest = target ? [...rest.slice(0, ti), "--target", "*", ...rest.slice(ti + 2)] : rest;
     const keyEnv = target ? Object.fromEntries(Object.entries(x.env ?? {}).filter(([k]) => !(k.endsWith(`_${tripleKey}`) || k.toUpperCase().endsWith(`_${tripleKey.toUpperCase()}`)))) : x.env;
+    if (why) {
+      batchNotes.set(why, (batchNotes.get(why) ?? 0) + 1);
+      // A row that cannot join other crates (its own features, solo, separate, sidecar-bound) still names every target with its own crate's
+      // other target rows: the key keeps the crate, so only this crate's rows that differ by --target share an invocation (Mac 2026-11-07:
+      // rightkit-tauri-shell's feature sets ran one target at a time, 1.8 rows/min).
+      if (!target || at < 0 || typeof crate !== "string") return plain;
+      const ownKey = sha256(canonicalJson({ tool: x.tool, cwd: x.cwd ?? ".", root: x.root, env: keyEnv, rest: keyRest, at, crate, only: "targets" })).slice(0, 16);
+      groupCount.set(ownKey, (groupCount.get(ownKey) ?? 0) + 1);
+      return { ...plain, batchable: { key: ownKey, at, crate, unit, target } };
+    }
     const key = sha256(canonicalJson({ tool: x.tool, cwd: x.cwd ?? ".", root: x.root, env: keyEnv, rest: keyRest, at })).slice(0, 16);
     groupCount.set(key, (groupCount.get(key) ?? 0) + 1);
     return { ...plain, batchable: { key, at, crate, unit, ...(target ? { target } : {}) } };

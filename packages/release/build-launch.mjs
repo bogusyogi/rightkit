@@ -22,7 +22,7 @@
 // RUSTRIGHT_ADAPTER_ENV.
 // - rustright run <adapter> -- <args> on a snapshot stage -> the same step as the adapter's own program (pnpm, node, swift), so
 //                                  the door's rules apply to it; any other `rustright <command>` there is refused (RK_BUILD_LAUNCH_REFUSED)
-// - pnpm exec <target>          -> only a target in EXEC_TARGETS (tauri, right-release, vite) on a broker host: the broker's pnpm entry
+// - pnpm exec <target>          -> only a target in EXEC_TARGETS (tauri) on a broker host; pnpm exec right-release runs the gate's own right-release: the broker's pnpm entry
 //                                  has no target allowlist, so `pnpm exec node -e ...` would otherwise pass the node flag ban
 // - anything else               -> refused on a managed host: no broker adapter runs it yet, and running it directly would bypass the
 //                                  broker (fail closed; the per-app impact is mapped in rightkit#1241)
@@ -66,8 +66,9 @@ const CARRIED_ADAPTER_RUN = fileURLToPath(new URL("./carried-adapter-run.mjs", i
 const PNPM_VALUE_OPTIONS = new Set(["--dir", "-C", "--filter", "-F", "--prefix", "--config", "--reporter", "--workspace-concurrency"]);
 // Node flags that change no code path; everything else before the script (-e, --eval, -p, --import, -r, --require, --loader, …) refuses.
 const NODE_FLAGS = /^--(?:disable-warning=[A-Za-z0-9_-]+|no-experimental-webstorage|no-warnings|enable-source-maps|max-old-space-size=\d+|stack-size=\d+)$/;
-/** The pnpm `exec` targets the door admits (every app config's `pnpm exec <target>`: tauri and right-release; vite for a web build). */
-export const EXEC_TARGETS = Object.freeze(["tauri", "right-release", "vite"]);
+/** The pnpm `exec` targets the door sends to the broker: exactly the reference registration's `opaqueTargets.exec` (GB-03; rightkit#1528). `pnpm exec right-release`
+ * runs this package's own right-release in the gate's Node (GB-06, below); vite runs through a committed package script (`pnpm run <script>`). */
+export const EXEC_TARGETS = Object.freeze(["tauri"]);
 /** The broker adapter a `rustright run <adapter> -- ...` names, and the program whose door rules judge the step. */
 const ADAPTER_PROGRAMS = Object.freeze({ "rightkit-pnpm": "pnpm", "rightkit-node": "node", "rightkit-swift": "swift", "rightkit-xcodegen": "xcodegen", "rightkit-xcodebuild": "xcodebuild", "rightkit-gradle": "gradle", "rightkit-cmake": "cmake" });
 const name = (program) => path.basename(String(program ?? "").replaceAll("\\", "/")).replace(/\.(exe|cmd|bat)$/i, "").toLowerCase();
@@ -287,6 +288,13 @@ export function buildLaunch(command, args = [], host = {}) {
   }
   if (program === "pnpm") {
     const words = args.map(String);
+    // rightkit#1528: an app config's `pnpm exec right-release <args>` is this package's own right-release (GB-06), run in the gate's Node under the same
+    // NODE_OPTIONS rule; the broker's registration admits only `tauri` as an exec target, so it is never sent there.
+    if (words[0] === "exec" && words[1] === "right-release") {
+      const options = String(env.NODE_OPTIONS ?? "");
+      if (options.trim() !== "" && options !== String(process.env.NODE_OPTIONS ?? "")) refuse(`pnpm ${words.join(" ")}: NODE_OPTIONS is neither empty nor exactly this process's own; on a broker-managed host the door runs right-release only with no added startup code`);
+      return { command: process.execPath, args: [OWN_RIGHT_RELEASE, ...words.slice(2)] };
+    }
     // GB-03: the registration's own parser decides, before anything is sent (the live registration when this host has it, else the reference registration
     // RustRight published): the command token, the leading global flags, `--if-present` after `run`, the opaque tail of `run` and `exec`, the registered exec
     // targets, the pack destination, and in a snapshot-bound call the snapshot subcommands. No leading option is skipped to find the command, and nothing is rewritten.
