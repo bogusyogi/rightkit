@@ -516,18 +516,23 @@ export function carryOverProof(before, after, { entryNow }) {
   }
   const a = flatKeyInputs(before.inputs ?? ""); const b = flatKeyInputs(after.inputs ?? "");
   const changed = [...new Set([...a.keys(), ...b.keys()])].filter((k) => a.get(k) !== b.get(k));
-  const carried = [];
+  const carried = []; const edited = []; const file0 = (k) => k.slice(k.indexOf("/") + 1);
   for (const k of changed) {
     if (!a.has(k) || !b.has(k)) return no(`input entry ${k} added or removed`);
     if (k === "(key suffix)" || k === "inputs") return no(`${k} changed`);
     const was = a.get(k); const now = b.get(k);
+    // A file edit (one content id becoming another): the row's own file changed. It is never carried, but it is recorded so the caller can tell a
+    // row whose only other differences are proven form changes (it must rerun, as any edited row does, with no approval) from an unexplained miss.
+    if (isBlobId(was) && isBlobId(now)) { edited.push(file0(k)); continue; }
     if (!isBlobId(was) || isBlobId(now)) return no(`${k}: not a content id becoming a derived value`);
     const file = k.slice(k.indexOf("/") + 1);
     let id = null; try { id = entryNow(file); } catch { id = null; }
     if (id !== was) return no(`${k}: the file changed since the stored pass`);
     carried.push(file);
   }
-  return { ok: true, carried };
+  // ok: the stored pass IS this row's pass (nothing real changed). edited: the row's own files changed and everything else is a proven form change,
+  // so it reruns like any edited row (contentOnly), with no approval.
+  return edited.length ? { ok: false, why: "own files edited", edited, carried } : { ok: true, carried };
 }
 
 export function explainKeyChange(before, after) {
@@ -3389,6 +3394,7 @@ export async function runScans(plan, options = {}) {
               // Carry-over (carryOverProof): a pass stored under an earlier key form, whose real inputs provably did not change, is this row's pass.
               if (!(hit && hit.key === cacheKey && hit.row?.status === "pass") && idx?.raw && row.cacheMiss.kind === "changed" && typeof cache.entryNow === "function") {
                 const proof = carryOverProof(idx.raw, keyParts.raw, { entryNow: cache.entryNow });
+                if (!proof.ok && proof.edited?.length && row.cacheMiss.why) row.cacheMiss.why = { ...row.cacheMiss.why, contentOnly: true, formChangesProven: proof.carried };
                 if (proof.ok) {
                   const oldKey = scanCacheKey({ id: s.id, command: s.runOutside ? `${s.command} ;; run ${canonicalJson(s.runOutside)}` : s.command, toolVersion: idx.raw.toolVersion, env: idx.raw.env ?? {}, inheritedEnv: idx.raw.inherited, digest: idx.raw.inputs });
                   const old = cache.read(oldKey);
