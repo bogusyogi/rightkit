@@ -1160,6 +1160,8 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
     }
     if (/^node-check:/.test(scan.id)) { const f = scan.id.slice("node-check:".length); return [f, ...ancestorDirsOf(path.posix.dirname(f)).map((d) => inWs(d, "package.json"))]; }
     if (scan.internal === "secret-scan" && Array.isArray(scan.dirs) && typeof listFiles === "function") return [...new Set(scan.dirs.flatMap((d) => listFiles(d)))];
+    // The lock checks read the lock and manifest files of the one directory their id names (NN20: on the whole tree, any commit reran them).
+    { const m = /^(?:gradle-lock|python-lock):(.+)$/.exec(scan.id); if (m && typeof listFiles === "function") return listFiles(m[1]); }
     if (scan.id === "shellcheck") return [...args.filter((x) => /\.(sh|bash)$/.test(x)), ".shellcheckrc"];
     if (scan.id === "actionlint") return [...args.filter((x) => /\.ya?ml$/.test(x)), ".github/actionlint.yaml"];
     return null;
