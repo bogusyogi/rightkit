@@ -28,6 +28,7 @@ use super::windowing::{
 /// N0 for the text-only backends. Whisper returns a bare string with no token
 /// stream, so the piece-level strip cannot reach it — but it must not hand
 /// `uh`/`um` to L1 either. Same word list as the Parakeet path.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn n0(text: String) -> String {
     rightkit_asr::parakeet_core::detok::strip_mandatory_fillers_text(&text)
 }
