@@ -479,6 +479,20 @@ export const FAILURE_UNCACHEABLE_INTERNAL = new Set(["ghsa-audit", "advisory-exc
 export const FAILURE_KEY_SCHEMA = "deterministic-failure/2";
 /** NN23: the version of the internal (file-only) rules; bump when any internal rule's verdict for the same inputs changes. */
 export const INTERNAL_RULES_SCHEMA = "rightkit.internal-rules/1";
+/** Why a row's cache key moved, from the stored pass's key parts to this run's: the input entries that differ (paths and the like), the tool
+ * version, the environment variables that differ. Bounded lists; evidence for Adrian's approval of a miss. */
+export function explainKeyChange(before, after) {
+  const flat = (text) => { const out = new Map(); const walk = (v, at) => { if (v && typeof v === "object") { if (Array.isArray(v) && v.length === 2 && typeof v[0] === "string" && typeof v[1] !== "object") { out.set(`${at}/${v[0]}`, String(v[1])); return; } for (const [k, x] of Object.entries(v)) walk(x, at ? `${at}.${k}` : k); } else out.set(at, String(v)); }; try { walk(JSON.parse(text), ""); } catch { out.set("inputs", String(text)); } return out; };
+  const a = flat(before?.inputs ?? ""); const b = flat(after?.inputs ?? "");
+  const inputs = [...new Set([...a.keys(), ...b.keys()])].filter((k) => a.get(k) !== b.get(k)).sort();
+  const envKeys = [...new Set([...Object.keys(before?.env ?? {}), ...Object.keys(after?.env ?? {})])].filter((k) => (before?.env ?? {})[k] !== (after?.env ?? {})[k]).sort();
+  return {
+    inputs: inputs.slice(0, 12), inputsChanged: inputs.length,
+    ...(before?.toolVersion !== after?.toolVersion ? { tool: { from: before?.toolVersion ?? null, to: after?.toolVersion ?? null } } : {}),
+    ...(envKeys.length ? { env: envKeys.slice(0, 12) } : {}),
+    ...(before?.inherited !== after?.inherited ? { inheritedEnv: true } : {}),
+  };
+}
 /** NN41: the compile scans whose failure can be deterministic: check, clippy and doc rows (single or batched, native or cross). Test runs are never among them. */
 export const isFailureCacheableCompileId = (id) => /^(?:check|check-features|check-dependent|clippy|doc)(?::|$)/.test(String(id));
 /** NN41: a plain (non-broker) compile exit whose output carries compiler error diagnostics and no sign of the environment failing (network, disk, signal, internal compiler error). */
@@ -3219,6 +3233,7 @@ export async function runScans(plan, options = {}) {
           return { ...row, status: "fail", cached: true, failureCached: true, detail: failHit.row.detail };
         }
       }
+      if (options.cacheLookupOnly && s.internal) return { ...row, status: "not-run", lookupMiss: Boolean(internalKey), detail: internalKey ? "would miss the cache" : "has no cache key" };
       if (s.internal) {
         const out = await INTERNAL[s.internal](s, ctx);
         if (out && out.missing) { status = "fail"; code = "TOOL_MISSING"; detail = out.missing; }
@@ -3291,7 +3306,7 @@ export async function runScans(plan, options = {}) {
               const inherited = cache.narrowNodeCheck && /^node-check:/.test(s.id) ? sha256('node-check-child-env-in-digest/1') : inheritedEnvDigest(keyEnv({ ...deps.env, ...s.env }));
               if (digest) {
                 cacheKey = scanCacheKey({ id: s.id, command: s.runOutside ? `${s.command} ;; run ${canonicalJson(s.runOutside)}` : s.command, toolVersion, env: keyEnv(s.env ?? {}), inheritedEnv: inherited, digest });
-                keyParts = { inputs: sha256(String(digest)), env: sha256(canonicalJson({ toolVersion, env: keyEnv(s.env ?? {}), inherited })) };
+                keyParts = { inputs: sha256(String(digest)), env: sha256(canonicalJson({ toolVersion, env: keyEnv(s.env ?? {}), inherited })), raw: { inputs: String(digest), toolVersion, env: keyEnv(s.env ?? {}), inherited } };
                 // NN41: a deterministic compile failure is keyed like the pass plus the tool version (the client's, its identity digest), the installed broker runtime
                 // identity (options.failureIdentity: version, clientDigest, brokerDigest) and the failure namespace; the digest already binds the unit closure, lock entries and toolchain files.
                 // No identity from the caller means no failure is ever stored or reused.
@@ -3307,8 +3322,8 @@ export async function runScans(plan, options = {}) {
               const inputsDigest = keyParts.inputs;
               const envDigest = keyParts.env;
               const idx = cache.read(rowIndexKey)?.row ?? null;
-              row.cacheMiss = { kind: !idx ? "new" : idx.inputs === inputsDigest && idx.env === envDigest ? "unchanged" : "changed", ...(idx ? { last: idx.at ?? null } : {}) };
-              row.rowIndex = { key: rowIndexKey, inputs: inputsDigest, env: envDigest };
+              row.cacheMiss = { kind: !idx ? "new" : idx.inputs === inputsDigest && idx.env === envDigest ? "unchanged" : "changed", ...(idx ? { last: idx.at ?? null } : {}), ...(idx?.raw ? { why: explainKeyChange(idx.raw, keyParts.raw) } : {}) };
+              row.rowIndex = { key: rowIndexKey, inputs: inputsDigest, env: envDigest, raw: keyParts.raw };
             }
             timing.cacheLookupMs = performance.now() - cacheStarted;
             // A cached test pass counts only with the counts it recorded: without them its coverage is unknown, so it runs again.
@@ -3327,6 +3342,8 @@ export async function runScans(plan, options = {}) {
               return { ...row, status: "fail", code: failHit.row.code, cached: true, failureCached: true, detail: `cached failure ${String(failHit.at ?? "").slice(0, 10) || "earlier"} (same inputs, toolchain and broker runtime): ${failHit.row.detail}`, ...(failHit.row.authenticatedFailure ? { authenticatedFailure: failHit.row.authenticatedFailure } : {}), ...(failHit.row.jsonSummary ? { jsonSummary: failHit.row.jsonSummary } : {}) };
             }
           }
+          // Adrian 2026-11-06: the cache is looked up for every planned row BEFORE anything runs (options.cacheLookupOnly): a miss is reported with its cause, never run.
+          if (options.cacheLookupOnly) return { ...row, status: "not-run", lookupMiss: Boolean(cacheKey), uncacheable: !cacheKey, detail: cacheKey ? "would miss the cache" : "has no cache key" };
           // Every cargo call the wrapper decides during this scan is filed under this token in the gate's ledger: the scan's own call AND the
           // calls the scan itself makes before it (the cargo-deny row's prefetch and its full metadata), so none is filed "unscoped" and fails the run.
           const ledgerToken = cargoLedger ? scanTokenOf(s.id) : null;
@@ -3688,7 +3705,7 @@ export async function runScans(plan, options = {}) {
           if (status === "fail" && failKey && !signal?.aborted && !ledgerProblem && typeof detail === "string" && detail !== "" && ((code === "BROKER_COMPILE_FAILURE" && row.authenticatedFailure?.failureClass === "compile") || (code === "EXIT" && !carriedScan && !carrier)) && isDeterministicCompileDiagnostics(`${r?.stdout ?? ""}\n${r?.stderr ?? ""}`)) {
             cache.write(failKey, { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "fail", code, detail: detail.slice(0, 6000), failureIdentity: options.failureIdentity, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.jsonSummary ? { jsonSummary: row.jsonSummary } : {}) });
           }
-          if (status === "pass" && cacheKey && !signal?.aborted && row.rowIndex) cache.write(row.rowIndex.key, { id: s.id, inputs: row.rowIndex.inputs, env: row.rowIndex.env, at: new Date().toISOString() });
+          if (status === "pass" && cacheKey && !signal?.aborted && row.rowIndex) cache.write(row.rowIndex.key, { id: s.id, inputs: row.rowIndex.inputs, env: row.rowIndex.env, raw: row.rowIndex.raw, at: new Date().toISOString() });
           if (status === "pass" && cacheKey && !signal?.aborted) cache.write(cacheKey, { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "pass", ...(s.coverageKey ? { snapshotEvidence: row.snapshotEvidence ?? null, testRun: row.testRun ?? null } : {}), ...(row.results ? { results: row.results } : {}) });
         }
       }

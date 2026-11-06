@@ -169,17 +169,17 @@ const CLASS_A_KEY_SCHEMA = "rightkit.class-a-key/3";
 /** Whether a class A row's verdict depends on the installed dependencies (GC-A24): it executes repository code, or its tool is pnpm. */
 function classAEnvironmentBound(scan) { return scan.executes === true || scan.tool === "pnpm"; }
 let classBKeyIdentityMemo = null;
-/** Adrian's exception for a cold run: RK_GATE_COLD_EXCEPTION names a JSON file {commit, by: "adrian", reason, expires}. Attested, not authenticated
- * (any agent could write it) until Adrian picks a trust root; every verdict prints it. */
-function coldException(o, commit) {
-  const file = o.env?.RK_GATE_COLD_EXCEPTION;
-  if (!file) return { ok: false, why: "none given" };
+/** Adrian's approval of one cache-miss report: RK_GATE_MISS_APPROVAL names a JSON file {digest, by: "adrian", reason, expires}. Attested, not
+ * authenticated (an agent could write it) until Adrian picks a trust root; every run prints it. */
+function missApproval(o, digest, commit) {
+  const file = o.env?.RK_GATE_MISS_APPROVAL;
+  if (!file) return { ok: false, why: "no approval given" };
   let e; try { e = JSON.parse(fs.readFileSync(file, "utf8")); } catch (error) { return { ok: false, why: `${file} unreadable (${error.message})` }; }
   if (e?.by !== "adrian") return { ok: false, why: `${file} is not by adrian` };
-  if (!commit || e?.commit !== commit) return { ok: false, why: `${file} names commit ${e?.commit}, this run is ${commit}` };
+  if (e?.digest !== digest) return { ok: false, why: `${file} approves report ${String(e?.digest).slice(0, 12)}, this run's report is ${digest.slice(0, 12)}` };
   if (!(Date.parse(e?.expires) > Date.now())) return { ok: false, why: `${file} expired (${e?.expires})` };
   if (typeof e?.reason !== "string" || !e.reason.trim()) return { ok: false, why: `${file} gives no reason` };
-  return { ok: true, note: `cold-run exception ${file} (attested, not authenticated): by adrian for ${commit.slice(0, 12)}, until ${e.expires}: ${e.reason}` };
+  return { ok: true, note: `cache-miss approval ${file} (attested, not authenticated): by adrian for report ${digest.slice(0, 12)} on ${String(commit).slice(0, 12)}, until ${e.expires}: ${e.reason}` };
 }
 
 function classBKeyIdentity() {
@@ -4878,7 +4878,7 @@ export async function main(argv, io = {}) {
     const census = snapshotB && !snapshotBroker ? createFreshnessCensus({ targetDirs }) : null;
     directTiming.cargoStart = Date.now();
     census?.start();
-    const scanResult = await (o.runScans ?? runScans)(plan, {
+    const scanOptions = {
       // The commit's own files (rightkit#1393): a snapshot is not a git toplevel, so the secret scan needs this list to judge tracked files only and never what a stage wrote there.
       ...(snapshot ? { trackedFiles: files } : {}),
       classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], ...(classAEarlier ? { classAEarlier: true } : {}), jobs, testJobs, classBJobs, classBBatching: !o[PRIVATE_SCOPED_COMPILE] && o.env.RK_GATE_CLASS_B_BATCH !== "0", groupTests: o.env.RK_GATE_GROUP_TESTS !== "0", classBPipeline: Math.max(1, Number(o.env.RK_GATE_CLASS_B_PIPELINE ?? 2) || 2), ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
@@ -4923,7 +4923,40 @@ export async function main(argv, io = {}) {
       })(),
       ...(unionScheduler ? { scheduleClassB: unionScheduler } : {}),
       onResult: (row, p) => o.out(`${tag} [${p.done}/${p.total}] ${(row.cached ? (row.status === "pass" ? "cached" : "cached-fail") : row.status).padEnd(11)} ${row.id} (${p.seconds}s)${row.batchedWith ? ` [batch of ${row.batchedWith.units.length}]` : ""}${row.status === "fail" ? ` :: ${String(row.detail ?? "").slice(0, 300)}` : row.advice ? ` :: ${String(row.advice).slice(0, 300)}` : ""}`),
-    });
+    };
+    // Adrian 2026-11-06: "every time should be warm". Before anything runs, every planned row is looked up in the cache. If any would miss, the
+    // run stops with a miss report (each row, its cause and the evidence: changed inputs, tool or environment, no stored result, or nothing
+    // changed at all). Only Adrian's approval naming that report's digest lets those rows run (RK_GATE_MISS_APPROVAL=<file>).
+    if (!o.runScans && cache) {
+      const lookup = await runScans(plan, { ...scanOptions, cacheLookupOnly: true, onResult: () => {} });
+      const misses = lookup.scans.filter((r) => r.lookupMiss);
+      if (misses.length) {
+        const prior = new Map(lookup.scans.map((r) => [r.id, r]));
+        const kindOf = (r) => r.cacheMiss?.kind ?? "new";
+        const entries = misses.map((r) => ({ id: r.id, cause: kindOf(r) === "unchanged" ? "nothing changed: the cache failed" : kindOf(r) === "new" ? "no stored result (a new row, or the cache is empty)" : "inputs or environment changed", ...(r.cacheMiss?.why ? { evidence: r.cacheMiss.why } : {}), ...(r.cacheMiss?.last ? { lastPass: r.cacheMiss.last } : {}) })).sort((a, b) => a.id.localeCompare(b.id));
+        const byCause = entries.reduce((m, e) => ((m[e.cause] = (m[e.cause] ?? 0) + 1), m), {});
+        const changedInputs = {}; for (const e of entries) for (const k of e.evidence?.inputs ?? []) changedInputs[k] = (changedInputs[k] ?? 0) + 1;
+        const tools = [...new Set(entries.filter((e) => e.evidence?.tool).map((e) => `${e.evidence.tool.from} -> ${e.evidence.tool.to}`))];
+        const envs = [...new Set(entries.flatMap((e) => e.evidence?.env ?? []))];
+        const commitOfRun = snapshotBCommit?.commit ?? snapshotCommitId?.commit ?? null;
+        const body = { schema: "rightkit.gate-miss-report/1", commit: commitOfRun, planned: lookup.scans.length, hit: lookup.scans.filter((r) => r.cached).length, uncacheable: lookup.scans.filter((r) => r.uncacheable).length, misses: entries.length, byCause, topChangedInputs: Object.entries(changedInputs).sort((a, b) => b[1] - a[1]).slice(0, 20), tools, env: envs, rows: entries };
+        const digest = createHash("sha256").update(JSON.stringify(body)).digest("hex");
+        const reportFile = path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-gate-misses", `${path.basename(root)}-${new Date().toISOString().replace(/[:.]/g, "-")}-${digest.slice(0, 12)}.json`);
+        try { fs.mkdirSync(path.dirname(reportFile), { recursive: true }); fs.writeFileSync(reportFile, `${JSON.stringify({ ...body, digest }, null, 2)}\n`); } catch { /* the summary below still names everything */ }
+        const approval = missApproval(o, digest, commitOfRun);
+        o.out(`${tag} cache lookup: ${body.planned} planned, ${body.hit} hit, ${body.misses} would miss (${Object.entries(byCause).map(([c, n]) => `${n} ${c}`).join("; ")}), ${body.uncacheable} uncacheable by design; report ${reportFile} (digest ${digest})`);
+        if (body.topChangedInputs.length) o.out(`${tag} cache lookup: most-changed inputs ${body.topChangedInputs.slice(0, 8).map(([k, n]) => `${k} (${n})`).join(", ")}`);
+        if (tools.length) o.out(`${tag} cache lookup: tool changes ${tools.slice(0, 5).join("; ")}`);
+        if (envs.length) o.out(`${tag} cache lookup: environment changes ${envs.slice(0, 10).join(", ")}`);
+        if (!approval.ok) {
+          o.err(`${tag} BLOCKED: RK_CACHE_MISS: ${body.misses} row(s) would miss the cache; nothing ran. Bring the report to Adrian; his approval names its digest (RK_GATE_MISS_APPROVAL=<file>: {digest: "${digest}", by: "adrian", reason, expires})${approval.why ? ` (${approval.why})` : ""}`);
+          void prior;
+          return 1;
+        }
+        o.out(`${tag} ${approval.note}`);
+      } else o.out(`${tag} cache lookup: ${lookup.scans.length} planned, ${lookup.scans.filter((r) => r.cached).length} hit, 0 would miss; ${lookup.scans.filter((r) => r.uncacheable).length} uncacheable by design`);
+    }
+    const scanResult = await (o.runScans ?? runScans)(plan, scanOptions);
     if (nodeCheckRejects.size) o.out(`${tag} node-check cache misses: ${[...nodeCheckRejects].sort(([a], [b]) => a.localeCompare(b)).map(([reason, count]) => `${reason}=${count}`).join(", ")}`);
     if (snapFullA && o.env.RIGHTKIT_PREPARATION_DIAGNOSTIC_DIR && nodeCheckDiagnosticId) o.out(`${tag} node-check diagnostic row: ${nodeCheckDiagnosticState}`);
     if (unionContext) {
@@ -4948,21 +4981,6 @@ export async function main(argv, io = {}) {
     const failures = scanFailures(scanResult);
     const deferrals = scanDeferrals(scanResult);
     for (const line of deferrals) failures.push(`DEFERRED ${line}`);
-    // Adrian 2026-11-06: "if cache is not hit on class a or b, it fails"; "only a truly cold one goes through with exception".
-    {
-      const ran = scanResult.scans.filter((r) => (r.status === "pass" || r.status === "fail") && !r.cached && r.cacheMiss);
-      const hits = scanResult.scans.filter((r) => r.cached).length;
-      const unchanged = ran.filter((r) => r.cacheMiss.kind === "unchanged");
-      const cold = ran.length > 0 && hits === 0 && ran.every((r) => r.cacheMiss.kind === "new");
-      const exception = coldException(o, snapshotBCommit?.commit ?? snapshotCommitId?.commit ?? null);
-      if (exception.note) o.out(`${tag} ${exception.note}`);
-      for (const r of unchanged.slice(0, 20)) failures.push(`RK_NN02_CACHE_MISS ${r.id}: missed the cache with the same inputs and environment as its stored pass (${r.cacheMiss.last ?? "earlier"}); the cache failed`);
-      if (unchanged.length > 20) failures.push(`RK_NN02_CACHE_MISS ... and ${unchanged.length - 20} more`);
-      if (cold && !exception.ok) failures.push(`RK_COLD_RUN: ${ran.length} scan(s) ran with no stored result to reuse (a cold run); a cold run needs Adrian's exception (RK_GATE_COLD_EXCEPTION=<file>: {commit, by: "adrian", reason, expires})${exception.why ? `: ${exception.why}` : ""}`);
-      if (unchanged.length && exception.ok) failures.splice(0, failures.length, ...failures.filter((f) => !f.startsWith("RK_NN02_CACHE_MISS")));
-      const miss = ran.reduce((m, r) => ((m[r.cacheMiss.kind] = (m[r.cacheMiss.kind] ?? 0) + 1), m), {});
-      o.out(`${tag} cache: ${hits} hit, ${ran.length} ran (${Object.entries(miss).map(([k, n]) => `${n} ${k}`).join(", ") || "none"}); ${unchanged.length} unexplained miss(es)${cold ? "; cold run" : ""}`);
-    }
     for (const note of scanResult.notes) o.out(`${tag} ${note}`);
     // rightkit#1463: the per-scan coverage report (hit / ran / skipped, with the cache key and the reason), written beside the scan logs; a cache that never hits shows here.
     try {
