@@ -164,7 +164,8 @@ function gatePackageIdentity(gatePackage = path.resolve(path.dirname(fileURLToPa
   return gatePackageMemo.get(gatePackage);
 }
 // GC-A24: the class A key schema a standalone-tool row carries in place of the environment digest; bumped when what a class A key covers changes.
-const CLASS_A_KEY_SCHEMA = "rightkit.class-a-key/2";
+// Bump when any class A rule's verdict for the same inputs changes (NN23): the class A key names the rules' version, never every gate file's bytes.
+const CLASS_A_KEY_SCHEMA = "rightkit.class-a-key/3";
 /** Whether a class A row's verdict depends on the installed dependencies (GC-A24): it executes repository code, or its tool is pnpm. */
 function classAEnvironmentBound(scan) { return scan.executes === true || scan.tool === "pnpm"; }
 let classBKeyIdentityMemo = null;
@@ -476,7 +477,11 @@ export function classAEnvironmentDigest({ root, files, spawn = defaultSpawn, inc
   // `gatePackage` defaults to this very package; only a test that must not be disturbed by other writers of the live package injects another.
   const gatePkg = gatePackage;
   const walkGate = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.name === "node_modules" || e.name.startsWith(".") ? [] : e.isDirectory() ? walkGate(path.join(dir, e.name)) : [path.join(dir, e.name)]));
-  const gateFiles = walkGate(gatePkg).sort().map((f) => `${path.relative(gatePkg, f)}:${fileDigest(f)}`);
+  // NN23 (approved by Adrian 2026-11-06 with its one cold run): the gate's CODE enters the key as CLASS_A_KEY_SCHEMA, bumped by hand when a
+  // class A rule's verdict changes, not as the bytes of every file (any release re-keyed every row). Data the scans read (advisory database,
+  // rule tables, configs) still enters by content; release-only files (changelog, docs, version manifests, the package's own tests) do not.
+  const releaseOnly = (rel) => /\.(?:mjs|cjs|js|ts)$/.test(rel) || /\.md$/i.test(rel) || /(^|\/)(?:package\.json|rightkit-versions\.json)$/.test(rel) || /\.test\.(?:mjs|js)$/.test(rel);
+  const gateFiles = [`class-a-key-schema:${CLASS_A_KEY_SCHEMA}`, ...walkGate(gatePkg).sort().map((f) => path.relative(gatePkg, f)).filter((rel) => !releaseOnly(rel)).map((rel) => `${rel}:${fileDigest(path.join(gatePkg, rel))}`)];
   // Bounded: a pnpm that switches itself to the repository's packageManager version on first use, or waits on the network,
   // must fail the probe (and its process tree) within PNPM_PROBE_TIMEOUT_MS, never hang an admission.
   const pnpmVersion = (() => {
