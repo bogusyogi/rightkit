@@ -126,7 +126,7 @@
         "reason": "ci/asset-gated.json: FFmpeg binary for the media cross-check (tests/media_ffmpeg.rs); its skip-handling tests also print SKIP markers by design; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it. The crate refuses Linux (util::platform: macOS and Windows only), so its unit & integration tests are cfg-gated to macOS and Windows & the Linux direct-origin lane runs none (allow_no_test); the macOS and Windows verify jobs run every test."
       },
       "@rightkit/release": {
-        "version": "0.6.50",
+        "version": "0.6.51",
         "allow": [
           "allow_no_test"
         ],

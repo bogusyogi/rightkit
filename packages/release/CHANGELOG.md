@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.6.51
+
+- A run fails on a cache miss whose inputs and environment are unchanged since the row's stored pass (RK_NN02_CACHE_MISS); a cold run needs Adrian's exception (RK_COLD_RUN, RK_GATE_COLD_EXCEPTION). Each pass's coverage line counts only its own rows.
+- Publisher rows are cached per crate with their signed broker receipt and test-run evidence, keyed without the run's own identities; a passing class B compile proves the matching publisher check/clippy (NN02, NN27, NN29).
+- Unit-list test rows compile as one grouped broker command and each member's tests run in parallel; quiet suites run alone (NN17, NN39).
+- The class A and internal-check keys name the rules' schema, not every gate file's bytes (NN23).
+- The entry app-rule check reuses a passing verdict for the same tree and tier.
+- A dead owner's lock recovers after a broker restart when the broker reports itself idle; a gone Windows job counts as drained (NN32).
+- A broker compile failure is cached only with compiler diagnostics and no tool panic (NN41, failure key /2).
+- The relaunched installed app inherits none of the gate run's variables.
+
 ## 0.6.50
 
 - stage-sidecar keeps a receipt that differs only in per-run observations (changed, cached, wiped, stagedAt), so an app's own dev re-stage no longer changes a staged entry (GC-A28, #1522).
