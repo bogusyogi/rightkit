@@ -12899,6 +12899,7 @@ dependencies = [
  "tauri",
  "tauri-plugin-dialog",
  "tauri-plugin-updater",
+ "tauri-utils",
  "tempfile",
  "tokio",
  "url",
