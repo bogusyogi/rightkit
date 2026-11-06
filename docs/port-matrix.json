@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-06T12:05:32Z",
-  "rightkitHead": "b393f9b",
+  "generatedAt": "2026-11-06T14:39:04Z",
+  "rightkitHead": "be82eb8",
   "legend": [
     {
       "state": "adopted",
@@ -3038,7 +3038,7 @@
       "group": "mandatory-set app",
       "dir": "/Volumes/D/claude/pulse",
       "present": true,
-      "head": "a6eab20",
+      "head": "ff9f8e3",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -7994,9 +7994,9 @@
         "release-tooling"
       ],
       "private": false,
-      "source": "0.6.51",
+      "source": "0.6.52",
       "registry": "0.6.13",
-      "staged": "0.6.51",
+      "staged": "0.6.52",
       "dir": "packages/release",
       "toMoveFrom": {},
       "cells": {

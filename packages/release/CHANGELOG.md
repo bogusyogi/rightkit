@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.6.52
+
+- In a door run the app's own `right-release web-build` reuses the web outputs the door produced, so a Tauri crate that embeds them is not rebuilt after its sidecar was staged (#1522).
+- A changed staged entry prints its sha256 at staging and now, and the receipt fields that differ.
+- Cache keys: publisher-batch rows, lock checks and tests key on their own crate or directory, not the whole tree (NN20); a row missing only because its own files changed reruns without approval.
+
 ## 0.6.51
 
 - A run fails on a cache miss whose inputs and environment are unchanged since the row's stored pass (RK_NN02_CACHE_MISS); a cold run needs Adrian's exception (RK_COLD_RUN, RK_GATE_COLD_EXCEPTION). Each pass's coverage line counts only its own rows.
