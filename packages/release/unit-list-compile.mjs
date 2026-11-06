@@ -134,7 +134,7 @@ export async function runPublisherSecretRequirement({ requirement, snapshot, com
  * `run` uses the real scoped snapshot scan runner; `verify` must validate its receipt and command binding.
  * Neither execution environment nor raw receipt is placed in the returned report.
  */
-export async function executeUnitListCompile({ jobs, dependencies = {}, initialFailures = new Set(), run, verify, concurrency = 1 }) {
+export async function executeUnitListCompile({ jobs, dependencies = {}, initialFailures = new Set(), run, verify, concurrency = 1, lookupOnly = false }) {
   if (!Array.isArray(jobs) || typeof run !== "function" || typeof verify !== "function") throw new Error("snapshot scan runner and receipt verifier are required");
   const pending = jobs.map((job) => ({ ...job, members: job.members.map((member) => ({ ...member })) }));
   const all = pending.flatMap((job) => job.members);
@@ -197,8 +197,11 @@ export async function executeUnitListCompile({ jobs, dependencies = {}, initialF
       try { result = await run(invocation); } catch { result = null; }
       for (const member of ready) {
         let status = "failed"; let proof = null;
+        const looked = result?.byMember instanceof Map ? result.byMember.get(member.id) : result;
+        // A cache lookup proves nothing: it only lets the lookup reach the rows behind this one (no verify, nothing recorded as proof).
+        if (lookupOnly && (looked?.status === "pass" || (looked?.status === "not-run" && (looked.lookupMiss === true || looked.uncacheable === true)))) { record(member, "passed", null); job.members.splice(job.members.indexOf(member), 1); continue; }
         try {
-          const memberResult = result?.byMember instanceof Map ? result.byMember.get(member.id) : result;
+          const memberResult = looked;
           const checked = await verify({ job: invocation, result: memberResult, member });
           if (memberResult?.status === "pass" && checked?.ok === true && typeof checked.evidenceHash === "string" && /^[0-9a-f]{64}$/.test(checked.evidenceHash)) { status = "passed"; proof = checked.evidenceHash; }
         } catch { /* An exception cannot attest a pass. */ }
@@ -220,7 +223,10 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, j
   if (byId.size !== requirements.length) throw new Error("duplicate publisher requirement IDs");
   const plannedIds = jobs.flatMap((job) => job.members.map((member) => member.id));
   if (plannedIds.length !== requirements.length || new Set(plannedIds).size !== plannedIds.length || plannedIds.some((id) => !byId.has(id))) throw new Error("publisher job coverage differs from authenticated requirements");
-  return async ({ scans, execute, executeGroup, canGroup, project, notRun }) => {
+  return async ({ scans, execute, executeGroup, canGroup, project, notRun, lookupOnly = false }) => {
+    // Lookup only (the gate's cache lookup before a run): every row the real run would execute is looked up. A looked-up row stands for the pass the
+    // real run needs before its dependents and NN27 proofs, so a cold host reports every row it would run, not only the first frontier.
+    const wouldPass = (row) => row?.status === "pass" || (lookupOnly && row?.status === "not-run" && (row.lookupMiss === true || row.uncacheable === true));
     const byScan = new Map(scans.map((scan, index) => [scan.id, index]));
     if (byScan.size !== scans.length || requirements.some((r) => !byScan.has(r.id))) throw new Error("publisher plan does not contain each requirement exactly once");
     const slots = new Array(scans.length); const executed = new Map(); const attempts = new Map();
@@ -237,8 +243,8 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, j
     // Passing plan rows that prove a compile (NN27), with the evidence a publisher verify needs on a broker host.
     const proofs = new Map();
     for (let i = 0; i < scans.length; i += 1) {
-      if (byId.has(scans[i].id) || slots[i]?.status !== "pass") continue;
-      if (scans[i].root === "cargoLive" && !/^[0-9a-f]{64}$/.test(slots[i].snapshotEvidence?.receiptSha256 ?? "")) continue;
+      if (byId.has(scans[i].id) || !wouldPass(slots[i])) continue;
+      if (!lookupOnly && scans[i].root === "cargoLive" && !/^[0-9a-f]{64}$/.test(slots[i].snapshotEvidence?.receiptSha256 ?? "")) continue;
       for (const as of ["check", "clippy"]) { const key = compileProofKey(scans[i], as); if (key !== null && !proofs.has(key)) proofs.set(key, { id: scans[i].id, row: slots[i] }); }
     }
     // A quiet suite needs the broker drained for its quiet lease: a job with a quiet member runs alone (exclusive), the others share.
@@ -251,7 +257,7 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, j
       }
     };
     const release = (alone) => { if (alone) exclusive = false; else shared -= 1; wake(); };
-    const result = await executeUnitListCompile({ concurrency, jobs, dependencies, initialFailures,
+    const result = await executeUnitListCompile({ concurrency, jobs, dependencies, initialFailures, lookupOnly,
       run: async (job) => {
         const alone = job.members.some((member) => scans[byScan.get(member.id)]?.quiet === true);
         await acquire(alone);
@@ -279,7 +285,8 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, j
             proved.push([member, proof]); return false;
           });
           for (const [member, proof] of proved) {
-            const row = { ...proof.row, provedBy: proof.id };
+            // In a lookup the proving row may itself be a miss; the member is proved by it, never looked up or run on its own.
+            const row = lookupOnly ? { ...proof.row, status: "pass", lookupMiss: false, uncacheable: false, cacheMiss: undefined, provedBy: proof.id } : { ...proof.row, provedBy: proof.id };
             const history = attempts.get(member.id) ?? [];
             history.push({ id: proof.id, status: row.status, command: row.command, provedBy: proof.id, ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}) });
             attempts.set(member.id, history); executed.set(member.id, row); byMember.set(member.id, row);

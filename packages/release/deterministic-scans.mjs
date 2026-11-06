@@ -3071,7 +3071,7 @@ export async function runScans(plan, options = {}) {
       }
       for (const i of idx) {
         const m = bScans[i];
-        const own = { id: m.id, class: m.class, command: m.command, batchCommand: row.command, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, status: row.status, ...(row.code ? { code: row.code } : {}), ...(row.detail ? { detail: row.status === "fail" ? `${row.id} (${idx.length} crates: ${bs.batch.units.join(", ")}): ${row.detail}` : row.detail } : {}), ...(row.cached ? { cached: true } : {}), timing: row.timing ?? null, batchedWith: { id: row.id, units: bs.batch.units }, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), ...(row.identities ? { identities: row.identities } : {}), ...(row.log ? { log: row.log } : {}) };
+        const own = { id: m.id, class: m.class, command: m.command, batchCommand: row.command, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, status: row.status, ...(row.code ? { code: row.code } : {}), ...(row.detail ? { detail: row.status === "fail" ? `${row.id} (${idx.length} crates: ${bs.batch.units.join(", ")}): ${row.detail}` : row.detail } : {}), ...(row.cached ? { cached: true } : {}), timing: row.timing ?? null, batchedWith: { id: row.id, units: bs.batch.units }, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), ...(row.identities ? { identities: row.identities } : {}), ...(row.log ? { log: row.log } : {}), ...(options.cacheLookupOnly ? { lookupMiss: row.lookupMiss === true, uncacheable: row.uncacheable === true, ...(row.cacheMiss ? { cacheMiss: row.cacheMiss } : {}) } : {}) };
         slots[i] = own; done += 1;
         try { onResult(own, { done, total, seconds: Math.round((Date.now() - started) / 1000) }); } catch { /* reporting never fails a scan */ }
       }
@@ -3133,7 +3133,8 @@ export async function runScans(plan, options = {}) {
         if (!bScans.includes(scan)) throw new Error("scheduleClassB: unknown scan");
         return remember(Object.freeze({ id: scan.id, class: scan.class, command: scan.command, status: "not-run", detail: String(detail) }));
       };
-      const rows = await options.scheduleClassB({ scans: bScans, execute, executeGroup, canGroup, project, notRun });
+      // lookupOnly: the scheduler looks up every row it would run, treating a lookup as the pass the real run needs to reach later rows.
+      const rows = await options.scheduleClassB({ scans: bScans, execute, executeGroup, canGroup, project, notRun, lookupOnly: options.cacheLookupOnly === true });
       if (!Array.isArray(rows) || rows.length !== bScans.length || rows.some((row, i) => !row || !issued.has(row) || row.id !== bScans[i].id || typeof row.status !== "string")) throw new Error("scheduleClassB must return executor-issued results in plan order");
       rows.forEach((row, i) => { slots[i] = row; });
     } else if (brokerHost) {
