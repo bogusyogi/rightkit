@@ -11,6 +11,7 @@
 - A missing system library is never cached as a deterministic failure (`deterministic-failure/3`); a failed scan's summary leads with compiler errors (#1526).
 - A miss approval is consumed by its own bytes, so a new approval of the same report is its own single use (#1526).
 - The second plan of a run reuses unchanged file digests; the unit-list check does not re-prove a snapshot the door just proved (NN07, #1526).
+- Windows: the resident gate server starts outside the gate's process jobs (WMI, no window), so it stays resident and the gate releases its build-ownership record (S0, S9, S14; brosef, Dell evidence) (#1526).
 - Contract test: NN30/NN31 per host; S11 and S17's toolchain-change run prove the cache-miss stop; S15 names its RightKit unit; fixture pin 3a017e99 (pnpm 12.16.1) (#1514).
 
 ## 0.6.52

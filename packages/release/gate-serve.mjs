@@ -199,10 +199,35 @@ function startServer({ root, env }) {
     // ownership guard rightly refuses a run while any process still holds an earlier run's RIGHTKIT_BUILD_OWNERSHIP).
     const keep = ["PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "SystemRoot", "TEMP", "TMP", "TMPDIR", "LOCALAPPDATA", "APPDATA", "RIGHTKIT_MANAGED_ROOT", "RK_GATE_SERVE_IDLE_MS"];
     const childEnv = Object.fromEntries(keep.filter((k) => env[k] !== undefined).map((k) => [k, env[k]]));
+    if (process.platform === "win32") { fs.closeSync(out); startOutsideJobs({ root, childEnv, logDir, env }); return; }
     const child = spawn(process.execPath, [SELF, "serve", root], { detached: true, stdio: ["ignore", out, out], env: childEnv, cwd: path.dirname(SELF), windowsHide: true });
     child.unref();
     fs.closeSync(out);
   } catch { /* the next run tries again; this one verifies in full */ }
+}
+
+/**
+ * Windows: a child of the gate stays in the gate's jobs whatever `detached` says (libuv never asks to break away), so a server spawned
+ * here sat in the build-ownership job, where every release counted it and kept the record (S0, S9, GC-T06), and died with the launcher's
+ * kill-on-close job, so it was never resident (S14; a new server on every run, Dell 2026-11-07). WMI starts it outside both, with no
+ * window. WMI passes no environment, so the server reads its environment from a file it removes once read (`serve-env`).
+ */
+function startOutsideJobs({ root, childEnv, logDir, env }) {
+  const specFile = path.join(logDir, `serve-env-${crypto.randomUUID()}.json`);
+  fs.writeFileSync(specFile, JSON.stringify({ root, env: childEnv, log: path.join(logDir, "serve.log") }), { flag: "wx", mode: 0o600 });
+  const ps = (s) => `'${String(s).replace(/'/g, "''")}'`;
+  const commandLine = `"${process.execPath}" "${SELF}" serve-env "${specFile}"`;
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    "$s = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow = [uint16]0 }",
+    `$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = ${ps(commandLine)}; CurrentDirectory = ${ps(path.dirname(SELF))}; ProcessStartupInformation = $s }`,
+    "exit [int]$r.ReturnValue",
+  ].join("\n");
+  const launcher = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], { stdio: "ignore", windowsHide: true, env });
+  // A launch that failed leaves no server to remove the file.
+  launcher.on("exit", (code) => { if (code !== 0) fs.rmSync(specFile, { force: true }); });
+  launcher.on("error", () => fs.rmSync(specFile, { force: true }));
+  launcher.unref();
 }
 
 /**
@@ -232,6 +257,14 @@ if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(SELF
   const [cmd, a, b] = process.argv.slice(2);
   if (cmd === "serve") {
     serve({ root: a, log: (m) => console.log(`${new Date().toISOString()} gate-serve: ${m}`) }).catch((error) => { console.log(`${new Date().toISOString()} gate-serve: cannot serve: ${error?.message ?? error}`); process.exit(1); });
+  } else if (cmd === "serve-env") {
+    // The Windows start (startOutsideJobs): root, environment and log come from the file, removed once read.
+    let spec = null; try { spec = JSON.parse(fs.readFileSync(a, "utf8")); } catch { spec = null; } finally { if (a) fs.rmSync(a, { force: true }); }
+    if (typeof spec?.root !== "string" || typeof spec.log !== "string") process.exit(2);
+    for (const k of Object.keys(process.env)) delete process.env[k];
+    Object.assign(process.env, spec.env ?? {});
+    const log = (m) => { try { fs.appendFileSync(spec.log, `${new Date().toISOString()} gate-serve: ${m}\n`); } catch { /* a log that cannot be written never stops the server */ } };
+    serve({ root: spec.root, log }).catch((error) => { log(`cannot serve: ${error?.message ?? error}`); process.exit(1); });
   } else if (cmd === "ask") {
     let req = null; try { req = JSON.parse(a); } catch { req = null; }
     // Exit only after the reply is flushed: process.exit right after a large write to a pipe truncates it (a cargo metadata answer is megabytes).
