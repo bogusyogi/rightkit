@@ -3278,9 +3278,12 @@ export async function runScans(plan, options = {}) {
               const toolVersion = [p.identity ? `${p.version}@${p.identity.sha256}` : p.version, ...depVersions].join(" + ");
               // The narrow node-check digest already binds the complete actual
               // child environment (with its one explicit ownership exception).
-              const inherited = cache.narrowNodeCheck && /^node-check:/.test(s.id) ? sha256('node-check-child-env-in-digest/1') : inheritedEnvDigest({ ...deps.env, ...s.env });
+              // NN29: a publisher row carries the gate's whole environment, per-run identities included (build ownership handle, carrier map, run markers):
+              // its key drops them, or every run would miss.
+              const keyEnv = (env) => (s.coverageKey ? Object.fromEntries(Object.entries(env ?? {}).filter(([k]) => !/^(?:RIGHTKIT_BUILD_OWNERSHIP|RK_GATE_|RIGHTKIT_CARRIED_|RIGHTKIT_CARGO_SCAN|RIGHTKIT_RUN_|RUSTRIGHT_OWNERSHIP|TMPDIR$|PWD$|OLDPWD$|SHLVL$|_$)/.test(k))) : env);
+              const inherited = cache.narrowNodeCheck && /^node-check:/.test(s.id) ? sha256('node-check-child-env-in-digest/1') : inheritedEnvDigest(keyEnv({ ...deps.env, ...s.env }));
               if (digest) {
-                cacheKey = scanCacheKey({ id: s.id, command: s.runOutside ? `${s.command} ;; run ${canonicalJson(s.runOutside)}` : s.command, toolVersion, env: s.env ?? {}, inheritedEnv: inherited, digest });
+                cacheKey = scanCacheKey({ id: s.id, command: s.runOutside ? `${s.command} ;; run ${canonicalJson(s.runOutside)}` : s.command, toolVersion, env: keyEnv(s.env ?? {}), inheritedEnv: inherited, digest });
                 // NN41: a deterministic compile failure is keyed like the pass plus the tool version (the client's, its identity digest), the installed broker runtime
                 // identity (options.failureIdentity: version, clientDigest, brokerDigest) and the failure namespace; the digest already binds the unit closure, lock entries and toolchain files.
                 // No identity from the caller means no failure is ever stored or reused.
