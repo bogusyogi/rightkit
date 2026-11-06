@@ -1537,7 +1537,9 @@ export function assertWindowBudgets({ host, budgets, runs }) {
   return { ok: problems.length === 0, problems };
 }
 /** The required (workload, profile) cells of a full run: the fixture warm/edited/cold, RightKit and HeardRight warm check, the Pulse compile. */
-export const REQUIRED_CELLS = Object.freeze([["fixture", "warm-check"], ["fixture", "warm-compile"], ["fixture", "edited-check"], ["fixture", "edited-compile"], ["fixture", "cold-check"], ["fixture", "cold-compile"], ["rightkit", "warm-check"], ["heardright", "warm-check"], ["pulse", "cold-compile"]]);
+// The fixture's cold cells are not measured here: a cold run stops for Adrian's approval and the test proves that stop (Adrian 2026-11-07: "Test checks
+// the stop"); cold budgets are measured from cold runs he approves.
+export const REQUIRED_CELLS = Object.freeze([["fixture", "warm-check"], ["fixture", "warm-compile"], ["fixture", "edited-check"], ["fixture", "edited-compile"], ["rightkit", "warm-check"], ["heardright", "warm-check"], ["pulse", "cold-compile"]]);
 
 // ---- NN19 / NN30 / NN31: the receipt ---------------------------------------------------------------------------------------------------------------
 export const CONTRACT_RECEIPT_SCHEMA = "rightkit.contract-test-receipt/1";
@@ -1731,7 +1733,37 @@ export function assertCrossTargetsOneCommand(log, entries, rows, { label = "" } 
  * NN41: run 1 and run 2 are the same commit; every row that really failed in run 1 must be a cache hit that still says fail in run 2. Run 3 changes the
  * toolchain identity; every such row must run again (a cached failure is never reused after the identity changed, an environment fix must rerun it).
  */
-export function assertCachedFailure(first, second, third, { identity = "" } = {}) {
+/** The miss report a gate run names when it stops on RK_CACHE_MISS (its log line "report <file> (digest ...)"), parsed; null when none. */
+export function missReportOf(log, read = (f) => JSON.parse(fs.readFileSync(f, "utf8"))) {
+  const m = /cache lookup: [^\n]*?report (\S+\.json) \(digest [0-9a-f]{64}\)/.exec(String(log ?? ""));
+  if (!m) return null;
+  try { return { file: m[1], ...read(m[1]) }; } catch (e) { return { file: m[1], error: e.message }; }
+}
+/**
+ * Adrian 2026-11-07 ("Test checks the stop"): a cold run (S11) and a run after a toolchain change (S17's third run) must stop on RK_CACHE_MISS before
+ * anything runs, every miss with the expected cause, and the rows named in `ids` must be in the report (a failure reused across a toolchain change would
+ * be a hit instead). `cause` is "new" (no stored result) or "changed" (inputs or environment changed).
+ */
+export function assertMissStop(run, report, { cause, ids = [] } = {}) {
+  const problems = []; const log = String(run?.log ?? "");
+  if (!run) return { ok: false, problems: ["the run did not happen"] };
+  if (run.exit === 0) problems.push("the run exited 0: it did not stop for Adrian's approval");
+  if (!/BLOCKED: RK_CACHE_MISS/.test(log)) problems.push("the run did not stop on RK_CACHE_MISS");
+  if (/\] (pass|fail) +\S+ \(\d+s\)/.test(log)) problems.push("rows ran before or despite the stop");
+  if (!report) problems.push("no miss report is named in the run's output");
+  else if (report.error) problems.push(`the miss report ${report.file} cannot be read (${report.error})`);
+  else {
+    const want = cause === "new" ? /^no stored result/ : /^inputs or environment changed/;
+    const wrong = (report.rows ?? []).filter((r) => !want.test(String(r.cause)));
+    if (cause === "new" && wrong.length) problems.push(`${wrong.length} miss(es) are not "no stored result" on a cold run (first: ${wrong[0].id}: ${wrong[0].cause})`);
+    const named = new Set((report.rows ?? []).filter((r) => want.test(String(r.cause))).map((r) => r.id));
+    for (const id of ids) if (!named.has(id)) problems.push(`${id}: not in the stop report with cause ${cause}: the gate would have reused it`);
+    if (cause === "new" && (report.hit ?? 0) > 0) problems.push(`${report.hit} row(s) hit on a run whose cache was moved aside`);
+  }
+  return { ok: problems.length === 0, problems };
+}
+
+export function assertCachedFailure(first, second, third, { identity = "", thirdStop = null } = {}) {
   const problems = [];
   const failed = first ? [...first.values()].filter((r) => r.class === "B" && r.coverage === "ran" && r.status === "fail") : [];
   if (failed.length === 0) problems.push("the failing commit's first run has no Class B row that ran and failed: the fixture did not fail deterministically, so no cached failure can be judged");
@@ -1742,7 +1774,8 @@ export function assertCachedFailure(first, second, third, { identity = "" } = {}
     else if (r.status !== "fail") problems.push(`${f.id}: a cached failure came back with status ${r.status}`);
     else if (f.key && r.key && f.key !== r.key) problems.push(`${f.id}: the key changed between two identical runs`);
   }
-  if (!third) problems.push(`no third run with a changed toolchain identity (${identity || "none chosen"}): the reuse after an identity change cannot be judged; the evidence needed is a second installed toolchain the gate keys on (RUSTUP_TOOLCHAIN)`);
+  if (thirdStop) { if (!thirdStop.ok) problems.push(...thirdStop.problems.map((p) => `third run (${identity}): ${p}`)); }
+  else if (!third) problems.push(`no third run with a changed toolchain identity (${identity || "none chosen"}): the reuse after an identity change cannot be judged; the evidence needed is a second installed toolchain the gate keys on (RUSTUP_TOOLCHAIN)`);
   else for (const f of failed) {
     const r = third.get(f.id);
     if (!r) problems.push(`${f.id}: absent from the run with a changed toolchain identity`);
@@ -1812,7 +1845,11 @@ const NN_EVAL_EXT = {
   NN41: (ctx) => {
     const a = usableRun(ctx, "S17:fail1", RED); const b = usableRun(ctx, "S17:fail2", RED); if (a.fail || b.fail) return [a.fail ?? b.fail];
     const c = ctx.runs["S17:fail3"] ? usableRun(ctx, "S17:fail3", RED) : null; if (c?.fail) return [c.fail];
-    return [checkFor("S17", assertCachedFailure(a.run.rows, b.run.rows, c?.run.rows ?? null, { identity: ctx.identityChange ?? "" }), [...a.run.coveragePaths, ...b.run.coveragePaths, ...(c?.run.coveragePaths ?? [])])];
+    // The third run stops for Adrian's approval (a toolchain change); its miss report must name every failing row (none reused).
+    const stop = ctx.runs["S17:fail3-stop"];
+    const failedIds = [...(a.run.rows?.values() ?? [])].filter((r) => r.class === "B" && r.coverage === "ran" && r.status === "fail").map((r) => r.id);
+    const thirdStop = stop ? assertMissStop(stop, missReportOf(stop.log), { cause: "changed", ids: failedIds }) : null;
+    return [checkFor("S17", assertCachedFailure(a.run.rows, b.run.rows, c?.run.rows ?? null, { identity: ctx.identityChange ?? "", thirdStop }), [...a.run.coveragePaths, ...b.run.coveragePaths, ...(c?.run.coveragePaths ?? [])])];
   },
   NN42: (ctx) => {
     const labels = Object.keys(ctx.runs).filter((l) => ctx.runs[l].stage === "compile" && ctx.runs[l].ladder && !ctx.runs[l].kill && /^(S1|S2|S11):compile\d?$/.test(l));
@@ -2849,7 +2886,13 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
     try {
       if (fs.existsSync(cacheDir)) { fs.renameSync(cacheDir, aside); moved = true; }
       check("S11", `the gate cache dir ${cacheDir} was moved aside to ${aside}`, { ok: moved, problems: moved ? [] : [`${cacheDir} does not exist: the run is not proven cold`] });
-      for (const stage of (s11ChecksOnly ? ["check"] : ["check", "compile"])) { const r = await doRun({ label: `S11:${stage}`, stage, ladder: true, step: "S11", profile: `cold-${stage}` }); check("S11", `cold --to ${stage} wrote coverage`, { ok: r.rows !== null, problems: [`exit ${r.exit}, no readable coverage`] }); }
+      // Adrian 2026-11-07 ("Test checks the stop"): a cold run is a miss nothing explains, so the gate stops it for his approval before anything runs;
+      // the test proves that stop (every row "no stored result", nothing ran). Cold budgets and cold parallelism are measured from cold runs he approves.
+      for (const stage of (s11ChecksOnly ? ["check"] : ["check", "compile"])) {
+        const r = await doRun({ label: `S11:${stage}-stop`, stage, ladder: false, step: "S11" });
+        check("S11", `cold --to ${stage} stops on RK_CACHE_MISS with every row "no stored result" and nothing run`, assertMissStop(r, missReportOf(r.log), { cause: "new" }));
+        ctx.cellWhy[`fixture:cold-${stage}`] = "a cold run stops for Adrian's approval (Adrian 2026-11-07: \"Test checks the stop\"); its budget is measured from a cold run he approves, not from this test";
+      }
     } finally {
       let restored = !moved;
       if (moved) { try { if (fs.existsSync(cacheDir)) fs.renameSync(cacheDir, path.join(asideRoot, "created-during-the-cold-run")); fs.renameSync(aside, cacheDir); restored = true; } catch (e) { check("S11", "the gate cache dir is restored", { ok: false, problems: [e.message] }); } }
@@ -2954,7 +2997,9 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
       if (!other) { ctx.identityChange = "no second installed toolchain found under RUSTUP_HOME/toolchains"; check("S17", "a second installed toolchain exists to change the identity", { ok: false, problems: [ctx.identityChange] }); }
       else {
         ctx.identityChange = `RUSTUP_TOOLCHAIN=${other}`;
-        await doRun({ label: "S17:fail3", stage: "compile", commit: cf, ladder: true, step: "S17", profile: "edited-compile", env: { RUSTUP_TOOLCHAIN: other } });
+        // A toolchain change is not the run's own files: the gate stops it for Adrian's approval (Adrian 2026-11-07: "Test checks the stop").
+        const f3 = await doRun({ label: "S17:fail3-stop", stage: "compile", commit: cf, ladder: false, step: "S17", env: { RUSTUP_TOOLCHAIN: other } });
+        check("S17", "the run with a changed toolchain stops on RK_CACHE_MISS before anything runs", { ok: f3.exit !== 0 && /BLOCKED: RK_CACHE_MISS/.test(String(f3.log ?? "")), problems: [`exit ${f3.exit}; the run did not stop on RK_CACHE_MISS`] });
       }
     }
   }

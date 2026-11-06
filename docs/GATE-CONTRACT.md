@@ -268,7 +268,7 @@ Adrian, 2026-11-03: "i wnat all dev completely gone. all debug too. completely g
 | NN06 | Only executing rows carry the environment digest | a non-executing row's key carries it |
 | NN29 | Per-run identities never enter a key or a reuse record | a run whose tool-call id, terminal session, temp dir, ownership handle or `RK_GATE_*` differ gets a different key or a reuse miss |
 
-**E. Time** (budgets in `ci/gate-acceptance-budgets.json`)
+**E. Time** (budgets in `ci/gate-acceptance-budgets.json`; a cold run, and a run after a toolchain change, stop for Adrian's approval, so the contract test proves that stop and the cold budgets are measured from cold runs he approves: Adrian 2026-11-07, "Test checks the stop")
 
 | Id | Property | Fails when |
 |---|---|---|
