@@ -187,6 +187,9 @@ export function trashName(appName, now = new Date()) {
 export function launchEnvironment(base = process.env, { home = os.userInfo().homedir } = {}) {
   const environment = { ...base, HOME: home };
   delete environment.CLAUDE_CONFIG_DIR;
+  // The installed app is the user's, not the build's: a door run's own variables (build ownership, broker socket, carrier map, run
+  // markers) must not follow it, or every later door run finds the running app holding that run's ownership (Pulse Mac dev, 2026-11-06).
+  for (const key of Object.keys(environment)) if (/^(RIGHTKIT_(BUILD_|CARGO_|CARRIED_|MANAGED_AGENT_)|RK_GATE_)/.test(key)) delete environment[key];
   return environment;
 }
 
