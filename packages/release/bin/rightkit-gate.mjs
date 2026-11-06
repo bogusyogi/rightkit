@@ -4955,7 +4955,14 @@ export async function main(argv, io = {}) {
     // changed at all). Only Adrian's approval naming that report's digest lets those rows run (RK_GATE_MISS_APPROVAL=<file>).
     if (!o.runScans && cache) {
       const lookup = await runScans(plan, { ...scanOptions, cacheLookupOnly: true, onResult: () => {} });
-      const misses = lookup.scans.filter((r) => r.lookupMiss);
+      const allMisses = lookup.scans.filter((r) => r.lookupMiss);
+      // Adrian 2026-11-06: "when we change something, we know exactly which rows are going to be called. Anything other than that needs approval."
+      // A row that misses ONLY because files in its own key changed (new content ids, no tool, toolchain, broker or environment change) is one this
+      // change must call: it runs, listed. Every other miss (nothing changed, no stored result, a tool or environment change) needs approval.
+      const expected = (r) => r.cacheMiss?.kind === "changed" && (r.cacheMiss.why?.inputsChanged ?? 0) > 0 && !r.cacheMiss.why.tool && !r.cacheMiss.why.env && !r.cacheMiss.why.inheritedEnv;
+      const called = allMisses.filter(expected);
+      if (called.length) o.out(`${tag} cache lookup: ${called.length} row(s) rerun because their own files changed: ${called.slice(0, 12).map((r) => `${r.id} (${(r.cacheMiss.why.inputs ?? []).slice(0, 2).map((k) => k.replace(/^[^/]*\//, "")).join(", ")})`).join("; ")}${called.length > 12 ? "; ..." : ""}`);
+      const misses = allMisses.filter((r) => !expected(r));
       if (misses.length) {
         const prior = new Map(lookup.scans.map((r) => [r.id, r]));
         const kindOf = (r) => r.cacheMiss?.kind ?? "new";
@@ -4970,17 +4977,17 @@ export async function main(argv, io = {}) {
         const reportFile = path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-gate-misses", `${path.basename(root)}-${new Date().toISOString().replace(/[:.]/g, "-")}-${digest.slice(0, 12)}.json`);
         try { fs.mkdirSync(path.dirname(reportFile), { recursive: true }); fs.writeFileSync(reportFile, `${JSON.stringify({ ...body, digest }, null, 2)}\n`); } catch { /* the summary below still names everything */ }
         const approval = missApproval(o, digest, commitOfRun);
-        o.out(`${tag} cache lookup: ${body.planned} planned, ${body.hit} hit, ${body.misses} would miss (${Object.entries(byCause).map(([c, n]) => `${n} ${c}`).join("; ")}), ${body.uncacheable} uncacheable by design; report ${reportFile} (digest ${digest})`);
+        o.out(`${tag} cache lookup: ${body.planned} planned, ${body.hit} hit, ${body.misses} unexpected miss(es) (${Object.entries(byCause).map(([c, n]) => `${n} ${c}`).join("; ")}), ${body.uncacheable} uncacheable by design; report ${reportFile} (digest ${digest})`);
         if (body.topChangedInputs.length) o.out(`${tag} cache lookup: most-changed inputs ${body.topChangedInputs.slice(0, 8).map(([k, n]) => `${k} (${n})`).join(", ")}`);
         if (tools.length) o.out(`${tag} cache lookup: tool changes ${tools.slice(0, 5).join("; ")}`);
         if (envs.length) o.out(`${tag} cache lookup: environment changes ${envs.slice(0, 10).join(", ")}`);
         if (!approval.ok) {
-          o.err(`${tag} BLOCKED: RK_CACHE_MISS: ${body.misses} row(s) would miss the cache; nothing ran. Bring the report to Adrian; his approval names its digest and covers one run (RK_GATE_MISS_APPROVAL=<file>: {digest: "${digest}", by: "adrian", reason})${approval.why ? ` (${approval.why})` : ""}`);
+          o.err(`${tag} BLOCKED: RK_CACHE_MISS: ${body.misses} row(s) would miss the cache without a change to their own files; nothing ran. Bring the report to Adrian; his approval names its digest and covers one run (RK_GATE_MISS_APPROVAL=<file>: {digest: "${digest}", by: "adrian", reason})${approval.why ? ` (${approval.why})` : ""}`);
           void prior;
           return 1;
         }
         o.out(`${tag} ${approval.note}`);
-      } else o.out(`${tag} cache lookup: ${lookup.scans.length} planned, ${lookup.scans.filter((r) => r.cached).length} hit, 0 would miss; ${lookup.scans.filter((r) => r.uncacheable).length} uncacheable by design`);
+      } else o.out(`${tag} cache lookup: ${lookup.scans.length} planned, ${lookup.scans.filter((r) => r.cached).length} hit, ${called.length} rerun for changed files, 0 unexpected; ${lookup.scans.filter((r) => r.uncacheable).length} uncacheable by design`);
     }
     const scanResult = await (o.runScans ?? runScans)(plan, scanOptions);
     if (nodeCheckRejects.size) o.out(`${tag} node-check cache misses: ${[...nodeCheckRejects].sort(([a], [b]) => a.localeCompare(b)).map(([reason, count]) => `${reason}=${count}`).join(", ")}`);
