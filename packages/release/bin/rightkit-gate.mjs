@@ -1189,7 +1189,10 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
       try {
         if (ADVISORY_SCAN.test(scan.id)) return advisoryKey(scan);
         const files = fileList(scan);
-        if (files) return canonicalJson({ kind: "files", id: scan.id, files: [...new Set(files)].sort().map((p) => [p, idOf(p)]) });
+        // node --check reads a package.json above the file only for its "type" (module or commonjs): a version bump there is not an input (NN20; every
+        // release reran 423 node-check rows). Any other read of the manifest, or an unreadable one, keys on its whole content as before.
+        const nodeType = (p) => { if (!/^node-check:/.test(scan.id) || !/(^|\/)package\.json$/.test(p) || typeof readBlob !== "function") return null; try { const v = JSON.parse(String(readBlob(p))); return `type:${v?.type ?? "commonjs"}`; } catch { return null; } };
+        if (files) return canonicalJson({ kind: "files", id: scan.id, files: [...new Set(files)].sort().map((p) => [p, nodeType(p) ?? idOf(p)]) });
         if (/^cargo-package-list:/.test(scan.id)) {
           const unit = scan.id.slice("cargo-package-list:".length);
           const head = byName.get(unit);
