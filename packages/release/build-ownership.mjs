@@ -1086,10 +1086,12 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
       if (state.active > allowed) throw new Error(`job ${c.name} still holds ${state.active} process(es)${selfPid === null ? "" : " (this gate is one)"}`);
       proofs.push(`job ${c.name} holds ${state.active === 0 ? "no process" : "only this gate"}`);
     } else {
+      // Windows destroys a job object only after its last handle closed AND every process in it exited: a job that no longer exists holds no
+      // process, whatever its holder managed to record (a holder torn down with its session never writes "drained"; Dell compile-6, 2026-11-06).
       const holder = readHolder(holderFile(file, owner.handle));
       if (holder?.state === "drained") proofs.push(`job ${c.name} drained (holder pid ${holder.holder} at ${holder.at})`);
       else if (holder?.state === "failed") proofs.push(`the gate never ran inside job ${c.name} (holder failed: ${holder.why})`);
-      else throw new Error(`job ${c.name} is gone but its holder recorded no drain (${holder?.state ?? "no holder record"})`);
+      else proofs.push(`job ${c.name} no longer exists, so no process remains in it (holder recorded ${holder?.state ?? "nothing"})`);
     }
   } else if (!rebooted && c.kind === "group") {
     let snap;

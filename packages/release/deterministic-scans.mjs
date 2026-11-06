@@ -475,7 +475,8 @@ export const CACHEABLE_INTERNAL = new Set(["ghsa-audit", "advisory-exceptions", 
 /** NN41: internal rules whose failure is never reused: their answer depends on the UTC day or a remote service, not only on their inputs. */
 export const FAILURE_UNCACHEABLE_INTERNAL = new Set(["ghsa-audit", "advisory-exceptions"]);
 /** NN41: the key namespace of a cached failure, so a failure never shares a key with a pass of the same scan. */
-export const FAILURE_KEY_SCHEMA = "deterministic-failure/1";
+// /2: a broker-authenticated compile failure is stored only when its output shows compiler diagnostics and no tool or environment failure (a build-script tool panic is environmental; Dell pulse-hub, 2026-11-06).
+export const FAILURE_KEY_SCHEMA = "deterministic-failure/2";
 /** NN41: the compile scans whose failure can be deterministic: check, clippy and doc rows (single or batched, native or cross). Test runs are never among them. */
 export const isFailureCacheableCompileId = (id) => /^(?:check|check-features|check-dependent|clippy|doc)(?::|$)/.test(String(id));
 /** NN41: a plain (non-broker) compile exit whose output carries compiler error diagnostics and no sign of the environment failing (network, disk, signal, internal compiler error). */
@@ -3666,7 +3667,7 @@ export async function runScans(plan, options = {}) {
           }
           // NN41: store a deterministic compile failure only: the broker's authenticated compile failure, or a plain exit of a compile with compiler error diagnostics and no sign of
           // the environment failing. Never a timeout, abort, SCAN_ERROR, refusal, unverified receipt, ledger problem, test run or infrastructure error (those return or carry another code).
-          if (status === "fail" && failKey && !signal?.aborted && !ledgerProblem && typeof detail === "string" && detail !== "" && ((code === "BROKER_COMPILE_FAILURE" && row.authenticatedFailure?.failureClass === "compile") || (code === "EXIT" && !carriedScan && !carrier && isDeterministicCompileDiagnostics(`${r?.stdout ?? ""}\n${r?.stderr ?? ""}`)))) {
+          if (status === "fail" && failKey && !signal?.aborted && !ledgerProblem && typeof detail === "string" && detail !== "" && ((code === "BROKER_COMPILE_FAILURE" && row.authenticatedFailure?.failureClass === "compile") || (code === "EXIT" && !carriedScan && !carrier)) && isDeterministicCompileDiagnostics(`${r?.stdout ?? ""}\n${r?.stderr ?? ""}`)) {
             cache.write(failKey, { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "fail", code, detail: detail.slice(0, 6000), failureIdentity: options.failureIdentity, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.jsonSummary ? { jsonSummary: row.jsonSummary } : {}) });
           }
           if (status === "pass" && cacheKey && !signal?.aborted) cache.write(cacheKey, { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "pass", ...(s.coverageKey ? { snapshotEvidence: row.snapshotEvidence ?? null, testRun: row.testRun ?? null } : {}), ...(row.results ? { results: row.results } : {}) });
