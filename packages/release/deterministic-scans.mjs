@@ -1622,7 +1622,9 @@ export function planScans({
       const e2e = e2eCrateDirs instanceof Set && e2eCrateDirs.has(rustDir(name));
       if (e2e) { qualifyOwed.push({ id: rustScanId.testRust(name, sets.length, 0), kind: "e2e-crate", dir: rustDir(name), crate: crateOf(name), reason: "end-to-end crate: its tests drive a built app and never run as class B unit tests (P7)" }); notes.push(`${crateOf(name)} is an end-to-end crate: its test scan compiles with --no-run here; its tests run in the qualify stage against the built app (qa.journeys), never as class B unit tests`); }
       sets.forEach((set, i) => {
-        add({ id: rustScanId.testRust(name, sets.length, i), class: B, ...quiet, ...(e2e ? { e2e: true } : {}), ...(e2e ? cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-run") : cargoLiveRoot ? { ...cargoTestIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked"), runOutside: { args: [] } } : cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-fail-fast")) });
+        // NN17/NN39: the plain test rows of one workspace and configuration are batchable: one grouped `cargo test` compile on a broker host (runScans runTestGroup).
+        // A quiet suite keeps its own lease and runs alone; an end-to-end crate only compiles (--no-run); the serial re-run (alsoSerial, below) keeps its own run.
+        add({ id: rustScanId.testRust(name, sets.length, i), class: B, ...quiet, ...(!e2e && cargoLiveRoot && quiet.quiet !== true ? { batchUnit: name } : {}), ...(e2e ? { e2e: true } : {}), ...(e2e ? cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-run") : cargoLiveRoot ? { ...cargoTestIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked"), runOutside: { args: [] } } : cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-fail-fast")) });
         if (own.alsoSerial) add({ id: rustScanId.testRustSerial(name, sets.length, i), class: B, ...quiet, ...(e2e ? { e2e: true } : {}), ...(e2e ? cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-run") : cargoLiveRoot ? { ...cargoTestIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked"), runOutside: { args: ["--test-threads=1"] } } : cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-fail-fast", "--", "--test-threads=1")) });
       });
     }
@@ -2975,7 +2977,7 @@ export async function runScans(plan, options = {}) {
     const groupOf = new Map();
     if (options.classBBatching === true) {
       const byKey = new Map();
-      bScans.forEach((s, i) => { if (s.batchable && !s.deferred && (laneOf(s) === "compile" || laneOf(s) === "doc")) { if (!byKey.has(s.batchable.key)) byKey.set(s.batchable.key, []); byKey.get(s.batchable.key).push(i); } });
+      bScans.forEach((s, i) => { if (s.batchable && !s.deferred && (laneOf(s) === "compile" || laneOf(s) === "doc" || (options.groupTests !== false && laneOf(s) === "tests" && s.runOutside && /^test:rust/.test(s.id)))) { if (!byKey.has(s.batchable.key)) byKey.set(s.batchable.key, []); byKey.get(s.batchable.key).push(i); } });
       for (const members of byKey.values()) if (members.length > 1) { const group = { members, promise: null }; for (const i of members) groupOf.set(i, group); }
     }
     const batchScanOf = (idx) => {
@@ -2983,10 +2985,13 @@ export async function runScans(plan, options = {}) {
       const { batchable: _batchable, ...plain } = lead; void _batchable;
       const args = [...lead.args.slice(0, lead.batchable.at), ...idx.flatMap((i) => ["-p", bScans[i].batchable.crate]), ...lead.args.slice(lead.batchable.at + 2)];
       const units = idx.map((i) => bScans[i].batchable.unit);
-      const stage = /^clippy/.test(lead.id) ? "clippy" : /^doc:/.test(lead.id) ? "doc" : "check";
+      const stage = /^clippy/.test(lead.id) ? "clippy" : /^doc:/.test(lead.id) ? "doc" : /^test:rust/.test(lead.id) ? "test" : "check";
       const id = `${stage}:batch:${sha256(`${lead.batchable.key}\0${units.join("\0")}`).slice(0, 8)}`;
       // A doc group asks for cargo's JSON messages (NN40): each crate's verdict is read from them (docVerdicts), never found by bisection.
       if (stage === "doc") { const jargs = [...args, "--message-format=json"]; return { ...plain, id, args: jargs, captureJson: true, command: commandText({ ...plain, env: {}, args: jargs }), batch: { units, members: idx.map((i) => bScans[i].id) } }; }
+      // NN17/NN39: a test group compiles once (one broker command naming every crate) and each member's own test executables then run in
+      // parallel outside the broker; each member keeps its own verdict (runOne `testGroup`, memberRuns).
+      if (stage === "test") return { ...plain, id, args, testGroup: idx.map((i) => ({ id: bScans[i].id, crate: bScans[i].batchable.crate })), command: commandText({ ...plain, env: {}, args }), batch: { units, members: idx.map((i) => bScans[i].id) } };
       return { ...plain, id, args, command: commandText({ ...plain, env: {}, args }), batch: { units, members: idx.map((i) => bScans[i].id) } };
     };
     const runGroup = async (idx, extraEnv, budget = { remaining: Math.min(2 * idx.length - 1, 31) }) => {
@@ -3000,6 +3005,15 @@ export async function runScans(plan, options = {}) {
       const bs = batchScanOf(idx);
       let row;
       try { row = await scanRow(bs, extraEnv); } catch (error) { row = { id: bs.id, status: "fail", code: "SCAN_ERROR", detail: String(error?.message ?? error) }; }
+      if (row.memberRuns && !signal?.aborted) {
+        idx.forEach((i) => {
+          const m = bScans[i]; const v = row.memberRuns[m.id] ?? { status: "fail", code: "TEST_GROUP", detail: `${m.id}: the test group ${row.id} produced no run for this member` };
+          const own = { id: m.id, class: m.class, command: m.command, batchCommand: row.command, batchedWith: { id: row.id, units: bs.batch.units }, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, status: v.status, ...(v.code ? { code: v.code } : {}), ...(v.detail ? { detail: v.detail } : {}), ...(v.results ? { results: v.results } : {}), ...(v.testRun ? { testRun: v.testRun } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}) };
+          slots[i] = own; done += 1;
+          try { onResult(own, { done, total, seconds: Math.round((Date.now() - started) / 1000) }); } catch { /* reporting never fails a scan */ }
+        });
+        return;
+      }
       // A failure reused from the result cache (NN41) was authenticated or diagnosed when it was written, so it attributes the same way.
       const attributable = (row.code === "EXIT" && !row.snapshotEvidence) || (row.code === "BROKER_COMPILE_FAILURE" && row.authenticatedFailure?.retryable === true && row.authenticatedFailure?.failureClass === "compile" && row.snapshotEvidence?.receiptSha256) || (row.failureCached === true && (row.code === "EXIT" || row.code === "BROKER_COMPILE_FAILURE"));
       // NN40: a failed doc invocation is attributed from its own JSON messages: a crate with an error message fails, a crate with no artifact while
@@ -3590,6 +3604,25 @@ export async function runScans(plan, options = {}) {
               if (s.publisherRustTest && viaSnapshotBroker && !Object.hasOwn(row.snapshotEvidence ?? {}, "testExecutables")) fail("TEST_EXECUTABLE_UNSIGNED", `${s.id}: the broker did not sign a test executable list`);
               else if (contained.problems.length) fail("TEST_EXECUTABLE_OUTSIDE_OUTPUT", `${s.id}: ${contained.problems.slice(0, 5).join("; ")}; the row fails and nothing was run`);
               else if (signedProblems.length) fail("TEST_EXECUTABLE_UNSIGNED", `${s.id}: ${signedProblems.slice(0, 5).join("; ")}; the row fails and nothing was run`);
+              else if (Array.isArray(s.testGroup)) {
+                // NN17/NN39: the group's members run their own executables in parallel (a pool the size of the test concurrency), each with its own verdict.
+                const byCrate = new Map();
+                for (const b of contained.accepted) { if (!byCrate.has(b.package)) byCrate.set(b.package, []); byCrate.get(b.package).push(b); }
+                const memberRuns = {}; const list = s.testGroup; let next = 0;
+                const worker = async () => {
+                  while (next < list.length) {
+                    const m = list[next++]; const bins = byCrate.get(m.crate) ?? [];
+                    if (!bins.length) { memberRuns[m.id] = { status: "pass", results: { runner: "libtest", tests: 0, pass: 0, fail: 0, skipped: 0, todo: 0, binaries: 0 }, detail: `${m.id}: no test executable; end-to-end tests only, nothing to run` }; continue; }
+                    const ran = await runTestBinaries({ scan: { ...s, id: m.id }, binaries: bins, spawn: deps.spawn, env: { ...deps.env, ...s.env, ...(extraEnv ?? {}) }, limitMs, signal, ops, concurrency: 1 });
+                    memberRuns[m.id] = { status: ran.status, ...(ran.code ? { code: ran.code } : {}), ...(ran.detail ? { detail: ran.detail } : {}), results: ran.results, testRun: { executables: ran.executables, outputTruncated: ran.executables.some((e) => e.outputTruncated), skipMarkers: ran.executables.reduce((n, e) => n + (e.skipMarkers ?? 0), 0) } };
+                  }
+                };
+                await Promise.all(Array.from({ length: Math.max(1, Math.min(testRunConcurrency(), list.length)) }, worker));
+                row.memberRuns = memberRuns;
+                const bad = list.filter((m) => memberRuns[m.id]?.status !== "pass");
+                if (bad.length) { status = "fail"; code = "TEST_GROUP_MEMBER_FAILED"; detail = `${bad.length} of ${list.length} member(s) failed their tests: ${bad.slice(0, 8).map((m) => m.id).join(", ")}`; }
+                else row.results = { runner: "libtest", tests: list.reduce((n, m) => n + (memberRuns[m.id].results?.tests ?? 0), 0), pass: list.reduce((n, m) => n + (memberRuns[m.id].results?.pass ?? 0), 0), fail: 0, skipped: list.reduce((n, m) => n + (memberRuns[m.id].results?.skipped ?? 0), 0), todo: 0 };
+              }
               else {
                 const budget = s.quiet === true ? Math.max(1, Math.min(limitMs, QUIET_SCAN_MAX_MS - (Date.now() - scanStartedAt))) : limitMs;
                 const ran = await runTestBinaries({ scan: s, binaries: contained.accepted, spawn: deps.spawn, env: { ...deps.env, ...s.env, ...(extraEnv ?? {}) }, limitMs: budget, signal, ops, ...(s.publisherRustTest && s.runOutside.args.includes("--test-threads=1") ? { concurrency: 1 } : {}) });

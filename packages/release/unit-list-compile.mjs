@@ -8,6 +8,39 @@ import { scanCrateForSecrets } from "./publish-cargo.mjs";
 const digest = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const bodyOf = ({ workspace, cwd, executable, internal, argv, env, phase }) => ({ workspace, cwd, executable, ...(internal === undefined ? {} : { internal }), argv, env, phase });
 
+// NN27 (GATE-CONTRACT GC-A27): never two compiler passes over one crate, target and feature set. A publisher `cargo check` is proved by a
+// passing plan row (clippy or check) over the same crate, features, target and all-targets selection with the same compiler-relevant
+// environment: clippy runs the same compile and only adds lints. Output and failure flags (--message-format, --locked, --keep-going,
+// -j, lint arguments after `--`) do not change what compiled. Tests and docs never reuse: their environment or target selection differs.
+const COMPILE_ENV = ["CC", "CXX", "AR", "LD", "RUSTC", "RUSTFLAGS", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER", "CARGO_TARGET_DIR", "CARGO_BUILD_TARGET", "MACOSX_DEPLOYMENT_TARGET", "CARGO_ENCODED_RUSTFLAGS"];
+/** `as`: "check" (what a check or clippy proves) or "clippy" (a clippy with its lint arguments, provable only by the same clippy). */
+export function compileProofKey(scan, as = "check") {
+  if (!scan || !Array.isArray(scan.args)) return null;
+  const argv = scan.args[0] === "cargo" ? scan.args.slice(1) : scan.args;
+  const sub = argv[0];
+  if (sub !== "check" && sub !== "clippy") return null;
+  if (as === "clippy" && sub !== "clippy") return null;
+  const sep = argv.indexOf("--");
+  const lints = as === "clippy" ? (sep < 0 ? [] : argv.slice(sep + 1)) : null;
+  const packages = []; const features = []; let noDefault = false; let allFeatures = false; let target = null; let allTargets = false;
+  for (let i = 1; i < argv.length; i += 1) {
+    const a = argv[i];
+    if (a === "--") break;
+    if (a === "-p" || a === "--package") packages.push(argv[++i]);
+    else if (a === "--features" || a === "-F") features.push(...String(argv[++i] ?? "").split(/[ ,]+/).filter(Boolean));
+    else if (a.startsWith("--features=")) features.push(...a.slice(11).split(/[ ,]+/).filter(Boolean));
+    else if (a === "--no-default-features") noDefault = true;
+    else if (a === "--all-features") allFeatures = true;
+    else if (a === "--target") target = argv[++i];
+    else if (a === "--all-targets") allTargets = true;
+    else if (a === "--locked" || a === "--keep-going" || a === "--no-deps" || a.startsWith("--message-format") || a === "--profile" || a.startsWith("--profile=") || a === "-j" || a === "--jobs" || a.startsWith("-j") || a.startsWith("--jobs=")) { if (a === "--profile" || a === "-j" || a === "--jobs") i += 1; }
+    else return null; // anything else could change what compiles: no proof either way
+  }
+  if (packages.length !== 1 || !packages[0]) return null;
+  const env = Object.fromEntries(COMPILE_ENV.map((k) => [k, scan.env?.[k] ?? null]));
+  return JSON.stringify({ as, ...(lints ? { lints } : {}), cwd: scan.cwd ?? ".", package: packages[0], features: [...new Set(features)].sort(), noDefault, allFeatures, target, allTargets, env });
+}
+
 /** One in-memory plan; env is execution-only and must never be written to a report. */
 export function planUnitListCompile(requirementsByUnit, { normalizedCwds = new Map() } = {}) {
   if (!Array.isArray(requirementsByUnit) || !requirementsByUnit.length) throw new Error("unit list needs compile requirements");
@@ -101,7 +134,7 @@ export async function runPublisherSecretRequirement({ requirement, snapshot, com
  * `run` uses the real scoped snapshot scan runner; `verify` must validate its receipt and command binding.
  * Neither execution environment nor raw receipt is placed in the returned report.
  */
-export async function executeUnitListCompile({ jobs, dependencies = {}, initialFailures = new Set(), run, verify }) {
+export async function executeUnitListCompile({ jobs, dependencies = {}, initialFailures = new Set(), run, verify, concurrency = 1 }) {
   if (!Array.isArray(jobs) || typeof run !== "function" || typeof verify !== "function") throw new Error("snapshot scan runner and receipt verifier are required");
   const pending = jobs.map((job) => ({ ...job, members: job.members.map((member) => ({ ...member })) }));
   const all = pending.flatMap((job) => job.members);
@@ -150,7 +183,9 @@ export async function executeUnitListCompile({ jobs, dependencies = {}, initialF
     // themselves runnable. If such waits form a cycle, execute the ready subset to make progress.
     let admitted = frontier.filter(({ job, ready }) => ready.length === job.members.length);
     if (!admitted.length && frontier.length && !progress) admitted = [frontier[0]];
-    for (const { job, ready } of admitted) {
+    // NN17/NN39: the admitted jobs are independent (one ready requirement per unit, its earlier ones done), so they run `concurrency` at a time;
+    // 1 is the serial order this loop had. Every result is still verified per member before anything later is admitted.
+    const runAdmitted = async ({ job, ready }) => {
       let invocation = { ...job, members: ready };
       if (job.batchAt !== undefined) {
         const names = [...new Set(ready.map((m) => m.package))];
@@ -170,14 +205,16 @@ export async function executeUnitListCompile({ jobs, dependencies = {}, initialF
         record(member, status, proof); job.members.splice(job.members.indexOf(member), 1);
       }
       progress = true;
-    }
+    };
+    const queue = [...admitted];
+    await Promise.all(Array.from({ length: Math.max(1, Math.min(Number(concurrency) || 1, queue.length)) }, async () => { while (queue.length) await runAdmitted(queue.shift()); }));
     if (!progress) throw new Error("unit requirements have an unresolved or cyclic dependency");
   }
   return results;
 }
 
 /** Bridge the authenticated publisher jobs to runScans' initialized Class B scheduler. */
-export function publisherUnionScheduler({ jobs, dependencies = {}, initialFailures = new Set(), requirements, adapt, verify, signal = null, onCoverage = () => {} }) {
+export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, jobs, dependencies = {}, initialFailures = new Set(), requirements, adapt, verify, signal = null, onCoverage = () => {} }) {
   if (!Array.isArray(requirements) || requirements.some((r) => r.internal) || typeof adapt !== "function" || typeof verify !== "function") throw new Error("publisher scheduler needs external requirements, adapter and verifier; internal scans must already be verified");
   const byId = new Map(requirements.map((r) => [r.id, r]));
   if (byId.size !== requirements.length) throw new Error("duplicate publisher requirement IDs");
@@ -197,7 +234,14 @@ export function publisherUnionScheduler({ jobs, dependencies = {}, initialFailur
         for (const [n, j] of indices.entries()) slots[j] = rows[n];
       }
     }
-    const result = await executeUnitListCompile({ jobs, dependencies, initialFailures,
+    // Passing plan rows that prove a compile (NN27), with the evidence a publisher verify needs on a broker host.
+    const proofs = new Map();
+    for (let i = 0; i < scans.length; i += 1) {
+      if (byId.has(scans[i].id) || slots[i]?.status !== "pass") continue;
+      if (scans[i].root === "cargoLive" && !/^[0-9a-f]{64}$/.test(slots[i].snapshotEvidence?.receiptSha256 ?? "")) continue;
+      for (const as of ["check", "clippy"]) { const key = compileProofKey(scans[i], as); if (key !== null && !proofs.has(key)) proofs.set(key, { id: scans[i].id, row: slots[i] }); }
+    }
+    const result = await executeUnitListCompile({ concurrency, jobs, dependencies, initialFailures,
       run: async (job) => {
         const byMember = new Map();
         const budget = { remaining: Math.min(2 * job.members.length - 1, 31) };
@@ -206,6 +250,24 @@ export function publisherUnionScheduler({ jobs, dependencies = {}, initialFailur
             for (const member of members) { const history = attempts.get(member.id) ?? []; history.push({ status: "not-run", code: signal?.aborted ? "CANCELLED" : "BATCH_BUDGET" }); attempts.set(member.id, history); }
             return;
           }
+          // NN27: a member whose compile a passing plan row already proved reuses that row; only the rest compile.
+          const proved = [];
+          const rest = members.filter((member) => {
+            const own = { ...scans[byScan.get(member.id)], cwd: job.cwd }; // the job's cwd is the workspace when proveWorkspaceCwd moved it
+            const ownArgv = own.args?.[0] === "cargo" ? own.args.slice(1) : own.args ?? [];
+            const key = compileProofKey(own, ownArgv[0] === "clippy" ? "clippy" : "check");
+            const proof = key === null || !reuseProofs ? undefined : proofs.get(key);
+            if (!proof) return true;
+            proved.push([member, proof]); return false;
+          });
+          for (const [member, proof] of proved) {
+            const row = { ...proof.row, provedBy: proof.id };
+            const history = attempts.get(member.id) ?? [];
+            history.push({ id: proof.id, status: row.status, command: row.command, provedBy: proof.id, ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}) });
+            attempts.set(member.id, history); executed.set(member.id, row); byMember.set(member.id, row);
+          }
+          if (!rest.length) return;
+          members = rest;
           budget.remaining -= 1;
           const representative = byId.get(members[0].id);
           if (!representative) throw new Error("unknown publisher requirement");
