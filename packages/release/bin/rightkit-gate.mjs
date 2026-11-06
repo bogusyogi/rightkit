@@ -4617,7 +4617,7 @@ export async function main(argv, io = {}) {
         };
         for (const requirement of external) plan.scans.push(adapt(requirement));
         const dependencies = Object.fromEntries(unionContext.selected.map((unit) => [unit.selector, (unit.deps ?? []).filter((dep) => unionContext.selected.some((u) => u.selector === dep))]));
-        unionScheduler = publisherUnionScheduler({ reuseProofs: o.env.RK_GATE_PUBLISHER_REUSE !== "0", concurrency: Math.max(1, Number(o.env.RK_GATE_PUBLISHER_JOBS ?? 4) || 4), jobs, dependencies, initialFailures, requirements: external, adapt, signal: ac.signal, onCoverage: (coverage) => { unionContext.coverage = coverage; }, verify: async ({ row, member, attempts, requirement }) => {
+        unionScheduler = publisherUnionScheduler({ reuseProofs: o.env.RK_GATE_PUBLISHER_REUSE !== "0", concurrency: Math.max(1, Number(o.env.RK_GATE_PUBLISHER_JOBS ?? 1) || 1), jobs, dependencies, initialFailures, requirements: external, adapt, signal: ac.signal, onCoverage: (coverage) => { unionContext.coverage = coverage; }, verify: async ({ row, member, attempts, requirement }) => {
           const verdict = verdicts.get(member.selector);
           const proof = { commit: snapshotBCommit.commit, tree: snapshotBCommit.tree, requirement: member.coverageKey, command: row?.command ?? null, attempts, snapshotEvidence: row?.snapshotEvidence ?? null, testRun: row?.testRun ?? null, results: row?.results ?? null };
           unionContext.commands.push({ selector: member.selector, id: member.id, ...proof });
