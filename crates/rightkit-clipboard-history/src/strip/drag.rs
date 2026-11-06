@@ -15,7 +15,6 @@ use crate::model::{self as clip, Item, Kind};
 use crate::win;
 use std::ffi::c_void;
 use std::sync::Mutex;
-use std::sync::Once;
 use std::sync::PoisonError;
 use std::sync::atomic::{AtomicU32, Ordering};
 use windows::Win32::Foundation::POINT;
@@ -128,18 +127,6 @@ type TabTargets = Vec<([i32; 4], String)>;
 type CardTargets = Vec<([i32; 4], usize)>;
 static TARGETS: Mutex<(TabTargets, CardTargets)> = Mutex::new((Vec::new(), Vec::new()));
 static LANDED: Mutex<Option<Landing>> = Mutex::new(None);
-
-/// Makes the calling thread an OLE one once per process; a no-op after the first call. For a
-/// drag that carries no strip items (the Send card's files), which never empties the folder.
-pub(crate) fn ole_init() {
-    static ONCE: Once = Once::new();
-    ONCE.call_once(|| {
-        // SAFETY: OLE initialisation of the calling (UI) thread, which keeps its apartment.
-        unsafe {
-            OleInitialize(std::ptr::null_mut());
-        }
-    });
-}
 
 /// Makes the thread an OLE one, and empties the folder the last run left file promises in.
 pub(super) fn init() {
