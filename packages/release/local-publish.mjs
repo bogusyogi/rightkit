@@ -498,10 +498,13 @@ export function compileRequirements({ kind, unit, dir, config, manifest, platfor
   if (kind === "cargo") add({ workspace, cwd: dir, executable: null, internal: "scanCrateForSecrets", argv: [dir], env: {}, phase: "check" });
   for (const step of steps) {
     const consumer = step.command === "cargo" && step.args.includes("--manifest-path");
-    const cwd = consumer || kind === "npm" ? "." : dir;
     const manifestIndex = step.args.indexOf("--manifest-path");
     const requirementWorkspace = consumer ? path.posix.dirname(step.args[manifestIndex + 1]) : kind === "cargo" ? workspace : ".";
-    const argv = step.command === "cargo" ? oneOutput(withCargoJobs(step.args, jobs), { platform }) : [...step.args];
+    // A consumer row runs from its own manifest's directory, without --manifest-path: the RustRight client refuses an invocation it
+    // would have to rewrite ("the client would rewrite this invocation (for example --manifest-path)"), so the flag never reaches it.
+    const cwd = consumer ? requirementWorkspace : kind === "npm" ? "." : dir;
+    const stepArgs = consumer ? step.args.filter((_, i) => i !== manifestIndex && i !== manifestIndex + 1) : step.args;
+    const argv = step.command === "cargo" ? oneOutput(withCargoJobs(stepArgs, jobs), { platform }) : [...stepArgs];
     add({ workspace: requirementWorkspace, cwd, executable: step.command, argv, env: { ...executionEnv, ...(step.env ?? {}) }, phase: step.test ? "test" : "compile" });
   }
   return {

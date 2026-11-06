@@ -2857,12 +2857,19 @@ export async function runScans(plan, options = {}) {
     toolVersions[tool] = outcome.ok ? outcome.version : null;
     return outcome;
   });
-  const probe = (tool, scanDir = null) => {
+  // rustright's `--version` names the client, which no directory changes; it is probed where the scan runs only because the client refuses
+  // outside a Cargo workspace (rightkit#1215). Once it has answered in one directory that answer serves every directory: each fresh probe is a
+  // broker CONTROL-lane request, and one sent while this run holds the broker's quiet lease waits the lease out and fails (rightkit#1526).
+  let rustrightAnswer = null;
+  const probe = async (tool, scanDir = null) => {
+    if (tool === "rustright" && rustrightAnswer) return rustrightAnswer;
     const trust = TRUSTED_SCAN_TOOLS.includes(tool) ? resolveTrustedScanTool(tool, { policy: options.toolPolicy, platform: deps.platform, ops: options.toolOps }) : null;
     const command = trust ? (trust.ok ? trust.identity.path : null) : toolCommand(tool);
     const cwd = (tool === "rustright" || (tool === "cargo" && cargoLiveRoot)) && scanDir ? scanDir : (deps.probeDir ?? probeDir());
     const key = sha256(canonicalJson({ tool, command, cwd, args: PROBES[tool] ?? ["--version"], env: deps.env }));
-    return probeFlight(key, tool, scanDir);
+    const outcome = await probeFlight(key, tool, scanDir);
+    if (tool === "rustright" && outcome?.ok && !outcome.pinProblem) rustrightAnswer = outcome;
+    return outcome;
   };
 
   const jobs = Math.max(1, Number(options.jobs ?? 1) || 1);
