@@ -486,6 +486,8 @@ export const FAILURE_UNCACHEABLE_INTERNAL = new Set(["ghsa-audit", "advisory-exc
 /** NN41: the key namespace of a cached failure, so a failure never shares a key with a pass of the same scan. */
 // /2: a broker-authenticated compile failure is stored only when its output shows compiler diagnostics and no tool or environment failure (a build-script tool panic is environmental; Dell pulse-hub, 2026-11-06).
 // /3 (2026-11-06): a missing system library (pkg-config, system-deps) is the host, not the inputs; failures stored under /2 may be one.
+/** planScans file digests by file identity (path, inode, size, mtime) for this process: one run plans its stages over the same snapshot. */
+const PLAN_DIGEST_MEMO = new Map();
 export const FAILURE_KEY_SCHEMA = "deterministic-failure/3";
 /** NN23: the version of the internal (file-only) rules; bump when any internal rule's verdict for the same inputs changes. */
 export const INTERNAL_RULES_SCHEMA = "rightkit.internal-rules/1";
@@ -1092,7 +1094,16 @@ export function planScans({
     files.push(f);
   }
   // Content digest of the input the scans cover: every accepted changed file's bytes plus every refused name.
-  const bytesDigest = (f) => { try { return sha256(readBytes(path.join(contentRoot, f))); } catch { return "unreadable"; } };
+  // NN07: a run plans twice (check stage, compile stage) over the same snapshot; a file whose identity (path, inode, size, mtime) is unchanged is
+  // not read and hashed again in this process (measured 2026-11-07: 1.0 s of file reads per plan of RightKit's 13,894 files).
+  const bytesDigest = (f) => {
+    const abs = path.join(contentRoot, f);
+    let id = null; try { const st = fs.statSync(abs, { bigint: true }); id = `${abs}\0${st.ino}\0${st.size}\0${st.mtimeNs}`; } catch { /* read decides */ }
+    if (id && PLAN_DIGEST_MEMO.has(id)) return PLAN_DIGEST_MEMO.get(id);
+    let d; try { d = sha256(readBytes(abs)); } catch { return "unreadable"; }
+    if (id) PLAN_DIGEST_MEMO.set(id, d);
+    return d;
+  };
   const inputDigest = sha256(canonicalJson({ files: [...files].sort().map((f) => [f, bytesDigest(f)]), refused: refusals.map((r) => r.raw).sort() }));
   const under = (prefix) => files.filter((f) => f.startsWith(prefix));
   if (!["compile", "release"].includes(tier)) throw new Error(`planScans: tier must be compile or release, not ${JSON.stringify(tier)}`);
