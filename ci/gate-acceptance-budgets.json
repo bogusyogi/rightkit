@@ -810,8 +810,8 @@
   "note": "Provisional ceiling (EGM, 2026-11-06, adopted by Adrian): each value is the best measured optimized-state time x1.25. It is lowered per window to a noise-based margin (median of repeated runs plus measured run-to-run spread, with a millisecond floor) once repeated runs exist; values only ever go down. Only a value measured on that host and workload counts; a null fails NN18. Sources: fixture warm check 3.6 s (2026-11-05 12:47Z, 37 of 39 rows hit); RightKit warm check 7.2 s; HeardRight warm check 5.3 s; Pulse compile 70.9 s (warm: 90 of 95 compile rows cached, so it is a warm-compile budget, not cold); fixture resident verify 50 ms, metadata hit 75-100 ms, dependency digest 0.45 s (fixture only). Earlier text describing median-of-worst-runs x1.25 is superseded.",
   "fixture": {
     "repo": "rk-witness-fixture",
-    "commit": "7a5b3ee8bdae4134d9a824dcc0b24de4ad18608c",
-    "note": "the fixture pin (NN36): a run against any other commit is a development run; 7a5b3ee adds crates/rightkit-a and rightkit-b (two units for NN16)"
+    "commit": "3a017e99e2f69ab3c8cae9ca03a285b8de8cb5bf",
+    "note": "the fixture pin (NN36): a run against any other commit is a development run; 7a5b3ee adds crates/rightkit-a and rightkit-b (two units for NN16); 3a017e99 pins pnpm@12.16.1 like RightKit (one PATH pnpm on Windows)"
   },
   "workloadMethod": "hosts.<host>.workloads.<workload>.<profile>: windows tile the run from launch to exit (startup, ownership, snapshotSync, stageStart, snapshotVerify, appRules, planning, dependencyStep, scans, finish; ownership is budgeted on compile profiles only). Values come only from optimized-state measurements (fixture warm check 3.6 s, HeardRight warm check 5.3 s, RightKit warm check 7.2 s, dependency digest 0.45 s, resident verify 50 ms, cargo-metadata hit 100 ms, Pulse compile 70.9 s), each x1.25 like warmCheckMs; every other cell is null and a null FAILS NN18. The Pulse compile is recorded as cold-compile: the measurement does not say whether the gate cache was warm.",
   "reviews": [],
