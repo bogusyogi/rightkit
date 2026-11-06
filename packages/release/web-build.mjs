@@ -17,6 +17,7 @@
 // runs only under a live door run. The exported runner checks it again, so no in-process caller spawns a step around it.
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import fs from "node:fs";
 import { spawnSync } from "./background-process.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { CommandSpecError, loadAppConfig, resolveInvocation, validateStep } from "./command-spec.mjs";
@@ -115,6 +116,11 @@ export async function main(argv = process.argv.slice(2), { env = process.env, re
   const appRoot = path.dirname(path.resolve(opts.config));
   const refusal = webBuildDoorRefusal({ appRoot, env, spawnSyncFn, requireDoor });
   if (refusal) throw doorError(refusal);
+  // The door already produced this app's declared web outputs for this run (rightkit-gate stageWebBuildOnce: built, restored from its dist
+  // cache, or present in the snapshot): running vite again would rewrite them, and a Tauri crate that embeds them rebuilds and changes after its
+  // sidecar was staged (Pulse Windows dev, 2026-11-06). The door's own marker names the app root; anything else builds as before.
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+  if (env.RK_GATE_WEB_BUILT && real(env.RK_GATE_WEB_BUILT) === real(appRoot)) { log(`right-release web-build: skipped; the door already produced the declared web outputs of ${appRoot} for this run`); return 0; }
   const { config } = await loadConfig(opts.config);
   return runWebBuild(planWebBuild(config), { appRoot, env, dryRun: opts.dryRun, spawnSyncFn, requireDoor, log });
 }

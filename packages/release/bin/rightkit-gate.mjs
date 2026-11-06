@@ -2328,6 +2328,25 @@ export async function closeSnapshotStage({ o, ds, root, stage, step = "stage", t
   const restaged = stage === "package" ? await restagedSidecars({ o, ds, prior, now }) : { paths: new Set(), receipts: new Set(), producers: new Set(), problems: [] };
   problems.push(...restaged.problems);
   for (const [p, e] of prior) if (e.kind === "staged" && !restaged.paths.has(p) && !restaged.receipts.has(p) && !(restaged.producers.has(e.producer?.step) && !now.has(p)) && (!now.has(p) || entryKey(now.get(p)) !== entryKey(e))) problems.push(`${p} is a staged sidecar output and ${now.has(p) ? "changed" : "was removed"} after it was staged (a staged entry is immutable for the door run)`);
+  // Evidence (Pulse Windows dev, 2026-11-06): for each staged entry that changed, its sha256 then and now; for a receipt, the fields that differ.
+  for (const [p, e] of prior) {
+    if (e.kind !== "staged" || !now.has(p) || entryKey(now.get(p)) === entryKey(e) || restaged.paths.has(p) || restaged.receipts.has(p)) continue;
+    o.err(`${tag} staged-change evidence: ${p}: sha256 ${String(e.sha256).slice(0, 16)} at staging (${e.size} bytes) -> ${String(now.get(p).sha256).slice(0, 16)} now (${now.get(p).size} bytes)`);
+    const before = ds.stagedReceipts?.get(p);
+    if (before) {
+      try {
+        const a = JSON.parse(before); const b = JSON.parse(fs.readFileSync(path.join(ds.path, p), "utf8"));
+        for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) if (k !== "files" && JSON.stringify(a[k]) !== JSON.stringify(b[k])) o.err(`${tag} staged-change evidence: ${p}: ${k}: ${JSON.stringify(a[k]).slice(0, 200)} -> ${JSON.stringify(b[k]).slice(0, 200)}`);
+        const byName = (list) => new Map((Array.isArray(list) ? list : []).map((f) => [f.name ?? f.dest, f]));
+        const fa = byName(a.files); const fb = byName(b.files);
+        for (const n of new Set([...fa.keys(), ...fb.keys()])) {
+          const x = fa.get(n) ?? {}; const y = fb.get(n) ?? {};
+          const diff = [...new Set([...Object.keys(x), ...Object.keys(y)])].filter((k) => !["changed", "cached"].includes(k) && JSON.stringify(x[k]) !== JSON.stringify(y[k]));
+          if (diff.length) o.err(`${tag} staged-change evidence: ${p}: files[${n}]: ${diff.map((k) => `${k} ${JSON.stringify(x[k]).slice(0, 80)} -> ${JSON.stringify(y[k]).slice(0, 80)}`).join("; ")}`);
+        }
+      } catch (error) { o.err(`${tag} staged-change evidence: ${p}: the receipts could not be compared (${error.message})`); }
+    }
+  }
   if (problems.length) { for (const p of problems.slice(0, 10)) o.err(`${tag} RK_CHECK_ERROR: [${stage}] ${p}`); return { ok: false, entries: ds.ledger?.entries ?? [] }; }
   // The compile's own verify (snapshot-check.mjs, 5.09d) returned the entries it admitted: they must be the entries this walk found.
   if (Array.isArray(ds.compileAdmitted) && stage === "compile") {
@@ -2456,6 +2475,8 @@ export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appD
     const priorPaths = new Set(before.map((e) => e.path));
     const priorByPath = new Map(before.map((e) => [e.path, e]));
     ds.ledger = { entries: walked.entries.map((e) => (priorPaths.has(e.path) && priorByPath.get(e.path).sha256 === e.sha256 ? priorByPath.get(e.path) : { ...e, kind: "staged", producer: { stage: "sidecar", step: config } })) };
+    // Evidence for a later "changed after it was staged": the receipt exactly as this staging wrote it.
+    if (receiptAbs) { try { (ds.stagedReceipts ??= new Map()).set(receiptAbs, fs.readFileSync(path.join(ds.path, receiptAbs), "utf8")); } catch { /* the close names the change without the field diff */ } }
   }
   return true;
 }
@@ -2536,7 +2557,9 @@ export async function stageWebBuildOnce({ o, ds, root, git = null, appDir, cli, 
   try { declared = readDeclaredInputs(ds.path).map((x) => x.split(/[\\/]/).join("/")); }
   catch (e) { if (e instanceof SnapshotRequestError) return true; throw e; } // a malformed declaration refuses in the compile, which names it
   const absent = () => declared.filter((rel) => !(o.exists ?? fs.existsSync)(path.join(ds.path, ...rel.split("/"))));
-  if (!absent().length) return true;
+  // Children of this run (the app's own `right-release web-build` step) reuse these outputs instead of rebuilding them (web-build.mjs).
+  const markBuilt = () => { if (declared.length && o.env) o.env.RK_GATE_WEB_BUILT = snapshotAppRootOf(ds.path, appDir); };
+  if (!absent().length) { markBuilt(); return true; }
   const configs = git ? committedWebBuildConfigs({ o, git, commit, appDir, base: ds.path }) : [];
   if (!configs.length) { o.out(`${tag} [${stage}] declared compile input(s) ${absent().join(", ")} are absent from the snapshot and no release config under ${appDir} declares web.build; the compile will report them missing`); return true; }
   const { declaredOutputProblems } = await import("../stage-ledger.mjs");
@@ -2584,6 +2607,7 @@ export async function stageWebBuildOnce({ o, ds, root, git = null, appDir, cli, 
       } catch (e) { o.out(`${tag} [${stage}] web-build ${config}: the dist cache was not written (${e.message}); the next run builds again`); }
     }
   }
+  if (!absent().length) markBuilt();
   return true;
 }
 
