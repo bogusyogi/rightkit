@@ -903,7 +903,9 @@ const within = (dir, p) => dir === "." || p === dir || p.startsWith(`${dir}/`);
  */
 // A source (a test, usually) that navigates out of its crate at run time without naming the path: the workspace root, the
 // current directory, a bare ".." segment, or the manifest directory's parent. Its tests may read anything in the repository.
-const TEST_LEAVES_CRATE = /CARGO_WORKSPACE_DIR|workspace_root|current_dir\s*\(|"\.\.\/?"|CARGO_MANIFEST_DIR[^;\n]{0,120}\.parent\s*\(|\.ancestors\s*\(/;
+// A comparison with ".." (`name != ".."`), a method whose name only ends in current_dir (`get_current_dir()`), `.ancestors()` of a runtime path and
+// comment text do not leave the crate; they keyed whole crates' tests on the whole tree (rightkit-fs, rightkit-child-process; NN20, 2026-11-06).
+const TEST_LEAVES_CRATE = /CARGO_WORKSPACE_DIR|workspace_root|(?<![A-Za-z0-9_])current_dir\s*\(|(?<![=!]=\s{0,4})"\.\.\/?"|CARGO_MANIFEST_DIR[^;\n]{0,120}\.(?:parent|ancestors)\s*\(/;
 
 export function externalInputs({ dir, files, readBlob, exists, includeRuntimePaths = true }) {
   const paths = new Set(); let unresolved = null; let leavesCrate = null;
@@ -958,7 +960,7 @@ export function externalInputs({ dir, files, readBlob, exists, includeRuntimePat
       for (const m of text.matchAll(RERUN_LITERAL)) consider(file, [dir], m[1].trim());
       if (BUILD_LEAVES_CRATE.test(text)) stop(`${file}: a build script that reads files and navigates out of its crate`);
     }
-    if (includeRuntimePaths && !build && !external && leavesCrate === null && TEST_LEAVES_CRATE.test(text)) leavesCrate = file;
+    if (includeRuntimePaths && !build && !external && leavesCrate === null && TEST_LEAVES_CRATE.test(text.replace(/\/\/[^\n]*/g, ""))) leavesCrate = file;
   };
   for (const file of files) if (file.endsWith(".rs")) enqueue(file, { build: path.posix.basename(file) === "build.rs" && path.posix.dirname(file) === dir });
   // Fixed point: an out-of-crate .rs file that is reached is itself a source, so its own references are followed, and theirs.
@@ -1204,11 +1206,23 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
         const keys = scan.batch.units.map((n) => rustUnitKey(n, scan));
         return keys.includes(undefined) ? whole() : canonicalJson({ kind: "rust-batch", id: scan.id, units: scan.batch.units.map((n, i) => [n, keys[i]]) });
       }
+      // A grouped publisher invocation (publisher-batch:*) is keyed on every crate it names (`-p`), each crate's own key, like a class B batch: on the
+      // whole tree it missed on every commit, whatever the commit touched (NN20).
+      if (/^publisher-batch:/.test(String(scan.id)) && Array.isArray(scan.args)) {
+        const names = scan.args.flatMap((a, i) => (a === "-p" && typeof scan.args[i + 1] === "string" ? [scan.args[i + 1]] : []));
+        if (names.length && names.every((n) => known.has(n))) {
+          const keys = names.map((n) => rustUnitKey(n, scan));
+          if (!keys.includes(undefined)) return canonicalJson({ kind: "rust-batch", id: scan.id, units: names.map((n, i) => [n, keys[i]]) });
+        }
+      }
       const unit = rustUnitOfScanId(scan.id, known);
+      const debug = process.env.RK_GATE_KEY_DEBUG && new RegExp(process.env.RK_GATE_KEY_DEBUG).test(scan.id);
       if (!unit) {
+        if (debug) process.stderr.write(`key-debug ${scan.id}: no Rust unit (known ${known.size})\n`);
         return npmScanKey(scan) ?? whole();
       }
       const keyed = rustUnitKey(unit, scan);
+      if (debug) process.stderr.write(`key-debug ${scan.id}: unit ${unit}, publisherPhase ${scan.publisherPhase}, ${keyed === undefined ? "falls back to the whole tree" : "crate key"}\n`);
       return keyed === undefined ? whole() : keyed;
     } catch (error) { onKeyError?.(scan, error); return null; }
   };
@@ -4936,7 +4950,7 @@ export async function main(argv, io = {}) {
       if (misses.length) {
         const prior = new Map(lookup.scans.map((r) => [r.id, r]));
         const kindOf = (r) => r.cacheMiss?.kind ?? "new";
-        const entries = misses.map((r) => ({ id: r.id, cause: kindOf(r) === "unchanged" ? "nothing changed: the cache failed" : kindOf(r) === "new" ? "no stored result (a new row, or the cache is empty)" : "inputs or environment changed", ...(r.cacheMiss?.why ? { evidence: r.cacheMiss.why } : {}), ...(r.cacheMiss?.last ? { lastPass: r.cacheMiss.last } : {}) })).sort((a, b) => a.id.localeCompare(b.id));
+        const entries = misses.map((r) => ({ id: r.id, cause: kindOf(r) === "unchanged" ? "nothing changed: the cache failed" : kindOf(r) === "new" ? "no stored result (a new row, or the cache is empty)" : "inputs or environment changed", ...(r.cacheMiss?.why ? { evidence: r.cacheMiss.why } : {}), ...(r.cacheMiss?.last ? { lastPass: r.cacheMiss.last } : {}), ...(r.cacheMiss?.now ? { now: r.cacheMiss.now } : {}) })).sort((a, b) => a.id.localeCompare(b.id));
         const byCause = entries.reduce((m, e) => ((m[e.cause] = (m[e.cause] ?? 0) + 1), m), {});
         const changedInputs = {}; for (const e of entries) for (const k of e.evidence?.inputs ?? []) changedInputs[k] = (changedInputs[k] ?? 0) + 1;
         const tools = [...new Set(entries.filter((e) => e.evidence?.tool).map((e) => `${e.evidence.tool.from} -> ${e.evidence.tool.to}`))];

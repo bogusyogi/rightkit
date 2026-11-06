@@ -3322,7 +3322,7 @@ export async function runScans(plan, options = {}) {
               const inputsDigest = keyParts.inputs;
               const envDigest = keyParts.env;
               const idx = cache.read(rowIndexKey)?.row ?? null;
-              row.cacheMiss = { kind: !idx ? "new" : idx.inputs === inputsDigest && idx.env === envDigest ? "unchanged" : "changed", ...(idx ? { last: idx.at ?? null } : {}), ...(idx?.raw ? { why: explainKeyChange(idx.raw, keyParts.raw) } : {}) };
+              row.cacheMiss = { kind: !idx ? "new" : idx.inputs === inputsDigest && idx.env === envDigest ? "unchanged" : "changed", ...(idx ? { last: idx.at ?? null } : {}), ...(idx?.raw ? { why: explainKeyChange(idx.raw, keyParts.raw) } : {}), now: { inputs: keyParts.raw.inputs.slice(0, 4000), toolVersion: keyParts.raw.toolVersion, inherited: keyParts.raw.inherited } };
               row.rowIndex = { key: rowIndexKey, inputs: inputsDigest, env: envDigest, raw: keyParts.raw };
             }
             timing.cacheLookupMs = performance.now() - cacheStarted;
