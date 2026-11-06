@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "pack_version": 1,
-  "sources": "Patterns re-implemented from Mole (tw93/Mole, lib/clean) and Kudu (AdventDevInc/kudu, rules/darwin and rules/win32, MIT). No code copied. Windows rules (platforms: windows) re-implement the same categories for per-user folders only; Delivery Optimization and Windows Update caches need administrator rights and are deliberately not covered.",
+  "pack_version": 2,
+  "sources": "Patterns re-implemented from Mole (tw93/Mole, lib/clean) and Kudu (AdventDevInc/kudu, rules/darwin and rules/win32, MIT). No code copied. Windows rules (platforms: windows) re-implement the same categories for per-user folders only; Delivery Optimization and Windows Update caches need administrator rights and are deliberately not covered. Pack 2 adds 276 rules ported from Kudu's rule data (AdventDevInc/kudu, MIT: see NOTICE), reviewed per bogusyogi/rightkit#1530.",
   "rules": [
     {
       "id": "user-caches", "name": "App caches", "category": "App caches", "risk": "review",
@@ -382,6 +382,1938 @@
       "liveness": "age", "owners": [],
       "reason": "Everything moved here still takes space. Emptying the Trash is your call; do it in Finder.",
       "action": "None"
+    },
+    {
+      "id": "kudu-bun", "name": "Bun Cache", "category": "Package caches", "risk": "safe",
+      "paths": ["~/.bun/install/cache"],
+      "platforms": ["macos", "windows"], "liveness": "owners", "owners": ["bun"],
+      "reason": "Bun fetches or builds these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-claude-code-cache", "name": "Claude Code cache", "category": "App caches", "risk": "review",
+      "paths": ["~/.claude/cache"],
+      "platforms": ["macos", "windows"], "liveness": "name", "owners": ["claude", "node"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Claude Code rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-codex-cache", "name": "Codex Cache", "category": "App caches", "risk": "review",
+      "paths": ["~/.codex/cache"],
+      "platforms": ["macos", "windows"], "liveness": "name", "owners": ["Codex", "codex"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Codex rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-codex-temp", "name": "Codex Temporary Files cache", "category": "App caches", "risk": "review",
+      "paths": ["~/.codex/tmp"],
+      "platforms": ["macos", "windows"], "liveness": "name", "owners": ["Codex", "codex"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Codex rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-gradle-daemon", "name": "Gradle daemon logs and registry", "category": "Developer", "risk": "review",
+      "paths": ["~/.gradle/daemon/*"],
+      "platforms": ["macos", "windows"], "liveness": "owners", "owners": ["gradle", "java", "Android Studio", "studio64"], "min_age_days": 7,
+      "reason": "Daemon logs and registry; Gradle writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-adobe", "name": "Adobe Creative Cloud cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Adobe/Common/Media Cache", "~/Library/Application Support/Adobe/Common/Media Cache Files"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Adobe Premiere Pro", "AfterFX", "Adobe After Effects", "Adobe Media Encoder", "Adobe Audition", "Acrobat", "AcroCEF", "Creative Cloud"], "quiet_days": 7,
+      "reason": "Adobe apps rebuild the media cache, which can take a while on large projects.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-adobe-logs", "name": "Adobe Application Logs", "category": "Logs", "risk": "review",
+      "paths": ["~/Library/Application Support/Adobe/CRLogs"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Adobe Premiere Pro", "AfterFX", "Adobe After Effects", "Adobe Media Encoder", "Adobe Audition", "Acrobat", "Creative Cloud"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-android-studio", "name": "Android Studio", "category": "Developer", "risk": "review",
+      "paths": ["~/Library/Caches/Google/AndroidStudio*/caches"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["studio64", "Android Studio"],
+      "reason": "Android Studio rebuilds its indexes; the first start after this is slower.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-antigravity", "name": "Google Antigravity cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Antigravity/Cache/Cache_Data", "~/Library/Application Support/Antigravity/CachedData", "~/Library/Application Support/Antigravity/Code Cache", "~/Library/Application Support/Antigravity/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Antigravity"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Google Antigravity rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-antigravity-logs", "name": "Google Antigravity logs", "category": "Logs", "risk": "review",
+      "paths": ["~/Library/Application Support/Antigravity/logs"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Antigravity"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-arc-cache", "name": "Arc extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["~/Library/Application Support/Arc/User Data/*/Code Cache", "~/Library/Application Support/Arc/User Data/*/GPUCache", "~/Library/Application Support/Arc/User Data/*/Shared Dictionary/cache", "~/Library/Application Support/Arc/User Data/PnaclTranslationCache", "~/Library/Application Support/Arc/User Data/component_crx_cache", "~/Library/Application Support/Arc/User Data/extensions_crx_cache"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["Arc"], "min_age_days": 1, "label_parent": true,
+      "reason": "Arc downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-arc-sw-cache", "name": "Arc service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Arc/User Data/*/Service Worker/CacheStorage"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["Arc"], "min_age_days": 1, "label_parent": true,
+      "reason": "Offline copies of sites; Arc fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-blender", "name": "Blender cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Blender/*/cache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["blender", "Blender"], "quiet_days": 7,
+      "reason": "Blender rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-brave-cache", "name": "Brave extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["~/Library/Application Support/BraveSoftware/Brave-Browser/*/Code Cache", "~/Library/Application Support/BraveSoftware/Brave-Browser/*/GPUCache", "~/Library/Application Support/BraveSoftware/Brave-Browser/*/Shared Dictionary/cache", "~/Library/Application Support/BraveSoftware/Brave-Browser/PnaclTranslationCache", "~/Library/Application Support/BraveSoftware/Brave-Browser/component_crx_cache", "~/Library/Application Support/BraveSoftware/Brave-Browser/extensions_crx_cache"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["Brave Browser"], "min_age_days": 1, "label_parent": true,
+      "reason": "Brave downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-brave-sw-cache", "name": "Brave service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["~/Library/Application Support/BraveSoftware/Brave-Browser/*/Service Worker/CacheStorage"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["Brave Browser"], "min_age_days": 1, "label_parent": true,
+      "reason": "Offline copies of sites; Brave fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-capcut-logs", "name": "CapCut Desktop logs", "category": "Logs", "risk": "review",
+      "paths": ["~/Library/Application Support/CapCut/Log"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["CapCut", "CapCut.exe"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-chrome-cache", "name": "Google Chrome extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["~/Library/Application Support/Google/Chrome/*/Code Cache", "~/Library/Application Support/Google/Chrome/*/GPUCache", "~/Library/Application Support/Google/Chrome/*/Shared Dictionary/cache", "~/Library/Application Support/Google/Chrome/PnaclTranslationCache", "~/Library/Application Support/Google/Chrome/component_crx_cache", "~/Library/Application Support/Google/Chrome/extensions_crx_cache"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["Google Chrome"], "min_age_days": 1, "label_parent": true,
+      "reason": "Google Chrome downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-chrome-sw-cache", "name": "Google Chrome service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Google/Chrome/*/Service Worker/CacheStorage"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["Google Chrome"], "min_age_days": 1, "label_parent": true,
+      "reason": "Offline copies of sites; Google Chrome fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-chromium-cache", "name": "Chromium extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["~/Library/Application Support/Chromium/*/Code Cache", "~/Library/Application Support/Chromium/*/GPUCache", "~/Library/Application Support/Chromium/*/Shared Dictionary/cache", "~/Library/Application Support/Chromium/PnaclTranslationCache", "~/Library/Application Support/Chromium/component_crx_cache", "~/Library/Application Support/Chromium/extensions_crx_cache"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["Chromium"], "min_age_days": 1, "label_parent": true,
+      "reason": "Chromium downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-chromium-sw-cache", "name": "Chromium service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Chromium/*/Service Worker/CacheStorage"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["Chromium"], "min_age_days": 1, "label_parent": true,
+      "reason": "Offline copies of sites; Chromium fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-claude", "name": "Claude Desktop Caches", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Claude/Cache/Cache_Data", "~/Library/Application Support/Claude/Code Cache", "~/Library/Application Support/Claude/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Claude"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Claude rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-claude-logs", "name": "Claude Logs", "category": "Logs", "risk": "review",
+      "paths": ["~/.claude/debug", "~/.claude/logs"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Claude"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-cursor", "name": "Cursor IDE cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Cursor/Cache/Cache_Data", "~/Library/Application Support/Cursor/CachedData", "~/Library/Application Support/Cursor/Code Cache", "~/Library/Application Support/Cursor/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Cursor"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Cursor IDE rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-cursor-logs", "name": "Cursor IDE logs", "category": "Logs", "risk": "review",
+      "paths": ["~/Library/Application Support/Cursor/logs"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Cursor"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-davinci-resolve-logs", "name": "DaVinci Resolve logs", "category": "Logs", "risk": "review",
+      "paths": ["~/Library/Application Support/Blackmagic Design/DaVinci Resolve/CrashDumps", "~/Library/Application Support/Blackmagic Design/DaVinci Resolve/logs"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Resolve", "DaVinci Resolve"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-discord", "name": "Discord cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/discord/Cache/Cache_Data", "~/Library/Application Support/discord/Code Cache", "~/Library/Application Support/discord/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Discord"], "quiet_days": 7,
+      "reason": "Discord rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-discord-canary", "name": "Discord Canary cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/discordcanary/Cache/Cache_Data", "~/Library/Application Support/discordcanary/Code Cache", "~/Library/Application Support/discordcanary/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["DiscordCanary"], "quiet_days": 7,
+      "reason": "Discord Canary rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-discord-ptb", "name": "Discord PTB cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/discordptb/Cache/Cache_Data", "~/Library/Application Support/discordptb/Code Cache", "~/Library/Application Support/discordptb/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["DiscordPTB"], "quiet_days": 7,
+      "reason": "Discord PTB rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-edge-cache", "name": "Microsoft Edge extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["~/Library/Application Support/Microsoft Edge/*/Code Cache", "~/Library/Application Support/Microsoft Edge/*/GPUCache", "~/Library/Application Support/Microsoft Edge/*/Shared Dictionary/cache", "~/Library/Application Support/Microsoft Edge/PnaclTranslationCache", "~/Library/Application Support/Microsoft Edge/component_crx_cache", "~/Library/Application Support/Microsoft Edge/extensions_crx_cache"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["Microsoft Edge"], "min_age_days": 1, "label_parent": true,
+      "reason": "Microsoft Edge downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-edge-sw-cache", "name": "Microsoft Edge service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Microsoft Edge/*/Service Worker/CacheStorage"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["Microsoft Edge"], "min_age_days": 1, "label_parent": true,
+      "reason": "Offline copies of sites; Microsoft Edge fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-epic", "name": "Epic Games Launcher cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Epic/EpicGamesLauncher/Saved/webcache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["EpicGamesLauncher", "Epic Games Launcher", "EpicWebHelper"], "quiet_days": 7,
+      "reason": "Epic Games Launcher rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-figma", "name": "Figma cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Figma/Cache/Cache_Data", "~/Library/Application Support/Figma/Code Cache", "~/Library/Application Support/Figma/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Figma"], "quiet_days": 7,
+      "reason": "Figma rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-gcloud", "name": "Google Cloud CLI Cache", "category": "Developer", "risk": "review",
+      "paths": ["~/.config/gcloud/cache"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["gcloud", "python", "python3"],
+      "reason": "Google Cloud CLI fetches or builds these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-gcloud-logs", "name": "Google Cloud CLI Cache logs", "category": "Logs", "risk": "review",
+      "paths": ["~/.config/gcloud/logs"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["gcloud", "python", "python3"], "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-github-desktop", "name": "GitHub Desktop cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/GitHub Desktop/Cache/Cache_Data", "~/Library/Application Support/GitHub Desktop/Code Cache", "~/Library/Application Support/GitHub Desktop/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["GitHubDesktop", "GitHub Desktop"], "quiet_days": 7,
+      "reason": "GitHub Desktop rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-helium-cache", "name": "Helium extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["~/Library/Application Support/net.imput.helium/*/Code Cache", "~/Library/Application Support/net.imput.helium/*/GPUCache", "~/Library/Application Support/net.imput.helium/*/Shared Dictionary/cache", "~/Library/Application Support/net.imput.helium/PnaclTranslationCache", "~/Library/Application Support/net.imput.helium/component_crx_cache", "~/Library/Application Support/net.imput.helium/extensions_crx_cache"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["Helium"], "min_age_days": 1, "label_parent": true,
+      "reason": "Helium downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-helium-sw-cache", "name": "Helium service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["~/Library/Application Support/net.imput.helium/*/Service Worker/CacheStorage"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["Helium"], "min_age_days": 1, "label_parent": true,
+      "reason": "Offline copies of sites; Helium fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-heroic", "name": "Heroic Games Launcher cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/heroic/Cache/Cache_Data", "~/Library/Application Support/heroic/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["heroic", "Heroic"], "quiet_days": 7,
+      "reason": "Heroic Games Launcher rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-hyper", "name": "Hyper Terminal cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Hyper/Cache/Cache_Data", "~/Library/Application Support/Hyper/Code Cache", "~/Library/Application Support/Hyper/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Hyper"], "quiet_days": 7,
+      "reason": "Hyper Terminal rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-insomnia", "name": "Insomnia cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Insomnia/Cache/Cache_Data", "~/Library/Application Support/Insomnia/Code Cache", "~/Library/Application Support/Insomnia/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Insomnia"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Insomnia rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-insomnia-logs", "name": "Insomnia logs", "category": "Logs", "risk": "review",
+      "paths": ["~/Library/Application Support/Insomnia/logs"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Insomnia"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-itch", "name": "itch.io cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/itch/Cache/Cache_Data"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["itch"], "quiet_days": 7,
+      "reason": "itch.io rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-itch-logs", "name": "itch.io logs", "category": "Logs", "risk": "review",
+      "paths": ["~/Library/Application Support/itch/logs"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["itch"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-java-cache", "name": "Java Runtime Cache", "category": "Developer", "risk": "review",
+      "paths": ["~/Library/Application Support/Oracle/Java/Deployment/cache"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["javaw", "java", "javaws"],
+      "reason": "Java Runtime fetches or builds these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-linear", "name": "Linear cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Linear/Cache/Cache_Data", "~/Library/Application Support/Linear/Code Cache", "~/Library/Application Support/Linear/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Linear"], "quiet_days": 7,
+      "reason": "Linear rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-lm-studio-logs", "name": "LM Studio logs", "category": "Logs", "risk": "review",
+      "paths": ["~/.cache/lm-studio/server-logs", "~/.lmstudio/server-logs", "~/Library/Application Support/LM-Studio/logs"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["LM Studio", "lms"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-loom", "name": "Loom cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Loom/Cache/Cache_Data", "~/Library/Application Support/Loom/Code Cache", "~/Library/Application Support/Loom/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Loom"], "quiet_days": 7,
+      "reason": "Loom rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-minecraft", "name": "Minecraft Java Edition cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/minecraft/webcache2"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["javaw", "java", "Minecraft", "minecraft-launcher", "MinecraftLauncher"], "quiet_days": 7,
+      "reason": "Minecraft Java Edition rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-minecraft-logs", "name": "Minecraft Java Edition logs", "category": "Logs", "risk": "review",
+      "paths": ["~/Library/Application Support/minecraft/crash-reports", "~/Library/Application Support/minecraft/logs"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["javaw", "java", "Minecraft", "minecraft-launcher", "MinecraftLauncher"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-node-gyp", "name": "node-gyp Cache", "category": "Package caches", "risk": "safe",
+      "paths": ["~/.node-gyp"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["node-gyp", "node", "npm"],
+      "reason": "node-gyp fetches or builds these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-notion", "name": "Notion cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Notion/Cache/Cache_Data", "~/Library/Application Support/Notion/Code Cache", "~/Library/Application Support/Notion/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Notion"], "quiet_days": 7,
+      "reason": "Notion rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-obs-logs", "name": "OBS Studio logs", "category": "Logs", "risk": "review",
+      "paths": ["~/Library/Application Support/obs-studio/logs", "~/Library/Application Support/obs-studio/profiler_data"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["obs64", "obs32", "OBS"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-obsidian", "name": "Obsidian cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/obsidian/Cache/Cache_Data", "~/Library/Application Support/obsidian/Code Cache", "~/Library/Application Support/obsidian/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Obsidian"], "quiet_days": 7,
+      "reason": "Obsidian rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-ollama-logs", "name": "Ollama Logs", "category": "Logs", "risk": "review",
+      "paths": ["~/.ollama/logs"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["ollama", "ollama app", "Ollama"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-opera-cache", "name": "Opera extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["~/Library/Application Support/com.operasoftware.Opera/Code Cache", "~/Library/Application Support/com.operasoftware.Opera/GPUCache", "~/Library/Application Support/com.operasoftware.Opera/PnaclTranslationCache", "~/Library/Application Support/com.operasoftware.Opera/Shared Dictionary/cache", "~/Library/Application Support/com.operasoftware.Opera/component_crx_cache", "~/Library/Application Support/com.operasoftware.Opera/extensions_crx_cache"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["Opera"], "min_age_days": 1,
+      "reason": "Opera downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-opera-sw-cache", "name": "Opera service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["~/Library/Application Support/com.operasoftware.Opera/Service Worker/CacheStorage"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["Opera"], "min_age_days": 1,
+      "reason": "Offline copies of sites; Opera fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-operagx-cache", "name": "Opera GX extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["~/Library/Application Support/com.operasoftware.OperaGX/Code Cache", "~/Library/Application Support/com.operasoftware.OperaGX/GPUCache", "~/Library/Application Support/com.operasoftware.OperaGX/PnaclTranslationCache", "~/Library/Application Support/com.operasoftware.OperaGX/Shared Dictionary/cache", "~/Library/Application Support/com.operasoftware.OperaGX/component_crx_cache", "~/Library/Application Support/com.operasoftware.OperaGX/extensions_crx_cache"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["Opera GX"], "min_age_days": 1,
+      "reason": "Opera GX downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-operagx-sw-cache", "name": "Opera GX service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["~/Library/Application Support/com.operasoftware.OperaGX/Service Worker/CacheStorage"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["Opera GX"], "min_age_days": 1,
+      "reason": "Offline copies of sites; Opera GX fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-postman", "name": "Postman cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Postman/Cache/Cache_Data", "~/Library/Application Support/Postman/Code Cache", "~/Library/Application Support/Postman/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Postman"], "quiet_days": 7,
+      "reason": "Postman rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-qbittorrent-logs", "name": "qBittorrent logs", "category": "Logs", "risk": "review",
+      "paths": ["~/Library/Application Support/qBittorrent/logs"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["qbittorrent"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-signal", "name": "Signal Desktop cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Signal/Cache/Cache_Data", "~/Library/Application Support/Signal/Code Cache", "~/Library/Application Support/Signal/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Signal"], "quiet_days": 7,
+      "reason": "Signal Desktop rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-slack", "name": "Slack cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Slack/Cache/Cache_Data", "~/Library/Application Support/Slack/Code Cache", "~/Library/Application Support/Slack/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["slack"], "quiet_days": 7,
+      "reason": "Slack rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-steam", "name": "Steam cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Steam/appcache/httpcache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["steam", "steamwebhelper", "Steam"], "quiet_days": 7,
+      "reason": "Steam rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-steam-logs", "name": "Steam logs", "category": "Logs", "risk": "review",
+      "paths": ["~/Library/Application Support/Steam/logs"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["steam", "steamwebhelper", "Steam"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-teams", "name": "Microsoft Teams cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Microsoft Teams/Cache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Microsoft Teams"], "quiet_days": 7,
+      "reason": "Microsoft Teams rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-termius", "name": "Termius cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Termius/Cache/Cache_Data", "~/Library/Application Support/Termius/Code Cache", "~/Library/Application Support/Termius/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Termius"], "quiet_days": 7,
+      "reason": "Termius rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-thorium-cache", "name": "Thorium extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["~/Library/Application Support/Thorium/*/Code Cache", "~/Library/Application Support/Thorium/*/GPUCache", "~/Library/Application Support/Thorium/*/Shared Dictionary/cache", "~/Library/Application Support/Thorium/PnaclTranslationCache", "~/Library/Application Support/Thorium/component_crx_cache", "~/Library/Application Support/Thorium/extensions_crx_cache"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["Thorium"], "min_age_days": 1, "label_parent": true,
+      "reason": "Thorium downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-thorium-sw-cache", "name": "Thorium service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Thorium/*/Service Worker/CacheStorage"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["Thorium"], "min_age_days": 1, "label_parent": true,
+      "reason": "Offline copies of sites; Thorium fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-todoist", "name": "Todoist cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Todoist/Cache/Cache_Data", "~/Library/Application Support/Todoist/Code Cache", "~/Library/Application Support/Todoist/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Todoist"], "quiet_days": 7,
+      "reason": "Todoist rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-vivaldi-cache", "name": "Vivaldi extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["~/Library/Application Support/Vivaldi/*/Code Cache", "~/Library/Application Support/Vivaldi/*/GPUCache", "~/Library/Application Support/Vivaldi/*/Shared Dictionary/cache", "~/Library/Application Support/Vivaldi/PnaclTranslationCache", "~/Library/Application Support/Vivaldi/component_crx_cache", "~/Library/Application Support/Vivaldi/extensions_crx_cache"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["Vivaldi"], "min_age_days": 1, "label_parent": true,
+      "reason": "Vivaldi downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-vivaldi-sw-cache", "name": "Vivaldi service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Vivaldi/*/Service Worker/CacheStorage"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["Vivaldi"], "min_age_days": 1, "label_parent": true,
+      "reason": "Offline copies of sites; Vivaldi fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-vscode", "name": "VS Code cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Code/Cache/Cache_Data", "~/Library/Application Support/Code/CachedData", "~/Library/Application Support/Code/CachedExtensionVSIXs", "~/Library/Application Support/Code/Code Cache", "~/Library/Application Support/Code/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Code", "Visual Studio Code", "Electron"], "quiet_days": 7,
+      "reason": "VS Code rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-vscode-insiders", "name": "VS Code Insiders cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Code - Insiders/Cache/Cache_Data", "~/Library/Application Support/Code - Insiders/CachedData", "~/Library/Application Support/Code - Insiders/CachedExtensionVSIXs", "~/Library/Application Support/Code - Insiders/Code Cache", "~/Library/Application Support/Code - Insiders/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Code - Insiders", "Electron"], "quiet_days": 7,
+      "reason": "VS Code Insiders rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-vscode-insiders-logs", "name": "VS Code Insiders logs", "category": "Logs", "risk": "review",
+      "paths": ["~/Library/Application Support/Code - Insiders/logs"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Code - Insiders", "Electron"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-vscode-logs", "name": "VS Code logs", "category": "Logs", "risk": "review",
+      "paths": ["~/Library/Application Support/Code/logs"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Code", "Visual Studio Code", "Electron"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-vscodium", "name": "VSCodium cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/VSCodium/Cache/Cache_Data", "~/Library/Application Support/VSCodium/CachedData", "~/Library/Application Support/VSCodium/CachedExtensionVSIXs", "~/Library/Application Support/VSCodium/Code Cache", "~/Library/Application Support/VSCodium/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["VSCodium", "Electron"], "quiet_days": 7,
+      "reason": "VSCodium rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-vscodium-logs", "name": "VSCodium logs", "category": "Logs", "risk": "review",
+      "paths": ["~/Library/Application Support/VSCodium/logs"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["VSCodium", "Electron"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-whatsapp", "name": "WhatsApp Desktop cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/WhatsApp/Cache/Cache_Data"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["WhatsApp"], "quiet_days": 7,
+      "reason": "WhatsApp Desktop rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-windsurf", "name": "Windsurf IDE cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/Windsurf/Cache/Cache_Data", "~/Library/Application Support/Windsurf/CachedData", "~/Library/Application Support/Windsurf/Code Cache", "~/Library/Application Support/Windsurf/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Windsurf"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Windsurf IDE rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-windsurf-logs", "name": "Windsurf IDE logs", "category": "Logs", "risk": "review",
+      "paths": ["~/Library/Application Support/Windsurf/logs"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Windsurf"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-xcode-device-logs", "name": "Xcode device logs", "category": "Developer", "risk": "review",
+      "paths": ["~/Library/Developer/Xcode/iOS Device Logs/*"],
+      "platforms": ["macos"], "liveness": "owners", "owners": ["Xcode"], "min_age_days": 30,
+      "reason": "Logs copied from a connected device; Xcode copies new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-zoom", "name": "Zoom cache", "category": "App caches", "risk": "review",
+      "paths": ["~/Library/Application Support/zoom.us/data/Cache", "~/Library/Application Support/zoom.us/data/GPUCache"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Zoom", "zoom.us", "CptHost"], "quiet_days": 7,
+      "reason": "Zoom rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-mac-zoom-logs", "name": "Zoom logs", "category": "Logs", "risk": "review",
+      "paths": ["~/Library/Application Support/zoom.us/data/logs"],
+      "platforms": ["macos"], "liveness": "name", "owners": ["Zoom", "zoom.us", "CptHost"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-adobe", "name": "Adobe Creative Cloud cache", "category": "App caches", "risk": "review",
+      "paths": ["%APPDATA%/Adobe/Common/Media Cache", "%APPDATA%/Adobe/Common/Media Cache Files", "%LOCALAPPDATA%/Adobe/AcroCef/Cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Adobe Premiere Pro", "AfterFX", "Adobe After Effects", "Adobe Media Encoder", "Adobe Audition", "Acrobat", "AcroCEF", "Creative Cloud"], "quiet_days": 7,
+      "reason": "Adobe apps rebuild the media cache, which can take a while on large projects.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-adobe-logs", "name": "Adobe Application Logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/Adobe/After Effects/Logs", "%APPDATA%/Adobe/CRLogs", "%APPDATA%/Adobe/Logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Adobe Premiere Pro", "AfterFX", "Adobe After Effects", "Adobe Media Encoder", "Adobe Audition", "Acrobat", "Creative Cloud"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-amazon-games", "name": "Amazon Games cache", "category": "App caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Amazon Games/App/CEFCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Amazon Games"], "quiet_days": 7,
+      "reason": "Amazon Games rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-amazon-games-logs", "name": "Amazon Games logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Amazon Games/Data/Logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Amazon Games"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-android-studio", "name": "Android Studio", "category": "Developer", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Google/AndroidStudio*/caches"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["studio64", "Android Studio"],
+      "reason": "Android Studio rebuilds its indexes; the first start after this is slower.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-antigravity", "name": "Google Antigravity cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Antigravity/Cache/Cache_Data", "%APPDATA%/Antigravity/CachedData", "%APPDATA%/Antigravity/CachedExtensionVSIXs", "%APPDATA%/Antigravity/Code Cache", "%APPDATA%/Antigravity/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Antigravity"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Google Antigravity rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-antigravity-logs", "name": "Google Antigravity logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/Antigravity/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Antigravity"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-arc-cache", "name": "Arc extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/Arc/User Data/*/Cache/Cache_Data", "%LOCALAPPDATA%/Arc/User Data/*/Code Cache", "%LOCALAPPDATA%/Arc/User Data/*/GPUCache", "%LOCALAPPDATA%/Arc/User Data/*/Shared Dictionary/cache", "%LOCALAPPDATA%/Arc/User Data/PnaclTranslationCache", "%LOCALAPPDATA%/Arc/User Data/component_crx_cache", "%LOCALAPPDATA%/Arc/User Data/extensions_crx_cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["arc"], "min_age_days": 1, "label_parent": true,
+      "reason": "Arc downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-arc-sw-cache", "name": "Arc service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Arc/User Data/*/Service Worker/CacheStorage"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["arc"], "min_age_days": 1, "label_parent": true,
+      "reason": "Offline copies of sites; Arc fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-battlenet", "name": "Battle.net cache", "category": "App caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Battle.net/Cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Battle.net", "Battle.net Launcher"], "quiet_days": 7,
+      "reason": "Battle.net rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-battlenet-logs", "name": "Battle.net logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/Battle.net/Logs", "%LOCALAPPDATA%/Blizzard Entertainment/Battle.net/Logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Battle.net", "Battle.net Launcher"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-blender", "name": "Blender cache", "category": "App caches", "risk": "review",
+      "paths": ["%APPDATA%/Blender Foundation/Blender/*/cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["blender", "Blender"], "quiet_days": 7,
+      "reason": "Blender rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-bramblewatch", "name": "Bramblewatch cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Bramblewatch/Cache/Cache_Data", "%APPDATA%/Bramblewatch/Code Cache", "%APPDATA%/Bramblewatch/GPUCache", "%APPDATA%/Bramblewatch/Shared Dictionary/cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Bramblewatch"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Bramblewatch rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-bramblewatch-logs", "name": "Bramblewatch logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/Bramblewatch/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Bramblewatch"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-brave-cache", "name": "Brave extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/BraveSoftware/Brave-Browser/User Data/*/Shared Dictionary/cache", "%LOCALAPPDATA%/BraveSoftware/Brave-Browser/User Data/PnaclTranslationCache", "%LOCALAPPDATA%/BraveSoftware/Brave-Browser/User Data/component_crx_cache", "%LOCALAPPDATA%/BraveSoftware/Brave-Browser/User Data/extensions_crx_cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["brave"], "min_age_days": 1, "label_parent": true,
+      "reason": "Brave downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-brave-sw-cache", "name": "Brave service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/BraveSoftware/Brave-Browser/User Data/*/Service Worker/CacheStorage"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["brave"], "min_age_days": 1, "label_parent": true,
+      "reason": "Offline copies of sites; Brave fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-buzz-node-cache", "name": "Buzz Node Tools Cache", "category": "App caches", "risk": "review",
+      "paths": ["%APPDATA%/Buzz/node-tools/cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Buzz"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Buzz Node Tools rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-capcut-logs", "name": "CapCut Desktop logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/CapCut/User Data/Log"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["CapCut", "CapCut.exe"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-catsxp-cache", "name": "CatsXP extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/ArcSoft/CatsXP/User Data/*/Cache/Cache_Data", "%LOCALAPPDATA%/ArcSoft/CatsXP/User Data/*/Code Cache", "%LOCALAPPDATA%/ArcSoft/CatsXP/User Data/*/GPUCache", "%LOCALAPPDATA%/ArcSoft/CatsXP/User Data/*/Shared Dictionary/cache", "%LOCALAPPDATA%/ArcSoft/CatsXP/User Data/PnaclTranslationCache", "%LOCALAPPDATA%/ArcSoft/CatsXP/User Data/component_crx_cache", "%LOCALAPPDATA%/ArcSoft/CatsXP/User Data/extensions_crx_cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["catsxp"], "min_age_days": 1, "label_parent": true,
+      "reason": "CatsXP downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-catsxp-sw-cache", "name": "CatsXP service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/ArcSoft/CatsXP/User Data/*/Service Worker/CacheStorage"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["catsxp"], "min_age_days": 1, "label_parent": true,
+      "reason": "Offline copies of sites; CatsXP fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-chatgpt-desktop-cache", "name": "ChatGPT Desktop Caches", "category": "App caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/Packages/OpenAI.ChatGPT-Desktop_2p2nqsd0c76g0/LocalCache/Roaming/ChatGPT/Cache/Cache_Data", "%LOCALAPPDATA%/Packages/OpenAI.ChatGPT-Desktop_2p2nqsd0c76g0/LocalCache/Roaming/ChatGPT/Code Cache", "%LOCALAPPDATA%/Packages/OpenAI.ChatGPT-Desktop_2p2nqsd0c76g0/LocalCache/Roaming/ChatGPT/GPUCache", "%LOCALAPPDATA%/Packages/OpenAI.ChatGPT-Desktop_2p2nqsd0c76g0/LocalCache/Roaming/ChatGPT/Shared Dictionary/cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["ChatGPT"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "ChatGPT rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-chatgpt-desktop-crash-reports", "name": "ChatGPT Desktop Crash Reports", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Packages/OpenAI.ChatGPT-Desktop_2p2nqsd0c76g0/LocalCache/Roaming/ChatGPT/Crashpad/reports"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["ChatGPT"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-chatgpt-desktop-logs", "name": "ChatGPT Desktop Logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Packages/OpenAI.ChatGPT-Desktop_2p2nqsd0c76g0/LocalCache/Local/ChatGPT/Logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["ChatGPT"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-chatgpt-desktop-partitions", "name": "ChatGPT Desktop Partition Caches", "category": "App caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/Packages/OpenAI.ChatGPT-Desktop_2p2nqsd0c76g0/LocalCache/Roaming/ChatGPT/Partitions/*/Cache", "%LOCALAPPDATA%/Packages/OpenAI.ChatGPT-Desktop_2p2nqsd0c76g0/LocalCache/Roaming/ChatGPT/Partitions/*/Code Cache", "%LOCALAPPDATA%/Packages/OpenAI.ChatGPT-Desktop_2p2nqsd0c76g0/LocalCache/Roaming/ChatGPT/Partitions/*/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["ChatGPT"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "ChatGPT rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-chrome-cache", "name": "Google Chrome extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/Google/Chrome/User Data/*/Shared Dictionary/cache", "%LOCALAPPDATA%/Google/Chrome/User Data/PnaclTranslationCache", "%LOCALAPPDATA%/Google/Chrome/User Data/component_crx_cache", "%LOCALAPPDATA%/Google/Chrome/User Data/extensions_crx_cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["chrome"], "min_age_days": 1, "label_parent": true,
+      "reason": "Google Chrome downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-chrome-sw-cache", "name": "Google Chrome service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Google/Chrome/User Data/*/Service Worker/CacheStorage"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["chrome"], "min_age_days": 1, "label_parent": true,
+      "reason": "Offline copies of sites; Google Chrome fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-chromium-cache", "name": "Chromium extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/Chromium/User Data/*/Cache/Cache_Data", "%LOCALAPPDATA%/Chromium/User Data/*/Code Cache", "%LOCALAPPDATA%/Chromium/User Data/*/GPUCache", "%LOCALAPPDATA%/Chromium/User Data/*/Shared Dictionary/cache", "%LOCALAPPDATA%/Chromium/User Data/PnaclTranslationCache", "%LOCALAPPDATA%/Chromium/User Data/component_crx_cache", "%LOCALAPPDATA%/Chromium/User Data/extensions_crx_cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["chromium", "chrome"], "min_age_days": 1, "label_parent": true,
+      "reason": "Chromium downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-chromium-sw-cache", "name": "Chromium service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Chromium/User Data/*/Service Worker/CacheStorage"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["chromium", "chrome"], "min_age_days": 1, "label_parent": true,
+      "reason": "Offline copies of sites; Chromium fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-claude", "name": "Claude Desktop Caches", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Claude/Cache/Cache_Data", "%APPDATA%/Claude/Code Cache", "%APPDATA%/Claude/GPUCache", "%APPDATA%/Claude/Shared Dictionary/cache", "%LOCALAPPDATA%/Packages/Claude_pzs8sxrjxfjjc/LocalCache/Roaming/Claude/Cache/Cache_Data", "%LOCALAPPDATA%/Packages/Claude_pzs8sxrjxfjjc/LocalCache/Roaming/Claude/Code Cache", "%LOCALAPPDATA%/Packages/Claude_pzs8sxrjxfjjc/LocalCache/Roaming/Claude/GPUCache", "%LOCALAPPDATA%/Packages/Claude_pzs8sxrjxfjjc/LocalCache/Roaming/Claude/Shared Dictionary/cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Claude"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Claude rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-claude-crash-reports", "name": "Claude Crash Reports", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/Claude/Crashpad/reports", "%LOCALAPPDATA%/Packages/Claude_pzs8sxrjxfjjc/LocalCache/Roaming/Claude/Crashpad/reports"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Claude"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-claude-logs", "name": "Claude Logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/Claude/logs", "%LOCALAPPDATA%/Claude/Logs", "%LOCALAPPDATA%/Packages/Claude_pzs8sxrjxfjjc/LocalCache/Local/Claude/Logs", "~/.claude/debug", "~/.claude/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Claude"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-claude-partitions", "name": "Claude Desktop Partition Caches", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Claude/Partitions/*/Cache", "%APPDATA%/Claude/Partitions/*/Code Cache", "%APPDATA%/Claude/Partitions/*/GPUCache", "%LOCALAPPDATA%/Packages/Claude_pzs8sxrjxfjjc/LocalCache/Roaming/Claude/Partitions/*/Cache", "%LOCALAPPDATA%/Packages/Claude_pzs8sxrjxfjjc/LocalCache/Roaming/Claude/Partitions/*/Code Cache", "%LOCALAPPDATA%/Packages/Claude_pzs8sxrjxfjjc/LocalCache/Roaming/Claude/Partitions/*/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Claude"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Claude rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-codex-desktop-cache", "name": "Codex Desktop Caches", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Codex/Cache/Cache_Data", "%APPDATA%/Codex/Code Cache", "%APPDATA%/Codex/GPUCache", "%APPDATA%/Codex/Shared Dictionary/cache", "%LOCALAPPDATA%/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Roaming/Codex/Cache/Cache_Data", "%LOCALAPPDATA%/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Roaming/Codex/Code Cache", "%LOCALAPPDATA%/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Roaming/Codex/GPUCache", "%LOCALAPPDATA%/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Roaming/Codex/Shared Dictionary/cache", "%LOCALAPPDATA%/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Roaming/Codex/web/Codex/codex-browser-app/Cache/Cache_Data", "%LOCALAPPDATA%/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Roaming/Codex/web/Codex/codex-browser-app/Code Cache", "%LOCALAPPDATA%/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Roaming/Codex/web/Codex/codex-browser-app/GPUCache", "%LOCALAPPDATA%/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Roaming/Codex/web/Codex/codex-browser-app/Shared Dictionary/cache", "%LOCALAPPDATA%/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Roaming/Codex/web/Codex/component_crx_cache", "%LOCALAPPDATA%/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Roaming/Codex/web/Codex/Default/Cache/Cache_Data", "%LOCALAPPDATA%/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Roaming/Codex/web/Codex/Default/Code Cache", "%LOCALAPPDATA%/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Roaming/Codex/web/Codex/Default/GPUCache", "%LOCALAPPDATA%/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Roaming/Codex/web/Codex/Default/Shared Dictionary/cache", "%LOCALAPPDATA%/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Roaming/Codex/web/Codex/extensions_crx_cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Codex"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Codex rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-codex-desktop-crash-reports", "name": "Codex Desktop Crash Reports", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/Codex/Crashpad/reports", "%LOCALAPPDATA%/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Roaming/Codex/Crashpad/reports", "%LOCALAPPDATA%/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Roaming/Codex/web/Codex/Crashpad/reports"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Codex"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-codex-desktop-logs", "name": "Codex Desktop Logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/Codex/logs", "%LOCALAPPDATA%/Codex/Logs", "%LOCALAPPDATA%/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Local/Codex/Logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Codex"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-codex-desktop-partitions", "name": "Codex Desktop Partition Caches", "category": "App caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Roaming/Codex/web/Codex/Default/Partitions/*/Cache", "%LOCALAPPDATA%/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Roaming/Codex/web/Codex/Default/Partitions/*/Code Cache", "%LOCALAPPDATA%/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Roaming/Codex/web/Codex/Default/Partitions/*/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Codex"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Codex rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-composer", "name": "Composer Cache", "category": "Package caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/Composer/cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["composer", "php"],
+      "reason": "Composer fetches or builds these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-cromite-cache", "name": "Cromite extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/Cromite/User Data/*/Cache/Cache_Data", "%LOCALAPPDATA%/Cromite/User Data/*/Code Cache", "%LOCALAPPDATA%/Cromite/User Data/*/GPUCache", "%LOCALAPPDATA%/Cromite/User Data/*/Shared Dictionary/cache", "%LOCALAPPDATA%/Cromite/User Data/PnaclTranslationCache", "%LOCALAPPDATA%/Cromite/User Data/component_crx_cache", "%LOCALAPPDATA%/Cromite/User Data/extensions_crx_cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["cromite", "chrome"], "min_age_days": 1, "label_parent": true,
+      "reason": "Cromite downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-cromite-sw-cache", "name": "Cromite service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Cromite/User Data/*/Service Worker/CacheStorage"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["cromite", "chrome"], "min_age_days": 1, "label_parent": true,
+      "reason": "Offline copies of sites; Cromite fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-curseforge", "name": "CurseForge cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/CurseForge/Cache/Cache_Data", "%APPDATA%/CurseForge/Code Cache", "%APPDATA%/CurseForge/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["CurseForge"], "quiet_days": 7,
+      "reason": "CurseForge rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-curseforge-logs", "name": "CurseForge logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/CurseForge/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["CurseForge"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-cursor", "name": "Cursor IDE cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Cursor/Cache/Cache_Data", "%APPDATA%/Cursor/CachedData", "%APPDATA%/Cursor/CachedExtensions", "%APPDATA%/Cursor/Code Cache", "%APPDATA%/Cursor/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Cursor"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Cursor IDE rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-cursor-logs", "name": "Cursor IDE logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/Cursor/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Cursor"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-cursor-partitions", "name": "Cursor IDE Partitions cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Cursor/Partitions/*/Cache", "%APPDATA%/Cursor/Partitions/*/Code Cache", "%APPDATA%/Cursor/Partitions/*/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Cursor IDE"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Cursor IDE rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-davinci-resolve-logs", "name": "DaVinci Resolve logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/Blackmagic Design/DaVinci Resolve/Support/CrashDumps", "%APPDATA%/Blackmagic Design/DaVinci Resolve/Support/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Resolve", "DaVinci Resolve"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-discord-canary", "name": "Discord Canary cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/discordcanary/Cache/Cache_Data", "%APPDATA%/discordcanary/Code Cache", "%APPDATA%/discordcanary/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["DiscordCanary"], "quiet_days": 7,
+      "reason": "Discord Canary rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-discord-logs", "name": "Discord logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/discord/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Discord"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-discord-ptb", "name": "Discord PTB cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/discordptb/Cache/Cache_Data", "%APPDATA%/discordptb/Code Cache", "%APPDATA%/discordptb/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["DiscordPTB"], "quiet_days": 7,
+      "reason": "Discord PTB rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-docker", "name": "Docker Desktop cache", "category": "App caches", "risk": "review",
+      "paths": ["%APPDATA%/Docker Desktop/cache", "%APPDATA%/Docker Desktop/Code Cache", "%APPDATA%/Docker Desktop/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Docker Desktop", "com.docker.backend", "Docker Desktop Backend"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Docker Desktop rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-docker-logs", "name": "Docker Desktop logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Docker/log/host", "%LOCALAPPDATA%/Docker/log/vm"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Docker Desktop", "com.docker.backend", "Docker Desktop Backend"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-dotnet-usage-logs", "name": ".NET usage logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Microsoft/CLR_v4.0/UsageLogs/*"],
+      "platforms": ["windows"], "liveness": "name", "owners": [], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and diagnostic files; Windows writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-dotnet-usage-logs-32", "name": ".NET usage logs (32-bit)", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Microsoft/CLR_v4.0_32/UsageLogs/*"],
+      "platforms": ["windows"], "liveness": "name", "owners": [], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and diagnostic files; Windows writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-ea", "name": "EA App cache", "category": "App caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/EADesktop/cache", "%LOCALAPPDATA%/Electronic Arts/EA Desktop/IGOCache", "%LOCALAPPDATA%/Origin/cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["EADesktop", "EALauncher", "Origin"], "quiet_days": 7,
+      "reason": "EA App rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-ea-logs", "name": "EA App logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Electronic Arts/EA Desktop/Logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["EADesktop", "EALauncher", "Origin"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-edge-cache", "name": "Microsoft Edge extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/Microsoft/Edge/User Data/*/Shared Dictionary/cache", "%LOCALAPPDATA%/Microsoft/Edge/User Data/PnaclTranslationCache", "%LOCALAPPDATA%/Microsoft/Edge/User Data/component_crx_cache", "%LOCALAPPDATA%/Microsoft/Edge/User Data/extensions_crx_cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["msedge"], "min_age_days": 1, "label_parent": true,
+      "reason": "Microsoft Edge downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-edge-sw-cache", "name": "Microsoft Edge service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Microsoft/Edge/User Data/*/Service Worker/CacheStorage"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["msedge"], "min_age_days": 1, "label_parent": true,
+      "reason": "Offline copies of sites; Microsoft Edge fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-electron", "name": "Electron Runtime Cache", "category": "Package caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/electron/Cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["electron", "node", "npm"],
+      "reason": "Electron Runtime fetches or builds these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-electron-builder", "name": "electron-builder Cache", "category": "Package caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/electron-builder/Cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["electron-builder", "node", "npm", "pnpm", "yarn"],
+      "reason": "electron-builder fetches or builds these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-elevated-diagnostics", "name": "Troubleshooter results", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/ElevatedDiagnostics/*"],
+      "platforms": ["windows"], "liveness": "name", "owners": [], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and diagnostic files; Windows writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-epic", "name": "Epic Games Launcher cache", "category": "App caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/EpicGamesLauncher/Saved/webcache", "%LOCALAPPDATA%/EpicGamesLauncher/Saved/webcache_4430"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["EpicGamesLauncher", "Epic Games Launcher", "EpicWebHelper"], "quiet_days": 7,
+      "reason": "Epic Games Launcher rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-epic-logs", "name": "Epic Games Launcher logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/EpicGamesLauncher/Saved/Logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["EpicGamesLauncher", "Epic Games Launcher", "EpicWebHelper"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-epic-webcache", "name": "Epic Games Launcher Web Cache", "category": "App caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/EpicGamesLauncher/Saved/webcache_4147"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["EpicGamesLauncher", "Epic Games Launcher", "EpicWebHelper"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Epic Games Launcher Web rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-ffmpeg-static", "name": "ffmpeg-static Cache", "category": "Package caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/ffmpeg-static-nodejs/Cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["node", "npm", "ffmpeg"],
+      "reason": "ffmpeg-static fetches or builds these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-figma", "name": "Figma cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Figma/Cache/Cache_Data", "%APPDATA%/Figma/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Figma"], "quiet_days": 7,
+      "reason": "Figma rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-filezilla", "name": "FileZilla cache", "category": "App caches", "risk": "review",
+      "paths": ["%APPDATA%/FileZilla/cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["filezilla"], "quiet_days": 7,
+      "reason": "FileZilla rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-firefox-crash-history", "name": "Firefox Crash History", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/Mozilla/Firefox/Crash Reports/events", "%APPDATA%/Mozilla/Firefox/Crash Reports/glean", "%APPDATA%/Mozilla/Firefox/Crash Reports/submitted"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["firefox"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-firefox-pending-crashes", "name": "Old Firefox Pending Crashes", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/Mozilla/Firefox/Crash Reports/pending"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["firefox"], "quiet_days": 7, "min_age_days": 30,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-floorp-cache", "name": "Floorp cache", "category": "Browser caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/Floorp/Profiles/*/cache2", "%LOCALAPPDATA%/Floorp/Profiles/*/startupCache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["floorp"], "min_age_days": 1, "label_parent": true,
+      "reason": "Floorp downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-fontconfig", "name": "fontconfig cache", "category": "App caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/fontconfig/cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": [], "quiet_days": 7,
+      "reason": "fontconfig rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-fortnite-logs", "name": "Fortnite logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/FortniteGame/Saved/Crashes", "%LOCALAPPDATA%/FortniteGame/Saved/Logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["FortniteClient-Win64-Shipping", "EpicGamesLauncher"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-gcloud", "name": "Google Cloud CLI Cache", "category": "Developer", "risk": "review",
+      "paths": ["%APPDATA%/gcloud/cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["gcloud", "python", "python3"],
+      "reason": "Google Cloud CLI fetches or builds these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-gcloud-logs", "name": "Google Cloud CLI Cache logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/gcloud/logs"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["gcloud", "python", "python3"], "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-gimp", "name": "GIMP cache", "category": "App caches", "risk": "review",
+      "paths": ["%APPDATA%/GIMP/*/tmp"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["gimp", "gimp-2.10", "GIMP"], "quiet_days": 7,
+      "reason": "GIMP rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-git-project-updater", "name": "Git Project Updater cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/git-project-updater/Cache/Cache_Data", "%APPDATA%/git-project-updater/Code Cache", "%APPDATA%/git-project-updater/GPUCache", "%APPDATA%/git-project-updater/Shared Dictionary/cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Git Project Updater"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Git Project Updater rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-git-project-updater-logs", "name": "Git Project Updater logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/git-project-updater/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Git Project Updater"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-github-copilot-logs", "name": "GitHub Copilot Logs", "category": "Logs", "risk": "review",
+      "paths": ["~/.copilot/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Code", "Electron", "copilot"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-github-desktop", "name": "GitHub Desktop cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/GitHub Desktop/Cache/Cache_Data", "%APPDATA%/GitHub Desktop/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["GitHubDesktop", "GitHub Desktop"], "quiet_days": 7,
+      "reason": "GitHub Desktop rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-gog", "name": "GOG Galaxy cache", "category": "App caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/GOG.com/Galaxy/webcache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["GalaxyClient", "GOG Galaxy"], "quiet_days": 7,
+      "reason": "GOG Galaxy rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-google-drive", "name": "Google Drive cache", "category": "App caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/Google/DriveFS/cef_cache/Cache/Cache_Data", "%LOCALAPPDATA%/Google/DriveFS/cef_cache/Code Cache", "%LOCALAPPDATA%/Google/DriveFS/cef_cache/component_crx_cache", "%LOCALAPPDATA%/Google/DriveFS/cef_cache/Shared Dictionary/cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["GoogleDriveFS"], "quiet_days": 7,
+      "reason": "Google Drive rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-google-drive-logs", "name": "Google Drive logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Google/DriveFS/Logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["GoogleDriveFS"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-google-earth", "name": "Google Earth cache", "category": "App caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Google/GoogleEarth/Cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["googleearth", "Google Earth Pro"], "quiet_days": 7,
+      "reason": "Google Earth downloads imagery again when it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-granola", "name": "Granola cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Granola/Cache/Cache_Data"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Granola"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Granola rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-handbrake-logs", "name": "HandBrake logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/HandBrake/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["HandBrake", "handbrake"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-hearthglen", "name": "Hearthglen cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/hearthglen/Cache/Cache_Data", "%APPDATA%/hearthglen/Code Cache", "%APPDATA%/hearthglen/GPUCache", "%APPDATA%/hearthglen/Shared Dictionary/cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Hearthglen"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Hearthglen rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-helium-cache", "name": "Helium extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/imput/Helium/User Data/*/Cache/Cache_Data", "%LOCALAPPDATA%/imput/Helium/User Data/*/Code Cache", "%LOCALAPPDATA%/imput/Helium/User Data/*/GPUCache", "%LOCALAPPDATA%/imput/Helium/User Data/*/Shared Dictionary/cache", "%LOCALAPPDATA%/imput/Helium/User Data/PnaclTranslationCache", "%LOCALAPPDATA%/imput/Helium/User Data/component_crx_cache", "%LOCALAPPDATA%/imput/Helium/User Data/extensions_crx_cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["helium"], "min_age_days": 1, "label_parent": true,
+      "reason": "Helium downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-helium-sw-cache", "name": "Helium service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/imput/Helium/User Data/*/Service Worker/CacheStorage"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["helium"], "min_age_days": 1, "label_parent": true,
+      "reason": "Offline copies of sites; Helium fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-hyper", "name": "Hyper Terminal cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Hyper/Cache/Cache_Data", "%APPDATA%/Hyper/Code Cache", "%APPDATA%/Hyper/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Hyper"], "quiet_days": 7,
+      "reason": "Hyper Terminal rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-inetcache", "name": "Internet cache (INetCache)", "category": "System caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Microsoft/Windows/INetCache/*"], "exclude_names": ["Content.Excel", "Content.MSO", "Content.Outlook", "Content.Word"],
+      "platforms": ["windows"], "liveness": "name", "owners": [], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Cached web content that Windows and apps download again; Outlook's attachment folder is left alone.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-inkscape", "name": "Inkscape cache", "category": "App caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/inkscape/cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["inkscape"], "quiet_days": 7,
+      "reason": "Inkscape rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-insomnia", "name": "Insomnia cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Insomnia/Cache/Cache_Data", "%APPDATA%/Insomnia/Code Cache", "%APPDATA%/Insomnia/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Insomnia"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Insomnia rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-insomnia-logs", "name": "Insomnia logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/Insomnia/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Insomnia"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-itch", "name": "itch.io cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/itch/Cache/Cache_Data"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["itch"], "quiet_days": 7,
+      "reason": "itch.io rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-itch-logs", "name": "itch.io logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/itch/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["itch"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-java-cache", "name": "Java Runtime Cache", "category": "Developer", "risk": "review",
+      "paths": ["~/AppData/LocalLow/Sun/Java/Deployment/cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["javaw", "java", "javaws"],
+      "reason": "Java Runtime fetches or builds these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-jetbrains", "name": "JetBrains IDEs", "category": "Developer", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/JetBrains/*/caches"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["idea64", "pycharm64", "webstorm64", "clion64", "goland64", "rider64", "phpstorm64", "rubymine64", "datagrip64", "studio64", "fleet", "IntelliJ IDEA", "PyCharm", "WebStorm", "CLion", "GoLand", "Rider", "PhpStorm", "RubyMine", "DataGrip", "Android Studio"],
+      "reason": "The IDE rebuilds its indexes; the first start after this is slower.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-jetbrains-logs", "name": "JetBrains IDE Logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/JetBrains/*/log"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["idea64", "pycharm64", "webstorm64", "clion64", "goland64", "rider64", "phpstorm64", "rubymine64", "datagrip64", "studio64", "fleet", "IntelliJ IDEA", "PyCharm", "WebStorm", "CLion", "GoLand", "Rider", "PhpStorm", "RubyMine", "DataGrip", "Android Studio"], "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-krita", "name": "Krita cache", "category": "App caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/krita/cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["krita"], "quiet_days": 7,
+      "reason": "Krita rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-kudu", "name": "Kudu cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/kudu/Cache/Cache_Data", "%APPDATA%/kudu/Code Cache", "%APPDATA%/kudu/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Kudu"], "quiet_days": 7,
+      "reason": "Kudu rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-kudu-logs", "name": "Kudu logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/kudu/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Kudu"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-libreoffice", "name": "LibreOffice cache", "category": "App caches", "risk": "review",
+      "paths": ["%APPDATA%/LibreOffice/*/cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["soffice.bin", "soffice", "LibreOffice"], "quiet_days": 7,
+      "reason": "LibreOffice rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-librewolf-cache", "name": "Librewolf cache", "category": "Browser caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/LibreWolf/Profiles/*/cache2", "%LOCALAPPDATA%/LibreWolf/Profiles/*/startupCache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["librewolf"], "min_age_days": 1, "label_parent": true,
+      "reason": "Librewolf downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-linear", "name": "Linear cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Linear/Cache/Cache_Data", "%APPDATA%/Linear/Code Cache", "%APPDATA%/Linear/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Linear"], "quiet_days": 7,
+      "reason": "Linear rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-lm-studio", "name": "LM Studio cache", "category": "App caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/LM-Studio/Cache/Cache_Data", "%LOCALAPPDATA%/LM-Studio/Code Cache", "%LOCALAPPDATA%/LM-Studio/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["LM Studio", "lms"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "LM Studio rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-lm-studio-logs", "name": "LM Studio logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/LM-Studio/logs", "~/.cache/lm-studio/server-logs", "~/.lmstudio/server-logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["LM Studio", "lms"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-logitech-ghub", "name": "Logitech G HUB cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/G HUB/Cache/Cache_Data", "%APPDATA%/G HUB/Code Cache", "%APPDATA%/G HUB/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["lghub", "lghub_agent", "G HUB"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Logitech G HUB rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-loom", "name": "Loom cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Loom/Cache/Cache_Data", "%APPDATA%/Loom/Code Cache", "%APPDATA%/Loom/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Loom"], "quiet_days": 7,
+      "reason": "Loom rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-minecraft", "name": "Minecraft Java Edition cache", "category": "App caches", "risk": "review",
+      "paths": ["%APPDATA%/.minecraft/webcache2"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["javaw", "java", "Minecraft", "minecraft-launcher", "MinecraftLauncher"], "quiet_days": 7,
+      "reason": "Minecraft Java Edition rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-minecraft-logs", "name": "Minecraft Java Edition logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/.minecraft/crash-reports", "%APPDATA%/.minecraft/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["javaw", "java", "Minecraft", "minecraft-launcher", "MinecraftLauncher"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-modern-mtr", "name": "Modern MTR cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Modern MTR/Cache/Cache_Data", "%APPDATA%/Modern MTR/Code Cache", "%APPDATA%/Modern MTR/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Modern MTR"], "quiet_days": 7,
+      "reason": "Modern MTR rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-node-gyp", "name": "node-gyp Cache", "category": "Package caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/node-gyp/Cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["node-gyp", "node", "npm"],
+      "reason": "node-gyp fetches or builds these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-notion", "name": "Notion cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Notion/Cache/Cache_Data", "%APPDATA%/Notion/Code Cache", "%APPDATA%/Notion/GPUCache", "%APPDATA%/Notion/Partitions/notion/Cache/Cache_Data", "%APPDATA%/Notion/Partitions/notion/Code Cache", "%APPDATA%/Notion/Partitions/notion/GPUCache", "%APPDATA%/Notion/Partitions/notion/Shared Dictionary/cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Notion"], "quiet_days": 7,
+      "reason": "Notion rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-notion-logs", "name": "Notion logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/Notion/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Notion"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-npm-cache-roaming", "name": "npm cache (roaming)", "category": "Package caches", "risk": "safe",
+      "paths": ["%APPDATA%/npm-cache/_cacache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["npm", "npx", "node"],
+      "reason": "Downloaded packages; npm fetches them again when needed.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-nvidia-app", "name": "NVIDIA App cache", "category": "App caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/NVIDIA Corporation/NVIDIA app/CefCache/Cache/Cache_Data", "%LOCALAPPDATA%/NVIDIA Corporation/NVIDIA app/CefCache/Code Cache", "%LOCALAPPDATA%/NVIDIA Corporation/NVIDIA app/CefCache/component_crx_cache", "%LOCALAPPDATA%/NVIDIA Corporation/NVIDIA app/CefCache/extensions_crx_cache", "%LOCALAPPDATA%/NVIDIA Corporation/NVIDIA app/CefCache/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["NVIDIA app"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "NVIDIA App rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-obs-logs", "name": "OBS Studio logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/obs-studio/logs", "%APPDATA%/obs-studio/profiler_data"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["obs64", "obs32", "OBS"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-obsidian", "name": "Obsidian cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/obsidian/Cache/Cache_Data", "%APPDATA%/obsidian/Code Cache", "%APPDATA%/obsidian/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Obsidian"], "quiet_days": 7,
+      "reason": "Obsidian rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-ollama-logs", "name": "Ollama Logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Ollama/app.log", "%LOCALAPPDATA%/Ollama/server-1.log", "%LOCALAPPDATA%/Ollama/server-2.log", "%LOCALAPPDATA%/Ollama/server-3.log", "%LOCALAPPDATA%/Ollama/server-4.log", "%LOCALAPPDATA%/Ollama/server-5.log", "%LOCALAPPDATA%/Ollama/server.log", "%LOCALAPPDATA%/Ollama/upgrade.log"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["ollama", "ollama app", "Ollama"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-onedrive-logs", "name": "OneDrive Logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Microsoft/OneDrive/logs", "%LOCALAPPDATA%/Microsoft/OneDrive/setup/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["OneDrive"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-opera-cache", "name": "Opera extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["%APPDATA%/Opera Software/Opera Stable/Cache/Cache_Data", "%APPDATA%/Opera Software/Opera Stable/Code Cache", "%APPDATA%/Opera Software/Opera Stable/GPUCache", "%APPDATA%/Opera Software/Opera Stable/PnaclTranslationCache", "%APPDATA%/Opera Software/Opera Stable/Shared Dictionary/cache", "%APPDATA%/Opera Software/Opera Stable/component_crx_cache", "%APPDATA%/Opera Software/Opera Stable/extensions_crx_cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["opera"], "min_age_days": 1,
+      "reason": "Opera downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-opera-sw-cache", "name": "Opera service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["%APPDATA%/Opera Software/Opera Stable/Service Worker/CacheStorage"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["opera"], "min_age_days": 1,
+      "reason": "Offline copies of sites; Opera fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-operagx-cache", "name": "Opera GX extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["%APPDATA%/Opera Software/Opera GX Stable/Cache/Cache_Data", "%APPDATA%/Opera Software/Opera GX Stable/Code Cache", "%APPDATA%/Opera Software/Opera GX Stable/GPUCache", "%APPDATA%/Opera Software/Opera GX Stable/PnaclTranslationCache", "%APPDATA%/Opera Software/Opera GX Stable/Shared Dictionary/cache", "%APPDATA%/Opera Software/Opera GX Stable/component_crx_cache", "%APPDATA%/Opera Software/Opera GX Stable/extensions_crx_cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["opera"], "min_age_days": 1,
+      "reason": "Opera GX downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-operagx-sw-cache", "name": "Opera GX service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["%APPDATA%/Opera Software/Opera GX Stable/Service Worker/CacheStorage"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["opera"], "min_age_days": 1,
+      "reason": "Offline copies of sites; Opera GX fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-overwolf", "name": "Overwolf / CurseForge cache", "category": "App caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Overwolf/BrowserCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Overwolf", "OverwolfBrowser"], "quiet_days": 7,
+      "reason": "Overwolf / CurseForge rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-overwolf-logs", "name": "Overwolf / CurseForge logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Overwolf/Log"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Overwolf", "OverwolfBrowser"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-pinokio", "name": "Pinokio cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Pinokio/Cache/Cache_Data"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Pinokio"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Pinokio rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-pipenv", "name": "Pipenv Cache", "category": "Package caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/pipenv/pipenv/Cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["pipenv", "python", "python3"],
+      "reason": "Pipenv fetches or builds these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-pnpm-metadata-cache", "name": "pnpm metadata cache", "category": "Package caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/pnpm-cache/*"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["pnpm", "node"],
+      "reason": "pnpm downloads package metadata again when needed.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-poetry", "name": "Poetry Cache", "category": "Package caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/pypoetry/Cache/artifacts", "%LOCALAPPDATA%/pypoetry/Cache/cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["poetry", "python", "python3"],
+      "reason": "Poetry fetches or builds these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-polyscope", "name": "Polyscope cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Polyscope/Cache/Cache_Data", "%APPDATA%/Polyscope/Code Cache", "%APPDATA%/Polyscope/GPUCache", "%APPDATA%/Polyscope/Shared Dictionary/cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Polyscope"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Polyscope rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-polyscope-logs", "name": "Polyscope logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/Polyscope/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Polyscope"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-postman", "name": "Postman cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Postman/Cache/Cache_Data", "%APPDATA%/Postman/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Postman"], "quiet_days": 7,
+      "reason": "Postman rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-qbittorrent-logs", "name": "qBittorrent logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/qBittorrent/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["qbittorrent"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-rdp-bitmap-cache", "name": "Remote Desktop bitmap cache", "category": "System caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Microsoft/Terminal Server Client/Cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["mstsc"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Files Windows or apps recreate when needed.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-riot-logs", "name": "Riot Games logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Riot Games/Riot Client/Logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["RiotClientServices", "RiotClientUx"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-roblox-logs", "name": "Roblox logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Roblox/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["RobloxPlayerBeta", "RobloxStudioBeta", "RobloxPlayerLauncher"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-rockstar", "name": "Rockstar Games Launcher cache", "category": "App caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Rockstar Games/Launcher/cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Launcher", "LauncherPatcher", "SocialClubHelper"], "quiet_days": 7,
+      "reason": "Rockstar Games Launcher rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-rockstar-logs", "name": "Rockstar Games Launcher logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Rockstar Games/Launcher/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Launcher", "LauncherPatcher", "SocialClubHelper"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-sccache", "name": "sccache", "category": "Package caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/Mozilla/sccache/cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["sccache", "cargo", "rustc"],
+      "reason": "sccache fetches or builds these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-scoop", "name": "Scoop Cache", "category": "Package caches", "risk": "safe",
+      "paths": ["~/scoop/cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["scoop", "powershell", "pwsh"],
+      "reason": "Scoop fetches or builds these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-shure-plus-motiv", "name": "ShurePlus MOTIV cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/ShurePlus MOTIV/Cache/Cache_Data", "%APPDATA%/ShurePlus MOTIV/Code Cache", "%APPDATA%/ShurePlus MOTIV/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["ShurePlus MOTIV"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "ShurePlus MOTIV rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-shure-plus-motiv-logs", "name": "ShurePlus MOTIV logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/ShurePlus MOTIV/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["ShurePlus MOTIV"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-signal", "name": "Signal Desktop cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Signal/Cache/Cache_Data", "%APPDATA%/Signal/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Signal"], "quiet_days": 7,
+      "reason": "Signal Desktop rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-slack-logs", "name": "Slack logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/Slack/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["slack"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-spotify-store-browser", "name": "Spotify Store Browser Cache", "category": "App caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Packages/SpotifyAB.SpotifyMusic_zpdnekdrzrea0/LocalCache/Spotify/Browser/*/Cache", "%LOCALAPPDATA%/Packages/SpotifyAB.SpotifyMusic_zpdnekdrzrea0/LocalCache/Spotify/Browser/*/Code Cache", "%LOCALAPPDATA%/Packages/SpotifyAB.SpotifyMusic_zpdnekdrzrea0/LocalCache/Spotify/Browser/*/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Spotify"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Spotify Store Browser rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-spotify-store-shared", "name": "Spotify Store Shared Caches", "category": "App caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/Packages/SpotifyAB.SpotifyMusic_zpdnekdrzrea0/LocalCache/Spotify/component_crx_cache", "%LOCALAPPDATA%/Packages/SpotifyAB.SpotifyMusic_zpdnekdrzrea0/LocalCache/Spotify/Default/Cache/Cache_Data", "%LOCALAPPDATA%/Packages/SpotifyAB.SpotifyMusic_zpdnekdrzrea0/LocalCache/Spotify/Default/Code Cache", "%LOCALAPPDATA%/Packages/SpotifyAB.SpotifyMusic_zpdnekdrzrea0/LocalCache/Spotify/Default/GPUCache", "%LOCALAPPDATA%/Packages/SpotifyAB.SpotifyMusic_zpdnekdrzrea0/LocalCache/Spotify/Default/Shared Dictionary/cache", "%LOCALAPPDATA%/Packages/SpotifyAB.SpotifyMusic_zpdnekdrzrea0/LocalCache/Spotify/extensions_crx_cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Spotify"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Spotify Store Shared rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-spotify-store-shared-logs", "name": "Spotify Store Shared Caches logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Packages/SpotifyAB.SpotifyMusic_zpdnekdrzrea0/LocalCache/Spotify/DashboardWidget/Crashpad/reports", "%LOCALAPPDATA%/Packages/SpotifyAB.SpotifyMusic_zpdnekdrzrea0/LocalCache/Spotify/DashboardWidget/logs", "%LOCALAPPDATA%/Packages/SpotifyAB.SpotifyMusic_zpdnekdrzrea0/LocalCache/Spotify/Launcher/Crashpad/reports", "%LOCALAPPDATA%/Packages/SpotifyAB.SpotifyMusic_zpdnekdrzrea0/LocalCache/Spotify/Launcher/Logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Spotify"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-steam", "name": "Steam Launcher cache", "category": "App caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Steam/htmlcache/Default/Cache", "%LOCALAPPDATA%/Steam/htmlcache/Default/Code Cache", "%LOCALAPPDATA%/Steam/htmlcache/Default/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["steam", "steamwebhelper", "Steam"], "quiet_days": 7,
+      "reason": "Steam Launcher rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-sublime-text", "name": "Sublime Text cache", "category": "App caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Sublime Text/Cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["sublime_text", "Sublime Text"], "quiet_days": 7,
+      "reason": "Sublime Text rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-supermium-cache", "name": "Supermium extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/Supermium/User Data/*/Cache/Cache_Data", "%LOCALAPPDATA%/Supermium/User Data/*/Code Cache", "%LOCALAPPDATA%/Supermium/User Data/*/GPUCache", "%LOCALAPPDATA%/Supermium/User Data/*/Shared Dictionary/cache", "%LOCALAPPDATA%/Supermium/User Data/PnaclTranslationCache", "%LOCALAPPDATA%/Supermium/User Data/component_crx_cache", "%LOCALAPPDATA%/Supermium/User Data/extensions_crx_cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["supermium", "chrome"], "min_age_days": 1, "label_parent": true,
+      "reason": "Supermium downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-supermium-sw-cache", "name": "Supermium service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Supermium/User Data/*/Service Worker/CacheStorage"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["supermium", "chrome"], "min_age_days": 1, "label_parent": true,
+      "reason": "Offline copies of sites; Supermium fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-t3-code", "name": "T3 Code cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/t3code-v2/Cache/Cache_Data", "%APPDATA%/t3code-v2/Shared Dictionary/cache", "%APPDATA%/t3code/Cache/Cache_Data", "%APPDATA%/t3code/Shared Dictionary/cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["T3 Code", "t3code"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "T3 Code rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-t3-code-logs", "name": "T3 Code Logs", "category": "Logs", "risk": "review",
+      "paths": ["~/.t3/userdata/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["T3 Code", "t3code"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-t3-code-partitions", "name": "T3 Code Partitions cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/t3code-v2/Partitions/*/Cache", "%APPDATA%/t3code/Partitions/*/Cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["T3 Code", "t3code"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "T3 Code rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-teamviewer-logs", "name": "TeamViewer logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/TeamViewer/Logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["TeamViewer"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-termius", "name": "Termius cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Termius/Cache/Cache_Data", "%APPDATA%/Termius/Code Cache", "%APPDATA%/Termius/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Termius"], "quiet_days": 7,
+      "reason": "Termius rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-termius-beta", "name": "Termius Beta cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Termius Beta/Cache/Cache_Data", "%APPDATA%/Termius Beta/Code Cache", "%APPDATA%/Termius Beta/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Termius Beta"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Termius Beta rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-termius-beta-logs", "name": "Termius Beta logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/Termius Beta/Crashpad/reports"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Termius Beta"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-thorium-cache", "name": "Thorium extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/Thorium/User Data/*/Cache/Cache_Data", "%LOCALAPPDATA%/Thorium/User Data/*/Code Cache", "%LOCALAPPDATA%/Thorium/User Data/*/GPUCache", "%LOCALAPPDATA%/Thorium/User Data/*/Shared Dictionary/cache", "%LOCALAPPDATA%/Thorium/User Data/PnaclTranslationCache", "%LOCALAPPDATA%/Thorium/User Data/component_crx_cache", "%LOCALAPPDATA%/Thorium/User Data/extensions_crx_cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["thorium", "chrome"], "min_age_days": 1, "label_parent": true,
+      "reason": "Thorium downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-thorium-sw-cache", "name": "Thorium service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Thorium/User Data/*/Service Worker/CacheStorage"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["thorium", "chrome"], "min_age_days": 1, "label_parent": true,
+      "reason": "Offline copies of sites; Thorium fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-thunderbird", "name": "Thunderbird cache", "category": "App caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Thunderbird/Profiles/*/cache2"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["thunderbird", "Thunderbird"], "quiet_days": 7,
+      "reason": "Thunderbird rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-todesktop-builder", "name": "ToDesktop Builder cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/ToDesktop Builder/Cache/Cache_Data", "%APPDATA%/ToDesktop Builder/Code Cache", "%APPDATA%/ToDesktop Builder/GPUCache", "%APPDATA%/ToDesktop Builder/Shared Dictionary/cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["ToDesktop Builder"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "ToDesktop Builder rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-todesktop-builder-logs", "name": "ToDesktop Builder logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/ToDesktop Builder/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["ToDesktop Builder"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-todoist", "name": "Todoist cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Todoist/Cache/Cache_Data", "%APPDATA%/Todoist/Code Cache", "%APPDATA%/Todoist/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Todoist"], "quiet_days": 7,
+      "reason": "Todoist rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-transmission", "name": "Transmission cache", "category": "App caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Transmission/cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["transmission-qt", "Transmission"], "quiet_days": 7,
+      "reason": "Transmission rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-typescript-typings", "name": "TypeScript Typings Cache", "category": "Developer", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/Microsoft/TypeScript"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["Code", "tsserver", "node", "devenv", "Electron"],
+      "reason": "TypeScript Typings fetches or builds these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-ubisoft", "name": "Ubisoft Connect cache", "category": "App caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Ubisoft Game Launcher/cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["UbisoftConnect", "upc", "UplayWebCore"], "quiet_days": 7,
+      "reason": "Ubisoft Connect rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-ubisoft-logs", "name": "Ubisoft Connect logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Ubisoft Game Launcher/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["UbisoftConnect", "upc", "UplayWebCore"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-upscayl", "name": "Upscayl cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Upscayl/Cache/Cache_Data", "%APPDATA%/Upscayl/Code Cache", "%APPDATA%/Upscayl/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Upscayl"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Upscayl rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-upscayl-logs", "name": "Upscayl logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/Upscayl/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Upscayl"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-valorant-logs", "name": "Valorant logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/VALORANT/Saved/Crashes", "%LOCALAPPDATA%/VALORANT/Saved/Logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["VALORANT-Win64-Shipping", "RiotClientServices"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-visual-studio", "name": "Visual Studio", "category": "Developer", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/Microsoft/VisualStudio/*/ComponentModelCache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["devenv", "ServiceHub.Host.dotnet.x64", "msbuild"],
+      "reason": "Visual Studio fetches or builds these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-vivaldi-cache", "name": "Vivaldi extra caches", "category": "Browser caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/Vivaldi/User Data/*/Cache/Cache_Data", "%LOCALAPPDATA%/Vivaldi/User Data/*/Code Cache", "%LOCALAPPDATA%/Vivaldi/User Data/*/GPUCache", "%LOCALAPPDATA%/Vivaldi/User Data/*/Shared Dictionary/cache", "%LOCALAPPDATA%/Vivaldi/User Data/PnaclTranslationCache", "%LOCALAPPDATA%/Vivaldi/User Data/component_crx_cache", "%LOCALAPPDATA%/Vivaldi/User Data/extensions_crx_cache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["vivaldi"], "min_age_days": 1, "label_parent": true,
+      "reason": "Vivaldi downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-vivaldi-sw-cache", "name": "Vivaldi service worker cache", "category": "Browser caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Vivaldi/User Data/*/Service Worker/CacheStorage"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["vivaldi"], "min_age_days": 1, "label_parent": true,
+      "reason": "Offline copies of sites; Vivaldi fetches them again, but an offline web app may need a connection once.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-vlc", "name": "VLC cache", "category": "App caches", "risk": "review",
+      "paths": ["%APPDATA%/vlc/art_cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["vlc"], "quiet_days": 7,
+      "reason": "VLC rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-vscode", "name": "VS Code cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Code/CachedExtensions", "%APPDATA%/Code/CachedExtensionVSIXs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Code", "Visual Studio Code", "Electron"], "quiet_days": 7,
+      "reason": "VS Code rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-vscode-cpptools", "name": "VS Code C/C++ IntelliSense Cache", "category": "Developer", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/Microsoft/vscode-cpptools/ipch"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["Code", "cpptools", "Electron"],
+      "reason": "VS Code C/C++ IntelliSense fetches or builds these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-vscode-insiders", "name": "VS Code Insiders cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Code - Insiders/Cache/Cache_Data", "%APPDATA%/Code - Insiders/CachedData", "%APPDATA%/Code - Insiders/CachedExtensionVSIXs", "%APPDATA%/Code - Insiders/Code Cache", "%APPDATA%/Code - Insiders/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Code - Insiders", "Electron"], "quiet_days": 7,
+      "reason": "VS Code Insiders rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-vscode-insiders-logs", "name": "VS Code Insiders logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/Code - Insiders/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Code - Insiders", "Electron"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-vscode-logs", "name": "VS Code logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/Code/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Code", "Visual Studio Code", "Electron"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-vscodium", "name": "VSCodium cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/VSCodium/Cache/Cache_Data", "%APPDATA%/VSCodium/CachedData", "%APPDATA%/VSCodium/CachedExtensionVSIXs", "%APPDATA%/VSCodium/Code Cache", "%APPDATA%/VSCodium/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["VSCodium", "Electron"], "quiet_days": 7,
+      "reason": "VSCodium rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-vscodium-logs", "name": "VSCodium logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/VSCodium/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["VSCodium", "Electron"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-waterfox-cache", "name": "Waterfox cache", "category": "Browser caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/Waterfox/Profiles/*/cache2", "%LOCALAPPDATA%/Waterfox/Profiles/*/startupCache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["waterfox"], "min_age_days": 1, "label_parent": true,
+      "reason": "Waterfox downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-whatsapp", "name": "WhatsApp Desktop cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/WhatsApp/Cache/Cache_Data", "%APPDATA%/WhatsApp/Code Cache", "%APPDATA%/WhatsApp/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["WhatsApp"], "quiet_days": 7,
+      "reason": "WhatsApp Desktop rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-windsurf", "name": "Windsurf IDE cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/Windsurf/Cache/Cache_Data", "%APPDATA%/Windsurf/CachedData", "%APPDATA%/Windsurf/CachedExtensions"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Windsurf"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "Windsurf IDE rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-windsurf-logs", "name": "Windsurf IDE logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/Windsurf/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Windsurf"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-winget-logs", "name": "Windows Package Manager Logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Packages/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe/LocalState/DiagOutputDir"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["winget", "AppInstallerCLI"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-wsl-cleaner", "name": "WSL Cleaner cache", "category": "App caches", "risk": "safe",
+      "paths": ["%APPDATA%/wsl-cleaner/Cache/Cache_Data"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["WSL Cleaner"], "quiet_days": 7, "min_age_days": 1,
+      "reason": "WSL Cleaner rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-zed", "name": "Zed Editor cache", "category": "App caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Zed/node/cache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["zed", "Zed"], "quiet_days": 7,
+      "reason": "Zed Editor rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-zed-logs", "name": "Zed Editor logs", "category": "Logs", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Zed/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["zed", "Zed"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-zen-browser", "name": "Zen Browser cache", "category": "App caches", "risk": "review",
+      "paths": ["%LOCALAPPDATA%/Zen/Profiles/*/cache2"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["zen", "Zen"], "quiet_days": 7,
+      "reason": "Zen Browser rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-zen-cache", "name": "Zen cache", "category": "Browser caches", "risk": "safe",
+      "paths": ["%LOCALAPPDATA%/Zen/Profiles/*/startupCache"],
+      "platforms": ["windows"], "liveness": "owners", "owners": ["zen"], "min_age_days": 1, "label_parent": true,
+      "reason": "Zen downloads these again when it needs them.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-zoom", "name": "Zoom cache", "category": "App caches", "risk": "review",
+      "paths": ["%APPDATA%/Zoom/data/Cache", "%APPDATA%/Zoom/data/GPUCache"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Zoom", "zoom.us", "CptHost"], "quiet_days": 7,
+      "reason": "Zoom rebuilds this cache the next time it needs it.",
+      "action": "Move to Trash"
+    },
+    {
+      "id": "kudu-win-zoom-logs", "name": "Zoom logs", "category": "Logs", "risk": "review",
+      "paths": ["%APPDATA%/Zoom/data/logs", "%APPDATA%/Zoom/logs"],
+      "platforms": ["windows"], "liveness": "name", "owners": ["Zoom", "zoom.us", "CptHost"], "quiet_days": 7, "min_age_days": 7,
+      "reason": "Old log and crash files; the app writes new ones.",
+      "action": "Move to Trash"
     }
   ]
 }

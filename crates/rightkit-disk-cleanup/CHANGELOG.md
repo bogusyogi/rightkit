@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Rule pack 2: 276 cleanup rules ported from Kudu's rule data (macOS and Windows per-user caches and logs; 92 safe, 184 review), reviewed per bogusyogi/rightkit#1530; Kudu's MIT notice ships in `NOTICE`.
 - `volume_usage`: sysinfo 0.40 returns the disk list as a `Result`; an unreadable list leaves the usage unknown (it no longer fails to compile).
 
 ## 0.1.2 (unpublished)
