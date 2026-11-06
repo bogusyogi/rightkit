@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.6.50
+
+- stage-sidecar keeps a receipt that differs only in per-run observations (changed, cached, wiped, stagedAt), so an app's own dev re-stage no longer changes a staged entry (GC-A28, #1522).
+- Consumer publisher rows run from the consumer's own directory without --manifest-path, which the RustRight client refuses to rewrite.
+- One rustright --version answer serves every scan directory, so no probe waits out the run's own quiet lease (#1526).
+
 ## 0.6.49
 
 - `--to dev` on the snapshot route (GC-A28): the gate counts the commit in the checkout and passes RIGHT_BUILD_NUMBER to right-release, so assembly no longer runs git in the snapshot; the assembled-app Xcode folder stays in the checkout; the door stages sidecars in dev mode for `--to dev`; an empty directory the commit's own ignore rules ignore is admitted like an ignored file.
