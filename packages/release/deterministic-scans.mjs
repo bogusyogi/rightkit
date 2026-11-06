@@ -477,6 +477,8 @@ export const FAILURE_UNCACHEABLE_INTERNAL = new Set(["ghsa-audit", "advisory-exc
 /** NN41: the key namespace of a cached failure, so a failure never shares a key with a pass of the same scan. */
 // /2: a broker-authenticated compile failure is stored only when its output shows compiler diagnostics and no tool or environment failure (a build-script tool panic is environmental; Dell pulse-hub, 2026-11-06).
 export const FAILURE_KEY_SCHEMA = "deterministic-failure/2";
+/** NN23: the version of the internal (file-only) rules; bump when any internal rule's verdict for the same inputs changes. */
+export const INTERNAL_RULES_SCHEMA = "rightkit.internal-rules/1";
 /** NN41: the compile scans whose failure can be deterministic: check, clippy and doc rows (single or batched, native or cross). Test runs are never among them. */
 export const isFailureCacheableCompileId = (id) => /^(?:check|check-features|check-dependent|clippy|doc)(?::|$)/.test(String(id));
 /** NN41: a plain (non-broker) compile exit whose output carries compiler error diagnostics and no sign of the environment failing (network, disk, signal, internal compiler error). */
@@ -3191,18 +3193,21 @@ export async function runScans(plan, options = {}) {
     try {
       // GC-A24: a deterministic internal rule (its verdict a function of the files it reads and the rule code) is reused by its input key,
       // with the rule code's identity (CHECKER_IDENTITY) as its tool version. Network and advice rules are never reused this way.
-      let internalKey = null; let internalFailKey = null;
+      let internalKey = null; let internalFailKey = null; let internalIndex = null;
       if (s.internal && cache && CACHEABLE_INTERNAL.has(s.internal) && typeof CHECKER_IDENTITY === "string") {
         try {
           const digest = cache.digest(s, {});
           if (digest) {
-            internalKey = scanCacheKey({ id: s.id, command: s.command ?? `internal:${s.internal}`, toolVersion: CHECKER_IDENTITY, env: {}, inheritedEnv: inheritedEnvDigest({}), digest });
+            // NN23: keyed on the internal rules' schema (bumped by hand when a rule's verdict changes), not on the checker's source bytes.
+            internalKey = scanCacheKey({ id: s.id, command: s.command ?? `internal:${s.internal}`, toolVersion: INTERNAL_RULES_SCHEMA, env: {}, inheritedEnv: inheritedEnvDigest({}), digest });
+            internalIndex = { key: sha256(`rk-row-index/1\0${s.id}`), inputs: sha256(String(digest)), env: INTERNAL_RULES_SCHEMA };
             // NN41: a file-only rule's violation list is a function of the same inputs, so it is keyed like its pass plus the rule code (CHECKER_IDENTITY);
             // a rule whose answer depends on the day or a remote service (FAILURE_UNCACHEABLE_INTERNAL) never has its failure reused.
-            if (!FAILURE_UNCACHEABLE_INTERNAL.has(s.internal)) internalFailKey = scanCacheKey({ id: s.id, command: `${s.command ?? `internal:${s.internal}`} ;; ${FAILURE_KEY_SCHEMA}`, toolVersion: CHECKER_IDENTITY, env: {}, inheritedEnv: inheritedEnvDigest({}), digest });
+            if (!FAILURE_UNCACHEABLE_INTERNAL.has(s.internal)) internalFailKey = scanCacheKey({ id: s.id, command: `${s.command ?? `internal:${s.internal}`} ;; ${FAILURE_KEY_SCHEMA}`, toolVersion: INTERNAL_RULES_SCHEMA, env: {}, inheritedEnv: inheritedEnvDigest({}), digest });
           }
         } catch (error) { internalKey = null; internalFailKey = null; row.cacheKeyError = String(error?.message ?? error).slice(0, 300); }
         const hit = internalKey ? cache.read(internalKey) : null;
+        if (internalIndex) { const idx = cache.read(internalIndex.key)?.row ?? null; row.cacheMiss = { kind: !idx ? "new" : idx.inputs === internalIndex.inputs && idx.env === internalIndex.env ? "unchanged" : "changed", ...(idx ? { last: idx.at ?? null } : {}) }; }
         if (hit && hit.key === internalKey && hit.row?.status === "pass" && hit.row.id === s.id) {
           cacheHits.push(s.id);
           return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}` };
@@ -3220,6 +3225,7 @@ export async function runScans(plan, options = {}) {
         else if (out && !Array.isArray(out) && out.code) { status = "fail"; code = out.code; detail = out.detail; }
         else if (out && !Array.isArray(out) && typeof out.advice === "string") { advice = out.advice; }
         else if (out.length) { status = "fail"; detail = out.join("; "); }
+        if (status === "pass" && internalKey && !advice && !signal?.aborted && internalIndex) cache.write(internalIndex.key, { id: s.id, inputs: internalIndex.inputs, env: internalIndex.env, at: new Date().toISOString() });
         if (status === "pass" && internalKey && !advice && !signal?.aborted) cache.write(internalKey, { id: s.id, class: s.class, command: s.command ?? `internal:${s.internal}`, tool: null, toolVersion: CHECKER_IDENTITY, status: "pass" });
         // NN41: only a violation list (the rule ran and named what is wrong) is a deterministic failure; a missing tool or a coded refusal is the environment's.
         else if (status === "fail" && !code && internalFailKey && Array.isArray(out) && out.length && !signal?.aborted) cache.write(internalFailKey, { id: s.id, class: s.class, command: s.command ?? `internal:${s.internal}`, tool: null, toolVersion: CHECKER_IDENTITY, status: "fail", detail });
