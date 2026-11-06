@@ -34,7 +34,7 @@ mod onnx_beam_decode;
 pub mod kws;
 pub mod subtitle_export;
 pub mod timeline_recorder;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+// Platform-neutral: control_cleanup uses it on every target.
 pub mod trigger_audio_cut;
 pub mod vad;
 #[cfg(target_os = "macos")]
@@ -52,5 +52,4 @@ pub use rightkit_asr::onnx_tdt::encoder_pass_age as onnx_encoder_pass_age;
 pub use rightkit_asr::onnx_tdt::init_windows_ort;
 pub use rightkit_asr::parakeet_core::{TimedToken, TranscriptionResult};
 pub use rightkit_dictation_text_pipeline::{screen_vocab, settings, vocabulary};
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub use trigger_audio_cut::{resolve_trigger_audio_cut, TriggerAudioCut, KWS_ONSET_CUT_SOURCE};
