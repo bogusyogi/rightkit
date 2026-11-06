@@ -1526,20 +1526,6 @@ fn cached_icon(path: &str) -> Option<Arc<fileicon::Icon>> {
         .cloned()
 }
 
-/// A snippet's text as the launcher pastes it: `{clipboard}` and `{date}` filled, `{argument}`
-/// empty. Keyword expansion (`launcher_snippets.rs`) uses the same fill, as the Mac does.
-pub(crate) fn snippet_text(body: &str) -> String {
-    let clipboard = clipboard_text().unwrap_or_default();
-    launcher_config::fill(
-        body,
-        &[
-            ("argument", ""),
-            ("clipboard", &clipboard),
-            ("date", &today()),
-        ],
-    )
-}
-
 /// The clipboard's text, for Ctrl+V in the search field.
 fn clipboard_text() -> Option<String> {
     // SAFETY: the clipboard is opened and closed here; the handle it returns is only read,

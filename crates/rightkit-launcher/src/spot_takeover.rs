@@ -761,9 +761,9 @@ fn show(spot: &Spot, instance: HINSTANCE) -> Ended {
             card,
             w!("BUTTON"),
             if showing_all {
-                &host::t("Show only this part")
+                host::t("Show only this part")
             } else {
-                &host::t("Show full screen")
+                host::t("Show full screen")
             },
             Px {
                 l: 14,
@@ -794,7 +794,7 @@ fn show(spot: &Spot, instance: HINSTANCE) -> Ended {
         child(
             card,
             w!("BUTTON"),
-            &host::t("Stop"),
+            host::t("Stop"),
             Px {
                 l: CARD_W - 14 - 100 - 8 - 100,
                 t: 96,
@@ -807,7 +807,7 @@ fn show(spot: &Spot, instance: HINSTANCE) -> Ended {
         child(
             card,
             w!("BUTTON"),
-            &host::t("Done"),
+            host::t("Done"),
             Px {
                 l: CARD_W - 14 - 100,
                 t: 96,
