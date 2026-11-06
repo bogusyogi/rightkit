@@ -1628,7 +1628,9 @@ export async function runSharedUnitList({ o, io, stage, commit, selected, invent
       const all = [...internal, ...evidence];
       const failed = !expected || all.length !== expected || all.some((r) => r.status === "failed" || r.status === "fail");
       const blocked = !failed && all.some((r) => r.status === "blocked" || r.status === "not-run");
-      const status = failed ? "failed" : blocked ? "blocked" : union.verified && all.every((r) => r.status === "passed" || r.status === "pass") ? "passed" : "failed";
+      // A unit passes only on a run that exited 0: a scheduler or stage exception never leaves earlier evidence standing as a pass (cloud 2026-11-06:
+      // a lookup's coverage was reported as 132 passed after "scheduleClassB: invalid projection").
+      const status = failed ? "failed" : blocked ? "blocked" : exit === 0 && union.verified && all.every((r) => r.status === "passed" || r.status === "pass") ? "passed" : "failed";
       return { selector: unit.selector, status, ...(status === "failed" ? { code: exit || 1 } : {}) };
     });
     const report = unitListReport({ commit, stage, base, selected: ordered, results, unmatched }); report.runId = union.runId;

@@ -226,6 +226,7 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, j
   return async ({ scans, execute, executeGroup, canGroup, project, notRun, lookupOnly = false }) => {
     // Lookup only (the gate's cache lookup before a run): every row the real run would execute is looked up. A looked-up row stands for the pass the
     // real run needs before its dependents and NN27 proofs, so a cold host reports every row it would run, not only the first frontier.
+    const provedInLookup = new Map(); const provedRows = new Map();
     const wouldPass = (row) => row?.status === "pass" || (lookupOnly && row?.status === "not-run" && (row.lookupMiss === true || row.uncacheable === true));
     const byScan = new Map(scans.map((scan, index) => [scan.id, index]));
     if (byScan.size !== scans.length || requirements.some((r) => !byScan.has(r.id))) throw new Error("publisher plan does not contain each requirement exactly once");
@@ -286,7 +287,9 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, j
           });
           for (const [member, proof] of proved) {
             // In a lookup the proving row may itself be a miss; the member is proved by it, never looked up or run on its own.
-            const row = lookupOnly ? { ...proof.row, status: "pass", lookupMiss: false, uncacheable: false, cacheMiss: undefined, provedBy: proof.id } : { ...proof.row, provedBy: proof.id };
+            if (lookupOnly) provedInLookup.set(member.id, proof.id);
+            provedRows.set(member.id, proof.row); // the executor-issued row: only it can be projected onto the member's slot
+            const row = lookupOnly ? { ...proof.row, status: "pass", lookupMiss: false, uncacheable: false, provedBy: proof.id } : { ...proof.row, provedBy: proof.id };
             const history = attempts.get(member.id) ?? [];
             history.push({ id: proof.id, status: row.status, command: row.command, provedBy: proof.id, ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}) });
             attempts.set(member.id, history); executed.set(member.id, row); byMember.set(member.id, row);
@@ -323,12 +326,21 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, j
         return { byMember };
       }
     }
+    // A lookup's "passed" only lets the lookup reach later rows: it is never coverage evidence.
+    if (lookupOnly) {
+      for (const item of result) {
+        const index = byScan.get(item.id); const scan = scans[index]; const row = executed.get(item.id);
+        slots[index] = provedInLookup.has(item.id) ? notRun(scan, `proved by ${provedInLookup.get(item.id)} (lookup)`)
+          : row ? project(row, scan) : notRun(scan, item.status === "blocked" ? "a prerequisite did not pass" : "not looked up");
+      }
+      return slots;
+    }
     onCoverage(result);
     for (const item of result) {
       const index = byScan.get(item.id); const scan = scans[index]; const row = executed.get(item.id);
       slots[index] = !row || (item.status !== "passed" && row.status === "pass")
         ? notRun(scan, item.status === "blocked" ? "a prerequisite did not pass" : "publisher evidence did not verify")
-        : project(row, scan);
+        : project(provedRows.get(item.id) ?? row, scan);
     }
     return slots;
   };
