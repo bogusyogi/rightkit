@@ -544,7 +544,10 @@ export function explainKeyChange(before, after) {
   const blob = (v) => typeof v === "string" && /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(v);
   // A file entry is keyed by its path, never its position in the list (one added file shifted every later position and read as thousands of key-form
   // changes: secret-scan, Mac 2026-11-07). An added or removed file is the row's own change, like an edited one.
-  const contentOnly = inputs.length > 0 && inputs.every((k) => (blob(a.get(k)) || !a.has(k)) && (blob(b.get(k)) || !b.has(k)) && (a.has(k) || b.has(k)));
+  // The advisory rows (cargo-audit, cargo-deny, ghsa-audit, advisory-exceptions, pnpm audit) key on the UTC day by design (the advisory databases move
+  // daily): a new day is their own declared input changing, like a file edit, never an unexplained miss (Mac 2026-11-07: 9 rows stopped a run at 00:02Z).
+  const day = (k) => k === "day" && /^\d{4}-\d{2}-\d{2}$/.test(String(a.get(k))) && /^\d{4}-\d{2}-\d{2}$/.test(String(b.get(k)));
+  const contentOnly = inputs.length > 0 && inputs.every((k) => day(k) || ((blob(a.get(k)) || !a.has(k)) && (blob(b.get(k)) || !b.has(k)) && (a.has(k) || b.has(k))));
   return {
     inputs: inputs.slice(0, 12), inputsChanged: inputs.length, contentOnly,
     ...(before?.toolVersion !== after?.toolVersion ? { tool: { from: before?.toolVersion ?? null, to: after?.toolVersion ?? null } } : {}),
