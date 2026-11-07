@@ -290,6 +290,14 @@ export function publisherRequirementScan(requirement, { platform = process.platf
 }
 
 /** Deduplicate concurrent identical probes; transient outcomes are never retained. */
+// The command text a cache key binds. Cargo's build width (`--jobs N`, from --cargo-jobs) changes how many processes compile, never what compiles or
+// a verdict, so it is not part of the key: a row passed at one width is the same row at another (Mac 2026-11-07, run 17 --cargo-jobs 6: all 295
+// stored passes missed as 'nothing changed: the cache failed').
+export function keyCommand(s) {
+  const base = String(s.command ?? "").replace(/(^|\s)--jobs\s+\d+(?=\s|$)/g, "");
+  return s.runOutside ? `${base} ;; run ${canonicalJson(s.runOutside)}` : base;
+}
+
 export function singleFlightProbe(probe) {
   const pending = new Map(); const completed = new Map();
   return async (key, ...args) => {
@@ -3504,12 +3512,12 @@ export async function runScans(plan, options = {}) {
               const keyEnv = (env) => (s.coverageKey ? Object.fromEntries(Object.entries(env ?? {}).filter(([k]) => buildEnvName(k) && !/^(?:RIGHTKIT_BUILD_OWNERSHIP|RK_GATE_|RIGHTKIT_CARRIED_|RIGHTKIT_CARGO_SCAN|RIGHTKIT_RUN_|RUSTRIGHT_OWNERSHIP|TMPDIR$|PWD$|OLDPWD$|SHLVL$|_$)/.test(k))) : env);
               const inherited = cache.narrowNodeCheck && /^node-check:/.test(s.id) ? sha256('node-check-child-env-in-digest/1') : inheritedEnvDigest(keyEnv({ ...deps.env, ...s.env }));
               if (digest) {
-                cacheKey = scanCacheKey({ id: s.id, command: s.runOutside ? `${s.command} ;; run ${canonicalJson(s.runOutside)}` : s.command, toolVersion, env: keyEnv(s.env ?? {}), inheritedEnv: inherited, digest });
+                cacheKey = scanCacheKey({ id: s.id, command: keyCommand(s), toolVersion, env: keyEnv(s.env ?? {}), inheritedEnv: inherited, digest });
                 keyParts = { inputs: sha256(String(digest)), env: sha256(canonicalJson({ toolVersion, env: keyEnv(s.env ?? {}), inherited })), raw: { inputs: String(digest), toolVersion, env: keyEnv(s.env ?? {}), inherited, inheritedShape: inheritedEnvShape(keyEnv({ ...deps.env, ...s.env })) } };
                 // NN41: a deterministic compile failure is keyed like the pass plus the tool version (the client's, its identity digest), the installed broker runtime
                 // identity (options.failureIdentity: version, clientDigest, brokerDigest) and the failure namespace; the digest already binds the unit closure, lock entries and toolchain files.
                 // No identity from the caller means no failure is ever stored or reused.
-                if (typeof options.failureIdentity === "string" && options.failureIdentity !== "" && isFailureCacheableCompileId(s.id) && !s.runOutside && s.kind !== "test" && !s.publisherRustTest && (s.tool === "rustright" || s.tool === "cargo")) failKey = scanCacheKey({ id: s.id, command: `${s.command} ;; ${FAILURE_KEY_SCHEMA}`, toolVersion: `${toolVersion} ;; broker-runtime ${options.failureIdentity}`, env: s.env ?? {}, inheritedEnv: inherited, digest });
+                if (typeof options.failureIdentity === "string" && options.failureIdentity !== "" && isFailureCacheableCompileId(s.id) && !s.runOutside && s.kind !== "test" && !s.publisherRustTest && (s.tool === "rustright" || s.tool === "cargo")) failKey = scanCacheKey({ id: s.id, command: `${keyCommand({ command: s.command })} ;; ${FAILURE_KEY_SCHEMA}`, toolVersion: `${toolVersion} ;; broker-runtime ${options.failureIdentity}`, env: s.env ?? {}, inheritedEnv: inherited, digest });
               }
             } catch (error) { cacheKey = null; row.cacheKeyError = String(error?.message ?? error).slice(0, 300); }
             let hit = cacheKey ? cache.read(cacheKey) : null;
@@ -3534,7 +3542,7 @@ export async function runScans(plan, options = {}) {
                 const proof = carryOverProof(idx.raw, keyParts.raw, { entryNow: typeof cache.entryNow === "function" ? cache.entryNow : () => null });
                 if (!proof.ok && proof.edited?.length && row.cacheMiss.why) row.cacheMiss.why = { ...row.cacheMiss.why, contentOnly: true, formChangesProven: proof.carried };
                 if (proof.ok) {
-                  const oldKey = scanCacheKey({ id: s.id, command: s.runOutside ? `${s.command} ;; run ${canonicalJson(s.runOutside)}` : s.command, toolVersion: idx.raw.toolVersion, env: idx.raw.env ?? {}, inheritedEnv: idx.raw.inherited, digest: idx.raw.inputs });
+                  const oldKey = scanCacheKey({ id: s.id, command: keyCommand(s), toolVersion: idx.raw.toolVersion, env: idx.raw.env ?? {}, inheritedEnv: idx.raw.inherited, digest: idx.raw.inputs });
                   const old = cache.read(oldKey);
                   if (old && old.key === oldKey && old.row?.status === "pass" && old.row.id === s.id && old.row.command === s.command) {
                     hit = { ...old, key: cacheKey };
