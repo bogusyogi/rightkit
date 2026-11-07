@@ -507,7 +507,9 @@ export function carryOverProof(before, after, { entryNow }) {
   const no = (why) => ({ ok: false, why });
   if (!before || !after) return no("no stored key parts");
   if (before.toolVersion !== after.toolVersion) return no("tool changed");
-  if (canonicalJson(before.env ?? {}) !== canonicalJson(after.env ?? {})) return no("scan environment changed");
+  // The scan's own environment is compared on the names that can change a result (buildEnvName): a publisher row once keyed the calling session's whole environment.
+  const relevant = (env) => Object.fromEntries(Object.entries(env ?? {}).filter(([k]) => buildEnvName(k)));
+  if (canonicalJson(relevant(before.env)) !== canonicalJson(relevant(after.env))) return no("scan environment changed");
   if (before.inherited !== after.inherited) {
     if (!before.inheritedShape || !after.inheritedShape) return no("inherited environment changed (no shape to compare)");
     const names = [...new Set([...Object.keys(before.inheritedShape), ...Object.keys(after.inheritedShape)])].filter((k) => before.inheritedShape[k] !== after.inheritedShape[k]);
@@ -3448,7 +3450,9 @@ export async function runScans(plan, options = {}) {
               // child environment (with its one explicit ownership exception).
               // NN29: a publisher row carries the gate's whole environment, per-run identities included (build ownership handle, carrier map, run markers):
               // its key drops them, or every run would miss.
-              const keyEnv = (env) => (s.coverageKey ? Object.fromEntries(Object.entries(env ?? {}).filter(([k]) => !/^(?:RIGHTKIT_BUILD_OWNERSHIP|RK_GATE_|RIGHTKIT_CARRIED_|RIGHTKIT_CARGO_SCAN|RIGHTKIT_RUN_|RUSTRIGHT_OWNERSHIP|TMPDIR$|PWD$|OLDPWD$|SHLVL$|_$)/.test(k))) : env);
+              // Only build-relevant names key a publisher row (buildEnvName: compiler, cargo, toolchain, RK_/RIGHTKIT_ switches ...): the rest of the gate's environment (the
+              // calling session's ids, sockets, PATH order, locale) is not an input of the compile (Mac 2026-11-07: a restarted session changed CLAUDE_* and 73 passes missed).
+              const keyEnv = (env) => (s.coverageKey ? Object.fromEntries(Object.entries(env ?? {}).filter(([k]) => buildEnvName(k) && !/^(?:RIGHTKIT_BUILD_OWNERSHIP|RK_GATE_|RIGHTKIT_CARRIED_|RIGHTKIT_CARGO_SCAN|RIGHTKIT_RUN_|RUSTRIGHT_OWNERSHIP|TMPDIR$|PWD$|OLDPWD$|SHLVL$|_$)/.test(k))) : env);
               const inherited = cache.narrowNodeCheck && /^node-check:/.test(s.id) ? sha256('node-check-child-env-in-digest/1') : inheritedEnvDigest(keyEnv({ ...deps.env, ...s.env }));
               if (digest) {
                 cacheKey = scanCacheKey({ id: s.id, command: s.runOutside ? `${s.command} ;; run ${canonicalJson(s.runOutside)}` : s.command, toolVersion, env: keyEnv(s.env ?? {}), inheritedEnv: inherited, digest });
