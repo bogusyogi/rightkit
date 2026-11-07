@@ -7,6 +7,7 @@
 
 ## Unreleased
 
+- The `capabilities` module documentation names `default_models` in plain code instead of linking it: the function is private and rustdoc refuses a public link to a private item under `-D warnings` (Mac release compile 2026-11-07).
 - Removed `is_dev_storage_url`, left behind when the development-only provider base override was removed; it no longer compiles against `providers` without `PROVIDER_BASE_OVERRIDES` and could never match.
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

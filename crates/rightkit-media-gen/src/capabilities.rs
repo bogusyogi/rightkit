@@ -9,7 +9,7 @@
 //! - `references`: the `ReferenceInput` object, or `null` on an image or video row whose model takes
 //!   none (other kinds keep the field absent unless the model has it).
 //! - `default` (bool): true on the one row per kind the engine itself uses when a request names no
-//!   model. Only voice and avatar have such a rule (see [`default_models`]); every other kind has none.
+//!   model. Only voice and avatar have such a rule (see `default_models`); every other kind has none.
 //! - `inputs`: the input mode (see below) and the params that carry each input.
 //! - `settings`: aspects, resolutions, seed, length, loop and sync mode, each with the param name.
 //!
