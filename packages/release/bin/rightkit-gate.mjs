@@ -4702,7 +4702,7 @@ export async function main(argv, io = {}) {
           }
           return toolchains.get(dir);
         };
-        for (const requirement of external) if (requirement.executable === "cargo" && ((requirement.phase === "compile" && ["check", "clippy"].includes(requirement.argv[0])) || (requirement.phase === "test" && requirement.argv[0] === "test"))) {
+        for (const requirement of external) if (requirement.executable === "cargo" && ((requirement.phase === "compile" && ["check", "clippy", "doc"].includes(requirement.argv[0])) || (requirement.phase === "test" && requirement.argv[0] === "test"))) {
           const proof = proveWorkspaceCwd({ requirement, snapshot: repo, checkout: root, toolchainOf, exists: o.exists });
           if (proof.normalized) normalizedCwds.set(requirement.id, proof.cwd);
           cwdProofs.push({ id: requirement.id, cwd: proof.cwd, normalized: proof.normalized, reason: proof.reason });
