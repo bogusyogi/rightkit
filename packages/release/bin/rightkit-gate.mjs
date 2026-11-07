@@ -4685,7 +4685,11 @@ export async function main(argv, io = {}) {
         }
         const normalizedCwds = new Map(); const cwdProofs = [];
         const toolchains = new Map();
+        // A direct cargo that is a toolchain's own binary (…/toolchains/<name>/bin/cargo), not the rustup proxy, runs that toolchain in every directory:
+        // no directory override can change it, so the proof needs no rustup (Dell 2026-11-07: `rustup show active-toolchain` hung, no answer in 30 s).
+        const fixedToolchain = /[\\/]toolchains[\\/]([^\\/]+)[\\/]bin[\\/]cargo(?:\.exe)?$/i.exec(String(direct.cargo ?? ""))?.[1] ?? null;
         const toolchainOf = (dir) => {
+          if (fixedToolchain) return { toolchain: fixedToolchain };
           if (!toolchains.has(dir)) {
             // rustup on the direct PATH, else the real one in CARGO_HOME/bin: on a broker host the only rustup on PATH may be the broker's managed shim,
             // which the direct PATH drops (Dell 2026-11-07: every proof read "effective toolchain unavailable (spawn-error)" and no publisher row could group).
@@ -4693,7 +4697,7 @@ export async function main(argv, io = {}) {
             const onPath = String(direct.path ?? "").split(sep).filter(Boolean).some((d) => o.exists(path.join(d, exe)));
             const home = o.env.CARGO_HOME || path.join(o.env.USERPROFILE || o.env.HOME || "", ".cargo");
             const rustupCmd = onPath ? "rustup" : (o.exists(path.join(home, "bin", exe)) ? path.join(home, "bin", exe) : "rustup");
-            const result = o.spawn(rustupCmd, ["show", "active-toolchain"], { cwd: dir, env: { ...o.env, [pathKey]: direct.path } });
+            const result = o.spawn(rustupCmd, ["show", "active-toolchain"], { cwd: dir, env: { ...o.env, [pathKey]: direct.path }, timeout: 20000 });
             toolchains.set(dir, failed(result) ? { error: result?.error ? "spawn-error" : `exit-${Number.isInteger(result?.status) ? result.status : "unknown"}` } : { toolchain: text(result).trim().split(/\s+/)[0] });
           }
           return toolchains.get(dir);
