@@ -4698,6 +4698,9 @@ export async function main(argv, io = {}) {
           cwdProofs.push({ id: requirement.id, cwd: proof.cwd, normalized: proof.normalized, reason: proof.reason });
         }
         unionContext.cwdProofs = cwdProofs;
+        // Why a publisher row could not move to its workspace root (and so cannot join a group) is evidence, printed with the plan (Dell 2026-11-07: 0 grouped jobs).
+        { const by = new Map(); for (const proof of cwdProofs) { const k = proof.normalized ? "moved" : proof.reason; by.set(k, (by.get(k) ?? 0) + 1); }
+          o.out(`${tag} note: publisher working-directory proofs: ${[...by].map(([k, n]) => `${n} ${k}`).join("; ") || "none"}`); }
         const jobs = planUnitListCompile(scoped, { normalizedCwds, group: o.env.RK_GATE_PUBLISHER_GROUP ?? "all" });
         // The plan's shape is evidence, printed before anything runs (brosef 2026-11-07: a speed-up from grouping must be shown on the plan): how many publisher jobs, how many are
         // grouped (more than one crate in one invocation) and their sizes, by command.
