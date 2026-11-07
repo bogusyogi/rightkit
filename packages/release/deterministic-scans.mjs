@@ -3306,12 +3306,19 @@ export async function runScans(plan, options = {}) {
         if (!issued.has(row) || !bScans.includes(scan)) throw new Error("scheduleClassB: invalid projection");
         return remember(Object.freeze({ ...row, id: scan.id, command: scan.command }));
       };
+      // A grouped publisher test row is one issued row for the whole group; each member's own verdict (its executables' status, results, test run)
+      // is taken from that row's memberRuns, never invented: the member row is the issued row with that member's run in place of the group's.
+      const projectMember = (row, scan, memberId) => {
+        if (!issued.has(row) || !bScans.includes(scan) || !row.memberRuns || !Object.hasOwn(row.memberRuns, memberId)) throw new Error("scheduleClassB: invalid member projection");
+        const v = row.memberRuns[memberId]; const { memberRuns: _all, results: _sum, code: _code, detail: _detail, ...shared } = row; void _all; void _sum; void _code; void _detail;
+        return remember(Object.freeze({ ...shared, id: scan.id, command: scan.command, status: v.status, results: v.results ?? null, testRun: v.testRun ?? null, ...(v.code ? { code: v.code } : {}), ...(v.detail ? { detail: v.detail } : {}), batchedWith: { id: row.id } }));
+      };
       const notRun = (scan, detail) => {
         if (!bScans.includes(scan)) throw new Error("scheduleClassB: unknown scan");
         return remember(Object.freeze({ id: scan.id, class: scan.class, command: scan.command, status: "not-run", detail: String(detail) }));
       };
       // lookupOnly: the scheduler looks up every row it would run, treating a lookup as the pass the real run needs to reach later rows.
-      const rows = await options.scheduleClassB({ scans: bScans, execute, executeGroup, canGroup, project, notRun, probe, store, lookupOnly: options.cacheLookupOnly === true });
+      const rows = await options.scheduleClassB({ scans: bScans, execute, executeGroup, canGroup, project, projectMember, notRun, probe, store, lookupOnly: options.cacheLookupOnly === true });
       if (!Array.isArray(rows) || rows.length !== bScans.length || rows.some((row, i) => !row || !issued.has(row) || row.id !== bScans[i].id || typeof row.status !== "string")) throw new Error("scheduleClassB must return executor-issued results in plan order");
       rows.forEach((row, i) => { slots[i] = row; });
     } else if (brokerHost) {

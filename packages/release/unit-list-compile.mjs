@@ -240,14 +240,14 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, o
   if (byId.size !== requirements.length) throw new Error("duplicate publisher requirement IDs");
   const plannedIds = jobs.flatMap((job) => job.members.map((member) => member.id));
   if (plannedIds.length !== requirements.length || new Set(plannedIds).size !== plannedIds.length || plannedIds.some((id) => !byId.has(id))) throw new Error("publisher job coverage differs from authenticated requirements");
-  return async ({ scans, execute, executeGroup, canGroup, project, notRun, probe = null, store = null, lookupOnly = false }) => {
+  return async ({ scans, execute, executeGroup, canGroup, project, projectMember = null, notRun, probe = null, store = null, lookupOnly = false }) => {
     // Lookup only (the gate's cache lookup before a run): every row the real run would execute is looked up. A looked-up row stands for the pass the
     // real run needs before its dependents and NN27 proofs, so a cold host reports every row it would run, not only the first frontier.
     const provedInLookup = new Map(); const provedRows = new Map();
     const wouldPass = (row) => row?.status === "pass" || (lookupOnly && row?.status === "not-run" && (row.lookupMiss === true || row.uncacheable === true));
     const byScan = new Map(scans.map((scan, index) => [scan.id, index]));
     if (byScan.size !== scans.length || requirements.some((r) => !byScan.has(r.id))) throw new Error("publisher plan does not contain each requirement exactly once");
-    const slots = new Array(scans.length); const executed = new Map(); const attempts = new Map();
+    const slots = new Array(scans.length); const executed = new Map(); const attempts = new Map(); const groupRowOf = new Map(); // member id -> the issued test-group row its verdict comes from
     // A quiet suite needs the broker drained for its quiet lease: a job with a quiet member runs alone (exclusive), the others share.
     let shared = 0; let exclusive = false; const waiters = [];
     const wake = () => { const ready = waiters.splice(0); for (const w of ready) w(); };
@@ -369,7 +369,7 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, o
           const attributable = (row.code === "EXIT" && !row.snapshotEvidence) || (row.code === "BROKER_COMPILE_FAILURE" && row.authenticatedFailure?.retryable === true && row.authenticatedFailure?.failureClass === "compile" && row.snapshotEvidence?.receiptSha256);
           if (memberRows) {
             // Each member is judged on its own executables; the shared compile passed (the executables exist), so nothing is bisected.
-            for (const member of members) { const own = memberRows.get(member.id); executed.set(member.id, own); byMember.set(member.id, own); }
+            for (const member of members) { const own = memberRows.get(member.id); executed.set(member.id, own); byMember.set(member.id, own); groupRowOf.set(member.id, grouped); }
             if (typeof store === "function") for (const member of members) if (memberRows.get(member.id).status === "pass") store(missing.get(member.id) ?? null, { ...memberRows.get(member.id), id: member.id, command: scans[byScan.get(member.id)]?.command ?? row.command });
             return;
           }
@@ -401,7 +401,7 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, o
       const index = byScan.get(item.id); const scan = scans[index]; const row = executed.get(item.id);
       slots[index] = !row || (item.status !== "passed" && row.status === "pass")
         ? notRun(scan, item.status === "blocked" ? "a prerequisite did not pass" : "publisher evidence did not verify")
-        : project(provedRows.get(item.id) ?? row, scan);
+        : groupRowOf.has(item.id) && typeof projectMember === "function" ? projectMember(groupRowOf.get(item.id), scan, item.id) : project(provedRows.get(item.id) ?? row, scan);
     }
     return slots;
   };
