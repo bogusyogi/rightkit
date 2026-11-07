@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The `guardrail_replay` usage line is a code span, so rustdoc no longer reads `<path>` as an unclosed HTML tag under `-D warnings` (Mac release compile 2026-11-07).
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 
 ## 0.1.0 (unreleased)

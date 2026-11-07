@@ -4,7 +4,7 @@
 //! per-row pass/fail with the failing guard's reason.
 //!
 //! Usage:
-//!   guardrail_replay --input <path> --output <path> [--strict]
+//!   `guardrail_replay --input <path> --output <path> [--strict]`
 //!
 //! Input JSONL row: {"id"?: string, "input_text": string, "output_text": string, "field_text"?: string}
 //! Output JSONL row: {"id": string|null, "pass": bool, "reason": string|null, "accepted_text": string|null}
