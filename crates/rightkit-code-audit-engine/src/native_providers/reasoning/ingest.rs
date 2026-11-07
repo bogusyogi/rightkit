@@ -2229,7 +2229,7 @@ fn locate_packet(
 ///   withdrawn:[{id, reason, disproof:{path,line,text}}],
 ///   verdicts:[{candidateId, verdict, ...}]  (legacy.security.adjudication only:
 ///     exactly one per packet `scannerCandidates` entry; a surviving verdict
-///     also needs a finding with id `adjudicated:<candidateId>`),
+///     also needs a finding with id `adjudicated:{candidateId}`),
 ///   details:{semanticReview?, changeRisk?}}`
 ///
 /// `complete:true` only attests the submitter finished. Examined coverage is
