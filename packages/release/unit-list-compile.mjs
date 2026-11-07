@@ -42,7 +42,9 @@ export function compileProofKey(scan, as = "check") {
 }
 
 /** One in-memory plan; env is execution-only and must never be written to a report. */
-export function planUnitListCompile(requirementsByUnit, { normalizedCwds = new Map() } = {}) {
+export function planUnitListCompile(requirementsByUnit, { normalizedCwds = new Map(), group: grouping = "all" } = {}) {
+  // group (benchmark switch, RK_GATE_PUBLISHER_GROUP): "all" groups check, clippy, doc and test rows; "compile" leaves test rows single; "none" groups nothing.
+  if (!["all", "compile", "none"].includes(grouping)) throw new Error(`publisher grouping must be all, compile or none, not ${grouping}`);
   if (!Array.isArray(requirementsByUnit) || !requirementsByUnit.length) throw new Error("unit list needs compile requirements");
   const ids = new Set(); const exact = new Map();
   for (const entry of requirementsByUnit) {
@@ -61,8 +63,11 @@ export function planUnitListCompile(requirementsByUnit, { normalizedCwds = new M
     const at = job.argv.indexOf("-p");
     const crate = at >= 0 ? job.argv[at + 1] : undefined;
     const rest = at < 0 ? [] : [...job.argv.slice(0, at), ...job.argv.slice(at + 2)];
-    // Tests, Cargo features, and commands with multiple selectors never unify. Doc rows do (rustdoc is single-threaded per crate: one crate per job left the cores idle, ~3 h for 340 rows; Mac 2026-11-07).
-    const batchable = job.executable === "cargo" && job.phase === "compile" && ["check", "clippy", "doc"].includes(job.argv[0]) && at > 0 && typeof crate === "string" && !crate.startsWith("-") && job.argv.indexOf("-p", at + 1) < 0 && !rest.some((x) => /^(?:--features(?:=|$)|-F)/.test(x));
+    // Cargo features and commands with multiple selectors never unify. Doc rows do (rustdoc is single-threaded per crate: one crate per job left the cores idle, ~3 h for 340 rows; Mac 2026-11-07).
+    // Test rows do too (NN17/NN39, Mac 2026-11-07: 103 single-crate `cargo test -p X` publisher jobs queued one at a time behind the one build per checkout): the group
+    // compiles once and each crate's own test executables then run outside the broker with that crate's own verdict (testGroup, memberRuns).
+    const testRow = job.phase === "test" && job.argv[0] === "test";
+    const batchable = grouping !== "none" && job.executable === "cargo" && (job.phase === "compile" ? ["check", "clippy", "doc"].includes(job.argv[0]) : testRow && grouping === "all") && at > 0 && typeof crate === "string" && !crate.startsWith("-") && job.argv.indexOf("-p", at + 1) < 0 && !rest.some((x) => /^(?:--features(?:=|$)|-F)/.test(x));
     if (!batchable) { jobs.push(job); continue; }
     for (const member of job.members) member.package = crate;
     const key = JSON.stringify({ workspace: job.workspace, cwd: job.cwd, executable: job.executable, env: job.env, phase: job.phase, rest, at });
@@ -81,18 +86,22 @@ export function planUnitListCompile(requirementsByUnit, { normalizedCwds = new M
 /** Prove that moving a narrow package-selected Cargo invocation to its workspace root preserves discovery. */
 export function proveWorkspaceCwd({ requirement: r, snapshot, checkout, toolchainOf, exists = fs.existsSync }) {
   const no = (reason) => ({ cwd: r.cwd, normalized: false, reason });
-  if (r.executable !== "cargo" || r.phase !== "compile" || !["check", "clippy", "doc"].includes(r.argv[0]) || r.workspace === r.cwd) return no("not a movable Cargo check, clippy or doc");
+  const testRow = r.phase === "test" && r.argv[0] === "test";
+  if (r.executable !== "cargo" || !(r.phase === "compile" ? ["check", "clippy", "doc"].includes(r.argv[0]) : testRow) || r.workspace === r.cwd) return no("not a movable Cargo check, clippy, doc or test");
   const workspace = path.resolve(snapshot, r.workspace); const cwd = path.resolve(snapshot, r.cwd);
   const relative = path.relative(workspace, cwd);
   if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return no("working directory is outside workspace");
   // Only the publisher's package-selected, path-free shape can move. Cargo's configuration and toolchain
   // lookups depend on cwd; inspect every intermediate directory in both trees, including crate itself.
-  const args = r.argv; let packages = 0;
+  // A test row's arguments after `--` go to its test executables, which run in their own package directory (CARGO_MANIFEST_DIR), never the cargo cwd: plain flags only.
+  const cut = testRow ? r.argv.indexOf("--") : -1;
+  if (cut >= 0 && !r.argv.slice(cut + 1).every((a) => /^--[a-z][a-z0-9-]*(?:=[0-9]+)?$/.test(a))) return no("unproven test executable argument");
+  const args = cut >= 0 ? r.argv.slice(0, cut) : r.argv; let packages = 0;
   for (let i = 1; i < args.length; i += 1) {
     const a = args[i];
     if (a === "-p") { if (!/^[a-zA-Z0-9_-]+$/.test(args[++i] ?? "")) return no("invalid package selector"); packages += 1; }
     else if (["--target", "--jobs", "--profile", "-D"].includes(a)) { if (!/^[a-zA-Z0-9_.-]+$/.test(args[++i] ?? "")) return no("cwd-sensitive argument"); }
-    else if (!["--", "--no-deps", "--all-targets", "--all-features", "--no-default-features", "--locked", "--frozen", "--offline", "--message-format=json-render-diagnostics"].includes(a)) return no(`unproven argument ${a}`);
+    else if (!["--", "--no-deps", "--no-fail-fast", "--all-targets", "--all-features", "--no-default-features", "--locked", "--frozen", "--offline", "--message-format=json-render-diagnostics"].includes(a)) return no(`unproven argument ${a}`);
   }
   if (packages !== 1) return no("requires exactly one package selector");
   for (const [key, value] of Object.entries(r.env)) {
@@ -339,14 +348,31 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, o
             argv = [...argv.slice(0, at), ...[...new Set(members.map((m) => m.package))].flatMap((name) => ["-p", name]), ...argv.slice(end)];
           }
           const one = members.length === 1 && JSON.stringify(argv) === JSON.stringify(representative.argv);
-          const scan = one ? scans[byScan.get(representative.id)] : adapt({ ...representative, id: `publisher-batch:${digest(members.map((m) => m.id)).slice(0, 24)}`, cwd: job.cwd, argv, coverageKey: digest(members.map((m) => m.coverageKey)) });
-          const row = await execute(scan);
+          const testBatch = !one && job.batchAt !== undefined && job.phase === "test" && argv[0] === "test";
+          const batchScan = one ? null : adapt({ ...representative, id: `publisher-batch:${digest(members.map((m) => m.id)).slice(0, 24)}`, cwd: job.cwd, argv, coverageKey: digest(members.map((m) => m.coverageKey)) });
+          // A test group compiles once; each member's own executables run with its own verdict (memberRuns), keyed by the member's own row id.
+          const scan = one ? scans[byScan.get(representative.id)] : testBatch ? { ...batchScan, testGroup: members.map((m) => ({ id: m.id, crate: m.package })) } : batchScan;
+          const grouped = await execute(scan);
+          const memberRows = testBatch && grouped?.memberRuns && typeof grouped.memberRuns === "object" ? new Map(members.map((m) => {
+            const { memberRuns: _all, results: _sum, ...shared } = grouped; void _all; void _sum;
+            const v = grouped.memberRuns[m.id] ?? { status: "fail", code: "TEST_GROUP", detail: `${m.id}: the test group ${grouped.id} produced no run for this member` };
+            const own = { ...shared, status: v.status, results: v.results ?? null, testRun: v.testRun ?? null, batchedWith: { id: grouped.id, members: members.map((x) => x.id) } };
+            delete own.code; delete own.detail; if (v.code) own.code = v.code; if (v.detail) own.detail = v.detail;
+            return [m.id, own];
+          })) : null;
+          const row = grouped;
           for (const member of members) {
             const history = attempts.get(member.id) ?? [];
             history.push({ id: row.id, status: row.status, ...(row.code ? { code: row.code } : {}), command: row.command, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}) });
             attempts.set(member.id, history);
           }
           const attributable = (row.code === "EXIT" && !row.snapshotEvidence) || (row.code === "BROKER_COMPILE_FAILURE" && row.authenticatedFailure?.retryable === true && row.authenticatedFailure?.failureClass === "compile" && row.snapshotEvidence?.receiptSha256);
+          if (memberRows) {
+            // Each member is judged on its own executables; the shared compile passed (the executables exist), so nothing is bisected.
+            for (const member of members) { const own = memberRows.get(member.id); executed.set(member.id, own); byMember.set(member.id, own); }
+            if (typeof store === "function") for (const member of members) if (memberRows.get(member.id).status === "pass") store(missing.get(member.id) ?? null, { ...memberRows.get(member.id), id: member.id, command: scans[byScan.get(member.id)]?.command ?? row.command });
+            return;
+          }
           if (members.length > 1 && job.batchAt !== undefined && row.status === "fail" && attributable) {
             const half = Math.ceil(members.length / 2);
             await runMembers(members.slice(0, half)); await runMembers(members.slice(half));

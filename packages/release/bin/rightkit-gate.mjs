@@ -4689,13 +4689,13 @@ export async function main(argv, io = {}) {
           }
           return toolchains.get(dir);
         };
-        for (const requirement of external) if (requirement.executable === "cargo" && requirement.phase === "compile" && ["check", "clippy"].includes(requirement.argv[0])) {
+        for (const requirement of external) if (requirement.executable === "cargo" && ((requirement.phase === "compile" && ["check", "clippy"].includes(requirement.argv[0])) || (requirement.phase === "test" && requirement.argv[0] === "test"))) {
           const proof = proveWorkspaceCwd({ requirement, snapshot: repo, checkout: root, toolchainOf, exists: o.exists });
           if (proof.normalized) normalizedCwds.set(requirement.id, proof.cwd);
           cwdProofs.push({ id: requirement.id, cwd: proof.cwd, normalized: proof.normalized, reason: proof.reason });
         }
         unionContext.cwdProofs = cwdProofs;
-        const jobs = planUnitListCompile(scoped, { normalizedCwds });
+        const jobs = planUnitListCompile(scoped, { normalizedCwds, group: o.env.RK_GATE_PUBLISHER_GROUP ?? "all" });
         // The plan's shape is evidence, printed before anything runs (brosef 2026-11-07: a speed-up from grouping must be shown on the plan): how many publisher jobs, how many are
         // grouped (more than one crate in one invocation) and their sizes, by command.
         { const grouped = jobs.filter((j) => j.batchAt !== undefined && new Set(j.members.map((m) => m.package)).size > 1); const singles = jobs.length - grouped.length;
