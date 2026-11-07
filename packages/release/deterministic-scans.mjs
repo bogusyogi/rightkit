@@ -3475,8 +3475,10 @@ export async function runScans(plan, options = {}) {
               row.cacheMiss = { kind: !idx ? "new" : idx.inputs === inputsDigest && idx.env === envDigest ? "unchanged" : "changed", ...(idx ? { last: idx.at ?? null } : {}), ...(idx?.raw ? { why: explainKeyChange(idx.raw, keyParts.raw) } : {}), now: { inputs: keyParts.raw.inputs.slice(0, 4000), toolVersion: keyParts.raw.toolVersion, inherited: keyParts.raw.inherited } };
               row.rowIndex = { key: rowIndexKey, inputs: inputsDigest, env: envDigest, raw: keyParts.raw };
               // Carry-over (carryOverProof): a pass stored under an earlier key form, whose real inputs provably did not change, is this row's pass.
-              if (!(hit && hit.key === cacheKey && hit.row?.status === "pass") && idx?.raw && row.cacheMiss.kind === "changed" && typeof cache.entryNow === "function") {
-                const proof = carryOverProof(idx.raw, keyParts.raw, { entryNow: cache.entryNow });
+              if (!(hit && hit.key === cacheKey && hit.row?.status === "pass") && idx?.raw && row.cacheMiss.kind === "changed") {
+                // entryNow (a path's content id now) exists on the class A cache; a class B row has none and its inputs digest is one string, so only an
+                // environment-only difference can carry over there (no changed entry is ever looked up).
+                const proof = carryOverProof(idx.raw, keyParts.raw, { entryNow: typeof cache.entryNow === "function" ? cache.entryNow : () => null });
                 if (!proof.ok && proof.edited?.length && row.cacheMiss.why) row.cacheMiss.why = { ...row.cacheMiss.why, contentOnly: true, formChangesProven: proof.carried };
                 if (proof.ok) {
                   const oldKey = scanCacheKey({ id: s.id, command: s.runOutside ? `${s.command} ;; run ${canonicalJson(s.runOutside)}` : s.command, toolVersion: idx.raw.toolVersion, env: idx.raw.env ?? {}, inheritedEnv: idx.raw.inherited, digest: idx.raw.inputs });
