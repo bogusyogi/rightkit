@@ -4601,7 +4601,7 @@ export async function main(argv, io = {}) {
       rustUnits: rust.units, npmUnits: npm, npmRoots, cargoDir: ".", rustLocks, crateFeatures, crateDependents, externalInputs,
       // B1 (rightkit#1458): compile scans of one Cargo workspace run as one cargo invocation per configuration; ci/shards.json `solo` crates never join one.
       // Batching is on (RK_GATE_CLASS_B_BATCH=0 turns it off): the batch-equivalence run (GATE-CONTRACT GC-I11; Pulse 3b31b4ca, 2026-11-03) gave the same verdict on all 193 scans batched and per crate.
-      classBBatching: !o[PRIVATE_SCOPED_COMPILE] && o.env.RK_GATE_CLASS_B_BATCH !== "0", shardSolo: shardSoloOf(o, repo),
+      classBBatching: !o[PRIVATE_SCOPED_COMPILE] && o.env.RK_GATE_CLASS_B_BATCH !== "0", mergeFeatureRows: o.env.RK_GATE_MERGE_FEATURE_ROWS === "1", shardSolo: shardSoloOf(o, repo),
       // The broker (or, on a direct host, the gate itself) admits compiles; no separate grant file decides it here.
       localCompile: true,
       exists: o.exists, readFile: o.readFile, platform: o.platform,
@@ -4949,7 +4949,7 @@ export async function main(argv, io = {}) {
     const scanOptions = {
       // The commit's own files (rightkit#1393): a snapshot is not a git toplevel, so the secret scan needs this list to judge tracked files only and never what a stage wrote there.
       ...(snapshot ? { trackedFiles: files } : {}),
-      classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], ...(classAEarlier ? { classAEarlier: true } : {}), jobs, testJobs, classBJobs, classBBatching: !o[PRIVATE_SCOPED_COMPILE] && o.env.RK_GATE_CLASS_B_BATCH !== "0", groupTests: o.env.RK_GATE_GROUP_TESTS !== "0", classBPipeline: Math.max(1, Number(o.env.RK_GATE_CLASS_B_PIPELINE ?? 2) || 2), ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
+      classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], ...(classAEarlier ? { classAEarlier: true } : {}), jobs, testJobs, classBJobs, classBBatching: !o[PRIVATE_SCOPED_COMPILE] && o.env.RK_GATE_CLASS_B_BATCH !== "0", mergeFeatureRows: o.env.RK_GATE_MERGE_FEATURE_ROWS === "1", groupTests: o.env.RK_GATE_GROUP_TESTS !== "0", classBPipeline: Math.max(1, Number(o.env.RK_GATE_CLASS_B_PIPELINE ?? 2) || 2), ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
       // NN41: the installed broker runtime's identity keys every cached compile failure; null (a direct host, an unreadable manifest) means no failure is cached.
       ...(brokerHost && cache ? (() => { const identity = brokerRuntimeIdentityText({ clients: [brokerClient, executor?.client, cargoCommand[0]], env: { ...o.env, ...(executor.env ?? {}) }, platform: o.platform }); return identity ? { failureIdentity: identity } : {}; })() : {}),
       ...(census ? { spawn: census.wrapSpawn(defaultSpawnAsync) } : {}),

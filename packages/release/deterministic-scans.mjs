@@ -1117,6 +1117,10 @@ export function planScans({
   // crate and configuration, so required ids (GC-A14's three targets, scan-receipt) and GC-T14 keys are untouched; only the run is shared.
   // `shardSolo` and `clippySeparate` keep a crate out of every group, as they do for clippyBatching. Off unless the caller (rightkit-gate) asks.
   classBBatching = false,
+  // Benchmark only (RK_GATE_MERGE_FEATURE_ROWS=1, Adrian 2026-11-07 parallelism benchmark; never a release default): rows whose only bar to a group is their
+  // crate-specific feature set join the group too, each crate's features named as <crate>/<feature>. One invocation unifies features across its crates
+  // (GC-I11), so a pass here does not prove each crate alone; it measures what maximal grouping buys.
+  mergeFeatureRows = false,
   // Dependency-freshness advice (rightkit#1475): planned only when the caller asks for advice in this run. It is a live
   // registry answer that can never fail a run, and its uncached cost (a 120 s timeout in 41 of 81 crate runs,
   // 2026-11-04) must not sit on the blocking path to a compile; update reporting (@rightkit/outdated) owns asking.
@@ -1838,6 +1842,20 @@ export function planScans({
     const tripleKey = target ? target.replace(/-/g, "_") : null;
     const keyRest = target ? [...rest.slice(0, ti), "--target", "*", ...rest.slice(ti + 2)] : rest;
     const keyEnv = target ? Object.fromEntries(Object.entries(x.env ?? {}).filter(([k]) => !(k.endsWith(`_${tripleKey}`) || k.toUpperCase().endsWith(`_${tripleKey.toUpperCase()}`)))) : x.env;
+    if (why === "its feature set names crate-specific features" && mergeFeatureRows) {
+      // Cargo's own flags only: after `--` come rustc/clippy flags, where -F is a lint level, never a feature.
+      const feats = []; const plainRest = []; const stop = keyRest.indexOf("--") < 0 ? keyRest.length : keyRest.indexOf("--");
+      for (let i = 0; i < keyRest.length; i += 1) {
+        const w = keyRest[i];
+        if (i >= stop) { plainRest.push(w); continue; }
+        if (w === "--features" || w === "-F") { feats.push(...String(keyRest[++i] ?? "").split(/[ ,]+/).filter(Boolean)); continue; }
+        const m = /^(?:--features=|-F)(.+)$/.exec(w); if (m) { feats.push(...m[1].split(/[ ,]+/).filter(Boolean)); continue; }
+        plainRest.push(w);
+      }
+      const key = sha256(canonicalJson({ tool: x.tool, cwd: x.cwd ?? ".", root: x.root, env: keyEnv, rest: plainRest, at, mergedFeatures: true })).slice(0, 16);
+      groupCount.set(key, (groupCount.get(key) ?? 0) + 1);
+      return { ...plain, batchable: { key, at, crate, unit, ...(target ? { target } : {}), features: feats.map((f) => (f.includes("/") ? f : `${crate}/${f}`)) } };
+    }
     if (why) {
       batchNotes.set(why, (batchNotes.get(why) ?? 0) + 1);
       // A row that cannot join other crates (its own features, solo, separate, sidecar-bound) still names every target with its own crate's
@@ -3108,6 +3126,13 @@ export async function runScans(plan, options = {}) {
       const crates = [...new Set(idx.map((i) => bScans[i].batchable.crate))];
       const targets = [...new Set(idx.map((i) => bScans[i].batchable.target).filter(Boolean))];
       let args = [...lead.args.slice(0, lead.batchable.at), ...crates.flatMap((c) => ["-p", c]), ...lead.args.slice(lead.batchable.at + 2)];
+      // Benchmark-only merged feature rows: drop the lead's own feature flags and name every member's features as <crate>/<feature>.
+      if (idx.some((i) => Array.isArray(bScans[i].batchable.features))) {
+        const all = [...new Set(idx.flatMap((i) => bScans[i].batchable.features ?? []))];
+        const stop = args.indexOf("--") < 0 ? args.length : args.indexOf("--");
+        const out = []; for (let i = 0; i < args.length; i += 1) { const w = args[i]; if (i < stop && (w === "--features" || w === "-F")) { i += 1; continue; } if (i < stop && /^(?:--features=|-F.)/.test(w)) continue; out.push(w); }
+        const cut = out.indexOf("--"); args = all.length ? (cut < 0 ? [...out, "--features", all.join(",")] : [...out.slice(0, cut), "--features", all.join(","), ...out.slice(cut)]) : out;
+      }
       if (targets.length > 1) { const t = args.indexOf("--target"); if (t >= 0) args = [...args.slice(0, t), ...targets.flatMap((x) => ["--target", x]), ...args.slice(t + 2)]; }
       if (targets.length > 1) plain.env = Object.assign({}, ...idx.map((i) => bScans[i].env ?? {}));
       const units = [...new Set(idx.map((i) => bScans[i].batchable.unit))].map((u) => targets.length > 1 ? u : u);
