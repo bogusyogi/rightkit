@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The crate-level documentation link to `detect` names the function (`fn@detect`): `detect` is both a module and a function, and rustdoc refused the ambiguous link under `-D warnings` (Mac release compile 2026-11-07).
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 
 ## 0.1.0 (unreleased)

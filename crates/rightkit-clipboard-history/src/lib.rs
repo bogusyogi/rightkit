@@ -1,4 +1,4 @@
-//! Clipboard history: classification of copied text ([`detect`]), the on-disk store with
+//! Clipboard history: classification of copied text ([`detect()`](fn@detect)), the on-disk store with
 //! retention and pinboards ([`model`]), search ([`search`]) and encryption at rest ([`seal`]). On Windows it also holds the clipboard calls (`win`), the capture window (`capture`), the paste engine (`paste`) and the strip (`strip`), picture conversion (`img`) and the nearby shelf (`shelf`).
 //! The application supplies its data folder, limits, translation and logging through [`host`].
 
