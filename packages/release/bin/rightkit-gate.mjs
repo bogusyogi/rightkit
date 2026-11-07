@@ -118,6 +118,9 @@ import { cargoWidthRouteProblem, cargoWidthScanProblem, cargoWidthUnitsProblem, 
 const PRIVATE_SCOPED_COMPILE = Symbol("private scoped compile");
 const UNIT_LIST_UNION = Symbol("unit list union");
 const CARGO_WIDTH = Symbol("Cargo width");
+// Class B row input digests per tree (see rowDigest in the compile stage); counted so the run summary shows the time keying took.
+const ROW_DIGEST_MEMO = new Map();
+const ROW_DIGEST_STATS = { hits: 0, misses: 0, ms: 0 };
 const ZERO = /^0+$/;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const posix = (p) => String(p).replaceAll("\\", "/");
@@ -4916,7 +4919,17 @@ export async function main(argv, io = {}) {
             return text(r);
           };
           // The class B key identity (key schema and carrier code, classBKeyIdentity) is part of every class B key.
-          const rowDigest = buildCacheDigest({ objectId, headTree: treeId, rustUnits: rust.units, npmUnits: npm, cargoDir: ".", rustLocks, crateFeatures, listFiles, readBlob, onKeyError: keyError });
+          const rawRowDigest = buildCacheDigest({ objectId, headTree: treeId, rustUnits: rust.units, npmUnits: npm, cargoDir: ".", rustLocks, crateFeatures, listFiles, readBlob, onKeyError: keyError });
+          // A row's input digest reads only the selected commit's tree (git ls-tree/show at headSha), so one answer per tree and row serves the lookup pass and
+          // every per-crate probe of the run (Mac 2026-11-07, brosef: the broker sat idle ~22 s after each grouped job while the next groups' members were
+          // re-keyed one at a time on the gate's thread; 103 s of a 422 s run). Keyed by the tree and the row's whole scan identity; a null answer is not kept.
+          const rowDigest = (scan) => {
+            const k = `${treeId}\0${canonicalJson({ id: scan.id, args: scan.args ?? null, env: scan.env ?? null, cwd: scan.cwd ?? null, root: scan.root ?? null, kind: scan.kind ?? null, coverageKey: scan.coverageKey ?? null, runOutside: scan.runOutside ?? null, batch: scan.batch ?? null, command: scan.command ?? null })}`;
+            if (ROW_DIGEST_MEMO.has(k)) { ROW_DIGEST_STATS.hits += 1; return ROW_DIGEST_MEMO.get(k); }
+            const t0 = performance.now(); const d = rawRowDigest(scan); ROW_DIGEST_STATS.ms += performance.now() - t0; ROW_DIGEST_STATS.misses += 1;
+            if (d !== null && d !== undefined) ROW_DIGEST_MEMO.set(k, d);
+            return d;
+          };
           const gateIdentity = classBKeyIdentity();
           cache = { ...store, digest: (scan) => { const key = rowDigest(scan); const full = key === null ? null : `${key}:${gateIdentity}`; scanKeys.set(scan.id, full); for (const member of scan.batch?.members ?? []) scanKeys.set(member, full); return full; } };
         } else {
@@ -5136,6 +5149,7 @@ export async function main(argv, io = {}) {
       }
       const outputWorkspaces = (snapshotBroker ? scanResult.scans.map((r) => r.snapshotEvidence?.outputDir) : Object.values(targetDirs ?? {})).filter(Boolean).map((dir) => [dir]);
       o.onCompileOutputs?.(outputWorkspaces.map(([dir]) => dir), builtBins);
+      o.out(`${tag} class B keying: ${ROW_DIGEST_STATS.misses} row digest(s) computed in ${(ROW_DIGEST_STATS.ms / 1000).toFixed(1)} s, ${ROW_DIGEST_STATS.hits} reused`);
       if (snapshotBroker) o.out(`${tag} broker compile: ${new Set(scanResult.scans.map((r) => r.snapshotEvidence?.requestId).filter(Boolean)).size} carried request(s) with verified signed receipts (${scanResult.scans.filter((r) => r.snapshotEvidence).length} scan row(s)); no direct receipt on a broker host`);
       else {
         // The direct host's own receipt (GATE-CONTRACT "Broker interface", row 7.18): the contract's returned-evidence names minus the
