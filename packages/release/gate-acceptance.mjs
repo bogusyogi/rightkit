@@ -2978,7 +2978,10 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
   // S16 per-run identities ------------------------------------------------------------------------------------------------------------------
   if (wanted.includes("S16")) {
     const tmp = fs.mkdtempSync(path.join(scratch, "ident-tmp-"));
-    const r = await doRun({ label: "S16:ident", stage: "check", ladder: true, step: "S16", env: { CODEX_TOOL_CALL_ID: `fake-call-${Date.now()}`, TERM_SESSION_ID: `fake-session-${process.pid}`, TMPDIR: tmp, RK_GATE_RUN_NOTE: `identity-${Date.now()}` } });
+    const r = await doRun({ label: "S16:ident", stage: "check", ladder: true, step: "S16", env: { CODEX_TOOL_CALL_ID: `fake-call-${Date.now()}`, TERM_SESSION_ID: `fake-session-${process.pid}`, TMPDIR: tmp, RK_GATE_RUN_NOTE: `identity-${Date.now()}`,
+      // A restarted app or a changed shell (Mac 2026-11-07: PNPM_HOME, CLAUDE_*, BAGGAGE and PATH order moved and every stored pass missed): none of these is an input of a row.
+      PNPM_HOME: path.join(tmp, "pnpm-home"), CLAUDE_PID: String(process.pid + 1), CLAUDE_CODE_MESSAGING_SOCKET: path.join(tmp, "claude.sock"), CLAUDE_CODE_ACCOUNT_UUID: `fake-account-${Date.now()}`, BAGGAGE: `fake=${Date.now()}`, LC_CTYPE: "C",
+      PATH: String(process.env.PATH ?? "").split(path.delimiter).reverse().join(path.delimiter) } });
     check("S16", "the run with different per-run identities wrote coverage", { ok: r.rows !== null, problems: [`exit ${r.exit}, no readable coverage`] });
   }
 

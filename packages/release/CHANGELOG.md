@@ -17,6 +17,9 @@
 - `pnpm exec right-release` from an app config runs the gate's own right-release; the door sends the broker only the registration's exec targets (tauri) (#1528).
 - Batched rows are cached per crate (each member looked up and stored on its own key), so a change in grouping reruns nothing that passed; check and clippy batches read each crate's verdict from cargo's JSON messages instead of failing the whole group (#1526).
 - Publisher and publication checks honour a crate's platform scope (ci/gate.config.json platforms) as the plan does; rightkit-dictation-runtime and rightkit-dictation-engine are scoped to macOS and Windows (#1526).
+- Publisher doc rows group per workspace into one `cargo doc` call (rustdoc is single-threaded per crate; ~3 h for 340 rows one crate per job); each member is probed on its own key first so a regrouping reruns nothing that passed, and each batch pass is stored per member (NN17/NN39, #1526).
+- A key counts build-relevant environment only: a publisher row no longer keys the calling session's whole environment, PNPM_HOME is excluded, and carry-over serves class B rows; the contract test varies PNPM_HOME, CLAUDE_*, BAGGAGE and PATH order in S16 and expects the same keys (#1526).
+- A new UTC day and an added or removed file are the row's own changes (no approval); changed entries are compared by path (#1526).
 - Contract test: NN30/NN31 per host; S11 and S17's toolchain-change run prove the cache-miss stop; S15 names its RightKit unit; fixture pin 3a017e99 (pnpm 12.16.1) (#1514).
 
 ## 0.6.52

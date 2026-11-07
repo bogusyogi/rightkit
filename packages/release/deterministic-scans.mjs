@@ -167,7 +167,8 @@ const BUILD_ENV_PREFIXES = ["CARGO_", "RUST", "SCCACHE_", "RK_", "RIGHTKIT_", "R
 // snapshot request and cargo map, the direct receipt path.
 // A network proxy (NPM_CONFIG_HTTPS_PROXY, NPM_CONFIG_NOPROXY, ...) changes how a download is routed, never what a scan proves, and a
 // cloud host sets it per session (measured 2026-11-06: the cloud's NPM_CONFIG_HTTPS_PROXY moved between two runs and 1,115 rows missed).
-const BUILD_ENV_EXCLUDED = /^(RK_GATE_|RUSTRIGHT_QUIET_LEASE$|RIGHTKIT_BUILD_OWNERSHIP$|RIGHTKIT_CARRIED_CARGO_MAP$|RUSTRIGHT_ATTEST_NONCE$|RUSTRIGHT_REQUEST_ID_FILE$|RUSTRIGHT_SNAPSHOT_REQUEST$|RK_DIRECT_RECEIPT$|RIGHTKIT_CROSS_CC_DIR$|.*PROXY)/;
+const BUILD_ENV_EXCLUDED = /^(RK_GATE_|RUSTRIGHT_QUIET_LEASE$|RIGHTKIT_BUILD_OWNERSHIP$|RIGHTKIT_CARRIED_CARGO_MAP$|RUSTRIGHT_ATTEST_NONCE$|RUSTRIGHT_REQUEST_ID_FILE$|RUSTRIGHT_SNAPSHOT_REQUEST$|RK_DIRECT_RECEIPT$|RIGHTKIT_CROSS_CC_DIR$|PNPM_HOME$|.*PROXY)/;
+// PNPM_HOME is where pnpm keeps its own binaries (the calling app profile picks it); it is not an input of any scan (Mac 2026-11-07: a restarted app set another path and every stored pass missed).
 // RIGHTKIT_CROSS_CC_DIR is where the zig wrappers live, not what they are: a cross clippy row keys on its own CC_/CXX_/AR_ variables
 // (scan env), and no Class A row uses it (measured 2026-11-06: setting it on the cloud host made 1,121 Class A rows miss).
 // Per-run parts of a value are normalised: the runtime cargo wrapper's fresh parent (`rk-gate-shim-XXXXXX`) and its folder name
@@ -3250,6 +3251,20 @@ export async function runScans(plan, options = {}) {
         finally { if (lease && typeof quietLane.release === "function") { try { await quietLane.release(lease.id); } catch { /* lease expires */ } } }
       };
       const execute = async (scan) => remember(Object.freeze(await executeRaw(scan)));
+      // A cache probe of one scan (publisher batches, unit-list-compile): answers from the scan's OWN key (a cached pass, or a miss carrying what a later
+      // per-crate store needs), never runs it. `store` writes a member's pass, found in a batch, under that member's own key and row index, as if it ran alone.
+      const probe = async (scan) => {
+        if (!cache || signal?.aborted) return null;
+        const copy = { ...scan }; probeScans.add(copy);
+        try { const r = await scanRow(copy, null); return remember(Object.freeze({ ...r, id: scan.id, command: scan.command })); } catch { return null; }
+      };
+      const store = (write, own) => {
+        if (!cache || !write || own?.status !== "pass" || signal?.aborted) return;
+        try {
+          cache.write(write.key, { id: own.id, class: own.class, command: own.command, tool: own.tool ?? null, toolVersion: own.toolVersion ?? null, status: "pass", snapshotEvidence: own.snapshotEvidence ?? null, testRun: own.testRun ?? null, ...(own.results ? { results: own.results } : {}) });
+          if (write.index) cache.write(write.index.key, { id: own.id, inputs: write.index.inputs, env: write.index.env, raw: write.index.raw, at: new Date().toISOString() });
+        } catch { /* the pass stands; the next run runs the member again */ }
+      };
       const canGroup = (a, b) => { const i = bScans.indexOf(a); const j = bScans.indexOf(b); return i >= 0 && j >= 0 && Boolean(groupOf.get(i)) && groupOf.get(i) === groupOf.get(j); };
       // The caller supplies only members ready on its current frontier. Reuse the existing
       // signed batch/bisection path without admitting other members of their planned group.
@@ -3270,7 +3285,7 @@ export async function runScans(plan, options = {}) {
         return remember(Object.freeze({ id: scan.id, class: scan.class, command: scan.command, status: "not-run", detail: String(detail) }));
       };
       // lookupOnly: the scheduler looks up every row it would run, treating a lookup as the pass the real run needs to reach later rows.
-      const rows = await options.scheduleClassB({ scans: bScans, execute, executeGroup, canGroup, project, notRun, lookupOnly: options.cacheLookupOnly === true });
+      const rows = await options.scheduleClassB({ scans: bScans, execute, executeGroup, canGroup, project, notRun, probe, store, lookupOnly: options.cacheLookupOnly === true });
       if (!Array.isArray(rows) || rows.length !== bScans.length || rows.some((row, i) => !row || !issued.has(row) || row.id !== bScans[i].id || typeof row.status !== "string")) throw new Error("scheduleClassB must return executor-issued results in plan order");
       rows.forEach((row, i) => { slots[i] = row; });
     } else if (brokerHost) {

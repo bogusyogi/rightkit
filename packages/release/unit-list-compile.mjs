@@ -61,8 +61,8 @@ export function planUnitListCompile(requirementsByUnit, { normalizedCwds = new M
     const at = job.argv.indexOf("-p");
     const crate = at >= 0 ? job.argv[at + 1] : undefined;
     const rest = at < 0 ? [] : [...job.argv.slice(0, at), ...job.argv.slice(at + 2)];
-    // Tests, docs, Cargo features, and commands with multiple selectors never unify.
-    const batchable = job.executable === "cargo" && job.phase === "compile" && ["check", "clippy"].includes(job.argv[0]) && at > 0 && typeof crate === "string" && !crate.startsWith("-") && job.argv.indexOf("-p", at + 1) < 0 && !rest.some((x) => /^(?:--features(?:=|$)|-F)/.test(x));
+    // Tests, Cargo features, and commands with multiple selectors never unify. Doc rows do (rustdoc is single-threaded per crate: one crate per job left the cores idle, ~3 h for 340 rows; Mac 2026-11-07).
+    const batchable = job.executable === "cargo" && job.phase === "compile" && ["check", "clippy", "doc"].includes(job.argv[0]) && at > 0 && typeof crate === "string" && !crate.startsWith("-") && job.argv.indexOf("-p", at + 1) < 0 && !rest.some((x) => /^(?:--features(?:=|$)|-F)/.test(x));
     if (!batchable) { jobs.push(job); continue; }
     for (const member of job.members) member.package = crate;
     const key = JSON.stringify({ workspace: job.workspace, cwd: job.cwd, executable: job.executable, env: job.env, phase: job.phase, rest, at });
@@ -223,7 +223,7 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, o
   if (byId.size !== requirements.length) throw new Error("duplicate publisher requirement IDs");
   const plannedIds = jobs.flatMap((job) => job.members.map((member) => member.id));
   if (plannedIds.length !== requirements.length || new Set(plannedIds).size !== plannedIds.length || plannedIds.some((id) => !byId.has(id))) throw new Error("publisher job coverage differs from authenticated requirements");
-  return async ({ scans, execute, executeGroup, canGroup, project, notRun, lookupOnly = false }) => {
+  return async ({ scans, execute, executeGroup, canGroup, project, notRun, probe = null, store = null, lookupOnly = false }) => {
     // Lookup only (the gate's cache lookup before a run): every row the real run would execute is looked up. A looked-up row stands for the pass the
     // real run needs before its dependents and NN27 proofs, so a cold host reports every row it would run, not only the first frontier.
     const provedInLookup = new Map(); const provedRows = new Map();
@@ -303,7 +303,24 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, o
             attempts.set(member.id, history); executed.set(member.id, row); byMember.set(member.id, row);
           }
           if (!rest.length) return;
-          members = rest;
+          // Per-member cache (rows passed alone or in another grouping stay hits): each remaining member is looked up on its OWN key before any batch is made,
+          // so a change in how crates are grouped reruns nothing that passed. A looked-up miss carries what a later per-member store needs.
+          const missing = new Map();
+          if (typeof probe === "function" && rest.length > 1) {
+            const looked = await Promise.all(rest.map(async (member) => [member, await probe(scans[byScan.get(member.id)])]));
+            const still = [];
+            for (const [member, r] of looked) {
+              if (r?.cached === true && r.status === "pass") {
+                provedRows.set(member.id, r); // a cached member is its own hit in a lookup too (counted as one), never an unclassified row
+                const history = attempts.get(member.id) ?? [];
+                history.push({ id: r.id, status: "pass", cached: true, command: r.command, ...(r.snapshotEvidence ? { snapshotEvidence: r.snapshotEvidence } : {}) });
+                attempts.set(member.id, history); executed.set(member.id, r); byMember.set(member.id, r);
+              } else { if (r?.memberWrite) missing.set(member.id, r.memberWrite); still.push(member); if (lookupOnly && r) { executed.set(member.id, r); byMember.set(member.id, r); const h = attempts.get(member.id) ?? []; h.push({ id: r.id, status: r.status, command: r.command }); attempts.set(member.id, h); } }
+            }
+            if (lookupOnly) return; // a lookup reports each member on its own row; no batch is looked up
+            if (!still.length) return;
+            members = still;
+          } else members = rest;
           budget.remaining -= 1;
           const representative = byId.get(members[0].id);
           if (!representative) throw new Error("unknown publisher requirement");
@@ -329,6 +346,8 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, o
           // Split outcomes attribute the failure; they cannot turn the required combined
           // invocation into a pass or unblock a selected dependent.
           for (const member of members) { executed.set(member.id, row); byMember.set(member.id, row); }
+          // A member that passed inside a batch is stored under its own key (per-member cache above), as if it had run alone.
+          if (typeof store === "function" && members.length > 1 && row.status === "pass") for (const member of members) store(missing.get(member.id) ?? null, { ...row, id: member.id, command: scans[byScan.get(member.id)]?.command ?? row.command });
         };
         await runMembers(job.members);
         return { byMember };
