@@ -4687,7 +4687,13 @@ export async function main(argv, io = {}) {
         const toolchains = new Map();
         const toolchainOf = (dir) => {
           if (!toolchains.has(dir)) {
-            const result = o.spawn("rustup", ["show", "active-toolchain"], { cwd: dir, env: { ...o.env, [pathKey]: direct.path } });
+            // rustup on the direct PATH, else the real one in CARGO_HOME/bin: on a broker host the only rustup on PATH may be the broker's managed shim,
+            // which the direct PATH drops (Dell 2026-11-07: every proof read "effective toolchain unavailable (spawn-error)" and no publisher row could group).
+            const sep = o.platform === "win32" ? ";" : ":"; const exe = o.platform === "win32" ? "rustup.exe" : "rustup";
+            const onPath = String(direct.path ?? "").split(sep).filter(Boolean).some((d) => o.exists(path.join(d, exe)));
+            const home = o.env.CARGO_HOME || path.join(o.env.USERPROFILE || o.env.HOME || "", ".cargo");
+            const rustupCmd = onPath ? "rustup" : (o.exists(path.join(home, "bin", exe)) ? path.join(home, "bin", exe) : "rustup");
+            const result = o.spawn(rustupCmd, ["show", "active-toolchain"], { cwd: dir, env: { ...o.env, [pathKey]: direct.path } });
             toolchains.set(dir, failed(result) ? { error: result?.error ? "spawn-error" : `exit-${Number.isInteger(result?.status) ? result.status : "unknown"}` } : { toolchain: text(result).trim().split(/\s+/)[0] });
           }
           return toolchains.get(dir);
