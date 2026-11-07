@@ -5031,6 +5031,14 @@ export async function main(argv, io = {}) {
       const called = allMisses.filter(expected);
       if (called.length) o.out(`${tag} cache lookup: ${called.length} row(s) rerun because their own files changed: ${called.slice(0, 12).map((r) => `${r.id} (${(r.cacheMiss.why.inputs ?? []).slice(0, 2).map((k) => k.replace(/^[^/]*\//, "")).join(", ")})`).join("; ")}${called.length > 12 ? "; ..." : ""}`);
       const misses = allMisses.filter((r) => !expected(r));
+      // Benchmark only (RK_GATE_LOOKUP_ONLY=1, Adrian 2026-11-07 parallelism benchmark): in the pass that compiles class B, stop after the lookup. With no miss
+      // that needs approval nothing runs and the gate exits 0; with one, the miss report below is written as usual. A benchmark's untimed preparation
+      // then stores class A and obtains the class B approval without compiling any class B row, so the timed run is the first to compile them
+      // (2026-11-07: a preparation run that hit no stop compiled 211 class B rows and the timed run measured cache hits).
+      if (o.env.RK_GATE_LOOKUP_ONLY === "1" && plan.scans.some((x) => x.class === "B") && !misses.length) {
+        o.out(`${tag} lookup only (RK_GATE_LOOKUP_ONLY=1): ${lookup.scans.length} planned, ${lookup.scans.filter((r) => r.cached).length} hit, ${called.length} would rerun for their own files, 0 need approval; nothing ran`);
+        return 0;
+      }
       if (misses.length) {
         const prior = new Map(lookup.scans.map((r) => [r.id, r]));
         const kindOf = (r) => r.cacheMiss?.kind ?? "new";
