@@ -541,7 +541,8 @@ export function explainKeyChange(before, after) {
   const flat = (text) => { const out = new Map(); const walk = (v, at) => { if (v && typeof v === "object") { if (Array.isArray(v) && v.length === 2 && typeof v[0] === "string" && typeof v[1] !== "object") { out.set(`${String(at).replace(/\.\d+$/, "")}/${v[0]}`, String(v[1])); return; } for (const [k, x] of Object.entries(v)) walk(x, at ? `${at}.${k}` : k); } else out.set(at, String(v)); }; const s = String(text); const m = /^([\[{][\s\S]*[\]}]):([^:]+)$/.exec(s); try { walk(JSON.parse(m ? m[1] : s), ""); if (m) out.set("(key suffix)", m[2]); } catch { out.set("inputs", s); } return out; };
   const a = flat(before?.inputs ?? ""); const b = flat(after?.inputs ?? "");
   const inputs = [...new Set([...a.keys(), ...b.keys()])].filter((k) => a.get(k) !== b.get(k)).sort();
-  const envKeys = [...new Set([...Object.keys(before?.env ?? {}), ...Object.keys(after?.env ?? {})])].filter((k) => (before?.env ?? {})[k] !== (after?.env ?? {})[k]).sort();
+  // Only names that can change a result count (buildEnvName); a publisher row's stored environment is the old whole-session one.
+  const envKeys = [...new Set([...Object.keys(before?.env ?? {}), ...Object.keys(after?.env ?? {})])].filter((k) => buildEnvName(k) && (before?.env ?? {})[k] !== (after?.env ?? {})[k]).sort();
   // A real file edit changes one content id into another (git blob ids: 40 or 64 hex). Anything else (a key entry whose form changed) is not a file change.
   const blob = (v) => typeof v === "string" && /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(v);
   // A file entry is keyed by its path, never its position in the list (one added file shifted every later position and read as thousands of key-form
