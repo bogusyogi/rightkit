@@ -4696,6 +4696,11 @@ export async function main(argv, io = {}) {
         }
         unionContext.cwdProofs = cwdProofs;
         const jobs = planUnitListCompile(scoped, { normalizedCwds });
+        // The plan's shape is evidence, printed before anything runs (brosef 2026-11-07: a speed-up from grouping must be shown on the plan): how many publisher jobs, how many are
+        // grouped (more than one crate in one invocation) and their sizes, by command.
+        { const grouped = jobs.filter((j) => j.batchAt !== undefined && new Set(j.members.map((m) => m.package)).size > 1); const singles = jobs.length - grouped.length;
+          const byCmd = new Map(); for (const j of jobs) { const k = `${j.argv[0]}${j.batchAt !== undefined ? "*" : ""}`; byCmd.set(k, (byCmd.get(k) ?? 0) + 1); }
+          o.out(`${tag} note: unit-list publisher plan: ${jobs.length} job(s) for ${jobs.reduce((n, j) => n + j.members.length, 0)} requirement(s); ${grouped.length} grouped job(s) [${grouped.map((j) => new Set(j.members.map((m) => m.package)).size).sort((x, y) => y - x).slice(0, 12).join(", ")}${grouped.length > 12 ? ", ..." : ""} crates], ${singles} single; by command ${[...byCmd].map(([k, n]) => `${k}:${n}`).join(" ")} (* = batchable)`); }
         const config = JSON.parse(o.readFile(path.join(repo, "ci/gate.config.json")));
         const adapt = (requirement) => {
           const sel = owner.get(requirement.id) ?? jobs.find((job) => job.members.some((member) => member.coverageKey === requirement.coverageKey))?.members[0]?.selector;

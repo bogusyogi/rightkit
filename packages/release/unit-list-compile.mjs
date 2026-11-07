@@ -156,9 +156,10 @@ export async function executeUnitListCompile({ jobs, dependencies = {}, initialF
     // Decide readiness for every unit before executing anything in this round. Otherwise visiting
     // one unit's test first starts its share of a batch before another unit's test has even run.
     for (const job of pending) for (const member of [...job.members]) {
+      // Lockstep (brosef/Adrian 2026-11-07, NN17/NN39): a dependency that has any failed or blocked row blocks its dependents from then on, without waiting for its other rows.
       const dependencyFailed = (dependencies[member.selector] ?? []).some((dep) => {
         const rows = done.get(dep);
-        return expected.has(dep) && rows?.size === expected.get(dep) && [...rows.values()].some((status) => status !== "passed");
+        return expected.has(dep) && rows !== undefined && [...rows.values()].some((status) => status !== "passed");
       });
       if (guardBlocked.has(member.selector) || dependencyFailed) {
         record(member, "blocked"); job.members.splice(job.members.indexOf(member), 1); progress = true;
@@ -171,7 +172,9 @@ export async function executeUnitListCompile({ jobs, dependencies = {}, initialF
         const own = done.get(member.selector) ?? new Map();
         const deps = dependencies[member.selector] ?? [];
         const previousReady = Array.from({ length: member.order }, (_, i) => own.has(i)).every(Boolean);
-        const depsReady = deps.every((dep) => expected.has(dep) && (done.get(dep)?.size ?? 0) === expected.get(dep));
+        // Lockstep by order: a row waits for its own earlier rows and for each dependency's rows up to the same order, not for the dependency's whole sequence, so units at one
+        // dependency depth share each order's grouped invocation (a chain of 7 layers used to run every unit's whole sequence one after another: a grouped doc row never had more than one ready member).
+        const depsReady = deps.every((dep) => { const rows = done.get(dep); if (!expected.has(dep) || !rows) return false; const upTo = Math.min(member.order, expected.get(dep) - 1); for (let i = 0; i <= upTo; i += 1) if (!rows.has(i)) return false; return true; });
         if (previousReady && depsReady) active.push(member);
       }
       if (!active.length) continue;
@@ -213,6 +216,11 @@ export async function executeUnitListCompile({ jobs, dependencies = {}, initialF
     await Promise.all(Array.from({ length: Math.max(1, Math.min(Number(concurrency) || 1, queue.length)) }, async () => { while (queue.length) await runAdmitted(queue.shift()); }));
     if (!progress) throw new Error("unit requirements have an unresolved or cyclic dependency");
   }
+  // A unit whose dependency has any failed or blocked row is blocked as a whole (unchanged meaning): under lockstep some of its rows may already have passed, and they are
+  // reported blocked, never passed, so no verdict depends on the admission order.
+  const own = new Set(results.filter((r) => r.status === "failed").map((r) => r.selector)); const bad = new Set(results.filter((r) => r.status !== "passed").map((r) => r.selector));
+  for (let changed = true; changed;) { changed = false; for (const [selector, deps] of Object.entries(dependencies)) if (!bad.has(selector) && expected.has(selector) && deps.some((dep) => bad.has(dep))) { bad.add(selector); changed = true; } }
+  for (const r of results) if (bad.has(r.selector) && !own.has(r.selector) && r.status === "passed") { r.status = "blocked"; delete r.evidenceHash; }
   return results;
 }
 
