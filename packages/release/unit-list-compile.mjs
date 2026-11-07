@@ -81,7 +81,7 @@ export function planUnitListCompile(requirementsByUnit, { normalizedCwds = new M
 /** Prove that moving a narrow package-selected Cargo invocation to its workspace root preserves discovery. */
 export function proveWorkspaceCwd({ requirement: r, snapshot, checkout, toolchainOf, exists = fs.existsSync }) {
   const no = (reason) => ({ cwd: r.cwd, normalized: false, reason });
-  if (r.executable !== "cargo" || r.phase !== "compile" || !["check", "clippy"].includes(r.argv[0]) || r.workspace === r.cwd) return no("not a movable Cargo check or clippy");
+  if (r.executable !== "cargo" || r.phase !== "compile" || !["check", "clippy", "doc"].includes(r.argv[0]) || r.workspace === r.cwd) return no("not a movable Cargo check, clippy or doc");
   const workspace = path.resolve(snapshot, r.workspace); const cwd = path.resolve(snapshot, r.cwd);
   const relative = path.relative(workspace, cwd);
   if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return no("working directory is outside workspace");
