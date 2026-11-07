@@ -167,8 +167,9 @@ const BUILD_ENV_PREFIXES = ["CARGO_", "RUST", "SCCACHE_", "RK_", "RIGHTKIT_", "R
 // snapshot request and cargo map, the direct receipt path.
 // A network proxy (NPM_CONFIG_HTTPS_PROXY, NPM_CONFIG_NOPROXY, ...) changes how a download is routed, never what a scan proves, and a
 // cloud host sets it per session (measured 2026-11-06: the cloud's NPM_CONFIG_HTTPS_PROXY moved between two runs and 1,115 rows missed).
-const BUILD_ENV_EXCLUDED = /^(RK_GATE_|RUSTRIGHT_QUIET_LEASE$|RIGHTKIT_BUILD_OWNERSHIP$|RIGHTKIT_CARRIED_CARGO_MAP$|RUSTRIGHT_ATTEST_NONCE$|RUSTRIGHT_REQUEST_ID_FILE$|RUSTRIGHT_SNAPSHOT_REQUEST$|RK_DIRECT_RECEIPT$|RIGHTKIT_CROSS_CC_DIR$|PNPM_HOME$|.*PROXY)/;
-// PNPM_HOME is where pnpm keeps its own binaries (the calling app profile picks it); it is not an input of any scan (Mac 2026-11-07: a restarted app set another path and every stored pass missed).
+const BUILD_ENV_EXCLUDED = /^(RK_GATE_|RUSTRIGHT_QUIET_LEASE$|RIGHTKIT_BUILD_OWNERSHIP$|RIGHTKIT_CARRIED_CARGO_MAP$|RUSTRIGHT_ATTEST_NONCE$|RUSTRIGHT_REQUEST_ID_FILE$|RUSTRIGHT_SNAPSHOT_REQUEST$|RK_DIRECT_RECEIPT$|RIGHTKIT_CROSS_CC_DIR$|.*PROXY)/;
+// PNPM_HOME (where pnpm keeps its own binaries; the calling app profile picks it) is not an input of any scan and is to leave this key once every row's stored index carries
+// its environment shape (a row that only hits never refreshed its index; excluding it first made 74 rows that had no shape miss; Mac 2026-11-07).
 // RIGHTKIT_CROSS_CC_DIR is where the zig wrappers live, not what they are: a cross clippy row keys on its own CC_/CXX_/AR_ variables
 // (scan env), and no Class A row uses it (measured 2026-11-06: setting it on the cloud host made 1,121 Class A rows miss).
 // Per-run parts of a value are normalised: the runtime cargo wrapper's fresh parent (`rk-gate-shim-XXXXXX`) and its folder name
@@ -3490,6 +3491,10 @@ export async function runScans(plan, options = {}) {
               const idx = cache.read(rowIndexKey)?.row ?? null;
               row.cacheMiss = { kind: !idx ? "new" : idx.inputs === inputsDigest && idx.env === envDigest ? "unchanged" : "changed", ...(idx ? { last: idx.at ?? null } : {}), ...(idx?.raw ? { why: explainKeyChange(idx.raw, keyParts.raw) } : {}), now: { inputs: keyParts.raw.inputs.slice(0, 4000), toolVersion: keyParts.raw.toolVersion, inherited: keyParts.raw.inherited } };
               row.rowIndex = { key: rowIndexKey, inputs: inputsDigest, env: envDigest, raw: keyParts.raw };
+              // A hit refreshes a row index that lacks the environment shape (stored before the shape existed), so a later key change can carry this row over.
+              if (hit && hit.key === cacheKey && hit.row?.status === "pass" && !options.cacheLookupOnly && !probeScans.has(s) && !idx?.raw?.inheritedShape) {
+                try { cache.write(rowIndexKey, { id: s.id, inputs: inputsDigest, env: envDigest, raw: keyParts.raw, at: new Date().toISOString() }); } catch { /* the hit stands */ }
+              }
               // Carry-over (carryOverProof): a pass stored under an earlier key form, whose real inputs provably did not change, is this row's pass.
               if (!(hit && hit.key === cacheKey && hit.row?.status === "pass") && idx?.raw && row.cacheMiss.kind === "changed") {
                 // entryNow (a path's content id now) exists on the class A cache; a class B row has none and its inputs digest is one string, so only an
