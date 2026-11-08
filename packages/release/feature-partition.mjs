@@ -135,6 +135,26 @@ export async function partitionByFeatures({ crates, tree, concurrency = 4 }) {
   return out;
 }
 
+/**
+ * The common refinement of several partitions of the same crates (one per `--target` of a group naming several targets, NN42): two crates share a
+ * group only when every partition puts them in the same part, so no boundary any target drew is crossed. A crate alone in any partition stays
+ * alone and keeps that partition's split reason; otherwise the split is null. Returns `[{ crates, split }]` sorted by first crate.
+ */
+export function meetPartitions(perTarget) {
+  if (!Array.isArray(perTarget) || !perTarget.length) throw new TypeError("meetPartitions: needs at least one partition");
+  if (perTarget.length === 1) return perTarget[0];
+  const crates = [...new Set(perTarget.flatMap((parts) => parts.flatMap((p) => p.crates)))].sort();
+  const signature = new Map(); const reason = new Map();
+  for (const c of crates) {
+    const sig = perTarget.map((parts) => { const at = parts.findIndex((p) => p.crates.includes(c)); if (at >= 0 && parts[at].split && !reason.has(c)) reason.set(c, parts[at].split); return at; });
+    if (sig.some((at) => at < 0)) throw new Error(`meetPartitions: ${c} is missing from a partition`);
+    signature.set(c, sig.join("/"));
+  }
+  const groups = new Map();
+  for (const c of crates) { const k = signature.get(c); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(c); }
+  return [...groups.values()].map((set) => ({ crates: set, split: set.length === 1 ? (reason.get(set[0]) ?? null) : null })).sort((a, b) => (a.crates[0] < b.crates[0] ? -1 : 1));
+}
+
 /** One line for the run notes: why a crate runs alone. */
 export function splitNote(split) {
   return `${split.crate} compiles alone: ${split.package} resolves to {${split.own.join(" | ") || "no features"}} for it and to {${split.group.join(" | ") || "no features"}} in its group`;

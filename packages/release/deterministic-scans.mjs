@@ -44,7 +44,7 @@ import { brokerSection, carryBrokerAdapterAsync, verifyBrokerLedger } from "./sn
 import { ADMISSION_POLL_MS, CARRIED_CANCEL_GRACE_MS, QUEUED_CEILING_FACTOR, createBrokerLive, createRunClock, createStatusPoller, watchBrokerAdmission } from "./broker-admission.mjs";
 import { CANCEL_WAIT_ENV, operationDeadlineEnv, refusalInCapturedOutput } from "./broker-wire.mjs";
 import { removeCarrier } from "./carrier-census.mjs";
-import { partitionByFeatures, partitionCacheKey, splitNote, stripSelectors, treeArgs, workspaceManifestDigest } from "./feature-partition.mjs";
+import { meetPartitions, partitionByFeatures, partitionCacheKey, splitNote, stripSelectors, treeArgs, workspaceManifestDigest } from "./feature-partition.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
 /**
@@ -3236,14 +3236,8 @@ export async function runScans(plan, options = {}) {
         if (!partitionMemo.has(key)) partitionMemo.set(key, partitionByFeatures({ crates, tree: (packages) => tree(packages, target) }).then((parts) => { cache?.write(key, { id: "feature-partition", status: "pass", crates: [...crates].sort(), target, partition: parts }); return parts; }));
         return partitionMemo.get(key);
       };
-      const perTarget = await Promise.all(targets.map(one));
-      let result;
-      if (perTarget.length === 1) result = perTarget[0];
-      else {
-        const kept = crates.filter((c) => perTarget.every((parts) => parts.some((p) => p.split === null && p.crates.length > 1 && p.crates.includes(c))));
-        const alone = crates.filter((c) => !kept.includes(c)).map((c) => ({ crates: [c], split: perTarget.flat().find((p) => p.split?.crate === c)?.split ?? null }));
-        result = [...(kept.length > 1 ? [{ crates: kept, split: null }] : kept.map((c) => ({ crates: [c], split: null }))), ...alone];
-      }
+      // Several targets (NN42): the common refinement of the per-target partitions, so no boundary any target drew is crossed (rightkit#1538, second review).
+      const result = meetPartitions(await Promise.all(targets.map(one)));
       for (const p of result) if (p.split) partitionNotes.add(`class B batching: ${splitNote(p.split)}`);
       return result;
     };

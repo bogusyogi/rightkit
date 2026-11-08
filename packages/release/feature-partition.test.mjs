@@ -3,7 +3,7 @@
 // only for the members whose own feature resolution the group preserves.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { memberDifference, parseTreeFeatures, partitionByFeatures, partitionCacheKey, splitNote, stripSelectors, treeArgs } from "./feature-partition.mjs";
+import { meetPartitions, memberDifference, parseTreeFeatures, partitionByFeatures, partitionCacheKey, splitNote, stripSelectors, treeArgs } from "./feature-partition.mjs";
 import { storedPassRow, usableStoredPass } from "./deterministic-scans.mjs";
 import { carriedScanRefusal } from "./snapshot-metadata.mjs";
 
@@ -102,6 +102,16 @@ test("partitionByFeatures keeps the equivalent members together and splits the o
   const both = await partitionByFeatures({ crates: ["x", "y"], tree: mutual });
   assert.deepEqual(both.map((p) => p.crates), [["x"], ["y"]]);
   assert.match(splitNote(both[0].split), /x compiles alone: log v0.4 resolves to \{std\} for it and to \{extra,std\} in its group/);
+  // rightkit#1538 (second review): a group naming several targets keeps every boundary any target drew. The same {a,c},{b,d} partition on two
+  // targets stays {a,c},{b,d}; a target that separates c from a splits that pair everywhere; a crate alone on one target is alone with its reason.
+  const two = [{ crates: ["a", "c"], split: null }, { crates: ["b", "d"], split: null }];
+  assert.deepEqual(meetPartitions([two, two]).map((p) => p.crates), [["a", "c"], ["b", "d"]]);
+  const cSplit = { crate: "c", package: "log v0.4", own: ["std"], group: ["extra,std"] };
+  const met = meetPartitions([two, [{ crates: ["a", "b", "d"], split: null }, { crates: ["c"], split: cSplit }]]);
+  assert.deepEqual(met.map((p) => p.crates), [["a"], ["b", "d"], ["c"]]);
+  assert.deepEqual(met[2].split, cSplit);
+  assert.equal(met[0].split, null, "a crate left alone by the meet, not by a target, carries no split reason");
+  assert.deepEqual(meetPartitions([two]), two);
   assert.notEqual(partitionCacheKey({ rest: ["check"], crates: ["a", "b"], inputs: "1" }), partitionCacheKey({ rest: ["check"], crates: ["a", "b"], inputs: "2" }));
   assert.equal(partitionCacheKey({ rest: ["check"], crates: ["b", "a"], inputs: "1" }), partitionCacheKey({ rest: ["check"], crates: ["a", "b"], inputs: "1" }));
 });
