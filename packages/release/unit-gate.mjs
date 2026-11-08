@@ -16,7 +16,7 @@ import { verifyQualificationReceipts } from "./qualification-verify.mjs";
 import { ciCompileIdentity, ciCompileStageNonce, makeCiCompileProof, verifyCiCompileProof } from "./ci-compile-admission.mjs";
 import { assignJobs, describeCommand, directRowsNotRun, expectedStageCommands } from "./stage-commands.mjs";
 import { carriedCargoMapOf } from "./carried-cargo.mjs";
-import { UNSCOPED, readLedger } from "./cargo-ledger.mjs";
+import { UNSCOPED, readLedger, readLedgerDir } from "./cargo-ledger.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
 import { controlPlaneProblem } from "./control-plane.mjs";
 
@@ -60,6 +60,29 @@ export function readBrokerReceipt(id, { run = defaultRun, platform = process.pla
   const receipt = doc?.receipt ?? doc;
   if (receipt?.id !== id || !receipt.provenance?.payload || !receipt.provenance.signature) throw new Error(`job ${id} has no signed provenance receipt`);
   return { id, provenance: receipt.provenance };
+}
+/**
+ * The signed broker receipts of the seam calls a stage's children filed in the stage ledger (reset plan section 3; carried-cargo.mjs and cargo-target-shim.mjs file
+ * `mode: "seam"` rows with `status`, `requestId`, `receipt` (the durable receipt's absolute path) and `receiptSha256`). Only a `verified` row that is not in `before` (the
+ * ledger's ids before the stage ran) counts; its receipt file is read, its sha256 must equal the ledger's, its own id must be the row's request id, and it must carry a signed
+ * provenance envelope. Returns `{ id, provenance }` per distinct job, in ledger order: the shape the qualification carries and CI's publication admission verifies. A row whose
+ * receipt cannot be read or does not match its digest is an error: an unauthenticated qualification is worth nothing, and a silently skipped row would hide the failure.
+ */
+export function readSeamStageReceipts(ledgerDir, before = new Set(), { readFile = (file) => fs.readFileSync(file) } = {}) {
+  const rows = readLedgerDir(ledgerDir).entries.filter((e) => e.mode === "seam" && e.status === "verified" && !before.has(e.id));
+  const out = new Map();
+  for (const row of rows) {
+    const call = `${row.adapter ?? "cargo"} ${(row.argv ?? []).join(" ")}`.trim();
+    if (typeof row.receipt !== "string" || !path.isAbsolute(row.receipt) || !/^[0-9a-f]{64}$/.test(row.receiptSha256 ?? "")) throw new Error(`the seam call ${call} is filed verified without its receipt path and sha256`);
+    let bytes;
+    try { bytes = readFile(row.receipt); } catch (error) { throw new Error(`the receipt ${row.receipt} of the seam call ${call} cannot be read (${error.code ?? error.message})`); }
+    if (hash(bytes) !== row.receiptSha256) throw new Error(`the receipt ${row.receipt} of the seam call ${call} is not the file its ledger row recorded (sha256 differs)`);
+    let receipt;
+    try { receipt = JSON.parse(Buffer.from(bytes).toString("utf8")); } catch { throw new Error(`the receipt ${row.receipt} of the seam call ${call} is not JSON`); }
+    if (typeof receipt?.id !== "string" || !receipt.id || (typeof row.requestId === "string" && receipt.id !== row.requestId) || !receipt.provenance?.payload || !receipt.provenance.signature) throw new Error(`the receipt ${row.receipt} of the seam call ${call} is not the signed receipt of request ${row.requestId}`);
+    if (!out.has(receipt.id)) out.set(receipt.id, { id: receipt.id, provenance: receipt.provenance });
+  }
+  return [...out.values()];
 }
 /** `<bundle>/qualification.json`: the local stages that passed and the one artifact sha256 they bound, for the dispatcher. */
 export function writeQualification({ report, artifact, unit, commit, tree, runtime, executor, directOrigin = null, write = fs.writeFileSync }) {
@@ -402,11 +425,18 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
     catch (error) { throw new Error(`the local check of the qualification's signed broker receipts failed; the hosted admission would refuse it, so nothing is dispatched: ${String(error.message).replace(/^publication admission refused: /, "")}`); }
   };
   const receipts = {};
-  const collectReceipts = (stage, ids) => {
+  // The stage ledger's ids before a stage runs, so the seam calls the stage filed are told from an earlier stage's (the one door ledger holds every stage's).
+  const stageLedgerDir = () => { const carried = carriedCargoMapOf(envExtra); return carried?.map?.ledgerDir ?? null; };
+  const ledgerIds = () => { const dir = stageLedgerDir(); if (!dir) return new Set(); try { return new Set(readLedgerDir(dir).entries.map((e) => e.id)); } catch { return new Set(); } };
+  const collectReceipts = (stage, ids, before = new Set()) => {
     if (!attested || !ATTESTED_STAGES.includes(stage)) return;
     // Every job of the stage is fetched; the stage owes a signed receipt for EVERY command it runs (hosted admission requires the same),
     // so a missing one fails here, before any dispatch, naming it. Jobs that are none of the stage's commands are not carried.
-    const fetched = [...new Set(ids ?? [])].map((id) => fetchReceipt(id));
+    // A carrier-era job is fetched by id from the broker (`rustright status`); a seam call's receipt is the durable file its ledger row names (readSeamStageReceipts).
+    // A stage's children are one or the other; a stage with both carries both and the hosted admission refuses the mix.
+    const dir = stageLedgerDir();
+    const seamReceipts = dir ? readSeamStageReceipts(dir, before) : [];
+    const fetched = [...[...new Set(ids ?? [])].filter((id) => !seamReceipts.some((r) => r.id === id)).map((id) => fetchReceipt(id)), ...seamReceipts];
     // A carried cargo command is bound to the directory of the primary checkout it ran in (source.checkout; stage-commands.mjs requestIs).
     const rows = stageCommands({ unit, root, platform })[stage];
     const { assigned, missing } = assignJobs(rows, fetched.map((r) => ({ id: r.id, payload: r.provenance.payload })), { checkout: source?.checkout ?? null });
@@ -433,12 +463,14 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
       if (stage === "check") { checkTier = stages.includes("qualify") ? "release" : "compile"; if (await check(checkTier) !== 0) throw new Error(`class A check (${checkTier} tier) failed`); }
       else if (stage === "compile") {
         owner = await loadOwner();
+        const before = ledgerIds();
         state = await stageEnv(stage, (runEnv) => owner.compileLocalUnit(unit.kind, argv, { env: runEnv, ...(source ? { source } : {}) }));
-        collectReceipts(stage, owner.localUnitCompileRequests?.(state));
+        collectReceipts(stage, owner.localUnitCompileRequests?.(state), before);
       } else if (stage === "package") {
+        const before = ledgerIds();
         artifact = await stageEnv(stage, (runEnv) => owner.packageLocalUnit(state, { env: runEnv }));
         verifyArtifact(artifact);
-        collectReceipts(stage, artifact.brokerRequests);
+        collectReceipts(stage, artifact.brokerRequests, before);
       } else if (stage === "qualify") {
         if (checkTier !== "release" && await check("release") !== 0) throw new Error("release-tier check failed");
         const qualified = await stageEnv(stage, (runEnv) => owner.qualifyLocalUnit(state, { env: runEnv }));

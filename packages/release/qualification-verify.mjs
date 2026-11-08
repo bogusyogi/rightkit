@@ -2,7 +2,10 @@
 // (scripts/ci/publish-admission.mjs, inside publish.yml) and the gate's own self-check before it dispatches anything (unit-gate.mjs).
 // It lives in this package, not under scripts/, because unit-gate ships in the package and may import nothing outside it.
 // Pure over the dispatched commit: `git(...args)` reads that commit's objects; nothing here touches the filesystem or the broker.
-import { ProvenanceError, carriedCallNonce, qualificationNonce, verifyProvenance } from "./provenance-verify.mjs";
+import path from "node:path";
+import { ProvenanceError, verifyProvenanceSignature } from "./receipt-signature.mjs";
+// LEGACY BRANCH ONLY (carrier-era receipts: the caller nonce and signed snapshotEvidence). Step 5 of the reset plan deletes these two imports with the branch.
+import { carriedCallNonce, qualificationNonce, verifyProvenance } from "./provenance-verify.mjs";
 import { SnapshotRequestError, ownershipOfHandle, verifySnapshotEvidenceIdentity } from "./snapshot-request.mjs";
 import { assignJobs, describeCommand, expectedStageCommands, rootOfWorkspace } from "./stage-commands.mjs";
 
@@ -11,6 +14,9 @@ export const MAX_VERIFIED_RECEIPTS = 64;
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 const isRecord = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const GIT_ID = /^[0-9a-f]{40}$/;
+const isAbsolutePath = (p) => typeof p === "string" && p !== "" && (path.posix.isAbsolute(p.replaceAll("\\", "/")) || /^[A-Za-z]:[\\/]/.test(p));
+const posixOf = (p) => String(p ?? "").replaceAll("\\", "/").replace(/\/+$/, "");
 
 const refuse = (message) => { throw new Error(`publication admission refused: ${message}`); };
 const requireThat = (condition, message) => { if (!condition) refuse(message); };
@@ -36,6 +42,25 @@ export function enrolledPins(sha, git) {
  * dispatched commit's, the snapshot held that tree at start and at exit, and its request id is the job's; all receipts share one snapshot
  * path and one ownership handle, and, with the stage row's directory removed, one primary root. A job id is used once across stages.
  * The qualification's tree must equal the dispatched commit's tree. Returns the verified summary the admission receipt records.
+ *
+ * TWO RECEIPT SHAPES (reset plan section 3; the legacy one goes at plan step 5):
+ *  - SEAM receipt (the payload carries `gate`): signature against the pin enrolled at the dispatched commit for the receipt's host; payload.jobId === receipt.id; SUCCEEDED with
+ *    exit 0; signed gate.commit and gate.tree are the dispatched commit's and its real git tree; gate.snapshotUnchanged is true; one gate.snapshot and one directory of Class A
+ *    verdicts (every verdict named for this commit) across all receipts; one host; a job id used once; each signed request is one of the stage's own commands (exact argv and
+ *    directory, stage-commands.mjs assignJobs) and EVERY command of the stage is covered; the request's checkout (workspace without the row's directory) is gate.snapshot itself.
+ *    WHAT THE REMOVED CALLER NONCE BOUND, AND WHAT BINDS IT NOW:
+ *      commit and tree          nonce (derived from them)           -> signed gate.commit, gate.tree (broker-written from the admitted request and the snapshot state; stronger: not a value the caller chose)
+ *      the command and its dir  carriedCallNonce (cwd + argv)       -> signed request.requestedArgv/workspace matched to the stage row (assignJobs) and the root rule
+ *      one run, one snapshot    snapshotEvidence snapshot path      -> signed gate.snapshot equal across receipts and equal to the request's own checkout
+ *      the snapshot held the tree  snapshotEvidence start/exit      -> signed gate.snapshotUnchanged (the broker's post-job tree check)
+ *      Class A ran first        (not bound by CI before)            -> signed gate.classA names a verdict of this commit (only the file name is checked here; the broker admitted the job on its content)
+ *    NOT BOUND ANY MORE (a weakening, reported, not hidden):
+ *      - the UNIT and the STAGE label: the nonce hashed `unit` and `stage` in. A seam receipt carries neither; it is tied to the unit and stage only through its argv and directory
+ *        matching one command of that stage. A receipt of an identical command (same argv and directory) of another unit or of the other stage would satisfy this one.
+ *      - ONE DOOR RUN: the ownership handle (one per door run) is gone. `gate.snapshot` is `<data root>/snapshots/<repo-key>`, the same path for every run of the repository on a host,
+ *        so receipts of two separate runs of this commit on one host are indistinguishable. Both are genuine broker runs of the dispatched commit and tree.
+ *      - the caller's freshness: the old nonce was derived from public values, so it never proved recency either; nothing here does (terminalAt is signed but not judged).
+ *  - CARRIER-ERA receipt (the payload carries snapshotEvidence): the rules above this block, unchanged. A qualification is one shape; a mix is refused.
  */
 export function verifyQualificationReceipts(text, { sha, git }) {
   let q;
@@ -72,6 +97,7 @@ function verifyReceiptStages(q, { sha, git, stages, nonceOf }) {
   };
   let platform = null;
   let primaryRoot = null, snapshotPath = null, handle = null;
+  let shape = null, seamSnapshot = null, seamVerdictDir = null;
   const seen = new Set();
   const verified = {};
   for (const stage of stages) {
@@ -100,10 +126,20 @@ function verifyReceiptStages(q, { sha, git, stages, nonceOf }) {
       seen.add(receipt.id);
       const candidates = pins.filter((p) => p.host === receipt.provenance?.payload?.host);
       requireThat(candidates.length > 0, `${where}: signed for host ${JSON.stringify(receipt.provenance?.payload?.host)}, which ci/rk-pipeline.json does not enroll`);
+      // The receipt's shape is read from the envelope's payload and then proven by the signature: a seam receipt (reset plan section 3) carries the signed `gate`
+      // object; a carrier-era receipt carries `snapshotEvidence`. One qualification is one shape (a door run is one or the other).
+      const seam = isRecord(receipt.provenance?.payload) && Object.hasOwn(receipt.provenance.payload, "gate");
+      requireThat(shape === null || shape === (seam ? "seam" : "legacy"), `${where} (job ${receipt.id}) is a ${seam ? "seam" : "carrier-era"} receipt in a qualification of ${shape} receipts; one qualification is one door run`);
+      shape = seam ? "seam" : "legacy";
       let payload, failure, pin;
       for (const candidate of candidates) {
-        for (const nonce of candidateNonces(candidate, receipt.provenance?.payload?.request)) {
-          try { payload = verifyProvenance(receipt, candidate, { jobId: receipt.id, nonce }); pin = candidate; break; } catch (error) { if (!(error instanceof ProvenanceError)) throw error; failure = error; }
+        if (seam) {
+          // No caller nonce exists for a seam receipt (the client mints it internally): the signature, the pinned host and broker, and the job id are checked, nothing else here.
+          try { payload = verifyProvenanceSignature(receipt, candidate, receipt.id); pin = candidate; } catch (error) { if (!(error instanceof ProvenanceError)) throw error; failure = error; }
+        } else {
+          for (const nonce of candidateNonces(candidate, receipt.provenance?.payload?.request)) {
+            try { payload = verifyProvenance(receipt, candidate, { jobId: receipt.id, nonce }); pin = candidate; break; } catch (error) { if (!(error instanceof ProvenanceError)) throw error; failure = error; }
+          }
         }
         if (payload) break;
       }
@@ -115,18 +151,38 @@ function verifyReceiptStages(q, { sha, git, stages, nonceOf }) {
       // run on the enrolled host: the same one for every receipt of the qualification.
       platform ??= pin.platform;
       requireThat(pin.platform === platform, `${where} (job ${receipt.id}) was signed by the ${pin.platform} host, another host than the qualification's other jobs (${platform})`);
-      // The signed snapshot evidence names the commit, tree and job and shows the snapshot held the tree throughout (the same pure
-      // function the gate applies to its own receipts), and one snapshot and one ownership handle carry every job of the qualification.
-      const evidence = payload.snapshotEvidence;
-      requireThat(isRecord(evidence), `${where} (job ${receipt.id}) carries no signed snapshotEvidence: it was not built as a snapshot request of the dispatched commit`);
-      try { verifySnapshotEvidenceIdentity(evidence, { commit: { sha, tree }, tree, jobId: receipt.id }); }
-      catch (error) { if (!(error instanceof SnapshotRequestError)) throw error; refuse(`${where} (job ${receipt.id}): ${error.message}`); }
-      // Each carried request signs its own sub-handle `<ownership-handle>#<n>`; the qualification's one ownership is the part before the `#`.
-      const path = evidence.snapshot?.path, owner = ownershipOfHandle(evidence.ownership?.handle);
-      requireThat(typeof path === "string" && path !== "" && typeof owner === "string" && owner !== "", `${where} (job ${receipt.id}) names no snapshot path or ownership handle`);
-      requireThat(snapshotPath === null || snapshotPath === path, `${where} (job ${receipt.id}) ran in the snapshot ${path}, another snapshot than the qualification's other jobs (${snapshotPath})`);
-      requireThat(handle === null || handle === owner, `${where} (job ${receipt.id}) was signed under ownership handle ${owner}, another than the qualification's other jobs (${handle})`);
-      snapshotPath = path; handle = owner;
+      if (seam) {
+        // The seam receipt's signed `gate` object (the broker writes it from the admitted request, the snapshot state and its own post-job tree check): this commit, this tree,
+        // the snapshot unchanged. See the binding comment above verifyQualificationReceipts for what this does and does not bind.
+        const gate = payload.gate;
+        requireThat(isRecord(gate), `${where} (job ${receipt.id}) carries no signed gate object`);
+        requireThat(gate.commit === sha, `${where} (job ${receipt.id}) was built from commit ${String(gate.commit).slice(0, 12)}, not the dispatched ${sha.slice(0, 12)}`);
+        requireThat(gate.tree === tree, `${where} (job ${receipt.id}) was built from tree ${String(gate.tree).slice(0, 12)}, the dispatched commit's tree is ${tree.slice(0, 12)}`);
+        requireThat(gate.snapshotUnchanged === true, `${where} (job ${receipt.id}) did not leave the snapshot unchanged (gate.snapshotUnchanged is ${JSON.stringify(gate.snapshotUnchanged)})`);
+        requireThat(isAbsolutePath(gate.snapshot) && isAbsolutePath(gate.classA), `${where} (job ${receipt.id}) names no absolute snapshot or Class A verdict path`);
+        // The verdict file's name carries its commit (gate-seam.mjs verdictFileName: class-a-<commit12>-<scope>-<workspace>.json); every call of a door run names a verdict of
+        // that commit, derived from the one root verdict, so all of them sit in one directory.
+        const verdict = posixOf(gate.classA);
+        requireThat(path.posix.basename(verdict).startsWith(`class-a-${sha.slice(0, 12)}-`), `${where} (job ${receipt.id}) names the Class A verdict ${path.posix.basename(verdict)}, not one of commit ${sha.slice(0, 12)}`);
+        const verdictDir = path.posix.dirname(verdict);
+        requireThat(seamSnapshot === null || seamSnapshot === posixOf(gate.snapshot), `${where} (job ${receipt.id}) ran in the snapshot ${gate.snapshot}, another snapshot than the qualification's other jobs (${seamSnapshot})`);
+        requireThat(seamVerdictDir === null || seamVerdictDir === verdictDir, `${where} (job ${receipt.id}) names a Class A verdict in ${verdictDir}, another directory than the qualification's other jobs (${seamVerdictDir})`);
+        seamSnapshot = posixOf(gate.snapshot); seamVerdictDir = verdictDir;
+      } else {
+        // LEGACY BRANCH (carrier-era receipts; deleted at step 5 of the reset plan with the carrier, snapshot-request.mjs and provenance-verify.mjs).
+        // The signed snapshot evidence names the commit, tree and job and shows the snapshot held the tree throughout (the same pure
+        // function the gate applies to its own receipts), and one snapshot and one ownership handle carry every job of the qualification.
+        const evidence = payload.snapshotEvidence;
+        requireThat(isRecord(evidence), `${where} (job ${receipt.id}) carries no signed snapshotEvidence: it was not built as a snapshot request of the dispatched commit`);
+        try { verifySnapshotEvidenceIdentity(evidence, { commit: { sha, tree }, tree, jobId: receipt.id }); }
+        catch (error) { if (!(error instanceof SnapshotRequestError)) throw error; refuse(`${where} (job ${receipt.id}): ${error.message}`); }
+        // Each carried request signs its own sub-handle `<ownership-handle>#<n>`; the qualification's one ownership is the part before the `#`.
+        const path_ = evidence.snapshot?.path, owner = ownershipOfHandle(evidence.ownership?.handle);
+        requireThat(typeof path_ === "string" && path_ !== "" && typeof owner === "string" && owner !== "", `${where} (job ${receipt.id}) names no snapshot path or ownership handle`);
+        requireThat(snapshotPath === null || snapshotPath === path_, `${where} (job ${receipt.id}) ran in the snapshot ${path_}, another snapshot than the qualification's other jobs (${snapshotPath})`);
+        requireThat(handle === null || handle === owner, `${where} (job ${receipt.id}) was signed under ownership handle ${owner}, another than the qualification's other jobs (${handle})`);
+        snapshotPath = path_; handle = owner;
+      }
       jobs.push({ id: receipt.id, payload });
       summaries.set(receipt.id, { jobId: receipt.id, host: payload.host, keyId: payload.keyId, requestDigest: payload.requestDigest, requestedArgv: payload.request.requestedArgv });
     });
@@ -139,13 +195,17 @@ function verifyReceiptStages(q, { sha, git, stages, nonceOf }) {
       const row = assigned.get(job.id);
       const { workspace, workspaceRoot, requestedArgv } = job.payload.request;
       // The nonce is the one this row's command owes: derived from the directory its row runs in and the argv it signed (a Cargo call or a pnpm job).
-      requireThat(job.payload.nonce === nonceFor(row, requestedArgv), `${stage} job ${job.id} carries a nonce that is not the one its command (${describeCommand(row)}) owes`);
+      // (LEGACY BRANCH: a seam receipt has no caller nonce; its command binding is the argv/cwd assignment above plus the signed gate commit and tree.)
+      if (shape === "legacy") requireThat(job.payload.nonce === nonceFor(row, requestedArgv), `${stage} job ${job.id} carries a nonce that is not the one its command (${describeCommand(row)}) owes`);
       // The primary root: the signed workspace without the directory of the row's command (a carried cargo call runs from its manifest's
       // directory, a pnpm job at the root). Every job of the qualification must show the same one, and so must its workspaceRoot.
       const root = rootOfWorkspace(workspace, row.cwd);
       requireThat(root !== null, `${stage} job ${job.id} ran in ${workspace}, which is not the directory ${row.cwd} of a checkout`);
-      requireThat(workspaceRoot === undefined || rootOfWorkspace(workspaceRoot, row.cwd) === root, `${stage} job ${job.id} ran in ${workspace} with workspace root ${workspaceRoot}, not in one checkout`);
+      requireThat(workspaceRoot === undefined || workspaceRoot === null || rootOfWorkspace(workspaceRoot, row.cwd) === root, `${stage} job ${job.id} ran in ${workspace} with workspace root ${workspaceRoot}, not in one checkout`);
       requireThat(primaryRoot === null || primaryRoot === root, `${stage} job ${job.id} ran in ${workspace}, another workspace than the qualification's other jobs (${primaryRoot})`);
+      // A seam job's primary root is the snapshot its signed gate object names: the directory the request ran in lies in that very snapshot, so the request
+      // and the gate evidence describe one checkout.
+      if (shape === "seam") requireThat(root === seamSnapshot, `${stage} job ${job.id} ran in ${workspace}, whose checkout ${root} is not the snapshot ${seamSnapshot} its gate evidence names`);
       primaryRoot = root;
     }
     verified[stage] = list.map((receipt) => summaries.get(receipt.id));
