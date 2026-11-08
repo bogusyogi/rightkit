@@ -113,6 +113,7 @@ import { nativeToolRefusal, nativeToolUses } from "../native-tool-planning.mjs";
 import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, mergeCapabilityViews, parseRuntimeIdentity, queryBrokerHandshake } from "../broker-handshake.mjs";
 import net from "node:net";
 import { installSpawnLedger } from "../spawn-ledger.mjs";
+import { processIdentity, snapshotLockBody } from "../gate-seam.mjs";
 import { cargoWidthRouteProblem, cargoWidthScanProblem, cargoWidthUnitsProblem, parseCargoWidth, validateCargoWidthPool } from "../cargo-width.mjs";
 
 const PRIVATE_SCOPED_COMPILE = Symbol("private scoped compile");
@@ -1851,15 +1852,25 @@ async function runStages(o, args, root, git, io) {
     try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot, repository: snap.repositoryOf(root).key }), stage: `door:${to}`, snapshot: path.join(snapshotsAt, snap.repositoryOf(root).key), commit: selected.commit, platform: o.platform, env: o.env }); }
     catch (e) { if (e.code !== "busy" && e.code !== "refused") throw e; o.err(`${tag} BLOCKED: ${e.message}; nothing ran${e.code === "refused" ? ", nothing created" : ""}`); return 1; }
     o.out(`${tag} build ownership ${own.joined ? "joined" : "held"} ${own.handle}${own.reclaimed ? ` (reclaimed from ${own.reclaimed.from}: ${own.reclaimed.proofs.join("; ")})` : ""}`);
+    let synced = null;
     try {
       // One sync per door run: a second one would prune what class A installed into the snapshot.
-      let synced;
-      try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout: root, rev: selected.commit, root: snapshotsAt }); }
+      // The seam (reset plan section 3): the lock body is { pid, identity, commit, token } and the lock is held through the whole door run, every job and
+      // every test, released in the finally below; the broker refuses a request whose snapshot is not locked for its commit by a live holder.
+      let seamLock = {};
+      if (/^[0-9a-f]{40}$/.test(String(selected.commit))) {
+        const identity = processIdentity(process.pid, { platform: o.platform, spawnSync: (c, a, opts) => o.spawn(c, a, opts) });
+        if (identity) seamLock = { body: snapshotLockBody({ identity, commit: selected.commit }), hold: true };
+        else o.err(`${tag} note: this process's birth identity could not be read; the snapshot lock is the legacy one and is released after the sync`);
+      }
+      try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout: root, rev: selected.commit, root: snapshotsAt, lock: seamLock }); }
       catch (e) { o.err(`${tag} ${e.code === "error" ? "RK_CHECK_ERROR" : "BLOCKED"}: snapshot ${e.message}; nothing ran`); return e.code === "error" ? 2 : 1; }
       o.out(`${tag} snapshot ${synced.path} is commit ${synced.commit} tree ${synced.tree} (written=${synced.written} removed=${synced.removed} unchanged=${synced.unchanged})`);
       if (synced.identity) o.out(`${tag} source identity ${synced.identity.file}: ${synced.identity.written ? "written" : synced.identity.kept ? "kept" : `not written (${synced.identity.reason})`}`);
       return await runStages({ ...o, buildOwnership: own, doorSnapshot: { own, path: synced.path, commit: synced.commit, tree: synced.tree, root: snapshotsAt, ledger: { entries: [] } } }, args, root, git, { ...io, buildOwnership: own });
     } finally {
+      // The seam lock, held through the batch, is released only here, after every job and test of the door run ended.
+      try { synced?.release?.(); } catch { /* a lock is removed by its holder only; a failed removal leaves it for the stale-holder rule */ }
       const r = own.release();
       if (r?.released === false && !own.joined) o.err(`${tag} build ownership ${own.handle} kept: ${r.why}`);
     }
@@ -4953,6 +4964,18 @@ export async function main(argv, io = {}) {
     // cargo wrapper (rightkit#1328): this pass runs class B alone. Set by the door (io option), never by a command-line flag.
     const classAEarlier = Boolean(snapshotB && o.classAEarlier === true);
     if (classAEarlier) o.out(`${tag} class A is not repeated: it ran once before the compile, under the cargo wrapper, on this snapshot`);
+    // The seam (reset plan section 3; gate-seam.mjs): on a broker host compiling a snapshot, every class B cargo row is one `rustright cargo` spawn in the snapshot
+    // with RUSTRIGHT_GATE_COMMIT and RUSTRIGHT_CLASS_A; the Class A verdict lives under the data root, beside the snapshots. The legacy carrier is not taken.
+    let gateSeam = null;
+    if (snapshotB && brokerHost && snapshotBCommit) {
+      try {
+        const snapshotPath = path.resolve(snapshotB);
+        const state = JSON.parse(o.readFile(`${snapshotPath}.state.json`));
+        if (state?.schema !== "rightkit.snapshot-state/1" || state.commit !== snapshotBCommit.commit || state.tree !== snapshotBCommit.tree || typeof state.repoKey !== "string") throw new Error(`${snapshotPath}.state.json does not describe commit ${snapshotBCommit.commit} tree ${snapshotBCommit.tree}`);
+        gateSeam = { commit: snapshotBCommit.commit, tree: snapshotBCommit.tree, repoKey: state.repoKey, snapshot: snapshotPath, verdictDir: path.join(path.dirname(path.dirname(snapshotPath)), "class-a-verdicts"), outputRoots: snapshotBroker?.outputRoots ?? null };
+        o.out(`${tag} seam: class B runs as rustright cargo in ${snapshotPath} for commit ${snapshotBCommit.commit.slice(0, 12)}; Class A verdicts under ${gateSeam.verdictDir}`);
+      } catch (error) { o.err(`${tag} BLOCKED: RK_SEAM: ${error.message}; nothing compiled`); return 1; }
+    }
     const census = snapshotB && !snapshotBroker ? createFreshnessCensus({ targetDirs }) : null;
     directTiming.cargoStart = Date.now();
     census?.start();
@@ -4966,6 +4989,7 @@ export async function main(argv, io = {}) {
       // The declared Linux broker route: the scans are planned with the logical `rustright`, which this spawn (and scanSpawn's pass-through below) starts as the
       // executor's validated client, never a PATH lookup (withDeclaredClient).
       ...(declaredClient && !scanSpawn ? { spawn: withDeclaredClient(census ? census.wrapSpawn(defaultSpawnAsync) : defaultSpawnAsync) } : {}),
+      ...(gateSeam ? { gateSeam } : {}),
       toolPolicy: scanTools?.policy ?? {},
       // The class A cargo reads (deny, audit, metadata, fetch) are carried requests the broker executes (scanSpawn): cargo-deny and cargo-audit are then the
       // broker's registered tools, in the check stage too (which has no snapshotBroker). Only when the reads really go to the broker.

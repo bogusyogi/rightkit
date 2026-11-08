@@ -45,6 +45,7 @@ import { ADMISSION_POLL_MS, CARRIED_CANCEL_GRACE_MS, QUEUED_CEILING_FACTOR, crea
 import { CANCEL_WAIT_ENV, operationDeadlineEnv, refusalInCapturedOutput } from "./broker-wire.mjs";
 import { removeCarrier } from "./carrier-census.mjs";
 import { meetPartitions, partitionByFeatures, partitionCacheKey, splitNote, stripSelectors, treeArgs, workspaceManifestDigest } from "./feature-partition.mjs";
+import { CLASS_A_ENV, CLASS_A_VERDICT_SCHEMA, classAVerdict, judgeSeamOutcome, normalizeWorkspace, seamEnv, writeClassAVerdict } from "./gate-seam.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
 /**
@@ -3059,6 +3060,26 @@ export async function runScans(plan, options = {}) {
   const aScans = ordered.filter((s) => s.class === SCAN_CLASS.A);
   const bScans = ordered.filter((s) => s.class === SCAN_CLASS.B);
   const partitionNotes = new Set(); // GC-A18: why a crate compiled apart from its configuration group (feature-partition.mjs)
+  // The seam (reset plan section 3; gate-seam.mjs): one Class A verdict per workspace at this commit, written only once every planned Class A row of
+  // this run passed; a class-B-only run (classAEarlier) reads the root verdict its class A run wrote under the same deterministic name and derives a
+  // nested workspace's from it. `deps.gateSeam` = { commit, tree, repoKey, snapshot, verdictDir, outputRoots }.
+  const verdictFiles = new Map();
+  const ensureVerdict = (cwd) => {
+    const seam = deps.gateSeam; const ws = normalizeWorkspace(cwd ?? ".");
+    if (!verdictFiles.has(ws)) verdictFiles.set(ws, (async () => {
+      let scans;
+      if (classes.includes(SCAN_CLASS.A)) scans = results.filter((r) => r.class === SCAN_CLASS.A).map((r) => ({ id: r.id, status: r.status }));
+      else {
+        const rootFile = path.join(seam.verdictDir, `class-a-${seam.commit.slice(0, 12)}-root.json`);
+        let v; try { v = JSON.parse(fs.readFileSync(rootFile, "utf8")); } catch (e) { throw new Error(`no Class A verdict for ${seam.commit.slice(0, 12)} at ${rootFile} (${e.code ?? e.message}); class A must run on this snapshot first`); }
+        if (v?.schema !== CLASS_A_VERDICT_SCHEMA || v.commit !== seam.commit || v.tree !== seam.tree || v.repoKey !== seam.repoKey || v.status !== "pass" || !Array.isArray(v.scans)) throw new Error(`the Class A verdict at ${rootFile} is not this run's (schema, commit, tree, repository or status differ)`);
+        if (ws === ".") return rootFile;
+        scans = v.scans;
+      }
+      return writeClassAVerdict(seam.verdictDir, classAVerdict({ commit: seam.commit, tree: seam.tree, repoKey: seam.repoKey, workspace: ws, scans }));
+    })());
+    return verdictFiles.get(ws);
+  };
   // Class A scans are independent content checks (and short broker calls: metadata, package list, deny, audit): they run
   // `classAJobs` at a time (default: `jobs`); the rows keep plan order. Class B starts only once every class A row is in.
   const aJobs = Math.max(1, Number(options.classAJobs ?? jobs) || jobs);
@@ -3531,7 +3552,10 @@ export async function runScans(plan, options = {}) {
           // crate's closure, its lock entries, the toolchain files, the tool version and the build environment; a miss runs the compile and
           // verifies the broker's signed evidence as before, and only a verified pass is written.
           const carriedScan = isBrokerCarriedScan(s, carriedCtx);
-          const viaSnapshotBroker = carriedScan && Boolean(deps.snapshotBroker) && s.root === "cargoLive" && (s.tool === "rustright" || s.tool === "cargo");
+          // The seam (plan section 3): a class B cargo row on a broker host is one spawn of `rustright cargo` in the snapshot with the two seam variables; the
+          // carrier (viaSnapshotBroker) is the legacy path, not taken when the seam is wired, and goes with step 5 of the plan.
+          const viaSeam = Boolean(deps.gateSeam) && s.class === SCAN_CLASS.B && s.root === "cargoLive" && (s.tool === "rustright" || s.tool === "cargo");
+          const viaSnapshotBroker = !viaSeam && carriedScan && Boolean(deps.snapshotBroker) && s.root === "cargoLive" && (s.tool === "rustright" || s.tool === "cargo");
           const carriedRead = cargoReadsAreCarried && s.class === SCAN_CLASS.A && (s.tool === "rustright" || s.tool === "cargo");
           // NN02: a publisher row (coverageKey) is cached too, with the signed broker receipt and test-run evidence its publisher verify needs.
           if (cache && !carriedRead) {
@@ -3586,7 +3610,7 @@ export async function runScans(plan, options = {}) {
                 if (proof.ok) {
                   const oldKey = scanCacheKey({ id: s.id, command: keyCommand(s), toolVersion: idx.raw.toolVersion, env: idx.raw.env ?? {}, inheritedEnv: idx.raw.inherited, digest: idx.raw.inputs });
                   const old = cache.read(oldKey);
-                  if (usableStoredPass(old, s, { cacheKey: oldKey, viaSnapshotBroker })) {
+                  if (usableStoredPass(old, s, { cacheKey: oldKey, viaSnapshotBroker: viaSnapshotBroker || viaSeam })) {
                     hit = { ...old, key: cacheKey };
                     row.carriedOver = { from: oldKey.slice(0, 16), files: proof.carried };
                     if (!options.cacheLookupOnly) { try { cache.write(cacheKey, old.row); cache.write(rowIndexKey, { id: s.id, inputs: inputsDigest, env: envDigest, raw: keyParts.raw, at: new Date().toISOString() }); } catch { /* the pass stands; the next run carries it again */ } }
@@ -3600,7 +3624,7 @@ export async function runScans(plan, options = {}) {
             // A Rust test scan (runOutside) is judged the same way: the executables are unknown until the compile, so its key is the source digest and the cached row must carry the summed libtest counts.
             // One predicate for every stored pass (usableStoredPass; rightkit#1538): the row's own id and command, written by the invocation that ran it, with
             // the evidence its kind needs; a test group's hit carries each member's own run, so the members are judged exactly as on the run that stored it.
-            if (usableStoredPass(hit, s, { cacheKey, viaSnapshotBroker })) {
+            if (usableStoredPass(hit, s, { cacheKey, viaSnapshotBroker: viaSnapshotBroker || viaSeam })) {
               cacheHits.push(s.id);
               return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}`, ...(s.kind === "test" || s.runOutside || s.coverageKey ? { results: hit.row.results } : {}), ...(s.coverageKey ? { snapshotEvidence: hit.row.snapshotEvidence ?? null, testRun: hit.row.testRun ?? null } : hit.row.testRun ? { testRun: hit.row.testRun } : {}), ...(hit.row.memberRuns ? { memberRuns: hit.row.memberRuns } : {}) };
             }
@@ -3802,7 +3826,13 @@ export async function runScans(plan, options = {}) {
             admission = watchBrokerAdmission({ clock: runClock, refFiles, live: brokerLive, poller: statusPoller });
             admission.start();
           }
-          try { r = await deps.spawn(p.command, spawnArgs, { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...readTargetEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...(carrier ? carrier.made.env : {}), ...refEnv, ...(carriedScan && !watched ? scanOperationEnv({ ...deps.env, ...s.env }, limitMs) : {}), ...trustEnv }, signal: scanSignal, ...(listingFile ? { stdoutFile: listingFile } : {}), ...(watched ? {} : { timeout: limitMs }) }); } finally { stopClock(); advisory?.cleanup?.(); }
+          // The seam's two variables, last so nothing overrides them; the Class A verdict is written (or read) before the first class B spawn of its workspace.
+          let seamVars = {};
+          if (viaSeam) {
+            try { seamVars = seamEnv({ commit: deps.gateSeam.commit, classA: await ensureVerdict(s.cwd ?? ".") }); }
+            catch (e) { stopClock(); advisory?.cleanup?.(); return { ...row, status: "fail", code: "CLASS_A_VERDICT", detail: `${s.id}: ${e.message}` }; }
+          }
+          try { r = await deps.spawn(p.command, spawnArgs, { cwd: viaSeam ? path.join(deps.gateSeam.snapshot, s.cwd ?? "") : path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...readTargetEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...(carrier ? carrier.made.env : {}), ...refEnv, ...(carriedScan && !watched ? scanOperationEnv({ ...deps.env, ...s.env }, limitMs) : {}), ...trustEnv, ...seamVars }, signal: scanSignal, ...(listingFile ? { stdoutFile: listingFile } : {}), ...(watched ? {} : { timeout: limitMs }) }); } finally { stopClock(); advisory?.cleanup?.(); }
           if ((s.runOutside || s.captureJson) && r && !r.error) {
             // The whole listing: the file the spawn streamed, else (a spawn that does not know stdoutFile) its stdout. What a reader sees of a failed compile is the rendered errors.
             let fromFile = false;
@@ -3850,6 +3880,13 @@ export async function runScans(plan, options = {}) {
           }
           // The broker's signed account of that request: the receipt verifies against this host's pins and its snapshotEvidence names
           // this commit, this snapshot unchanged from START to exit, this ownership and the output directory. Anything less fails the row.
+          // The seam's verdict for the row (gate-seam.mjs judgeSeamOutcome): exactly one rustright-result line, a durable receipt whose postconditions hold for this
+          // commit and tree, read before the exit code; a refusal keeps its code, a killed child with no line fails, an executed failure keeps its exit.
+          if (viaSeam && !signal?.aborted) {
+            const judged = judgeSeamOutcome({ child: r, stderr: r?.stderr ?? "", commit: deps.gateSeam.commit, tree: deps.gateSeam.tree, classA: seamVars[CLASS_A_ENV] ?? null });
+            if (judged.evidence) row.snapshotEvidence = { receiptSha256: judged.evidence.receiptSha256, receiptPath: judged.evidence.receiptPath, requestId: judged.evidence.requestId, outputDir: judged.evidence.outputDir, cargoDir: s.cwd ?? ".", seam: true, ...(judged.evidence.testExecutables ? { testExecutables: judged.evidence.testExecutables, testExecutablesReason: null } : {}) };
+            if (judged.status === "fail") { status = "fail"; code = judged.code; detail = `${s.id}: ${judged.detail}`; }
+          }
           if (carrier) {
             // A typed broker refusal with no request reference (admission paused, a cutover drain): nothing was admitted under this scan's sub-handle, so it is
             // recorded unsent at once, as a busy connection is; otherwise a dead owner's record could never be reclaimed (HeardRight Mac, 2026-11-02).
@@ -3901,7 +3938,7 @@ export async function runScans(plan, options = {}) {
               detail = `${s.id}: no test executable (${listing.artifacts} artifact record(s)); end-to-end tests only, nothing to run`;
             } else {
               let boundDirs; let generationRoots = null;
-              if (viaSnapshotBroker) { boundDirs = row.snapshotEvidence?.outputDir ? [row.snapshotEvidence.outputDir] : []; generationRoots = deps.snapshotBroker.outputRoots ?? []; }
+              if (viaSnapshotBroker || viaSeam) { boundDirs = row.snapshotEvidence?.outputDir ? [row.snapshotEvidence.outputDir] : []; generationRoots = viaSeam ? (deps.gateSeam.outputRoots ?? null) : (deps.snapshotBroker.outputRoots ?? []); }
               else {
                 const scanDir = path.join(rootDir(s.root), s.cwd ?? "");
                 const target = s.env?.CARGO_TARGET_DIR ?? deps.env?.CARGO_TARGET_DIR ?? "target";
@@ -3911,8 +3948,8 @@ export async function runScans(plan, options = {}) {
               const contained = containTestExecutables(listing.binaries, { boundDirs, generationRoots, platform, ops });
               // ADR-001 C2 (rightkit#1454): a broker that signs the compile's test executables (receipt.testExecutables, rustright) binds each one;
               // an executable whose path or sha256 is not in that signed list never runs. An older broker that signs no list leaves containment only.
-              const signedProblems = viaSnapshotBroker && row.snapshotEvidence && Object.hasOwn(row.snapshotEvidence, "testExecutables") ? signedTestExecutableProblems(contained.accepted, row.snapshotEvidence.testExecutables, row.snapshotEvidence.testExecutablesReason, platform) : [];
-              if (s.publisherRustTest && viaSnapshotBroker && !Object.hasOwn(row.snapshotEvidence ?? {}, "testExecutables")) fail("TEST_EXECUTABLE_UNSIGNED", `${s.id}: the broker did not sign a test executable list`);
+              const signedProblems = (viaSnapshotBroker || viaSeam) && row.snapshotEvidence && Object.hasOwn(row.snapshotEvidence, "testExecutables") ? signedTestExecutableProblems(contained.accepted, row.snapshotEvidence.testExecutables, row.snapshotEvidence.testExecutablesReason, platform) : [];
+              if (s.publisherRustTest && (viaSnapshotBroker || viaSeam) && !Object.hasOwn(row.snapshotEvidence ?? {}, "testExecutables")) fail("TEST_EXECUTABLE_UNSIGNED", `${s.id}: the broker's receipt lists no test executables`);
               else if (contained.problems.length) fail("TEST_EXECUTABLE_OUTSIDE_OUTPUT", `${s.id}: ${contained.problems.slice(0, 5).join("; ")}; the row fails and nothing was run`);
               else if (signedProblems.length) fail("TEST_EXECUTABLE_UNSIGNED", `${s.id}: ${signedProblems.slice(0, 5).join("; ")}; the row fails and nothing was run`);
               else if (Array.isArray(s.testGroup)) {
@@ -3999,12 +4036,17 @@ export async function runScans(plan, options = {}) {
       results.push({ id: "cargo-ledger", class: SCAN_CLASS.B, command: "cargo ledger", tool: null, toolVersion: null, status: "fail", code: "RK_CARGO_LEDGER", detail: `cargo calls were filed under ${unclaimed.length} scan token(s) no scan owns (${unclaimed.slice(0, 3).join(", ")}), so they cannot be tied to a scan (${SCAN_TOKEN_ENV} was cleared, or the call came from outside every scan): ${calls.slice(0, 5).join("; ") || "unreadable"}` });
     }
   }
+  // A class-A-only run on a seam host writes the root verdict its class B run (classAEarlier) will name; nothing is written when any row failed.
+  const seamNotes = [];
+  if (deps.gateSeam && classes.includes(SCAN_CLASS.A) && !classes.includes(SCAN_CLASS.B) && !classAFailed && !signal?.aborted) {
+    try { seamNotes.push(`class A verdict written: ${await ensureVerdict(".")}`); } catch (e) { seamNotes.push(`class A verdict NOT written: ${e.message}`); }
+  }
   const cancelled = signal?.aborted === true;
   return {
     schema: SCAN_RESULT_SCHEMA, ok: !cancelled && results.every((r) => r.status === "pass"), complete: !cancelled && results.every((r) => r.status === "pass"), classes, checker, ...(cancelled ? { cancelled: true } : {}),
     inputDigest: plan.inputDigest ?? null,
     deferred: results.filter((r) => r.status === "deferred").map((r) => r.id),
-    scans: results, toolVersions, toolIdentities, cacheHits: [...cacheHits].sort(), notes: [...(plan.notes ?? []), ...batchFailureNotes, ...partitionNotes, ...(cargoLedger ? [UNOBSERVED_NESTED_CARGO_NOTE] : [])],
+    scans: results, toolVersions, toolIdentities, cacheHits: [...cacheHits].sort(), notes: [...(plan.notes ?? []), ...batchFailureNotes, ...partitionNotes, ...seamNotes, ...(cargoLedger ? [UNOBSERVED_NESTED_CARGO_NOTE] : [])],
     scanSetDigest: digestScanSet(results),
     classDigests: { A: digestScanSet(results.filter((r) => r.class === "A")), B: digestScanSet(results.filter((r) => r.class === "B")) },
   };

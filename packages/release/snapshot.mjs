@@ -40,6 +40,7 @@ import { resolveManagedRoots } from "./managed-roots.mjs";
 import { HostConfigError, hostConfigFile, readSnapshotRootConfig } from "./snapshot-root-config.mjs";
 import { discoveryGit, discoveryRun, sealedRepoInfo, sealedRun, withSealedGit } from "./snapshot-git.mjs";
 import { SOURCE_IDENTITY_FILE, sourceIdentityBytes } from "./snapshot-identity.mjs";
+import { parseIdentity } from "./gate-seam.mjs";
 import { acquireBuildOwnership, migrateBirthlessRoot, OwnershipBusy, ownershipFile, recordRootBirth } from "./build-ownership.mjs";
 // The error class and the managed-root guard live in managed-root-guard.mjs, which build-ownership.mjs imports too (decision D4 rule 1).
 import { SnapshotError, requireManagedRoot } from "./managed-root-guard.mjs";
@@ -670,8 +671,10 @@ const statKey = (s) => `${s.size}:${s.mtimeNs}:${s.ctimeNs}:${s.ino}`;
  * progress. A reclaimer that died mid-reclaim leaves the reclaim file and every later sync is busy until it is removed (fail
  * closed); so does a dead holder whose pid was reused. `hooks` exist for the deterministic race fixture only.
  */
-export function acquireSnapshotLock(lockFile, hooks = {}) {
-  const body = JSON.stringify({ pid: process.pid, host: os.hostname(), startedAt: new Date().toISOString(), token: crypto.randomUUID() });
+export function acquireSnapshotLock(lockFile, hooks = {}, { body: seamBody = null, judge = null } = {}) {
+  // The seam's lock body (reset plan section 3, gate-seam.mjs snapshotLockBody): exactly { pid, identity, commit, token }, which the broker reads at
+  // submission and before spawn. Without one, the legacy body { pid, host, startedAt, token } is written.
+  const body = JSON.stringify(seamBody ?? { pid: process.pid, host: os.hostname(), startedAt: new Date().toISOString(), token: crypto.randomUUID() });
   const held = () => { try { return fs.readFileSync(lockFile, "utf8") === body; } catch { return false; } };
   const busy = (why) => new SnapshotError("busy", why);
   const publish = (target, text) => {
@@ -693,13 +696,23 @@ export function acquireSnapshotLock(lockFile, hooks = {}) {
     let holder = null;
     try { holder = JSON.parse(observed); } catch { holder = null; }
     // Locks appear whole, so one that cannot be parsed was not written by this protocol: never reclaimed automatically.
-    if (!holder || !Number.isInteger(holder.pid) || holder.pid <= 0 || holder.pid > 0x7fffffff || typeof holder.host !== "string" || !holder.host) throw busy(`snapshot lock ${lockFile} cannot be read as a lock; remove it only if no sync is running`);
-    if (holder.host !== os.hostname()) throw busy(`snapshot is held by pid ${holder.pid} on ${holder.host} since ${holder.startedAt}`);
+    if (!holder || !Number.isInteger(holder.pid) || holder.pid <= 0 || holder.pid > 0x7fffffff) throw busy(`snapshot lock ${lockFile} cannot be read as a lock; remove it only if no sync is running`);
+    const seam = typeof holder.identity === "string" ? parseIdentity(holder.identity) : null;
+    if (seam) {
+      // A seam lock: the holder's identity names its platform and pid; another platform's lock is never ours to judge.
+      if (seam.pid !== holder.pid || seam.platform !== process.platform) throw busy(`snapshot is held by ${holder.identity} for commit ${holder.commit}`);
+    } else {
+      if (typeof holder.host !== "string" || !holder.host) throw busy(`snapshot lock ${lockFile} cannot be read as a lock; remove it only if no sync is running`);
+      if (holder.host !== os.hostname()) throw busy(`snapshot is held by pid ${holder.pid} on ${holder.host} since ${holder.startedAt}`);
+    }
     // Only a holder proven gone (ESRCH) is stale; any other answer, EPERM included, leaves the lock alone.
     let probe = null;
     try { process.kill(holder.pid, 0); } catch (k) { probe = k.code ?? String(k); }
-    if (probe === null) throw busy(`snapshot is held by pid ${holder.pid} since ${holder.startedAt}`);
+    if (probe === null) throw busy(seam ? `snapshot is held by ${holder.identity} for commit ${holder.commit}` : `snapshot is held by pid ${holder.pid} since ${holder.startedAt}`);
     if (probe !== "ESRCH") throw busy(`snapshot lock holder pid ${holder.pid} cannot be proven gone (${probe})`);
+    // A dead seam holder may still have jobs queued, running or finalizing in the broker, or an unreaped process tree: its lock is reclaimed only when
+    // the caller's `judge(holder)` returns true on the broker's proof that all use of the snapshot ended. No judge, or an inconclusive one, means busy.
+    if (seam && (typeof judge !== "function" || judge(holder) !== true)) throw busy(`snapshot lock holder ${holder.identity} is gone, but the lock is reclaimed only on the broker's proof that every job of commit ${holder.commit} ended${typeof judge === "function" ? " (the broker gave no such proof)" : " (no broker proof is wired: GAP, reset plan section 3)"}`);
   };
   const first = create();
   if (first) return first;
@@ -802,7 +815,10 @@ function ensureParents(dir, file) {
  * filesystem fails. `managedRoot` (default: the host's, when `root` is or lies under the host's snapshot root) is the managed root
  * that must already exist; `device` reads a path's device (tests inject it).
  */
-export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), managedRoot = hostManagedRootFor(root), device, now = () => Date.now() } = {}) {
+// `lock`: { body, judge, hold } for the seam (reset plan section 3): `body` is the lock body the broker reads (gate-seam.mjs snapshotLockBody), `judge`
+// decides a dead holder's reclaim on the broker's proof, and `hold: true` keeps the lock after the sync, returning `release` in the result for the
+// caller to call once every job and test of the batch ended. Without `hold` the lock is released when the sync ends, as before.
+export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), managedRoot = hostManagedRootFor(root), device, now = () => Date.now(), lock = {} } = {}) {
   const started = now();
   const repo = repositoryOf(checkout);
   const { commit, tree } = resolveCommit(repo.checkout, rev);
@@ -820,8 +836,9 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), ma
   if (!rootStat?.isDirectory()) throw new SnapshotError("refused", `snapshot root ${root} is not a directory (a link is never followed)`);
   const dir = path.join(root, repo.key);
   if (inside(dir, repo.checkout) || inside(repo.checkout, dir)) throw new SnapshotError("refused", `snapshot ${dir} and checkout ${repo.checkout} overlap`);
-  const release = acquireSnapshotLock(`${dir}.lock`);
+  const release = acquireSnapshotLock(`${dir}.lock`, {}, { body: lock.body ?? null, judge: lock.judge ?? null });
   const assertLockHeld = () => { if (!release.held()) throw new SnapshotError("busy", `snapshot lock ${dir}.lock is no longer held by this sync`); };
+  let synced = false;
   try {
     const existing = lstat(dir);
     if (existing && !existing.isDirectory()) removeEntry(dir);
@@ -999,9 +1016,11 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), ma
     const actual = snapshotTree({ checkout: repo.checkout, dir, baseTree: tree, repo });
     if (actual !== tree) throw new SnapshotError("mismatch", `snapshot ${dir} is tree ${actual} after sync, not tree ${tree} of commit ${commit}`);
     writeState(stateFile, { schema: STATE_SCHEMA, repo: repo.checkout, repoKey: repo.key, commit, tree, paths: [...wanted.keys()], stat: nextStat, syncedAt: new Date(now()).toISOString() });
-    return { schema: SNAPSHOT_SCHEMA, path: dir, repoKey: repo.key, commit, tree, written, removed, modesFixed, unchanged, linksRemoved, hardLinksReplaced, casesFixed, identity, ms: now() - started };
+    synced = true;
+    return { schema: SNAPSHOT_SCHEMA, path: dir, repoKey: repo.key, commit, tree, written, removed, modesFixed, unchanged, linksRemoved, hardLinksReplaced, casesFixed, identity, ms: now() - started, ...(lock.hold === true ? { lockFile: `${dir}.lock`, release } : {}) };
   } finally {
-    release();
+    // A held lock outlives the sync (the caller releases it after the batch); a sync that failed releases it here whatever the caller asked.
+    if (lock.hold !== true || !synced) release();
   }
 }
 
