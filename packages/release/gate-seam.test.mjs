@@ -50,6 +50,16 @@ test("only an exact SNAPSHOT_STATUS echo with state IDLE proves a dead holder's 
     assert.equal(judge({ ...owner, token: "t-2" }), false, "another token is not this owner");
     assert.equal(snapshotReclaimJudge({ o, client: null, snapshotPath: snapshot })(owner), false, "no client: no proof");
     assert.equal(snapshotReclaimJudge({ o: { ...o, discoverEndpoint: () => `${sock}.missing` }, client, snapshotPath: snapshot })(owner), false, "no broker: no proof");
+    // A broker that greets and then REJECTS the query (its refusal frame is a RESULT with status REJECTED): the refusal is the answer, and the judge says no.
+    const rejectSock = path.join(dir, "reject.sock");
+    const rejecting = spawn(process.execPath, ["-e", `const net=require("node:net");net.createServer((c)=>{c.write(JSON.stringify({type:"HANDSHAKE"})+"\\n");c.on("data",()=>c.write(JSON.stringify({type:"RESULT",exitCode:125,status:"REJECTED",error:"unknown request type",code:"RK_UNKNOWN_REQUEST"})+"\\n"));}).listen(process.argv[1]);`, rejectSock], { stdio: "ignore" });
+    try {
+      for (let i = 0; i < 100 && !fs.existsSync(rejectSock); i += 1) await new Promise((r) => setTimeout(r, 50));
+      const rejected = snapshotStatusSync({ endpoint: rejectSock, message, timeoutMs: 5000 });
+      assert.equal(rejected?.status, "REJECTED", "the refusal frame is returned as the answer");
+      assert.equal(snapshotStatusAllowsReclaim(rejected, { snapshot, owner }), false);
+      assert.equal(snapshotReclaimJudge({ o: { ...o, discoverEndpoint: () => rejectSock }, client, snapshotPath: snapshot })(owner), false, "a rejected query is no proof");
+    } finally { rejecting.kill(); }
     // A broker that greets and then never answers: the deadline ends the query with no proof, not a hang.
     const silentSock = path.join(dir, "silent.sock");
     const silent = spawn(process.execPath, ["-e", `const net=require("node:net");net.createServer((c)=>{c.write(JSON.stringify({type:"HANDSHAKE"})+"\\n");}).listen(process.argv[1]);`, silentSock], { stdio: "ignore" });

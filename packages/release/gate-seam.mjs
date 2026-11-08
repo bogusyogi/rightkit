@@ -214,8 +214,9 @@ export function snapshotStatusAllowsReclaim(reply, { snapshot, owner }) {
 }
 
 // The broker greets every connection with a HANDSHAKE frame before it answers anything (rustright service.rs emit HANDSHAKE on connect), and may interleave
-// other frames; the reader consumes framed lines until the one whose `type` is the answer (SNAPSHOT_STATUS) or a refusal/error frame, within the deadline.
-const STATUS_SCRIPT = `const net=require("node:net");const [endpoint,msg,timeout,want]=process.argv.slice(1);const c=net.connect({path:endpoint});let buf="";const t=setTimeout(()=>process.exit(3),Number(timeout));const done=(line)=>{process.stdout.write(line);clearTimeout(t);c.destroy();process.exit(0);};c.on("connect",()=>c.write(msg+"\\n"));c.on("data",(d)=>{buf+=d;let i;while((i=buf.indexOf("\\n"))>=0){const line=buf.slice(0,i);buf=buf.slice(i+1);let f=null;try{f=JSON.parse(line);}catch{continue;}if(!f||typeof f!=="object")continue;if(f.type===want||f.type==="REFUSED"||f.type==="ERROR"||f.type==="REFUSAL")done(line);}});c.on("error",()=>process.exit(2));c.on("close",()=>process.exit(4));`;
+// other frames; the reader consumes framed lines until the one whose `type` is the answer (SNAPSHOT_STATUS) or the broker's refusal, which is a RESULT frame
+// with status REJECTED (rustright helpers_impl.rs: { type: "RESULT", exitCode: 125, status: "REJECTED", error, code? }), within the deadline.
+const STATUS_SCRIPT = `const net=require("node:net");const [endpoint,msg,timeout,want]=process.argv.slice(1);const c=net.connect({path:endpoint});let buf="";const t=setTimeout(()=>process.exit(3),Number(timeout));const done=(line)=>{process.stdout.write(line);clearTimeout(t);c.destroy();process.exit(0);};c.on("connect",()=>c.write(msg+"\\n"));c.on("data",(d)=>{buf+=d;let i;while((i=buf.indexOf("\\n"))>=0){const line=buf.slice(0,i);buf=buf.slice(i+1);let f=null;try{f=JSON.parse(line);}catch{continue;}if(!f||typeof f!=="object")continue;if(f.type===want||(f.type==="RESULT"&&f.status==="REJECTED"))done(line);}});c.on("error",()=>process.exit(2));c.on("close",()=>process.exit(4));`;
 
 /**
  * One control query, synchronously (the lock is taken inside the synchronous sync): a child node connects to the broker's socket or pipe, writes the
