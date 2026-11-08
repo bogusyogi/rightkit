@@ -322,7 +322,6 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, o
           if (!rest.length) return;
           // Per-member cache (rows passed alone or in another grouping stay hits): each remaining member is looked up on its OWN key before any batch is made,
           // so a change in how crates are grouped reruns nothing that passed. A looked-up miss carries what a later per-member store needs.
-          const missing = new Map();
           if (typeof probe === "function" && rest.length > 1) {
             const looked = await Promise.all(rest.map(async (member) => [member, await probe(scans[byScan.get(member.id)])]));
             const still = [];
@@ -332,7 +331,7 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, o
                 const history = attempts.get(member.id) ?? [];
                 history.push({ id: r.id, status: "pass", cached: true, command: r.command, ...(r.snapshotEvidence ? { snapshotEvidence: r.snapshotEvidence } : {}) });
                 attempts.set(member.id, history); executed.set(member.id, r); byMember.set(member.id, r);
-              } else { if (r?.memberWrite) missing.set(member.id, r.memberWrite); still.push(member); if (lookupOnly && r) { executed.set(member.id, r); byMember.set(member.id, r); const h = attempts.get(member.id) ?? []; h.push({ id: r.id, status: r.status, command: r.command }); attempts.set(member.id, h); } }
+              } else { still.push(member); if (lookupOnly && r) { executed.set(member.id, r); byMember.set(member.id, r); const h = attempts.get(member.id) ?? []; h.push({ id: r.id, status: r.status, command: r.command }); attempts.set(member.id, h); } }
             }
             if (lookupOnly) return; // a lookup reports each member on its own row; no batch is looked up
             if (!still.length) return;
@@ -366,22 +365,16 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, o
             history.push({ id: row.id, status: row.status, ...(row.code ? { code: row.code } : {}), command: row.command, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}) });
             attempts.set(member.id, history);
           }
-          const attributable = (row.code === "EXIT" && !row.snapshotEvidence) || (row.code === "BROKER_COMPILE_FAILURE" && row.authenticatedFailure?.retryable === true && row.authenticatedFailure?.failureClass === "compile" && row.snapshotEvidence?.receiptSha256);
           if (memberRows) {
             // Each member is judged on its own executables; the shared compile passed (the executables exist), so nothing is bisected.
             for (const member of members) { const own = memberRows.get(member.id); executed.set(member.id, own); byMember.set(member.id, own); groupRowOf.set(member.id, grouped); }
-            if (typeof store === "function") for (const member of members) if (memberRows.get(member.id).status === "pass") store(missing.get(member.id) ?? null, { ...memberRows.get(member.id), id: member.id, command: scans[byScan.get(member.id)]?.command ?? row.command });
+            // A member's own test verdict is not stored under its own key: its executables came from the group's compile (store rule, Adrian 2026-11-08).
             return;
-          }
-          if (members.length > 1 && job.batchAt !== undefined && row.status === "fail" && attributable) {
-            const half = Math.ceil(members.length / 2);
-            await runMembers(members.slice(0, half)); await runMembers(members.slice(half));
           }
           // Split outcomes attribute the failure; they cannot turn the required combined
           // invocation into a pass or unblock a selected dependent.
           for (const member of members) { executed.set(member.id, row); byMember.set(member.id, row); }
-          // A member that passed inside a batch is stored under its own key (per-member cache above), as if it had run alone.
-          if (typeof store === "function" && members.length > 1 && row.status === "pass") for (const member of members) store(missing.get(member.id) ?? null, { ...row, id: member.id, command: scans[byScan.get(member.id)]?.command ?? row.command });
+          // A grouped pass is stored under the group's own key by its own run and never under a member's key (store rule, Adrian 2026-11-08).
         };
         await runMembers(job.members);
         return { byMember };

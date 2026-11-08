@@ -172,24 +172,6 @@ const CLASS_A_KEY_SCHEMA = "rightkit.class-a-key/3";
 /** Whether a class A row's verdict depends on the installed dependencies (GC-A24): it executes repository code, or its tool is pnpm. */
 function classAEnvironmentBound(scan) { return scan.executes === true || scan.tool === "pnpm"; }
 let classBKeyIdentityMemo = null;
-/** Adrian's approval of one cache-miss report for ONE run: RK_GATE_MISS_APPROVAL names a JSON file {digest, by: "adrian", reason}. Attested, not
- * authenticated (an agent could write it) until Adrian picks a trust root; every run prints it. */
-function missApproval(o, digest, commit) {
-  const file = o.env?.RK_GATE_MISS_APPROVAL;
-  if (!file) return { ok: false, why: "no approval given" };
-  let raw; let e; try { raw = fs.readFileSync(file, "utf8"); e = JSON.parse(raw); } catch (error) { return { ok: false, why: `${file} unreadable (${error.message})` }; }
-  if (e?.by !== "adrian") return { ok: false, why: `${file} is not by adrian` };
-  if (e?.digest !== digest) return { ok: false, why: `${file} approves report ${String(e?.digest).slice(0, 12)}, this run's report is ${digest.slice(0, 12)}` };
-  if (typeof e?.reason !== "string" || !e.reason.trim()) return { ok: false, why: `${file} gives no reason` };
-  // Single use (Adrian 2026-11-06: "why would it be recorded for 2 hours if it's for a single run?"): the run it permits consumes THIS approval. The
-  // record is keyed by the approval's own bytes, so a new approval from Adrian for the same report (a second cold run of the same commit, the contract
-  // test's fixture) is its own single use; the same file never permits two runs.
-  const used = path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-gate-misses", "consumed", `${digest}-${createHash("sha256").update(raw).digest("hex").slice(0, 16)}.json`);
-  try { fs.mkdirSync(path.dirname(used), { recursive: true }); fs.writeFileSync(used, JSON.stringify({ digest, commit, file, reason: e.reason, at: new Date().toISOString() }), { flag: "wx" }); }
-  catch (error) { return { ok: false, why: error?.code === "EEXIST" ? `this approval of report ${digest.slice(0, 12)} was already used by one run; a new run needs a new approval from Adrian` : `the approval could not be recorded as used (${error.message})` }; }
-  return { ok: true, note: `cache-miss approval ${file} (attested, not authenticated): by adrian for this one run of report ${digest.slice(0, 12)} on ${String(commit).slice(0, 12)}: ${e.reason}` };
-}
-
 function classBKeyIdentity() {
   if (classBKeyIdentityMemo === null) {
     const h = createHash("sha256");
@@ -5020,25 +5002,18 @@ export async function main(argv, io = {}) {
     };
     // Adrian 2026-11-06: "every time should be warm". Before anything runs, every planned row is looked up in the cache. If any would miss, the
     // run stops with a miss report (each row, its cause and the evidence: changed inputs, tool or environment, no stored result, or nothing
-    // changed at all). Only Adrian's approval naming that report's digest lets those rows run (RK_GATE_MISS_APPROVAL=<file>).
+    // changed at all). Every miss is explained in the report and the rows run; a miss where nothing changed is a cache bug to file with the
+    // report, never a reason to stop the run or to ask Adrian (2026-11-08: explained invalidation replaces approval).
     if (!o.runScans && cache) {
       const lookup = await runScans(plan, { ...scanOptions, cacheLookupOnly: true, onResult: () => {} });
       const allMisses = lookup.scans.filter((r) => r.lookupMiss);
       // Adrian 2026-11-06: "when we change something, we know exactly which rows are going to be called. Anything other than that needs approval."
       // A row that misses ONLY because files in its own key changed (new content ids, no tool, toolchain, broker or environment change) is one this
-      // change must call: it runs, listed. Every other miss (nothing changed, no stored result, a tool or environment change) needs approval.
+      // change must call: it runs, listed. Every other miss (nothing changed, no stored result, a tool or environment change) is reported as unexpected, with its cause.
       const expected = (r) => r.cacheMiss?.kind === "changed" && (r.cacheMiss.why?.inputsChanged ?? 0) > 0 && r.cacheMiss.why.contentOnly === true && !r.cacheMiss.why.tool && !r.cacheMiss.why.env && !r.cacheMiss.why.inheritedEnv;
       const called = allMisses.filter(expected);
       if (called.length) o.out(`${tag} cache lookup: ${called.length} row(s) rerun because their own files changed: ${called.slice(0, 12).map((r) => `${r.id} (${(r.cacheMiss.why.inputs ?? []).slice(0, 2).map((k) => k.replace(/^[^/]*\//, "")).join(", ")})`).join("; ")}${called.length > 12 ? "; ..." : ""}`);
       const misses = allMisses.filter((r) => !expected(r));
-      // Benchmark only (RK_GATE_LOOKUP_ONLY=1, Adrian 2026-11-07 parallelism benchmark): in the pass that compiles class B, stop after the lookup. With no miss
-      // that needs approval nothing runs and the gate exits 0; with one, the miss report below is written as usual. A benchmark's untimed preparation
-      // then stores class A and obtains the class B approval without compiling any class B row, so the timed run is the first to compile them
-      // (2026-11-07: a preparation run that hit no stop compiled 211 class B rows and the timed run measured cache hits).
-      if (o.env.RK_GATE_LOOKUP_ONLY === "1" && plan.scans.some((x) => x.class === "B") && !misses.length) {
-        o.out(`${tag} lookup only (RK_GATE_LOOKUP_ONLY=1): ${lookup.scans.length} planned, ${lookup.scans.filter((r) => r.cached).length} hit, ${called.length} would rerun for their own files, 0 need approval; nothing ran`);
-        return 0;
-      }
       if (misses.length) {
         const prior = new Map(lookup.scans.map((r) => [r.id, r]));
         const kindOf = (r) => r.cacheMiss?.kind ?? "new";
@@ -5053,17 +5028,12 @@ export async function main(argv, io = {}) {
         const digest = createHash("sha256").update(JSON.stringify({ schema: body.schema, commit: body.commit, rows: entries.map((e) => [e.id, e.cause]) })).digest("hex");
         const reportFile = path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-gate-misses", `${path.basename(root)}-${new Date().toISOString().replace(/[:.]/g, "-")}-${digest.slice(0, 12)}.json`);
         try { fs.mkdirSync(path.dirname(reportFile), { recursive: true }); fs.writeFileSync(reportFile, `${JSON.stringify({ ...body, digest }, null, 2)}\n`); } catch { /* the summary below still names everything */ }
-        const approval = missApproval(o, digest, commitOfRun);
         o.out(`${tag} cache lookup: ${body.planned} planned, ${body.hit} hit, ${body.misses} unexpected miss(es) (${Object.entries(byCause).map(([c, n]) => `${n} ${c}`).join("; ")}), ${body.uncacheable} uncacheable by design; report ${reportFile} (digest ${digest})`);
         if (body.topChangedInputs.length) o.out(`${tag} cache lookup: most-changed inputs ${body.topChangedInputs.slice(0, 8).map(([k, n]) => `${k} (${n})`).join(", ")}`);
         if (tools.length) o.out(`${tag} cache lookup: tool changes ${tools.slice(0, 5).join("; ")}`);
         if (envs.length) o.out(`${tag} cache lookup: environment changes ${envs.slice(0, 10).join(", ")}`);
-        if (!approval.ok) {
-          o.err(`${tag} BLOCKED: RK_CACHE_MISS: ${body.misses} row(s) would miss the cache without a change to their own files; nothing ran. Bring the report to Adrian; his approval names its digest and covers one run (RK_GATE_MISS_APPROVAL=<file>: {digest: "${digest}", by: "adrian", reason})${approval.why ? ` (${approval.why})` : ""}`);
-          void prior;
-          return 1;
-        }
-        o.out(`${tag} ${approval.note}`);
+        o.err(`${tag} RK_CACHE_MISS: ${body.misses} row(s) miss the cache without a change to their own files; they run now. Each miss is explained in the report; a miss where nothing changed is a cache bug: file it with the report`);
+        void prior;
       } else o.out(`${tag} cache lookup: ${lookup.scans.length} planned, ${lookup.scans.filter((r) => r.cached).length} hit, ${called.length} rerun for changed files, 0 unexpected; ${lookup.scans.filter((r) => r.uncacheable).length} uncacheable by design`);
     }
     const scanResult = await (o.runScans ?? runScans)(plan, scanOptions);

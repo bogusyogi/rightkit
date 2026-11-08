@@ -293,6 +293,9 @@ export function publisherRequirementScan(requirement, { platform = process.platf
 // The command text a cache key binds. Cargo's build width (`--jobs N`, from --cargo-jobs) changes how many processes compile, never what compiles or
 // a verdict, so it is not part of the key: a row passed at one width is the same row at another (Mac 2026-11-07, run 17 --cargo-jobs 6: all 295
 // stored passes missed as 'nothing changed: the cache failed').
+/** Whether a stored row's command is this scan's command: the same text once Cargo's build width is dropped (67515ffb dropped it from the key but
+ * the lookup still compared the raw text, so a different --jobs missed every stored pass). */
+export function sameCommand(stored, s) { return keyCommand({ command: stored, runOutside: s.runOutside }) === keyCommand(s); }
 export function keyCommand(s) {
   const base = String(s.command ?? "").replace(/(^|\s)--jobs\s+\d+(?=\s|$)/g, "");
   return s.runOutside ? `${base} ;; run ${canonicalJson(s.runOutside)}` : base;
@@ -3162,8 +3165,10 @@ export async function runScans(plan, options = {}) {
     };
     // Per-crate cache (Mac 2026-11-07: a batch's pass was stored only under the batch's own key, its exact set of crates, so any change in how
     // crates were grouped reran every one of them). Before a group runs, each member is looked up on its own key; a member that hits is its own
-    // cached row, only the members that miss run (as a smaller group, or alone), and each member that then passes is stored under its OWN key
-    // and row index, as if it had run alone. In a cache lookup the members are reported one by one, each with its own cause.
+    // cached row, only the members that miss run (as a smaller group, or alone). A member that passes inside a group is NOT stored under its own key:
+    // the group compiled with the features, targets and dependencies Cargo unified across it, which is not what the member compiles alone
+    // (2026-11-07: 296 conflicting pairs across 28 crates; a member's projected pass hid its own error). The group's row is stored under the
+    // group's own key by its own scanRow; a member hits alone only after it ran alone (store rule, Adrian 2026-11-08). In a cache lookup the members are reported one by one, each with its own cause.
     const runGroup = async (idx, extraEnv, budget, probed = false) => {
       if (probed || !cache || idx.length < 2 || signal?.aborted) return runGroupBody(idx, extraEnv, budget);
       const started = Date.now();
@@ -3172,20 +3177,12 @@ export async function runScans(plan, options = {}) {
       for (const [i, r] of looked) {
         if (r.cached === true) { slots[i] = { ...r, id: bScans[i].id, command: bScans[i].command }; done += 1; try { onResult(slots[i], { done, total, seconds: Math.round((Date.now() - started) / 1000) }); } catch { /* reporting never fails a scan */ } }
         else if (options.cacheLookupOnly) slots[i] = { ...r, id: bScans[i].id, command: bScans[i].command };
-        else missing.push([i, r.memberWrite ?? null]);
+        else missing.push(i);
       }
       if (options.cacheLookupOnly || !missing.length) return;
-      const run = missing.map(([i]) => i);
+      const run = missing;
       if (run.length === 1) slots[run[0]] = await runOne(bScans[run[0]], extraEnv).catch((error) => failedRow(run[0], error));
       else await runGroupBody(run, extraEnv, budget);
-      for (const [i, w] of missing) {
-        const own = slots[i];
-        if (!w || own?.status !== "pass" || own.cached || signal?.aborted || run.length === 1) continue; // a single run wrote its own entry
-        try {
-          cache.write(w.key, { id: bScans[i].id, class: bScans[i].class, command: bScans[i].command, tool: bScans[i].tool ?? null, toolVersion: own.toolVersion ?? null, status: "pass", ...(own.results ? { results: own.results } : {}) });
-          if (w.index) cache.write(w.index.key, { id: bScans[i].id, inputs: w.index.inputs, env: w.index.env, raw: w.index.raw, at: new Date().toISOString() });
-        } catch { /* the pass stands; the next run runs the member again */ }
-      }
     };
     const runGroupBody = async (idx, extraEnv, budget = { remaining: Math.min(2 * idx.length - 1, 31) }) => {
       if (budget.remaining <= 0 || signal?.aborted) {
@@ -3207,10 +3204,9 @@ export async function runScans(plan, options = {}) {
         });
         return;
       }
-      // A failure reused from the result cache (NN41) was authenticated or diagnosed when it was written, so it attributes the same way.
-      const attributable = (row.code === "EXIT" && !row.snapshotEvidence) || (row.code === "BROKER_COMPILE_FAILURE" && row.authenticatedFailure?.retryable === true && row.authenticatedFailure?.failureClass === "compile" && row.snapshotEvidence?.receiptSha256) || (row.failureCached === true && (row.code === "EXIT" || row.code === "BROKER_COMPILE_FAILURE"));
       // NN40: a failed doc invocation is attributed from its own JSON messages: a crate with an error message fails, a crate with no artifact while
-      // another member has one fails, the rest pass. Without usable messages (none, or no artifact for any member) it falls back to bisection below.
+      // another member has one fails, the rest pass. Without usable messages (none, or no artifact for any member) every member carries the group's failure (below); nothing is bisected
+      // (Adrian 2026-11-08, store rule: a row is stored only for the invocation that ran it; blame comes from Cargo's messages, not from reruns).
       const verdicts = row.status === "fail" && bs.captureJson && row.jsonSummary?.records > 0 && !signal?.aborted ? docVerdicts(row.jsonSummary, idx.map((i) => bScans[i].batchable.unit), idx.map((i) => bScans[i].batchable.crate)) : null;
       if (verdicts && !signal?.aborted) {
         batchFailureNotes.push(`class B batching: grouped doc invocation ${bs.id} (${idx.length} crates: ${bs.batch.units.join(", ")}) failed (EXIT) and was attributed per crate from its --message-format=json output, not bisected; failing: ${verdicts.filter((v) => v.fail).map((v) => v.unit).join(", ") || "none named"}`);
@@ -3227,17 +3223,6 @@ export async function runScans(plan, options = {}) {
           const redo = idx.filter((i) => slots[i]?.status === "fail");
           await Promise.all(redo.map(async (i) => { const alone = await runOne(bScans[i], extraEnv).catch((error) => failedRow(i, error)); slots[i] = { ...alone, batchFailure: { id: bs.id, units: bs.batch.units, command: row.command, detail: "the multi-target invocation failed for this crate; this target ran alone" } }; }));
         }
-        return;
-      }
-      if (row.status === "fail" && attributable && !signal?.aborted) {
-        // Bisect for attribution, but keep the grouped failure itself as evidence (rightkit#1458, reconciled scope
-        // 2026-11-04): the splits below prove each member's own required scan; they do not erase that the combined
-        // invocation failed (feature unification across the group is one way that happens, GC-I11).
-        batchFailureNotes.push(`class B batching: grouped invocation ${bs.id} (${idx.length} crates: ${bs.batch.units.join(", ")}) failed (EXIT) and was bisected to attribute it; member rows carry it as batchFailure`);
-        const half = Math.ceil(idx.length / 2);
-        await runGroup(idx.slice(0, half), extraEnv, budget);
-        await runGroup(idx.slice(half), extraEnv, budget);
-        for (const i of idx) if (slots[i]) slots[i] = { ...slots[i], individualStatus: slots[i].individualStatus ?? slots[i].status, individualCode: slots[i].individualCode ?? slots[i].code ?? null, status: "fail", code: "BATCH_REQUIREMENT_FAILED", batchFailure: { id: bs.id, units: bs.batch.units, command: row.command, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), ...(row.detail ? { detail: row.detail } : {}) }, batchAttempts: [...(slots[i].batchAttempts ?? []), { id: bs.id, status: row.status, command: row.command, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), timing: row.timing ?? null }] };
         return;
       }
       for (const i of idx) {
@@ -3544,7 +3529,7 @@ export async function runScans(plan, options = {}) {
                 if (proof.ok) {
                   const oldKey = scanCacheKey({ id: s.id, command: keyCommand(s), toolVersion: idx.raw.toolVersion, env: idx.raw.env ?? {}, inheritedEnv: idx.raw.inherited, digest: idx.raw.inputs });
                   const old = cache.read(oldKey);
-                  if (old && old.key === oldKey && old.row?.status === "pass" && old.row.id === s.id && old.row.command === s.command) {
+                  if (old && old.key === oldKey && old.row?.status === "pass" && old.row.id === s.id && sameCommand(old.row.command, s)) {
                     hit = { ...old, key: cacheKey };
                     row.carriedOver = { from: oldKey.slice(0, 16), files: proof.carried };
                     if (!options.cacheLookupOnly) { try { cache.write(cacheKey, old.row); cache.write(rowIndexKey, { id: s.id, inputs: inputsDigest, env: envDigest, raw: keyParts.raw, at: new Date().toISOString() }); } catch { /* the pass stands; the next run carries it again */ } }
@@ -3558,20 +3543,20 @@ export async function runScans(plan, options = {}) {
             // A Rust test scan (runOutside) is judged the same way: the executables are unknown until the compile, so its key is the source digest and the cached row must carry the summed libtest counts.
             const testEvidence = (s.kind !== "test" && !s.runOutside) || testResultsProblem(hit?.row?.results) === null;
             const publisherEvidence = !s.coverageKey || !viaSnapshotBroker || /^[0-9a-f]{64}$/.test(hit?.row?.snapshotEvidence?.receiptSha256 ?? "");
-            if (hit && hit.key === cacheKey && hit.row?.status === "pass" && hit.row.id === s.id && hit.row.command === s.command && testEvidence && publisherEvidence) {
+            if (hit && hit.key === cacheKey && hit.row?.status === "pass" && hit.row.id === s.id && sameCommand(hit.row.command, s) && testEvidence && publisherEvidence) {
               cacheHits.push(s.id);
               return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}`, ...(s.kind === "test" || s.runOutside || s.coverageKey ? { results: hit.row.results } : {}), ...(s.coverageKey ? { snapshotEvidence: hit.row.snapshotEvidence ?? null, testRun: hit.row.testRun ?? null } : {}) };
             }
             // NN41: the same inputs, toolchain and broker runtime already failed this compile deterministically: report that failure, marked cached, without running it.
             const failHit = failKey ? cache.read(failKey) : null;
-            if (failHit && failHit.key === failKey && failHit.row?.status === "fail" && failHit.row.id === s.id && failHit.row.command === s.command && failHit.row.failureIdentity === options.failureIdentity && (failHit.row.code === "EXIT" || failHit.row.code === "BROKER_COMPILE_FAILURE") && typeof failHit.row.detail === "string" && failHit.row.detail !== "") {
+            if (failHit && failHit.key === failKey && failHit.row?.status === "fail" && failHit.row.id === s.id && sameCommand(failHit.row.command, s) && failHit.row.failureIdentity === options.failureIdentity && (failHit.row.code === "EXIT" || failHit.row.code === "BROKER_COMPILE_FAILURE") && typeof failHit.row.detail === "string" && failHit.row.detail !== "") {
               cacheHits.push(s.id);
               return { ...row, status: "fail", code: failHit.row.code, cached: true, failureCached: true, detail: `cached failure ${String(failHit.at ?? "").slice(0, 10) || "earlier"} (same inputs, toolchain and broker runtime): ${failHit.row.detail}`, ...(failHit.row.authenticatedFailure ? { authenticatedFailure: failHit.row.authenticatedFailure } : {}), ...(failHit.row.jsonSummary ? { jsonSummary: failHit.row.jsonSummary } : {}) };
             }
           }
           // Adrian 2026-11-06: the cache is looked up for every planned row BEFORE anything runs (options.cacheLookupOnly): a miss is reported with its cause, never run.
-          // A probe (runGroup's per-crate lookup) answers like a lookup and carries what a later per-crate write needs.
-          if (options.cacheLookupOnly || probeScans.has(s)) return { ...row, status: "not-run", lookupMiss: Boolean(cacheKey), uncacheable: !cacheKey, detail: cacheKey ? "would miss the cache" : "has no cache key", ...(cacheKey && row.rowIndex ? { memberWrite: { key: cacheKey, index: row.rowIndex } } : {}) };
+          // A probe (runGroup's per-crate lookup) answers like a lookup.
+          if (options.cacheLookupOnly || probeScans.has(s)) return { ...row, status: "not-run", lookupMiss: Boolean(cacheKey), uncacheable: !cacheKey, detail: cacheKey ? "would miss the cache" : "has no cache key" };
           // Every cargo call the wrapper decides during this scan is filed under this token in the gate's ledger: the scan's own call AND the
           // calls the scan itself makes before it (the cargo-deny row's prefetch and its full metadata), so none is filed "unscoped" and fails the run.
           const ledgerToken = cargoLedger ? scanTokenOf(s.id) : null;
