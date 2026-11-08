@@ -110,10 +110,10 @@ import { platformDirOf } from "../platform-dir.mjs";
 import { buildInventory, classifyUnitResults, dependencyFirstOrder, selectAffectedAcrossInventories, unitListReport } from "../affected-units.mjs";
 import { createRequire } from "node:module";
 import { nativeToolRefusal, nativeToolUses } from "../native-tool-planning.mjs";
-import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, mergeCapabilityViews, parseRuntimeIdentity, queryBrokerHandshake } from "../broker-handshake.mjs";
+import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, brokerControlTarget, mergeCapabilityViews, parseRuntimeIdentity, queryBrokerHandshake } from "../broker-handshake.mjs";
 import net from "node:net";
 import { installSpawnLedger } from "../spawn-ledger.mjs";
-import { processIdentity, snapshotLockBody } from "../gate-seam.mjs";
+import { processIdentity, snapshotLockBody, snapshotStatusAllowsReclaim, snapshotStatusMessage, snapshotStatusSync } from "../gate-seam.mjs";
 import { cargoWidthRouteProblem, cargoWidthScanProblem, cargoWidthUnitsProblem, parseCargoWidth, validateCargoWidthPool } from "../cargo-width.mjs";
 
 const PRIVATE_SCOPED_COMPILE = Symbol("private scoped compile");
@@ -1860,7 +1860,17 @@ async function runStages(o, args, root, git, io) {
       let seamLock = {};
       if (/^[0-9a-f]{40}$/.test(String(selected.commit))) {
         const identity = processIdentity(process.pid, { platform: o.platform, spawnSync: (c, a, opts) => o.spawn(c, a, opts) });
-        if (identity) seamLock = { body: snapshotLockBody({ identity, commit: selected.commit }), hold: true };
+        // A dead holder's lock is reclaimed only on the broker's SNAPSHOT_STATUS proof that the snapshot is IDLE for exactly that owner (gate-seam.mjs); no broker, no proof.
+        const snapshotPath = path.join(snapshotsAt, snap.repositoryOf(root).key);
+        const judge = (holder) => {
+          try {
+            const target = brokerControlTarget(o, { client: routeExecutor?.client ?? null });
+            if (!target.ok) return false;
+            const message = snapshotStatusMessage({ protocol: BUILD_CONTROL_PROTOCOL, runtime: target.identity, snapshot: snapshotPath, owner: holder });
+            return snapshotStatusAllowsReclaim(snapshotStatusSync({ endpoint: target.endpoint, message }), { snapshot: snapshotPath, owner: holder });
+          } catch { return false; }
+        };
+        if (identity) seamLock = { body: snapshotLockBody({ identity, commit: selected.commit }), judge, hold: true };
         else o.err(`${tag} note: this process's birth identity could not be read; the snapshot lock is the legacy one and is released after the sync`);
       }
       try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout: root, rev: selected.commit, root: snapshotsAt, lock: seamLock }); }

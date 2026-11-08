@@ -6,7 +6,39 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { CLASS_A_ENV, CLASS_A_VERDICT_SCHEMA, GATE_COMMIT_ENV, classAVerdict, judgeSeamOutcome, normalizeWorkspace, parseIdentity, parseResultLine, processIdentity, readSeamReceipt, samePath, seamEnv, snapshotLockBody, writeClassAVerdict } from "./gate-seam.mjs";
+import { SNAPSHOT_STATUS_SCHEMA, snapshotStatusAllowsReclaim, snapshotStatusMessage, snapshotStatusSync } from "./gate-seam.mjs";
+import { spawn } from "node:child_process";
 import { acquireSnapshotLock } from "./snapshot.mjs";
+
+test("only an exact SNAPSHOT_STATUS echo with state IDLE proves a dead holder's snapshot idle; the query crosses a real socket", async () => {
+  const owner = { pid: 4242, identity: "darwin:4242:Sun Nov  9 10:00:00 2026", commit: "a".repeat(40), token: "t-1" };
+  const snapshot = "/Volumes/D/.rightkit-managed/snapshots/abc";
+  const message = snapshotStatusMessage({ protocol: "rustright.build-control.client.v2", runtime: { id: "r" }, snapshot, owner });
+  assert.equal(message.type, "SNAPSHOT_STATUS"); assert.deepEqual(message.owner, owner);
+  const idle = { type: "SNAPSHOT_STATUS", schema: SNAPSHOT_STATUS_SCHEMA, snapshot, owner, state: "IDLE", reasons: [] };
+  assert.equal(snapshotStatusAllowsReclaim(idle, { snapshot, owner }), true);
+  assert.equal(snapshotStatusAllowsReclaim({ ...idle, state: "BUSY" }, { snapshot, owner }), false);
+  assert.equal(snapshotStatusAllowsReclaim({ ...idle, state: "UNKNOWN" }, { snapshot, owner }), false);
+  assert.equal(snapshotStatusAllowsReclaim({ ...idle, owner: { ...owner, token: "t-2" } }, { snapshot, owner }), false);
+  assert.equal(snapshotStatusAllowsReclaim({ ...idle, snapshot: `${snapshot}2` }, { snapshot, owner }), false);
+  assert.equal(snapshotStatusAllowsReclaim({ ...idle, schema: "rustright.snapshot-status/0" }, { snapshot, owner }), false);
+  assert.equal(snapshotStatusAllowsReclaim(null, { snapshot, owner }), false);
+  if (process.platform === "win32") return;
+  // A real unix socket answering the query from ANOTHER process (the client is synchronous and would block a server in this one): the client gets exactly the first line,
+  // and the server saw the query with this owner.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-seam-sock-")); const sock = path.join(dir, "b.sock"); const seenFile = path.join(dir, "seen.json");
+  const serverScript = `const net=require("node:net"),fs=require("node:fs");const [sock,seen,reply]=process.argv.slice(1);net.createServer((c)=>{c.on("data",(d)=>{fs.writeFileSync(seen,String(d));c.write(reply+"\\n");});}).listen(sock);`;
+  const server = spawn(process.execPath, ["-e", serverScript, sock, seenFile, JSON.stringify(idle)], { stdio: "ignore" });
+  try {
+    for (let i = 0; i < 100 && !fs.existsSync(sock); i += 1) await new Promise((r) => setTimeout(r, 50));
+    assert.ok(fs.existsSync(sock), "the fake broker listens");
+    const reply = snapshotStatusSync({ endpoint: sock, message, timeoutMs: 5000 });
+    assert.deepEqual(reply, idle);
+    const seen = JSON.parse(fs.readFileSync(seenFile, "utf8").trim());
+    assert.equal(seen.type, "SNAPSHOT_STATUS"); assert.deepEqual(seen.owner, owner);
+    assert.equal(snapshotStatusSync({ endpoint: `${sock}.missing`, message, timeoutMs: 2000 }), null, "no broker: no proof");
+  } finally { server.kill(); }
+});
 
 const commit = "a".repeat(40); const tree = "b".repeat(40); const repoKey = "0123456789abcdef";
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "rk-seam-test-"));

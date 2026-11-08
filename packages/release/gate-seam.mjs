@@ -7,6 +7,7 @@
 //
 // Dependency-free (node built-ins only). Every function here is pure or takes its I/O as an argument, so the writer, parser and judge
 // are tested without a broker; the integration against the installed broker runs after the cutover (plan section 7, step 4).
+import { execFileSync as nodeExecFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -189,6 +190,41 @@ export function parseIdentity(text) {
   if (!m) return null;
   const pid = Number(m[2]);
   return Number.isInteger(pid) && pid > 0 ? { platform: m[1], pid, start: m[3] } : null;
+}
+
+// ---- the broker's proof that a dead holder's snapshot is idle (reset plan section 3; astra 2026-11-09) ------------------------------------
+// SNAPSHOT_STATUS { protocol, runtime, snapshot, owner: { pid, identity, commit, token } } -> { type: "SNAPSHOT_STATUS", schema: "rustright.snapshot-status/1",
+// snapshot, owner, state: "IDLE" | "BUSY" | "UNKNOWN", reasons: [string] }. Read-only, no lease. Only an exact echo of snapshot and owner with state IDLE
+// allows a reclaim; BUSY, UNKNOWN, a different echo, an unreachable broker or any error is "no proof".
+export const SNAPSHOT_STATUS_SCHEMA = "rustright.snapshot-status/1";
+
+/** The query for one dead holder's lock (`owner` is the lock body as read). */
+export function snapshotStatusMessage({ protocol, runtime, snapshot, owner }) {
+  if (typeof protocol !== "string" || !protocol || typeof snapshot !== "string" || !path.isAbsolute(snapshot)) throw new SeamError("STATUS", "a snapshot status query needs the protocol and the absolute snapshot path");
+  if (!owner || !Number.isInteger(owner.pid) || typeof owner.identity !== "string" || typeof owner.commit !== "string" || typeof owner.token !== "string") throw new SeamError("STATUS", "a snapshot status query needs the lock's { pid, identity, commit, token }");
+  return { type: "SNAPSHOT_STATUS", protocol, runtime, snapshot, owner: { pid: owner.pid, identity: owner.identity, commit: owner.commit, token: owner.token } };
+}
+
+/** Whether a reply proves the snapshot idle for exactly this owner. Anything short of that is false. */
+export function snapshotStatusAllowsReclaim(reply, { snapshot, owner }) {
+  if (!reply || typeof reply !== "object" || reply.type !== "SNAPSHOT_STATUS" || reply.schema !== SNAPSHOT_STATUS_SCHEMA) return false;
+  if (reply.snapshot !== snapshot || !reply.owner || typeof reply.owner !== "object") return false;
+  for (const k of ["pid", "identity", "commit", "token"]) if (reply.owner[k] !== owner[k]) return false;
+  return reply.state === "IDLE";
+}
+
+const STATUS_SCRIPT = `const net=require("node:net");const [endpoint,msg,timeout]=process.argv.slice(1);const c=net.connect({path:endpoint});let buf="";const t=setTimeout(()=>process.exit(3),Number(timeout));c.on("connect",()=>c.write(msg+"\\n"));c.on("data",(d)=>{buf+=d;const i=buf.indexOf("\\n");if(i>=0){process.stdout.write(buf.slice(0,i));clearTimeout(t);c.destroy();process.exit(0);}});c.on("error",()=>process.exit(2));c.on("close",()=>process.exit(buf?0:4));`;
+
+/**
+ * One control query, synchronously (the lock is taken inside the synchronous sync): a child node connects to the broker's socket or pipe, writes the
+ * message as one line and returns the first reply line. Null on any failure (no broker, timeout, bad JSON): no proof.
+ */
+export function snapshotStatusSync({ endpoint, message, timeoutMs = 10_000, execFileSync = nodeExecFileSync, execPath = process.execPath }) {
+  if (typeof endpoint !== "string" || !endpoint) return null;
+  let out;
+  try { out = execFileSync(execPath, ["-e", STATUS_SCRIPT, endpoint, JSON.stringify(message), String(timeoutMs)], { encoding: "utf8", timeout: timeoutMs + 2_000, stdio: ["ignore", "pipe", "ignore"], windowsHide: true }); }
+  catch { return null; }
+  try { const reply = JSON.parse(String(out).trim()); return reply && typeof reply === "object" ? reply : null; } catch { return null; }
 }
 
 /** The lock body the broker reads (`${snapshot}.lock`): exactly { pid, identity, commit, token }. */

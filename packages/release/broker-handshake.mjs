@@ -108,6 +108,40 @@ const isPipe = (endpoint) => /^\\\\\.\\pipe\\/i.test(String(endpoint));
  * discovery names, and the handshake read from it. A Unix endpoint must be a socket the current user owns (a planted file or another user's socket is not the broker). `{ ok, capabilities, runtime }`
  * or `{ ok: false, problem }`.
  */
+/**
+ * Where a control query to the broker goes and what identity it carries: the endpoint RustRight's discovery names (a user-owned socket, or a pipe) and the
+ * runtime identity of the manifest beside the installed `client`. `{ ok, endpoint, identity }` or `{ ok: false, problem }`. Shared by the HANDSHAKE probe and
+ * the seam's SNAPSHOT_STATUS query (gate-seam.mjs).
+ */
+export function brokerControlTarget(o, { client = o?.client } = {}) {
+  const platform = o?.platform ?? process.platform;
+  const env = o?.env ?? process.env;
+  const read = o?.readFile ?? ((file) => fs.readFileSync(file, "utf8"));
+  if (typeof client !== "string" || !client) return { ok: false, problem: "the RustRight client is not on PATH, so its runtime identity cannot be read" };
+  let exe;
+  try { exe = resolveBrokerClient(client, { platform, readFile: read }).file; } catch (error) { return { ok: false, problem: `the RustRight client cannot be resolved (${error.message})` }; }
+  let real = exe;
+  if (platform !== "win32") { try { real = (o?.realpath ?? fs.realpathSync.native)(exe); } catch { real = exe; } }
+  const paths = platform === "win32" ? path.win32 : path.posix;
+  const manifest = paths.join(paths.dirname(real), RUNTIME_MANIFEST_FILE);
+  let text;
+  try { text = read(manifest); } catch (error) { return { ok: false, problem: `cannot read the runtime manifest ${manifest} beside the client (${error?.message ?? error})` }; }
+  const identity = parseRuntimeIdentity(text);
+  if (!identity.ok) return { ok: false, problem: `${manifest}: ${identity.problem}` };
+  let endpoint;
+  try { endpoint = (o?.discoverEndpoint ?? discoverBrokerSocket)(env, { platform, exists: fs.existsSync }); } catch (error) { return { ok: false, problem: `the broker endpoint cannot be discovered (${error.message})` }; }
+  if (!endpoint) return { ok: false, problem: "no broker endpoint is configured (no explicit socket variable and no broker.sock under a managed control root)" };
+  if (platform !== "win32" && !isPipe(endpoint)) {
+    try {
+      const stat = (o?.lstat ?? fs.lstatSync)(endpoint);
+      const uid = typeof (o?.uid ?? process.getuid?.()) === "number" ? (o?.uid ?? process.getuid()) : null;
+      if (!stat.isSocket()) return { ok: false, problem: `${endpoint} is not a socket, so it is not the broker's endpoint` };
+      if (uid !== null && stat.uid !== uid) return { ok: false, problem: `${endpoint} is owned by another user (uid ${stat.uid}), so it is not this user's broker` };
+    } catch (error) { return { ok: false, problem: `cannot connect to the broker at ${endpoint} (${error?.code ?? error?.message ?? error})` }; }
+  }
+  return { ok: true, endpoint, identity: identity.identity };
+}
+
 export async function queryBrokerHandshake(o, { client = o?.client } = {}) {
   const platform = o?.platform ?? process.platform;
   const env = o?.env ?? process.env;
