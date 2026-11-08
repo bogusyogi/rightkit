@@ -40,7 +40,7 @@ import { resolveManagedRoots } from "./managed-roots.mjs";
 import { HostConfigError, hostConfigFile, readSnapshotRootConfig } from "./snapshot-root-config.mjs";
 import { discoveryGit, discoveryRun, sealedRepoInfo, sealedRun, withSealedGit } from "./snapshot-git.mjs";
 import { SOURCE_IDENTITY_FILE, sourceIdentityBytes } from "./snapshot-identity.mjs";
-import { parseIdentity } from "./gate-seam.mjs";
+import { parseIdentity, processIdentity } from "./gate-seam.mjs";
 import { acquireBuildOwnership, migrateBirthlessRoot, OwnershipBusy, ownershipFile, recordRootBirth } from "./build-ownership.mjs";
 // The error class and the managed-root guard live in managed-root-guard.mjs, which build-ownership.mjs imports too (decision D4 rule 1).
 import { SnapshotError, requireManagedRoot } from "./managed-root-guard.mjs";
@@ -671,7 +671,7 @@ const statKey = (s) => `${s.size}:${s.mtimeNs}:${s.ctimeNs}:${s.ino}`;
  * progress. A reclaimer that died mid-reclaim leaves the reclaim file and every later sync is busy until it is removed (fail
  * closed); so does a dead holder whose pid was reused. `hooks` exist for the deterministic race fixture only.
  */
-export function acquireSnapshotLock(lockFile, hooks = {}, { body: seamBody = null, judge = null } = {}) {
+export function acquireSnapshotLock(lockFile, hooks = {}, { body: seamBody = null, judge = null, identityOf = (pid) => processIdentity(pid, { platform: process.platform, spawnSync: (c, a, o) => spawnSync(c, a, o) }) } = {}) {
   // The seam's lock body (reset plan section 3, gate-seam.mjs snapshotLockBody): exactly { pid, identity, commit, token }, which the broker reads at
   // submission and before spawn. Without one, the legacy body { pid, host, startedAt, token } is written.
   const body = JSON.stringify(seamBody ?? { pid: process.pid, host: os.hostname(), startedAt: new Date().toISOString(), token: crypto.randomUUID() });
@@ -708,7 +708,15 @@ export function acquireSnapshotLock(lockFile, hooks = {}, { body: seamBody = nul
     // Only a holder proven gone (ESRCH) is stale; any other answer, EPERM included, leaves the lock alone.
     let probe = null;
     try { process.kill(holder.pid, 0); } catch (k) { probe = k.code ?? String(k); }
-    if (probe === null) throw busy(seam ? `snapshot is held by ${holder.identity} for commit ${holder.commit}` : `snapshot is held by pid ${holder.pid} since ${holder.startedAt}`);
+    if (probe === null && seam) {
+      // The pid is alive. A seam lock carries the holder's birth identity, so a reused pid is told from the holder: another birth identity means the holder is gone (and the
+      // broker's proof still decides the reclaim, below); the same one means it is live; an identity that cannot be read proves nothing and leaves the lock alone.
+      let now = null; try { now = identityOf(holder.pid); } catch { now = null; }
+      if (typeof now !== "string" || !now) throw busy(`snapshot lock holder pid ${holder.pid} is alive and its birth identity cannot be read to tell it from a reused pid (${holder.identity})`);
+      if (now === holder.identity) throw busy(`snapshot is held by ${holder.identity} for commit ${holder.commit}`);
+      probe = "ESRCH"; // the pid now belongs to another process: the holder is gone
+    }
+    if (probe === null) throw busy(`snapshot is held by pid ${holder.pid} since ${holder.startedAt}`);
     if (probe !== "ESRCH") throw busy(`snapshot lock holder pid ${holder.pid} cannot be proven gone (${probe})`);
     // A dead seam holder may still have jobs queued, running or finalizing in the broker, or an unreaped process tree: its lock is reclaimed only when
     // the caller's `judge(holder)` returns true on the broker's proof that all use of the snapshot ended. No judge, or an inconclusive one, means busy.
@@ -836,7 +844,7 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), ma
   if (!rootStat?.isDirectory()) throw new SnapshotError("refused", `snapshot root ${root} is not a directory (a link is never followed)`);
   const dir = path.join(root, repo.key);
   if (inside(dir, repo.checkout) || inside(repo.checkout, dir)) throw new SnapshotError("refused", `snapshot ${dir} and checkout ${repo.checkout} overlap`);
-  const release = acquireSnapshotLock(`${dir}.lock`, {}, { body: lock.body ?? null, judge: lock.judge ?? null });
+  const release = acquireSnapshotLock(`${dir}.lock`, {}, { body: lock.body ?? null, judge: lock.judge ?? null, ...(lock.identityOf ? { identityOf: lock.identityOf } : {}) });
   const assertLockHeld = () => { if (!release.held()) throw new SnapshotError("busy", `snapshot lock ${dir}.lock is no longer held by this sync`); };
   let synced = false;
   try {

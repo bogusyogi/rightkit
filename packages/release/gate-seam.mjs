@@ -163,7 +163,7 @@ export function parseResultLine(stderr) {
  * The receipt the result line names, read directly, with its postconditions judged against this request: `gate.commit`, `gate.tree`
  * and `gate.classA` must be this run's, `gate.snapshotUnchanged` must be true. Returns { receipt, sha256, problems }.
  */
-export function readSeamReceipt(file, { commit, tree, classA = null, fsApi = fs } = {}) {
+export function readSeamReceipt(file, { commit, tree, classA = null, expect = null, requestId = null, fsApi = fs } = {}) {
   let text;
   try { text = fsApi.readFileSync(file, "utf8"); } catch (e) { return { receipt: null, sha256: null, problems: [`receipt ${file} cannot be read (${e.code ?? e.message})`] }; }
   let receipt;
@@ -179,6 +179,19 @@ export function readSeamReceipt(file, { commit, tree, classA = null, fsApi = fs 
     if (g.snapshotUnchanged !== true) problems.push("the broker found the snapshot changed during the job (gate.snapshotUnchanged is not true)");
   }
   if (receipt && Object.hasOwn(receipt, "testExecutables") && receipt.testExecutables !== null && !Array.isArray(receipt.testExecutables)) problems.push("receipt testExecutables is neither a list nor null");
+  // The request the broker admitted, from the fields its producer already writes (provenance.payload: jobId and request.{requestedArgv, workspace, adapter}; no second copy
+  // is invented): compared with what this invocation sent, without verifying the signature (CI authenticates the same fields). A receipt that names no request, or another
+  // command, directory, adapter or job, is not this row's.
+  if (expect) {
+    const payload = receipt?.provenance?.payload; const req = payload?.request;
+    if (!req || typeof req !== "object") problems.push("receipt names no admitted request (provenance.payload.request), so it cannot be tied to this row");
+    else {
+      if (JSON.stringify(req.requestedArgv) !== JSON.stringify(expect.argv)) problems.push(`receipt requestedArgv ${JSON.stringify(req.requestedArgv)} is not the argv this row sent ${JSON.stringify(expect.argv)}`);
+      if (!samePath(req.workspace, expect.cwd)) problems.push(`receipt workspace ${JSON.stringify(req.workspace)} is not the directory this row ran in ${JSON.stringify(expect.cwd)}`);
+      if ((expect.adapter ?? null) !== (req.adapter ?? null)) problems.push(`receipt adapter ${JSON.stringify(req.adapter ?? null)} is not this row's ${JSON.stringify(expect.adapter ?? null)}`);
+    }
+    if (requestId !== null && payload?.jobId !== requestId) problems.push(`receipt jobId ${JSON.stringify(payload?.jobId)} is not the request id ${JSON.stringify(requestId)} the client reported`);
+  }
   return { receipt, sha256: crypto.createHash("sha256").update(text).digest("hex"), problems };
 }
 
@@ -190,7 +203,7 @@ export function readSeamReceipt(file, { commit, tree, classA = null, fsApi = fs 
  * executed command that failed keeps its exit as code EXIT; otherwise pass, with the evidence downstream reads (outputDir,
  * testExecutables, receipt digest).
  */
-export function judgeSeamOutcome({ child, stderr, commit, tree, classA = null, fsApi = fs }) {
+export function judgeSeamOutcome({ child, stderr, commit, tree, classA = null, expect = null, fsApi = fs }) {
   let result;
   try { result = parseResultLine(stderr); } catch (e) { return { status: "fail", code: e.code, detail: e.message, result: null, evidence: null }; }
   if (result.code) return { status: "fail", code: result.code, detail: result.requestId === null ? `the broker refused or the client failed before anything was admitted: ${result.message ?? result.code}` : `the client failed after request ${result.requestId} was admitted (${result.message ?? result.code}); the job's state in the broker is unknown`, result, evidence: null };
@@ -198,12 +211,13 @@ export function judgeSeamOutcome({ child, stderr, commit, tree, classA = null, f
   // A client the gate killed (its own timeout, a cancel) proves nothing whatever its line says: the line may predate the kill or belong to a job the broker went on to cancel.
   if (child && typeof child.signal === "string" && child.signal) return { status: "fail", code: "CLIENT_KILLED", detail: `the client was stopped by ${child.signal} before the row completed`, result, evidence: null };
   if (!result.receiptPersisted || typeof result.receipt !== "string") return { status: "fail", code: "RECEIPT_MISSING", detail: "the broker left no durable receipt for this request; without it the row proves nothing", result, evidence: null };
-  const read = readSeamReceipt(result.receipt, { commit, tree, classA, fsApi });
-  if (read.problems.length) return { status: "fail", code: read.receipt?.gate && read.receipt.gate.snapshotUnchanged === false ? "RK_SNAPSHOT_CHANGED" : "RECEIPT_MISMATCH", detail: read.problems.join("; "), result, evidence: null };
+  const read = readSeamReceipt(result.receipt, { commit, tree, classA, expect, requestId: result.requestId, fsApi });
+  // `receiptRead`: the durable receipt exists and parsed, so the job reached its terminal state even when its postconditions fail (the evidence is then withheld, the row is settled).
+  if (read.problems.length) return { status: "fail", code: read.receipt?.gate && read.receipt.gate.snapshotUnchanged === false ? "RK_SNAPSHOT_CHANGED" : "RECEIPT_MISMATCH", detail: read.problems.join("; "), result, evidence: null, receiptRead: read.receipt !== null };
   const evidence = { receiptSha256: read.sha256, receiptPath: result.receipt, requestId: result.requestId, outputDir: result.outputDir, testExecutables: Array.isArray(read.receipt.testExecutables) ? read.receipt.testExecutables : null, gate: read.receipt.gate };
-  if (child && Number.isInteger(child.status) && result.exit !== null && child.status !== result.exit) return { status: "fail", code: "RESULT_EXIT_MISMATCH", detail: `the client exited ${child.status} but its result line says ${result.exit}`, result, evidence };
-  if (result.exit !== 0 || result.signal) return { status: "fail", code: "EXIT", detail: result.signal ? `the command was stopped by signal ${result.signal}` : `exit ${result.exit}`, result, evidence };
-  return { status: "pass", code: null, detail: null, result, evidence };
+  if (child && Number.isInteger(child.status) && result.exit !== null && child.status !== result.exit) return { status: "fail", code: "RESULT_EXIT_MISMATCH", detail: `the client exited ${child.status} but its result line says ${result.exit}`, result, evidence, receiptRead: true };
+  if (result.exit !== 0 || result.signal) return { status: "fail", code: "EXIT", detail: result.signal ? `the command was stopped by signal ${result.signal}` : `exit ${result.exit}`, result, evidence, receiptRead: true };
+  return { status: "pass", code: null, detail: null, result, evidence, receiptRead: true };
 }
 
 /**
@@ -288,4 +302,15 @@ export function snapshotLockBody({ pid = process.pid, identity, commit }) {
   const parsed = parseIdentity(identity);
   if (!parsed || parsed.pid !== pid) throw new SeamError("LOCK", `identity ${JSON.stringify(identity)} is not this process's identity`);
   return { pid, identity, commit, token: crypto.randomUUID() };
+}
+
+/**
+ * Whether the job of a judged seam call is settled: positive evidence that nothing of it can still be running (a parsed result line AND either a durable receipt
+ * that was read, whatever its postconditions said, or a refusal before admission: a code with no requestId). A missing or bad result line, a missing receipt, a
+ * killed client, a spawn error and a client failure after admission (a requestId with no receipt) are not settled. One rule for the door's lock release.
+ */
+export function seamSettled(judged) {
+  if (!judged || !judged.result) return false;
+  if (judged.receiptRead === true || Boolean(judged.evidence)) return true;
+  return judged.result.requestId === null;
 }

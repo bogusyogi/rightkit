@@ -25,7 +25,7 @@ import { SHIM_MAP_SCHEMA, directCargoShape, locateWorkspaceByWalk } from "./carg
 import { directCargoPath } from "./managed-cargo.mjs";
 import { BROKER_REFUSAL_STATUS, carryBrokerAdapter, carryBrokerCargo, verifyBrokerLedger } from "./snapshot-broker.mjs";
 import { splitCarriedArgs } from "./snapshot-request.mjs";
-import { runSeamAdapter, seamEnvPresent } from "./seam-broker.mjs";
+import { runSeamAdapterCall, runSeamCargoCall, seamEnvPresent } from "./seam-broker.mjs";
 
 /** The environment variable that names the gate-written map of a snapshot stage's carried Cargo calls. */
 export const CARRIED_CARGO_MAP_ENV = "RIGHTKIT_CARRIED_CARGO_MAP";
@@ -108,6 +108,15 @@ export function runCarriedCargo(args, options = {}, { map, spawn = spawnSync, er
     try { record({ ...base, status: "ran", direct: true, exit: r.status ?? null }); } catch { /* the result is returned either way */ }
     return { status: r.status ?? 1, signal: r.signal ?? null, stdout: r.stdout ?? "", stderr: r.stderr ?? "", error: null };
   }
+  // The seam (reset plan section 3): a compile from a stage child whose environment carries the two seam variables is `rustright cargo <words>` in its snapshot workspace,
+  // judged by its result line and receipt and filed for the parent; it never goes through the carrier, which the broker refuses under a held seam lock.
+  if (seamEnvPresent(env)) {
+    const { result, ledger } = runSeamCargoCall(words, { cwd: from, env, stdio: capture === "inherit" ? "inherit" : "pipe", client: map?.broker?.client ?? "rustright", spawnSync: spawn });
+    try { record({ ...base, mode: "seam", workspace: map.workspaces[workspace], ...ledger }); }
+    catch (error) { return { ...result, status: result.status === 0 ? 1 : result.status, error: null, refusal: { code: "RK_CARGO_LEDGER", message: `the seam call's outcome could not be filed for the parent (${error.message})` } }; }
+    if (result.refusal) err(`rightkit-gate: ${result.refusal.code}: ${result.refusal.message}`);
+    return result;
+  }
   const result = carryBrokerCargo({ words, cwd: from, env, section: map.broker, workspace, checkoutWorkspace: map.workspaces[workspace], record: (entry) => record({ ...entry, id: base.id }), spawn, err, stdio: capture });
   return { status: result.status, signal: null, stdout: result.stdout, stderr: result.stderr, error: null, ...(result.outcome?.status === "verified" ? { outputDir: result.outcome.outputDir, requestId: result.outcome.requestId, requestDigest: result.outcome.requestDigest } : {}), ...(result.outcome?.status === "refused" ? { refusal: { code: result.outcome.code, message: result.outcome.message } } : {}) };
 }
@@ -121,10 +130,16 @@ export function runCarriedCargo(args, options = {}, { map, spawn = spawnSync, er
 export function runCarriedAdapter(adapter, args, options = {}, { map, spawn = spawnSync, err = (m) => process.stderr.write(`${m}\n`) } = {}) {
   const env = options.env ?? process.env;
   const cwd = path.resolve(options.cwd ?? process.cwd());
-  // The seam (reset plan section 3): a stage child whose environment carries RUSTRIGHT_GATE_COMMIT and RUSTRIGHT_CLASS_A runs its adapter as `rustright run <adapter> -- <args>`
-  // (seam-broker.mjs), never as a carried request; this carrier goes with step 5 of the plan.
-  if (seamEnvPresent(env)) return runSeamAdapter(adapter, args, { cwd, env, stdio: options.stdio === "inherit" ? "inherit" : "pipe", client: map?.broker?.client ?? "rustright", spawnSync: spawn });
   const token = env[SCAN_TOKEN_ENV];
+  // The seam (reset plan section 3): a stage child whose environment carries RUSTRIGHT_GATE_COMMIT and RUSTRIGHT_CLASS_A runs its adapter as `rustright run <adapter> -- <args>`
+  // (seam-broker.mjs), never as a carried request; the outcome is filed in the stage's ledger so the parent judges it (carrier.finish) and the door's lock release
+  // sees an unsettled call (seamUnsettled). This carrier goes with step 5 of the plan.
+  if (seamEnvPresent(env)) {
+    const { result, ledger } = runSeamAdapterCall(adapter, args, { cwd, env, stdio: options.stdio === "inherit" ? "inherit" : "pipe", client: map?.broker?.client ?? "rustright", spawnSync: spawn });
+    try { appendLedger(map.ledgerDir, token, { id: `${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`, mode: "seam", cwd, argv: args, adapter, ...ledger }); }
+    catch (error) { return { ...result, status: result.status === 0 ? 1 : result.status, refusal: { code: "RK_CARGO_LEDGER", message: `the seam call's outcome could not be filed for the parent (${error.message})` } }; }
+    return result;
+  }
   const result = carryBrokerAdapter({ adapter, words: args, cwd, env, section: map.broker, record: (entry) => appendLedger(map.ledgerDir, token, entry), spawn, err, stdio: options.stdio === "inherit" ? "inherit" : "capture" });
   const verified = result.outcome?.status === "verified";
   return {
@@ -180,6 +195,8 @@ function finish(ledgerDir, dir, workspaces = {}) {
       if (sb) out.push(...await verifyBrokerLedger(entries, sb, opts));
       return out;
     },
+    /** The seam calls of the stage's children that have no settled outcome (the door keeps its snapshot lock when any exist; reset plan section 3). */
+    seamUnsettled() { return readLedger(ledgerDir, UNSCOPED).entries.filter((e) => e.mode === "seam" && e.settled !== true).length; },
     /** The verified calls' output directories, in call order (the receipts'; an adapter job's nested children's included). */
     outputDirs() { return readLedger(ledgerDir, UNSCOPED).entries.filter((e) => e.status === "verified").flatMap(outputsOf); },
     /** The verified compiles' output directories by checkout workspace root: `[[root, outputDir]]`, the last call of a workspace winning. A nested child counts for the workspace its cwd is in. */

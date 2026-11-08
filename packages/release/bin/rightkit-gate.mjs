@@ -1873,7 +1873,10 @@ async function runStages(o, args, root, git, io) {
         let seamClient = null;
         try { seamClient = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which: whichIn(o), readFile: o.readFile })?.client ?? null; } catch { seamClient = null; }
         const judge = snapshotReclaimJudge({ o, client: seamClient, snapshotPath });
-        if (identity) { seamBody = snapshotLockBody({ identity, commit: selected.commit }); seamLock = { body: seamBody, judge, hold: true }; }
+        // The seam lock exists to be read by the broker; a host without one (Linux direct) keeps the legacy lock, which a dead holder's successor reclaims by itself:
+        // a seam lock there would demand a broker proof that cannot exist and wedge the snapshot after the first crash.
+        if (identity && doorExecutorKind === "broker") { seamBody = snapshotLockBody({ identity, commit: selected.commit }); seamLock = { body: seamBody, judge, hold: true }; }
+        else if (identity) { /* no broker on this host: the legacy lock */ }
         else o.err(`${tag} note: this process's birth identity could not be read; the snapshot lock is the legacy one and is released after the sync (no broker on this host)`);
       }
       try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout: root, rev: selected.commit, root: snapshotsAt, lock: seamLock }); }
@@ -3482,11 +3485,13 @@ async function carrierForChildren({ o, ds, root, git, executor, stage, tag = "ri
         let problems;
         try {
           problems = await installed.problems(sb, openInputDigests ? { openInputDigests } : {});
+          // A child's seam call with no settled outcome may have left a broker job running: the door then keeps its snapshot lock (reset plan section 3).
+          seamRunState.unsettled += installed.seamUnsettled?.() ?? 0;
           // The output directories the stage's verified receipts name: the package stage's sealed manifest must record only these.
           for (const dir of installed.outputDirs?.() ?? []) ((ds.carriedByStage ??= {})[at] ??= new Set()).add(dir);
           // And by workspace, for the next stage's children: a receipt already names the output directory, so none asks Cargo for it.
           for (const [root, dir] of installed.outputsByWorkspace?.() ?? []) (ds.carriedOutputs ??= new Map()).set(root, dir);
-        } catch (error) { problems = [`the cargo ledger cannot be read (${error.message})`]; } finally { cleanup(); }
+        } catch (error) { problems = [`the cargo ledger cannot be read (${error.message})`]; seamRunState.unsettled += 1; /* the children's seam outcomes are unknown: keep the lock */ } finally { cleanup(); }
         for (const p of problems.slice(0, 10)) o.err(`${tag} RK_CHECK_ERROR: [${at}] a broker call the right-release child made did not complete: ${typeof p === "string" ? p : JSON.stringify(p)}`);
         return problems.length === 0;
       },

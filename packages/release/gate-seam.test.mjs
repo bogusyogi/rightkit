@@ -73,7 +73,7 @@ test("only an exact SNAPSHOT_STATUS echo with state IDLE proves a dead holder's 
 test("a stage child's adapter runs through the seam when its environment carries the two variables, judged like a cargo row", async () => {
   const { runSeamAdapter, seamEnvPresent } = await import("./seam-broker.mjs");
   const dir = tmp(); const receiptFile = path.join(dir, "r.json");
-  fs.writeFileSync(receiptFile, JSON.stringify({ gate: { commit, tree, snapshot: "/snap", classA: "/v/class-a.json", snapshotUnchanged: true }, testExecutables: null }));
+  fs.writeFileSync(receiptFile, JSON.stringify(receiptOf({ commit, tree, snapshot: "/snap", classA: "/v/class-a.json", snapshotUnchanged: true }, { jobId: "a1", argv: ["run", "build"], workspace: "/snap/app", adapter: "rightkit-pnpm", extra: { testExecutables: null } })));
   const env = { PATH: "/usr/bin", RUSTRIGHT_GATE_COMMIT: commit, RUSTRIGHT_CLASS_A: "/v/class-a.json" };
   assert.equal(seamEnvPresent(env), true); assert.equal(seamEnvPresent({ RUSTRIGHT_GATE_COMMIT: commit }), false);
   const calls = [];
@@ -86,6 +86,54 @@ test("a stage child's adapter runs through the seam when its environment carries
   assert.equal(refused.status, 125); assert.equal(refused.refusal.code, "RK_GATE_ADMISSION"); assert.equal(refused.outputDir, undefined);
   assert.throws(() => runSeamAdapter("rightkit-qa", [], { env: { PATH: "/usr/bin" }, spawnSync }), /carries no seam/);
   assert.throws(() => runSeamAdapter("Bad Adapter", [], { env, spawnSync }), /not an adapter id/);
+});
+
+test("a stage child's seam call is filed in the stage ledger and judged by the parent: a failed judge is never status 0 and never a clean ledger (caller path, carried-cargo.mjs)", async () => {
+  const { runCarriedAdapter } = await import("./carried-cargo.mjs");
+  const { readLedger, UNSCOPED } = await import("./cargo-ledger.mjs");
+  const dir = tmp(); const ledgerDir = path.join(dir, "ledger"); const receiptFile = path.join(dir, "r.json");
+  const mine = { jobId: "q1", argv: ["run", "build"], workspace: "/snap/app", adapter: "rightkit-pnpm" };
+  fs.writeFileSync(receiptFile, JSON.stringify(receiptOf({ commit, tree, snapshot: "/snap", classA: "/v/class-a.json", snapshotUnchanged: true }, mine)));
+  const badReceipt = path.join(dir, "bad.json");
+  fs.writeFileSync(badReceipt, JSON.stringify(receiptOf({ commit, tree, snapshot: "/snap", classA: "/v/class-a.json", snapshotUnchanged: false }, mine)));
+  const otherCommand = path.join(dir, "other.json");
+  fs.writeFileSync(otherCommand, JSON.stringify(receiptOf({ commit, tree, snapshot: "/snap", classA: "/v/class-a.json", snapshotUnchanged: true }, { ...mine, argv: ["run", "evil"] })));
+  const otherDir = path.join(dir, "otherdir.json");
+  fs.writeFileSync(otherDir, JSON.stringify(receiptOf({ commit, tree, snapshot: "/snap", classA: "/v/class-a.json", snapshotUnchanged: true }, { ...mine, workspace: "/snap/other" })));
+  const otherJob = path.join(dir, "otherjob.json");
+  fs.writeFileSync(otherJob, JSON.stringify(receiptOf({ commit, tree, snapshot: "/snap", classA: "/v/class-a.json", snapshotUnchanged: true }, { ...mine, jobId: "someone-else" })));
+  const noRequest = path.join(dir, "norequest.json");
+  fs.writeFileSync(noRequest, JSON.stringify({ gate: { commit, tree, snapshot: "/snap", classA: "/v/class-a.json", snapshotUnchanged: true } }));
+  const env = { PATH: "/usr/bin", RUSTRIGHT_GATE_COMMIT: commit, RUSTRIGHT_CLASS_A: "/v/class-a.json" };
+  const map = { ledgerDir, broker: { client: "/opt/rustright" } };
+  const line = (o) => `rustright-result ${JSON.stringify({ requestId: "q1", exit: 0, signal: null, outputDir: "/t/out", receiptPersisted: true, ...o })}\n`;
+  const run = (stderr, status = 0) => runCarriedAdapter("rightkit-pnpm", ["run", "build"], { cwd: "/snap/app", env }, { map, spawn: () => ({ status, signal: null, stdout: "", stderr }) });
+  const ledger = () => readLedger(ledgerDir, UNSCOPED);
+  // 1. verified: status 0, ledger clean, entry settled
+  const ok = run(line({ receipt: receiptFile }));
+  assert.equal(ok.status, 0); assert.equal(ok.outputDir, "/t/out");
+  assert.equal(ledger().problems.length, 0); assert.deepEqual(ledger().entries.map((e) => [e.mode, e.status, e.settled]), [["seam", "verified", true]]);
+  // 2. the child exited 0 but the receipt says the snapshot changed: NOT status 0, a ledger problem, settled (the job ended) but failed
+  const changed = run(line({ receipt: badReceipt }));
+  assert.notEqual(changed.status, 0); assert.equal(changed.refusal.code, "RK_SNAPSHOT_CHANGED");
+  assert.ok(ledger().problems.some((p) => /was failed/.test(p)), "the parent's finish sees a failed seam call");
+  // 2b. a receipt that is not this call's request (another argv, another directory, another job, or none named) is never this call's pass, whatever its gate fields say
+  for (const [file, why] of [[otherCommand, /requestedArgv/], [otherDir, /workspace/], [otherJob, /jobId/], [noRequest, /names no admitted request/]]) {
+    const r = run(line({ receipt: file }));
+    assert.notEqual(r.status, 0, `status for ${path.basename(file)}`); assert.equal(r.refusal.code, "RECEIPT_MISMATCH"); assert.match(r.refusal.message, why);
+  }
+  // 3. no result line at all: not status 0, unsettled (the lock must stay)
+  const none = run("nothing printed\n");
+  assert.notEqual(none.status, 0); assert.equal(none.refusal.code, "NO_RESULT_LINE");
+  const unsettled = () => ledger().entries.filter((e) => e.mode === "seam" && e.settled !== true).length;
+  assert.equal(unsettled(), 1);
+  // 4. a client failure AFTER admission (requestId kept, a code): unsettled
+  run(`rustright-result ${JSON.stringify({ requestId: "owned", exit: 125, signal: null, outputDir: null, receipt: null, receiptPersisted: false, code: "RK_CLIENT_ERROR", message: "lost" })}\n`, 125);
+  assert.equal(unsettled(), 2);
+  // 5. a refusal BEFORE admission (requestId null): settled, a ledger problem, status non-zero
+  const refused = run(`rustright-result ${JSON.stringify({ requestId: null, exit: 125, signal: null, outputDir: null, receipt: null, receiptPersisted: false, code: "RK_GATE_ADMISSION", message: "no verdict" })}\n`, 125);
+  assert.equal(refused.status, 125); assert.equal(unsettled(), 2);
+  assert.ok(ledger().problems.some((p) => /was refused/.test(p)));
 });
 
 test("the direct read wrapper passes a seam compile (RUSTRIGHT_GATE_COMMIT set) through to the client untouched and still refuses a bare compile in the snapshot", async () => {
@@ -104,6 +152,9 @@ test("the direct read wrapper passes a seam compile (RUSTRIGHT_GATE_COMMIT set) 
 
 const commit = "a".repeat(40); const tree = "b".repeat(40); const repoKey = "0123456789abcdef";
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "rk-seam-test-"));
+// A receipt as the broker's producer shapes the fields the gate compares (finish_impl.rs: provenance.payload.jobId and .request.{requestedArgv, workspace, adapter}).
+const receiptOf = (gate, { jobId = "q1", argv = [], workspace = "/snap/app", adapter = null, extra = {} } = {}) => ({ gate, provenance: { payload: { jobId, request: { kind: adapter ? "adapter" : "cargo", adapter, requestedArgv: argv, workspace } } }, ...extra });
+
 
 test("the Class A verdict exists only for a complete green plan and binds commit, tree, repository and workspace", () => {
   const v = classAVerdict({ commit, tree, repoKey, workspace: "./crates/../.", scans: [{ id: "a", status: "pass" }, { id: "b", status: "pass" }] });
@@ -253,6 +304,15 @@ test("the lock body is { pid, identity, commit, token } with the broker's identi
   const reclaimed = acquireSnapshotLock(lockFile, {}, { body: mine, judge: (holder) => holder.pid === deadPid });
   assert.deepEqual(JSON.parse(fs.readFileSync(lockFile, "utf8")), mine);
   reclaimed();
+  // A LIVE pid with another birth identity is a reused pid, not the holder: reclaimed on the broker's proof; the same identity is live and busy; an unreadable one is busy
+  const holderBody = (identity) => JSON.stringify({ pid: process.pid, identity, commit, token: "t" });
+  const liveIdentity = `${process.platform}:${process.pid}:birth-A`;
+  fs.writeFileSync(lockFile, holderBody(liveIdentity));
+  assert.throws(() => acquireSnapshotLock(lockFile, {}, { body: mine, judge: () => true, identityOf: () => liveIdentity }), /is held by/, "the same birth identity is the live holder");
+  assert.throws(() => acquireSnapshotLock(lockFile, {}, { body: mine, judge: () => true, identityOf: () => null }), /cannot be read to tell it from a reused pid/, "an unreadable identity proves nothing");
+  assert.throws(() => acquireSnapshotLock(lockFile, {}, { body: mine, judge: () => false, identityOf: () => `${process.platform}:${process.pid}:birth-B` }), /gave no such proof/, "a reused pid still needs the broker's proof");
+  const reused = acquireSnapshotLock(lockFile, {}, { body: mine, judge: () => true, identityOf: () => `${process.platform}:${process.pid}:birth-B` });
+  assert.deepEqual(JSON.parse(fs.readFileSync(lockFile, "utf8")), mine); reused();
   // another platform's seam lock is never judged here
   fs.writeFileSync(lockFile, JSON.stringify({ pid: deadPid, identity: `${process.platform === "win32" ? "linux" : "win32"}:${deadPid}:x`, commit, token: "t" }));
   assert.throws(() => acquireSnapshotLock(lockFile, {}, { body: mine, judge: () => true }), /is held by/);

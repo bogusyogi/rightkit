@@ -5,7 +5,7 @@ import path from "node:path";
 import { resolveBrokerClient } from "./broker-client.mjs";
 import { BUILD_CONTROL_PROTOCOL, RUNTIME_MANIFEST_FILE, parseRuntimeIdentity } from "./broker-handshake.mjs";
 import { discoverBrokerSocket } from "./managed-roots.mjs";
-import { CLASS_A_ENV, GATE_COMMIT_ENV, judgeSeamOutcome, snapshotStatusAllowsReclaim, snapshotStatusMessage, snapshotStatusSync } from "./gate-seam.mjs";
+import { CLASS_A_ENV, GATE_COMMIT_ENV, judgeSeamOutcome, seamSettled, snapshotStatusAllowsReclaim, snapshotStatusMessage, snapshotStatusSync } from "./gate-seam.mjs";
 import { spawnSync as nodeSpawnSync } from "node:child_process";
 
 /** Whether an environment carries the seam (both variables set): a stage child's adapter call then goes through the seam, never the carrier. */
@@ -14,22 +14,43 @@ export function seamEnvPresent(env) {
 }
 
 /**
- * One adapter run through the seam from a stage child (right-release's pnpm, node, QA steps; reset plan section 3): `rustright run <adapter> -- <args>` in
- * `cwd` with the inherited environment (the two seam variables already in it), synchronous like the step that calls it. The result line and the
- * durable receipt are judged exactly as a class B row's (judgeSeamOutcome); the tree is not compared here, since a stage child knows only the
- * commit. Returns a spawnSync-shaped result with `outputDir`, `requestId` and `receipt` when the job completed, `refusal` when the broker refused.
+ * One seam call from a stage child (reset plan section 3), synchronous like the step that makes it: `<client> <argv>` in `cwd` with the inherited
+ * environment (the two seam variables already in it). The result line and the durable receipt are judged exactly as a class B row's
+ * (judgeSeamOutcome); the tree is not compared, since a stage child knows only the commit. The returned status is never 0 unless the judge passed
+ * (a child exiting 0 whose receipt fails its check is a failure). `ledger` is the record the caller files for its parent: `status` "verified"
+ * (passed), "refused" (refused before admission), "failed" (executed and failed) or "unsettled" (no settled outcome: no or a bad result line,
+ * no durable receipt, a client failure after admission, a spawn error); `settled` is the positive evidence the door's lock release needs.
  */
-export function runSeamAdapter(adapter, args, { cwd = process.cwd(), env = process.env, stdio = "pipe", client = "rustright", spawnSync = nodeSpawnSync, maxBuffer = 1 << 28 } = {}) {
-  if (typeof adapter !== "string" || !/^[a-z][a-z0-9-]*$/.test(adapter)) throw new TypeError(`runSeamAdapter: ${JSON.stringify(adapter)} is not an adapter id`);
-  if (!seamEnvPresent(env)) throw new TypeError("runSeamAdapter: the environment carries no seam (RUSTRIGHT_GATE_COMMIT and RUSTRIGHT_CLASS_A)");
-  const r = spawnSync(client, ["run", adapter, "--", ...args], { cwd, env, stdio: stdio === "inherit" ? ["ignore", "inherit", "pipe"] : "pipe", encoding: "utf8", maxBuffer });
-  if (r.error) return { status: 1, signal: null, stdout: "", stderr: String(r.error.message ?? r.error), error: r.error };
-  const judged = judgeSeamOutcome({ child: r, stderr: r.stderr ?? "", commit: env[GATE_COMMIT_ENV], tree: null, classA: env[CLASS_A_ENV] });
+function runSeamCall(argv, { cwd, env, stdio = "pipe", client = "rustright", spawnSync = nodeSpawnSync, maxBuffer = 1 << 28 }) {
+  const isAdapter = argv[0] === "run";
+  const expect = { argv: isAdapter ? argv.slice(3) : argv.slice(1), cwd, adapter: isAdapter ? argv[1] : null };
+  if (!seamEnvPresent(env)) throw new TypeError("seam call: the environment carries no seam (RUSTRIGHT_GATE_COMMIT and RUSTRIGHT_CLASS_A)");
+  const r = spawnSync(client, argv, { cwd, env, stdio: stdio === "inherit" ? ["ignore", "inherit", "pipe"] : "pipe", encoding: "utf8", maxBuffer });
+  if (r.error) return { result: { status: 1, signal: null, stdout: "", stderr: String(r.error.message ?? r.error), error: r.error, refusal: { code: "SPAWN_ERROR", message: String(r.error.message ?? r.error) } }, ledger: { status: "unsettled", settled: false, code: "SPAWN_ERROR" } };
+  const judged = judgeSeamOutcome({ child: r, stderr: r.stderr ?? "", commit: env[GATE_COMMIT_ENV], tree: null, classA: env[CLASS_A_ENV], expect });
+  const pass = judged.status === "pass";
+  const preAdmissionRefusal = Boolean(judged.result) && !judged.evidence && judged.receiptRead !== true && judged.result.requestId === null;
+  const settled = seamSettled(judged);
+  const status = pass ? (r.status ?? 0) : (Number.isInteger(r.status) && r.status !== 0 ? r.status : (preAdmissionRefusal ? 125 : 1));
+  const evidence = judged.evidence ? { outputDir: judged.evidence.outputDir, requestId: judged.evidence.requestId, receipt: judged.evidence.receiptPath, receiptSha256: judged.evidence.receiptSha256 } : {};
   return {
-    status: r.status ?? 1, signal: r.signal ?? null, stdout: r.stdout ?? "", stderr: r.stderr ?? "", error: null,
-    ...(judged.evidence ? { outputDir: judged.evidence.outputDir, requestId: judged.evidence.requestId, receipt: judged.evidence.receiptPath, receiptSha256: judged.evidence.receiptSha256 } : {}),
-    ...(judged.status === "fail" ? { refusal: { code: judged.code, message: judged.detail } } : {}),
+    result: { status, signal: r.signal ?? null, stdout: r.stdout ?? "", stderr: r.stderr ?? "", error: null, ...evidence, ...(pass ? {} : { refusal: { code: judged.code, message: judged.detail } }) },
+    ledger: { status: pass ? "verified" : !settled ? "unsettled" : preAdmissionRefusal ? "refused" : "failed", settled, ...(pass ? {} : { code: judged.code, message: String(judged.detail ?? "").slice(0, 2000) }), ...evidence },
   };
+}
+
+/** One adapter run through the seam from a stage child: `rustright run <adapter> -- <args>`. Returns `{ result, ledger }` (runSeamCall). */
+export function runSeamAdapterCall(adapter, args, options = {}) {
+  if (typeof adapter !== "string" || !/^[a-z][a-z0-9-]*$/.test(adapter)) throw new TypeError(`runSeamAdapter: ${JSON.stringify(adapter)} is not an adapter id`);
+  return runSeamCall(["run", adapter, "--", ...args], options);
+}
+/** One cargo call through the seam from a stage child: `rustright cargo <words>`. Returns `{ result, ledger }` (runSeamCall). */
+export function runSeamCargoCall(words, options = {}) { return runSeamCall(["cargo", ...words], options); }
+
+/** The spawnSync-shaped result of one seam adapter run (runSeamAdapterCall without the ledger record). */
+export function runSeamAdapter(adapter, args, options = {}) {
+  if (!seamEnvPresent(options.env ?? process.env)) throw new TypeError("runSeamAdapter: the environment carries no seam (RUSTRIGHT_GATE_COMMIT and RUSTRIGHT_CLASS_A)");
+  return runSeamAdapterCall(adapter, args, { ...options, env: options.env ?? process.env, cwd: options.cwd ?? process.cwd() }).result;
 }
 
 const isPipe = (endpoint) => /^\\\\\.\\pipe\\/i.test(String(endpoint));
