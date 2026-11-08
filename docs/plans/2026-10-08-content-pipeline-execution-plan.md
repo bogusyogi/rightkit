@@ -2,7 +2,7 @@
 
 Status: started 2026-10-08 on Adrian's word ("validate this and then do it too"). Source of truth for requirements and acceptance: §2, §4 and §7 of `/Volumes/D/claude/docs/plans/2026-10-08-demo-recording-requirements.md` (R1 to R17). This plan assigns each package a scenario, a machine and an owner; it does not restate the requirements. RK10 (daemon host) comes from the PostRight execution plan §2.
 
-Machines: **Mac** = Mac mini (this host, macOS 27, APFS). **XPS** = the Windows host (Windows 11; build recorded by Spike B). **Hetzner** = the Linux server (`ssh vendure-auto`).
+Machines: **Mac** = Mac mini (this host, macOS 27, APFS). **XPS** = the Windows host (Windows 11; build recorded by Spike B). **Hetzner** = the Linux server (`ssh sites-auto`).
 Owners: **Mac lead** = RightKit Mac session; **Win lead** = RightKit Windows session. "Closes" means the named scenario is green on the installed build on that machine (decision 7); documents and screenshots are evidence only.
 
 ## Validation of the request (2026-10-08)

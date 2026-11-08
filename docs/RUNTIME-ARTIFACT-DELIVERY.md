@@ -164,7 +164,7 @@ let model_path = installed.dir.join(&artifact.envelope().manifest.object.filenam
    `DATABASE_URL_MIGRATE`. Runtime connection stays unprivileged; migration
    connection uses existing migration owner role. No key rotation is needed.
 2. API on Hetzner, PM2 **`rightsites-api`**, primary checkout `~/sites/rightsites`.
-   Connect from Mac with `ssh vendure-auto`; run in login shell (`bash -l`):
+   Connect from Mac with `ssh sites-auto`; run in login shell (`bash -l`):
 
    ```sh
    set -e
