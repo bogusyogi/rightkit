@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { scanCrateForSecrets } from "./publish-cargo.mjs";
+import { stripSelectors } from "./feature-partition.mjs";
 
 const digest = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const bodyOf = ({ workspace, cwd, executable, internal, argv, env, phase }) => ({ workspace, cwd, executable, ...(internal === undefined ? {} : { internal }), argv, env, phase });
@@ -239,7 +240,7 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, o
   if (byId.size !== requirements.length) throw new Error("duplicate publisher requirement IDs");
   const plannedIds = jobs.flatMap((job) => job.members.map((member) => member.id));
   if (plannedIds.length !== requirements.length || new Set(plannedIds).size !== plannedIds.length || plannedIds.some((id) => !byId.has(id))) throw new Error("publisher job coverage differs from authenticated requirements");
-  return async ({ scans, execute, executeGroup, canGroup, project, projectMember = null, notRun, probe = null, store = null, lookupOnly = false }) => {
+  return async ({ scans, execute, executeGroup, canGroup, project, projectMember = null, notRun, probe = null, store = null, partition = null, lookupOnly = false }) => {
     // Lookup only (the gate's cache lookup before a run): every row the real run would execute is looked up. A looked-up row stands for the pass the
     // real run needs before its dependents and NN27 proofs, so a cold host reports every row it would run, not only the first frontier.
     const provedInLookup = new Map(); const provedRows = new Map();
@@ -294,7 +295,7 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, o
       {
         const byMember = new Map();
         const budget = { remaining: Math.min(2 * job.members.length - 1, 31) };
-        const runMembers = async (members) => {
+        const runMembers = async (members, partitioned = false) => {
           if (budget.remaining <= 0 || signal?.aborted) {
             for (const member of members) { const history = attempts.get(member.id) ?? []; history.push({ status: "not-run", code: signal?.aborted ? "CANCELLED" : "BATCH_BUDGET" }); attempts.set(member.id, history); }
             return;
@@ -336,6 +337,24 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, o
             if (!still.length) return;
             members = still;
           } else members = rest;
+          // GC-A18 (rightkit#1538): a grouped job runs as one invocation only for the members whose own feature resolution the group preserves (`partition`,
+          // cargo's own answer through `cargo tree`, from the executor); the others run as smaller groups or alone. A partition that cannot be made runs no member.
+          if (!partitioned && typeof partition === "function" && job.batchAt !== undefined && !lookupOnly && new Set(members.map((m) => m.package)).size > 1) {
+            const lead = scans[byScan.get(members[0].id)];
+            const prefix = lead?.args?.[0] === "cargo" ? ["cargo"] : [];
+            const { rest: treeRest, targets } = stripSelectors((lead?.args ?? []).slice(prefix.length));
+            let parts;
+            try { parts = await partition({ tool: lead.tool, prefix, rest: treeRest, crates: [...new Set(members.map((m) => m.package))], targets: targets.length ? targets : [null], cwd: job.cwd, env: lead.env ?? {} }); }
+            catch (error) {
+              for (const member of members) {
+                const r = notRun(scans[byScan.get(member.id)], `the feature-equivalence partition of its group did not run: ${String(error?.message ?? error)}`);
+                executed.set(member.id, r); byMember.set(member.id, r);
+                const history = attempts.get(member.id) ?? []; history.push({ status: "not-run", code: "FEATURE_PARTITION" }); attempts.set(member.id, history);
+              }
+              return;
+            }
+            if (parts.length > 1) { await Promise.all(parts.map((part) => runMembers(members.filter((m) => part.crates.includes(m.package)), true))); return; }
+          }
           budget.remaining -= 1;
           const representative = byId.get(members[0].id);
           if (!representative) throw new Error("unknown publisher requirement");

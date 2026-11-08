@@ -139,7 +139,10 @@ export const MOBILE_PLATFORMS = Object.freeze(new Set(["ios", "android"]));
 // and the code of the runtime cargo wrapper and broker carrier, which decides what a carried compile ran and how its receipt is verified.
 // The gate's own file and the checker are not in it: the verdict is cargo's, the command and tool versions are in every key already, and
 // an edit elsewhere in the gate must not discard every compile result (rightkit#1506: Pulse, RK, RustRight and Legion kept 0 class B hits).
-const CLASS_B_KEY_SCHEMA = "rightkit.class-b-key/2";
+// /3 (0.6.54, rightkit#1538): every class B pass stored under /2 is left behind. Until 0.6.53 a grouped invocation stored a pass under each member's
+// own key (a projected pass that never proved the member's own command) and a test group's pass was stored without its members' own runs; a
+// /2 entry cannot be told from one that ran alone by its key, so none is read. The warm target directory is untouched: a rerun is a warm compile.
+const CLASS_B_KEY_SCHEMA = "rightkit.class-b-key/3";
 // GC-A24: passing rule-engine verdicts (app rules, RightKit's preflight) of a snapshot, under the checkout's git common directory.
 const RULE_VERDICT_SCHEMA = "rightkit.rule-verdict/1";
 function ruleVerdictCache({ checkout, spawn }) {

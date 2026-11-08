@@ -44,6 +44,7 @@ import { brokerSection, carryBrokerAdapterAsync, verifyBrokerLedger } from "./sn
 import { ADMISSION_POLL_MS, CARRIED_CANCEL_GRACE_MS, QUEUED_CEILING_FACTOR, createBrokerLive, createRunClock, createStatusPoller, watchBrokerAdmission } from "./broker-admission.mjs";
 import { CANCEL_WAIT_ENV, operationDeadlineEnv, refusalInCapturedOutput } from "./broker-wire.mjs";
 import { removeCarrier } from "./carrier-census.mjs";
+import { partitionByFeatures, partitionCacheKey, splitNote, stripSelectors, treeArgs, workspaceManifestDigest } from "./feature-partition.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
 /**
@@ -296,6 +297,28 @@ export function publisherRequirementScan(requirement, { platform = process.platf
 /** Whether a stored row's command is this scan's command: the same text once Cargo's build width is dropped (67515ffb dropped it from the key but
  * the lookup still compared the raw text, so a different --jobs missed every stored pass). */
 export function sameCommand(stored, s) { return keyCommand({ command: stored, runOutside: s.runOutside }) === keyCommand(s); }
+/**
+ * Whether a stored pass is this row's (store rule, GC-A18; rightkit#1537, rightkit#1538): the row's own id and command, written by the
+ * invocation that ran it (never a member row projected from a group, which carries `batchedWith`/`batchCommand`), with the evidence the
+ * row's kind needs to be judged as the fresh row was: a test row its counts (testResultsProblem), a publisher row on a broker its receipt
+ * digest, a test group every member's own run (memberRuns) with that member's counts. `hit` is the cache entry ({ key, at, row }).
+ */
+export function usableStoredPass(hit, s, { cacheKey, viaSnapshotBroker = false } = {}) {
+  const row = hit?.row;
+  if (!hit || hit.key !== cacheKey || row?.status !== "pass" || row.id !== s.id || !sameCommand(row.command, s)) return false;
+  if (row.batchedWith || row.batchCommand) return false;
+  if ((s.kind === "test" || s.runOutside) && testResultsProblem(row.results) !== null) return false;
+  if (s.coverageKey && viaSnapshotBroker && !/^[0-9a-f]{64}$/.test(row.snapshotEvidence?.receiptSha256 ?? "")) return false;
+  if (Array.isArray(s.testGroup)) {
+    if (!row.memberRuns || typeof row.memberRuns !== "object") return false;
+    for (const m of s.testGroup) { const v = row.memberRuns[m.id]; if (!v || v.status !== "pass" || testResultsProblem(v.results) !== null) return false; }
+  }
+  return true;
+}
+/** The row a pass stores: everything a later hit needs to be judged as the fresh row was (results, the test run's skip and truncation evidence, each member's own run). */
+export function storedPassRow(s, row) {
+  return { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "pass", ...(s.coverageKey ? { snapshotEvidence: row.snapshotEvidence ?? null } : {}), ...(row.testRun || s.coverageKey ? { testRun: row.testRun ?? null } : {}), ...(row.results ? { results: row.results } : {}), ...(row.memberRuns ? { memberRuns: row.memberRuns } : {}) };
+}
 export function keyCommand(s) {
   const base = String(s.command ?? "").replace(/(^|\s)--jobs\s+\d+(?=\s|$)/g, "");
   return s.runOutside ? `${base} ;; run ${canonicalJson(s.runOutside)}` : base;
@@ -1865,7 +1888,7 @@ export function planScans({
   });
   if (groupCount.size) {
     const grouped = [...groupCount.values()].filter((n) => n > 1);
-    notes.push(`class B batching: ${scans.filter((x) => x.batchable).length} compile scan(s) in ${groupCount.size} configuration group(s); each group of one Cargo workspace and target runs as one cargo invocation (${grouped.reduce((a, n) => a + n, 0)} scan(s) in ${grouped.length} shared group(s)), a failed group is bisected to the crate that fails, every row keeps its own id and command; the batch-equivalence run (GATE-CONTRACT GC-I11, item 8 row 8.7) has NOT been run, so a crate whose own features differ when unified with its group's can pass here and fail alone`);
+    notes.push(`class B batching: ${scans.filter((x) => x.batchable).length} compile scan(s) in ${groupCount.size} configuration group(s); each group of one Cargo workspace and target runs as one cargo invocation (${grouped.reduce((a, n) => a + n, 0)} scan(s) in ${grouped.length} shared group(s)), a failed group is attributed per crate from cargo's JSON messages, every row keeps its own id and command; before a group runs, each member's own feature resolution is compared with the group's (cargo tree, feature-partition.mjs; GATE-CONTRACT GC-A18) and a member the group would compile with other features runs apart`);
     for (const [why, n] of batchNotes) notes.push(`class B batching: ${n} compile scan(s) stay their own invocation: ${why}`);
   }
   const ids = scans.map((s) => s.id);
@@ -3035,6 +3058,7 @@ export async function runScans(plan, options = {}) {
   // Class A may run concurrently. Class B runs one scan per component at a time, `classBJobs` components at once (below).
   const aScans = ordered.filter((s) => s.class === SCAN_CLASS.A);
   const bScans = ordered.filter((s) => s.class === SCAN_CLASS.B);
+  const partitionNotes = new Set(); // GC-A18: why a crate compiled apart from its configuration group (feature-partition.mjs)
   // Class A scans are independent content checks (and short broker calls: metadata, package list, deny, audit): they run
   // `classAJobs` at a time (default: `jobs`); the rows keep plan order. Class B starts only once every class A row is in.
   const aJobs = Math.max(1, Number(options.classAJobs ?? jobs) || jobs);
@@ -3152,7 +3176,7 @@ export async function runScans(plan, options = {}) {
     // (2026-11-07: 296 conflicting pairs across 28 crates; a member's projected pass hid its own error). The group's row is stored under the
     // group's own key by its own scanRow; a member hits alone only after it ran alone (store rule, Adrian 2026-11-08). In a cache lookup the members are reported one by one, each with its own cause.
     const runGroup = async (idx, extraEnv, budget, probed = false) => {
-      if (probed || !cache || idx.length < 2 || signal?.aborted) return runGroupBody(idx, extraEnv, budget);
+      if (probed || !cache || idx.length < 2 || signal?.aborted) return runParts(idx, extraEnv, budget);
       const started = Date.now();
       const looked = await Promise.all(idx.map(async (i) => { const copy = { ...bScans[i] }; probeScans.add(copy); try { return [i, await scanRow(copy, extraEnv)]; } catch (error) { return [i, { ...failedRow(i, error) }]; } }));
       const missing = [];
@@ -3162,9 +3186,66 @@ export async function runScans(plan, options = {}) {
         else missing.push(i);
       }
       if (options.cacheLookupOnly || !missing.length) return;
-      const run = missing;
-      if (run.length === 1) slots[run[0]] = await runOne(bScans[run[0]], extraEnv).catch((error) => failedRow(run[0], error));
-      else await runGroupBody(run, extraEnv, budget);
+      await runParts(missing, extraEnv, budget);
+    };
+    // GC-A18 (rightkit#1538): a group runs as ONE invocation only for the members whose own feature resolution the group preserves (featurePartition,
+    // cargo's own answer through `cargo tree`); the others run as smaller groups or alone, each named in the notes with the package that split it.
+    const runParts = async (idx, extraEnv, budget) => {
+      if (idx.length === 1) { slots[idx[0]] = await runOne(bScans[idx[0]], extraEnv).catch((error) => failedRow(idx[0], error)); return; }
+      let parts;
+      try { parts = await featurePartition(idx); }
+      catch (error) { for (const i of idx) slots[i] = { ...failedRow(i, error), code: "FEATURE_PARTITION", detail: `the feature-equivalence partition of its group did not run: ${String(error?.message ?? error)}` }; return; }
+      if (parts.length === 1) { await runGroupBody(parts[0], extraEnv, budget); return; }
+      await Promise.all(parts.map((part) => (part.length === 1
+        ? runOne(bScans[part[0]], extraEnv).then((r) => { slots[part[0]] = r; }).catch((error) => { slots[part[0]] = failedRow(part[0], error); })
+        : runGroupBody(part, extraEnv, { remaining: Math.min(2 * part.length - 1, 31) }))));
+    };
+    // The partition of a configuration group's members (feature-partition.mjs), as index lists in plan order. A group naming several targets
+    // (NN42) keeps as one invocation only the members equivalent on every target; the others run alone.
+    const partitionMemo = new Map();
+    const FEATURE_PARTITION_MS = 5 * 60_000;
+    const featurePartition = async (idx) => {
+      const lead = bScans[idx[0]];
+      const prefix = lead.args[0] === "cargo" ? ["cargo"] : [];
+      const { rest } = stripSelectors(lead.args.slice(prefix.length));
+      const crates = [...new Set(idx.map((i) => bScans[i].batchable.crate))];
+      if (crates.length < 2) return [idx];
+      const targets = [...new Set(idx.map((i) => bScans[i].batchable.target ?? null))];
+      const parts = await partitionCrates({ tool: lead.tool, prefix, rest, crates, targets, cwd: lead.cwd ?? ".", env: lead.env ?? {} });
+      return parts.map((p) => idx.filter((i) => p.crates.includes(bScans[i].batchable.crate))).filter((part) => part.length);
+    };
+    const partitionCrates = async ({ tool, prefix, rest, crates, targets, cwd, env }) => {
+      const dir = path.join(contentRoot, cwd);
+      const inputs = workspaceManifestDigest(dir);
+      const tree = async (packages, target) => {
+        const args = treeArgs({ rest, packages, target });
+        const token = cargoLedger ? scanTokenOf(`feature-partition:${cwd}`) : null; if (token) claimedTokens.add(token);
+        const { CARGO_TARGET_DIR: _targetDir, ...rowEnv } = env; void _targetDir;
+        // Compiles nothing and must leave the tree as it is: its output directory is a scratch one outside every root (the direct read spawn gives it another).
+        const scratch = cargoReadTargetDir({ tmpRoot: options.cargoReadTargetRoot ?? tmpRoot, roots: [contentRoot, liveRoot, cargoLiveRoot] });
+        let r;
+        try { r = await deps.spawn(tool, [...prefix, ...args], { cwd: dir, env: { ...deps.env, ...rowEnv, CARGO_TARGET_DIR: scratch, ...(token ? { [SCAN_TOKEN_ENV]: token } : {}) }, timeout: FEATURE_PARTITION_MS, ...sig }); }
+        finally { try { fs.rmSync(scratch, { recursive: true, force: true }); } catch { /* a scratch directory under the gate's tmp root */ } }
+        if (!r || r.error || r.status !== 0) throw new Error(`cargo tree for ${packages.join(", ")}${target ? ` (--target ${target})` : ""} in ${cwd} failed: ${r?.error?.message ?? (tail(r) || `exit ${r?.status}`)}`);
+        return r.stdout ?? "";
+      };
+      const one = async (target) => {
+        const key = partitionCacheKey({ rest, crates, target, cwd, inputs });
+        const stored = cache?.read(key);
+        if (stored && stored.key === key && Array.isArray(stored.row?.partition)) return stored.row.partition;
+        if (!partitionMemo.has(key)) partitionMemo.set(key, partitionByFeatures({ crates, tree: (packages) => tree(packages, target) }).then((parts) => { cache?.write(key, { id: "feature-partition", status: "pass", crates: [...crates].sort(), target, partition: parts }); return parts; }));
+        return partitionMemo.get(key);
+      };
+      const perTarget = await Promise.all(targets.map(one));
+      let result;
+      if (perTarget.length === 1) result = perTarget[0];
+      else {
+        const kept = crates.filter((c) => perTarget.every((parts) => parts.some((p) => p.split === null && p.crates.length > 1 && p.crates.includes(c))));
+        const alone = crates.filter((c) => !kept.includes(c)).map((c) => ({ crates: [c], split: perTarget.flat().find((p) => p.split?.crate === c)?.split ?? null }));
+        result = [...(kept.length > 1 ? [{ crates: kept, split: null }] : kept.map((c) => ({ crates: [c], split: null }))), ...alone];
+      }
+      for (const p of result) if (p.split) partitionNotes.add(`class B batching: ${splitNote(p.split)}`);
+      return result;
     };
     const runGroupBody = async (idx, extraEnv, budget = { remaining: Math.min(2 * idx.length - 1, 31) }) => {
       if (budget.remaining <= 0 || signal?.aborted) {
@@ -3293,7 +3374,7 @@ export async function runScans(plan, options = {}) {
         return remember(Object.freeze({ id: scan.id, class: scan.class, command: scan.command, status: "not-run", detail: String(detail) }));
       };
       // lookupOnly: the scheduler looks up every row it would run, treating a lookup as the pass the real run needs to reach later rows.
-      const rows = await options.scheduleClassB({ scans: bScans, execute, executeGroup, canGroup, project, projectMember, notRun, probe, store, lookupOnly: options.cacheLookupOnly === true });
+      const rows = await options.scheduleClassB({ scans: bScans, execute, executeGroup, canGroup, project, projectMember, notRun, probe, store, partition: partitionCrates, lookupOnly: options.cacheLookupOnly === true });
       if (!Array.isArray(rows) || rows.length !== bScans.length || rows.some((row, i) => !row || !issued.has(row) || row.id !== bScans[i].id || typeof row.status !== "string")) throw new Error("scheduleClassB must return executor-issued results in plan order");
       rows.forEach((row, i) => { slots[i] = row; });
     } else if (brokerHost) {
@@ -3511,7 +3592,7 @@ export async function runScans(plan, options = {}) {
                 if (proof.ok) {
                   const oldKey = scanCacheKey({ id: s.id, command: keyCommand(s), toolVersion: idx.raw.toolVersion, env: idx.raw.env ?? {}, inheritedEnv: idx.raw.inherited, digest: idx.raw.inputs });
                   const old = cache.read(oldKey);
-                  if (old && old.key === oldKey && old.row?.status === "pass" && old.row.id === s.id && sameCommand(old.row.command, s)) {
+                  if (usableStoredPass(old, s, { cacheKey: oldKey, viaSnapshotBroker })) {
                     hit = { ...old, key: cacheKey };
                     row.carriedOver = { from: oldKey.slice(0, 16), files: proof.carried };
                     if (!options.cacheLookupOnly) { try { cache.write(cacheKey, old.row); cache.write(rowIndexKey, { id: s.id, inputs: inputsDigest, env: envDigest, raw: keyParts.raw, at: new Date().toISOString() }); } catch { /* the pass stands; the next run carries it again */ } }
@@ -3523,11 +3604,11 @@ export async function runScans(plan, options = {}) {
             // A cached test pass counts only with the counts it recorded: without them its coverage is unknown, so it runs again.
             // ...and only if it passed at least one test: a cached all-skipped "pass" (written before D17) runs again (rightkit#1236).
             // A Rust test scan (runOutside) is judged the same way: the executables are unknown until the compile, so its key is the source digest and the cached row must carry the summed libtest counts.
-            const testEvidence = (s.kind !== "test" && !s.runOutside) || testResultsProblem(hit?.row?.results) === null;
-            const publisherEvidence = !s.coverageKey || !viaSnapshotBroker || /^[0-9a-f]{64}$/.test(hit?.row?.snapshotEvidence?.receiptSha256 ?? "");
-            if (hit && hit.key === cacheKey && hit.row?.status === "pass" && hit.row.id === s.id && sameCommand(hit.row.command, s) && testEvidence && publisherEvidence) {
+            // One predicate for every stored pass (usableStoredPass; rightkit#1538): the row's own id and command, written by the invocation that ran it, with
+            // the evidence its kind needs; a test group's hit carries each member's own run, so the members are judged exactly as on the run that stored it.
+            if (usableStoredPass(hit, s, { cacheKey, viaSnapshotBroker })) {
               cacheHits.push(s.id);
-              return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}`, ...(s.kind === "test" || s.runOutside || s.coverageKey ? { results: hit.row.results } : {}), ...(s.coverageKey ? { snapshotEvidence: hit.row.snapshotEvidence ?? null, testRun: hit.row.testRun ?? null } : {}) };
+              return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}`, ...(s.kind === "test" || s.runOutside || s.coverageKey ? { results: hit.row.results } : {}), ...(s.coverageKey ? { snapshotEvidence: hit.row.snapshotEvidence ?? null, testRun: hit.row.testRun ?? null } : hit.row.testRun ? { testRun: hit.row.testRun } : {}), ...(hit.row.memberRuns ? { memberRuns: hit.row.memberRuns } : {}) };
             }
             // NN41: the same inputs, toolchain and broker runtime already failed this compile deterministically: report that failure, marked cached, without running it.
             const failHit = failKey ? cache.read(failKey) : null;
@@ -3901,7 +3982,7 @@ export async function runScans(plan, options = {}) {
             cache.write(failKey, { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "fail", code, detail: detail.slice(0, 6000), failureIdentity: options.failureIdentity, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.jsonSummary ? { jsonSummary: row.jsonSummary } : {}) });
           }
           if (status === "pass" && cacheKey && !signal?.aborted && row.rowIndex) cache.write(row.rowIndex.key, { id: s.id, inputs: row.rowIndex.inputs, env: row.rowIndex.env, raw: row.rowIndex.raw, at: new Date().toISOString() });
-          if (status === "pass" && cacheKey && !signal?.aborted) cache.write(cacheKey, { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "pass", ...(s.coverageKey ? { snapshotEvidence: row.snapshotEvidence ?? null, testRun: row.testRun ?? null } : {}), ...(row.results ? { results: row.results } : {}) });
+          if (status === "pass" && cacheKey && !signal?.aborted) cache.write(cacheKey, storedPassRow(s, row));
         }
       }
     } catch (e) { status = "fail"; code = "SCAN_ERROR"; detail = e.message; }
@@ -3929,7 +4010,7 @@ export async function runScans(plan, options = {}) {
     schema: SCAN_RESULT_SCHEMA, ok: !cancelled && results.every((r) => r.status === "pass"), complete: !cancelled && results.every((r) => r.status === "pass"), classes, checker, ...(cancelled ? { cancelled: true } : {}),
     inputDigest: plan.inputDigest ?? null,
     deferred: results.filter((r) => r.status === "deferred").map((r) => r.id),
-    scans: results, toolVersions, toolIdentities, cacheHits: [...cacheHits].sort(), notes: [...(plan.notes ?? []), ...batchFailureNotes, ...(cargoLedger ? [UNOBSERVED_NESTED_CARGO_NOTE] : [])],
+    scans: results, toolVersions, toolIdentities, cacheHits: [...cacheHits].sort(), notes: [...(plan.notes ?? []), ...batchFailureNotes, ...partitionNotes, ...(cargoLedger ? [UNOBSERVED_NESTED_CARGO_NOTE] : [])],
     scanSetDigest: digestScanSet(results),
     classDigests: { A: digestScanSet(results.filter((r) => r.class === "A")), B: digestScanSet(results.filter((r) => r.class === "B")) },
   };

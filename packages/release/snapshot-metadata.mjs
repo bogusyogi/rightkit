@@ -89,7 +89,20 @@ export function carriedScanRefusal(words, { checkout = null } = {}) {
     const shapeOk = rest[0] === "-p" && typeof unit === "string" && unit !== "" && !unit.startsWith("-") && new Set(tail).size === tail.length && tail.every((w) => ["--list", "--locked", "--allow-dirty"].includes(w)) && tail.includes("--list") && tail.includes("--locked");
     return shapeOk ? null : "`package` is admitted as `package -p <unit> --list --locked [--allow-dirty]` only";
   }
-  return `\`cargo ${words.join(" ")}\` is not one of the carried read-only shapes (metadata, fetch --locked, deny, audit --db --no-fetch, fmt --check, package -p <unit> --list --locked)`;
+  // The feature-equivalence partition's read (feature-partition.mjs treeArgs; GC-A18): resolves features, compiles nothing, writes only to the scratch target it is given.
+  if (sub === "tree") {
+    const own = []; let packages = 0; let targets = 0;
+    for (let i = 0; i < rest.length; i += 1) {
+      const w = rest[i]; const v = rest[i + 1];
+      if (w === "-p") { if (typeof v !== "string" || !/^[A-Za-z0-9_-]+$/.test(v)) return "`tree` takes -p <crate> with a plain crate name"; packages += 1; i += 1; }
+      else if (w === "--target") { if (typeof v !== "string" || !/^[A-Za-z0-9_-]+$/.test(v)) return "`tree` takes --target <triple> with a plain triple"; targets += 1; i += 1; }
+      else own.push(w);
+    }
+    const f = flagsOf(own, { "--locked": "flag", "--prefix": "value", "-e": "value", "-f": "value", "--all-features": "flag", "--no-default-features": "flag", "--features": "value", "-F": "value" });
+    const shapeOk = f !== null && f.has("--locked") && f.get("--prefix") === "none" && ["normal,build", "normal,build,dev"].includes(f.get("-e") ?? "") && f.get("-f") === "{p}\t{f}" && packages >= 1 && targets <= 1;
+    return shapeOk ? null : "`tree` is admitted as `tree --locked --prefix none -e normal,build[,dev] -f '{p}<tab>{f}' [--all-features] [--no-default-features] [--features <list>] [--target <triple>] -p <crate>...` only (the feature-equivalence partition)";
+  }
+  return `\`cargo ${words.join(" ")}\` is not one of the carried read-only shapes (metadata, fetch --locked, deny, audit --db --no-fetch, fmt --check, package -p <unit> --list --locked, tree)`;
 }
 
 /** Whether the broker admits `words` as a carried read-only request (see carriedScanRefusal). */
