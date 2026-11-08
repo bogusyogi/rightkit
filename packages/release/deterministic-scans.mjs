@@ -322,7 +322,9 @@ export function usableStoredPass(hit, s, { cacheKey, viaSnapshotBroker = false }
 }
 /** The row a pass stores: everything a later hit needs to be judged as the fresh row was (results, the test run's skip and truncation evidence, each member's own run). */
 export function storedPassRow(s, row) {
-  return { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "pass", ...(s.coverageKey ? { snapshotEvidence: row.snapshotEvidence ?? null } : {}), ...(row.testRun || s.coverageKey ? { testRun: row.testRun ?? null } : {}), ...(row.results ? { results: row.results } : {}), ...(row.memberRuns ? { memberRuns: row.memberRuns } : {}) };
+  // The accepted executables of a run (paths and digests of this process's output) are run-time state for a serial row's reuse (rightkit#1539), never cache content.
+  const memberRuns = row.memberRuns ? Object.fromEntries(Object.entries(row.memberRuns).map(([id, v]) => { const { acceptedBinaries: _bins, ...rest } = v ?? {}; void _bins; return [id, rest]; })) : null;
+  return { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "pass", ...(s.coverageKey ? { snapshotEvidence: row.snapshotEvidence ?? null } : {}), ...(row.testRun || s.coverageKey ? { testRun: row.testRun ?? null } : {}), ...(row.results ? { results: row.results } : {}), ...(memberRuns ? { memberRuns } : {}) };
 }
 export function keyCommand(s) {
   const base = String(s.command ?? "").replace(/(^|\s)--jobs\s+\d+(?=\s|$)/g, "");
@@ -1757,7 +1759,7 @@ export function planScans({
         // NN17/NN39: the plain test rows of one workspace and configuration are batchable: one grouped `cargo test` compile on a broker host (runScans runTestGroup).
         // A quiet suite keeps its own lease and runs alone; an end-to-end crate only compiles (--no-run); the serial re-run (alsoSerial, below) keeps its own run.
         add({ id: rustScanId.testRust(name, sets.length, i), class: B, ...quiet, ...(!e2e && cargoLiveRoot && quiet.quiet !== true ? { batchUnit: name } : {}), ...(e2e ? { e2e: true } : {}), ...(e2e ? cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-run") : cargoLiveRoot ? { ...cargoTestIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked"), runOutside: { args: [] } } : cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-fail-fast")) });
-        if (own.alsoSerial) add({ id: rustScanId.testRustSerial(name, sets.length, i), class: B, ...quiet, ...(e2e ? { e2e: true } : {}), ...(e2e ? cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-run") : cargoLiveRoot ? { ...cargoTestIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked"), runOutside: { args: ["--test-threads=1"] } } : cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-fail-fast", "--", "--test-threads=1")) });
+        if (own.alsoSerial) add({ id: rustScanId.testRustSerial(name, sets.length, i), class: B, ...quiet, ...(e2e ? { e2e: true } : {}), ...(e2e ? cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-run") : cargoLiveRoot ? { ...cargoTestIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked"), runOutside: { args: ["--test-threads=1"] }, reuseExecutables: rustScanId.testRust(name, sets.length, i) } : cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-fail-fast", "--", "--test-threads=1")) });
       });
     }
     for (const name of pkgNames) {
@@ -3067,6 +3069,16 @@ export async function runScans(plan, options = {}) {
   // The seam (reset plan section 3; gate-seam.mjs): one Class A verdict per workspace at this commit, written only once every planned Class A row of
   // this run passed; a class-B-only run (classAEarlier) reads the root verdict its class A run wrote under the same deterministic name and derives a
   // nested workspace's from it. `deps.gateSeam` = { commit, tree, repoKey, snapshot, verdictDir, outputRoots }.
+  // Settled rows by id, for a row that depends on another's result in this process (rightkit#1539: the serial test row runs the plain row's executables). A waiter
+  // that is not answered within its time gets null and goes its own way; nothing blocks forever.
+  const settledRows = new Map(); const rowWaiters = new Map();
+  const settle = (id, row) => { settledRows.set(id, row); const waiters = rowWaiters.get(id); if (waiters) { rowWaiters.delete(id); for (const w of waiters) w(row); } };
+  const waitForRow = (id, ms) => (settledRows.has(id) ? Promise.resolve(settledRows.get(id)) : new Promise((resolve) => {
+    const done = (row) => { clearTimeout(timer); resolve(row); };
+    const timer = setTimeout(() => { const waiters = rowWaiters.get(id); if (waiters) rowWaiters.set(id, waiters.filter((w) => w !== done)); resolve(null); }, Math.max(1, ms));
+    if (!rowWaiters.has(id)) rowWaiters.set(id, []);
+    rowWaiters.get(id).push(done);
+  }));
   const verdictFiles = new Map();
   const ensureVerdict = (cwd) => {
     const seam = deps.gateSeam; const ws = normalizeWorkspace(cwd ?? ".");
@@ -3286,8 +3298,8 @@ export async function runScans(plan, options = {}) {
       if (row.memberRuns && !signal?.aborted) {
         idx.forEach((i) => {
           const m = bScans[i]; const v = row.memberRuns[m.id] ?? { status: "fail", code: "TEST_GROUP", detail: `${m.id}: the test group ${row.id} produced no run for this member` };
-          const own = { id: m.id, class: m.class, command: m.command, batchCommand: row.command, batchedWith: { id: row.id, units: bs.batch.units }, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, ...(row.seam ? { seam: true, seamSettled: row.seamSettled === true } : {}), status: v.status, ...(v.code ? { code: v.code } : {}), ...(v.detail ? { detail: v.detail } : {}), ...(v.results ? { results: v.results } : {}), ...(v.testRun ? { testRun: v.testRun } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}) };
-          slots[i] = own; done += 1;
+          const own = { id: m.id, class: m.class, command: m.command, batchCommand: row.command, batchedWith: { id: row.id, units: bs.batch.units }, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, ...(row.seam ? { seam: true, seamSettled: row.seamSettled === true } : {}), status: v.status, ...(v.code ? { code: v.code } : {}), ...(v.detail ? { detail: v.detail } : {}), ...(v.results ? { results: v.results } : {}), ...(v.testRun ? { testRun: v.testRun } : {}), ...(v.acceptedBinaries ? { acceptedBinaries: v.acceptedBinaries } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}) };
+          slots[i] = own; done += 1; settle(m.id, own);
           try { onResult(own, { done, total, seconds: Math.round((Date.now() - started) / 1000) }); } catch { /* reporting never fails a scan */ }
         });
         return;
@@ -3464,7 +3476,9 @@ export async function runScans(plan, options = {}) {
     const owned = { cargoReadTarget: null };
     try {
       const row = await scanRowIn(s, extraEnv, owned, timing);
-      return { ...row, timing: { ...timing, elapsedMs: performance.now() - started } };
+      const out = { ...row, timing: { ...timing, elapsedMs: performance.now() - started } };
+      settle(s.id, out);
+      return out;
     } finally { if (owned.cargoReadTarget) fs.rmSync(owned.cargoReadTarget, { recursive: true, force: true }); }
   }
   async function scanRowIn(s, extraEnv, owned, timing) {
@@ -3649,6 +3663,30 @@ export async function runScans(plan, options = {}) {
           // Adrian 2026-11-06: the cache is looked up for every planned row BEFORE anything runs (options.cacheLookupOnly): a miss is reported with its cause, never run.
           // A probe (runGroup's per-crate lookup) answers like a lookup.
           if (options.cacheLookupOnly || probeScans.has(s)) return { ...row, status: "not-run", lookupMiss: Boolean(cacheKey), uncacheable: !cacheKey, detail: cacheKey ? "would miss the cache" : "has no cache key", ...(row.seam ? { seamSettled: true } : {}) }; // nothing was submitted
+          // rightkit#1539: a serial test row owns no compile. It waits for the plain row of the same crate and configuration (grouped or alone) and runs that row's
+          // accepted executables with --test-threads=1 under its own id, results and key; the plain row's compile verdict is never stored under this key (store rule).
+          // When the plain row did not run in this process (a cache hit, a failure, not finished in time) the serial row compiles as before: no duplicate is in
+          // flight then, so the broker has nothing to refuse (the duplicate compile of batch 051b was exactly two in flight at once).
+          if (s.reuseExecutables && s.runOutside) {
+            const reuseLimit = scanTimeoutMs(s, options);
+            const base = await waitForRow(s.reuseExecutables, Math.min(reuseLimit, QUIET_SCAN_MAX_MS));
+            if (base && base.status === "pass" && Array.isArray(base.acceptedBinaries) && base.acceptedBinaries.length) {
+              const ops = { ...TEST_RUN_OPS, ...(options.testRunOps ?? {}) };
+              const ran = await runTestBinaries({ scan: s, binaries: base.acceptedBinaries, spawn: deps.spawn, env: { ...deps.env, ...s.env, ...(extraEnv ?? {}) }, limitMs: reuseLimit, signal, ops, concurrency: 1 });
+              row.results = ran.results; row.testRun = { executables: ran.executables, outputTruncated: ran.executables.some((e) => e.outputTruncated), skipMarkers: ran.executables.reduce((n, e) => n + (e.skipMarkers ?? 0), 0) };
+              row.reusedExecutablesOf = base.id; if (base.snapshotEvidence) row.snapshotEvidence = base.snapshotEvidence; if (base.seam) { row.seam = true; row.seamSettled = true; }
+              let reuseStatus = ran.status; let reuseCode = ran.code ?? null; let reuseDetail = ran.detail ?? null;
+              if (reuseStatus === "pass" && s.publisherRustTest && row.testRun.outputTruncated) { reuseStatus = "fail"; reuseCode = "TEST_OUTPUT_TRUNCATED"; reuseDetail = `${s.id}: test output was truncated; skip evidence is incomplete`; }
+              if (reuseStatus === "pass" && s.publisherRustTest && !s.allowIgnored && (row.results?.skipped ?? 0) > 0) { reuseStatus = "fail"; reuseCode = "IGNORED_TESTS"; reuseDetail = `${row.results.skipped} ignored Rust test(s) require an approved reason`; }
+              if (reuseStatus === "fail" && options.scanLogDir && ran.outputs?.length) {
+                try { fs.mkdirSync(options.scanLogDir, { recursive: true }); const file = path.join(options.scanLogDir, `${s.id.replace(/[^A-Za-z0-9._-]+/g, "_")}.log`); fs.writeFileSync(file, `$ ${s.command ?? s.id} (executables of ${base.id}, --test-threads=1)\n${ran.outputs.map((o) => `=== test executable ${o.label} (exit ${o.exit ?? "none"}${o.signal ? `, signal ${o.signal}` : ""})\n--- stdout\n${o.stdout}\n--- stderr\n${o.stderr}\n`).join("")}`); row.log = file; reuseDetail = `${reuseDetail} (full output: ${file})`; } catch { /* the tail in the row remains */ }
+              }
+              if (reuseStatus === "pass" && cacheKey && cache && !signal?.aborted && row.rowIndex) cache.write(row.rowIndex.key, { id: s.id, inputs: row.rowIndex.inputs, env: row.rowIndex.env, raw: row.rowIndex.raw, at: new Date().toISOString() });
+              if (reuseStatus === "pass" && cacheKey && cache && !signal?.aborted) cache.write(cacheKey, storedPassRow(s, row));
+              return { ...row, status: reuseStatus, ...(reuseCode ? { code: reuseCode } : {}), ...(reuseDetail ? { detail: reuseDetail } : {}) };
+            }
+            row.reuseFallback = base ? `${s.reuseExecutables} ended ${base.status}${Array.isArray(base.acceptedBinaries) && base.acceptedBinaries.length ? "" : " with no executables to reuse"}; this row compiled on its own` : `${s.reuseExecutables} did not finish within this row's limit; this row compiled on its own`;
+          }
           // Every cargo call the wrapper decides during this scan is filed under this token in the gate's ledger: the scan's own call AND the
           // calls the scan itself makes before it (the cargo-deny row's prefetch and its full metadata), so none is filed "unscoped" and fails the run.
           const ledgerToken = cargoLedger ? scanTokenOf(s.id) : null;
@@ -3963,6 +4001,7 @@ export async function runScans(plan, options = {}) {
               }
               const ops = { ...TEST_RUN_OPS, ...(options.testRunOps ?? {}) };
               const contained = containTestExecutables(listing.binaries, { boundDirs, generationRoots, platform, ops });
+              row.acceptedBinaries = contained.accepted; // for a serial row of the same crate that reuses them (rightkit#1539); never stored in the cache (storedPassRow)
               // ADR-001 C2 (rightkit#1454): a broker that signs the compile's test executables (receipt.testExecutables, rustright) binds each one;
               // an executable whose path or sha256 is not in that signed list never runs. An older broker that signs no list leaves containment only.
               const signedProblems = (viaSnapshotBroker || viaSeam) && row.snapshotEvidence && Object.hasOwn(row.snapshotEvidence, "testExecutables") ? signedTestExecutableProblems(contained.accepted, row.snapshotEvidence.testExecutables, row.snapshotEvidence.testExecutablesReason, platform) : [];
@@ -3983,7 +4022,7 @@ export async function runScans(plan, options = {}) {
                     const m = list[next++]; const bins = byCrate.get(m.crate) ?? [];
                     if (!bins.length) { memberRuns[m.id] = { status: "pass", results: { runner: "libtest", tests: 0, pass: 0, fail: 0, skipped: 0, todo: 0, binaries: 0 }, detail: `${m.id}: no test executable; end-to-end tests only, nothing to run` }; continue; }
                     const ran = await runTestBinaries({ scan: { ...s, id: m.id }, binaries: bins, spawn: deps.spawn, env: { ...deps.env, ...s.env, ...(extraEnv ?? {}) }, limitMs, signal, ops, concurrency: 1 });
-                    memberRuns[m.id] = { status: ran.status, ...(ran.code ? { code: ran.code } : {}), ...(ran.detail ? { detail: ran.detail } : {}), results: ran.results, testRun: { executables: ran.executables, outputTruncated: ran.executables.some((e) => e.outputTruncated), skipMarkers: ran.executables.reduce((n, e) => n + (e.skipMarkers ?? 0), 0) } };
+                    memberRuns[m.id] = { status: ran.status, ...(ran.code ? { code: ran.code } : {}), ...(ran.detail ? { detail: ran.detail } : {}), results: ran.results, testRun: { executables: ran.executables, outputTruncated: ran.executables.some((e) => e.outputTruncated), skipMarkers: ran.executables.reduce((n, e) => n + (e.skipMarkers ?? 0), 0) }, acceptedBinaries: bins };
                   }
                 };
                 await Promise.all(Array.from({ length: Math.max(1, Math.min(testRunConcurrency(), list.length)) }, worker));

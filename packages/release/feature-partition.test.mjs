@@ -19,7 +19,11 @@ test("a test group's stored pass carries each member's own run and the warm hit 
       "test:rust:b": { status: "pass", results: libtest(2), testRun: { executables: [{ target: "b" }], outputTruncated: false, skipMarkers: 1 } },
     },
   };
+  // the accepted executables (this process's paths and digests, for a serial row's reuse, rightkit#1539) are run-time state and never enter the cache
+  fresh.memberRuns["test:rust:a"].acceptedBinaries = [{ package: "a", target: "a", real: "/t/out/release/deps/a-1", sha256: "x" }];
   const stored = storedPassRow(s, fresh);
+  assert.equal(stored.memberRuns["test:rust:a"].acceptedBinaries, undefined, "accepted executables are stripped from the stored group row");
+  delete fresh.memberRuns["test:rust:a"].acceptedBinaries;
   assert.deepEqual(stored.memberRuns, fresh.memberRuns, "the group row stores every member's own run");
   const hit = { key: "k", at: "2026-11-08T00:00:00Z", row: stored };
   assert.equal(usableStoredPass(hit, s, { cacheKey: "k" }), true);
