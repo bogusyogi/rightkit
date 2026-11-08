@@ -28,7 +28,8 @@ test("only an exact SNAPSHOT_STATUS echo with state IDLE proves a dead holder's 
   // A real unix socket answering the query from ANOTHER process (the client is synchronous and would block a server in this one): the client gets exactly the first line,
   // and the server saw the query with this owner.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-seam-sock-")); const sock = path.join(dir, "b.sock"); const seenFile = path.join(dir, "seen.json");
-  const serverScript = `const net=require("node:net"),fs=require("node:fs");const [sock,seen,reply]=process.argv.slice(1);net.createServer((c)=>{c.on("data",(d)=>{fs.writeFileSync(seen,String(d));c.write(reply+"\\n");});}).listen(sock);`;
+  // Like the real broker (service.rs: HANDSHAKE emitted on connect, before any answer), the fake greets first, then answers the query after an unrelated frame.
+  const serverScript = `const net=require("node:net"),fs=require("node:fs");const [sock,seen,reply]=process.argv.slice(1);net.createServer((c)=>{c.write(JSON.stringify({type:"HANDSHAKE",runtime:{},capabilities:[]})+"\\n");c.on("data",(d)=>{fs.writeFileSync(seen,String(d));c.write(JSON.stringify({type:"NOTE",text:"unrelated"})+"\\n"+reply+"\\n");});}).listen(sock);`;
   const server = spawn(process.execPath, ["-e", serverScript, sock, seenFile, JSON.stringify(idle)], { stdio: "ignore" });
   try {
     for (let i = 0; i < 100 && !fs.existsSync(sock); i += 1) await new Promise((r) => setTimeout(r, 50));
@@ -49,7 +50,28 @@ test("only an exact SNAPSHOT_STATUS echo with state IDLE proves a dead holder's 
     assert.equal(judge({ ...owner, token: "t-2" }), false, "another token is not this owner");
     assert.equal(snapshotReclaimJudge({ o, client: null, snapshotPath: snapshot })(owner), false, "no client: no proof");
     assert.equal(snapshotReclaimJudge({ o: { ...o, discoverEndpoint: () => `${sock}.missing` }, client, snapshotPath: snapshot })(owner), false, "no broker: no proof");
+    // A broker that greets and then never answers: the deadline ends the query with no proof, not a hang.
+    const silentSock = path.join(dir, "silent.sock");
+    const silent = spawn(process.execPath, ["-e", `const net=require("node:net");net.createServer((c)=>{c.write(JSON.stringify({type:"HANDSHAKE"})+"\\n");}).listen(process.argv[1]);`, silentSock], { stdio: "ignore" });
+    try {
+      for (let i = 0; i < 100 && !fs.existsSync(silentSock); i += 1) await new Promise((r) => setTimeout(r, 50));
+      assert.equal(snapshotStatusSync({ endpoint: silentSock, message, timeoutMs: 1500 }), null, "HANDSHAKE alone is not an answer");
+    } finally { silent.kill(); }
   } finally { server.kill(); }
+});
+
+test("the direct read wrapper passes a seam compile (RUSTRIGHT_GATE_COMMIT set) through to the client untouched and still refuses a bare compile in the snapshot", async () => {
+  const { directReadSpawn } = await import("./snapshot-metadata.mjs");
+  const snapshotRoot = fs.mkdtempSync(path.join(os.tmpdir(), "rk-seam-snap-")); const cwd = path.join(snapshotRoot, "ws"); fs.mkdirSync(cwd);
+  const calls = [];
+  const inner = (cmd, args, opts) => { calls.push({ cmd, args, env: opts.env }); return { status: 0, signal: null, error: null, stdout: "", stderr: "" }; };
+  const wrapped = directReadSpawn({ spawn: inner, cargoCommand: ["rustright", "cargo"], snapshotRoot, directPath: "/usr/bin", tmpRoot: fs.mkdtempSync(path.join(os.tmpdir(), "rk-seam-tmp-")), env: {}, err: () => {} });
+  const seam = wrapped("rustright", ["cargo", "check", "-p", "a", "--locked"], { cwd, env: { RUSTRIGHT_GATE_COMMIT: "a".repeat(40), RUSTRIGHT_CLASS_A: "/v/class-a.json" } });
+  assert.equal(seam.status, 0); assert.equal(calls.length, 1); assert.equal(calls[0].cmd, "rustright"); assert.deepEqual(calls[0].args, ["cargo", "check", "-p", "a", "--locked"]);
+  assert.equal(calls[0].env.RUSTRIGHT_GATE_COMMIT, "a".repeat(40), "the seam variables reach the client");
+  assert.equal(calls[0].env.CARGO_TARGET_DIR, undefined, "no scratch target is forced on a broker compile");
+  const bare = wrapped("rustright", ["cargo", "check", "-p", "a", "--locked"], { cwd, env: {} });
+  assert.notEqual(bare.status, 0); assert.match(bare.stderr, /not one of the read-only shapes/); assert.equal(calls.length, 1, "a bare compile in the snapshot never reaches the client");
 });
 
 const commit = "a".repeat(40); const tree = "b".repeat(40); const repoKey = "0123456789abcdef";

@@ -20,6 +20,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { BROKER_REFUSAL_STATUS, brokerSection, carryBrokerCargo } from "./snapshot-broker.mjs";
+import { GATE_COMMIT_ENV } from "./gate-seam.mjs";
 
 export const CARRIED_METADATA_REFUSED = "RK_SNAPSHOT_CARRIED_REFUSED";
 
@@ -156,6 +157,9 @@ export function directReadSpawn({ spawn, cargoCommand, snapshotRoot, directPath,
   return (cmd, args, opts = {}) => {
     const cargo = cmd === cargoCommand[0] && prefix.every((w, i) => args[i] === w);
     if (!cargo || typeof opts.cwd !== "string" || !within(real(opts.cwd), real(snapshotRoot))) return spawn(cmd, args, opts);
+    // A seam request (reset plan section 3: RUSTRIGHT_GATE_COMMIT set) is a class B compile the broker admits; it runs in the snapshot by design and is never a
+    // class A direct read, so it goes to the declared client untouched (rightkit#1542: this wrapper refused every seam compile as "not a read-only shape").
+    if (opts.env && typeof opts.env[GATE_COMMIT_ENV] === "string" && opts.env[GATE_COMMIT_ENV]) return spawn(cmd, args, opts);
     const words = args.slice(prefix.length);
     const shape = words.length === 1 && words[0] === "--version" ? null : carriedScanRefusal(words);
     if (shape !== null) return refused(CARRIED_METADATA_REFUSED, `\`cargo ${words.join(" ")}\` would run inside the managed snapshot ${snapshotRoot} and is not one of the read-only shapes Class A runs directly (GC-A11): ${shape}`);

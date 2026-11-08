@@ -213,16 +213,19 @@ export function snapshotStatusAllowsReclaim(reply, { snapshot, owner }) {
   return reply.state === "IDLE";
 }
 
-const STATUS_SCRIPT = `const net=require("node:net");const [endpoint,msg,timeout]=process.argv.slice(1);const c=net.connect({path:endpoint});let buf="";const t=setTimeout(()=>process.exit(3),Number(timeout));c.on("connect",()=>c.write(msg+"\\n"));c.on("data",(d)=>{buf+=d;const i=buf.indexOf("\\n");if(i>=0){process.stdout.write(buf.slice(0,i));clearTimeout(t);c.destroy();process.exit(0);}});c.on("error",()=>process.exit(2));c.on("close",()=>process.exit(buf?0:4));`;
+// The broker greets every connection with a HANDSHAKE frame before it answers anything (rustright service.rs emit HANDSHAKE on connect), and may interleave
+// other frames; the reader consumes framed lines until the one whose `type` is the answer (SNAPSHOT_STATUS) or a refusal/error frame, within the deadline.
+const STATUS_SCRIPT = `const net=require("node:net");const [endpoint,msg,timeout,want]=process.argv.slice(1);const c=net.connect({path:endpoint});let buf="";const t=setTimeout(()=>process.exit(3),Number(timeout));const done=(line)=>{process.stdout.write(line);clearTimeout(t);c.destroy();process.exit(0);};c.on("connect",()=>c.write(msg+"\\n"));c.on("data",(d)=>{buf+=d;let i;while((i=buf.indexOf("\\n"))>=0){const line=buf.slice(0,i);buf=buf.slice(i+1);let f=null;try{f=JSON.parse(line);}catch{continue;}if(!f||typeof f!=="object")continue;if(f.type===want||f.type==="REFUSED"||f.type==="ERROR"||f.type==="REFUSAL")done(line);}});c.on("error",()=>process.exit(2));c.on("close",()=>process.exit(4));`;
 
 /**
  * One control query, synchronously (the lock is taken inside the synchronous sync): a child node connects to the broker's socket or pipe, writes the
- * message as one line and returns the first reply line. Null on any failure (no broker, timeout, bad JSON): no proof.
+ * message as one line and returns the frame that answers it (`want`, default SNAPSHOT_STATUS), skipping the HANDSHAKE and any other frame before it; a
+ * refusal or error frame is returned as the answer (the caller's judge then says no). Null on any failure (no broker, timeout, bad JSON): no proof.
  */
-export function snapshotStatusSync({ endpoint, message, timeoutMs = 10_000, execFileSync = nodeExecFileSync, execPath = process.execPath }) {
+export function snapshotStatusSync({ endpoint, message, timeoutMs = 10_000, want = "SNAPSHOT_STATUS", execFileSync = nodeExecFileSync, execPath = process.execPath }) {
   if (typeof endpoint !== "string" || !endpoint) return null;
   let out;
-  try { out = execFileSync(execPath, ["-e", STATUS_SCRIPT, endpoint, JSON.stringify(message), String(timeoutMs)], { encoding: "utf8", timeout: timeoutMs + 2_000, stdio: ["ignore", "pipe", "ignore"], windowsHide: true }); }
+  try { out = execFileSync(execPath, ["-e", STATUS_SCRIPT, endpoint, JSON.stringify(message), String(timeoutMs), String(want)], { encoding: "utf8", timeout: timeoutMs + 2_000, stdio: ["ignore", "pipe", "ignore"], windowsHide: true }); }
   catch { return null; }
   try { const reply = JSON.parse(String(out).trim()); return reply && typeof reply === "object" ? reply : null; } catch { return null; }
 }
