@@ -3899,7 +3899,9 @@ export async function runScans(plan, options = {}) {
             // Settled, for the door's lock release (seamRunState): positive evidence only. A parsed result line AND either a durable receipt read (the job reached its
             // terminal state) or an explicit before-execution refusal (a code, or exit 125 with nothing admitted). A missing or malformed line, a missing receipt, a killed
             // client or a spawn error leaves the row unsettled, and the lock stays (astra, 2026-11-09).
-            row.seamSettled = Boolean(judged.result) && (Boolean(judged.evidence) || Boolean(judged.result.code) || (judged.result.exit === NOT_EXECUTED_EXIT && judged.result.requestId === null));
+            // A code with a requestId is a client failure AFTER admission (cli.rs transport_failure_after_admission_retains_correlation: RK_CLIENT_ERROR, exit 125, no receipt): the job's
+            // state is unknown, so it is NOT settled. Only a refusal before admission (no requestId) or a durable receipt settles the row (astra, 2026-11-09).
+            row.seamSettled = Boolean(judged.result) && (Boolean(judged.evidence) || judged.result.requestId === null);
             if (judged.status === "fail") { status = "fail"; code = judged.code; detail = `${s.id}: ${judged.detail}`; }
           }
           if (carrier) {

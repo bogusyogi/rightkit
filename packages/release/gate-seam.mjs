@@ -144,7 +144,7 @@ export function readSeamReceipt(file, { commit, tree, classA = null, fsApi = fs 
 export function judgeSeamOutcome({ child, stderr, commit, tree, classA = null, fsApi = fs }) {
   let result;
   try { result = parseResultLine(stderr); } catch (e) { return { status: "fail", code: e.code, detail: e.message, result: null, evidence: null }; }
-  if (result.code) return { status: "fail", code: result.code, detail: `the broker refused or the client failed before anything ran: ${result.message ?? result.code}`, result, evidence: null };
+  if (result.code) return { status: "fail", code: result.code, detail: result.requestId === null ? `the broker refused or the client failed before anything was admitted: ${result.message ?? result.code}` : `the client failed after request ${result.requestId} was admitted (${result.message ?? result.code}); the job's state in the broker is unknown`, result, evidence: null };
   if (result.exit === NOT_EXECUTED_EXIT && result.requestId === null) return { status: "fail", code: "RK_NOT_EXECUTED", detail: "the client reported exit 125 with no request admitted and no code", result, evidence: null };
   // A client the gate killed (its own timeout, a cancel) proves nothing whatever its line says: the line may predate the kill or belong to a job the broker went on to cancel.
   if (child && typeof child.signal === "string" && child.signal) return { status: "fail", code: "CLIENT_KILLED", detail: `the client was stopped by ${child.signal} before the row completed`, result, evidence: null };

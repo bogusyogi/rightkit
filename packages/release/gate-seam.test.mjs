@@ -145,7 +145,10 @@ test("the receipt's postconditions are judged before the exit code; a refusal ke
   assert.equal(noReceipt.status, "fail"); assert.equal(noReceipt.code, "RECEIPT_MISSING");
   // a refusal: nothing ran, the code is the broker's
   const refused = judgeSeamOutcome({ child: { status: 125 }, stderr: `rustright-result ${JSON.stringify({ requestId: null, exit: 125, signal: null, outputDir: null, receipt: null, receiptPersisted: false, code: "RK_APP_BUILD_IN_PROGRESS", message: "already queued" })}\n`, commit, tree });
-  assert.equal(refused.status, "fail"); assert.equal(refused.code, "RK_APP_BUILD_IN_PROGRESS"); assert.match(refused.detail, /already queued/);
+  assert.equal(refused.status, "fail"); assert.equal(refused.code, "RK_APP_BUILD_IN_PROGRESS"); assert.match(refused.detail, /already queued/); assert.match(refused.detail, /before anything was admitted/);
+  // a client that lost its connection AFTER admission (requestId kept, exit 125, a code, no receipt): the job's state is unknown, and the detail says so
+  const lost = judgeSeamOutcome({ child: { status: 125 }, stderr: `rustright-result ${JSON.stringify({ requestId: "owned-request", exit: 125, signal: null, outputDir: null, receipt: null, receiptPersisted: false, code: "RK_CLIENT_ERROR", message: "connection lost" })}\n`, commit, tree });
+  assert.equal(lost.status, "fail"); assert.equal(lost.code, "RK_CLIENT_ERROR"); assert.match(lost.detail, /after request owned-request was admitted/); assert.equal(lost.evidence, null);
   // an executed compile that failed keeps its exit; its receipt is still evidence
   const failed = judgeSeamOutcome({ child: { status: 101 }, stderr: line({ exit: 101, receipt: receipt(good) }), commit, tree });
   assert.equal(failed.status, "fail"); assert.equal(failed.code, "EXIT"); assert.equal(failed.detail, "exit 101"); assert.ok(failed.evidence);
