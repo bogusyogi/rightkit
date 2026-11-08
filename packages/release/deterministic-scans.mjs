@@ -48,6 +48,11 @@ import { meetPartitions, partitionByFeatures, partitionCacheKey, splitNote, stri
 import { CLASS_A_ENV, CLASS_A_VERDICT_SCHEMA, classAVerdict, judgeSeamOutcome, normalizeWorkspace, seamEnv, writeClassAVerdict } from "./gate-seam.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
+// The seam's run state for the door's lock release (reset plan section 3): a seam row whose client the gate killed, that timed out or was cancelled may have
+// left a broker job queued or finalizing after the row ended, so the door releases the snapshot lock only when `unsettled` is 0; otherwise the lock stays and
+// the next run reclaims it on the broker's stale-owner proof. One gate process runs one batch, so module state is the run's state.
+export const seamRunState = { rows: 0, unsettled: 0 };
+const SEAM_UNSETTLED_CODES = new Set(["TIMEOUT", "CLIENT_KILLED", "CANCELLED", "NO_RESULT_LINE"]);
 /**
  * The checker that produced a scan result: `<name>@<version>#<digest>` where the digest covers this module and scan-digest.mjs,
  * so a changed checker at the same version is a different identity. null when it cannot be computed; prior class A evidence
@@ -3561,6 +3566,7 @@ export async function runScans(plan, options = {}) {
           // The seam (plan section 3): a class B cargo row on a broker host is one spawn of `rustright cargo` in the snapshot with the two seam variables; the
           // carrier (viaSnapshotBroker) is the legacy path, not taken when the seam is wired, and goes with step 5 of the plan.
           const viaSeam = Boolean(deps.gateSeam) && s.class === SCAN_CLASS.B && s.root === "cargoLive" && (s.tool === "rustright" || s.tool === "cargo");
+          if (viaSeam) row.seam = true;
           const viaSnapshotBroker = !viaSeam && carriedScan && Boolean(deps.snapshotBroker) && s.root === "cargoLive" && (s.tool === "rustright" || s.tool === "cargo");
           const carriedRead = cargoReadsAreCarried && s.class === SCAN_CLASS.A && (s.tool === "rustright" || s.tool === "cargo");
           // NN02: a publisher row (coverageKey) is cached too, with the signed broker receipt and test-run evidence its publisher verify needs.
@@ -4056,6 +4062,7 @@ export async function runScans(plan, options = {}) {
     else { try { seamNotes.push(`class A verdict written: ${await ensureVerdict(".")}`); } catch (e) { verdictFailure = `CLASS_A_VERDICT: class A passed but its verdict was not written: ${e.message}`; seamNotes.push(verdictFailure); } }
   }
   const cancelled = signal?.aborted === true;
+  for (const r of results) if (r.seam === true) { seamRunState.rows += 1; if (SEAM_UNSETTLED_CODES.has(r.code) || (cancelled && r.status !== "pass")) seamRunState.unsettled += 1; }
   const allPassed = !cancelled && verdictFailure === null && results.every((r) => r.status === "pass");
   return {
     schema: SCAN_RESULT_SCHEMA, ok: allPassed, complete: allPassed, classes, checker, ...(cancelled ? { cancelled: true } : {}), ...(verdictFailure ? { verdictFailure } : {}),

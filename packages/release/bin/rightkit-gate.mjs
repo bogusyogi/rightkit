@@ -81,7 +81,7 @@ import { hostTarget } from "../cross-targets.mjs";
 import { FOREIGN_PRE_COMMIT, retireHooksIn } from "../hook-retirement.mjs";
 import { fileURLToPath } from "node:url";
 import { installIdentity, installStateBytes } from "../dependency-identity.mjs";
-import { BIOME_CONFIG_FILES, CHECKER_IDENTITY, OXLINT_CONFIG_FILES, ESLINT_CONFIG_FILES, LOCAL_CLASS_B_JOBS, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanToolPolicyFromPipeline, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
+import { BIOME_CONFIG_FILES, CHECKER_IDENTITY, OXLINT_CONFIG_FILES, ESLINT_CONFIG_FILES, LOCAL_CLASS_B_JOBS, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanToolPolicyFromPipeline, scanDeferrals, scanFailures, seamRunState } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
 // The gate's own executor: an outer gate's cargo wrapper on PATH is never this gate's cargo (gate-executor.mjs `gateWrappers`).
@@ -1854,7 +1854,7 @@ async function runStages(o, args, root, git, io) {
     try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot, repository: snap.repositoryOf(root).key }), stage: `door:${to}`, snapshot: path.join(snapshotsAt, snap.repositoryOf(root).key), commit: selected.commit, platform: o.platform, env: o.env }); }
     catch (e) { if (e.code !== "busy" && e.code !== "refused") throw e; o.err(`${tag} BLOCKED: ${e.message}; nothing ran${e.code === "refused" ? ", nothing created" : ""}`); return 1; }
     o.out(`${tag} build ownership ${own.joined ? "joined" : "held"} ${own.handle}${own.reclaimed ? ` (reclaimed from ${own.reclaimed.from}: ${own.reclaimed.proofs.join("; ")})` : ""}`);
-    let synced = null; let seamJudge = null; let seamBody = null;
+    let synced = null; let seamBody = null;
     try {
       // One sync per door run: a second one would prune what class A installed into the snapshot.
       // The seam (reset plan section 3): the lock body is { pid, identity, commit, token } and the lock is held through the whole door run, every job and
@@ -1873,7 +1873,7 @@ async function runStages(o, args, root, git, io) {
         let seamClient = null;
         try { seamClient = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which: whichIn(o), readFile: o.readFile })?.client ?? null; } catch { seamClient = null; }
         const judge = snapshotReclaimJudge({ o, client: seamClient, snapshotPath });
-        if (identity) { seamBody = snapshotLockBody({ identity, commit: selected.commit }); seamJudge = judge; seamLock = { body: seamBody, judge, hold: true }; }
+        if (identity) { seamBody = snapshotLockBody({ identity, commit: selected.commit }); seamLock = { body: seamBody, judge, hold: true }; }
         else o.err(`${tag} note: this process's birth identity could not be read; the snapshot lock is the legacy one and is released after the sync (no broker on this host)`);
       }
       try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout: root, rev: selected.commit, root: snapshotsAt, lock: seamLock }); }
@@ -1882,13 +1882,14 @@ async function runStages(o, args, root, git, io) {
       if (synced.identity) o.out(`${tag} source identity ${synced.identity.file}: ${synced.identity.written ? "written" : synced.identity.kept ? "kept" : `not written (${synced.identity.reason})`}`);
       return await runStages({ ...o, buildOwnership: own, doorSnapshot: { own, path: synced.path, commit: synced.commit, tree: synced.tree, root: snapshotsAt, ledger: { entries: [] } } }, args, root, git, { ...io, buildOwnership: own });
     } finally {
-      // The seam lock, held through the batch, is released only here, after every job and test of the door run ended, and only on the broker's SNAPSHOT_STATUS
-      // proof that the snapshot is IDLE for this holder: a client the gate killed may have left a job FINALIZING, and a lock released under it would let the next
-      // run sync the snapshot beneath that job (fresh review 2026-11-09, E2). Without proof the lock stays; the stale-holder rule reclaims it later on proof.
+      // The seam lock, held through the batch, is released only here, after every job and test of the door run ended, and only when the gate can prove by itself
+      // that no job of this run can still be live in the broker: every seam row ended with a result (none killed by the gate, timed out, cancelled or left without a
+      // result line; deterministic-scans.mjs seamRunState). The broker's SNAPSHOT_STATUS is stale-owner proof and is not asked for a live holder (astra, 2026-11-09).
+      // Otherwise the lock stays, and the next run reclaims it through that stale-owner proof once this process is gone and the jobs ended (fresh review E2).
       try {
         if (synced?.release) {
-          if (!seamBody || !seamJudge || seamJudge(seamBody) === true) synced.release();
-          else o.err(`${tag} note: the snapshot lock ${synced.lockFile ?? ""} is kept: the broker did not confirm the snapshot idle for this run (a job may still be finishing); it is reclaimed on the broker's proof`);
+          if (!seamBody || seamRunState.unsettled === 0) synced.release();
+          else o.err(`${tag} note: the snapshot lock ${synced.lockFile ?? ""} is kept: ${seamRunState.unsettled} seam row(s) of this run ended without a settled result (killed, timed out or cancelled), so a broker job may still be finishing; the lock is reclaimed on the broker's proof`);
         }
       } catch { /* a lock is removed by its holder only; a failed removal leaves it for the stale-holder rule */ }
       const r = own.release();
