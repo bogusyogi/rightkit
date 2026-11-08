@@ -2,19 +2,18 @@
 //   - the output directory, resolved in the PRIMARY CHECKOUT with the stage's environment before the source location changes, with
 //     its inputs recorded (7.09);
 //   - the receipt the gate writes itself, "the same field names minus the broker-only ones (admission, queue, reusedFrom)" (7.18),
-//     and the consumer-side matrix that refuses a receipt that lacks one, carries a broker-only one, or holds no census (7.22 Linux half).
+//     and the consumer-side matrix that refuses a receipt that lacks one, carries a broker-only one, (7.22 Linux half).
 // Pure functions with injected spawn and file system: the gate (bin/rightkit-gate.mjs) wires them to the host.
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { validateFreshness } from "./freshness-census.mjs";
 
 export const DIRECT_RECEIPT_SCHEMA = "rightkit.gate-direct-receipt/1";
 export const DIAGNOSTICS_SCHEMA = "rightkit.gate-direct-diagnostics/1";
 /** The names GATE-CONTRACT lists as broker-only: a direct receipt never carries them. */
 export const BROKER_ONLY_FIELDS = Object.freeze(["admission", "queue", "reusedFrom"]);
 /** The contract's returned-evidence names a direct receipt carries (7.18). `snapshot.path|treeAtStart|treeAtExit` are checked inside `snapshot`. */
-export const DIRECT_RECEIPT_REQUIRED = Object.freeze(["requestId", "brokerVersion", "executor", "commit", "snapshot", "declaredInputDigests", "verdict", "freshness", "timingsMs", "exit", "diagnosticsPath", "outputDir", "refreshed"]);
+export const DIRECT_RECEIPT_REQUIRED = Object.freeze(["requestId", "brokerVersion", "executor", "commit", "snapshot", "declaredInputDigests", "verdict", "timingsMs", "exit", "diagnosticsPath", "outputDir", "refreshed"]);
 export const TIMING_FIELDS = Object.freeze(["bind", "cargo", "afterExitBind", "diagnostics"]);
 /** The environment a `cargo metadata` target resolution reads: recorded by value (the rest of the environment by digest only). */
 export const TARGET_ENV_NAMES = Object.freeze(["CARGO_TARGET_DIR", "CARGO_BUILD_TARGET_DIR", "CARGO_HOME", "RUSTUP_TOOLCHAIN"]);
@@ -90,7 +89,7 @@ export function buildDirectReceipt({ requestId, issuedAt, commit, snapshotPath, 
 
 /**
  * The consumer's matrix over a direct receipt (the Linux half of row 7.22): every contract name present with the right type, the
- * snapshot bound to the commit's tree at start and exit, a well formed freshness census, and none of the broker-only names.
+ * snapshot bound to the commit's tree at start and exit, and none of the broker-only names (no freshness census: the gate does not judge rebuild causes, reset plan section 4).
  * Returns the list of problems; an empty list means the receipt verifies.
  */
 export function verifyDirectReceipt(receipt) {
@@ -113,7 +112,6 @@ export function verifyDirectReceipt(receipt) {
   if (Object.hasOwn(receipt, "declaredInputDigests") && !Array.isArray(receipt.declaredInputDigests)) problems.push("declaredInputDigests is not a list");
   const verdict = receipt.verdict;
   if (Object.hasOwn(receipt, "verdict") && !(verdict && (verdict.result === "PASSED" || verdict.result === "FAILED"))) problems.push("verdict has no PASSED or FAILED result");
-  if (Object.hasOwn(receipt, "freshness")) for (const p of validateFreshness(receipt.freshness)) problems.push(p);
   const timings = receipt.timingsMs;
   if (Object.hasOwn(receipt, "timingsMs")) {
     if (!timings || typeof timings !== "object") problems.push("timingsMs is not an object");

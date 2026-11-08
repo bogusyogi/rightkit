@@ -21,8 +21,8 @@
 // never a spawn of this recipe's own. The broker owns the output root, so the call names neither -derivedDataPath, -archivePath, -exportPath nor -resultBundlePath:
 // the archive and the export directory are READ BACK from the verified receipt's managed output roles (`outputs.byRole.archive` / `.export`), and the export must read
 // the very archive that was verified. The ExportOptions.plist is a regular XML file inside the step directory (the snapshot), not under the receipt directory. Signing stays
-// the provisioned GUI session's (assertGuiSigningSession) with automatic signing and -allowProvisioningUpdates; no alternate signer exists. A missing runner, an unadvertised
-// capability or an argv the broker's grammar refuses is refused BEFORE the first tool is launched. The non-compiling queries (`xcodebuild -version`, `xcodegen --version`,
+// the provisioned GUI session's (assertGuiSigningSession) with automatic signing and -allowProvisioningUpdates; no alternate signer exists. A missing runner or a call the door cannot map (a path outside the step's directory, a signing-file
+// handoff) is refused BEFORE the first tool is launched; an argv the broker's grammar refuses is refused by the broker at that call (RK_ADAPTER_ARGV_DENIED), not by the gate beforehand. The non-compiling queries (`xcodebuild -version`, `xcodegen --version`,
 // plutil, codesign, security, ditto, git) are this recipe's own direct steps through `deps.run`.
 import { createHash } from "node:crypto";
 import * as nodeFs from "node:fs";
@@ -41,7 +41,7 @@ export const IOS_DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
  * Codes: IOS_PACKAGE_CONFIG_INVALID, IOS_PACKAGE_HOST_UNSUPPORTED, IOS_PACKAGE_TOOL_MISSING, IOS_PACKAGE_GENERATE_FAILED,
  * IOS_PACKAGE_PREPARE_FAILED, IOS_PACKAGE_ARCHIVE_FAILED, IOS_PACKAGE_SOURCE_CHANGED, IOS_PACKAGE_VERIFY_FAILED,
  * IOS_PACKAGE_EXPORT_FAILED, IOS_PACKAGE_BUILD_NUMBER, IOS_PACKAGE_RECEIPT_FAILED, IOS_PACKAGE_NATIVE_REQUIRED (no production native runner was supplied),
- * IOS_PACKAGE_NATIVE_REFUSED (the door or the broker's grammar refused a native call before any launch; the message names the capability).
+ * IOS_PACKAGE_NATIVE_REFUSED (the door refused a native call before any launch, or the broker refused it at admission; the message names the code).
  */
 export class IosPackageError extends Error {
   constructor(code, message, options) { super(message, options); this.name = "IosPackageError"; this.code = code; }
@@ -576,7 +576,7 @@ export async function runIosPackageRecipe({
     if (result.error || result.status !== 0) throw new IosPackageError(code, `${cmd} ${id} failed (${result.status ?? "unavailable"})${result.error ? `: ${result.error.message}` : ""}\n${outputTail(result)}`);
     return result;
   };
-  // A compiler-capable call: the production runner only. A refusal (no runner route, an unadvertised capability, an argv the broker's grammar refuses) happened BEFORE any launch and names the capability.
+  // A compiler-capable call: the production runner only. A refusal (no runner route, a path the door cannot map, or an argv the broker refuses at admission) happened BEFORE any build ran and names its code.
   const refusedNative = (cmd, refusal) => new IosPackageError("IOS_PACKAGE_NATIVE_REFUSED", `${cmd} was refused before any launch (${refusal.code ?? "refused"}): ${refusal.message}`);
   const planNative = (cmd, args, options = {}) => {
     try { native.plan(cmd, args, { cwd: root, env, ...options }); } catch (error) {
@@ -601,7 +601,7 @@ export async function runIosPackageRecipe({
     return found;
   };
   const nativeEvidence = (result) => ({
-    tool: result.tool, adapter: result.adapter, capability: result.capability, carried: result.carried, relativeCwd: result.relativeCwd, requestId: result.requestId, outputDir: result.outputDir,
+    tool: result.tool, adapter: result.adapter, carried: result.carried, relativeCwd: result.relativeCwd, requestId: result.requestId, outputDir: result.outputDir,
     outputsSource: result.outputs?.source ?? null, argv: result.argv, outputs: result.outputs?.outputs ?? [],
   });
   const plist = (file) => {
@@ -625,7 +625,7 @@ export async function runIosPackageRecipe({
 
   let tempDir;
   try {
-    // ---- plan every compiler-capable call against the broker's grammar BEFORE the first launch: a missing capability or a refused argv stops here, with nothing sent ----
+    // ---- plan every compiler-capable call through the door BEFORE the first launch: a missing runner or an unmappable path stops here, with nothing sent (the broker's own argv refusals arrive at the call) ----
     // The export reads an options file of the step directory, so it is written first; the build number is a placeholder here (the real one is drawn from the counter just before the archive).
     const optionsText = exportOptionsPlist(spec);
     fs.mkdirSync(path.dirname(optionsFile), { recursive: true });

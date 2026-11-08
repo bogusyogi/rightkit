@@ -25,7 +25,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { DEFAULT_OUT, readJson, receiptRefusal, exceptionAllowsets } from "./rk-preflight.mjs";
 import { packageRows, readPackages as readNpmPackages } from "./rk-npm-preflight.mjs";
 import { brokerClientInvocation } from "../../packages/release/broker-client.mjs";
-import { processProbe } from "../../packages/release/build-ownership.mjs";
+import { lockBootTimeMs, lockProcessIdentity } from "../../packages/release/lock-identity.mjs";
 import { controlPlaneProblem } from "../../packages/release/control-plane.mjs";
 import { resolveManagedRoots } from "../../packages/release/managed-roots.mjs";
 
@@ -739,12 +739,10 @@ export function pidAlive(pid) {
   try { process.kill(pid, 0); return true; } catch (error) { return error.code === "EPERM"; }
 }
 const sleepSync = (ms) => { try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch { const end = Date.now() + ms; while (Date.now() < end) { /* spin */ } } };
-let probeCache;
 function defaultIdentity(pid) {
   try {
-    probeCache ??= processProbe({ platform: process.platform });
-    const { alive, startedMs } = probeCache.identity(pid);
-    let bootMs = null; try { bootMs = probeCache.bootTime?.() ?? null; } catch { bootMs = null; }
+    const { alive, startedMs } = lockProcessIdentity(pid);
+    let bootMs = null; try { bootMs = lockBootTimeMs(); } catch { bootMs = null; }
     return { alive, startedMs: Number.isFinite(startedMs) ? startedMs : null, bootMs: Number.isFinite(bootMs) ? bootMs : null };
   } catch { return { alive: null, startedMs: null, bootMs: null }; }
 }

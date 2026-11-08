@@ -3,7 +3,7 @@ import { spawnSync } from "./background-process.mjs";
 import { createHash } from "node:crypto";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, lstatSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
 import { buildLaunch, createNativeRunner } from "./build-launch.mjs";
-import { carriedOutputDir, carriedOutputDirsSince } from "./carried-cargo.mjs";
+import { carriedOutputDir, carriedOutputDirsSince } from "./stage-seam.mjs";
 import { lockedTauriArgs } from "./tauri-locked.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -469,7 +469,7 @@ function resolveBundleRoot(descriptor, { root, env, runCargo }) {
   } finally { process.chdir(cwd); }
   if (metadata.error || metadata.status !== 0) throw new Error(`RightKit Cargo metadata failed (${metadata.status ?? "unavailable"})${metadata.error ? `: ${metadata.error.message}` : ""}`);
   let targetDirectory;
-  // A carried call (a snapshot stage's, carried-cargo.mjs) reports the signed receipt's output directory, not what metadata prints.
+  // A carried call (a snapshot stage's, stage-seam.mjs) reports the signed receipt's output directory, not what metadata prints.
   if (typeof metadata.outputDir === "string") targetDirectory = metadata.outputDir;
   else try { targetDirectory = JSON.parse(metadata.stdout).target_directory; } catch { throw new Error("RightKit Cargo metadata returned invalid JSON"); }
   if (!targetDirectory || !path.isAbsolute(targetDirectory)) throw new Error("Cargo metadata omitted absolute target_directory");

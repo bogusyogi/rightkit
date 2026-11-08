@@ -88,8 +88,8 @@ test("a stage child's adapter runs through the seam when its environment carries
   assert.throws(() => runSeamAdapter("Bad Adapter", [], { env, spawnSync }), /not an adapter id/);
 });
 
-test("a stage child's seam call is filed in the stage ledger and judged by the parent: a failed judge is never status 0 and never a clean ledger (caller path, carried-cargo.mjs)", async () => {
-  const { runCarriedAdapter } = await import("./carried-cargo.mjs");
+test("a stage child's seam call is filed in the stage ledger and judged by the parent: a failed judge is never status 0 and never a clean ledger (caller path, stage-seam.mjs)", async () => {
+  const { runStageAdapter } = await import("./stage-seam.mjs");
   const { readLedger, UNSCOPED } = await import("./cargo-ledger.mjs");
   const dir = tmp(); const ledgerDir = path.join(dir, "ledger"); const receiptFile = path.join(dir, "r.json");
   const mine = { jobId: "q1", argv: ["run", "build"], workspace: "/snap/app", adapter: "rightkit-pnpm" };
@@ -107,7 +107,7 @@ test("a stage child's seam call is filed in the stage ledger and judged by the p
   const env = { PATH: "/usr/bin", RUSTRIGHT_GATE_COMMIT: commit, RUSTRIGHT_CLASS_A: "/v/class-a.json" };
   const map = { ledgerDir, broker: { client: "/opt/rustright" } };
   const line = (o) => `rustright-result ${JSON.stringify({ requestId: "q1", exit: 0, signal: null, outputDir: "/t/out", receiptPersisted: true, ...o })}\n`;
-  const run = (stderr, status = 0) => runCarriedAdapter("rightkit-pnpm", ["run", "build"], { cwd: "/snap/app", env }, { map, spawn: () => ({ status, signal: null, stdout: "", stderr }) });
+  const run = (stderr, status = 0) => runStageAdapter("rightkit-pnpm", ["run", "build"], { cwd: "/snap/app", env }, { map, spawn: () => ({ status, signal: null, stdout: "", stderr }) });
   const ledger = () => readLedger(ledgerDir, UNSCOPED);
   // every call is filed pending before it is sent, then its outcome under the same id (one entry per call)
   // 1. verified: status 0, ledger clean, entry settled
@@ -157,7 +157,8 @@ const commit = "a".repeat(40); const tree = "b".repeat(40); const repoKey = "012
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "rk-seam-test-"));
 // A receipt as the broker's producer shapes the fields the gate compares (finish_impl.rs: provenance.payload.jobId and .request.{requestedArgv, workspace, adapter}).
 // The broker's finish writes the job id and terminal time on every receipt (top-level `id`/`terminalAt`, and in the signed payload); the gate settles a row only on them.
-const receiptOf = (gate, { jobId = "q1", argv = [], workspace = "/snap/app", adapter = null, extra = {} } = {}) => ({ id: jobId, terminalAt: "2026-11-09T00:00:00.000Z", gate, provenance: { payload: { jobId, terminalAt: "2026-11-09T00:00:00.000Z", request: { kind: adapter ? "adapter" : "cargo", adapter, requestedArgv: argv, workspace } } }, ...extra });
+// A reaped job with a clean survivor census (reap REAPED, descendants tree-contained): what the gate needs to call the job's processes gone.
+const receiptOf = (gate, { jobId = "q1", argv = [], workspace = "/snap/app", adapter = null, extra = {} } = {}) => ({ id: jobId, status: "SUCCEEDED", terminalAt: "2026-11-09T00:00:00.000Z", reap: { status: "REAPED", reaped: true, escalated: false }, processOwnership: { pid: 1 }, startedAt: "2026-11-09T00:00:00.000Z", gate, provenance: { payload: { jobId, terminalAt: "2026-11-09T00:00:00.000Z", startedAt: "2026-11-09T00:00:00.000Z", descendants: { status: "tree-contained" }, request: { kind: adapter ? "adapter" : "cargo", adapter, requestedArgv: argv, workspace } } }, ...extra });
 
 
 test("the Class A verdict exists only for a complete green plan and binds commit, tree, repository and workspace", () => {
@@ -230,7 +231,7 @@ test("exactly one rustright-result line is the result; none or several fails the
 
 test("the receipt's postconditions are judged before the exit code; a refusal keeps its code; a killed child fails", () => {
   const dir = tmp();
-  const receipt = (gate, extra = {}) => { const f = path.join(dir, `${Math.random().toString(16).slice(2)}.json`); fs.writeFileSync(f, JSON.stringify({ gate, ...extra })); return f; };
+  const receipt = (gate, extra = {}) => { const f = path.join(dir, `${Math.random().toString(16).slice(2)}.json`); fs.writeFileSync(f, JSON.stringify({ status: "SUCCEEDED", gate, ...extra })); return f; };
   const line = (o) => `rustright-result ${JSON.stringify({ requestId: "r1", exit: 0, signal: null, outputDir: "/t/out", receiptPersisted: true, ...o })}\n`;
   const good = { commit, tree, snapshot: "/snap", classA: "/v/class-a.json", snapshotUnchanged: true };
   // pass: exit 0, durable receipt, postconditions hold, test executables carried

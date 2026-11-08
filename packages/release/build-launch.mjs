@@ -18,16 +18,16 @@
 // - swift <args>                -> <rustright> run rightkit-swift -- <args>   (a native helper's SwiftPM build; carried like the others on a snapshot stage)
 // A carried adapter step's own environment (the `env` the step declares, passed as `host.stepEnv`) is forwarded as the adapter request's
 // environment: the door sets RUSTRIGHT_ADAPTER_ENV to exactly those names (adapter-env.mjs), the broker accepts the names the adapter's
-// registration lists in `env`, and the values are bound into the signed request. A reserved name is refused here; a step with no env gets no
-// RUSTRIGHT_ADAPTER_ENV.
+// registration lists in `env` (RK_ADAPTER_ENV_DENIED, adapter.rs check_environment; the client refuses a reserved name first, shims.rs adapter_environment), and the
+// values are bound into the signed request. A step with no env gets no RUSTRIGHT_ADAPTER_ENV.
 // - rustright run <adapter> -- <args> on a snapshot stage -> the same step as the adapter's own program (pnpm, node, swift), so
 //                                  the door's rules apply to it; any other `rustright <command>` there is refused (RK_BUILD_LAUNCH_REFUSED)
-// - pnpm exec <target>          -> only a target in EXEC_TARGETS (tauri) on a broker host; pnpm exec right-release runs the gate's own right-release: the broker's pnpm entry
-//                                  has no target allowlist, so `pnpm exec node -e ...` would otherwise pass the node flag ban
+// - pnpm exec <target>          -> only a target in EXEC_TARGETS (tauri) on a broker host; pnpm exec right-release runs the gate's own right-release: the door keeps this one list because the
+//                                  broker enforces a target list only when the operator's pnpm registration carries `opaqueTargets.exec`, so `pnpm exec node -e ...` would otherwise pass the node flag ban
 // - anything else               -> refused on a managed host: no broker adapter runs it yet, and running it directly would bypass the
 //                                  broker (fail closed; the per-app impact is mapped in rightkit#1241)
-// - xcodegen | xcodebuild | gradle (./gradlew) | cmake -> the tool's own constrained adapter (native-adapters.mjs; RustRight's typed native grammar, rustright-policy native_adapters.rs): judged BEFORE the send by the
-//                                  registration, the broker's shape rules (modes, selections, output-moving -D entries) and its file rules (the Gradle wrapper's pin, the export options file); never an environment; a
+// - xcodegen | xcodebuild | gradle (./gradlew) | cmake -> the tool's own adapter (native-adapters.mjs maps the tool to `rightkit-<tool>` and makes its paths relative to the step's directory); the broker
+//                                  judges the argv, the call's shape and its files at admission (RK_ADAPTER_UNKNOWN, RK_ADAPTER_ARGV_DENIED, RK_ADAPTER_PIN_REQUIRED); never an environment; a
 //                                  signing-properties file is a typed path handoff that a broker route refuses before launch (RK_NATIVE_SIGNING_FILE_UNSUPPORTED). The client of an uncarried one is the resolved
 //                                  executor's (the declared Linux broker's, else the managed runtime client), never a PATH lookup. `createNativeRunner` is the production runner the iOS and Android lanes inject.
 // A launch from inside a broker job is routed the same way: the broker attributes it to its parent job by the parent's own
@@ -38,14 +38,13 @@ import { fileURLToPath } from "node:url";
 import { resolveExecutor } from "./gate-executor.mjs";
 import { gateNoBroker } from "./managed-cargo.mjs";
 import { resolveExecutable } from "./admission-host.mjs";
-import { CARRIED_CARGO_MAP_ENV as CARRIED_MAP_ENV, carriedCargoMapOf, runCarriedAdapter } from "./carried-cargo.mjs";
+import { CARRIED_CARGO_MAP_ENV as CARRIED_MAP_ENV, carriedCargoMapOf, runStageAdapter } from "./stage-seam.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { managedRuntimeClient } from "./managed-roots.mjs";
-import { ADAPTER_ENV_MANIFEST, QA_HANDOFF_ENV, adapterEnvLaunch } from "./adapter-env.mjs";
-import { cargoSubcommandOf, canonicalCargoCommand } from "./cargo-shapes.mjs";
+import { QA_HANDOFF_ENV, adapterEnvLaunch } from "./adapter-env.mjs";
+import { cargoCommandIndex, expandCargoAliases } from "./cargo-target-shim.mjs";
 import { swiftScratchRefusal } from "./swift-scratch.mjs";
-import { NATIVE_ADAPTERS, NATIVE_SIGNING_FILE_ENV, nativeCallFsProblem, nativeManagedOutputs, nativeOutputsFromReceipt, nativeSigningFileRefusal, nativeStateDir, nativeToolLaunch, nativeToolOf } from "./native-adapters.mjs";
-import { PNPM_ADAPTER_GRAMMAR, adapterArgvRefusal, liveAdapterGrammar, scanAdapterArgv } from "./pnpm-adapter-grammar.mjs";
+import { NATIVE_ADAPTERS, NATIVE_SIGNING_FILE_ENV, nativeManagedOutputs, nativeOutputsFromReceipt, nativeSigningFileRefusal, nativeStateDir, nativeToolLaunch, nativeToolOf } from "./native-adapters.mjs";
 
 /** The environment variable the door sets for a stage that runs from a commit snapshot (gate-stages.mjs CHECKOUT_ENV). */
 const SNAPSHOT_STAGE_ENV = "RK_GATE_CHECKOUT";
@@ -110,7 +109,7 @@ function pnpmCommandAt(words) {
 /**
  * The pnpm command of an argv read LENIENTLY (the first word that is not an option or an option's value), or null. Only the install-skip of a snapshot
  * stage uses it (a stage that skips `install` runs nothing, so a lenient reading can only skip more); everything the door SENDS is judged by the
- * registration's own parser (pnpm-adapter-grammar.mjs scanAdapterArgv, GB-03).
+ * broker's own adapter parser at admission (RK_ADAPTER_ARGV_DENIED, rustright admission_impl.rs `admit_adapter`).
  */
 export function pnpmCommandOf(args) {
   const words = args.map(String);
@@ -171,14 +170,16 @@ export function buildLaunch(command, args = [], host = {}) {
   // `.rustright/broker.json`, or the host lists them in `buildRules.forwardTestEnv`). Nothing here carries a signing key or credential.
   const cargoHandoffEnv = (cargoArgs) => {
     const present = Object.keys(handoffEnv());
-    if (!present.length || !["test", "bench", "run", "nextest"].includes(canonicalCargoCommand(cargoSubcommandOf(cargoArgs.map(String))))) return {};
+    const cargoWords = expandCargoAliases(cargoArgs.map(String));
+    const cargoAt = cargoCommandIndex(cargoWords);
+    if (!present.length || cargoAt === null || !["test", "bench", "run", "nextest"].includes(cargoWords[cargoAt])) return {};
     for (const key of present) {
       if (!(path.isAbsolute(env[key]) || path.win32.isAbsolute(env[key])) || env[key].split(/[\\/]/).includes("..")) refuse(`${name(command)} ${args.join(" ")}: ${key} must be an absolute path with no '..' (the signed artifact's exact path); it is not forwarded`);
     }
     const existing = String(env.RUSTRIGHT_FORWARD_ENV ?? "").split(",").map((n) => n.trim()).filter(Boolean);
     return { env: { RUSTRIGHT_FORWARD_ENV: [...new Set([...existing, ...present])].join(",") } };
   };
-  // A snapshot stage's `cargo` and `rustright cargo` steps are carried (carried-cargo.mjs), never sent to the client: one signed, ledgered
+  // A snapshot stage's `cargo` and `rustright cargo` steps are carried (stage-seam.mjs), never sent to the client: one signed, ledgered
   // request per call, from the step's working directory, on every platform (rightkit#1301 F3).
   const carriedArgs = program === "cargo" ? args : program === "rustright" && String(args[0]) === "cargo" ? args.slice(1) : null;
   // R3-X02: the broker's cargo-ndk output rule (rustright-policy ndk.rs `check_output_dir`): the libraries go to a directory strictly inside the workspace, never `.git`. The lexical half is judged here, before the send.
@@ -194,12 +195,12 @@ export function buildLaunch(command, args = [], host = {}) {
   const adapterMap = ["pnpm", "node", "swift"].includes(program) || nativeToolOf(command) !== null ? carriedCargoMapOf(env) : null;
   if (adapterMap?.error) refuse(`${name(command)} ${args.join(" ")}: ${adapterMap.error}; a snapshot stage's step is never sent to the client around its carrier`);
   // The step's own environment rides the adapter request (adapter-env.mjs): RUSTRIGHT_ADAPTER_ENV names exactly what the step declares, plus the
-  // signed-artifact handoff (GB-05) when a sign step set it in this environment. Every name is judged against the adapter's registered `env`
-  // (the live registration, else the candidate manifest) BEFORE launch (GB-04): an unregistered key refuses, naming it and the registered set.
-  const stepEnvLaunch = (adapter) => {
+  // signed-artifact handoff (GB-05) when a sign step set it in this environment. The gate judges only what it alone can (signing material, a name or value that
+  // cannot ride the list); a reserved or unregistered key is refused by the client (shims.rs adapter_environment) and by the broker's admission
+  // (RK_ADAPTER_ENV_DENIED, admission_impl.rs `admit_adapter`, adapter.rs check_environment), naming the key and the registered set.
+  const stepEnvLaunch = () => {
     try {
-      const registered = host.registeredEnv?.[adapter] ?? liveAdapterGrammar({ env, platform, readFile: host.readFile, adapter })?.env ?? ADAPTER_ENV_MANIFEST[adapter] ?? [];
-      return adapterEnvLaunch({ ...(host.stepEnv ?? {}), ...handoffEnv() }, { registered });
+      return adapterEnvLaunch({ ...(host.stepEnv ?? {}), ...handoffEnv() });
     } catch (error) {
       const refusal = new Error(`${name(command)} ${args.join(" ")}: ${error.message}`);
       refusal.code = BUILD_LAUNCH_REFUSED;
@@ -212,7 +213,7 @@ export function buildLaunch(command, args = [], host = {}) {
   // identity: nothing is launched until the exact client is found, and none is found by searching PATH.
   const executorClient = () => executor.client ?? managedRuntimeClient(env, platform, exists) ?? refuse(`${name(command)} ${args.join(" ")}: no installed RustRight client for this broker-managed ${platform} host (the declared Linux broker client, or the managed runtime client); a native build tool is never launched through a PATH lookup`, "RK_NATIVE_CLIENT_UNRESOLVED");
   const adapterLaunch = (adapter, adapterArgs, resolveClient = client) => {
-    const stepLaunchEnv = stepEnvLaunch(adapter);
+    const stepLaunchEnv = stepEnvLaunch();
     const launchEnv = { ...(Object.keys(stepLaunchEnv).length ? { env: stepLaunchEnv } : {}), ...(stepLaunchEnv.signingEnvDropped?.length ? { signingEnvDropped: stepLaunchEnv.signingEnvDropped } : {}) };
     return adapterMap?.map ? { command: process.execPath, args: [CARRIED_ADAPTER_RUN, adapter, "--", ...adapterArgs], ...launchEnv } : { command: resolveClient(), args: ["run", adapter, "--", ...adapterArgs], ...launchEnv };
   };
@@ -232,22 +233,15 @@ export function buildLaunch(command, args = [], host = {}) {
     return buildLaunch(adapterProgram, args.slice(3), host);
   }
   // GB-51 / RA-07..RA-09: a declared native build tool (xcodegen, xcodebuild, Gradle and its wrapper, CMake) is a snapshot-bound adapter job of its own constrained adapter (native-adapters.mjs): its argv is
-  // judged by the registration and by the broker's own shape and file rules BEFORE the send (an output override, an unregistered flag or a shape the broker has no managed form for is refused here, naming
-  // the capability), paths are made relative to the step's directory, and the step carries no environment of its own: the signing-properties file is a typed handoff, never an environment, and refuses
+  // judged by the broker at admission (an output override, an unregistered flag or a shape it has no managed form for is refused there: RK_ADAPTER_ARGV_DENIED, RK_ADAPTER_PIN_REQUIRED), its paths are made
+  // relative to the step's directory here, and the step carries no environment of its own: the signing-properties file is a typed handoff, never an environment, and refuses
   // here when no broker can carry it. The client is the resolved executor's. Nothing runs the tool around the broker, and no generic spawn stands in for a compiler-capable phase.
   const nativeTool = nativeToolOf(command);
   if (nativeTool !== null) {
     const entry = NATIVE_ADAPTERS[nativeTool];
     const cwd = host.cwd ?? process.cwd();
-    const advertised = host.brokerCapabilities;
-    if (advertised !== undefined && advertised !== null && !(advertised instanceof Set ? advertised : new Set(advertised)).has(entry.capability)) refuse(`${name(command)} ${args.join(" ")}: the broker does not advertise ${entry.capability}; nothing was sent`, "RK_NATIVE_CAPABILITY_MISSING");
     const launch = nativeToolLaunch(nativeTool, args, { cwd });
     if (launch.refusal) refuse(`${launch.refusal.code}: ${launch.refusal.message}`, launch.refusal.code);
-    const fsProblem = nativeCallFsProblem(nativeTool, launch.args, { cwd, ...(host.nativeFs ? { fsOps: host.nativeFs } : {}) });
-    if (fsProblem) {
-      const code = fsProblem.pin ? "RK_ADAPTER_PIN_REQUIRED" : "RK_ADAPTER_ARGV_DENIED";
-      refuse(`${code}: ${nativeTool} ${launch.args.join(" ")}: ${fsProblem.message}; the broker's ${entry.adapter} adapter (capability ${entry.capability}) would refuse it (rightkit#1241), so it is not sent`, code);
-    }
     const signing = nativeSigningFileRefusal(nativeTool, host.signingFile, { signerRoot: host.signerRoot });
     if (signing) refuse(`${signing.code}: ${signing.message}`, signing.code);
     const launchedBare = adapterLaunch(entry.adapter, launch.args, executorClient);
@@ -257,7 +251,7 @@ export function buildLaunch(command, args = [], host = {}) {
     const snapshotRoot = adapterMap?.map?.broker?.snapshot?.path;
     const real = (dir) => { try { return realpathSync(dir); } catch { return path.resolve(dir); } };
     const relativeCwd = typeof snapshotRoot === "string" && snapshotRoot ? path.relative(real(snapshotRoot), real(cwd)).split(path.sep).join("/") : null;
-    return { ...launched, native: { tool: nativeTool, adapter: entry.adapter, capability: entry.capability, args: launch.args, relativeCwd, carried: Boolean(adapterMap?.map) } };
+    return { ...launched, native: { tool: nativeTool, adapter: entry.adapter, args: launch.args, relativeCwd, carried: Boolean(adapterMap?.map) } };
   }
   if (program === "swift") {
     // GB-67: the broker owns SwiftPM's scratch and build path; a caller that names one is refused here, typed, before anything is sent.
@@ -295,15 +289,11 @@ export function buildLaunch(command, args = [], host = {}) {
       if (options.trim() !== "" && options !== String(process.env.NODE_OPTIONS ?? "")) refuse(`pnpm ${words.join(" ")}: NODE_OPTIONS is neither empty nor exactly this process's own; on a broker-managed host the door runs right-release only with no added startup code`);
       return { command: process.execPath, args: [OWN_RIGHT_RELEASE, ...words.slice(2)] };
     }
-    // GB-03: the registration's own parser decides, before anything is sent (the live registration when this host has it, else the reference registration
-    // RustRight published): the command token, the leading global flags, `--if-present` after `run`, the opaque tail of `run` and `exec`, the registered exec
-    // targets, the pack destination, and in a snapshot-bound call the snapshot subcommands. No leading option is skipped to find the command, and nothing is rewritten.
-    const grammar = (host.pnpmGrammar ?? liveAdapterGrammar({ env, platform, readFile: host.readFile })) ?? PNPM_ADAPTER_GRAMMAR;
-    const grammarProblem = adapterArgvRefusal(words, grammar, { snapshot: Boolean(adapterMap?.map) });
-    if (grammarProblem) refuse(`pnpm ${words.join(" ")}: ${grammarProblem}; the broker's rightkit-pnpm adapter would refuse it (rightkit#1241), so it is not sent`);
-    // `pnpm exec <target> ...`: the door admits only the targets the apps' configs run, and only those the registration admits (`opaqueTargets.exec`).
-    const scanned = scanAdapterArgv(words, grammar);
-    if (scanned.command === "exec" && !EXEC_TARGETS.includes(scanned.target ?? "")) refuse(`pnpm ${words.join(" ")}: pnpm exec target ${JSON.stringify(scanned.target ?? null)} is not allowed (allowed: ${EXEC_TARGETS.join(", ")}); on a broker-managed host pnpm exec runs only those, as a broker job (rightkit#1241)`);
+    // The pnpm argv grammar (command token, global flags, `--if-present`, the opaque tail, the pack destination, the snapshot subcommands) is judged by the broker at
+    // admission (RK_ADAPTER_ARGV_DENIED, admission_impl.rs `admit_adapter` -> adapter.rs check_argv and snapshot_argv_check), not mirrored here; nothing is rewritten.
+    // `pnpm exec <target> ...`: the door keeps its own list of the targets the apps' configs run (the broker's target list exists only when the registration has one).
+    const execAt = pnpmCommandAt(words);
+    if (execAt >= 0 && words[execAt] === "exec" && !EXEC_TARGETS.includes(words[execAt + 1] ?? "")) refuse(`pnpm ${words.join(" ")}: pnpm exec target ${JSON.stringify(words[execAt + 1] ?? null)} is not allowed (allowed: ${EXEC_TARGETS.join(", ")}); on a broker-managed host pnpm exec runs only those, as a broker job (rightkit#1241)`);
     return adapterLaunch("rightkit-pnpm", words);
   }
   return refuse(`${program} ${args.join(" ")}: no broker adapter runs this command yet, and on a broker-managed host a build or test command never runs around the broker (rightkit#1241)`);
@@ -311,28 +301,27 @@ export function buildLaunch(command, args = [], host = {}) {
 
 /**
  * The production runner of the native compile phases (RA-07, RA-08, RA-09), for the iOS and Android callers to inject: `createNativeRunner({ cwd, env, ... }).run(command, args, options)`.
- * It is the real route and nothing else: `buildLaunch` decides (the registration, the broker's shape and file rules, the executor's client, the typed signing-file handoff), a carried step goes
- * through the carrier in this process (`runCarriedAdapter`: one signed, ledgered request, the receipt verified), an uncarried one through the resolved executor's client (the broker decides). There is NO
- * executor parameter: a test injects a host description (`which`, `exists`, `readFile`, `nativeFs`) to `plan`, which only maps and spawns nothing. A command that is not a native build tool is
+ * It is the real route and nothing else: `buildLaunch` decides (the tool-to-adapter mapping, the relative paths, the executor's client, the typed signing-file handoff; the broker judges the call), a carried step goes
+ * through the carrier in this process (`runStageAdapter`: one seam call filed in the stage's ledger, its receipt read), an uncarried one through the resolved executor's client (the broker decides). There is NO
+ * executor parameter: a test injects a host description (`which`, `exists`, `readFile`) to `plan`, which only maps and spawns nothing. A command that is not a native build tool is
  * refused (`RK_NATIVE_TOOL_REFUSED`): a compiler-capable phase never falls back to a generic spawn, and a non-compiling query (`plutil`, `git`) is the caller's own direct step.
  *
  * `plan(command, args, options)` returns the launch (`{ command, args, env?, native }`) or throws the door's refusal (`code` RK_BUILD_LAUNCH_REFUSED, `reason` the typed code).
  * `run(command, args, options)` is synchronous and returns this fixed shape (spawnSync-compatible: `status`, `signal`, `stdout`, `stderr`, `error`):
  *   { ok, status, signal, stdout, stderr, error, refusal: { code, message } | null,             // a refusal is before any launch: nothing was sent, status is null
- *     tool, adapter, capability, argv, carried, relativeCwd,                                   // what was sent (argv after relativization); null on a refusal before the plan
+ *     tool, adapter, argv, carried, relativeCwd,                                  // what was sent (argv after relativization); null on a refusal before the plan
  *     requestId, outputDir,                                                                    // the verified job (carried and verified), else null
  *     outputs: { ok, source: "receipt" | "grammar", state, outputs: [{ role, path }], byRole, unresolved?: [role] } | { ok: false, problem } | null,
  *     nestedChildren }
  * `outputs` maps the call's managed locations by role under the job's verified output directory: "receipt" when the verified signed receipt's `executable.managedOutputs` was read back and equals the grammar's
  * mapping; "grammar" when the carrier surfaced only the output directory (the result bundle of a test action is then `unresolved` unless the request id is known). A caller consumes `byRole`, never a path of its own.
- * options: `cwd`, `env` (the step's own launch environment, none of it forwarded), `stdio`, `timeout`, `signingFile` and `signerRoot` (the signing-properties file handoff, path only), `brokerCapabilities`.
+ * options: `cwd`, `env` (the step's own launch environment, none of it forwarded), `stdio`, `timeout`, `signingFile` and `signerRoot` (the signing-properties file handoff, path only).
  */
-export function createNativeRunner({ cwd = process.cwd(), env = process.env, platform = process.platform, exists = existsSync, which, readFile, nativeFs, signerRoot, brokerCapabilities } = {}) {
+export function createNativeRunner({ cwd = process.cwd(), env = process.env, platform = process.platform, exists = existsSync, which, readFile, signerRoot } = {}) {
   const hostOf = (options) => ({
     env: options.env ?? env, platform, exists, cwd: options.cwd ?? cwd,
-    ...(which ? { which } : {}), ...(readFile ? { readFile } : {}), ...(nativeFs ? { nativeFs } : {}),
+    ...(which ? { which } : {}), ...(readFile ? { readFile } : {}),
     ...(options.signingFile ? { signingFile: options.signingFile } : {}), ...((options.signerRoot ?? signerRoot) ? { signerRoot: options.signerRoot ?? signerRoot } : {}),
-    ...((options.brokerCapabilities ?? brokerCapabilities) ? { brokerCapabilities: options.brokerCapabilities ?? brokerCapabilities } : {}),
   });
   const plan = (command, args = [], options = {}) => {
     if (nativeToolOf(command) === null) refuse(`RK_NATIVE_TOOL_REFUSED: ${name(command)} ${args.join(" ")}: not a native build tool (xcodegen, xcodebuild, gradle, cmake); a compiler-capable phase has no generic spawn (rightkit#1241), and a non-compiling command is the caller's own direct step`, "RK_NATIVE_TOOL_REFUSED");
@@ -340,7 +329,7 @@ export function createNativeRunner({ cwd = process.cwd(), env = process.env, pla
   };
   const refused = (error, tool) => ({
     ok: false, status: null, signal: null, stdout: "", stderr: `${error.message}\n`, error, refusal: { code: error.reason ?? error.code, message: error.message },
-    tool: tool ?? null, adapter: tool ? NATIVE_ADAPTERS[tool].adapter : null, capability: tool ? NATIVE_ADAPTERS[tool].capability : null, argv: null, carried: false, relativeCwd: null, requestId: null, outputDir: null, outputs: null, nestedChildren: null,
+    tool: tool ?? null, adapter: tool ? NATIVE_ADAPTERS[tool].adapter : null, argv: null, carried: false, relativeCwd: null, requestId: null, outputDir: null, outputs: null, nestedChildren: null,
   });
   const run = (command, args = [], options = {}) => {
     const tool = nativeToolOf(command);
@@ -353,7 +342,7 @@ export function createNativeRunner({ cwd = process.cwd(), env = process.env, pla
     if (native.carried) {
       const carried = carriedCargoMapOf(runEnv);
       if (!carried?.map) return refused(Object.assign(new Error(`${name(command)}: ${carried?.error ?? "no carried map in the environment"}; a snapshot stage's native step is never sent to the client around its carrier`), { code: BUILD_LAUNCH_REFUSED, reason: "RK_ADAPTER_CARRIER_MISSING" }), tool);
-      result = runCarriedAdapter(native.adapter, native.args, { cwd: stepCwd, env: runEnv, stdio: options.stdio === "inherit" ? "inherit" : "capture" }, { map: carried.map });
+      result = runStageAdapter(native.adapter, native.args, { cwd: stepCwd, env: runEnv, stdio: options.stdio === "inherit" ? "inherit" : "capture" }, { map: carried.map });
     } else {
       result = spawnSync(launch.command, launch.args, { cwd: stepCwd, env: runEnv, encoding: "utf8", windowsHide: true, shell: false, maxBuffer: 512 * 1024 * 1024, ...(options.stdio ? { stdio: options.stdio } : {}), ...(options.timeout ? { timeout: options.timeout } : {}) });
     }
@@ -367,19 +356,16 @@ export function createNativeRunner({ cwd = process.cwd(), env = process.env, pla
       else {
         const state = nativeStateDir(outputDir, native.tool, native.relativeCwd ?? "");
         const grammar = nativeManagedOutputs(native.tool, native.args, { state, jobId: requestId ?? undefined });
-        if (grammar.problem) outputs = { ok: false, problem: grammar.problem };
-        else {
-          const unresolved = grammar.outputs.filter((entry) => entry.unresolved).map((entry) => entry.role);
-          const resolved = grammar.outputs.filter((entry) => !entry.unresolved).map(({ role, path: file }) => ({ role, path: file }));
-          outputs = { ok: true, source: "grammar", state, outputs: resolved, byRole: Object.fromEntries(resolved.map(({ role, path: file }) => [role, file])), ...(unresolved.length ? { unresolved } : {}) };
-        }
+        const unresolved = grammar.outputs.filter((entry) => entry.unresolved).map((entry) => entry.role);
+        const resolved = grammar.outputs.filter((entry) => !entry.unresolved).map(({ role, path: file }) => ({ role, path: file }));
+        outputs = { ok: true, source: "grammar", state, outputs: resolved, byRole: Object.fromEntries(resolved.map(({ role, path: file }) => [role, file])), ...(unresolved.length ? { unresolved } : {}) };
       }
     }
     const error = result.error ?? (result.refusal ? Object.assign(new Error(result.refusal.message), { code: result.refusal.code }) : null);
     return {
       ok: result.status === 0 && !error && !result.refusal, status: result.status ?? null, signal: result.signal ?? null, stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? ""), error,
       refusal: result.refusal ? { code: result.refusal.code, message: result.refusal.message } : null,
-      tool: native.tool, adapter: native.adapter, capability: native.capability, argv: [...native.args], carried: native.carried, relativeCwd: native.relativeCwd,
+      tool: native.tool, adapter: native.adapter, argv: [...native.args], carried: native.carried, relativeCwd: native.relativeCwd,
       requestId, outputDir, outputs, nestedChildren: Array.isArray(result.nestedChildren) ? result.nestedChildren : null,
     };
   };

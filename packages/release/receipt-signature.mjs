@@ -1,7 +1,7 @@
 // The signature half of a RustRight broker job receipt, in pure JS (node:crypto only), exactly as rustright-protocol's attestation.rs
 // `verify_receipt` does: canonical JSON, the signed bytes, the pinned ES256 key and the checks that need no caller-side nonce. It is the part of
-// CI's publication admission that outlives the carrier: qualification-verify.mjs imports it for a seam receipt (the reset plan section 2, Trust),
-// and provenance-verify.mjs (on the plan's delete list) imports and re-exports it for its other importers until that module goes.
+// CI's publication admission that outlived the carrier: qualification-verify.mjs imports it for a seam receipt (the reset plan section 2, Trust); the carrier-era
+// verifier that wrapped it (provenance-verify.mjs) was deleted at plan step 5.
 // Never trusts a value from the receipt that the caller can pin instead.
 import { createHash, createPublicKey, verify } from "node:crypto";
 
@@ -75,7 +75,7 @@ const keyFromSec1 = (publicKeyHex) => {
 /**
  * Verifies receipt.provenance's signature against the pins the caller holds (never from the receipt) and the job the caller expects. Every
  * check fails closed (throws ProvenanceError with a stable `code`) and returns the signed payload on success. It checks no nonce and no
- * request digest: a caller that holds one adds that check itself (provenance-verify.mjs verifyProvenance); a seam receipt has none.
+ * request digest: a seam receipt has none.
  *   pins:  { publicKey (SEC1 uncompressed hex), keyId, host, brokerDigest }
  *   jobId: the receipt's job id; the signed payload's `jobId` and the receipt's own `id` must both equal it.
  */

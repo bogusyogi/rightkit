@@ -19,7 +19,7 @@
 // `.rightkit-qa-bin` stash) and run from there.
 import { realpathSync } from "node:fs";
 import { execFileSync } from "./background-process.mjs";
-import { carriedOutputDir } from "./carried-cargo.mjs";
+import { carriedOutputDir } from "./stage-seam.mjs";
 import { runCargoSync } from "./managed-cargo.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,7 +38,7 @@ export function resolveTargetRoot(manifestPath, options = {}) {
       const result = runCargoSync(args, { cwd: path.dirname(manifestPath), encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
       if (result.error) throw result.error;
       if (result.status !== 0) throw new Error(String(result.stderr ?? "").trim() || `exited ${result.status}`);
-      // A carried call (a snapshot stage's, carried-cargo.mjs): the output directory is the signed receipt's, not what the call prints.
+      // A carried call (a snapshot stage's, stage-seam.mjs): the output directory is the signed receipt's, not what the call prints.
       if (typeof result.outputDir === "string") return path.resolve(result.outputDir);
       output = result.stdout;
     }

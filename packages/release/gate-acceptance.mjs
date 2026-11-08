@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // End-to-end acceptance runner for the gate (rightkit#1514). It drives the real gate against the witness fixture and asserts every operative clause of
-// docs/GATE-CONTRACT.md from that run's OWN artifacts: the door receipt (--receipt-out), the per-scan coverage reports, the log, the owner record and
+// docs/GATE-CONTRACT.md from that run's OWN artifacts: the door receipt (--receipt-out), the per-scan coverage reports, the log, the snapshot lock and
 // git. Spec: /Volumes/D/scratch/gate-acceptance/criteria.md (clause table, run sequence S0-S9, negatives, kill-and-recover).
 //
 //   node gate-acceptance.mjs --fixture <dir> [--host mac|dell] [--steps S0,S1,...] [--out <dir>] [--plan] [--gate <path>] [--commit <sha>] [--allow-install]
@@ -26,8 +26,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { keyPath, repoKey } from "./snapshot.mjs";
-import { ownershipFile, runningBrokerProcess } from "./build-ownership.mjs";
-import { RUNTIME_MANIFEST_FILE } from "./broker-handshake.mjs";
+import { RUNTIME_MANIFEST_FILE } from "./seam-broker.mjs";
 import { resolveBrokerClient } from "./broker-client.mjs";
 import { managedRuntimeClient } from "./managed-roots.mjs";
 
@@ -36,7 +35,6 @@ export const COVERAGE_SCHEMA = "rightkit.gate-coverage/1";
 export const RECEIPT_SCHEMA = "rightkit.gate-receipt/1";
 export const SOURCE_IDENTITY_SCHEMA = "rightkit.source-identity.v1";
 export const RENDER_RECEIPT_SCHEMA = "rightkit.render-views/1";
-export const OWNERSHIP_SCHEMA = "rightkit.build-ownership/1";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const sha256 = (data) => createHash("sha256").update(data).digest("hex");
@@ -201,13 +199,13 @@ export function coveragePaths(text) {
   return [...String(text).matchAll(/coverage report (.+?): \d+ planned scan/g)].map((m) => m[1]);
 }
 
-/** The reclaim line of a gate: "build ownership held <handle> (reclaimed from <from>: <proofs>)". null when the run reclaimed nothing. */
+/** The reclaim line of a gate: "snapshot lock held <token> (reclaimed from <owner>: <proof>)". null when the run reclaimed nothing. */
 export function reclaimLine(text) {
-  const m = /build ownership (held|joined) (\S+) \(reclaimed from (.+?): (.*)\)\s*$/m.exec(String(text));
-  return m ? { mode: m[1], handle: m[2], from: m[3].trim(), proofs: m[4] } : null;
+  const m = /snapshot lock held (\S+) \(reclaimed from (.+?): (.*)\)\s*$/m.exec(String(text));
+  return m ? { token: m[1], from: m[2].trim(), proof: m[3] } : null;
 }
 
-const STAGE_FIELDS = ["ok", "at", "ruleTier", "direct", "qualifyOwed", "outputs", "snapshot", "ownership", "platform", "sealed", "manifestSha256", "voided", "track", "qaReceiptDigest", "tier"];
+const STAGE_FIELDS = ["ok", "at", "ruleTier", "direct", "qualifyOwed", "outputs", "snapshot", "snapshotLock", "platform", "sealed", "manifestSha256", "voided", "track", "qaReceiptDigest", "tier"];
 const BINDING_FIELDS = ["tree", "locks", "gate", "toolchain", "executor"];
 
 /**
@@ -504,22 +502,21 @@ export function exitedBySignal({ signal, exit, killSignal, platform = process.pl
 }
 
 /**
- * Kill-and-recover (K01, SIGKILL; also the SIGINT variant): `before` is the owner record read right after the kill (or null when none), `dry` the
- * ownership-recover.mjs dry-run `{ exit, text }`, `next` the following gate run `{ exit, text }`, `after` the owner record read after it (null: removed).
- * Pass when the next run starts without any operator step and either reclaims (log names the reclaim, handle replaced) or finds nothing held
- * (SIGINT released it). A record that survives a SIGKILL must be explained by the dry run and reclaimed by the next run.
+ * Kill-and-recover (K01, SIGKILL; also the SIGINT variant): `before` is the snapshot lock read right after the kill (or null when none), `next` the following gate
+ * run `{ exit, text }`, `after` the lock read after it (null: released). Pass when the next run starts without any operator step and either reclaims the dead owner's
+ * lock on the stale-owner rule (the log names the reclaim, the token is replaced) or finds nothing held (SIGINT released it). A lock that survives a SIGKILL stays
+ * until the next run: its body names the dead owner (`pid`, `token`), and nothing but that run's reclaim removes it.
  */
-export function assertRecovery({ signal, before, dry, next, after, exitedBySignal = true }) {
+export function assertRecovery({ signal, before, next, after, exitedBySignal = true }) {
   const problems = [];
   if (!exitedBySignal) problems.push(`the gate was not stopped by ${signal}`);
-  if (signal === "SIGKILL" && !before) problems.push("no owner record stood after SIGKILL: the gate released nothing, so it must have been killed before acquiring; the case proved nothing");
+  if (signal === "SIGKILL" && !before) problems.push("no snapshot lock stood after SIGKILL: the gate released nothing, so it must have been killed before taking it; the case proved nothing");
   if (before) {
-    if (!isObject(before) || typeof before.handle !== "string" || !Number.isInteger(before.pid)) problems.push("the owner record is malformed (no handle or pid)");
-    if (dry?.exit !== 0 || !/recover: recoverable:/.test(dry?.text ?? "")) problems.push(`ownership-recover.mjs dry run did not explain a recoverable record (exit ${dry?.exit}): ${(dry?.text ?? "").split("\n").filter((l) => /recover:/.test(l)).slice(-2).join(" | ").slice(0, 240)}`);
+    if (!isObject(before) || typeof before.token !== "string" || !Number.isInteger(before.pid)) problems.push("the snapshot lock is malformed (no token or pid)");
     const claim = reclaimLine(next?.text ?? "");
     if (!claim) problems.push("the next run's log has no 'reclaimed from' line");
-    else if (isObject(before) && claim.handle === before.handle) problems.push("the next run holds the dead owner's own handle: the record was not replaced");
-    if (isObject(before) && isObject(after) && after.handle === before.handle) problems.push("the owner record still carries the dead handle after the next run");
+    else if (isObject(before) && claim.token === before.token) problems.push("the next run holds the dead owner's own token: the lock was not replaced");
+    if (isObject(before) && isObject(after) && after.token === before.token) problems.push("the snapshot lock still carries the dead token after the next run");
   }
   if (next?.exit !== 0) problems.push(`the next run exited ${next?.exit}`);
   return { ok: problems.length === 0, problems };
@@ -625,7 +622,7 @@ export const NN = Object.freeze([
   { id: "NN10", steps: ["S2"], title: "Inside a snapshot the resident gate answers cargo metadata", evidence: "spawn ledger of the warm runs" },
   { id: "NN11", steps: ["S1", "S2"], title: "A warm run proves the snapshot from the resident index, without re-hashing it", evidence: "gate log (`snapshot proof:` line)" },
   { id: "NN12", steps: ["S2"], title: "Installed dependencies are identified by pnpm's install record and reused", evidence: "gate log (reuse-match=hit), spawn ledger, env digest" },
-  { id: "NN13", steps: ["S1", "S2", "S3", "S4", "S10"], title: "Class A takes no build-ownership lease", evidence: "gate log of every --to check" },
+  { id: "NN13", steps: ["S1", "S2", "S3", "S4", "S10"], title: "Class A takes no exclusion of its own: one snapshot lock, no build-ownership lease", evidence: "gate log of every --to check" },
   { id: "NN14", steps: ["S2"], title: "Preflight and app rules run once per tree", evidence: "gate log of the warm runs" },
   { id: "NN15", steps: ["S2"], title: "Advice scans are cached per lock set and UTC day or hour", evidence: "warm coverage" },
   { id: "NN16", steps: ["S10"], title: "A unit list shares one Class A and runs no per-unit format check", evidence: "--units-file log, spawn ledger" },
@@ -641,14 +638,14 @@ export const NN_EXT = Object.freeze([
   { id: "NN22", steps: ["S2"], title: "A warm snapshot sync writes and removes nothing", evidence: "sync lines and spawn ledger of the warm runs" },
   { id: "NN23", steps: ["S13"], title: "A gate upgrade that changes no key-relevant code keeps every hit", evidence: "coverage of the previous and the newest sealed gate" },
   { id: "NN24", steps: ["S14"], title: "The cache survives the resident gate's restart and idle exit", evidence: "coverage of a run after the resident gate was killed" },
-  { id: "NN25", steps: ["S2"], title: "A warm run starts no git-after-proof, version probe, pnpm, ownership probe or real cargo", evidence: "spawn ledger of the warm runs" },
+  { id: "NN25", steps: ["S2"], title: "A warm run starts no git-after-proof, version probe, pnpm, process probe or real cargo", evidence: "spawn ledger of the warm runs" },
   { id: "NN26", steps: ["S2"], title: "The gate asks the resident gate over its socket, in process", evidence: "spawn ledger" },
   { id: "NN27", steps: ["S1"], title: "Never two compiler passes over one crate, target and feature set", evidence: "S1 compile coverage" },
   { id: "NN28", steps: ["S2"], title: "Change detection comes from RightKit's file index and watcher", evidence: "gate log (change-source), spawn ledger" },
   { id: "NN29", steps: ["S16"], title: "Per-run identities never enter a key or a reuse record", evidence: "coverage keys of a run with different identities" },
   { id: "NN30", steps: ["S0"], always: true, title: "The releasing host passes (per host)", evidence: "this host's own run; another host's receipt is never required" },
   { id: "NN31", steps: ["S0"], always: true, title: "No gate is released or installed as trusted without a passing contract test", evidence: "release and install tooling calls --verify-release" },
-  { id: "NN32", steps: ["S8"], title: "A killed run's ownership recovers by itself on both hosts", evidence: "S8 kill cases" },
+  { id: "NN32", steps: ["S8"], title: "A killed run's snapshot lock is reclaimed by the next run on both hosts", evidence: "S8 kill cases" },
   { id: "NN33", steps: ["S0"], always: true, title: "The contract and the test match", evidence: "docs/GATE-CONTRACT.md NN table" },
   { id: "NN34", steps: ["S0"], always: true, post: true, title: "Missing evidence fails; a partial run never passes", evidence: "the finished result" },
   { id: "NN35", steps: ["S0"], always: true, post: true, title: "The verdict shows coverage, and a release needs all of it", evidence: "the finished result, receipt" },
@@ -690,9 +687,9 @@ export const NEGATIVES_UNCHECKED = Object.freeze({
   N25: NEEDS_FIXTURE, N28: NEEDS_FIXTURE, N29: NEEDS_FIXTURE, N30: NEEDS_FIXTURE, N31: NEEDS_FIXTURE, N33: NEEDS_FIXTURE, N34: NEEDS_FIXTURE, N35: NEEDS_FIXTURE, N36: NEEDS_FIXTURE, N37: NEEDS_FIXTURE,
 });
 export const KILLS = Object.freeze([
-  { id: "K01", signal: "SIGKILL", at: "owner record exists (build ownership held) plus --kill-after-ms, during --to compile", clauses: ["GC-T06"] },
+  { id: "K01", signal: "SIGKILL", at: "snapshot lock exists (held) plus --kill-after-ms, during --to compile", clauses: ["GC-T06"] },
   { id: "K01-int", signal: "SIGINT", at: "same point as K01", clauses: ["GC-T06"] },
-  { id: "K02", signal: "SIGKILL", at: "during --to check, after the owner record exists (ownership is held across Class A by design, build-ownership.mjs:3-4)", clauses: ["GC-A24"] },
+  { id: "K02", signal: "SIGKILL", at: "during --to check, after the snapshot lock exists (the lock is held across Class A by design, reset plan section 3)", clauses: ["GC-A24"] },
   { id: "K02-int", signal: "SIGINT", at: "same point as K02", clauses: ["GC-A24"] },
 ]);
 export const KILLS_UNCHECKED = Object.freeze({
@@ -708,7 +705,7 @@ export const STEPS = Object.freeze([
   { id: "S5", nn: nnForStep("S5"), title: "lock edit", runs: [], clauses: ["GC-A19", "GC-A24"], note: "unchecked by design: a lock edit needs the fixture's own resolver; not generated by this runner", byDesignUnchecked: true },
   { id: "S6", nn: nnForStep("S6"), title: "dirty checkout", runs: ["--to compile"], clauses: ["GC-A02", "GC-A04", "GC-T06"], note: "refuses a dirty fixture; ephemeral commit (a compile not yet recorded) built while the checkout has a dirty tracked edit, an untracked file and a pushed stash; the snapshot is compared with the commit; the checkout and the stash list are restored exactly" },
   { id: "S7", nn: nnForStep("S7"), title: "negatives", runs: NEGATIVES.map((n) => n.id), clauses: ["GC-T05", "GC-A01", "GC-T14", "GC-A15", "GC-1A-R2", "GC-1A-R4"], note: "ephemeral commits under refs/witness/*; the rest listed unchecked with their reason" },
-  { id: "S8", nn: nnForStep("S8"), title: "kill and recover", runs: KILLS.map((k) => k.id), clauses: ["GC-T06", "GC-A24"], note: "SIGKILL (during compile and during Class A) and SIGINT; ownership-recover.mjs dry run must explain the record; the next run reclaims it and passes" },
+  { id: "S8", nn: nnForStep("S8"), title: "kill and recover", runs: KILLS.map((k) => k.id), clauses: ["GC-T06", "GC-A24"], note: "SIGKILL (during compile and during Class A) and SIGINT; the lock stays after SIGKILL; the next run reclaims it on the stale-owner rule and passes" },
   { id: "S10", nn: nnForStep("S10"), title: "unit list (--units-file, two fixture units)", runs: ["--to check --units-file"], clauses: [], note: "NN16: the list shares one Class A and runs no cargo fmt -p; needs two units of the gate's unit grammar (crates/rightkit-<x>, packages/<x>) in the fixture, else NN16 fails naming the gap" },
   { id: "S11", nn: nnForStepAll("S11"), title: "cold run (the gate's cache dir moved aside under scratch, then restored)", runs: ["--to check", "--to compile"], clauses: [], note: "NN18 cold budgets; real-condition controls that NN01, NN02, NN03, NN04, NN14, NN15, NN20, NN21, NN24, NN29 fail on a run where every row really ran" },
   { id: "S12", nn: nnForStepAll("S12"), title: "compile-side edits: one crate, one lockfile, one manifest", runs: ["--to compile (crate edit)", "--to check (lock edit)", "--to compile (manifest edit)"], clauses: [], note: "ephemeral commits under refs/witness/*; NN20, NN21, NN04 on --to compile" },
@@ -761,6 +758,35 @@ const missing = (why) => ({ status: "unchecked", blocksPass: true, evidence: [],
 const needRun = (ctx, label) => ctx.runs[label] ?? null;
 const expectedFailure = (r) => Boolean(r.negative) || r.refusal !== undefined;
 const firstRows = (ctx, ...labels) => { for (const l of labels) if (ctx.runs[l]?.rows) return ctx.runs[l]; return null; };
+
+/**
+ * The running broker's `{ pid, startedMs }` for GC-I15 (S0 and S9 compare it), or null when it cannot be established (fail safe). Mac: exactly one of the two launchd
+ * entries the broker alternates between at a cutover (`dev.rustright.broker`, `dev.rustright.broker.b`) is running. Windows: exactly one `rustright-broker` process.
+ * Linux has no broker. `run` and `uid` are test seams.
+ */
+export function runningBrokerProcess({ platform = process.platform, run = spawnSync, uid = process.getuid?.() } = {}) {
+  if (platform === "win32") {
+    try {
+      const script = "$p = @(Get-Process -Name rustright-broker -ErrorAction SilentlyContinue); if ($p.Count -eq 1) { \"$($p[0].Id) $($p[0].StartTime.ToUniversalTime().ToString('o'))\" }";
+      const r = run("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], { encoding: "utf8", timeout: 15000, windowsHide: true });
+      const m = /^(\d+) (\S+)\s*$/m.exec(String(r.stdout ?? ""));
+      if (!m) return null;
+      const pid = Number(m[1]); const startedMs = Date.parse(m[2]);
+      return Number.isInteger(pid) && pid > 0 && Number.isFinite(startedMs) ? { pid, startedMs } : null;
+    } catch { return null; }
+  }
+  if (platform !== "darwin") return null;
+  try {
+    const pids = ["dev.rustright.broker", "dev.rustright.broker.b"]
+      .map((label) => Number(/^\s*pid = (\d+)$/m.exec(String(run("launchctl", ["print", `gui/${uid}/${label}`], { encoding: "utf8", timeout: 5000 }).stdout ?? ""))?.[1]))
+      .filter((pid) => Number.isInteger(pid) && pid > 0);
+    if (pids.length !== 1) return null;
+    const pid = pids[0];
+    const ps = run("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", timeout: 5000, env: { ...process.env, LC_ALL: "C", LANG: "C" } });
+    const startedMs = Date.parse(String(ps.stdout ?? "").trim());
+    return Number.isFinite(startedMs) ? { pid, startedMs } : null;
+  } catch { return null; }
+}
 
 /** GC-I15: the broker process (pid and start) is the same at S0 and S9; the gate launched none. */
 export function brokerUnchanged(a, b) {
@@ -926,10 +952,18 @@ export function assertDigestStable(a, b) {
   return da.env === db.env ? { ok: true, problems: [] } : { ok: false, problems: [`the dependency digest differs between identical runs: ${da.env.slice(0, 12)} vs ${db.env.slice(0, 12)}`] };
 }
 
-/** NN13: a `--to check` log never reports build ownership held or joined. */
-export function assertNoOwnershipOnCheck(log) {
-  const lines = String(log).split(/\r?\n/).filter((l) => /build ownership (held|joined) /.test(l));
-  return lines.length === 0 ? { ok: true, problems: [] } : { ok: false, problems: [`--to check took the build-ownership lease: ${lines[0].replace(/^\S+ /, "").slice(0, 120)}`] };
+/**
+ * NN13: a `--to check` log takes exactly one exclusion, the snapshot lock (one `snapshot lock held` line, the door's), and never reports the retired build ownership
+ * (`build ownership held|joined`); a nested check joins the door's lock silently and takes none of its own.
+ */
+export function assertOneExclusionOnCheck(log) {
+  const lines = String(log).split(/\r?\n/);
+  const retired = lines.filter((l) => /build ownership (held|joined) /.test(l));
+  const locks = lines.filter((l) => /snapshot lock held /.test(l));
+  const problems = [];
+  if (retired.length) problems.push(`--to check took a build-ownership lease, which the gate no longer has: ${retired[0].replace(/^\S+ /, "").slice(0, 120)}`);
+  if (locks.length !== 1) problems.push(`--to check took ${locks.length} snapshot lock(s), expected exactly the door's one${locks[1] ? `: ${locks[1].replace(/^\S+ /, "").slice(0, 100)}` : ""}`);
+  return problems.length === 0 ? { ok: true, problems: [] } : { ok: false, problems };
 }
 
 /** NN14: a warm run reports the app rules cached, and any preflight line it prints says cached too. */
@@ -1088,11 +1122,11 @@ export function assertOtherWorkspacesIdle(next, { workspace, workspaces = [], cr
 const stampOf = (line) => { const m = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z) /.exec(line); return m ? Date.parse(m[1]) : null; };
 /**
  * Stage durations from the stamped log. The line pairs (also written into ci/gate-acceptance-budgets.json):
- *  ownership       run start (the runner's launch time) -> first `build ownership held|joined` line; 0 when the run takes no lease (a `--to check`, NN13)
- *  snapshotSync    ownership line (else run start) -> `snapshot <dir> is commit <sha> tree <sha> (written=...` line
+ *  ownership       (the key keeps its budget name) run start (the runner's launch time) -> first `snapshot lock held` line; 0 when the run takes no lock
+ *  snapshotSync    lock line (else run start) -> `snapshot <dir> is commit <sha> tree <sha> (written=...` line
  *  planning        `rightkit-gate: --to <stage> for <sha12>: ...` line -> `<n> scan(s) for <m> changed file(s) vs <sha12>; class A scans <j> at a time` line
  *  dependencyStep  that plan line -> the first `snapshot dependencies root=` line (a compile prints a second one later, after Class A)
- * A named line that is missing is a problem (the stage cannot be timed), except the ownership line, whose absence is the stage being 0.
+ * A named line that is missing is a problem (the stage cannot be timed), except the lock line, whose absence is the stage being 0.
  */
 export function stageMarks(log, startedMs) {
   const lines = String(log).split(/\r?\n/);
@@ -1100,7 +1134,7 @@ export function stageMarks(log, startedMs) {
   const last = (re) => [...lines].reverse().find((l) => re.test(l));
   const problems = [];
   const t = (line, what) => { const ms = line ? stampOf(line) : null; if (ms === null) problems.push(`no stamped \`${what}\` line`); return ms; };
-  const own = first(/build ownership (held|joined) /);
+  const own = first(/snapshot lock held /);
   const ownT = own ? stampOf(own) : null;
   const sync = t(first(/snapshot \S+ is commit [0-9a-f]{40} tree [0-9a-f]{40} \(written=/), "snapshot ... is commit ... (written=");
   const stageStart = t(first(/rightkit-gate: --to \w+ for [0-9a-f]{12}/), "--to <stage> for <sha>");
@@ -1240,12 +1274,12 @@ const fileSha = (f) => { try { return sha256(fs.readFileSync(f)); } catch { retu
 // ---- NN25 / NN07 allowlists: EMPTY by decision. An entry needs Adrian's approval (GC-A27 NN25: "a probe that must run names its reason in the runner's
 // allowlist, which Adrian approves"; NN07 likewise). Do not add one without his approval by name in the commit message.
 export const NN25_ALLOWLIST = Object.freeze([]);
-const OWNERSHIP_PROBES = new Set(["ps", "lsof", "launchctl", "sysctl"]);
+const PROCESS_PROBES = new Set(["ps", "lsof", "launchctl", "sysctl"]);
 const VERSION_ARG = /^(--version|-V|-v|version)$/;
 const TREE_WALKERS = new Set(["find", "rsync", "du"]);
 const GIT_TREE_VERBS = new Set(["ls-files", "ls-tree", "archive", "status", "diff", "diff-files", "diff-index", "update-index"]);
 
-/** NN25: no child of the forbidden families on a warm run (git after the resident proof, version probes, pnpm, ownership probes, real cargo). */
+/** NN25: no child of the forbidden families on a warm run (git after the resident proof, version probes, pnpm, process probes, real cargo). */
 export function assertWarmNoFamilies(entries, { log = "", allow = NN25_ALLOWLIST } = {}) {
   const problems = [];
   const proofLine = String(log).split(/\r?\n/).find((l) => /snapshot proof:|resident proof|\(verified before/.test(l));
@@ -1261,7 +1295,7 @@ export function assertWarmNoFamilies(entries, { log = "", allow = NN25_ALLOWLIST
     if (n.args.length <= 2 && n.args.some((a) => VERSION_ARG.test(a))) fam = "tool version probe";
     else if (n.program === "git" && (proofAt === null || at >= proofAt)) fam = proofAt === null ? "git (the log carries no resident-proof time, so every git start counts)" : "git after the resident proof";
     else if (n.program === "pnpm") fam = "pnpm";
-    else if (OWNERSHIP_PROBES.has(n.program)) fam = `ownership probe (${n.program})`;
+    else if (PROCESS_PROBES.has(n.program)) fam = `process probe (${n.program})`;
     else if (call && call.via !== "rustright") fam = "real cargo";
     if (fam) { const k = `${fam}\u0000${n.program} ${shortArgs(n.args)}`; found.set(k, (found.get(k) ?? 0) + 1); }
   }
@@ -1458,10 +1492,10 @@ export function assertLedgerAgreesWithProof(log, entries) {
   if (walks === 0 && seen > 0) problems.push(`the log says verify-walks=0 and the ledger shows ${seen} tree-walking start(s)`);
   return { ok: problems.length === 0, problems };
 }
-/** NN13 (probe half): a `--to check` run starts no ownership probe. */
-export function assertNoOwnershipProbe(entries) {
+/** NN13 (probe half): a `--to check` run starts no process probe (ps, lsof, launchctl, sysctl). */
+export function assertNoProcessProbe(entries) {
   const problems = [];
-  for (const n of entries.map(normalizeSpawn)) if (OWNERSHIP_PROBES.has(n.program)) problems.push(`--to check started an ownership probe: ${n.program} ${shortArgs(n.args)}`);
+  for (const n of entries.map(normalizeSpawn)) if (PROCESS_PROBES.has(n.program)) problems.push(`--to check started a process probe: ${n.program} ${shortArgs(n.args)}`);
   return { ok: problems.length === 0, problems };
 }
 
@@ -1471,7 +1505,7 @@ export const WORKLOADS = Object.freeze(["fixture", "rightkit", "heardright", "pu
 export const PROFILES = Object.freeze(["warm-check", "warm-compile", "edited-check", "edited-compile", "cold-check", "cold-compile"]);
 /**
  * Consecutive windows that tile the run from the runner's launch to the gate's exit, each named by the log line that closes it:
- * startup (launch -> first stamped line), ownership (-> `build ownership held|joined`; 0 when the run takes no lease), snapshotSync (-> the sync line),
+ * startup (launch -> first stamped line), ownership (-> `snapshot lock held`; 0 when the run takes no lock), snapshotSync (-> the sync line),
  * stageStart (-> `--to <stage> for <sha>`), snapshotVerify (-> `(verified before`), appRules (-> `app rules:`), planning (-> the plan line),
  * dependencyStep (-> `snapshot dependencies root=`), scans (-> the last `[n/N]` result line) and finish (-> exit). Optional markers that are absent
  * fold into the next window; a required marker that is absent or stamped out of order makes the run untimeable.
@@ -1484,7 +1518,7 @@ export function windowMarks(log, startedMs, endMs) {
   const firstLine = lines.map(stampOf).find((t) => t !== null);
   const seq = [
     ["startup", firstLine, true],
-    ["ownership", stamp(/build ownership (held|joined) /, "build ownership", false), false],
+    ["ownership", stamp(/snapshot lock held /, "snapshot lock", false), false],
     ["snapshotSync", stamp(/snapshot \S+ is commit [0-9a-f]{40} tree [0-9a-f]{40} \(written=/, "snapshot ... (written=", true), true],
     ["stageStart", stamp(/rightkit-gate: --to \w+ for [0-9a-f]{12}/, "--to <stage> for <sha>", true), true],
     ["snapshotVerify", stamp(/snapshot \S+ is commit [0-9a-f]{40} tree [0-9a-f]{40} \(verified/, "snapshot ... (verified", false), false],
@@ -1507,7 +1541,7 @@ export function windowMarks(log, startedMs, endMs) {
 export const budgetKeyOf = (label) => (/^S2:/.test(label) ? "warm" : /^S11:/.test(label) ? "cold" : "edited");
 /**
  * NN18 over the windows: `runs` is `[{ label, workload, profile, ms, windows, rows }]`. A missing or null budget fails ("no budget measured"); an
- * ownership window is budgeted on compile profiles only (a lease on a check is NN13's failure and must be 0 here). A cargo-metadata row that hit must
+ * snapshot-lock window is budgeted on compile profiles only (a check's lock is counted by NN13, and its time is inside the total). A cargo-metadata row that hit must
  * report `scanElapsedMs` within `metadataHitMs`.
  */
 export function assertWindowBudgets({ host, budgets, runs }) {
@@ -1522,7 +1556,7 @@ export function assertWindowBudgets({ host, budgets, runs }) {
     const unbudgeted = [];
     for (const w of WINDOWS) {
       const v = r.windows?.[w];
-      if (w === "ownership" && r.profile.endsWith("-check")) { if (v !== 0 && v !== null && v !== undefined) problems.push(`${where}: a check took ${v} ms of build-ownership time`); continue; }
+      if (w === "ownership" && r.profile.endsWith("-check")) continue; // a check takes the door's one snapshot lock like a compile; NN13 judges that count, and the sync and total budgets bound its time
       if (v === null || v === undefined) { problems.push(`${where}: window ${w} could not be timed`); continue; }
       const b = prof.windows?.[w];
       if (b === null || b === undefined) unbudgeted.push(w); else if (v > b) problems.push(`${where}: window ${w} took ${v} ms, budget ${b} ms`);
@@ -1950,10 +1984,10 @@ const NN_EVAL = {
   },
   NN13: (ctx) => {
     const out = Object.entries(ctx.runs).filter(([, r]) => r.stage === "check" && r.ledgerPath !== undefined && !r.kill).flatMap(([label, r]) => {
-      const a = checkFor(label, assertNoOwnershipOnCheck(r.log), [r.logPath]);
+      const a = checkFor(label, assertOneExclusionOnCheck(r.log), [r.logPath]);
       if (!ctx.extended) return [a];
       const l = ledgerOf(r, label);
-      return [a, l.fail ?? checkFor(`${label} ledger`, assertNoOwnershipProbe(l.entries), [r.ledgerPath])];
+      return [a, l.fail ?? checkFor(`${label} ledger`, assertNoProcessProbe(l.entries), [r.ledgerPath])];
     });
     return out;
   },
@@ -2152,9 +2186,9 @@ export const CHECKS = {
   },
   "GC-T06": (ctx) => {
     const out = [];
-    for (const [label, run] of Object.entries(ctx.runs)) if (run.recovery) out.push({ label, ...verdict(run.recovery, [run.logPath, run.ownerPath ?? "owner.json"]) });
+    for (const [label, run] of Object.entries(ctx.runs)) if (run.recovery) out.push({ label, ...verdict(run.recovery, [run.logPath, run.lockPath ?? "snapshot.lock"]) });
     if (ctx.s6?.fresh && ctx.s6.proof) out.push({ label: "S6", ...verdict(ctx.s6.proof, ["S6: a dirty tree and an unpushed commit build the commit's bytes"]) });
-    if (ctx.s9) out.push({ ...verdict(ctx.s9.ownerClean, [ctx.s9.ownerPath]) });
+    if (ctx.s9) out.push({ ...verdict(ctx.s9.lockClean, [ctx.s9.lockPath]) });
     return out.length ? out : unchecked("S6, S8 and S9 did not run");
   },
   "GC-A19": (ctx) => {
@@ -2506,7 +2540,7 @@ function runGate({ gate, cwd, args, env = process.env, timeoutMs = 3_600_000 }) 
   });
 }
 
-/** Starts the gate, waits for `waitFor()` to return truthy (the owner record) plus `afterMs`, then signals its process group. */
+/** Starts the gate, waits for `waitFor()` to return truthy (the snapshot lock) plus `afterMs`, then signals its process group. */
 function killDuring({ gate, cwd, args, signal, waitFor, afterMs }) {
   return new Promise((resolve) => {
     let log = ""; let done = false; let child;
@@ -2520,14 +2554,14 @@ function killDuring({ gate, cwd, args, signal, waitFor, afterMs }) {
       if (armedAt === null && waitFor()) armedAt = Date.now();
       if (armedAt !== null && Date.now() - armedAt >= afterMs) { clearInterval(poll); signalGroup(child, signal); }
     }, 100);
-    const cap = setTimeout(() => { if (!done) signalGroup(child, "SIGKILL"); }, 30 * 60_000); // the owner record never appeared: the case proves nothing
+    const cap = setTimeout(() => { if (!done) signalGroup(child, "SIGKILL"); }, 30 * 60_000); // the snapshot lock never appeared: the case proves nothing
   });
 }
 
 function readJson(file) { try { return { value: JSON.parse(fs.readFileSync(file, "utf8")) }; } catch (e) { return { error: `${file}: ${e.message}` }; } }
 const readOrNull = (file) => { try { return fs.readFileSync(file); } catch { return null; } };
 
-/** The installed broker's runtime manifest and the gate's pins record. The client and its manifest are found the way the gate finds them (broker-handshake.mjs): `managedRuntimeClient`, the agent shim resolved, the manifest beside the real client. */
+/** The installed broker's runtime manifest and the gate's pins record. The client and its manifest are found the way the gate finds them (seam-broker.mjs brokerControlTarget): `managedRuntimeClient`, the agent shim resolved, the manifest beside the real client. */
 function brokerIdentity(host, managedRoot) {
   const platform = host === "dell" ? "win32" : "darwin";
   const pinsPath = path.join(managedRoot, "pins", `broker-${platform}.json`);
@@ -2685,9 +2719,10 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
   Object.assign(ctx, { wanted, host, budgets: budgetLoad.budgets, budgetProblem: budgetLoad.problem, cores: typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length, jobsEnv: process.env.RK_GATE_JOBS });
 
   const key = repositoryKey(g.canonical, platform);
-  const ownerFile = ownershipFile({ platform, repository: key });
-  const readOwner = () => { try { return JSON.parse(fs.readFileSync(ownerFile, "utf8")); } catch { return null; } };
   const snapRoot = path.join(managedRoot, "snapshots");
+  // The snapshot lock of the fixture repository (snapshot.mjs): `<snapshots>/<repo-key>.lock`, its body `{ pid, identity, commit, token }` (broker host) or `{ pid, host, startedAt, token }`.
+  const lockFile = path.join(snapRoot, `${key}.lock`);
+  const readLock = () => { try { return JSON.parse(fs.readFileSync(lockFile, "utf8")); } catch { return null; } };
 
   /** A step-only check: it feeds the step status AND the verdict (stepChecks), so it can never be dropped. */
   const check = (step, name, res) => {
@@ -2726,12 +2761,12 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
   // S0 -------------------------------------------------------------------------------------------------------------------------------------
   if (wanted.includes("S0") || wanted.includes("S9")) {
     const brokerNow = runningBrokerProcess() ?? null;
-    ctx.s0 = { stash: g.stash(), status: g.status(), worktree: g.worktrees(), broker: brokerNow, owner: readOwner(), snapshots: listDirs(snapRoot) };
+    ctx.s0 = { stash: g.stash(), status: g.status(), worktree: g.worktrees(), broker: brokerNow, lock: readLock(), snapshots: listDirs(snapRoot) };
   }
   if (wanted.includes("S0")) {
     for (const id of ["GC-I22", "GC-I18", "GC-I01"]) { const r = CHECKS[id](ctx); for (const c of Array.isArray(r) ? r : [r]) { clauseChecks[id].push(c); if (id !== "GC-I01") { stepOf("S0").checks.push(c.status === "unchecked" ? "unchecked" : c.status); stepChecks.push({ step: "S0", name: id, ok: c.status === "pass", problems: c.problems }); } } }
     check("S0", "the fixture checkout is clean", ctx.s0.status.trim() === "" ? { ok: true, problems: [] } : { ok: false, problems: [`fixture checkout is not clean: ${ctx.s0.status.trim().split("\n")[0]}`] });
-    check("S0", "no owner record stands before the run", ctx.s0.owner ? { ok: false, problems: [`an owner record stands before the run: ${JSON.stringify({ handle: ctx.s0.owner.handle, pid: ctx.s0.owner.pid })}`] } : { ok: true, problems: [] });
+    check("S0", "no snapshot lock stands before the run", ctx.s0.lock ? { ok: false, problems: [`a snapshot lock stands before the run: ${JSON.stringify({ token: ctx.s0.lock.token, pid: ctx.s0.lock.pid })}`] } : { ok: true, problems: [] });
   }
 
   // S1 --------------------------------------------------------------------------------------------------------------------------------------
@@ -2835,21 +2870,20 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
   }
 
   // S8 kill and recover ---------------------------------------------------------------------------------------------------------------------
-  // Build ownership is held across Class A by design (build-ownership.mjs:3-4), so a SIGKILL during --to check leaves a record exactly like one
-  // during --to compile: every case asserts that the NEXT run reclaims it (the log's reclaim line) and passes.
+  // The snapshot lock is held across Class A by design (reset plan section 3), so a SIGKILL during --to check leaves the lock exactly like one
+  // during --to compile: every case asserts that the NEXT run reclaims it on the stale-owner rule (the log's reclaim line) and passes.
   if (wanted.includes("S8")) for (const k of KILLS.filter((x) => !killsFilter || killsFilter.includes(x.id))) {
     const label = `S8:${k.id}`; const logPath = path.join(outDir, `${label.replace(/[^\w.-]/g, "_")}.log`);
     const stage = k.id.startsWith("K02") ? "check" : "compile"; const receiptPath = path.join(outDir, `${label.replace(/[^\w.-]/g, "_")}.receipt.json`);
-    const killed = await killDuring({ gate, cwd: g.canonical, args: ["--to", stage, "--commit", commit, "--receipt-out", receiptPath], signal: k.signal, waitFor: readOwner, afterMs: killAfterMs });
+    const killed = await killDuring({ gate, cwd: g.canonical, args: ["--to", stage, "--commit", commit, "--receipt-out", receiptPath], signal: k.signal, waitFor: readLock, afterMs: killAfterMs });
     fs.writeFileSync(logPath, killed.log);
-    const before = readOwner();
-    const dry = before ? runDry(ownerFile) : { exit: null, text: "" };
+    const before = readLock();
     const next = await doRun({ label: `${label}:next`, stage, ladder: true, step: "S8" });
-    const after = readOwner();
-    // A fixture compile exits 1 for reasons that are not ownership (its Class B rows fail); a compile that reclaimed the dead record and reached planning passed the recovery.
-    const reached = stage === "compile" && /class A scans \d+ at a time/.test(next.log) && !/build ownership [^\n]*(busy|refused)|RK_CHECK_ERROR/.test(next.log);
-    const recovery = assertRecovery({ signal: k.signal, before, dry, next: { exit: reached ? 0 : next.exit, text: next.log }, after, exitedBySignal: exitedBySignal({ signal: killed.signal, exit: killed.exit, killSignal: k.signal, platform: process.platform }) || (k.signal === "SIGINT" && !killed.signal && killed.exit !== null && killed.exit !== 0) });
-    runs[label] = { label, kill: k.id, killSignal: process.platform === "win32" ? "terminate" : k.signal, stage, recovery, logPath, ownerPath: ownerFile, exit: killed.exit, signal: killed.signal, log: killed.log, ladder: false, args: [] };
+    const after = readLock();
+    // A fixture compile exits 1 for reasons that are not the lock (its Class B rows fail); a compile that reclaimed the dead owner's lock and reached planning passed the recovery.
+    const reached = stage === "compile" && /class A scans \d+ at a time/.test(next.log) && !/snapshot lock [^\n]*(busy|is held|refused)|RK_CHECK_ERROR|BLOCKED: snapshot/.test(next.log);
+    const recovery = assertRecovery({ signal: k.signal, before, next: { exit: reached ? 0 : next.exit, text: next.log }, after, exitedBySignal: exitedBySignal({ signal: killed.signal, exit: killed.exit, killSignal: k.signal, platform: process.platform }) || (k.signal === "SIGINT" && !killed.signal && killed.exit !== null && killed.exit !== 0) });
+    runs[label] = { label, kill: k.id, killSignal: process.platform === "win32" ? "terminate" : k.signal, stage, recovery, logPath, lockPath: lockFile, exit: killed.exit, signal: killed.signal, log: killed.log, ladder: false, args: [] };
     check("S8", `${k.id} ${k.signal}: dead owner reclaimed by the next run, which passes`, recovery);
   }
 
@@ -3009,13 +3043,13 @@ async function executeRun({ fixture, host, wanted, gate, gateArg, budgetsFile, o
 
   // S9 ---------------------------------------------------------------------------------------------------------------------------------------
   if (wanted.includes("S9")) {
-    const brokerEnd = runningBrokerProcess() ?? null; const owner = readOwner();
+    const brokerEnd = runningBrokerProcess() ?? null; const lock = readLock();
     const snapshotDirCheck = snapshotDirProblems({ key, before: ctx.s0?.snapshots ?? null, after: listDirs(snapRoot) });
-    ctx.s9 = { stash: g.stash(), status: g.status(), worktree: g.worktrees(), snapshotDirCheck, broker: brokerEnd, ownerPath: ownerFile, ownerClean: { ok: owner === null, problems: owner === null ? [] : [`owner record stands after the run: handle ${owner.handle}, pid ${owner.pid}`] } };
+    ctx.s9 = { stash: g.stash(), status: g.status(), worktree: g.worktrees(), snapshotDirCheck, broker: brokerEnd, lockPath: lockFile, lockClean: { ok: lock === null, problems: lock === null ? [] : [`a snapshot lock stands after the run: token ${lock.token}, pid ${lock.pid}`] } };
     check("S9", "git status --short equals S0", sameListing("git status --short", ctx.s0.status, ctx.s9.status));
     check("S9", "git worktree list equals S0", sameListing("git worktree list", ctx.s0.worktree, ctx.s9.worktree));
     check("S9", "git stash list equals S0", sameListing("git stash list", ctx.s0.stash, ctx.s9.stash));
-    check("S9", "no owner record stands", ctx.s9.ownerClean);
+    check("S9", "no snapshot lock stands", ctx.s9.lockClean);
     check("S9", "one snapshot dir for the repository and no new one", snapshotDirCheck);
     check("S9", "the broker process is the one of S0", brokerUnchanged(ctx.s0.broker, brokerEnd));
     const markers = Object.values(runs).flatMap((r) => publicationMarkers(r.log ?? ""));
@@ -3103,7 +3137,7 @@ export const MUTANTS = Object.freeze([
   { nn: "NN08", steps: "S2", what: "the gate runs the whole-workspace format check through cargo", inject: [spawnLine(CARGO, ["fmt", "--all", "--check"])], expect: /cargo fmt started/ },
   { nn: "NN09", steps: "S2", what: "the gate asks the broker for a metadata read (`rustright cargo metadata`)", inject: [spawnLine("rustright", [CARGO, "metadata", "--no-deps"])], expect: /went through the broker/ },
   { nn: "NN10", steps: "S2", what: "the gate starts a real metadata read on a warm run", inject: [spawnLine(CARGO, ["metadata", "--no-deps", "--format-version", "1"])], expect: /real cargo metadata/ },
-  { nn: "NN13", steps: "S2", what: "a --to check starts an ownership probe (`ps`)", inject: [spawnLine("ps", ["-p", "1"])], expect: /ownership probe/ },
+  { nn: "NN13", steps: "S2", what: "a --to check starts a process probe (`ps`)", inject: [spawnLine("ps", ["-p", "1"])], expect: /process probe/ },
   { nn: "NN16", steps: "S10", what: "a unit-list run starts the per-unit format check through cargo", inject: [spawnLine(CARGO, ["fmt", "-p", "rk-core", "--check"])], expect: /cargo fmt started for a unit list/ },
   { nn: "NN22", steps: "S2", what: "a warm run walks the tree with `find`", inject: [spawnLine("find", [".", "-maxdepth", "1"])], expect: /tree walk/ },
   { nn: "NN25", steps: "S2", what: "a warm run starts `pnpm --version`", inject: [spawnLine("pnpm", ["--version"])], expect: /pnpm|version probe/ },
@@ -3114,7 +3148,7 @@ export const MUTANTS = Object.freeze([
   { nn: "NN06", steps: "S2", what: "every Class A row is environment-bound, so non-executing keys carry the environment digest", patch: { find: "function classAEnvironmentBound(scan) { return scan.executes === true || scan.tool === \"pnpm\"; }", replace: "function classAEnvironmentBound(scan) { return true; }" }, expect: /carries the environment digest/ },
   { nn: "NN12", steps: "S2", what: "a warm run starts `pnpm install`", inject: [spawnLine("pnpm", ["install", "--offline"])], expect: /pnpm install started/ },
   { nn: "NN29", steps: "S2,S16", what: "the tool-call id of the environment enters every Class A row key", patch: { find: "${rowShape(scan)}`; scanKeys.set(scan.id, full);", replace: "${rowShape(scan)}:${process.env.CODEX_TOOL_CALL_ID ?? \"\"}`; scanKeys.set(scan.id, full);" }, expect: /key differs between identical runs|reuse miss/ },
-  { nn: "NN32", steps: "S8", extra: ["--kills", "K02,K02-int"], what: "a dead owner's record is never judged reclaimable (judgeOwner always refuses)", patch: { file: "build-ownership.mjs", find: "if (owner.host !== host) throw busy(`held by pid ${owner.pid} on ${owner.host}`);", replace: "if (true) throw busy(`held by pid ${owner.pid} (MUTANT: a dead owner is never judged reclaimable)`);" }, expect: /reclaimed from|exited/ },
+  { nn: "NN32", steps: "S8", extra: ["--kills", "K02,K02-int"], what: "a dead owner's snapshot lock is never judged reclaimable (the stale-owner rule always refuses)", patch: { file: "snapshot.mjs", find: "if (probe !== \"ESRCH\") throw busy(`snapshot lock holder pid ${holder.pid} cannot be proven gone (${probe})`);", replace: "if (true) throw busy(`snapshot lock holder pid ${holder.pid} is gone (MUTANT: a dead owner is never judged reclaimable)`);" }, expect: /reclaimed from|exited/ },
   { nn: "NN40", steps: "S2", compile: true, control: true, what: "the gate starts per-crate `cargo rustdoc` again (two crates of the fixture workspace, two starts)", inject: [spawnLine("rustright", ["cargo", "rustdoc", "-p", "rk-core", "--lib", "--help"]), spawnLine("rustright", ["cargo", "rustdoc", "-p", "rk-util", "--lib", "--help"])], expect: /a cargo rustdoc started/ },
   { nn: "NN41", steps: "S17", control: true, what: "the gate refuses to reuse a cached failure (every failing cache entry is dropped before the run)", inject: ['try { const __fs = process.getBuiltinModule("node:fs"); const __p = process.getBuiltinModule("node:path"); const __d = __p.join(process.cwd(), ".git", "rightkit-gate-cache"); for (const __f of __fs.readdirSync(__d)) { const __x = __p.join(__d, __f); try { if (JSON.parse(__fs.readFileSync(__x, "utf8"))?.row?.status === "fail") __fs.rmSync(__x); } catch { /* not an entry */ } } } catch { /* no cache dir */ }'], expect: /^S17: (clippy|check|check-features|doc):\S+: failed, .*ran again \(a failure must be a cache hit\)/ },
   { nn: "NN42", steps: "S2", compile: true, control: true, what: "the stage sends one broker command per cross target (two single-target commands of one configuration)", inject: [spawnLine("rustright", ["cargo", "check", "--help", "--target", "aarch64-unknown-linux-gnu"]), spawnLine("rustright", ["cargo", "check", "--help", "--target", "x86_64-pc-windows-msvc"])], expect: /one per target/ },
@@ -3304,7 +3338,7 @@ async function proveMain({ fixture, host, out }) {
       log.push(`NN37 control: with an independent review recorded the check is ${n37c?.status}`);
     } catch (e) { log.push(`lockproof failed: ${e.message}`); note("NN36", "scratch clone", false, e.message.slice(0, 200)); note("NN37", "scratch clone", false, e.message.slice(0, 200)); }
   }
-  // NN32: the unmutated gate recovers real kills (information), after the mutant above left a stale record: reclaimed by this run.
+  // NN32: the unmutated gate recovers real kills (information), after the mutant above left a stale lock: reclaimed by this run.
   {
     const o = path.join(root, "kills-real");
     await runRunner([...common, "--steps", "S8", "--nn", "NN32", "--gate", base.entry, "--kills", "K01,K01-int,K02,K02-int", "--out", o], { cwd: here });
@@ -3321,11 +3355,6 @@ async function proveMain({ fixture, host, out }) {
   for (const r of rows) console.log(`  ${r.id} ${r.proven ? "proven" : "UNPROVEN"}${r.proofs.filter((p) => p.caught).map((p) => ` [${p.how.slice(0, 70)}]`).join("")}`);
   console.log(`result: ${path.join(root, "prove-result.json")}`);
   return summary.ok ? 0 : 1;
-}
-
-function runDry(ownerFile) {
-  const r = spawnSync(process.execPath, [path.join(here, "ownership-recover.mjs"), ownerFile], { encoding: "utf8" });
-  return { exit: r.status, text: `${r.stdout ?? ""}${r.stderr ?? ""}` };
 }
 
 if (process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {

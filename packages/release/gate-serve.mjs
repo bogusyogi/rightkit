@@ -195,8 +195,7 @@ function startServer({ root, env }) {
     const logDir = path.join(dataRoot(env), "gate-serve");
     fs.mkdirSync(logDir, { recursive: true });
     const out = fs.openSync(path.join(logDir, "serve.log"), "a");
-    // A minimal environment: the server outlives the run that started it, so it must carry none of that run's tokens (the build
-    // ownership guard rightly refuses a run while any process still holds an earlier run's RIGHTKIT_BUILD_OWNERSHIP).
+    // A minimal environment: the server outlives the run that started it, so it must carry none of that run's tokens.
     const keep = ["PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "SystemRoot", "TEMP", "TMP", "TMPDIR", "LOCALAPPDATA", "APPDATA", "RIGHTKIT_MANAGED_ROOT", "RK_GATE_SERVE_IDLE_MS"];
     const childEnv = Object.fromEntries(keep.filter((k) => env[k] !== undefined).map((k) => [k, env[k]]));
     if (process.platform === "win32") { fs.closeSync(out); startOutsideJobs({ root, childEnv, logDir, env }); return; }
@@ -208,7 +207,7 @@ function startServer({ root, env }) {
 
 /**
  * Windows: a child of the gate stays in the gate's jobs whatever `detached` says (libuv never asks to break away), so a server spawned
- * here sat in the build-ownership job, where every release counted it and kept the record (S0, S9, GC-T06), and died with the launcher's
+ * here sat in the gate's job, where every release counted it and kept the lock (S0, S9, GC-T06), and died with the launcher's
  * kill-on-close job, so it was never resident (S14; a new server on every run, Dell 2026-11-07). WMI starts it outside both, with no
  * window. WMI passes no environment, so the server reads its environment from a file it removes once read (`serve-env`).
  */

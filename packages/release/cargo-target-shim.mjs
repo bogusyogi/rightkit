@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // The runtime cargo wrapper of a commit-snapshot compile (item 7, GATE-CONTRACT §1 "Broker interface", output directory). Two modes:
 //   direct  the DIRECT POSIX (Linux) host: each call runs the real cargo bound to its workspace's checkout target directory.
-//   broker  the Mac (decision C, rows 7.10 and 7.24): each call goes through the RustRight client as its own snapshot request with a
-//           fresh carrier (snapshot-broker.mjs runBrokerCargo); no cargo ever runs outside the broker, and its signed receipt must verify.
+//   broker  the Mac and the Dell: each compile goes through the RustRight client as a seam call (seam-broker.mjs runSeamCargoCall: the client's `cargo` command in the snapshot
+//           with RUSTRIGHT_GATE_COMMIT and RUSTRIGHT_CLASS_A); nothing compiles outside the broker, and a compile with no seam variables is refused (RK_CARGO_NO_SEAM).
 // Both modes append every call to the gate-owned ledger (cargo-ledger.mjs) before and after it acts, and the gate fails the scan on any
 // refused, unverified or unfinished call even when the test ignored the exit status. On a Windows host there is no wrapper: a child
 // started without a shell finds only an .exe, so the static walk (deterministic-scans.mjs cargoReachOf) is the fail-closed baseline
@@ -33,9 +33,7 @@ import { spawnSync } from "./background-process.mjs";
 import { spawnBrokerClient } from "./broker-client.mjs";
 import { fileURLToPath } from "node:url";
 import { CARGO_REFUSAL_STATUS, SCAN_TOKEN_ENV, appendLedger } from "./cargo-ledger.mjs";
-import { runBrokerCargo } from "./snapshot-broker.mjs";
 import { carriedScanRefusal } from "./snapshot-metadata.mjs";
-import { carriedShapeDecision } from "./cargo-shapes.mjs";
 import { runSeamCargoCall, seamEnvPresent } from "./seam-broker.mjs";
 
 export const SHIM_MAP_SCHEMA = "rightkit.cargo-target-shim/3";
@@ -57,6 +55,34 @@ export const WRAPPER_COMMANDS = Object.freeze({ get bound() { return [...BOUND];
 // Cargo's built-in command aliases. The broker classifies only the full names (command_policy.rs: b, c, t, r, d are RK_UNKNOWN_COMMAND), so a
 // broker-mode call is expanded to the full name BEFORE it is classified and sent (the signed argv digest is over the argv as sent).
 const ALIASES = Object.freeze({ b: "build", c: "check", t: "test", r: "run", d: "doc" });
+/** `argv` with the standard alias at the subcommand position replaced by its full name; every other word is kept as sent. */
+export function expandCargoAliases(argv) {
+  const out = [...argv];
+  const at = cargoCommandIndex(out);
+  if (at !== null && Object.hasOwn(ALIASES, out[at])) out[at] = ALIASES[out[at]];
+  return out;
+}
+// Where the subcommand sits in an argv, read as the broker reads it (rustright command_policy.rs `command_index`): after an optional `+toolchain` and the global
+// options (the ones that take a value are skipped with it), before any `--`; `--version`, `-V` and `-vV` are the command. null when there is none. The gate's own
+// planners (stage-commands.mjs, build-launch.mjs) need only this position; the broker, not the gate, judges what the command may be.
+const BROKER_VALUE_GLOBALS = new Set(["--manifest-path", "--config", "-C", "-Z", "--color", "--target-dir"]);
+const BROKER_PLAIN_GLOBALS = new Set(["--locked", "--frozen", "--offline", "--quiet", "-q", "--verbose", "-v"]);
+const BROKER_VERSION_FLAGS = new Set(["--version", "-V", "-vV"]);
+export function cargoCommandIndex(argv) {
+  let i = 0;
+  while (i < argv.length) {
+    const v = argv[i];
+    i += 1;
+    if (v === "--") break;
+    if (v.startsWith("+") && v.length > 1) continue;
+    if (BROKER_VERSION_FLAGS.has(v)) return i - 1;
+    if (BROKER_VALUE_GLOBALS.has(v)) { i += 1; continue; }
+    if (BROKER_PLAIN_GLOBALS.has(v)) continue;
+    if (v.startsWith("-")) continue;
+    return i - 1;
+  }
+  return null;
+}
 // The only requests the broker lets run uncarried inside a snapshot (command_policy.rs uncarried_snapshot_probe: VERSION_ARGUMENTS and `version`).
 const VERSION_PROBES = Object.freeze([["-V"], ["--version"], ["-vV"], ["-Vv"], ["--version", "--verbose"], ["-V", "--verbose"], ["-v", "-V"], ["version"]]);
 // The read-only commands the broker admits to a carried request only in carriedScanRefusal's exact shapes (snapshot-metadata.mjs).
@@ -76,7 +102,7 @@ export function readOnlyCargo(args) {
 /**
  * Whether a cargo call of a snapshot stage runs directly (GC-A11) instead of being carried to the broker: the first word is the subcommand
  * itself (no `+toolchain` or global option in front), it compiles nothing, it is one of carriedScanRefusal's exact non-writing shapes, and a
- * `package` call is `--list` with `--locked` or `--frozen`. The ONE definition of that shape: carried-cargo.mjs runs a call by it and
+ * `package` call is `--list` with `--locked` or `--frozen`. The ONE definition of that shape: stage-seam.mjs runs a call by it and
  * stage-commands.mjs (via it) tells the receipt collection and the hosted admission to expect no broker receipt for such a command.
  */
 export function directCargoShape(words) {
@@ -157,12 +183,6 @@ export function decideCargoInvocation({ args, cwd, env, map, locate, realpath = 
   // output: a manifest path or a target directory of the caller's has no place in a broker call.
   if (broker && manifestPath !== undefined) return refusal("RK_CARGO_BROKER_MANIFEST_PATH", `\`cargo ${sub}\` passes --manifest-path; a broker call runs from the workspace's own directory (the client refuses to rewrite the invocation), so run it there`);
   if (broker && valueOf("--target-dir") !== undefined) return refusal("RK_CARGO_REDIRECT", `\`cargo ${sub}\` passes --target-dir; the broker pins a snapshot compile's output directory`);
-  // GB-01: in broker mode the one command-shape table (cargo-shapes.mjs) decides what the broker would admit inside a snapshot, before anything is
-  // sent: tree, pkgid and verify-project (no non-writing policy at RustRight), a bare metadata and the other shapes it refuses are refused here, typed.
-  if (broker) {
-    const decision = carriedShapeDecision(words);
-    if (!decision.ok) return refusal(decision.code, decision.message);
-  }
   let workspace;
   try {
     const manifest = locate(manifestPath === undefined ? null : path.resolve(cwd, manifestPath), cwd, toolchain);
@@ -219,8 +239,8 @@ export function installCargoShim({ base, snapshotRoot, targetDirs, broker = null
   const self = fileURLToPath(import.meta.url);
   const sorted = Object.fromEntries(Object.entries(workspaces).sort(([a], [b]) => (a < b ? -1 : 1)));
   const identityHash = createHash("sha256").update(JSON.stringify({ realCargo: realCargo ?? null, node, workspaces: sorted, ...(broker ? { mode, section: broker.section } : {}) })).update(fs.readFileSync(self));
-  // The broker half of the wrapper is part of its identity: any change to the code that carries and verifies a call is another wrapper.
-  if (broker) for (const name of ["snapshot-broker.mjs", "snapshot-request.mjs", "snapshot-metadata.mjs", "provenance-verify.mjs", "cargo-ledger.mjs"]) identityHash.update(fs.readFileSync(new URL(`./${name}`, import.meta.url)));
+  // The broker half of the wrapper is part of its identity: any change to the code that sends and judges a call is another wrapper.
+  if (broker) for (const name of ["seam-broker.mjs", "gate-seam.mjs", "snapshot-metadata.mjs", "cargo-ledger.mjs"]) identityHash.update(fs.readFileSync(new URL(`./${name}`, import.meta.url)));
   if (trampoline) identityHash.update(`\0client:${clientSha256}`);
   const identity = identityHash.digest("hex");
   const dir = path.join(base, `rk-cargo-shim-${identity.slice(0, 16)}`);
@@ -365,10 +385,8 @@ export function runShim(argv, { env = process.env, cwd = process.cwd(), spawn = 
     try { record({ ...base, ...ledger }); } catch (error) { err(`rightkit-gate: RK_CARGO_LEDGER_ERROR: the seam call's outcome cannot be recorded (${error.message})`); return result.status === 0 ? SHIM_REFUSAL_STATUS : result.status; }
     return result.status;
   }
-  if (broker && decision.exec.workspace) {
-    // The `pending` record above stays this call's until the broker call finishes: its records carry the same call id.
-    return runBrokerCargo({ words: decision.exec.args, cwd, env, section: map.broker, workspace: decision.exec.workspace, checkoutWorkspace: decision.exec.checkoutWorkspace, record: (entry) => record({ ...entry, id }), spawn, err });
-  }
+  // A compile on a broker host reaches the broker only through the seam: without the two seam variables nothing is sent and the call is refused.
+  if (broker && decision.exec.workspace) return refuse({ code: "RK_CARGO_NO_SEAM", message: `\`cargo ${words.join(" ")}\` compiles, and this environment carries neither RUSTRIGHT_GATE_COMMIT nor RUSTRIGHT_CLASS_A; nothing was sent` });
   // A call that reads no workspace (version, help) runs as it is: the real cargo in direct mode, the host's cargo or the client in broker mode.
   const viaClient = broker && !map.realCargo;
   const command = viaClient ? map.broker.client : map.realCargo;
@@ -379,7 +397,7 @@ export function runShim(argv, { env = process.env, cwd = process.cwd(), spawn = 
   return r.status ?? (r.signal ? 128 : SHIM_REFUSAL_STATUS);
 }
 
-// Run as the wrapper only when this file is the entry. Imported by another module (carried-cargo.mjs, through managed-cargo.mjs), the entry
+// Run as the wrapper only when this file is the entry. Imported by another module (stage-seam.mjs, through managed-cargo.mjs), the entry
 // may be anything, `node -e` arguments included, so a path that cannot be resolved is no wrapper run.
 const invokedAsWrapper = (() => { try { return Boolean(process.argv[1]) && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url)); } catch { return false; } })();
 if (invokedAsWrapper) process.exit(runShim(process.argv.slice(2)));

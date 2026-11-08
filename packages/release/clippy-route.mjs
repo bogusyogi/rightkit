@@ -1,7 +1,7 @@
 // The Clippy route: `rightkit-gate clippy [<cargo clippy args>]` (GATE-CONTRACT §1 "Clippy route & batching", E13 to E15; item 8 of
 // the joint plan, rows 8.1 to 8.16 of the signed map). A gate-owned destination for a request such as
 // `cargo clippy --workspace --all-targets -- -D warnings`: it builds HEAD's commit (never the checkout) from the gate-owned
-// snapshot, under the repository's build ownership, after FULL class A (D8-2), and stops after diagnostics. It has no stage chain, runs no
+// snapshot, under the repository's snapshot lock, after FULL class A (D8-2), and stops after diagnostics. It has no stage chain, runs no
 // package, sign, publish or release stage, and writes nothing a door receipt, qualification or the full gate could take as stage
 // evidence (row 8.5).
 //
@@ -12,7 +12,7 @@
 //                 (a relative one resolves inside the snapshot and may not leave it) and any word that is not an option of
 //                 `cargo clippy` (a subcommand).
 //   sidecars      a requested package that declares sidecars (Tauri `bundle.externalBin`) refuses the whole request, BLOCKED with
-//                 RK_CLIPPY_SIDECAR_BOUND, before ownership, class A, the sync or any compile, until item 7 row 7.05 stages sidecars
+//                 RK_CLIPPY_SIDECAR_BOUND, before the lock, class A, the sync or any compile, until item 7 row 7.05 stages sidecars
 //                 from a snapshot. The request is never rewritten to leave such a package out (signed D8-1: three additions only).
 //   Linux         direct, through the item 7 cargo wrapper (cargo-target-shim.mjs): every cargo launch is bound to the checkout's own
 //                 target directory or refused, so nothing is written under the snapshot (row 8.12).
@@ -31,8 +31,7 @@ import { resolveExecutor as defaultResolveExecutor } from "./gate-executor.mjs";
 import { directPlatform, realCargoOf } from "./managed-cargo.mjs";
 import { defaultSpawnAsync, sidecarBoundCrate } from "./deterministic-scans.mjs";
 import { gateStateDir } from "./gate-stages.mjs";
-import { ProvenanceError, verifyAttributionDetail } from "./provenance-verify.mjs";
-import { isToolchainUnknown } from "./snapshot-request.mjs";
+import { ProvenanceError } from "./receipt-signature.mjs";
 
 export const ROUTE_RECEIPT_SCHEMA = "rightkit.gate-clippy-route-receipt/1";
 export const ROUTE_DIAGNOSTICS_SCHEMA = "rightkit.gate-clippy-route-diagnostics/1";
@@ -46,6 +45,53 @@ export const ROUTE_CODES = Object.freeze({
 });
 
 const sha256 = (v) => crypto.createHash("sha256").update(v).digest("hex");
+const refuse = (code, message) => { throw new ProvenanceError(code, message); };
+const isRecord = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const isU64 = (v) => Number.isSafeInteger(v) && v >= 0;
+/** The toolchain a receipt could not name: `{ state: "UNKNOWN", reason }` (snapshot-request.mjs, deleted at plan step 5, held it). */
+const isToolchainUnknown = (v) => v !== null && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 2 && v.state === "UNKNOWN" && typeof v.reason === "string" && v.reason !== "";
+
+// ---- GB-50: the full attribution a Clippy (or check) route needs, read from the signed detail descriptor, never from the compact counts ----
+const STAGE_EVIDENCE_SCHEMA = "rustright.stage-evidence/1";
+
+/**
+ * `rustright_protocol::attestation::verify_attribution_detail(receipt, file_bytes)`, case for case (vector attribution-detail-vectors.v1.json). `receipt` is a
+ * receipt `verifyReceiptStrict` already accepted (so its compact `attribution`, `toolchain` and the descriptor's sha256 are signed) and `bytes` the evidence file the
+ * descriptor names. Checks in order: the descriptor is present and `bytes` hash to its sha256 (`detail`); the schema is rustright.stage-evidence/1 (`schema`); the
+ * file's `id` is this receipt's request (`job`) and its `toolchain` the receipt's (`evidence`); its attribution is available, `truncated` is exactly 0 in the file and in
+ * the compact twin (`truncated`); every row names package, target and kind with numeric errors and warnings; the compact `units`, `packages`, `errors`, `warnings`,
+ * `otherMessages` and `freshUnits` equal the values recomputed from the rows. Returns `{ rows, failedUnits }`. Counts alone never pass.
+ */
+function verifyAttributionDetail(receipt, bytes) {
+  const compact = receipt?.attribution;
+  if (!isRecord(compact)) refuse("evidence", "the receipt carries no attribution");
+  const descriptor = compact.detail;
+  if (!isRecord(descriptor) || typeof descriptor.sha256 !== "string" || typeof descriptor.path !== "string") refuse("detail", "the attribution names no evidence file");
+  if (sha256(bytes) !== descriptor.sha256) refuse("detail", "the evidence file is not the one the receipt signed");
+  let document;
+  try { document = JSON.parse(Buffer.from(bytes).toString("utf8")); } catch { refuse("malformed", "the evidence file is not JSON"); }
+  if (!isRecord(document) || document.schema !== STAGE_EVIDENCE_SCHEMA) refuse("schema", "unknown stage evidence schema");
+  if (typeof document.id !== "string" || document.id !== receipt.id) refuse("job", "the evidence file is for another request");
+  if (typeof document.toolchain !== "string" || document.toolchain !== receipt.toolchain) refuse("evidence", "the evidence file names another toolchain than the receipt");
+  const attribution = document.attribution;
+  if (!isRecord(attribution) || attribution.available !== true) refuse("evidence", "the evidence file holds no available attribution");
+  if (!isU64(attribution.truncated)) refuse("evidence", "the evidence file does not say whether the attribution is complete");
+  if (attribution.truncated !== 0 || compact.truncated !== 0) refuse("truncated", "the attribution is truncated or its completeness is not stated");
+  const rows = attribution.units;
+  if (!Array.isArray(rows)) refuse("evidence", "the evidence file holds no unit rows");
+  const packages = new Set(); let errors = 0; let warnings = 0; let other = 0; let fresh = 0; let failedUnits = 0;
+  for (const row of rows) {
+    const text = (name) => (isRecord(row) && typeof row[name] === "string" && row[name] !== "" ? row[name] : null);
+    const count = (name) => (isRecord(row) && isU64(row[name]) ? row[name] : null);
+    const [pkg, target, kind, e, w] = [text("package"), text("target"), text("kind"), count("errors"), count("warnings")];
+    if (pkg === null || target === null || kind === null || e === null || w === null) refuse("evidence", "a unit row lacks its package, target, kind, errors or warnings");
+    packages.add(pkg); errors += e; warnings += w; other += count("otherMessages") ?? 0; fresh += row.fresh === true ? 1 : 0; failedUnits += e > 0 ? 1 : 0;
+  }
+  const derived = { units: rows.length, packages: packages.size, errors, warnings, otherMessages: other, freshUnits: fresh };
+  for (const [name, value] of Object.entries(derived)) if (compact[name] !== value) refuse("evidence", `the receipt's compact attribution ${name} disagrees with the evidence file's rows`);
+  return { rows, failedUnits };
+}
+
 const posix = (p) => String(p).replaceAll("\\", "/");
 const text = (r) => String(r?.stdout ?? "");
 const failed = (r) => !r || Boolean(r.error) || r.status !== 0;
@@ -318,8 +364,8 @@ const resultLine = (o, tag, value) => o.out(`${tag} clippy route result ${JSON.s
 /**
  * `rightkit-gate clippy`: the entry. `args` are the words after `clippy`. `deps` (from the gate's main): `main` (the gate entry, for
  * the door's own full class A), `io` (its overrides), `absoluteEnv` (the inherited locations a snapshot compile requires absolute),
- * and, for tests, overrides of `resolveExecutor`, `snapshot` (snapshot.mjs), `snapshotCheck` (snapshot-check.mjs), `ownership`
- * (build-ownership.mjs), `acquireOwnership`, `syncSnapshot`, `runClassA`, `runCargo` and `shim` (cargo-target-shim.mjs).
+ * and, for tests, overrides of `resolveExecutor`, `snapshot` (snapshot.mjs), `snapshotCheck` (snapshot-check.mjs), `takeSnapshotLock`,
+ * `syncSnapshot`, `runClassA`, `runCargo` and `shim` (cargo-target-shim.mjs).
  */
 export async function clippyCommand(o, args, deps = {}) {
   const tag = "rightkit-gate:";
@@ -361,7 +407,6 @@ export async function clippyCommand(o, args, deps = {}) {
 
   const snap = deps.snapshot ?? await import("./snapshot.mjs");
   const sc = deps.snapshotCheck ?? await import("./snapshot-check.mjs");
-  const ownershipApi = deps.ownership ?? await import("./build-ownership.mjs");
   let selected; let snapshotsAt; let snapshotDir; let repoKey;
   try {
     selected = snap.resolveCommit(root, "HEAD");
@@ -379,7 +424,7 @@ export async function clippyCommand(o, args, deps = {}) {
   const relative = (deps.absoluteEnv ?? []).filter((n) => typeof o.env[n] === "string" && o.env[n] !== "" && !path.isAbsolute(o.env[n]));
   if (relative.length) { o.err(`${tag} BLOCKED: ${relative.map((n) => `${n}=${o.env[n]}`).join(", ")} ${relative.length > 1 ? "are" : "is"} relative; a snapshot compile inherits CARGO_HOME, sccache and temp only as absolute paths; nothing ran`); return BLOCKED; }
 
-  // Sidecar-bound scope, refused BEFORE ownership, the sync, class A or any compile (row 8.8, lead decision 2026-10-29). Each Tauri
+  // Sidecar-bound scope, refused BEFORE the lock, the sync, class A or any compile (row 8.8, lead decision 2026-10-29). Each Tauri
   // configuration is read from HEAD's commit, never from the checkout's files. A commit that declares no sidecar anywhere needs no
   // further look (no cargo process starts before class A). Otherwise the requested packages come from the checkout's
   // `cargo metadata --no-deps --offline --locked` (no compile, nothing written) and the request is refused when one of them declares
@@ -400,11 +445,13 @@ export async function clippyCommand(o, args, deps = {}) {
   if (preBound.length) { o.err(sidecarRefusal(tag, preBound, "read from the commit")); resultLine(o, tag, { result: "BLOCKED", code: ROUTE_CODES.sidecarBound, blockedOn: ["item7:7.05"], bound: preBound, launched: false }); return BLOCKED; }
 
   const timings = {}; const lap = (name, since) => { timings[name] = Date.now() - since; };
-  // Build ownership first (E6): held from before the sync until the diagnostics are written. A busy repository runs nothing and syncs nothing.
-  let own;
-  try { own = (deps.acquireOwnership ?? ownershipApi.acquireBuildOwnership)({ file: ownershipApi.ownershipFile({ platform: o.platform, beside: o.snapshotRoot, repository: repoKey }), stage: "clippy", snapshot: snapshotDir, commit: selected.commit, platform: o.platform, env: o.env }); }
+  // The snapshot lock first (E6, reset plan section 3): held from before the sync until the diagnostics are written. This route runs only on a host with no broker, so it is
+  // the legacy lock, reclaimed when its holder is proven gone. A busy repository runs nothing and syncs nothing.
+  let lock;
+  try { lock = (deps.takeSnapshotLock ?? snap.takeSnapshotLock)({ checkout: root, root: snapshotsAt }); }
   catch (e) { if (e.code !== "busy" && e.code !== "refused") throw e; o.err(`${tag} BLOCKED: ${e.message}; ${e.code === "refused" ? "nothing ran, nothing created" : "the route never re-syncs a snapshot another request holds; nothing ran"}`); return BLOCKED; }
-  o.out(`${tag} build ownership ${own.joined ? "joined" : "held"} ${own.handle}`);
+  o.out(`${tag} snapshot lock held ${lock.token}${lock.reclaimed ? ` (reclaimed from ${lock.reclaimed.from}: ${lock.reclaimed.proof})` : ""}`);
+  const lockView = snap.lockView(lock);
   const abort = o.abort ?? new AbortController();
   let shimDir = null; let messagesFile = null;
   const stopped = []; const onSignal = (sig) => () => { stopped.push(sig); abort.abort(); };
@@ -413,14 +460,14 @@ export async function clippyCommand(o, args, deps = {}) {
   try {
     let t = Date.now();
     let synced;
-    try { synced = (deps.syncSnapshot ?? snap.syncSnapshot)({ checkout: root, rev: selected.commit, root: snapshotsAt }); }
+    try { synced = (deps.syncSnapshot ?? snap.syncSnapshot)({ checkout: root, rev: selected.commit, root: snapshotsAt, lock: { held: lockView } }); }
     catch (e) { o.err(`${tag} ${e.code === "error" ? "RK_CHECK_ERROR" : "BLOCKED"}: snapshot ${e.message}; nothing ran`); return e.code === "error" ? REFUSED_EXIT : BLOCKED; }
     lap("sync", t);
     o.out(`${tag} snapshot ${synced.path} is commit ${synced.commit} tree ${synced.tree} (written=${synced.written} removed=${synced.removed} unchanged=${synced.unchanged})`);
 
     // FULL class A first (D8-2, E1): the door's own check of the snapshot. A red class A starts no Clippy.
     t = Date.now();
-    const classA = await (deps.runClassA ?? (() => deps.main(["check", "--commit", synced.commit, "--full-a", "--snapshot", synced.path, "--rule-tier", "release"], { ...(deps.io ?? {}), cwd: root, buildOwnership: own })))();
+    const classA = await (deps.runClassA ?? (() => deps.main(["check", "--commit", synced.commit, "--full-a", "--snapshot", synced.path, "--rule-tier", "release"], { ...(deps.io ?? {}), cwd: root, snapshotLock: lockView })))();
     lap("classA", t);
     if (classA !== 0) { o.err(`${tag} FAILED: class A is red for ${synced.commit.slice(0, 12)}; Clippy was not started`); resultLine(o, tag, { result: "FAILED", reason: "class-a", exit: classA, commit: synced.commit, clippyStarted: false }); return classA === REFUSED_EXIT ? REFUSED_EXIT : BLOCKED; }
 
@@ -495,7 +542,7 @@ export async function clippyCommand(o, args, deps = {}) {
     try { treeAtExit = sc.verifySnapshotDir({ checkout: realCheckout, dir: synced.path, commit: synced.commit, tree: synced.tree, when: "after Clippy" }); }
     catch (e) { fs.rmSync(messagesFile, { force: true }); o.err(`${tag} RK_CHECK_ERROR: ${e.message}; the diagnostics are discarded, they cover no known bytes`); resultLine(o, tag, { result: "FAILED", code: "RK_CHECK_ERROR", discarded: true, commit: synced.commit }); return REFUSED_EXIT; }
     lap("afterExitBind", t);
-    if (!own.held()) { fs.rmSync(messagesFile, { force: true }); o.err(`${tag} RK_CHECK_ERROR: the build ownership ${own.handle} is no longer held; the diagnostics are discarded`); return REFUSED_EXIT; }
+    if (!lock.held()) { fs.rmSync(messagesFile, { force: true }); o.err(`${tag} RK_CHECK_ERROR: the snapshot lock ${lock.token} is no longer held; the diagnostics are discarded`); return REFUSED_EXIT; }
 
     t = Date.now();
     const summary = summarizeRun({ ...run, scope });
@@ -507,7 +554,7 @@ export async function clippyCommand(o, args, deps = {}) {
       schema: ROUTE_RECEIPT_SCHEMA, requestId, executor: "direct", issuedAt: new Date().toISOString(),
       commit: { sha: synced.commit, tree: synced.tree },
       snapshot: { path: synced.path, treeAtStart, treeAtExit },
-      ownership: { handle: own.handle },
+      snapshotLock: { token: lock.token },
       outputDir, outputDirs: { [cargoDir]: outputDir },
       cargoWrapper: { identity: shim.identity, workspaces: shim.workspaces },
       toolchain,
@@ -524,8 +571,8 @@ export async function clippyCommand(o, args, deps = {}) {
   } finally {
     for (const [sig, h] of handlers) process.off(sig, h);
     if (shimDir) fs.rmSync(shimDir, { recursive: true, force: true });
-    const r = own.release();
-    if (r?.released === false && !own.joined) o.err(`${tag} build ownership ${own.handle} kept: ${r.why}`);
+    // This route submits no broker job, so its lock is released whatever the run's outcome.
+    lock();
   }
 }
 

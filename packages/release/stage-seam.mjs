@@ -2,9 +2,7 @@
 // call and pnpm, node or QA step sent through the seam (`rustright cargo|run` with RUSTRIGHT_GATE_COMMIT and RUSTRIGHT_CLASS_A, seam-broker.mjs), the GC-A11 direct reads,
 // and the readers the gate and later steps use (outputs by workspace, the Tauri bundle's target, the seam calls still unsettled for the door's lock).
 //
-// The carrier route that the seam replaces (snapshot-broker.mjs carryBrokerCargo / carryBrokerAdapter and its local re-verification) is not imported here: carried-cargo.mjs
-// passes it in as `carry` and `verifyLedger` while the installed broker still speaks it, and step 5 of the plan deletes carried-cargo.mjs and those parameters together.
-// A call with neither the seam variables nor a `carry` is refused, never run some other way.
+// A call without the seam variables is refused (RK_STAGE_NO_SEAM), never run some other way: the legacy carrier route is deleted (reset plan step 5).
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -75,10 +73,10 @@ const refused = (code, message) => {
 };
 
 /**
- * One right-release Cargo call of a stage child: through the seam when its environment carries the two seam variables, else through `carry` (the legacy carrier). `args` are the cargo arguments (without `cargo`); `options` is the spawn options of the call
+ * One right-release Cargo call of a stage child: through the seam when its environment carries the two seam variables, else refused (RK_STAGE_NO_SEAM). `args` are the cargo arguments (without `cargo`); `options` is the spawn options of the call
  * (`cwd`, `env`, `stdio`). Returns a `spawnSync`-shaped result with `outputDir` (the receipt's) when the call verified.
  */
-export function runStageCargo(args, options = {}, { map, spawn = spawnSync, err = (m) => process.stderr.write(`${m}\n`), carry = null } = {}) {
+export function runStageCargo(args, options = {}, { map, spawn = spawnSync, err = (m) => process.stderr.write(`${m}\n`) } = {}) {
   const env = options.env ?? process.env;
   const cwd = path.resolve(options.cwd ?? process.cwd());
   const token = env[SCAN_TOKEN_ENV];
@@ -139,23 +137,21 @@ export function runStageCargo(args, options = {}, { map, spawn = spawnSync, err 
     if (result.refusal) err(`rightkit-gate: ${result.refusal.code}: ${result.refusal.message}`);
     return result;
   }
-  if (typeof carry !== "function") return refuse("RK_STAGE_NO_SEAM", `\`cargo ${words.join(" ")}\` compiles, and this stage child carries neither the seam variables nor a carrier; nothing was sent`);
-  return carry({ words, cwd: from, env, section: map.broker, workspace, checkoutWorkspace: map.workspaces[workspace], record: (entry) => record({ ...entry, id: base.id }), spawn, err, stdio: capture });
+  return refuse("RK_STAGE_NO_SEAM", `\`cargo ${words.join(" ")}\` compiles, and this stage child does not carry the seam variables; nothing was sent`);
 }
 
 /**
- * One right-release pnpm, node or QA step of a stage child: through the seam (`rustright run <adapter> -- <args>`), else through `carry` (a legacy carried adapter job). `adapter` is the registered adapter (`rightkit-pnpm`,
+ * One right-release pnpm, node or QA step of a stage child: through the seam (`rustright run <adapter> -- <args>`), else refused (RK_STAGE_NO_SEAM). `adapter` is the registered adapter (`rightkit-pnpm`,
  * `rightkit-node`, `rightkit-qa`), `args` the adapter's arguments (what follows `--` in `rustright run <adapter> -- <args>`); `options` is
- * the spawn options of the step (`cwd`, `env`, `stdio`). Returns a `spawnSync`-shaped result with `outputDir` (the job's) and
- * `nestedChildren` (the verified signed list), `requestId` and, for a native build tool, `executable.managedOutputs` (the output mapping the broker signed) when the call verified.
+ * the spawn options of the step (`cwd`, `env`, `stdio`). Returns a `spawnSync`-shaped result with `outputDir` (the job's) and `requestId` when the call verified.
  */
-export function runStageAdapter(adapter, args, options = {}, { map, spawn = spawnSync, err = (m) => process.stderr.write(`${m}\n`), carry = null } = {}) {
+export function runStageAdapter(adapter, args, options = {}, { map, spawn = spawnSync, err = (m) => process.stderr.write(`${m}\n`) } = {}) {
   const env = options.env ?? process.env;
   const cwd = path.resolve(options.cwd ?? process.cwd());
   const token = env[SCAN_TOKEN_ENV];
   // The seam (reset plan section 3): a stage child whose environment carries RUSTRIGHT_GATE_COMMIT and RUSTRIGHT_CLASS_A runs its adapter as `rustright run <adapter> -- <args>`
   // (seam-broker.mjs), never as a carried request; the outcome is filed in the stage's ledger so the parent judges it (carrier.finish) and the door's lock release
-  // sees an unsettled call (seamUnsettled). This carrier goes with step 5 of the plan.
+  // sees an unsettled call (seamUnsettled).
   if (seamEnvPresent(env)) {
     // The adapter's checkout workspace (the snapshot workspace its cwd is in), so the stage's output readers map its receipt's outputDir: the broker signs the adapter
     // job's pinned target there, and a compile the adapter starts (`tauri build`) uses that same target (rustright normalize_impl.rs, adapter parent).
@@ -169,17 +165,18 @@ export function runStageAdapter(adapter, args, options = {}, { map, spawn = spaw
     catch (error) { return { ...result, status: result.status === 0 ? 1 : result.status, refusal: { code: "RK_CARGO_LEDGER", message: `the seam call's outcome could not be filed for the parent (${error.message})` } }; }
     return result;
   }
-  if (typeof carry !== "function") { const message = `the ${adapter} step carries neither the seam variables nor a carrier; nothing was sent`; err(`rightkit-gate: RK_STAGE_NO_SEAM: ${message}`); return refused("RK_STAGE_NO_SEAM", message); }
-  return carry({ adapter, words: args, cwd, env, section: map.broker, record: (entry) => appendLedger(map.ledgerDir, token, entry), spawn, err, stdio: options.stdio === "inherit" ? "inherit" : "capture" });
+  const message = `the ${adapter} step does not carry the seam variables; nothing was sent`;
+  err(`rightkit-gate: RK_STAGE_NO_SEAM: ${message}`);
+  return refused("RK_STAGE_NO_SEAM", message);
 }
 
 /**
  * Writes the carrier of one snapshot stage's children under `base` and returns what to hand them: the map and the ledger only, on every
  * platform (no PATH wrapper, no stage grant: a compile a child makes is nested under a carried adapter job, rustright#190). `checkoutDirs`
  * is the gate's { [cargoDir]: absolute path of that workspace in the primary checkout }; `section` the public part of the gate's
- * snapshot broker (brokerSection). Returns `{ env, ledgerDir, dir, mode, problems(sb), cleanup() }`; `env` is the delta to add.
+ * snapshot broker (the `broker` section the map files for the client). Returns `{ env, ledgerDir, dir, mode, problems(), cleanup() }`; `env` is the delta to add.
  */
-export function installStageCarrier({ base, snapshotRoot, checkoutDirs, section, known = {}, realpath = (p) => fs.realpathSync.native(p), onDir = () => {}, verifyLedger = null }) {
+export function installStageCarrier({ base, snapshotRoot, checkoutDirs, section, known = {}, realpath = (p) => fs.realpathSync.native(p), onDir = () => {} }) {
   const dir = fs.mkdtempSync(path.join(base, "rk-carrier-"));
   onDir(dir);
   try {
@@ -189,7 +186,7 @@ export function installStageCarrier({ base, snapshotRoot, checkoutDirs, section,
     for (const [cargoDir, checkoutDir] of Object.entries(checkoutDirs)) workspaces[realpath(path.join(snapshotRoot, ...(cargoDir === "." ? [] : cargoDir.split("/"))))] = checkoutDir;
     const mapFile = path.join(dir, "cargo-target-map.json");
     fs.writeFileSync(mapFile, `${JSON.stringify({ schema: SHIM_MAP_SCHEMA, mode: "broker", identity: path.basename(dir), realCargo: null, shim: null, ledgerDir, workspaces, ...(Object.keys(known).length ? { knownOutputDirs: known } : {}), broker: { ...section, sentinel: path.join(dir, "unbound") } }, null, 2)}\n`, { mode: 0o644 });
-    return { env: { [CARRIED_CARGO_MAP_ENV]: mapFile }, ledgerDir, dir, mode: "map", mapFile, shim: null, ...finish(ledgerDir, dir, workspaces, verifyLedger) };
+    return { env: { [CARRIED_CARGO_MAP_ENV]: mapFile }, ledgerDir, dir, mode: "map", mapFile, shim: null, ...finish(ledgerDir, dir, workspaces) };
   } catch (error) { fs.rmSync(dir, { recursive: true, force: true }); throw error; }
 }
 
@@ -217,28 +214,23 @@ function adapterSnapshotWorkspaces(workspaces, cwd) {
   return inside ? [inside] : [];
 }
 
-/** The verified calls' signed output directories: a cargo call's, an adapter job's own and each of its nested children's. */
-const outputsOf = (entry) => [
-  ...(typeof entry.outputDir === "string" ? [entry.outputDir] : []),
-  ...(entry.shim === "adapter" && Array.isArray(entry.nestedChildren) ? entry.nestedChildren.map((c) => c.outputDir).filter((d) => typeof d === "string") : []), // a child that compiles nothing has outputDir null
-];
+/** The verified calls' receipt output directories: a cargo call's and an adapter job's own. */
+const outputsOf = (entry) => (typeof entry.outputDir === "string" ? [entry.outputDir] : []);
 
-function finish(ledgerDir, dir, workspaces = {}, verifyLedger = null) {
+function finish(ledgerDir, dir, workspaces = {}) {
   const checkoutRoots = Object.values(workspaces);
   return {
-    /** Every call of the stage that is not a completed, verified success, and every verified call the gate cannot verify again itself. */
-    async problems(sb, opts = {}) {
-      const { entries, problems } = readLedgerDir(ledgerDir);
-      const out = [...problems];
-      if (sb && typeof verifyLedger === "function") out.push(...await verifyLedger(entries, sb, opts));
-      return out;
+    /** Every call of the stage that is not a completed, verified success (every ledger file of the stage; an unreadable record is a problem). */
+    async problems() {
+      const { problems } = readLedgerDir(ledgerDir);
+      return [...problems];
     },
     /** The seam calls of the stage's children that have no settled outcome (the door keeps its snapshot lock when any exist; reset plan section 3). */
     // Every file of the stage's ledger (a child that carried a scan token files under it), and every record that cannot be read as a call: its owner is unknown.
     seamUnsettled() { const { entries, malformed } = readLedgerDir(ledgerDir); return entries.filter((e) => e.mode === "seam" && e.settled !== true).length + malformed; },
-    /** The verified calls' output directories, in call order (the receipts'; an adapter job's nested children's included). */
+    /** The verified calls' output directories, in call order (the receipts'). */
     outputDirs() { return readLedgerDir(ledgerDir).entries.filter((e) => e.status === "verified").flatMap(outputsOf); },
-    /** The verified compiles' output directories by checkout workspace root: `[[root, outputDir]]`, the last call of a workspace winning. A nested child counts for the workspace its cwd is in. */
+    /** The verified compiles' output directories by checkout workspace root: `[[root, outputDir]]`, the last call of a workspace winning. */
     outputsByWorkspace() {
       const out = new Map();
       for (const e of readLedgerDir(ledgerDir).entries) {
@@ -246,13 +238,6 @@ function finish(ledgerDir, dir, workspaces = {}, verifyLedger = null) {
         // A seam adapter job (reset plan section 3) has no signed child list: its receipt's outputDir is the target its own compiles used, filed with its workspace.
         if (e.shim === "adapter" && e.mode === "seam") {
           for (const ws of Array.isArray(e.workspaces) ? e.workspaces : []) if (typeof e.outputDir === "string" && typeof ws === "string") out.set(ws, e.outputDir);
-          continue;
-        }
-        if (e.shim === "adapter") {
-          for (const child of Array.isArray(e.nestedChildren) ? e.nestedChildren : []) {
-            const snap = typeof child.cwd === "string" ? deepestSnapshotRoot(workspaces, child.cwd) : null;
-            if (snap && typeof child.outputDir === "string") out.set(workspaces[snap], child.outputDir);
-          }
           continue;
         }
         if (typeof e.outputDir !== "string" || typeof e.workspace !== "string") continue;
@@ -299,8 +284,8 @@ export function carriedAdapterOutputDir(env, adapter, before = new Set()) {
 
 /**
  * The output directory of the workspace a manifest belongs to, from a signed receipt, or null: a verified call this child already made
- * in that workspace (a build, whose receipt names the broker's pinned `outputDir`, or a nested child of a carried adapter job, whose entry in
- * the job's signed list names the compile's own `outputDir`), else one an earlier stage of the door run
+ * in that workspace (a build, whose receipt names the broker's pinned `outputDir`, or a seam adapter job, whose receipt names the one target its own compiles
+ * used), else one an earlier stage of the door run
  * verified (the map's `knownOutputDirs`, seeded by the gate). Asking Cargo for it (a read-only `metadata` call) is a snapshot request
  * the broker does not accept today (rightkit#1301 F1), so a caller asks here first and only then falls back to a carried call.
  */
@@ -316,23 +301,17 @@ export function carriedOutputDir(env, manifestPath, { preferNested = false } = {
   if (!root) return null;
   let entries = [];
   try { entries = readLedger(map.ledgerDir, env[SCAN_TOKEN_ENV]).entries; } catch { entries = []; }
-  // The signed output directories of this workspace's compiles, in call order: a carried cargo call's receipt, or a nested child of a
-  // carried adapter job (the Tauri CLI's own compile), by the directory the child ran in.
+  // The receipts' output directories of this workspace's compiles, in call order: a seam cargo call's, or a seam adapter job's (the Tauri CLI's own compile).
   const mine = []; const nested = [];
   for (const e of entries) {
     if (e.status !== "verified") continue;
     // A seam adapter job's receipt names the one target the adapter and every compile it starts used (rustright normalize_impl.rs: an adapter parent's own target),
-    // so for a Tauri bundle it stands where the legacy carrier's signed nested child stood.
+    // so for a Tauri bundle it is the bundle root's target.
     if (e.shim === "adapter" && e.mode === "seam") {
       if (typeof e.outputDir === "string" && Array.isArray(e.workspaces) && e.workspaces.includes(root)) { mine.push(e.outputDir); nested.push(e.outputDir); }
-    } else if (e.shim === "adapter") {
-      for (const child of Array.isArray(e.nestedChildren) ? e.nestedChildren : []) {
-        const snap = typeof child.cwd === "string" ? deepestSnapshotRoot(map.workspaces, child.cwd) : null;
-        if (snap && map.workspaces[snap] === root && typeof child.outputDir === "string") { mine.push(child.outputDir); nested.push(child.outputDir); }
-      }
     } else if (typeof e.outputDir === "string" && typeof e.workspace === "string" && deepestRoot(Object.values(map.workspaces), e.workspace) === root) mine.push(e.outputDir);
   }
-  // A Tauri bundle's root is under the compile the Tauri CLI itself made: the nested child's, when one is signed, whatever carried Cargo call came after it.
+  // A Tauri bundle's root is under the compile the Tauri CLI itself made: the adapter job's, when one is filed, whatever Cargo call came after it.
   if (preferNested && nested.length) return nested.at(-1);
   if (mine.length) return mine.at(-1);
   const known = map.knownOutputDirs?.[root];

@@ -23,12 +23,13 @@
 // The gate never creates the managed root (Mac & Dell): it creates `snapshots` and `snapshots/<repo-key>` beneath one that exists,
 // and on the Mac that managed root must be a different device from `/`, so an unmounted volume can never yield a boot-volume
 // substitute (requireManagedRoot). A snapshot root is private to this user: created 0700, and an existing POSIX root that grants
-// group or other any access, or that another user owns, is refused (the premise under which build ownership may skip another user's
-// unreadable processes, build-ownership.mjs).
+// group or other any access, or that another user owns, is refused.
 //
-// Exclusion: one sync per snapshot at a time (`<root>/<repo-key>.lock`, re-checked before every write and before the verdict).
-// It narrows, but cannot close, the window in which two processes both replace one stale lock; the per-repository build ownership
-// record held from before the sync through the stage (joint plan step 4) closes it, and the broker re-verifies the tree.
+// Exclusion: the snapshot lock, the one exclusion of every route that syncs or reads a snapshot (`<root>/<repo-key>.lock`; reset plan
+// section 3). The gate takes it before the sync (`takeSnapshotLock`) and holds it through every job and test of the batch; the sync
+// re-checks it before every write and before the verdict, and the broker re-verifies the tree. On a broker host its body is the seam's
+// `{ pid, identity, commit, token }` and a dead holder's lock is reclaimed only on the broker's proof that the snapshot is idle; on a host
+// with no broker (Linux direct) it is `{ pid, host, startedAt, token }` and a holder proven gone (ESRCH, or the pid reused) is stale.
 
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -41,8 +42,7 @@ import { HostConfigError, hostConfigFile, readSnapshotRootConfig } from "./snaps
 import { discoveryGit, discoveryRun, sealedRepoInfo, sealedRun, withSealedGit } from "./snapshot-git.mjs";
 import { SOURCE_IDENTITY_FILE, sourceIdentityBytes } from "./snapshot-identity.mjs";
 import { parseIdentity, processIdentity } from "./gate-seam.mjs";
-import { acquireBuildOwnership, migrateBirthlessRoot, OwnershipBusy, ownershipFile, recordRootBirth } from "./build-ownership.mjs";
-// The error class and the managed-root guard live in managed-root-guard.mjs, which build-ownership.mjs imports too (decision D4 rule 1).
+// The error class and the managed-root guard live in managed-root-guard.mjs (decision D4 rule 1).
 import { SnapshotError, requireManagedRoot } from "./managed-root-guard.mjs";
 
 export { SnapshotError, requireManagedRoot };
@@ -671,10 +671,46 @@ const statKey = (s) => `${s.size}:${s.mtimeNs}:${s.ctimeNs}:${s.ino}`;
  * progress. A reclaimer that died mid-reclaim leaves the reclaim file and every later sync is busy until it is removed (fail
  * closed); so does a dead holder whose pid was reused. `hooks` exist for the deterministic race fixture only.
  */
+// ---- the lock holder's own detached children (minimal process containment of the gate's own work outside the broker) -------------------------
+// The gate runs test executables, right-release builds and heavy commands itself (GC-A08: tests run outside the broker), POSIX ones detached in their own
+// process group so a timeout or cancel kills the whole group. A gate that crashes can leave such a group running and still reading or writing the snapshot,
+// and the broker's SNAPSHOT_STATUS proof covers only broker jobs. So while this process holds a snapshot lock, every detached child it starts is recorded beside
+// the lock (`<lock>.children/group-<pid>.json`, removed when the child exits), and a dead holder's lock is never reclaimed while a recorded group still answers.
+// Windows children stay in the gate's job object and are not recorded. Residual, named: a crash between the spawn returning and the record being written
+// leaves that one group unrecorded.
+let heldLockFile = null;
+const childrenDirOf = (lockFile) => `${lockFile}.children`;
+/** The variable that hands the held lock's record directory to this process's own children (right-release, heavy-command), which record their detached children there. */
+export const LOCK_CHILDREN_ENV = "RIGHTKIT_SNAPSHOT_LOCK_CHILDREN";
+/** Records a detached POSIX child of this process's held snapshot lock; returns the child. */
+export function recordLockChild(child, { platform = process.platform, env = process.env } = {}) {
+  const dir = heldLockFile ? childrenDirOf(heldLockFile) : (typeof env?.[LOCK_CHILDREN_ENV] === "string" && path.isAbsolute(env[LOCK_CHILDREN_ENV]) ? env[LOCK_CHILDREN_ENV] : null);
+  if (!dir || platform === "win32" || !child || !Number.isInteger(child.pid) || child.pid <= 0) return child;
+  const file = path.join(dir, `group-${child.pid}.json`);
+  try { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); fs.writeFileSync(file, JSON.stringify({ group: child.pid, by: process.pid, at: new Date().toISOString() }), { mode: 0o600 }); }
+  catch (error) { try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ } throw new SnapshotError("error", `the snapshot lock's child record ${file} cannot be written (${error.message}); the child was stopped`); }
+  const forget = () => { try { fs.rmSync(file, { force: true }); } catch { /* left: a dead group never blocks a reclaim */ } };
+  if (typeof child.once === "function") child.once("exit", forget);
+  return child;
+}
+/** The recorded process groups of `lockFile` that still answer (kill(-group, 0) is not ESRCH); a group that cannot be judged counts as alive. */
+export function liveLockChildren(lockFile, { kill = (pid, sig) => process.kill(pid, sig) } = {}) {
+  let names = [];
+  try { names = fs.readdirSync(childrenDirOf(lockFile)).filter((n) => /^group-\d+\.json$/.test(n)); } catch { return []; }
+  const live = [];
+  for (const n of names) {
+    const group = Number(n.slice("group-".length, -".json".length));
+    try { kill(-group, 0); live.push(group); } catch (e) { if (e?.code !== "ESRCH") live.push(group); }
+  }
+  return live;
+}
+
 export function acquireSnapshotLock(lockFile, hooks = {}, { body: seamBody = null, judge = null, identityOf = (pid) => processIdentity(pid, { platform: process.platform, spawnSync: (c, a, o) => spawnSync(c, a, o) }) } = {}) {
   // The seam's lock body (reset plan section 3, gate-seam.mjs snapshotLockBody): exactly { pid, identity, commit, token }, which the broker reads at
   // submission and before spawn. Without one, the legacy body { pid, host, startedAt, token } is written.
-  const body = JSON.stringify(seamBody ?? { pid: process.pid, host: os.hostname(), startedAt: new Date().toISOString(), token: crypto.randomUUID() });
+  // The legacy body also names this process's birth identity (when readable), so a reused pid is told from the holder on a host with no broker proof to lean on.
+  let birth = null; if (!seamBody) { try { birth = identityOf(process.pid) ?? null; } catch { birth = null; } }
+  const body = JSON.stringify(seamBody ?? { pid: process.pid, host: os.hostname(), startedAt: new Date().toISOString(), token: crypto.randomUUID(), ...(typeof birth === "string" && birth ? { birth } : {}) });
   const held = () => { try { return fs.readFileSync(lockFile, "utf8") === body; } catch { return false; } };
   const busy = (why) => new SnapshotError("busy", why);
   const publish = (target, text) => {
@@ -687,8 +723,19 @@ export function acquireSnapshotLock(lockFile, hooks = {}, { body: seamBody = nul
   const create = () => {
     if (!publish(lockFile, body)) return false;
     if (!held()) throw busy(`snapshot lock ${lockFile} was replaced by another process`);
-    const release = () => { if (held()) fs.rmSync(lockFile, { force: true }); };
+    heldLockFile = lockFile;
+    process.env[LOCK_CHILDREN_ENV] = childrenDirOf(lockFile); // inherited by this process's children (they spawn with process.env or a copy made after this)
+    const release = () => {
+      if (!held()) return;
+      // A recorded child group still running keeps the lock: its holder is this process, so a later run sees a live holder, and after this process exits the reclaim waits for the group.
+      if (liveLockChildren(lockFile).length) return;
+      try { fs.rmSync(childrenDirOf(lockFile), { recursive: true, force: true }); } catch { /* empty records */ }
+      fs.rmSync(lockFile, { force: true });
+      if (heldLockFile === lockFile) { heldLockFile = null; delete process.env[LOCK_CHILDREN_ENV]; }
+    };
     release.held = held;
+    release.lockFile = lockFile;
+    release.token = JSON.parse(body).token;
     return release;
   };
   const read = () => { try { return fs.readFileSync(lockFile, "utf8"); } catch (e) { if (e.code === "ENOENT") return null; throw new SnapshotError("error", `cannot read ${lockFile}: ${e.message}`); } };
@@ -716,17 +763,29 @@ export function acquireSnapshotLock(lockFile, hooks = {}, { body: seamBody = nul
       if (now === holder.identity) throw busy(`snapshot is held by ${holder.identity} for commit ${holder.commit}`);
       probe = "ESRCH"; // the pid now belongs to another process: the holder is gone
     }
+    if (probe === null && typeof holder.birth === "string" && holder.birth) {
+      // A legacy lock that names its holder's birth identity: another identity at the pid means the pid was reused and the holder is gone; the same one is live; unreadable proves nothing.
+      let now = null; try { now = identityOf(holder.pid); } catch { now = null; }
+      if (typeof now === "string" && now && now !== holder.birth) probe = "ESRCH";
+    }
     if (probe === null) throw busy(`snapshot is held by pid ${holder.pid} since ${holder.startedAt}`);
     if (probe !== "ESRCH") throw busy(`snapshot lock holder pid ${holder.pid} cannot be proven gone (${probe})`);
+    // The holder is gone, but a process group it started (a test executable, a build, a heavy command) may still run against the snapshot: never reclaimed then.
+    const groups = (hooks.liveChildren ?? liveLockChildren)(lockFile);
+    if (groups.length) throw busy(`snapshot lock holder pid ${holder.pid} is gone, but process group(s) it started still run (${groups.join(", ")}); the lock is reclaimed once they end`);
     // A dead seam holder may still have jobs queued, running or finalizing in the broker, or an unreaped process tree: its lock is reclaimed only when
     // the caller's `judge(holder)` returns true on the broker's proof that all use of the snapshot ended. No judge, or an inconclusive one, means busy.
     if (seam && (typeof judge !== "function" || judge(holder) !== true)) throw busy(`snapshot lock holder ${holder.identity} is gone, but the lock is reclaimed only on the broker's proof that every job of commit ${holder.commit} ended${typeof judge === "function" ? " (the broker gave no such proof)" : " (no broker proof is wired: GAP, reset plan section 3)"}`);
+    // The proof the reclaim rests on, named for the run's log line (`snapshot lock held <token> (reclaimed from <from>: <proof>)`).
+    return seam
+      ? { from: holder.identity, proof: `owner ${holder.identity} is gone and the broker showed the snapshot idle for commit ${holder.commit}` }
+      : { from: `pid ${holder.pid}`, proof: `owner pid ${holder.pid} on ${holder.host} is gone (no process answers to it)` };
   };
   const first = create();
   if (first) return first;
   const observed = read();
   if (observed === null) { const again = create(); if (again) return again; throw busy(`snapshot lock ${lockFile} was taken by another process`); }
-  judgeStale(observed);
+  const reclaimed = judgeStale(observed);
   hooks.afterStaleRead?.();
   const reclaim = `${lockFile}.reclaim`;
   if (!publish(reclaim, body)) throw busy(`snapshot lock ${lockFile} is being reclaimed by another process (remove ${reclaim} only if no sync is running)`);
@@ -734,8 +793,10 @@ export function acquireSnapshotLock(lockFile, hooks = {}, { body: seamBody = nul
     hooks.whileReclaiming?.();
     if (read() !== observed) throw busy(`snapshot lock ${lockFile} changed before it could be reclaimed`);
     fs.rmSync(lockFile, { force: true });
+    try { fs.rmSync(childrenDirOf(lockFile), { recursive: true, force: true }); } catch { /* only dead groups were recorded */ }
     const mine = create();
     if (!mine) throw busy(`snapshot lock ${lockFile} was taken by another process`);
+    mine.reclaimed = reclaimed;
     return mine;
   } finally {
     fs.rmSync(reclaim, { force: true });
@@ -815,6 +876,41 @@ function ensureParents(dir, file) {
 }
 
 /**
+ * Everything that must hold before the first write under the snapshot root, and where the repository's snapshot lives: the managed root exists on the
+ * managed volume, the root is a private real directory (created 0700 when missing, beneath a parent that exists) and does not overlap the checkout.
+ * Returns `{ dir }`, the snapshot directory. Shared by the sync and by `takeSnapshotLock`, so a lock is never the first thing written to a boot-volume
+ * substitute for an unmounted managed root.
+ */
+function prepareSnapshotDir({ repo, root, managedRoot, device }) {
+  guardRoot(root, managedRoot, { device });
+  fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+  const rootStat = lstat(root);
+  if (!rootStat?.isDirectory()) throw new SnapshotError("refused", `snapshot root ${root} is not a directory (a link is never followed)`);
+  const dir = path.join(root, repo.key);
+  if (inside(dir, repo.checkout) || inside(repo.checkout, dir)) throw new SnapshotError("refused", `snapshot ${dir} and checkout ${repo.checkout} overlap`);
+  return { dir };
+}
+
+/**
+ * Takes the snapshot lock of `checkout`'s repository (`<root>/<repo-key>.lock`) and returns its release function, which also carries `held()`, `token`,
+ * `lockFile` and, when a dead holder's lock was reclaimed, `reclaimed: { from, proof }`. The one exclusion of every route that syncs or reads a snapshot:
+ * taken before the sync, held through every job and test of the batch, released only by the process that took it. `lock` is `{ body, judge, identityOf }`
+ * as `acquireSnapshotLock` takes them (the seam's body and broker proof on a broker host; none on a host with no broker). Throws SnapshotError("busy")
+ * while another process holds the snapshot.
+ */
+export function takeSnapshotLock({ checkout, root = snapshotRoot(), managedRoot = hostManagedRootFor(root), device, lock = {} } = {}) {
+  const repo = repositoryOf(checkout);
+  const { dir } = prepareSnapshotDir({ repo, root, managedRoot, device });
+  return acquireSnapshotLock(`${dir}.lock`, {}, { body: lock.body ?? null, judge: lock.judge ?? null, ...(lock.identityOf ? { identityOf: lock.identityOf } : {}) });
+}
+
+/**
+ * What a nested gate is handed to join the lock of the run that holds it: the token, the lock file and `held()`, and no way to release it. A nested check,
+ * compile or sync passes it down and never takes a second lock; only the process that took the lock releases it.
+ */
+export const lockView = (release) => ({ token: release.token, lockFile: release.lockFile, held: release.held, joined: true });
+
+/**
  * Syncs commit `rev` of the repository at `checkout` into its snapshot directory and verifies the result is exactly the commit's
  * tree. Returns `{ schema, path, repoKey, commit, tree, written, removed, modesFixed, unchanged, linksRemoved, hardLinksReplaced, ms }`.
  * Throws SnapshotError: "refused" before anything is written when the commit cannot be held exactly (a gitlink, an unsafe path, an
@@ -823,9 +919,9 @@ function ensureParents(dir, file) {
  * filesystem fails. `managedRoot` (default: the host's, when `root` is or lies under the host's snapshot root) is the managed root
  * that must already exist; `device` reads a path's device (tests inject it).
  */
-// `lock`: { body, judge, hold } for the seam (reset plan section 3): `body` is the lock body the broker reads (gate-seam.mjs snapshotLockBody), `judge`
-// decides a dead holder's reclaim on the broker's proof, and `hold: true` keeps the lock after the sync, returning `release` in the result for the
-// caller to call once every job and test of the batch ended. Without `hold` the lock is released when the sync ends, as before.
+// `lock`: the snapshot lock of this sync (reset plan section 3). `held` is a lock the caller already took with `takeSnapshotLock` for this same snapshot: the sync
+// uses it, re-checks it before every write and never releases it (the caller holds it through the batch). Without `held` the sync takes the lock itself, for the sync
+// alone: `body` is the seam's lock body the broker reads (gate-seam.mjs snapshotLockBody) and `judge` decides a dead holder's reclaim on the broker's proof.
 export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), managedRoot = hostManagedRootFor(root), device, now = () => Date.now(), lock = {} } = {}) {
   const started = now();
   const repo = repositoryOf(checkout);
@@ -833,20 +929,14 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), ma
   const entries = treeEntries(repo.checkout, commit);
   refuseCaseCollisions(entries, commit);
   // Before the first write: the managed root exists on the managed volume, and an existing root is private to this user.
-  guardRoot(root, managedRoot, { device });
-  // mkdir returns the first directory it created: a root that did not exist is born now, and build ownership keeps that birth (and
-  // the boot it happened in) as the baseline for processes it cannot read.
-  // A root made before birth records existed is emptied and born anew, only under this process's own free-host ownership, before
-  // this sync's first write (build-ownership.mjs migrateBirthlessRoot).
-  migrateBirthlessRoot(root);
-  if (fs.mkdirSync(root, { recursive: true, mode: 0o700 }) !== undefined) recordRootBirth(root);
-  const rootStat = lstat(root);
-  if (!rootStat?.isDirectory()) throw new SnapshotError("refused", `snapshot root ${root} is not a directory (a link is never followed)`);
-  const dir = path.join(root, repo.key);
-  if (inside(dir, repo.checkout) || inside(repo.checkout, dir)) throw new SnapshotError("refused", `snapshot ${dir} and checkout ${repo.checkout} overlap`);
-  const release = acquireSnapshotLock(`${dir}.lock`, {}, { body: lock.body ?? null, judge: lock.judge ?? null, ...(lock.identityOf ? { identityOf: lock.identityOf } : {}) });
+  const { dir } = prepareSnapshotDir({ repo, root, managedRoot, device });
+  const joined = lock.held ?? null;
+  if (joined) {
+    if (typeof joined.held !== "function" || joined.lockFile !== `${dir}.lock`) throw new SnapshotError("error", `the snapshot lock ${joined.lockFile ?? "(none)"} is not the lock of ${dir}`);
+    if (!joined.held()) throw new SnapshotError("busy", `snapshot lock ${dir}.lock is not held by this process`);
+  }
+  const release = joined ?? acquireSnapshotLock(`${dir}.lock`, {}, { body: lock.body ?? null, judge: lock.judge ?? null, ...(lock.identityOf ? { identityOf: lock.identityOf } : {}) });
   const assertLockHeld = () => { if (!release.held()) throw new SnapshotError("busy", `snapshot lock ${dir}.lock is no longer held by this sync`); };
-  let synced = false;
   try {
     const existing = lstat(dir);
     if (existing && !existing.isDirectory()) removeEntry(dir);
@@ -1024,11 +1114,10 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), ma
     const actual = snapshotTree({ checkout: repo.checkout, dir, baseTree: tree, repo });
     if (actual !== tree) throw new SnapshotError("mismatch", `snapshot ${dir} is tree ${actual} after sync, not tree ${tree} of commit ${commit}`);
     writeState(stateFile, { schema: STATE_SCHEMA, repo: repo.checkout, repoKey: repo.key, commit, tree, paths: [...wanted.keys()], stat: nextStat, syncedAt: new Date(now()).toISOString() });
-    synced = true;
-    return { schema: SNAPSHOT_SCHEMA, path: dir, repoKey: repo.key, commit, tree, written, removed, modesFixed, unchanged, linksRemoved, hardLinksReplaced, casesFixed, identity, ms: now() - started, ...(lock.hold === true ? { lockFile: `${dir}.lock`, release } : {}) };
+    return { schema: SNAPSHOT_SCHEMA, path: dir, repoKey: repo.key, commit, tree, written, removed, modesFixed, unchanged, linksRemoved, hardLinksReplaced, casesFixed, identity, ms: now() - started };
   } finally {
-    // A held lock outlives the sync (the caller releases it after the batch); a sync that failed releases it here whatever the caller asked.
-    if (lock.hold !== true || !synced) release();
+    // A lock the caller took is the caller's to release; a lock this sync took ends with it.
+    if (!joined) release();
   }
 }
 
@@ -1076,9 +1165,11 @@ export function verifySnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), 
  * `rightkit-gate snapshot [--commit <rev>] [--verify [--env <sha256>]] [--json]`: sync (or with --verify only check) the commit's
  * snapshot. `--env <sha256>` (verify only) also requires the installed dependency environment to still be the recorded
  * `rightkit-gate env-digest --snapshot` digest; the gate supplies `deps.environmentDigest({ checkout, dir, commit, tree })`.
- * Exit 0 the snapshot is the commit's tree and the build ownership taken for it was released, 1 mismatch / refused (unknown
- * revision, a missing managed root, an open-mode root, a gitlink ...) / busy or the ownership record was kept (a survivor may still
- * read the snapshot), 2 could not run. `o.home`, `o.configFile`, `o.managedRoot`, `o.device` are test injections.
+ * Exit 0 the snapshot is the commit's tree and its lock was released, 1 mismatch / refused (unknown
+ * revision, a missing managed root, an open-mode root, a gitlink ...) / busy (another process holds the snapshot lock), 2 could not run.
+ * A sync runs under the snapshot lock only, taken before the first write: `deps.lockFor({ checkout, commit, root })` (the gate's seam lock on a broker host)
+ * returns `{ lock }` (the lock arguments of `acquireSnapshotLock`) or `{ refusal }`; without it the legacy lock is taken. The lock covers the sync alone: this
+ * command submits no job. `o.home`, `o.configFile`, `o.managedRoot`, `o.device` are test injections.
  */
 export function snapshotCommand(o, args, deps = {}) {
   const allowed = new Set(["--commit", "--verify", "--json", "--env"]);
@@ -1093,37 +1184,30 @@ export function snapshotCommand(o, args, deps = {}) {
   if (envAt >= 0 && typeof deps.environmentDigest !== "function") { o.err("rightkit-gate: snapshot --env cannot compute the environment digest in this process"); return 2; }
   const i = args.indexOf("--commit");
   const rev = i >= 0 ? args[i + 1] : "HEAD";
-  let ownership = null;
   let code = 2;
   try {
     const platform = o.platform ?? process.platform;
     const root = o.snapshotRoot ?? snapshotRoot({ platform, env: o.env, ...(o.home ? { home: o.home } : {}), ...(o.configFile ? { configFile: o.configFile } : {}) });
     const managedRoot = o.managedRoot !== undefined ? o.managedRoot : hostManagedRootFor(root, { platform });
-    // The managed root exists (the gate never creates it) and the root is private, BEFORE build ownership is taken: taking it
-    // creates directories of its own, and must never be what brings a missing managed root into being.
+    // The managed root exists (the gate never creates it) and the root is private, BEFORE the lock is taken: taking it
+    // writes into the root, and must never be what brings a missing managed root into being.
     guardRoot(root, managedRoot, { device: o.device });
-    // A sync replaces snapshot bytes, so it runs only under the repository's build ownership, taken before the first write (joined when
-    // this gate already holds it); a verify only reads.
-    if (!verify) {
-      const repo = repositoryOf(o.cwd);
-      ownership = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot, repository: repo.key }), stage: "snapshot", snapshot: path.join(root, repo.key), commit: resolveCommit(repo.checkout, rev).commit, platform: o.platform, env: o.env });
+    let lock = {};
+    if (!verify && typeof deps.lockFor === "function") {
+      const taken = deps.lockFor({ checkout: o.cwd, commit: resolveCommit(repositoryOf(o.cwd).checkout, rev).commit, root });
+      if (taken?.refusal) { o.err(taken.refusal); return 1; }
+      lock = taken?.lock ?? {};
     }
+    // A sync replaces snapshot bytes, so it runs only under the snapshot lock, taken before the first write and released when the sync ends (this
+    // command submits no job); a verify only reads.
     const r = verify ? verifySnapshot({ checkout: o.cwd, rev, root, managedRoot, device: o.device, ...(envAt >= 0 ? { environment: { expected: args[envAt + 1], compute: deps.environmentDigest } } : {}) })
-      : syncSnapshot({ checkout: o.cwd, rev, root, managedRoot, device: o.device });
-    if (ownership) r.ownership = { handle: ownership.handle, joined: ownership.joined, reclaimed: ownership.reclaimed };
+      : syncSnapshot({ checkout: o.cwd, rev, root, managedRoot, device: o.device, lock: { body: lock.body ?? null, judge: lock.judge ?? null, ...(lock.identityOf ? { identityOf: lock.identityOf } : {}) } });
     if (args.includes("--json")) o.out(JSON.stringify(r));
     else o.out(`rightkit-gate: snapshot ${r.path} commit=${r.commit} tree=${r.tree}${"written" in r ? ` written=${r.written} removed=${r.removed} modes=${r.modesFixed} links=${r.linksRemoved} unchanged=${r.unchanged} ms=${r.ms}` : " verified"}`);
     code = 0;
   } catch (e) {
     o.err(`rightkit-gate: snapshot ${e.code ?? "error"}${e.reason ? ` (${e.reason})` : ""}: ${e.message}`);
-    code = (e instanceof SnapshotError && e.code !== "error") || e instanceof OwnershipBusy ? 1 : 2;
-  } finally {
-    const r = ownership?.release();
-    // A kept record means a survivor may still read the snapshot (or the host is not released): never a clean exit for a caller to script on.
-    if (r?.released === false && !ownership.joined) {
-      o.err(`rightkit-gate: snapshot failed: build ownership ${ownership.handle} kept: ${r.why}`);
-      if (code === 0) code = 1;
-    }
+    code = e instanceof SnapshotError && e.code !== "error" ? 1 : 2;
   }
   return code;
 }

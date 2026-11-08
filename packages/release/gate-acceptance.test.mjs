@@ -9,13 +9,13 @@ import {
   CHECKS, CLAUSES, COVERAGE_SCHEMA, INSTALL_CLAUSES, INSTALL_STAGES, NEGATIVES, RECEIPT_SCHEMA, STEPS, assertCleanCheckout, assertManifestEdit, assertNegative, assertOneFileEdit, assertRecovery,
   assertWarmRerun, brokerDigestProblems, brokerUnchanged, buildPlan, buildResult, bypassRefused, cargoWorkspaceOf, checkUtcStamps, classABeforeCompile, compileRanFresh, coveragePaths, dirtyProof,
   exitedBySignal, formatPlan, formatSummary, hookProblems, ladderStages, launchSpec, makeDirtyCheckout, mergeCoverage, outputDirsProblems, qualifyRefusal, reclaimLine, repositoryKey,
-  restoreDirtyCheckout, ruleTierProblems, sameListing, skippedRows, snapshotDirProblems, stageTimings, summarizeClause, validateCoverage, validateDoorReceipt, validateRenderReceipt,
+  restoreDirtyCheckout, ruleTierProblems, runningBrokerProcess, sameListing, skippedRows, snapshotDirProblems, stageTimings, summarizeClause, validateCoverage, validateDoorReceipt, validateRenderReceipt,
   validateSourceIdentity, vectorsProblems, workspaceRootOf, worktreeCount,
 } from "./gate-acceptance.mjs";
 
 import {
   BROKER_FORBIDDEN_CARGO, BUDGETS_SCHEMA, BUDGET_STAGES, NN, NN07_ALLOWLIST, NN_IDS, assertAdviceCached, assertBatching, assertBudget, assertDependencyReuse, assertDigestStable,
-  assertEnvDigestScope, assertKeysStable, assertLanes, assertNoBrokerNonCompiling, assertNoClassARan, assertNoClassBRan, assertNoDuplicateSpawns, assertNoOwnershipOnCheck,
+  assertEnvDigestScope, assertKeysStable, assertLanes, assertNoBrokerNonCompiling, assertNoClassARan, assertNoClassBRan, assertNoDuplicateSpawns, assertOneExclusionOnCheck,
   assertNoRealCargoMetadata, assertOtherWorkspacesIdle, assertRulesCached, assertRustfmtSpawns, assertSnapshotProof, assertUnitListShare, evaluateNonNegotiables, findInstalledGate,
   gateIdentityProblems, isExecutingRow, loadBudgets, nnForStep, normalizeSpawn, parseLedger, programOf, risenBudgets, stageMarks, unitSelectorsOf, validateBudgets,
 } from "./gate-acceptance.mjs";
@@ -98,15 +98,16 @@ test("log parsing: stage timings, coverage paths, reclaim line", () => {
   const log = "2026-11-05T10:00:00Z rightkit-gate: [check] passed in 12.3s\n2026-11-05T10:00:01Z rightkit-gate: [compile] failed in 4.0s\n2026-11-05T10:00:02Z rightkit-gate: coverage report /a b/x.json: 5 planned scan(s), 1 hit, 4 ran, 0 skipped; scans took 1.0s\n";
   assert.deepEqual(stageTimings(log), [{ stage: "check", ok: true, seconds: 12.3 }, { stage: "compile", ok: false, seconds: 4 }]);
   assert.deepEqual(coveragePaths(log), ["/a b/x.json"]);
-  const l = reclaimLine("2026-11-05T10:00:00Z rightkit-gate: build ownership held h2 (reclaimed from h1: owner pid 9 is gone; 2 sub-handle(s) REAPED)\n");
-  assert.equal(l.handle, "h2"); assert.equal(l.from, "h1"); assert.match(l.proofs, /REAPED/);
-  assert.equal(reclaimLine("rightkit-gate: build ownership held h2\n"), null);
+  const l = reclaimLine("2026-11-05T10:00:00Z rightkit-gate: snapshot lock held t2 (reclaimed from darwin:9:Wed Nov  5 10:00:00 2026: owner darwin:9:Wed Nov  5 10:00:00 2026 is gone and the broker showed the snapshot idle for commit abc)\n");
+  assert.equal(l.token, "t2"); assert.match(l.from, /^darwin:9:/); assert.match(l.proof, /broker showed the snapshot idle/);
+  assert.equal(reclaimLine("rightkit-gate: snapshot lock held t2\n"), null);
+  assert.equal(reclaimLine("rightkit-gate: build ownership held h2 (reclaimed from h1: gone)\n"), null, "the retired ownership line is no reclaim");
 });
 
 const COMMIT = "a".repeat(40); const TREE = "b".repeat(40);
 const goodReceipt = () => ({ schema: RECEIPT_SCHEMA, commit: COMMIT, app: ".", binding: { tree: TREE, locks: {}, gate: sha("g"), toolchain: {}, executor: "mac" }, stages: {
-  check: { ok: true, at: "2026-11-05T10:00:00.000Z", ruleTier: "compile", snapshot: { path: "/s", tree: TREE, intactAfter: true }, ownership: "h" },
-  compile: { ok: true, at: "2026-11-05T10:00:05.000Z", outputs: { dirs: ["/o/ws/g/1/target/aarch64-apple-darwin/release"], truncated: false }, snapshot: { path: "/s", tree: TREE, intactAfter: true }, ownership: "h" } } });
+  check: { ok: true, at: "2026-11-05T10:00:00.000Z", ruleTier: "compile", snapshot: { path: "/s", tree: TREE, intactAfter: true }, snapshotLock: "h" },
+  compile: { ok: true, at: "2026-11-05T10:00:05.000Z", outputs: { dirs: ["/o/ws/g/1/target/aarch64-apple-darwin/release"], truncated: false }, snapshot: { path: "/s", tree: TREE, intactAfter: true }, snapshotLock: "h" } } });
 
 test("door receipt: good passes; wrong tree, broken snapshot, extra field, verdict, ok=false all fail", () => {
   const args = { commit: COMMIT, expectedTree: TREE, stages: ["check", "compile"] };
@@ -230,19 +231,33 @@ test("bypass refusal: must exit non-zero, say retired, and run no stage", () => 
   assert.equal(bypassRefused({ exit: 2, text: "retired [check] passed in 1.0s" }).ok, false);
 });
 
-test("recovery: SIGKILL leaves a record, dry run explains, next run reclaims and replaces", () => {
-  const before = { handle: "h1", pid: 42 };
-  const dry = { exit: 0, text: "recover: recoverable: 2 REAPED" };
-  const next = { exit: 0, text: "x rightkit-gate: build ownership held h2 (reclaimed from h1: gone)" };
-  assert.ok(assertRecovery({ signal: "SIGKILL", before, dry, next, after: null }).ok);
-  assert.match(assertRecovery({ signal: "SIGKILL", before: null, dry, next, after: null }).problems.join(), /no owner record/);
-  assert.match(assertRecovery({ signal: "SIGKILL", before, dry: { exit: 2, text: "recover: REFUSED" }, next, after: null }).problems.join(), /dry run/);
-  assert.match(assertRecovery({ signal: "SIGKILL", before, dry, next: { exit: 0, text: "no reclaim" }, after: null }).problems.join(), /no 'reclaimed from'/);
-  assert.match(assertRecovery({ signal: "SIGKILL", before, dry, next: { exit: 0, text: "build ownership held h1 (reclaimed from h1: x)" }, after: null }).problems.join(), /not replaced/);
-  assert.match(assertRecovery({ signal: "SIGKILL", before, dry, next, after: { handle: "h1" } }).problems.join(), /still carries/);
-  assert.match(assertRecovery({ signal: "SIGKILL", before, dry, next: { exit: 1, text: next.text }, after: null }).problems.join(), /exited 1/);
-  assert.ok(assertRecovery({ signal: "SIGINT", before: null, dry: null, next: { exit: 0, text: "" }, after: null }).ok);
+test("recovery: SIGKILL leaves the lock, the next run reclaims it on the stale-owner rule and replaces it", () => {
+  const before = { token: "t1", pid: 42 };
+  const next = { exit: 0, text: "x rightkit-gate: snapshot lock held t2 (reclaimed from pid 42: owner pid 42 on h is gone (no process answers to it))" };
+  assert.ok(assertRecovery({ signal: "SIGKILL", before, next, after: null }).ok);
+  assert.match(assertRecovery({ signal: "SIGKILL", before: null, next, after: null }).problems.join(), /no snapshot lock stood/);
+  assert.match(assertRecovery({ signal: "SIGKILL", before: { pid: 42 }, next, after: null }).problems.join(), /malformed/);
+  assert.match(assertRecovery({ signal: "SIGKILL", before, next: { exit: 0, text: "no reclaim" }, after: null }).problems.join(), /no 'reclaimed from'/);
+  assert.match(assertRecovery({ signal: "SIGKILL", before, next: { exit: 0, text: "snapshot lock held t1 (reclaimed from pid 42: x)" }, after: null }).problems.join(), /not replaced/);
+  assert.match(assertRecovery({ signal: "SIGKILL", before, next: { exit: 0, text: "build ownership held h2 (reclaimed from h1: gone)" }, after: null }).problems.join(), /no 'reclaimed from'/, "the retired ownership line is no reclaim");
+  assert.match(assertRecovery({ signal: "SIGKILL", before, next, after: { token: "t1" } }).problems.join(), /still carries/);
+  assert.match(assertRecovery({ signal: "SIGKILL", before, next: { exit: 1, text: next.text }, after: null }).problems.join(), /exited 1/);
+  assert.ok(assertRecovery({ signal: "SIGINT", before: null, next: { exit: 0, text: "" }, after: null }).ok);
 });
+
+test("GC-I15: the running broker is read from launchd on the Mac and from the process list on Windows; Linux has none", () => {
+  const launchd = (answers, psOut = "Wed Nov  5 14:57:59 2026\n") => (cmd, args) => (cmd === "launchctl" ? { stdout: answers[args[1].split("/").pop()] ?? "" } : (assert.equal(cmd, "ps"), { stdout: psOut }));
+  const one = runningBrokerProcess({ platform: "darwin", uid: 501, run: launchd({ "dev.rustright.broker": "state = running\n\tpid = 4242\n" }) });
+  assert.equal(one.pid, 4242); assert.equal(one.startedMs, Date.parse("Wed Nov  5 14:57:59 2026"));
+  assert.equal(runningBrokerProcess({ platform: "darwin", uid: 501, run: launchd({}) }), null, "none running is unknown");
+  assert.equal(runningBrokerProcess({ platform: "darwin", uid: 501, run: launchd({ "dev.rustright.broker": "pid = 1\n", "dev.rustright.broker.b": "pid = 2\n" }) }), null, "both entries (mid-cutover) is unknown");
+  const winRun = (stdout) => (cmd, args) => { assert.equal(cmd, "powershell.exe"); assert.ok(args.includes("-EncodedCommand")); return { stdout }; };
+  assert.deepEqual(runningBrokerProcess({ platform: "win32", run: winRun("60764 2026-11-05T14:57:59.0000000Z\r\n") }), { pid: 60764, startedMs: Date.parse("2026-11-05T14:57:59Z") });
+  assert.equal(runningBrokerProcess({ platform: "win32", run: winRun("") }), null, "none or several (no line printed) is unknown");
+  assert.equal(runningBrokerProcess({ platform: "win32", run: () => { throw new Error("no powershell"); } }), null);
+  assert.equal(runningBrokerProcess({ platform: "linux", run: () => assert.fail("no spawn") }), null);
+});
+
 
 test("source identity, render receipt, vectors, broker digest", () => {
   const trees = { "": TREE, app: "d".repeat(40) };
@@ -694,9 +709,12 @@ test("NN12: installed dependencies are reused from pnpm's install record and the
   assert.equal(assertDigestStable("x", depLine("hit")).ok, false);
 });
 
-test("NN13: --to check takes no build-ownership lease", () => {
-  assert.ok(assertNoOwnershipOnCheck("2026-11-05T12:00:00.000Z rightkit-gate: snapshot /s is commit x\n").ok);
-  for (const word of ["held", "joined"]) assert.match(assertNoOwnershipOnCheck(`2026-11-05T12:00:00.000Z rightkit-gate: build ownership ${word} abc-123\n`).problems.join(), /took the build-ownership lease/);
+test("NN13: --to check takes exactly one exclusion, the snapshot lock, and no build-ownership lease", () => {
+  const lock = (n = 1) => `2026-11-05T12:00:00.000Z rightkit-gate: snapshot lock held t${n}\n`;
+  assert.ok(assertOneExclusionOnCheck(`${lock()}2026-11-05T12:00:01.000Z rightkit-gate: snapshot /s is commit x\n`).ok);
+  for (const word of ["held", "joined"]) assert.match(assertOneExclusionOnCheck(`${lock()}2026-11-05T12:00:00.000Z rightkit-gate: build ownership ${word} abc-123\n`).problems.join(), /build-ownership lease, which the gate no longer has/);
+  assert.match(assertOneExclusionOnCheck("2026-11-05T12:00:00.000Z rightkit-gate: snapshot /s is commit x\n").problems.join(), /took 0 snapshot lock/);
+  assert.match(assertOneExclusionOnCheck(`${lock(1)}${lock(2)}`).problems.join(), /took 2 snapshot lock/);
 });
 
 test("NN14: preflight and the app rules run once per tree", () => {
@@ -745,13 +763,13 @@ test("NN17: Class A lanes equal the host's cores and Class B batches compatible 
 
 test("NN18: stage times come from named stamped lines; a budget that is null fails", () => {
   const t0 = Date.parse("2026-11-05T12:00:00.000Z"); const ts = (ms) => new Date(t0 + ms).toISOString();
-  const log = [`${ts(200)} rightkit-gate: build ownership held h`, `${ts(500)} rightkit-gate: snapshot /s/abc is commit ${"a".repeat(40)} tree ${"b".repeat(40)} (written=0 removed=0 unchanged=77)`,
+  const log = [`${ts(200)} rightkit-gate: snapshot lock held h`, `${ts(500)} rightkit-gate: snapshot /s/abc is commit ${"a".repeat(40)} tree ${"b".repeat(40)} (written=0 removed=0 unchanged=77)`,
     `${ts(600)} rightkit-gate: --to compile for aaaaaaaaaaaa: check -> compile; executor broker`, `${ts(1000)} rightkit-gate: 120 scan(s) for 77 changed file(s) vs aaaaaaaaaaaa; class A scans 12 at a time`,
     `${ts(1400)} rightkit-gate: snapshot dependencies root=app pnpm=1`, `${ts(1500)} rightkit-gate: snapshot dependencies root=lib pnpm=1`].join("\n");
   const m = stageMarks(log, t0);
   assert.deepEqual(m.problems, []); assert.deepEqual(m.marks, { ownership: 200, snapshotSync: 300, planning: 400, dependencyStep: 400 });
-  assert.equal(stageMarks(log.replace(/^.*build ownership.*\n/, ""), t0).marks.ownership, 0, "a run that takes no lease has no ownership stage");
-  assert.equal(stageMarks(log.replace(/^.*build ownership.*\n/, ""), t0).marks.snapshotSync, 500, "...and its sync is timed from the run start");
+  assert.equal(stageMarks(log.replace(/^.*snapshot lock held.*\n/, ""), t0).marks.ownership, 0, "a run that takes no lock has no lock stage");
+  assert.equal(stageMarks(log.replace(/^.*snapshot lock held.*\n/, ""), t0).marks.snapshotSync, 500, "...and its sync is timed from the run start");
   assert.match(stageMarks(log.replace(/^.*class A scans.*\n/m, ""), t0).problems.join(), /no stamped `<n> scan\(s\)/);
   const budgets = { schema: BUDGETS_SCHEMA, hosts: { mac: { warmCheckMs: 5000, warmCompileMs: 6000, stages: { ownership: 400, snapshotSync: 400, dependencyStep: 600, planning: 500 } }, dell: { warmCheckMs: null, warmCompileMs: null, stages: { ownership: null, snapshotSync: null, dependencyStep: null, planning: null } } } };
   assert.ok(validateBudgets(budgets).ok);
@@ -808,8 +826,8 @@ test("NN19: the gate under test is the installed sealed gate; a checkout gate mu
 
 const T0 = Date.parse("2026-11-05T12:00:00.000Z"); const tsAt = (ms) => new Date(T0 + ms).toISOString();
 const ENV = "e".repeat(64); const CORES = 12;
-const cleanLog = (stage, { n = 1, lease = stage !== "check", match = "hit", walks = 0, hashes = 0, resident = 2, lanes = CORES, rulesCached = true, shared = 29 } = {}) => [
-  lease && `${tsAt(200)} rightkit-gate: build ownership held h${n}`,
+const cleanLog = (stage, { n = 1, lease = true, match = "hit", walks = 0, hashes = 0, resident = 2, lanes = CORES, rulesCached = true, shared = 29 } = {}) => [
+  lease && `${tsAt(200)} rightkit-gate: snapshot lock held h${n}`,
   `${tsAt(300)} rightkit-gate: snapshot /s/abc is commit ${"a".repeat(40)} tree ${"b".repeat(40)} (written=0 removed=0 unchanged=77)`,
   `${tsAt(400)} rightkit-gate: --to ${stage} for aaaaaaaaaaaa: ${stage}; executor broker`,
   `${tsAt(500)} ${rulesCached ? "check: aaaaaaaaaaaa app rules: cached pass (tree bbbbbbbbbbbb)" : "check: aaaaaaaaaaaa passed 14 rules (compile tier) in 0.1s"}`,
@@ -864,7 +882,7 @@ const MUTATIONS = {
   NN10: (c) => ledgerAdd(c, "S2:compile2", led("cargo", ["metadata", "--no-deps"], "/s/rk")),
   NN11: (c) => logOf(c, "S2:check2", (l) => l.replace("verify-walks=0", "verify-walks=2")),
   NN12: (c) => logOf(c, "S2:compile", (l) => l.replace("reuse-match=hit", "reuse-match=record-mismatch")),
-  NN13: (c) => logOf(c, "S4:check", (l) => `${tsAt(100)} rightkit-gate: build ownership held h9\n${l}`),
+  NN13: (c) => logOf(c, "S4:check", (l) => `${tsAt(100)} rightkit-gate: snapshot lock held h9\n${l}`),
   NN14: (c) => logOf(c, "S2:check", (l) => l.replace("app rules: cached pass", "passed 14 rules")),
   NN15: (c) => { c.runs["S2:check2"].rows = baseRows("hit", { "ghsa-audit:rk": { coverage: "ran" } }); },
   NN16: (c) => { c.runs["S10:units"].log = `${c.runs["S10:units"].log}\n${tsAt(1400)} rightkit-gate: coverage report /r/second.json: 1 planned scan(s)`; },

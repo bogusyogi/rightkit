@@ -1,9 +1,9 @@
 #!/usr/bin/env node
+import { recordLockChild } from "./snapshot.mjs";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "./background-process.mjs";
-import { spawnUnderOwnership } from "./build-ownership.mjs";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 
@@ -209,9 +209,9 @@ export async function watchOwnedProcessTree(
 
 function spawnOwnerWatcher(details) {
   const payload = Buffer.from(JSON.stringify(details)).toString("base64url");
-  const watcher = spawnUnderOwnership(spawn, process.execPath, [SELF, "--watch-owner-base64", payload], {
+  const watcher = recordLockChild(spawn(process.execPath, [SELF, "--watch-owner-base64", payload], {
     detached: true, env: process.env, stdio: "ignore", windowsHide: true,
-  });
+  }));
   watcher.once("error", () => {
     const observedStart = processStartedAt(details.childPid);
     if (Number.isFinite(observedStart) && Math.abs(observedStart - Number(details.childStartedAtMs)) <= 2000) {
@@ -367,7 +367,8 @@ export async function runHeavyCommand(args, { env = process.env } = {}) {
 
 function spawnAttached(command, args, env, slot) {
   return new Promise((resolve, reject) => {
-    const child = spawnUnderOwnership(spawn, command, args, { cwd: process.cwd(), env, stdio: "inherit", windowsHide: true, detached: heavyChildDetached({ slot }) });
+    const child = spawn(command, args, { cwd: process.cwd(), env, stdio: "inherit", windowsHide: true, detached: heavyChildDetached({ slot }) });
+    if (heavyChildDetached({ slot })) recordLockChild(child, { env });
     try {
       if (child.pid && slot) slot.trackChild(child.pid, command);
     } catch (error) {

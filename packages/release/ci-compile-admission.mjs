@@ -1,7 +1,7 @@
 // Compile-only CI admission for one named Rust fixture. This is not a publication qualification.
 // Local Class A is enforced by the gate; hosted CI independently repeats Class A.
 import { createHash } from "node:crypto";
-import { canonicalJson } from "./provenance-verify.mjs";
+import { canonicalJson } from "./receipt-signature.mjs";
 import { verifyCiCompileReceipts } from "./qualification-verify.mjs";
 
 export const CI_SCOPE = "rust:rightkit-decimal";

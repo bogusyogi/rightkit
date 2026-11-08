@@ -8,18 +8,9 @@
     "path": "docs/contracts"
   },
   "files": {
-    "adapter-argv.fixtures.json": {
-      "sha256": "d13615c6a4243e343564d968f9a35b7d4284824d9675bc2dfc8284861a31823d",
-      "schema": "rustright.adapter-argv.fixtures.v1"
-    },
     "attribution-detail-vectors.v1.json": {
       "sha256": "fa6fe4e8f746190339658fee64c666170bbb04106fb2fb582394e8af76f19c84",
       "schema": "rustright.attribution-detail-vectors.v1"
-    },
-    "cargo-shapes.fixtures.json": {
-      "sha256": "6c8b476dfc2925858ba897b6c668998fdfce154a56556a8d43005b5bd27aebca",
-      "schema": "rustright.cargo-shapes.fixtures.v1",
-      "commit": "396151ba0f4780c77223f287fd71507b22c0ed0c"
     },
     "control-status-vectors.v1.json": {
       "sha256": "2f21d88caa19df1501fc0b477192a289269af0b8374be3faf01b2678f2e3a358",

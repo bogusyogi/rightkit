@@ -38,7 +38,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
 import { resolveCommand } from "./development.mjs";
-import { carriedCargoMapOf } from "./carried-cargo.mjs";
+import { carriedCargoMapOf } from "./stage-seam.mjs";
 import { BUILD_LAUNCH_REFUSED, buildLaunch } from "./build-launch.mjs";
 import { directCargoPath, directHost, managedHost, nonCompilingCargoEnv, runCargoSync } from "./managed-cargo.mjs";
 import { snapshotCargoMetadata } from "./gate-serve.mjs";
@@ -972,7 +972,7 @@ function splitRoots(ctx) {
  */
 function splitCommandEnv(ctx) {
   if (!ctx.split) return ctx.env;
-  // A carried stage (carried-cargo.mjs): the broker pins every Cargo output, so nothing is pinned here and the commands inherit the carrier.
+  // A carried stage (stage-seam.mjs): the broker pins every Cargo output, so nothing is pinned here and the commands inherit the carrier.
   if (carriedCargoMapOf(ctx.env)?.map) return ctx.env;
   if (ctx.splitEnv === undefined) {
     const pinned = snapshotTargetDirectory(ctx, ctx.env, null); // no Cargo workspace in the snapshot: nothing to pin
@@ -1107,7 +1107,7 @@ function stageCargoBuild(entry, ctx, triple) {
   // resolved in the checkout instead and passed as an absolute CARGO_TARGET_DIR, so the warm outputs stay the checkout's and the
   // snapshot holds no target/ (docs/GATE-CONTRACT.md "Output directory & cache").
   let buildEnv = env;
-  // A carried stage (carried-cargo.mjs, a broker host): the broker pins the output directory and the call passes no CARGO_TARGET_DIR;
+  // A carried stage (stage-seam.mjs, a broker host): the broker pins the output directory and the call passes no CARGO_TARGET_DIR;
   // the directory the binary is read from is the signed receipt's `outputDir`, never a carrier-less `cargo metadata`.
   const carried = Boolean(carriedCargoMapOf(env)?.map);
   if (ctx.split && !carried) {

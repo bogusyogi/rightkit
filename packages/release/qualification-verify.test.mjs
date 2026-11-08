@@ -6,8 +6,6 @@ import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import fs from "node:fs";
 import { ProvenanceError, canonicalJson, signedBytes, verifyProvenanceSignature } from "./receipt-signature.mjs";
-import * as provenance from "./provenance-verify.mjs";
-import { carriedCallNonce, qualificationNonce } from "./provenance-verify.mjs";
 import { verifyCiCompileReceipts, verifyQualificationReceipts } from "./qualification-verify.mjs";
 import { expectedStageCommands } from "./stage-commands.mjs";
 import { readSeamStageReceipts } from "./unit-gate.mjs";
@@ -193,40 +191,10 @@ test("a seam receipt whose request ran outside the snapshot, or carries no works
   refused(qualificationOf((stage, row, i) => seamReceipt(row, i === 0 && stage === "compile" ? { over: { request: { ...seamPayload(row).request, workspace: "" } } } : {})), /records no workspace/);
 });
 
-// ---- a carrier-era receipt (the legacy branch, kept until plan step 5 deletes it): the caller nonce and the signed snapshotEvidence ----
-function legacyReceipt(stage, row, { handle = "handle-1" } = {}) {
-  const jobId = nextId();
-  const stageNonce = qualificationNonce({ commit: sha, tree, unit: `${unit.kind}:${unit.name}`, stage });
-  const argv = row.argvs[0], workspace = workspaceOf(row);
-  const payload = {
-    host: HOST, broker: { version: "test", brokerDigest: BROKER_DIGEST, clientDigest: "8".repeat(64) }, keyId: key.keyId, jobId,
-    nonce: carriedCallNonce({ stageNonce, cwd: row.cwd ?? ".", argv }), requestDigest: "7".repeat(64),
-    request: { kind: "cargo", shim: "cargo", requestedArgv: argv, workspace, workspaceRoot: workspace },
-    result: { status: "SUCCEEDED", exitCode: 0 },
-    snapshotEvidence: { requestId: jobId, commit: { sha, tree }, snapshot: { path: SNAP, treeAtStart: tree, treeAtExit: tree }, ownership: { handle: `${handle}#1` } },
-  };
-  return { id: jobId, provenance: envelope(key, payload) };
-}
-const legacy = () => qualificationOf((stage, row) => legacyReceipt(stage, row));
-
-test("a carrier-era qualification is still accepted by its own rules", () => {
-  const verified = verify(legacy());
-  assert.equal(verified.compile.length, count("compile"));
-});
-
-test("a carrier-era receipt is still held to its caller nonce and its ownership handle", () => {
-  const wrongNonce = legacy();
-  const r = wrongNonce.stages.compile.receipts[0];
-  const payload = { ...r.provenance.payload, nonce: "0".repeat(64) };
-  r.provenance = envelope(key, payload);
-  refused(wrongNonce, /does not verify against the enrolled pins.*nonce/);
-  refused(qualificationOf((stage, row, i) => legacyReceipt(stage, row, { handle: i === 1 ? "handle-2" : "handle-1" })), /another than the qualification's other jobs/);
-});
-
-test("a qualification mixing seam and carrier-era receipts is refused", () => {
-  const q = good();
-  q.stages.package.receipts[0] = legacyReceipt("package", expected.package.filter((row) => row.direct !== true)[0]);
-  refused(q, /one qualification is one door run/);
+// ---- the deleted carrier-era shape (plan step 5): a receipt with no signed gate object admits nothing ----
+test("a receipt with no signed gate object (the deleted carrier-era shape) is refused", () => {
+  const noGate = (row) => { const { gate: _gate, ...rest } = seamPayload(row); return { id: rest.jobId, provenance: envelope(key, rest) }; };
+  refused(qualificationOf((stage, row, i) => (i === 0 && stage === "compile" ? noGate(row) : seamReceipt(row))), /carries no signed gate object/);
 });
 
 // ---- the CI compile proof's receipts (one stage, an independently bound nonce that a seam receipt no longer carries) ----
@@ -240,21 +208,13 @@ test("verifyCiCompileReceipts accepts a seam compile stage and refuses a receipt
   assert.throws(() => verifyCiCompileReceipts(compileOnly, { sha, git, stageNonce: "nope" }), /CI compile nonce is invalid/);
 });
 
-// ---- the extracted signature half: provenance-verify.mjs re-exports it, so every old importer is unchanged ----
-test("provenance-verify re-exports the extracted signature half unchanged", () => {
-  assert.equal(provenance.canonicalJson, canonicalJson);
-  assert.equal(provenance.signedBytes, signedBytes);
-  assert.equal(provenance.ProvenanceError, ProvenanceError);
-  assert.equal(provenance.PROVENANCE_SCHEMA, "rustright.provenance.v1");
-  assert.equal(provenance.PROVENANCE_DOMAIN, "rustright-provenance-v1");
+// ---- the signature half (receipt-signature.mjs) ----
+test("the signature half checks the job, the host, the broker and the algorithm", () => {
+  assert.equal(ProvenanceError.name, "ProvenanceError");
   const row = expected.compile.find((r) => r.direct !== true);
   const receipt = seamReceipt(row);
   const pins = key.pin;
   assert.equal(verifyProvenanceSignature(receipt, pins, receipt.id).jobId, receipt.id);
-  // The nonce-bearing verifier is the signature half plus the caller's nonce and request digest.
-  assert.equal(provenance.verifyProvenance(receipt, pins, { jobId: receipt.id, nonce: receipt.provenance.payload.nonce, requestDigest: "7".repeat(64) }).jobId, receipt.id);
-  assert.throws(() => provenance.verifyProvenance(receipt, pins, { jobId: receipt.id, nonce: "other" }), (e) => e instanceof ProvenanceError && e.code === "nonce");
-  assert.throws(() => provenance.verifyProvenance(receipt, pins, { jobId: receipt.id, nonce: receipt.provenance.payload.nonce, requestDigest: "1".repeat(64) }), (e) => e.code === "request");
   assert.throws(() => verifyProvenanceSignature(receipt, pins, "job-other"), (e) => e.code === "job");
   assert.throws(() => verifyProvenanceSignature(receipt, { ...pins, host: "other.test" }, receipt.id), (e) => e.code === "host");
   assert.throws(() => verifyProvenanceSignature(receipt, { ...pins, brokerDigest: "1".repeat(64) }, receipt.id), (e) => e.code === "runtime");

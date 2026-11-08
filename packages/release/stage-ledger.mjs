@@ -191,8 +191,8 @@ export function reportedPaths(result) {
 
 /**
  * The cross-check with `.rightkit/compile-inputs.json` (decision 2, Q1): for each declared input that covers ledger entries, the digest
- * the compile receipt names must equal the gate's own digest of those bytes (compile-inputs.mjs judgeCompileInputs, the broker's
- * algorithm). Returns problems; `judge` is judgeCompileInputs.
+ * the compile receipt names must equal the gate's own digest of those bytes (compile-inputs.mjs judgeCompileInputs: per file its
+ * name, NUL, bytes, NUL, the digest the direct receipt records). Returns problems; `judge` is judgeCompileInputs.
  */
 export function declaredInputProblems({ snapshot, entries, receiptDigests, judge }) {
   const judged = judge(snapshot);

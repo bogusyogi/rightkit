@@ -10,7 +10,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import zlib from "node:zlib";
-import { canonicalJson } from "./provenance-verify.mjs";
+import { canonicalJson } from "./receipt-signature.mjs";
 import { SWAP_HELPER_BIN, SWAP_HELPER_PACKAGE, SWAP_HELPER_RECEIPT } from "./swap-helper-bundle.mjs";
 
 export const CONTENT_DIGEST_DOMAIN = "rightkit-npm-content-v1";

@@ -20,7 +20,7 @@ export const envNamed = (env, name) => {
  * path, `runtimeRoot` (`RUSTRIGHT_RUNTIME_ROOT`, else RustRight's per-platform default) and `liveRuntime` = `<runtimeRoot>/runtime`, which supersedes it.
  *
  * `legacyRoot` is the pre-rename Mac/Windows location the shared fixtures pin on every platform; it is never a default for a host that is neither: a Linux (or
- * other) host that names no data root gets `<home>/.local/state/rightkit` (the account's own state directory, where its runs, snapshots and build-ownership record
+ * other) host that names no data root gets `<home>/.local/state/rightkit` (the account's own state directory, where its runs and snapshots
  * already live), never `/Volumes/D/.rightkit-managed`, a Mac volume that a Linux gate would otherwise create as root. Everything else is RustRight's order:
  * the data root is named by the same env, `controlRoot` = `dataRoot` off Mac, so a host that names its roots (every declared Linux broker, whose installer sets
  * RUSTRIGHT_DATA_ROOT / RUSTRIGHT_CONTROL_ROOT) resolves exactly as `rustright-config::managed_roots` does. RustRight resolves a host with NO environment the same
@@ -87,7 +87,7 @@ export function detectLayout(options = {}) {
  * diagnostics): RIGHTKIT_SCRATCH_ROOT, else `<data root>/runs`. A managed Mac or Windows host has a data root, and so does any host
  * that names one in the environment. A direct (Linux and other) host with none used to fall to the Mac data volume,
  * `/Volumes/D/.rightkit-managed/runs`, and create it; its data root now defaults to the account's own state directory
- * (resolveManagedRoots: `~/.local/state/rightkit`), beside the snapshots and the build-ownership record, so its runs are `~/.local/state/rightkit/runs`.
+ * (resolveManagedRoots: `~/.local/state/rightkit`), beside the snapshots, so its runs are `~/.local/state/rightkit/runs`.
  */
 export function gateRunsRoot({ env = process.env, platform = process.platform, home = homedir() } = {}) {
   if (env.RIGHTKIT_SCRATCH_ROOT) return env.RIGHTKIT_SCRATCH_ROOT;
@@ -176,7 +176,7 @@ function declaredLinuxBrokerClient(env, exists, { realpath = (file) => realpathS
 /**
  * The installed RustRight client, selected in ONE order everywhere (doctor, carry, status, lease and dispatch all call this): the live runtime at its final RustRight path
  * (`<runtimeRoot>/runtime`), the control root's `runtime` (the shared fixtures' `runtimeCurrent`), and only then the legacy `runtime-current` link of a host not yet cut over. The
- * Windows client is the native `rustright.exe`, never a `.cmd` shim; the caller probes the exact client returned before it marks any work (snapshot-broker.mjs clientStartable).
+ * Windows client is the native `rustright.exe`, never a `.cmd` shim; the caller probes the exact client returned before it marks any work.
  */
 export function managedRuntimeClient(env = process.env, platform = process.platform, exists = existsSync, ops = {}) {
   if (platform !== 'darwin' && platform !== 'win32') return declaredLinuxBrokerClient(env, exists, ops); // a direct (Linux) host has a broker client only by declaring one

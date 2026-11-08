@@ -18,13 +18,12 @@
 // result is a plain object (per-scan status, tool versions, scanSetDigest) usable as receipt content
 // (packages/release/pipeline-receipts.mjs); it carries no authority by itself.
 import crypto from "node:crypto";
-import { cargoWidthArgs } from "./cargo-width.mjs";
 import fs from "node:fs";
+import { recordLockChild } from "./snapshot.mjs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn as spawnChild, spawnSync } from "./background-process.mjs";
-import { spawnUnderOwnership } from "./build-ownership.mjs";
 import { checkAdvisoryExceptions } from "./advisory-exceptions.mjs";
 import { crateRunsOn, crossCompileEnv, oneOutput, scopedCrossTargets } from "./cross-targets.mjs";
 import { declaredFeatureNames, effectiveCrateFeatures, featureCoverageProblems } from "./feature-coverage.mjs";
@@ -38,12 +37,9 @@ import { LAUNCH_GUARD_IMPORT } from "./class-a-launch-guard.mjs";
 import { advisoryCacheRoot, ensureAdvisoryDb, prepareDenyOverlay, readAdvisoryPin } from "./advisory-db.mjs";
 import { ghsaFindings } from "./ghsa-audit.mjs";
 import { OutdatedUnavailableError, resolveOutdatedBin } from "./outdated-command.mjs";
-import { isInsideGenerationTarget, observedEnvOf, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest } from "./snapshot-request.mjs";
-import { SCAN_TOKEN_ENV, appendLedger, readLedger, scanTokenOf, unclaimedLedgers } from "./cargo-ledger.mjs";
-import { brokerSection, carryBrokerAdapterAsync, verifyBrokerLedger } from "./snapshot-broker.mjs";
-import { ADMISSION_POLL_MS, CARRIED_CANCEL_GRACE_MS, QUEUED_CEILING_FACTOR, createBrokerLive, createRunClock, createStatusPoller, watchBrokerAdmission } from "./broker-admission.mjs";
-import { CANCEL_WAIT_ENV, operationDeadlineEnv, refusalInCapturedOutput } from "./broker-wire.mjs";
-import { removeCarrier } from "./carrier-census.mjs";
+import { SCAN_TOKEN_ENV, readLedger, scanTokenOf, unclaimedLedgers } from "./cargo-ledger.mjs";
+import { ADMISSION_POLL_MS, CARRIED_CANCEL_GRACE_MS, QUEUED_CEILING_FACTOR, createRunClock, createStatusPoller, watchBrokerAdmission } from "./broker-admission.mjs";
+import { CANCEL_WAIT_ENV, operationDeadlineEnv } from "./broker-admission.mjs";
 import { meetPartitions, partitionByFeatures, partitionCacheKey, splitNote, stripSelectors, treeArgs, workspaceManifestDigest } from "./feature-partition.mjs";
 import { CLASS_A_ENV, NOT_EXECUTED_EXIT, judgeSeamOutcome, normalizeWorkspace, seamEnv, seamSettled, verdictForRun } from "./gate-seam.mjs";
 
@@ -298,8 +294,48 @@ export function fmtCheckArgs(unit = null) { return unit ? ["fmt", "-p", unit, "-
 /** `cargo metadata` that validates manifests and the lock without resolving anything new. */
 export function metadataArgs({ noDeps = true } = {}) { return ["metadata", ...(noDeps ? ["--no-deps"] : []), "--format-version", "1", "--locked"]; }
 
-/** Translate one authenticated publisher requirement into a normal Class B scan. */
-export function publisherRequirementScan(requirement, { platform = process.platform, nativeArch = process.arch, cargoCommand = ["cargo"], cargoLiveRoot = null, targetDirs = null, quiet = false, allowIgnored = false, cargoJobs = null } = {}) {
+// NN27 (GATE-CONTRACT GC-A27): never two compiler passes over one crate, target and feature set. A publisher check is proved by a passing plan
+// row (clippy or check) over the same crate, features, target and all-targets selection with the same compiler-relevant environment: clippy runs
+// the same compile and only adds lints. Output and failure flags (--message-format, --locked, --keep-going, -j, lint arguments after `--`) do not
+// change what compiled. Tests and docs never reuse: their environment or target selection differs. (Moved from unit-list-compile.mjs, retired with
+// the grouped publisher scheduler, reset plan step 5; planUnitListScans in local-publish.mjs is the one caller.)
+const COMPILE_ENV = ["CC", "CXX", "AR", "LD", "RUSTC", "RUSTFLAGS", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER", "CARGO_TARGET_DIR", "CARGO_BUILD_TARGET", "MACOSX_DEPLOYMENT_TARGET", "CARGO_ENCODED_RUSTFLAGS"];
+/** `as`: "check" (what a check or clippy proves) or "clippy" (a clippy with its lint arguments, provable only by the same clippy). */
+export function compileProofKey(scan, as = "check") {
+  if (!scan || !Array.isArray(scan.args)) return null;
+  const argv = scan.args[0] === "cargo" ? scan.args.slice(1) : scan.args;
+  const sub = argv[0];
+  if (sub !== "check" && sub !== "clippy") return null;
+  if (as === "clippy" && sub !== "clippy") return null;
+  const sep = argv.indexOf("--");
+  const lints = as === "clippy" ? (sep < 0 ? [] : argv.slice(sep + 1)) : null;
+  const packages = []; const features = []; let noDefault = false; let allFeatures = false; let target = null; let allTargets = false;
+  for (let i = 1; i < argv.length; i += 1) {
+    const a = argv[i];
+    if (a === "--") break;
+    if (a === "-p" || a === "--package") packages.push(argv[++i]);
+    else if (a === "--features" || a === "-F") features.push(...String(argv[++i] ?? "").split(/[ ,]+/).filter(Boolean));
+    else if (a.startsWith("--features=")) features.push(...a.slice(11).split(/[ ,]+/).filter(Boolean));
+    else if (a === "--no-default-features") noDefault = true;
+    else if (a === "--all-features") allFeatures = true;
+    else if (a === "--target") target = argv[++i];
+    else if (a === "--all-targets") allTargets = true;
+    else if (a === "--locked" || a === "--keep-going" || a === "--no-deps" || a.startsWith("--message-format") || a === "--profile" || a.startsWith("--profile=") || a === "-j" || a === "--jobs" || a.startsWith("-j") || a.startsWith("--jobs=")) { if (a === "--profile" || a === "-j" || a === "--jobs") i += 1; }
+    else return null; // anything else could change what compiles: no proof either way
+  }
+  if (packages.length !== 1 || !packages[0]) return null;
+  const env = Object.fromEntries(COMPILE_ENV.map((k) => [k, scan.env?.[k] ?? null]));
+  return JSON.stringify({ as, ...(lints ? { lints } : {}), cwd: scan.cwd ?? ".", package: packages[0], features: [...new Set(features)].sort(), noDefault, allFeatures, target, allTargets, env });
+}
+
+/**
+ * Translate one authenticated publisher requirement into a normal Class B scan. `batch` (a unit-list run, reset plan step 5) marks the scan `batchable`
+ * exactly as planScans marks its own compile rows, so runScans' one class B grouping (classBBatching, the feature partition, the store rule, the
+ * serial reuse) groups publisher rows with each other: a check, clippy or doc of one crate, or a Rust test whose executables run outside the
+ * broker, with no `--features` of its own. A publisher row never shares a group with a plan row (`publisher` is part of the key), and a group is
+ * only of rows with the same verdict rules (`allowIgnored`, `quiet`).
+ */
+export function publisherRequirementScan(requirement, { platform = process.platform, nativeArch = process.arch, cargoCommand = ["cargo"], cargoLiveRoot = null, targetDirs = null, quiet = false, allowIgnored = false, batch = false } = {}) {
   const { id, workspace, cwd, executable, argv, env, phase, coverageKey } = requirement ?? {};
   if (typeof id !== "string" || !id || typeof coverageKey !== "string" || !coverageKey || !Array.isArray(argv) || !argv.every((arg) => typeof arg === "string") || !env || typeof env !== "object" || Array.isArray(env) || !["compile", "test"].includes(phase)) throw new TypeError("invalid publisher requirement");
   const plainDir = (value) => typeof value === "string" && /^(?:\.|[A-Za-z0-9_@+.-]+(?:\/[A-Za-z0-9_@+.-]+)*)$/.test(value) && !value.split("/").includes("..");
@@ -314,13 +350,119 @@ export function publisherRequirementScan(requirement, { platform = process.platf
     runOutside = { args: runArgs };
   }
   if (executable === "cargo") {
-    if (cargoJobs !== null) args = cargoWidthArgs(args, cargoJobs);
     args = oneOutput(isRustTest && cargoLiveRoot ? args : everyFailure(args), { platform, arch: nativeArch });
   }
   const scan = { id, coverageKey, ...(executable === "cargo" ? { executionWorkspace: workspace } : {}), publisherPhase: phase, class: SCAN_CLASS.B, root: executable === "cargo" && cargoLiveRoot ? "cargoLive" : "live", cwd, tool: executable === "cargo" ? cargoCommand[0] : executable, args: executable === "cargo" ? [...cargoCommand.slice(1), ...args] : args, env: { ...env, ...(targetDirs?.[workspace] ? { CARGO_TARGET_DIR: targetDirs[workspace] } : {}) }, ...(quiet && phase === "test" ? { quiet: true } : {}), ...(runOutside ? { runOutside } : {}), ...(isRustTest ? { publisherRustTest: true, allowIgnored } : {}), ...(executable === "pnpm" && phase === "test" ? { kind: "test" } : {}) };
   // Do not render the inherited publisher environment into logs or receipts.
   scan.command = commandText({ ...scan, env: {} });
+  if (batch && executable === "cargo") {
+    const offset = scan.args[0] === "cargo" ? 1 : 0;
+    const sub = scan.args[offset];
+    const at = scan.args.indexOf("-p");
+    const crate = at >= 0 ? scan.args[at + 1] : null;
+    const eligible = phase === "compile" ? ["check", "clippy", "doc"].includes(sub) : isRustTest && Boolean(runOutside);
+    if (eligible && at > offset && typeof crate === "string" && !crate.startsWith("-") && scan.args.indexOf("-p", at + 1) < 0) {
+      const rest = [...scan.args.slice(0, at), ...scan.args.slice(at + 2)];
+      if (!rest.some((w) => /^(?:--features(?:=.*)?|-F.*)$/.test(w))) {
+        const key = sha256(canonicalJson({ publisher: true, phase, tool: scan.tool, workspace: scan.executionWorkspace ?? null, cwd: scan.cwd, root: scan.root, env: scan.env, rest, at, allowIgnored: scan.allowIgnored === true, quiet: scan.quiet === true })).slice(0, 16);
+        // The row's own --target stays in its key (so a group is one target) and is named for the feature partition, as planScans names it for its rows.
+        const ti = rest.indexOf("--target"); const target = ti >= 0 && typeof rest[ti + 1] === "string" ? rest[ti + 1] : null;
+        scan.batchable = { key, at, crate, unit: crate, ...(target ? { target } : {}) };
+      }
+    }
+  }
   return scan;
+}
+
+// ---- A unit-list run's publisher requirements (reset plan step 5; replaces unit-list-compile.mjs, the grouped publisher scheduler) ----------------------------
+// A unit-list run plans ONE scan set: planScans over the closure of every listed unit, plus one Class B scan per publisher requirement the plan's own rows
+// do not already prove (planUnitListScans). runScans runs that set with its own class B grouping, under the run's one snapshot lock and one shared Class A.
+// judgeUnitList then answers, per requirement and per unit, from the rows runScans returned.
+
+/** A requirement as compileRequirements builds it: every field present and `coverageKey` the digest of its body (an altered requirement refuses planning). */
+export function assertCanonicalRequirements(entries) {
+  if (!Array.isArray(entries) || !entries.length) throw new Error("unit list needs compile requirements");
+  const ids = new Set();
+  for (const entry of entries) {
+    if (typeof entry?.selector !== "string" || !Array.isArray(entry.requirements) || !entry.requirements.length) throw new Error("each unit needs a nonempty canonical compile plan");
+    for (const r of entry.requirements) {
+      const body = { workspace: r.workspace, cwd: r.cwd, executable: r.executable, ...(r.internal === undefined ? {} : { internal: r.internal }), argv: r.argv, env: r.env, phase: r.phase };
+      if (typeof r.id !== "string" || ids.has(r.id) || typeof r.workspace !== "string" || !r.workspace || typeof r.cwd !== "string" || !r.cwd || (typeof r.executable !== "string" && !(r.executable === null && r.internal === "scanCrateForSecrets")) || !Array.isArray(r.argv) || !r.argv.every((x) => typeof x === "string") || !r.env || typeof r.env !== "object" || Array.isArray(r.env) || !["test", "compile", "check"].includes(r.phase) || sha256(JSON.stringify(body)) !== r.coverageKey) throw new Error(`invalid or duplicate canonical requirement ${r.id ?? "<missing>"}`);
+      ids.add(r.id);
+    }
+  }
+}
+
+/** The units a unit-list run does not compile: those that failed an internal requirement (secret scan, format), and every selected unit that depends on one, transitively. */
+export function blockedUnitsOf({ dependencies = {}, initialFailures = new Set() } = {}) {
+  const blocked = new Set(initialFailures);
+  for (let changed = true; changed;) { changed = false; for (const [selector, deps] of Object.entries(dependencies)) if (!blocked.has(selector) && deps.some((dep) => blocked.has(dep))) { blocked.add(selector); changed = true; } }
+  return blocked;
+}
+
+/**
+ * The publisher scans of a unit-list run, to be appended to the plan's scans. `entries` are the units' external requirements (`[{ selector, requirements }]`),
+ * `planned` the plan's own scans, `adapt` publisherRequirementScan with the run's options (batch on). Keeps every requirement of the retired scheduler:
+ *  - each requirement is authenticated first (assertCanonicalRequirements);
+ *  - identical requirements of several units (same coverageKey) are ONE scan, every member id mapped to it (`scanOf`);
+ *  - a requirement that moved to its workspace root (`normalizedCwds`, proveWorkspaceCwd) is planned at that root, so runScans groups it with the others;
+ *  - NN27: a check or clippy requirement a plan row proves (compileProofKey) gets no scan; `providerOf` names the plan row whose pass stands for it, and
+ *    that row is returned in `provers` so the run marks it (`provesPublisher`: its pass is stored with, and returns, the broker receipt the publisher verdict needs);
+ *  - a unit in `blocked` has no scan: its requirements are reported blocked by judgeUnitList.
+ */
+export function planUnitListScans({ entries, planned = [], normalizedCwds = new Map(), adapt, blocked = new Set() }) {
+  assertCanonicalRequirements(entries);
+  if (typeof adapt !== "function") throw new TypeError("planUnitListScans needs the publisher scan adapter");
+  const proofs = new Map();
+  for (const scan of planned) {
+    if (scan?.class !== SCAN_CLASS.B || scan.deferred || scan.publisherPhase) continue;
+    for (const as of ["check", "clippy"]) { const key = compileProofKey(scan, as); if (key !== null && !proofs.has(key)) proofs.set(key, scan.id); }
+  }
+  const scans = []; const scanOf = new Map(); const providerOf = new Map(); const provers = new Set(); const byCoverage = new Map();
+  for (const entry of entries) for (const r of entry.requirements) {
+    if (blocked.has(entry.selector)) continue;
+    const seen = byCoverage.get(r.coverageKey);
+    if (seen) { if (seen.scan) scanOf.set(r.id, seen.scan); else { providerOf.set(r.id, seen.provider); } continue; }
+    const scan = adapt({ ...r, cwd: normalizedCwds.get(r.id) ?? r.cwd });
+    const argv = scan.args[0] === "cargo" ? scan.args.slice(1) : scan.args;
+    const key = r.executable === "cargo" && r.phase === "compile" ? compileProofKey(scan, argv[0] === "clippy" ? "clippy" : "check") : null;
+    const provider = key === null ? undefined : proofs.get(key);
+    if (provider) { providerOf.set(r.id, provider); provers.add(provider); byCoverage.set(r.coverageKey, { provider }); continue; }
+    scans.push(scan); scanOf.set(r.id, scan.id); byCoverage.set(r.coverageKey, { scan: scan.id });
+  }
+  return { scans, scanOf, providerOf, provers: [...provers] };
+}
+
+/**
+ * The verdict of each external requirement of a unit-list run, from the rows runScans returned. `rowOf(scanId)` is that run's row; `verify` is the publisher's
+ * own judgement of one row (`{ row, member, attempts, requirement }` -> `{ ok, evidenceHash }`: the receipt, the test verdict, skip and truncation rules).
+ * Returns `[{ selector, id, coverageKey, status: "passed"|"failed"|"blocked", evidenceHash? }]`, one per requirement. A row that is not a pass, or that does not
+ * verify, is failed. A unit whose dependency has any failed or blocked row is blocked as a whole (its passed rows are reported blocked, never passed), so no
+ * verdict depends on the order the rows ran in; a unit with a failed row of its own stays failed.
+ */
+export async function judgeUnitList({ entries, dependencies = {}, blocked = new Set(), scanOf, providerOf, rowOf, verify }) {
+  const results = [];
+  for (const entry of entries) for (const r of entry.requirements) {
+    const member = { selector: entry.selector, id: r.id, coverageKey: r.coverageKey };
+    if (blocked.has(entry.selector)) { results.push({ ...member, status: "blocked" }); continue; }
+    const providerId = scanOf.has(r.id) ? null : providerOf.get(r.id) ?? null;
+    const row = rowOf(scanOf.get(r.id) ?? providerId);
+    // The receipt of a unit says which row answered each requirement: its own scan, or the plan row that proves it (NN27).
+    Object.assign(member, providerId ? { providedBy: providerId } : scanOf.has(r.id) ? { scan: scanOf.get(r.id) } : {});
+    let status = "failed"; let evidenceHash;
+    try {
+      const attempts = row ? [{ id: row.id, status: row.status, ...(row.code ? { code: row.code } : {}), command: row.command, ...(providerId ? { provedBy: providerId } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}) }] : [];
+      const checked = await verify({ row, member, attempts, requirement: r });
+      if (row?.status === "pass" && checked?.ok === true && typeof checked.evidenceHash === "string" && /^[0-9a-f]{64}$/.test(checked.evidenceHash)) { status = "passed"; evidenceHash = checked.evidenceHash; }
+    } catch { /* An exception cannot attest a pass. */ }
+    results.push({ ...member, status, ...(evidenceHash ? { evidenceHash } : {}) });
+  }
+  const own = new Set(results.filter((r) => r.status === "failed").map((r) => r.selector));
+  const bad = new Set(results.filter((r) => r.status !== "passed").map((r) => r.selector));
+  const present = new Set(entries.map((e) => e.selector));
+  for (let changed = true; changed;) { changed = false; for (const [selector, deps] of Object.entries(dependencies)) if (!bad.has(selector) && present.has(selector) && deps.some((dep) => bad.has(dep))) { bad.add(selector); changed = true; } }
+  for (const r of results) if (bad.has(r.selector) && !own.has(r.selector) && r.status === "passed") { r.status = "blocked"; delete r.evidenceHash; }
+  return results;
 }
 
 /** Deduplicate concurrent identical probes; transient outcomes are never retained. */
@@ -336,12 +478,13 @@ export function sameCommand(stored, s) { return keyCommand({ command: stored, ru
  * row's kind needs to be judged as the fresh row was: a test row its counts (testResultsProblem), a publisher row on a broker its receipt
  * digest, a test group every member's own run (memberRuns) with that member's counts. `hit` is the cache entry ({ key, at, row }).
  */
-export function usableStoredPass(hit, s, { cacheKey, viaSnapshotBroker = false } = {}) {
+export function usableStoredPass(hit, s, { cacheKey, viaSeam = false } = {}) {
   const row = hit?.row;
   if (!hit || hit.key !== cacheKey || row?.status !== "pass" || row.id !== s.id || !sameCommand(row.command, s)) return false;
   if (row.batchedWith || row.batchCommand) return false;
   if ((s.kind === "test" || s.runOutside) && testResultsProblem(row.results) !== null) return false;
-  if (s.coverageKey && viaSnapshotBroker && !/^[0-9a-f]{64}$/.test(row.snapshotEvidence?.receiptSha256 ?? "")) return false;
+  // `provesPublisher`: a plan row that stands for a publisher requirement (planUnitListScans, NN27) is judged on a broker host like the publisher row: its pass carries the receipt.
+  if ((s.coverageKey || s.provesPublisher) && viaSeam && !/^[0-9a-f]{64}$/.test(row.snapshotEvidence?.receiptSha256 ?? "")) return false;
   if (Array.isArray(s.testGroup)) {
     if (!row.memberRuns || typeof row.memberRuns !== "object") return false;
     for (const m of s.testGroup) { const v = row.memberRuns[m.id]; if (!v || v.status !== "pass" || testResultsProblem(v.results) !== null) return false; }
@@ -354,7 +497,7 @@ export function storedPassRow(s, row) {
   // proof (executableProof: the bound output directories and each executable's path, package, target and sha256): a later serial row whose plain row is a cache hit
   // re-checks every file against it (provenExecutables) and reuses them only when every one is still there with the same digest; otherwise it compiles once, alone.
   const memberRuns = row.memberRuns ? Object.fromEntries(Object.entries(row.memberRuns).map(([id, v]) => { const { acceptedBinaries: _bins, ...rest } = v ?? {}; void _bins; return [id, rest]; })) : null;
-  return { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "pass", ...(row.executableProof ? { executableProof: row.executableProof } : {}), ...(s.coverageKey ? { snapshotEvidence: row.snapshotEvidence ?? null } : {}), ...(row.testRun || s.coverageKey ? { testRun: row.testRun ?? null } : {}), ...(row.results ? { results: row.results } : {}), ...(memberRuns ? { memberRuns } : {}) };
+  return { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "pass", ...(row.executableProof ? { executableProof: row.executableProof } : {}), ...(s.coverageKey || s.provesPublisher ? { snapshotEvidence: row.snapshotEvidence ?? null } : {}), ...(row.testRun || s.coverageKey ? { testRun: row.testRun ?? null } : {}), ...(row.results ? { results: row.results } : {}), ...(memberRuns ? { memberRuns } : {}) };
 }
 /** The digest-bound proof of a run's accepted test executables (plain data, cacheable): `{ boundDirs, binaries: [{ executable, package, target, version, manifestDir, sha256 }] }`. */
 export function executableProofOf(accepted, boundDirs) {
@@ -1123,7 +1266,7 @@ export function planScans({
   changed = [], contentRoot, liveRoot = contentRoot, trustedRoot = null, exists = fs.existsSync, readFile = (f) => fs.readFileSync(f, "utf8"),
   platform = process.platform, includeTests = true, localCompile = true,
   // The host's CPU architecture for its own Rust target (oneOutput, cross-targets.mjs).
-  nativeArch = process.arch, cargoJobs = null,
+  nativeArch = process.arch,
   // Where the quiet test scans (ci/gate.config.json `quietTests`) run: "local" plans them for the quiet lane; "ci" leaves them to the
   // CI shards (one crate per runner, where the port, pipe, desktop and wall-clock conflicts that force the serial lane do not exist)
   // and records a note naming them (Adrian 2026-10-22: compile locally on the warm cache, qualify the conflicting tests on VMs).
@@ -1282,12 +1425,12 @@ export function planScans({
   const refusedScan = (error) => ({ tool: "node", args: ["-e", `console.error(${JSON.stringify(String(error.message))}); process.exit(1)`] });
   const cargoBase = (ws, args, { raw = false } = {}) => { let argv; try { argv = oneOutput(raw ? args : everyFailure(args), { platform, arch: nativeArch }); } catch (error) { return { ...refusedScan(error), ...(ws !== "." ? { cwd: ws } : {}) }; } return { tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...argv], ...(ws !== "." ? { cwd: ws } : {}), ...(targetDirs?.[ws] ? { env: { CARGO_TARGET_DIR: targetDirs[ws] } } : {}) }; };
   // Class B (compiles): started from the primary checkout on a broker host, the snapshot carrier names the source.
-  const cargoIn = (ws, ...args) => ({ ...cargoBase(ws, cargoJobs === null ? args : cargoWidthArgs(args, cargoJobs)), ...(cargoLiveRoot ? { root: "cargoLive" } : {}) });
+  const cargoIn = (ws, ...args) => ({ ...cargoBase(ws, args), ...(cargoLiveRoot ? { root: "cargoLive" } : {}) });
   // A Rust test scan on a BROKER host (cargoLiveRoot set; GATE-CONTRACT GC-A08): the broker compiles with the plain test command plus --locked and
   // --message-format=json (the broker adds --no-run itself and never executes a test), and the gate runs the listed executables outside it. --no-fail-fast and
   // --test-threads=1 are RUN arguments (runOutside.args), never part of the compile. A direct host (no broker, cargoLiveRoot unset) has nothing to keep tests
   // out of: its test scan stays the one-step `test ... --locked --no-fail-fast`, compile and run together, with no runOutside.
-  const cargoTestIn = (ws, ...args) => ({ ...cargoBase(ws, [...(cargoJobs === null ? args : cargoWidthArgs(args, cargoJobs)), "--message-format=json"], { raw: true }), root: "cargoLive" });
+  const cargoTestIn = (ws, ...args) => ({ ...cargoBase(ws, [...args, "--message-format=json"], { raw: true }), root: "cargoLive" });
   // Class A (reads Cargo inputs, compiles nothing): always the content root, the snapshot or the commit's own tree. These still execute
   // cargo (through the broker on a broker host), so a unit-scoped check follows the Rust closure for them (app-closure.mjs scopeScans reads
   // the ids `cargo-metadata|cargo-deny|cargo-audit[:<label>]` and `cargo-package-list:<unit>` and the scan's `cwd`; rename one there too).
@@ -2100,10 +2243,12 @@ export function defaultSpawnAsync(command, args, options = {}) {
     let child;
     try {
       // stdin is closed: no scan reads it, and an open pipe nobody writes can block a tool that probes it (Windows).
-      // A detached child (POSIX, its own group for the abort kill) is recorded under the held build ownership (build-ownership.mjs).
-      child = spawnUnderOwnership(spawnChild, inv.file, inv.args, { windowsHide: true, windowsVerbatimArguments: inv.verbatim, stdio: ["ignore", "pipe", "pipe"], ...(signal && process.platform !== "win32" ? { detached: true } : {}), ...rest, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+      // A detached child (POSIX) has its own process group, which the abort kill signals.
+      child = spawnChild(inv.file, inv.args, { windowsHide: true, windowsVerbatimArguments: inv.verbatim, stdio: ["ignore", "pipe", "pipe"], ...(signal && process.platform !== "win32" ? { detached: true } : {}), ...rest, shell: false, stdio: ["ignore", "pipe", "pipe"] });
     } catch (e) { resolve({ status: null, stdout: "", stderr: "", error: e }); return; }
     if (onSpawn && child.pid) onSpawn(child.pid);
+    // A detached group is recorded beside the held snapshot lock until it exits, so a crashed gate's leftover group keeps the lock (snapshot.mjs recordLockChild).
+    if (child.pid && process.platform !== "win32" && signal) { try { recordLockChild(child); } catch (e) { resolve({ status: null, stdout: "", stderr: "", error: e }); return; } }
     const onAbort = () => killProcessTree(child);
     signal?.addEventListener("abort", onAbort, { once: true });
     child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
@@ -2307,6 +2452,22 @@ const insideDir = (real, dirReal, platform) => {
   return rel !== "" && !mod.isAbsolute(rel) && rel.split(/[\\/]/)[0] !== "..";
 };
 
+/** The leaf directory names of a managed generation target (`<root>/<12 hex>/g/<NNN>/<leaf>`). */
+const GENERATION_LEAVES = Object.freeze(["target", "t"]);
+const isGenerationLeaf = (segment) => GENERATION_LEAVES.includes(segment);
+/**
+ * Whether `dir` is a managed generation target or a directory inside one, under one of the broker's managed `ws` roots (`<data root>/build-control/ws`): the shape the broker
+ * pins an app's outputs to (the 12-hex key is rustright-state's workspace key, which the gate never computes; the generation number, 3 or more digits, is the broker's).
+ */
+export function isInsideGenerationTarget(dir, outputRoots, platform = process.platform) {
+  const mod = platform === "win32" ? path.win32 : path;
+  for (const root of outputRoots) {
+    const rel = mod.relative(platform === "win32" ? mod.resolve(root).toLowerCase() : mod.resolve(root), platform === "win32" ? mod.resolve(dir).toLowerCase() : mod.resolve(dir));
+    const segments = rel.split(/[\\/]/);
+    if (segments.length >= 4 && segments[0] !== ".." && !mod.isAbsolute(rel) && /^[0-9a-f]{12}$/.test(segments[0]) && segments[1] === "g" && /^[0-9]{3,}$/.test(segments[2]) && isGenerationLeaf(segments[3])) return true;
+  }
+  return false;
+}
 /**
  * Every test executable must be a regular file whose real path is inside the verified output directory (`boundDirs`: the receipt's
  * outputDir on a broker host, the scan's bound target directory otherwise); with `generationRoots` its lexical directory must also be a
@@ -2458,15 +2619,15 @@ export function scanTimeoutMs(scan, options = {}) {
 }
 
 /**
- * A scan the broker carries (rightkit#1367 step 2): on a broker host (`brokerHost`; a snapshot carrier implies one) a cargo or rustright scan, a carried Swift package build
- * (only with the snapshot carrier: a Swift scan with no carrier is a local process), and an npm or node suite that declares a broker call (`brokerCall`: its compiles are
- * carried requests). The broker queues and orders these; the gate neither counts them nor puts a clock on their queue time. This is the ONE test: the scheduler, the
- * run clock, the snapshot carrier (`viaSnapshotBroker`) and the carried Swift route (`swiftBrokered`) all derive from it.
+ * A scan the broker carries (rightkit#1367 step 2): on a broker host (`brokerHost`; a seam run implies one) a cargo or rustright scan, a Swift package build
+ * (only on a seam run: a Swift scan with no seam is a local process), and an npm or node suite that declares a broker call (`brokerCall`: its compiles are
+ * seam calls). The broker queues and orders these; the gate neither counts them nor puts a clock on their queue time. This is the ONE test: the scheduler, the
+ * run clock, the seam route (`viaSeam`) and the Swift seam route (`swiftBrokered`) all derive from it.
  */
-export function isBrokerCarriedScan(scan, { brokerHost = false, snapshotBroker = null } = {}) {
-  if (brokerHost !== true && !snapshotBroker) return false;
+export function isBrokerCarriedScan(scan, { brokerHost = false, seam = false } = {}) {
+  if (brokerHost !== true && !seam) return false;
   if (scan?.tool === "rustright" || scan?.tool === "cargo") return true;
-  if (scan?.tool === "swift") return Boolean(snapshotBroker);
+  if (scan?.tool === "swift") return Boolean(seam);
   return Boolean(scan?.brokerCall);
 }
 
@@ -2899,13 +3060,6 @@ const INTERNAL = {
 /** A span for a message: whole seconds under a minute, minutes from then on. */
 export const spanText = (ms) => (ms < 60_000 ? `${Math.max(0, Math.round(ms / 1000))} s` : `${Math.round(ms / 60_000)} min`);
 export const scanOperationDeadlineMs = (limitMs) => Math.max(Math.floor(limitMs / 2), limitMs - 20_000);
-/**
- * What a carried Swift scan gives carryBrokerAdapterAsync: an UNWATCHED one passes its own limit as the client's operation deadline (the env, and `deadlineMs`, which also bounds the
- * retry wait); a watched one passes neither (the stopwatch and the ceiling bound it, and the client's deadline is absolute from its start).
- */
-export function carriedCallBudget({ env, limitMs, watched }) {
-  return watched ? { env: {} } : { env: scanOperationEnv(env, limitMs), deadlineMs: scanOperationDeadlineMs(limitMs) };
-}
 export function scanOperationEnv(env, limitMs) {
   const deadline = operationDeadlineEnv({ env, deadlineMs: scanOperationDeadlineMs(limitMs) });
   if (Object.keys(deadline).length === 0) return {};
@@ -2976,14 +3130,13 @@ export async function runScans(plan, options = {}) {
   // `trackedFiles` (the gate's list of the commit's own files): where the content root is not a git toplevel (a snapshot), the secret scan judges
   // exactly these and never what a stage wrote there (rightkit#1393).
   const ctx = { deps, contentRoot, liveRoot, cargoLiveRoot, tmpRoot, read: (f) => deps.readFile(path.join(contentRoot, f)), trackedFiles: Array.isArray(options.trackedFiles) ? options.trackedFiles : null };
-  // GATE-CONTRACT GC-A11 (Adrian, 2026-11-02): Class A never runs in the broker. Class A cargo reads are never carried, in any stage; the gate
-  // runs them directly (snapshot-metadata.mjs directReadSpawn), and cargo-deny / cargo-audit are its own enrolled tools.
-  const cargoReadsAreCarried = false;
-  // A broker host: the gate says so (options.brokerHost, from its executor) and a snapshot carrier implies it. One predicate (isBrokerCarriedScan) names the scans the broker carries.
-  const brokerHost = options.brokerHost === true || Boolean(deps.snapshotBroker);
-  const carriedCtx = { brokerHost, snapshotBroker: deps.snapshotBroker ?? null };
-  // The broker's live state of a request (queued or running), through an ASYNCHRONOUS client call: the gate's own reader when it hands one, else the carrier's client.
-  const brokerLive = options.brokerLive ?? (brokerHost && typeof deps.snapshotBroker?.client === "string" ? createBrokerLive({ client: deps.snapshotBroker.client, env: deps.env, spawn: defaultSpawnAsync, platform: deps.platform }) : null);
+  // GATE-CONTRACT GC-A11 (Adrian, 2026-11-02): Class A never runs in the broker. Class A cargo reads are never sent to it, in any stage; the gate runs them directly
+  // (snapshot-metadata.mjs directReadSpawn), and cargo-deny / cargo-audit are its own enrolled tools.
+  // A broker host: the gate says so (options.brokerHost, from its executor) and a seam run implies it. One predicate (isBrokerCarriedScan) names the scans the broker carries.
+  const brokerHost = options.brokerHost === true || Boolean(deps.gateSeam);
+  const carriedCtx = { brokerHost, seam: Boolean(deps.gateSeam) };
+  // The broker's live state of a request (queued or running), through an ASYNCHRONOUS client call: the gate's own reader (options.brokerLive), or none.
+  const brokerLive = options.brokerLive ?? null;
   // One reader for the whole run: every watched scan registers with it (first read after 1 s, then every 5 s, two reads in flight at most), instead of a client spawn per scan.
   const pollMs = options.brokerPollMs ?? ADMISSION_POLL_MS;
   const statusPoller = brokerLive ? createStatusPoller({ live: brokerLive, intervalMs: pollMs }) : null;
@@ -2993,9 +3146,9 @@ export async function runScans(plan, options = {}) {
   // member row (`batchFailure`), so a combined failure stays visible next to each crate's own verdict.
   const batchFailureNotes = [];
   // The gate-owned cargo ledger of a wrapped snapshot compile (options.cargoLedger = { dir }): every call the wrapper decided, filed
-  // under its scan's token. `ledgerSeen` is the run's one-use record of carriers and request ids across every scan.
+  // under its scan's token.
   const cargoLedger = options.cargoLedger?.dir ? options.cargoLedger : null;
-  const claimedTokens = new Set(); const ledgerSeen = { nonces: new Set(), ids: new Set() };
+  const claimedTokens = new Set();
   // options.cache ={ read(key), write(key, row), digest(scan) => string | null } (null: not cacheable, which is how the live class A checks opt out).
   const probeScans = new WeakSet(); // scans looked up for runGroup's per-crate cache (answered like a lookup, never run)
   const cache = options.cache && typeof options.cache.read === "function" && typeof options.cache.write === "function" && typeof options.cache.digest === "function" ? options.cache : null;
@@ -3206,7 +3359,7 @@ export async function runScans(plan, options = {}) {
     const groupOf = new Map();
     if (options.classBBatching === true) {
       const byKey = new Map();
-      bScans.forEach((s, i) => { if (s.batchable && !s.deferred && (laneOf(s) === "compile" || laneOf(s) === "doc" || (options.groupTests !== false && laneOf(s) === "tests" && s.runOutside && /^test:rust/.test(s.id)))) { if (!byKey.has(s.batchable.key)) byKey.set(s.batchable.key, []); byKey.get(s.batchable.key).push(i); } });
+      bScans.forEach((s, i) => { if (s.batchable && !s.deferred && (laneOf(s) === "compile" || laneOf(s) === "doc" || (options.groupTests !== false && laneOf(s) === "tests" && s.runOutside && (/^test:rust/.test(s.id) || s.publisherRustTest === true)))) { if (!byKey.has(s.batchable.key)) byKey.set(s.batchable.key, []); byKey.get(s.batchable.key).push(i); } });
       for (const all of byKey.values()) {
         // NN42: within one key, crates with the same set of targets form one invocation (crates x targets is exactly its members).
         const targetsOf = new Map();
@@ -3219,6 +3372,8 @@ export async function runScans(plan, options = {}) {
     const batchScanOf = (idx) => {
       const lead = bScans[idx[0]];
       const { batchable: _batchable, ...plain } = lead; void _batchable;
+      // A group that holds a plan row standing for a publisher requirement stores and returns the receipt its members' publisher verdicts need (NN27, planUnitListScans).
+      if (idx.some((i) => bScans[i].provesPublisher === true)) plain.provesPublisher = true;
       const crates = [...new Set(idx.map((i) => bScans[i].batchable.crate))];
       const targets = [...new Set(idx.map((i) => bScans[i].batchable.target).filter(Boolean))];
       let args = [...lead.args.slice(0, lead.batchable.at), ...crates.flatMap((c) => ["-p", c]), ...lead.args.slice(lead.batchable.at + 2)];
@@ -3233,15 +3388,19 @@ export async function runScans(plan, options = {}) {
       if (targets.length > 1) plain.env = Object.assign({}, ...idx.map((i) => bScans[i].env ?? {}));
       const units = [...new Set(idx.map((i) => bScans[i].batchable.unit))].map((u) => targets.length > 1 ? u : u);
       const memberKey = idx.map((i) => `${bScans[i].batchable.unit}@${bScans[i].batchable.target ?? ""}`);
-      const stage = /^clippy/.test(lead.id) ? "clippy" : /^doc:/.test(lead.id) ? "doc" : /^test:rust/.test(lead.id) ? "test" : "check";
+      // A publisher row (a unit-list run) is named by its cargo subcommand, a plan row by its id.
+      const sub = lead.publisherPhase ? lead.args[lead.args[0] === "cargo" ? 1 : 0] : null;
+      const stage = sub ? (sub === "clippy" ? "clippy" : sub === "doc" ? "doc" : sub === "test" ? "test" : "check") : /^clippy/.test(lead.id) ? "clippy" : /^doc:/.test(lead.id) ? "doc" : /^test:rust/.test(lead.id) ? "test" : "check";
+      const jsonMessages = args.some((a) => /^--message-format=json/.test(a)); // a publisher row already asks for cargo's JSON messages (json-render-diagnostics)
       const id = `${stage}:batch:${sha256(`${lead.batchable.key}\0${memberKey.join("\0")}`).slice(0, 8)}`;
       // A doc group asks for cargo's JSON messages (NN40): each crate's verdict is read from them (docVerdicts), never found by bisection.
-      if (stage === "doc") { const jargs = [...args, "--message-format=json"]; return { ...plain, id, args: jargs, captureJson: true, command: commandText({ ...plain, env: {}, args: jargs }), batch: { units, members: idx.map((i) => bScans[i].id) } }; }
+      if (stage === "doc") { const jargs = jsonMessages ? args : [...args, "--message-format=json"]; return { ...plain, id, args: jargs, captureJson: true, command: commandText({ ...plain, env: {}, args: jargs }), batch: { units, members: idx.map((i) => bScans[i].id) } }; }
       // NN17/NN39: a test group compiles once (one broker command naming every crate) and each member's own test executables then run in
       // parallel outside the broker; each member keeps its own verdict (runOne `testGroup`, memberRuns).
       if (stage === "test") return { ...plain, id, args, testGroup: idx.map((i) => ({ id: bScans[i].id, crate: bScans[i].batchable.crate })), command: commandText({ ...plain, env: {}, args }), batch: { units, members: idx.map((i) => bScans[i].id) } };
       // NN40 for check and clippy too (Mac 2026-11-07: one crate's Linux error failed a 186-crate batch whole): the group asks for cargo's JSON messages,
       // so each crate's verdict is read from them (docVerdicts: its own errors, or no artifact because a dependency failed), never one verdict for all.
+      if (jsonMessages) return { ...plain, id, args, captureJson: true, command: commandText({ ...plain, env: {}, args }), batch: { units, members: idx.map((i) => bScans[i].id) } };
       if (!args.some((a) => /^--message-format/.test(a))) {
         const cut = args.indexOf("--"); const jargs = cut < 0 ? [...args, "--message-format=json"] : [...args.slice(0, cut), "--message-format=json", ...args.slice(cut)];
         return { ...plain, id, args: jargs, captureJson: true, command: commandText({ ...plain, env: {}, args: jargs }), batch: { units, members: idx.map((i) => bScans[i].id) } };
@@ -3394,59 +3553,7 @@ export async function runScans(plan, options = {}) {
         running.add(job);
       }
     };
-    if (typeof options.scheduleClassB === "function") {
-      // A caller-supplied dependency scheduler uses this initialized executor: every job still passes Class A,
-      // tool, carrier, ledger, receipt, timeout and quiet-lease checks in the same scan path.
-      const issued = new WeakSet();
-      const remember = (row) => { issued.add(row); return row; };
-      const executeRaw = async (scan) => {
-        if (!scan.quiet) return runOne(scan);
-        if (classAFailed || classBBlocked || signal?.aborted) return runOne(scan);
-        let lease = null;
-        if (quietLane) { try { lease = (await quietLane.acquire({ ttlMs: QUIET_LEASE_MAX_MS })) ?? null; } catch { lease = null; } }
-        if (!lease && options.requireQuietLease) return { id: scan.id, class: scan.class, command: scan.command, status: "fail", code: "QUIET_LEASE_UNAVAILABLE", detail: "the broker quiet lease could not be held" };
-        try { return await runOne({ ...scan, timeoutMs: Math.min(scanTimeoutMs(scan, options), QUIET_SCAN_MAX_MS) }, lease?.env ?? null); }
-        finally { if (lease && typeof quietLane.release === "function") { try { await quietLane.release(lease.id); } catch { /* lease expires */ } } }
-      };
-      const execute = async (scan) => remember(Object.freeze(await executeRaw(scan)));
-      // A cache probe of one scan (publisher batches, unit-list-compile): answers from the scan's OWN key (a cached pass, or a miss), never runs it. Nothing a group
-      // produced is ever stored under a member's key (store rule, GC-A18): a member's own key is written only by the invocation that ran it alone.
-      const probe = async (scan) => {
-        if (!cache || signal?.aborted) return null;
-        const copy = { ...scan }; probeScans.add(copy);
-        try { const r = await scanRow(copy, null); return remember(Object.freeze({ ...r, id: scan.id, command: scan.command })); } catch { return null; }
-      };
-      const canGroup = (a, b) => { const i = bScans.indexOf(a); const j = bScans.indexOf(b); return i >= 0 && j >= 0 && Boolean(groupOf.get(i)) && groupOf.get(i) === groupOf.get(j); };
-      // The caller supplies only members ready on its current frontier. Reuse the existing
-      // signed batch path without admitting other members of their planned group.
-      const executeGroup = async (scans) => {
-        if (!Array.isArray(scans) || scans.length < 2) throw new Error("scheduleClassB: a batch needs at least two scans");
-        const indices = scans.map((scan) => bScans.indexOf(scan));
-        const group = groupOf.get(indices[0]);
-        if (!group || new Set(indices).size !== indices.length || indices.some((i) => i < 0 || groupOf.get(i) !== group)) throw new Error("scheduleClassB: incompatible batch members");
-        await runGroup(indices, null);
-        return indices.map((i) => remember(Object.freeze(slots[i] ?? failedRow(i, "batch produced no row"))));
-      };
-      const project = (row, scan) => {
-        if (!issued.has(row) || !bScans.includes(scan)) throw new Error("scheduleClassB: invalid projection");
-        return remember(Object.freeze({ ...row, id: scan.id, command: scan.command }));
-      };
-      // A grouped publisher test row is one issued row for the whole group; each member's own verdict (its executables' status, results, test run)
-      // is taken from that row's memberRuns, never invented: the member row is the issued row with that member's run in place of the group's.
-      const projectMember = (row, scan, memberId) => {
-        if (!issued.has(row) || !bScans.includes(scan) || !row.memberRuns || !Object.hasOwn(row.memberRuns, memberId)) throw new Error("scheduleClassB: invalid member projection");
-        const v = row.memberRuns[memberId]; const { memberRuns: _all, results: _sum, code: _code, detail: _detail, ...shared } = row; void _all; void _sum; void _code; void _detail;
-        return remember(Object.freeze({ ...shared, id: scan.id, command: scan.command, status: v.status, results: v.results ?? null, testRun: v.testRun ?? null, ...(v.code ? { code: v.code } : {}), ...(v.detail ? { detail: v.detail } : {}), batchedWith: { id: row.id } }));
-      };
-      const notRun = (scan, detail) => {
-        if (!bScans.includes(scan)) throw new Error("scheduleClassB: unknown scan");
-        return remember(Object.freeze({ id: scan.id, class: scan.class, command: scan.command, status: "not-run", detail: String(detail) }));
-      };
-      // lookupOnly: the scheduler looks up every row it would run, treating a lookup as the pass the real run needs to reach later rows.
-      const rows = await options.scheduleClassB({ scans: bScans, execute, executeGroup, canGroup, project, projectMember, notRun, probe, partition: partitionCrates, lookupOnly: options.cacheLookupOnly === true });
-      if (!Array.isArray(rows) || rows.length !== bScans.length || rows.some((row, i) => !row || !issued.has(row) || row.id !== bScans[i].id || typeof row.status !== "string")) throw new Error("scheduleClassB must return executor-issued results in plan order");
-      rows.forEach((row, i) => { slots[i] = row; });
-    } else if (brokerHost) {
+    if (brokerHost) {
       await scheduleBrokerHostClassB({
         scans: bScans, lanes, localJobs: bJobs, carried: (scan) => isBrokerScheduledScan(scan, carriedCtx), pipeline: options.classBPipeline ?? 1,
         run: async (i) => { try { slots[i] = await runB(i); } catch (error) { slots[i] = failedRow(i, error); } },
@@ -3456,7 +3563,7 @@ export async function runScans(plan, options = {}) {
       await drain(lanes.doc);
       await drain(lanes.tests);
     }
-    if (typeof options.scheduleClassB !== "function" && lanes.quiet.length) {
+    if (lanes.quiet.length) {
       // One lease per quiet suite, as in class A above.
       for (const i of lanes.quiet) {
         if (classAFailed || classBBlocked || signal?.aborted) {
@@ -3581,11 +3688,8 @@ export async function runScans(plan, options = {}) {
         }
         const p = await probe(s.tool, probeAt);
         row.toolVersion = p.ok ? p.version : null;
-        // The broker runs the cargo-deny / cargo-audit a carried scan names: that identity is the broker's tool registration, not the gate's to bind.
-        // `options.cargoReadsCarried === true` (the gate, when its executor is the broker and cargo reads go through carried requests, as in the check stage that has no snapshotBroker) makes them carried exactly as snapshotBroker does; it waives nothing else (actionlint and shellcheck stay locally enrolled).
-        const brokerCarried = cargoReadsAreCarried && s.class === SCAN_CLASS.A && (s.tool === "rustright" || s.tool === "cargo");
         const advisoryTool = s.advisoryDb === "deny" ? "cargo-deny" : s.advisoryDb === "audit" ? "cargo-audit" : null;
-        const trusts = advisoryTool && !brokerCarried ? [advisoryTool] : [];
+        const trusts = advisoryTool ? [advisoryTool] : [];
         const identities = []; if (p.identity) identities.push(p.identity);
         let missingDep = null; let depVersionProblem = null; let depTrust = null; const depVersions = [];
         for (const dep of [...(s.requires ?? []), ...trusts]) {
@@ -3595,8 +3699,7 @@ export async function runScans(plan, options = {}) {
           depVersions.push(d.identity ? `${d.version}@${d.identity.sha256}` : d.version);
           if (d.identity) identities.push(d.identity);
         }
-        if (advisoryTool && brokerCarried) row.identities = [{ tool: advisoryTool, source: "broker", note: "the broker runs its own registered tool; its identity is the broker's tool registration, not bound by the gate" }];
-        else if (identities.length) row.identities = identities.map((i) => ({ tool: i.tool, path: i.path, sha256: i.sha256, version: i.version, source: i.source }));
+        if (identities.length) row.identities = identities.map((i) => ({ tool: i.tool, path: i.path, sha256: i.sha256, version: i.version, source: i.source }));
         if (!p.ok) { status = "fail"; code = p.code ?? "TOOL_MISSING"; detail = p.code && p.code !== "TOOL_MISSING" ? `${p.code}: ${p.why}` : `required tool ${s.tool} is missing or not runnable (${p.why}); a required scan is never skipped`; }
         else if (p.pinProblem) { status = "fail"; code = "TOOL_VERSION"; detail = `TOOL_VERSION: ${p.pinProblem} (at ${p.command})`; }
         else if (depTrust) { status = "fail"; code = depTrust.code; detail = `${depTrust.code}: ${s.tool} needs ${depTrust.dep}: ${depTrust.why}`; }
@@ -3609,15 +3712,12 @@ export async function runScans(plan, options = {}) {
           // crate's closure, its lock entries, the toolchain files, the tool version and the build environment; a miss runs the compile and
           // verifies the broker's signed evidence as before, and only a verified pass is written.
           const carriedScan = isBrokerCarriedScan(s, carriedCtx);
-          // The seam (plan section 3): a class B cargo row on a broker host is one spawn of `rustright cargo` in the snapshot with the two seam variables; the
-          // carrier (viaSnapshotBroker) is the legacy path, not taken when the seam is wired, and goes with step 5 of the plan.
+          // The seam (plan section 3): a class B cargo row on a broker host is one spawn of `rustright cargo` in the snapshot with the two seam variables.
           // Adapters (the Swift package build) take the same seam: `rustright run rightkit-swift -- <argv>` in the snapshot with the two variables (plan section 3).
           const viaSeam = Boolean(deps.gateSeam) && s.class === SCAN_CLASS.B && s.root === "cargoLive" && (s.tool === "rustright" || s.tool === "cargo" || (s.tool === "swift" && carriedScan));
           if (viaSeam) row.seam = true;
-          const viaSnapshotBroker = !viaSeam && carriedScan && Boolean(deps.snapshotBroker) && s.root === "cargoLive" && (s.tool === "rustright" || s.tool === "cargo");
-          const carriedRead = cargoReadsAreCarried && s.class === SCAN_CLASS.A && (s.tool === "rustright" || s.tool === "cargo");
           // NN02: a publisher row (coverageKey) is cached too, with the signed broker receipt and test-run evidence its publisher verify needs.
-          if (cache && !carriedRead) {
+          if (cache) {
             const cacheStarted = performance.now();
             try {
               // A plain node --check row has no guard, carrier, advisory or
@@ -3670,7 +3770,7 @@ export async function runScans(plan, options = {}) {
                 if (proof.ok) {
                   const oldKey = scanCacheKey({ id: s.id, command: keyCommand(s), toolVersion: idx.raw.toolVersion, env: idx.raw.env ?? {}, inheritedEnv: idx.raw.inherited, digest: idx.raw.inputs });
                   const old = cache.read(oldKey);
-                  if (usableStoredPass(old, s, { cacheKey: oldKey, viaSnapshotBroker: viaSnapshotBroker || viaSeam })) {
+                  if (usableStoredPass(old, s, { cacheKey: oldKey, viaSeam })) {
                     hit = { ...old, key: cacheKey };
                     row.carriedOver = { from: oldKey.slice(0, 16), files: proof.carried };
                     if (!options.cacheLookupOnly) { try { cache.write(cacheKey, old.row); cache.write(rowIndexKey, { id: s.id, inputs: inputsDigest, env: envDigest, raw: keyParts.raw, at: new Date().toISOString() }); } catch { /* the pass stands; the next run carries it again */ } }
@@ -3684,13 +3784,13 @@ export async function runScans(plan, options = {}) {
             // A Rust test scan (runOutside) is judged the same way: the executables are unknown until the compile, so its key is the source digest and the cached row must carry the summed libtest counts.
             // One predicate for every stored pass (usableStoredPass; rightkit#1538): the row's own id and command, written by the invocation that ran it, with
             // the evidence its kind needs; a test group's hit carries each member's own run, so the members are judged exactly as on the run that stored it.
-            if (usableStoredPass(hit, s, { cacheKey, viaSnapshotBroker: viaSnapshotBroker || viaSeam })) {
+            if (usableStoredPass(hit, s, { cacheKey, viaSeam })) {
               cacheHits.push(s.id);
-              return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}`, ...(s.kind === "test" || s.runOutside || s.coverageKey ? { results: hit.row.results } : {}), ...(s.coverageKey ? { snapshotEvidence: hit.row.snapshotEvidence ?? null, testRun: hit.row.testRun ?? null } : hit.row.testRun ? { testRun: hit.row.testRun } : {}), ...(hit.row.memberRuns ? { memberRuns: hit.row.memberRuns } : {}), ...(hit.row.executableProof ? { executableProof: hit.row.executableProof } : {}), ...(row.seam ? { seamSettled: true } : {}) };
+              return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}`, ...(s.kind === "test" || s.runOutside || s.coverageKey ? { results: hit.row.results } : {}), ...(s.coverageKey ? { snapshotEvidence: hit.row.snapshotEvidence ?? null, testRun: hit.row.testRun ?? null } : s.provesPublisher ? { snapshotEvidence: hit.row.snapshotEvidence ?? null, ...(hit.row.testRun ? { testRun: hit.row.testRun } : {}) } : hit.row.testRun ? { testRun: hit.row.testRun } : {}), ...(hit.row.memberRuns ? { memberRuns: hit.row.memberRuns } : {}), ...(hit.row.executableProof ? { executableProof: hit.row.executableProof } : {}), ...(row.seam ? { seamSettled: true } : {}) };
             }
             // NN41: the same inputs, toolchain and broker runtime already failed this compile deterministically: report that failure, marked cached, without running it.
             const failHit = failKey ? cache.read(failKey) : null;
-            if (failHit && failHit.key === failKey && failHit.row?.status === "fail" && failHit.row.id === s.id && sameCommand(failHit.row.command, s) && failHit.row.failureIdentity === options.failureIdentity && (failHit.row.code === "EXIT" || failHit.row.code === "BROKER_COMPILE_FAILURE") && typeof failHit.row.detail === "string" && failHit.row.detail !== "") {
+            if (failHit && failHit.key === failKey && failHit.row?.status === "fail" && failHit.row.id === s.id && sameCommand(failHit.row.command, s) && failHit.row.failureIdentity === options.failureIdentity && failHit.row.code === "EXIT" && typeof failHit.row.detail === "string" && failHit.row.detail !== "") {
               cacheHits.push(s.id);
               return { ...row, ...(row.seam ? { seamSettled: true } : {}), status: "fail", code: failHit.row.code, cached: true, failureCached: true, detail: `cached failure ${String(failHit.at ?? "").slice(0, 10) || "earlier"} (same inputs, toolchain and broker runtime): ${failHit.row.detail}`, ...(failHit.row.authenticatedFailure ? { authenticatedFailure: failHit.row.authenticatedFailure } : {}), ...(failHit.row.jsonSummary ? { jsonSummary: failHit.row.jsonSummary } : {}) };
             }
@@ -3718,7 +3818,7 @@ export async function runScans(plan, options = {}) {
             // A cache hit of the plain row compiled nothing in this run; its stored proof stands in for the executables when every file still matches it (Adrian's
             // compile-once agreement, rightkit#1539). A stale or absent proof is recorded and this row compiles once, alone, below.
             if (base.cached === true && !Array.isArray(base.acceptedBinaries) && s.runOutside) {
-              const proven = provenExecutables(base.executableProof, { generationRoots: viaSeam ? (deps.gateSeam.outputRoots ?? null) : viaSnapshotBroker ? (deps.snapshotBroker.outputRoots ?? []) : null, platform: deps.snapshotBroker?.platform ?? deps.platform ?? process.platform, ops: { ...TEST_RUN_OPS, ...(options.testRunOps ?? {}) } });
+              const proven = provenExecutables(base.executableProof, { generationRoots: viaSeam ? (deps.gateSeam.outputRoots ?? null) : null, platform: deps.platform ?? process.platform, ops: { ...TEST_RUN_OPS, ...(options.testRunOps ?? {}) } });
               if (proven.accepted) { base = { ...base, acceptedBinaries: proven.accepted }; row.reusedCachedProof = true; }
               else row.reuseFallback = `${s.reuseExecutables} was a cache hit and its stored executables cannot be reused (${proven.why}); this row compiles once on its own`;
             }
@@ -3760,7 +3860,7 @@ export async function runScans(plan, options = {}) {
           // checkout-pinned output), a wrapped snapshot compile (the wrapper binds every cargo call; the sentinel asserts none escapes), a
           // carried read (the broker owns the output and a carried child gets no CARGO_TARGET_DIR) and the broker client itself.
           let readTargetEnv = {};
-          if (s.class === SCAN_CLASS.A && s.tool === "cargo" && !cargoReadsAreCarried && !cargoLedger && !options.cargoSentinel && !Object.hasOwn(s.env ?? {}, "CARGO_TARGET_DIR")) {
+          if (s.class === SCAN_CLASS.A && s.tool === "cargo" && !cargoLedger && !options.cargoSentinel && !Object.hasOwn(s.env ?? {}, "CARGO_TARGET_DIR")) {
             try { owned.cargoReadTarget = cargoReadTargetDir({ tmpRoot: options.cargoReadTargetRoot ?? tmpRoot, roots: [contentRoot, liveRoot, cargoLiveRoot] }); }
             catch (e) { return { ...row, status: "fail", code: "CARGO_READ_TARGET", detail: `${s.id}: ${e.message}` }; }
             readTargetEnv = { CARGO_TARGET_DIR: owned.cargoReadTarget };
@@ -3826,7 +3926,7 @@ export async function runScans(plan, options = {}) {
           // The scan's run limit is a stopwatch. A scan the broker carries (class B, not a quiet suite under its lease) is watched: the stopwatch does not tick while
           // every request of the scan is QUEUED at the broker (broker-admission.mjs), so queue time is neither charged to the scan nor bounded by a gate allowance.
           // Without a live reader (no client to ask) the stopwatch simply runs, and every unwatched carried scan gives its client the scan's own limit as the operation deadline
-          // (RUSTRIGHT_OPERATION_DEADLINE_MS: the snapshot carrier, a rustright or cargo call, a carried Swift call through deadlineMs), so the client cancels by id before the gate stops it.
+          // (RUSTRIGHT_OPERATION_DEADLINE_MS, scanOperationEnv), so the client cancels by id before the gate stops it.
           const watched = carriedScan && s.class === SCAN_CLASS.B && s.quiet !== true && brokerLive !== null;
           let admission = null; let graceTimer = null; let genRefDir = null; let clockExpired = false;
           // A carried scan is cancelled by id first and its process tree stopped only after a grace; any other scan is stopped at once.
@@ -3842,42 +3942,26 @@ export async function runScans(plan, options = {}) {
           // Every class A row that executes repository code (tests, lint/typecheck with repository config, generators) runs under the
           // launch guard: class A runs before any compile, so none of them may start one (joint plan step 4; inventory gap 3).
           const guardEnv = s.class === SCAN_CLASS.A && (s.kind === "test" || s.executes === true) ? launchGuardEnv({ ...deps.env, ...s.env, ...(extraEnv ?? {}) }) : {};
-          // The broker snapshot carrier (joint plan step 4d): this one cargo request names the commit, the snapshot, the ownership
-          // handle and its own argv and working directory, under a fresh nonce; the ownership records the submit first.
           const finalArgs = args.map((a) => (a === "{contentRoot}" ? contentRoot : a));
           // SwiftPM writes its `.build/` inside the package by default: that must never land in the commit snapshot or the checkout, so the
           // build directory is the gate's own, keyed by the repository and the scan so it stays warm.
-          // GB-67: on a broker host the scan is the carried `rightkit-swift` adapter job and the broker owns SwiftPM's scratch (it appends the one managed path and the
+          // GB-67: on a broker host the scan is the seam's `rightkit-swift` adapter job and the broker owns SwiftPM's scratch (it appends the one managed path and the
           // product location is `build --show-bin-path`): the gate sends no scratch or build path, and never adds one. Only a host with no broker (Linux direct) keeps its own.
           const swiftSeam = viaSeam && s.tool === "swift";
-          // The broker owns SwiftPM's scratch for BOTH the carried job and the seam job (`rustright run rightkit-swift`): the same `rightkit-swift` adapter checks both
+          // The broker owns SwiftPM's scratch for the seam job (`rustright run rightkit-swift`): the `rightkit-swift` adapter checks it
           // (rustright check_swift_state_flags refuses --scratch-path/--build-path; check_swift_package requires the one relative --package-path). GB-67, 833f62ae0.
-          const swiftBrokered = s.tool === "swift" && (swiftSeam || (carriedScan && Boolean(deps.snapshotBroker)));
+          const swiftBrokered = s.tool === "swift" && swiftSeam;
           // The adapter takes exactly one relative --package-path (adapter.rs check_swift_package); the scan runs in its package directory, so that is `.`.
           if (swiftBrokered && finalArgs[0] === "build" && !finalArgs.some((a) => a === "--package-path" || a.startsWith("--package-path="))) finalArgs.splice(1, 0, "--package-path", ".");
           if (s.tool === "swift" && finalArgs[0] === "build" && !swiftBrokered && !finalArgs.some((a) => a === "--scratch-path" || a === "--build-path" || a.startsWith("--scratch-path=") || a.startsWith("--build-path="))) {
             try { finalArgs.push("--scratch-path", swiftScratchPath({ tmpRoot, roots: [contentRoot, liveRoot, cargoLiveRoot], id: s.id })); }
             catch (e) { stopClock(); advisory?.cleanup?.(); return { ...row, status: "fail", code: "SWIFT_SCRATCH", detail: `${s.id}: ${e.message}` }; }
           }
-          let carrier = null;
-          if (viaSnapshotBroker) {
-            const sb = deps.snapshotBroker;
-            const cwd = path.join(rootDir(s.root), s.cwd ?? "");
-            const refDir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-snapreq-"));
-            try {
-              const cargoArgv = s.tool === "rustright" ? finalArgs.slice(1) : finalArgs;
-              const made = writeSnapshotRequest({ controlRoot: sb.controlRoot, commit: sb.commit, snapshot: sb.snapshot, declaredInputs: sb.declaredInputs ?? [], handle: sb.handle, primaryCwd: fs.realpathSync.native(cwd), argv: cargoArgv, requestIdFile: path.join(refDir, "request.json") });
-              carrier = { made, refDir, cargoArgv };
-            } catch (e) { fs.rmSync(refDir, { recursive: true, force: true }); stopClock(); advisory?.cleanup?.(); return { ...row, status: "fail", code: "SNAPSHOT_REQUEST", detail: `the snapshot request for ${s.id} could not be written: ${e.message}` }; }
-          }
-          // From here to the end of its verification the carrier and the request reference are this request's: every exit (cancel,
-          // timeout, a thrown spawn, a refused receipt) removes them.
           // A wrapped snapshot compile with several Cargo workspaces (options.cargoSentinel, item 7): a scan whose own env binds no
           // CARGO_TARGET_DIR gets an empty directory of its own as one. Every cargo reached through the wrapper is bound elsewhere; only
           // a cargo that bypassed it (an absolute path, `rustup run`, a reset PATH) can write here, and the scan then fails below.
           let sentinel = null;
-          // (A scan that is itself the carried broker request is bound by the broker: no sentinel, so the client's observed environment is the scan's own.)
-          if (options.cargoSentinel && !viaSnapshotBroker && !Object.hasOwn(s.env ?? {}, "CARGO_TARGET_DIR")) {
+          if (options.cargoSentinel && !Object.hasOwn(s.env ?? {}, "CARGO_TARGET_DIR")) {
             sentinel = path.join(options.cargoSentinel, sha256(s.id).slice(0, 16));
             fs.rmSync(sentinel, { recursive: true, force: true });
             fs.mkdirSync(sentinel, { recursive: true });
@@ -3888,21 +3972,10 @@ export async function runScans(plan, options = {}) {
           let testOutputs = null;
           if (s.runOutside || s.captureJson) { listingDir =fs.mkdtempSync(path.join(tmpRoot, "rk-testlist-")); listingFile = path.join(listingDir, "listing.jsonl"); }
           try {
-          // The ownership records this request's sub-handle immediately before it is sent (the reclaim proof reads broker.submitted): a
-          // missing hook or a mark that did not land sends nothing.
-          if (carrier) {
-            const sub = carrier.made.carrier.ownership.handle;
-            let marked = null; let why = null;
-            try { if (typeof deps.snapshotBroker.markBrokerSubmit !== "function") throw new Error("no build-ownership submit hook"); marked = deps.snapshotBroker.markBrokerSubmit(sub, s.id); } catch (e) { why = e.message; }
-            if (marked?.broker?.submitted !== true || marked.handle !== deps.snapshotBroker.handle || !marked.broker.handles?.includes(sub)) {
-              stopClock(); advisory?.cleanup?.();
-              return { ...row, status: "fail", code: "SNAPSHOT_REQUEST", detail: `the snapshot request for ${s.id} was not sent: the build ownership did not record the broker submit under ${deps.snapshotBroker.handle}${why ? ` (${why})` : ""}` };
-            }
-          }
           // The seam's two variables, last so nothing overrides them; the Class A verdict is written (or read) before the first class B spawn of its workspace.
           let seamVars = {};
           // An npm or node suite that reaches the broker (`brokerCall`) on a seam run makes its cargo calls through the runtime wrapper, which sends them through the seam when
-          // these two variables are present (cargo-target-shim.mjs); the legacy carrier is refused under the seam lock. Each call names the verdict of its own directory,
+          // these two variables are present (cargo-target-shim.mjs). Each call names the verdict of its own directory,
           // derived from this one (seam-broker.mjs runSeamCall); its outcome is filed in this scan's ledger and counted below.
           const seamSuite = !viaSeam && Boolean(deps.gateSeam) && s.class === SCAN_CLASS.B && Boolean(s.brokerCall);
           if (viaSeam || seamSuite) {
@@ -3914,16 +3987,6 @@ export async function runScans(plan, options = {}) {
             const client = toolCommand("rustright");
             try { r = await deps.spawn(client, ["run", "rightkit-swift", "--", ...finalArgs], { cwd: path.join(deps.gateSeam.snapshot, s.cwd ?? ""), env: { ...deps.env, ...s.env, ...(extraEnv ?? {}), ...seamVars }, signal: scanSignal, timeout: limitMs }); }
             catch (e) { r = { error: e }; } finally { stopClock(); advisory?.cleanup?.(); }
-          } else if (swiftBrokered) {
-            // One signed, ledgered adapter request in the commit's snapshot (the ownership records its sub-handle before it is sent); a refused or unverified call fails the scan.
-            // The carry is asynchronous (the gate's other scans keep running while this one queues or builds) and takes the scan's own signal: the run limit, or a cancel, stops it.
-            const swiftRefs = [];
-            const swiftBudget = carriedCallBudget({ env: { ...deps.env, ...s.env }, limitMs, watched });
-            if (watched) { admission = watchBrokerAdmission({ clock: runClock, refFiles: () => swiftRefs, live: brokerLive, poller: statusPoller }); admission.start(); }
-            try {
-              const carried = await carryBrokerAdapterAsync({ adapter: "rightkit-swift", words: finalArgs, cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env, ...(extraEnv ?? {}), ...swiftBudget.env }, ...(swiftBudget.deadlineMs !== undefined ? { deadlineMs: swiftBudget.deadlineMs } : {}), section: brokerSection(deps.snapshotBroker), record: (entry) => { if (typeof entry.requestRef === "string" && !swiftRefs.includes(entry.requestRef)) swiftRefs.push(entry.requestRef); if (cargoLedger && ledgerToken) appendLedger(cargoLedger.dir, ledgerToken, entry); }, err: () => {}, stdio: "capture", signal: scanSignal, spawn: deps.adapterSpawn ?? defaultSpawnAsync });
-              r = { status: carried.status, stdout: carried.stdout, stderr: carried.stderr };
-            } catch (e) { r = { error: e }; } finally { stopClock(); advisory?.cleanup?.(); }
           } else {
           // The executables this scan runs are the ones resolved and verified above: read their bytes again now, immediately before the launch
           // (a replaced binary is TOOL_REPLACED), and hand the scan only those paths: actionlint its shellcheck, cargo its cargo-deny / cargo-audit.
@@ -3944,18 +4007,17 @@ export async function runScans(plan, options = {}) {
           const wrapperBin = (cargoLedger || options.cargoSentinel) && typeof scanCargo === "string" && typeof scanPath === "string" ? (deps.platform === "win32" ? path.win32 : path.posix).dirname(scanCargo) : null;
           const wrapperFirst = wrapperBin !== null && scanPath.split(pathSep)[0] === wrapperBin;
           const trustEnv = trustedDirs.length ? { [pathKey]: (wrapperFirst ? [wrapperBin, ...trustedDirs, scanPath.slice(wrapperBin.length + 1)] : [...trustedDirs, scanPath]).filter(Boolean).join(pathSep) } : {};
-          // A watched scan names where its client writes the request id (RUSTRIGHT_REQUEST_ID_FILE) so the gate can ask the broker for it: the carrier's own reference, a file of its own for
-          // a scan that reaches the broker through `rustright cargo`, or the reference files its carried calls record in the cargo ledger (an npm suite with a broker call).
+          // A watched scan names where its client writes the request id (RUSTRIGHT_REQUEST_ID_FILE) so the gate can ask the broker for it: a file of its own for
+          // a scan that reaches the broker through `rustright cargo`, or the reference files its seam calls record in the cargo ledger (an npm suite with a broker call).
           let refEnv = {};
           if (watched) {
             let refFiles;
-            if (carrier) refFiles = () => [path.join(carrier.refDir, "request.json")];
-            else if (s.tool === "rustright" || s.tool === "cargo") { genRefDir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-scanreq-")); const file = path.join(genRefDir, "request.json"); refEnv = { RUSTRIGHT_REQUEST_ID_FILE: file }; refFiles = () => [file]; }
+            if (s.tool === "rustright" || s.tool === "cargo") { genRefDir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-scanreq-")); const file = path.join(genRefDir, "request.json"); refEnv = { RUSTRIGHT_REQUEST_ID_FILE: file }; refFiles = () => [file]; }
             else refFiles = () => { try { return ledgerToken && cargoLedger ? readLedger(cargoLedger.dir, ledgerToken).entries.filter((e) => e.status === "pending" && typeof e.requestRef === "string").map((e) => e.requestRef) : []; } catch { return []; } };
             admission = watchBrokerAdmission({ clock: runClock, refFiles, live: brokerLive, poller: statusPoller });
             admission.start();
           }
-          try { r = await deps.spawn(p.command, spawnArgs, { cwd: viaSeam ? path.join(deps.gateSeam.snapshot, s.cwd ?? "") : path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...readTargetEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...(carrier ? carrier.made.env : {}), ...refEnv, ...(carriedScan && !watched ? scanOperationEnv({ ...deps.env, ...s.env }, limitMs) : {}), ...trustEnv, ...seamVars }, signal: scanSignal, ...(listingFile ? { stdoutFile: listingFile } : {}), ...(watched ? {} : { timeout: limitMs }) }); } finally { stopClock(); advisory?.cleanup?.(); }
+          try { r = await deps.spawn(p.command, spawnArgs, { cwd: viaSeam ? path.join(deps.gateSeam.snapshot, s.cwd ?? "") : path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...readTargetEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...refEnv, ...(carriedScan && !watched ? scanOperationEnv({ ...deps.env, ...s.env }, limitMs) : {}), ...trustEnv, ...seamVars }, signal: scanSignal, ...(listingFile ? { stdoutFile: listingFile } : {}), ...(watched ? {} : { timeout: limitMs }) }); } finally { stopClock(); advisory?.cleanup?.(); }
           if ((s.runOutside || s.captureJson) && r && !r.error) {
             // The whole listing: the file the spawn streamed, else (a spawn that does not know stdoutFile) its stdout. What a reader sees of a failed compile is the rendered errors.
             let fromFile = false;
@@ -3988,7 +4050,7 @@ export async function runScans(plan, options = {}) {
             let problems;
             try {
               const ledger = readLedger(cargoLedger.dir, ledgerToken);
-              problems = [...ledger.problems, ...(deps.snapshotBroker ? await verifyBrokerLedger(ledger.entries, deps.snapshotBroker, { seen: ledgerSeen }) : [])];
+              problems = [...ledger.problems];
               // The seam calls this scan's own process made (a suite's cargo through the wrapper): the row is a seam row for the door's lock, settled only when every such
               // call is, and no record is unreadable (its owner is unknown).
               const seamCalls = ledger.entries.filter((e) => e.mode === "seam");
@@ -4015,7 +4077,7 @@ export async function runScans(plan, options = {}) {
             const judged = judgeSeamOutcome({ child: r, stderr: r?.stderr ?? "", commit: deps.gateSeam.commit, tree: deps.gateSeam.tree, classA: seamVars[CLASS_A_ENV] ?? null, expect: { argv: sentArgv, cwd: path.join(deps.gateSeam.snapshot, s.cwd ?? ""), adapter: swiftSeam ? "rightkit-swift" : null } });
             // The receipt's test executable list is always recorded, a null one with the broker's reason, so every listing is judged against it (GC-A08: an executable runs only when
             // it is on the compile receipt's signed list; a seam receipt with no list runs nothing).
-            if (judged.evidence) row.snapshotEvidence = { receiptSha256: judged.evidence.receiptSha256, receiptPath: judged.evidence.receiptPath, requestId: judged.evidence.requestId, outputDir: judged.evidence.outputDir, cargoDir: s.cwd ?? ".", seam: true, testExecutables: judged.evidence.testExecutables ?? null, testExecutablesReason: judged.evidence.testExecutablesReason ?? null };
+            if (judged.evidence) row.snapshotEvidence = { receiptSha256: judged.evidence.receiptSha256, receiptPath: judged.evidence.receiptPath, requestId: judged.evidence.requestId, outputDir: judged.evidence.outputDir, cargoDir: s.cwd ?? ".", seam: true, testExecutables: judged.evidence.testExecutables ?? null, testExecutablesReason: judged.evidence.testExecutablesReason ?? null, receiptStatus: judged.evidence.receiptStatus ?? null };
             // Settled, for the door's lock release (seamRunState): positive evidence only. A parsed result line AND either a durable receipt read (the job reached its
             // terminal state) or an explicit before-execution refusal (a code, or exit 125 with nothing admitted). A missing or malformed line, a missing receipt, a killed
             // client or a spawn error leaves the row unsettled, and the lock stays (astra, 2026-11-09).
@@ -4024,37 +4086,7 @@ export async function runScans(plan, options = {}) {
             row.seamSettled = seamSettled(judged);
             if (judged.status === "fail") { status = "fail"; code = judged.code; detail = `${s.id}: ${judged.detail}`; }
           }
-          if (carrier) {
-            // A typed broker refusal with no request reference (admission paused, a cutover drain): nothing was admitted under this scan's sub-handle, so it is
-            // recorded unsent at once, as a busy connection is; otherwise a dead owner's record could never be reclaimed (HeardRight Mac, 2026-11-02).
-            if (!fs.existsSync(path.join(carrier.refDir, "request.json"))) {
-              const refused = refusalInCapturedOutput(`${r?.stdout ?? ""}\n${r?.stderr ?? ""}`);
-              if (refused && typeof deps.snapshotBroker?.markBrokerUnsent === "function") {
-                try { deps.snapshotBroker.markBrokerUnsent(carrier.made.carrier.ownership.handle, `the broker refused the submit before admitting it (${refused.code}): nothing was spawned`); } catch { /* the reclaim then judges the sub-handle as before */ }
-              }
-            }
-            try {
-              const ref = readRequestRef(path.join(carrier.refDir, "request.json"));
-              const receipt = await deps.snapshotBroker.receiptOf(ref.requestId);
-              const receiptOptions = { pins: deps.snapshotBroker.pins, jobId: ref.requestId, carrier: carrier.made.carrier, argv: carrier.cargoArgv, workspace: ref.workspace, observedEnv: observedEnvOf({ ...deps.env, ...s.env, ...(extraEnv ?? {}) }, deps.platform ?? process.platform), checkout: deps.snapshotBroker.checkout, outputRoots: deps.snapshotBroker.outputRoots, platform: deps.snapshotBroker.platform ?? deps.platform ?? process.platform };
-              let verified;
-              try { verified = verifySnapshotReceipt(receipt, receiptOptions); }
-              catch (original) {
-                if (original?.code !== "result" || status !== "fail" || code !== "EXIT" || signal?.aborted || !Number.isSafeInteger(r?.status) || r.status <= 0) throw original;
-                verified = verifySnapshotReceipt(receipt, { ...receiptOptions, allowFailedCompile: true });
-                if (verified.signedResult?.status !== "FAILED" || verified.signedResult.failureClass !== "compile" || verified.signedResult.exitCode !== r.status || verified.signedResult.signal !== null) throw original;
-                code = "BROKER_COMPILE_FAILURE";
-                // Bisection needs the fully verified, signed post-run verdict as well as the matching client exit.
-                row.authenticatedFailure = { status: verified.signedResult.status, failureClass: verified.signedResult.failureClass, exitCode: verified.signedResult.exitCode, postChecks: verified.signedResult.postChecks, retryable: verified.signedResult.postChecks?.verified === true };
-              }
-              const { evidence } = verified;
-              row.snapshotEvidence = { receiptSha256: sha256(canonicalJson(receipt)), requestId: ref.requestId, outputDir: evidence.outputDir, cargoDir: s.cwd ?? ".", targetTriple: typeof receipt?.targetTriple === "string" && /^[A-Za-z0-9_.]+(?:-[A-Za-z0-9_.]+){1,4}$/.test(receipt.targetTriple) ? receipt.targetTriple : null, treeAtStart: evidence.snapshot.treeAtStart, treeAtExit: evidence.snapshot.treeAtExit, ...(receipt && Object.hasOwn(receipt, "testExecutables") ? { testExecutables: receipt.testExecutables, testExecutablesReason: receipt.testExecutablesReason ?? null } : {}) };
-            } catch (e) {
-              status = "fail"; code = "SNAPSHOT_EVIDENCE"; detail = `${s.id}: the broker's snapshot evidence did not verify (${e.code ?? "error"}: ${e.message})`;
-            }
-          }
           } finally {
-            if (carrier) { removeCarrier(carrier.made.file); fs.rmSync(carrier.refDir, { recursive: true, force: true }); }
             if (tscProject) fs.rmSync(tscProject.dir, { recursive: true, force: true });
             if (listingDir) fs.rmSync(listingDir, { recursive: true, force: true });
           }
@@ -4065,7 +4097,7 @@ export async function runScans(plan, options = {}) {
           if (s.runOutside && status === "pass" && r && !r.error) {
             const fail = (c, d) => { status = "fail"; code = c; detail = d; };
             const listing = parseTestListing(listingText);
-            const platform = deps.snapshotBroker?.platform ?? deps.platform ?? process.platform;
+            const platform = deps.platform ?? process.platform;
             if (listingCut) fail("TEST_LISTING", `${s.id}: the compile listing was cut at the kept output tail, so the test executables cannot be enumerated`);
             else if (listing.buildFinished !== true) fail("TEST_LISTING", `${s.id}: the compile exited 0 but its listing has no successful build-finished record (${listing.buildFinished === false ? "a build-finished record said failure" : "none found"})`);
             else if (listing.binaries.length === 0) {
@@ -4073,11 +4105,11 @@ export async function runScans(plan, options = {}) {
               // with zero libtest counts, the same as a test build that runs none (testResultsProblem). Only after the same receipt judgments as a listing with
               // executables (GC-A08): the broker's list must be present (a missing or null list, with its reason, is unsigned) and must itself be empty, or cargo's
               // listing lost what the compile produced (fresh reviews of badf93c).
-              const signedOn = (viaSnapshotBroker || viaSeam) && row.snapshotEvidence && Object.hasOwn(row.snapshotEvidence, "testExecutables");
+              const signedOn = viaSeam && row.snapshotEvidence && Object.hasOwn(row.snapshotEvidence, "testExecutables");
               const signedList = signedOn ? row.snapshotEvidence.testExecutables : null;
-              const zeroPlatform = deps.snapshotBroker?.platform ?? deps.platform ?? process.platform;
+              const zeroPlatform = deps.platform ?? process.platform;
               const unsigned = signedOn ? signedTestExecutableProblems([], signedList, row.snapshotEvidence.testExecutablesReason, zeroPlatform) : [];
-              if ((viaSnapshotBroker || viaSeam) && !signedOn) fail("TEST_EXECUTABLE_UNSIGNED", `${s.id}: the broker's receipt lists no test executables`);
+              if (viaSeam && !signedOn) fail("TEST_EXECUTABLE_UNSIGNED", `${s.id}: the broker's receipt lists no test executables`);
               else if (unsigned.length) fail("TEST_EXECUTABLE_UNSIGNED", `${s.id}: ${unsigned.slice(0, 3).join("; ")}; the row fails and nothing was run`);
               else if (Array.isArray(signedList) && signedList.length) fail("TEST_EXECUTABLE_MISSING", `${s.id}: the broker's receipt lists ${signedList.length} test executable(s) and cargo's listing yielded none; the row fails and nothing was run`);
               else {
@@ -4089,7 +4121,7 @@ export async function runScans(plan, options = {}) {
               }
             } else {
               let boundDirs; let generationRoots = null;
-              if (viaSnapshotBroker || viaSeam) { boundDirs = row.snapshotEvidence?.outputDir ? [row.snapshotEvidence.outputDir] : []; generationRoots = viaSeam ? (deps.gateSeam.outputRoots ?? null) : (deps.snapshotBroker.outputRoots ?? []); }
+              if (viaSeam) { boundDirs = row.snapshotEvidence?.outputDir ? [row.snapshotEvidence.outputDir] : []; generationRoots = deps.gateSeam.outputRoots ?? null; }
               else {
                 const scanDir = path.join(rootDir(s.root), s.cwd ?? "");
                 const target = s.env?.CARGO_TARGET_DIR ?? deps.env?.CARGO_TARGET_DIR ?? "target";
@@ -4101,12 +4133,12 @@ export async function runScans(plan, options = {}) {
               row.executableProof = executableProofOf(contained.accepted, boundDirs); // the digest-bound proof a later serial row re-checks when this row is a cache hit
               // ADR-001 C2 (rightkit#1454): a broker that signs the compile's test executables (receipt.testExecutables, rustright) binds each one;
               // an executable whose path or sha256 is not in that signed list never runs. A receipt with no list runs nothing (TEST_EXECUTABLE_UNSIGNED below); a null list carries the broker's reason.
-              const signedProblems = (viaSnapshotBroker || viaSeam) && row.snapshotEvidence && Object.hasOwn(row.snapshotEvidence, "testExecutables") ? signedTestExecutableProblems(contained.accepted, row.snapshotEvidence.testExecutables, row.snapshotEvidence.testExecutablesReason, platform) : [];
+              const signedProblems = viaSeam && row.snapshotEvidence && Object.hasOwn(row.snapshotEvidence, "testExecutables") ? signedTestExecutableProblems(contained.accepted, row.snapshotEvidence.testExecutables, row.snapshotEvidence.testExecutablesReason, platform) : [];
               // The seam's receipt is the broker's list of what the compile produced: an executable it lists that cargo's stdout did not yield (a cut listing, a parse gap)
               // would otherwise never run and nothing would say so (fresh review 2026-11-09, E5). Every listed executable must be among the ones about to run.
               const receiptMissing = viaSeam && Array.isArray(row.snapshotEvidence?.testExecutables) ? row.snapshotEvidence.testExecutables.map((e) => (typeof e?.path === "string" ? e.path : typeof e?.executable === "string" ? e.executable : null)).filter(Boolean).filter((p) => { let real = p; try { real = fs.realpathSync.native(p); } catch { /* compared as given */ } return !contained.accepted.some((b) => b.real === real || b.executable === p); }) : [];
               // GC-A08: on every broker route a test compile's executables run only from the receipt's list; a receipt with no list field runs nothing (not only for publishers).
-              if ((viaSnapshotBroker || viaSeam) && !Object.hasOwn(row.snapshotEvidence ?? {}, "testExecutables")) fail("TEST_EXECUTABLE_UNSIGNED", `${s.id}: the broker's receipt lists no test executables`);
+              if (viaSeam && !Object.hasOwn(row.snapshotEvidence ?? {}, "testExecutables")) fail("TEST_EXECUTABLE_UNSIGNED", `${s.id}: the broker's receipt lists no test executables`);
               else if (contained.problems.length) fail("TEST_EXECUTABLE_OUTSIDE_OUTPUT", `${s.id}: ${contained.problems.slice(0, 5).join("; ")}; the row fails and nothing was run`);
               else if (signedProblems.length) fail("TEST_EXECUTABLE_UNSIGNED", `${s.id}: ${signedProblems.slice(0, 5).join("; ")}; the row fails and nothing was run`);
               else if (receiptMissing.length) fail("TEST_EXECUTABLE_MISSING", `${s.id}: the broker's receipt lists ${receiptMissing.length} test executable(s) cargo's listing did not yield (${receiptMissing.slice(0, 3).join(", ")}); the row fails and nothing was run`);
@@ -4165,9 +4197,12 @@ export async function runScans(plan, options = {}) {
             const problem = status === "pass" && row.results ? testResultsProblem(row.results) : null;
             if (problem) { status = "fail"; code = problem.code; detail = problem.detail; }
           }
+          // NN41: on a seam row code EXIT means the judge read this job's own durable receipt, its postconditions held and the executed command itself failed
+          // (gate-seam.mjs judgeSeamOutcome), so the failure is the broker's authenticated one and is cached like a pass, keyed with the broker's runtime identity. Only a receipt
+          // whose status is FAILED: a TIMED_OUT or CANCELLED job keeps its observed exit (it may be cargo's own) but its failure is the stop, never the source.
           // NN41: store a deterministic compile failure only: the broker's authenticated compile failure, or a plain exit of a compile with compiler error diagnostics and no sign of
           // the environment failing. Never a timeout, abort, SCAN_ERROR, refusal, unverified receipt, ledger problem, test run or infrastructure error (those return or carry another code).
-          if (status === "fail" && failKey && !signal?.aborted && !ledgerProblem && typeof detail === "string" && detail !== "" && ((code === "BROKER_COMPILE_FAILURE" && row.authenticatedFailure?.failureClass === "compile") || (code === "EXIT" && !carriedScan && !carrier)) && isDeterministicCompileDiagnostics(`${r?.stdout ?? ""}\n${r?.stderr ?? ""}`)) {
+          if (status === "fail" && failKey && !signal?.aborted && !ledgerProblem && typeof detail === "string" && detail !== "" && (code === "EXIT" && (!carriedScan || (viaSeam && row.snapshotEvidence?.receiptStatus === "FAILED"))) && isDeterministicCompileDiagnostics(`${r?.stdout ?? ""}\n${r?.stderr ?? ""}`)) {
             cache.write(failKey, { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "fail", code, detail: detail.slice(0, 6000), failureIdentity: options.failureIdentity, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.jsonSummary ? { jsonSummary: row.jsonSummary } : {}) });
           }
           if (status === "pass" && cacheKey && !signal?.aborted && row.rowIndex) cache.write(row.rowIndex.key, { id: s.id, inputs: row.rowIndex.inputs, env: row.rowIndex.env, raw: row.rowIndex.raw, at: new Date().toISOString() });

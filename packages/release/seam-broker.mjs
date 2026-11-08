@@ -1,5 +1,5 @@
 // The seam's one broker control query from the gate side (reset plan section 3): where the broker listens and what identity a query carries, and the
-// reclaim judge built on it. Kept apart from broker-handshake.mjs (which the plan deletes) so the seam survives step 5; it imports only kept modules.
+// reclaim judge built on it, and the broker protocol name and runtime identity the control query carries. It imports only kept modules.
 import fs from "node:fs";
 import path from "node:path";
 import { resolveBrokerClient } from "./broker-client.mjs";
@@ -11,6 +11,8 @@ import { spawnSync as nodeSpawnSync } from "node:child_process";
 export const BUILD_CONTROL_PROTOCOL = "rustright.build-control.client.v2";
 /** The runtime manifest beside the installed client, whose identity every control request carries. */
 export const RUNTIME_MANIFEST_FILE = "runtime-manifest.json";
+/** The id of the client's own health probe (`rustright-cli` doctor: PROBE_ID), a by-id STATUS the front gate answers; the declared Linux route reads the answering roots with it. */
+export const HANDSHAKE_PROBE_ID = "runtime-health-probe";
 export const RUNTIME_MANIFEST_SCHEMA = "rustright.build-control.runtime.v2";
 const LEGACY_RUNTIME_MANIFEST_SCHEMA = "rightkit.build-control.runtime.v2";
 const isDigest = (v) => typeof v === "string" && /^[0-9a-f]{64}$/.test(v);

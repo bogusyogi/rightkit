@@ -13,7 +13,7 @@
 // partition of a configuration group is cached on the workspace's Cargo.lock, every Cargo.toml and the toolchain file: a manifest edit
 // recomputes it, anything else reuses it.
 //
-// Dependency-free by design (node built-ins only); deterministic-scans.mjs and unit-list-compile.mjs import it.
+// Dependency-free by design (node built-ins only); deterministic-scans.mjs imports it.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -161,10 +161,10 @@ export function splitNote(split) {
 }
 
 /**
- * sha256 over what `cargo tree` reads under `dir`: Cargo.lock, every Cargo.toml and rust-toolchain(.toml) (target, node_modules and dot
- * directories skipped), by relative path. The partition of a configuration group is cached on it.
+ * sha256 over what `cargo tree` reads: under `dir` Cargo.lock, every Cargo.toml, rust-toolchain(.toml) and `.cargo/config(.toml)` (target, node_modules and other dot
+ * directories skipped), by relative path; above it, every ancestor's and CARGO_HOME's `.cargo` configuration. The partition of a configuration group is cached on it.
  */
-export function workspaceManifestDigest(dir, { fsApi = fs } = {}) {
+export function workspaceManifestDigest(dir, { fsApi = fs, env = process.env } = {}) {
   const h = crypto.createHash("sha256");
   const walk = (d) => {
     let entries; try { entries = fsApi.readdirSync(d, { withFileTypes: true }); } catch { return; }
@@ -178,6 +178,16 @@ export function workspaceManifestDigest(dir, { fsApi = fs } = {}) {
     }
   };
   walk(dir);
+  // Cargo also reads the configuration of every directory above the workspace and of CARGO_HOME (Cargo's config discovery): patches, target cfg and rustflags
+  // there change what resolves, so their bytes are inputs too (fresh review of badf93c).
+  const extra = [];
+  for (let d = path.dirname(path.resolve(dir)); ; d = path.dirname(d)) {
+    for (const n of ["config.toml", "config"]) extra.push(path.join(d, ".cargo", n));
+    if (path.dirname(d) === d) break;
+  }
+  const cargoHome = env.CARGO_HOME || (env.HOME || env.USERPROFILE ? path.join(env.HOME || env.USERPROFILE, ".cargo") : null);
+  if (cargoHome) for (const n of ["config.toml", "config"]) extra.push(path.join(cargoHome, n));
+  for (const f of extra) { let bytes; try { bytes = fsApi.readFileSync(f); } catch { continue; } h.update(`\0config:${f}\0`); h.update(bytes); }
   return h.digest("hex");
 }
 

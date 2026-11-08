@@ -6,14 +6,68 @@ import fs from "node:fs";
 import path from "node:path";
 import { CARGO_METADATA_ARGS, cargoPackageArgs, localTestPlan, npmPackArgs, qualifyFmtArgs } from "./local-publish.mjs";
 import { SWAP_HELPER_CARGO_ARGS, SWAP_HELPER_METADATA_ARGS, SWAP_HELPER_PACKAGE } from "./swap-helper-bundle.mjs";
-import { carriedRequestOf, lockedArgv, splitCarriedArgs } from "./snapshot-request.mjs";
-import { directCargoShape } from "./cargo-target-shim.mjs";
+import { splitStageArgs } from "./stage-seam.mjs";
+import { cargoCommandIndex, directCargoShape, expandCargoAliases } from "./cargo-target-shim.mjs";
+
+// ---- the argv a stage child's cargo call sends (moved here from snapshot-request.mjs, deleted at plan step 5) ----
+/** cargo-ndk's own options that take a value (outer grammar): `cargo ndk [-t <abi>] [-p|--platform <api>] [-o <dir>] ... <cargo subcommand> [cargo args]`. */
+const NDK_VALUE_OPTIONS = new Set(["-t", "--target", "-o", "--output-dir", "-p", "--platform"]);
+const NDK_INNER_LOCKED = new Set(["build", "b", "check", "c", "test", "t", "bench", "clippy", "doc", "rustc", "rustdoc", "run", "r"]);
+
+/**
+ * GB-62: `cargo ndk <outer options> build <cargo args>` is two grammars. The immutable-dependency flag belongs to the INNER Cargo command, so it is
+ * inserted right after that inner subcommand (never after `ndk`, where cargo-ndk would read it as its own option, and never before it). Returns the argv
+ * unchanged when the inner command is not a locked-class command, already carries `--locked`/`--frozen` before `--`, or cannot be found.
+ */
+function lockedNdkArgv(words) {
+  const end = words.indexOf("--");
+  const own = end < 0 ? words : words.slice(0, end);
+  let i = words.findIndex((w) => w === "ndk");
+  if (i < 0) return words;
+  for (i += 1; i < own.length; i += 1) {
+    const w = own[i];
+    if (NDK_VALUE_OPTIONS.has(w)) { i += 1; continue; }
+    if (w.startsWith("-")) continue;
+    break;
+  }
+  if (i >= own.length || !NDK_INNER_LOCKED.has(own[i])) return words;
+  if (own.slice(i + 1).some((w) => w === "--locked" || w === "--frozen")) return words;
+  return [...words.slice(0, i + 1), "--locked", ...words.slice(i + 1)];
+}
+
+/** The cargo commands the gate sends with `--locked`: the ones that compile (`package` always: an observation already carries `--locked`, so adding it changes nothing). The broker alone classifies a call. */
+const LOCKED_COMMANDS = new Set(["build", "check", "test", "bench", "clippy", "doc", "run", "rustc", "rustdoc", "fix", "publish", "package", "nextest"]);
+
+function lockedArgv(argv) {
+  // GB-01: the standard aliases are expanded BEFORE locking and hashing, so what the gate sends, signs and digests is what the broker classifies
+  // (a committed `.cargo/config.toml` [alias] can never redefine it). Only the subcommand token changes.
+  const words = expandCargoAliases(argv);
+  const i = cargoCommandIndex(words);
+  if (i === null) return words;
+  if (words[i] === "ndk") return lockedNdkArgv(words);
+  if (!LOCKED_COMMANDS.has(words[i])) return words;
+  const end = words.indexOf("--");
+  if ((end < 0 ? words : words.slice(0, end)).some((w) => w === "--locked" || w === "--frozen")) return words;
+  return [...words.slice(0, i + 1), "--locked", ...words.slice(i + 1)];
+}
+
+/**
+ * What a stage child's cargo call sends the broker (the seam, stage-seam.mjs runStageCargo) for `args` run from `cwd` (a posix path relative to the workspace root, "." for the root): the
+ * argv as signed (`requestedArgv`: no --manifest-path, `--locked` added to a build or run) and the directory it runs in (`cwd` joined
+ * with the manifest's directory). Returns `{ argv, cwd }` or null when the call would be refused.
+ */
+export function carriedRequestOf(args, cwd = ".") {
+  const split = splitStageArgs(args);
+  if (split.refusal) return null;
+  const dir = split.manifestPath === null ? cwd : path.posix.normalize(path.posix.join(cwd, path.posix.dirname(split.manifestPath.replaceAll("\\", "/"))));
+  return { argv: lockedArgv(split.words), cwd: dir === "" ? "." : dir };
+}
 
 /** Stands for the one argument that is a fresh absolute scratch path (`pnpm pack --pack-destination <mkdtemp>`). */
 export const ANY_ABSOLUTE_PATH = Object.freeze({ anyAbsolutePath: true });
 const PNPM = (...argvs) => ({ kind: "adapter", adapter: "rightkit-pnpm", argvs });
 /**
- * A cargo command as a broker host receives it. Every Cargo call of a snapshot stage is carried (carried-cargo.mjs): `--manifest-path` is
+ * A cargo command as a broker host receives it. Every Cargo call of a snapshot stage goes through the seam (stage-seam.mjs): `--manifest-path` is
  * not sent (the call runs from the manifest's directory) and a build or run is sent with `--locked`, so the signed `requestedArgv` is
  * that argv and the signed `workspace` is that directory of the checkout, never the spelling the stage's code wrote. `cwd` is the
  * directory the stage runs the command from, relative to the repository root; the row keeps the directory the call runs in.
@@ -21,7 +75,7 @@ const PNPM = (...argvs) => ({ kind: "adapter", adapter: "rightkit-pnpm", argvs }
 const CARGO = (cwd, ...argvs) => {
   const carried = argvs.map((argv) => carriedRequestOf(argv, cwd) ?? { argv, cwd });
   if (new Set(carried.map((c) => c.cwd)).size !== 1) throw new Error(`the spellings of one cargo command run in different directories: ${argvs.map((a) => a.join(" ")).join(" | ")}`);
-  // GC-A11: a command of the direct shape (directCargoShape, the one list carried-cargo.mjs runs by) compiles nothing and runs directly,
+  // GC-A11: a command of the direct shape (directCargoShape, the one list stage-seam.mjs runs by) compiles nothing and runs directly,
   // so it makes no broker job and no signed receipt: the row is `direct`, the stage owes its recorded direct ledger entry instead.
   const direct = carried.every((c) => directCargoShape(c.argv));
   return { kind: "cargo", argvs: carried.map((c) => c.argv), cwd: carried[0].cwd, ...(direct ? { direct: true } : {}) };
@@ -119,7 +173,7 @@ export function directRowsNotRun(rows, entries) {
   const problems = [];
   for (const row of rows.filter((r) => r.direct === true)) {
     const matching = pool.filter((e) => {
-      const split = splitCarriedArgs(Array.isArray(e.argv) ? e.argv : []);
+      const split = splitStageArgs(Array.isArray(e.argv) ? e.argv : []);
       if (split.refusal) return false;
       const dir = posixOf(split.manifestPath === null ? e.cwd : path.resolve(String(e.cwd), path.dirname(split.manifestPath)));
       const words = lockedArgv(split.words);

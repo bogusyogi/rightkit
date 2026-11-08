@@ -14,15 +14,22 @@ import { judgeSeamOutcome, seamSettled, receiptIsTerminalFor, classAVerdict, wri
 import { verdictForCwd } from "./seam-broker.mjs";
 import { runShim, SHIM_MAP_SCHEMA } from "./cargo-target-shim.mjs";
 import { seamRunState } from "./deterministic-scans.mjs";
-import { runCarriedAdapter, runCarriedCargo, installCarrier, carriedOutputDir } from "./carried-cargo.mjs";
+import { runStageAdapter, runStageCargo, installStageCarrier, carriedOutputDir } from "./stage-seam.mjs";
 import { readLedgerDir, appendLedger } from "./cargo-ledger.mjs";
 import { runScans } from "./deterministic-scans.mjs";
 
 const commit = "a".repeat(40); const tree = "b".repeat(40);
 const tmp = () => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "rk-seam-repair-")));
-const receiptFor = (dir, { jobId = "q1", argv = ["run", "build"], workspace = "/snap/app", adapter = "rightkit-pnpm", gate = {}, terminalAt = "2026-11-09T00:00:00.000Z", id = jobId } = {}) => {
+// A receipt as the broker's finish writes it for a job whose tree was reaped and whose survivor census was clean (the default), or with `proc` overriding
+// the process evidence: `reap`, `processOwnership`, `startedAt`, `descendants` (rustright finish_impl.rs, service.rs descendants_claim).
+const reapedProc = { reap: { status: "REAPED", reaped: true, escalated: false }, processOwnership: { pid: 1 }, startedAt: "2026-11-09T00:00:00.000Z", descendants: { status: "tree-contained" } };
+const receiptFor = (dir, { jobId = "q1", argv = ["run", "build"], workspace = "/snap/app", adapter = "rightkit-pnpm", gate = {}, terminalAt = "2026-11-09T00:00:00.000Z", id = jobId, proc = {} } = {}) => {
   const f = path.join(dir, `${Math.random().toString(16).slice(2)}.json`);
-  fs.writeFileSync(f, JSON.stringify({ id, terminalAt, gate: { commit, tree, snapshot: "/snap", classA: "/v/class-a.json", snapshotUnchanged: true, ...gate }, provenance: { payload: { jobId, terminalAt, request: { kind: adapter ? "adapter" : "cargo", adapter, requestedArgv: argv, workspace } } } }));
+  const p = { ...reapedProc, ...proc };
+  const top = { id, status: "SUCCEEDED", terminalAt, gate: { commit, tree, snapshot: "/snap", classA: "/v/class-a.json", snapshotUnchanged: true, ...gate }, provenance: { payload: { jobId, terminalAt, startedAt: p.startedAt, descendants: p.descendants, request: { kind: adapter ? "adapter" : "cargo", adapter, requestedArgv: argv, workspace } } } };
+  for (const k of ["reap", "processOwnership", "startedAt"]) if (p[k] !== undefined) top[k] = p[k];
+  if (p.descendants === undefined) delete top.provenance.payload.descendants;
+  fs.writeFileSync(f, JSON.stringify(top));
   return f;
 };
 const line = (o) => `rustright-result ${JSON.stringify({ requestId: "q1", exit: 0, signal: null, outputDir: "/t/out", receiptPersisted: true, ...o })}\n`;
@@ -49,6 +56,20 @@ test("2. settled only by the terminal receipt of this request's job, or by a cod
   assert.equal(seamSettled(judge(line({ requestId: null, exit: 125, receipt: null, receiptPersisted: false, code: "RK_CLASS_A_INVALID", message: "red" }), 125)), true);
   assert.equal(seamSettled(judge(line({ requestId: "q1", exit: 125, receipt: null, receiptPersisted: false, code: "RK_CLIENT_ERROR", message: "lost" }), 125)), false);
   assert.equal(seamSettled(judge(line({ requestId: null, exit: 125, receipt: null, receiptPersisted: false }), 125)), false);
+  // a terminal receipt is not proof the job's processes are gone (astra, 2026-11-09): only a complete reap with a contained tree, or a job that never spawned
+  assert.equal(seamSettled(judge(line({ receipt: receiptFor(dir, { proc: { reap: { status: "REAP_PENDING", reaped: false, escalated: true, reason: "process-still-live" }, descendants: { status: "unverified", reason: "the job's process tree was not confirmed reaped" } } }) }))), false, "an unreaped FAILED receipt keeps the lock");
+  assert.equal(seamSettled(judge(line({ receipt: receiptFor(dir, { proc: { reap: undefined, processOwnership: undefined, startedAt: undefined, descendants: undefined } }) }))), false, "a forced terminal receipt (no process evidence) keeps the lock");
+  assert.equal(seamSettled(judge(line({ receipt: receiptFor(dir, { proc: { descendants: { status: "unverified", reason: "the survivor scan was incomplete" } } }) }))), false, "a reaped tree with an incomplete survivor scan keeps the lock");
+  assert.equal(seamSettled(judge(line({ receipt: receiptFor(dir, { proc: { reap: { status: "REAP_PENDING", reaped: false, escalated: false, reason: "spawn-may-have-run" }, processOwnership: null, startedAt: null, descendants: { status: "unverified", reason: "the job's process tree was not confirmed reaped" } } }) }))), false, "an unconfirmed spawn (no ownership, reap pending) keeps the lock");
+  const neverSpawned = judge(line({ exit: 125, receipt: receiptFor(dir, { proc: { reap: null, processOwnership: null, startedAt: null, descendants: undefined } }), code: undefined }), 125);
+  assert.equal(seamSettled(neverSpawned), true, "a job that never spawned settles");
+  assert.equal(seamSettled(judge(line({ receipt: receiptFor(dir, { gate: { snapshotUnchanged: false } }) }))), true, "a changed snapshot whose tree is proven gone settles (and fails)");
+  // exit 0 of a job the broker cancelled (its process had already exited 0): the receipt keeps the observed exit, the row is not a pass, and the stopped job is settled
+  const cancelledZero = judge(line({ receipt: receiptFor(dir, { gate: {} }).replace(/$/, "") }));
+  const cz = path.join(dir, "cancelled-zero.json"); { const r = JSON.parse(fs.readFileSync(receiptFor(dir), "utf8")); r.status = "CANCELLED"; fs.writeFileSync(cz, JSON.stringify(r)); }
+  const czJudged = judge(line({ receipt: cz }));
+  assert.equal(czJudged.status, "fail"); assert.equal(czJudged.code, "RECEIPT_NOT_SUCCEEDED"); assert.equal(seamSettled(czJudged), true);
+  assert.equal(cancelledZero.status, "pass");
   // the predicate itself
   assert.equal(receiptIsTerminalFor({ id: "j", terminalAt: "t" }, "j"), true);
   assert.equal(receiptIsTerminalFor({ id: "j", terminalAt: "t" }, null), false);
@@ -60,7 +81,7 @@ function stage() {
   const dir = tmp(); const snap = path.join(dir, "snap"); const checkout = path.join(dir, "checkout");
   for (const r of [snap, checkout]) { fs.mkdirSync(path.join(r, "app", "src-tauri"), { recursive: true }); fs.writeFileSync(path.join(r, "app", "src-tauri", "Cargo.toml"), "[package]\nname = \"app\"\nversion = \"0.1.0\"\n"); }
   const base = path.join(dir, "carrier"); fs.mkdirSync(base);
-  const installed = installCarrier({ base, snapshotRoot: snap, checkoutDirs: { "app/src-tauri": path.join(checkout, "app", "src-tauri") }, section: { client: "/opt/rustright" } });
+  const installed = installStageCarrier({ base, snapshotRoot: snap, checkoutDirs: { "app/src-tauri": path.join(checkout, "app", "src-tauri") }, section: { client: "/opt/rustright" } });
   const map = JSON.parse(fs.readFileSync(installed.mapFile, "utf8"));
   return { dir, snap, checkout, installed, map, env: { ...seamEnvOf(), ...installed.env } };
 }
@@ -72,7 +93,7 @@ test("1. a seam adapter call is pending in the stage ledger BEFORE the broker se
     seenPending = readLedgerDir(map.ledgerDir).entries.filter((e) => e.mode === "seam" && e.status === "pending").length;
     throw new Error("the stage child died during the call"); // the process never reaches its outcome record
   };
-  assert.throws(() => runCarriedAdapter("rightkit-pnpm", ["run", "build"], { cwd: path.join(snap, "app"), env }, { map, spawn }), /died during the call/);
+  assert.throws(() => runStageAdapter("rightkit-pnpm", ["run", "build"], { cwd: path.join(snap, "app"), env }, { map, spawn }), /died during the call/);
   assert.equal(seenPending, 1, "the pending row was on disk when the call was sent");
   assert.equal(installed.seamUnsettled(), 1, "the unfinished call keeps the door's lock");
 });
@@ -81,15 +102,15 @@ test("1. a seam cargo call is pending before it is sent, and a pending row that 
   const { installed, map, snap, env } = stage();
   let calls = 0;
   const kill = () => { calls += 1; return { status: null, signal: "SIGKILL", stdout: "", stderr: "" }; };
-  const r = runCarriedCargo(["build"], { cwd: path.join(snap, "app", "src-tauri"), env }, { map, spawn: kill, err: () => {} });
+  const r = runStageCargo(["build"], { cwd: path.join(snap, "app", "src-tauri"), env }, { map, spawn: kill, err: () => {} });
   assert.notEqual(r.status, 0); assert.equal(calls, 1);
   assert.equal(installed.seamUnsettled(), 1, "a killed client is never settled");
   // the ledger cannot be written: refused before any spawn
   calls = 0;
   const broken = { ...map, ledgerDir: "relative/ledger" };
-  const refused = runCarriedCargo(["build"], { cwd: path.join(snap, "app", "src-tauri"), env }, { map: broken, spawn: kill, err: () => {} });
+  const refused = runStageCargo(["build"], { cwd: path.join(snap, "app", "src-tauri"), env }, { map: broken, spawn: kill, err: () => {} });
   assert.equal(refused.refusal?.code, "RK_CARGO_LEDGER"); assert.equal(calls, 0, "nothing was submitted");
-  const adapterRefused = runCarriedAdapter("rightkit-pnpm", ["run", "build"], { cwd: path.join(snap, "app"), env }, { map: broken, spawn: kill, err: () => {} });
+  const adapterRefused = runStageAdapter("rightkit-pnpm", ["run", "build"], { cwd: path.join(snap, "app"), env }, { map: broken, spawn: kill, err: () => {} });
   assert.equal(adapterRefused.refusal?.code, "RK_CARGO_LEDGER"); assert.equal(calls, 0, "nothing was submitted");
 });
 
@@ -114,7 +135,7 @@ test("4. a seam adapter's receipt outputDir is filed with its Cargo workspace: t
   const cwd = path.join(snap, "app"); // `tauri build` runs from the app root, above src-tauri
   const receipt = receiptFor(rdir, { argv: ["tauri", "build"], workspace: cwd, adapter: "rightkit-tauri", gate: { classA: "/v/class-a.json" } });
   const spawn = () => ({ status: 0, signal: null, stdout: "", stderr: line({ outputDir: out, receipt }) });
-  const r = runCarriedAdapter("rightkit-tauri", ["tauri", "build"], { cwd, env }, { map, spawn });
+  const r = runStageAdapter("rightkit-tauri", ["tauri", "build"], { cwd, env }, { map, spawn });
   assert.equal(r.status, 0, JSON.stringify(r.refusal ?? null));
   const row = readLedgerDir(map.ledgerDir).entries.find((e) => e.adapter === "rightkit-tauri");
   assert.deepEqual(row.workspaces, [path.join(checkout, "app", "src-tauri")]); assert.equal(row.settled, true);
@@ -142,7 +163,6 @@ test("3. a Swift build through the seam is the broker's adapter job: --package-p
   const result = await runScans(plan, {
     classes: ["B"], classAEarlier: true, jobs: 1, classBJobs: 1, spawn, adapterSpawn: spawn, platform: "darwin",
     gateSeam: { commit, tree, repoKey: "repo-key-0001", snapshot, verdictDir, outputRoots: null, scope: null },
-    snapshotBroker: { platform: "darwin", outputRoots: [], controlRoot: dir, commit, snapshot, handle: "h", declaredInputs: [] },
   });
   const swift = calls.filter((c) => c.args[0] === "run" && c.args[1] === "rightkit-swift");
   assert.equal(swift.length, 1, `one seam adapter call (${JSON.stringify(calls.map((c) => [c.cmd, ...c.args].join(" ")))}; row ${JSON.stringify(result.scans[0])})`);
@@ -156,12 +176,12 @@ test("4. an app inside an outer Cargo workspace: the adapter's target maps to th
   const dir = tmp(); const snap = path.join(dir, "snap"); const checkout = path.join(dir, "checkout");
   for (const r of [snap, checkout]) for (const ws of [".", "app/src-tauri", "app/helper"]) { fs.mkdirSync(path.join(r, ws), { recursive: true }); fs.writeFileSync(path.join(r, ws, "Cargo.toml"), "[package]\nname = \"x\"\nversion = \"0.1.0\"\n"); }
   const base = path.join(dir, "carrier"); fs.mkdirSync(base);
-  const installed = installCarrier({ base, snapshotRoot: snap, checkoutDirs: { ".": checkout, "app/src-tauri": path.join(checkout, "app", "src-tauri"), "app/helper": path.join(checkout, "app", "helper") }, section: { client: "/opt/rustright" } });
+  const installed = installStageCarrier({ base, snapshotRoot: snap, checkoutDirs: { ".": checkout, "app/src-tauri": path.join(checkout, "app", "src-tauri"), "app/helper": path.join(checkout, "app", "helper") }, section: { client: "/opt/rustright" } });
   const map = JSON.parse(fs.readFileSync(installed.mapFile, "utf8")); const env = { ...seamEnvOf(), ...installed.env };
   const out = path.join(dir, "managed-target"); fs.mkdirSync(out);
   const cwd = path.join(snap, "app");
   const receipt = receiptFor(dir, { argv: ["tauri", "build"], workspace: cwd, adapter: "rightkit-tauri" });
-  const r = runCarriedAdapter("rightkit-tauri", ["tauri", "build"], { cwd, env }, { map, spawn: () => ({ status: 0, signal: null, stdout: "", stderr: line({ outputDir: out, receipt }) }) });
+  const r = runStageAdapter("rightkit-tauri", ["tauri", "build"], { cwd, env }, { map, spawn: () => ({ status: 0, signal: null, stdout: "", stderr: line({ outputDir: out, receipt }) }) });
   assert.equal(r.status, 0, JSON.stringify(r.refusal ?? null));
   const byWs = new Map(installed.outputsByWorkspace());
   assert.equal(byWs.get(path.join(checkout, "app", "src-tauri")), out); assert.equal(byWs.get(path.join(checkout, "app", "helper")), out);
@@ -190,7 +210,7 @@ test("D1. a stage child's seam call names the verdict of its own directory, deri
   const map = { ledgerDir: path.resolve(ledgerDir), workspaces: { [path.join(snapshot, "app", "src-tauri")]: "/checkout/app/src-tauri" }, broker: { client: "/opt/rustright" } };
   let sent = null;
   const spawn = (cmd, argv, opts) => { sent = opts.env.RUSTRIGHT_CLASS_A; const receipt = receiptFor(path.dirname(snapshot), { argv: argv.slice(1), workspace: opts.cwd, adapter: null, gate: { classA: sent } }); return { status: 0, signal: null, stdout: "", stderr: line({ receipt }) }; };
-  const r = runCarriedCargo(["build"], { cwd: path.join(snapshot, "app", "src-tauri"), env }, { map, spawn, err: () => {} });
+  const r = runStageCargo(["build"], { cwd: path.join(snapshot, "app", "src-tauri"), env }, { map, spawn, err: () => {} });
   assert.equal(r.status, 0, JSON.stringify(r.refusal ?? null)); assert.equal(sent, derived);
   // an unreadable verdict is handed to the broker unchanged: the broker refuses it with its own code
   assert.equal(verdictForCwd({ ...env, RUSTRIGHT_CLASS_A: "/v/none.json" }, snapshot), "/v/none.json");
@@ -222,7 +242,7 @@ test("D6. the runtime cargo wrapper sends a suite's compile through the seam on 
 });
 
 // A seam cargo row through the real runScans: the client answers with a result line and a receipt built from what it was sent.
-function seamScanRig({ listing, receiptExtra = {}, exit = 0 }) {
+function seamScanRig({ listing, receiptExtra = {}, exit = 0, diagnostics = "" }) {
   const { data, snapshot, verdictDir, repoKey } = dataRoot();
   writeClassAVerdict(verdictDir, classAVerdict({ commit, tree, repoKey, workspace: ".", scans: [{ id: "a", status: "pass" }], scope: "full" }));
   const calls = [];
@@ -231,10 +251,10 @@ function seamScanRig({ listing, receiptExtra = {}, exit = 0 }) {
     if (args.includes("--version")) return { status: 0, stdout: "cargo 1.98.0 (test)\n", stderr: "" };
     const receipt = receiptFor(data, { argv: args.slice(1), workspace: opts.cwd, adapter: null, gate: { classA: opts.env?.RUSTRIGHT_CLASS_A } });
     const r = JSON.parse(fs.readFileSync(receipt, "utf8")); Object.assign(r, receiptExtra); fs.writeFileSync(receipt, JSON.stringify(r));
-    return { status: exit, stdout: listing.map((l) => JSON.stringify(l)).join("\n") + "\n", stderr: line({ exit, receipt, outputDir: path.join(data, "out") }) };
+    return { status: exit, stdout: listing.map((l) => JSON.stringify(l)).join("\n") + "\n", stderr: `${diagnostics}${line({ exit, receipt, outputDir: path.join(data, "out") })}` };
   };
   const gateSeam = { commit, tree, repoKey, snapshot, verdictDir, outputRoots: null, scope: null };
-  return { spawn, calls, snapshot, gateSeam, opts: { classes: ["B"], classAEarlier: true, jobs: 1, classBJobs: 1, spawn, gateSeam, snapshotBroker: { platform: process.platform, outputRoots: [], controlRoot: data, commit, snapshot, handle: "h", declaredInputs: [] }, platform: process.platform } };
+  return { spawn, calls, snapshot, gateSeam, opts: { classes: ["B"], classAEarlier: true, jobs: 1, classBJobs: 1, spawn, gateSeam, platform: process.platform } };
 }
 const testRow = { id: "test:rust:a", class: "B", tool: "rustright", root: "cargoLive", args: ["cargo", "test", "-p", "a", "--locked", "--message-format=json"], command: "rustright cargo test -p a --locked --message-format=json", runOutside: { args: [] } };
 const planOf = (snapshot, scans) => ({ schema: "rightkit.deterministic-scans/1", roots: { contentRoot: snapshot, liveRoot: snapshot, cargoLiveRoot: snapshot }, scans, notes: [], deferred: [], qualifyOwed: [] });
@@ -263,4 +283,26 @@ test("D4/D5. a cached failure read on a seam run submitted nothing and is settle
   assert.equal(seamRun.seam, true); assert.equal(seamRun.seamSettled, true, "a cached failure keeps no lock");
   assert.equal(seamRunState.unsettled, before.unsettled, "no unsettled row counted");
   assert.equal(seamRunState.open, before.open, "open is lowered once the seam run counted its rows");
+});
+
+test("NN41 on a broker host: a seam compile that failed with compiler diagnostics is cached like a pass, and the next run submits nothing", async () => {
+  const row = { id: "check:a", class: "B", tool: "rustright", root: "cargoLive", args: ["cargo", "check", "-p", "a", "--locked"], command: "rustright cargo check -p a --locked" };
+  const rig = seamScanRig({ listing: [], exit: 101, receiptExtra: { status: "FAILED" }, diagnostics: "error[E0425]: cannot find value `x` in this scope\nerror: could not compile `a` (lib) due to 1 previous error\n" });
+  const store = new Map(); const cache = { read: (k) => store.get(k) ?? null, write: (k, v) => { store.set(k, { key: k, at: "x", row: v }); }, digest: (s) => `d-${s.id}` };
+  const first = (await runScans(planOf(rig.snapshot, [row]), { ...rig.opts, cache, failureIdentity: "broker-1" })).scans[0];
+  assert.equal(first.status, "fail"); assert.equal(first.code, "EXIT", JSON.stringify(first));
+  assert.ok([...store.values()].some((v) => v.row.status === "fail" && v.row.id === "check:a"), "the authenticated failure was stored");
+  const submitted = rig.calls.filter((c) => !c.args.includes("--version")).length;
+  const second = (await runScans(planOf(rig.snapshot, [row]), { ...rig.opts, cache, failureIdentity: "broker-1" })).scans[0];
+  assert.equal(second.failureCached, true, JSON.stringify(second)); assert.equal(rig.calls.filter((c) => !c.args.includes("--version")).length, submitted, "nothing submitted");
+  // a job the broker stopped (TIMED_OUT) keeps cargo's own exit and text in its receipt, but the stop is not a deterministic source failure: never stored
+  const stoppedRig = seamScanRig({ listing: [], exit: 101, receiptExtra: { status: "TIMED_OUT" }, diagnostics: "error[E0425]: x\nerror: could not compile `a`\n" });
+  const store3 = new Map(); const cache3 = { read: (k) => store3.get(k) ?? null, write: (k, v) => { store3.set(k, { key: k, at: "x", row: v }); }, digest: (s) => `d-${s.id}` };
+  const stopped = (await runScans(planOf(stoppedRig.snapshot, [row]), { ...stoppedRig.opts, cache: cache3, failureIdentity: "broker-1" })).scans[0];
+  assert.equal(stopped.status, "fail"); assert.ok(![...store3.values()].some((v) => v.row.status === "fail"), "a timed-out job's failure is not cached");
+  // a refusal, or a failure with no durable receipt, is never stored
+  const refusedRig = seamScanRig({ listing: [], exit: 101, receiptExtra: { gate: { commit, tree, snapshot: "/snap", classA: "/elsewhere.json", snapshotUnchanged: false } }, diagnostics: "error[E0425]: x\nerror: could not compile `a`\n" });
+  const store2 = new Map(); const cache2 = { read: (k) => store2.get(k) ?? null, write: (k, v) => { store2.set(k, { key: k, at: "x", row: v }); }, digest: (s) => `d-${s.id}` };
+  const changed = (await runScans(planOf(refusedRig.snapshot, [row]), { ...refusedRig.opts, cache: cache2, failureIdentity: "broker-1" })).scans[0];
+  assert.notEqual(changed.code, "EXIT"); assert.ok(![...store2.values()].some((v) => v.row.status === "fail"), "a postcondition failure is not cached");
 });

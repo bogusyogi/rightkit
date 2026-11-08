@@ -17,8 +17,8 @@
 //
 // RA-09 / R3-M02: xcodegen and every xcodebuild call (build, build-for-testing, test-without-building) are typed native adapter jobs of the production runner (build-launch.mjs createNativeRunner,
 // `runIosDevelopmentCommands`): no -derivedDataPath, -resultBundlePath, -archivePath or -exportPath is ever named (the broker owns the output root), and the built .app and the result bundle are READ
-// BACK from the verified receipt's managed output roles (`derived-data`, `result-bundle`). A call the door or the broker's grammar refuses (no runner route, an unadvertised capability, an argv with
-// no managed form) is refused before anything is launched; there is no spawn fallback. simctl, devicectl and the app's own non-native `prepare` commands stay direct, non-compiling steps.
+// BACK from the verified receipt's managed output roles (`derived-data`, `result-bundle`). A call the door cannot map (no runner route, a path outside the step's directory) is refused before anything is launched, and the broker refuses an argv with
+// no managed form at admission (RK_ADAPTER_ARGV_DENIED); there is no spawn fallback. simctl, devicectl and the app's own non-native `prepare` commands stay direct, non-compiling steps.
 import * as nodeFs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -292,7 +292,7 @@ export function prepareIosUiTests(dev, { root, env = process.env, run = spawnSyn
 // ---- running the generated commands ---------------------------------------------------------------------------------
 /**
  * Runs generated commands in order through the production native runner (`native`, build-launch.mjs createNativeRunner): xcodegen and xcodebuild are broker adapter jobs and nothing
- * else runs them. EVERY native command is planned first (the door's launch, the broker's grammar and capability), so a refusal stops the whole sequence before the first launch.
+ * else runs them. EVERY native command is planned first (the door's launch: tool-to-adapter mapping and relative paths; the broker judges the argv at each call), so a door refusal stops the whole sequence before the first launch.
  * A command that is not a native build tool (the app's own `prepare` commands) goes to `direct(command)` when the caller supplies one and is otherwise refused; it is never given to a
  * native-tool spawn. Returns { steps: [{ name, result }], outputs } where `outputs` is the LAST xcodebuild call's managed mapping and `resultBundle` the test call's `result-bundle` role.
  */

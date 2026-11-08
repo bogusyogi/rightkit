@@ -2,7 +2,7 @@
 //
 // Release QA runs only an ENROLLED rightkit-qa runner of the exact version an app's `qa.version` names (qa-runner.mjs). The unit stages cannot
 // make that binary: `--to compile|package --unit cargo:rightkit-qa` runs the unit's test plan and packs a .crate, and refuses a version that is
-// already on crates.io (local-publish.mjs); `cargo install` is denied (cargo-shapes.mjs). This route is the one sanctioned way to produce it:
+// already on crates.io (local-publish.mjs); `cargo install` is denied (RK_COMMAND_DENIED at the broker, command_policy.rs). This route is the one sanctioned way to produce it:
 //
 //   1. the unit's class A check (the compile tier), exactly as a unit stage runs it;
 //   2. `cargo build --release --locked --bin <bin>` in the unit's own Cargo workspace of the selected commit's snapshot, through the same executor,
@@ -40,7 +40,7 @@ export class ToolBuildError extends Error {
 }
 const refuse = (code, message) => { throw new ToolBuildError(code, message); };
 
-/** The cargo arguments of the build (no `cargo`): the one shape the broker admits as a compile and a stage grant carries (cargo-shapes.mjs). */
+/** The cargo arguments of the build (no `cargo`): the one shape the broker admits as a compile and a stage grant carries. */
 export const toolBuildArgs = (bin) => ["build", "--release", "--locked", "--bin", bin];
 
 /**

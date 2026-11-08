@@ -515,6 +515,95 @@ export function compileRequirements({ kind, unit, dir, config, manifest, platfor
   };
 }
 
+// ---- A unit-list run's publisher requirements (reset plan step 5: moved from unit-list-compile.mjs, the grouped publisher scheduler, which is deleted) ----------
+// The scheduling (union plan, coalescing, serial admission, lockstep) is gone: deterministic-scans.mjs planUnitListScans / judgeUnitList plan and judge the
+// same requirements over runScans' own class B grouping. What stays here has no planScans replacement: the requirements themselves, the file-only secret scan,
+// and the proof that a narrow package-selected invocation may run at its workspace root.
+const bodyOf = ({ workspace, cwd, executable, internal, argv, env, phase }) => ({ workspace, cwd, executable, ...(internal === undefined ? {} : { internal }), argv, env, phase });
+
+
+/** Prove that moving a narrow package-selected Cargo invocation to its workspace root preserves discovery. */
+export function proveWorkspaceCwd({ requirement: r, snapshot, checkout, toolchainOf, exists = fs.existsSync }) {
+  const no = (reason) => ({ cwd: r.cwd, normalized: false, reason });
+  const testRow = r.phase === "test" && r.argv[0] === "test";
+  if (r.executable !== "cargo" || !(r.phase === "compile" ? ["check", "clippy", "doc"].includes(r.argv[0]) : testRow) || r.workspace === r.cwd) return no("not a movable Cargo check, clippy, doc or test");
+  const workspace = path.resolve(snapshot, r.workspace); const cwd = path.resolve(snapshot, r.cwd);
+  const relative = path.relative(workspace, cwd);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return no("working directory is outside workspace");
+  // Only the publisher's package-selected, path-free shape can move. Cargo's configuration and toolchain
+  // lookups depend on cwd; inspect every intermediate directory in both trees, including crate itself.
+  // A test row's arguments after `--` go to its test executables, which run in their own package directory (CARGO_MANIFEST_DIR), never the cargo cwd: plain flags only.
+  const cut = testRow ? r.argv.indexOf("--") : -1;
+  if (cut >= 0 && !r.argv.slice(cut + 1).every((a) => /^--[a-z][a-z0-9-]*(?:=[0-9]+)?$/.test(a))) return no("unproven test executable argument");
+  const args = cut >= 0 ? r.argv.slice(0, cut) : r.argv; let packages = 0;
+  for (let i = 1; i < args.length; i += 1) {
+    const a = args[i];
+    if (a === "-p") { if (!/^[a-zA-Z0-9_-]+$/.test(args[++i] ?? "")) return no("invalid package selector"); packages += 1; }
+    else if (["--target", "--jobs", "--profile", "-D"].includes(a)) { if (!/^[a-zA-Z0-9_.-]+$/.test(args[++i] ?? "")) return no("cwd-sensitive argument"); }
+    else if (!["--", "--no-deps", "--no-fail-fast", "--all-targets", "--all-features", "--no-default-features", "--locked", "--frozen", "--offline", "--message-format=json-render-diagnostics"].includes(a)) return no(`unproven argument ${a}`);
+  }
+  if (packages !== 1) return no("requires exactly one package selector");
+  for (const [key, value] of Object.entries(r.env)) {
+    if (typeof value !== "string") return no(`non-string environment ${key}`);
+    if (/^(?:PATH|Path)$/.test(key) && value.split(path.delimiter).some((part) => !path.isAbsolute(part))) return no(`cwd-sensitive environment ${key}`);
+    if (/^(?:RUSTFLAGS|RUSTDOCFLAGS|CARGO_ENCODED_RUSTFLAGS|CARGO_TARGET_.*_RUSTFLAGS)$/.test(key) && value && !/^(?:-D\s*warnings|-A\s*warnings)$/.test(value.trim())) return no(`unproven compiler flags in ${key}`);
+    if (/^(?:CARGO_|RUST|CC(?:_|$)|CXX(?:_|$)|AR(?:_|$)|PKG_CONFIG)/.test(key) && (/[\\/]/.test(value) && !path.isAbsolute(value) || /(?:^|\s)\.{1,2}[\\/]/.test(value))) return no(`cwd-sensitive environment ${key}`);
+  }
+  for (const root of [snapshot, checkout]) {
+    let at = path.resolve(root, r.workspace);
+    for (const part of relative.split(path.sep)) {
+      at = path.join(at, part);
+      for (const file of [".cargo/config", ".cargo/config.toml", "rust-toolchain", "rust-toolchain.toml"]) if (exists(path.join(at, file))) return no(`cwd override ${path.relative(root, path.join(at, file))}`);
+    }
+  }
+  if (typeof toolchainOf !== "function") return no("effective toolchain is unverified");
+  let toolchains;
+  try { toolchains = [snapshot, checkout].flatMap((root) => [r.workspace, r.cwd].map((dir) => toolchainOf(path.resolve(root, dir)))); } catch { return no("effective toolchain probe failed"); }
+  const locations = ["snapshot workspace", "snapshot unit", "checkout workspace", "checkout unit"];
+  for (const [i, probe] of toolchains.entries()) if (!(typeof probe === "string" ? probe : probe?.toolchain)) return no(`effective toolchain unavailable at ${locations[i]} (${typeof probe?.error === "string" && /^(?:spawn-error|exit-(?:\d+|unknown))$/.test(probe.error) ? probe.error : "empty-result"})`);
+  if (new Set(toolchains.map((probe) => typeof probe === "string" ? probe : probe.toolchain)).size !== 1) return no("effective toolchain differs across workspace and unit");
+  return { cwd: r.workspace, normalized: true, reason: "matching Cargo config and effective toolchain" };
+}
+
+/** Run the publisher's own file-only crate scan against the guarded snapshot. */
+export async function runPublisherSecretRequirement({ requirement, snapshot, commit, tree, verifySnapshot }) {
+  if (requirement?.internal !== "scanCrateForSecrets" || requirement.phase !== "check" || requirement.executable !== null || requirement.argv?.length !== 1 || requirement.argv[0] !== requirement.cwd || sha256(JSON.stringify(bodyOf(requirement))) !== requirement.coverageKey || !/^crates\/rightkit-[a-z0-9-]+$/.test(requirement.cwd) || typeof verifySnapshot !== "function" || !/^[0-9a-f]{40,64}$/.test(commit ?? "") || !/^[0-9a-f]{40,64}$/.test(tree ?? "")) throw new Error("invalid publisher secret scan or snapshot binding");
+  const root = fs.realpathSync(snapshot); const directory = fs.realpathSync(path.join(root, requirement.cwd));
+  if (!directory.startsWith(`${root}${path.sep}`)) throw new Error("crate secret scan escapes the snapshot");
+  if (await verifySnapshot() !== true) throw new Error("snapshot verification failed before secret scan");
+  const findings = scanCrateForSecrets(directory);
+  if (await verifySnapshot() !== true) throw new Error("snapshot verification failed after secret scan");
+  const evidence = { id: requirement.id, coverageKey: requirement.coverageKey, commit, tree, status: findings.length ? "fail" : "pass", findings };
+  return { ...evidence, evidenceHash: sha256(JSON.stringify(evidence)) };
+}
+
+/** Build publisher requirements from one verified snapshot and its Cargo/npm discovery results. */
+export function publisherRequirementsForUnits({ selected, snapshot, rustUnits, npmUnits, platform, env }) {
+  if (!Array.isArray(selected) || !Array.isArray(rustUnits) || !Array.isArray(npmUnits)) throw new Error("verified unit discovery is required");
+  const readJson = (file) => JSON.parse(fs.readFileSync(path.join(snapshot, file), "utf8"));
+  const config = readJson("ci/gate.config.json");
+  const assetGated = readJson("ci/asset-gated.json");
+  const out = [];
+  for (const row of selected) {
+    const cargo = /^cargo:(rightkit-[a-z0-9-]+)$/.exec(row.selector);
+    const npm = /^npm:(@rightkit\/[a-z0-9-]+)$/.exec(row.selector);
+    if (!cargo && !npm) throw new Error(`unsupported selector ${row.selector}`);
+    const kind = cargo ? "cargo" : "npm"; const unit = (cargo ?? npm)[1];
+    const dir = cargo ? `crates/${unit}` : `packages/${unit.slice("@rightkit/".length)}`;
+    if (row.dir !== dir) throw new Error(`${row.selector}: selected directory differs from canonical directory`);
+    const discovered = (cargo ? rustUnits : npmUnits).find((u) => u.dir === dir);
+    if (!discovered) throw new Error(`${row.selector}: selected unit is absent from authenticated workspace discovery`);
+    if (cargo && (discovered.crate ?? discovered.name) !== unit) throw new Error(`${row.selector}: discovered Cargo identity differs`);
+    const manifest = npm ? readJson(`${dir}/package.json`) : null;
+    if (npm && manifest?.name !== unit) throw new Error(`${row.selector}: npm manifest identity differs`);
+    if (npm && manifest.private === true && !manifest.scripts?.build && !manifest.scripts?.test) throw new Error(`${row.selector}: private unit has no own build or test script; recursive workspace build cannot prove its coverage`);
+    // Class A's full pass (rustfmt over every Rust file of this snapshot) precedes these requirements in the same run: no per-crate fmt (GC-A24).
+    const planned = compileRequirements({ kind, unit, dir, config, manifest, platform, workspace: cargo ? discovered.cargoDir : ".", env, assetGated, formatProven: true });
+    out.push({ selector: row.selector, dir, ...planned });
+  }
+  return out;
+}
+
 /**
  * The clippy invocations that replace each crate's own `cargo clippy -p <crate> --no-deps --all-targets
  * <features> -- -D warnings`: same flags and lint level, so the same lints on the same code. RightKit is one Cargo
@@ -735,10 +824,8 @@ async function* publishUnitStages(parsed, deps, batch) {
   // Every pnpm step goes through the one door for build and test launches (build-launch.mjs): a rightkit-pnpm broker job on a
   // managed host (refused, never run directly, when the broker is unreachable), direct on a host without one. A run headed to release
   // then also has the signed receipt each stage owes (stage-commands.mjs). Other commands (cargo is already a broker job) are unchanged.
-  // A release-bound stage carries its nonce in RIGHTKIT_ATTEST_STAGE_NONCE (unit-gate.mjs stageEnv), which is no carrier variable. Every pnpm
-  // and Cargo step of a snapshot stage is a carried request of its own (build-launch.mjs routes pnpm to the carried adapter runner, carried-cargo.mjs
-  // runCarriedAdapter), and each derives its per-call nonce from the stage nonce (snapshot-broker.mjs carryBrokerAdapter and carryBrokerCargo,
-  // rightkit#1301 B8), so nothing is given the stage nonce itself and no step sets RUSTRIGHT_ATTEST_NONCE.
+  // Every pnpm and Cargo step of a snapshot stage is a seam call of its own (build-launch.mjs routes pnpm to the stage adapter runner, stage-seam.mjs
+  // runStageAdapter); the client mints each call's nonce, so no step is given one and none sets RUSTRIGHT_ATTEST_NONCE.
   const run = (command, args, options) => {
     const target = command === "pnpm" ? buildLaunch(command, args, { env: options?.env ?? process.env, platform: deps.platform ?? process.platform, exists: fs.existsSync }) : { command, args };
     const result = launch(target.command, target.args, options);

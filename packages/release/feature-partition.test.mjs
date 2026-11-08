@@ -3,7 +3,10 @@
 // only for the members whose own feature resolution the group preserves.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { meetPartitions, memberDifference, parseTreeFeatures, partitionByFeatures, partitionCacheKey, splitNote, stripSelectors, treeArgs } from "./feature-partition.mjs";
+import { meetPartitions, memberDifference, parseTreeFeatures, partitionByFeatures, partitionCacheKey, splitNote, stripSelectors, treeArgs, workspaceManifestDigest } from "./feature-partition.mjs";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { inheritedEnvDigest, storedPassRow, usableStoredPass } from "./deterministic-scans.mjs";
 
 test("a row's inherited environment is keyed on what its tool reads (rightkit#1540)", () => {
@@ -135,4 +138,20 @@ test("partitionByFeatures keeps the equivalent members together and splits the o
   assert.deepEqual(meetPartitions([two]), two);
   assert.notEqual(partitionCacheKey({ rest: ["check"], crates: ["a", "b"], inputs: "1" }), partitionCacheKey({ rest: ["check"], crates: ["a", "b"], inputs: "2" }));
   assert.equal(partitionCacheKey({ rest: ["check"], crates: ["b", "a"], inputs: "1" }), partitionCacheKey({ rest: ["check"], crates: ["a", "b"], inputs: "1" }));
+});
+
+test("the partition's input digest covers Cargo configuration above the workspace and in CARGO_HOME, not only inside it", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-partition-cfg-"));
+  const ws = path.join(root, "outer", "ws"); fs.mkdirSync(ws, { recursive: true });
+  fs.writeFileSync(path.join(ws, "Cargo.toml"), "[workspace]\nmembers = []\n");
+  const home = path.join(root, "cargo-home"); fs.mkdirSync(home);
+  const env = { CARGO_HOME: home };
+  const d0 = workspaceManifestDigest(ws, { env });
+  fs.mkdirSync(path.join(root, "outer", ".cargo")); fs.writeFileSync(path.join(root, "outer", ".cargo", "config.toml"), "[target.'cfg(unix)']\nrustflags = [\"--cfg\", \"x\"]\n");
+  const d1 = workspaceManifestDigest(ws, { env });
+  assert.notEqual(d1, d0, "an ancestor's .cargo/config.toml is an input");
+  fs.writeFileSync(path.join(home, "config.toml"), "[patch.crates-io]\n");
+  const d2 = workspaceManifestDigest(ws, { env });
+  assert.notEqual(d2, d1, "CARGO_HOME's config.toml is an input");
+  assert.equal(workspaceManifestDigest(ws, { env }), d2, "stable for the same bytes");
 });

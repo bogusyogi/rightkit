@@ -1,6 +1,6 @@
 // The managed-root guard (item 5, signed item5-sage-decisions-2.md D4 rule 1): the gate never creates the host's managed root, and on
-// the Mac never accepts one on the boot volume. It lives here, not in snapshot.mjs, because build-ownership.mjs guards the root as the
-// FIRST action of an acquisition and snapshot.mjs already imports build-ownership.mjs. snapshot.mjs re-exports both names.
+// the Mac never accepts one on the boot volume. It lives in its own leaf module so a caller that only needs the guard imports no snapshot code;
+// snapshot.mjs re-exports both names.
 import fs from "node:fs";
 
 export class SnapshotError extends Error {

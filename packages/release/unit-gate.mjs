@@ -11,11 +11,10 @@ import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
 import { endRun, startRun, stagesTo } from "./gate-stages.mjs";
 import { RIGHTKIT_REPOSITORY, buildDirectOrigin, directStageEvidence, verifyDirectOrigin } from "./direct-origin.mjs";
 import { exclusionsFor } from "./pack-digest.mjs";
-import { ATTEST_STAGE_NONCE_ENV, qualificationNonce } from "./provenance-verify.mjs";
 import { verifyQualificationReceipts } from "./qualification-verify.mjs";
-import { ciCompileIdentity, ciCompileStageNonce, makeCiCompileProof, verifyCiCompileProof } from "./ci-compile-admission.mjs";
+import { makeCiCompileProof, verifyCiCompileProof } from "./ci-compile-admission.mjs";
 import { assignJobs, describeCommand, directRowsNotRun, expectedStageCommands } from "./stage-commands.mjs";
-import { carriedCargoMapOf } from "./carried-cargo.mjs";
+import { carriedCargoMapOf } from "./stage-seam.mjs";
 import { UNSCOPED, readLedger, readLedgerDir } from "./cargo-ledger.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
 import { controlPlaneProblem } from "./control-plane.mjs";
@@ -62,7 +61,7 @@ export function readBrokerReceipt(id, { run = defaultRun, platform = process.pla
   return { id, provenance: receipt.provenance };
 }
 /**
- * The signed broker receipts of the seam calls a stage's children filed in the stage ledger (reset plan section 3; carried-cargo.mjs and cargo-target-shim.mjs file
+ * The signed broker receipts of the seam calls a stage's children filed in the stage ledger (reset plan section 3; stage-seam.mjs and cargo-target-shim.mjs file
  * `mode: "seam"` rows with `status`, `requestId`, `receipt` (the durable receipt's absolute path) and `receiptSha256`). Only a `verified` row that is not in `before` (the
  * ledger's ids before the stage ran) counts; its receipt file is read, its sha256 must equal the ledger's, its own id must be the row's request id, and it must carry a signed
  * provenance envelope. Returns `{ id, provenance }` per distinct job, in ledger order: the shape the qualification carries and CI's publication admission verifies. A row whose
@@ -410,8 +409,7 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
   };
   const stageEnv = async (stage, action) => {
     const run = startRun({ commonDir, commit, tree, stage });
-    const nonce = attested && ATTESTED_STAGES.includes(stage) ? { [ATTEST_STAGE_NONCE_ENV]: (ciProof ? ciCompileStageNonce(ciCompileIdentity({ commit, tree })) : qualificationNonce({ commit, tree, unit: `${unit.kind}:${unit.name}`, stage })) } : {};
-    try { return await action({ ...env, ...envExtra, ...nonce, ...run.env }); } finally { endRun(run); }
+    try { return await action({ ...env, ...envExtra, ...run.env }); } finally { endRun(run); }
   };
   // The hosted admission's own verification of the qualification's receipts, run here against the commit before anything is dispatched
   // (or, for --to qualify, before the run reports success): what it would refuse, this refuses first, naming why.

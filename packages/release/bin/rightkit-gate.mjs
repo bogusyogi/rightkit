@@ -81,7 +81,7 @@ import { hostTarget } from "../cross-targets.mjs";
 import { FOREIGN_PRE_COMMIT, retireHooksIn } from "../hook-retirement.mjs";
 import { fileURLToPath } from "node:url";
 import { installIdentity, installStateBytes } from "../dependency-identity.mjs";
-import { BIOME_CONFIG_FILES, CHECKER_IDENTITY, OXLINT_CONFIG_FILES, ESLINT_CONFIG_FILES, LOCAL_CLASS_B_JOBS, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanToolPolicyFromPipeline, scanDeferrals, scanFailures, seamRunState } from "../deterministic-scans.mjs";
+import { BIOME_CONFIG_FILES, CHECKER_IDENTITY, OXLINT_CONFIG_FILES, ESLINT_CONFIG_FILES, LOCAL_CLASS_B_JOBS, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, judgeUnitList, blockedUnitsOf, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, planUnitListScans, publisherRequirementScan, runScans, sidecarBoundCrate, scanToolPolicyFromPipeline, scanDeferrals, scanFailures, seamRunState } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
 // The gate's own executor: an outer gate's cargo wrapper on PATH is never this gate's cargo (gate-executor.mjs `gateWrappers`).
@@ -92,7 +92,7 @@ import { gitListRustFiles } from "../signing-files.mjs";
 import { nativeHelpersFromConfig } from "../native-helpers.mjs";
 import { buildCoverageReport, seconds, writeCoverageReport } from "../gate-coverage.mjs";
 import { renderViews, renderViewsOf } from "../render-views.mjs";
-import { LINUX_BROKER_ROUTE, NO_BROKER_ENV, directCargoPath, directPlatform, linuxBrokerDeclared, managedRuntimeClient, realCargoOf, runCargoSync } from "../managed-cargo.mjs";
+import { LINUX_BROKER_ROUTE, NO_BROKER_ENV, directCargoPath, directPlatform, managedRuntimeClient, realCargoOf, runCargoSync } from "../managed-cargo.mjs";
 import { createBrokerLive } from "../broker-admission.mjs";
 import { bindingOf, compileOutputsRecord, compileReuseProblem, endRun, readReceipt, RECEIPT_SCHEMA, receiptKey, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, STAGE_SOURCES, writeReceipt } from "../gate-stages.mjs";
 import { spawnSync as spawnInherit } from "../background-process.mjs";
@@ -105,21 +105,17 @@ const inheritLaunch = (cmd, a, opts) => (stampChildLines
   : spawnInherit(cmd, a, { ...opts, stdio: "inherit" }));
 import { readDiskPolicy, scratchRoots } from "../disk-policy.mjs";
 import { buildDirectReceipt, directVerdict, resolveTargetDirectory, verifyDirectReceipt, writeDirectDiagnostics } from "../direct-receipt.mjs";
-import { createFreshnessCensus } from "../freshness-census.mjs";
 import { platformDirOf } from "../platform-dir.mjs";
 import { buildInventory, classifyUnitResults, dependencyFirstOrder, selectAffectedAcrossInventories, unitListReport } from "../affected-units.mjs";
 import { createRequire } from "node:module";
-import { nativeToolRefusal, nativeToolUses } from "../native-tool-planning.mjs";
-import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, mergeCapabilityViews, parseRuntimeIdentity, queryBrokerHandshake } from "../broker-handshake.mjs";
+import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, parseRuntimeIdentity } from "../seam-broker.mjs";
 import { snapshotReclaimJudge } from "../seam-broker.mjs";
 import net from "node:net";
 import { installSpawnLedger } from "../spawn-ledger.mjs";
 import { processIdentity, snapshotLockBody, verdictFileName } from "../gate-seam.mjs";
-import { cargoWidthRouteProblem, cargoWidthScanProblem, cargoWidthUnitsProblem, parseCargoWidth, validateCargoWidthPool } from "../cargo-width.mjs";
 
 const PRIVATE_SCOPED_COMPILE = Symbol("private scoped compile");
 const UNIT_LIST_UNION = Symbol("unit list union");
-const CARGO_WIDTH = Symbol("Cargo width");
 // Class B row input digests per tree (see rowDigest in the compile stage); counted so the run summary shows the time keying took.
 const ROW_DIGEST_MEMO = new Map();
 const ROW_DIGEST_STATS = { hits: 0, misses: 0, ms: 0 };
@@ -178,15 +174,16 @@ const CLASS_A_KEY_SCHEMA = "rightkit.class-a-key/3";
 function classAEnvironmentBound(scan) { return scan.executes === true || scan.tool === "pnpm"; }
 /**
  * The code that decides what a class B pass means, in the key: on a seam run (a broker host compiling a snapshot) the seam's judge, its control helpers, the runtime cargo
- * wrapper and the ledger a suite's seam calls are filed in; on the carrier route the carrier's modules. Each route keys only its own judging code, so deleting the carrier
- * modules at step 5 of the reset plan leaves every seam row warm (fresh review of badf93c, D7). Any edit to a listed module is a deliberate cold start of that route.
+ * wrapper and the ledger a suite's seam calls are filed in; on a direct host the wrapper, the snapshot metadata reads and the ledger. Each route keys only its own judging code
+ * (fresh review of badf93c, D7). Any edit to a listed module is a deliberate cold start of that route (step 5 of the reset plan edited cargo-target-shim.mjs: one cold start of
+ * both routes' result caches; the warm target directory is untouched).
  */
 const CLASS_B_JUDGE_FILES = Object.freeze({
   seam: ["gate-seam.mjs", "seam-broker.mjs", "cargo-target-shim.mjs", "cargo-ledger.mjs"],
-  carrier: ["cargo-target-shim.mjs", "snapshot-broker.mjs", "snapshot-request.mjs", "snapshot-metadata.mjs", "provenance-verify.mjs", "cargo-ledger.mjs", "gate-seam.mjs"],
+  direct: ["cargo-target-shim.mjs", "snapshot-metadata.mjs", "cargo-ledger.mjs", "gate-seam.mjs"],
 });
 const classBKeyIdentityMemo2 = new Map();
-function classBKeyIdentity(route = "carrier") {
+function classBKeyIdentity(route = "direct") {
   if (!classBKeyIdentityMemo2.has(route)) {
     const h = createHash("sha256");
     h.update(CLASS_B_KEY_SCHEMA);
@@ -203,8 +200,8 @@ function gateCodeIdentity() {
     h.update(CHECKER_IDENTITY ?? `unidentified-${process.pid}-${Date.now()}`);
     h.update("\0");
     h.update(fs.readFileSync(fileURLToPath(import.meta.url)));
-    // The runtime cargo wrapper and the broker carrier it runs: their code decides what a carried compile did.
-    for (const f of ["cargo-target-shim.mjs", "snapshot-broker.mjs", "snapshot-request.mjs", "snapshot-metadata.mjs", "provenance-verify.mjs", "cargo-ledger.mjs"]) { h.update(`\0${f}\0`); h.update(fs.readFileSync(new URL(`../${f}`, import.meta.url))); }
+    // The runtime cargo wrapper and the seam it sends through: their code decides what a broker compile did.
+    for (const f of ["cargo-target-shim.mjs", "seam-broker.mjs", "gate-seam.mjs", "snapshot-metadata.mjs", "cargo-ledger.mjs"]) { h.update(`\0${f}\0`); h.update(fs.readFileSync(new URL(`../${f}`, import.meta.url))); }
     gateCodeIdentityMemo = h.digest("hex").slice(0, 24);
   }
   return gateCodeIdentityMemo;
@@ -1608,10 +1605,6 @@ export function changedPathsAt({ git, base, commit }) {
  */
 export async function runSharedUnitList({ o, io, stage, commit, selected, inventory, receiptDir = undefined, base = null, unmatched = [], runUnit = null }) {
   const tag = "rightkit-gate:";
-  if (io[CARGO_WIDTH] !== undefined) {
-    const problem = cargoWidthUnitsProblem(selected);
-    if (problem) { o.err(`${tag} BLOCKED: ${problem}`); return 2; }
-  }
   const bySelector = new Map((inventory?.units ?? []).map((u) => [u.selector, u]));
   const rows = selected.map((s) => ({ dir: unitDirOfSelector(s.selector), reason: "listed", ...bySelector.get(s.selector), ...s }));
   const order = inventory ? dependencyFirstOrder(inventory, new Set(rows.map((r) => r.selector))) : rows.map((r) => r.selector);
@@ -1637,7 +1630,7 @@ export async function runSharedUnitList({ o, io, stage, commit, selected, invent
     });
     const report = unitListReport({ commit, stage, base, selected: ordered, results, unmatched }); report.runId = union.runId;
     for (const row of report.units) {
-      const evidence = { schema: "rightkit.unit-list-compile/1", runId: union.runId, commit, unit: row.selector, status: row.status, requirements: [...union.internal.filter((r) => r.selector === row.selector), ...(union.coverage?.filter((r) => r.selector === row.selector) ?? [])], cwdProofs: (union.cwdProofs ?? []).filter((r) => union.owner?.get(r.id) === row.selector), commands: union.commands.filter((r) => r.selector === row.selector), scans: (union.rows ?? []).filter((r) => r.publisherUnit === row.selector || r.sharedOrigin === true) };
+      const evidence = { schema: "rightkit.unit-list-compile/1", runId: union.runId, commit, unit: row.selector, status: row.status, requirements: [...union.internal.filter((r) => r.selector === row.selector), ...(union.coverage?.filter((r) => r.selector === row.selector) ?? [])], cwdProofs: (union.cwdProofs ?? []).filter((r) => union.owner?.get(r.id) === row.selector), commands: union.commands.filter((r) => r.selector === row.selector), scans: (union.rows ?? []).filter((r) => r.publisherUnit === row.selector || r.sharedOrigin === true), publisher: { scanSetDigest: union.publisher?.scanSetDigest ?? null, scanIds: union.publisher?.scanIds ?? [] } };
       if (receiptDir === undefined) row.receipt = { status: "not-requested" };
       else {
         const name = `gate-${row.selector.replace(/^npm:@rightkit\//, "npm-").replace(/^cargo:/, "")}.json`;
@@ -1793,7 +1786,7 @@ async function runStages(o, args, root, git, io) {
   const option = (name) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
   const tag = "rightkit-gate:";
   const to = option("--to");
-  // dev and test are door stages like the rest: the same commit-only route (select a commit, sync its snapshot under ownership, class A
+  // dev and test are door stages like the rest: the same commit-only route (select a commit, sync its snapshot under the snapshot lock, class A
   // of the snapshot), then right-release dev|test with the snapshot's app root as its cwd. They have no stage list of their own.
   // render (rightkit#1288) is a door stage of the same family: class A of the snapshot, then the app's declared view-render target built through the carrier and run headless.
   const devTest = to === "dev" || to === "test" || to === "render";
@@ -1832,18 +1825,18 @@ async function runStages(o, args, root, git, io) {
   // `--route`: which route this stage takes here and whether it refuses, answered without running anything (rightkit#1297).
   if (o.routeProbe) return await runRouteProbe(o, args, root, git, { to, platform, stages: devTest ? [] : stages, devTest, appDir });
   // Commit-only build (GATE-CONTRACT §1): on every host (not hosted CI, whose runner checkout is the commit) the door selects a commit
-  // (--commit <rev>, default HEAD), takes the repository's build ownership, syncs the commit's gate-owned snapshot once, and every stage
+  // (--commit <rev>, default HEAD), takes the repository's snapshot lock, syncs the commit's gate-owned snapshot once, and every stage
   // below reads that snapshot; the checkout may hold anything and is never a build source. Every non-hosted host takes this route: Mac
   // and Dell compile it through the RustRight snapshot carrier (`deps.snapshotBroker`, wired by `productionEntryDeps`; item 7 rows 7.20
   // to 7.24, rightkit#1301), right-release's own children included. Once it is selected any failure refuses; there is no retry on the
   // checkout, and no flag or environment variable selects another route.
-  // The route and every refusal the door can meet before it takes ownership are `routePlan`'s, the one function the `--route` probe
+  // The route and every refusal the door can meet before it takes the lock are `routePlan`'s, the one function the `--route` probe
   // also answers from (rightkit#1297 L1): the probe and the real run cannot drift, and the door-route parity test compares the two.
   if (!o.doorSnapshot) {
     const whichRoute = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
     const routeExecutor = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which: whichRoute, readFile: o.readFile });
     let decided;
-    try { decided = routePlan(o, { to, stages: devTest ? [] : stages, devTest, executor: routeExecutor, stagePlatform: platform, capabilities: await brokerCapabilityStateWithHandshake(o, { to, executor: routeExecutor }), appConfig: selected && to !== "check" ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
+    try { decided = routePlan(o, { to, stages: devTest ? [] : stages, devTest, executor: routeExecutor, stagePlatform: platform, appConfig: selected && to !== "check" ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
     catch (e) { o.err(`${tag} ${e.message}`); return 2; }
     if (decided.refusal) { o.err(`${tag} BLOCKED: ${decided.refusal.code}: ${decided.refusal.message}; nothing ran${decided.route === "snapshot" ? " and the checkout is never built" : ""}`); return 1; }
     const notPublisher = decided.route === "snapshot" ? releaseRouteRefusal(o, { stages, platform }) : null;
@@ -1857,56 +1850,28 @@ async function runStages(o, args, root, git, io) {
   }
   if (!o.doorSnapshot && !hosted) {
     const snap = await import("../snapshot.mjs");
-    const { acquireBuildOwnership, ownershipFile } = await import("../build-ownership.mjs");
     const snapshotsAt = o.snapshotRoot ?? snap.snapshotRoot({ platform: o.platform, env: o.env });
-    let own;
-    try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot, repository: snap.repositoryOf(root).key }), stage: `door:${to}`, snapshot: path.join(snapshotsAt, snap.repositoryOf(root).key), commit: selected.commit, platform: o.platform, env: o.env }); }
-    catch (e) { if (e.code !== "busy" && e.code !== "refused") throw e; o.err(`${tag} BLOCKED: ${e.message}; nothing ran${e.code === "refused" ? ", nothing created" : ""}`); return 1; }
-    o.out(`${tag} build ownership ${own.joined ? "joined" : "held"} ${own.handle}${own.reclaimed ? ` (reclaimed from ${own.reclaimed.from}: ${own.reclaimed.proofs.join("; ")})` : ""}`);
-    let synced = null; let seamBody = null;
+    // The run's one exclusion, the snapshot lock (reset plan section 3): taken before the sync, held through the whole door run, every job and every test, and released in the finally
+    // below only on the gate's own proof that no job of this run can still be live in the broker. The lock body is { pid, identity, commit, token } on a broker host, which the
+    // broker reads at submission and before spawn; a dead holder's lock is reclaimed only on the broker's SNAPSHOT_STATUS IDLE proof (gate-seam.mjs). A host with no broker takes the legacy lock.
+    const taken = takeRunLock({ o, checkout: root, snapshotsAt, commit: selected.commit, snap, tag });
+    if (taken.exit !== undefined) return taken.exit;
+    let started = false;
     try {
       // One sync per door run: a second one would prune what class A installed into the snapshot.
-      // The seam (reset plan section 3): the lock body is { pid, identity, commit, token } and the lock is held through the whole door run, every job and
-      // every test, released in the finally below only on the broker's proof that the snapshot is idle; the broker refuses a request whose snapshot is not locked for its commit by a live holder.
-      let seamLock = {};
-      if (/^[0-9a-f]{40}$/.test(String(selected.commit))) {
-        const identity = processIdentity(process.pid, { platform: o.platform, spawnSync: (c, a, opts) => o.spawn(c, a, opts) });
-        // On a broker host the seam is the only class B path: without an identity the lock the broker reads cannot be written, so nothing runs (no silent legacy lock).
-        let doorExecutorKind = null;
-        try { doorExecutorKind = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which: whichIn(o), readFile: o.readFile })?.kind ?? null; } catch { doorExecutorKind = null; }
-        if (!identity && doorExecutorKind === "broker") { o.err(`${tag} BLOCKED: RK_SEAM_IDENTITY: this process's birth identity could not be read (ps), so the snapshot lock the broker requires cannot be written; nothing ran`); return 1; }
-        // A dead holder's lock is reclaimed only on the broker's SNAPSHOT_STATUS proof that the snapshot is IDLE for exactly that owner (gate-seam.mjs); no broker, no proof.
-        const snapshotPath = path.join(snapshotsAt, snap.repositoryOf(root).key);
-        // Everything the judge needs is resolved HERE and bound into it (snapshotReclaimJudge): the route's executor and this function's `which` are out of scope or
-        // not yet initialized when the sync calls the judge (astra, 2026-11-09, twice), and a caught ReferenceError would read as "no proof" forever.
-        let seamClient = null;
-        try { seamClient = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which: whichIn(o), readFile: o.readFile })?.client ?? null; } catch { seamClient = null; }
-        const judge = snapshotReclaimJudge({ o, client: seamClient, snapshotPath });
-        // The seam lock exists to be read by the broker; a host without one (Linux direct) keeps the legacy lock, which a dead holder's successor reclaims by itself:
-        // a seam lock there would demand a broker proof that cannot exist and wedge the snapshot after the first crash.
-        if (identity && doorExecutorKind === "broker") { seamBody = snapshotLockBody({ identity, commit: selected.commit }); seamLock = { body: seamBody, judge, hold: true }; }
-        else if (identity) { /* no broker on this host: the legacy lock */ }
-        else o.err(`${tag} note: this process's birth identity could not be read; the snapshot lock is the legacy one and is released after the sync (no broker on this host)`);
-      }
-      try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout: root, rev: selected.commit, root: snapshotsAt, lock: seamLock }); }
+      let synced;
+      try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout: root, rev: selected.commit, root: snapshotsAt, lock: { held: taken.view } }); }
       catch (e) { o.err(`${tag} ${e.code === "error" ? "RK_CHECK_ERROR" : "BLOCKED"}: snapshot ${e.message}; nothing ran`); return e.code === "error" ? 2 : 1; }
       o.out(`${tag} snapshot ${synced.path} is commit ${synced.commit} tree ${synced.tree} (written=${synced.written} removed=${synced.removed} unchanged=${synced.unchanged})`);
       if (synced.identity) o.out(`${tag} source identity ${synced.identity.file}: ${synced.identity.written ? "written" : synced.identity.kept ? "kept" : `not written (${synced.identity.reason})`}`);
-      return await runStages({ ...o, buildOwnership: own, doorSnapshot: { own, path: synced.path, commit: synced.commit, tree: synced.tree, root: snapshotsAt, ledger: { entries: [] } } }, args, root, git, { ...io, buildOwnership: own });
+      started = true;
+      return await runStages({ ...o, snapshotLock: taken.view, doorSnapshot: { lock: taken.view, path: synced.path, commit: synced.commit, tree: synced.tree, root: snapshotsAt, ledger: { entries: [] } } }, args, root, git, { ...io, snapshotLock: taken.view });
     } finally {
-      // The seam lock, held through the batch, is released only here, after every job and test of the door run ended, and only when the gate can prove by itself
+      // The lock, held through the batch, is released only here, after every job and test of the door run ended, and only when the gate can prove by itself
       // that no job of this run can still be live in the broker: every seam row ended with a result (none killed by the gate, timed out, cancelled or left without a
       // result line; deterministic-scans.mjs seamRunState). The broker's SNAPSHOT_STATUS is stale-owner proof and is not asked for a live holder (astra, 2026-11-09).
       // Otherwise the lock stays, and the next run reclaims it through that stale-owner proof once this process is gone and the jobs ended (fresh review E2).
-      try {
-        if (synced?.release) {
-          // Positive evidence (fresh review of badf93c, D5): every seam run and stage carrier that began has counted its rows (open 0), and none was unsettled.
-          if (!seamBody || (seamRunState.unsettled === 0 && seamRunState.open === 0)) synced.release();
-          else o.err(`${tag} note: the snapshot lock ${synced.lockFile ?? ""} is kept: ${seamRunState.unsettled} seam row(s) of this run ended without a settled result and ${seamRunState.open} seam run(s) or stage(s) ended before counting theirs (killed, timed out, cancelled or failed), so a broker job may still be finishing; the lock is reclaimed on the broker's proof`);
-        }
-      } catch { /* a lock is removed by its holder only; a failed removal leaves it for the stale-holder rule */ }
-      const r = own.release();
-      if (r?.released === false && !own.joined) o.err(`${tag} build ownership ${own.handle} kept: ${r.why}`);
+      releaseSeamLock({ o, release: taken.release, seamBody: started ? taken.body : null, tag });
     }
   }
   if (devTest) return await runDevTest(o, args, root, git, io, to, appRoot, appDir);
@@ -1974,7 +1939,7 @@ async function runStages(o, args, root, git, io) {
   // (source-split.mjs). Anywhere else it runs in the app root of the checkout, which hosted CI's runner holds at the commit.
   const sourceOf = ds ? sourceSplitOf({ root, ds, appDir }) : null;
   const rightRelease = async (stage, cliArgs, extraEnv = {}) => {
-    // A broker host's child reaches the broker only through this stage's carrier (carried-cargo.mjs): its Cargo calls, and its pnpm, node and QA
+    // A broker host's child reaches the broker only through this stage's carrier (stage-seam.mjs): its Cargo calls, and its pnpm, node and QA
     // steps as adapter jobs with the third-party children's compiles nested under them. Every call is in the gate-owned ledger and is verified
     // again after the child ends.
     const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag, appDir });
@@ -2069,11 +2034,11 @@ async function runStages(o, args, root, git, io) {
       return 1;
     }
     // The start of every stage: the snapshot is exactly tree + dependencies + the ledger of the stages before it (7.08, decision 2 Q1).
-    if (ds && !(await openSnapshotStage({ o, ds, root, stage, tag }))) { receipt.stages[stage] = { ok: false, at: new Date().toISOString(), snapshot: { path: ds.path, tree: ds.tree, intactAfter: false }, ownership: ds.own.handle }; save(); o.err(`${tag} --to ${to} stopped before ${stage}: the snapshot is not the commit's bytes plus the ledger; nothing ran`); return 2; }
+    if (ds && !(await openSnapshotStage({ o, ds, root, stage, tag }))) { receipt.stages[stage] = { ok: false, at: new Date().toISOString(), snapshot: { path: ds.path, tree: ds.tree, intactAfter: false }, snapshotLock: ds.lock.token }; save(); o.err(`${tag} --to ${to} stopped before ${stage}: the snapshot is not the commit's bytes plus the ledger; nothing ran`); return 2; }
     let ok = false; const at = new Date().toISOString(); const stageStartedMs = Date.now(); let extra = {}; let directReceipt = null;
     if (stage === "check") {
       { const problem = await pinFloor(false); if (problem) { o.err(`${tag} BLOCKED: ${problem.message}; no class A row ran and nothing compiled`); return 1; } }
-      ok = (await (o.runCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), ...appScope, "--rule-tier", earlyTier], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))(earlyTier)) === 0;
+      ok = (await (o.runCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), ...appScope, "--rule-tier", earlyTier], { ...io, cwd: root, ...(ds ? { snapshotLock: ds.lock } : {}) })))(earlyTier)) === 0;
       extra = { ruleTier: earlyTier };
     }
     else if (stage === "compile") {
@@ -2091,7 +2056,7 @@ async function runStages(o, args, root, git, io) {
       }
       // On the snapshot route the sidecars are staged from the snapshot's own config and sources through right-release's source split
       // (the staged files and receipt land beside the sources the compile reads; the caches and build trees stay the checkout's), before
-      // `main --all` compiles. A broker host's stage-sidecar child reaches Cargo through the stage's carrier (carried-cargo.mjs).
+      // `main --all` compiles. A broker host's stage-sidecar child reaches Cargo through the stage's carrier (stage-seam.mjs).
       // right-release runs in appRoot (nested apps), so the repository-relative config is handed over absolute (Astra, second pass).
       // On the snapshot route sidecars are staged ONCE per door run by the ledger bookkeeping (attribution diff, immutable staged entries).
       // rightkit#1331: the declared compile inputs that are the app's web build output are produced in the snapshot before ANY compile reads them,
@@ -2104,7 +2069,7 @@ async function runStages(o, args, root, git, io) {
       else for (const config of ok ? sidecarConfigs : []) if (!await rightRelease(stage, ["stage-sidecar", "--config", path.join(root, config)])) { ok = false; break; }
       let compiledDirs = []; let compiledBins = null; let qualifyOwed = [];
       const reportOutputs = (dirs, bins = null) => { compiledDirs = [...dirs]; compiledBins = bins; };
-      if (ok) ok = (await (o.runCompile ?? (() => main(ds ? ["--all", "--commit", commit, "--snapshot", ds.path] : ["--all"], { ...io, cwd: root, readStdin: () => "", ...(ds ? { buildOwnership: ds.own, classAEarlier: true, seamScope: appDir === "." ? null : [appDir], snapshotLedger: ds.ledger?.entries ?? [], onCompileLedger: (entries) => { ds.compileAdmitted = entries; }, onDirectReceipt: (r) => { directReceipt = r; }, onCompileOutputs: reportOutputs, onQualifyOwed: (list) => { qualifyOwed = list; } } : {}) })))({ reportOutputs })) === 0;
+      if (ok) ok = (await (o.runCompile ?? (() => main(ds ? ["--all", "--commit", commit, "--snapshot", ds.path] : ["--all"], { ...io, cwd: root, readStdin: () => "", ...(ds ? { snapshotLock: ds.lock, classAEarlier: true, seamScope: appDir === "." ? null : [appDir], snapshotLedger: ds.ledger?.entries ?? [], onCompileLedger: (entries) => { ds.compileAdmitted = entries; }, onDirectReceipt: (r) => { directReceipt = r; }, onCompileOutputs: reportOutputs, onQualifyOwed: (list) => { qualifyOwed = list; } } : {}) })))({ reportOutputs })) === 0;
       if (directReceipt) extra = { ...extra, direct: directReceipt };
       // What the plan left to the qualify stage is recorded with the compile, so qualification can prove it is not lost (rightkit#1332, #1333).
       if (qualifyOwed.length) extra = { ...extra, qualifyOwed };
@@ -2138,7 +2103,7 @@ async function runStages(o, args, root, git, io) {
       // Row 7.04c (R-T1, 7.09): the snapshot holds no Cargo target. On a direct host the checkout's output directory is resolved here, in the primary
       // checkout, and handed to right-release absolute: it binds every manifest's target for this stage, and the sealed manifest must record it back
       // (the door never trusts the child's value alone). One workspace is pinned as a whole; several are refused, naming them. A broker host's target
-      // is the carrier's (rows 7.20 to 7.24): the carried calls' signed receipts name it (carried-cargo.mjs), and no CARGO_TARGET_DIR is passed.
+      // is the carrier's (rows 7.20 to 7.24): the carried calls' signed receipts name it (stage-seam.mjs), and no CARGO_TARGET_DIR is passed.
       let packagePin = { dir: null };
       if (ok && ds && executor.kind !== "broker") {
         packagePin = await cargoOutputPinForScope({ o, git, root, commit, executor, snapshot: ds.path, ...(appDir === "." ? {} : { scopeDirs: [appDir] }) });
@@ -2169,7 +2134,7 @@ async function runStages(o, args, root, git, io) {
         if (drift.length) {
           for (const problem of drift.slice(0, 10)) o.err(`${tag} ${SPLIT_TARGET_DRIFT_CODE}: [package] ${problem}`);
           const closedDrift = await closeSnapshotStage({ o, ds, root, stage, step: stage, tag });
-          receipt.stages[stage] = { ok: false, at, voided: SPLIT_TARGET_DRIFT_CODE, ...extra, snapshot: { path: ds.path, tree: ds.tree, intactAfter: closedDrift.ok }, ownership: ds.own.handle };
+          receipt.stages[stage] = { ok: false, at, voided: SPLIT_TARGET_DRIFT_CODE, ...extra, snapshot: { path: ds.path, tree: ds.tree, intactAfter: closedDrift.ok }, snapshotLock: ds.lock.token };
           save();
           o.err(`${tag} --to ${to} stopped at ${stage}: ${SPLIT_TARGET_DRIFT_CODE}; the sealed set is void and nothing after it ran`);
           return 2;
@@ -2193,7 +2158,7 @@ async function runStages(o, args, root, git, io) {
         if (drift.length) {
           for (const problem of drift.slice(0, 10)) o.err(`${tag} ${SPLIT_TARGET_DRIFT_CODE}: [package] ${problem}`);
           const closedDrift = await closeSnapshotStage({ o, ds, root, stage, step: stage, tag });
-          receipt.stages[stage] = { ok: false, at, voided: SPLIT_TARGET_DRIFT_CODE, ...extra, snapshot: { path: ds.path, tree: ds.tree, intactAfter: closedDrift.ok }, ownership: ds.own.handle };
+          receipt.stages[stage] = { ok: false, at, voided: SPLIT_TARGET_DRIFT_CODE, ...extra, snapshot: { path: ds.path, tree: ds.tree, intactAfter: closedDrift.ok }, snapshotLock: ds.lock.token };
           save();
           o.err(`${tag} --to ${to} stopped at ${stage}: ${SPLIT_TARGET_DRIFT_CODE}; the sealed set is void and nothing after it ran`);
           return 2;
@@ -2210,7 +2175,7 @@ async function runStages(o, args, root, git, io) {
         // store); the release tier is owed first, as for desktop qualification.
         const releaseTier = receipt.stages.check?.ok && receipt.stages.check.ruleTier === "release"
           ? (o.out(`${tag} [release] the release tier already passed at check for this exact input; not run again`), 0)
-          : await (o.runReleaseCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), ...appScope, "--rule-tier", "release"], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))();
+          : await (o.runReleaseCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), ...appScope, "--rule-tier", "release"], { ...io, cwd: root, ...(ds ? { snapshotLock: ds.lock } : {}) })))();
         if (releaseTier !== 0) { o.err(`${tag} [release] the release tier (every rule and scan) is red for ${commit.slice(0, 12)}; nothing was uploaded`); ok = false; }
         else ok = await rightRelease(stage, ["upload", "--platform", platform, "--release", sealed.sealed, "--apply"]);
         extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, track: platform === "ios" ? "testflight" : "play-internal", ruleTier: "release" };
@@ -2218,7 +2183,7 @@ async function runStages(o, args, root, git, io) {
         // Qualification owes the release tier: every rule and scan, the ones held out of compile admission included (app-check.mjs TIERS).
         const releaseTier = receipt.stages.check?.ok && receipt.stages.check.ruleTier === "release"
           ? (o.out(`${tag} [qualify] the release tier already passed at check for this exact input; not run again`), 0)
-          : await (o.runReleaseCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), ...appScope, "--rule-tier", "release"], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))();
+          : await (o.runReleaseCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), ...appScope, "--rule-tier", "release"], { ...io, cwd: root, ...(ds ? { snapshotLock: ds.lock } : {}) })))();
         if (releaseTier !== 0) { o.err(`${tag} [qualify] the release tier (every rule and scan) is red for ${commit.slice(0, 12)}; nothing was qualified`); ok = false; }
         else {
           // rightkit#1332, #1333: what compile left to qualification (end-to-end crates, declared Swift packages) must have a declared run route here.
@@ -2240,7 +2205,7 @@ async function runStages(o, args, root, git, io) {
       // in the snapshot); a staged entry changed since staging voids the stage.
       const closed = await closeSnapshotStage({ o, ds, root, stage, step: stage, tag });
       const { receiptLedger } = await import("../stage-ledger.mjs");
-      extra = { ...extra, snapshot: { path: ds.path, tree: ds.tree, intactAfter: closed.ok, ledger: receiptLedger(closed.entries) }, ownership: ds.own.handle };
+      extra = { ...extra, snapshot: { path: ds.path, tree: ds.tree, intactAfter: closed.ok, ledger: receiptLedger(closed.entries) }, snapshotLock: ds.lock.token };
       if (!closed.ok) { receipt.stages[stage] = { ok: false, at, ...extra }; save(); o.err(`${tag} --to ${to} stopped at ${stage}: the result covers no known bytes`); return 2; }
     }
     receipt.stages[stage] = { ok, at, ...extra };
@@ -2332,10 +2297,10 @@ async function verifyDoorSnapshot(o, ds, root, { ledger, admitNew = false }) {
 
 /**
  * The start of a stage: the snapshot is exactly tree + dependencies + the ledger of the stages before it, no entry new, changed or
- * missing, and the host's ownership is still held (7.08, decision 2 Q1). An ignored file planted before the stage is a new entry here.
+ * missing, and the run's snapshot lock is still held (7.08, decision 2 Q1). An ignored file planted before the stage is a new entry here.
  */
 export async function openSnapshotStage({ o, ds, root, stage, tag = "rightkit-gate:" }) {
-  if (!ds.own.held()) { o.err(`${tag} RK_CHECK_ERROR: [${stage}] the build ownership ${ds.own.handle} is no longer held`); return false; }
+  if (!ds.lock.held()) { o.err(`${tag} RK_CHECK_ERROR: [${stage}] the snapshot lock ${ds.lock.token} is no longer held`); return false; }
   const { diffEntries, sameEntries } = await import("../stage-ledger.mjs");
   let walked;
   try { walked = await walkDoorSnapshot(o, ds, root); } catch (e) { o.err(`${tag} RK_CHECK_ERROR: [${stage}] ${e.message}`); return false; }
@@ -2356,7 +2321,7 @@ export async function openSnapshotStage({ o, ds, root, stage, tag = "rightkit-ga
  * `{ ok, entries }` and replaces the door's ledger with the entries just recorded.
  */
 export async function closeSnapshotStage({ o, ds, root, stage, step = "stage", tag = "rightkit-gate:" }) {
-  if (!ds.own.held()) { o.err(`${tag} RK_CHECK_ERROR: [${stage}] the build ownership ${ds.own.handle} is no longer held`); return { ok: false, entries: ds.ledger?.entries ?? [] }; }
+  if (!ds.lock.held()) { o.err(`${tag} RK_CHECK_ERROR: [${stage}] the snapshot lock ${ds.lock.token} is no longer held`); return { ok: false, entries: ds.ledger?.entries ?? [] }; }
   const { entryKey } = await import("../stage-ledger.mjs");
   let walked;
   try { walked = await walkDoorSnapshot(o, ds, root); } catch (e) { o.err(`${tag} RK_CHECK_ERROR: [${stage}] ${e.message}`); return { ok: false, entries: ds.ledger?.entries ?? [] }; }
@@ -2488,8 +2453,8 @@ export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appD
   const { TAURI_CONFIG: inherited, ...cleanEnv } = o.env; void inherited; // never set or pass one (refused at the door's start)
   for (const config of configs) {
     const before = ds.ledger?.entries ?? [];
-    // The stage-sidecar child's Cargo calls (its builds and metadata queries) are carried on a broker host (carried-cargo.mjs).
-    const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag, producer: true, appDir });
+    // The stage-sidecar child's Cargo calls (its builds and metadata queries) are carried on a broker host (stage-seam.mjs).
+    const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag, appDir });
     if (carrier.refusal) { o.err(`${tag} BLOCKED: ${carrier.refusal}; nothing was staged`); return false; }
     const run = startRun({ commonDir, commit, tree, stage, source });
     let r;
@@ -2593,7 +2558,7 @@ function copyDeclared(declared, from, to) {
 export async function stageWebBuildOnce({ o, ds, root, git = null, appDir, cli, commonDir, commit, tree, stage, executor = null, tag = "rightkit-gate:" }) {
   if (ds.webBuilt) return true;
   ds.webBuilt = true;
-  const { readDeclaredInputs, SnapshotRequestError } = await import("../snapshot-request.mjs");
+  const { readDeclaredInputs, SnapshotRequestError } = await import("../compile-inputs.mjs");
   let declared;
   try { declared = readDeclaredInputs(ds.path).map((x) => x.split(/[\\/]/).join("/")); }
   catch (e) { if (e instanceof SnapshotRequestError) return true; throw e; } // a malformed declaration refuses in the compile, which names it
@@ -2665,7 +2630,7 @@ export async function stageWebBuildOnce({ o, ds, root, git = null, appDir, cli, 
 export async function stageWindowsIdentityOnce({ o, ds, root, git = null, appDir, cli, commonDir, commit, tree, stage, executor = null, tag = "rightkit-gate:" }) {
   if (ds.identityBuilt) return true;
   ds.identityBuilt = true;
-  const { readDeclaredInputs, SnapshotRequestError } = await import("../snapshot-request.mjs");
+  const { readDeclaredInputs, SnapshotRequestError } = await import("../compile-inputs.mjs");
   let declared;
   try { declared = readDeclaredInputs(ds.path).map((x) => x.split(/[\\/]/).join("/")); }
   catch (e) { if (e instanceof SnapshotRequestError) return true; throw e; }
@@ -2683,7 +2648,7 @@ export async function stageWindowsIdentityOnce({ o, ds, root, git = null, appDir
   const producer = path.join(path.dirname(cli), "..", "windows-identity.mjs");
   for (const config of configs) {
     const before = ds.ledger?.entries ?? [];
-    const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag, producer: true, appDir });
+    const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag, appDir });
     if (carrier.refusal) { o.err(`${tag} BLOCKED: ${carrier.refusal}; the Windows identity package did not build`); return false; }
     const run = startRun({ commonDir, commit, tree, stage, source });
     let r;
@@ -2766,6 +2731,66 @@ async function cargoOutputPinForScope(options) {
 }
 
 /** Bind only committed closure workspaces to checkout outputs; runtime Cargo outside that map refuses. */
+/**
+ * The lock arguments of a snapshot run (reset plan section 3), for every route that syncs or reads a snapshot: `{ lock, body }` for `takeSnapshotLock`, or `{ refusal }`. On a
+ * broker host the body is { pid, identity, commit, token } and the lock is held through every job and test; a dead holder's lock is reclaimed only on the broker's SNAPSHOT_STATUS
+ * IDLE proof. A host with no broker (Linux direct) takes the legacy lock, held the same way and reclaimed when its holder is proven gone: a seam lock there would demand a
+ * broker proof that cannot exist and wedge the snapshot after the first crash.
+ */
+function seamLockFor({ o, root, snapshotsAt, commit, snap, tag }) {
+  if (!/^[0-9a-f]{40}$/.test(String(commit))) return { lock: {}, body: null };
+  const identity = processIdentity(process.pid, { platform: o.platform, spawnSync: (c, a, opts) => o.spawn(c, a, opts) });
+  // On a broker host the seam is the only class B path: without an identity the lock the broker reads cannot be written, so nothing runs (no silent legacy lock).
+  let executorKind = null; let client = null;
+  try { const ex = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which: whichIn(o), readFile: o.readFile }); executorKind = ex?.kind ?? null; client = ex?.client ?? null; } catch { executorKind = null; client = null; }
+  if (!identity && executorKind === "broker") return { refusal: `${tag} BLOCKED: RK_SEAM_IDENTITY: this process's birth identity could not be read (ps), so the snapshot lock the broker requires cannot be written; nothing ran` };
+  if (executorKind !== "broker") {
+    if (!identity) o.err(`${tag} note: this process's birth identity could not be read; the snapshot lock is the legacy one (no broker on this host)`);
+    return { lock: {}, body: null };
+  }
+  // A dead holder's lock is reclaimed only on the broker's SNAPSHOT_STATUS proof that the snapshot is IDLE for exactly that owner (gate-seam.mjs); no broker, no proof.
+  // Everything the judge needs is resolved here and bound into it (snapshotReclaimJudge): nothing is read from an outer scope when the sync calls it (astra, 2026-11-09, twice).
+  const snapshotPath = path.join(snapshotsAt, snap.repositoryOf(root).key);
+  const judge = snapshotReclaimJudge({ o, client, snapshotPath });
+  const body = snapshotLockBody({ identity, commit });
+  return { lock: { body, judge }, body };
+}
+
+/**
+ * Releases a run's snapshot lock (`release`, from takeSnapshotLock) only on positive evidence. A broker-host lock (`seamBody`) is kept while any seam row or stage carrier of
+ * the run is unsettled or uncounted, for the broker's stale-owner proof; a legacy lock, and a lock of a run that started no work (`seamBody` null), is released at once.
+ */
+function releaseSeamLock({ o, release, seamBody, tag }) {
+  try {
+    if (!release) return;
+    // Positive evidence (fresh review of badf93c, D5): every seam run and stage carrier that began has counted its rows (open 0), and none was unsettled.
+    if (!seamBody || (seamRunState.unsettled === 0 && seamRunState.open === 0)) release();
+    else o.err(`${tag} note: the snapshot lock ${release.lockFile ?? ""} is kept: ${seamRunState.unsettled} seam row(s) of this run ended without a settled result and ${seamRunState.open} seam run(s) or stage(s) ended before counting theirs (killed, timed out, cancelled or failed), so a broker job may still be finishing; the lock is reclaimed on the broker's proof`);
+  } catch { /* a lock is removed by its holder only; a failed removal leaves it for the stale-holder rule */ }
+}
+
+/**
+ * The one exclusion of a snapshot run: takes the snapshot lock of `checkout`'s repository before anything is synced or read, and says so in the log
+ * (`snapshot lock held <token>`, with `(reclaimed from <owner>: <proof>)` when a dead holder's lock was reclaimed). `{ release, body, view }`: `release` frees it
+ * (releaseSeamLock), `view` is what every nested gate is handed to join it, `body` is the seam body (null for the legacy lock). A refusal prints under the route's own
+ * prefix and returns `{ exit }`: `door` (BLOCKED, exit 1) or `check` (RK_CHECK_ERROR, exit 2). Nothing is created when the lock cannot be taken.
+ */
+function takeRunLock({ o, checkout, snapshotsAt, commit, snap, tag, route = "door" }) {
+  const refuse = (message, created) => { o.err(route === "check" ? `${tag} RK_CHECK_ERROR: ${message}; nothing ran${created === false ? ", nothing created" : ""}` : `${tag} BLOCKED: ${message}; nothing ran${created === false ? ", nothing created" : ""}`); return { exit: route === "check" ? 2 : 1 }; };
+  const taken = seamLockFor({ o, root: checkout, snapshotsAt, commit, snap, tag });
+  if (taken.refusal) { o.err(taken.refusal); return { exit: route === "check" ? 2 : 1 }; }
+  let release;
+  try { release = (o.takeSnapshotLock ?? snap.takeSnapshotLock)({ checkout, root: snapshotsAt, lock: taken.lock }); }
+  catch (e) {
+    if (e.code === "busy") return refuse(e.message);
+    if (e.code === "refused") return refuse(e.message, false);
+    if (e.code === "error") { o.err(`${tag} RK_CHECK_ERROR: snapshot lock ${e.message}; nothing ran`); return { exit: 2 }; }
+    throw e;
+  }
+  o.out(`${tag} snapshot lock held ${release.token}${release.reclaimed ? ` (reclaimed from ${release.reclaimed.from}: ${release.reclaimed.proof})` : ""}`);
+  return { release, body: taken.body, view: snap.lockView(release) };
+}
+
 async function bindUnitCargo({ o, git, root, ds, executor, which, scopeDirs, extraWorkspaces = [], onlyWorkspaces = null }) {
   let selection;
   try { selection = await committedCargoManifests({ o, git, root, commit: ds.commit, scopeDirs, extraWorkspaces }); }
@@ -2824,12 +2849,10 @@ async function bindUnitCargo({ o, git, root, ds, executor, which, scopeDirs, ext
   const shimModule = await import("../cargo-target-shim.mjs");
   let broker = null; let realCargo = null;
   if (executor.kind === "broker") {
-    if (!o.snapshotBroker) return { refusal: "a broker host reaches Cargo from a unit stage only through the snapshot carrier (deps.snapshotBroker), which this gate was started without" };
     let sb;
-    try { sb = await carrierBroker({ o, root, ds, executor, which }); } catch (error) { return { refusal: `the snapshot carrier cannot be built (${error.code ?? "error"}: ${error.message})` }; }
-    // Installing the carrier map sends nothing: the ownership records each carried request's sub-handle just before it is sent (snapshot-broker.mjs).
-    const { brokerSection } = await import("../snapshot-broker.mjs");
-    broker = { checkoutDirs: Object.fromEntries(workspaces.map((w) => [w, path.join(checkoutReal, ...(w === "." ? [] : w.split("/")))])), section: (o.brokerSection ?? brokerSection)(sb) };
+    try { sb = await seamBrokerFor({ o, root, ds, executor, which }); } catch (error) { return { refusal: `the broker client of the seam cannot be resolved (${error.code ?? "error"}: ${error.message})` }; }
+    // Installing the wrapper's map sends nothing: every compile a unit stage's tests reach is a seam call, filed in the scan's ledger (cargo-target-shim.mjs).
+    broker = { checkoutDirs: Object.fromEntries(workspaces.map((w) => [w, path.join(checkoutReal, ...(w === "." ? [] : w.split("/")))])), section: sb };
     // The unit stages' non-compiling cargo (the `cargo fmt --check` step, metadata) runs directly with the broker's real cargo, as class A
     // does (GC-A11). Without it the wrapper sent `cargo fmt -p <crate> --check` to the broker, which refuses non-compiling requests: every
     // unit compile on the Mac and Dell stopped there (rightkit-document-workspace on the Dell, 2026-11-03, exit 125).
@@ -2843,19 +2866,34 @@ async function bindUnitCargo({ o, git, root, ds, executor, which, scopeDirs, ext
   catch (error) { if (dir) fs.rmSync(dir, { recursive: true, force: true }); return { refusal: `the runtime cargo wrapper cannot be installed (${error.message})` }; }
   const scan = shimModule.shimScanEnv(o.env, installed);
   const delta = Object.fromEntries(Object.entries(scan).filter(([k, v]) => o.env[k] !== v));
-  const { CARRIED_CARGO_MAP_ENV } = await import("../carried-cargo.mjs");
+  const { CARRIED_CARGO_MAP_ENV } = await import("../stage-seam.mjs");
+  const { readLedgerDir } = await import("../cargo-ledger.mjs");
+  // On a broker host the unit stages' compiles are seam calls filed in this wrapper's ledger: the run's snapshot lock waits for them like a door stage's (seamRunState),
+  // raised here and lowered in cleanup once every call is counted; a run that ends without cleanup keeps the lock.
+  const seamCounted = installed.mode === "broker";
+  if (seamCounted) seamRunState.open += 1;
+  let counted = false;
   return {
     targetDirs, // { [cargoDir]: the checkout's target directory } on a direct host (null per workspace on a broker host, whose carried receipt names the output directory)
     env: { ...delta, ...(installed.mode === "broker" ? { [CARRIED_CARGO_MAP_ENV]: installed.mapFile } : {}) }, note: `runtime cargo wrapper ${installed.shim} (${installed.mode}): each cargo call a unit stage reaches binds its workspace's checkout target directory or is refused`,
     // Every call the wrapper decided is in the gate-owned ledger: a refused or unverified call fails the stage even when the test ignored cargo's exit (7.10, decision C).
-    check: async () => { const { readLedger, UNSCOPED } = await import("../cargo-ledger.mjs"); return readLedger(installed.ledgerDir, UNSCOPED).problems ?? []; },
-    cleanup: () => { fs.rmSync(installed.dir ?? dir, { recursive: true, force: true }); },
+    // Every file of the ledger (a call that carried a scan token files under it).
+    check: async () => readLedgerDir(installed.ledgerDir).problems ?? [],
+    cleanup: () => {
+      if (seamCounted && !counted) {
+        counted = true;
+        try { const { entries, malformed } = readLedgerDir(installed.ledgerDir); seamRunState.unsettled += entries.filter((e) => e.mode === "seam" && e.settled !== true).length + malformed; }
+        catch { seamRunState.unsettled += 1; /* the calls' outcomes are unknown: keep the lock */ }
+        seamRunState.open -= 1;
+      }
+      fs.rmSync(installed.dir ?? dir, { recursive: true, force: true });
+    },
   };
 }
 
 /**
  * `--to <stage> --unit <selector> [--commit <rev>]` on the snapshot route (row 7.06a): select a commit (HEAD by default), take the
- * repository's build ownership, sync its snapshot, run class A of the snapshot (`check --commit <sha> --full-a --snapshot <dir>`), and build
+ * repository's snapshot lock, sync its snapshot, run class A of the snapshot (`check --commit <sha> --full-a --snapshot <dir>`), and build
  * the unit from the snapshot (`--workspace <snapshot>`). Commit and tree come from the selection; no HEAD or status is read. The unit
  * manifest and the local-build grant are read from the selected commit, so one present only in the checkout is refused. Each stage is
  * bracketed by the ledger verify (7.08); Cargo's output is pinned to the checkout's target directory (7.09); `--to release` keeps its
@@ -2868,14 +2906,13 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
   const match = /^(?:npm:@rightkit\/([a-z0-9-]+)|cargo:(rightkit-[a-z0-9-]+))$/.exec(selector);
   const manifest = match && (match[1] ? `packages/${match[1]}/package.json` : `crates/${match[2]}/Cargo.toml`);
   if (!manifest) { o.err(`${tag} BLOCKED: unit needs npm:@rightkit/<name> or cargo:rightkit-<name>`); return 1; }
-  // `--to tool` (tool-build.mjs) builds and enrols one named tool binary; its unit and host are decided here, before ownership, a snapshot or any process.
+  // `--to tool` (tool-build.mjs) builds and enrols one named tool binary; its unit and host are decided here, before the lock, a snapshot or any process.
   const toolRun = option("--to") === "tool";
   if (toolRun) {
     const { toolPlan } = await import("../tool-build.mjs");
     try { toolPlan({ selector, platform: o.platform }); } catch (e) { o.err(`${tag} BLOCKED: ${e.message}; nothing ran`); return 1; }
   }
   const snap = await import("../snapshot.mjs");
-  const { acquireBuildOwnership, ownershipFile } = await import("../build-ownership.mjs");
   let selected;
   try { selected = snap.resolveCommit(root, option("--commit") ?? "HEAD"); }
   catch (e) { o.err(`${tag} cannot resolve ${option("--commit") ?? "HEAD"} to a commit: ${e.message}`); return 2; }
@@ -2886,24 +2923,24 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
   const executor = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile }); applyExecutorEnv(o, executor);
   if (executor.kind === "refuse") { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
   if (option("--ci-proof-out") && executor.kind !== "broker") { o.err(`${tag} BLOCKED: --ci-proof-out requires the managed snapshot broker`); return 1; }
-  { const decided = routePlan(o, { to: option("--to"), stages: [], devTest: true, executor, capabilities: await brokerCapabilityStateWithHandshake(o, { to: option("--to"), executor }) });
+  { const decided = routePlan(o, { to: option("--to"), stages: [], devTest: true, executor });
     if (decided.refusal?.code === "RK_BROKER_CAPABILITY_MISSING") { o.err(`${tag} BLOCKED: ${decided.refusal.code}: ${decided.refusal.message}; nothing ran`); return 1; } }
-  if (executor.kind === "broker" && !o.snapshotBroker) { o.err(`${tag} BLOCKED: RK_SNAPSHOT_CARRIER_NOT_WIRED: a broker host builds a unit snapshot only through the snapshot carrier; nothing ran`); return 1; }
   const common = git("rev-parse", "--git-common-dir");
   if (failed(common) || !text(common).trim()) { o.err(`${tag} cannot read the git directory`); return 2; }
   const snapshotsAt = o.snapshotRoot ?? snap.snapshotRoot({ platform: o.platform, env: o.env });
   { const mismatch = await declaredSnapshotRootRefusal(o, executor, snapshotsAt); if (mismatch) { o.err(`${tag} BLOCKED: ${mismatch.code}: ${mismatch.message}; nothing ran`); return 1; } }
-  let own;
-  try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot, repository: snap.repositoryOf(root).key }), stage: `door:unit:${option("--to")}`, snapshot: path.join(snapshotsAt, snap.repositoryOf(root).key), commit, platform: o.platform, env: o.env }); }
-  catch (e) { if (e.code !== "busy" && e.code !== "refused") throw e; o.err(`${tag} BLOCKED: ${e.message}; nothing ran${e.code === "refused" ? ", nothing created" : ""}`); return 1; }
-  o.out(`${tag} build ownership ${own.joined ? "joined" : "held"} ${own.handle}${own.reclaimed ? ` (reclaimed from ${own.reclaimed.from}: ${own.reclaimed.proofs.join("; ")})` : ""}`);
+  // The same one exclusion as the door (takeRunLock): on a broker host the unit's stage calls are seam requests, which the broker admits only under the snapshot lock.
+  const taken = takeRunLock({ o, checkout: root, snapshotsAt, commit, snap, tag });
+  if (taken.exit !== undefined) return taken.exit;
+  let started = false;
   try {
     let synced;
-    try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout: root, rev: commit, root: snapshotsAt }); }
+    try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout: root, rev: commit, root: snapshotsAt, lock: { held: taken.view } }); }
     catch (e) { o.err(`${tag} ${e.code === "error" ? "RK_CHECK_ERROR" : "BLOCKED"}: snapshot ${e.message}; nothing ran`); return e.code === "error" ? 2 : 1; }
+    started = true;
     o.out(`${tag} snapshot ${synced.path} is commit ${synced.commit} tree ${synced.tree} (written=${synced.written} removed=${synced.removed} unchanged=${synced.unchanged})`);
     if (synced.identity) o.out(`${tag} source identity ${synced.identity.file}: ${synced.identity.written ? "written" : synced.identity.kept ? "kept" : `not written (${synced.identity.reason})`}`);
-    const ds = { own, path: synced.path, commit: synced.commit, tree: synced.tree, root: snapshotsAt, ledger: { entries: [] } };
+    const ds = { lock: taken.view, path: synced.path, commit: synced.commit, tree: synced.tree, root: snapshotsAt, ledger: { entries: [] } };
     if (io[UNIT_LIST_UNION]) return await runUnionSnapshot({ o, io, root, git, ds, union: io[UNIT_LIST_UNION], unitListClassA: io.unitListClassA });
     // A unit's test or pack that reaches Cargo must never write `target/` into the snapshot (npm units included): see bindUnitCargo.
     // A check starts no unit command: its own Class A path binds read-only Cargo calls. Resolving every unit's compile output
@@ -2938,13 +2975,16 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
     // A unit-list run (--units-file) shares one Class A: scoped to every listed unit's directory, run by the first unit, remembered for the rest.
     const unitDir = path.posix.dirname(manifest);
     const shared = io.unitListClassA?.dirs?.includes(unitDir) ? io.unitListClassA : null;
+    // The unit's stage children (its tests, pack and adapters, through the runtime cargo wrapper and the stage seam) name the root verdict of the scope its own class A
+    // writes (runCheck below: the unit's directory, or every listed unit's for a unit list); each call derives its own directory's verdict from it (seam-broker.mjs verdictForCwd).
+    const unitEnvExtra = { ...envExtra, ...(executor.kind === "broker" ? { RUSTRIGHT_GATE_COMMIT: ds.commit, RUSTRIGHT_CLASS_A: path.join(path.dirname(path.dirname(path.resolve(ds.path))), "class-a-verdicts", verdictFileName({ commit: ds.commit, scope: shared ? shared.dirs : [unitDir], workspace: "." })) } : {}) };
     const runCheck = async (tier) => {
       const memoKey = `${ds.commit}:${tier}`;
       // One Class A verdict per commit and tier for the whole list, pass or fail: the scope is every listed unit's
       // directory, so re-running it per unit after a failure would repeat the same red scans once per unit.
       if (shared && shared.memo.has(memoKey)) { const remembered = shared.memo.get(memoKey); o.out(`${tag} class A (${tier} tier) of this unit list already ${remembered === 0 ? "passed" : `failed (exit ${remembered})`} on ${ds.commit.slice(0, 12)}: not run again`); return remembered; }
       const scopes = shared ? shared.dirs : [unitDir];
-      const code = await (o.runCheck ?? (() => main(["check", "--commit", ds.commit, "--full-a", "--snapshot", ds.path, "--rule-tier", tier, ...scopes.flatMap((d) => ["--scope", d])], { ...io, cwd: root, buildOwnership: own })))(tier);
+      const code = await (o.runCheck ?? (() => main(["check", "--commit", ds.commit, "--full-a", "--snapshot", ds.path, "--rule-tier", tier, ...scopes.flatMap((d) => ["--scope", d])], { ...io, cwd: root, snapshotLock: ds.lock })))(tier);
       if (shared) shared.memo.set(memoKey, code);
       return code;
     };
@@ -2964,7 +3004,7 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
         if (await openSnapshotStage({ o, ds, root, stage, tag })) {
           try {
             code = stage === "check" ? await runCheck("compile") : await main(["--all", "--commit", ds.commit, "--snapshot", ds.path, "--scope", unitDir], {
-              ...io, cwd: root, readStdin: () => "", buildOwnership: own, classAEarlier: true, snapshotLedger: ds.ledger?.entries ?? [],
+              ...io, cwd: root, readStdin: () => "", snapshotLock: ds.lock, classAEarlier: true, snapshotLedger: ds.ledger?.entries ?? [],
               onCompileLedger: (entries) => { ds.compileAdmitted = entries; }, [PRIVATE_SCOPED_COMPILE]: { selector, unitDir },
             });
           } catch (e) { o.err(`${tag} ${selector} ${stage}: ${e.message}`); code = 1; }
@@ -2977,14 +3017,14 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
     }
     if (toolRun) {
       const { runUnitTool } = await import("../tool-build.mjs");
-      return await runUnitTool({ selector, root: ds.path, commonDir: path.resolve(root, text(common).trim()), commit: ds.commit, tree: ds.tree, executor, env: o.env, platform: o.platform, source, envExtra, targetDirs: bound.targetDirs ?? {},
+      return await runUnitTool({ selector, root: ds.path, commonDir: path.resolve(root, text(common).trim()), commit: ds.commit, tree: ds.tree, executor, env: o.env, platform: o.platform, source, envExtra: unitEnvExtra, targetDirs: bound.targetDirs ?? {},
         resolve: (sel, r) => resolveUnit(sel, r, { granted: () => localBuildGrantedAt(source) }),
         ...(o.toolBuildDeps ?? {}), // test seam: run, enroll, dataRoot, readKnownRed
         stageGuard, check: runCheck, out: o.out, err: o.err,
         ...(reportOut ? { writeReport: (report) => o.writeFile(path.resolve(o.cwd, reportOut), `${JSON.stringify(o.brokerException ? { ...report, brokerException: o.brokerException } : report, null, 2)}\n`) } : {}),
       });
     }
-    return await runUnitGate({ selector, to: option("--to"), root: ds.path, commonDir: path.resolve(root, text(common).trim()), commit: ds.commit, tree: ds.tree, executor, env: o.env, platform: o.platform, source, envExtra, ciProofOut: option("--ci-proof-out") ?? null,
+    return await runUnitGate({ selector, to: option("--to"), root: ds.path, commonDir: path.resolve(root, text(common).trim()), commit: ds.commit, tree: ds.tree, executor, env: o.env, platform: o.platform, source, envExtra: unitEnvExtra, ciProofOut: option("--ci-proof-out") ?? null,
       resolve: (sel, r) => resolveUnit(sel, r, { granted: () => localBuildGrantedAt(source) }),
       ...(o.loadUnitOwner ? { loadOwner: o.loadUnitOwner } : {}),
       ...(o.unitGateDeps ?? {}), // test seam: fetchReceipt, stageCommands, verifyReceipts, selfGit
@@ -2993,8 +3033,7 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
     });
     } finally { bound.cleanup(); }
   } finally {
-    const r = own.release();
-    if (r?.released === false && !own.joined) o.err(`${tag} build ownership ${own.handle} kept: ${r.why}`);
+    releaseSeamLock({ o, release: taken.release, seamBody: started ? taken.body : null, tag });
   }
 }
 
@@ -3025,14 +3064,14 @@ async function runUnionSnapshot({ o, io, root, git, ds, union, unitListClassA })
   } catch (error) { o.err(`${tag} BLOCKED: cannot prepare unit-list scope: ${error.message}`); return 1; }
   if (!await openSnapshotStage({ o, ds, root, stage: "check", tag })) return 1;
   let check = 1;
-  try { check = await (o.runCheck ?? (() => main(["check", "--commit", ds.commit, "--full-a", "--snapshot", ds.path, "--rule-tier", "compile", ...unitListClassA.dirs.flatMap((dir) => ["--scope", dir])], { ...io, cwd: root, buildOwnership: ds.own, [UNIT_LIST_UNION]: union, ...((ds.ledger?.entries ?? []).length === 0 ? { snapshotProvedBefore: ds.path } : {}) })))("compile"); }
+  try { check = await (o.runCheck ?? (() => main(["check", "--commit", ds.commit, "--full-a", "--snapshot", ds.path, "--rule-tier", "compile", ...unitListClassA.dirs.flatMap((dir) => ["--scope", dir])], { ...io, cwd: root, snapshotLock: ds.lock, [UNIT_LIST_UNION]: union, ...((ds.ledger?.entries ?? []).length === 0 ? { snapshotProvedBefore: ds.path } : {}) })))("compile"); }
   catch (error) { o.err(`${tag} unit-list check: ${error.message}`); }
   if (!(await closeSnapshotStage({ o, ds, root, stage: "check", tag })).ok || check !== 0) return check || 1;
   if (!await openSnapshotStage({ o, ds, root, stage: "compile", tag })) return 1;
   let code = 1;
   try {
     code = await main(["--all", "--commit", ds.commit, "--snapshot", ds.path, ...unitListClassA.dirs.flatMap((dir) => ["--scope", dir])], {
-      ...io, cwd: root, readStdin: () => "", buildOwnership: ds.own, classAEarlier: true, snapshotLedger: ds.ledger?.entries ?? [],
+      ...io, cwd: root, readStdin: () => "", snapshotLock: ds.lock, classAEarlier: true, snapshotLedger: ds.ledger?.entries ?? [],
       onCompileLedger: (entries) => { ds.compileAdmitted = entries; }, [UNIT_LIST_UNION]: union,
       verifyUnionSnapshot: async () => { await verifyDoorSnapshot(o, ds, root, { ledger: ds.ledger?.entries ?? [] }); return true; },
     });
@@ -3065,21 +3104,18 @@ function sourceSplitOf({ root, ds, appDir }) {
 
 /**
  * Why the snapshot route cannot start on this host, or null. The route is the executor's: `direct` hosts (Linux always, any host
- * with no broker) take it as they are. A broker host compiles the snapshot only through the RustRight snapshot carrier, which the
- * gate reaches through `deps.snapshotBroker` (production wires it on Mac and Dell: `productionEntryDeps`); a gate started without
- * it is refused (RK_SNAPSHOT_CARRIER_NOT_WIRED: tests only, never production), and a broker that cannot be reached is refused too
- * (RK_SNAPSHOT_BROKER_UNAVAILABLE). Neither ever falls back to compiling the checkout.
+ * with no broker) take it as they are. A broker host compiles the snapshot only through the seam (rustright cargo|run with the two seam variables, reset plan
+ * section 3), and a broker that cannot be reached is refused (RK_SNAPSHOT_BROKER_UNAVAILABLE). Neither ever falls back to compiling the checkout.
  */
 export function snapshotRouteRefusal(o) {
   const which = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
   const executor = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
   if (executor.kind === "refuse") return { code: "RK_SNAPSHOT_BROKER_UNAVAILABLE", message: executor.problem };
-  if (executor.kind === "broker" && !o.snapshotBroker) return { code: "RK_SNAPSHOT_CARRIER_NOT_WIRED", message: `a ${o.platform} host compiles a commit snapshot only through the RustRight snapshot carrier (item 7 rows 7.20 to 7.24), and this gate was started without it` };
   return null;
 }
 
 /** The refusal codes a route probe can answer with: the codes the stages themselves print (`BLOCKED: <code>: ...`). */
-export const ROUTE_REFUSAL_CODES = Object.freeze(["RK_TAURI_CONFIG_OVERRIDE", "RK_STAGE_HOST_MISMATCH", "RK_SNAPSHOT_BROKER_UNAVAILABLE", "RK_SNAPSHOT_CARRIER_NOT_WIRED", "RK_BROKER_CAPABILITY_MISSING", "RK_BROKER_UNAVAILABLE",
+export const ROUTE_REFUSAL_CODES = Object.freeze(["RK_TAURI_CONFIG_OVERRIDE", "RK_STAGE_HOST_MISMATCH", "RK_SNAPSHOT_BROKER_UNAVAILABLE", "RK_BROKER_CAPABILITY_MISSING", "RK_BROKER_UNAVAILABLE",
   // One signing identity per product (rightkit#1303): the Mac and the Dell refuse an unsigned, ad hoc or re-identified test or dev build.
   ...SIGNING_REFUSAL_CODES,
   // The Mac's shared native helper list (targets.mac.macPackage.nativeHelpers) must validate before a Mac test, dev or package stage runs (rightkit#1308).
@@ -3088,66 +3124,6 @@ export const ROUTE_REFUSAL_CODES = Object.freeze(["RK_TAURI_CONFIG_OVERRIDE", "R
 export const ROUTE_PROBE_STAGES = Object.freeze(["check", "compile", "package", "qualify", "dev", "test", "render"]);
 export const ROUTE_SCHEMA = "rightkit-gate.route/1";
 
-/**
- * The capabilities a broker must advertise for the carried stages (rightkit#1301 B2). RustRight reports them in `rustright doctor --json`
- * as `.broker.capabilities` (the HANDSHAKE's `capabilities`: `journal-v1`, `snapshot-readonly-v1`, `snapshot-adapter-v1`, ...; constants
- * in rustright-protocol response.rs). The two required strings ship with RustRight's upcoming change: today's broker (78eda7e) reports no
- * `.broker.capabilities`, so this release refuses every stage that builds until that broker is installed. `snapshot-adapter-v1`
- * (rustright#190, rightkit#1301 B10) is the broker's acceptance of a snapshot-bound adapter job (pnpm, node, QA) inside a gate snapshot,
- * under which a Tauri CLI's compiles run nested: without it every pnpm step of a snapshot stage (an app's dev and package steps, an npm
- * unit's compile and package) is refused by the broker, so the gate refuses first. `stage-grant-v1` is no longer required: the gate mints
- * no stage grant (one model: every compile of a snapshot stage is a carried request or nested under one).
- */
-export const REQUIRED_BROKER_CAPABILITIES = Object.freeze(["snapshot-readonly-v1", "snapshot-adapter-v1"]);
-
-/**
- * The broker's capabilities, asked without a build through `rustright doctor --json`: `{ ok: true, capabilities }` or `{ ok: false, problem }`.
- * A missing client, a client that cannot run, a hung (20 s), unparsable or field-less answer is `ok: false`, which the route refuses (fail
- * closed). A doctor that reports an unhealthy host still prints its JSON: the field decides, not the exit status.
- */
-export function queryBrokerCapabilities(o, { executor = null } = {}) {
-  const client = brokerClientOf(o, executor);
-  if (!client) return { ok: false, problem: "the RustRight client is not on PATH" };
-  const r = spawnBrokerClient(o.spawn, client, ["doctor", "--json"], { env: brokerEnvOf(o, executor), encoding: "utf8", timeout: 20_000, windowsHide: true }, { platform: o.platform ?? process.platform, readFile: o.readFile });
-  if (r?.error || r?.status === null || r?.status === undefined) return { ok: false, problem: `\`rustright doctor --json\` did not finish: ${why(r)}` };
-  let doc;
-  try { doc = JSON.parse(text(r)); } catch { return { ok: false, problem: `\`rustright doctor --json\` printed no JSON${r.status ? ` (exit ${r.status})` : ""}` }; }
-  const caps = doc?.broker?.capabilities;
-  if (!Array.isArray(caps) || !caps.every((c) => typeof c === "string")) return { ok: false, problem: "`rustright doctor --json` reports no `.broker.capabilities` (a broker that predates snapshot-readonly-v1 and snapshot-adapter-v1)" };
-  // The list is the broker's HANDSHAKE.capabilities only when the client received that handshake: an unreachable broker (doctor reports an empty list for it) advertises nothing, which is a
-  // different statement from a broker that advertises few capabilities, so it is a problem naming why, never a list. Each name is advertised once.
-  if (doc.broker.reachable !== true) return { ok: false, problem: `the broker is not reachable, so its HANDSHAKE.capabilities were not received (\`rustright doctor --json\` .broker.reachable is ${JSON.stringify(doc.broker.reachable ?? null)}${typeof doc.broker.error === "string" && doc.broker.error ? `: ${doc.broker.error}` : ""})` };
-  if (new Set(caps).size !== caps.length) return { ok: false, problem: "`rustright doctor --json` lists a capability twice: the broker's HANDSHAKE.capabilities are not read from an answer that repeats itself" };
-  return { ok: true, capabilities: caps };
-}
-
-/**
- * What a route decision needs of the broker: `null` when nothing is asked (not a broker executor, hosted CI, `--to check`, or a gate
- * whose broker is an injected fixture without a declared capability query), else the answer. The production carrier asks the real
- * client; a test's injected broker declares its own through `o.brokerCapabilities`.
- */
-export function brokerCapabilityState(o, { to, executor }) {
-  if (executor?.kind !== "broker" || to === "check" || o.env.GITHUB_ACTIONS === "true") return null;
-  if (typeof o.brokerCapabilities === "function") return o.brokerCapabilities(o);
-  return typeof o.snapshotBroker?.create === "function" ? queryBrokerCapabilities(o, { executor }) : null;
-}
-
-/**
- * GB-51 / GB-62: the capability state a route plans from, with the broker's HANDSHAKE received by the gate itself (broker-handshake.mjs) beside `rustright doctor --json`: both are asked, they must agree,
- * and a plan sees only names advertised by what answered. Not asked (null) exactly when `brokerCapabilityState` asks nothing; an injected fixture broker that declares its own capabilities
- * (`o.brokerCapabilities`) keeps them unless it also declares a handshake (`o.brokerHandshake`, a function returning a parsed handshake or `{ ok: false, problem }`).
- */
-export async function brokerCapabilityStateWithHandshake(o, { to, executor }) {
-  const doctor = brokerCapabilityState(o, { to, executor });
-  if (doctor === null) return null;
-  const injected = typeof o.brokerHandshake === "function";
-  if (!injected && typeof o.brokerCapabilities === "function") return doctor;
-  let handshake;
-  try {
-    handshake = injected ? await o.brokerHandshake(o) : await queryBrokerHandshake({ ...o, env: brokerEnvOf(o, executor) }, { client: brokerClientOf(o, executor) });
-  } catch (error) { handshake = { ok: false, problem: `the broker's HANDSHAKE could not be read (${error?.message ?? error})` }; }
-  return mergeCapabilityViews({ doctor, handshake });
-}
 
 /**
  * The refusal of `--to release` on a host that is not the trusted publisher, or null: a release uploads sealed bytes and runs only in the release workflow's
@@ -3173,7 +3149,7 @@ export function releaseRouteRefusal(o, { stages, platform }) {
  * `executor` is a resolved executor. Returns { route, refusal } with
  * refusal null or { code, stage, message }. Reads no checkout, takes no ownership, syncs no snapshot and spawns nothing itself.
  */
-export function routePlan(o, { to, stages, devTest, executor, capabilities = null, appConfig = null, stagePlatform = null }) {
+export function routePlan(o, { to, stages, devTest, executor, appConfig = null, stagePlatform = null }) {
   const refuse = (code, stage, message) => ({ code, stage, message });
   const hosted = o.env.GITHUB_ACTIONS === "true";
   const snapshot = !hosted && snapshotRouteSelected(o);
@@ -3189,18 +3165,8 @@ export function routePlan(o, { to, stages, devTest, executor, capabilities = nul
     }
     const refused = to === "check" ? null : snapshotRouteRefusal(o);
     if (refused) return { route, refusal: refuse(refused.code, to, refused.message) };
-    // The broker must accept what the carried stages ask of it (rightkit#1301 B2): a missing or failing capability query refuses.
-    if (capabilities && executor?.kind === "broker" && to !== "check") {
-      const missing = capabilities.ok ? REQUIRED_BROKER_CAPABILITIES.filter((c) => !capabilities.capabilities.includes(c)) : REQUIRED_BROKER_CAPABILITIES;
-      if (!capabilities.ok || missing.length) return { route, refusal: refuse("RK_BROKER_CAPABILITY_MISSING", to, `the broker ${capabilities.ok ? `does not advertise ${missing.join(", ")}` : `cannot be asked for its capabilities (${capabilities.problem})`} (\`rustright doctor --json\` \`.broker.capabilities\`); this release builds only against a broker that accepts snapshot-bound read-only Cargo and snapshot-bound adapter jobs (rightkit#1301, rustright#188, rustright#190)`) };
-    }
   }
-  // GB-51: a declared native build tool with no carried adapter (xcodegen, xcodebuild, Gradle, CMake) refuses here, at planning, naming the missing
-  // capability, instead of after the earlier stages built (the door's launch-time refusal remains the backstop).
-  if (snapshot && executor?.kind === "broker" && appConfig?.config && to !== "check") {
-    const refusalText = nativeToolRefusal(nativeToolUses({ config: appConfig.config, to, devPlatform: appConfig.nativePlatform ?? appConfig.devPlatform ?? null, platform: appConfig.nativePlatform ?? null }), { capabilities, readFile: appConfig.readFile ?? null, listFiles: appConfig.listFiles ?? null });
-    if (refusalText) return { route, refusal: refuse("RK_BROKER_CAPABILITY_MISSING", to, refusalText) };
-  }
+  // No capability query (reset plan section 3): a native tool whose adapter the broker does not register is refused by the broker before it spawns anything (RK_ADAPTER_UNKNOWN).
   // One signing identity per product, every build (rightkit#1303): on the Mac and the Dell a test or dev build that would run unsigned, ad hoc or under
   // another identifier is refused here, from the commit's own config, so `--route` and a real run decide alike. Linux and hosted CI are exempt.
   if (snapshot && appConfig?.config && (to === "test" || to === "dev")) {
@@ -3267,8 +3233,7 @@ async function runRouteProbe(o, args, root, git, { to, platform, stages, devTest
   const which = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
   const executor = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
   let plan;
-  const capabilities = await brokerCapabilityStateWithHandshake(o, { to, executor });
-  try { plan = routePlan(o, { to, stages, devTest, executor, stagePlatform: platform, capabilities, appConfig: to !== "check" ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
+  try { plan = routePlan(o, { to, stages, devTest, executor, stagePlatform: platform, appConfig: to !== "check" ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
   catch (e) { o.err(`${tag} ${e.message}`); return 2; }
   // The declared Linux broker's snapshot root: the probe reports the refusal a real run would meet (read-only: one status probe of the broker).
   if (!plan.refusal && plan.route === "snapshot") {
@@ -3281,13 +3246,13 @@ async function runRouteProbe(o, args, root, git, { to, platform, stages, devTest
   const version = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
   o.out(JSON.stringify({
     schema: ROUTE_SCHEMA, gate: version, to, platform: platform ?? null, host: o.platform, app: appDir, commit: selected.commit,
-    executor: executor.kind, carrier: o.snapshotBroker ? (o.snapshotBroker.kind ?? "injected") : null, route: plan.route,
-    brokerCapabilities: capabilities?.ok ? capabilities.capabilities : null, stages: devTest ? ["check", to] : stages, refusal: plan.refusal, checkoutClean: failed(dirty) ? null : !text(dirty).trim(),
+    executor: executor.kind, route: plan.route,
+    stages: devTest ? ["check", to] : stages, refusal: plan.refusal, checkoutClean: failed(dirty) ? null : !text(dirty).trim(),
   }));
   return 0;
 }
 
-// ---- the carrier of a snapshot stage's right-release children (carried-cargo.mjs; rightkit#1301) --------------------------------------
+// ---- the carrier of a snapshot stage's right-release children (stage-seam.mjs; rightkit#1301) --------------------------------------
 
 /**
  * The environment of a carried stage's child: the base, the stage's carrier and the caller's extras, without an output directory.
@@ -3308,8 +3273,8 @@ export function carriedEnv(carrier, base, extra = {}) {
 
 // ---- the declared Linux broker's snapshot root --------------------------------------------------------------------------------------------------
 // The broker admits a snapshot only under `<its data root>/snapshots`. On Linux the gate's snapshot root is `~/.config/rightkit/gate.json` `snapshotRoot`, else
-// `~/.local/state/rightkit/snapshots` (snapshot.mjs snapshotRoot); a host whose broker keeps its data elsewhere would sync thousands of files, take build ownership and submit,
-// only to be refused at admission with the ownership left unknown. So the declared route compares the two BEFORE ownership or a sync, and refuses typed.
+// `~/.local/state/rightkit/snapshots` (snapshot.mjs snapshotRoot); a host whose broker keeps its data elsewhere would sync thousands of files, take the snapshot lock and submit,
+// only to be refused at admission. So the declared route compares the two BEFORE the lock or a sync, and refuses typed.
 export const LINUX_SNAPSHOT_ROOT_MISMATCH = "RK_LINUX_BROKER_SNAPSHOT_ROOT_MISMATCH";
 const ANSWERING_ROOTS_TIMEOUT_MS = 10_000;
 
@@ -3404,7 +3369,7 @@ export async function declaredSnapshotRootRefusal(o, executor, snapshotsAt) {
   const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
   const expected = path.join(dataRoot, "snapshots");
   if (real(expected) === real(snapshotsAt)) return null;
-  return { code: LINUX_SNAPSHOT_ROOT_MISMATCH, message: `the gate's snapshot root is ${snapshotsAt}, but the declared Linux broker admits snapshots only under ${expected} (${basis}); set "snapshotRoot": ${JSON.stringify(expected)} in ~/.config/rightkit/gate.json (the gate host configuration), then run again. Nothing was synced and no build ownership was taken` };
+  return { code: LINUX_SNAPSHOT_ROOT_MISMATCH, message: `the gate's snapshot root is ${snapshotsAt}, but the declared Linux broker admits snapshots only under ${expected} (${basis}); set "snapshotRoot": ${JSON.stringify(expected)} in ~/.config/rightkit/gate.json (the gate host configuration), then run again. Nothing was synced and no snapshot lock was taken` };
 }
 
 /** The RustRight client this executor drives: the declared Linux route's validated client, else the absolute `rustright` on PATH (Mac, Dell). */
@@ -3414,21 +3379,25 @@ const brokerEnvOf = (o, executor) => (executor?.route === LINUX_BROKER_ROUTE && 
 const whichIn = (o) => (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
 
 /**
- * The gate's snapshot broker for this door run: `o.snapshotBroker` is the production carrier statement (`{ kind, create }`, which
- * builds the broker once: the host's enrolled pins, the declared inputs read from the snapshot, the build ownership and the RustRight
- * client) or, in a test, a ready broker object. Built once per door run.
+ * The broker of one door run for the seam (reset plan section 3), as plain data the stage map and the runtime cargo wrapper carry: the RustRight client by absolute path (the
+ * win32 `.cmd` shim resolved once, so no child resolves or spawns a .cmd: broker-client.mjs), the commit, the snapshot, the primary checkout, the broker's managed `ws` output roots
+ * (the generation targets a test executable must lie in) and the platform. The gate knows nothing else of the broker; the client builds whatever framing it speaks.
  */
-async function carrierBroker({ o, root, ds, executor = null, which = whichIn(o) }) {
-  if (ds.carrierBroker) return ds.carrierBroker;
-  const carrier = o.snapshotBroker;
-  let sb = carrier;
-  if (typeof carrier?.create === "function") {
-    const client = executor?.route === LINUX_BROKER_ROUTE && executor.kind === "broker" ? executor.client : which("rustright").find((c) => path.isAbsolute(c));
-    const { brokerLeaseState } = await import("../build-ownership.mjs");
-    sb = carrier.create({ lease: brokerLeaseState, env: brokerEnvOf(o, executor), platform: o.platform, checkout: root, commit: { sha: ds.commit, tree: ds.tree }, snapshot: { path: ds.path, expectedTree: ds.tree }, ownership: ds.own, client, gateFile: callingGatePath(), spawn: o.spawn });
-  }
-  ds.carrierBroker = sb;
-  return sb;
+function seamBrokerOf({ o, root, executor = null, commit, snapshot, which = whichIn(o) }) {
+  const found = executor?.route === LINUX_BROKER_ROUTE && executor.kind === "broker" ? executor.client : which("rustright").find((c) => path.isAbsolute(c));
+  if (typeof found !== "string" || !(o.platform === "win32" ? path.win32 : path).isAbsolute(found)) throw Object.assign(new Error("a broker snapshot compile needs the RustRight client (`rustright`) by absolute path"), { code: "RK_SNAPSHOT_BROKER" });
+  let client;
+  try { client = resolveBrokerClient(found, { platform: o.platform }).file; } catch (e) { throw Object.assign(new Error(e.message), { code: e.code ?? "RK_BROKER_CLIENT_UNRESOLVED" }); }
+  return {
+    client, commit: { sha: commit.sha, tree: commit.tree }, snapshot: { path: snapshot.path, expectedTree: snapshot.expectedTree }, checkout: fs.realpathSync.native(root),
+    outputRoots: [path.join(resolveManagedRoots({ env: o.env, platform: o.platform }).buildControl, "ws")], platform: o.platform,
+  };
+}
+/** The seam broker of the door run's snapshot, built once per run. */
+async function seamBrokerFor({ o, root, ds, executor = null, which = whichIn(o) }) {
+  if (ds.seamBroker) return ds.seamBroker;
+  ds.seamBroker = seamBrokerOf({ o, root, executor, commit: { sha: ds.commit, tree: ds.tree }, snapshot: { path: ds.path, expectedTree: ds.tree }, which });
+  return ds.seamBroker;
 }
 
 /** The commit's Cargo workspaces in the snapshot, each with its counterpart in the primary checkout: `{ [cargoDir]: checkout path }`, from the files alone. */
@@ -3465,33 +3434,21 @@ function seamStageEnvOf({ ds, executor, appDir = "." }) {
   return { RUSTRIGHT_GATE_COMMIT: ds.commit, RUSTRIGHT_CLASS_A: path.join(path.dirname(path.dirname(path.resolve(ds.path))), "class-a-verdicts", verdictFileName({ commit: ds.commit, scope: appDir === "." ? null : [appDir], workspace: "." })) };
 }
 
-async function carrierForChildren({ o, ds, root, git, executor, stage, tag = "rightkit-gate:", producer = false, appDir = "." }) {
+async function carrierForChildren({ o, ds, root, git, executor, stage, tag = "rightkit-gate:", appDir = "." }) {
   const none = { env: {}, carried: false, refusal: null, async finish() { return true; }, cleanup() {} };
   if (!ds || executor?.kind !== "broker") return none;
   let base = null;
   try {
     if (!git) throw new Error("the gate's git reader is missing");
-    const carried = await import("../carried-cargo.mjs");
-    const { brokerSection } = await import("../snapshot-broker.mjs");
-    const sb = await carrierBroker({ o, root, ds, executor });
-    // Only a PRODUCER carrier (the gate's own web-build, windows-identity and stage-sidecar steps, which write declared inputs by design) takes the gate's digest of the
-    // declared inputs at stage open (absent included); the end-of-stage ledger re-verify then accepts any receipt state for an input that digest says the step changed.
-    // Every other carrier passes none: each receipt, adapter receipts included, must equal the stage-end digest of every declared input (strict), so a child that swaps
-    // an input around an admission and restores it is refused. A malformed declaration or an unreadable input is the refusal below, as before.
-    let openInputDigests = null;
-    if (producer) {
-      const { readDeclaredInputs: readInputsOf, declaredInputDigestsOf: digestInputsOf } = await import("../snapshot-request.mjs");
-      openInputDigests = digestInputsOf(ds.path, readInputsOf(ds.path), { allowAbsent: true });
-    }
-    // Installing the carrier map sends nothing, so it records nothing: the child's own uncarried probes (`rustc -vV`, `--version`) never
-    // reach the broker under a snapshot, and each carried request records its sub-handle just before it is sent (snapshot-broker.mjs).
+    const { installStageCarrier } = await import("../stage-seam.mjs");
+    const sb = await seamBrokerFor({ o, root, ds, executor });
+    // Installing the stage map sends nothing, so it records nothing: each seam call a child makes is filed in the stage ledger as pending before it is sent (stage-seam.mjs).
     const checkoutDirs = await snapshotCargoWorkspaces({ git, ds, root });
     base = fs.mkdtempSync(path.join(os.tmpdir(), "rk-carrier-"));
-    // The carrier is the map and the ledger on every platform: no PATH wrapper and no stage grant. The child's pnpm, node and QA steps are carried
-    // adapter jobs and its Cargo calls carried requests; whatever the Tauri CLI compiles runs nested under the adapter job that started it, and the
-    // broker's signed list of those children is what the gate verifies and reads the bundle root from (carried-cargo.mjs).
-    const installed = (o.installCarrier ?? carried.installCarrier)({ base, snapshotRoot: ds.path, checkoutDirs, section: (o.brokerSection ?? brokerSection)(sb), known: Object.fromEntries(ds.carriedOutputs ?? []), platform: o.platform, env: o.env });
-    o.out(`${tag} [${stage}] carrier (${installed.mode}): ${Object.keys(checkoutDirs).length} workspace(s); each right-release cargo call and each pnpm, node or QA step is one carried request with its own signed receipt, and a compile a step's child makes is nested under it`);
+    // The stage's carrier is the map and the ledger on every platform: no PATH wrapper and no stage grant. The child's pnpm, node and QA steps are seam adapter calls and its
+    // Cargo calls seam calls; whatever the Tauri CLI compiles runs under the adapter job that started it, and the receipt's output directory is where the gate reads the bundle root (stage-seam.mjs).
+    const installed = (o.installCarrier ?? installStageCarrier)({ base, snapshotRoot: ds.path, checkoutDirs, section: sb, known: Object.fromEntries(ds.carriedOutputs ?? []), platform: o.platform, env: o.env });
+    o.out(`${tag} [${stage}] carrier (${installed.mode}): ${Object.keys(checkoutDirs).length} workspace(s); each right-release cargo call and each pnpm, node or QA step is one seam call filed in the stage ledger, with the broker's receipt read for it`);
     let finished = false;
     const cleanup = () => { try { installed.cleanup?.(); } catch { /* removed below */ } fs.rmSync(base, { recursive: true, force: true }); };
     // The stage's children may make seam calls from here on: the door's lock waits until this stage's finish has counted them (seamRunState.open; a stage that never
@@ -3504,7 +3461,7 @@ async function carrierForChildren({ o, ds, root, git, executor, stage, tag = "ri
         finished = true;
         let problems; let counted = false;
         try {
-          problems = await installed.problems(sb, openInputDigests ? { openInputDigests } : {});
+          problems = await installed.problems();
           // A child's seam call with no settled outcome may have left a broker job running: the door then keeps its snapshot lock (reset plan section 3).
           seamRunState.unsettled += installed.seamUnsettled?.() ?? 0;
           seamRunState.open -= 1; counted = true;
@@ -3596,7 +3553,7 @@ export async function runRenderStage({ o, ds, root, appDir, commit, tree, env, p
 /**
  * rightkit-gate --to dev|test [--commit <rev>] [-- <right-release dev|test arguments>]: the local compiles, on a commit like every other
  * stage (docs/GATE-CONTRACT.md "Commit-only build": `--to dev` and `--to test` build a commit; `--worktree` never admits a build). The
- * door has selected the commit and synced its snapshot under ownership (runStages); this runs full class A of that snapshot
+ * door has selected the commit and synced its snapshot under the snapshot lock (runStages); this runs full class A of that snapshot
  * (`check --commit <sha> --full-a --snapshot <dir>`, never `--worktree`), then right-release dev|test with the snapshot's app root as
  * its cwd under a live door run, which carries the source split. Hosted CI, whose runner checkout is the commit, keeps its own
  * clean checkout. The snapshot is verified before right-release starts and after it ends (E6): a result that covers no known bytes
@@ -3626,7 +3583,7 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
   if (executor.kind === "refuse") { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
   o.out(`${tag} --to ${to} for ${commit.slice(0, 12)}${appDir === "." ? "" : ` (app ${appDir})`}: check (class A) -> right-release ${to}; executor ${executor.kind}${ds ? `; snapshot ${ds.path}` : ""}`);
   // Full class A of the commit before right-release compiles anything: of the snapshot, the checks that execute repository code included.
-  const checked = await (o.runCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), ...(appDir === "." ? [] : ["--scope", appDir])], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))();
+  const checked = await (o.runCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), ...(appDir === "." ? [] : ["--scope", appDir])], { ...io, cwd: root, ...(ds ? { snapshotLock: ds.lock } : {}) })))();
   if (checked !== 0) { o.err(`${tag} --to ${to} stopped at check: nothing compiled`); return 1; }
   // The snapshot is exactly tree + dependencies + the ledger before right-release starts; what it wrote may remain only as ledger
   // entries (a generated `gen/schemas`, a dist), recorded by this gate's own walk (stage-ledger.mjs, decision 2 Q1).
@@ -3762,7 +3719,7 @@ export async function main(argv, io = {}) {
       const problem = stageArgsProblem(args);
       if (problem) throw new Error(problem);
       const value = (flag) => { const i = args.indexOf(flag); return i < 0 ? null : args[i + 1]; };
-      if (args.some((arg, i) => i % 2 === 0 && !["--to", "--unit", "--commit", "--receipt-out", "--ci-proof-out"].includes(arg)) || value("--to") !== "compile" || value("--unit") !== "cargo:rightkit-decimal" || args.includes("--cargo-jobs")) throw new Error("--ci-proof-out requires the single cargo:rightkit-decimal snapshot compile route");
+      if (args.some((arg, i) => i % 2 === 0 && !["--to", "--unit", "--commit", "--receipt-out", "--ci-proof-out"].includes(arg)) || value("--to") !== "compile" || value("--unit") !== "cargo:rightkit-decimal") throw new Error("--ci-proof-out requires the single cargo:rightkit-decimal snapshot compile route");
       if (o.doorSnapshot || !snapshotRouteSelected(o) || !["darwin", "win32"].includes(o.platform)) throw new Error("--ci-proof-out requires the managed Mac or Windows snapshot broker route");
       const paths = o.platform === "win32" ? path.win32 : path.posix;
       const scratch = o.platform === "win32" ? "D:\\scratch" : "/Volumes/D/scratch";
@@ -3776,20 +3733,8 @@ export async function main(argv, io = {}) {
       catch (error) { if (error.code !== "ENOENT") throw error; }
     } catch (error) { o.err(`rightkit-gate: ${error.message}`); return 2; }
   }
-  const widthFlags = args.reduce((found, arg, i) => arg === "--cargo-jobs" ? [...found, i] : found, []);
-  if (widthFlags.length) {
-    try {
-      if (widthFlags.length !== 1 || io[CARGO_WIDTH] !== undefined) throw new Error("--cargo-jobs may be given once");
-      const index = widthFlags[0];
-      if (args.includes("--") && index > args.indexOf("--")) throw new Error("--cargo-jobs must precede --");
-      const width = parseCargoWidth(args[index + 1]);
-      const routeProblem = cargoWidthRouteProblem(args);
-      if (routeProblem) throw new Error(routeProblem);
-      args.splice(index, 2);
-      io = { ...io, [CARGO_WIDTH]: width };
-      o[CARGO_WIDTH] = width;
-    } catch (error) { o.err(`rightkit-gate: ${error.message}`); return 2; }
-  }
+  // `--cargo-jobs` is retired (reset plan step 5): the broker decides how many cargo processes run, and a result key never carries a width (the stored command is compared with `--jobs` dropped).
+  if (args.includes("--cargo-jobs")) { o.err("rightkit-gate: --cargo-jobs is retired: the broker decides how many cargo processes run and no result key carries a width; run again without it"); return 2; }
   // rightkit#1463: a run that does work (a door stage, or a class A / full pass) stamps every log line with its UTC time, so phase times no longer have to be
   // rebuilt from broker receipts. Machine-readable output is never stamped: the --route JSON, a list or baseline, --json, the version, and the one
   // `verdict deterministic` marker line other tools read.
@@ -3824,7 +3769,12 @@ export async function main(argv, io = {}) {
   // `--verify --env <digest>` also requires the installed dependency environment to still be the digest `env-digest --snapshot` recorded.
   if (args[0] === "snapshot") {
     const sc = await import("../snapshot-check.mjs");
-    return (await import("../snapshot.mjs")).snapshotCommand(o, args.slice(1), { environmentDigest: ({ checkout, dir, commit }) => classAEnvironmentDigest({ root: dir, gatePackage: o.gatePackage, files: sc.commitFiles(checkout, commit, o.spawn).files, spawn: o.spawn }) });
+    const snapMod = await import("../snapshot.mjs");
+    return snapMod.snapshotCommand(o, args.slice(1), {
+      environmentDigest: ({ checkout, dir, commit }) => classAEnvironmentDigest({ root: dir, gatePackage: o.gatePackage, files: sc.commitFiles(checkout, commit, o.spawn).files, spawn: o.spawn }),
+      // The sync takes the snapshot lock like every route: the seam body and broker proof on a broker host, the legacy lock elsewhere.
+      lockFor: ({ checkout, commit, root: snapshotsAt }) => seamLockFor({ o, root: checkout, snapshotsAt, commit, snap: snapMod, tag: "rightkit-gate:" }),
+    });
   }
   // `live-scans`: re-run only the live remote scans (pnpm-audit) of a checked tree, answering the broker's verdict-reuse refresh
   // (../snapshot-check.mjs; GATE-CONTRACT §1, E18; rightkit#1257).
@@ -3836,7 +3786,7 @@ export async function main(argv, io = {}) {
   // commit, never a diff. Nothing compiles. The RustRight broker runs exactly this before it admits any compile. `--list`,
   // `--print-baseline` and `--only` stay app-check-only views.
   // `check --commit <sha>` without `--snapshot` reads the gate's one warm snapshot of that commit, selected the way
-  // every `--to` stage selects it: per-repository build ownership first, then one sync of the commit into the gate-owned source directory, then the
+  // every `--to` stage selects it: the snapshot lock first, then one sync of the commit into the gate-owned source directory, then the
   // check of that snapshot below. There is no export and no copy of the source (docs/GATE-CONTRACT.md, 2026-10-29); the checkout's own files are
   // never read, so an uncommitted edit in it is ignored. Hosted CI has no warm snapshot: its runner checkout is the commit, scanned in place.
   // `check --commit <sha> --full-a` takes the same route (GB-48, GATE 34/36/44, E17): the selected commit's snapshot, never a conversion to
@@ -3846,50 +3796,50 @@ export async function main(argv, io = {}) {
   if (commitCheck) {
     const sc = await import("../snapshot-check.mjs");
     const snap = await import("../snapshot.mjs");
-    const { acquireBuildOwnership, ownershipFile } = await import("../build-ownership.mjs");
     const at = option("--repo") ? path.resolve(o.cwd, option("--repo")) : o.cwd;
     const top0 = o.spawn("git", ["rev-parse", "--show-toplevel"], { cwd: at });
     if (failed(top0) || !text(top0).trim()) { o.err("rightkit-gate: not inside a git repository"); return 2; }
-    let own = o.buildOwnership ?? null; let ownHere = false;
+    // The snapshot lock this check runs under: the one a calling gate holds (joined, never taken twice), else its own, taken before the sync and held through the check.
+    let view = o.snapshotLock ?? null; let taken = null; let started = false;
     try {
       const checkout = fs.realpathSync.native(path.resolve(text(top0).trim()));
       const selected = sc.commitOf(checkout, option("--commit") ?? "HEAD", o.spawn);
       const snapshotsAt = o.snapshotRoot ?? snap.snapshotRoot({ platform: o.platform, env: o.env });
-      if (!own) {
-        try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot, repository: snap.repositoryOf(checkout).key }), stage: "check", snapshot: path.join(snapshotsAt, snap.repositoryOf(checkout).key), commit: selected.commit, platform: o.platform, env: o.env }); ownHere = true; }
-        catch (e) { if (e.code !== "busy" && e.code !== "refused") throw e; o.err(`rightkit-gate: RK_CHECK_ERROR: ${e.message}; nothing ran${e.code === "refused" ? ", nothing created" : ""}`); return 2; }
-        o.out(`rightkit-gate: build ownership ${own.joined ? "joined" : "held"} ${own.handle}${own.reclaimed ? ` (reclaimed from ${own.reclaimed.from}: ${own.reclaimed.proofs.join("; ")})` : ""}`);
+      if (!view) {
+        taken = takeRunLock({ o, checkout, snapshotsAt, commit: selected.commit, snap, tag: "rightkit-gate:", route: "check" });
+        if (taken.exit !== undefined) return taken.exit;
+        view = taken.view;
       }
       let synced;
-      try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout, rev: selected.commit, root: snapshotsAt }); }
+      try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout, rev: selected.commit, root: snapshotsAt, lock: { held: view } }); }
       catch (e) { o.err(`rightkit-gate: ${e.code === "error" ? sc.CHECK_ERROR : "BLOCKED"}: snapshot ${e.message}; nothing ran`); return e.code === "error" ? 2 : 1; }
       o.out(`rightkit-gate: snapshot ${synced.path} is commit ${synced.commit} tree ${synced.tree} (written=${synced.written} removed=${synced.removed} unchanged=${synced.unchanged})`);
       if (synced.identity) o.out(`rightkit-gate: source identity ${synced.identity.file}: ${synced.identity.written ? "written" : synced.identity.kept ? "kept" : `not written (${synced.identity.reason})`}`);
       const next = [...argv]; const ci = next.indexOf("--commit");
       if (ci >= 0) next.splice(ci, 2, "--commit", synced.commit); else next.push("--commit", synced.commit);
       next.push("--snapshot", synced.path);
-      return await main(next, { ...io, buildOwnership: own });
+      started = true;
+      return await main(next, { ...io, snapshotLock: view });
     } catch (e) { if (e instanceof sc.CheckError) { o.err(`rightkit-gate: ${sc.CHECK_ERROR}: ${e.message}`); return 2; } throw e; }
-    finally { if (ownHere) { const r = own.release(); if (r?.released === false && !own.joined) o.err(`rightkit-gate: build ownership ${own.handle} kept: ${r.why}`); } }
+    finally { if (taken) releaseSeamLock({ o, release: taken.release, seamBody: started ? taken.body : null, tag: "rightkit-gate:" }); }
   }
-  if ((sub === "check" || (!sub && args.includes("--all"))) && args.includes("--snapshot") && !o.buildOwnership) {
-    // Per-repository build ownership (../build-ownership.mjs; GATE-CONTRACT §1): held from before the first snapshot read through the
-    // end of the check, so no other request can sync the snapshot while class A runs in it. A nested gate whose
-    // RIGHTKIT_BUILD_OWNERSHIP names the current owner joins it. Busy (or liveness unknown) runs nothing.
-    const { acquireBuildOwnership, ownershipFile } = await import("../build-ownership.mjs");
+  if ((sub === "check" || (!sub && args.includes("--all"))) && args.includes("--snapshot") && !o.snapshotLock) {
+    // The snapshot lock (reset plan section 3), the run's one exclusion: held from before the first snapshot read through the end of the check or compile, so no other
+    // request can sync the snapshot while it reads it. A nested gate is handed the held lock (`snapshotLock`) and joins it instead of taking a second one. Busy (or a
+    // holder not proven gone) runs nothing.
     const snap = await import("../snapshot.mjs");
-    let key;
-    try { key = snap.repositoryOf(option("--repo") ? path.resolve(o.cwd, option("--repo")) : o.cwd).key; }
-    catch (e) { o.err(`rightkit-gate: RK_CHECK_ERROR: the repository whose build ownership this check takes cannot be identified: ${e.message}; nothing ran`); return 2; }
-    // The record is keyed by the repository --repo/cwd names while --snapshot names a separate directory: they must be one repository.
+    const checkoutHere = option("--repo") ? path.resolve(o.cwd, option("--repo")) : o.cwd;
+    let key; let checkout;
+    try { const repo = snap.repositoryOf(checkoutHere); key = repo.key; checkout = repo.checkout; }
+    catch (e) { o.err(`rightkit-gate: RK_CHECK_ERROR: the repository whose snapshot lock this check takes cannot be identified: ${e.message}; nothing ran`); return 2; }
+    // The lock is keyed by the repository --repo/cwd names while --snapshot names a separate directory: they must be one repository.
     const snapshotRootHere = o.snapshotRoot ?? snap.snapshotRoot({ platform: o.platform, env: o.env });
     if (path.basename(option("--snapshot") ?? "") !== key || path.resolve(o.cwd, path.dirname(option("--snapshot"))) !== path.resolve(o.cwd, snapshotRootHere)) { o.err(`rightkit-gate: RK_CHECK_ERROR: --snapshot ${option("--snapshot")} is not the snapshot of repository ${key} (its directory name must be the repository key, inside the snapshot root ${snapshotRootHere}); nothing ran`); return 2; }
-    let own;
-    try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot, repository: key }), stage: sub ?? "compile", snapshot: option("--snapshot") ?? null, commit: option("--commit") ?? null, platform: o.platform, env: o.env }); }
-    catch (e) { if (e.code !== "busy" && e.code !== "refused") throw e; o.err(`rightkit-gate: RK_CHECK_ERROR: ${e.message}; nothing ran${e.code === "refused" ? ", nothing created" : ""}`); return 2; }
-    o.out(`rightkit-gate: build ownership ${own.joined ? "joined" : "held"} ${own.handle}${own.reclaimed ? ` (reclaimed from ${own.reclaimed.from}: ${own.reclaimed.proofs.join("; ")})` : ""}`);
-    try { return await main(argv, { ...io, buildOwnership: own }); }
-    finally { const r = own.release(); if (r?.released === false && !own.joined) o.err(`rightkit-gate: build ownership ${own.handle} kept: ${r.why}`); }
+    let commit = null; try { commit = snap.resolveCommit(checkout, option("--commit") ?? "HEAD").commit; } catch { commit = null; }
+    const taken = takeRunLock({ o, checkout, snapshotsAt: snapshotRootHere, commit, snap, tag: "rightkit-gate:", route: "check" });
+    if (taken.exit !== undefined) return taken.exit;
+    try { return await main(argv, { ...io, snapshotLock: taken.view }); }
+    finally { releaseSeamLock({ o, release: taken.release, seamBody: taken.body, tag: "rightkit-gate:" }); }
   }
   if (sub === "check") {
     // `--snapshot <dir>`: full class A of the gate-owned snapshot of a selected commit (../snapshot-check.mjs). The checkout is only
@@ -4021,24 +3971,12 @@ export async function main(argv, io = {}) {
         }
       }
     }
-    // A RustRight broker's check names the tree it captured for the compile: the declared inputs there (ignored files the
-    // commit does not hold) are judged too, as the bytes the compile will read.
-    let inputs = 0;
-    const captured = o.env.RIGHTKIT_COMPILE_INPUTS;
-    if (captured) {
-      const { judgeCompileInputs } = await import("../compile-inputs.mjs");
-      const judged = judgeCompileInputs(path.resolve(captured));
-      for (const i of judged.inputs) o.out(`rightkit-gate: compile input ${i.path}: ${i.files} file(s), sha256 ${i.sha256}`);
-      for (const f of judged.findings) o.err(`rightkit-gate: compile input FAIL ${f}`);
-      if (!judged.inputs.length && !judged.findings.length) o.out("rightkit-gate: no declared compile inputs in the captured tree");
-      inputs = judged.findings.length ? 1 : 0;
-    }
     if (snapshotDir) {
       try { sc.verifySnapshotDir({ checkout: snapshotCheckout, dir: snapshotDir, ...snapshotCommit, when: "after the check" }); }
       catch (e) { o.err(`rightkit-gate: ${sc.CHECK_ERROR}: ${e.message}; the result covers no known bytes`); return 2; }
       o.out(`rightkit-gate: snapshot ${snapshotDir} is still tree ${snapshotCommit.tree} after the check`);
     }
-    return Math.max(appCheck, classA, selfRules, inputs);
+    return Math.max(appCheck, classA, selfRules);
   }
   const classAOnly = args.includes("--class-a");
   // --full-a: every class A check, the ones that execute the repository's code (tests, typecheck, lint, generated docs) included,
@@ -4079,7 +4017,7 @@ export async function main(argv, io = {}) {
     // Full Class A needs a snapshot or the committed hosted checkout. The content pass (`check --commit <sha> --scope <dir>`: publication
     // admission, GC-A03) reads the commit the same way it always did (the warm snapshot, or the runner checkout proven to be that commit
     // in place) and only narrows which executing workspace scans run, so it is the one other form --scope accepts; never the live tree.
-    const scopeForm = fullA ? Boolean(snapshotA || hostedCommitA) : (classAOnly && !args.includes("--worktree")) || Boolean(snapshotB && (o[PRIVATE_SCOPED_COMPILE] || o[UNIT_LIST_UNION]) && o.classAEarlier && o.buildOwnership);
+    const scopeForm = fullA ? Boolean(snapshotA || hostedCommitA) : (classAOnly && !args.includes("--worktree")) || Boolean(snapshotB && (o[PRIVATE_SCOPED_COMPILE] || o[UNIT_LIST_UNION]) && o.classAEarlier && o.snapshotLock);
     if (!scopeForm || bad !== undefined || scopeDirs.some((d) => d === undefined)) { o.err("rightkit-gate: --scope needs full Class A of a snapshot or committed hosted CI checkout & repository-relative directories"); return 2; }
   }
   if (args.includes("--base") && (!option("--base") || option("--base").startsWith("--"))) { o.err("rightkit-gate: --base needs a ref"); return 2; }
@@ -4224,7 +4162,6 @@ export async function main(argv, io = {}) {
     // A door run that names no unit: RightKit refuses it unless Adrian's exception or a unit list names what runs (rightkitDoorRule).
     const door = await rightkitDoorRule(o, args, root, git, io, { unitsFileFlag, allUnitsFlag, unitList, changedFlag });
     if (door.exit !== undefined) return door.exit;
-    if (o[CARGO_WIDTH] !== undefined) { o.err("rightkit-gate: BLOCKED: --cargo-jobs requires the controlled unit-list route"); return 2; }
     return await runStages(o, args, root, git, io);
   }
   if (sub === "stage") return stageForPublisher(o, args, root, git);
@@ -4267,16 +4204,6 @@ export async function main(argv, io = {}) {
   const executor = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile }); applyExecutorEnv(o, executor);
   // A broker-managed host whose broker is unreachable refuses the moment a Cargo manifest is in the snapshot (below): a repository
   // with no Rust owes nothing to the broker (a git hook's minimal PATH, a JS-only app), and the class A scans never compile.
-  if (o[CARGO_WIDTH] !== undefined && !classAOnly) {
-    try {
-      if (executor.kind !== "broker") throw new Error("--cargo-jobs requires a broker reporting its compile-token pool");
-      const client = executor.client ?? "rustright";
-      const result = spawnBrokerClient(o.spawn, client, ["list"], { env: brokerEnvOf(o, executor), encoding: "utf8", timeout: 20_000, windowsHide: true }, { platform: o.platform, readFile: o.readFile });
-      if (failed(result)) throw new Error("cannot read broker compile-token pool");
-      const size = validateCargoWidthPool(o[CARGO_WIDTH], JSON.parse(text(result)));
-      o.out(`rightkit-gate: Cargo width ${o[CARGO_WIDTH]} (broker token pool ${size})`);
-    } catch (error) { o.err(`rightkit-gate: BLOCKED: ${error.message}`); return 1; }
-  }
   const cargoCommand = executor.cargo ?? ["cargo"];
   // The declared Linux broker route's cargo is `[<absolute validated client>, "cargo"]`, which the scan planner (planScans: `["rustright","cargo"]` or
   // `["cargo"]`) refuses, and a PATH `rustright` is never the client. So the scans are PLANNED with the logical `["rustright","cargo"]` and every spawn the
@@ -4384,15 +4311,13 @@ export async function main(argv, io = {}) {
         return failed(r) ? [] : text(r).split("\0").filter(Boolean).map(posix);
       };
       if (executor.kind === "broker" && snapshot && (snapshotA || snapshotB) && manifests.length) {
-        const { createSnapshotBroker } = await import("../snapshot-broker.mjs");
         const snapshotCheck = await import("../snapshot-check.mjs");
         const snapshotCommitOf = () => snapshotCheck.commitOf(fs.realpathSync.native(root), String(snapshot), o.spawn);
-        // The broker is built before anything is read: a missing enrollment, ownership or client refuses here, naming its code (as the compile does).
+        // The seam's broker (the client, the commit, the snapshot) is built before anything is read: a missing client refuses here, naming its code (as the compile does).
         try {
-          if (o.snapshotBroker && typeof o.snapshotBroker.create !== "function") discoveryBroker = o.snapshotBroker; // a fixture broker (tests)
-          else {
+          {
             const sc = snapshotCommitOf();
-            discoveryBroker = createSnapshotBroker({ env: o.env, platform: o.platform, checkout: root, commit: { sha: sc.commit, tree: sc.tree }, snapshot: { path: repo, expectedTree: sc.tree }, ownership: o.buildOwnership, client: executor.route === LINUX_BROKER_ROUTE ? executor.client : which("rustright").find((c) => path.isAbsolute(c)), gateFile: callingGatePath(), spawn: o.spawn });
+            discoveryBroker = seamBrokerOf({ o, root, executor, commit: { sha: sc.commit, tree: sc.tree }, snapshot: { path: repo, expectedTree: sc.tree }, which });
           }
         } catch (error) { o.err(`${tag} BLOCKED: ${error.code ?? "RK_SNAPSHOT_BROKER"}: ${error.message}; nothing compiled`); return 1; }
         // GATE-CONTRACT GC-A11 (Adrian, 2026-11-02): Class A never runs in the broker. The snapshot's discovery metadata and every Class A Cargo
@@ -4495,12 +4420,10 @@ export async function main(argv, io = {}) {
           const shimModule = await import("../cargo-target-shim.mjs");
           let broker = null;
           if (wrapBroker) {
-            // Broker mode (the Mac, decision C): every cargo a test reaches is its own carried request. The gate's own snapshot-to-checkout
-            // map is the only source of a request's primaryCwd; each carried request records its sub-handle in the ownership just before it is sent.
+            // Broker mode (the Mac and the Dell): every compile a test reaches is a seam call from its own workspace directory in the snapshot.
             const checkoutRoot = fs.realpathSync.native(root);
             const checkoutDirs = Object.fromEntries(rust.workspaces.map((ws) => [ws.cargoDir, path.join(checkoutRoot, ...(ws.cargoDir === "." ? [] : ws.cargoDir.split("/")))]));
-            const { brokerSection } = await import("../snapshot-broker.mjs");
-            broker = { checkoutDirs, section: brokerSection(wrapBroker) };
+            broker = { checkoutDirs, section: wrapBroker };
           }
           // Its own base directory: the wrapper's directory is named by its identity, and a unit stage's outer wrapper over the same
           // workspaces has the same identity, so a shared base would let this run's cleanup delete the wrapper the next stage runs under.
@@ -4522,32 +4445,31 @@ export async function main(argv, io = {}) {
         // With a ledger the verify returns an object ({ tree, ledger }), without one the tree id: only the refusal (a throw) matters here.
         sc.verifySnapshotDir({ checkout, dir: snapshotB, ...snapshotBCommit, when: "before the compile", ...(o.snapshotLedger ? { ledger: o.snapshotLedger } : {}) });
         directTiming.bindEnd = Date.now();
-        // A direct host digests the declared compile inputs in place (the snapshot's own .rightkit/compile-inputs.json, never the
-        // checkout's); a malformed manifest refuses before anything compiles. The broker digests them for a broker host.
-        if (executor.kind === "direct") {
+        // The declared compile inputs are judged in the snapshot itself (its own declaration file, never the checkout's), on every host: the broker captures none (the seam carries
+        // none, reset plan section 4), so the gate is the only judge of the bytes the compile reads that the commit does not hold. A malformed declaration, a link, a file that does not
+        // parse or a secret in one refuses before anything compiles (these were the checks of the broker-captured tree, RIGHTKIT_COMPILE_INPUTS, retired with it); a declared path the
+        // snapshot does not hold is a note, as on a direct host before, and the compile that reads it fails by itself.
+        {
           const inputsModule = await import("../compile-inputs.mjs");
           const judged = inputsModule.judgeCompileInputs(snapshotB);
-          // Only a malformed manifest refuses here (the broker's request does the same); a declared path the snapshot does not hold, or a
-          // finding in one, is recorded with the diagnostics and left to the check stage that judges the captured inputs.
-          const malformed = judged.findings.filter((f) => f.startsWith(`${inputsModule.COMPILE_INPUTS_FILE}:`));
-          if (malformed.length) throw Object.assign(new Error(`the snapshot's declared compile inputs are malformed: ${malformed.join("; ")}`), { code: "RK_COMPILE_INPUTS" });
-          directDeclared = judged.inputs;
-          directDeclaredNotes = judged.findings.map((f) => `declared compile input: ${f}`);
+          const refused = judged.malformed ? [judged.malformed] : judged.findings.filter((f) => !judged.missing.includes(f));
+          if (refused.length) throw Object.assign(new Error(`the snapshot's declared compile inputs are refused: ${refused.join("; ")}`), { code: "RK_COMPILE_INPUTS" });
+          for (const f of judged.missing) o.out(`${tag} declared compile input: ${f}`);
+          if (executor.kind === "direct") {
+            directDeclared = judged.inputs;
+            directDeclaredNotes = judged.missing.map((f) => `declared compile input: ${f}`);
+          }
         }
         o.out(`${tag} snapshot ${snapshotB} is commit ${snapshotBCommit.commit} tree ${snapshotBCommit.tree} (verified before the compile)`);
         for (const r of sc.installSnapshotDependencies({ checkout, snapshot: snapshotB, ...snapshotBCommit, ...(o.snapshotLedger !== undefined ? { ledger: o.snapshotLedger } : {}), roots: installRoots, ...(closure ? { packageDirs: npm.filter((u) => closure.npm.has(u.name)).map((u) => u.dir) } : {}), env: o.env, spawn: o.spawn })) o.out(`${tag} ${sc.describeInstall(r)}`);
       } catch (error) { o.err(`${tag} ${error.code === "RK_CHECK_ERROR" ? "RK_CHECK_ERROR" : "BLOCKED"}: ${error.message}`); return error.code === "RK_CHECK_ERROR" ? 2 : 1; }
-      // A broker host (item 7 rows 7.20 to 7.24): the compile goes through the RustRight snapshot carrier. The broker pins the output
-      // directory (its managed generation target), so no checkout target is resolved here; the gate's broker is built once, with the
-      // host's enrolled pins, the declared inputs read from the snapshot and the build ownership; a missing piece refuses before
-      // anything compiles (an app repository with no enrollment included), never a compile around the broker.
+      // A broker host: the compile goes through the seam (reset plan section 3). The broker pins the output directory (its managed generation target), so no checkout target
+      // is resolved here; the seam's broker (client, commit, snapshot) is built once; a missing client refuses before anything compiles, never a compile around the broker.
       if (executor.kind === "broker" && manifests.length) {
         try {
-          const { createSnapshotBroker } = await import("../snapshot-broker.mjs");
-          const client = executor.route === LINUX_BROKER_ROUTE ? executor.client : which("rustright").find((c) => path.isAbsolute(c));
-          snapshotBroker = discoveryBroker ?? createSnapshotBroker({ env: o.env, platform: o.platform, checkout: root, commit: { sha: snapshotBCommit.commit, tree: snapshotBCommit.tree }, snapshot: { path: snapshotB, expectedTree: snapshotBCommit.tree }, ownership: o.buildOwnership, client, gateFile: callingGatePath(), spawn: o.spawn });
+          snapshotBroker = discoveryBroker ?? seamBrokerOf({ o, root, executor, commit: { sha: snapshotBCommit.commit, tree: snapshotBCommit.tree }, snapshot: { path: snapshotB, expectedTree: snapshotBCommit.tree }, which });
         } catch (error) { o.err(`${tag} BLOCKED: ${error.code ?? "RK_SNAPSHOT_BROKER"}: ${error.message}; nothing compiled`); return 1; }
-        o.out(`${tag} broker snapshot compile: pins ${snapshotBroker.pins.keyId.slice(0, 12)} from ${snapshotBroker.pinsSource}, ${snapshotBroker.declaredInputs.length} declared input(s) read from the snapshot, ownership ${snapshotBroker.handle}`);
+        o.out(`${tag} broker snapshot compile: the seam, client ${snapshotBroker.client}, snapshot ${snapshotB}`);
       }
       { const rc = await bindCargoWrapper(snapshotB, snapshotBroker); if (rc) return rc; }
     }
@@ -4638,7 +4560,6 @@ export async function main(argv, io = {}) {
     fullPlan = planScans({
       // Class A of a commit or tree reads only that snapshot: every scan, cargo's included, runs in the snapshot, never in the live
       // checkout (which may hold other bytes). Compiles (class B) use the live checkout, whose tree the dirty check pinned to HEAD.
-      cargoJobs: classAOnly ? null : (o[CARGO_WIDTH] ?? null),
       changed, contentRoot: repo, liveRoot: (classAOnly && snapshot) || snapshotB ? repo : root, trustedRoot: snapshotA ?? snapshotB ?? root, includeTests: true, rustScope, cargoCommand: planCargoCommand, targetDirs, cargoShim: Boolean(cargoShim),
       tier: fullA ? "release" : (option("--rule-tier") ?? "compile"), cargoLiveRoot,
       // The quiet tests (port, pipe, desktop and wall-clock bound) are proven by the CI shards, one crate per runner, unless
@@ -4691,19 +4612,12 @@ export async function main(argv, io = {}) {
       const cargoExcluded = kept.dropped.filter((s) => closureTools.isCargoScan(s)).length;
       o.out(`${tag} scope ${closure.dirs.join(", ")}: dependency directories ${closure.dependencyDirs.join(", ")}; ${closure.npm.size} npm & ${closure.rust.size} Rust unit(s); Class A ${executing} executing scan(s) (${cargoRun} Cargo), ${classA.length - executing} repository file-only scan(s); ${kept.dropped.length} unrelated executing scan(s) excluded (${cargoExcluded} Cargo); ${plan.scans.length - classA.length} closure Class B scan(s) do not run in this check; install roots ${installRoots.join(", ") || "none"}; scope digest ${plan.scopeDigest}`);
     }
-    if (o[CARGO_WIDTH] !== undefined && !classAOnly) {
-      const uncontrolled = plan.scans.find((scan) => scan.class === "B" && cargoWidthScanProblem(scan, planCargoCommand, o[CARGO_WIDTH]));
-      if (uncontrolled) { o.err(`${tag} BLOCKED: --cargo-jobs cannot control Class B scan ${uncontrolled.id}`); return 1; }
-    }
-    let unionScheduler = null;
     const unionContext = o[UNIT_LIST_UNION];
     if (unionContext && snapshotB) {
       try {
-        const { publisherRequirementsForUnits, planUnitListCompile, publisherUnionScheduler, runPublisherSecretRequirement, proveWorkspaceCwd } = await import("../unit-list-compile.mjs");
-        const { publisherRequirementScan } = await import("../deterministic-scans.mjs");
-        const requirements = await publisherRequirementsForUnits({ selected: unionContext.selected, snapshot: repo, rustUnits: rust.units, npmUnits: npm, platform: o.platform, env: o.env });
+        const { publisherRequirementsForUnits, runPublisherSecretRequirement, proveWorkspaceCwd } = await import("../local-publish.mjs");
+        const requirements = publisherRequirementsForUnits({ selected: unionContext.selected, snapshot: repo, rustUnits: rust.units, npmUnits: npm, platform: o.platform, env: o.env });
         unionContext.expected = new Map(requirements.map((entry) => [entry.selector, entry.requirements.length]));
-        if (o[CARGO_WIDTH] !== undefined && requirements.some((entry) => entry.requirements.some((r) => r.executable !== "cargo" && r.internal !== "scanCrateForSecrets"))) throw new Error("--cargo-jobs cannot control a nested non-Cargo publisher requirement");
         const external = []; const scoped = []; const owner = new Map(); const verdicts = new Map(); const initialFailures = new Set();
         const { directReadSpawn } = await import("../snapshot-metadata.mjs");
         const pathKey = o.platform === "win32" ? (Object.keys(o.env).find((k) => k.toUpperCase() === "PATH") ?? "Path") : "PATH";
@@ -4758,29 +4672,37 @@ export async function main(argv, io = {}) {
         // Why a publisher row could not move to its workspace root (and so cannot join a group) is evidence, printed with the plan (Dell 2026-11-07: 0 grouped jobs).
         { const by = new Map(); for (const proof of cwdProofs) { const k = proof.normalized ? "moved" : proof.reason; by.set(k, (by.get(k) ?? 0) + 1); }
           o.out(`${tag} note: publisher working-directory proofs: ${[...by].map(([k, n]) => `${n} ${k}`).join("; ") || "none"}`); }
-        const jobs = planUnitListCompile(scoped, { normalizedCwds });
-        // The plan's shape is evidence, printed before anything runs (brosef 2026-11-07: a speed-up from grouping must be shown on the plan): how many publisher jobs, how many are
-        // grouped (more than one crate in one invocation) and their sizes, by command.
-        { const grouped = jobs.filter((j) => j.batchAt !== undefined && new Set(j.members.map((m) => m.package)).size > 1); const singles = jobs.length - grouped.length;
-          const byCmd = new Map(); for (const j of jobs) { const k = `${j.argv[0]}${j.batchAt !== undefined ? "*" : ""}`; byCmd.set(k, (byCmd.get(k) ?? 0) + 1); }
-          o.out(`${tag} note: unit-list publisher plan: ${jobs.length} job(s) for ${jobs.reduce((n, j) => n + j.members.length, 0)} requirement(s); ${grouped.length} grouped job(s) [${grouped.map((j) => new Set(j.members.map((m) => m.package)).size).sort((x, y) => y - x).slice(0, 12).join(", ")}${grouped.length > 12 ? ", ..." : ""} crates], ${singles} single; by command ${[...byCmd].map(([k, n]) => `${k}:${n}`).join(" ")} (* = batchable)`); }
+        // ONE scan set (reset plan step 5): the plan's own rows over the closure of every listed unit, plus one Class B scan per publisher requirement those rows do not
+        // already prove (NN27); runScans runs it with its own class B grouping (classBBatching, the feature partition, the store rule, the serial reuse), under this run's
+        // one snapshot lock and one shared Class A. Rows are judged per requirement and per unit after the run (judgeUnitList).
         const config = JSON.parse(o.readFile(path.join(repo, "ci/gate.config.json")));
+        const dependencies = Object.fromEntries(unionContext.selected.map((unit) => [unit.selector, (unit.deps ?? []).filter((dep) => unionContext.selected.some((u) => u.selector === dep))]));
+        const blocked = blockedUnitsOf({ dependencies, initialFailures });
+        const solo = shardSoloOf(o, repo);
+        const dirOf = new Map(unionContext.selected.map((unit) => [unit.selector, unit.dir]));
         const adapt = (requirement) => {
-          const sel = owner.get(requirement.id) ?? jobs.find((job) => job.members.some((member) => member.coverageKey === requirement.coverageKey))?.members[0]?.selector;
+          const sel = owner.get(requirement.id);
           const unit = sel?.replace(/^cargo:/, "");
           const quiet = sel?.startsWith("cargo:") ? config.rust?.[unit]?.quietTests === true : false;
-          return publisherRequirementScan(requirement, { platform: o.platform, cargoCommand: planCargoCommand, cargoLiveRoot, targetDirs, quiet, allowIgnored: verdicts.get(sel)?.allowIgnored === true, cargoJobs: o[CARGO_WIDTH] ?? null });
+          // A crate that ci/shards.json lists solo, or that is sidecar-bound, never joins another crate's invocation (planScans' own rule for its rows).
+          const alone = sel?.startsWith("cargo:") && (solo.includes(unit) || sidecarBoundCrate({ dir: path.join(repo, dirOf.get(sel) ?? `crates/${unit}`), exists: o.exists, readFile: o.readFile }).bound);
+          return publisherRequirementScan(requirement, { platform: o.platform, cargoCommand: planCargoCommand, cargoLiveRoot, targetDirs, quiet, allowIgnored: verdicts.get(sel)?.allowIgnored === true, batch: !alone });
         };
-        for (const requirement of external) plan.scans.push(adapt(requirement));
-        const dependencies = Object.fromEntries(unionContext.selected.map((unit) => [unit.selector, (unit.deps ?? []).filter((dep) => unionContext.selected.some((u) => u.selector === dep))]));
-        unionScheduler = publisherUnionScheduler({ reuseProofs: o.env.RK_GATE_PUBLISHER_REUSE !== "0", concurrency: 1, originConcurrency: 8, jobs, dependencies, initialFailures, requirements: external, adapt, signal: ac.signal, onCoverage: (coverage) => { unionContext.coverage = coverage; }, verify: async ({ row, member, attempts, requirement }) => {
+        const planned = planUnitListScans({ entries: scoped, planned: plan.scans, normalizedCwds, adapt, blocked });
+        const provers = new Set(planned.provers);
+        for (const [i, scan] of plan.scans.entries()) if (provers.has(scan.id)) plan.scans[i] = { ...scan, provesPublisher: true };
+        for (const scan of planned.scans) plan.scans.push(scan);
+        const publisherDigest = digestScanSet(planned.scans);
+        { const keys = new Set(planned.scans.filter((x) => x.batchable).map((x) => x.batchable.key));
+          o.out(`${tag} note: unit-list publisher scans: ${planned.scans.length} scan(s) for ${scoped.reduce((n, e) => n + e.requirements.length, 0)} external requirement(s) of ${scoped.length} unit(s); ${planned.scans.filter((x) => x.batchable).length} batchable in ${keys.size} configuration group(s) (runScans groups them); ${planned.providerOf.size} proved by a plan row (NN27); ${blocked.size} unit(s) blocked before any compile; publisher scan-set digest ${publisherDigest}`); }
+        unionContext.publisher = { scoped, dependencies, blocked, scanOf: planned.scanOf, providerOf: planned.providerOf, scanIds: planned.scans.map((x) => x.id), scanSetDigest: publisherDigest, verify: async ({ row, member, attempts, requirement }) => {
           const verdict = verdicts.get(member.selector);
           const proof = { commit: snapshotBCommit.commit, tree: snapshotBCommit.tree, requirement: member.coverageKey, command: row?.command ?? null, attempts, snapshotEvidence: row?.snapshotEvidence ?? null, testRun: row?.testRun ?? null, results: row?.results ?? null };
           unionContext.commands.push({ selector: member.selector, id: member.id, ...proof });
           if (!row || row.status !== "pass" || (requirement.phase === "test" && (row.testRun?.outputTruncated || (!verdict.allowMissingAssets && (row.testRun?.skipMarkers ?? 0) > 0) || (!verdict.allowIgnored && (row.results?.skipped ?? 0) > 0)))) return { ok: false };
           if (executor.kind === "broker" && requirement.executable === "cargo" && !/^[0-9a-f]{64}$/.test(row.snapshotEvidence?.receiptSha256 ?? "")) return { ok: false };
           return { ok: true, evidenceHash: createHash("sha256").update(JSON.stringify(proof)).digest("hex") };
-        } });
+        } };
         unionContext.owner = owner;
       } catch (error) { o.err(`${tag} BLOCKED: cannot prepare canonical unit-list compile: ${error.message}`); return 1; }
     }
@@ -4989,7 +4911,7 @@ export async function main(argv, io = {}) {
             if (d !== null && d !== undefined) ROW_DIGEST_MEMO.set(k, d);
             return d;
           };
-          const gateIdentity = classBKeyIdentity(snapshotB && brokerHost ? "seam" : "carrier");
+          const gateIdentity = classBKeyIdentity(snapshotB && brokerHost ? "seam" : "direct");
           cache = { ...store, digest: (scan) => { const key = rowDigest(scan); const full = key === null ? null : `${key}:${gateIdentity}`; scanKeys.set(scan.id, full); for (const member of scan.batch?.members ?? []) scanKeys.set(member, full); return full; } };
         } else {
           cacheDisabled = `class B result cache disabled: ${!headSha ? "no commit" : !treeId ? "no tree id" : `git common dir unreadable (${why(common)})`}`;
@@ -5009,8 +4931,6 @@ export async function main(argv, io = {}) {
     } catch (error) { o.err(`${tag} BLOCKED: ${error.code ?? "RK_SCAN_TOOLS"}: ${error.message}; no scan ran`); return 1; }
     const enrolledTools = Object.keys(scanTools?.policy ?? {});
     if (enrolledTools.length) o.out(`${tag} scan-tool policy: ${enrolledTools.map((name) => `${name} (${scanTools.sources?.[name] ?? "enrolled"})`).join(", ")}`);
-    // The direct compile's freshness census (row 7.19): the fingerprint units before the scans, and the fingerprint log of each cargo
-    // process that compiles (CARGO_LOG on that process only, read from its own standard error). A broker host's census is the broker's.
     // The door's compile stage runs only after its check stage passed full class A of this same snapshot, once, before the compile and under the
     // cargo wrapper (rightkit#1328): this pass runs class B alone. Set by the door (io option), never by a command-line flag.
     const classAEarlier = Boolean(snapshotB && o.classAEarlier === true);
@@ -5028,23 +4948,20 @@ export async function main(argv, io = {}) {
         // scope: what this run's class A covered, or what its class B was scoped to (--scope dirs; null = full). A door compile that is not itself scoped names the scope
         // the door's own check ran with (`seamScope`: [appDir] for an app below the repository root), so it reads that verdict (fresh review of badf93c, D2). The verdict is bound to it (gate-seam.mjs verdictForRun):
         // a class A scoped to a unit writes that unit's verdict, a class B scoped to it reads that one or a full one, never another unit's (fresh review 2026-11-09, E1).
-        gateSeam = { commit: seamSnapshot.id.commit, tree: seamSnapshot.id.tree, repoKey: state.repoKey, snapshot: snapshotPath, verdictDir: path.join(path.dirname(path.dirname(snapshotPath)), "class-a-verdicts"), outputRoots: snapshotBroker?.outputRoots ?? null, scope: scopeDirs.length ? scopeDirs : (classAEarlier && Array.isArray(o.seamScope) && o.seamScope.length ? o.seamScope : null) };
+        gateSeam = { commit: seamSnapshot.id.commit, tree: seamSnapshot.id.tree, repoKey: state.repoKey, snapshot: snapshotPath, verdictDir: path.join(path.dirname(path.dirname(snapshotPath)), "class-a-verdicts"), outputRoots: null /* a seam executable is bound by its receipt: inside the receipt outputDir and on its signed list with its sha256; no gate-derived root that could disagree with the broker */, scope: scopeDirs.length ? scopeDirs : (classAEarlier && Array.isArray(o.seamScope) && o.seamScope.length ? o.seamScope : null) };
         o.out(`${tag} seam: ${seamSnapshot.what} ${snapshotPath}, commit ${seamSnapshot.id.commit.slice(0, 12)}; Class A verdicts under ${gateSeam.verdictDir}`);
       } catch (error) { o.err(`${tag} BLOCKED: RK_SEAM: ${error.message}; nothing ran`); return 1; }
     }
-    const census = snapshotB && !snapshotBroker ? createFreshnessCensus({ targetDirs }) : null;
     directTiming.cargoStart = Date.now();
-    census?.start();
     const scanOptions = {
       // The commit's own files (rightkit#1393): a snapshot is not a git toplevel, so the secret scan needs this list to judge tracked files only and never what a stage wrote there.
       ...(snapshot ? { trackedFiles: files } : {}),
       classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], ...(classAEarlier ? { classAEarlier: true } : {}), jobs, classBJobs, classBBatching: !o[PRIVATE_SCOPED_COMPILE], groupTests: true, classBPipeline: 2, ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
       // NN41: the installed broker runtime's identity keys every cached compile failure; null (a direct host, an unreadable manifest) means no failure is cached.
       ...(brokerHost && cache ? (() => { const identity = brokerRuntimeIdentityText({ clients: [brokerClient, executor?.client, cargoCommand[0]], env: { ...o.env, ...(executor.env ?? {}) }, platform: o.platform }); return identity ? { failureIdentity: identity } : {}; })() : {}),
-      ...(census ? { spawn: census.wrapSpawn(defaultSpawnAsync) } : {}),
       // The declared Linux broker route: the scans are planned with the logical `rustright`, which this spawn (and scanSpawn's pass-through below) starts as the
       // executor's validated client, never a PATH lookup (withDeclaredClient).
-      ...(declaredClient && !scanSpawn ? { spawn: withDeclaredClient(census ? census.wrapSpawn(defaultSpawnAsync) : defaultSpawnAsync) } : {}),
+      ...(declaredClient && !scanSpawn ? { spawn: withDeclaredClient(defaultSpawnAsync) } : {}),
       ...(gateSeam ? { gateSeam } : {}),
       toolPolicy: scanTools?.policy ?? {},
       // The class A cargo reads (deny, audit, metadata, fetch) are carried requests the broker executes (scanSpawn): cargo-deny and cargo-audit are then the
@@ -5060,8 +4977,6 @@ export async function main(argv, io = {}) {
       // The runtime cargo wrapper is first on PATH and named in CARGO for every scan of a snapshot compile; CARGO (a path named by the
       // wrapper's identity) is in every scan's cache key, so no result cached without the wrapper or with another map is reused.
       ...(cargoShim ? { env: cargoShim.scanEnv, nodeCheckShimContext: { shim: cargoShim.shim, bin: cargoShim.bin, sentinel: cargoShim.sentinel, originalEnv: o.env }, ...(cargoShim.sentinel ? { cargoSentinel: cargoShim.sentinel } : {}), cargoLedger: { dir: cargoShim.ledgerDir } } : {}),
-      // The broker snapshot compile's seam (item 7 rows 7.20 to 7.24): the commit, snapshot, ownership, enrolled pins and receipt reader.
-      ...(snapshotBroker ? { snapshotBroker } : {}),
       // `check` (and the broker's compile admission, which runs it on a captured copy of the tree without node_modules) judges the
       // content: it never executes the repository's own code. The class A checks that do (tests, typecheck, lint, generated docs:
       // `executes`) run in the full gate (--all, the push hook, the door's compile stage), after the content checks and before any compile.
@@ -5079,7 +4994,6 @@ export async function main(argv, io = {}) {
           return path.join(base, "rightkit-gate-scan-logs", `${path.basename(root)}-${stamp}-${process.pid}`);
         } catch { return null; }
       })(),
-      ...(unionScheduler ? { scheduleClassB: unionScheduler } : {}),
       onResult: (row, p) => o.out(`${tag} [${p.done}/${p.total}] ${(row.cached ? (row.status === "pass" ? "cached" : "cached-fail") : row.status).padEnd(11)} ${row.id} (${p.seconds}s)${row.batchedWith ? ` [batch of ${row.batchedWith.units.length}]` : ""}${row.status === "fail" ? ` :: ${String(row.detail ?? "").slice(0, 300)}` : row.advice ? ` :: ${String(row.advice).slice(0, 300)}` : ""}`),
     };
     // Adrian 2026-11-06: "every time should be warm". Before anything runs, every planned row is looked up in the cache. If any would miss, the
@@ -5129,9 +5043,15 @@ export async function main(argv, io = {}) {
         return { id: row.id, status: row.status, ...(command ? { command } : {}), ...(row.batchCommand ? { batchCommand: row.batchCommand } : {}), ...(row.batchedWith ? { batchedWith: row.batchedWith } : {}), ...(row.batchFailure ? { batchFailure: row.batchFailure } : {}), ...(row.batchAttempts ? { batchAttempts: row.batchAttempts } : {}), ...(row.individualStatus ? { individualStatus: row.individualStatus, ...(row.individualCode ? { individualCode: row.individualCode } : {}) } : {}), ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), ...(row.testRun ? { testRun: row.testRun } : {}), ...(row.results ? { results: row.results } : {}), ...(unionContext.owner?.has(row.id) ? { publisherUnit: unionContext.owner.get(row.id) } : { sharedOrigin: true }) };
       });
     }
+    // The publisher requirements of a unit-list run, judged from the rows runScans returned (a cache lookup's rows never reach here: this is the real run).
+    if (unionContext?.publisher) {
+      const rowById = new Map(scanResult.scans.map((row) => [row.id, row]));
+      const { scoped, dependencies, blocked, scanOf, providerOf, verify } = unionContext.publisher;
+      unionContext.coverage = await judgeUnitList({ entries: scoped, dependencies, blocked, scanOf, providerOf, rowOf: (id) => rowById.get(id), verify });
+    }
     if (unionContext) unionContext.sharedClean = unionContext.rows.filter((row) => row.sharedOrigin).every((row) => row.status === "pass");
     directTiming.cargoEnd = Date.now();
-    const freshness = census ? census.finish() : null;
+    const freshness = null; // no census (reset plan section 4)
     directTiming.diagnostics = Date.now() - directTiming.cargoEnd;
     if (ac.signal.aborted) {
       const notRun = scanResult.scans.filter((r) => r.status !== "pass" && r.status !== "fail").map((r) => r.id);
@@ -5227,7 +5147,7 @@ export async function main(argv, io = {}) {
       else {
         // The direct host's own receipt (GATE-CONTRACT "Broker interface", row 7.18): the contract's returned-evidence names minus the
         // broker-only ones (admission, queue, reusedFrom): the run, the commit, the snapshot's tree at start and exit, the declared
-        // inputs digested in place, the verdict, the freshness census (7.19), the timings, the exit status, the structured
+        // inputs digested in place, the verdict, the timings, the exit status, the structured
         // diagnostics, the resolved output directory (7.09, with its inputs) and `refreshed` (nothing is reused on a direct host).
         // The gate refuses its own receipt unless it verifies, so a consumer never meets a receipt with a name missing.
         const requestId = randomUUID();
@@ -5241,7 +5161,7 @@ export async function main(argv, io = {}) {
           const diagnosticsPath = writeDirectDiagnostics({ dir: diagnosticsDir, requestId, commit: { sha: snapshotBCommit.commit, tree: snapshotBCommit.tree }, exit: exitCode, scans: scanResult.scans, failures, deferrals, notes: [...scanResult.notes, ...directDeclaredNotes], freshness });
           directReceipt = buildDirectReceipt({
             requestId, issuedAt: new Date().toISOString(), commit: { sha: snapshotBCommit.commit, tree: snapshotBCommit.tree },
-            snapshotPath: snapshotB, treeAtStart: snapshotBCommit.tree, treeAtExit: snapshotBCommit.tree, ownershipHandle: o.buildOwnership?.handle ?? null,
+            snapshotPath: snapshotB, treeAtStart: snapshotBCommit.tree, treeAtExit: snapshotBCommit.tree, ownershipHandle: o.snapshotLock?.token ?? null,
             declaredInputDigests: directDeclared, verdict: directVerdict({ scans: scanResult.scans, failures, deferrals }), freshness,
             timingsMs: { bind: directTiming.bindEnd - directTiming.bindStart, cargo: directTiming.cargoEnd - directTiming.cargoStart, afterExitBind: directTiming.afterEnd - directTiming.afterStart, diagnostics: directTiming.diagnostics + (Date.now() - wrote) },
             exit: exitCode, diagnosticsPath, outputDirs: targetDirs ?? {}, outputResolution,
@@ -5317,18 +5237,11 @@ export async function main(argv, io = {}) {
 const SNAPSHOT_ABSOLUTE_ENV = ["CARGO_HOME", "RUSTUP_HOME", "SCCACHE_DIR", "TMPDIR", "TMP", "TEMP"];
 
 /**
- * What the production entry (`node rightkit-gate.mjs ...`) hands `main` as its injected dependencies, and what `--route` reports: the
- * snapshot carrier on Mac and Dell (rightkit#1301: right-release's own Cargo calls, the Tauri CLI's and cargo-about's are carried, so
- * every stage compiles the commit's snapshot through the broker); nothing on Linux, which compiles direct with no broker. Tests inject
- * their own carrier through `main`; the contract test (door-route.test.mjs) runs the real entry. `platform` is the host whose deps are
- * asked for (the real entry passes none).
+ * What the production entry (`node rightkit-gate.mjs ...`) hands `main` as its injected dependencies, and what `--route` reports: nothing. The seam (reset plan section 3) needs
+ * no injected carrier: a broker host compiles through the RustRight client with the two seam variables, a direct host compiles directly. Tests inject their own through `main`.
  */
-export async function productionEntryDeps({ platform = process.platform, env = process.env } = {}) {
-  // A direct Linux host carries nothing. A Linux host that DECLARED the broker route (managed-cargo.mjs linuxBrokerDeclared) gets the same carrier as the
-  // Mac and the Dell, valid declaration or not: an invalid one is refused by the executor (kind "refuse"), never left to compile direct without a carrier.
-  if (directPlatform(platform) && !linuxBrokerDeclared(env, platform)) return {};
-  const { PRODUCTION_SNAPSHOT_CARRIER } = await import("../snapshot-broker.mjs");
-  return { snapshotBroker: PRODUCTION_SNAPSHOT_CARRIER };
+export async function productionEntryDeps() {
+  return {};
 }
 
 const invokedDirectly = (() => {
@@ -5343,7 +5256,6 @@ if (invokedDirectly) {
   // Every child this run starts that can reach rustright (scans, unit stages, right-release dev/test, their builds) inherits it.
   process.env.RUSTRIGHT_CALLING_GATE = callingGatePath();
   delete process.env.RIGHTKIT_CALLING_GATE; // one spelling, never both
-  // Production carries the snapshot carrier on Mac and Dell (rightkit#1301): every child that reaches Cargo is carried, so every stage
-  // compiles the commit's snapshot. Linux takes the snapshot route direct, with no carrier. Tests inject theirs.
+  // Mac and Dell compile the commit's snapshot through the seam, Linux takes the snapshot route direct. Tests inject their own dependencies.
   productionEntryDeps().then((deps) => main(process.argv.slice(2), deps)).then((code) => process.exit(code), (e) => { console.error(`rightkit-gate: ${e?.stack ?? e}`); process.exit(2); });
 }

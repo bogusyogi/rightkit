@@ -16,7 +16,7 @@ import { existsSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { runCargoSync } from "./managed-cargo.mjs";
-import { CARRIED_CARGO_MAP_ENV } from "./carried-cargo.mjs";
+import { CARRIED_CARGO_MAP_ENV } from "./stage-seam.mjs";
 import { CHECKOUT_ENV } from "./gate-stages.mjs";
 
 export const LOCK_UPDATE_CODES = Object.freeze({

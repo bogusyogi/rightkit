@@ -214,11 +214,14 @@ export function judgeSeamOutcome({ child, stderr, commit, tree, classA = null, e
   const read = readSeamReceipt(result.receipt, { commit, tree, classA, expect, requestId: result.requestId, fsApi });
   // `receiptRead`: the receipt is the terminal record of THIS request's job (receiptIsTerminalFor): then the job is over even when its postconditions fail (the evidence
   // is withheld, the row is settled). A receipt that merely parses, or names another job, proves nothing about the job this client submitted.
-  const receiptRead = receiptIsTerminalFor(read.receipt, result.requestId);
+  const receiptRead = receiptIsTerminalFor(read.receipt, result.requestId) && receiptProvesTreeGone(read.receipt);
   if (read.problems.length) return { status: "fail", code: read.receipt?.gate && read.receipt.gate.snapshotUnchanged === false ? "RK_SNAPSHOT_CHANGED" : "RECEIPT_MISMATCH", detail: read.problems.join("; "), result, evidence: null, receiptRead };
-  const evidence = { receiptSha256: read.sha256, receiptPath: result.receipt, requestId: result.requestId, outputDir: result.outputDir, testExecutables: Array.isArray(read.receipt.testExecutables) ? read.receipt.testExecutables : null, testExecutablesReason: typeof read.receipt.testExecutablesReason === "string" ? read.receipt.testExecutablesReason : null, gate: read.receipt.gate };
+  const evidence = { receiptSha256: read.sha256, receiptPath: result.receipt, requestId: result.requestId, outputDir: result.outputDir, testExecutables: Array.isArray(read.receipt.testExecutables) ? read.receipt.testExecutables : null, testExecutablesReason: typeof read.receipt.testExecutablesReason === "string" ? read.receipt.testExecutablesReason : null, receiptStatus: typeof read.receipt.status === "string" ? read.receipt.status : null, gate: read.receipt.gate };
   if (child && Number.isInteger(child.status) && result.exit !== null && child.status !== result.exit) return { status: "fail", code: "RESULT_EXIT_MISMATCH", detail: `the client exited ${child.status} but its result line says ${result.exit}`, result, evidence, receiptRead };
   if (result.exit !== 0 || result.signal) return { status: "fail", code: "EXIT", detail: result.signal ? `the command was stopped by signal ${result.signal}` : `exit ${result.exit}`, result, evidence, receiptRead };
+  // An exit 0 is a pass only for a job the broker finished as SUCCEEDED: a job cancelled or timed out after its process exited 0 keeps that observed exit in its receipt
+  // (rustright finish_impl.rs: executed commands keep their actual exit), and its result line says exit 0, but the broker stopped it. Every receipt names its status.
+  if (read.receipt.status !== "SUCCEEDED") return { status: "fail", code: "RECEIPT_NOT_SUCCEEDED", detail: `the command exited 0 but the broker finished the job ${JSON.stringify(read.receipt.status ?? null)}, not SUCCEEDED`, result, evidence, receiptRead };
   return { status: "pass", code: null, detail: null, result, evidence, receiptRead };
 }
 
@@ -322,6 +325,23 @@ export function seamSettled(judged) {
  * job ended (`terminalAt`, written by every receipt the broker's finish writes, the forced one included; rustright finish_impl.rs). No request id, no receipt, another
  * job's receipt or one with no terminal time is not proof that this request's job ended.
  */
+/**
+ * Whether the receipt proves the job's process tree is gone, so nothing of it can still touch the snapshot: either the job never spawned (the broker records
+ * `processOwnership: null` and no `startedAt`), or its reap is complete (`reap.status` "REAPED" with `reaped: true`, rustright-process ReapReport::is_complete) AND the
+ * broker's signed survivor census says the tree is contained (`provenance.payload.descendants.status` "tree-contained", service.rs descendants_claim). A terminal
+ * receipt alone is not that proof: the broker writes a FAILED receipt for a tree it could not reap (finish_impl.rs tree_unreaped), and a forced terminal receipt
+ * carries neither field. Anything short of the proof keeps the door's lock (astra, 2026-11-09).
+ */
+export function receiptProvesTreeGone(receipt) {
+  if (!receipt || typeof receipt !== "object") return false;
+  const payload = receipt.provenance?.payload;
+  const neverSpawned = Object.hasOwn(receipt, "processOwnership") && receipt.processOwnership === null && (receipt.startedAt ?? payload?.startedAt ?? null) === null && (receipt.reap ?? null) === null;
+  if (neverSpawned) return true;
+  const reap = receipt.reap;
+  const reaped = Boolean(reap && typeof reap === "object" && reap.status === "REAPED" && reap.reaped === true);
+  return reaped && payload?.descendants?.status === "tree-contained";
+}
+
 export function receiptIsTerminalFor(receipt, requestId) {
   if (!receipt || typeof receipt !== "object" || typeof requestId !== "string" || !requestId) return false;
   const payload = receipt.provenance?.payload;

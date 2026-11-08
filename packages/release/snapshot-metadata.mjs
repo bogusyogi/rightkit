@@ -3,11 +3,10 @@
 // RustRight refuses a ROOT request whose workspace is inside a managed snapshot ("a root request cannot run inside a managed snapshot",
 // rustright job_service/service.rs). The gate reads the snapshot's Cargo metadata to discover units, and every Class A Cargo scan of a
 // snapshot (metadata, fetch, cargo-deny, cargo-audit) reads the snapshot too, never the primary checkout (docs/GATE-CONTRACT.md: no
-// dirty-tree condition; class A for a build reads the snapshot). So on a broker host each such call is a CARRIED read-only request: the
-// same carrier, nonce, signed-receipt verification and ownership mark as every other carried call (snapshot-broker.mjs carryBrokerCargo).
-// The broker admits a carried call that compiles nothing only for the exact shapes below (rustright_policy::command_policy::
-// snapshot_read_only). This module carries exactly those and refuses every other call inside the snapshot with RK_SNAPSHOT_CARRIED_REFUSED,
-// never running it as a root request.
+// dirty-tree condition; class A for a build reads the snapshot). So on a broker host each such call runs DIRECTLY with the host's toolchain cargo
+// (GATE-CONTRACT GC-A11, directReadSpawn below), never as a broker request; the exact read-only shapes below (the broker's snapshot_read_only
+// shapes, rustright_policy::command_policy) are the only ones, and every other call inside the snapshot is refused with RK_SNAPSHOT_CARRIED_REFUSED,
+// never run as a root request.
 //
 //   cargo metadata [--no-deps] [--locked] [--frozen] [--offline] [--format-version 1]   (with dependencies: --locked or --frozen)
 //   cargo fetch --locked
@@ -19,7 +18,7 @@
 // the database directory audit reads are absolute, exist (a file; a directory) and lie outside the live checkout.
 import fs from "node:fs";
 import path from "node:path";
-import { BROKER_REFUSAL_STATUS, brokerSection, carryBrokerCargo } from "./snapshot-broker.mjs";
+import { CARGO_REFUSAL_STATUS } from "./cargo-ledger.mjs";
 import { GATE_COMMIT_ENV } from "./gate-seam.mjs";
 
 export const CARRIED_METADATA_REFUSED = "RK_SNAPSHOT_CARRIED_REFUSED";
@@ -110,33 +109,6 @@ export function carriedScanRefusal(words, { checkout = null } = {}) {
 export const carriedReadOnlyScan = (words, options) => carriedScanRefusal(words, options) === null;
 
 /**
- * A `spawn(cmd, args, opts)` for the gate's Cargo calls in `snapshotRoot` on a broker host. A call to `cargoCommand` whose cwd is inside the
- * snapshot becomes one carried read-only request (capture mode, a spawnSync-shaped result; `status` is non-zero when the call was refused or
- * its signed receipt did not verify). Any other call passes to `spawn` unchanged (git, and Cargo in the primary checkout).
- * `broker()` returns the gate's snapshot broker (built once); `records` collects each call's ledger record. `carrySpawn` (default `spawn`) is
- * the synchronous spawn that starts the RustRight client and reads its receipt; `spawn` may be asynchronous for the pass-through calls.
- */
-export function snapshotCargoSpawn({ spawn, carrySpawn = spawn, cargoCommand, snapshotRoot, broker, env, err = () => {}, records = [] }) {
-  const prefix = cargoCommand.slice(1);
-  const refused = (code, message) => { err(`rightkit-gate: ${code}: ${message}`); return { status: BROKER_REFUSAL_STATUS, signal: null, error: null, stdout: "", stderr: `rightkit-gate: ${code}: ${message}\n` }; };
-  return (cmd, args, opts = {}) => {
-    const cargo = cmd === cargoCommand[0] && prefix.every((w, i) => args[i] === w);
-    if (!cargo || typeof opts.cwd !== "string" || !within(real(opts.cwd), real(snapshotRoot))) return spawn(cmd, args, opts);
-    const words = args.slice(prefix.length);
-    const shape = carriedScanRefusal(words);
-    if (shape !== null) return refused(CARRIED_METADATA_REFUSED, `\`cargo ${words.join(" ")}\` would run inside the managed snapshot ${snapshotRoot}, and the broker admits only the carried read-only shapes there (${shape}); it is never sent as a root request`);
-    try {
-      const sb = broker();
-      // The named files are checked against the live checkout before anything is sent (absolute, existing, of the right kind, outside it).
-      const placed = carriedScanRefusal(words, { checkout: sb.checkout });
-      if (placed !== null) return refused(CARRIED_METADATA_REFUSED, `\`cargo ${words.join(" ")}\` names a path the broker would not admit (${placed}); it is not sent`);
-      const r = carryBrokerCargo({ words, cwd: opts.cwd, env: { ...env, ...(opts.env ?? {}) }, section: brokerSection(sb), workspace: real(snapshotRoot), checkoutWorkspace: sb.checkout, record: (e) => records.push(e), spawn: carrySpawn, err, stdio: "capture" });
-      return { status: r.status, signal: null, error: null, stdout: r.stdout, stderr: r.stderr };
-    } catch (e) { return refused(e.code ?? "RK_SNAPSHOT_BROKER", e.message); }
-  };
-}
-
-/**
  * GATE-CONTRACT GC-A11 (Adrian, 2026-11-02: "Class a never in the broker. Any cargo things that are cheap and non compiling are in class a,
  * can run outside the broker."): the same read-only shapes as above, run DIRECTLY with the host's real toolchain cargo, never carried to the
  * broker. `directPath` is the PATH with RustRight shims and outer gate wrappers taken off (managed-cargo.mjs directCargoPath), so `cargo`
@@ -153,7 +125,7 @@ export function snapshotCargoSpawn({ spawn, carrySpawn = spawn, cargoCommand, sn
  */
 export function directReadSpawn({ spawn, cargoCommand, snapshotRoot, directPath, pathKey = "PATH", tmpRoot, env, err = () => {}, memo = null, isAsync = false }) {
   const prefix = cargoCommand.slice(1);
-  const refused = (code, message) => { err(`rightkit-gate: ${code}: ${message}`); return { status: BROKER_REFUSAL_STATUS, signal: null, error: null, stdout: "", stderr: `rightkit-gate: ${code}: ${message}\n` }; };
+  const refused = (code, message) => { err(`rightkit-gate: ${code}: ${message}`); return { status: CARGO_REFUSAL_STATUS, signal: null, error: null, stdout: "", stderr: `rightkit-gate: ${code}: ${message}\n` }; };
   return (cmd, args, opts = {}) => {
     const cargo = cmd === cargoCommand[0] && prefix.every((w, i) => args[i] === w);
     if (!cargo || typeof opts.cwd !== "string" || !within(real(opts.cwd), real(snapshotRoot))) return spawn(cmd, args, opts);

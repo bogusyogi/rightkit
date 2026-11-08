@@ -23,7 +23,7 @@
 // nested bundles itself, and signNativeHelpers below does the same for any other caller. Every external effect is injectable.
 import { createHash } from "node:crypto";
 import { buildLaunch } from "./build-launch.mjs";
-import { carriedCargoMapOf } from "./carried-cargo.mjs";
+import { carriedCargoMapOf } from "./stage-seam.mjs";
 import * as nodeFs from "node:fs";
 import os from "node:os";
 import path from "node:path";

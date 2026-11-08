@@ -70,18 +70,20 @@ jobs:
             packages/release/background-process.mjs
             packages/release/broker-client.mjs
             packages/release/broker-pins.mjs
-            packages/release/broker-wire.mjs
             packages/release/build-launch.mjs
             packages/release/cache-policy.mjs
             packages/release/cargo-contract.mjs
             packages/release/cargo-ledger.mjs
             packages/release/cargo-manifest-text.mjs
             packages/release/cargo-registry-readback.mjs
-            packages/release/cargo-shapes.mjs
             packages/release/cargo-target-shim.mjs
+            packages/release/committed-cargo-workspace.mjs
+            packages/release/feature-coverage.mjs
+            packages/release/gate-seam.mjs
+            packages/release/receipt-signature.mjs
+            packages/release/seam-broker.mjs
+            packages/release/stage-seam.mjs
             packages/release/cargo-target.mjs
-            packages/release/carried-cargo.mjs
-            packages/release/carrier-census.mjs
             packages/release/codesign-argv.mjs
             packages/release/committed-source.mjs
             packages/release/crate-graph.mjs
@@ -94,7 +96,6 @@ jobs:
             packages/release/gate-stages.mjs
             packages/release/host-upload-refusal.mjs
             packages/release/local-publish.mjs
-            packages/release/lock-identity.mjs
             packages/release/mac-bundle-signing.mjs
             packages/release/mac-sign-core.mjs
             packages/release/mac-signing-matrix.mjs
@@ -121,7 +122,6 @@ jobs:
             packages/release/ownership-key-log.mjs
             packages/release/ownership-key-trust.mjs
             packages/release/ownership-lockfiles.mjs
-            packages/release/ownership-mark.mjs
             packages/release/ownership-policy-bundle.mjs
             packages/release/ownership-scope.mjs
             packages/release/ownership-source.mjs
@@ -130,11 +130,9 @@ jobs:
             packages/release/ownership.mjs
             packages/release/pack-digest.mjs
             packages/release/platform-dir.mjs
-            packages/release/pnpm-adapter-grammar.mjs
             packages/release/preflight.mjs
             packages/release/progress-control.mjs
             packages/release/project-type.mjs
-            packages/release/provenance-verify.mjs
             packages/release/publication-artifacts.mjs
             packages/release/publication-gate.mjs
             packages/release/publish-cargo.mjs
@@ -159,9 +157,7 @@ jobs:
             packages/release/signing-agent-install.mjs
             packages/release/signing-env.mjs
             packages/release/signing-identity.mjs
-            packages/release/snapshot-broker.mjs
             packages/release/snapshot-metadata.mjs
-            packages/release/snapshot-request.mjs
             packages/release/source-gate.mjs
             packages/release/stage-commands.mjs
             packages/release/suite-signing-policy.mjs

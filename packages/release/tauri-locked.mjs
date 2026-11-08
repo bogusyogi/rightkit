@@ -8,7 +8,7 @@
 //   tauri dev -- --locked -- <appArgs>   when app arguments are passed, --locked stays before the second `--`.
 // So `--locked` goes right after the first `--` (added with its own `--` when the step has none). A step that already names `--locked`
 // or `--frozen` among the Cargo arguments is left as it is.
-import { carriedCargoMapOf } from "./carried-cargo.mjs";
+import { carriedCargoMapOf } from "./stage-seam.mjs";
 
 /** `args` of a step that may run the Tauri CLI, with `--locked` forwarded to Cargo in a carried stage; unchanged otherwise. */
 export function lockedTauriArgs(args, env = process.env) {

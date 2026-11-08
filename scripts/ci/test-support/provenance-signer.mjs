@@ -1,7 +1,7 @@
 // A test-only stand-in for the RustRight broker's signer: one generated P-256 key that signs provenance envelopes the way
 // rustright-protocol's attestation.rs does (ES256, r||s hex, over "rustright-provenance-v1\n" + canonical JSON).
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
-import { signedBytes } from "../../../packages/release/provenance-verify.mjs";
+import { signedBytes } from "../../../packages/release/receipt-signature.mjs";
 
 export function makeSigner({ host = "test-host.local", brokerDigest = "9".repeat(64) } = {}) {
   const { publicKey, privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
