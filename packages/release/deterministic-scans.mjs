@@ -188,15 +188,40 @@ export const buildEnvName = (name) => {
   if (BUILD_ENV_EXCLUDED.test(upper)) return false;
   return BUILD_ENV_NAMES.has(upper) || BUILD_ENV_PREFIXES.some((prefix) => upper.startsWith(prefix));
 };
+// rightkit#1540 (reset plan section 3): a row's INHERITED environment is keyed on the variables its tool reads, nothing else. A cargo row does not read PNPM_HOME or
+// NPM_CONFIG_CACHE, no row's verdict depends on where the broker's socket or the managed agent-bin lives (RK_/RIGHTKIT_/RUSTRIGHT_ are the gate's and the broker's
+// transport and switches), and a shell that differs only in those made 103 of 119 rows miss with no input change (batch 051b). The row's OWN environment (what the
+// planner set on it) is keyed in full elsewhere (keyEnv(s.env)); this filter is for what the child inherits from the gate's process.
+const CARGO_ENV_NAMES = new Set([...BUILD_ENV_NAMES].filter((n) => !/^(NODE_OPTIONS|NODE_ENV)$/.test(n)));
+const CARGO_ENV_PREFIXES = ["CARGO_", "RUST", "SCCACHE_", "CMAKE_", "CFLAGS_", "CXXFLAGS_", "OPENSSL_", "ORT_", "ONNX", "TAURI_", "WEBVIEW2_", "WINDOWS_SDK", "MSVC"];
+const NODE_ENV_NAMES = new Set(["CI", "GITHUB_ACTIONS", "NODE_OPTIONS", "NODE_ENV", "SOURCE_DATE_EPOCH"]);
+const NODE_ENV_PREFIXES = ["NPM_CONFIG_", "PNPM_"];
+// Locations, not inputs: where pnpm keeps its binaries and where npm caches downloads change no verdict (Mac 2026-11-07 and 2026-11-08).
+const NODE_ENV_LOCATIONS = /^(PNPM_HOME|NPM_CONFIG_CACHE|NPM_CONFIG_STORE_DIR|NPM_CONFIG_PREFIX|NPM_CONFIG_USERCONFIG|NPM_CONFIG_GLOBALCONFIG)$/;
+const CARGO_TOOLS = new Set(["rustright", "cargo", "rustc", "rustfmt", "clippy", "rustdoc", "cargo-deny", "cargo-audit", "swift"]);
+const NODE_TOOLS = new Set(["node", "pnpm", "npm", "npx", "tsc", "vitest", "biome", "oxlint", "eslint"]);
+/** Whether `name` is an inherited-environment input of a row run by `tool` (null: the union, as before). */
+export const buildEnvNameFor = (tool) => (name) => {
+  if (tool === null || tool === undefined) return buildEnvName(name);
+  const upper = String(name).toUpperCase();
+  if (BUILD_ENV_EXCLUDED.test(upper)) return false;
+  const cargo = CARGO_ENV_NAMES.has(upper) || CARGO_ENV_PREFIXES.some((p) => upper.startsWith(p));
+  if (CARGO_TOOLS.has(tool)) return cargo;
+  // A node tool can compile native code from a script (a test that builds a Tauri app), so its rows read the cargo family too, less the node locations.
+  if (NODE_TOOLS.has(tool)) return !NODE_ENV_LOCATIONS.test(upper) && (cargo || NODE_ENV_NAMES.has(upper) || NODE_ENV_PREFIXES.some((p) => upper.startsWith(p)));
+  return upper === "CI" || upper === "GITHUB_ACTIONS";
+};
 
 /** sha256 of the build-relevant part (buildEnvName) of the environment a scan's child receives. Pass the merged `{ ...deps.env, ...scan.env }`. */
 /** The build-relevant variables of `env` as {NAME: sha256 of the normalised value}: miss evidence names which ones moved, never their values. */
-export function inheritedEnvShape(env = {}) {
-  return Object.fromEntries(Object.entries(env).filter(([name, value]) => value !== undefined && value !== null && buildEnvName(name)).map(([name, value]) => [String(name).toUpperCase(), sha256(normalizeRunTemp(value)).slice(0, 16)]).sort((x, y) => (x[0] < y[0] ? -1 : 1)));
+export function inheritedEnvShape(env = {}, tool = null) {
+  const relevant = buildEnvNameFor(tool);
+  return Object.fromEntries(Object.entries(env).filter(([name, value]) => value !== undefined && value !== null && relevant(name)).map(([name, value]) => [String(name).toUpperCase(), sha256(normalizeRunTemp(value)).slice(0, 16)]).sort((x, y) => (x[0] < y[0] ? -1 : 1)));
 }
 
-export function inheritedEnvDigest(env = {}) {
-  const rows = Object.entries(env).filter(([name, value]) => value !== undefined && value !== null && buildEnvName(name)).map(([name, value]) => [String(name).toUpperCase(), normalizeRunTemp(value)]);
+export function inheritedEnvDigest(env = {}, tool = null) {
+  const relevant = buildEnvNameFor(tool);
+  const rows = Object.entries(env).filter(([name, value]) => value !== undefined && value !== null && relevant(name)).map(([name, value]) => [String(name).toUpperCase(), normalizeRunTemp(value)]);
   rows.sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0));
   return sha256(canonicalJson(rows));
 }
@@ -3602,10 +3627,11 @@ export async function runScans(plan, options = {}) {
               // Only build-relevant names key a publisher row (buildEnvName: compiler, cargo, toolchain, RK_/RIGHTKIT_ switches ...): the rest of the gate's environment (the
               // calling session's ids, sockets, PATH order, locale) is not an input of the compile (Mac 2026-11-07: a restarted session changed CLAUDE_* and 73 passes missed).
               const keyEnv = (env) => (s.coverageKey ? Object.fromEntries(Object.entries(env ?? {}).filter(([k]) => buildEnvName(k) && !/^(?:RIGHTKIT_BUILD_OWNERSHIP|RK_GATE_|RIGHTKIT_CARRIED_|RIGHTKIT_CARGO_SCAN|RIGHTKIT_RUN_|RUSTRIGHT_OWNERSHIP|TMPDIR$|PWD$|OLDPWD$|SHLVL$|_$)/.test(k))) : env);
-              const inherited = cache.narrowNodeCheck && /^node-check:/.test(s.id) ? sha256('node-check-child-env-in-digest/1') : inheritedEnvDigest(keyEnv({ ...deps.env, ...s.env }));
+              // rightkit#1540: the inherited environment is keyed per tool (buildEnvNameFor); the row's own env is keyed in full below (`env: keyEnv(s.env)`), so it is not repeated here.
+              const inherited = cache.narrowNodeCheck && /^node-check:/.test(s.id) ? sha256('node-check-child-env-in-digest/1') : inheritedEnvDigest(keyEnv(deps.env), s.tool ?? null);
               if (digest) {
                 cacheKey = scanCacheKey({ id: s.id, command: keyCommand(s), toolVersion, env: keyEnv(s.env ?? {}), inheritedEnv: inherited, digest });
-                keyParts = { inputs: sha256(String(digest)), env: sha256(canonicalJson({ toolVersion, env: keyEnv(s.env ?? {}), inherited })), raw: { inputs: String(digest), toolVersion, env: keyEnv(s.env ?? {}), inherited, inheritedShape: inheritedEnvShape(keyEnv({ ...deps.env, ...s.env })) } };
+                keyParts = { inputs: sha256(String(digest)), env: sha256(canonicalJson({ toolVersion, env: keyEnv(s.env ?? {}), inherited })), raw: { inputs: String(digest), toolVersion, env: keyEnv(s.env ?? {}), inherited, inheritedShape: inheritedEnvShape(keyEnv(deps.env), s.tool ?? null) } };
                 // NN41: a deterministic compile failure is keyed like the pass plus the tool version (the client's, its identity digest), the installed broker runtime
                 // identity (options.failureIdentity: version, clientDigest, brokerDigest) and the failure namespace; the digest already binds the unit closure, lock entries and toolchain files.
                 // No identity from the caller means no failure is ever stored or reused.

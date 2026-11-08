@@ -4,7 +4,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { meetPartitions, memberDifference, parseTreeFeatures, partitionByFeatures, partitionCacheKey, splitNote, stripSelectors, treeArgs } from "./feature-partition.mjs";
-import { storedPassRow, usableStoredPass } from "./deterministic-scans.mjs";
+import { inheritedEnvDigest, storedPassRow, usableStoredPass } from "./deterministic-scans.mjs";
+
+test("a row's inherited environment is keyed on what its tool reads (rightkit#1540)", () => {
+  const base = { PATH: "/usr/bin", RUSTFLAGS: "-D warnings", CARGO_HOME: "/h/.cargo", PNPM_HOME: "/h/pnpm", NPM_CONFIG_CACHE: "/h/.npm", NPM_CONFIG_REGISTRY: "https://r.example", RIGHTKIT_BUILD_BROKER_SOCKET: "/tmp/a.sock", RIGHTKIT_MANAGED_AGENT_BIN: "/opt/bin", RK_SNAPSHOT_TARGETS: "x", CLAUDE_SESSION: "1" };
+  const moved = { ...base, PNPM_HOME: "/other/pnpm", NPM_CONFIG_CACHE: "/other/.npm", RIGHTKIT_BUILD_BROKER_SOCKET: "/tmp/b.sock", RIGHTKIT_MANAGED_AGENT_BIN: "/other/bin", RK_SNAPSHOT_TARGETS: "y", CLAUDE_SESSION: "2" };
+  // the four variables that made 103 of 119 rows miss in batch 051b, and the gate's own switches: not inputs of a cargo row
+  assert.equal(inheritedEnvDigest(base, "rustright"), inheritedEnvDigest(moved, "rustright"));
+  assert.equal(inheritedEnvDigest(base, "cargo"), inheritedEnvDigest(moved, "cargo"));
+  // a compiler input moves: a different key
+  assert.notEqual(inheritedEnvDigest(base, "rustright"), inheritedEnvDigest({ ...base, RUSTFLAGS: "-C target-cpu=native" }, "rustright"));
+  // an npm row reads its registry, not pnpm's binary location or npm's cache location; it also reads the cargo family (a script can compile)
+  assert.notEqual(inheritedEnvDigest(base, "pnpm"), inheritedEnvDigest({ ...base, NPM_CONFIG_REGISTRY: "https://other" }, "pnpm"));
+  assert.equal(inheritedEnvDigest(base, "pnpm"), inheritedEnvDigest(moved, "pnpm"));
+  assert.notEqual(inheritedEnvDigest(base, "pnpm"), inheritedEnvDigest({ ...base, RUSTFLAGS: "-C opt-level=1" }, "pnpm"));
+  // a tool outside both families reads only CI
+  assert.equal(inheritedEnvDigest(base, "shellcheck"), inheritedEnvDigest({ ...moved, RUSTFLAGS: "x" }, "shellcheck"));
+  assert.notEqual(inheritedEnvDigest(base, "shellcheck"), inheritedEnvDigest({ ...base, CI: "1" }, "shellcheck"));
+});
 import { carriedScanRefusal } from "./snapshot-metadata.mjs";
 
 const libtest = (pass, skipped = 0) => ({ runner: "libtest", tests: pass + skipped, pass, fail: 0, skipped, todo: 0 });
