@@ -45,14 +45,13 @@ import { ADMISSION_POLL_MS, CARRIED_CANCEL_GRACE_MS, QUEUED_CEILING_FACTOR, crea
 import { CANCEL_WAIT_ENV, operationDeadlineEnv, refusalInCapturedOutput } from "./broker-wire.mjs";
 import { removeCarrier } from "./carrier-census.mjs";
 import { meetPartitions, partitionByFeatures, partitionCacheKey, splitNote, stripSelectors, treeArgs, workspaceManifestDigest } from "./feature-partition.mjs";
-import { CLASS_A_ENV, CLASS_A_VERDICT_SCHEMA, classAVerdict, judgeSeamOutcome, normalizeWorkspace, seamEnv, writeClassAVerdict } from "./gate-seam.mjs";
+import { CLASS_A_ENV, CLASS_A_VERDICT_SCHEMA, NOT_EXECUTED_EXIT, classAVerdict, judgeSeamOutcome, normalizeWorkspace, seamEnv, writeClassAVerdict } from "./gate-seam.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
 // The seam's run state for the door's lock release (reset plan section 3): a seam row whose client the gate killed, that timed out or was cancelled may have
 // left a broker job queued or finalizing after the row ended, so the door releases the snapshot lock only when `unsettled` is 0; otherwise the lock stays and
 // the next run reclaims it on the broker's stale-owner proof. One gate process runs one batch, so module state is the run's state.
 export const seamRunState = { rows: 0, unsettled: 0 };
-const SEAM_UNSETTLED_CODES = new Set(["TIMEOUT", "CLIENT_KILLED", "CANCELLED", "NO_RESULT_LINE"]);
 /**
  * The checker that produced a scan result: `<name>@<version>#<digest>` where the digest covers this module and scan-digest.mjs,
  * so a changed checker at the same version is a different identity. null when it cannot be computed; prior class A evidence
@@ -3287,7 +3286,7 @@ export async function runScans(plan, options = {}) {
       if (row.memberRuns && !signal?.aborted) {
         idx.forEach((i) => {
           const m = bScans[i]; const v = row.memberRuns[m.id] ?? { status: "fail", code: "TEST_GROUP", detail: `${m.id}: the test group ${row.id} produced no run for this member` };
-          const own = { id: m.id, class: m.class, command: m.command, batchCommand: row.command, batchedWith: { id: row.id, units: bs.batch.units }, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, status: v.status, ...(v.code ? { code: v.code } : {}), ...(v.detail ? { detail: v.detail } : {}), ...(v.results ? { results: v.results } : {}), ...(v.testRun ? { testRun: v.testRun } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}) };
+          const own = { id: m.id, class: m.class, command: m.command, batchCommand: row.command, batchedWith: { id: row.id, units: bs.batch.units }, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, ...(row.seam ? { seam: true, seamSettled: row.seamSettled === true } : {}), status: v.status, ...(v.code ? { code: v.code } : {}), ...(v.detail ? { detail: v.detail } : {}), ...(v.results ? { results: v.results } : {}), ...(v.testRun ? { testRun: v.testRun } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}) };
           slots[i] = own; done += 1;
           try { onResult(own, { done, total, seconds: Math.round((Date.now() - started) / 1000) }); } catch { /* reporting never fails a scan */ }
         });
@@ -3301,7 +3300,7 @@ export async function runScans(plan, options = {}) {
         batchFailureNotes.push(`class B batching: grouped doc invocation ${bs.id} (${idx.length} crates: ${bs.batch.units.join(", ")}) failed (EXIT) and was attributed per crate from its --message-format=json output, not bisected; failing: ${verdicts.filter((v) => v.fail).map((v) => v.unit).join(", ") || "none named"}`);
         idx.forEach((i, k) => {
           const m = bScans[i]; const v = verdicts[k];
-          const own = { id: m.id, class: m.class, command: m.command, batchCommand: row.command, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, status: v.fail ? "fail" : "pass", ...(v.fail ? { code: "EXIT", detail: `${row.id} (${idx.length} crates: ${bs.batch.units.join(", ")}): ${v.detail}` } : {}), ...(row.cached ? { cached: true } : {}), timing: row.timing ?? null, batchedWith: { id: row.id, units: bs.batch.units }, batchFailure: { id: bs.id, units: bs.batch.units, command: row.command, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), detail: "the grouped doc invocation failed; this row's verdict is its own, read from the invocation's JSON messages" }, ...(row.identities ? { identities: row.identities } : {}) };
+          const own = { id: m.id, class: m.class, command: m.command, batchCommand: row.command, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, ...(row.seam ? { seam: true, seamSettled: row.seamSettled === true } : {}), status: v.fail ? "fail" : "pass", ...(v.fail ? { code: "EXIT", detail: `${row.id} (${idx.length} crates: ${bs.batch.units.join(", ")}): ${v.detail}` } : {}), ...(row.cached ? { cached: true } : {}), timing: row.timing ?? null, batchedWith: { id: row.id, units: bs.batch.units }, batchFailure: { id: bs.id, units: bs.batch.units, command: row.command, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), detail: "the grouped doc invocation failed; this row's verdict is its own, read from the invocation's JSON messages" }, ...(row.identities ? { identities: row.identities } : {}) };
           slots[i] = own; done += 1;
           try { onResult(own, { done, total, seconds: Math.round((Date.now() - started) / 1000) }); } catch { /* reporting never fails a scan */ }
         });
@@ -3316,7 +3315,7 @@ export async function runScans(plan, options = {}) {
       }
       for (const i of idx) {
         const m = bScans[i];
-        const own = { id: m.id, class: m.class, command: m.command, batchCommand: row.command, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, status: row.status, ...(row.code ? { code: row.code } : {}), ...(row.detail ? { detail: row.status === "fail" ? `${row.id} (${idx.length} crates: ${bs.batch.units.join(", ")}): ${row.detail}` : row.detail } : {}), ...(row.cached ? { cached: true } : {}), timing: row.timing ?? null, batchedWith: { id: row.id, units: bs.batch.units }, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), ...(row.identities ? { identities: row.identities } : {}), ...(row.log ? { log: row.log } : {}), ...(options.cacheLookupOnly ? { lookupMiss: row.lookupMiss === true, uncacheable: row.uncacheable === true, ...(row.cacheMiss ? { cacheMiss: row.cacheMiss } : {}) } : {}) };
+        const own = { id: m.id, class: m.class, command: m.command, batchCommand: row.command, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, ...(row.seam ? { seam: true, seamSettled: row.seamSettled === true } : {}), status: row.status, ...(row.code ? { code: row.code } : {}), ...(row.detail ? { detail: row.status === "fail" ? `${row.id} (${idx.length} crates: ${bs.batch.units.join(", ")}): ${row.detail}` : row.detail } : {}), ...(row.cached ? { cached: true } : {}), timing: row.timing ?? null, batchedWith: { id: row.id, units: bs.batch.units }, ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), ...(row.identities ? { identities: row.identities } : {}), ...(row.log ? { log: row.log } : {}), ...(options.cacheLookupOnly ? { lookupMiss: row.lookupMiss === true, uncacheable: row.uncacheable === true, ...(row.cacheMiss ? { cacheMiss: row.cacheMiss } : {}) } : {}) };
         slots[i] = own; done += 1;
         try { onResult(own, { done, total, seconds: Math.round((Date.now() - started) / 1000) }); } catch { /* reporting never fails a scan */ }
       }
@@ -3638,7 +3637,7 @@ export async function runScans(plan, options = {}) {
             // the evidence its kind needs; a test group's hit carries each member's own run, so the members are judged exactly as on the run that stored it.
             if (usableStoredPass(hit, s, { cacheKey, viaSnapshotBroker: viaSnapshotBroker || viaSeam })) {
               cacheHits.push(s.id);
-              return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}`, ...(s.kind === "test" || s.runOutside || s.coverageKey ? { results: hit.row.results } : {}), ...(s.coverageKey ? { snapshotEvidence: hit.row.snapshotEvidence ?? null, testRun: hit.row.testRun ?? null } : hit.row.testRun ? { testRun: hit.row.testRun } : {}), ...(hit.row.memberRuns ? { memberRuns: hit.row.memberRuns } : {}) };
+              return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}`, ...(s.kind === "test" || s.runOutside || s.coverageKey ? { results: hit.row.results } : {}), ...(s.coverageKey ? { snapshotEvidence: hit.row.snapshotEvidence ?? null, testRun: hit.row.testRun ?? null } : hit.row.testRun ? { testRun: hit.row.testRun } : {}), ...(hit.row.memberRuns ? { memberRuns: hit.row.memberRuns } : {}), ...(row.seam ? { seamSettled: true } : {}) };
             }
             // NN41: the same inputs, toolchain and broker runtime already failed this compile deterministically: report that failure, marked cached, without running it.
             const failHit = failKey ? cache.read(failKey) : null;
@@ -3649,7 +3648,7 @@ export async function runScans(plan, options = {}) {
           }
           // Adrian 2026-11-06: the cache is looked up for every planned row BEFORE anything runs (options.cacheLookupOnly): a miss is reported with its cause, never run.
           // A probe (runGroup's per-crate lookup) answers like a lookup.
-          if (options.cacheLookupOnly || probeScans.has(s)) return { ...row, status: "not-run", lookupMiss: Boolean(cacheKey), uncacheable: !cacheKey, detail: cacheKey ? "would miss the cache" : "has no cache key" };
+          if (options.cacheLookupOnly || probeScans.has(s)) return { ...row, status: "not-run", lookupMiss: Boolean(cacheKey), uncacheable: !cacheKey, detail: cacheKey ? "would miss the cache" : "has no cache key", ...(row.seam ? { seamSettled: true } : {}) }; // nothing was submitted
           // Every cargo call the wrapper decides during this scan is filed under this token in the gate's ledger: the scan's own call AND the
           // calls the scan itself makes before it (the cargo-deny row's prefetch and its full metadata), so none is filed "unscoped" and fails the run.
           const ledgerToken = cargoLedger ? scanTokenOf(s.id) : null;
@@ -3897,6 +3896,10 @@ export async function runScans(plan, options = {}) {
           if (viaSeam && !signal?.aborted) {
             const judged = judgeSeamOutcome({ child: r, stderr: r?.stderr ?? "", commit: deps.gateSeam.commit, tree: deps.gateSeam.tree, classA: seamVars[CLASS_A_ENV] ?? null });
             if (judged.evidence) row.snapshotEvidence = { receiptSha256: judged.evidence.receiptSha256, receiptPath: judged.evidence.receiptPath, requestId: judged.evidence.requestId, outputDir: judged.evidence.outputDir, cargoDir: s.cwd ?? ".", seam: true, ...(judged.evidence.testExecutables ? { testExecutables: judged.evidence.testExecutables, testExecutablesReason: null } : {}) };
+            // Settled, for the door's lock release (seamRunState): positive evidence only. A parsed result line AND either a durable receipt read (the job reached its
+            // terminal state) or an explicit before-execution refusal (a code, or exit 125 with nothing admitted). A missing or malformed line, a missing receipt, a killed
+            // client or a spawn error leaves the row unsettled, and the lock stays (astra, 2026-11-09).
+            row.seamSettled = Boolean(judged.result) && (Boolean(judged.evidence) || Boolean(judged.result.code) || (judged.result.exit === NOT_EXECUTED_EXIT && judged.result.requestId === null));
             if (judged.status === "fail") { status = "fail"; code = judged.code; detail = `${s.id}: ${judged.detail}`; }
           }
           if (carrier) {
@@ -4062,7 +4065,8 @@ export async function runScans(plan, options = {}) {
     else { try { seamNotes.push(`class A verdict written: ${await ensureVerdict(".")}`); } catch (e) { verdictFailure = `CLASS_A_VERDICT: class A passed but its verdict was not written: ${e.message}`; seamNotes.push(verdictFailure); } }
   }
   const cancelled = signal?.aborted === true;
-  for (const r of results) if (r.seam === true) { seamRunState.rows += 1; if (SEAM_UNSETTLED_CODES.has(r.code) || (cancelled && r.status !== "pass")) seamRunState.unsettled += 1; }
+  // Positive evidence only: a seam row is settled when it carries seamSettled (a parsed result with a durable receipt or an explicit refusal, a cache hit, a lookup); every other seam row, whatever its code, keeps the lock.
+  for (const r of results) if (r.seam === true) { seamRunState.rows += 1; if (r.seamSettled !== true || (cancelled && r.status !== "pass")) seamRunState.unsettled += 1; }
   const allPassed = !cancelled && verdictFailure === null && results.every((r) => r.status === "pass");
   return {
     schema: SCAN_RESULT_SCHEMA, ok: allPassed, complete: allPassed, classes, checker, ...(cancelled ? { cancelled: true } : {}), ...(verdictFailure ? { verdictFailure } : {}),
