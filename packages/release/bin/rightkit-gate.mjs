@@ -1864,7 +1864,9 @@ async function runStages(o, args, root, git, io) {
         const snapshotPath = path.join(snapshotsAt, snap.repositoryOf(root).key);
         const judge = (holder) => {
           try {
-            const target = brokerControlTarget(o, { client: routeExecutor?.client ?? null });
+            // The executor is resolved here, not taken from the route decision above: that one is scoped to its own block (astra, 2026-11-09: a ReferenceError here was caught as "no proof").
+            const seamExecutor = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
+            const target = brokerControlTarget(o, { client: seamExecutor?.client ?? null });
             if (!target.ok) return false;
             const message = snapshotStatusMessage({ protocol: BUILD_CONTROL_PROTOCOL, runtime: target.identity, snapshot: snapshotPath, owner: holder });
             return snapshotStatusAllowsReclaim(snapshotStatusSync({ endpoint: target.endpoint, message }), { snapshot: snapshotPath, owner: holder });
