@@ -110,10 +110,10 @@ import { platformDirOf } from "../platform-dir.mjs";
 import { buildInventory, classifyUnitResults, dependencyFirstOrder, selectAffectedAcrossInventories, unitListReport } from "../affected-units.mjs";
 import { createRequire } from "node:module";
 import { nativeToolRefusal, nativeToolUses } from "../native-tool-planning.mjs";
-import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, brokerControlTarget, mergeCapabilityViews, parseRuntimeIdentity, queryBrokerHandshake } from "../broker-handshake.mjs";
+import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, mergeCapabilityViews, parseRuntimeIdentity, queryBrokerHandshake, snapshotReclaimJudge } from "../broker-handshake.mjs";
 import net from "node:net";
 import { installSpawnLedger } from "../spawn-ledger.mjs";
-import { processIdentity, snapshotLockBody, snapshotStatusAllowsReclaim, snapshotStatusMessage, snapshotStatusSync } from "../gate-seam.mjs";
+import { processIdentity, snapshotLockBody } from "../gate-seam.mjs";
 import { cargoWidthRouteProblem, cargoWidthScanProblem, cargoWidthUnitsProblem, parseCargoWidth, validateCargoWidthPool } from "../cargo-width.mjs";
 
 const PRIVATE_SCOPED_COMPILE = Symbol("private scoped compile");
@@ -1862,16 +1862,11 @@ async function runStages(o, args, root, git, io) {
         const identity = processIdentity(process.pid, { platform: o.platform, spawnSync: (c, a, opts) => o.spawn(c, a, opts) });
         // A dead holder's lock is reclaimed only on the broker's SNAPSHOT_STATUS proof that the snapshot is IDLE for exactly that owner (gate-seam.mjs); no broker, no proof.
         const snapshotPath = path.join(snapshotsAt, snap.repositoryOf(root).key);
-        const judge = (holder) => {
-          try {
-            // The executor is resolved here, not taken from the route decision above: that one is scoped to its own block (astra, 2026-11-09: a ReferenceError here was caught as "no proof").
-            const seamExecutor = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
-            const target = brokerControlTarget(o, { client: seamExecutor?.client ?? null });
-            if (!target.ok) return false;
-            const message = snapshotStatusMessage({ protocol: BUILD_CONTROL_PROTOCOL, runtime: target.identity, snapshot: snapshotPath, owner: holder });
-            return snapshotStatusAllowsReclaim(snapshotStatusSync({ endpoint: target.endpoint, message }), { snapshot: snapshotPath, owner: holder });
-          } catch { return false; }
-        };
+        // Everything the judge needs is resolved HERE and bound into it (snapshotReclaimJudge): the route's executor and this function's `which` are out of scope or
+        // not yet initialized when the sync calls the judge (astra, 2026-11-09, twice), and a caught ReferenceError would read as "no proof" forever.
+        let seamClient = null;
+        try { seamClient = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which: whichIn(o), readFile: o.readFile })?.client ?? null; } catch { seamClient = null; }
+        const judge = snapshotReclaimJudge({ o, client: seamClient, snapshotPath });
         if (identity) seamLock = { body: snapshotLockBody({ identity, commit: selected.commit }), judge, hold: true };
         else o.err(`${tag} note: this process's birth identity could not be read; the snapshot lock is the legacy one and is released after the sync`);
       }

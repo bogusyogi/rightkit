@@ -8,6 +8,7 @@ import test from "node:test";
 import { CLASS_A_ENV, CLASS_A_VERDICT_SCHEMA, GATE_COMMIT_ENV, classAVerdict, judgeSeamOutcome, normalizeWorkspace, parseIdentity, parseResultLine, processIdentity, readSeamReceipt, samePath, seamEnv, snapshotLockBody, writeClassAVerdict } from "./gate-seam.mjs";
 import { SNAPSHOT_STATUS_SCHEMA, snapshotStatusAllowsReclaim, snapshotStatusMessage, snapshotStatusSync } from "./gate-seam.mjs";
 import { spawn } from "node:child_process";
+import { snapshotReclaimJudge } from "./broker-handshake.mjs";
 import { acquireSnapshotLock } from "./snapshot.mjs";
 
 test("only an exact SNAPSHOT_STATUS echo with state IDLE proves a dead holder's snapshot idle; the query crosses a real socket", async () => {
@@ -37,6 +38,17 @@ test("only an exact SNAPSHOT_STATUS echo with state IDLE proves a dead holder's 
     const seen = JSON.parse(fs.readFileSync(seenFile, "utf8").trim());
     assert.equal(seen.type, "SNAPSHOT_STATUS"); assert.deepEqual(seen.owner, owner);
     assert.equal(snapshotStatusSync({ endpoint: `${sock}.missing`, message, timeoutMs: 2000 }), null, "no broker: no proof");
+    // The REAL closure the door installs (snapshotReclaimJudge), bound to a fake installed client whose runtime manifest is valid and whose endpoint is the fake
+    // broker: it reclaims on the IDLE echo for exactly this holder, and nothing else; without a client it never asks.
+    const clientDir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-seam-client-")); const client = path.join(clientDir, "rustright");
+    fs.writeFileSync(client, "#!/bin/sh\n", { mode: 0o755 });
+    fs.writeFileSync(path.join(clientDir, "runtime-manifest.json"), JSON.stringify({ schema: "rustright.build-control.runtime.v2", version: "0.1.1", clientDigest: "a".repeat(64), brokerDigest: "b".repeat(64) }));
+    const o = { platform: process.platform, env: {}, readFile: (f) => fs.readFileSync(f, "utf8"), realpath: (p) => p, lstat: fs.lstatSync, uid: process.getuid?.() ?? null, discoverEndpoint: () => sock };
+    const judge = snapshotReclaimJudge({ o, client, snapshotPath: snapshot });
+    assert.equal(judge(owner), true, "the door's judge reclaims on the broker's IDLE echo");
+    assert.equal(judge({ ...owner, token: "t-2" }), false, "another token is not this owner");
+    assert.equal(snapshotReclaimJudge({ o, client: null, snapshotPath: snapshot })(owner), false, "no client: no proof");
+    assert.equal(snapshotReclaimJudge({ o: { ...o, discoverEndpoint: () => `${sock}.missing` }, client, snapshotPath: snapshot })(owner), false, "no broker: no proof");
   } finally { server.kill(); }
 });
 

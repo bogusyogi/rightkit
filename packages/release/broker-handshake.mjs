@@ -11,6 +11,27 @@ import net from "node:net";
 import path from "node:path";
 import { resolveBrokerClient } from "./broker-client.mjs";
 import { discoverBrokerSocket } from "./managed-roots.mjs";
+import { snapshotStatusAllowsReclaim, snapshotStatusMessage, snapshotStatusSync } from "./gate-seam.mjs";
+
+/**
+ * The seam's reclaim judge (reset plan section 3; snapshot.mjs acquireSnapshotLock `judge`): asks the broker SNAPSHOT_STATUS for the dead holder's lock
+ * and returns true only on an exact IDLE echo. Everything it needs is bound here, at construction, from values that exist at that moment (`o`, the
+ * resolved `client`, the snapshot path): nothing is read from an outer scope at call time (two closure bugs of 2026-11-09 read a const that was out of
+ * scope or not yet initialized, and the catch turned them into "no proof"). `query` is injectable for tests; the default crosses the real socket.
+ */
+export function snapshotReclaimJudge({ o, client, snapshotPath, query = snapshotStatusSync }) {
+  if (typeof snapshotPath !== "string" || !path.isAbsolute(snapshotPath)) throw new TypeError("snapshotReclaimJudge: snapshotPath must be absolute");
+  const bound = { o, client: typeof client === "string" && client ? client : null, snapshotPath };
+  return (holder) => {
+    try {
+      if (!bound.client) return false;
+      const target = brokerControlTarget(bound.o, { client: bound.client });
+      if (!target.ok) return false;
+      const message = snapshotStatusMessage({ protocol: BUILD_CONTROL_PROTOCOL, runtime: target.identity, snapshot: bound.snapshotPath, owner: holder });
+      return snapshotStatusAllowsReclaim(query({ endpoint: target.endpoint, message }), { snapshot: bound.snapshotPath, owner: holder });
+    } catch { return false; }
+  };
+}
 
 /** `rustright_protocol::BUILD_CONTROL_PROTOCOL`: carried in every request envelope. */
 export const BUILD_CONTROL_PROTOCOL = "rustright.build-control.client.v2";
