@@ -176,16 +176,25 @@ function gatePackageIdentity(gatePackage = path.resolve(path.dirname(fileURLToPa
 const CLASS_A_KEY_SCHEMA = "rightkit.class-a-key/3";
 /** Whether a class A row's verdict depends on the installed dependencies (GC-A24): it executes repository code, or its tool is pnpm. */
 function classAEnvironmentBound(scan) { return scan.executes === true || scan.tool === "pnpm"; }
-let classBKeyIdentityMemo = null;
-function classBKeyIdentity() {
-  if (classBKeyIdentityMemo === null) {
+/**
+ * The code that decides what a class B pass means, in the key: on a seam run (a broker host compiling a snapshot) the seam's judge, its control helpers, the runtime cargo
+ * wrapper and the ledger a suite's seam calls are filed in; on the carrier route the carrier's modules. Each route keys only its own judging code, so deleting the carrier
+ * modules at step 5 of the reset plan leaves every seam row warm (fresh review of badf93c, D7). Any edit to a listed module is a deliberate cold start of that route.
+ */
+const CLASS_B_JUDGE_FILES = Object.freeze({
+  seam: ["gate-seam.mjs", "seam-broker.mjs", "cargo-target-shim.mjs", "cargo-ledger.mjs"],
+  carrier: ["cargo-target-shim.mjs", "snapshot-broker.mjs", "snapshot-request.mjs", "snapshot-metadata.mjs", "provenance-verify.mjs", "cargo-ledger.mjs", "gate-seam.mjs"],
+});
+const classBKeyIdentityMemo2 = new Map();
+function classBKeyIdentity(route = "carrier") {
+  if (!classBKeyIdentityMemo2.has(route)) {
     const h = createHash("sha256");
     h.update(CLASS_B_KEY_SCHEMA);
-    // The seam's judge (gate-seam.mjs) decides what a seam row's pass means, so its code is in the key beside the carrier's (which goes with step 5 of the reset plan).
-    for (const f of ["cargo-target-shim.mjs", "snapshot-broker.mjs", "snapshot-request.mjs", "snapshot-metadata.mjs", "provenance-verify.mjs", "cargo-ledger.mjs", "gate-seam.mjs"]) { h.update(`\0${f}\0`); h.update(fs.readFileSync(new URL(`../${f}`, import.meta.url))); }
-    classBKeyIdentityMemo = h.digest("hex").slice(0, 24);
+    h.update(`\0route:${route}\0`);
+    for (const f of CLASS_B_JUDGE_FILES[route]) { h.update(`\0${f}\0`); h.update(fs.readFileSync(new URL(`../${f}`, import.meta.url))); }
+    classBKeyIdentityMemo2.set(route, h.digest("hex").slice(0, 24));
   }
-  return classBKeyIdentityMemo;
+  return classBKeyIdentityMemo2.get(route);
 }
 let gateCodeIdentityMemo = null;
 function gateCodeIdentity() {
@@ -1891,8 +1900,9 @@ async function runStages(o, args, root, git, io) {
       // Otherwise the lock stays, and the next run reclaims it through that stale-owner proof once this process is gone and the jobs ended (fresh review E2).
       try {
         if (synced?.release) {
-          if (!seamBody || seamRunState.unsettled === 0) synced.release();
-          else o.err(`${tag} note: the snapshot lock ${synced.lockFile ?? ""} is kept: ${seamRunState.unsettled} seam row(s) of this run ended without a settled result (killed, timed out or cancelled), so a broker job may still be finishing; the lock is reclaimed on the broker's proof`);
+          // Positive evidence (fresh review of badf93c, D5): every seam run and stage carrier that began has counted its rows (open 0), and none was unsettled.
+          if (!seamBody || (seamRunState.unsettled === 0 && seamRunState.open === 0)) synced.release();
+          else o.err(`${tag} note: the snapshot lock ${synced.lockFile ?? ""} is kept: ${seamRunState.unsettled} seam row(s) of this run ended without a settled result and ${seamRunState.open} seam run(s) or stage(s) ended before counting theirs (killed, timed out, cancelled or failed), so a broker job may still be finishing; the lock is reclaimed on the broker's proof`);
         }
       } catch { /* a lock is removed by its holder only; a failed removal leaves it for the stale-holder rule */ }
       const r = own.release();
@@ -1967,17 +1977,14 @@ async function runStages(o, args, root, git, io) {
     // A broker host's child reaches the broker only through this stage's carrier (carried-cargo.mjs): its Cargo calls, and its pnpm, node and QA
     // steps as adapter jobs with the third-party children's compiles nested under them. Every call is in the gate-owned ledger and is verified
     // again after the child ends.
-    const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag });
+    const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag, appDir });
     if (carrier.refusal) { o.err(`${tag} BLOCKED: ${carrier.refusal}; nothing ran`); return false; }
     const run = startRun({ commonDir, commit, tree, stage, ...(sourceOf ? { source: sourceOf } : {}) });
     let childOk = false;
     try {
       o.out(`${tag} [${stage}] right-release ${cliArgs.join(" ")}${sourceOf ? ` (from the snapshot ${ds.path})` : ""}`);
-      // The seam (reset plan section 3): on a broker host a stage child carries RUSTRIGHT_GATE_COMMIT and RUSTRIGHT_CLASS_A (the root verdict the door's full class A wrote), so
-      // its pnpm, node and QA adapters run as `rustright run <adapter> -- <args>` (carried-cargo.mjs runCarriedAdapter -> seam-broker.mjs runSeamAdapter) and its nested
-      // cargo inherits that admission; a verdict the class A did not write is the broker's refusal, never a silent fallback to the carrier.
-      const seamStageEnv = ds && executor?.kind === "broker" && /^[0-9a-f]{40}$/.test(String(commit)) ? { RUSTRIGHT_GATE_COMMIT: commit, RUSTRIGHT_CLASS_A: path.join(path.dirname(path.dirname(path.resolve(ds.path))), "class-a-verdicts", verdictFileName({ commit, scope: appDir === "." ? null : [appDir], workspace: "." })) } : {};
-      const r = (o.spawnInherit ?? inheritLaunch)(process.execPath, [cli, ...cliArgs], { cwd: sourceOf ? snapshotAppRootOf(ds.path, appDir) : appRoot, env: carriedEnv(carrier, { ...o.env, ...run.env }, { ...extraEnv, ...seamStageEnv }) });
+      // The seam's two variables come with the carrier (seamStageEnvOf), as for every other stage with children.
+      const r = (o.spawnInherit ?? inheritLaunch)(process.execPath, [cli, ...cliArgs], { cwd: sourceOf ? snapshotAppRootOf(ds.path, appDir) : appRoot, env: carriedEnv(carrier, { ...o.env, ...run.env }, extraEnv) });
       childOk = r.status === 0;
     } finally { endRun(run); }
     const carriedOk = await carrier.finish({ stage });
@@ -2097,7 +2104,7 @@ async function runStages(o, args, root, git, io) {
       else for (const config of ok ? sidecarConfigs : []) if (!await rightRelease(stage, ["stage-sidecar", "--config", path.join(root, config)])) { ok = false; break; }
       let compiledDirs = []; let compiledBins = null; let qualifyOwed = [];
       const reportOutputs = (dirs, bins = null) => { compiledDirs = [...dirs]; compiledBins = bins; };
-      if (ok) ok = (await (o.runCompile ?? (() => main(ds ? ["--all", "--commit", commit, "--snapshot", ds.path] : ["--all"], { ...io, cwd: root, readStdin: () => "", ...(ds ? { buildOwnership: ds.own, classAEarlier: true, snapshotLedger: ds.ledger?.entries ?? [], onCompileLedger: (entries) => { ds.compileAdmitted = entries; }, onDirectReceipt: (r) => { directReceipt = r; }, onCompileOutputs: reportOutputs, onQualifyOwed: (list) => { qualifyOwed = list; } } : {}) })))({ reportOutputs })) === 0;
+      if (ok) ok = (await (o.runCompile ?? (() => main(ds ? ["--all", "--commit", commit, "--snapshot", ds.path] : ["--all"], { ...io, cwd: root, readStdin: () => "", ...(ds ? { buildOwnership: ds.own, classAEarlier: true, seamScope: appDir === "." ? null : [appDir], snapshotLedger: ds.ledger?.entries ?? [], onCompileLedger: (entries) => { ds.compileAdmitted = entries; }, onDirectReceipt: (r) => { directReceipt = r; }, onCompileOutputs: reportOutputs, onQualifyOwed: (list) => { qualifyOwed = list; } } : {}) })))({ reportOutputs })) === 0;
       if (directReceipt) extra = { ...extra, direct: directReceipt };
       // What the plan left to the qualify stage is recorded with the compile, so qualification can prove it is not lost (rightkit#1332, #1333).
       if (qualifyOwed.length) extra = { ...extra, qualifyOwed };
@@ -2482,7 +2489,7 @@ export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appD
   for (const config of configs) {
     const before = ds.ledger?.entries ?? [];
     // The stage-sidecar child's Cargo calls (its builds and metadata queries) are carried on a broker host (carried-cargo.mjs).
-    const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag, producer: true });
+    const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag, producer: true, appDir });
     if (carrier.refusal) { o.err(`${tag} BLOCKED: ${carrier.refusal}; nothing was staged`); return false; }
     const run = startRun({ commonDir, commit, tree, stage, source });
     let r;
@@ -2676,7 +2683,7 @@ export async function stageWindowsIdentityOnce({ o, ds, root, git = null, appDir
   const producer = path.join(path.dirname(cli), "..", "windows-identity.mjs");
   for (const config of configs) {
     const before = ds.ledger?.entries ?? [];
-    const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag, producer: true });
+    const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag, producer: true, appDir });
     if (carrier.refusal) { o.err(`${tag} BLOCKED: ${carrier.refusal}; the Windows identity package did not build`); return false; }
     const run = startRun({ commonDir, commit, tree, stage, source });
     let r;
@@ -3448,7 +3455,17 @@ async function snapshotCargoWorkspaces({ git, ds, root }) {
  * child's environment; `finish` runs after the child ended, fails on any call that was refused, unverified or unfinished and on any
  * receipt the gate cannot verify again itself, and removes the carrier. A direct executor, or no snapshot, has nothing to carry.
  */
-async function carrierForChildren({ o, ds, root, git, executor, stage, tag = "rightkit-gate:", producer = false }) {
+/**
+ * The seam's two variables for a door stage's children (reset plan section 3): the commit and the root verdict the door's class A wrote for its scope (`[appDir]`, or
+ * full for an app at the repository root). Every child of every stage with a carrier gets them (rightRelease, the sidecar and Windows identity producers, dev and test),
+ * so its pnpm, node, QA and cargo calls go through the seam, each naming its own directory's verdict (seam-broker.mjs verdictForCwd). Empty off a broker snapshot.
+ */
+function seamStageEnvOf({ ds, executor, appDir = "." }) {
+  if (!ds || executor?.kind !== "broker" || !/^[0-9a-f]{40}$/.test(String(ds.commit))) return {};
+  return { RUSTRIGHT_GATE_COMMIT: ds.commit, RUSTRIGHT_CLASS_A: path.join(path.dirname(path.dirname(path.resolve(ds.path))), "class-a-verdicts", verdictFileName({ commit: ds.commit, scope: appDir === "." ? null : [appDir], workspace: "." })) };
+}
+
+async function carrierForChildren({ o, ds, root, git, executor, stage, tag = "rightkit-gate:", producer = false, appDir = "." }) {
   const none = { env: {}, carried: false, refusal: null, async finish() { return true; }, cleanup() {} };
   if (!ds || executor?.kind !== "broker") return none;
   let base = null;
@@ -3477,21 +3494,25 @@ async function carrierForChildren({ o, ds, root, git, executor, stage, tag = "ri
     o.out(`${tag} [${stage}] carrier (${installed.mode}): ${Object.keys(checkoutDirs).length} workspace(s); each right-release cargo call and each pnpm, node or QA step is one carried request with its own signed receipt, and a compile a step's child makes is nested under it`);
     let finished = false;
     const cleanup = () => { try { installed.cleanup?.(); } catch { /* removed below */ } fs.rmSync(base, { recursive: true, force: true }); };
+    // The stage's children may make seam calls from here on: the door's lock waits until this stage's finish has counted them (seamRunState.open; a stage that never
+    // reaches its finish leaves it raised and the lock kept).
+    seamRunState.open += 1;
     return {
-      env: installed.env, carried: true, refusal: null, cleanup,
+      env: { ...installed.env, ...seamStageEnvOf({ ds, executor, appDir }) }, carried: true, refusal: null, cleanup,
       async finish({ stage: at = stage } = {}) {
         if (finished) return true;
         finished = true;
-        let problems;
+        let problems; let counted = false;
         try {
           problems = await installed.problems(sb, openInputDigests ? { openInputDigests } : {});
           // A child's seam call with no settled outcome may have left a broker job running: the door then keeps its snapshot lock (reset plan section 3).
           seamRunState.unsettled += installed.seamUnsettled?.() ?? 0;
+          seamRunState.open -= 1; counted = true;
           // The output directories the stage's verified receipts name: the package stage's sealed manifest must record only these.
           for (const dir of installed.outputDirs?.() ?? []) ((ds.carriedByStage ??= {})[at] ??= new Set()).add(dir);
           // And by workspace, for the next stage's children: a receipt already names the output directory, so none asks Cargo for it.
           for (const [root, dir] of installed.outputsByWorkspace?.() ?? []) (ds.carriedOutputs ??= new Map()).set(root, dir);
-        } catch (error) { problems = [`the cargo ledger cannot be read (${error.message})`]; seamRunState.unsettled += 1; /* the children's seam outcomes are unknown: keep the lock */ } finally { cleanup(); }
+        } catch (error) { problems = [`the cargo ledger cannot be read (${error.message})`]; seamRunState.unsettled += 1; /* the children's seam outcomes are unknown: keep the lock */ if (!counted) seamRunState.open -= 1; } finally { cleanup(); }
         for (const p of problems.slice(0, 10)) o.err(`${tag} RK_CHECK_ERROR: [${at}] a broker call the right-release child made did not complete: ${typeof p === "string" ? p : JSON.stringify(p)}`);
         return problems.length === 0;
       },
@@ -3650,7 +3671,7 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
     if (!staged) { o.err(`${tag} --to ${to} stopped: the declared sidecars could not be staged; nothing compiled`); return 1; }
   }
   // right-release dev and test, and the Tauri CLI and every other child they start, reach Cargo only through the stage's carrier on a broker host.
-  const carrier = await carrierForChildren({ o, ds, root, git, executor, stage: to, tag });
+  const carrier = await carrierForChildren({ o, ds, root, git, executor, stage: to, tag, appDir });
   if (carrier.refusal) { o.err(`${tag} BLOCKED: ${carrier.refusal}; nothing compiled`); return 1; }
   const run = startRun({ commonDir, commit, tree, stage: to, ...(source ? { source } : {}) });
   try {
@@ -4968,7 +4989,7 @@ export async function main(argv, io = {}) {
             if (d !== null && d !== undefined) ROW_DIGEST_MEMO.set(k, d);
             return d;
           };
-          const gateIdentity = classBKeyIdentity();
+          const gateIdentity = classBKeyIdentity(snapshotB && brokerHost ? "seam" : "carrier");
           cache = { ...store, digest: (scan) => { const key = rowDigest(scan); const full = key === null ? null : `${key}:${gateIdentity}`; scanKeys.set(scan.id, full); for (const member of scan.batch?.members ?? []) scanKeys.set(member, full); return full; } };
         } else {
           cacheDisabled = `class B result cache disabled: ${!headSha ? "no commit" : !treeId ? "no tree id" : `git common dir unreadable (${why(common)})`}`;
@@ -5004,9 +5025,10 @@ export async function main(argv, io = {}) {
         const snapshotPath = path.resolve(seamSnapshot.path);
         const state = JSON.parse(o.readFile(`${snapshotPath}.state.json`));
         if (state?.schema !== "rightkit.snapshot-state/1" || state.commit !== seamSnapshot.id.commit || state.tree !== seamSnapshot.id.tree || typeof state.repoKey !== "string") throw new Error(`${snapshotPath}.state.json does not describe commit ${seamSnapshot.id.commit} tree ${seamSnapshot.id.tree}`);
-        // scope: what this run's class A covered, or what its class B was scoped to (--scope dirs; null = full). The verdict is bound to it (gate-seam.mjs verdictForRun):
+        // scope: what this run's class A covered, or what its class B was scoped to (--scope dirs; null = full). A door compile that is not itself scoped names the scope
+        // the door's own check ran with (`seamScope`: [appDir] for an app below the repository root), so it reads that verdict (fresh review of badf93c, D2). The verdict is bound to it (gate-seam.mjs verdictForRun):
         // a class A scoped to a unit writes that unit's verdict, a class B scoped to it reads that one or a full one, never another unit's (fresh review 2026-11-09, E1).
-        gateSeam = { commit: seamSnapshot.id.commit, tree: seamSnapshot.id.tree, repoKey: state.repoKey, snapshot: snapshotPath, verdictDir: path.join(path.dirname(path.dirname(snapshotPath)), "class-a-verdicts"), outputRoots: snapshotBroker?.outputRoots ?? null, scope: scopeDirs.length ? scopeDirs : null };
+        gateSeam = { commit: seamSnapshot.id.commit, tree: seamSnapshot.id.tree, repoKey: state.repoKey, snapshot: snapshotPath, verdictDir: path.join(path.dirname(path.dirname(snapshotPath)), "class-a-verdicts"), outputRoots: snapshotBroker?.outputRoots ?? null, scope: scopeDirs.length ? scopeDirs : (classAEarlier && Array.isArray(o.seamScope) && o.seamScope.length ? o.seamScope : null) };
         o.out(`${tag} seam: ${seamSnapshot.what} ${snapshotPath}, commit ${seamSnapshot.id.commit.slice(0, 12)}; Class A verdicts under ${gateSeam.verdictDir}`);
       } catch (error) { o.err(`${tag} BLOCKED: RK_SEAM: ${error.message}; nothing ran`); return 1; }
     }

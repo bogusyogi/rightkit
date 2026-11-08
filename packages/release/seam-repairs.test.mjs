@@ -10,7 +10,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { judgeSeamOutcome, seamSettled, receiptIsTerminalFor, classAVerdict, writeClassAVerdict } from "./gate-seam.mjs";
+import { judgeSeamOutcome, seamSettled, receiptIsTerminalFor, classAVerdict, writeClassAVerdict, verdictFileName } from "./gate-seam.mjs";
+import { verdictForCwd } from "./seam-broker.mjs";
+import { runShim, SHIM_MAP_SCHEMA } from "./cargo-target-shim.mjs";
+import { seamRunState } from "./deterministic-scans.mjs";
 import { runCarriedAdapter, runCarriedCargo, installCarrier, carriedOutputDir } from "./carried-cargo.mjs";
 import { readLedgerDir, appendLedger } from "./cargo-ledger.mjs";
 import { runScans } from "./deterministic-scans.mjs";
@@ -114,7 +117,7 @@ test("4. a seam adapter's receipt outputDir is filed with its Cargo workspace: t
   const r = runCarriedAdapter("rightkit-tauri", ["tauri", "build"], { cwd, env }, { map, spawn });
   assert.equal(r.status, 0, JSON.stringify(r.refusal ?? null));
   const row = readLedgerDir(map.ledgerDir).entries.find((e) => e.adapter === "rightkit-tauri");
-  assert.equal(row.workspace, path.join(checkout, "app", "src-tauri")); assert.equal(row.settled, true);
+  assert.deepEqual(row.workspaces, [path.join(checkout, "app", "src-tauri")]); assert.equal(row.settled, true);
   assert.deepEqual(installed.outputsByWorkspace(), [[path.join(checkout, "app", "src-tauri"), out]]);
   assert.ok(installed.outputDirs().includes(out));
   assert.equal(carriedOutputDir(env, path.join(snap, "app", "src-tauri", "Cargo.toml"), { preferNested: true }), out, "the Tauri bundle root comes from the seam receipt");
@@ -147,4 +150,117 @@ test("3. a Swift build through the seam is the broker's adapter job: --package-p
   assert.deepEqual(sent.slice(0, 3), ["build", "--package-path", "."], "the one relative --package-path the adapter requires");
   assert.ok(!sent.some((a) => /^--(scratch|build)-path/.test(a)), `no gate scratch or build path: ${sent.join(" ")}`);
   assert.equal(result.scans[0].status, "pass", JSON.stringify(result.scans[0]));
+});
+
+test("4. an app inside an outer Cargo workspace: the adapter's target maps to the workspace below its cwd, not the outer one; two below map both", () => {
+  const dir = tmp(); const snap = path.join(dir, "snap"); const checkout = path.join(dir, "checkout");
+  for (const r of [snap, checkout]) for (const ws of [".", "app/src-tauri", "app/helper"]) { fs.mkdirSync(path.join(r, ws), { recursive: true }); fs.writeFileSync(path.join(r, ws, "Cargo.toml"), "[package]\nname = \"x\"\nversion = \"0.1.0\"\n"); }
+  const base = path.join(dir, "carrier"); fs.mkdirSync(base);
+  const installed = installCarrier({ base, snapshotRoot: snap, checkoutDirs: { ".": checkout, "app/src-tauri": path.join(checkout, "app", "src-tauri"), "app/helper": path.join(checkout, "app", "helper") }, section: { client: "/opt/rustright" } });
+  const map = JSON.parse(fs.readFileSync(installed.mapFile, "utf8")); const env = { ...seamEnvOf(), ...installed.env };
+  const out = path.join(dir, "managed-target"); fs.mkdirSync(out);
+  const cwd = path.join(snap, "app");
+  const receipt = receiptFor(dir, { argv: ["tauri", "build"], workspace: cwd, adapter: "rightkit-tauri" });
+  const r = runCarriedAdapter("rightkit-tauri", ["tauri", "build"], { cwd, env }, { map, spawn: () => ({ status: 0, signal: null, stdout: "", stderr: line({ outputDir: out, receipt }) }) });
+  assert.equal(r.status, 0, JSON.stringify(r.refusal ?? null));
+  const byWs = new Map(installed.outputsByWorkspace());
+  assert.equal(byWs.get(path.join(checkout, "app", "src-tauri")), out); assert.equal(byWs.get(path.join(checkout, "app", "helper")), out);
+  assert.equal(byWs.has(checkout), false, "the outer workspace the adapter only sits in is not mapped");
+  assert.equal(carriedOutputDir(env, path.join(snap, "app", "src-tauri", "Cargo.toml"), { preferNested: true }), out);
+});
+
+// A data root as the door lays it out: <data>/snapshots/<repoKey>/... and <data>/class-a-verdicts/<root verdict of the scope>.
+function dataRoot() {
+  const data = tmp(); const repoKey = "0123456789abcdef"; const snapshot = path.join(data, "snapshots", repoKey); const verdictDir = path.join(data, "class-a-verdicts");
+  fs.mkdirSync(path.join(snapshot, "app", "src-tauri"), { recursive: true }); fs.writeFileSync(path.join(snapshot, "app", "src-tauri", "Cargo.toml"), "[package]\nname = \"app\"\nversion = \"0.1.0\"\n");
+  const rootVerdict = writeClassAVerdict(verdictDir, classAVerdict({ commit, tree, repoKey, workspace: ".", scans: [{ id: "a", status: "pass" }], scope: ["app"] }));
+  return { data, repoKey, snapshot, verdictDir, rootVerdict };
+}
+
+test("D1. a stage child's seam call names the verdict of its own directory, derived from the root verdict of the door's scope (broker: workspace == cwd)", () => {
+  const { snapshot, rootVerdict } = dataRoot();
+  const env = { PATH: "/usr/bin", RUSTRIGHT_GATE_COMMIT: commit, RUSTRIGHT_CLASS_A: rootVerdict };
+  assert.equal(verdictForCwd(env, snapshot), rootVerdict, "the snapshot root keeps the root verdict");
+  const derived = verdictForCwd(env, path.join(snapshot, "app", "src-tauri"));
+  const v = JSON.parse(fs.readFileSync(derived, "utf8"));
+  assert.equal(v.workspace, "app/src-tauri"); assert.deepEqual(v.scope, ["app"]); assert.equal(v.commit, commit); assert.deepEqual(v.scans, [{ id: "a", status: "pass" }]);
+  assert.equal(path.basename(derived), verdictFileName({ commit, scope: ["app"], workspace: "app/src-tauri" }));
+  // through the real caller: the client is spawned with the derived verdict, and the receipt is judged against it
+  const ledgerDir = path.join(path.dirname(snapshot), "..", "ledger");
+  const map = { ledgerDir: path.resolve(ledgerDir), workspaces: { [path.join(snapshot, "app", "src-tauri")]: "/checkout/app/src-tauri" }, broker: { client: "/opt/rustright" } };
+  let sent = null;
+  const spawn = (cmd, argv, opts) => { sent = opts.env.RUSTRIGHT_CLASS_A; const receipt = receiptFor(path.dirname(snapshot), { argv: argv.slice(1), workspace: opts.cwd, adapter: null, gate: { classA: sent } }); return { status: 0, signal: null, stdout: "", stderr: line({ receipt }) }; };
+  const r = runCarriedCargo(["build"], { cwd: path.join(snapshot, "app", "src-tauri"), env }, { map, spawn, err: () => {} });
+  assert.equal(r.status, 0, JSON.stringify(r.refusal ?? null)); assert.equal(sent, derived);
+  // an unreadable verdict is handed to the broker unchanged: the broker refuses it with its own code
+  assert.equal(verdictForCwd({ ...env, RUSTRIGHT_CLASS_A: "/v/none.json" }, snapshot), "/v/none.json");
+});
+
+test("D6. the runtime cargo wrapper sends a suite's compile through the seam on a seam run, filed unsettled first; a refusal it makes settles", () => {
+  const { snapshot, rootVerdict } = dataRoot();
+  const ws = path.join(snapshot, "app", "src-tauri");
+  const dir = tmp(); const ledgerDir = path.join(dir, "ledger"); const mapFile = path.join(dir, "map.json");
+  fs.writeFileSync(mapFile, JSON.stringify({ schema: SHIM_MAP_SCHEMA, mode: "broker", ledgerDir, realCargo: null, shim: null, workspaces: { [ws]: "/checkout/app/src-tauri" }, broker: { client: "/opt/rustright", snapshot: { path: snapshot } } }));
+  const env = { PATH: "/usr/bin", RUSTRIGHT_GATE_COMMIT: commit, RUSTRIGHT_CLASS_A: rootVerdict, RIGHTKIT_CARGO_SCAN: "0123456789abcdef" };
+  const calls = []; let pendingSeen = null;
+  const spawn = (cmd, argv, opts) => {
+    calls.push([cmd, ...argv]);
+    pendingSeen = readLedgerDir(ledgerDir).entries.filter((e) => e.mode === "seam" && e.settled === false).length;
+    const receipt = receiptFor(dir, { argv: argv.slice(1), workspace: opts.cwd, adapter: null, gate: { classA: opts.env.RUSTRIGHT_CLASS_A } });
+    return { status: 0, signal: null, stdout: "", stderr: line({ receipt }) };
+  };
+  const status = runShim(["--map", mapFile, "--", "build", "--locked"], { env, cwd: ws, spawn, err: () => {} });
+  assert.equal(status, 0);
+  assert.deepEqual(calls[0].slice(0, 3), ["/opt/rustright", "cargo", "build"], "one rustright cargo call, never the carrier");
+  assert.equal(pendingSeen, 1, "filed as an unsettled seam call before it was sent");
+  const rows = readLedgerDir(ledgerDir).entries;
+  assert.equal(rows.length, 1); assert.equal(rows[0].mode, "seam"); assert.equal(rows[0].status, "verified"); assert.equal(rows[0].settled, true);
+  // a call the wrapper refuses submits nothing and settles
+  const refusedStatus = runShim(["--map", mapFile, "--", "build", "--target-dir", "/x"], { env, cwd: ws, spawn, err: () => {} });
+  assert.notEqual(refusedStatus, 0); assert.equal(calls.length, 1);
+  assert.ok(readLedgerDir(ledgerDir).entries.every((e) => e.settled === true));
+});
+
+// A seam cargo row through the real runScans: the client answers with a result line and a receipt built from what it was sent.
+function seamScanRig({ listing, receiptExtra = {}, exit = 0 }) {
+  const { data, snapshot, verdictDir, repoKey } = dataRoot();
+  writeClassAVerdict(verdictDir, classAVerdict({ commit, tree, repoKey, workspace: ".", scans: [{ id: "a", status: "pass" }], scope: "full" }));
+  const calls = [];
+  const spawn = async (cmd, args, opts = {}) => {
+    calls.push({ cmd, args: [...args] });
+    if (args.includes("--version")) return { status: 0, stdout: "cargo 1.98.0 (test)\n", stderr: "" };
+    const receipt = receiptFor(data, { argv: args.slice(1), workspace: opts.cwd, adapter: null, gate: { classA: opts.env?.RUSTRIGHT_CLASS_A } });
+    const r = JSON.parse(fs.readFileSync(receipt, "utf8")); Object.assign(r, receiptExtra); fs.writeFileSync(receipt, JSON.stringify(r));
+    return { status: exit, stdout: listing.map((l) => JSON.stringify(l)).join("\n") + "\n", stderr: line({ exit, receipt, outputDir: path.join(data, "out") }) };
+  };
+  const gateSeam = { commit, tree, repoKey, snapshot, verdictDir, outputRoots: null, scope: null };
+  return { spawn, calls, snapshot, gateSeam, opts: { classes: ["B"], classAEarlier: true, jobs: 1, classBJobs: 1, spawn, gateSeam, snapshotBroker: { platform: process.platform, outputRoots: [], controlRoot: data, commit, snapshot, handle: "h", declaredInputs: [] }, platform: process.platform } };
+}
+const testRow = { id: "test:rust:a", class: "B", tool: "rustright", root: "cargoLive", args: ["cargo", "test", "-p", "a", "--locked", "--message-format=json"], command: "rustright cargo test -p a --locked --message-format=json", runOutside: { args: [] } };
+const planOf = (snapshot, scans) => ({ schema: "rightkit.deterministic-scans/1", roots: { contentRoot: snapshot, liveRoot: snapshot, cargoLiveRoot: snapshot }, scans, notes: [], deferred: [], qualifyOwed: [] });
+
+test("D8 / zero list: a seam test compile whose listing has no executable passes only when the receipt's list is present and empty", async () => {
+  const finished = [{ reason: "build-finished", success: true }];
+  for (const [extra, want] of [[{ testExecutables: [] }, "pass"], [{ testExecutables: null, testExecutablesReason: "no JSON listing" }, "TEST_EXECUTABLE_UNSIGNED"], [{ testExecutables: [{ path: "/t/out/a-1", sha256: "f".repeat(64) }] }, "TEST_EXECUTABLE_MISSING"]]) {
+    const rig = seamScanRig({ listing: finished, receiptExtra: extra });
+    const r = (await runScans(planOf(rig.snapshot, [testRow]), rig.opts)).scans[0];
+    if (want === "pass") assert.equal(r.status, "pass", JSON.stringify(r)); else { assert.equal(r.status, "fail"); assert.equal(r.code, want, JSON.stringify(r)); }
+  }
+});
+
+test("D4/D5. a cached failure read on a seam run submitted nothing and is settled; a seam run raises open while it runs and lowers it after counting", async () => {
+  const row = { id: "check:a", class: "B", tool: "rustright", root: "cargoLive", args: ["cargo", "check", "-p", "a", "--locked"], command: "rustright cargo check -p a --locked" };
+  const rig = seamScanRig({ listing: [] });
+  const store = new Map(); const cache = { read: (k) => store.get(k) ?? null, write: (k, v) => { store.set(k, { key: k, at: "x", row: v }); }, digest: (s) => `d-${s.id}` };
+  // A deterministic compile failure stored by a direct (uncarried) run of the same inputs: the only way a failure enters the cache (NN41).
+  const direct = async (cmd, args) => (args.includes("--version") ? { status: 0, stdout: "cargo 1.98.0 (test)\n", stderr: "" } : { status: 101, stdout: "", stderr: "error[E0425]: cannot find value `x` in this scope\nerror: could not compile `a` (lib) due to 1 previous error\n" });
+  const stored = (await runScans(planOf(rig.snapshot, [row]), { classes: ["B"], classAEarlier: true, jobs: 1, classBJobs: 1, spawn: direct, cache, failureIdentity: "f1" })).scans[0];
+  assert.equal(stored.status, "fail", JSON.stringify(stored));
+  assert.ok([...store.values()].some((v) => v.row.status === "fail"), "the direct failure was stored");
+  const before = { ...seamRunState };
+  const seamRun = (await runScans(planOf(rig.snapshot, [row]), { ...rig.opts, cache, failureIdentity: "f1" })).scans[0];
+  assert.equal(seamRun.failureCached, true, JSON.stringify(seamRun)); assert.equal(rig.calls.filter((c) => !c.args.includes("--version")).length, 0, "nothing submitted");
+  assert.equal(seamRun.seam, true); assert.equal(seamRun.seamSettled, true, "a cached failure keeps no lock");
+  assert.equal(seamRunState.unsettled, before.unsettled, "no unsettled row counted");
+  assert.equal(seamRunState.open, before.open, "open is lowered once the seam run counted its rows");
 });

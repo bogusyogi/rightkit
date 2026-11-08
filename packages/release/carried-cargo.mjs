@@ -141,8 +141,8 @@ export function runCarriedAdapter(adapter, args, options = {}, { map, spawn = sp
   if (seamEnvPresent(env)) {
     // The adapter's checkout workspace (the snapshot workspace its cwd is in), so the stage's output readers map its receipt's outputDir: the broker signs the adapter
     // job's pinned target there, and a compile the adapter starts (`tauri build`) uses that same target (rustright normalize_impl.rs, adapter parent).
-    const snap = adapterSnapshotWorkspace(map.workspaces ?? {}, cwd);
-    const row = { id: `${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`, mode: "seam", shim: "adapter", cwd, argv: args, adapter, workspace: snap ? map.workspaces[snap] : null };
+    const snaps = adapterSnapshotWorkspaces(map.workspaces ?? {}, cwd);
+    const row = { id: `${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`, mode: "seam", shim: "adapter", cwd, argv: args, adapter, workspaces: snaps.map((w) => map.workspaces[w]) };
     // Pending before submission, as for a seam cargo call: a child killed during the call leaves it unsettled; a pending row that cannot be written submits nothing.
     try { appendLedger(map.ledgerDir, token, { ...row, status: "pending", settled: false }); }
     catch (error) { const message = `the seam call cannot be filed for the parent before it is sent (${error.message}); nothing was submitted`; err(`rightkit-gate: RK_CARGO_LEDGER: ${message}`); return refused("RK_CARGO_LEDGER", message); }
@@ -191,16 +191,17 @@ const deepestSnapshotRoot = (workspaces, file) => {
 };
 
 /**
- * The snapshot Cargo workspace an adapter job builds, as a key of `workspaces`: the one its cwd is in (deepest), else the only one under its cwd (a Tauri
- * app's `tauri build` runs from the app root and compiles its `src-tauri`), else null (no workspace, or several: which one the adapter built is not known).
+ * The snapshot Cargo workspaces an adapter job's compiles may build, as keys of `workspaces`: every one at or under its cwd (a Tauri app's `tauri build` runs from the app
+ * root and compiles its `src-tauri`, even when the app itself sits inside an outer workspace), else the deepest one its cwd is in. The broker pins every compile an adapter
+ * job starts to that job's own target (rustright normalize_impl.rs: an adapter parent's target), so the receipt's outputDir is each of these workspaces' output.
  */
-function adapterSnapshotWorkspace(workspaces, cwd) {
-  const inside = deepestSnapshotRoot(workspaces, cwd);
-  if (inside) return inside;
+function adapterSnapshotWorkspaces(workspaces, cwd) {
   let real = cwd;
   try { real = fs.realpathSync.native(cwd); } catch { /* as given */ }
-  const under = Object.keys(workspaces).filter((r) => r.startsWith(`${real}${path.sep}`));
-  return under.length === 1 ? under[0] : null;
+  const under = Object.keys(workspaces).filter((r) => r === real || r.startsWith(`${real}${path.sep}`)).sort();
+  if (under.length) return under;
+  const inside = deepestSnapshotRoot(workspaces, cwd);
+  return inside ? [inside] : [];
 }
 
 /** The verified calls' signed output directories: a cargo call's, an adapter job's own and each of its nested children's. */
@@ -230,7 +231,11 @@ function finish(ledgerDir, dir, workspaces = {}) {
       for (const e of readLedgerDir(ledgerDir).entries) {
         if (e.status !== "verified") continue;
         // A seam adapter job (reset plan section 3) has no signed child list: its receipt's outputDir is the target its own compiles used, filed with its workspace.
-        if (e.shim === "adapter" && e.mode !== "seam") {
+        if (e.shim === "adapter" && e.mode === "seam") {
+          for (const ws of Array.isArray(e.workspaces) ? e.workspaces : []) if (typeof e.outputDir === "string" && typeof ws === "string") out.set(ws, e.outputDir);
+          continue;
+        }
+        if (e.shim === "adapter") {
           for (const child of Array.isArray(e.nestedChildren) ? e.nestedChildren : []) {
             const snap = typeof child.cwd === "string" ? deepestSnapshotRoot(workspaces, child.cwd) : null;
             if (snap && typeof child.outputDir === "string") out.set(workspaces[snap], child.outputDir);
@@ -306,7 +311,7 @@ export function carriedOutputDir(env, manifestPath, { preferNested = false } = {
     // A seam adapter job's receipt names the one target the adapter and every compile it starts used (rustright normalize_impl.rs: an adapter parent's own target),
     // so for a Tauri bundle it stands where the legacy carrier's signed nested child stood.
     if (e.shim === "adapter" && e.mode === "seam") {
-      if (typeof e.outputDir === "string" && typeof e.workspace === "string" && e.workspace === root) { mine.push(e.outputDir); nested.push(e.outputDir); }
+      if (typeof e.outputDir === "string" && Array.isArray(e.workspaces) && e.workspaces.includes(root)) { mine.push(e.outputDir); nested.push(e.outputDir); }
     } else if (e.shim === "adapter") {
       for (const child of Array.isArray(e.nestedChildren) ? e.nestedChildren : []) {
         const snap = typeof child.cwd === "string" ? deepestSnapshotRoot(map.workspaces, child.cwd) : null;

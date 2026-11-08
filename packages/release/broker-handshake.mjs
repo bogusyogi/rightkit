@@ -12,33 +12,18 @@ import path from "node:path";
 import { resolveBrokerClient } from "./broker-client.mjs";
 import { discoverBrokerSocket } from "./managed-roots.mjs";
 
-/** `rustright_protocol::BUILD_CONTROL_PROTOCOL`: carried in every request envelope. */
-export const BUILD_CONTROL_PROTOCOL = "rustright.build-control.client.v2";
+// The protocol name, the runtime manifest and its identity parser belong to the seam's control query and live in seam-broker.mjs (kept by the reset plan); this module,
+// on the plan's delete list, re-exports them for its remaining callers until step 5.
+import { BUILD_CONTROL_PROTOCOL, RUNTIME_MANIFEST_FILE, RUNTIME_MANIFEST_SCHEMA, normalizeRuntimeIdentity as normalizeIdentity, parseRuntimeIdentity } from "./seam-broker.mjs";
+export { BUILD_CONTROL_PROTOCOL, RUNTIME_MANIFEST_FILE, RUNTIME_MANIFEST_SCHEMA, parseRuntimeIdentity };
 /** The id of the client's own health probe (`rustright-cli` doctor: PROBE_ID); a by-id request, so it is not held to the exact runtime digest. */
 export const HANDSHAKE_PROBE_ID = "runtime-health-probe";
-export const RUNTIME_MANIFEST_FILE = "runtime-manifest.json";
-export const RUNTIME_MANIFEST_SCHEMA = "rustright.build-control.runtime.v2";
-const LEGACY_RUNTIME_MANIFEST_SCHEMA = "rightkit.build-control.runtime.v2";
 /** A client accepts at most 1 MiB per line (rustright-protocol MAX_BROKER_LINE_BYTES). */
 export const MAX_HANDSHAKE_LINE_BYTES = 1 << 20;
 export const HANDSHAKE_TIMEOUT_MS = 20_000;
 
-const isDigest = (v) => typeof v === "string" && /^[0-9a-f]{64}$/.test(v);
 const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
-/** The runtime identity of a parsed object (`schema` current or legacy, a version, both digests lowercase 64-hex), as RustRight's `RuntimeIdentity::new` validates it. */
-function normalizeIdentity(raw) {
-  if (!isObject(raw) || ![RUNTIME_MANIFEST_SCHEMA, LEGACY_RUNTIME_MANIFEST_SCHEMA].includes(raw.schema) || typeof raw.version !== "string" || raw.version === "" || !isDigest(raw.clientDigest) || !isDigest(raw.brokerDigest)) return null;
-  return { schema: RUNTIME_MANIFEST_SCHEMA, version: raw.version, clientDigest: raw.clientDigest, brokerDigest: raw.brokerDigest };
-}
-
-/** The runtime identity a `runtime-manifest.json` text holds: `{ ok: true, identity }` or `{ ok: false, problem }`. */
-export function parseRuntimeIdentity(text) {
-  let doc;
-  try { doc = JSON.parse(text); } catch { return { ok: false, problem: "the runtime manifest is not JSON" }; }
-  const identity = normalizeIdentity(doc);
-  return identity ? { ok: true, identity } : { ok: false, problem: "the runtime manifest is not a runtime identity (schema, version, clientDigest and brokerDigest are required)" };
-}
 
 /**
  * The broker's HANDSHAKE event (a line of JSON or the parsed object) as `{ ok: true, capabilities, runtime }` or `{ ok: false, problem }`. `capabilities` is additive on the wire: absent means the broker

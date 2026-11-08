@@ -36,6 +36,7 @@ import { SCAN_TOKEN_ENV, appendLedger } from "./cargo-ledger.mjs";
 import { BROKER_REFUSAL_STATUS, runBrokerCargo } from "./snapshot-broker.mjs";
 import { carriedScanRefusal } from "./snapshot-metadata.mjs";
 import { carriedShapeDecision } from "./cargo-shapes.mjs";
+import { runSeamCargoCall, seamEnvPresent } from "./seam-broker.mjs";
 
 export const SHIM_MAP_SCHEMA = "rightkit.cargo-target-shim/3";
 // Exit status of a refusal: cargo's own error status, so every caller reads it as a failed cargo.
@@ -323,11 +324,16 @@ export function runShim(argv, { env = process.env, cwd = process.cwd(), spawn = 
   const token = env[SCAN_TOKEN_ENV];
   const id = `${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   const broker = map.mode === "broker";
-  const base = { id, mode: broker ? "broker" : "direct", cwd, argv: words };
+  // The seam (reset plan section 3): on a broker host whose environment carries the two seam variables (an npm or node suite with a broker call on a seam run), a compile
+  // goes through `rustright cargo` in the snapshot, never the carrier the broker refuses under the seam lock. Its row is an unsettled seam call from the moment it is
+  // filed, so a wrapper killed during the call keeps the door's lock; an outcome that submitted nothing (a refusal, a direct read, a version probe) settles it.
+  const seam = broker && seamEnvPresent(env);
+  const base = { id, mode: seam ? "seam" : broker ? "broker" : "direct", cwd, argv: words, ...(seam ? { settled: false } : {}) };
+  const unsent = seam ? { settled: true } : {};
   // A call that cannot be recorded does not run: the ledger is how the gate learns what a test did, whatever the test does with the status.
   const record = (entry) => appendLedger(map.ledgerDir, token, entry);
   try { record({ ...base, status: "pending" }); } catch (error) { err(`rightkit-gate: RK_CARGO_LEDGER_ERROR: the call cannot be recorded (${error.message}); it does not run`); return SHIM_REFUSAL_STATUS; }
-  const refuse = (why) => { record({ ...base, status: "refused", code: why.code, message: why.message }); err(`rightkit-gate: ${why.code}: ${why.message}`); return SHIM_REFUSAL_STATUS; };
+  const refuse = (why) => { record({ ...base, ...unsent, status: "refused", code: why.code, message: why.message }); err(`rightkit-gate: ${why.code}: ${why.message}`); return SHIM_REFUSAL_STATUS; };
   // locate-project runs the real cargo with CARGO pointing at it, never at the wrapper (direct mode). Broker mode reads the files only.
   const locateEnv = { ...env, CARGO: map.realCargo };
   const locate = broker ? (manifestPath, from) => locateWorkspaceByWalk(manifestPath, from) : (manifestPath, from, toolchain) => {
@@ -349,8 +355,15 @@ export function runShim(argv, { env = process.env, cwd = process.cwd(), spawn = 
     try { r = spawn(map.realCargo, decision.exec.args, { cwd, env: { ...rest, CARGO: map.realCargo, CARGO_TARGET_DIR: scratch }, stdio: "inherit" }); }
     finally { try { fs.rmSync(scratch, { recursive: true, force: true }); } catch { /* scratch under the wrapper's own directory */ } }
     if (r.error) return refuse({ code: "RK_CARGO_SHIM_ERROR", message: `${map.realCargo} did not start (${r.error.message})` });
-    record({ ...base, status: "ran", direct: true, exit: r.status ?? null });
+    record({ ...base, ...unsent, status: "ran", direct: true, exit: r.status ?? null });
     return r.status ?? (r.signal ? 128 : SHIM_REFUSAL_STATUS);
+  }
+  if (seam && decision.exec.workspace) {
+    // One `rustright cargo` in the call's own directory, judged by its result line and receipt (seam-broker.mjs); the outcome replaces the pending row (same id).
+    const { result, ledger } = runSeamCargoCall(decision.exec.args, { cwd, env, stdio: "inherit", client: map.broker.client, spawnSync: spawn });
+    if (result.stderr) err(String(result.stderr).replace(/\n$/, ""));
+    try { record({ ...base, ...ledger }); } catch (error) { err(`rightkit-gate: RK_CARGO_LEDGER_ERROR: the seam call's outcome cannot be recorded (${error.message})`); return result.status === 0 ? SHIM_REFUSAL_STATUS : result.status; }
+    return result.status;
   }
   if (broker && decision.exec.workspace) {
     // The `pending` record above stays this call's until the broker call finishes: its records carry the same call id.
@@ -362,7 +375,7 @@ export function runShim(argv, { env = process.env, cwd = process.cwd(), spawn = 
   const spawnOpts = { cwd, env: decision.exec.env, stdio: "inherit" };
   const r = viaClient ? spawnBrokerClient(spawn, command, ["cargo", ...decision.exec.args], spawnOpts, { platform: map.broker.platform }) : spawn(command, decision.exec.args, spawnOpts);
   if (r.error) return refuse({ code: "RK_CARGO_SHIM_ERROR", message: `${command} did not start (${r.error.message})` });
-  record({ ...base, status: "ran", exit: r.status ?? null });
+  record({ ...base, ...unsent, status: "ran", exit: r.status ?? null });
   return r.status ?? (r.signal ? 128 : SHIM_REFUSAL_STATUS);
 }
 

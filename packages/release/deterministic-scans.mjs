@@ -51,7 +51,10 @@ export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
 // The seam's run state for the door's lock release (reset plan section 3): a seam row whose client the gate killed, that timed out or was cancelled may have
 // left a broker job queued or finalizing after the row ended, so the door releases the snapshot lock only when `unsettled` is 0; otherwise the lock stays and
 // the next run reclaims it on the broker's stale-owner proof. One gate process runs one batch, so module state is the run's state.
-export const seamRunState = { rows: 0, unsettled: 0 };
+// The door's evidence for releasing its snapshot lock: `open` counts the seam runs (runScans with a seam, a stage's carrier) that began and have not yet counted their
+// rows; `unsettled` the rows and stage calls counted without a settled outcome. The lock is released only when both are 0: a run that throws before it counts leaves
+// `open` raised, so no count is ever taken as proof by its absence (fresh review of badf93c, D5).
+export const seamRunState = { rows: 0, unsettled: 0, open: 0 };
 /**
  * The checker that produced a scan result: `<name>@<version>#<digest>` where the digest covers this module and scan-digest.mjs,
  * so a changed checker at the same version is a different identity. null when it cannot be computed; prior class A evidence
@@ -2959,6 +2962,7 @@ export async function runScans(plan, options = {}) {
     ...options,
   };
   const classes = options.classes ?? [SCAN_CLASS.A, SCAN_CLASS.B];
+  if (deps.gateSeam) seamRunState.open += 1; // lowered only after this run counted its seam rows (below)
   const exclude = options.exclude ?? (() => false);
   // An AbortSignal: once aborted, no further scan starts, running children are killed (process tree) and every unfinished scan is "not-run" with code CANCELLED.
   const signal = options.signal; const sig = signal ? { signal } : {};
@@ -3333,7 +3337,7 @@ export async function runScans(plan, options = {}) {
       if (row.memberRuns && !signal?.aborted) {
         idx.forEach((i) => {
           const m = bScans[i]; const v = row.memberRuns[m.id] ?? { status: "fail", code: "TEST_GROUP", detail: `${m.id}: the test group ${row.id} produced no run for this member` };
-          const own = { id: m.id, class: m.class, command: m.command, batchCommand: row.command, batchedWith: { id: row.id, units: bs.batch.units }, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, ...(row.seam ? { seam: true, seamSettled: row.seamSettled === true } : {}), status: v.status, ...(v.code ? { code: v.code } : {}), ...(v.detail ? { detail: v.detail } : {}), ...(v.results ? { results: v.results } : {}), ...(v.testRun ? { testRun: v.testRun } : {}), ...(v.acceptedBinaries ? { acceptedBinaries: v.acceptedBinaries } : {}), ...(v.executableProof ? { executableProof: v.executableProof } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}) };
+          const own = { id: m.id, class: m.class, command: m.command, batchCommand: row.command, batchedWith: { id: row.id, units: bs.batch.units }, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, ...(row.seam ? { seam: true, seamSettled: row.seamSettled === true } : {}), status: v.status, ...(v.code ? { code: v.code } : {}), ...(v.detail ? { detail: v.detail } : {}), ...(v.results ? { results: v.results } : {}), ...(v.testRun ? { testRun: v.testRun } : {}), ...(v.acceptedBinaries ? { acceptedBinaries: v.acceptedBinaries } : {}), ...(v.executableProof ? { executableProof: v.executableProof } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), ...(row.cached ? { cached: true } : {}) };
           slots[i] = own; done += 1; settle(m.id, own);
           try { onResult(own, { done, total, seconds: Math.round((Date.now() - started) / 1000) }); } catch { /* reporting never fails a scan */ }
         });
@@ -3688,7 +3692,7 @@ export async function runScans(plan, options = {}) {
             const failHit = failKey ? cache.read(failKey) : null;
             if (failHit && failHit.key === failKey && failHit.row?.status === "fail" && failHit.row.id === s.id && sameCommand(failHit.row.command, s) && failHit.row.failureIdentity === options.failureIdentity && (failHit.row.code === "EXIT" || failHit.row.code === "BROKER_COMPILE_FAILURE") && typeof failHit.row.detail === "string" && failHit.row.detail !== "") {
               cacheHits.push(s.id);
-              return { ...row, status: "fail", code: failHit.row.code, cached: true, failureCached: true, detail: `cached failure ${String(failHit.at ?? "").slice(0, 10) || "earlier"} (same inputs, toolchain and broker runtime): ${failHit.row.detail}`, ...(failHit.row.authenticatedFailure ? { authenticatedFailure: failHit.row.authenticatedFailure } : {}), ...(failHit.row.jsonSummary ? { jsonSummary: failHit.row.jsonSummary } : {}) };
+              return { ...row, ...(row.seam ? { seamSettled: true } : {}), status: "fail", code: failHit.row.code, cached: true, failureCached: true, detail: `cached failure ${String(failHit.at ?? "").slice(0, 10) || "earlier"} (same inputs, toolchain and broker runtime): ${failHit.row.detail}`, ...(failHit.row.authenticatedFailure ? { authenticatedFailure: failHit.row.authenticatedFailure } : {}), ...(failHit.row.jsonSummary ? { jsonSummary: failHit.row.jsonSummary } : {}) };
             }
           }
           // Adrian 2026-11-06: the cache is looked up for every planned row BEFORE anything runs (options.cacheLookupOnly): a miss is reported with its cause, never run.
@@ -3706,6 +3710,8 @@ export async function runScans(plan, options = {}) {
           if (s.reuseExecutables && (s.runOutside || s.e2e) && plannedIds.has(s.reuseExecutables)) {
             const reuseLimit = scanTimeoutMs(s, options);
             let base = await waitForRow(s.reuseExecutables, Math.min(reuseLimit, QUIET_SCAN_MAX_MS));
+            // None of the outcomes below submits anything for this row: a seam row is settled by construction (the plain row's own job is counted on the plain row).
+            if (row.seam) row.seamSettled = true;
             if (!base) return { ...row, status: "fail", code: "TEST_DEPENDENCY_TIMEOUT", detail: `${s.id}: its plain row ${s.reuseExecutables} did not finish within this row's limit; this row reuses that row's executables and never compiles them a second time` };
             if (base.status === "not-run") return { ...row, status: "not-run", detail: `${s.id}: its plain row ${s.reuseExecutables} did not run (${String(base.detail ?? "not run").slice(0, 300)})` };
             if (base.status !== "pass") return { ...row, status: "fail", code: "TEST_DEPENDENCY_FAILED", detail: `${s.id}: its plain row ${s.reuseExecutables} failed (${base.code ?? "fail"}); the serial run of the same executables proves nothing more` };
@@ -3716,11 +3722,10 @@ export async function runScans(plan, options = {}) {
               if (proven.accepted) { base = { ...base, acceptedBinaries: proven.accepted }; row.reusedCachedProof = true; }
               else row.reuseFallback = `${s.reuseExecutables} was a cache hit and its stored executables cannot be reused (${proven.why}); this row compiles once on its own`;
             }
-            // An end-to-end crate's serial row is the same `--no-run` compile as its plain row and runs no test (they run in qualify): when the plain row compiled it in this run, that
-            // compile is this row's too and nothing is repeated; it is not stored under this key (store rule). A cache hit of the plain row falls through: this row then compiles once.
-            if (s.e2e && !s.runOutside && base.cached !== true) return { ...row, status: "pass", reusedExecutablesOf: base.id, detail: `${s.id}: its compile is ${base.id}'s, compiled once in this run (end-to-end crate: no test runs here)`, ...(base.snapshotEvidence ? { snapshotEvidence: base.snapshotEvidence } : {}), ...(base.seam ? { seam: true, seamSettled: true } : {}) };
-            if (s.e2e && !s.runOutside) { row.reuseFallback = `${s.reuseExecutables} was a cache hit; this end-to-end row compiles once on its own`; }
-            else if (!Array.isArray(base.acceptedBinaries) && base.cached !== true) return { ...row, status: "fail", code: "TEST_DEPENDENCY_NO_EXECUTABLES", detail: `${s.id}: its plain row ${s.reuseExecutables} passed without an executable list to reuse` };
+            // An end-to-end crate's serial row is the same `--no-run` compile as its plain row and runs no test (they run in qualify): the plain row's pass, compiled in this run or
+            // a cache hit of the same inputs, is this compile's pass, so nothing is repeated (Adrian's compile-once, rightkit#1539); it is not stored under this key (store rule).
+            if (s.e2e && !s.runOutside) return { ...row, status: "pass", reusedExecutablesOf: base.id, detail: `${s.id}: its compile is ${base.id}'s, ${base.cached === true ? "a cache hit of the same compile" : "compiled once in this run"} (end-to-end crate: no test runs here)`, ...(base.snapshotEvidence ? { snapshotEvidence: base.snapshotEvidence } : {}), ...(base.seam ? { seam: true, seamSettled: true } : {}) };
+            if (!Array.isArray(base.acceptedBinaries) && base.cached !== true) return { ...row, status: "fail", code: "TEST_DEPENDENCY_NO_EXECUTABLES", detail: `${s.id}: its plain row ${s.reuseExecutables} passed without an executable list to reuse` };
             if (Array.isArray(base.acceptedBinaries) && !base.acceptedBinaries.length) {
               row.results = { runner: "libtest", tests: 0, pass: 0, fail: 0, skipped: 0, todo: 0, binaries: 0 }; row.testRun = { executables: [], outputTruncated: false, skipMarkers: 0 }; row.reusedExecutablesOf = base.id;
               if (base.seam) { row.seam = true; row.seamSettled = true; }
@@ -3896,8 +3901,12 @@ export async function runScans(plan, options = {}) {
           }
           // The seam's two variables, last so nothing overrides them; the Class A verdict is written (or read) before the first class B spawn of its workspace.
           let seamVars = {};
-          if (viaSeam) {
-            try { seamVars = seamEnv({ commit: deps.gateSeam.commit, classA: await ensureVerdict(s.cwd ?? ".") }); }
+          // An npm or node suite that reaches the broker (`brokerCall`) on a seam run makes its cargo calls through the runtime wrapper, which sends them through the seam when
+          // these two variables are present (cargo-target-shim.mjs); the legacy carrier is refused under the seam lock. Each call names the verdict of its own directory,
+          // derived from this one (seam-broker.mjs runSeamCall); its outcome is filed in this scan's ledger and counted below.
+          const seamSuite = !viaSeam && Boolean(deps.gateSeam) && s.class === SCAN_CLASS.B && Boolean(s.brokerCall);
+          if (viaSeam || seamSuite) {
+            try { seamVars = seamEnv({ commit: deps.gateSeam.commit, classA: await ensureVerdict(viaSeam ? (s.cwd ?? ".") : ".") }); }
             catch (e) { stopClock(); advisory?.cleanup?.(); return { ...row, status: "fail", code: "CLASS_A_VERDICT", detail: `${s.id}: ${e.message}` }; }
           }
           if (swiftSeam) {
@@ -3980,7 +3989,11 @@ export async function runScans(plan, options = {}) {
             try {
               const ledger = readLedger(cargoLedger.dir, ledgerToken);
               problems = [...ledger.problems, ...(deps.snapshotBroker ? await verifyBrokerLedger(ledger.entries, deps.snapshotBroker, { seen: ledgerSeen }) : [])];
-            } catch (e) { problems = [`the cargo ledger cannot be read (${e.message})`]; }
+              // The seam calls this scan's own process made (a suite's cargo through the wrapper): the row is a seam row for the door's lock, settled only when every such
+              // call is, and no record is unreadable (its owner is unknown).
+              const seamCalls = ledger.entries.filter((e) => e.mode === "seam");
+              if (!viaSeam && (seamCalls.length || (deps.gateSeam && ledger.malformed))) { row.seam = true; row.seamSettled = ledger.malformed === 0 && seamCalls.every((e) => e.settled === true); }
+            } catch (e) { problems = [`the cargo ledger cannot be read (${e.message})`]; if (deps.gateSeam && !viaSeam) { row.seam = true; row.seamSettled = false; } }
             if (problems.length) {
               ledgerProblem = true;
               const text = `${s.id}: the gate's cargo ledger records ${problems.length} cargo call(s) that did not complete as a verified success: ${problems.slice(0, 5).join("; ")}`;
@@ -4000,7 +4013,9 @@ export async function runScans(plan, options = {}) {
             // What this row sent, for the receipt's own request fields: the cargo argv after `cargo` (or the adapter's argv), the directory it ran in, the adapter if any.
             const sentArgv = swiftSeam ? finalArgs : (finalArgs[0] === "cargo" ? finalArgs.slice(1) : finalArgs);
             const judged = judgeSeamOutcome({ child: r, stderr: r?.stderr ?? "", commit: deps.gateSeam.commit, tree: deps.gateSeam.tree, classA: seamVars[CLASS_A_ENV] ?? null, expect: { argv: sentArgv, cwd: path.join(deps.gateSeam.snapshot, s.cwd ?? ""), adapter: swiftSeam ? "rightkit-swift" : null } });
-            if (judged.evidence) row.snapshotEvidence = { receiptSha256: judged.evidence.receiptSha256, receiptPath: judged.evidence.receiptPath, requestId: judged.evidence.requestId, outputDir: judged.evidence.outputDir, cargoDir: s.cwd ?? ".", seam: true, ...(judged.evidence.testExecutables ? { testExecutables: judged.evidence.testExecutables, testExecutablesReason: null } : {}) };
+            // The receipt's test executable list is always recorded, a null one with the broker's reason, so every listing is judged against it (GC-A08: an executable runs only when
+            // it is on the compile receipt's signed list; a seam receipt with no list runs nothing).
+            if (judged.evidence) row.snapshotEvidence = { receiptSha256: judged.evidence.receiptSha256, receiptPath: judged.evidence.receiptPath, requestId: judged.evidence.requestId, outputDir: judged.evidence.outputDir, cargoDir: s.cwd ?? ".", seam: true, testExecutables: judged.evidence.testExecutables ?? null, testExecutablesReason: judged.evidence.testExecutablesReason ?? null };
             // Settled, for the door's lock release (seamRunState): positive evidence only. A parsed result line AND either a durable receipt read (the job reached its
             // terminal state) or an explicit before-execution refusal (a code, or exit 125 with nothing admitted). A missing or malformed line, a missing receipt, a killed
             // client or a spawn error leaves the row unsettled, and the lock stays (astra, 2026-11-09).
@@ -4055,10 +4070,23 @@ export async function runScans(plan, options = {}) {
             else if (listing.buildFinished !== true) fail("TEST_LISTING", `${s.id}: the compile exited 0 but its listing has no successful build-finished record (${listing.buildFinished === false ? "a build-finished record said failure" : "none found"})`);
             else if (listing.binaries.length === 0) {
               // End-to-end tests only (Adrian, 2026-11-03): a crate whose test build lists no test executable has no test to run; the row passes
-              // with zero libtest counts, the same as a test build that runs none (testResultsProblem).
-              row.results = { runner: "libtest", tests: 0, pass: 0, fail: 0, skipped: 0, todo: 0, binaries: 0 };
-              row.acceptedBinaries = []; row.executableProof = executableProofOf([], []); // its serial row has nothing to run either, and never compiles again for it
-              detail = `${s.id}: no test executable (${listing.artifacts} artifact record(s)); end-to-end tests only, nothing to run`;
+              // with zero libtest counts, the same as a test build that runs none (testResultsProblem). Only after the same receipt judgments as a listing with
+              // executables (GC-A08): the broker's list must be present (a missing or null list, with its reason, is unsigned) and must itself be empty, or cargo's
+              // listing lost what the compile produced (fresh reviews of badf93c).
+              const signedOn = (viaSnapshotBroker || viaSeam) && row.snapshotEvidence && Object.hasOwn(row.snapshotEvidence, "testExecutables");
+              const signedList = signedOn ? row.snapshotEvidence.testExecutables : null;
+              const zeroPlatform = deps.snapshotBroker?.platform ?? deps.platform ?? process.platform;
+              const unsigned = signedOn ? signedTestExecutableProblems([], signedList, row.snapshotEvidence.testExecutablesReason, zeroPlatform) : [];
+              if ((viaSnapshotBroker || viaSeam) && !signedOn) fail("TEST_EXECUTABLE_UNSIGNED", `${s.id}: the broker's receipt lists no test executables`);
+              else if (unsigned.length) fail("TEST_EXECUTABLE_UNSIGNED", `${s.id}: ${unsigned.slice(0, 3).join("; ")}; the row fails and nothing was run`);
+              else if (Array.isArray(signedList) && signedList.length) fail("TEST_EXECUTABLE_MISSING", `${s.id}: the broker's receipt lists ${signedList.length} test executable(s) and cargo's listing yielded none; the row fails and nothing was run`);
+              else {
+                row.results = { runner: "libtest", tests: 0, pass: 0, fail: 0, skipped: 0, todo: 0, binaries: 0 };
+                row.acceptedBinaries = []; row.executableProof = executableProofOf([], []); // its serial row has nothing to run either, and never compiles again for it
+                // A test group with no executable at all: every member has its own empty run, so the member projection carries it to the member's serial row.
+                if (Array.isArray(s.testGroup)) row.memberRuns = Object.fromEntries(s.testGroup.map((m) => [m.id, { status: "pass", results: { runner: "libtest", tests: 0, pass: 0, fail: 0, skipped: 0, todo: 0, binaries: 0 }, detail: `${m.id}: no test executable; end-to-end tests only, nothing to run`, acceptedBinaries: [], executableProof: executableProofOf([], []) }]));
+                detail = `${s.id}: no test executable (${listing.artifacts} artifact record(s)); end-to-end tests only, nothing to run`;
+              }
             } else {
               let boundDirs; let generationRoots = null;
               if (viaSnapshotBroker || viaSeam) { boundDirs = row.snapshotEvidence?.outputDir ? [row.snapshotEvidence.outputDir] : []; generationRoots = viaSeam ? (deps.gateSeam.outputRoots ?? null) : (deps.snapshotBroker.outputRoots ?? []); }
@@ -4072,12 +4100,13 @@ export async function runScans(plan, options = {}) {
               row.acceptedBinaries = contained.accepted; // for a serial row of the same crate that reuses them (rightkit#1539); never stored in the cache (storedPassRow)
               row.executableProof = executableProofOf(contained.accepted, boundDirs); // the digest-bound proof a later serial row re-checks when this row is a cache hit
               // ADR-001 C2 (rightkit#1454): a broker that signs the compile's test executables (receipt.testExecutables, rustright) binds each one;
-              // an executable whose path or sha256 is not in that signed list never runs. An older broker that signs no list leaves containment only.
+              // an executable whose path or sha256 is not in that signed list never runs. A receipt with no list runs nothing (TEST_EXECUTABLE_UNSIGNED below); a null list carries the broker's reason.
               const signedProblems = (viaSnapshotBroker || viaSeam) && row.snapshotEvidence && Object.hasOwn(row.snapshotEvidence, "testExecutables") ? signedTestExecutableProblems(contained.accepted, row.snapshotEvidence.testExecutables, row.snapshotEvidence.testExecutablesReason, platform) : [];
               // The seam's receipt is the broker's list of what the compile produced: an executable it lists that cargo's stdout did not yield (a cut listing, a parse gap)
               // would otherwise never run and nothing would say so (fresh review 2026-11-09, E5). Every listed executable must be among the ones about to run.
               const receiptMissing = viaSeam && Array.isArray(row.snapshotEvidence?.testExecutables) ? row.snapshotEvidence.testExecutables.map((e) => (typeof e?.path === "string" ? e.path : typeof e?.executable === "string" ? e.executable : null)).filter(Boolean).filter((p) => { let real = p; try { real = fs.realpathSync.native(p); } catch { /* compared as given */ } return !contained.accepted.some((b) => b.real === real || b.executable === p); }) : [];
-              if (s.publisherRustTest && (viaSnapshotBroker || viaSeam) && !Object.hasOwn(row.snapshotEvidence ?? {}, "testExecutables")) fail("TEST_EXECUTABLE_UNSIGNED", `${s.id}: the broker's receipt lists no test executables`);
+              // GC-A08: on every broker route a test compile's executables run only from the receipt's list; a receipt with no list field runs nothing (not only for publishers).
+              if ((viaSnapshotBroker || viaSeam) && !Object.hasOwn(row.snapshotEvidence ?? {}, "testExecutables")) fail("TEST_EXECUTABLE_UNSIGNED", `${s.id}: the broker's receipt lists no test executables`);
               else if (contained.problems.length) fail("TEST_EXECUTABLE_OUTSIDE_OUTPUT", `${s.id}: ${contained.problems.slice(0, 5).join("; ")}; the row fails and nothing was run`);
               else if (signedProblems.length) fail("TEST_EXECUTABLE_UNSIGNED", `${s.id}: ${signedProblems.slice(0, 5).join("; ")}; the row fails and nothing was run`);
               else if (receiptMissing.length) fail("TEST_EXECUTABLE_MISSING", `${s.id}: the broker's receipt lists ${receiptMissing.length} test executable(s) cargo's listing did not yield (${receiptMissing.slice(0, 3).join(", ")}); the row fails and nothing was run`);
@@ -4175,6 +4204,7 @@ export async function runScans(plan, options = {}) {
   const cancelled = signal?.aborted === true;
   // Positive evidence only: a seam row is settled when it carries seamSettled (a parsed result with a durable receipt or an explicit refusal, a cache hit, a lookup); every other seam row, whatever its code, keeps the lock.
   for (const r of results) if (r.seam === true) { seamRunState.rows += 1; if (r.seamSettled !== true || (cancelled && r.status !== "pass")) seamRunState.unsettled += 1; }
+  if (deps.gateSeam) seamRunState.open -= 1;
   const allPassed = !cancelled && verdictFailure === null && results.every((r) => r.status === "pass");
   return {
     schema: SCAN_RESULT_SCHEMA, ok: allPassed, complete: allPassed, classes, checker, ...(cancelled ? { cancelled: true } : {}), ...(verdictFailure ? { verdictFailure } : {}),

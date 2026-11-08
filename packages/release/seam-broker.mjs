@@ -3,10 +3,31 @@
 import fs from "node:fs";
 import path from "node:path";
 import { resolveBrokerClient } from "./broker-client.mjs";
-import { BUILD_CONTROL_PROTOCOL, RUNTIME_MANIFEST_FILE, parseRuntimeIdentity } from "./broker-handshake.mjs";
 import { discoverBrokerSocket } from "./managed-roots.mjs";
-import { CLASS_A_ENV, GATE_COMMIT_ENV, judgeSeamOutcome, seamSettled, snapshotStatusAllowsReclaim, snapshotStatusMessage, snapshotStatusSync } from "./gate-seam.mjs";
+import { CLASS_A_ENV, CLASS_A_VERDICT_SCHEMA, GATE_COMMIT_ENV, classAVerdict, judgeSeamOutcome, seamSettled, snapshotStatusAllowsReclaim, snapshotStatusMessage, snapshotStatusSync, writeClassAVerdict } from "./gate-seam.mjs";
 import { spawnSync as nodeSpawnSync } from "node:child_process";
+
+/** `rustright_protocol::BUILD_CONTROL_PROTOCOL`: carried in every request envelope, the seam's SNAPSHOT_STATUS query included. */
+export const BUILD_CONTROL_PROTOCOL = "rustright.build-control.client.v2";
+/** The runtime manifest beside the installed client, whose identity every control request carries. */
+export const RUNTIME_MANIFEST_FILE = "runtime-manifest.json";
+export const RUNTIME_MANIFEST_SCHEMA = "rustright.build-control.runtime.v2";
+const LEGACY_RUNTIME_MANIFEST_SCHEMA = "rightkit.build-control.runtime.v2";
+const isDigest = (v) => typeof v === "string" && /^[0-9a-f]{64}$/.test(v);
+
+/** The runtime identity of a parsed object (`schema` current or legacy, a version, both digests lowercase 64-hex), as RustRight's `RuntimeIdentity::new` validates it; else null. */
+export function normalizeRuntimeIdentity(raw) {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw) || ![RUNTIME_MANIFEST_SCHEMA, LEGACY_RUNTIME_MANIFEST_SCHEMA].includes(raw.schema) || typeof raw.version !== "string" || raw.version === "" || !isDigest(raw.clientDigest) || !isDigest(raw.brokerDigest)) return null;
+  return { schema: RUNTIME_MANIFEST_SCHEMA, version: raw.version, clientDigest: raw.clientDigest, brokerDigest: raw.brokerDigest };
+}
+
+/** The runtime identity a `runtime-manifest.json` text holds: `{ ok: true, identity }` or `{ ok: false, problem }`. */
+export function parseRuntimeIdentity(text) {
+  let doc;
+  try { doc = JSON.parse(text); } catch { return { ok: false, problem: "the runtime manifest is not JSON" }; }
+  const identity = normalizeRuntimeIdentity(doc);
+  return identity ? { ok: true, identity } : { ok: false, problem: "the runtime manifest is not a runtime identity (schema, version, clientDigest and brokerDigest are required)" };
+}
 
 /** Whether an environment carries the seam (both variables set): a stage child's adapter call then goes through the seam, never the carrier. */
 export function seamEnvPresent(env) {
@@ -21,13 +42,19 @@ export function seamEnvPresent(env) {
  * (passed), "refused" (refused before admission), "failed" (executed and failed) or "unsettled" (no settled outcome: no or a bad result line,
  * no durable receipt, a client failure after admission, a spawn error); `settled` is the positive evidence the door's lock release needs.
  */
-function runSeamCall(argv, { cwd, env, stdio = "pipe", client = "rustright", spawnSync = nodeSpawnSync, maxBuffer = 1 << 28 }) {
+function runSeamCall(argv, { cwd, env, stdio = "pipe", client = "rustright", spawnSync = nodeSpawnSync, maxBuffer = 1 << 28, fsApi = fs }) {
   const isAdapter = argv[0] === "run";
   const expect = { argv: isAdapter ? argv.slice(3) : argv.slice(1), cwd, adapter: isAdapter ? argv[1] : null };
   if (!seamEnvPresent(env)) throw new TypeError("seam call: the environment carries no seam (RUSTRIGHT_GATE_COMMIT and RUSTRIGHT_CLASS_A)");
+  // The broker binds the verdict's workspace to this call's own directory (rustright gate_admission.rs passing_class_a: workspace == cwd relative to the snapshot). The
+  // stage hands the root verdict of its scope; a call made in another directory names that directory's verdict, derived from it (fresh review of badf93c, D1).
+  let classA;
+  try { classA = verdictForCwd(env, cwd, { fsApi }); }
+  catch (error) { const message = `the Class A verdict for ${cwd} cannot be named (${error.message}); nothing was submitted`; return { result: { status: 125, signal: null, stdout: "", stderr: `rightkit-gate: RK_SEAM_VERDICT: ${message}\n`, error: null, refusal: { code: "RK_SEAM_VERDICT", message } }, ledger: { status: "refused", settled: true, code: "RK_SEAM_VERDICT", message } }; }
+  env = { ...env, [CLASS_A_ENV]: classA };
   const r = spawnSync(client, argv, { cwd, env, stdio: stdio === "inherit" ? ["ignore", "inherit", "pipe"] : "pipe", encoding: "utf8", maxBuffer });
   if (r.error) return { result: { status: 1, signal: null, stdout: "", stderr: String(r.error.message ?? r.error), error: r.error, refusal: { code: "SPAWN_ERROR", message: String(r.error.message ?? r.error) } }, ledger: { status: "unsettled", settled: false, code: "SPAWN_ERROR" } };
-  const judged = judgeSeamOutcome({ child: r, stderr: r.stderr ?? "", commit: env[GATE_COMMIT_ENV], tree: null, classA: env[CLASS_A_ENV], expect });
+  const judged = judgeSeamOutcome({ child: r, stderr: r.stderr ?? "", commit: env[GATE_COMMIT_ENV], tree: null, classA, expect });
   const pass = judged.status === "pass";
   const preAdmissionRefusal = Boolean(judged.result) && !judged.evidence && judged.receiptRead !== true && judged.result.requestId === null;
   const settled = seamSettled(judged);
@@ -37,6 +64,30 @@ function runSeamCall(argv, { cwd, env, stdio = "pipe", client = "rustright", spa
     result: { status, signal: r.signal ?? null, stdout: r.stdout ?? "", stderr: r.stderr ?? "", error: null, ...evidence, ...(pass ? {} : { refusal: { code: judged.code, message: judged.detail } }) },
     ledger: { status: pass ? "verified" : !settled ? "unsettled" : preAdmissionRefusal ? "refused" : "failed", settled, ...(pass ? {} : { code: judged.code, message: String(judged.detail ?? "").slice(0, 2000) }), ...evidence },
   };
+}
+
+/**
+ * The Class A verdict a seam call from `cwd` names: the verdict the environment hands (the root verdict of the door's scope) when its workspace is already `cwd`'s, else
+ * the verdict of `cwd`'s snapshot-relative directory derived from it (same commit, tree, repository, scans and scope; gate-seam.mjs verdictForRun derives a nested
+ * workspace's verdict the same way). The snapshot is the ancestor of `cwd` named by the verdict's repository key, under the same data root as the verdict directory
+ * (`<data>/<snapshots>/<repoKey>` beside `<data>/class-a-verdicts`). A verdict that cannot be read, or is not a passing root verdict of this commit, is returned as handed: the broker refuses it.
+ */
+export function verdictForCwd(env, cwd, { fsApi = fs } = {}) {
+  const file = env[CLASS_A_ENV];
+  let v; try { v = JSON.parse(fsApi.readFileSync(file, "utf8")); } catch { return file; } // unreadable: the broker refuses it (RK_CLASS_A_INVALID), with its own code
+  if (v?.schema !== CLASS_A_VERDICT_SCHEMA || v.status !== "pass" || v.commit !== env[GATE_COMMIT_ENV] || v.workspace !== "." || typeof v.repoKey !== "string") return file;
+  const real = (p) => { try { return fsApi.realpathSync.native(p); } catch { return path.resolve(p); } };
+  const dataRoot = real(path.dirname(path.dirname(file)));
+  let at = real(cwd); let snapshot = null;
+  for (;;) {
+    if (path.basename(at) === v.repoKey && path.dirname(path.dirname(at)) === dataRoot) { snapshot = at; break; }
+    const up = path.dirname(at); if (up === at) break; at = up;
+  }
+  if (!snapshot) throw new Error(`${cwd} is not inside the snapshot of repository ${v.repoKey} under ${dataRoot}`);
+  const rel = path.relative(snapshot, real(cwd)).split(path.sep).filter(Boolean).join("/");
+  const ws = rel || ".";
+  if (ws === ".") return file;
+  return writeClassAVerdict(path.dirname(file), classAVerdict({ commit: v.commit, tree: v.tree, repoKey: v.repoKey, workspace: ws, scans: v.scans, scope: v.scope ?? "full" }), { fsApi });
 }
 
 /** One adapter run through the seam from a stage child: `rustright run <adapter> -- <args>`. Returns `{ result, ledger }` (runSeamCall). */

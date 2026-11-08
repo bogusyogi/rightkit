@@ -94,3 +94,67 @@ test("plain was a cache hit but its executable changed: the serial row compiles 
   assert.equal(compiles(calls, exe).length, 1, "one compile, by the serial row alone");
   assert.equal(testRuns(calls, exe).length, 1); assert.ok(testRuns(calls, exe)[0].args.includes("--test-threads=1"));
 });
+
+// A test group of crates a and b compiled as one invocation (classBBatching), with a's serial row. `cargo tree` answers alike for every set, so the group stays whole.
+function groupRig({ executables = true, e2e = false } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-serial-grp-")); const target = path.join(root, "target"); fs.mkdirSync(path.join(target, "release"), { recursive: true });
+  fs.writeFileSync(path.join(root, "Cargo.toml"), "[workspace]\nmembers = []\n");
+  const exes = {}; for (const c of ["a", "b"]) { const l = path.join(target, "release", `${c}-1`); fs.writeFileSync(l, "#!/bin/sh\n", { mode: 0o755 }); exes[c] = { link: l, real: fs.realpathSync.native(l) }; }
+  const calls = [];
+  const spawn = async (cmd, args) => {
+    calls.push({ cmd, args: [...args] });
+    if (Object.values(exes).some((e) => e.real === cmd)) return { status: 0, stdout: libtestOk, stderr: "" };
+    if (args.includes("--version")) return { status: 0, stdout: "cargo 1.98.0 (test)\n", stderr: "" };
+    if (args.includes("tree")) return { status: 0, stdout: "", stderr: "" };
+    const crates = args.flatMap((a, i) => (a === "-p" ? [args[i + 1]] : []));
+    const lines = crates.map((c) => ({ reason: "compiler-artifact", package_id: `path+file:///x/${c}#${c}@0.1.0`, manifest_path: path.join(root, "Cargo.toml"), target: { name: c, kind: ["lib"] }, profile: { test: true }, ...(executables ? { executable: exes[c].link } : {}) }));
+    lines.push({ reason: "build-finished", success: true });
+    return { status: 0, stdout: lines.map((l) => JSON.stringify(l)).join("\n") + "\n", stderr: "" };
+  };
+  const base = (crate) => ({ class: "B", tool: "cargo", env: { CARGO_TARGET_DIR: target } });
+  const plain = (crate) => ({ ...base(crate), id: `test:rust:${crate}`, args: ["test", "-p", crate, "--locked", "--message-format=json"], command: `cargo test -p ${crate} --locked --message-format=json`, runOutside: { args: [] }, batchable: { key: "k", at: 1, crate, unit: crate } });
+  const serial = e2e
+    ? { ...base("a"), id: "test:rust-serial:a", e2e: true, reuseExecutables: "test:rust:a", args: ["test", "-p", "a", "--locked", "--no-run"], command: "cargo test -p a --locked --no-run" }
+    : { ...base("a"), id: "test:rust-serial:a", args: ["test", "-p", "a", "--locked", "--message-format=json"], command: "cargo test -p a --locked --message-format=json", runOutside: { args: ["--test-threads=1"] }, reuseExecutables: "test:rust:a" };
+  const e2ePlain = { ...base("a"), id: "test:rust:a", e2e: true, args: ["test", "-p", "a", "--locked", "--no-run"], command: "cargo test -p a --locked --no-run" };
+  const scans = e2e ? [e2ePlain, serial] : [plain("a"), plain("b"), serial];
+  const plan = { schema: "rightkit.deterministic-scans/1", roots: { contentRoot: root, liveRoot: root }, scans, notes: [], deferred: [], qualifyOwed: [] };
+  const store = new Map();
+  const cache = { read: (k) => store.get(k) ?? null, write: (k, row) => { store.set(k, { key: k, at: new Date().toISOString(), row }); }, digest: (scan) => `d-${scan.id}` };
+  const run = () => runScans(plan, { classes: ["B"], classAEarlier: true, jobs: 4, classBJobs: 4, spawn, cache, classBBatching: true });
+  const dropSerial = () => { for (const [k, v] of [...store]) if (v.row.id === "test:rust-serial:a") store.delete(k); };
+  const compileCalls = () => calls.filter((c) => c.cmd === "cargo" && c.args[0] === "test");
+  return { run, calls, dropSerial, compileCalls, exes };
+}
+
+test("D3 regression: the plain row is a member of a cached test group: the serial row re-checks the group's stored proof and compiles nothing", async () => {
+  const { run, calls, dropSerial, compileCalls, exes } = groupRig();
+  const first = await run();
+  assert.ok(byId(first, "test:rust:a").batchedWith, "a ran in a group"); assert.equal(byId(first, "test:rust-serial:a").status, "pass");
+  dropSerial(); calls.length = 0;
+  const second = await run();
+  assert.equal(byId(second, "test:rust:a").cached, true, "the group member says it is a cache hit");
+  const serial = byId(second, "test:rust-serial:a");
+  assert.equal(serial.status, "pass", JSON.stringify(serial)); assert.equal(serial.reusedCachedProof, true);
+  assert.equal(compileCalls().length, 0, "no compile");
+  assert.deepEqual(calls.filter((c) => c.cmd === exes.a.real).map((c) => c.args.includes("--test-threads=1")), [true]);
+});
+
+test("a test group with no executable: every member passes with nothing to run, and the serial member passes without compiling", async () => {
+  const { run, compileCalls } = groupRig({ executables: false });
+  const r = await run();
+  for (const id of ["test:rust:a", "test:rust:b", "test:rust-serial:a"]) assert.equal(byId(r, id).status, "pass", JSON.stringify(byId(r, id)));
+  assert.equal(compileCalls().length, 1, "the group's one compile");
+});
+
+test("end-to-end crate: the serial row is the plain row's --no-run compile, so a cache hit of the plain row passes it without compiling", async () => {
+  const { run, calls, dropSerial, compileCalls } = groupRig({ e2e: true });
+  const first = await run();
+  assert.equal(byId(first, "test:rust-serial:a").status, "pass"); assert.equal(compileCalls().length, 1, "one compile in the cold run");
+  dropSerial(); calls.length = 0;
+  const second = await run();
+  assert.equal(byId(second, "test:rust:a").cached, true);
+  const serial = byId(second, "test:rust-serial:a");
+  assert.equal(serial.status, "pass", JSON.stringify(serial)); assert.equal(serial.reusedExecutablesOf, "test:rust:a");
+  assert.equal(compileCalls().length, 0, "no compile on the warm run");
+});
