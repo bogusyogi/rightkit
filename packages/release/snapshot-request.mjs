@@ -17,6 +17,7 @@
 // rustright#190: snapshot-adapter-v1): the same carrier, the adapter's name in the request core, and a signed `nestedChildren` list (in snapshotEvidence, mirrored on the receipt) of the
 // compiles that job's own children made (the Tauri CLI's Cargo calls), which the gate verifies as it does the call (rightkit#1301).
 
+import { splitStageArgs } from "./stage-seam.mjs";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -119,28 +120,7 @@ const CARRIED_REDIRECT = /^(--config|-Z|-C)(=|$)|^-[A-Za-z]*[CZ]/;
  * options are refused. Returns `{ words, manifestPath }` (`manifestPath` null when none) or `{ refusal: { code, message } }`.
  * `words` are not yet locked: the signed request carries `lockedArgv(words)` (carryBrokerCargo).
  */
-export function splitCarriedArgs(args) {
-  const original = [...args];
-  const words = [];
-  let manifestPath = null;
-  let atSeparator = false;
-  for (let i = 0; i < original.length; i += 1) {
-    const w = original[i];
-    if (atSeparator) { words.push(w); continue; }
-    if (w === "--") { atSeparator = true; words.push(w); continue; }
-    if (w === "--manifest-path" || w.startsWith("--manifest-path=")) {
-      const value = w === "--manifest-path" ? original[i + 1] : w.slice("--manifest-path=".length);
-      if (w === "--manifest-path") i += 1;
-      if (typeof value !== "string" || !value) return { refusal: { code: "RK_CARGO_BROKER_MANIFEST_PATH", message: "--manifest-path names no manifest" } };
-      manifestPath = value;
-      continue;
-    }
-    if (w === "--target-dir" || w.startsWith("--target-dir=")) return { refusal: { code: "RK_CARGO_REDIRECT", message: `\`cargo ${original.join(" ")}\` passes --target-dir; the broker pins a carried call's output directory` } };
-    if (CARRIED_REDIRECT.test(w)) return { refusal: { code: "RK_CARGO_REDIRECT", message: `\`cargo ${original.join(" ")}\` passes ${w}, which moves its working directory, configuration or output` } };
-    words.push(w);
-  }
-  return { words, manifestPath };
-}
+export function splitCarriedArgs(args) { return splitStageArgs(args); } // kept in stage-seam.mjs (the seam path uses it); this module goes at step 5
 
 /**
  * What a carried call sends the broker for `args` run from `cwd` (a posix path relative to the workspace root, "." for the root): the

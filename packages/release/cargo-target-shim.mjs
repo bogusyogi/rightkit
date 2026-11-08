@@ -32,15 +32,15 @@ import { createHash, randomBytes } from "node:crypto";
 import { spawnSync } from "./background-process.mjs";
 import { spawnBrokerClient } from "./broker-client.mjs";
 import { fileURLToPath } from "node:url";
-import { SCAN_TOKEN_ENV, appendLedger } from "./cargo-ledger.mjs";
-import { BROKER_REFUSAL_STATUS, runBrokerCargo } from "./snapshot-broker.mjs";
+import { CARGO_REFUSAL_STATUS, SCAN_TOKEN_ENV, appendLedger } from "./cargo-ledger.mjs";
+import { runBrokerCargo } from "./snapshot-broker.mjs";
 import { carriedScanRefusal } from "./snapshot-metadata.mjs";
 import { carriedShapeDecision } from "./cargo-shapes.mjs";
 import { runSeamCargoCall, seamEnvPresent } from "./seam-broker.mjs";
 
 export const SHIM_MAP_SCHEMA = "rightkit.cargo-target-shim/3";
 // Exit status of a refusal: cargo's own error status, so every caller reads it as a failed cargo.
-export const SHIM_REFUSAL_STATUS = BROKER_REFUSAL_STATUS;
+export const SHIM_REFUSAL_STATUS = CARGO_REFUSAL_STATUS;
 // Cargo commands that compile or report on a workspace: run bound to its checkout target directory.
 const COMPILE = new Set(["build", "b", "check", "c", "test", "t", "bench", "run", "r", "doc", "d", "rustc", "rustdoc", "clippy", "metadata", "package"]);
 // Commands that only read a workspace but may resolve and write its Cargo.lock: bound, and only with --locked or --frozen.

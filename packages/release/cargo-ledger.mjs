@@ -12,6 +12,9 @@ import path from "node:path";
 export const LEDGER_SCHEMA = "rightkit.cargo-ledger/1";
 export const SCAN_TOKEN_ENV = "RIGHTKIT_CARGO_SCAN";
 export const UNSCOPED = "unscoped";
+/** Exit status of a refused cargo call, everywhere a gate-made refusal stands in for cargo (cargo's own error status, so every caller reads it as a failed cargo). Defined here,
+ * in a module that imports none of the gate's, so the wrapper, the stage seam and the carrier share it without an import cycle reading it before it exists. */
+export const CARGO_REFUSAL_STATUS = 101;
 /** Statuses that are a completed success: a direct call that ran, a broker call whose signed receipt verified. */
 export const OK_STATUSES = Object.freeze(["ran", "verified"]);
 

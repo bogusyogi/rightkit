@@ -16,6 +16,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
+import { CARGO_REFUSAL_STATUS } from "./cargo-ledger.mjs";
 import { BROKER_CLIENT_UNRESOLVED, resolveBrokerClient, spawnBrokerClient } from "./broker-client.mjs";
 import { loadBrokerPins } from "./broker-pins.mjs";
 import { ATTEST_STAGE_NONCE_ENV, canonicalJson, carriedCallNonce } from "./provenance-verify.mjs";
@@ -43,7 +44,7 @@ export function withoutManagedRustEnv(env) {
 }
 
 /** The status a refused or unverified call returns to its caller: cargo's own error status. */
-export const BROKER_REFUSAL_STATUS = 101;
+export const BROKER_REFUSAL_STATUS = CARGO_REFUSAL_STATUS;
 export const CALLING_GATE_ENV = "RUSTRIGHT_CALLING_GATE";
 
 /** The managed `ws` roots a broker pins its generation targets under (BROKER-CONTRACT output pinning). */
