@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { CLASS_A_ENV, CLASS_A_VERDICT_SCHEMA, GATE_COMMIT_ENV, classAVerdict, judgeSeamOutcome, normalizeWorkspace, parseIdentity, parseResultLine, processIdentity, readSeamReceipt, samePath, seamEnv, snapshotLockBody, writeClassAVerdict } from "./gate-seam.mjs";
+import { CLASS_A_ENV, CLASS_A_VERDICT_SCHEMA, GATE_COMMIT_ENV, classAVerdict, judgeSeamOutcome, normalizeWorkspace, parseIdentity, parseResultLine, processIdentity, readSeamReceipt, samePath, seamEnv, snapshotLockBody, verdictFileName, verdictForRun, writeClassAVerdict } from "./gate-seam.mjs";
 import { SNAPSHOT_STATUS_SCHEMA, snapshotStatusAllowsReclaim, snapshotStatusMessage, snapshotStatusSync } from "./gate-seam.mjs";
 import { spawn } from "node:child_process";
 import { snapshotReclaimJudge } from "./seam-broker.mjs";
@@ -117,13 +117,46 @@ test("the Class A verdict exists only for a complete green plan and binds commit
   assert.throws(() => classAVerdict({ commit, tree, repoKey, workspace: "../x", scans: [{ id: "a", status: "pass" }] }), /workspace/);
   const dir = tmp();
   const file = writeClassAVerdict(dir, v);
-  assert.equal(path.basename(file), `class-a-${commit.slice(0, 12)}-root.json`);
+  assert.equal(path.basename(file), `class-a-${commit.slice(0, 12)}-full-root.json`);
   assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), v);
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   assert.throws(() => writeClassAVerdict(dir, { ...v, status: "fail" }), /passing verdict/);
   assert.throws(() => writeClassAVerdict("relative", v), /absolute/);
   assert.deepEqual(seamEnv({ commit, classA: file }), { [GATE_COMMIT_ENV]: commit, [CLASS_A_ENV]: file });
   assert.throws(() => seamEnv({ commit, classA: "class-a.json" }), /absolute/);
+});
+
+test("a verdict is bound to the scope its class A covered: a class B run reads its own scope's, a covering one or a full one, never another unit's (fresh review E1)", () => {
+  const verdictDir = tmp();
+  const seamFor = (scope) => ({ commit, tree, repoKey, verdictDir, scope });
+  const rows = [{ id: "a", status: "pass" }, { id: "b", status: "pass" }];
+  // a class A scoped to packages/release writes that scope's verdict, recording its scope; nothing named "full"
+  const scoped = verdictForRun({ seam: seamFor(["packages/release"]), workspace: ".", classARows: rows });
+  assert.match(path.basename(scoped), /^class-a-a{12}-s[0-9a-f]{12}-root\.json$/);
+  assert.deepEqual(JSON.parse(fs.readFileSync(scoped, "utf8")).scope, ["packages/release"]);
+  // a class B of the same scope reads it; a class B of ANOTHER unit finds nothing and is refused; a full class B is refused too
+  assert.equal(verdictForRun({ seam: seamFor(["packages/release"]), workspace: "." }), scoped);
+  assert.throws(() => verdictForRun({ seam: seamFor(["crates/rightkit-fs"]), workspace: "." }), /no Class A verdict covering/);
+  assert.throws(() => verdictForRun({ seam: seamFor(null), workspace: "." }), /no Class A verdict covering/);
+  // a unit-list class A over several directories covers the compile of any one of them
+  const list = verdictForRun({ seam: seamFor(["crates/a", "crates/b"]), workspace: ".", classARows: rows });
+  assert.equal(verdictForRun({ seam: seamFor(["crates/b"]), workspace: "." }), list);
+  // a full class A covers any scope; the exact scope is preferred when both exist
+  const full = verdictForRun({ seam: seamFor(null), workspace: ".", classARows: rows });
+  assert.equal(verdictForRun({ seam: seamFor(["crates/rightkit-fs"]), workspace: "." }), full);
+  assert.equal(verdictForRun({ seam: seamFor(["packages/release"]), workspace: "." }), scoped);
+  // a nested workspace's verdict is derived with the covering scope and its own workspace binding
+  const nested = verdictForRun({ seam: seamFor(["crates/b"]), workspace: "crates/b" });
+  const nv = JSON.parse(fs.readFileSync(nested, "utf8")); assert.equal(nv.workspace, "crates/b"); assert.deepEqual(nv.scope, ["crates/a", "crates/b"]);
+  // a red row: nothing written
+  assert.throws(() => verdictForRun({ seam: seamFor(["x"]), workspace: ".", classARows: [{ id: "a", status: "fail" }] }), /not complete and green/);
+  // a file whose name and recorded scope disagree, or of another tree, is never read; the pre-scope name (class-a-<c>-root.json) is never matched
+  const forged = path.join(verdictDir, verdictFileName({ commit, scope: ["crates/z"], workspace: "." }));
+  fs.writeFileSync(forged, JSON.stringify({ ...JSON.parse(fs.readFileSync(full, "utf8")), scope: ["crates/y"] }));
+  fs.writeFileSync(path.join(verdictDir, `class-a-${commit.slice(0, 12)}-root.json`), JSON.stringify({ ...JSON.parse(fs.readFileSync(full, "utf8")), scope: undefined }));
+  fs.rmSync(full);
+  assert.throws(() => verdictForRun({ seam: seamFor(["crates/z"]), workspace: "." }), /no Class A verdict covering/);
+  assert.throws(() => verdictForRun({ seam: { ...seamFor(["packages/release"]), tree: "c".repeat(40) }, workspace: "." }), /no Class A verdict covering/);
 });
 
 test("exactly one rustright-result line is the result; none or several fails the row", () => {

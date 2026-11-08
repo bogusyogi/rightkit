@@ -114,7 +114,7 @@ import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, merg
 import { snapshotReclaimJudge } from "../seam-broker.mjs";
 import net from "node:net";
 import { installSpawnLedger } from "../spawn-ledger.mjs";
-import { processIdentity, snapshotLockBody } from "../gate-seam.mjs";
+import { processIdentity, snapshotLockBody, verdictFileName } from "../gate-seam.mjs";
 import { cargoWidthRouteProblem, cargoWidthScanProblem, cargoWidthUnitsProblem, parseCargoWidth, validateCargoWidthPool } from "../cargo-width.mjs";
 
 const PRIVATE_SCOPED_COMPILE = Symbol("private scoped compile");
@@ -1973,7 +1973,7 @@ async function runStages(o, args, root, git, io) {
       // The seam (reset plan section 3): on a broker host a stage child carries RUSTRIGHT_GATE_COMMIT and RUSTRIGHT_CLASS_A (the root verdict the door's full class A wrote), so
       // its pnpm, node and QA adapters run as `rustright run <adapter> -- <args>` (carried-cargo.mjs runCarriedAdapter -> seam-broker.mjs runSeamAdapter) and its nested
       // cargo inherits that admission; a verdict the class A did not write is the broker's refusal, never a silent fallback to the carrier.
-      const seamStageEnv = ds && executor?.kind === "broker" && /^[0-9a-f]{40}$/.test(String(commit)) ? { RUSTRIGHT_GATE_COMMIT: commit, RUSTRIGHT_CLASS_A: path.join(path.dirname(path.dirname(path.resolve(ds.path))), "class-a-verdicts", `class-a-${commit.slice(0, 12)}-root.json`) } : {};
+      const seamStageEnv = ds && executor?.kind === "broker" && /^[0-9a-f]{40}$/.test(String(commit)) ? { RUSTRIGHT_GATE_COMMIT: commit, RUSTRIGHT_CLASS_A: path.join(path.dirname(path.dirname(path.resolve(ds.path))), "class-a-verdicts", verdictFileName({ commit, scope: appDir === "." ? null : [appDir], workspace: "." })) } : {};
       const r = (o.spawnInherit ?? inheritLaunch)(process.execPath, [cli, ...cliArgs], { cwd: sourceOf ? snapshotAppRootOf(ds.path, appDir) : appRoot, env: carriedEnv(carrier, { ...o.env, ...run.env }, { ...extraEnv, ...seamStageEnv }) });
       childOk = r.status === 0;
     } finally { endRun(run); }
@@ -4999,10 +4999,9 @@ export async function main(argv, io = {}) {
         const snapshotPath = path.resolve(seamSnapshot.path);
         const state = JSON.parse(o.readFile(`${snapshotPath}.state.json`));
         if (state?.schema !== "rightkit.snapshot-state/1" || state.commit !== seamSnapshot.id.commit || state.tree !== seamSnapshot.id.tree || typeof state.repoKey !== "string") throw new Error(`${snapshotPath}.state.json does not describe commit ${seamSnapshot.id.commit} tree ${seamSnapshot.id.tree}`);
-        // classAScope: "full" only when this run's class A is the whole planned set (the door's full class A, or the compile that reads the verdict a full run wrote);
-        // a run scoped to a unit (closure set) is "scoped" and never writes the workspace's verdict (fresh review 2026-11-09, E1).
-        const classAScope = snapshotB ? "full" : closure ? "scoped" : "full";
-        gateSeam = { commit: seamSnapshot.id.commit, tree: seamSnapshot.id.tree, repoKey: state.repoKey, snapshot: snapshotPath, verdictDir: path.join(path.dirname(path.dirname(snapshotPath)), "class-a-verdicts"), outputRoots: snapshotBroker?.outputRoots ?? null, classAScope };
+        // scope: what this run's class A covered, or what its class B was scoped to (--scope dirs; null = full). The verdict is bound to it (gate-seam.mjs verdictForRun):
+        // a class A scoped to a unit writes that unit's verdict, a class B scoped to it reads that one or a full one, never another unit's (fresh review 2026-11-09, E1).
+        gateSeam = { commit: seamSnapshot.id.commit, tree: seamSnapshot.id.tree, repoKey: state.repoKey, snapshot: snapshotPath, verdictDir: path.join(path.dirname(path.dirname(snapshotPath)), "class-a-verdicts"), outputRoots: snapshotBroker?.outputRoots ?? null, scope: scopeDirs.length ? scopeDirs : null };
         o.out(`${tag} seam: ${seamSnapshot.what} ${snapshotPath}, commit ${seamSnapshot.id.commit.slice(0, 12)}; Class A verdicts under ${gateSeam.verdictDir}`);
       } catch (error) { o.err(`${tag} BLOCKED: RK_SEAM: ${error.message}; nothing ran`); return 1; }
     }

@@ -38,7 +38,21 @@ export function normalizeWorkspace(cwd) {
  * The Class A verdict for one workspace at one commit, or a SeamError. `scans` is every planned Class A row of the run with its status;
  * the verdict exists only when all of them passed (a cache hit is a pass), so an incomplete or red plan can never publish one.
  */
-export function classAVerdict({ commit, tree, repoKey, workspace, scans }) {
+/** The scope a class A run covered: "full" (no --scope) or the sorted, normalized scope directories. */
+export function normalizeScope(scope) {
+  if (scope === null || scope === undefined || scope === "full") return "full";
+  if (!Array.isArray(scope) || !scope.length) throw new SeamError("VERDICT", `scope ${JSON.stringify(scope)} is neither "full" nor a list of directories`);
+  return [...new Set(scope.map((d) => normalizeWorkspace(d)))].sort();
+}
+const scopeTag = (scope) => (scope === "full" ? "full" : `s${crypto.createHash("sha256").update(scope.join("\0")).digest("hex").slice(0, 12)}`);
+/** The verdict's file name: commit, the scope it covers and the workspace it binds. A scoped verdict can never be read under another scope's name. */
+export function verdictFileName({ commit, scope, workspace }) {
+  const ws = normalizeWorkspace(workspace);
+  return `class-a-${String(commit).slice(0, 12)}-${scopeTag(normalizeScope(scope))}-${ws === "." ? "root" : crypto.createHash("sha256").update(ws).digest("hex").slice(0, 12)}.json`;
+}
+const sameScope = (a, b) => (a === "full" || b === "full" ? a === b : a.length === b.length && a.every((d, i) => d === b[i]));
+
+export function classAVerdict({ commit, tree, repoKey, workspace, scans, scope = "full" }) {
   if (!SHA1.test(String(commit ?? ""))) throw new SeamError("VERDICT", `commit ${JSON.stringify(commit)} is not a full sha`);
   if (!SHA1.test(String(tree ?? ""))) throw new SeamError("VERDICT", `tree ${JSON.stringify(tree)} is not a full tree id`);
   if (typeof repoKey !== "string" || !/^[A-Za-z0-9_-]{8,}$/.test(repoKey)) throw new SeamError("VERDICT", `repoKey ${JSON.stringify(repoKey)} is not a repository key`);
@@ -52,7 +66,8 @@ export function classAVerdict({ commit, tree, repoKey, workspace, scans }) {
     if (s.status !== "pass") throw new SeamError("CLASS_A_RED", `Class A is not complete and green: ${s.id} is ${s.status ?? "unknown"}; no verdict is written`);
     return { id: s.id, status: "pass" };
   });
-  return { schema: CLASS_A_VERDICT_SCHEMA, commit, tree, repoKey, workspace: ws, status: "pass", scans: rows };
+  // `scope` records what the class A run covered; the broker reads its bound fields only and ignores this one, the gate reads it (verdictForRun).
+  return { schema: CLASS_A_VERDICT_SCHEMA, commit, tree, repoKey, workspace: ws, scope: normalizeScope(scope), status: "pass", scans: rows };
 }
 
 /** Writes a verdict atomically (temp file, rename) with mode 0600 and returns its absolute path. Refuses a relative directory. */
@@ -60,11 +75,44 @@ export function writeClassAVerdict(dir, verdict, { fsApi = fs } = {}) {
   if (!path.isAbsolute(dir)) throw new SeamError("VERDICT", `verdict directory ${dir} must be absolute`);
   if (verdict?.schema !== CLASS_A_VERDICT_SCHEMA || verdict.status !== "pass") throw new SeamError("VERDICT", "only a passing verdict of the current schema is written");
   fsApi.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const file = path.join(dir, `class-a-${verdict.commit.slice(0, 12)}-${verdict.workspace === "." ? "root" : crypto.createHash("sha256").update(verdict.workspace).digest("hex").slice(0, 12)}.json`);
+  const file = path.join(dir, verdictFileName({ commit: verdict.commit, scope: verdict.scope ?? "full", workspace: verdict.workspace }));
   const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
   fsApi.writeFileSync(tmp, `${JSON.stringify(verdict)}\n`, { mode: 0o600 });
   fsApi.renameSync(tmp, file);
   return file;
+}
+
+/**
+ * The verdict a class B row of `workspace` names, for one run (`seam`: { commit, tree, repoKey, verdictDir, scope }). When this run ran class A itself
+ * (`classARows`: every class A row of the run with its status), the verdict is written from those rows for this run's scope; an incomplete or red set
+ * throws (classAVerdict). When it did not (a class-B-only run after the door's class A), the verdict of the SAME scope is read, or a full one (a full
+ * class A covers any scope), and checked against commit, tree, repository and status; a nested workspace's verdict is derived from it with the same
+ * scope. A verdict of another scope is never read: its file name carries its scope. Returns the absolute path; throws SeamError otherwise.
+ */
+export function verdictForRun({ seam, workspace, classARows = null, fsApi = fs }) {
+  const ws = normalizeWorkspace(workspace);
+  const scope = normalizeScope(seam.scope);
+  if (Array.isArray(classARows)) return writeClassAVerdict(seam.verdictDir, classAVerdict({ commit: seam.commit, tree: seam.tree, repoKey: seam.repoKey, workspace: ws, scans: classARows, scope }), { fsApi });
+  // A verdict covers this run when it is full, or when its scope contains every directory of this run's scope (a unit-list class A over many directories
+  // covers the compile of any one of them; its closure contains theirs). Exact first, then the smallest covering set, then full; any other is never read.
+  const prefix = `class-a-${String(seam.commit).slice(0, 12)}-`;
+  let names = [];
+  try { names = fsApi.readdirSync(seam.verdictDir).filter((n) => n.startsWith(prefix) && n.endsWith("-root.json") && n.length > prefix.length + "-root.json".length); } catch { names = []; }
+  const covering = [];
+  for (const name of names) {
+    const file = path.join(seam.verdictDir, name);
+    let v; try { v = JSON.parse(fsApi.readFileSync(file, "utf8")); } catch { continue; }
+    if (v?.schema !== CLASS_A_VERDICT_SCHEMA || v.commit !== seam.commit || v.tree !== seam.tree || v.repoKey !== seam.repoKey || v.status !== "pass" || v.workspace !== "." || !Array.isArray(v.scans) || !v.scans.length) continue;
+    let vScope; try { vScope = normalizeScope(v.scope ?? null); } catch { continue; }
+    if (name !== verdictFileName({ commit: seam.commit, scope: vScope, workspace: "." })) continue; // a file whose name and recorded scope disagree is not read
+    const covers = vScope === "full" || (scope !== "full" && scope.every((d) => vScope.includes(d)));
+    if (covers) covering.push({ file, v, vScope, rank: vScope === "full" ? Number.MAX_SAFE_INTEGER : sameScope(vScope, scope) ? 0 : vScope.length });
+  }
+  covering.sort((a, b) => a.rank - b.rank || (a.file < b.file ? -1 : 1));
+  const best = covering[0];
+  if (!best) throw new SeamError("VERDICT", `no Class A verdict covering this run's scope (${scope === "full" ? "full" : scope.join(", ")}) for ${String(seam.commit).slice(0, 12)} in ${seam.verdictDir}; class A must run on this snapshot first`);
+  if (ws === ".") return best.file;
+  return writeClassAVerdict(seam.verdictDir, classAVerdict({ commit: seam.commit, tree: seam.tree, repoKey: seam.repoKey, workspace: ws, scans: best.v.scans, scope: best.vScope }), { fsApi });
 }
 
 /** The two variables that carry the seam; nothing else is added to the child's environment by the seam. */

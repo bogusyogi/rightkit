@@ -45,7 +45,7 @@ import { ADMISSION_POLL_MS, CARRIED_CANCEL_GRACE_MS, QUEUED_CEILING_FACTOR, crea
 import { CANCEL_WAIT_ENV, operationDeadlineEnv, refusalInCapturedOutput } from "./broker-wire.mjs";
 import { removeCarrier } from "./carrier-census.mjs";
 import { meetPartitions, partitionByFeatures, partitionCacheKey, splitNote, stripSelectors, treeArgs, workspaceManifestDigest } from "./feature-partition.mjs";
-import { CLASS_A_ENV, CLASS_A_VERDICT_SCHEMA, NOT_EXECUTED_EXIT, classAVerdict, judgeSeamOutcome, normalizeWorkspace, seamEnv, writeClassAVerdict } from "./gate-seam.mjs";
+import { CLASS_A_ENV, NOT_EXECUTED_EXIT, judgeSeamOutcome, normalizeWorkspace, seamEnv, verdictForRun } from "./gate-seam.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
 // The seam's run state for the door's lock release (reset plan section 3): a seam row whose client the gate killed, that timed out or was cancelled may have
@@ -3106,22 +3106,10 @@ export async function runScans(plan, options = {}) {
   }));
   const verdictFiles = new Map();
   const ensureVerdict = (cwd) => {
-    const seam = deps.gateSeam; const ws = normalizeWorkspace(cwd ?? ".");
-    if (!verdictFiles.has(ws)) verdictFiles.set(ws, (async () => {
-      let scans;
-      // Only an unscoped class A vouches for the workspace: a run scoped to one unit (gate.mjs closure: "N unrelated executing scans excluded") planned a subset,
-      // and a subset's pass is not the workspace's (fresh review 2026-11-09, E1: a unit-scoped check had written the root verdict).
-      if (classes.includes(SCAN_CLASS.A) && seam.classAScope !== "full") throw new Error(`class A ran scoped (${seam.classAScope ?? "unknown scope"}): a scoped class A cannot vouch for the workspace; run class A unscoped before any class B`);
-      if (classes.includes(SCAN_CLASS.A)) scans = results.filter((r) => r.class === SCAN_CLASS.A).map((r) => ({ id: r.id, status: r.status }));
-      else {
-        const rootFile = path.join(seam.verdictDir, `class-a-${seam.commit.slice(0, 12)}-root.json`);
-        let v; try { v = JSON.parse(fs.readFileSync(rootFile, "utf8")); } catch (e) { throw new Error(`no Class A verdict for ${seam.commit.slice(0, 12)} at ${rootFile} (${e.code ?? e.message}); class A must run on this snapshot first`); }
-        if (v?.schema !== CLASS_A_VERDICT_SCHEMA || v.commit !== seam.commit || v.tree !== seam.tree || v.repoKey !== seam.repoKey || v.status !== "pass" || !Array.isArray(v.scans)) throw new Error(`the Class A verdict at ${rootFile} is not this run's (schema, commit, tree, repository or status differ)`);
-        if (ws === ".") return rootFile;
-        scans = v.scans;
-      }
-      return writeClassAVerdict(seam.verdictDir, classAVerdict({ commit: seam.commit, tree: seam.tree, repoKey: seam.repoKey, workspace: ws, scans }));
-    })());
+    const ws = normalizeWorkspace(cwd ?? ".");
+    // One function decides (gate-seam.mjs verdictForRun): a run that ran class A writes the verdict of its own scope from its own rows; a class-B-only run reads
+    // the verdict of its scope, or a full one, and never another scope's (fresh review 2026-11-09, E1; the scope is in the file name and the verdict).
+    if (!verdictFiles.has(ws)) verdictFiles.set(ws, (async () => verdictForRun({ seam: deps.gateSeam, workspace: ws, classARows: classes.includes(SCAN_CLASS.A) ? results.filter((r) => r.class === SCAN_CLASS.A).map((r) => ({ id: r.id, status: r.status })) : null }))());
     return verdictFiles.get(ws);
   };
   // Class A scans are independent content checks (and short broker calls: metadata, package list, deny, audit): they run
@@ -4133,10 +4121,8 @@ export async function runScans(plan, options = {}) {
   // green class A whose verdict could not be written is not a passing run (the compile that follows would have no verdict to name).
   const seamNotes = []; let verdictFailure = null;
   if (deps.gateSeam && classes.includes(SCAN_CLASS.A) && !classes.includes(SCAN_CLASS.B) && !classAFailed && !signal?.aborted) {
-    // A scoped class A (one unit's closure) is a legitimate check that simply vouches for nothing beyond itself: no verdict, no failure. Only a full class A
-    // writes the verdict, and only a full one that cannot write it has failed.
-    if (deps.gateSeam.classAScope !== "full") seamNotes.push(`class A ran scoped (${deps.gateSeam.classAScope ?? "unknown"}): no workspace verdict is written by a scoped run; a full class A writes it`);
-    else { try { seamNotes.push(`class A verdict written: ${await ensureVerdict(".")}`); } catch (e) { verdictFailure = `CLASS_A_VERDICT: class A passed but its verdict was not written: ${e.message}`; seamNotes.push(verdictFailure); } }
+    // The verdict of this run's scope (full, or the --scope dirs it covered); a green class A that cannot write it has failed.
+    try { seamNotes.push(`class A verdict written: ${await ensureVerdict(".")}`); } catch (e) { verdictFailure = `CLASS_A_VERDICT: class A passed but its verdict was not written: ${e.message}`; seamNotes.push(verdictFailure); }
   }
   const cancelled = signal?.aborted === true;
   // Positive evidence only: a seam row is settled when it carries seamSettled (a parsed result with a durable receipt or an explicit refusal, a cache hit, a lookup); every other seam row, whatever its code, keeps the lock.
