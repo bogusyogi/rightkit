@@ -4966,15 +4966,17 @@ export async function main(argv, io = {}) {
     if (classAEarlier) o.out(`${tag} class A is not repeated: it ran once before the compile, under the cargo wrapper, on this snapshot`);
     // The seam (reset plan section 3; gate-seam.mjs): on a broker host compiling a snapshot, every class B cargo row is one `rustright cargo` spawn in the snapshot
     // with RUSTRIGHT_GATE_COMMIT and RUSTRIGHT_CLASS_A; the Class A verdict lives under the data root, beside the snapshots. The legacy carrier is not taken.
+    // The same seam is wired for the door's full class A run on the snapshot (snapshotA): that run writes the root verdict the compile (classAEarlier) reads.
     let gateSeam = null;
-    if (snapshotB && brokerHost && snapshotBCommit) {
+    const seamSnapshot = snapshotB && snapshotBCommit ? { path: snapshotB, id: snapshotBCommit, what: "class B runs as rustright cargo in" } : snapFullA && snapshotA && snapshotCommitId ? { path: snapshotA, id: snapshotCommitId, what: "class A writes the verdict for" } : null;
+    if (seamSnapshot && brokerHost) {
       try {
-        const snapshotPath = path.resolve(snapshotB);
+        const snapshotPath = path.resolve(seamSnapshot.path);
         const state = JSON.parse(o.readFile(`${snapshotPath}.state.json`));
-        if (state?.schema !== "rightkit.snapshot-state/1" || state.commit !== snapshotBCommit.commit || state.tree !== snapshotBCommit.tree || typeof state.repoKey !== "string") throw new Error(`${snapshotPath}.state.json does not describe commit ${snapshotBCommit.commit} tree ${snapshotBCommit.tree}`);
-        gateSeam = { commit: snapshotBCommit.commit, tree: snapshotBCommit.tree, repoKey: state.repoKey, snapshot: snapshotPath, verdictDir: path.join(path.dirname(path.dirname(snapshotPath)), "class-a-verdicts"), outputRoots: snapshotBroker?.outputRoots ?? null };
-        o.out(`${tag} seam: class B runs as rustright cargo in ${snapshotPath} for commit ${snapshotBCommit.commit.slice(0, 12)}; Class A verdicts under ${gateSeam.verdictDir}`);
-      } catch (error) { o.err(`${tag} BLOCKED: RK_SEAM: ${error.message}; nothing compiled`); return 1; }
+        if (state?.schema !== "rightkit.snapshot-state/1" || state.commit !== seamSnapshot.id.commit || state.tree !== seamSnapshot.id.tree || typeof state.repoKey !== "string") throw new Error(`${snapshotPath}.state.json does not describe commit ${seamSnapshot.id.commit} tree ${seamSnapshot.id.tree}`);
+        gateSeam = { commit: seamSnapshot.id.commit, tree: seamSnapshot.id.tree, repoKey: state.repoKey, snapshot: snapshotPath, verdictDir: path.join(path.dirname(path.dirname(snapshotPath)), "class-a-verdicts"), outputRoots: snapshotBroker?.outputRoots ?? null };
+        o.out(`${tag} seam: ${seamSnapshot.what} ${snapshotPath}, commit ${seamSnapshot.id.commit.slice(0, 12)}; Class A verdicts under ${gateSeam.verdictDir}`);
+      } catch (error) { o.err(`${tag} BLOCKED: RK_SEAM: ${error.message}; nothing ran`); return 1; }
     }
     const census = snapshotB && !snapshotBroker ? createFreshnessCensus({ targetDirs }) : null;
     directTiming.cargoStart = Date.now();

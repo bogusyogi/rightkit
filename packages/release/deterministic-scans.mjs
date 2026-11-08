@@ -4036,14 +4036,16 @@ export async function runScans(plan, options = {}) {
       results.push({ id: "cargo-ledger", class: SCAN_CLASS.B, command: "cargo ledger", tool: null, toolVersion: null, status: "fail", code: "RK_CARGO_LEDGER", detail: `cargo calls were filed under ${unclaimed.length} scan token(s) no scan owns (${unclaimed.slice(0, 3).join(", ")}), so they cannot be tied to a scan (${SCAN_TOKEN_ENV} was cleared, or the call came from outside every scan): ${calls.slice(0, 5).join("; ") || "unreadable"}` });
     }
   }
-  // A class-A-only run on a seam host writes the root verdict its class B run (classAEarlier) will name; nothing is written when any row failed.
-  const seamNotes = [];
+  // A class-A-only run on a seam host writes the root verdict its class B run (classAEarlier) will name; nothing is written when any row failed, and a
+  // green class A whose verdict could not be written is not a passing run (the compile that follows would have no verdict to name).
+  const seamNotes = []; let verdictFailure = null;
   if (deps.gateSeam && classes.includes(SCAN_CLASS.A) && !classes.includes(SCAN_CLASS.B) && !classAFailed && !signal?.aborted) {
-    try { seamNotes.push(`class A verdict written: ${await ensureVerdict(".")}`); } catch (e) { seamNotes.push(`class A verdict NOT written: ${e.message}`); }
+    try { seamNotes.push(`class A verdict written: ${await ensureVerdict(".")}`); } catch (e) { verdictFailure = `CLASS_A_VERDICT: class A passed but its verdict was not written: ${e.message}`; seamNotes.push(verdictFailure); }
   }
   const cancelled = signal?.aborted === true;
+  const allPassed = !cancelled && verdictFailure === null && results.every((r) => r.status === "pass");
   return {
-    schema: SCAN_RESULT_SCHEMA, ok: !cancelled && results.every((r) => r.status === "pass"), complete: !cancelled && results.every((r) => r.status === "pass"), classes, checker, ...(cancelled ? { cancelled: true } : {}),
+    schema: SCAN_RESULT_SCHEMA, ok: allPassed, complete: allPassed, classes, checker, ...(cancelled ? { cancelled: true } : {}), ...(verdictFailure ? { verdictFailure } : {}),
     inputDigest: plan.inputDigest ?? null,
     deferred: results.filter((r) => r.status === "deferred").map((r) => r.id),
     scans: results, toolVersions, toolIdentities, cacheHits: [...cacheHits].sort(), notes: [...(plan.notes ?? []), ...batchFailureNotes, ...partitionNotes, ...seamNotes, ...(cargoLedger ? [UNOBSERVED_NESTED_CARGO_NOTE] : [])],

@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { CLASS_A_ENV, CLASS_A_VERDICT_SCHEMA, GATE_COMMIT_ENV, classAVerdict, judgeSeamOutcome, normalizeWorkspace, parseIdentity, parseResultLine, processIdentity, readSeamReceipt, seamEnv, snapshotLockBody, writeClassAVerdict } from "./gate-seam.mjs";
+import { CLASS_A_ENV, CLASS_A_VERDICT_SCHEMA, GATE_COMMIT_ENV, classAVerdict, judgeSeamOutcome, normalizeWorkspace, parseIdentity, parseResultLine, processIdentity, readSeamReceipt, samePath, seamEnv, snapshotLockBody, writeClassAVerdict } from "./gate-seam.mjs";
 import { acquireSnapshotLock } from "./snapshot.mjs";
 
 const commit = "a".repeat(40); const tree = "b".repeat(40); const repoKey = "0123456789abcdef";
@@ -69,9 +69,18 @@ test("the receipt's postconditions are judged before the exit code; a refusal ke
   // an executed compile that failed keeps its exit; its receipt is still evidence
   const failed = judgeSeamOutcome({ child: { status: 101 }, stderr: line({ exit: 101, receipt: receipt(good) }), commit, tree });
   assert.equal(failed.status, "fail"); assert.equal(failed.code, "EXIT"); assert.equal(failed.detail, "exit 101"); assert.ok(failed.evidence);
-  // the client's exit and its line disagree
+  // the client's exit and its line disagree (receipt fine): a mismatch, with the receipt kept as evidence
   const mismatch = judgeSeamOutcome({ child: { status: 0 }, stderr: line({ exit: 101, receipt: receipt(good) }), commit, tree });
-  assert.equal(mismatch.code, "RESULT_EXIT_MISMATCH");
+  assert.equal(mismatch.code, "RESULT_EXIT_MISMATCH"); assert.ok(mismatch.evidence);
+  // a postcondition failure makes the client exit 125 while the line keeps the command's exit 0: the receipt is read first, so the row says why
+  const postFirst = judgeSeamOutcome({ child: { status: 125 }, stderr: line({ exit: 0, receipt: receipt({ ...good, snapshotUnchanged: false }) }), commit, tree });
+  assert.equal(postFirst.code, "RK_SNAPSHOT_CHANGED");
+  // Windows: the broker canonicalizes the verdict path to its extended form; the binding still holds
+  const winReceipt = receipt({ ...good, classA: "\\\\?\\C:\\data\\class-a-verdicts\\Class-A.json" });
+  assert.equal(readSeamReceipt(winReceipt, { commit, tree, classA: "C:/data/class-a-verdicts/class-a.json" }).problems.length, process.platform === "win32" ? 0 : 1);
+  assert.equal(samePath("\\\\?\\C:\\data\\x.json", "C:/data/X.json", "win32"), true);
+  assert.equal(samePath("/v/./class-a.json", "/v/class-a.json", "linux"), true);
+  assert.equal(samePath("/v/a.json", "/v/b.json", "linux"), false);
   // killed before it replied: no line, never a success, never a retry
   const killed = judgeSeamOutcome({ child: { status: null, signal: "SIGKILL" }, stderr: "rustright: request 9\n", commit, tree });
   assert.equal(killed.status, "fail"); assert.equal(killed.code, "NO_RESULT_LINE");

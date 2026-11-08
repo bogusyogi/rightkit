@@ -75,6 +75,17 @@ export function seamEnv({ commit, classA }) {
 
 const nullableString = (v) => v === null || typeof v === "string";
 
+/** Whether two absolute paths name the same file: Windows' extended `\\?\` prefix dropped, separators and case normalized there, resolved everywhere. */
+export function samePath(a, b, platform = process.platform) {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  const norm = (p) => {
+    let s = p.replace(/^\\\\\?\\UNC\\/i, "\\\\").replace(/^\\\\\?\\/, "");
+    if (platform === "win32") { s = path.win32.resolve(s).replace(/\//g, "\\").toLowerCase(); return s; }
+    return path.posix.normalize(s);
+  };
+  return norm(a) === norm(b);
+}
+
 /**
  * Exactly one `rustright-result <json>` line in the child's stderr: the result. None (the child was killed before it replied, or an
  * old client ran) or several is a failure of the row, never a success and never a retry.
@@ -114,7 +125,7 @@ export function readSeamReceipt(file, { commit, tree, classA = null, fsApi = fs 
   else {
     if (g.commit !== commit) problems.push(`receipt gate.commit ${JSON.stringify(g.commit)} is not this run's ${commit}`);
     if (g.tree !== tree) problems.push(`receipt gate.tree ${JSON.stringify(g.tree)} is not this run's ${tree}`);
-    if (classA !== null && g.classA !== classA) problems.push(`receipt gate.classA ${JSON.stringify(g.classA)} is not the verdict this request named`);
+    if (classA !== null && !samePath(g.classA, classA)) problems.push(`receipt gate.classA ${JSON.stringify(g.classA)} is not the verdict this request named`);
     if (g.snapshotUnchanged !== true) problems.push("the broker found the snapshot changed during the job (gate.snapshotUnchanged is not true)");
   }
   if (receipt && Object.hasOwn(receipt, "testExecutables") && receipt.testExecutables !== null && !Array.isArray(receipt.testExecutables)) problems.push("receipt testExecutables is neither a list nor null");
@@ -123,20 +134,22 @@ export function readSeamReceipt(file, { commit, tree, classA = null, fsApi = fs 
 
 /**
  * One verdict for the row from the child's exit, its result line and its receipt. Order: a refusal or client failure (code present, or
- * exit 125 with nothing admitted) fails with that code; a success without a durable receipt fails; a receipt whose postconditions do not
- * hold fails even when the child exited 0; an executed command that failed keeps its exit as code EXIT; otherwise pass, with the evidence
- * downstream reads (outputDir, testExecutables, receipt digest).
+ * exit 125 with nothing admitted) fails with that code; a success without a durable receipt fails; the receipt's postconditions are read
+ * next and fail the row even when the command exited 0 (a postcondition failure also makes the client exit 125 while `result.exit` keeps
+ * the executed command's exit, so this comes before the exit comparison); then a client exit that disagrees with its line; then an
+ * executed command that failed keeps its exit as code EXIT; otherwise pass, with the evidence downstream reads (outputDir,
+ * testExecutables, receipt digest).
  */
 export function judgeSeamOutcome({ child, stderr, commit, tree, classA = null, fsApi = fs }) {
   let result;
   try { result = parseResultLine(stderr); } catch (e) { return { status: "fail", code: e.code, detail: e.message, result: null, evidence: null }; }
   if (result.code) return { status: "fail", code: result.code, detail: `the broker refused or the client failed before anything ran: ${result.message ?? result.code}`, result, evidence: null };
   if (result.exit === NOT_EXECUTED_EXIT && result.requestId === null) return { status: "fail", code: "RK_NOT_EXECUTED", detail: "the client reported exit 125 with no request admitted and no code", result, evidence: null };
-  if (child && Number.isInteger(child.status) && result.exit !== null && child.status !== result.exit) return { status: "fail", code: "RESULT_EXIT_MISMATCH", detail: `the client exited ${child.status} but its result line says ${result.exit}`, result, evidence: null };
   if (!result.receiptPersisted || typeof result.receipt !== "string") return { status: "fail", code: "RECEIPT_MISSING", detail: "the broker left no durable receipt for this request; without it the row proves nothing", result, evidence: null };
   const read = readSeamReceipt(result.receipt, { commit, tree, classA, fsApi });
   if (read.problems.length) return { status: "fail", code: read.receipt?.gate && read.receipt.gate.snapshotUnchanged === false ? "RK_SNAPSHOT_CHANGED" : "RECEIPT_MISMATCH", detail: read.problems.join("; "), result, evidence: null };
   const evidence = { receiptSha256: read.sha256, receiptPath: result.receipt, requestId: result.requestId, outputDir: result.outputDir, testExecutables: Array.isArray(read.receipt.testExecutables) ? read.receipt.testExecutables : null, gate: read.receipt.gate };
+  if (child && Number.isInteger(child.status) && result.exit !== null && child.status !== result.exit) return { status: "fail", code: "RESULT_EXIT_MISMATCH", detail: `the client exited ${child.status} but its result line says ${result.exit}`, result, evidence };
   if (result.exit !== 0 || result.signal) return { status: "fail", code: "EXIT", detail: result.signal ? `the command was stopped by signal ${result.signal}` : `exit ${result.exit}`, result, evidence };
   return { status: "pass", code: null, detail: null, result, evidence };
 }
