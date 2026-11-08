@@ -141,6 +141,8 @@ Each step is one agent, one repository, measured on the Mac before the Dell. No 
 
 Done 2026-11-08 05:05 IST, gate side (rightkit 49af57af8, b0065b7c3, reworded for G28 with contract line GC-A18 and issue rightkit#1537; GC-A18 amended to match): the class B store rule (a row is stored only by the invocation that ran it; no grouped-pass projection, no bisection), the `--jobs` lookup fix, no cache-miss approval, the benchmark switches gone. Package tests 168 of 169 (one pre-existing ownership failure, untouched). Not yet run against the real target: that is the next approval.
 
+Verified on the real target 2026-11-08 12:55Z (Adrian: "Approve the run"; batch 051b, checkout gate at fbdc0595d, four crates, Mac, installed broker): Class A 1168 checks, 1167 cached; Class B 119 rows, 97 pass, 1 fail, Class B wall clock 2 min 20 s. Store rule held: 86 grouped rows in 11 invocations, 44 cache files written, every group under its own `*:batch:*` key, no member key written with group attribution (`/Volumes/D/scratch/gate-ready/store-rule-check.py`). Two defects the run exposed, filed: the serial test row repeats the plain row's compile byte for byte and the broker refuses it `RK_APP_BUILD_IN_PROGRESS`, which the gate reads as a failed snapshot verification (rightkit#1539); 103 of 119 rows missed the cache with no input change because `PNPM_HOME`, `NPM_CONFIG_CACHE` and the broker socket and agent-bin paths key every cargo row (rightkit#1540). The first attempt (051a) was refused by preflight G28 for missing citations; the commits were reworded in place (fbdc0595d).
+
 ETA: unmeasured. The first step is settling the inner loop (step 1), and a measured run of it sets the rest.
 
 ## 8. What the 2026-11-07 gate-chat reports add
