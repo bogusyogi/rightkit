@@ -169,17 +169,26 @@ export function workspaceManifestDigest(dir, { fsApi = fs } = {}) {
   const walk = (d) => {
     let entries; try { entries = fsApi.readdirSync(d, { withFileTypes: true }); } catch { return; }
     for (const e of entries.sort((a, b) => (a.name < b.name ? -1 : 1))) {
-      if (e.name.startsWith(".") || e.name === "node_modules" || e.name === "target") continue;
+      // `.cargo/config.toml` (patches, target cfg, rustflags) is a resolution input; every other dot directory is not.
+      if ((e.name.startsWith(".") && e.name !== ".cargo") || e.name === "node_modules" || e.name === "target") continue;
       const p = path.join(d, e.name);
+      const inCargoDir = path.basename(d) === ".cargo";
       if (e.isDirectory()) walk(p);
-      else if (e.isFile() && (e.name === "Cargo.toml" || e.name === "Cargo.lock" || e.name === "rust-toolchain" || e.name === "rust-toolchain.toml")) { h.update(path.relative(dir, p).split(path.sep).join("/")); h.update("\0"); h.update(fsApi.readFileSync(p)); h.update("\0"); }
+      else if (e.isFile() && (e.name === "Cargo.toml" || e.name === "Cargo.lock" || e.name === "rust-toolchain" || e.name === "rust-toolchain.toml" || (inCargoDir && (e.name === "config.toml" || e.name === "config")))) { h.update(path.relative(dir, p).split(path.sep).join("/")); h.update("\0"); h.update(fsApi.readFileSync(p)); h.update("\0"); }
     }
   };
   walk(dir);
   return h.digest("hex");
 }
 
-/** The cache key of one configuration group's partition. */
-export function partitionCacheKey({ rest, crates, target = null, cwd = ".", inputs }) {
-  return sha256(`${FEATURE_PARTITION_SCHEMA}\0${JSON.stringify({ rest, crates: [...crates].sort(), target, cwd, inputs })}`);
+/** The code of this module, part of every partition key: a change to how the partition is computed invalidates every stored partition. */
+let moduleDigestMemo = null;
+function moduleDigest() {
+  if (moduleDigestMemo === null) { try { moduleDigestMemo = sha256(fs.readFileSync(new URL(import.meta.url))); } catch { moduleDigestMemo = "unreadable"; } }
+  return moduleDigestMemo;
+}
+
+/** The cache key of one configuration group's partition: the command shape, the crates, the target, the workspace, its manifest digest, the cargo that resolved and this module's code. */
+export function partitionCacheKey({ rest, crates, target = null, cwd = ".", inputs, toolVersion = null }) {
+  return sha256(`${FEATURE_PARTITION_SCHEMA}\0${JSON.stringify({ rest, crates: [...crates].sort(), target, cwd, inputs, toolVersion, code: moduleDigest() })}`);
 }

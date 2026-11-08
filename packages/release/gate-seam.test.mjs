@@ -8,7 +8,7 @@ import test from "node:test";
 import { CLASS_A_ENV, CLASS_A_VERDICT_SCHEMA, GATE_COMMIT_ENV, classAVerdict, judgeSeamOutcome, normalizeWorkspace, parseIdentity, parseResultLine, processIdentity, readSeamReceipt, samePath, seamEnv, snapshotLockBody, writeClassAVerdict } from "./gate-seam.mjs";
 import { SNAPSHOT_STATUS_SCHEMA, snapshotStatusAllowsReclaim, snapshotStatusMessage, snapshotStatusSync } from "./gate-seam.mjs";
 import { spawn } from "node:child_process";
-import { snapshotReclaimJudge } from "./broker-handshake.mjs";
+import { snapshotReclaimJudge } from "./seam-broker.mjs";
 import { acquireSnapshotLock } from "./snapshot.mjs";
 
 test("only an exact SNAPSHOT_STATUS echo with state IDLE proves a dead holder's snapshot idle; the query crosses a real socket", async () => {
@@ -116,6 +116,10 @@ test("exactly one rustright-result line is the result; none or several fails the
   assert.throws(() => parseResultLine("rustright-result not json\n"), /not JSON/);
   assert.throws(() => parseResultLine(`rustright-result ${JSON.stringify({ requestId: "r", exit: 0, signal: null, outputDir: "relative", receipt: null, receiptPersisted: true })}`), /outputDir/);
   assert.throws(() => parseResultLine(`rustright-result ${JSON.stringify({ requestId: null, exit: 125, signal: null, outputDir: null, receipt: null, receiptPersisted: false, code: "bad code" })}`), /code/);
+  // The broker writes the signal as a number (its own tests use 9); another documented short prefix is a code too.
+  const signalled = parseResultLine(`rustright-result ${JSON.stringify({ requestId: "r", exit: null, signal: 9, outputDir: "/t/out", receipt: "/t/r.json", receiptPersisted: true })}`);
+  assert.equal(signalled.signal, 9);
+  assert.equal(parseResultLine(`rustright-result ${JSON.stringify({ requestId: null, exit: 125, signal: null, outputDir: null, receipt: null, receiptPersisted: false, code: "RR_GATE_ADMISSION", message: "no verdict" })}`).code, "RR_GATE_ADMISSION");
 });
 
 test("the receipt's postconditions are judged before the exit code; a refusal keeps its code; a killed child fails", () => {
@@ -160,6 +164,12 @@ test("the receipt's postconditions are judged before the exit code; a refusal ke
   // killed before it replied: no line, never a success, never a retry
   const killed = judgeSeamOutcome({ child: { status: null, signal: "SIGKILL" }, stderr: "rustright: request 9\n", commit, tree });
   assert.equal(killed.status, "fail"); assert.equal(killed.code, "NO_RESULT_LINE");
+  // killed AFTER a line that says exit 0 (the gate's timeout landed as the client was replying): the kill wins, the row never passes on the line alone
+  const killedLate = judgeSeamOutcome({ child: { status: null, signal: "SIGTERM" }, stderr: line({ receipt: r1 }), commit, tree, classA: "/v/class-a.json" });
+  assert.equal(killedLate.status, "fail"); assert.equal(killedLate.code, "CLIENT_KILLED");
+  // the executed command died by a signal, reported as the broker spells it (a number): EXIT with the signal named, never a pass
+  const sigChild = judgeSeamOutcome({ child: { status: 137 }, stderr: `rustright-result ${JSON.stringify({ requestId: "r1", exit: null, signal: 9, outputDir: "/t/out", receipt: r1, receiptPersisted: true })}\n`, commit, tree, classA: "/v/class-a.json" });
+  assert.equal(sigChild.status, "fail"); assert.equal(sigChild.code, "EXIT"); assert.match(sigChild.detail, /signal 9/);
   assert.deepEqual(readSeamReceipt(path.join(dir, "missing.json"), { commit, tree }).problems.length, 1);
 });
 

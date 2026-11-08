@@ -101,11 +101,11 @@ export function parseResultLine(stderr) {
   const bad = [];
   if (!nullableString(r.requestId)) bad.push("requestId");
   if (!(r.exit === null || Number.isInteger(r.exit))) bad.push("exit");
-  if (!nullableString(r.signal)) bad.push("signal");
+  if (!(r.signal === null || typeof r.signal === "string" || Number.isInteger(r.signal))) bad.push("signal"); // the broker writes the signal number, node the name
   if (!nullableString(r.outputDir) || (typeof r.outputDir === "string" && !path.isAbsolute(r.outputDir))) bad.push("outputDir");
   if (!nullableString(r.receipt) || (typeof r.receipt === "string" && !path.isAbsolute(r.receipt))) bad.push("receipt");
   if (typeof r.receiptPersisted !== "boolean") bad.push("receiptPersisted");
-  if (r.code !== undefined && (typeof r.code !== "string" || !/^RK_[A-Z0-9_]+$/.test(r.code))) bad.push("code");
+  if (r.code !== undefined && (typeof r.code !== "string" || !/^[A-Z]{2,3}_[A-Z0-9_]+$/.test(r.code))) bad.push("code"); // RK_ today; any short upper-case prefix the broker documents
   if (r.message !== undefined && typeof r.message !== "string") bad.push("message");
   if (bad.length) throw new SeamError("BAD_RESULT_LINE", `the rustright-result line has invalid field(s): ${bad.join(", ")}`);
   return r;
@@ -146,6 +146,8 @@ export function judgeSeamOutcome({ child, stderr, commit, tree, classA = null, f
   try { result = parseResultLine(stderr); } catch (e) { return { status: "fail", code: e.code, detail: e.message, result: null, evidence: null }; }
   if (result.code) return { status: "fail", code: result.code, detail: `the broker refused or the client failed before anything ran: ${result.message ?? result.code}`, result, evidence: null };
   if (result.exit === NOT_EXECUTED_EXIT && result.requestId === null) return { status: "fail", code: "RK_NOT_EXECUTED", detail: "the client reported exit 125 with no request admitted and no code", result, evidence: null };
+  // A client the gate killed (its own timeout, a cancel) proves nothing whatever its line says: the line may predate the kill or belong to a job the broker went on to cancel.
+  if (child && typeof child.signal === "string" && child.signal) return { status: "fail", code: "CLIENT_KILLED", detail: `the client was stopped by ${child.signal} before the row completed`, result, evidence: null };
   if (!result.receiptPersisted || typeof result.receipt !== "string") return { status: "fail", code: "RECEIPT_MISSING", detail: "the broker left no durable receipt for this request; without it the row proves nothing", result, evidence: null };
   const read = readSeamReceipt(result.receipt, { commit, tree, classA, fsApi });
   if (read.problems.length) return { status: "fail", code: read.receipt?.gate && read.receipt.gate.snapshotUnchanged === false ? "RK_SNAPSHOT_CHANGED" : "RECEIPT_MISMATCH", detail: read.problems.join("; "), result, evidence: null };

@@ -1195,7 +1195,7 @@ export function planScans({
   const under = (prefix) => files.filter((f) => f.startsWith(prefix));
   if (!["compile", "release"].includes(tier)) throw new Error(`planScans: tier must be compile or release, not ${JSON.stringify(tier)}`);
   let scans = []; const notes = []; const qualifyOwed = [];
-  if (cargoLiveRoot) notes.push(`broker host: class A cargo scans run in the snapshot as carried read-only requests, class B compiles are carried requests started from the primary checkout ${cargoLiveRoot} (uncommitted edits there never reach a scan)`);
+  if (cargoLiveRoot) notes.push(`broker host: class A cargo reads run in the snapshot with the host's real cargo, never through the broker (GC-A11); class B compiles go to the broker as seam requests from the snapshot (reset plan section 3) when the seam is wired, else as carried requests started from the primary checkout ${cargoLiveRoot} (uncommitted edits there never reach a scan)`);
   // A snapshot compile's scans carry its target map (item 7): the map is part of every scan's cache key, so no result cached by a
   // live-checkout run (or a compile with another map) is taken for one that writes to these directories.
   const snapshotTargets = targetDirs ? { RK_SNAPSHOT_TARGETS: canonicalJson(targetDirs) } : {};
@@ -3068,6 +3068,9 @@ export async function runScans(plan, options = {}) {
     const seam = deps.gateSeam; const ws = normalizeWorkspace(cwd ?? ".");
     if (!verdictFiles.has(ws)) verdictFiles.set(ws, (async () => {
       let scans;
+      // Only an unscoped class A vouches for the workspace: a run scoped to one unit (gate.mjs closure: "N unrelated executing scans excluded") planned a subset,
+      // and a subset's pass is not the workspace's (fresh review 2026-11-09, E1: a unit-scoped check had written the root verdict).
+      if (classes.includes(SCAN_CLASS.A) && seam.classAScope !== "full") throw new Error(`class A ran scoped (${seam.classAScope ?? "unknown scope"}): a scoped class A cannot vouch for the workspace; run class A unscoped before any class B`);
       if (classes.includes(SCAN_CLASS.A)) scans = results.filter((r) => r.class === SCAN_CLASS.A).map((r) => ({ id: r.id, status: r.status }));
       else {
         const rootFile = path.join(seam.verdictDir, `class-a-${seam.commit.slice(0, 12)}-root.json`);
@@ -3250,8 +3253,11 @@ export async function runScans(plan, options = {}) {
         if (!r || r.error || r.status !== 0) throw new Error(`cargo tree for ${packages.join(", ")}${target ? ` (--target ${target})` : ""} in ${cwd} failed: ${r?.error?.message ?? (tail(r) || `exit ${r?.status}`)}`);
         return r.stdout ?? "";
       };
+      // The cargo that resolves is part of what it resolves (fresh review 2026-11-09, E6): its version joins the key, with the module's own code (partitionCacheKey).
+      let toolVersion = null;
+      try { toolVersion = (await probe(tool, path.join(cargoLiveRoot ?? contentRoot, cwd)))?.version ?? null; } catch { toolVersion = null; }
       const one = async (target) => {
-        const key = partitionCacheKey({ rest, crates, target, cwd, inputs });
+        const key = partitionCacheKey({ rest, crates, target, cwd, inputs, toolVersion });
         const stored = cache?.read(key);
         if (stored && stored.key === key && Array.isArray(stored.row?.partition)) return stored.row.partition;
         if (!partitionMemo.has(key)) partitionMemo.set(key, partitionByFeatures({ crates, tree: (packages) => tree(packages, target) }).then((parts) => { cache?.write(key, { id: "feature-partition", status: "pass", crates: [...crates].sort(), target, partition: parts }); return parts; }));
@@ -3949,9 +3955,13 @@ export async function runScans(plan, options = {}) {
               // ADR-001 C2 (rightkit#1454): a broker that signs the compile's test executables (receipt.testExecutables, rustright) binds each one;
               // an executable whose path or sha256 is not in that signed list never runs. An older broker that signs no list leaves containment only.
               const signedProblems = (viaSnapshotBroker || viaSeam) && row.snapshotEvidence && Object.hasOwn(row.snapshotEvidence, "testExecutables") ? signedTestExecutableProblems(contained.accepted, row.snapshotEvidence.testExecutables, row.snapshotEvidence.testExecutablesReason, platform) : [];
+              // The seam's receipt is the broker's list of what the compile produced: an executable it lists that cargo's stdout did not yield (a cut listing, a parse gap)
+              // would otherwise never run and nothing would say so (fresh review 2026-11-09, E5). Every listed executable must be among the ones about to run.
+              const receiptMissing = viaSeam && Array.isArray(row.snapshotEvidence?.testExecutables) ? row.snapshotEvidence.testExecutables.map((e) => (typeof e?.path === "string" ? e.path : typeof e?.executable === "string" ? e.executable : null)).filter(Boolean).filter((p) => { let real = p; try { real = fs.realpathSync.native(p); } catch { /* compared as given */ } return !contained.accepted.some((b) => b.real === real || b.executable === p); }) : [];
               if (s.publisherRustTest && (viaSnapshotBroker || viaSeam) && !Object.hasOwn(row.snapshotEvidence ?? {}, "testExecutables")) fail("TEST_EXECUTABLE_UNSIGNED", `${s.id}: the broker's receipt lists no test executables`);
               else if (contained.problems.length) fail("TEST_EXECUTABLE_OUTSIDE_OUTPUT", `${s.id}: ${contained.problems.slice(0, 5).join("; ")}; the row fails and nothing was run`);
               else if (signedProblems.length) fail("TEST_EXECUTABLE_UNSIGNED", `${s.id}: ${signedProblems.slice(0, 5).join("; ")}; the row fails and nothing was run`);
+              else if (receiptMissing.length) fail("TEST_EXECUTABLE_MISSING", `${s.id}: the broker's receipt lists ${receiptMissing.length} test executable(s) cargo's listing did not yield (${receiptMissing.slice(0, 3).join(", ")}); the row fails and nothing was run`);
               else if (Array.isArray(s.testGroup)) {
                 // NN17/NN39: the group's members run their own executables in parallel (a pool the size of the test concurrency), each with its own verdict.
                 const byCrate = new Map();

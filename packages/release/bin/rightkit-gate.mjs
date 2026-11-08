@@ -110,7 +110,8 @@ import { platformDirOf } from "../platform-dir.mjs";
 import { buildInventory, classifyUnitResults, dependencyFirstOrder, selectAffectedAcrossInventories, unitListReport } from "../affected-units.mjs";
 import { createRequire } from "node:module";
 import { nativeToolRefusal, nativeToolUses } from "../native-tool-planning.mjs";
-import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, mergeCapabilityViews, parseRuntimeIdentity, queryBrokerHandshake, snapshotReclaimJudge } from "../broker-handshake.mjs";
+import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, mergeCapabilityViews, parseRuntimeIdentity, queryBrokerHandshake } from "../broker-handshake.mjs";
+import { snapshotReclaimJudge } from "../seam-broker.mjs";
 import net from "node:net";
 import { installSpawnLedger } from "../spawn-ledger.mjs";
 import { processIdentity, snapshotLockBody } from "../gate-seam.mjs";
@@ -180,7 +181,8 @@ function classBKeyIdentity() {
   if (classBKeyIdentityMemo === null) {
     const h = createHash("sha256");
     h.update(CLASS_B_KEY_SCHEMA);
-    for (const f of ["cargo-target-shim.mjs", "snapshot-broker.mjs", "snapshot-request.mjs", "snapshot-metadata.mjs", "provenance-verify.mjs", "cargo-ledger.mjs"]) { h.update(`\0${f}\0`); h.update(fs.readFileSync(new URL(`../${f}`, import.meta.url))); }
+    // The seam's judge (gate-seam.mjs) decides what a seam row's pass means, so its code is in the key beside the carrier's (which goes with step 5 of the reset plan).
+    for (const f of ["cargo-target-shim.mjs", "snapshot-broker.mjs", "snapshot-request.mjs", "snapshot-metadata.mjs", "provenance-verify.mjs", "cargo-ledger.mjs", "gate-seam.mjs"]) { h.update(`\0${f}\0`); h.update(fs.readFileSync(new URL(`../${f}`, import.meta.url))); }
     classBKeyIdentityMemo = h.digest("hex").slice(0, 24);
   }
   return classBKeyIdentityMemo;
@@ -1852,14 +1854,18 @@ async function runStages(o, args, root, git, io) {
     try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot, repository: snap.repositoryOf(root).key }), stage: `door:${to}`, snapshot: path.join(snapshotsAt, snap.repositoryOf(root).key), commit: selected.commit, platform: o.platform, env: o.env }); }
     catch (e) { if (e.code !== "busy" && e.code !== "refused") throw e; o.err(`${tag} BLOCKED: ${e.message}; nothing ran${e.code === "refused" ? ", nothing created" : ""}`); return 1; }
     o.out(`${tag} build ownership ${own.joined ? "joined" : "held"} ${own.handle}${own.reclaimed ? ` (reclaimed from ${own.reclaimed.from}: ${own.reclaimed.proofs.join("; ")})` : ""}`);
-    let synced = null;
+    let synced = null; let seamJudge = null; let seamBody = null;
     try {
       // One sync per door run: a second one would prune what class A installed into the snapshot.
       // The seam (reset plan section 3): the lock body is { pid, identity, commit, token } and the lock is held through the whole door run, every job and
-      // every test, released in the finally below; the broker refuses a request whose snapshot is not locked for its commit by a live holder.
+      // every test, released in the finally below only on the broker's proof that the snapshot is idle; the broker refuses a request whose snapshot is not locked for its commit by a live holder.
       let seamLock = {};
       if (/^[0-9a-f]{40}$/.test(String(selected.commit))) {
         const identity = processIdentity(process.pid, { platform: o.platform, spawnSync: (c, a, opts) => o.spawn(c, a, opts) });
+        // On a broker host the seam is the only class B path: without an identity the lock the broker reads cannot be written, so nothing runs (no silent legacy lock).
+        let doorExecutorKind = null;
+        try { doorExecutorKind = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which: whichIn(o), readFile: o.readFile })?.kind ?? null; } catch { doorExecutorKind = null; }
+        if (!identity && doorExecutorKind === "broker") { o.err(`${tag} BLOCKED: RK_SEAM_IDENTITY: this process's birth identity could not be read (ps), so the snapshot lock the broker requires cannot be written; nothing ran`); return 1; }
         // A dead holder's lock is reclaimed only on the broker's SNAPSHOT_STATUS proof that the snapshot is IDLE for exactly that owner (gate-seam.mjs); no broker, no proof.
         const snapshotPath = path.join(snapshotsAt, snap.repositoryOf(root).key);
         // Everything the judge needs is resolved HERE and bound into it (snapshotReclaimJudge): the route's executor and this function's `which` are out of scope or
@@ -1867,8 +1873,8 @@ async function runStages(o, args, root, git, io) {
         let seamClient = null;
         try { seamClient = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which: whichIn(o), readFile: o.readFile })?.client ?? null; } catch { seamClient = null; }
         const judge = snapshotReclaimJudge({ o, client: seamClient, snapshotPath });
-        if (identity) seamLock = { body: snapshotLockBody({ identity, commit: selected.commit }), judge, hold: true };
-        else o.err(`${tag} note: this process's birth identity could not be read; the snapshot lock is the legacy one and is released after the sync`);
+        if (identity) { seamBody = snapshotLockBody({ identity, commit: selected.commit }); seamJudge = judge; seamLock = { body: seamBody, judge, hold: true }; }
+        else o.err(`${tag} note: this process's birth identity could not be read; the snapshot lock is the legacy one and is released after the sync (no broker on this host)`);
       }
       try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout: root, rev: selected.commit, root: snapshotsAt, lock: seamLock }); }
       catch (e) { o.err(`${tag} ${e.code === "error" ? "RK_CHECK_ERROR" : "BLOCKED"}: snapshot ${e.message}; nothing ran`); return e.code === "error" ? 2 : 1; }
@@ -1876,8 +1882,15 @@ async function runStages(o, args, root, git, io) {
       if (synced.identity) o.out(`${tag} source identity ${synced.identity.file}: ${synced.identity.written ? "written" : synced.identity.kept ? "kept" : `not written (${synced.identity.reason})`}`);
       return await runStages({ ...o, buildOwnership: own, doorSnapshot: { own, path: synced.path, commit: synced.commit, tree: synced.tree, root: snapshotsAt, ledger: { entries: [] } } }, args, root, git, { ...io, buildOwnership: own });
     } finally {
-      // The seam lock, held through the batch, is released only here, after every job and test of the door run ended.
-      try { synced?.release?.(); } catch { /* a lock is removed by its holder only; a failed removal leaves it for the stale-holder rule */ }
+      // The seam lock, held through the batch, is released only here, after every job and test of the door run ended, and only on the broker's SNAPSHOT_STATUS
+      // proof that the snapshot is IDLE for this holder: a client the gate killed may have left a job FINALIZING, and a lock released under it would let the next
+      // run sync the snapshot beneath that job (fresh review 2026-11-09, E2). Without proof the lock stays; the stale-holder rule reclaims it later on proof.
+      try {
+        if (synced?.release) {
+          if (!seamBody || !seamJudge || seamJudge(seamBody) === true) synced.release();
+          else o.err(`${tag} note: the snapshot lock ${synced.lockFile ?? ""} is kept: the broker did not confirm the snapshot idle for this run (a job may still be finishing); it is reclaimed on the broker's proof`);
+        }
+      } catch { /* a lock is removed by its holder only; a failed removal leaves it for the stale-holder rule */ }
       const r = own.release();
       if (r?.released === false && !own.joined) o.err(`${tag} build ownership ${own.handle} kept: ${r.why}`);
     }
@@ -4981,7 +4994,10 @@ export async function main(argv, io = {}) {
         const snapshotPath = path.resolve(seamSnapshot.path);
         const state = JSON.parse(o.readFile(`${snapshotPath}.state.json`));
         if (state?.schema !== "rightkit.snapshot-state/1" || state.commit !== seamSnapshot.id.commit || state.tree !== seamSnapshot.id.tree || typeof state.repoKey !== "string") throw new Error(`${snapshotPath}.state.json does not describe commit ${seamSnapshot.id.commit} tree ${seamSnapshot.id.tree}`);
-        gateSeam = { commit: seamSnapshot.id.commit, tree: seamSnapshot.id.tree, repoKey: state.repoKey, snapshot: snapshotPath, verdictDir: path.join(path.dirname(path.dirname(snapshotPath)), "class-a-verdicts"), outputRoots: snapshotBroker?.outputRoots ?? null };
+        // classAScope: "full" only when this run's class A is the whole planned set (the door's full class A, or the compile that reads the verdict a full run wrote);
+        // a run scoped to a unit (closure set) is "scoped" and never writes the workspace's verdict (fresh review 2026-11-09, E1).
+        const classAScope = snapshotB ? "full" : closure ? "scoped" : "full";
+        gateSeam = { commit: seamSnapshot.id.commit, tree: seamSnapshot.id.tree, repoKey: state.repoKey, snapshot: snapshotPath, verdictDir: path.join(path.dirname(path.dirname(snapshotPath)), "class-a-verdicts"), outputRoots: snapshotBroker?.outputRoots ?? null, classAScope };
         o.out(`${tag} seam: ${seamSnapshot.what} ${snapshotPath}, commit ${seamSnapshot.id.commit.slice(0, 12)}; Class A verdicts under ${gateSeam.verdictDir}`);
       } catch (error) { o.err(`${tag} BLOCKED: RK_SEAM: ${error.message}; nothing ran`); return 1; }
     }
