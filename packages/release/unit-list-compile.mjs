@@ -240,7 +240,7 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, o
   if (byId.size !== requirements.length) throw new Error("duplicate publisher requirement IDs");
   const plannedIds = jobs.flatMap((job) => job.members.map((member) => member.id));
   if (plannedIds.length !== requirements.length || new Set(plannedIds).size !== plannedIds.length || plannedIds.some((id) => !byId.has(id))) throw new Error("publisher job coverage differs from authenticated requirements");
-  return async ({ scans, execute, executeGroup, canGroup, project, projectMember = null, notRun, probe = null, store = null, partition = null, lookupOnly = false }) => {
+  return async ({ scans, execute, executeGroup, canGroup, project, projectMember = null, notRun, probe = null, partition = null, lookupOnly = false }) => {
     // Lookup only (the gate's cache lookup before a run): every row the real run would execute is looked up. A looked-up row stands for the pass the
     // real run needs before its dependents and NN27 proofs, so a cold host reports every row it would run, not only the first frontier.
     const provedInLookup = new Map(); const provedRows = new Map();
@@ -259,7 +259,7 @@ export function publisherUnionScheduler({ reuseProofs = true, concurrency = 1, o
     };
     const release = (alone) => { if (alone) exclusive = false; else shared -= 1; wake(); };
     // Origin scans have no publisher per-unit sequencing; batch only members the scan runner itself marks compatible, and retain its signed
-    // bisection/attribution results. NN17/NN39 (Mac 2026-11-07: the broker never ran two jobs at once; 30 single rows ran one at a time, 8 rows/min):
+    // per-crate attribution results. NN17/NN39 (Mac 2026-11-07: the broker never ran two jobs at once; 30 single rows ran one at a time, 8 rows/min):
     // the groups and single rows are formed first, then submitted `originConcurrency` at a time in plan order; the broker orders and runs them.
     const work = []; const claimed = new Set();
     for (let i = 0; i < scans.length; i += 1) if (!byId.has(scans[i].id) && !claimed.has(i)) {

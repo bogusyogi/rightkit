@@ -109,6 +109,7 @@ test("a stage child's seam call is filed in the stage ledger and judged by the p
   const line = (o) => `rustright-result ${JSON.stringify({ requestId: "q1", exit: 0, signal: null, outputDir: "/t/out", receiptPersisted: true, ...o })}\n`;
   const run = (stderr, status = 0) => runCarriedAdapter("rightkit-pnpm", ["run", "build"], { cwd: "/snap/app", env }, { map, spawn: () => ({ status, signal: null, stdout: "", stderr }) });
   const ledger = () => readLedger(ledgerDir, UNSCOPED);
+  // every call is filed pending before it is sent, then its outcome under the same id (one entry per call)
   // 1. verified: status 0, ledger clean, entry settled
   const ok = run(line({ receipt: receiptFile }));
   assert.equal(ok.status, 0); assert.equal(ok.outputDir, "/t/out");
@@ -126,13 +127,15 @@ test("a stage child's seam call is filed in the stage ledger and judged by the p
   const none = run("nothing printed\n");
   assert.notEqual(none.status, 0); assert.equal(none.refusal.code, "NO_RESULT_LINE");
   const unsettled = () => ledger().entries.filter((e) => e.mode === "seam" && e.settled !== true).length;
-  assert.equal(unsettled(), 1);
+  // 2b left two unsettled: another job's receipt and one naming no job prove nothing about THIS request's job (fresh review of f4c18bc, finding 2); the other
+  // argv and other directory receipts are this job's terminal record and settle it. 3 adds one.
+  assert.equal(unsettled(), 3);
   // 4. a client failure AFTER admission (requestId kept, a code): unsettled
   run(`rustright-result ${JSON.stringify({ requestId: "owned", exit: 125, signal: null, outputDir: null, receipt: null, receiptPersisted: false, code: "RK_CLIENT_ERROR", message: "lost" })}\n`, 125);
-  assert.equal(unsettled(), 2);
+  assert.equal(unsettled(), 4);
   // 5. a refusal BEFORE admission (requestId null): settled, a ledger problem, status non-zero
   const refused = run(`rustright-result ${JSON.stringify({ requestId: null, exit: 125, signal: null, outputDir: null, receipt: null, receiptPersisted: false, code: "RK_GATE_ADMISSION", message: "no verdict" })}\n`, 125);
-  assert.equal(refused.status, 125); assert.equal(unsettled(), 2);
+  assert.equal(refused.status, 125); assert.equal(unsettled(), 4);
   assert.ok(ledger().problems.some((p) => /was refused/.test(p)));
 });
 
@@ -153,7 +156,8 @@ test("the direct read wrapper passes a seam compile (RUSTRIGHT_GATE_COMMIT set) 
 const commit = "a".repeat(40); const tree = "b".repeat(40); const repoKey = "0123456789abcdef";
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "rk-seam-test-"));
 // A receipt as the broker's producer shapes the fields the gate compares (finish_impl.rs: provenance.payload.jobId and .request.{requestedArgv, workspace, adapter}).
-const receiptOf = (gate, { jobId = "q1", argv = [], workspace = "/snap/app", adapter = null, extra = {} } = {}) => ({ gate, provenance: { payload: { jobId, request: { kind: adapter ? "adapter" : "cargo", adapter, requestedArgv: argv, workspace } } }, ...extra });
+// The broker's finish writes the job id and terminal time on every receipt (top-level `id`/`terminalAt`, and in the signed payload); the gate settles a row only on them.
+const receiptOf = (gate, { jobId = "q1", argv = [], workspace = "/snap/app", adapter = null, extra = {} } = {}) => ({ id: jobId, terminalAt: "2026-11-09T00:00:00.000Z", gate, provenance: { payload: { jobId, terminalAt: "2026-11-09T00:00:00.000Z", request: { kind: adapter ? "adapter" : "cargo", adapter, requestedArgv: argv, workspace } } }, ...extra });
 
 
 test("the Class A verdict exists only for a complete green plan and binds commit, tree, repository and workspace", () => {

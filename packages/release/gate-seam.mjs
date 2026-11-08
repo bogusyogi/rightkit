@@ -212,12 +212,14 @@ export function judgeSeamOutcome({ child, stderr, commit, tree, classA = null, e
   if (child && typeof child.signal === "string" && child.signal) return { status: "fail", code: "CLIENT_KILLED", detail: `the client was stopped by ${child.signal} before the row completed`, result, evidence: null };
   if (!result.receiptPersisted || typeof result.receipt !== "string") return { status: "fail", code: "RECEIPT_MISSING", detail: "the broker left no durable receipt for this request; without it the row proves nothing", result, evidence: null };
   const read = readSeamReceipt(result.receipt, { commit, tree, classA, expect, requestId: result.requestId, fsApi });
-  // `receiptRead`: the durable receipt exists and parsed, so the job reached its terminal state even when its postconditions fail (the evidence is then withheld, the row is settled).
-  if (read.problems.length) return { status: "fail", code: read.receipt?.gate && read.receipt.gate.snapshotUnchanged === false ? "RK_SNAPSHOT_CHANGED" : "RECEIPT_MISMATCH", detail: read.problems.join("; "), result, evidence: null, receiptRead: read.receipt !== null };
+  // `receiptRead`: the receipt is the terminal record of THIS request's job (receiptIsTerminalFor): then the job is over even when its postconditions fail (the evidence
+  // is withheld, the row is settled). A receipt that merely parses, or names another job, proves nothing about the job this client submitted.
+  const receiptRead = receiptIsTerminalFor(read.receipt, result.requestId);
+  if (read.problems.length) return { status: "fail", code: read.receipt?.gate && read.receipt.gate.snapshotUnchanged === false ? "RK_SNAPSHOT_CHANGED" : "RECEIPT_MISMATCH", detail: read.problems.join("; "), result, evidence: null, receiptRead };
   const evidence = { receiptSha256: read.sha256, receiptPath: result.receipt, requestId: result.requestId, outputDir: result.outputDir, testExecutables: Array.isArray(read.receipt.testExecutables) ? read.receipt.testExecutables : null, gate: read.receipt.gate };
-  if (child && Number.isInteger(child.status) && result.exit !== null && child.status !== result.exit) return { status: "fail", code: "RESULT_EXIT_MISMATCH", detail: `the client exited ${child.status} but its result line says ${result.exit}`, result, evidence, receiptRead: true };
-  if (result.exit !== 0 || result.signal) return { status: "fail", code: "EXIT", detail: result.signal ? `the command was stopped by signal ${result.signal}` : `exit ${result.exit}`, result, evidence, receiptRead: true };
-  return { status: "pass", code: null, detail: null, result, evidence, receiptRead: true };
+  if (child && Number.isInteger(child.status) && result.exit !== null && child.status !== result.exit) return { status: "fail", code: "RESULT_EXIT_MISMATCH", detail: `the client exited ${child.status} but its result line says ${result.exit}`, result, evidence, receiptRead };
+  if (result.exit !== 0 || result.signal) return { status: "fail", code: "EXIT", detail: result.signal ? `the command was stopped by signal ${result.signal}` : `exit ${result.exit}`, result, evidence, receiptRead };
+  return { status: "pass", code: null, detail: null, result, evidence, receiptRead };
 }
 
 /**
@@ -311,6 +313,20 @@ export function snapshotLockBody({ pid = process.pid, identity, commit }) {
  */
 export function seamSettled(judged) {
   if (!judged || !judged.result) return false;
-  if (judged.receiptRead === true || Boolean(judged.evidence)) return true;
-  return judged.result.requestId === null;
+  if (judged.receiptRead === true) return true;
+  return judged.result.requestId === null && Boolean(judged.result.code);
+}
+
+/**
+ * Whether `receipt` is the terminal record of the job `requestId` names: its `id` or its signed `provenance.payload.jobId` is that id, and it carries the time the
+ * job ended (`terminalAt`, written by every receipt the broker's finish writes, the forced one included; rustright finish_impl.rs). No request id, no receipt, another
+ * job's receipt or one with no terminal time is not proof that this request's job ended.
+ */
+export function receiptIsTerminalFor(receipt, requestId) {
+  if (!receipt || typeof receipt !== "object" || typeof requestId !== "string" || !requestId) return false;
+  const payload = receipt.provenance?.payload;
+  const ids = [receipt.id, payload?.jobId].filter((v) => typeof v === "string" && v);
+  if (!ids.length || ids.some((v) => v !== requestId)) return false;
+  const terminal = [receipt.terminalAt, payload?.terminalAt].some((v) => typeof v === "string" && v);
+  return terminal;
 }

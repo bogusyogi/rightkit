@@ -1,5 +1,5 @@
 // rightkit#1539 through the real runScans: the serial test row owns no compile while its plain row is in the run. Plain compiled and passed: its executables run again with
-// --test-threads=1, one compile in all; plain failed: the serial row fails on that dependency and never compiles; plain was a cache hit: the serial row compiles once, alone.
+// --test-threads=1, one compile in all; plain failed: the serial row fails on that dependency and never compiles; plain was a cache hit: the serial row reuses the stored executables when every digest still matches, else compiles once, alone.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -61,19 +61,36 @@ test("plain compile failed: the serial row fails on that dependency and never co
   assert.equal(compiles(calls, exe).length, 1);
 });
 
-test("plain was a cache hit: the serial row compiles once, on its own, and runs its executables single-threaded", async () => {
+test("plain was a cache hit and its executables are unchanged: the serial row re-checks the stored proof and compiles nothing", async () => {
   const { run, calls, exe } = rig();
   const store = new Map();
   const cache = { read: (k) => store.get(k) ?? null, write: (k, row) => { store.set(k, { key: k, at: new Date().toISOString(), row }); }, digest: (scan) => `d-${scan.id}` };
   // first run stores both passes; then only the serial row's entry is dropped, so the plain row hits and the serial row misses
   const first = await run({ cache });
   assert.equal(byId(first, "test:rust:a").status, "pass"); assert.equal(byId(first, "test:rust-serial:a").status, "pass");
+  const stored = [...store.values()].find((v) => v.row.id === "test:rust:a" && v.row.status === "pass")?.row;
+  assert.ok(stored?.executableProof?.binaries?.length === 1, "the plain pass stores the digest-bound proof"); assert.equal(stored.acceptedBinaries, undefined, "never the run-time objects");
   for (const [k, v] of [...store]) if (v.row.id === "test:rust-serial:a") store.delete(k);
   calls.length = 0;
   const second = await run({ cache });
   assert.equal(byId(second, "test:rust:a").cached, true, "the plain row is a hit");
   const serial = byId(second, "test:rust-serial:a");
-  assert.equal(serial.status, "pass", JSON.stringify(serial)); assert.notEqual(serial.cached, true);
+  assert.equal(serial.status, "pass", JSON.stringify(serial)); assert.notEqual(serial.cached, true); assert.equal(serial.reusedCachedProof, true);
+  assert.equal(compiles(calls, exe).length, 0, "no compile: the proven executable runs again");
+  assert.equal(testRuns(calls, exe).length, 1); assert.ok(testRuns(calls, exe)[0].args.includes("--test-threads=1"));
+});
+
+test("plain was a cache hit but its executable changed: the serial row compiles once, on its own", async () => {
+  const { run, calls, exe } = rig();
+  const store = new Map();
+  const cache = { read: (k) => store.get(k) ?? null, write: (k, row) => { store.set(k, { key: k, at: new Date().toISOString(), row }); }, digest: (scan) => `d-${scan.id}` };
+  await run({ cache });
+  for (const [k, v] of [...store]) if (v.row.id === "test:rust-serial:a") store.delete(k);
+  fs.writeFileSync(exe, "#!/bin/sh\n# rebuilt\n", { mode: 0o755 }); // the proof's digest no longer matches
+  calls.length = 0;
+  const second = await run({ cache });
+  const serial = byId(second, "test:rust-serial:a");
+  assert.equal(serial.status, "pass", JSON.stringify(serial)); assert.notEqual(serial.reusedCachedProof, true); assert.match(serial.reuseFallback ?? "", /changed since its plain row passed/);
   assert.equal(compiles(calls, exe).length, 1, "one compile, by the serial row alone");
   assert.equal(testRuns(calls, exe).length, 1); assert.ok(testRuns(calls, exe)[0].args.includes("--test-threads=1"));
 });

@@ -36,13 +36,13 @@ export function appendLedger(dir, token, entry) {
 export function readLedger(dir, token) {
   const file = tokenFile(dir, validToken(token));
   let text = "";
-  try { text = fs.readFileSync(file, "utf8"); } catch (e) { if (e.code === "ENOENT") return { entries: [], problems: [] }; throw e; }
-  const byId = new Map(); const problems = [];
+  try { text = fs.readFileSync(file, "utf8"); } catch (e) { if (e.code === "ENOENT") return { entries: [], problems: [], malformed: 0 }; throw e; }
+  const byId = new Map(); const problems = []; let malformed = 0;
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
     let entry;
-    try { entry = JSON.parse(line); } catch { problems.push(`an unreadable ledger record in ${path.basename(file)}`); continue; }
-    if (entry?.schema !== LEDGER_SCHEMA || typeof entry.id !== "string") { problems.push(`a malformed ledger record in ${path.basename(file)}`); continue; }
+    try { entry = JSON.parse(line); } catch { problems.push(`an unreadable ledger record in ${path.basename(file)}`); malformed += 1; continue; }
+    if (entry?.schema !== LEDGER_SCHEMA || typeof entry.id !== "string") { problems.push(`a malformed ledger record in ${path.basename(file)}`); malformed += 1; continue; }
     byId.set(entry.id, { ...(byId.get(entry.id) ?? {}), ...entry });
   }
   const entries = [...byId.values()];
@@ -51,7 +51,23 @@ export function readLedger(dir, token) {
     const call = `${e.adapter ?? "cargo"} ${(e.argv ?? []).join(" ")}`.trim();
     problems.push(e.status === "pending" ? `${call} (from ${e.cwd}) never completed: the wrapper recorded it and no outcome, so it is unverified` : `${call} (from ${e.cwd}) was ${e.status}${e.code ? ` (${e.code})` : ""}${e.message ? `: ${e.message}` : ""}`);
   }
-  return { entries, problems };
+  // `malformed`: records that could not be read as a call (unreadable JSON, wrong schema, no id). Whose call they were is unknown, so a reader that needs
+  // positive evidence (the door's seam lock release) counts each as unsettled.
+  return { entries, problems, malformed };
+}
+
+/** Every file of a ledger directory read as one ledger (`unscoped` and every scan token), in file-name order: `{ entries, problems, malformed }`. */
+export function readLedgerDir(dir) {
+  let names = [];
+  try { names = fs.readdirSync(dir).filter((n) => n.endsWith(".jsonl")).sort(); } catch (e) { if (e.code === "ENOENT") return { entries: [], problems: [], malformed: 0 }; throw e; }
+  const out = { entries: [], problems: [], malformed: 0 };
+  for (const name of names) {
+    const token = name.slice(0, -".jsonl".length);
+    if (token !== UNSCOPED && validToken(token) === UNSCOPED) { out.problems.push(`a ledger file with an invalid name: ${name}`); out.malformed += 1; continue; }
+    const r = readLedger(dir, token);
+    out.entries.push(...r.entries); out.problems.push(...r.problems); out.malformed += r.malformed;
+  }
+  return out;
 }
 
 /** Ledger files nobody claimed: the scan token was cleared or invented by the code under test. */

@@ -347,10 +347,32 @@ export function usableStoredPass(hit, s, { cacheKey, viaSnapshotBroker = false }
 }
 /** The row a pass stores: everything a later hit needs to be judged as the fresh row was (results, the test run's skip and truncation evidence, each member's own run). */
 export function storedPassRow(s, row) {
-  // The accepted executables of a run (paths and digests of this process's output) are run-time state for a serial row's reuse (rightkit#1539), never cache content.
+  // The accepted executables of a run are run-time objects for a serial row's reuse (rightkit#1539) and are never cache content. What is stored is the digest-bound
+  // proof (executableProof: the bound output directories and each executable's path, package, target and sha256): a later serial row whose plain row is a cache hit
+  // re-checks every file against it (provenExecutables) and reuses them only when every one is still there with the same digest; otherwise it compiles once, alone.
   const memberRuns = row.memberRuns ? Object.fromEntries(Object.entries(row.memberRuns).map(([id, v]) => { const { acceptedBinaries: _bins, ...rest } = v ?? {}; void _bins; return [id, rest]; })) : null;
-  return { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "pass", ...(s.coverageKey ? { snapshotEvidence: row.snapshotEvidence ?? null } : {}), ...(row.testRun || s.coverageKey ? { testRun: row.testRun ?? null } : {}), ...(row.results ? { results: row.results } : {}), ...(memberRuns ? { memberRuns } : {}) };
+  return { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "pass", ...(row.executableProof ? { executableProof: row.executableProof } : {}), ...(s.coverageKey ? { snapshotEvidence: row.snapshotEvidence ?? null } : {}), ...(row.testRun || s.coverageKey ? { testRun: row.testRun ?? null } : {}), ...(row.results ? { results: row.results } : {}), ...(memberRuns ? { memberRuns } : {}) };
 }
+/** The digest-bound proof of a run's accepted test executables (plain data, cacheable): `{ boundDirs, binaries: [{ executable, package, target, version, manifestDir, sha256 }] }`. */
+export function executableProofOf(accepted, boundDirs) {
+  return { boundDirs: [...(boundDirs ?? [])].map(String), binaries: (accepted ?? []).map((b) => ({ executable: b.executable, package: b.package ?? null, target: b.target ?? null, version: b.version ?? null, manifestDir: b.manifestDir ?? null, sha256: b.sha256 })) };
+}
+
+/**
+ * A stored executable proof checked again against the files as they are now: `{ accepted }` when every listed executable is still a regular file inside its bound
+ * output directory (and generation target) with the stored sha256, else `{ accepted: null, why }`. An empty list proves an empty list.
+ */
+export function provenExecutables(proof, { generationRoots = null, platform = process.platform, ops = TEST_RUN_OPS } = {}) {
+  if (!proof || !Array.isArray(proof.binaries) || !Array.isArray(proof.boundDirs)) return { accepted: null, why: "no stored executable proof" };
+  if (!proof.binaries.length) return { accepted: [] };
+  if (proof.binaries.some((b) => typeof b?.executable !== "string" || !/^[0-9a-f]{64}$/.test(String(b?.sha256 ?? "")))) return { accepted: null, why: "the stored proof is malformed" };
+  const contained = containTestExecutables(proof.binaries.map((b) => ({ ...b })), { boundDirs: proof.boundDirs, generationRoots, platform, ops });
+  if (contained.problems.length) return { accepted: null, why: contained.problems.slice(0, 3).join("; ") };
+  if (contained.accepted.length !== proof.binaries.length) return { accepted: null, why: "not every stored executable is still there" };
+  for (let i = 0; i < proof.binaries.length; i += 1) if (contained.accepted[i].sha256 !== proof.binaries[i].sha256) return { accepted: null, why: `${proof.binaries[i].executable} changed since its plain row passed` };
+  return { accepted: contained.accepted };
+}
+
 export function keyCommand(s) {
   const base = String(s.command ?? "").replace(/(^|\s)--jobs\s+\d+(?=\s|$)/g, "");
   return s.runOutside ? `${base} ;; run ${canonicalJson(s.runOutside)}` : base;
@@ -2229,7 +2251,7 @@ export function summarizeCargoJson(text) {
 
 /**
  * The per-crate verdicts of a failed grouped doc invocation, from its JSON summary: `[{ unit, fail, detail }]` in member order, or null when the messages
- * cannot attribute (no records, or no member reported an artifact, so "no artifact" would prove nothing): the caller then bisects as for any grouped failure.
+ * cannot attribute (no records, or no member reported an artifact, so "no artifact" would prove nothing): every member then carries the group's failure; nothing is bisected.
  */
 export function docVerdicts(summary, units, crates) {
   if (!summary || !(summary.records > 0) || !Array.isArray(units) || units.length !== crates.length) return null;
@@ -2963,8 +2985,8 @@ export async function runScans(plan, options = {}) {
   const statusPoller = brokerLive ? createStatusPoller({ live: brokerLive, intervalMs: pollMs }) : null;
   const toolVersions = {}; const toolIdentities = {}; const advisoryDbs = new Map();
   const results = [];
-  // Failed grouped invocations that were bisected for attribution (runGroup below): retained as run notes and on each
-  // member row (`batchFailure`), so a combined failure stays visible even when every diagnostic split then passes.
+  // Failed grouped invocations attributed per crate from their JSON diagnostics (runGroup below): retained as run notes and on each
+  // member row (`batchFailure`), so a combined failure stays visible next to each crate's own verdict.
   const batchFailureNotes = [];
   // The gate-owned cargo ledger of a wrapped snapshot compile (options.cargoLedger = { dir }): every call the wrapper decided, filed
   // under its scan's token. `ledgerSeen` is the run's one-use record of carriers and request ids across every scan.
@@ -3172,12 +3194,11 @@ export async function runScans(plan, options = {}) {
     // are one group; a group of two or more runs as ONE cargo invocation naming every member (`-p a -p b ...`) and the invocation's verdict becomes each
     // member's row, under the member's own id and command (so required scan ids and the scan-set digest are what the plan said). The invocation is a scan
     // of its own for everything else: it takes its own cache entry (the gate keys it on every member's inputs, `check:batch:` / `clippy:batch:`), cargo
-    // ledger token, signed broker receipt and run limit. A cargo failure (code EXIT: a compile diagnostic) is bisected for attribution: each
-    // half runs again as a smaller invocation, down to one crate, which runs as its own per-crate scan, so a failure always names the crate that fails and
-    // the crates that pass still pass; the grouped failure itself is retained on every member row (`batchFailure`) and in the run notes, so a combined
-    // failure stays visible even when the splits pass. Any other failure (a refused or unverified receipt, a timeout, a missing tool) is the group's and is not retried:
-    // running it N times would repeat it N times. Equivalence caveat (GC-I11): one invocation unifies features across its crates, so a pass here is not
-    // proof that every member passes alone; the plan notes say the equivalence run has not been done.
+    // ledger token, signed broker receipt and run limit. A cargo failure (code EXIT: a compile diagnostic) is attributed per crate from the invocation's own
+    // `--message-format=json` diagnostics (docVerdicts: a crate with an error message fails, a crate with no artifact while another member has one fails, the rest pass);
+    // nothing is bisected (store rule, GC-A18). Any other failure (a refused or unverified receipt, a timeout, a missing tool) is the group's and is not retried:
+    // running it N times would repeat it N times. Feature unification: one invocation unifies features across its crates, so before a group runs the planner
+    // resolves each member alone and in the group with `cargo tree` (feature-partition.mjs) and keeps in one invocation only the members the group resolves as they resolve alone.
     const groupOf = new Map();
     if (options.classBBatching === true) {
       const byKey = new Map();
@@ -3312,7 +3333,7 @@ export async function runScans(plan, options = {}) {
       if (row.memberRuns && !signal?.aborted) {
         idx.forEach((i) => {
           const m = bScans[i]; const v = row.memberRuns[m.id] ?? { status: "fail", code: "TEST_GROUP", detail: `${m.id}: the test group ${row.id} produced no run for this member` };
-          const own = { id: m.id, class: m.class, command: m.command, batchCommand: row.command, batchedWith: { id: row.id, units: bs.batch.units }, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, ...(row.seam ? { seam: true, seamSettled: row.seamSettled === true } : {}), status: v.status, ...(v.code ? { code: v.code } : {}), ...(v.detail ? { detail: v.detail } : {}), ...(v.results ? { results: v.results } : {}), ...(v.testRun ? { testRun: v.testRun } : {}), ...(v.acceptedBinaries ? { acceptedBinaries: v.acceptedBinaries } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}) };
+          const own = { id: m.id, class: m.class, command: m.command, batchCommand: row.command, batchedWith: { id: row.id, units: bs.batch.units }, tool: m.tool ?? null, toolVersion: row.toolVersion ?? null, ...(row.seam ? { seam: true, seamSettled: row.seamSettled === true } : {}), status: v.status, ...(v.code ? { code: v.code } : {}), ...(v.detail ? { detail: v.detail } : {}), ...(v.results ? { results: v.results } : {}), ...(v.testRun ? { testRun: v.testRun } : {}), ...(v.acceptedBinaries ? { acceptedBinaries: v.acceptedBinaries } : {}), ...(v.executableProof ? { executableProof: v.executableProof } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}) };
           slots[i] = own; done += 1; settle(m.id, own);
           try { onResult(own, { done, total, seconds: Math.round((Date.now() - started) / 1000) }); } catch { /* reporting never fails a scan */ }
         });
@@ -3384,23 +3405,16 @@ export async function runScans(plan, options = {}) {
         finally { if (lease && typeof quietLane.release === "function") { try { await quietLane.release(lease.id); } catch { /* lease expires */ } } }
       };
       const execute = async (scan) => remember(Object.freeze(await executeRaw(scan)));
-      // A cache probe of one scan (publisher batches, unit-list-compile): answers from the scan's OWN key (a cached pass, or a miss carrying what a later
-      // per-crate store needs), never runs it. `store` writes a member's pass, found in a batch, under that member's own key and row index, as if it ran alone.
+      // A cache probe of one scan (publisher batches, unit-list-compile): answers from the scan's OWN key (a cached pass, or a miss), never runs it. Nothing a group
+      // produced is ever stored under a member's key (store rule, GC-A18): a member's own key is written only by the invocation that ran it alone.
       const probe = async (scan) => {
         if (!cache || signal?.aborted) return null;
         const copy = { ...scan }; probeScans.add(copy);
         try { const r = await scanRow(copy, null); return remember(Object.freeze({ ...r, id: scan.id, command: scan.command })); } catch { return null; }
       };
-      const store = (write, own) => {
-        if (!cache || !write || own?.status !== "pass" || signal?.aborted) return;
-        try {
-          cache.write(write.key, { id: own.id, class: own.class, command: own.command, tool: own.tool ?? null, toolVersion: own.toolVersion ?? null, status: "pass", snapshotEvidence: own.snapshotEvidence ?? null, testRun: own.testRun ?? null, ...(own.results ? { results: own.results } : {}) });
-          if (write.index) cache.write(write.index.key, { id: own.id, inputs: write.index.inputs, env: write.index.env, raw: write.index.raw, at: new Date().toISOString() });
-        } catch { /* the pass stands; the next run runs the member again */ }
-      };
       const canGroup = (a, b) => { const i = bScans.indexOf(a); const j = bScans.indexOf(b); return i >= 0 && j >= 0 && Boolean(groupOf.get(i)) && groupOf.get(i) === groupOf.get(j); };
       // The caller supplies only members ready on its current frontier. Reuse the existing
-      // signed batch/bisection path without admitting other members of their planned group.
+      // signed batch path without admitting other members of their planned group.
       const executeGroup = async (scans) => {
         if (!Array.isArray(scans) || scans.length < 2) throw new Error("scheduleClassB: a batch needs at least two scans");
         const indices = scans.map((scan) => bScans.indexOf(scan));
@@ -3425,7 +3439,7 @@ export async function runScans(plan, options = {}) {
         return remember(Object.freeze({ id: scan.id, class: scan.class, command: scan.command, status: "not-run", detail: String(detail) }));
       };
       // lookupOnly: the scheduler looks up every row it would run, treating a lookup as the pass the real run needs to reach later rows.
-      const rows = await options.scheduleClassB({ scans: bScans, execute, executeGroup, canGroup, project, projectMember, notRun, probe, store, partition: partitionCrates, lookupOnly: options.cacheLookupOnly === true });
+      const rows = await options.scheduleClassB({ scans: bScans, execute, executeGroup, canGroup, project, projectMember, notRun, probe, partition: partitionCrates, lookupOnly: options.cacheLookupOnly === true });
       if (!Array.isArray(rows) || rows.length !== bScans.length || rows.some((row, i) => !row || !issued.has(row) || row.id !== bScans[i].id || typeof row.status !== "string")) throw new Error("scheduleClassB must return executor-issued results in plan order");
       rows.forEach((row, i) => { slots[i] = row; });
     } else if (brokerHost) {
@@ -3668,7 +3682,7 @@ export async function runScans(plan, options = {}) {
             // the evidence its kind needs; a test group's hit carries each member's own run, so the members are judged exactly as on the run that stored it.
             if (usableStoredPass(hit, s, { cacheKey, viaSnapshotBroker: viaSnapshotBroker || viaSeam })) {
               cacheHits.push(s.id);
-              return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}`, ...(s.kind === "test" || s.runOutside || s.coverageKey ? { results: hit.row.results } : {}), ...(s.coverageKey ? { snapshotEvidence: hit.row.snapshotEvidence ?? null, testRun: hit.row.testRun ?? null } : hit.row.testRun ? { testRun: hit.row.testRun } : {}), ...(hit.row.memberRuns ? { memberRuns: hit.row.memberRuns } : {}), ...(row.seam ? { seamSettled: true } : {}) };
+              return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}`, ...(s.kind === "test" || s.runOutside || s.coverageKey ? { results: hit.row.results } : {}), ...(s.coverageKey ? { snapshotEvidence: hit.row.snapshotEvidence ?? null, testRun: hit.row.testRun ?? null } : hit.row.testRun ? { testRun: hit.row.testRun } : {}), ...(hit.row.memberRuns ? { memberRuns: hit.row.memberRuns } : {}), ...(hit.row.executableProof ? { executableProof: hit.row.executableProof } : {}), ...(row.seam ? { seamSettled: true } : {}) };
             }
             // NN41: the same inputs, toolchain and broker runtime already failed this compile deterministically: report that failure, marked cached, without running it.
             const failHit = failKey ? cache.read(failKey) : null;
@@ -3684,16 +3698,24 @@ export async function runScans(plan, options = {}) {
           // (grouped or alone) and runs that row's accepted executables with --test-threads=1 under its own id, results and key; the plain row's compile verdict
           // is never stored under this key (store rule). One compile per crate and configuration, whatever happens:
           //   plain compiled and passed  -> its executables run here (none listed: a pass with zero tests, as the plain row's)
-          //   plain was a cache hit      -> nothing compiled it in this run, so this row compiles once, alone
+          //   plain was a cache hit      -> its stored executable proof is checked again (provenExecutables): every executable still there with the same sha256 runs
+          //                                 here and nothing compiles; only an absent or changed executable (or no proof) makes this row compile once, alone
           //   plain failed / did not run -> this row fails or does not run on that dependency; it never compiles a second time
           //   plain not settled in time  -> this row fails (TEST_DEPENDENCY_TIMEOUT); the plain compile may still be in flight, so no compile here
           // The schedulers start rows in plan order and the plain row is planned first (planScans), so the wait never holds the slot the plain row needs.
           if (s.reuseExecutables && (s.runOutside || s.e2e) && plannedIds.has(s.reuseExecutables)) {
             const reuseLimit = scanTimeoutMs(s, options);
-            const base = await waitForRow(s.reuseExecutables, Math.min(reuseLimit, QUIET_SCAN_MAX_MS));
+            let base = await waitForRow(s.reuseExecutables, Math.min(reuseLimit, QUIET_SCAN_MAX_MS));
             if (!base) return { ...row, status: "fail", code: "TEST_DEPENDENCY_TIMEOUT", detail: `${s.id}: its plain row ${s.reuseExecutables} did not finish within this row's limit; this row reuses that row's executables and never compiles them a second time` };
             if (base.status === "not-run") return { ...row, status: "not-run", detail: `${s.id}: its plain row ${s.reuseExecutables} did not run (${String(base.detail ?? "not run").slice(0, 300)})` };
             if (base.status !== "pass") return { ...row, status: "fail", code: "TEST_DEPENDENCY_FAILED", detail: `${s.id}: its plain row ${s.reuseExecutables} failed (${base.code ?? "fail"}); the serial run of the same executables proves nothing more` };
+            // A cache hit of the plain row compiled nothing in this run; its stored proof stands in for the executables when every file still matches it (Adrian's
+            // compile-once agreement, rightkit#1539). A stale or absent proof is recorded and this row compiles once, alone, below.
+            if (base.cached === true && !Array.isArray(base.acceptedBinaries) && s.runOutside) {
+              const proven = provenExecutables(base.executableProof, { generationRoots: viaSeam ? (deps.gateSeam.outputRoots ?? null) : viaSnapshotBroker ? (deps.snapshotBroker.outputRoots ?? []) : null, platform: deps.snapshotBroker?.platform ?? deps.platform ?? process.platform, ops: { ...TEST_RUN_OPS, ...(options.testRunOps ?? {}) } });
+              if (proven.accepted) { base = { ...base, acceptedBinaries: proven.accepted }; row.reusedCachedProof = true; }
+              else row.reuseFallback = `${s.reuseExecutables} was a cache hit and its stored executables cannot be reused (${proven.why}); this row compiles once on its own`;
+            }
             // An end-to-end crate's serial row is the same `--no-run` compile as its plain row and runs no test (they run in qualify): when the plain row compiled it in this run, that
             // compile is this row's too and nothing is repeated; it is not stored under this key (store rule). A cache hit of the plain row falls through: this row then compiles once.
             if (s.e2e && !s.runOutside && base.cached !== true) return { ...row, status: "pass", reusedExecutablesOf: base.id, detail: `${s.id}: its compile is ${base.id}'s, compiled once in this run (end-to-end crate: no test runs here)`, ...(base.snapshotEvidence ? { snapshotEvidence: base.snapshotEvidence } : {}), ...(base.seam ? { seam: true, seamSettled: true } : {}) };
@@ -3719,8 +3741,8 @@ export async function runScans(plan, options = {}) {
               if (reuseStatus === "pass" && cacheKey && cache && !signal?.aborted) cache.write(cacheKey, storedPassRow(s, row));
               return { ...row, status: reuseStatus, ...(reuseCode ? { code: reuseCode } : {}), ...(reuseDetail ? { detail: reuseDetail } : {}) };
             }
-            // Only a cache hit of the plain row reaches here: nothing compiled it in this run, so this row compiles once, alone (one compile per crate and configuration).
-            row.reuseFallback = `${s.reuseExecutables} was a cache hit (no executables in this run); this row compiles once on its own`;
+            // Only a cache hit of the plain row whose stored executables could not be proven again reaches here: this row compiles once, alone (one compile per crate and configuration).
+            row.reuseFallback ??= `${s.reuseExecutables} was a cache hit (no executables in this run); this row compiles once on its own`;
           }
           // Every cargo call the wrapper decides during this scan is filed under this token in the gate's ledger: the scan's own call AND the
           // calls the scan itself makes before it (the cargo-deny row's prefetch and its full metadata), so none is filed "unscoped" and fails the run.
@@ -3823,7 +3845,9 @@ export async function runScans(plan, options = {}) {
           // GB-67: on a broker host the scan is the carried `rightkit-swift` adapter job and the broker owns SwiftPM's scratch (it appends the one managed path and the
           // product location is `build --show-bin-path`): the gate sends no scratch or build path, and never adds one. Only a host with no broker (Linux direct) keeps its own.
           const swiftSeam = viaSeam && s.tool === "swift";
-          const swiftBrokered = carriedScan && s.tool === "swift" && Boolean(deps.snapshotBroker) && !swiftSeam;
+          // The broker owns SwiftPM's scratch for BOTH the carried job and the seam job (`rustright run rightkit-swift`): the same `rightkit-swift` adapter checks both
+          // (rustright check_swift_state_flags refuses --scratch-path/--build-path; check_swift_package requires the one relative --package-path). GB-67, 833f62ae0.
+          const swiftBrokered = s.tool === "swift" && (swiftSeam || (carriedScan && Boolean(deps.snapshotBroker)));
           // The adapter takes exactly one relative --package-path (adapter.rs check_swift_package); the scan runs in its package directory, so that is `.`.
           if (swiftBrokered && finalArgs[0] === "build" && !finalArgs.some((a) => a === "--package-path" || a.startsWith("--package-path="))) finalArgs.splice(1, 0, "--package-path", ".");
           if (s.tool === "swift" && finalArgs[0] === "build" && !swiftBrokered && !finalArgs.some((a) => a === "--scratch-path" || a === "--build-path" || a.startsWith("--scratch-path=") || a.startsWith("--build-path="))) {
@@ -4033,6 +4057,7 @@ export async function runScans(plan, options = {}) {
               // End-to-end tests only (Adrian, 2026-11-03): a crate whose test build lists no test executable has no test to run; the row passes
               // with zero libtest counts, the same as a test build that runs none (testResultsProblem).
               row.results = { runner: "libtest", tests: 0, pass: 0, fail: 0, skipped: 0, todo: 0, binaries: 0 };
+              row.acceptedBinaries = []; row.executableProof = executableProofOf([], []); // its serial row has nothing to run either, and never compiles again for it
               detail = `${s.id}: no test executable (${listing.artifacts} artifact record(s)); end-to-end tests only, nothing to run`;
             } else {
               let boundDirs; let generationRoots = null;
@@ -4045,6 +4070,7 @@ export async function runScans(plan, options = {}) {
               const ops = { ...TEST_RUN_OPS, ...(options.testRunOps ?? {}) };
               const contained = containTestExecutables(listing.binaries, { boundDirs, generationRoots, platform, ops });
               row.acceptedBinaries = contained.accepted; // for a serial row of the same crate that reuses them (rightkit#1539); never stored in the cache (storedPassRow)
+              row.executableProof = executableProofOf(contained.accepted, boundDirs); // the digest-bound proof a later serial row re-checks when this row is a cache hit
               // ADR-001 C2 (rightkit#1454): a broker that signs the compile's test executables (receipt.testExecutables, rustright) binds each one;
               // an executable whose path or sha256 is not in that signed list never runs. An older broker that signs no list leaves containment only.
               const signedProblems = (viaSnapshotBroker || viaSeam) && row.snapshotEvidence && Object.hasOwn(row.snapshotEvidence, "testExecutables") ? signedTestExecutableProblems(contained.accepted, row.snapshotEvidence.testExecutables, row.snapshotEvidence.testExecutablesReason, platform) : [];
@@ -4063,9 +4089,9 @@ export async function runScans(plan, options = {}) {
                 const worker = async () => {
                   while (next < list.length) {
                     const m = list[next++]; const bins = byCrate.get(m.crate) ?? [];
-                    if (!bins.length) { memberRuns[m.id] = { status: "pass", results: { runner: "libtest", tests: 0, pass: 0, fail: 0, skipped: 0, todo: 0, binaries: 0 }, detail: `${m.id}: no test executable; end-to-end tests only, nothing to run` }; continue; }
+                    if (!bins.length) { memberRuns[m.id] = { status: "pass", results: { runner: "libtest", tests: 0, pass: 0, fail: 0, skipped: 0, todo: 0, binaries: 0 }, detail: `${m.id}: no test executable; end-to-end tests only, nothing to run`, acceptedBinaries: [], executableProof: executableProofOf([], []) }; continue; }
                     const ran = await runTestBinaries({ scan: { ...s, id: m.id }, binaries: bins, spawn: deps.spawn, env: { ...deps.env, ...s.env, ...(extraEnv ?? {}) }, limitMs, signal, ops, concurrency: 1 });
-                    memberRuns[m.id] = { status: ran.status, ...(ran.code ? { code: ran.code } : {}), ...(ran.detail ? { detail: ran.detail } : {}), results: ran.results, testRun: { executables: ran.executables, outputTruncated: ran.executables.some((e) => e.outputTruncated), skipMarkers: ran.executables.reduce((n, e) => n + (e.skipMarkers ?? 0), 0) }, acceptedBinaries: bins };
+                    memberRuns[m.id] = { status: ran.status, ...(ran.code ? { code: ran.code } : {}), ...(ran.detail ? { detail: ran.detail } : {}), results: ran.results, testRun: { executables: ran.executables, outputTruncated: ran.executables.some((e) => e.outputTruncated), skipMarkers: ran.executables.reduce((n, e) => n + (e.skipMarkers ?? 0), 0) }, acceptedBinaries: bins, executableProof: executableProofOf(bins, boundDirs) };
                   }
                 };
                 await Promise.all(Array.from({ length: Math.max(1, Math.min(testRunConcurrency(), list.length)) }, worker));
