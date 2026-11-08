@@ -42,9 +42,8 @@ export function compileProofKey(scan, as = "check") {
 }
 
 /** One in-memory plan; env is execution-only and must never be written to a report. */
-export function planUnitListCompile(requirementsByUnit, { normalizedCwds = new Map(), group: grouping = "all" } = {}) {
-  // group (benchmark switch, RK_GATE_PUBLISHER_GROUP): "all" groups check, clippy, doc and test rows; "compile" leaves test rows single; "none" groups nothing.
-  if (!["all", "compile", "none"].includes(grouping)) throw new Error(`publisher grouping must be all, compile or none, not ${grouping}`);
+export function planUnitListCompile(requirementsByUnit, { normalizedCwds = new Map() } = {}) {
+  // check, clippy, doc and test rows group (the RK_GATE_PUBLISHER_GROUP benchmark switch is gone, 2026-11-08).
   if (!Array.isArray(requirementsByUnit) || !requirementsByUnit.length) throw new Error("unit list needs compile requirements");
   const ids = new Set(); const exact = new Map();
   for (const entry of requirementsByUnit) {
@@ -67,7 +66,7 @@ export function planUnitListCompile(requirementsByUnit, { normalizedCwds = new M
     // Test rows do too (NN17/NN39, Mac 2026-11-07: 103 single-crate `cargo test -p X` publisher jobs queued one at a time behind the one build per checkout): the group
     // compiles once and each crate's own test executables then run outside the broker with that crate's own verdict (testGroup, memberRuns).
     const testRow = job.phase === "test" && job.argv[0] === "test";
-    const batchable = grouping !== "none" && job.executable === "cargo" && (job.phase === "compile" ? ["check", "clippy", "doc"].includes(job.argv[0]) : testRow && grouping === "all") && at > 0 && typeof crate === "string" && !crate.startsWith("-") && job.argv.indexOf("-p", at + 1) < 0 && !rest.some((x) => /^(?:--features(?:=|$)|-F)/.test(x));
+    const batchable = job.executable === "cargo" && (job.phase === "compile" ? ["check", "clippy", "doc"].includes(job.argv[0]) : testRow) && at > 0 && typeof crate === "string" && !crate.startsWith("-") && job.argv.indexOf("-p", at + 1) < 0 && !rest.some((x) => /^(?:--features(?:=|$)|-F)/.test(x));
     if (!batchable) { jobs.push(job); continue; }
     for (const member of job.members) member.package = crate;
     const key = JSON.stringify({ workspace: job.workspace, cwd: job.cwd, executable: job.executable, env: job.env, phase: job.phase, rest, at });

@@ -4585,8 +4585,8 @@ export async function main(argv, io = {}) {
       e2eCrateDirs, swiftPackages,
       rustUnits: rust.units, npmUnits: npm, npmRoots, cargoDir: ".", rustLocks, crateFeatures, crateDependents, externalInputs,
       // B1 (rightkit#1458): compile scans of one Cargo workspace run as one cargo invocation per configuration; ci/shards.json `solo` crates never join one.
-      // Batching is on (RK_GATE_CLASS_B_BATCH=0 turns it off): the batch-equivalence run (GATE-CONTRACT GC-I11; Pulse 3b31b4ca, 2026-11-03) gave the same verdict on all 193 scans batched and per crate.
-      classBBatching: !o[PRIVATE_SCOPED_COMPILE] && o.env.RK_GATE_CLASS_B_BATCH !== "0", mergeFeatureRows: o.env.RK_GATE_MERGE_FEATURE_ROWS === "1", shardSolo: shardSoloOf(o, repo),
+      // Batching is always on (the RK_GATE_CLASS_B_BATCH switch is gone, 2026-11-08): the batch-equivalence run (GATE-CONTRACT GC-I11; Pulse 3b31b4ca, 2026-11-03) gave the same verdict on all 193 scans batched and per crate.
+      classBBatching: !o[PRIVATE_SCOPED_COMPILE], shardSolo: shardSoloOf(o, repo),
       // The broker (or, on a direct host, the gate itself) admits compiles; no separate grant file decides it here.
       localCompile: true,
       exists: o.exists, readFile: o.readFile, platform: o.platform,
@@ -4693,7 +4693,7 @@ export async function main(argv, io = {}) {
         // Why a publisher row could not move to its workspace root (and so cannot join a group) is evidence, printed with the plan (Dell 2026-11-07: 0 grouped jobs).
         { const by = new Map(); for (const proof of cwdProofs) { const k = proof.normalized ? "moved" : proof.reason; by.set(k, (by.get(k) ?? 0) + 1); }
           o.out(`${tag} note: publisher working-directory proofs: ${[...by].map(([k, n]) => `${n} ${k}`).join("; ") || "none"}`); }
-        const jobs = planUnitListCompile(scoped, { normalizedCwds, group: o.env.RK_GATE_PUBLISHER_GROUP ?? "all" });
+        const jobs = planUnitListCompile(scoped, { normalizedCwds });
         // The plan's shape is evidence, printed before anything runs (brosef 2026-11-07: a speed-up from grouping must be shown on the plan): how many publisher jobs, how many are
         // grouped (more than one crate in one invocation) and their sizes, by command.
         { const grouped = jobs.filter((j) => j.batchAt !== undefined && new Set(j.members.map((m) => m.package)).size > 1); const singles = jobs.length - grouped.length;
@@ -4708,7 +4708,7 @@ export async function main(argv, io = {}) {
         };
         for (const requirement of external) plan.scans.push(adapt(requirement));
         const dependencies = Object.fromEntries(unionContext.selected.map((unit) => [unit.selector, (unit.deps ?? []).filter((dep) => unionContext.selected.some((u) => u.selector === dep))]));
-        unionScheduler = publisherUnionScheduler({ reuseProofs: o.env.RK_GATE_PUBLISHER_REUSE !== "0", concurrency: Math.max(1, Number(o.env.RK_GATE_PUBLISHER_JOBS ?? 1) || 1), originConcurrency: Math.max(1, Number(o.env.RK_GATE_ORIGIN_JOBS ?? 8) || 8), jobs, dependencies, initialFailures, requirements: external, adapt, signal: ac.signal, onCoverage: (coverage) => { unionContext.coverage = coverage; }, verify: async ({ row, member, attempts, requirement }) => {
+        unionScheduler = publisherUnionScheduler({ reuseProofs: o.env.RK_GATE_PUBLISHER_REUSE !== "0", concurrency: 1, originConcurrency: 8, jobs, dependencies, initialFailures, requirements: external, adapt, signal: ac.signal, onCoverage: (coverage) => { unionContext.coverage = coverage; }, verify: async ({ row, member, attempts, requirement }) => {
           const verdict = verdicts.get(member.selector);
           const proof = { commit: snapshotBCommit.commit, tree: snapshotBCommit.tree, requirement: member.coverageKey, command: row?.command ?? null, attempts, snapshotEvidence: row?.snapshotEvidence ?? null, testRun: row?.testRun ?? null, results: row?.results ?? null };
           unionContext.commands.push({ selector: member.selector, id: member.id, ...proof });
@@ -4725,7 +4725,6 @@ export async function main(argv, io = {}) {
     // GC-A24: class A lanes default to the host's cores (measured, Mac, cold RK class A rows: 4 lanes 14.4 s, 8 lanes 7.0 s, 12 lanes 5.9 s).
     const defaultJobs = typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length;
     const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? defaultJobs) || defaultJobs);
-    const testJobs = Math.max(1, Number(o.env.RK_GATE_TEST_JOBS ?? jobs) || jobs);
     // A broker host has no gate-side build count: the broker decides it. What remains is the local limit on class B processes the broker never sees.
     const brokerHost = executor.kind === "broker";
     const classBJobs = brokerHost ? LOCAL_CLASS_B_JOBS : Math.max(1, Number(o.env.RK_GATE_CLASS_B_JOBS ?? 3) || 3);
@@ -4957,7 +4956,7 @@ export async function main(argv, io = {}) {
     const scanOptions = {
       // The commit's own files (rightkit#1393): a snapshot is not a git toplevel, so the secret scan needs this list to judge tracked files only and never what a stage wrote there.
       ...(snapshot ? { trackedFiles: files } : {}),
-      classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], ...(classAEarlier ? { classAEarlier: true } : {}), jobs, testJobs, classBJobs, classBBatching: !o[PRIVATE_SCOPED_COMPILE] && o.env.RK_GATE_CLASS_B_BATCH !== "0", mergeFeatureRows: o.env.RK_GATE_MERGE_FEATURE_ROWS === "1", groupTests: o.env.RK_GATE_GROUP_TESTS !== "0", classBPipeline: Math.max(1, Number(o.env.RK_GATE_CLASS_B_PIPELINE ?? 2) || 2), ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
+      classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], ...(classAEarlier ? { classAEarlier: true } : {}), jobs, classBJobs, classBBatching: !o[PRIVATE_SCOPED_COMPILE], groupTests: true, classBPipeline: 2, ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
       // NN41: the installed broker runtime's identity keys every cached compile failure; null (a direct host, an unreadable manifest) means no failure is cached.
       ...(brokerHost && cache ? (() => { const identity = brokerRuntimeIdentityText({ clients: [brokerClient, executor?.client, cargoCommand[0]], env: { ...o.env, ...(executor.env ?? {}) }, platform: o.platform }); return identity ? { failureIdentity: identity } : {}; })() : {}),
       ...(census ? { spawn: census.wrapSpawn(defaultSpawnAsync) } : {}),

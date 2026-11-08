@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Class B store rule (Adrian 2026-11-08, rightkit#1536 plan step 1).** A row is stored only by the invocation that ran it: a member of a grouped compile is no longer stored under its own key (the group compiled with Cargo's unified features, targets and dependencies; 2026-11-07: 296 conflicting pairs across 28 crates, a projected pass hid a member's own error). The group row is stored under its own key; a member hits alone only after it ran alone. Grouped failures are attributed from `--message-format=json` only; nothing is bisected. A stored row's command is compared with `--jobs` dropped, as the key already was, so a different `--cargo-jobs` no longer misses every stored pass (#1526).
+- **No cache-miss approval.** `RK_GATE_MISS_APPROVAL` is gone. The lookup still writes the miss report with every unexpected miss and its cause; the rows then run. A miss where nothing changed is a cache bug to file with the report (#1526).
+- **Benchmark switches removed:** `RK_GATE_CLASS_B_BATCH`, `RK_GATE_MERGE_FEATURE_ROWS`, `RK_GATE_PUBLISHER_GROUP`, `RK_GATE_PUBLISHER_JOBS`, `RK_GATE_ORIGIN_JOBS`, `RK_GATE_TEST_JOBS`, `RK_GATE_GROUP_TESTS`, `RK_GATE_CLASS_B_PIPELINE`, `RK_GATE_LOOKUP_ONLY`. Batching and grouping are always on; the class A test lane is as wide as `RK_GATE_JOBS`; publisher union concurrency is 1 with 8 origin submissions; the class B pipeline is 2 (#1526).
+
 ## 0.6.53
 
 - Carry-over: a pass stored under an earlier cache-key form is reused when the row's real inputs provably did not change, so a key change no longer reruns rows or asks for approval; a row whose own files were edited reruns with no approval (#1526).

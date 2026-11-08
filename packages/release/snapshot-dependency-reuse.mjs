@@ -165,7 +165,7 @@ function pnpmConfigIdentity({ dir, env, spawn }) {
 export function preparationInputComponents({ source, toolchain, config, store, env }) {
   // The per-run ownership handle is a gate lock token, not pnpm input. Keep
   // every other non-scheduling variable, including the ownership file path.
-  const excluded = new Set(['RK_GATE_JOBS', 'RK_GATE_TEST_JOBS', 'RK_GATE_CLASS_B_JOBS', 'RIGHTKIT_BUILD_OWNERSHIP']);
+  const excluded = new Set(['RK_GATE_JOBS', 'RK_GATE_CLASS_B_JOBS', 'RIGHTKIT_BUILD_OWNERSHIP']);
   const environment = Object.entries(env).filter(([name]) => !excluded.has(name)).sort(([a], [b]) => a.localeCompare(b));
   return Object.fromEntries(Object.entries({ source, toolchain, config, store, environment }).map(([name, value]) => [name, hash(JSON.stringify(value))]));
 }

@@ -1128,10 +1128,6 @@ export function planScans({
   // crate and configuration, so required ids (GC-A14's three targets, scan-receipt) and GC-T14 keys are untouched; only the run is shared.
   // `shardSolo` and `clippySeparate` keep a crate out of every group, as they do for clippyBatching. Off unless the caller (rightkit-gate) asks.
   classBBatching = false,
-  // Benchmark only (RK_GATE_MERGE_FEATURE_ROWS=1, Adrian 2026-11-07 parallelism benchmark; never a release default): rows whose only bar to a group is their
-  // crate-specific feature set join the group too, each crate's features named as <crate>/<feature>. One invocation unifies features across its crates
-  // (GC-I11), so a pass here does not prove each crate alone; it measures what maximal grouping buys.
-  mergeFeatureRows = false,
   // Dependency-freshness advice (rightkit#1475): planned only when the caller asks for advice in this run. It is a live
   // registry answer that can never fail a run, and its uncached cost (a 120 s timeout in 41 of 81 crate runs,
   // 2026-11-04) must not sit on the blocking path to a compile; update reporting (@rightkit/outdated) owns asking.
@@ -1853,20 +1849,6 @@ export function planScans({
     const tripleKey = target ? target.replace(/-/g, "_") : null;
     const keyRest = target ? [...rest.slice(0, ti), "--target", "*", ...rest.slice(ti + 2)] : rest;
     const keyEnv = target ? Object.fromEntries(Object.entries(x.env ?? {}).filter(([k]) => !(k.endsWith(`_${tripleKey}`) || k.toUpperCase().endsWith(`_${tripleKey.toUpperCase()}`)))) : x.env;
-    if (why === "its feature set names crate-specific features" && mergeFeatureRows) {
-      // Cargo's own flags only: after `--` come rustc/clippy flags, where -F is a lint level, never a feature.
-      const feats = []; const plainRest = []; const stop = keyRest.indexOf("--") < 0 ? keyRest.length : keyRest.indexOf("--");
-      for (let i = 0; i < keyRest.length; i += 1) {
-        const w = keyRest[i];
-        if (i >= stop) { plainRest.push(w); continue; }
-        if (w === "--features" || w === "-F") { feats.push(...String(keyRest[++i] ?? "").split(/[ ,]+/).filter(Boolean)); continue; }
-        const m = /^(?:--features=|-F)(.+)$/.exec(w); if (m) { feats.push(...m[1].split(/[ ,]+/).filter(Boolean)); continue; }
-        plainRest.push(w);
-      }
-      const key = sha256(canonicalJson({ tool: x.tool, cwd: x.cwd ?? ".", root: x.root, env: keyEnv, rest: plainRest, at, mergedFeatures: true })).slice(0, 16);
-      groupCount.set(key, (groupCount.get(key) ?? 0) + 1);
-      return { ...plain, batchable: { key, at, crate, unit, ...(target ? { target } : {}), features: feats.map((f) => (f.includes("/") ? f : `${crate}/${f}`)) } };
-    }
     if (why) {
       batchNotes.set(why, (batchNotes.get(why) ?? 0) + 1);
       // A row that cannot join other crates (its own features, solo, separate, sidecar-bound) still names every target with its own crate's
