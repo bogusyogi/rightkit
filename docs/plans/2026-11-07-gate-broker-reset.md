@@ -139,6 +139,8 @@ Each step is one agent, one repository, measured on the Mac before the Dell. No 
 6. **Contracts: write `BUILD.md`, delete both contracts.**
 7. **Install on the Mac, run the 43 tests, then the Dell.**
 
+Done 2026-11-08 05:05 IST, gate side (rightkit 3741c5563, 1fe89b009): the class B store rule (a row is stored only by the invocation that ran it; no grouped-pass projection, no bisection), the `--jobs` lookup fix, no cache-miss approval, the benchmark switches gone. Package tests 168 of 169 (one pre-existing ownership failure, untouched). Not yet run against the real target: that is the next approval.
+
 ETA: unmeasured. The first step is settling the inner loop (step 1), and a measured run of it sets the rest.
 
 ## 8. What the 2026-11-07 gate-chat reports add
