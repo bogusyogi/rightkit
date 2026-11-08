@@ -17,6 +17,17 @@ const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const GIT_ID = /^[0-9a-f]{40}$/;
 const isAbsolutePath = (p) => typeof p === "string" && p !== "" && (path.posix.isAbsolute(p.replaceAll("\\", "/")) || /^[A-Za-z]:[\\/]/.test(p));
 const posixOf = (p) => String(p ?? "").replaceAll("\\", "/").replace(/\/+$/, "");
+/**
+ * A path as the enrolled host's file system compares it, for the seam receipt's fields: the broker signs `request.workspace` as the client submitted it and `gate.snapshot`
+ * canonicalized (rustright normalize_impl.rs submitted_workspace; gate_admission.rs real_path), so on Windows one may carry the extended `\\?\` (or `\\?\UNC\`) prefix and
+ * another case than the other. win32: prefix dropped, separators unified, case folded (NTFS compares case-insensitively); darwin and others: the posix spelling, case kept.
+ */
+export function hostPathKey(p, platform) {
+  let s = posixOf(p);
+  if (platform !== "win32") return s;
+  s = s.replace(/^\/\/\?\/UNC\//i, "//").replace(/^\/\/\?\//, "");
+  return s.toLowerCase();
+}
 
 const refuse = (message) => { throw new Error(`publication admission refused: ${message}`); };
 const requireThat = (condition, message) => { if (!condition) refuse(message); };
@@ -162,12 +173,12 @@ function verifyReceiptStages(q, { sha, git, stages, nonceOf }) {
         requireThat(isAbsolutePath(gate.snapshot) && isAbsolutePath(gate.classA), `${where} (job ${receipt.id}) names no absolute snapshot or Class A verdict path`);
         // The verdict file's name carries its commit (gate-seam.mjs verdictFileName: class-a-<commit12>-<scope>-<workspace>.json); every call of a door run names a verdict of
         // that commit, derived from the one root verdict, so all of them sit in one directory.
-        const verdict = posixOf(gate.classA);
+        const verdict = hostPathKey(gate.classA, platform);
         requireThat(path.posix.basename(verdict).startsWith(`class-a-${sha.slice(0, 12)}-`), `${where} (job ${receipt.id}) names the Class A verdict ${path.posix.basename(verdict)}, not one of commit ${sha.slice(0, 12)}`);
         const verdictDir = path.posix.dirname(verdict);
-        requireThat(seamSnapshot === null || seamSnapshot === posixOf(gate.snapshot), `${where} (job ${receipt.id}) ran in the snapshot ${gate.snapshot}, another snapshot than the qualification's other jobs (${seamSnapshot})`);
+        requireThat(seamSnapshot === null || seamSnapshot === hostPathKey(gate.snapshot, platform), `${where} (job ${receipt.id}) ran in the snapshot ${gate.snapshot}, another snapshot than the qualification's other jobs (${seamSnapshot})`);
         requireThat(seamVerdictDir === null || seamVerdictDir === verdictDir, `${where} (job ${receipt.id}) names a Class A verdict in ${verdictDir}, another directory than the qualification's other jobs (${seamVerdictDir})`);
-        seamSnapshot = posixOf(gate.snapshot); seamVerdictDir = verdictDir;
+        seamSnapshot = hostPathKey(gate.snapshot, platform); seamVerdictDir = verdictDir;
       } else {
         // LEGACY BRANCH (carrier-era receipts; deleted at step 5 of the reset plan with the carrier, snapshot-request.mjs and provenance-verify.mjs).
         // The signed snapshot evidence names the commit, tree and job and shows the snapshot held the tree throughout (the same pure
@@ -199,9 +210,12 @@ function verifyReceiptStages(q, { sha, git, stages, nonceOf }) {
       if (shape === "legacy") requireThat(job.payload.nonce === nonceFor(row, requestedArgv), `${stage} job ${job.id} carries a nonce that is not the one its command (${describeCommand(row)}) owes`);
       // The primary root: the signed workspace without the directory of the row's command (a carried cargo call runs from its manifest's
       // directory, a pnpm job at the root). Every job of the qualification must show the same one, and so must its workspaceRoot.
-      const root = rootOfWorkspace(workspace, row.cwd);
+      // A seam receipt's paths are compared as the enrolled host compares them (hostPathKey); a legacy receipt's as before.
+      const keyOf = (p) => (shape === "seam" ? hostPathKey(p, platform) : p);
+      const cwdKey = shape === "seam" && platform === "win32" && typeof row.cwd === "string" ? row.cwd.toLowerCase() : row.cwd;
+      const root = rootOfWorkspace(keyOf(workspace), cwdKey);
       requireThat(root !== null, `${stage} job ${job.id} ran in ${workspace}, which is not the directory ${row.cwd} of a checkout`);
-      requireThat(workspaceRoot === undefined || workspaceRoot === null || rootOfWorkspace(workspaceRoot, row.cwd) === root, `${stage} job ${job.id} ran in ${workspace} with workspace root ${workspaceRoot}, not in one checkout`);
+      requireThat(workspaceRoot === undefined || workspaceRoot === null || rootOfWorkspace(keyOf(workspaceRoot), cwdKey) === root, `${stage} job ${job.id} ran in ${workspace} with workspace root ${workspaceRoot}, not in one checkout`);
       requireThat(primaryRoot === null || primaryRoot === root, `${stage} job ${job.id} ran in ${workspace}, another workspace than the qualification's other jobs (${primaryRoot})`);
       // A seam job's primary root is the snapshot its signed gate object names: the directory the request ran in lies in that very snapshot, so the request
       // and the gate evidence describe one checkout.

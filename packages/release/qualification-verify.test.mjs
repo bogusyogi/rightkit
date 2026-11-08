@@ -305,3 +305,21 @@ test("readSeamStageReceipts reads the receipt each verified seam ledger row name
     assert.deepEqual(readSeamStageReceipts(path.join(dir, "nothing")), []);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("Windows: the canonical \\\\?\\ snapshot and the submitted workspace are one checkout whatever the prefix, separators and case; a Mac compares case-sensitively", () => {
+  const winKey = makeKey({ host: "dell.test" });
+  const winExpected = expectedStageCommands({ kind: unit.kind, unit: unit.name, config, platform: "win32" });
+  const winSnap = "\\\\?\\D:\\Rightkit\\Snapshots\\repokey01";
+  const winWorkspace = (row) => (row.cwd === "." ? "D:\\rightkit\\snapshots\\repokey01" : `D:\\rightkit\\snapshots\\repokey01\\${row.cwd.replaceAll("/", "\\")}`);
+  const q = { schema: "rightkit.unit-qualification/1", unit, commit: sha, tree, stages: {} };
+  for (const stage of ["compile", "package"]) q.stages[stage] = { ok: true, receipts: winExpected[stage].filter((row) => row.direct !== true).map((row) => {
+    const base = seamPayload(row, { signer: winKey });
+    const payload = { ...base, request: { ...base.request, workspace: winWorkspace(row), workspaceRoot: winWorkspace(row) }, gate: { ...base.gate, snapshot: winSnap, classA: `\\\\?\\D:\\Rightkit\\class-a-verdicts\\${verdictOf(row).split("/").at(-1)}` } };
+    return { id: payload.jobId, provenance: envelope(winKey, payload) };
+  }) };
+  const verified = verifyQualificationReceipts(JSON.stringify(q), { sha, git: gitFor({ pins: { win32: winKey.pin } }) });
+  assert.equal(verified.compile.length, winExpected.compile.filter((row) => row.direct !== true).length);
+  // darwin: a snapshot spelled with another case than the workspace is another directory
+  const mac = qualificationOf((stage, row) => seamReceipt(row, { gate: { snapshot: SNAP.toUpperCase() } }));
+  refused(mac, /is not the snapshot/);
+});
