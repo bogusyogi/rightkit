@@ -3578,7 +3578,8 @@ export async function runScans(plan, options = {}) {
           const carriedScan = isBrokerCarriedScan(s, carriedCtx);
           // The seam (plan section 3): a class B cargo row on a broker host is one spawn of `rustright cargo` in the snapshot with the two seam variables; the
           // carrier (viaSnapshotBroker) is the legacy path, not taken when the seam is wired, and goes with step 5 of the plan.
-          const viaSeam = Boolean(deps.gateSeam) && s.class === SCAN_CLASS.B && s.root === "cargoLive" && (s.tool === "rustright" || s.tool === "cargo");
+          // Adapters (the Swift package build) take the same seam: `rustright run rightkit-swift -- <argv>` in the snapshot with the two variables (plan section 3).
+          const viaSeam = Boolean(deps.gateSeam) && s.class === SCAN_CLASS.B && s.root === "cargoLive" && (s.tool === "rustright" || s.tool === "cargo" || (s.tool === "swift" && carriedScan));
           if (viaSeam) row.seam = true;
           const viaSnapshotBroker = !viaSeam && carriedScan && Boolean(deps.snapshotBroker) && s.root === "cargoLive" && (s.tool === "rustright" || s.tool === "cargo");
           const carriedRead = cargoReadsAreCarried && s.class === SCAN_CLASS.A && (s.tool === "rustright" || s.tool === "cargo");
@@ -3787,7 +3788,8 @@ export async function runScans(plan, options = {}) {
           // build directory is the gate's own, keyed by the repository and the scan so it stays warm.
           // GB-67: on a broker host the scan is the carried `rightkit-swift` adapter job and the broker owns SwiftPM's scratch (it appends the one managed path and the
           // product location is `build --show-bin-path`): the gate sends no scratch or build path, and never adds one. Only a host with no broker (Linux direct) keeps its own.
-          const swiftBrokered = carriedScan && s.tool === "swift" && Boolean(deps.snapshotBroker);
+          const swiftSeam = viaSeam && s.tool === "swift";
+          const swiftBrokered = carriedScan && s.tool === "swift" && Boolean(deps.snapshotBroker) && !swiftSeam;
           // The adapter takes exactly one relative --package-path (adapter.rs check_swift_package); the scan runs in its package directory, so that is `.`.
           if (swiftBrokered && finalArgs[0] === "build" && !finalArgs.some((a) => a === "--package-path" || a.startsWith("--package-path="))) finalArgs.splice(1, 0, "--package-path", ".");
           if (s.tool === "swift" && finalArgs[0] === "build" && !swiftBrokered && !finalArgs.some((a) => a === "--scratch-path" || a === "--build-path" || a.startsWith("--scratch-path=") || a.startsWith("--build-path="))) {
@@ -3834,7 +3836,18 @@ export async function runScans(plan, options = {}) {
               return { ...row, status: "fail", code: "SNAPSHOT_REQUEST", detail: `the snapshot request for ${s.id} was not sent: the build ownership did not record the broker submit under ${deps.snapshotBroker.handle}${why ? ` (${why})` : ""}` };
             }
           }
-          if (swiftBrokered) {
+          // The seam's two variables, last so nothing overrides them; the Class A verdict is written (or read) before the first class B spawn of its workspace.
+          let seamVars = {};
+          if (viaSeam) {
+            try { seamVars = seamEnv({ commit: deps.gateSeam.commit, classA: await ensureVerdict(s.cwd ?? ".") }); }
+            catch (e) { stopClock(); advisory?.cleanup?.(); return { ...row, status: "fail", code: "CLASS_A_VERDICT", detail: `${s.id}: ${e.message}` }; }
+          }
+          if (swiftSeam) {
+            // The adapter through the seam: one `rustright run rightkit-swift -- <argv>` in the snapshot; the result line and receipt are judged below exactly as a cargo row's.
+            const client = toolCommand("rustright");
+            try { r = await deps.spawn(client, ["run", "rightkit-swift", "--", ...finalArgs], { cwd: path.join(deps.gateSeam.snapshot, s.cwd ?? ""), env: { ...deps.env, ...s.env, ...(extraEnv ?? {}), ...seamVars }, signal: scanSignal, timeout: limitMs }); }
+            catch (e) { r = { error: e }; } finally { stopClock(); advisory?.cleanup?.(); }
+          } else if (swiftBrokered) {
             // One signed, ledgered adapter request in the commit's snapshot (the ownership records its sub-handle before it is sent); a refused or unverified call fails the scan.
             // The carry is asynchronous (the gate's other scans keep running while this one queues or builds) and takes the scan's own signal: the run limit, or a cancel, stops it.
             const swiftRefs = [];
@@ -3874,12 +3887,6 @@ export async function runScans(plan, options = {}) {
             else refFiles = () => { try { return ledgerToken && cargoLedger ? readLedger(cargoLedger.dir, ledgerToken).entries.filter((e) => e.status === "pending" && typeof e.requestRef === "string").map((e) => e.requestRef) : []; } catch { return []; } };
             admission = watchBrokerAdmission({ clock: runClock, refFiles, live: brokerLive, poller: statusPoller });
             admission.start();
-          }
-          // The seam's two variables, last so nothing overrides them; the Class A verdict is written (or read) before the first class B spawn of its workspace.
-          let seamVars = {};
-          if (viaSeam) {
-            try { seamVars = seamEnv({ commit: deps.gateSeam.commit, classA: await ensureVerdict(s.cwd ?? ".") }); }
-            catch (e) { stopClock(); advisory?.cleanup?.(); return { ...row, status: "fail", code: "CLASS_A_VERDICT", detail: `${s.id}: ${e.message}` }; }
           }
           try { r = await deps.spawn(p.command, spawnArgs, { cwd: viaSeam ? path.join(deps.gateSeam.snapshot, s.cwd ?? "") : path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...readTargetEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...(carrier ? carrier.made.env : {}), ...refEnv, ...(carriedScan && !watched ? scanOperationEnv({ ...deps.env, ...s.env }, limitMs) : {}), ...trustEnv, ...seamVars }, signal: scanSignal, ...(listingFile ? { stdoutFile: listingFile } : {}), ...(watched ? {} : { timeout: limitMs }) }); } finally { stopClock(); advisory?.cleanup?.(); }
           if ((s.runOutside || s.captureJson) && r && !r.error) {

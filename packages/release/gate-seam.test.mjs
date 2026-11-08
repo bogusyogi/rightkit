@@ -70,6 +70,24 @@ test("only an exact SNAPSHOT_STATUS echo with state IDLE proves a dead holder's 
   } finally { server.kill(); }
 });
 
+test("a stage child's adapter runs through the seam when its environment carries the two variables, judged like a cargo row", async () => {
+  const { runSeamAdapter, seamEnvPresent } = await import("./seam-broker.mjs");
+  const dir = tmp(); const receiptFile = path.join(dir, "r.json");
+  fs.writeFileSync(receiptFile, JSON.stringify({ gate: { commit, tree, snapshot: "/snap", classA: "/v/class-a.json", snapshotUnchanged: true }, testExecutables: null }));
+  const env = { PATH: "/usr/bin", RUSTRIGHT_GATE_COMMIT: commit, RUSTRIGHT_CLASS_A: "/v/class-a.json" };
+  assert.equal(seamEnvPresent(env), true); assert.equal(seamEnvPresent({ RUSTRIGHT_GATE_COMMIT: commit }), false);
+  const calls = [];
+  const spawnSync = (cmd, args, opts) => { calls.push({ cmd, args, cwd: opts.cwd }); return { status: 0, signal: null, stdout: "built\n", stderr: `rustright-result ${JSON.stringify({ requestId: "a1", exit: 0, signal: null, outputDir: "/t/out", receipt: receiptFile, receiptPersisted: true })}\n` }; };
+  const ok = runSeamAdapter("rightkit-pnpm", ["run", "build"], { cwd: "/snap/app", env, client: "/opt/rustright", spawnSync });
+  assert.deepEqual(calls[0], { cmd: "/opt/rustright", args: ["run", "rightkit-pnpm", "--", "run", "build"], cwd: "/snap/app" });
+  assert.equal(ok.status, 0); assert.equal(ok.requestId, "a1"); assert.equal(ok.outputDir, "/t/out"); assert.equal(ok.refusal, undefined);
+  const refusedSpawn = () => ({ status: 125, signal: null, stdout: "", stderr: `rustright-result ${JSON.stringify({ requestId: null, exit: 125, signal: null, outputDir: null, receipt: null, receiptPersisted: false, code: "RK_GATE_ADMISSION", message: "no verdict" })}\n` });
+  const refused = runSeamAdapter("rightkit-node", ["x.mjs"], { cwd: "/snap/app", env, spawnSync: refusedSpawn });
+  assert.equal(refused.status, 125); assert.equal(refused.refusal.code, "RK_GATE_ADMISSION"); assert.equal(refused.outputDir, undefined);
+  assert.throws(() => runSeamAdapter("rightkit-qa", [], { env: { PATH: "/usr/bin" }, spawnSync }), /carries no seam/);
+  assert.throws(() => runSeamAdapter("Bad Adapter", [], { env, spawnSync }), /not an adapter id/);
+});
+
 test("the direct read wrapper passes a seam compile (RUSTRIGHT_GATE_COMMIT set) through to the client untouched and still refuses a bare compile in the snapshot", async () => {
   const { directReadSpawn } = await import("./snapshot-metadata.mjs");
   const snapshotRoot = fs.mkdtempSync(path.join(os.tmpdir(), "rk-seam-snap-")); const cwd = path.join(snapshotRoot, "ws"); fs.mkdirSync(cwd);

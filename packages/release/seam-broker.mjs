@@ -5,7 +5,32 @@ import path from "node:path";
 import { resolveBrokerClient } from "./broker-client.mjs";
 import { BUILD_CONTROL_PROTOCOL, RUNTIME_MANIFEST_FILE, parseRuntimeIdentity } from "./broker-handshake.mjs";
 import { discoverBrokerSocket } from "./managed-roots.mjs";
-import { snapshotStatusAllowsReclaim, snapshotStatusMessage, snapshotStatusSync } from "./gate-seam.mjs";
+import { CLASS_A_ENV, GATE_COMMIT_ENV, judgeSeamOutcome, snapshotStatusAllowsReclaim, snapshotStatusMessage, snapshotStatusSync } from "./gate-seam.mjs";
+import { spawnSync as nodeSpawnSync } from "node:child_process";
+
+/** Whether an environment carries the seam (both variables set): a stage child's adapter call then goes through the seam, never the carrier. */
+export function seamEnvPresent(env) {
+  return Boolean(env && typeof env[GATE_COMMIT_ENV] === "string" && /^[0-9a-f]{40}$/.test(env[GATE_COMMIT_ENV]) && typeof env[CLASS_A_ENV] === "string" && path.isAbsolute(env[CLASS_A_ENV]));
+}
+
+/**
+ * One adapter run through the seam from a stage child (right-release's pnpm, node, QA steps; reset plan section 3): `rustright run <adapter> -- <args>` in
+ * `cwd` with the inherited environment (the two seam variables already in it), synchronous like the step that calls it. The result line and the
+ * durable receipt are judged exactly as a class B row's (judgeSeamOutcome); the tree is not compared here, since a stage child knows only the
+ * commit. Returns a spawnSync-shaped result with `outputDir`, `requestId` and `receipt` when the job completed, `refusal` when the broker refused.
+ */
+export function runSeamAdapter(adapter, args, { cwd = process.cwd(), env = process.env, stdio = "pipe", client = "rustright", spawnSync = nodeSpawnSync, maxBuffer = 1 << 28 } = {}) {
+  if (typeof adapter !== "string" || !/^[a-z][a-z0-9-]*$/.test(adapter)) throw new TypeError(`runSeamAdapter: ${JSON.stringify(adapter)} is not an adapter id`);
+  if (!seamEnvPresent(env)) throw new TypeError("runSeamAdapter: the environment carries no seam (RUSTRIGHT_GATE_COMMIT and RUSTRIGHT_CLASS_A)");
+  const r = spawnSync(client, ["run", adapter, "--", ...args], { cwd, env, stdio: stdio === "inherit" ? ["ignore", "inherit", "pipe"] : "pipe", encoding: "utf8", maxBuffer });
+  if (r.error) return { status: 1, signal: null, stdout: "", stderr: String(r.error.message ?? r.error), error: r.error };
+  const judged = judgeSeamOutcome({ child: r, stderr: r.stderr ?? "", commit: env[GATE_COMMIT_ENV], tree: null, classA: env[CLASS_A_ENV] });
+  return {
+    status: r.status ?? 1, signal: r.signal ?? null, stdout: r.stdout ?? "", stderr: r.stderr ?? "", error: null,
+    ...(judged.evidence ? { outputDir: judged.evidence.outputDir, requestId: judged.evidence.requestId, receipt: judged.evidence.receiptPath, receiptSha256: judged.evidence.receiptSha256 } : {}),
+    ...(judged.status === "fail" ? { refusal: { code: judged.code, message: judged.detail } } : {}),
+  };
+}
 
 const isPipe = (endpoint) => /^\\\\\.\\pipe\\/i.test(String(endpoint));
 

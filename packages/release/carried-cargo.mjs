@@ -25,6 +25,7 @@ import { SHIM_MAP_SCHEMA, directCargoShape, locateWorkspaceByWalk } from "./carg
 import { directCargoPath } from "./managed-cargo.mjs";
 import { BROKER_REFUSAL_STATUS, carryBrokerAdapter, carryBrokerCargo, verifyBrokerLedger } from "./snapshot-broker.mjs";
 import { splitCarriedArgs } from "./snapshot-request.mjs";
+import { runSeamAdapter, seamEnvPresent } from "./seam-broker.mjs";
 
 /** The environment variable that names the gate-written map of a snapshot stage's carried Cargo calls. */
 export const CARRIED_CARGO_MAP_ENV = "RIGHTKIT_CARRIED_CARGO_MAP";
@@ -120,6 +121,9 @@ export function runCarriedCargo(args, options = {}, { map, spawn = spawnSync, er
 export function runCarriedAdapter(adapter, args, options = {}, { map, spawn = spawnSync, err = (m) => process.stderr.write(`${m}\n`) } = {}) {
   const env = options.env ?? process.env;
   const cwd = path.resolve(options.cwd ?? process.cwd());
+  // The seam (reset plan section 3): a stage child whose environment carries RUSTRIGHT_GATE_COMMIT and RUSTRIGHT_CLASS_A runs its adapter as `rustright run <adapter> -- <args>`
+  // (seam-broker.mjs), never as a carried request; this carrier goes with step 5 of the plan.
+  if (seamEnvPresent(env)) return runSeamAdapter(adapter, args, { cwd, env, stdio: options.stdio === "inherit" ? "inherit" : "pipe", client: map?.broker?.client ?? "rustright", spawnSync: spawn });
   const token = env[SCAN_TOKEN_ENV];
   const result = carryBrokerAdapter({ adapter, words: args, cwd, env, section: map.broker, record: (entry) => appendLedger(map.ledgerDir, token, entry), spawn, err, stdio: options.stdio === "inherit" ? "inherit" : "capture" });
   const verified = result.outcome?.status === "verified";

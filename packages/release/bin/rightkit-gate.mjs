@@ -1970,7 +1970,11 @@ async function runStages(o, args, root, git, io) {
     let childOk = false;
     try {
       o.out(`${tag} [${stage}] right-release ${cliArgs.join(" ")}${sourceOf ? ` (from the snapshot ${ds.path})` : ""}`);
-      const r = (o.spawnInherit ?? inheritLaunch)(process.execPath, [cli, ...cliArgs], { cwd: sourceOf ? snapshotAppRootOf(ds.path, appDir) : appRoot, env: carriedEnv(carrier, { ...o.env, ...run.env }, extraEnv) });
+      // The seam (reset plan section 3): on a broker host a stage child carries RUSTRIGHT_GATE_COMMIT and RUSTRIGHT_CLASS_A (the root verdict the door's full class A wrote), so
+      // its pnpm, node and QA adapters run as `rustright run <adapter> -- <args>` (carried-cargo.mjs runCarriedAdapter -> seam-broker.mjs runSeamAdapter) and its nested
+      // cargo inherits that admission; a verdict the class A did not write is the broker's refusal, never a silent fallback to the carrier.
+      const seamStageEnv = ds && executor?.kind === "broker" && /^[0-9a-f]{40}$/.test(String(commit)) ? { RUSTRIGHT_GATE_COMMIT: commit, RUSTRIGHT_CLASS_A: path.join(path.dirname(path.dirname(path.resolve(ds.path))), "class-a-verdicts", `class-a-${commit.slice(0, 12)}-root.json`) } : {};
+      const r = (o.spawnInherit ?? inheritLaunch)(process.execPath, [cli, ...cliArgs], { cwd: sourceOf ? snapshotAppRootOf(ds.path, appDir) : appRoot, env: carriedEnv(carrier, { ...o.env, ...run.env }, { ...extraEnv, ...seamStageEnv }) });
       childOk = r.status === 0;
     } finally { endRun(run); }
     const carriedOk = await carrier.finish({ stage });

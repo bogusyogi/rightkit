@@ -125,7 +125,8 @@ export function readSeamReceipt(file, { commit, tree, classA = null, fsApi = fs 
   if (!g || typeof g !== "object") problems.push("receipt has no gate object");
   else {
     if (g.commit !== commit) problems.push(`receipt gate.commit ${JSON.stringify(g.commit)} is not this run's ${commit}`);
-    if (g.tree !== tree) problems.push(`receipt gate.tree ${JSON.stringify(g.tree)} is not this run's ${tree}`);
+    // `tree: null` means the caller does not know the tree (a stage child that has only the commit): the commit binding stands, the tree is not compared.
+    if (tree !== null && g.tree !== tree) problems.push(`receipt gate.tree ${JSON.stringify(g.tree)} is not this run's ${tree}`);
     if (classA !== null && !samePath(g.classA, classA)) problems.push(`receipt gate.classA ${JSON.stringify(g.classA)} is not the verdict this request named`);
     if (g.snapshotUnchanged !== true) problems.push("the broker found the snapshot changed during the job (gate.snapshotUnchanged is not true)");
   }
