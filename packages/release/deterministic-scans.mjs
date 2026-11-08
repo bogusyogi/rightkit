@@ -4050,7 +4050,10 @@ export async function runScans(plan, options = {}) {
   // green class A whose verdict could not be written is not a passing run (the compile that follows would have no verdict to name).
   const seamNotes = []; let verdictFailure = null;
   if (deps.gateSeam && classes.includes(SCAN_CLASS.A) && !classes.includes(SCAN_CLASS.B) && !classAFailed && !signal?.aborted) {
-    try { seamNotes.push(`class A verdict written: ${await ensureVerdict(".")}`); } catch (e) { verdictFailure = `CLASS_A_VERDICT: class A passed but its verdict was not written: ${e.message}`; seamNotes.push(verdictFailure); }
+    // A scoped class A (one unit's closure) is a legitimate check that simply vouches for nothing beyond itself: no verdict, no failure. Only a full class A
+    // writes the verdict, and only a full one that cannot write it has failed.
+    if (deps.gateSeam.classAScope !== "full") seamNotes.push(`class A ran scoped (${deps.gateSeam.classAScope ?? "unknown"}): no workspace verdict is written by a scoped run; a full class A writes it`);
+    else { try { seamNotes.push(`class A verdict written: ${await ensureVerdict(".")}`); } catch (e) { verdictFailure = `CLASS_A_VERDICT: class A passed but its verdict was not written: ${e.message}`; seamNotes.push(verdictFailure); } }
   }
   const cancelled = signal?.aborted === true;
   const allPassed = !cancelled && verdictFailure === null && results.every((r) => r.status === "pass");
