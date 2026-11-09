@@ -15,7 +15,8 @@ use super::context_graph::{ContextGraph, ROOT};
 use super::math::Math;
 use super::model::{EncoderOut, Zipformer2Transducer};
 use super::trace::{
-    FiringTrace, StepTrace, TraceMatch, TraceMerge, TracePath, TraceState, TraceTop,
+    keyword_first_frame, FiringTrace, StepTrace, TraceExtension, TraceMatch, TraceMerge,
+    TracePath, TraceState, TraceTop, MAX_STEP_EXTENSIONS,
 };
 use super::{JoinerBatching, MergeTimestamps, ThresholdTokens};
 use crate::error::Result;
@@ -79,22 +80,22 @@ impl Hypotheses {
         Self(vec![h])
     }
 
-    /// `observe`, when given (trace only), receives one record per merge; it never feeds
-    /// back into the result.
+    /// `observe`, when given (trace only: the sink and the history cap), receives one
+    /// record per merge; it never feeds back into the result.
     fn add(
         &mut self,
         h: Hypothesis,
         math: Math,
         merge: MergeTimestamps,
-        observe: Option<&mut Vec<TraceMerge>>,
+        observe: Option<(&mut Vec<TraceMerge>, usize)>,
     ) {
         match self.0.iter_mut().find(|e| e.ys == h.ys) {
             Some(existing) => {
                 let log_prob = log_add(existing.log_prob, h.log_prob, math);
                 let keep_incoming =
                     merge == MergeTimestamps::Likelier && h.log_prob > existing.log_prob;
-                if let Some(events) = observe {
-                    events.push(TraceMerge::observe(existing, &h, keep_incoming, log_prob));
+                if let Some((events, cap)) = observe {
+                    events.push(TraceMerge::observe(existing, &h, keep_incoming, log_prob, cap));
                 }
                 if keep_incoming {
                     *existing = h;
@@ -276,6 +277,8 @@ pub(crate) fn decode_chunk(
     let vocab = model.vocab_size();
     let context_size = model.context_size();
     let mut cur = std::mem::take(&mut result.hyps);
+    // Trace only: the per-record history cap.
+    let history = trace.as_ref().map_or(0, |tr| tr.config.history());
 
     for t in 0..encoder_out.frames {
         // Trace only: whether this step is recorded, and what the TTL pass dropped.
@@ -349,7 +352,8 @@ pub(crate) fn decode_chunk(
         // Trace only: parents with a child in the beam, and the merges on this step.
         let mut survived: Vec<bool> = if rec { vec![false; rows] } else { Vec::new() };
         let mut merges: Vec<TraceMerge> = Vec::new();
-        for k in topk_index(&scores, options.max_active_paths) {
+        let selected_k = topk_index(&scores, options.max_active_paths);
+        for &k in &selected_k {
             let hyp_index = k / vocab;
             if rec {
                 survived[hyp_index] = true;
@@ -383,14 +387,14 @@ pub(crate) fn decode_chunk(
                 h,
                 options.math,
                 options.merge_timestamps,
-                if rec { Some(&mut merges) } else { None },
+                if rec { Some((&mut merges, history)) } else { None },
             );
         }
 
         let best = hyps.most_probable();
         // Trace only: the beam as the step leaves it, before a firing resets it.
         let step_head = if rec {
-            Some((hyps.0.len(), TraceTop::of(graph, best)))
+            Some((hyps.0.len(), TraceTop::of(graph, best, history)))
         } else {
             None
         };
@@ -433,6 +437,7 @@ pub(crate) fn decode_chunk(
                             firing,
                             &end.phrase,
                             result.firings,
+                            history,
                         ));
                     }
                 }
@@ -453,6 +458,55 @@ pub(crate) fn decode_chunk(
                     .max(graph.state(merge.incoming_context_state).level);
             }
             merges.retain(|merge| merge.level > 0);
+            // Why an extension of a keyword path lost: its score against the beam cutoff
+            // and against the parent's best selected child. Bounded; read-only.
+            let cutoff_score = selected_k.last().map(|k| scores[*k]);
+            let mut extensions: Vec<TraceExtension> = Vec::new();
+            let mut extensions_omitted = 0usize;
+            for keyword_parents in [true, false] {
+                for (parent, h) in prev.iter().enumerate() {
+                    let level = graph.state(h.context_state).level;
+                    if (level > 0) != keyword_parents {
+                        continue;
+                    }
+                    for token in graph.extension_tokens(h.context_state) {
+                        if token <= 0 || token as usize >= vocab {
+                            continue;
+                        }
+                        if extensions.len() >= MAX_STEP_EXTENSIONS {
+                            extensions_omitted += 1;
+                            continue;
+                        }
+                        let index = parent * vocab + token as usize;
+                        let score = scores[index];
+                        let sibling = selected_k
+                            .iter()
+                            .filter(|k| **k / vocab == parent && **k != index)
+                            .max_by(|a, b| {
+                                scores[**a]
+                                    .partial_cmp(&scores[**b])
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                            });
+                        extensions.push(TraceExtension {
+                            parent_context_state: h.context_state,
+                            parent_level: level,
+                            parent_first_token_frame: keyword_first_frame(h, level),
+                            token: i64::from(token),
+                            token_prob: if options.softmax_f64 {
+                                options.math.exp(logprobs[index] as f64) as f32
+                            } else {
+                                options.math.expf(logprobs[index])
+                            },
+                            score,
+                            rank: scores.iter().filter(|other| **other > score).count(),
+                            selected: selected_k.contains(&index),
+                            cutoff_score,
+                            sibling_token: sibling.map(|k| (*k % vocab) as i64),
+                            sibling_score: sibling.map(|k| scores[*k]),
+                        });
+                    }
+                }
+            }
             tr.push_step(StepTrace {
                 frame: result.frame_offset + t as i32,
                 clock: Default::default(),
@@ -465,6 +519,8 @@ pub(crate) fn decode_chunk(
                 expired: expired_paths,
                 pruned,
                 merges,
+                extensions,
+                extensions_omitted,
             });
         }
         cur = hyps;
@@ -474,4 +530,83 @@ pub(crate) fn decode_chunk(
     result.hyps = cur;
     result.frame_offset += encoder_out.frames as i32;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hyp(ys: &[i64], timestamps: &[i32], probs: &[f32], log_prob: f64) -> Hypothesis {
+        Hypothesis {
+            ys: ys.to_vec(),
+            timestamps: timestamps.to_vec(),
+            ys_probs: probs.to_vec(),
+            log_prob,
+            context_state: 3,
+            num_trailing_blanks: 0,
+        }
+    }
+
+    /// `Hypotheses::add` with and without a trace observer: identical beams on both `Math`
+    /// paths, both merge policies, higher, lower and equal scores, and the observer sees
+    /// exactly what the policy decided without changing it.
+    #[test]
+    fn add_is_identical_with_and_without_the_observer() {
+        for portable in [false, true] {
+            let math = Math::new(portable);
+            for merge in [MergeTimestamps::First, MergeTimestamps::Likelier] {
+                for (existing_lp, incoming_lp) in [(-1.0, -2.0), (-2.0, -1.0), (-1.5, -1.5)] {
+                    let existing = hyp(&[-1, 0, 5], &[4, 6], &[0.5, 0.25], existing_lp);
+                    let incoming = hyp(&[-1, 0, 5], &[2, 7], &[0.125, 0.75], incoming_lp);
+                    let start = Hypotheses::single(existing.clone());
+
+                    let mut plain = start.clone();
+                    plain.add(incoming.clone(), math, merge, None);
+
+                    let mut observed = start.clone();
+                    let mut events = Vec::new();
+                    observed.add(incoming.clone(), math, merge, Some((&mut events, 1)));
+
+                    assert_eq!(plain, observed, "{portable} {merge:?} {existing_lp} {incoming_lp}");
+                    assert_eq!(plain.0.len(), 1);
+                    let merged_lp = log_add(existing_lp, incoming_lp, math);
+                    assert_eq!(plain.0[0].log_prob, merged_lp);
+                    assert_eq!(plain.0[0].ys, existing.ys);
+                    // Only a strictly higher incoming score under Likelier replaces fields;
+                    // ties keep the existing path.
+                    let incoming_kept =
+                        merge == MergeTimestamps::Likelier && incoming_lp > existing_lp;
+                    let kept = if incoming_kept { &incoming } else { &existing };
+                    assert_eq!(plain.0[0].timestamps, kept.timestamps);
+                    assert_eq!(plain.0[0].ys_probs, kept.ys_probs);
+
+                    assert_eq!(events.len(), 1);
+                    let event = &events[0];
+                    assert_eq!(event.incoming_kept, incoming_kept);
+                    assert_eq!(event.merged_log_prob, merged_lp);
+                    assert_eq!(event.existing.log_prob, existing_lp);
+                    assert_eq!(event.incoming.log_prob, incoming_lp);
+                    // The history cap keeps the last entry and records the original length.
+                    assert_eq!(event.existing.timestamps, vec![6]);
+                    assert_eq!(event.existing.timestamps_len, 2);
+                    assert!(event.existing.truncated);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn add_of_a_new_key_pushes_and_records_no_merge() {
+        let math = Math::new(false);
+        let first = hyp(&[-1, 0, 5], &[4], &[0.5], -1.0);
+        let other = hyp(&[-1, 0, 6], &[5], &[0.4], -1.2);
+        let mut plain = Hypotheses::single(first.clone());
+        plain.add(other.clone(), math, MergeTimestamps::Likelier, None);
+        let mut observed = Hypotheses::single(first);
+        let mut events = Vec::new();
+        observed.add(other, math, MergeTimestamps::Likelier, Some((&mut events, 4)));
+        assert_eq!(plain, observed);
+        assert_eq!(plain.0.len(), 2);
+        assert!(events.is_empty());
+    }
 }

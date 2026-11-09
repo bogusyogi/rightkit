@@ -88,6 +88,12 @@ impl ContextGraph {
         &self.nodes[index]
     }
 
+    /// Tokens that advance `state` along a keyword (its direct arcs; fail transitions are
+    /// not followed). Trace only.
+    pub(crate) fn extension_tokens(&self, state: usize) -> impl Iterator<Item = i32> + '_ {
+        self.nodes[state].next.keys().copied()
+    }
+
     fn build(
         &mut self,
         token_ids: &[Vec<i32>],

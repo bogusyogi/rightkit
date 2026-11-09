@@ -233,6 +233,9 @@ pub struct KwsTraceConfig {
     /// Most steps held between drains (needs `window_frames` above `0`; see
     /// [`KwsTraceConfig::DEFAULT_CAPACITY_STEPS`]).
     pub capacity_steps: usize,
+    /// Most entries of each path history kept per record (the last ones; original lengths
+    /// and a `truncated` flag are recorded). `0` means 16.
+    pub history_tokens: usize,
 }
 
 impl KwsTraceConfig {
@@ -266,10 +269,12 @@ pub struct KwsFeedEvent {
 /// One stream's beam records, collected before the stream was destroyed or drained.
 #[derive(Clone, Debug, PartialEq)]
 pub struct KwsStreamTrace {
-    /// `wake` or `confirm`.
+    /// `wake`, `confirm`, `fresh_confirm` or `idle_wake`.
     pub stage: &'static str,
     /// Absolute sample where that stream's clock starts.
     pub origin_sample: Option<usize>,
+    /// The wake candidate this stream belongs to (`confirm`, `fresh_confirm`).
+    pub candidate_id: Option<u64>,
     /// Cascade epoch when collected.
     pub epoch: u64,
     pub records: rust_kws::TraceRecords,
@@ -791,14 +796,17 @@ impl Kws {
     /// Drain the firing and no-fire trace (stream beam records of the wake and confirm
     /// streams, collected before any stream was destroyed, plus the feed and expiry
     /// schedule). `None` unless [`KwsSwitches::trace`] is set. Streams destroyed by a
-    /// reset keep their records until drained. Fresh-confirmation and idle-wake streams
-    /// are not traced.
+    /// reset keep their records until drained. Fresh-confirmation streams (stage
+    /// `fresh_confirm`, the whole decode including a no-fire) and the idle-wake stream (stage
+    /// `idle_wake`, collected when it is stopped or drained) are collected too; the replay-only
+    /// full-command decode and the hey-wake window check run untraced.
     pub fn take_trace(&mut self) -> Option<KwsTrace> {
         if self.switches.trace.is_none() {
             return None;
         }
         self.collect_stream_trace("wake");
         self.collect_stream_trace("confirm");
+        self.collect_stream_trace("idle_wake");
         Some(KwsTrace {
             streams: std::mem::take(&mut self.trace_streams),
             streams_dropped: std::mem::take(&mut self.trace_streams_dropped),
@@ -812,16 +820,38 @@ impl Kws {
         if self.switches.trace.is_none() {
             return;
         }
-        let taken = if stage == "confirm" {
-            self.confirmation_stream
+        let taken = match stage {
+            "confirm" => self.confirmation_stream.as_mut().map(|state| {
+                (
+                    state.origin_sample,
+                    Some(state.candidate.id),
+                    state.stream.0.take_trace(),
+                )
+            }),
+            "idle_wake" => self
+                .idle_wake_stream
                 .as_mut()
-                .map(|state| (state.origin_sample, state.stream.0.take_trace()))
-        } else {
-            self.wake_stream
+                .map(|state| (state.seed_origin_sample, None, state.stream.0.take_trace())),
+            _ => self
+                .wake_stream
                 .as_mut()
-                .map(|state| (state.seed_origin_sample, state.stream.0.take_trace()))
+                .map(|state| (state.seed_origin_sample, None, state.stream.0.take_trace())),
         };
-        let Some((origin, Some(records))) = taken else {
+        let Some((origin, candidate_id, records)) = taken else {
+            return;
+        };
+        self.store_stream_trace(stage, Some(origin), candidate_id, records);
+    }
+
+    /// Keep one stream's drained records (logging each firing); empty records are dropped.
+    fn store_stream_trace(
+        &mut self,
+        stage: &'static str,
+        origin_sample: Option<usize>,
+        candidate_id: Option<u64>,
+        records: Option<rust_kws::TraceRecords>,
+    ) {
+        let Some(records) = records else {
             return;
         };
         if records.is_empty() {
@@ -838,6 +868,7 @@ impl Kws {
                 ys = ?firing.ys,
                 timestamps = ?firing.timestamps,
                 ys_probs = ?firing.ys_probs,
+                truncated = firing.truncated,
                 num_trailing_blanks = firing.num_trailing_blanks,
                 score = firing.score,
                 threshold = firing.threshold,
@@ -852,7 +883,8 @@ impl Kws {
         }
         self.trace_streams.push(KwsStreamTrace {
             stage,
-            origin_sample: Some(origin),
+            origin_sample,
+            candidate_id,
             epoch: self.trace_epoch,
             records,
         });
@@ -1138,6 +1170,10 @@ impl Kws {
     }
 
     pub fn stop_idle_wake(&mut self) {
+        // Keep the stream's firing records before it goes (trace only).
+        if self.switches.trace.is_some() {
+            self.collect_stream_trace("idle_wake");
+        }
         // Dropping the stream destroys it.
         self.idle_wake_stream = None;
     }
@@ -1359,10 +1395,17 @@ impl Kws {
         let Some(candidate) = self.clock.candidate() else {
             return Ok((empty_result(), None));
         };
-        let Some(result) = self
-            .confirm_spotter
-            .decode_fresh(audio, FRESH_CONFIRMATION_TAIL_SAMPLES)?
-        else {
+        // The fresh stream is traced and its records kept even when nothing fires.
+        let (found, records) =
+            self.confirm_spotter
+                .decode_fresh_with(audio, FRESH_CONFIRMATION_TAIL_SAMPLES, true)?;
+        self.store_stream_trace(
+            "fresh_confirm",
+            snapshot_start_sample,
+            Some(candidate.id),
+            records,
+        );
+        let Some(result) = found else {
             return Ok((empty_result(), None));
         };
         let latch = command_text(&result.keyword).is_some_and(|text| text != "zephyr");
@@ -1871,6 +1914,11 @@ impl KwsSpotter {
         KwsStream(self.0.borrow().create_stream())
     }
 
+    /// A stream with no trace state even when tracing is on.
+    fn create_stream_untraced(&self) -> KwsStream {
+        KwsStream(self.0.borrow().create_stream_untraced())
+    }
+
     fn is_ready(&self, stream: &KwsStream) -> bool {
         self.0.borrow().is_ready(&stream.0)
     }
@@ -1907,26 +1955,48 @@ impl KwsSpotter {
         })
     }
 
+    /// An untraced fresh decode: for callers that never drain a trace.
     fn decode_fresh(
         &self,
         audio: &[f32],
         tail_samples: usize,
     ) -> Result<Option<KeywordResult>, String> {
-        let mut stream = self.create_stream();
-        for chunk in audio.chunks(KWS_FEED_CHUNK_SAMPLES) {
-            stream.accept_audio(chunk)?;
-            if let Some(result) = self.decode_ready_result(&mut stream)? {
-                return Ok(Some(result));
+        self.decode_fresh_with(audio, tail_samples, false)
+            .map(|(result, _)| result)
+    }
+
+    /// A fresh decode on its own stream. With `traced` the stream's records come back too,
+    /// on a hit and on a no-fire alike; without it the stream carries no trace state.
+    fn decode_fresh_with(
+        &self,
+        audio: &[f32],
+        tail_samples: usize,
+        traced: bool,
+    ) -> Result<(Option<KeywordResult>, Option<rust_kws::TraceRecords>), String> {
+        let mut stream = if traced {
+            self.create_stream()
+        } else {
+            self.create_stream_untraced()
+        };
+        let mut found = None;
+        'feed: {
+            for chunk in audio.chunks(KWS_FEED_CHUNK_SAMPLES) {
+                stream.accept_audio(chunk)?;
+                if let Some(result) = self.decode_ready_result(&mut stream)? {
+                    found = Some(result);
+                    break 'feed;
+                }
+            }
+            let silence = vec![0.0; tail_samples];
+            for chunk in silence.chunks(KWS_FEED_CHUNK_SAMPLES) {
+                stream.accept_audio(chunk)?;
+                if let Some(result) = self.decode_ready_result(&mut stream)? {
+                    found = Some(result);
+                    break 'feed;
+                }
             }
         }
-        let silence = vec![0.0; tail_samples];
-        for chunk in silence.chunks(KWS_FEED_CHUNK_SAMPLES) {
-            stream.accept_audio(chunk)?;
-            if let Some(result) = self.decode_ready_result(&mut stream)? {
-                return Ok(Some(result));
-            }
-        }
-        Ok(None)
+        Ok((found, stream.0.take_trace()))
     }
 
     /// Keep native decoder checkpoints independent of executor backlog. Audio
@@ -2093,6 +2163,7 @@ fn spotter_config(
     config.decoder_cache = tuning.decoder_cache;
     // The no-fire window rides the confirm stream only; every stream may trace firings.
     config.trace = tuning.trace.map(|trace| rust_kws::TraceConfig {
+        history_tokens: trace.history_tokens,
         firing: trace.firing,
         window_steps: if keywords_file == CONFIRM_KEYWORDS_FILE && trace.window_frames > 0 {
             trace.capacity_steps

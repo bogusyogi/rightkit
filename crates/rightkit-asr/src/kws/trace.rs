@@ -18,6 +18,10 @@
 //!   `steps_dropped`, never silently omitted. Per-step event lists (TTL expiries, pruned
 //!   paths, keyword merges) are bounded by the beam width and carry no separate cap.
 //!
+//! Memory is bounded in bytes per record as well as in record count: every path history
+//! (`ys`, `timestamps`, `ys_probs`) keeps only its last [`TraceConfig::history_tokens`]
+//! entries, with the original lengths and a `truncated` flag beside it.
+//!
 //! Clocks are kept distinct: [`TraceClock`] counts feature frames and samples handed to
 //! the stream, never recognition wall time. The crate cannot tell real from synthetic
 //! samples, so padding provenance is the caller's to supply.
@@ -31,6 +35,15 @@ use super::decoder::{Firing, Hypothesis};
 const FIRINGS_KEPT: usize = 16;
 /// Hypotheses recorded at a firing: the selected path plus the best others.
 const TOP_HYPOTHESES: usize = 4;
+/// Path history kept per record when [`TraceConfig::history_tokens`] is `0`.
+const DEFAULT_HISTORY_TOKENS: usize = 16;
+/// Keyword-extension candidates recorded per step; the rest are counted as omitted.
+pub(crate) const MAX_STEP_EXTENSIONS: usize = 8;
+
+/// The last `cap` items of a path history.
+fn tail<T: Clone>(items: &[T], cap: usize) -> Vec<T> {
+    items[items.len().saturating_sub(cap)..].to_vec()
+}
 
 /// What to record. The default records nothing.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -41,9 +54,21 @@ pub struct TraceConfig {
     /// steps. Which frames qualify is set per stream by
     /// [`super::KeywordStream::set_trace_window`] (every frame until capacity otherwise).
     pub window_steps: usize,
+    /// Most entries of each path history (`ys`, `timestamps`, `ys_probs`) kept per record;
+    /// `0` means 16. Longer histories keep their last entries and set `truncated`.
+    pub history_tokens: usize,
 }
 
 impl TraceConfig {
+    /// The effective per-record history cap.
+    pub fn history(&self) -> usize {
+        if self.history_tokens == 0 {
+            DEFAULT_HISTORY_TOKENS
+        } else {
+            self.history_tokens
+        }
+    }
+
     /// True when this config records anything.
     pub fn is_active(&self) -> bool {
         self.firing || self.window_steps > 0
@@ -116,9 +141,16 @@ pub struct TraceClock {
 pub struct TraceHypothesis {
     /// This is the path the firing selected.
     pub selected: bool,
+    /// The last `history_tokens` entries of each history; see the `*_len` fields.
     pub ys: Vec<i64>,
     pub timestamps: Vec<i32>,
     pub ys_probs: Vec<f32>,
+    /// Original history lengths.
+    pub ys_len: usize,
+    pub timestamps_len: usize,
+    pub ys_probs_len: usize,
+    /// Some history was cut to its last entries.
+    pub truncated: bool,
     pub log_prob: f64,
     pub context_state: usize,
     /// Keyword-prefix progress: the graph depth of `context_state`.
@@ -127,12 +159,16 @@ pub struct TraceHypothesis {
 }
 
 impl TraceHypothesis {
-    fn of(graph: &ContextGraph, h: &Hypothesis, selected: bool) -> Self {
+    fn of(graph: &ContextGraph, h: &Hypothesis, selected: bool, cap: usize) -> Self {
         Self {
             selected,
-            ys: h.ys.clone(),
-            timestamps: h.timestamps.clone(),
-            ys_probs: h.ys_probs.clone(),
+            ys: tail(&h.ys, cap),
+            timestamps: tail(&h.timestamps, cap),
+            ys_probs: tail(&h.ys_probs, cap),
+            ys_len: h.ys.len(),
+            timestamps_len: h.timestamps.len(),
+            ys_probs_len: h.ys_probs.len(),
+            truncated: h.ys.len().max(h.timestamps.len()).max(h.ys_probs.len()) > cap,
             log_prob: h.log_prob,
             context_state: h.context_state,
             level: graph.state(h.context_state).level,
@@ -152,10 +188,16 @@ pub struct FiringTrace {
     pub clock: TraceClock,
     /// `Firing::context`: the decoder context of the keyword's first token.
     pub context: Vec<i64>,
-    /// The selected path at the firing step, before the beam resets.
+    /// The selected path at the firing step, before the beam resets: its last
+    /// `history_tokens` entries (original lengths in the `*_len` fields).
     pub ys: Vec<i64>,
     pub timestamps: Vec<i32>,
     pub ys_probs: Vec<f32>,
+    pub ys_len: usize,
+    pub timestamps_len: usize,
+    pub ys_probs_len: usize,
+    /// Some history was cut to its last entries.
+    pub truncated: bool,
     pub fired_frame: i32,
     pub num_trailing_blanks: i32,
     pub score: f32,
@@ -174,6 +216,7 @@ impl FiringTrace {
         firing: &Firing,
         keyword: &str,
         epoch_occurrence: u64,
+        cap: usize,
     ) -> Self {
         let mut others: Vec<&Hypothesis> =
             hyps.iter().filter(|h| !std::ptr::eq(*h, best)).collect();
@@ -182,12 +225,12 @@ impl FiringTrace {
                 .partial_cmp(&a.log_prob)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
-        let mut hypotheses = vec![TraceHypothesis::of(graph, best, true)];
+        let mut hypotheses = vec![TraceHypothesis::of(graph, best, true, cap)];
         hypotheses.extend(
             others
                 .into_iter()
                 .take(TOP_HYPOTHESES - 1)
-                .map(|h| TraceHypothesis::of(graph, h, false)),
+                .map(|h| TraceHypothesis::of(graph, h, false, cap)),
         );
         Self {
             occurrence: 0,
@@ -195,9 +238,13 @@ impl FiringTrace {
             keyword: keyword.to_owned(),
             clock: TraceClock::default(),
             context: firing.context.clone(),
-            ys: best.ys.clone(),
-            timestamps: best.timestamps.clone(),
-            ys_probs: best.ys_probs.clone(),
+            ys: tail(&best.ys, cap),
+            timestamps: tail(&best.timestamps, cap),
+            ys_probs: tail(&best.ys_probs, cap),
+            ys_len: best.ys.len(),
+            timestamps_len: best.timestamps.len(),
+            ys_probs_len: best.ys_probs.len(),
+            truncated: best.ys.len().max(best.timestamps.len()).max(best.ys_probs.len()) > cap,
             fired_frame: firing.frame,
             num_trailing_blanks: best.num_trailing_blanks,
             score: firing.score,
@@ -209,7 +256,7 @@ impl FiringTrace {
 }
 
 /// The frame a path's active keyword began on: the timestamp the TTL counts from.
-fn keyword_first_frame(h: &Hypothesis, level: usize) -> Option<i32> {
+pub(crate) fn keyword_first_frame(h: &Hypothesis, level: usize) -> Option<i32> {
     if level > 0 && h.timestamps.len() >= level {
         Some(h.timestamps[h.timestamps.len() - level])
     } else {
@@ -249,11 +296,14 @@ pub struct TraceTop {
     pub first_token_frame: Option<i32>,
     pub log_prob: f64,
     pub num_trailing_blanks: i32,
+    /// The last `history_tokens` token probabilities.
     pub ys_probs: Vec<f32>,
+    pub ys_probs_len: usize,
+    pub truncated: bool,
 }
 
 impl TraceTop {
-    pub(crate) fn of(graph: &ContextGraph, h: &Hypothesis) -> Self {
+    pub(crate) fn of(graph: &ContextGraph, h: &Hypothesis, cap: usize) -> Self {
         let level = graph.state(h.context_state).level;
         Self {
             context_state: h.context_state,
@@ -261,7 +311,9 @@ impl TraceTop {
             first_token_frame: keyword_first_frame(h, level),
             log_prob: h.log_prob,
             num_trailing_blanks: h.num_trailing_blanks,
-            ys_probs: h.ys_probs.clone(),
+            ys_probs: tail(&h.ys_probs, cap),
+            ys_probs_len: h.ys_probs.len(),
+            truncated: h.ys_probs.len() > cap,
         }
     }
 }
@@ -269,9 +321,26 @@ impl TraceTop {
 /// The fields `Hypotheses::add` keeps or drops for one side of a merge.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraceMergeSide {
+    /// The last `history_tokens` entries (original lengths below).
     pub timestamps: Vec<i32>,
     pub ys_probs: Vec<f32>,
+    pub timestamps_len: usize,
+    pub ys_probs_len: usize,
+    pub truncated: bool,
     pub log_prob: f64,
+}
+
+impl TraceMergeSide {
+    fn of(h: &Hypothesis, cap: usize) -> Self {
+        Self {
+            timestamps: tail(&h.timestamps, cap),
+            ys_probs: tail(&h.ys_probs, cap),
+            timestamps_len: h.timestamps.len(),
+            ys_probs_len: h.ys_probs.len(),
+            truncated: h.timestamps.len().max(h.ys_probs.len()) > cap,
+            log_prob: h.log_prob,
+        }
+    }
 }
 
 /// Two paths with identical `ys` merged in the beam, on a keyword path.
@@ -297,21 +366,14 @@ impl TraceMerge {
         incoming: &Hypothesis,
         incoming_kept: bool,
         merged_log_prob: f64,
+        cap: usize,
     ) -> Self {
         Self {
             context_state: existing.context_state,
             incoming_context_state: incoming.context_state,
             level: 0,
-            existing: TraceMergeSide {
-                timestamps: existing.timestamps.clone(),
-                ys_probs: existing.ys_probs.clone(),
-                log_prob: existing.log_prob,
-            },
-            incoming: TraceMergeSide {
-                timestamps: incoming.timestamps.clone(),
-                ys_probs: incoming.ys_probs.clone(),
-                log_prob: incoming.log_prob,
-            },
+            existing: TraceMergeSide::of(existing, cap),
+            incoming: TraceMergeSide::of(incoming, cap),
             incoming_kept,
             merged_log_prob,
         }
@@ -326,6 +388,33 @@ pub struct TraceMatch {
     pub threshold: f32,
     /// The top path has more trailing blanks than the configured minimum.
     pub trailing_blanks_ok: bool,
+}
+
+/// A keyword-extension candidate of one parent hypothesis at one step: the token that
+/// would advance the parent along a keyword, and how its score compared with the beam's
+/// cutoff and with the parent's best selected child. This is what explains an extension
+/// that lost while the blank or another child survived. Scores are the beam's selection
+/// scores (token log-probability plus the parent's score, before any keyword boost).
+/// Ranks count strictly greater scores over the whole step; ties are not broken.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraceExtension {
+    pub parent_context_state: usize,
+    /// Keyword-prefix progress of the parent (`0` is the root: a first-token candidate).
+    pub parent_level: usize,
+    pub parent_first_token_frame: Option<i32>,
+    pub token: i64,
+    /// The extension's token probability (`exp` of its log-softmax).
+    pub token_prob: f32,
+    pub score: f32,
+    /// Candidates with a strictly greater score this step.
+    pub rank: usize,
+    /// The extension entered the top-k beam.
+    pub selected: bool,
+    /// The k-th (lowest selected) score: the beam's cutoff.
+    pub cutoff_score: Option<f32>,
+    /// The parent's best other selected child, when it had one.
+    pub sibling_token: Option<i64>,
+    pub sibling_score: Option<f32>,
 }
 
 /// One decoded encoder frame inside the window.
@@ -351,6 +440,11 @@ pub struct StepTrace {
     pub pruned: Vec<TracePath>,
     /// Merges on keyword paths.
     pub merges: Vec<TraceMerge>,
+    /// Keyword-extension candidates of this step's parents, keyword parents first, at most
+    /// eight; never the whole vocabulary.
+    pub extensions: Vec<TraceExtension>,
+    /// Extension candidates not recorded because of that cap.
+    pub extensions_omitted: usize,
 }
 
 /// What a stream recorded since the last [`super::KeywordStream::take_trace`].

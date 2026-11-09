@@ -18,7 +18,9 @@
 //! off): `--trace` snapshots every firing at its pre-reset beam event; `--trace-window FRAMES`
 //! records every decoded encoder frame on the confirm stream within FRAMES (40 ms each) of the
 //! wake candidate, so a clip that never fires still shows the beam; `--trace-capacity STEPS`
-//! bounds that window (default 512; a dropped step is counted). Each clip's JSONL row gains a
+//! bounds that window (default 512; a dropped step is counted); `--trace-history TOKENS` caps
+//! each recorded path history to its last TOKENS entries (default 16; lengths and a
+//! `truncated` flag are recorded). Each clip's JSONL row gains a
 //! `trace` key (absent with the trace off) and a text run prints a `TRACE` line.
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -33,8 +35,8 @@ fn main() {}
 mod native {
     use rightkit_dictation_engine::kws::{
         AcousticSearch, FiringTrace, FricativeParams, Kws, KwsFeedEvent, KwsOnsetMethod,
-        KwsSwitches, KwsTrace, KwsTraceConfig, StepTrace, TraceClock, TraceHypothesis, TraceMerge,
-        TracePath,
+        KwsSwitches, KwsTrace, KwsTraceConfig, StepTrace, TraceClock, TraceExtension,
+        TraceHypothesis, TraceMerge, TracePath,
     };
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -48,7 +50,8 @@ mod native {
         [--step SAMPLES] [--onset emission|aligned|posterior|acoustic|fricative] \
         [--acoustic-search legacy|initial-fricative] [--d4] [--d4-window MS] [--d4-floor MS] \
         [--d4-rise F] [--d4-min-run MS] [--d4-vowel MS] [--d4-tilt F] [--d4-json JSON|FILE] \
-        [--d4-strict] [--trace] [--trace-window FRAMES] [--trace-capacity STEPS] [--jsonl]";
+        [--d4-strict] [--trace] [--trace-window FRAMES] [--trace-capacity STEPS] [--trace-history TOKENS] \
+        [--jsonl]";
 
     fn flag_value<I: Iterator<Item = OsString>>(
         args: &mut I,
@@ -154,6 +157,10 @@ mod native {
             "ys": hypothesis.ys,
             "timestamps": hypothesis.timestamps,
             "ys_probs": hypothesis.ys_probs,
+            "ys_len": hypothesis.ys_len,
+            "timestamps_len": hypothesis.timestamps_len,
+            "ys_probs_len": hypothesis.ys_probs_len,
+            "truncated": hypothesis.truncated,
             "log_prob": hypothesis.log_prob,
             "context_state": hypothesis.context_state,
             "level": hypothesis.level,
@@ -169,11 +176,17 @@ mod native {
             "existing": {
                 "timestamps": merge.existing.timestamps,
                 "ys_probs": merge.existing.ys_probs,
+                "timestamps_len": merge.existing.timestamps_len,
+                "ys_probs_len": merge.existing.ys_probs_len,
+                "truncated": merge.existing.truncated,
                 "log_prob": merge.existing.log_prob,
             },
             "incoming": {
                 "timestamps": merge.incoming.timestamps,
                 "ys_probs": merge.incoming.ys_probs,
+                "timestamps_len": merge.incoming.timestamps_len,
+                "ys_probs_len": merge.incoming.ys_probs_len,
+                "truncated": merge.incoming.truncated,
                 "log_prob": merge.incoming.log_prob,
             },
             "incoming_kept": merge.incoming_kept,
@@ -191,12 +204,32 @@ mod native {
             "ys": firing.ys,
             "timestamps": firing.timestamps,
             "ys_probs": firing.ys_probs,
+            "ys_len": firing.ys_len,
+            "timestamps_len": firing.timestamps_len,
+            "ys_probs_len": firing.ys_probs_len,
+            "truncated": firing.truncated,
             "fired_frame": firing.fired_frame,
             "num_trailing_blanks": firing.num_trailing_blanks,
             "score": firing.score,
             "threshold": firing.threshold,
             "hypotheses_total": firing.hypotheses_total,
             "hypotheses": firing.hypotheses.iter().map(hypothesis_json).collect::<Vec<_>>(),
+        })
+    }
+
+    fn extension_json(extension: &TraceExtension) -> serde_json::Value {
+        json!({
+            "parent_context_state": extension.parent_context_state,
+            "parent_level": extension.parent_level,
+            "parent_first_token_frame": extension.parent_first_token_frame,
+            "token": extension.token,
+            "token_prob": extension.token_prob,
+            "score": extension.score,
+            "rank": extension.rank,
+            "selected": extension.selected,
+            "cutoff_score": extension.cutoff_score,
+            "sibling_token": extension.sibling_token,
+            "sibling_score": extension.sibling_score,
         })
     }
 
@@ -214,6 +247,8 @@ mod native {
                 "log_prob": top.log_prob,
                 "num_trailing_blanks": top.num_trailing_blanks,
                 "ys_probs": top.ys_probs,
+                "ys_probs_len": top.ys_probs_len,
+                "truncated": top.truncated,
             })),
             "matched": step.matched.as_ref().map(|matched| json!({
                 "score": matched.score,
@@ -224,6 +259,8 @@ mod native {
             "expired": step.expired.iter().map(path_json).collect::<Vec<_>>(),
             "pruned": step.pruned.iter().map(path_json).collect::<Vec<_>>(),
             "merges": step.merges.iter().map(merge_json).collect::<Vec<_>>(),
+            "extensions": step.extensions.iter().map(extension_json).collect::<Vec<_>>(),
+            "extensions_omitted": step.extensions_omitted,
         })
     }
 
@@ -262,6 +299,7 @@ mod native {
                 streams.push(json!({
                     "stage": stream.stage,
                     "origin_sample": stream.origin_sample,
+                    "candidate_id": stream.candidate_id,
                     "epoch": stream.epoch,
                     "identity": {
                         "crate_version": identity.crate_version,
@@ -396,6 +434,13 @@ mod native {
                     trace.capacity_steps = parse_u32(
                         &flag_value(&mut args, "--trace-capacity")?,
                         "--trace-capacity",
+                    )? as usize;
+                    trace_on = true;
+                }
+                Some("--trace-history") => {
+                    trace.history_tokens = parse_u32(
+                        &flag_value(&mut args, "--trace-history")?,
+                        "--trace-history",
                     )? as usize;
                     trace_on = true;
                 }

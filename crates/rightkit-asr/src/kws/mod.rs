@@ -482,6 +482,16 @@ impl KeywordSpotter {
     }
 
     pub fn create_stream(&self) -> KeywordStream {
+        self.build_stream(true)
+    }
+
+    /// [`Self::create_stream`] without trace state even when [`KeywordSpotterConfig::trace`]
+    /// is set, for a stream whose records nobody will drain (nothing allocates invisibly).
+    pub fn create_stream_untraced(&self) -> KeywordStream {
+        self.build_stream(false)
+    }
+
+    fn build_stream(&self, traced: bool) -> KeywordStream {
         KeywordStream {
             spotter_id: self.id,
             fbank: OnlineFbank::new(Arc::clone(&self.fbank)),
@@ -493,9 +503,11 @@ impl KeywordSpotter {
             onset: self.onset.clone().map(|config| {
                 OnsetHistory::new(config, self.fbank.first_bin_from(onset::HIGH_BAND_HZ))
             }),
-            trace: self.trace.as_ref().map(|(config, identity)| {
-                TraceState::new(*config, Arc::clone(identity))
-            }),
+            trace: self
+                .trace
+                .as_ref()
+                .filter(|_| traced)
+                .map(|(config, identity)| TraceState::new(*config, Arc::clone(identity))),
         }
     }
 
