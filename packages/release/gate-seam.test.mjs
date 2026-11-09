@@ -456,3 +456,23 @@ test("the installed-exe check accepts the two NSS markers a patched tauri-utils 
   assertInstalledExecutableMatches(at("built"), at("unpatched"));
   assert.throws(() => assertInstalledExecutableMatches(at("built"), at("other")), /does not match this dev build/);
 });
+
+test("the bundle-marker patch accepts an already patched tauri-utils 2.10 binary (0 UNK, 2 NSS) and still refuses ambiguity (rightkit#1556)", async () => {
+  const { patchTauriBundleType } = await import("./tauri-bundle-marker.mjs");
+  const m = (code) => `__TAURI_BUNDLE_TYPE_VAR_${code}`;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-patch-"));
+  const at = (name, text) => { const f = path.join(dir, name); fs.writeFileSync(f, Buffer.from(text, "ascii")); return f; };
+  // Fresh build: the static UNK next to the NSS literal -> exactly the static is patched, the file then has two NSS markers.
+  const fresh = at("fresh.exe", `MZ${m("UNK")}${m("NSS")}..`);
+  assert.notEqual(patchTauriBundleType(fresh).alreadyPatched, true);
+  assert.equal(fs.readFileSync(fresh, "ascii"), `MZ${m("NSS")}${m("NSS")}..`);
+  // Warm rebuild reusing that output: 0 UNK, 2 NSS -> already patched, nothing written.
+  const again = patchTauriBundleType(fresh);
+  assert.equal(again.alreadyPatched, true); assert.equal(again.changedBytes, 0);
+  // Older Tauri without the literal: 0 UNK, 1 NSS -> already patched, as before.
+  assert.equal(patchTauriBundleType(at("old.exe", `MZ${m("NSS")}..`)).alreadyPatched, true);
+  // Still refused: no marker at all, three target markers, two unknown markers.
+  assert.throws(() => patchTauriBundleType(at("none.exe", "MZ..")), /refusing to guess/);
+  assert.throws(() => patchTauriBundleType(at("three.exe", `MZ${m("NSS")}${m("NSS")}${m("NSS")}`)), /refusing to guess/);
+  assert.throws(() => patchTauriBundleType(at("twounk.exe", `MZ${m("UNK")}${m("UNK")}`)), /exactly one Tauri unknown bundle marker/);
+});

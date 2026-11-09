@@ -56,11 +56,14 @@ export function patchTauriBundleType(file, { bundle = "nsis", read = readFileSyn
   const targetOffsets = findAll(before, targetMarker);
 
   if (unknownOffsets.length === 0) {
-    if (targetOffsets.length === 1) {
+    // Already patched. tauri-utils 2.10 also compiles the match literal of the target marker into the binary (platform.rs bundle_type), so a
+    // patched binary of that line carries two target markers, the patched static next to the literal (rightkit#1556); an older Tauri, one.
+    // A warm rebuild that reuses the already patched (and signed) output therefore finds 0 unknown and 1 or 2 target markers.
+    if (targetOffsets.length === 1 || targetOffsets.length === 2) {
       return {
         file: resolved,
         bundle,
-        offset: targetOffsets[0],
+        offset: targetOffsets[targetOffsets.length - 1],
         changedBytes: 0,
         alreadyPatched: true,
         size: before.length,
