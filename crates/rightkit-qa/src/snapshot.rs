@@ -924,26 +924,32 @@ fn ensure_stopped(marker: &Marker) -> Result<()> {
     {
         return Ok(());
     }
-    // A run's own app and its helpers may still be exiting when the restore begins (hr-r2-ultra-3: the QA-staged HeardRightMenuBar was gone
-    // moments after the check refused). The check waits a bounded time for them to leave; it never stops them, and a process still there after
-    // the bound refuses exactly as before.
+    let running = running_processes(&marker.process_names)?;
+    if !running.is_empty() {
+        return err(format!(
+            "snapshot refuses while configured app/helper processes run ({}); marker retained",
+            running.join(", ")
+        ));
+    }
+    Ok(())
+}
+
+/// The restore side's check: a run's own app and its helpers may still be exiting when the restore begins (hr-r2-ultra-3: the QA-staged
+/// HeardRightMenuBar was gone moments after the check refused), so it waits a bounded time for them to leave. It never stops a process; one
+/// still there after the bound refuses exactly as `ensure_stopped` does. The snapshot side (arm) keeps the instant check: a process alive while
+/// live data was copied must refuse the snapshot, not be waited out.
+fn ensure_stopped_before_restore(marker: &Marker) -> Result<()> {
     let deadline = std::time::Instant::now() + STOPPED_WAIT;
     loop {
-        let running = running_processes(&marker.process_names)?;
-        if running.is_empty() {
-            return Ok(());
+        match ensure_stopped(marker) {
+            Ok(()) => return Ok(()),
+            Err(e) if std::time::Instant::now() >= deadline => return Err(e),
+            Err(_) => std::thread::sleep(Duration::from_millis(250)),
         }
-        if std::time::Instant::now() >= deadline {
-            return err(format!(
-                "snapshot refuses while configured app/helper processes run ({}); marker retained",
-                running.join(", ")
-            ));
-        }
-        std::thread::sleep(Duration::from_millis(250));
     }
 }
 
-/// How long `ensure_stopped` waits for configured app/helper processes that are already exiting.
+/// How long the restore side waits for configured app/helper processes that are already exiting.
 const STOPPED_WAIT: Duration = Duration::from_secs(15);
 
 fn restore_credentials(sets: &[CredRecord], file: &CredFile) -> Result<usize> {
@@ -1602,7 +1608,7 @@ fn restore_marker(marker_path: &Path, marker: &mut Marker) -> Result<RestoreRepo
             return err("credential owner snapshot directory differs from this restore marker");
         }
     }
-    ensure_stopped(marker)?;
+    ensure_stopped_before_restore(marker)?;
     let mut report = RestoreReport {
         app: marker.app.clone(),
         snapshot_id: marker.snapshot_id.clone(),
@@ -1692,7 +1698,7 @@ fn restore_marker(marker_path: &Path, marker: &mut Marker) -> Result<RestoreRepo
         }
         crate::snapshot_android::verify_copy(rec, &snap_dir)?;
     }
-    ensure_stopped(marker)?;
+    ensure_stopped_before_restore(marker)?;
     marker.state = STATE_RESTORING.into();
     write_marker(marker_path, marker)?;
     if marker.credential_owner.is_some() {
