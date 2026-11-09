@@ -418,4 +418,6 @@ test("a staged entry re-signed in place is admitted only from its staged bytes t
   assert.throws(() => readSignedInPlaceReport(report, snap), /not inside the snapshot/);
   fs.writeFileSync(report, JSON.stringify({ schema: "rightkit.signed-in-place/1", files: [{ path: path.join(snap, "x.exe"), sha256Before: a }] }));
   assert.throws(() => readSignedInPlaceReport(report, snap), /before\/after sha256/);
+  fs.writeFileSync(report, JSON.stringify({ schema: "rightkit.signed-in-place/1", files: [{ path: path.join(snap, "src-tauri", "tauri.conf.json"), sha256Before: a, sha256After: b }] }));
+  assert.throws(() => readSignedInPlaceReport(report, snap), /not an executable or library/);
 });

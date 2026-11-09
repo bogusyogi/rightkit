@@ -2346,6 +2346,8 @@ export function readSignedInPlaceReport(file, snapshotDir, { readFile = (f) => f
     const rel = typeof f?.path === "string" ? path.relative(snapshotDir, path.resolve(f.path)) : "";
     if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) throw new Error(`${file} names ${f?.path}, which is not inside the snapshot ${snapshotDir}`);
     if (!/^[0-9a-f]{64}$/.test(f.sha256Before ?? "") || !/^[0-9a-f]{64}$/.test(f.sha256After ?? "")) throw new Error(`${file}: ${rel} lacks its before/after sha256`);
+    // Authenticode signs executables and libraries; a report naming anything else is not the signer's.
+    if (!/\.(exe|dll)$/i.test(rel)) throw new Error(`${file} names ${rel}, which is not an executable or library the signer signs`);
     out.set(rel.split(path.sep).join("/"), { sha256Before: f.sha256Before, sha256After: f.sha256After });
   }
   return out;
@@ -3688,12 +3690,13 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
       return rendered === 0 && carriedRendered ? 0 : 1;
     }
     // rightkit#1555: beside (never inside) the snapshot, a fixed name per snapshot, so no run-specific value reaches a key.
-    const signedReport = ds ? `${ds.path}.signed-in-place.json` : null;
+    // Only the Windows dev install signs staged copies in place (install-tauri-authenticode.mjs); no other route names or reads a report.
+    const signedReport = ds && to === "dev" && o.platform === "win32" ? `${ds.path}.signed-in-place.json` : null;
     if (signedReport) { try { fs.rmSync(signedReport, { force: true }); } catch { /* a stale report is refused below by its digests */ } }
     const r = (o.spawnInherit ?? inheritLaunch)(process.execPath, [cli, to, ...passthrough], { cwd: source ? snapshotAppRootOf(ds.path, appDir) : appRoot, env: signedReport ? { ...childEnv, RIGHTKIT_SIGNED_IN_PLACE_REPORT: signedReport } : childEnv });
     const carriedOk = await carrier.finish({ stage: to });
     let signedInPlace = new Map();
-    if (ds) { try { signedInPlace = readSignedInPlaceReport(signedReport, ds.path); } catch (e) { o.err(`${tag} RK_CHECK_ERROR: [${to}] ${e.message}`); return 2; } }
+    if (signedReport) { try { signedInPlace = readSignedInPlaceReport(signedReport, ds.path); } catch (e) { o.err(`${tag} RK_CHECK_ERROR: [${to}] ${e.message}`); return 2; } }
     if (ds && !(await closeSnapshotStage({ o, ds, root, stage: to, step: to, tag, signedInPlace })).ok) { o.err(`${tag} --to ${to} stopped: the result covers no known bytes`); return 2; }
     return r.status === 0 && carriedOk ? 0 : 1;
   } finally { endRun(run); carrier.cleanup(); try { pinMulti?.cleanup?.(); } catch { /* the wrapper map is the gate's own temp directory */ } }
