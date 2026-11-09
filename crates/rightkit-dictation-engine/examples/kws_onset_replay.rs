@@ -139,6 +139,7 @@ mod native {
             "encoder_window_end_feature_frame": clock.encoder_window_end_feature_frame,
             "encoder_consumed_feature_frames": clock.encoder_consumed_feature_frames,
             "samples_fed": clock.samples_fed,
+            "padding_samples_fed": clock.padding_samples_fed,
         })
     }
 
@@ -300,6 +301,9 @@ mod native {
                     "stage": stream.stage,
                     "origin_sample": stream.origin_sample,
                     "candidate_id": stream.candidate_id,
+                    "window": stream.window,
+                    "real_samples_fed": stream.real_samples_fed,
+                    "tail_samples_fed": stream.tail_samples_fed,
                     "epoch": stream.epoch,
                     "identity": {
                         "crate_version": identity.crate_version,

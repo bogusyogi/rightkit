@@ -706,6 +706,24 @@ impl KeywordStream {
         }
     }
 
+    /// For a stream with no known window: keep the NEWEST [`TraceConfig::window_steps`]
+    /// steps (older ones are dropped and counted) instead of the first ones. Replaces any
+    /// window; a reset clears it. No effect when tracing is off.
+    pub fn set_trace_rolling(&mut self) {
+        if let Some(trace) = self.trace.as_mut() {
+            trace.set_rolling();
+        }
+    }
+
+    /// Declare the samples fed from now on as padding (until declared `false`), so records
+    /// carry `padding_samples_fed` apart from real audio. The crate cannot tell them
+    /// apart itself. No effect when tracing is off.
+    pub fn declare_trace_padding(&mut self, padding: bool) {
+        if let Some(trace) = self.trace.as_mut() {
+            trace.declare_padding(padding);
+        }
+    }
+
     /// Drain what this stream recorded since the last call. `None` when tracing is off.
     pub fn take_trace(&mut self) -> Option<TraceRecords> {
         self.trace.as_mut().map(TraceState::take)

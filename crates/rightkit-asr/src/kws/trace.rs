@@ -132,8 +132,14 @@ pub struct TraceClock {
     pub encoder_window_end_feature_frame: usize,
     /// Feature frames the encoder has advanced past, after this chunk.
     pub encoder_consumed_feature_frames: usize,
-    /// Samples handed to the stream by `accept_waveform` since it was created.
+    /// Samples handed to the stream by `accept_waveform` since it was created, INCLUDING any
+    /// the caller declared as padding. Real audio fed is `samples_fed - padding_samples_fed`;
+    /// never read `samples_fed` as real-audio latency on a stream that was given padding.
     pub samples_fed: u64,
+    /// Samples fed while the caller had declared them padding
+    /// ([`super::KeywordStream::declare_trace_padding`]); the crate cannot tell real from
+    /// synthetic samples itself. `0` when nothing was declared.
+    pub padding_samples_fed: u64,
 }
 
 /// One hypothesis alive at the firing.
@@ -480,6 +486,10 @@ pub(crate) struct TraceState {
     identity: Arc<TraceIdentity>,
     clock: TraceClock,
     window: Option<(i32, i32)>,
+    /// Keep the NEWEST `window_steps` instead of the first ones (no window known).
+    rolling: bool,
+    /// Samples now being fed were declared padding by the caller.
+    padding: bool,
     occurrences: u64,
     firings: Vec<FiringTrace>,
     firings_dropped: u64,
@@ -494,6 +504,8 @@ impl TraceState {
             identity,
             clock: TraceClock::default(),
             window: None,
+            rolling: false,
+            padding: false,
             occurrences: 0,
             firings: Vec::new(),
             firings_dropped: 0,
@@ -504,6 +516,19 @@ impl TraceState {
 
     pub(crate) fn note_samples(&mut self, samples: usize) {
         self.clock.samples_fed = self.clock.samples_fed.saturating_add(samples as u64);
+        if self.padding {
+            self.clock.padding_samples_fed =
+                self.clock.padding_samples_fed.saturating_add(samples as u64);
+        }
+    }
+
+    pub(crate) fn declare_padding(&mut self, padding: bool) {
+        self.padding = padding;
+    }
+
+    pub(crate) fn set_rolling(&mut self) {
+        self.window = None;
+        self.rolling = true;
     }
 
     /// Set the clocks for the chunk about to be decoded. `processed_frames` is the encoder
@@ -526,9 +551,11 @@ impl TraceState {
         self.clock.epoch_origin_feature_frame = processed_frames;
         // Frames restart from zero, so a window on the old clock no longer applies.
         self.window = None;
+        self.rolling = false;
     }
 
     pub(crate) fn set_window(&mut self, from_frame: i32, to_frame: i32) {
+        self.rolling = false;
         self.window = Some((from_frame, to_frame));
     }
 
@@ -544,7 +571,11 @@ impl TraceState {
         }
         if self.steps.len() >= self.config.window_steps {
             self.steps_dropped += 1;
-            return false;
+            if !self.rolling {
+                return false;
+            }
+            // Rolling: the oldest step makes room (counted above), the newest is kept.
+            self.steps.remove(0);
         }
         true
     }

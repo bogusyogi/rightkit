@@ -275,6 +275,14 @@ pub struct KwsStreamTrace {
     pub origin_sample: Option<usize>,
     /// The wake candidate this stream belongs to (`confirm`, `fresh_confirm`).
     pub candidate_id: Option<u64>,
+    /// How the step window was chosen: `candidate` (frames around the wake candidate on the
+    /// stream's clock), `unknown_origin` (the stream's absolute origin was unknown, so the
+    /// newest steps are kept instead), or `None` (no step window).
+    pub window: Option<&'static str>,
+    /// `fresh_confirm` only: real PCM samples and synthetic tail samples actually fed before
+    /// the decode stopped. Use these, not `TraceClock::samples_fed`, for real-audio extent.
+    pub real_samples_fed: Option<usize>,
+    pub tail_samples_fed: Option<usize>,
     /// Cascade epoch when collected.
     pub epoch: u64,
     pub records: rust_kws::TraceRecords,
@@ -529,6 +537,27 @@ struct KwsSpotter(RefCell<rust_kws::KeywordSpotter>);
 
 /// One audio stream of a [`KwsSpotter`].
 struct KwsStream(rust_kws::KeywordStream);
+
+/// The step window of a traced fresh-confirmation stream.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FreshTraceWindow {
+    /// Traced, no step window (firing records only, or every frame until capacity).
+    Unwindowed,
+    /// Encoder frames `from..to` on the stream's own clock.
+    Frames(i32, i32),
+    /// The stream's absolute origin is unknown: keep the newest steps.
+    Rolling,
+}
+
+/// What a fresh decode produced.
+struct FreshDecode {
+    found: Option<KeywordResult>,
+    records: Option<rust_kws::TraceRecords>,
+    /// Real PCM samples fed before the decode stopped.
+    real_samples: usize,
+    /// Synthetic tail samples fed before the decode stopped.
+    tail_samples: usize,
+}
 
 /// Optional third spotter: the hey-prefixed always-on wake word. Kept OUT of
 /// [`validate_model_dir`] on purpose — a payload without this file must still
@@ -840,7 +869,13 @@ impl Kws {
         let Some((origin, candidate_id, records)) = taken else {
             return;
         };
-        self.store_stream_trace(stage, Some(origin), candidate_id, records);
+        let window = (stage == "confirm"
+            && self
+                .switches
+                .trace
+                .is_some_and(|trace| trace.window_frames > 0))
+        .then_some("candidate");
+        self.store_stream_trace(stage, Some(origin), candidate_id, window, None, records);
     }
 
     /// Keep one stream's drained records (logging each firing); empty records are dropped.
@@ -849,6 +884,8 @@ impl Kws {
         stage: &'static str,
         origin_sample: Option<usize>,
         candidate_id: Option<u64>,
+        window: Option<&'static str>,
+        fed: Option<(usize, usize)>,
         records: Option<rust_kws::TraceRecords>,
     ) {
         let Some(records) = records else {
@@ -885,6 +922,9 @@ impl Kws {
             stage,
             origin_sample,
             candidate_id,
+            window,
+            real_samples_fed: fed.map(|fed| fed.0),
+            tail_samples_fed: fed.map(|fed| fed.1),
             epoch: self.trace_epoch,
             records,
         });
@@ -1395,16 +1435,43 @@ impl Kws {
         let Some(candidate) = self.clock.candidate() else {
             return Ok((empty_result(), None));
         };
-        // The fresh stream is traced and its records kept even when nothing fires.
-        let (found, records) =
-            self.confirm_spotter
-                .decode_fresh_with(audio, FRESH_CONFIRMATION_TAIL_SAMPLES, true)?;
+        // The fresh stream is traced and its records kept even when nothing fires. Its step
+        // window is the wake candidate's region on the stream's own clock (the stream starts
+        // at `snapshot_start_sample`); with no known origin the newest steps are kept and the
+        // record says `unknown_origin`.
+        let (trace_window, window_label) = match self.switches.trace {
+            None => (None, None),
+            Some(trace) if trace.window_frames == 0 => (Some(FreshTraceWindow::Unwindowed), None),
+            Some(trace) => match snapshot_start_sample {
+                Some(origin) => {
+                    let (from_frame, to_frame) = confirm_trace_window(
+                        origin,
+                        candidate.start_sample,
+                        candidate.end_sample,
+                        trace.window_frames,
+                    );
+                    (
+                        Some(FreshTraceWindow::Frames(from_frame, to_frame)),
+                        Some("candidate"),
+                    )
+                }
+                None => (Some(FreshTraceWindow::Rolling), Some("unknown_origin")),
+            },
+        };
+        let fresh = self.confirm_spotter.decode_fresh_with(
+            audio,
+            FRESH_CONFIRMATION_TAIL_SAMPLES,
+            trace_window,
+        )?;
         self.store_stream_trace(
             "fresh_confirm",
             snapshot_start_sample,
             Some(candidate.id),
-            records,
+            window_label,
+            Some((fresh.real_samples, fresh.tail_samples)),
+            fresh.records,
         );
+        let found = fresh.found;
         let Some(result) = found else {
             return Ok((empty_result(), None));
         };
@@ -1961,42 +2028,63 @@ impl KwsSpotter {
         audio: &[f32],
         tail_samples: usize,
     ) -> Result<Option<KeywordResult>, String> {
-        self.decode_fresh_with(audio, tail_samples, false)
-            .map(|(result, _)| result)
+        self.decode_fresh_with(audio, tail_samples, None)
+            .map(|fresh| fresh.found)
     }
 
-    /// A fresh decode on its own stream. With `traced` the stream's records come back too,
-    /// on a hit and on a no-fire alike; without it the stream carries no trace state.
+    /// A fresh decode on its own stream: the same feed and decode schedule, and the same
+    /// stop at the first result, as [`Self::decode_fresh`]. With a `trace_window` the
+    /// stream's records come back too, on a hit and on a no-fire alike, with the window
+    /// applied before the first sample is fed and the synthetic tail declared as padding;
+    /// with `None` the stream carries no trace state.
     fn decode_fresh_with(
         &self,
         audio: &[f32],
         tail_samples: usize,
-        traced: bool,
-    ) -> Result<(Option<KeywordResult>, Option<rust_kws::TraceRecords>), String> {
-        let mut stream = if traced {
+        trace_window: Option<FreshTraceWindow>,
+    ) -> Result<FreshDecode, String> {
+        let mut stream = if trace_window.is_some() {
             self.create_stream()
         } else {
             self.create_stream_untraced()
         };
+        match trace_window {
+            Some(FreshTraceWindow::Frames(from_frame, to_frame)) => {
+                stream.0.set_trace_window(from_frame, to_frame);
+            }
+            Some(FreshTraceWindow::Rolling) => stream.0.set_trace_rolling(),
+            Some(FreshTraceWindow::Unwindowed) | None => {}
+        }
         let mut found = None;
+        let mut real_samples = 0usize;
+        let mut tail_fed = 0usize;
         'feed: {
             for chunk in audio.chunks(KWS_FEED_CHUNK_SAMPLES) {
                 stream.accept_audio(chunk)?;
+                real_samples += chunk.len();
                 if let Some(result) = self.decode_ready_result(&mut stream)? {
                     found = Some(result);
                     break 'feed;
                 }
             }
+            // From here on every sample is the synthetic tail, not recognition latency.
+            stream.0.declare_trace_padding(true);
             let silence = vec![0.0; tail_samples];
             for chunk in silence.chunks(KWS_FEED_CHUNK_SAMPLES) {
                 stream.accept_audio(chunk)?;
+                tail_fed += chunk.len();
                 if let Some(result) = self.decode_ready_result(&mut stream)? {
                     found = Some(result);
                     break 'feed;
                 }
             }
         }
-        Ok((found, stream.0.take_trace()))
+        Ok(FreshDecode {
+            found,
+            records: stream.0.take_trace(),
+            real_samples,
+            tail_samples: tail_fed,
+        })
     }
 
     /// Keep native decoder checkpoints independent of executor backlog. Audio
