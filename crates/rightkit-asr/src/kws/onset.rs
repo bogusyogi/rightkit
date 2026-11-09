@@ -26,6 +26,130 @@ const FEATURE_SECONDS: f32 = 0.01;
 /// Lowest frequency of the band whose energy marks a fricative (/z/, /s/): 3.5 kHz.
 pub(crate) const HIGH_BAND_HZ: f32 = 3_500.0;
 
+/// Search used for the acoustic onset candidate.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum AcousticSearch {
+    /// Existing speech-burst and valley search.
+    #[default]
+    Legacy,
+    /// Experimental search for an isolated rise in high-band energy before the anchor.
+    /// Select only for keywords expected to begin with frication.
+    InitialFricative,
+}
+
+/// Settings for the D4 native fricative onset estimator (`KeywordOnset::fricative`). Off
+/// unless `enabled` is set and [`KeywordSpotterConfig::onset`] is on. Durations are
+/// milliseconds, rounded up to whole 10 ms feature frames; `rise` and `tilt_margin` are
+/// natural-log mel units.
+///
+/// [`KeywordSpotterConfig::onset`]: super::KeywordSpotterConfig::onset
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FricativeParams {
+    /// Run the estimator. Default off.
+    pub enabled: bool,
+    /// Search window W before the anchor. Default 250 (sweep 150/250/350).
+    pub window_ms: u32,
+    /// Background floor window F ending at `anchor - W`. Default 500 (sweep 200/500).
+    pub floor_ms: u32,
+    /// Hiss rise H of the high band above its floor (also the vowel's rise of the
+    /// low-band mean over its floor). Default 1.0 (sweep 0.5/1.0/1.5).
+    pub rise: f32,
+    /// Minimum hiss run D. Default 40 (sweep 20/40/60).
+    pub min_run_ms: u32,
+    /// The hiss run's vowel entry must lie within V before the anchor. Default 60.
+    pub vowel_ms: u32,
+    /// Hiss tilt margin above the background tilt median over the floor window.
+    /// Default 1.0 (the `FRICATIVE_TILT` margin).
+    pub tilt_margin: f32,
+}
+
+impl FricativeParams {
+    /// The default settings (off), usable in `const` context.
+    pub const DEFAULT: Self = Self {
+        enabled: false,
+        window_ms: 250,
+        floor_ms: 500,
+        rise: 1.0,
+        min_run_ms: 40,
+        vowel_ms: 60,
+        tilt_margin: FRICATIVE_TILT,
+    };
+
+    /// Reject values the estimator could not honour, so none is silently ignored or clamped.
+    /// Ranges: `window_ms` 30..=1000, `floor_ms` 10..=2000, `min_run_ms` 10..=1000,
+    /// `vowel_ms` 0..=1000, `rise` 0..=10 and `tilt_margin` -10..=10 (finite), and the
+    /// window plus floor must fit in the default 320-frame energy history.
+    pub fn validate(&self) -> std::result::Result<(), String> {
+        let range = |name: &str, value: u32, low: u32, high: u32| {
+            if (low..=high).contains(&value) {
+                Ok(())
+            } else {
+                Err(format!("fricative {name} must be {low} to {high} ms, got {value}"))
+            }
+        };
+        range("window_ms", self.window_ms, 30, 1_000)?;
+        range("floor_ms", self.floor_ms, 10, 2_000)?;
+        range("min_run_ms", self.min_run_ms, 10, 1_000)?;
+        range("vowel_ms", self.vowel_ms, 0, 1_000)?;
+        if !self.rise.is_finite() || !(0.0..=10.0).contains(&self.rise) {
+            return Err(format!("fricative rise must be 0 to 10, got {}", self.rise));
+        }
+        if !self.tilt_margin.is_finite() || !(-10.0..=10.0).contains(&self.tilt_margin) {
+            return Err(format!(
+                "fricative tilt_margin must be -10 to 10, got {}",
+                self.tilt_margin
+            ));
+        }
+        if self.window_ms + self.floor_ms >= 3_000 {
+            return Err(format!(
+                "fricative window_ms + floor_ms must be under 3000, got {}",
+                self.window_ms + self.floor_ms
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl Default for FricativeParams {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
+/// Why the D4 estimator produced no estimate (labels follow the offline prototype).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FricativeAbstain {
+    /// A non-finite statistic in the floor window or search interval, or unusable settings.
+    InvalidEvidence,
+    /// The floor window, the search window or the anchor is not retained (or too few frames).
+    FloorUnsupported,
+    /// The estimate exists but starts before this reset epoch (`feature_origin`), so it is
+    /// not on the stream's clock. Distinct from an unsupported floor.
+    BeforeEpoch,
+    /// No hiss run is followed by a vowel entry inside `[anchor - vowel_ms, anchor]`.
+    NoTransition,
+    /// A hiss run enters the vowel in range but none lasts `min_run_ms`.
+    RunTooShort,
+    /// More than one run qualifies.
+    Ambiguous,
+    /// The chosen run reaches the start of the search window.
+    WindowLimit,
+}
+
+impl FricativeAbstain {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::InvalidEvidence => "abstain:invalid_evidence",
+            Self::FloorUnsupported => "abstain:floor_short",
+            Self::BeforeEpoch => "abstain:before_epoch",
+            Self::NoTransition => "abstain:no_transition",
+            Self::RunTooShort => "abstain:run_too_short",
+            Self::Ambiguous => "abstain:ambiguous_transitions",
+            Self::WindowLimit => "abstain:window_limit",
+        }
+    }
+}
+
 /// Onset estimation settings. Off unless [`KeywordSpotterConfig::onset`] is set.
 ///
 /// [`KeywordSpotterConfig::onset`]: super::KeywordSpotterConfig::onset
@@ -49,6 +173,10 @@ pub struct OnsetConfig {
     /// `acoustic`: furthest the search goes back from its anchor, feature frames. Default 30
     /// (300 ms): in running speech a longer reach finds a gap inside the previous word.
     pub acoustic_max_frames: usize,
+    /// Acoustic candidate strategy. Defaults to [`AcousticSearch::Legacy`].
+    pub acoustic_search: AcousticSearch,
+    /// D4 fricative estimator settings (default off).
+    pub fricative: FricativeParams,
 }
 
 impl Default for OnsetConfig {
@@ -60,6 +188,8 @@ impl Default for OnsetConfig {
             posterior_threshold: 1e-2,
             posterior_max_frames: 15,
             acoustic_max_frames: 30,
+            acoustic_search: AcousticSearch::Legacy,
+            fricative: FricativeParams::default(),
         }
     }
 }
@@ -100,6 +230,8 @@ pub enum AcousticRule {
     Valley,
     /// As `Valley`, moved back to where high-band (fricative) energy began.
     ValleyHighBand,
+    /// Leading edge of an isolated high-band rise before the anchor.
+    InitialFricative,
 }
 
 impl AcousticRule {
@@ -108,6 +240,7 @@ impl AcousticRule {
             Self::Gap => "gap",
             Self::Valley => "valley",
             Self::ValleyHighBand => "valley_high_band",
+            Self::InitialFricative => "initial_fricative",
         }
     }
 }
@@ -129,10 +262,15 @@ pub struct KeywordOnset {
     /// the contiguous run where the first token's probability is at least
     /// `posterior_threshold` and no other token dominates. One batched joiner call.
     pub posterior: Option<OnsetEstimate>,
-    /// Start of the speech burst holding the anchor, from the 10 ms energy envelope with a
-    /// noise floor read from the retained history (see [`AcousticRule`]).
+    /// Acoustic boundary candidate from the 10 ms energy envelope, using the configured
+    /// search (see [`AcousticRule`]).
     pub acoustic: Option<OnsetEstimate>,
     pub acoustic_rule: Option<AcousticRule>,
+    /// D4: leading edge of the hiss run that enters the keyword's vowel (see
+    /// [`FricativeParams`]). `None` unless enabled, and when the estimator abstains.
+    pub fricative: Option<OnsetEstimate>,
+    /// Why D4 produced no estimate: `Some` only when enabled and it abstained.
+    pub fricative_abstain: Option<FricativeAbstain>,
 }
 
 /// What a stream keeps for onset estimation.
@@ -149,6 +287,8 @@ pub(crate) struct OnsetHistory {
     /// Absolute feature frame where encoder frame 0 of the current reset epoch begins.
     feature_origin: usize,
     high_bin: usize,
+    /// Mel bins per feature frame, as last pushed (0 until the first push).
+    bins: usize,
 }
 
 impl OnsetHistory {
@@ -161,6 +301,7 @@ impl OnsetHistory {
             energy_first: 0,
             feature_origin: 0,
             high_bin,
+            bins: 0,
         }
     }
 
@@ -174,6 +315,7 @@ impl OnsetHistory {
     /// Record the energy of feature frames `[start, start + n)` given row-major `frames`,
     /// skipping frames already recorded (encoder chunks overlap).
     pub(crate) fn push_features(&mut self, start: usize, frames: &[f32], dim: usize) {
+        self.bins = dim;
         let next = self.energy_first + self.energy.len();
         if self.energy.is_empty() {
             self.energy_first = start;
@@ -262,6 +404,8 @@ pub(crate) fn estimate(
         posterior: None,
         acoustic: None,
         acoustic_rule: None,
+        fricative: None,
+        fricative_abstain: None,
     };
     let k = firing.tokens.len();
     let window_start = history
@@ -332,9 +476,25 @@ pub(crate) fn estimate(
         let (full, high): (Vec<f32>, Vec<f32>) = history.energy.iter().copied().unzip();
         let at = (anchor_feature - history.energy_first as i64) as usize;
         if at < full.len() {
-            if let Some((index, rule)) =
-                acoustic_onset(&full, &high, at, config.acoustic_max_frames)
-            {
+            let candidate = match config.acoustic_search {
+                AcousticSearch::Legacy => {
+                    acoustic_onset(&full, &high, at, config.acoustic_max_frames)
+                }
+                AcousticSearch::InitialFricative => {
+                    let epoch_start = history.feature_origin.saturating_sub(history.energy_first);
+                    at.checked_sub(epoch_start)
+                        .and_then(|anchor| {
+                            initial_fricative_onset(
+                                &full[epoch_start..=at],
+                                &high[epoch_start..=at],
+                                anchor,
+                                config.acoustic_max_frames,
+                            )
+                        })
+                        .map(|index| (epoch_start + index, AcousticRule::InitialFricative))
+                }
+            };
+            if let Some((index, rule)) = candidate {
                 let absolute = history.energy_first + index;
                 let since_reset = absolute as i64 - history.feature_origin as i64;
                 if since_reset >= 0 {
@@ -342,6 +502,31 @@ pub(crate) fn estimate(
                     onset.acoustic_rule = Some(rule);
                 }
             }
+        }
+    }
+
+    // D4 fricative estimator, on absolute feature frames; same anchor and clock as above.
+    if config.fricative.enabled {
+        let outcome = if anchor_feature >= history.energy_first as i64 {
+            let energy: Vec<(f32, f32)> = history.energy.iter().copied().collect();
+            fricative_onset(
+                &energy,
+                history.energy_first,
+                anchor_feature as usize,
+                history.bins,
+                history.high_bin,
+                &config.fricative,
+            )
+        } else {
+            Err(FricativeAbstain::FloorUnsupported)
+        };
+        match outcome {
+            Ok(index) => match fricative_stream_frame(index, history.feature_origin) {
+                Ok(frame) => onset.fricative = Some(OnsetEstimate::at_feature(frame)),
+                // The run starts before this reset epoch: not on the stream's clock.
+                Err(reason) => onset.fricative_abstain = Some(reason),
+            },
+            Err(reason) => onset.fricative_abstain = Some(reason),
         }
     }
     Ok(onset)
@@ -602,4 +787,386 @@ pub(crate) fn acoustic_onset(
         return Some((g, AcousticRule::ValleyHighBand));
     }
     Some((valley, AcousticRule::Valley))
+}
+
+/// Require at least two 10 ms frames of evidence at the rise and on either side.
+/// This is a replay criterion pending corpus qualification.
+const FRICATIVE_STABLE_FRAMES: usize = 2;
+
+/// Search before the anchor for one high-band rise that leads into sustained speech.
+/// The legacy valley can land in a vowel or on a later fricative. This search requires
+/// one sustained run with an observed left edge and contrast against the final active
+/// frames. Return an acoustic candidate for comparison. Phone identity and previous
+/// word boundaries require separate evidence.
+fn initial_fricative_onset(
+    full: &[f32],
+    high: &[f32],
+    anchor: usize,
+    max_back: usize,
+) -> Option<usize> {
+    if full.len() != high.len()
+        || anchor >= full.len()
+        || anchor < MIN_FLOOR_FRAMES
+        || full[..=anchor]
+            .iter()
+            .chain(&high[..=anchor])
+            .any(|value| !value.is_finite())
+    {
+        return None;
+    }
+
+    let lo = anchor.saturating_sub(max_back);
+    let full_floor = quantile(&full[..anchor], 0.1)?;
+    let high_floor = quantile(&high[..anchor], 0.1)?;
+    let high_peak = high[lo..=anchor].iter().copied().reduce(f32::max)?;
+    let high_range = high_peak - high_floor;
+    if !high_range.is_finite() || high_range < MIN_BURST_RANGE {
+        return None;
+    }
+    let high_threshold = high_floor + (HIGH_BAND_FRACTION * high_range).max(MIN_BURST_MARGIN);
+    let speech_threshold = full_floor + MIN_BURST_MARGIN;
+    let tilt = |i: usize| f64::from(high[i]) - f64::from(full[i]);
+    let reference_start = anchor + 1 - FRICATIVE_STABLE_FRAMES;
+    let reference_tilt = (reference_start..=anchor).map(tilt).reduce(f64::max)?;
+    let fricative = |i: usize| {
+        full[i] > speech_threshold
+            && high[i] >= high_threshold
+            && tilt(i) >= reference_tilt + f64::from(FRICATIVE_TILT)
+    };
+    let start = (lo..reference_start).find(|&i| fricative(i))?;
+    let end = (start..=anchor).find(|&i| !fricative(i))?;
+    if start - lo < FRICATIVE_STABLE_FRAMES
+        || end - start < FRICATIVE_STABLE_FRAMES
+        || (end..=anchor).any(fricative)
+        || full[end..=anchor]
+            .iter()
+            .any(|&energy| energy <= speech_threshold)
+        || high[start - FRICATIVE_STABLE_FRAMES..start]
+            .iter()
+            .any(|&energy| high[start] - energy < MIN_BURST_MARGIN)
+    {
+        return None;
+    }
+    Some(start)
+}
+
+/// D4: leading edge of the hiss (high-band-led) run that enters the keyword's vowel.
+///
+/// `energy[i]` is (mean log-mel over all `bins`, mean over bins `high_bin..`) for absolute
+/// feature frame `energy_first + i`; `anchor` is an absolute feature frame. Returns an
+/// absolute feature frame, or the reason it abstained ([`FricativeAbstain`]): the floor
+/// window is not retained, evidence or settings are invalid, no hiss run enters a vowel
+/// within `vowel_ms` of the anchor, a run was too short, several runs qualify, or the
+/// chosen run touches the start of the search window.
+///
+/// The energy history is continuous audio: `OnsetHistory::reset` clears only the encoder
+/// history and moves `feature_origin`, and `push_features` restarts the envelope on a gap,
+/// so the floor window never spans a discontinuity. Any non-finite frame in the floor window
+/// or search interval abstains, as does a vowel entry more than `ADJACENT_GAP` frames after
+/// a run.
+///
+/// The low-band mean is derived from the two stored means:
+/// `rest = (bins * all - n_high * high) / (bins - n_high)`, `tilt = high - rest`.
+fn fricative_onset(
+    energy: &[(f32, f32)],
+    energy_first: usize,
+    anchor: usize,
+    bins: usize,
+    high_bin: usize,
+    params: &FricativeParams,
+) -> std::result::Result<usize, FricativeAbstain> {
+    use FricativeAbstain::{
+        Ambiguous, FloorUnsupported, InvalidEvidence, NoTransition, RunTooShort, WindowLimit,
+    };
+    if !params.rise.is_finite() || !params.tilt_margin.is_finite() {
+        return Err(InvalidEvidence);
+    }
+    let n_high = bins.checked_sub(high_bin).ok_or(InvalidEvidence)?;
+    if n_high == 0 || high_bin == 0 {
+        return Err(InvalidEvidence);
+    }
+    let frames = |ms: u32| ms.saturating_add(9) as usize / 10;
+    let window = frames(params.window_ms);
+    let floor_len = frames(params.floor_ms);
+    let vowel = frames(params.vowel_ms);
+    let min_run = frames(params.min_run_ms).max(1);
+    if window < 3 || floor_len == 0 {
+        return Err(InvalidEvidence);
+    }
+    let end = energy_first
+        .checked_add(energy.len())
+        .ok_or(FloorUnsupported)?;
+    if anchor < energy_first || anchor >= end {
+        return Err(FloorUnsupported);
+    }
+    let search_start = anchor.checked_sub(window).ok_or(FloorUnsupported)?;
+    let floor_start = search_start.checked_sub(floor_len).ok_or(FloorUnsupported)?;
+    if floor_start < energy_first {
+        return Err(FloorUnsupported);
+    }
+
+    let at = |t: usize| energy[t - energy_first];
+    let (all_n, high_n, rest_n) = (bins as f32, n_high as f32, high_bin as f32);
+    let rest = |t: usize| (all_n * at(t).0 - high_n * at(t).1) / rest_n;
+    let tilt = |t: usize| at(t).1 - rest(t);
+
+    // Invalid evidence abstains: every frame from the floor window through the anchor must
+    // have finite statistics, so no floor is built from a few surviving samples and no
+    // invalid frame sits between a hiss and a vowel.
+    if !(floor_start..=anchor).all(|t| {
+        at(t).0.is_finite() && at(t).1.is_finite() && rest(t).is_finite() && tilt(t).is_finite()
+    }) {
+        return Err(InvalidEvidence);
+    }
+
+    let highs: Vec<f32> = (floor_start..search_start).map(|t| at(t).1).collect();
+    let rests: Vec<f32> = (floor_start..search_start).map(rest).collect();
+    let tilts: Vec<f32> = (floor_start..search_start).map(tilt).collect();
+    let floor_high = quantile(&highs, 0.1).ok_or(InvalidEvidence)?;
+    let floor_rest = quantile(&rests, 0.1).ok_or(InvalidEvidence)?;
+    let hiss_bar = quantile(&tilts, 0.5).ok_or(InvalidEvidence)? + params.tilt_margin;
+    if !hiss_bar.is_finite() || !floor_high.is_finite() || !floor_rest.is_finite() {
+        return Err(InvalidEvidence);
+    }
+    let rise = params.rise;
+
+    let hiss = |t: usize| at(t).1 - floor_high >= rise && tilt(t) >= hiss_bar;
+    let vowel_at = |t: usize| tilt(t) <= -FRICATIVE_TILT && rest(t) - floor_rest >= rise;
+
+    // Temporal-association heuristic, not proof of the same occurrence (the offline
+    // prototype's rule): a hiss run counts only when a vowel entry starts within
+    // `ADJACENT_GAP` frames after its last frame, and that entry lies in
+    // [anchor - V, anchor]. The D filter is applied before counting ambiguity, as the
+    // prototype does; a run that enters the vowel in range but is too short only sets
+    // `short_adjacent`, which names the abstention when no run is eligible.
+    // (run start, run end), inclusive.
+    let mut eligible: Vec<(usize, usize)> = Vec::new();
+    let mut short_adjacent = false;
+    let mut t = search_start;
+    while t <= anchor {
+        if !hiss(t) {
+            t += 1;
+            continue;
+        }
+        let run_start = t;
+        while t <= anchor && hiss(t) {
+            t += 1;
+        }
+        let run_end = t - 1;
+        let last = (run_end + 1 + ADJACENT_GAP).min(anchor);
+        let Some(entry) = (run_end + 1..=last).find(|&u| vowel_at(u)) else {
+            continue;
+        };
+        if entry + vowel < anchor {
+            continue;
+        }
+        if run_end + 1 - run_start >= min_run {
+            eligible.push((run_start, run_end));
+        } else {
+            short_adjacent = true;
+        }
+    }
+    match eligible.as_slice() {
+        [] if short_adjacent => Err(RunTooShort),
+        [] => Err(NoTransition),
+        [(run_start, _)] if *run_start == search_start => Err(WindowLimit),
+        [(run_start, _)] => Ok(*run_start),
+        _ => Err(Ambiguous),
+    }
+}
+
+/// A D4 estimate (absolute feature frame) as a feature frame since `feature_origin`.
+/// `BeforeEpoch` when it precedes the origin; `InvalidEvidence` when it does not fit `i32`.
+fn fricative_stream_frame(
+    index: usize,
+    feature_origin: usize,
+) -> std::result::Result<i32, FricativeAbstain> {
+    let since_reset = index
+        .checked_sub(feature_origin)
+        .ok_or(FricativeAbstain::BeforeEpoch)?;
+    i32::try_from(since_reset).map_err(|_| FricativeAbstain::InvalidEvidence)
+}
+
+/// Frames between the end of a hiss run and the vowel entry that still count as the same
+/// occurrence (the offline prototype: adjacency within 1 frame).
+const ADJACENT_GAP: usize = 1;
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        fricative_onset, fricative_stream_frame, initial_fricative_onset, FricativeAbstain,
+        FricativeParams,
+    };
+
+    fn envelope() -> ([f32; 40], [f32; 40]) {
+        let mut full = [-10.0; 40];
+        let mut high = [-11.0; 40];
+        full[24..29].fill(-5.5);
+        high[24..29].fill(-4.0);
+        full[29..].fill(-1.0);
+        high[29..].fill(-7.0);
+        (full, high)
+    }
+
+    #[test]
+    fn finds_the_rise_after_quiet_or_connected_speech() {
+        let (mut full, mut high) = envelope();
+        assert_eq!(initial_fricative_onset(&full, &high, 34, 30), Some(24));
+        full[18..24].fill(-1.0);
+        high[18..24].fill(-7.0);
+        assert_eq!(initial_fricative_onset(&full, &high, 34, 30), Some(24));
+    }
+
+    #[test]
+    fn needs_a_visible_left_edge_and_enough_finite_history() {
+        let (mut full, high) = envelope();
+        assert_eq!(initial_fricative_onset(&full, &high, 34, 11), None);
+        assert_eq!(initial_fricative_onset(&full, &high, 34, 12), Some(24));
+        assert_eq!(initial_fricative_onset(&full[20..], &high[20..], 14, 30), None);
+        full[22] = f32::NAN;
+        assert_eq!(initial_fricative_onset(&full, &high, 34, 30), None);
+    }
+
+    #[test]
+    fn abstains_on_multiple_runs_an_impulse_or_a_gap_before_the_anchor() {
+        let (mut full, mut high) = envelope();
+        full[19..21].fill(-5.5);
+        high[19..21].fill(-4.0);
+        assert_eq!(initial_fricative_onset(&full, &high, 34, 30), None);
+
+        let (mut full, mut high) = envelope();
+        full[25..29].fill(-1.0);
+        high[25..29].fill(-7.0);
+        assert_eq!(initial_fricative_onset(&full, &high, 34, 30), None);
+
+        let (mut full, mut high) = envelope();
+        full[29] = -10.0;
+        high[29] = -11.0;
+        assert_eq!(initial_fricative_onset(&full, &high, 34, 30), None);
+    }
+
+    // D4 synthetic energies: 2 bins, high bin 1, so rest = 2 * all - high. Silence is
+    // (high 0, rest 0), hiss (3, 0), vowel (0, 3): exact in f32. With the default settings
+    // (W 250 -> 25 frames, F 500 -> 50 frames, D 40 -> 4 frames, V 60 -> 6 frames, rise 1,
+    // tilt margin 1) and anchor 80: search_start 55, floor frames 5..55 all silent, so
+    // floor_high = floor_rest = 0 and hiss_bar = 1; a hiss frame has high >= 1 and tilt >= 1,
+    // a vowel frame has tilt <= -1 and rest >= 1. A vowel entry counts from frame 74 (80 - 6).
+    const ANCHOR: usize = 80;
+
+    fn d4_energy(
+        hiss: &[std::ops::Range<usize>],
+        vowel: &[std::ops::Range<usize>],
+    ) -> Vec<(f32, f32)> {
+        let mut frames = vec![(0.0_f32, 0.0_f32); 100]; // (high, rest)
+        for range in hiss {
+            frames[range.clone()].fill((3.0, 0.0));
+        }
+        for range in vowel {
+            frames[range.clone()].fill((0.0, 3.0));
+        }
+        frames
+            .into_iter()
+            .map(|(high, rest)| ((high + rest) / 2.0, high))
+            .collect()
+    }
+
+    fn d4(
+        energy: &[(f32, f32)],
+        anchor: usize,
+        params: &FricativeParams,
+    ) -> Result<usize, FricativeAbstain> {
+        fricative_onset(energy, 0, anchor, 2, 1, params)
+    }
+
+    #[test]
+    fn d4_cuts_at_the_hiss_that_enters_the_keyword_vowel() {
+        // Hiss 70..=75, vowel 76..: entry 76 >= 74, run 6 >= 4 frames: cut at 70.
+        let energy = d4_energy(&[70..76], &[76..82]);
+        assert_eq!(d4(&energy, ANCHOR, &FricativeParams::DEFAULT), Ok(70));
+    }
+
+    #[test]
+    fn d4_ignores_a_preceding_word_hiss_followed_by_silence() {
+        // Hiss 60..=65, silence, vowel only at 78: no vowel within one frame of the run.
+        let energy = d4_energy(&[60..66], &[78..82]);
+        assert_eq!(
+            d4(&energy, ANCHOR, &FricativeParams::DEFAULT),
+            Err(FricativeAbstain::NoTransition)
+        );
+    }
+
+    #[test]
+    fn d4_abstains_on_a_non_finite_frame_between_hiss_and_vowel() {
+        let mut energy = d4_energy(&[70..75], &[76..82]);
+        energy[75] = (f32::NAN, f32::NAN);
+        assert_eq!(
+            d4(&energy, ANCHOR, &FricativeParams::DEFAULT),
+            Err(FricativeAbstain::InvalidEvidence)
+        );
+    }
+
+    #[test]
+    fn d4_abstains_when_two_runs_qualify() {
+        // D 20 -> 2 frames. Runs 72..=73 (entry 74) and 76..=77 (entry 78) both qualify.
+        let energy = d4_energy(&[72..74, 76..78], &[74..76, 78..80]);
+        let params = FricativeParams {
+            min_run_ms: 20,
+            ..FricativeParams::DEFAULT
+        };
+        assert_eq!(d4(&energy, ANCHOR, &params), Err(FricativeAbstain::Ambiguous));
+    }
+
+    #[test]
+    fn d4_selects_the_valid_run_beside_a_short_one() {
+        // Short run 74 (1 frame, entry 75) is set aside; run 76..=79 (4 frames, entry 80)
+        // qualifies: cut at 76.
+        let energy = d4_energy(&[74..75, 76..80], &[75..76, 80..81]);
+        assert_eq!(d4(&energy, ANCHOR, &FricativeParams::DEFAULT), Ok(76));
+    }
+
+    #[test]
+    fn d4_rejects_a_30_ms_hiss_at_a_40_ms_minimum() {
+        // Hiss 73..=75 is 3 frames < 4, entry 76: no eligible run, a short adjacent one.
+        let energy = d4_energy(&[73..76], &[76..82]);
+        assert_eq!(
+            d4(&energy, ANCHOR, &FricativeParams::DEFAULT),
+            Err(FricativeAbstain::RunTooShort)
+        );
+    }
+
+    #[test]
+    fn d4_abstains_when_the_run_touches_the_window_start() {
+        // Hiss 55..=75 starts at search_start 55: not a clipped boundary.
+        let energy = d4_energy(&[55..76], &[76..82]);
+        assert_eq!(
+            d4(&energy, ANCHOR, &FricativeParams::DEFAULT),
+            Err(FricativeAbstain::WindowLimit)
+        );
+    }
+
+    #[test]
+    fn d4_abstains_when_the_floor_window_is_not_retained() {
+        // Anchor 20 is inside the 25-frame window: no room for a search start or floor.
+        let energy = d4_energy(&[10..16], &[16..22]);
+        assert_eq!(
+            d4(&energy, 20, &FricativeParams::DEFAULT),
+            Err(FricativeAbstain::FloorUnsupported)
+        );
+    }
+
+    #[test]
+    fn d4_estimate_before_the_reset_epoch_is_before_epoch_not_floor_short() {
+        // Origin 50: an estimate at 49 precedes the epoch; 50 and 70 map to 0 and 20.
+        assert_eq!(
+            fricative_stream_frame(49, 50),
+            Err(FricativeAbstain::BeforeEpoch)
+        );
+        assert_eq!(fricative_stream_frame(50, 50), Ok(0));
+        assert_eq!(fricative_stream_frame(70, 50), Ok(20));
+        assert_eq!(FricativeAbstain::BeforeEpoch.as_str(), "abstain:before_epoch");
+        assert_ne!(
+            FricativeAbstain::BeforeEpoch.as_str(),
+            FricativeAbstain::FloorUnsupported.as_str()
+        );
+    }
 }

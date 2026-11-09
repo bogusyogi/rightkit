@@ -65,7 +65,10 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 pub use fbank::FbankConfig;
 pub use keywords::{encode_keywords, EncodedKeywords, SymbolTable};
-pub use onset::{AcousticRule, KeywordOnset, OnsetConfig, OnsetEstimate};
+pub use onset::{
+    AcousticRule, AcousticSearch, FricativeAbstain, FricativeParams, KeywordOnset, OnsetConfig,
+    OnsetEstimate,
+};
 
 use crate::error::{Error, Result};
 use context_graph::ContextGraph;

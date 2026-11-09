@@ -21,7 +21,10 @@ use std::sync::Arc;
 
 use rightkit_asr::kws as rust_kws;
 /// The spotter's lever types, as [`KwsSwitches`] carries them.
-pub use rightkit_asr::kws::{JoinerBatching, MergeTimestamps, ThresholdTokens};
+pub use rightkit_asr::kws::{
+    AcousticSearch, FricativeAbstain, FricativeParams, JoinerBatching, MergeTimestamps,
+    ThresholdTokens,
+};
 use rightkit_asr::parakeet_core::{TimedToken, TranscriptionResult};
 
 /// The detail the spotter attaches to a result: score, threshold and onset candidates.
@@ -85,6 +88,9 @@ struct RustKwsTuning {
     /// Keep onset history and estimate every detection's onset. Never changes
     /// what is detected; costs one decoder and one joiner call per detection.
     onset: bool,
+    acoustic_search: AcousticSearch,
+    /// D4 fricative onset estimator (default off).
+    fricative: FricativeParams,
     threshold_tokens: rust_kws::ThresholdTokens,
     joiner_batching: rust_kws::JoinerBatching,
     merge_timestamps: rust_kws::MergeTimestamps,
@@ -105,6 +111,8 @@ impl RustKwsTuning {
         trailing_blank_reset: TRAILING_BLANK_RESET,
         softmax_f64: false,
         onset: true,
+        acoustic_search: AcousticSearch::Legacy,
+        fricative: FricativeParams::DEFAULT,
         threshold_tokens: rust_kws::ThresholdTokens::Upstream,
         joiner_batching: rust_kws::JoinerBatching::Beam,
         merge_timestamps: rust_kws::MergeTimestamps::First,
@@ -124,8 +132,10 @@ pub enum KwsOnsetMethod {
     Posterior,
     /// Viterbi forced alignment of the keyword's tokens: first token's frame.
     Aligned,
-    /// Start of the speech burst holding the keyword, from the energy envelope.
+    /// An acoustic candidate from the configured energy-envelope search.
     Acoustic,
+    /// The D4 fricative estimator's hiss-run start (needs `KwsSwitches::fricative.enabled`).
+    Fricative,
 }
 
 impl KwsOnsetMethod {
@@ -135,6 +145,7 @@ impl KwsOnsetMethod {
             Self::Posterior => "posterior",
             Self::Aligned => "aligned",
             Self::Acoustic => "acoustic",
+            Self::Fricative => "fricative",
         }
     }
 
@@ -145,20 +156,31 @@ impl KwsOnsetMethod {
             Self::Posterior => onset.posterior,
             Self::Aligned => onset.aligned,
             Self::Acoustic => onset.acoustic,
+            Self::Fricative => onset.fricative,
         }
     }
 }
 
 /// Switches for the Rust keyword spotter. No environment is read; every build uses
-/// [`KwsSwitches::default`], which is today's behaviour. `onset` and `onset_shift_ms` move
-/// only the cut; the other switches change what is detected, so a run with them is a new
-/// qualification.
+/// [`KwsSwitches::default`], which is today's behaviour. The onset switches move
+/// only the cut; decoder switches can change detections and require qualification.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct KwsSwitches {
-    /// `emission` | `posterior` | `aligned` | `acoustic` |
+    /// `emission` | `posterior` | `aligned` | `acoustic` | `fricative` |
     /// `off`: which candidate becomes the cut start; `None` (`off`) also stops
     /// estimating and logging candidates. Default `emission`.
     pub onset: Option<KwsOnsetMethod>,
+    /// Search used to estimate the acoustic candidate. Default `Legacy`.
+    pub acoustic_search: AcousticSearch,
+    /// D4 fricative estimator: `enabled`, `window_ms`, `floor_ms`, `rise`, `min_run_ms`,
+    /// `vowel_ms`, `tilt_margin`. Default off; checked by [`KwsSwitches::validate`].
+    pub fricative: FricativeParams,
+    /// Strict D4: with `onset` `fricative`, a wake detection whose D4 candidate is absent or
+    /// abstained gets NO cut boundary (the confirmed command carries no timed token and the
+    /// worker skips the audio cut, `piece_not_found`) instead of falling back to the
+    /// emission timestamp. Default off: the absent-candidate fallback to emission stays an
+    /// explicit legacy-control path (`chosen_source` `emission`). Needs `onset` `fricative`.
+    pub fricative_strict: bool,
     /// signed milliseconds added to the chosen
     /// candidate, -1000..=1000 (ignored when `onset` is `None`). Default 0.
     pub onset_shift_ms: i32,
@@ -194,6 +216,9 @@ impl Default for KwsSwitches {
         let tuning = RustKwsTuning::PRODUCTION;
         Self {
             onset: Some(KwsOnsetMethod::Emission),
+            acoustic_search: tuning.acoustic_search,
+            fricative: tuning.fricative,
+            fricative_strict: false,
             onset_shift_ms: 0,
             threshold_tokens: tuning.threshold_tokens,
             joiner_batching: tuning.joiner_batching,
@@ -208,11 +233,29 @@ impl Default for KwsSwitches {
 }
 
 impl KwsSwitches {
+    /// Reject D4 settings the estimator could not honour (see [`FricativeParams::validate`]),
+    /// and D4 selected or enabled while onset estimation is off. Run on every load.
+    pub fn validate(&self) -> Result<(), String> {
+        self.fricative.validate()?;
+        if self.fricative.enabled && self.onset.is_none() {
+            return Err("fricative.enabled needs onset estimation (onset is off)".into());
+        }
+        if self.onset == Some(KwsOnsetMethod::Fricative) && !self.fricative.enabled {
+            return Err("onset fricative needs fricative.enabled".into());
+        }
+        if self.fricative_strict && self.onset != Some(KwsOnsetMethod::Fricative) {
+            return Err("fricative_strict needs onset fricative".into());
+        }
+        Ok(())
+    }
+
     /// `base` with these switches applied.
     fn tuning(&self, base: RustKwsTuning) -> RustKwsTuning {
         RustKwsTuning {
             active_path_ttl_frames: self.ttl_frames,
             onset: self.onset.is_some(),
+            acoustic_search: self.acoustic_search,
+            fricative: self.fricative,
             threshold_tokens: self.threshold_tokens,
             joiner_batching: self.joiner_batching,
             merge_timestamps: self.merge_timestamps,
@@ -264,6 +307,16 @@ pub struct KwsOnsetReport {
     pub posterior_sample: Option<usize>,
     pub acoustic_sample: Option<usize>,
     pub acoustic_rule: Option<&'static str>,
+    /// D4 hiss-run start; `None` unless enabled, and when it abstained.
+    pub fricative_sample: Option<usize>,
+    /// D4 abstention label (`abstain:no_transition`, ...); `Some` only when enabled and it abstained.
+    pub fricative_abstain: Option<&'static str>,
+    /// The D4 estimate as a feature frame (10 ms) on the stream's own clock, whatever the
+    /// origin; `None` when D4 had no estimate.
+    pub fricative_relative_feature: Option<i32>,
+    /// `Some("no_origin")` when D4 has an estimate that cannot be placed on the outer
+    /// sample clock because `origin_sample` is unknown (then `fricative_sample` is `None`).
+    pub fricative_unmappable: Option<&'static str>,
     /// Emission (encoder, 40 ms) frame of each token, on the stream's clock.
     pub token_frames: Vec<i32>,
     /// Forced-alignment frame of each token.
@@ -272,15 +325,50 @@ pub struct KwsOnsetReport {
     pub token_probs: Vec<f32>,
     pub score: f32,
     pub threshold: f32,
-    /// The configured method and the cut it gives for this detection (wake stages).
+    /// The configured method and selected cut. For a latched confirmation,
+    /// the selection comes from the wake candidate that owns the command.
     pub chosen: &'static str,
     pub chosen_sample: Option<usize>,
-    /// The method whose candidate `chosen_sample` used (`emission` on fallback).
+    /// The method whose candidate `chosen_sample` used (`emission` on fallback, which for a
+    /// non-emission method is the legacy-control fallback, not a success of that method;
+    /// `no_boundary` under `fricative_strict` when D4 had no candidate, with `chosen_sample`
+    /// `None`).
     pub chosen_source: Option<&'static str>,
     /// The wake candidate's cut start a latch would use after this detection.
     pub cut_sample: Option<usize>,
     /// Confirm stages: this detection latched a command.
     pub latched: bool,
+    /// Identity of the wake candidate this report belongs to: on a `wake` report, the id the
+    /// clock assigned when it ADOPTED the candidate (`None` when it was rejected as an
+    /// overlap); on `confirm` and `fresh_confirm`, the id of the candidate that owns the
+    /// command. `None` for `idle_wake`.
+    pub candidate_id: Option<u64>,
+    /// `wake` reports only: whether the clock adopted this detection as the candidate.
+    pub adopted: Option<bool>,
+}
+
+/// The latest latched confirm report in `reports` (oldest first; `confirm` or
+/// `fresh_confirm`, both carry the owning candidate's id) and, separately, its owning wake
+/// report: the adopted `wake` report BEFORE it whose `candidate_id` equals the confirm
+/// report's. The confirm evidence is returned even when the owner is `None` (ring
+/// truncation, absent), so callers can record it and mark the owner missing. Identity,
+/// never boundary equality: a rejected overlap or an adopted detection with identical sample
+/// values is never mistaken for the owner. `None` when no confirm report latched.
+pub fn latched_owner(
+    reports: &[KwsOnsetReport],
+) -> Option<(Option<&KwsOnsetReport>, &KwsOnsetReport)> {
+    let at = reports.iter().rposition(|report| {
+        matches!(report.stage, "confirm" | "fresh_confirm") && report.latched
+    })?;
+    let confirm = &reports[at];
+    let wake = confirm.candidate_id.and_then(|id| {
+        reports[..at].iter().rev().find(|report| {
+            report.stage == "wake"
+                && report.adopted == Some(true)
+                && report.candidate_id == Some(id)
+        })
+    });
+    Some((wake, confirm))
 }
 
 /// Reports kept for [`Kws::take_onset_reports`]; older ones are dropped.
@@ -376,13 +464,29 @@ pub struct Kws {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct WakeCandidate {
+    /// Identity assigned when the clock ADOPTS this candidate: monotonically increasing from
+    /// 1, never reused (0 marks the synthetic fallback candidate). Copied into the wake
+    /// report and the latched confirmation reports, so a command is attributed to its wake
+    /// by identity, never by sample equality.
+    id: u64,
     /// The wake word's emission onset: owns debounce, confirmation anchor and
     /// expiry exactly as before onset candidates existed.
     start_sample: usize,
     end_sample: usize,
     /// Where a confirmed command cuts: the chosen onset candidate
-    /// ([`KwsSwitches::onset`]); equal to `start_sample` by default.
-    cut_start_sample: usize,
+    /// ([`KwsSwitches::onset`]); equal to `start_sample` by default. `None` is "no trusted
+    /// boundary" (strict D4 with no candidate): no cut is attempted for the command.
+    cut_start_sample: Option<usize>,
+    cut_source: &'static str,
+}
+
+/// `cut_source` of a candidate that has no boundary (strict D4 without a D4 candidate).
+const NO_BOUNDARY_SOURCE: &str = "no_boundary";
+
+impl WakeCandidate {
+    fn cut(self) -> (Option<usize>, &'static str) {
+        (self.cut_start_sample, self.cut_source)
+    }
 }
 
 struct ConfirmationStream {
@@ -438,6 +542,8 @@ fn classify_confirmation_feed(
 #[derive(Default)]
 struct CascadeClock {
     candidate: Option<WakeCandidate>,
+    /// Last id handed out by [`CascadeClock::observe_wake`].
+    last_id: u64,
 }
 
 impl CascadeClock {
@@ -445,12 +551,14 @@ impl CascadeClock {
         &mut self,
         start_sample: usize,
         end_sample: usize,
-        cut_start_sample: usize,
-    ) -> bool {
+        cut: (Option<usize>, &'static str),
+    ) -> Option<u64> {
         let next = WakeCandidate {
+            id: self.last_id.saturating_add(1),
             start_sample,
             end_sample: end_sample.max(start_sample),
-            cut_start_sample,
+            cut_start_sample: cut.0,
+            cut_source: cut.1,
         };
         // The spotter may report the same acoustic occurrence more than once as
         // its rolling stream advances. Debounce only overlapping intervals.
@@ -460,10 +568,11 @@ impl CascadeClock {
         if self.candidate.is_some_and(|current| {
             current.start_sample <= next.end_sample && next.start_sample <= current.end_sample
         }) {
-            return false;
+            return None;
         }
+        self.last_id = next.id;
         self.candidate = Some(next);
-        true
+        Some(next.id)
     }
 
     fn candidate(&self) -> Option<WakeCandidate> {
@@ -480,8 +589,10 @@ impl CascadeClock {
         expired
     }
 
+    /// Drop the candidate. `last_id` survives: onset reports outlive a reset, so an id is
+    /// never reused across `clear`.
     fn clear(&mut self) {
-        *self = Self::default();
+        self.candidate = None;
     }
 }
 
@@ -528,6 +639,7 @@ impl Kws {
         switches: KwsSwitches,
     ) -> Result<Self, String> {
         validate_model_dir(model_dir)?;
+        switches.validate()?;
         let runtime = KwsRuntime::load(tuning, model_dir)?;
 
         let wake_spotter =
@@ -576,31 +688,31 @@ impl Kws {
     /// The cut start for a wake detection whose emission onset is
     /// `emission_start`: the chosen candidate on `origin`'s clock (the emission
     /// when that candidate was not estimated), shifted by `onset_shift_ms`.
-    /// Returns the sample and the method whose candidate it used.
+    /// Returns the sample and the method whose candidate it used. The `emission` source on a
+    /// non-emission method is the legacy-control fallback. Under
+    /// [`KwsSwitches::fricative_strict`] an absent D4 candidate returns `(None, "no_boundary")`.
     fn cut_start(
         &self,
         emission_start: usize,
         origin: usize,
         result: &KeywordResult,
-    ) -> (usize, &'static str) {
-        let Some(method) = self.switches.onset else {
-            return (emission_start, KwsOnsetMethod::Emission.as_str());
-        };
-        let candidate = match method {
-            KwsOnsetMethod::Emission => None,
-            _ => result
+    ) -> (Option<usize>, &'static str) {
+        let candidate = match self.switches.onset {
+            None | Some(KwsOnsetMethod::Emission) => None,
+            Some(method) => result
                 .detection
                 .as_ref()
                 .and_then(|detection| detection.onset.as_ref())
                 .and_then(|onset| method.candidate(onset))
                 .map(|estimate| onset_sample(origin, estimate)),
         };
-        let (base, source) = match candidate {
-            Some(sample) => (sample, method.as_str()),
-            None => (emission_start, KwsOnsetMethod::Emission.as_str()),
-        };
-        let shift = i64::from(self.switches.onset_shift_ms) * i64::from(SAMPLE_RATE) / 1_000;
-        ((base as i64 + shift).max(0) as usize, source)
+        select_cut(
+            self.switches.onset,
+            self.switches.fricative_strict,
+            self.switches.onset_shift_ms,
+            emission_start,
+            candidate,
+        )
     }
 
     /// Log one detection's onset candidates (`kws_onset_candidates`) and keep the
@@ -612,9 +724,11 @@ impl Kws {
         result: &KeywordResult,
         origin: Option<usize>,
         live_sample: Option<usize>,
-        chosen: Option<(usize, &'static str)>,
+        chosen: Option<(Option<usize>, &'static str)>,
         cut_sample: Option<usize>,
         latched: bool,
+        candidate_id: Option<u64>,
+        adopted: Option<bool>,
     ) {
         let Some(detection) = result.detection.as_deref() else {
             return;
@@ -638,6 +752,12 @@ impl Kws {
             posterior_sample: at(onset.posterior),
             acoustic_sample: at(onset.acoustic),
             acoustic_rule: onset.acoustic_rule.map(rust_kws::AcousticRule::as_str),
+            // Only with a known origin: never a fabricated absolute coordinate.
+            fricative_sample: origin.and(onset.fricative).map(|e| onset_sample(base, e)),
+            fricative_abstain: onset.fricative_abstain.map(FricativeAbstain::as_str),
+            fricative_relative_feature: onset.fricative.map(|e| e.feature_frame),
+            fricative_unmappable: (onset.fricative.is_some() && origin.is_none())
+                .then_some("no_origin"),
             token_frames: detection.result.frames.clone(),
             aligned_frames: onset.aligned_frames.clone(),
             fired_frame: detection.fired_frame,
@@ -645,10 +765,12 @@ impl Kws {
             score: detection.score,
             threshold: detection.threshold,
             chosen: self.switches.onset.map_or("off", KwsOnsetMethod::as_str),
-            chosen_sample: chosen.map(|(sample, _)| sample),
+            chosen_sample: chosen.and_then(|(sample, _)| sample),
             chosen_source: chosen.map(|(_, source)| source),
             cut_sample,
             latched,
+            candidate_id,
+            adopted,
         };
         let switches = self.switches;
         tracing::info!(
@@ -661,6 +783,12 @@ impl Kws {
             posterior_sample = ?report.posterior_sample,
             acoustic_sample = ?report.acoustic_sample,
             acoustic_rule = ?report.acoustic_rule,
+            fricative_sample = ?report.fricative_sample,
+            fricative_abstain = ?report.fricative_abstain,
+            fricative_relative_feature = ?report.fricative_relative_feature,
+            fricative_unmappable = ?report.fricative_unmappable,
+            candidate_id = ?report.candidate_id,
+            adopted = ?report.adopted,
             chosen = report.chosen,
             chosen_sample = ?report.chosen_sample,
             chosen_source = ?report.chosen_source,
@@ -673,6 +801,8 @@ impl Kws {
             score = report.score,
             threshold = report.threshold,
             onset_shift_ms = switches.onset_shift_ms,
+            fricative = ?switches.fricative,
+            fricative_strict = switches.fricative_strict,
             threshold_mode = switches.label_threshold_tokens(),
             joiner_batching = switches.label_joiner_batching(),
             merge_timestamps = switches.label_merge_timestamps(),
@@ -790,6 +920,8 @@ impl Kws {
             None,
             None,
             false,
+            None,
+            None,
         );
         Ok(Some((start, end.max(start))))
     }
@@ -856,9 +988,11 @@ impl Kws {
             .as_ref()
             .map(|s| s.candidate)
             .unwrap_or(WakeCandidate {
+                id: 0,
                 start_sample: snapshot_start_sample,
                 end_sample: snapshot_start_sample,
-                cut_start_sample: snapshot_start_sample,
+                cut_start_sample: Some(snapshot_start_sample),
+                cut_source: KwsOnsetMethod::Emission.as_str(),
             });
         let Some(result) =
             self.feed_confirmation(audio, snapshot_start_sample, live_total_sample, candidate)?
@@ -964,9 +1098,11 @@ impl Kws {
             &result,
             snapshot_start_sample,
             snapshot_start_sample.map(|start| start.saturating_add(audio.len())),
-            None,
-            Some(candidate.cut_start_sample),
+            latch.then_some(candidate.cut()),
+            candidate.cut_start_sample,
             latch,
+            Some(candidate.id),
+            None,
         );
         if !latch {
             return Ok((empty_result(), None));
@@ -975,7 +1111,7 @@ impl Kws {
         self.destroy_confirmation_stream();
         Ok((
             transcription_result_at_wake(result, candidate, 0),
-            Some(candidate.cut_start_sample),
+            candidate.cut_start_sample,
         ))
     }
 
@@ -1085,11 +1221,11 @@ impl Kws {
                         ))
                         .saturating_add(SAMPLE_RATE as usize / 20);
                     let cut = self.cut_start(start, base, &wake);
-                    self.clock.observe_wake(start, end, cut.0);
+                    let adopted_id = self.clock.observe_wake(start, end, cut);
                     if self.clock.candidate() != previous_candidate {
                         self.destroy_confirmation_stream();
                     }
-                    let cut_now = self.clock.candidate().map(|c| c.cut_start_sample);
+                    let cut_now = self.clock.candidate().and_then(|c| c.cut_start_sample);
                     self.report_onset(
                         "wake",
                         &wake,
@@ -1098,6 +1234,8 @@ impl Kws {
                         Some(cut),
                         cut_now,
                         false,
+                        adopted_id,
+                        Some(adopted_id.is_some()),
                     );
                 }
             }
@@ -1128,16 +1266,18 @@ impl Kws {
                     &result,
                     origin,
                     Some(live_total_sample),
-                    None,
-                    Some(candidate.cut_start_sample),
+                    latch.then_some(candidate.cut()),
+                    candidate.cut_start_sample,
                     latch,
+                    Some(candidate.id),
+                    None,
                 );
                 if latch {
                     self.latched = true;
                     self.destroy_confirmation_stream();
                     return Ok((
                         transcription_result_at_wake(result, candidate, snapshot_start_sample),
-                        Some(candidate.cut_start_sample),
+                        candidate.cut_start_sample,
                     ));
                 }
             }
@@ -1146,18 +1286,16 @@ impl Kws {
         }
 
         if let Some(candidate) = acoustic_candidate {
-            let relative_start = candidate
-                .cut_start_sample
-                .saturating_sub(snapshot_start_sample);
+            let tokens = wake_tokens(
+                candidate.cut_start_sample,
+                candidate.end_sample,
+                snapshot_start_sample,
+                false,
+            );
             return Ok((
                 TranscriptionResult {
                     text: "zephyr".into(),
-                    tokens: vec![TimedToken {
-                        text: " zephyr".into(),
-                        start: relative_start as f32 / SAMPLE_RATE as f32,
-                        end: candidate.end_sample.saturating_sub(snapshot_start_sample) as f32
-                            / SAMPLE_RATE as f32,
-                    }],
+                    tokens,
                 },
                 None,
             ));
@@ -1576,7 +1714,11 @@ fn spotter_config(
     config.active_path_ttl_frames = tuning.active_path_ttl_frames;
     config.trailing_blank_reset = tuning.trailing_blank_reset;
     config.softmax_f64 = tuning.softmax_f64;
-    config.onset = tuning.onset.then(rust_kws::OnsetConfig::default);
+    config.onset = tuning.onset.then(|| rust_kws::OnsetConfig {
+        acoustic_search: tuning.acoustic_search,
+        fricative: tuning.fricative,
+        ..Default::default()
+    });
     config.threshold_tokens = tuning.threshold_tokens;
     config.joiner_batching = tuning.joiner_batching;
     config.merge_timestamps = tuning.merge_timestamps;
@@ -1593,6 +1735,53 @@ fn seconds_to_samples(seconds: f32) -> usize {
 /// Samples per feature frame (10 ms).
 const FEATURE_SHIFT_SAMPLES: usize = SAMPLE_RATE as usize / 100;
 
+/// The cut selection behind [`Kws::cut_start`], on plain values: `candidate` is the chosen
+/// method's estimate on the outer clock (`None` when absent or `method` is emission).
+/// Absent candidate: the legacy-control fallback to `emission_start`, or under `strict` with
+/// the fricative method `(None, "no_boundary")`. The shift applies to any cut found.
+fn select_cut(
+    method: Option<KwsOnsetMethod>,
+    strict: bool,
+    shift_ms: i32,
+    emission_start: usize,
+    candidate: Option<usize>,
+) -> (Option<usize>, &'static str) {
+    let Some(method) = method else {
+        return (Some(emission_start), KwsOnsetMethod::Emission.as_str());
+    };
+    let (base, source) = match candidate {
+        Some(sample) => (sample, method.as_str()),
+        None if strict && method == KwsOnsetMethod::Fricative => {
+            return (None, NO_BOUNDARY_SOURCE);
+        }
+        None => (emission_start, KwsOnsetMethod::Emission.as_str()),
+    };
+    let shift = i64::from(shift_ms) * i64::from(SAMPLE_RATE) / 1_000;
+    (Some((base as i64 + shift).max(0) as usize), source)
+}
+
+/// The timed `zephyr` token a wake or command result carries, relative to the snapshot; no
+/// token when there is no trusted boundary (`cut` `None`), so the worker attempts no cut
+/// (source-traced `piece_not_found`, pending authorized replay). `clamp_end` keeps
+/// `end >= start`.
+fn wake_tokens(
+    cut: Option<usize>,
+    end_sample: usize,
+    snapshot_start_sample: usize,
+    clamp_end: bool,
+) -> Vec<TimedToken> {
+    cut.map(|cut| {
+        let start = cut.saturating_sub(snapshot_start_sample) as f32 / SAMPLE_RATE as f32;
+        let end = end_sample.saturating_sub(snapshot_start_sample) as f32 / SAMPLE_RATE as f32;
+        vec![TimedToken {
+            text: " zephyr".to_string(),
+            start,
+            end: if clamp_end { end.max(start) } else { end },
+        }]
+    })
+    .unwrap_or_default()
+}
+
 /// An onset estimate on a stream whose clock starts at `origin`, in samples.
 /// Integer arithmetic: feature frame `f` is exactly `160 f` samples.
 fn onset_sample(origin: usize, estimate: rust_kws::OnsetEstimate) -> usize {
@@ -1605,19 +1794,17 @@ fn transcription_result_at_wake(
     snapshot_start_sample: usize,
 ) -> TranscriptionResult {
     let text = command_text(&result.keyword).expect("validated keyword label");
-    let start = candidate
-        .cut_start_sample
-        .saturating_sub(snapshot_start_sample) as f32
-        / SAMPLE_RATE as f32;
-    let end =
-        candidate.end_sample.saturating_sub(snapshot_start_sample) as f32 / SAMPLE_RATE as f32;
+    // No trusted boundary (strict D4 without a candidate): the command keeps its text but
+    // carries no timed token, so the worker attempts no audio cut.
+    let tokens = wake_tokens(
+        candidate.cut_start_sample,
+        candidate.end_sample,
+        snapshot_start_sample,
+        true,
+    );
     TranscriptionResult {
         text: text.to_string(),
-        tokens: vec![TimedToken {
-            text: " zephyr".to_string(),
-            start,
-            end: end.max(start),
-        }],
+        tokens,
     }
 }
 
@@ -1675,4 +1862,157 @@ fn validate_model_dir(dir: &Path) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn report(
+        stage: &'static str,
+        candidate_id: Option<u64>,
+        adopted: Option<bool>,
+        latched: bool,
+    ) -> KwsOnsetReport {
+        // Every sample field is identical across reports on purpose.
+        KwsOnsetReport {
+            stage,
+            keyword: "ZEPHYR".into(),
+            origin_sample: Some(0),
+            live_sample: Some(48_000),
+            emission_sample: 16_000,
+            aligned_sample: None,
+            posterior_sample: None,
+            acoustic_sample: None,
+            acoustic_rule: None,
+            fricative_sample: None,
+            fricative_abstain: Some("abstain:no_transition"),
+            fricative_relative_feature: None,
+            fricative_unmappable: None,
+            token_frames: Vec::new(),
+            aligned_frames: Vec::new(),
+            fired_frame: 0,
+            token_probs: Vec::new(),
+            score: 0.0,
+            threshold: 0.0,
+            chosen: "fricative",
+            chosen_sample: None,
+            chosen_source: Some(NO_BOUNDARY_SOURCE),
+            cut_sample: None,
+            latched,
+            candidate_id,
+            adopted,
+        }
+    }
+
+    #[test]
+    fn strict_with_an_absent_d4_candidate_has_no_boundary() {
+        let fricative = Some(KwsOnsetMethod::Fricative);
+        assert_eq!(
+            select_cut(fricative, true, 0, 1_000, None),
+            (None, "no_boundary")
+        );
+        // The shift never turns "no boundary" into one.
+        assert_eq!(
+            select_cut(fricative, true, -100, 1_000, None),
+            (None, "no_boundary")
+        );
+        // Default (non-strict): the explicit legacy-control fallback to emission.
+        assert_eq!(
+            select_cut(fricative, false, 0, 1_000, None),
+            (Some(1_000), "emission")
+        );
+        // A D4 candidate is cut directly, shifted (-100 ms = -1600 samples).
+        assert_eq!(
+            select_cut(fricative, true, -100, 1_000, Some(8_000)),
+            (Some(6_400), "fricative")
+        );
+        assert_eq!(
+            select_cut(None, true, 0, 1_000, None),
+            (Some(1_000), "emission")
+        );
+    }
+
+    #[test]
+    fn strict_needs_the_fricative_onset() {
+        let mut switches = KwsSwitches::default();
+        switches.fricative_strict = true;
+        assert!(switches.validate().is_err());
+        switches.onset = Some(KwsOnsetMethod::Fricative);
+        switches.fricative.enabled = true;
+        assert!(switches.validate().is_ok());
+    }
+
+    #[test]
+    fn no_boundary_carries_no_timed_token() {
+        assert!(wake_tokens(None, 20_000, 0, true).is_empty());
+        assert!(wake_tokens(None, 20_000, 0, false).is_empty());
+        let tokens = wake_tokens(Some(8_000), 20_000, 0, true);
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].start, 0.5);
+    }
+
+    #[test]
+    fn rejected_overlap_is_not_adopted_and_ids_are_never_reused() {
+        let mut clock = CascadeClock::default();
+        let none = (None, NO_BOUNDARY_SOURCE);
+        assert_eq!(clock.observe_wake(1_000, 2_000, none), Some(1));
+        // Overlaps the adopted candidate: rejected, the candidate keeps its identity.
+        assert_eq!(clock.observe_wake(1_500, 2_500, none), None);
+        assert_eq!(clock.candidate().map(|c| c.id), Some(1));
+        assert_eq!(clock.candidate().and_then(|c| c.cut_start_sample), None);
+        // An identical detection after the real `clear` (the invalidate and reset path,
+        // which leaves retained reports in place) is a new identity.
+        clock.clear();
+        assert!(clock.candidate().is_none());
+        assert_eq!(clock.observe_wake(1_000, 2_000, none), Some(2));
+        clock.clear();
+        assert_eq!(clock.observe_wake(1_000, 2_000, none), Some(3));
+    }
+
+    #[test]
+    fn latched_command_is_attributed_by_identity_not_by_sample_equality() {
+        // Adopted wake 1, a rejected overlap, and a later adopted wake 2: every sample field
+        // is identical (all None under strict abstention).
+        let reports = vec![
+            report("wake", Some(1), Some(true), false),
+            report("wake", None, Some(false), false),
+            report("wake", Some(2), Some(true), false),
+            report("confirm", Some(1), None, true),
+        ];
+        let (wake, confirm) = latched_owner(&reports).expect("latched");
+        assert!(std::ptr::eq(wake.expect("owner"), &reports[0]));
+        assert!(std::ptr::eq(confirm, &reports[3]));
+        assert_ne!(reports[0].candidate_id, reports[2].candidate_id);
+        // The rejected report is never the owner, even when it is the newest wake report.
+        let reports = vec![
+            report("wake", Some(1), Some(true), false),
+            report("confirm", Some(1), None, true),
+            report("wake", None, Some(false), false),
+        ];
+        let (wake, _) = latched_owner(&reports).expect("latched");
+        assert!(std::ptr::eq(wake.expect("owner"), &reports[0]));
+        // No adopted wake with the confirm's id: the confirm evidence stays, owner missing.
+        let reports = vec![
+            report("wake", None, Some(false), false),
+            report("confirm", Some(7), None, true),
+        ];
+        let (wake, confirm) = latched_owner(&reports).expect("latched");
+        assert!(wake.is_none());
+        assert!(std::ptr::eq(confirm, &reports[1]));
+        // A matching wake that only appears AFTER the confirm is not its owner.
+        let reports = vec![
+            report("confirm", Some(1), None, true),
+            report("wake", Some(1), Some(true), false),
+        ];
+        assert!(latched_owner(&reports).expect("latched").0.is_none());
+        // `fresh_confirm` is supported deliberately: it carries the same candidate id.
+        let reports = vec![
+            report("wake", Some(4), Some(true), false),
+            report("fresh_confirm", Some(4), None, true),
+        ];
+        let (wake, confirm) = latched_owner(&reports).expect("latched");
+        assert!(std::ptr::eq(wake.expect("owner"), &reports[0]));
+        assert_eq!(confirm.stage, "fresh_confirm");
+    }
 }
