@@ -17,6 +17,7 @@ Compile the test binaries (cargo test --no-run, through `rustright cargo` when i
 them outside the broker and write one receipt. Arguments that are not options below go to cargo.
   --root <dir>              app root: where cargo runs (default .)
   --qa-config <file>        rightkit-qa.toml to read [run_tests] and app from (default <root>/rightkit-qa.toml if present)
+  --credential-owner <exe>  absolute installed executable owning [snapshot] credentials
   --app <key>               app key for the run storage (default: app in rightkit-qa.toml, else journeys.toml)
   --from-cargo-json <file>  run the executables of an existing cargo JSON listing (- is stdin); compile nothing
   --build-with <how>        auto (default), rustright or cargo
@@ -38,9 +39,10 @@ them outside the broker and write one receipt. Arguments that are not options be
   --receipt <file>          also copy the receipt here
 exit: 0 passed, 1 a binary failed or timed out (or a run rule failed), 2 setup error or no test binary listed, 3 compile failed";
 
-const VALUE_FLAGS: [&str; 15] = [
+const VALUE_FLAGS: [&str; 16] = [
     "--root",
     "--qa-config",
+    "--credential-owner",
     "--app",
     "--managed-root",
     "--run-id",
@@ -69,6 +71,7 @@ const BOOL_FLAGS: [&str; 6] = [
 pub struct Cli {
     pub root: Option<PathBuf>,
     pub qa_config: Option<PathBuf>,
+    pub credential_owner: Option<PathBuf>,
     pub app: Option<String>,
     pub managed_root: Option<PathBuf>,
     pub run_id: Option<String>,
@@ -106,6 +109,13 @@ impl Cli {
         match flag {
             "--root" => self.root = Some(PathBuf::from(value)),
             "--qa-config" => self.qa_config = Some(PathBuf::from(value)),
+            "--credential-owner" => {
+                let path = PathBuf::from(value);
+                if !path.is_absolute() {
+                    return err("--credential-owner requires an absolute installed executable path");
+                }
+                self.credential_owner = Some(path);
+            }
             "--app" => self.app = Some(value.to_string()),
             "--managed-root" => self.managed_root = Some(PathBuf::from(value)),
             "--run-id" => self.run_id = Some(value.to_string()),
@@ -262,6 +272,14 @@ pub fn options(cli: &Cli, env: &dyn Fn(&str) -> Option<String>) -> Result<Option
     };
     let cfg = qa.as_ref().map(|q| q.run_tests.clone()).unwrap_or_default();
     let app = resolve_app(cli.app.as_deref(), qa.as_ref(), &root)?;
+    if cli.credential_owner.is_some()
+        && !qa
+            .as_ref()
+            .and_then(|q| q.snapshot.as_ref())
+            .is_some_and(|snapshot| !snapshot.credentials.is_empty())
+    {
+        return err("--credential-owner requires [snapshot] with credential sets");
+    }
 
     let parallel = cli
         .parallel
@@ -340,6 +358,7 @@ pub fn options(cli: &Cli, env: &dyn Fn(&str) -> Option<String>) -> Result<Option
         settings,
         receipt_copy: cli.receipt.clone(),
         config_path,
+        credential_owner: cli.credential_owner.clone(),
     })
 }
 

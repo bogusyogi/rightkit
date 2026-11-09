@@ -66,10 +66,12 @@ Adrian, 2026-11-02: "No, no flag. There is only one command and that is cargo te
 
 [GC-A10] 2026-11-02: **QA journeys run on the live installed dev app, with a crash-safe snapshot and restore.** rightkit-qa runs these steps:
 1. quit the app;
-2. snapshot its data folder, and the credential items a journey changes (through the control server);
-3. write a restore marker;
+2. claim the restore marker before copying data or reading credentials;
+3. snapshot its data folder, and the credential items a journey changes (through the control server);
 4. run the journey;
 5. restore.
+
+**Owner-bound credentials (#1552).** Only the installed owner reads or restores its OS credential items. `run-tests --credential-owner <installed executable>` uses that binary's dev-only credential prelaunch phase of the existing authenticated QA control service, before normal startup can touch real data. Requests name the exact declared items & private snapshot; responses contain metadata only. Persist the executable's identity & recovery details in the restore marker, refuse changed/missing owners, validate every snapshot payload before mutation & retain the marker on any failure. No ACL edit, ignored credential, foreign-reader fallback or QA binary signed as the app identity is permitted. The runner arms once after compile, passes its own marker to test binaries & verifies restoration before recording a pass; source implementation & installed proof are tracked in [rightkit#1552](https://github.com/bogusyogi/rightkit/issues/1552).
 
 The release QA command (`release-qa-command.mjs`, `assertSnapshotConfigured`) refuses an app whose `qa.journeys` lane has a QA config with no usable `[snapshot]` table; no memory backend, `test-mode` or dummy data stands in for it. A crash restores the snapshot at the next start. In this mode rightkit-qa's installed-app guard (`crates/rightkit-qa/src/config.rs:136-139`) allows the installed dev copy, and only a copy that carries the QA control marker. Adrian, answering HRwin's item 2: "no. I prefer the snapshot and restore. I disagree with what others do here." Issue: rightkit#1437. **Implemented (rightkit-qa 0.10.3):** the snapshot is mandatory (a run with no `[snapshot]` is refused, and no app or engine launches without an armed snapshot); the scenario worlds with throwaway homes, `userdata::Guard` and the isolation proof are removed; the journey receipt (`rightkit.journeys.receipt/2`) records the snapshot id, the manifest sha256 and the verified restore. The numbering of items 1 and 2 is HRwin's proposal, as HRwin relayed it; Adrian's words are verbatim.
 

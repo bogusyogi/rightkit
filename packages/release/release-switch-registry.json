@@ -123,6 +123,10 @@
       "class": "S1"
     },
     {
+      "name": "--rightkit-qa-credentials",
+      "class": "S1"
+    },
+    {
       "name": "--demo",
       "class": "S1"
     },

@@ -30,6 +30,10 @@ run-tests: receipt /…/runs/genright-run-tests/<run id>/receipt.json
 
 A binary that did not pass also prints its failed test names and the end of its output; `--show-output` prints every binary's output in full.
 
+When `rightkit-qa.toml` declares `[snapshot]`, run-tests arms one verified snapshot after compile & binary selection, before starting any test. Each child receives that snapshot's marker & id. After every binary stops, run-tests restores explicitly before writing its receipt. Snapshot denial is setup exit 2 with no product test failures; failed restore is exit 1 & retains its recovery marker.
+
+For OS credentials owned by an installed app, pass `--credential-owner /absolute/path/to/installed/executable`. This requires `[snapshot]` with credential sets & uses that executable's credential-only owner mode. TOML schema stays unchanged. Without `[snapshot]`, ordinary test execution needs no snapshot.
+
 ## Exit codes
 
 | Code | Meaning |
@@ -49,6 +53,7 @@ Anything that is not one of these goes to `cargo test --no-run` untouched (`-p f
 |---|---|---|---|
 | `--root <dir>` | | `.` | App root: where cargo runs and `cwd = "workspace"` points. |
 | `--qa-config <file>` | | `<root>/rightkit-qa.toml` if present; `RIGHTKIT_QA_CONFIG` | A named file that is missing is an error. |
+| `--credential-owner <exe>` | | | Absolute installed credential owner executable; requires `[snapshot]` with credential sets. |
 | `--app <key>` | | `app` of `rightkit-qa.toml`, else of `journeys.toml` at the root | Required; never guessed. Run storage uses `<app>-run-tests`. |
 | `--from-cargo-json <file>` | | | Use an existing listing; compile nothing. Cargo arguments and `--build-with` are refused with it, not ignored. |
 | `--build-with auto\|rustright\|cargo` | | `auto` | `auto`: the broker when on `PATH`, else plain cargo. |
@@ -72,6 +77,8 @@ Anything that is not one of these goes to `cargo test --no-run` untouched (`-p f
 `cargo test` ran the test binaries one after another, and `--parallel` defaults to 2. For end-to-end tests that drive a real app or desktop session, set `[run_tests] parallel = 1` (or pass `--parallel 1`, as the ViewRight, HeardRight, GenRight and Pulse lines below do): two such binaries at once would share one session.
 
 Environment the binaries get: the caller's, minus `unset_env`, plus `CARGO_MANIFEST_DIR` and `CARGO_PKG_NAME` (cargo sets both for a test process and tests read them at run time), plus the isolated temp directory, plus `env`. `RIGHTKIT_UNDER_TEST` is deliberately not set: it is a test-mode activation switch for the app under test, not for every unit test; an app that needs it declares it in `[run_tests] env`.
+
+`RIGHTKIT_QA_SNAPSHOT_MARKER` & `RIGHTKIT_JOURNEYS_SNAPSHOT_ID` belong to run-tests: ambient values are removed, explicit `env` values are refused, & only this run's armed snapshot supplies them.
 
 ```toml
 # rightkit-qa.toml
@@ -101,6 +108,7 @@ GENRIGHT_QA = "1"
 | `schema`, `run_id`, `app`, `started_at`, `finished_at`, `duration_ms`, `root`, `host` | Identity and timing. |
 | `compile` | `source` (`broker`, `cargo` or `listing`), `managed`, `program`, `argv`, `exit`, `timed_out`, `duration_ms`, `request_id` (the broker line, when printed), `note` (why a non-broker route was used), `listing`, `listing_sha256`, `build_finished`, `test_binaries`. |
 | `settings` | The merged settings: `parallel`, the three timeouts, `test_args`, `cwd`, `env_keys` (names), `unset_env`, `isolate_tmp`, `deny_ignored`, `allow_empty`, `require_broker`, `config` (the file used). |
+| `snapshot` | Present when this run armed its own snapshot: `snapshot_id`, `marker`, `manifest_sha256`, `credentials_sha256`, `roots_restored`, `credentials_restored`, `android_restored`, `restore_verified`, `error`. Digests & restored counts come from successful restore; `restore_verified` becomes true only after that report. |
 | `binaries[]` | `index`, `package`, `target`, `kind`, `binary`, `sha256` (taken just before the run), `cwd`, `args`, `status` (`passed`, `failed`, `timed-out`, `error`, `not-run`), `exit`, `signal`, `timed_out`, `timeout_s` and `timeout_kind` (the deadline that applied), `started_after_ms`, `duration_ms`, `stdout`, `stderr`, `stdout_bytes`, `stderr_bytes`, `summary` (`results`, `ok`, `passed`, `failed`, `ignored`, `measured`, `filtered_out`, summed over the binary's `test result:` lines; `null` for a custom harness that prints none), `failed_tests` (at most 200), `survivors`, `tmpdir`, `error`. |
 | `totals` | Binary counts by status, `without_summary`, and test counts summed over the summaries. |
 | `verdict` | `passed`, `exit_code`, `reasons[]`. Computed from the facts above, never passed in. |

@@ -37,9 +37,26 @@ pub struct Receipt {
     pub host: HostInfo,
     pub compile: CompileRecord,
     pub settings: SettingsRecord,
+    /// Present only when this run armed its own app-data snapshot. Restore evidence is populated
+    /// from the successful restore report, before the receipt is written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot: Option<SnapshotRecord>,
     pub binaries: Vec<BinaryRecord>,
     pub totals: Totals,
     pub verdict: Verdict,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SnapshotRecord {
+    pub snapshot_id: String,
+    pub marker: String,
+    pub manifest_sha256: Option<String>,
+    pub credentials_sha256: Option<String>,
+    pub roots_restored: usize,
+    pub credentials_restored: usize,
+    pub android_restored: bool,
+    pub restore_verified: bool,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

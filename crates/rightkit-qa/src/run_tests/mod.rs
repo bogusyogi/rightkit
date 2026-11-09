@@ -55,16 +55,17 @@ pub mod libtest;
 mod lines;
 pub mod receipt;
 
-use crate::config::RunTestsConfig;
+use crate::config::{QaConfig, RunTestsConfig, SnapshotConfig};
 use crate::journeys::build_record::{parse_request_id, resolve_broker, validate_build_command};
 use crate::retention;
+use crate::snapshot::{self, Armed, OwnerConfig};
 use crate::storage::{self, RunOutcome};
 use crate::util::{canonical_plain, err, now_iso, Error, Result};
 use artifacts::{parse_listing, TestBinary};
 use exec::{run_to_files, ProcSpec};
 use receipt::{
-    judge, BinaryRecord, CompileRecord, HostInfo, Receipt, Rules, SettingsRecord, Status,
-    SurvivorRecord, Totals, Verdict, EXIT_COMPILE, EXIT_SETUP, RECEIPT_SCHEMA,
+    judge, BinaryRecord, CompileRecord, HostInfo, Receipt, Rules, SettingsRecord, SnapshotRecord,
+    Status, SurvivorRecord, Totals, Verdict, EXIT_COMPILE, EXIT_FAILED, EXIT_SETUP, RECEIPT_SCHEMA,
 };
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -87,6 +88,7 @@ pub const LOGS_DIR: &str = "logs";
 const FAILURE_TAIL_LINES: usize = 40;
 const FAILURE_TAIL_BYTES: u64 = 16 * 1024;
 const TMP_ROOT_PREFIX: &str = "rkt-";
+const SNAPSHOT_ID_ENV: &str = "RIGHTKIT_JOURNEYS_SNAPSHOT_ID";
 
 /// Which compiler front end builds the test executables.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,6 +237,8 @@ pub struct Options {
     pub receipt_copy: Option<PathBuf>,
     /// The config file the defaults came from, for the receipt.
     pub config_path: Option<PathBuf>,
+    /// Installed executable used for credential operations; never a TOML schema extension.
+    pub credential_owner: Option<PathBuf>,
 }
 
 /// What a run produced.
@@ -324,6 +328,8 @@ pub(crate) struct ExecCtx<'a> {
     pub logs: &'a Path,
     pub settings: &'a Settings,
     pub test_args: &'a [String],
+    /// Snapshot context belonging to this run, never inherited from the caller.
+    pub snapshot_env: Vec<(String, String)>,
     /// Parent of each binary's private temp directory (`isolate_tmp`).
     pub tmp_base: PathBuf,
     pub phase_start: Instant,
@@ -536,6 +542,11 @@ fn run_one(ctx: &ExecCtx, index: usize, bin: &TestBinary) -> BinaryRecord {
         None
     };
     env.extend(settings.env.iter().map(|(k, v)| (k.clone(), v.clone())));
+    env.extend(ctx.snapshot_env.iter().cloned());
+    let mut unset_env = settings.unset_env.clone();
+    // A caller's marker grants no ownership to run-tests. Only this run's Armed value may supply it.
+    unset_env.push(snapshot::MARKER_ENV.to_string());
+    unset_env.push(SNAPSHOT_ID_ENV.to_string());
 
     {
         let _g = ctx.print.lock().unwrap();
@@ -547,7 +558,7 @@ fn run_one(ctx: &ExecCtx, index: usize, bin: &TestBinary) -> BinaryRecord {
         args: ctx.test_args.to_vec(),
         cwd,
         env,
-        unset_env: settings.unset_env.clone(),
+        unset_env,
         stdout: stdout.clone(),
         stderr: stderr.clone(),
         timeout,
@@ -670,6 +681,7 @@ struct Driven {
     compile: CompileRecord,
     binaries: Vec<BinaryRecord>,
     verdict: Verdict,
+    snapshot: Option<SnapshotRecord>,
 }
 
 fn display_command(argv: &[String]) -> String {
@@ -762,6 +774,8 @@ fn drive(
     run_dir: &Path,
     plan: Option<&CompilePlan>,
     d: &mut Driven,
+    snapshot_config: Option<&SnapshotConfig>,
+    armed: &mut Option<Armed>,
 ) -> Result<()> {
     let listing_path = run_dir.join(LISTING_FILE);
     let from_listing = matches!(opts.source, Source::Listing(_));
@@ -848,6 +862,36 @@ fn drive(
         getrandom::fill(&mut b).map_err(|e| Error(format!("random source unavailable: {e}")))?;
         rightkit_fs::digest::hex(&b)
     };
+    let mut snapshot_env = Vec::new();
+    if let Some(cfg) = snapshot_config {
+        let owner = opts
+            .credential_owner
+            .as_deref()
+            .map(OwnerConfig::for_executable)
+            .transpose()?;
+        let managed_root = retention::managed_root_of_run(run_dir)
+            .ok_or_else(|| Error("run-tests: cannot resolve managed snapshot root".to_string()))?;
+        *armed = Some(snapshot::arm_with_owner(&opts.app, cfg, &managed_root, owner)?);
+        let owned = armed
+            .as_ref()
+            .ok_or_else(|| Error("run-tests: snapshot was not armed".to_string()))?;
+        d.snapshot = Some(SnapshotRecord {
+            snapshot_id: owned.snapshot_id().to_string(),
+            marker: owned.marker_path().display().to_string(),
+            manifest_sha256: None,
+            credentials_sha256: None,
+            roots_restored: 0,
+            credentials_restored: 0,
+            android_restored: false,
+            restore_verified: false,
+            error: None,
+        });
+        let marker = owned.marker_path().to_str().ok_or_else(|| {
+            Error("run-tests: snapshot marker path is not valid UTF-8".to_string())
+        })?;
+        snapshot_env.push((snapshot::MARKER_ENV.to_string(), marker.to_string()));
+        snapshot_env.push((SNAPSHOT_ID_ENV.to_string(), owned.snapshot_id().to_string()));
+    }
     let s = &opts.settings;
     let phase_start = Instant::now();
     let ctx = ExecCtx {
@@ -855,6 +899,7 @@ fn drive(
         logs: &logs,
         settings: s,
         test_args: &opts.test_args,
+        snapshot_env,
         tmp_base: std::env::temp_dir().join(format!("{TMP_ROOT_PREFIX}{token}")),
         phase_start,
         total_deadline: phase_start + s.total_timeout,
@@ -902,6 +947,26 @@ pub fn run(opts: &Options) -> Result<Outcome> {
     let storage_app = format!("{}{STORAGE_SUFFIX}", opts.app);
     storage::safe_key(&storage_app, "app")?;
     let s = &opts.settings;
+    if s.env.contains_key(snapshot::MARKER_ENV) || s.env.contains_key(SNAPSHOT_ID_ENV) {
+        return err("run-tests: snapshot environment is runner-owned; declare [snapshot] instead");
+    }
+    let snapshot_config = opts
+        .config_path
+        .as_deref()
+        .map(QaConfig::load)
+        .transpose()?
+        .and_then(|cfg| cfg.snapshot);
+    if let Some(owner) = &opts.credential_owner {
+        if !owner.is_absolute() {
+            return err("--credential-owner requires an absolute installed executable path");
+        }
+        if !snapshot_config
+            .as_ref()
+            .is_some_and(|cfg| !cfg.credentials.is_empty())
+        {
+            return err("--credential-owner requires [snapshot] with credential sets");
+        }
+    }
     // The compile is planned before anything is created: a host that must use the broker and has none
     // fails here, with no run directory left behind.
     let plan = match &opts.source {
@@ -946,9 +1011,45 @@ pub fn run(opts: &Options) -> Result<Outcome> {
         compile: CompileRecord::empty(source_word),
         binaries: vec![],
         verdict: Verdict::pass(),
+        snapshot: None,
     };
-    if let Err(e) = drive(opts, &root, &run.root, plan.as_ref(), &mut driven) {
+    let mut armed = None;
+    if let Err(e) = drive(
+        opts,
+        &root,
+        &run.root,
+        plan.as_ref(),
+        &mut driven,
+        snapshot_config.as_ref(),
+        &mut armed,
+    ) {
         driven.verdict = Verdict::fail(EXIT_SETUP, e.0);
+    }
+    if let Some(owned) = armed {
+        match owned.restore() {
+            Ok(report) if !report.discarded => {
+                if let Some(record) = &mut driven.snapshot {
+                    record.manifest_sha256 = Some(report.manifest_sha256);
+                    record.credentials_sha256 = report.credentials_sha256;
+                    record.roots_restored = report.roots_restored;
+                    record.credentials_restored = report.credentials_restored;
+                    record.android_restored = report.android_restored;
+                    record.restore_verified = true;
+                }
+            }
+            result => {
+                let reason = match result {
+                    Err(e) => format!("snapshot restore FAILED: {e}; restore marker retained"),
+                    Ok(_) => "snapshot restore did not restore live data".to_string(),
+                };
+                if let Some(record) = &mut driven.snapshot {
+                    record.error = Some(reason.clone());
+                }
+                driven.verdict.passed = false;
+                driven.verdict.exit_code = EXIT_FAILED;
+                driven.verdict.reasons.push(reason);
+            }
+        }
     }
 
     let receipt = Receipt {
@@ -962,6 +1063,7 @@ pub fn run(opts: &Options) -> Result<Outcome> {
         host: HostInfo::current(),
         compile: driven.compile,
         settings: s.record(&opts.test_args, opts.config_path.as_deref()),
+        snapshot: driven.snapshot,
         totals: Totals::of(&driven.binaries),
         binaries: driven.binaries,
         verdict: driven.verdict,

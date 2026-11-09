@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.10.4 (unpublished)
+## 0.10.5 (unpublished)
+
+- Fix owner-bound credential snapshots (#1552): `run-tests --credential-owner <installed executable>` uses authenticated credential-only prelaunch control in the installed owner. Keep private snapshot files, immutable owner identity, crash recovery & verified restoration; no Keychain ACL changes or foreign-reader fallback.
+- `run-tests` arms a declared snapshot once after compilation, passes its own verified marker to test binaries & restores before writing its receipt. A failed restore fails the run.
+
+## 0.10.4
 
 - Docs: intra-doc links rustdoc could not resolve (feature-only, private or out-of-scope items) are plain code, so the doc build (`-D warnings`) passes.
 - Fixed: the `rightkit-automation` requirement was `^0.6.4`, but `InputEvent::Drag` (matched in `in_app.rs`) exists only from 0.6.7, so a lock at 0.6.4 to 0.6.6 failed to compile (Pulse, 2026-11-04). The floor is `0.6.7`.

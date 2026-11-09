@@ -12449,7 +12449,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.10.4"
+version = "0.10.5"
 dependencies = [
  "getrandom 0.4.3",
  "png",

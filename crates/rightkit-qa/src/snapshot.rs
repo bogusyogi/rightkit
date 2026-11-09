@@ -36,7 +36,7 @@ use crate::snapshot_android::AndroidRecord;
 use crate::util::{base64_decode, base64_encode, err, new_id, now_iso, sha256_hex, Error, Result};
 use rightkit_credentials::{Config as CredConfig, Namespace, Secret, Store, WindowsTarget};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
@@ -54,6 +54,9 @@ const SCHEMA: u32 = 1;
 const STATE_SNAPSHOTTING: &str = "snapshotting";
 const STATE_ARMED: &str = "armed";
 const STATE_RESTORING: &str = "restoring";
+
+mod owner;
+pub use owner::OwnerConfig;
 
 // ------------------------------------------------------------------------------------ records
 
@@ -109,6 +112,11 @@ struct Marker {
     credentials: Vec<CredRecord>,
     manifest_sha256: Option<String>,
     credentials_sha256: Option<String>,
+    /// Installed credential owner & transport, retained for crash recovery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    credential_owner: Option<OwnerConfig>,
+    #[serde(default)]
+    process_names: Vec<String>,
     /// The Android package whose data dir the snapshot also holds (`[snapshot.android]`).
     #[serde(default)]
     android: Option<AndroidRecord>,
@@ -135,6 +143,7 @@ struct AndroidDigest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
 struct CredItem {
     /// Index into the marker's `credentials`.
     set: usize,
@@ -147,6 +156,7 @@ struct CredItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
 struct CredFile {
     items: Vec<CredItem>,
 }
@@ -798,7 +808,90 @@ fn read_credentials(sets: &[CredRecord]) -> Result<CredFile> {
     Ok(CredFile { items })
 }
 
+// Validate every item before ANY live data or credential mutation. A hash alone does not
+// prove that absent items, accounts, set indices or base64 payloads are safe to restore.
+fn validate_credentials(sets: &[CredRecord], file: &CredFile) -> Result<()> {
+    let expected: Vec<_> = sets.iter().enumerate().flat_map(|(set, record)| {
+        record.accounts.iter().map(move |account| (set, account.as_str()))
+    }).collect();
+    let unique: BTreeSet<_> = expected.iter().copied().collect();
+    if unique.len() != expected.len() || file.items.len() != expected.len() {
+        return err("credential snapshot item count or declared account uniqueness is invalid");
+    }
+    for (item, (set, account)) in file.items.iter().zip(expected) {
+        if item.set != set || item.account != account {
+            return err("credential snapshot set/account list differs from the declared list");
+        }
+        if item.present {
+            let encoded = item.value.as_deref().ok_or_else(|| Error("credential snapshot lacks a present value".into()))?;
+            let bytes = base64_decode(encoded).ok_or_else(|| Error("credential snapshot has invalid base64".into()))?;
+            if bytes.is_empty() || base64_encode(&bytes) != encoded
+                || item.sha256.as_deref() != Some(sha256_hex(&bytes).as_str()) {
+                return err("credential snapshot has an empty, noncanonical or damaged present value");
+            }
+        } else if item.value.is_some() || item.sha256.is_some() {
+            return err("credential snapshot absent item carries a value or hash");
+        }
+    }
+    Ok(())
+}
+
+fn load_credentials(marker: &Marker, snap_dir: &Path, expected: Option<&str>) -> Result<(CredFile, String)> {
+    let path = snap_dir.join(CREDENTIALS_FILE);
+    fs_ctx(rightkit_fs::private::verify_owner_only(&path), "credential file is not private", &path)?;
+    let md = ctx(fs::symlink_metadata(&path), "cannot stat credential file", &path)?;
+    refuse_reparse(&path, &md)?;
+    if !md.is_file() || md.len() > 16 * 1024 * 1024 {
+        return err("credential snapshot must be a regular file within the size limit");
+    }
+    let bytes = ctx(fs::read(&path), "cannot read credential file", &path)?;
+    let hash = sha256_hex(&bytes);
+    if expected.is_some_and(|want| want != hash) {
+        return err("credential snapshot does not match the restore marker; live data was NOT touched");
+    }
+    let file = parse_credentials(&bytes, &marker.credentials)?;
+    Ok((file, hash))
+}
+
+fn parse_credentials(bytes: &[u8], sets: &[CredRecord]) -> Result<CredFile> {
+    // Nullable fields remain mandatory: Option<T> alone would accept a missing JSON key.
+    let value: serde_json::Value = serde_json::from_slice(bytes)
+        .map_err(|_| Error("credential snapshot JSON has an invalid shape".into()))?;
+    let object = value.as_object().ok_or_else(|| Error("credential snapshot must be an object".into()))?;
+    let items = object.get("items").and_then(serde_json::Value::as_array)
+        .ok_or_else(|| Error("credential snapshot must hold an item array".into()))?;
+    if object.len() != 1 || items.iter().any(|item| {
+        item.as_object().is_none_or(|object| {
+            object.len() != 5 || ["set", "account", "present", "value", "sha256"]
+                .iter().any(|key| !object.contains_key(*key))
+        })
+    }) {
+        return err("credential snapshot JSON fields differ from its schema");
+    }
+    let file: CredFile = serde_json::from_slice(bytes)
+        .map_err(|_| Error("credential snapshot JSON has an invalid shape".into()))?;
+    validate_credentials(sets, &file)?;
+    Ok(file)
+}
+
+fn single_component(value: &str) -> bool {
+    let mut parts = Path::new(value).components();
+    matches!(parts.next(), Some(Component::Normal(_))) && parts.next().is_none()
+}
+
+fn ensure_stopped(marker: &Marker) -> Result<()> {
+    if marker.process_names.iter().all(|name| name.trim().is_empty()) {
+        return Ok(());
+    }
+    let running = running_processes(&marker.process_names)?;
+    if !running.is_empty() {
+        return err(format!("snapshot refuses while configured app/helper processes run ({}); marker retained", running.join(", ")));
+    }
+    Ok(())
+}
+
 fn restore_credentials(sets: &[CredRecord], file: &CredFile) -> Result<usize> {
+    validate_credentials(sets, file)?;
     let mut count = 0;
     for item in &file.items {
         let Some(c) = sets.get(item.set) else {
@@ -1084,28 +1177,20 @@ fn resolve_roots(cfg: &SnapshotConfig, managed: &Path) -> Result<Vec<(PathBuf, b
 // ------------------------------------------------------------------------------------ marker
 
 fn write_marker(path: &Path, m: &Marker) -> Result<()> {
-    let bytes = serde_json::to_vec_pretty(m)?;
-    let tmp = path.with_extension("json.tmp");
-    {
-        let mut f = ctx(fs::File::create(&tmp), "cannot write", &tmp)?;
-        ctx(f.write_all(&bytes), "cannot write", &tmp)?;
-        ctx(f.sync_all(), "cannot sync", &tmp)?;
-    }
-    ctx(fs::rename(&tmp, path), "cannot publish", path)
+    fs_ctx(
+        rightkit_fs::private::write_private_file(path, &serde_json::to_vec_pretty(m)?),
+        "cannot write restore marker",
+        path,
+    )
 }
 
 fn claim_marker(path: &Path, m: &Marker) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(m)?;
-    let mut f = match fs::OpenOptions::new().write(true).create_new(true).open(path) {
-        Ok(f) => f,
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            return err(format!(
-                "a restore marker already exists at {}; another run holds the snapshot, or an earlier run could not be restored. Nothing was changed.",
-                path.display()
-            ))
-        }
-        Err(e) => return err(format!("cannot create {}: {e}", path.display())),
-    };
+    let mut f = fs_ctx(
+        rightkit_fs::private::create_private_new(path),
+        "cannot claim restore marker (an existing marker must be recovered first)",
+        path,
+    )?;
     ctx(f.write_all(&bytes), "cannot write", path)?;
     ctx(f.sync_all(), "cannot sync", path)
 }
@@ -1162,6 +1247,11 @@ pub struct Armed {
 }
 
 impl Armed {
+    /// Exact restore marker held by this snapshot, for child harness handoff.
+    pub fn marker_path(&self) -> &Path {
+        &self.marker_path
+    }
+
     pub fn snapshot_id(&self) -> &str {
         &self.marker.snapshot_id
     }
@@ -1221,7 +1311,24 @@ pub fn finish<T>(armed: Armed, result: Result<T>) -> Result<T> {
 /// Take the snapshot for `app` under `managed_root` (see the module docs). Recovers a leftover
 /// marker first. Refuses while the app runs.
 pub fn arm(app: &str, cfg: &SnapshotConfig, managed_root: &Path) -> Result<Armed> {
+    arm_with_owner(app, cfg, managed_root, None)
+}
+
+/// Arm using the installed app's credential-only service when its OS store is owner-bound.
+/// The selected executable is pinned by hash in the restore marker; no direct-store fallback.
+pub fn arm_with_owner(
+    app: &str,
+    cfg: &SnapshotConfig,
+    managed_root: &Path,
+    credential_owner: Option<OwnerConfig>,
+) -> Result<Armed> {
     cfg.validate()?;
+    if credential_owner.is_some() && cfg.credentials.is_empty() {
+        return err("a credential owner requires snapshot credential sets");
+    }
+    if !single_component(app) {
+        return err("snapshot app must be one normal path component");
+    }
     for note in recover_all(managed_root)? {
         eprintln!("[qa] {note}");
     }
@@ -1266,6 +1373,9 @@ pub fn arm(app: &str, cfg: &SnapshotConfig, managed_root: &Path) -> Result<Armed
             file: *file,
         });
     }
+    let credential_owner = credential_owner
+        .map(|owner| owner.for_snapshot(&snap_dir, &cfg.process_names))
+        .transpose()?;
     let mut marker = Marker {
         schema: SCHEMA,
         snapshot_id: id,
@@ -1279,17 +1389,24 @@ pub fn arm(app: &str, cfg: &SnapshotConfig, managed_root: &Path) -> Result<Armed
         credentials: creds,
         manifest_sha256: None,
         credentials_sha256: None,
+        credential_owner,
+        process_names: cfg.process_names.clone(),
         android: cfg.android.as_ref().map(AndroidRecord::from_config),
     };
     // The marker comes first: nothing is copied or read from the OS store before it exists.
     claim_marker(&marker_path, &marker)?;
     match build_snapshot(&snap_dir, &mut marker) {
         Ok((manifest_sha, cred_sha)) => {
+            if let Err(e) = ensure_stopped(&marker) {
+                return Err(e);
+            }
             marker.manifest_sha256 = Some(manifest_sha);
             marker.credentials_sha256 = cred_sha;
             marker.state = STATE_ARMED.into();
             if let Err(e) = write_marker(&marker_path, &marker) {
-                discard(&marker_path, &snap_dir);
+                if marker.credential_owner.is_none() {
+                    discard(&marker_path, &snap_dir);
+                }
                 return Err(e);
             }
             armed_list().push((marker_path.clone(), marker.snapshot_id.clone()));
@@ -1301,8 +1418,10 @@ pub fn arm(app: &str, cfg: &SnapshotConfig, managed_root: &Path) -> Result<Armed
         }
         Err(e) => {
             // Live data was only read: removing the snapshot's own files is safe.
-            discard(&marker_path, &snap_dir);
-            Err(Error(format!("snapshot failed, nothing was changed: {e}")))
+            if marker.credential_owner.is_none() {
+                discard(&marker_path, &snap_dir);
+            }
+            Err(Error(format!("snapshot failed before launch: {e}")))
         }
     }
 }
@@ -1380,8 +1499,16 @@ fn build_snapshot(snap_dir: &Path, marker: &mut Marker) -> Result<(String, Optio
     }
     let cred_sha = if marker.credentials.is_empty() {
         None
+    } else if marker.credential_owner.is_some() {
+        let metadata = owner::operate(marker, "snapshot")?;
+        let (_, hash) = load_credentials(marker, snap_dir, None)?;
+        if metadata.credentials_sha256 != hash {
+            return err("credential owner returned a different file digest");
+        }
+        Some(hash)
     } else {
         let file = read_credentials(&marker.credentials)?;
+        validate_credentials(&marker.credentials, &file)?;
         let bytes = serde_json::to_vec_pretty(&file)?;
         let path = snap_dir.join(CREDENTIALS_FILE);
         fs_ctx(
@@ -1406,6 +1533,15 @@ fn build_snapshot(snap_dir: &Path, marker: &mut Marker) -> Result<(String, Optio
 fn restore_marker(marker_path: &Path, marker: &mut Marker) -> Result<RestoreReport> {
     let managed = managed_of(marker_path)?;
     let snap_dir = PathBuf::from(&marker.snapshot_dir);
+    if let Some(owner) = &marker.credential_owner {
+        owner.verify()?;
+        owner::verify_location(marker)?;
+        if snap_dir != managed.join(SNAPSHOTS_DIR).join(&marker.app).join(&marker.snapshot_id)
+            || marker_path != snap_dir.parent().unwrap().join(MARKER_FILE) {
+            return err("credential owner snapshot directory differs from this restore marker");
+        }
+    }
+    ensure_stopped(marker)?;
     let mut report = RestoreReport {
         app: marker.app.clone(),
         snapshot_id: marker.snapshot_id.clone(),
@@ -1434,15 +1570,33 @@ fn restore_marker(marker_path: &Path, marker: &mut Marker) -> Result<RestoreRepo
         );
     }
     let manifest: Manifest = serde_json::from_slice(&manifest_bytes)?;
+    if manifest.roots.len() != marker.roots.len() {
+        return err("snapshot manifest root count differs from the marker");
+    }
+    let mut root_indices = BTreeSet::new();
+    for root in &marker.roots {
+        if !root_indices.insert(root.index) {
+            return err("snapshot marker contains duplicate root indices");
+        }
+    }
+    for entries in manifest.roots.values() {
+        let mut paths = BTreeSet::new();
+        for entry in entries {
+            let path = Path::new(&entry.rel);
+            if entry.rel.is_empty() || path.is_absolute()
+                || path.components().any(|part| !matches!(part, Component::Normal(_)))
+                || !paths.insert(&entry.rel) {
+                return err("snapshot manifest contains an unsafe or duplicate relative path");
+            }
+        }
+    }
     let cred_file = if marker.credentials.is_empty() {
         None
     } else {
-        let path = snap_dir.join(CREDENTIALS_FILE);
-        let bytes = ctx(fs::read(&path), "cannot read", &path)?;
-        if Some(sha256_hex(&bytes)) != marker.credentials_sha256 {
-            return err("the credential snapshot does not match the restore marker; live data was NOT touched");
-        }
-        Some(serde_json::from_slice::<CredFile>(&bytes)?)
+        let want = marker.credentials_sha256.as_deref().ok_or_else(|| {
+            Error("credential snapshot has no recorded digest; live data was NOT touched".into())
+        })?;
+        Some(load_credentials(marker, &snap_dir, Some(want))?.0)
     };
     for r in &marker.roots {
         check_root_sane(Path::new(&r.live_path), &managed, r.file)?;
@@ -1473,8 +1627,17 @@ fn restore_marker(marker_path: &Path, marker: &mut Marker) -> Result<RestoreRepo
         }
         crate::snapshot_android::verify_copy(rec, &snap_dir)?;
     }
+    ensure_stopped(marker)?;
     marker.state = STATE_RESTORING.into();
     write_marker(marker_path, marker)?;
+    if marker.credential_owner.is_some() {
+        let metadata = owner::operate(marker, "restore")?;
+        if Some(metadata.credentials_sha256) != marker.credentials_sha256 {
+            return err("credential owner restore digest does not match the marker");
+        }
+        ensure_stopped(marker)?;
+        report.credentials_restored = cred_file.as_ref().map_or(0, |file| file.items.len());
+    }
     for r in &marker.roots {
         let entries = &manifest.roots[&r.index.to_string()];
         let snap_root = snap_dir.join(ROOTS_DIR).join(r.index.to_string());
@@ -1485,8 +1648,10 @@ fn restore_marker(marker_path: &Path, marker: &mut Marker) -> Result<RestoreRepo
         }
         report.roots_restored += 1;
     }
-    if let Some(file) = &cred_file {
-        report.credentials_restored = restore_credentials(&marker.credentials, file)?;
+    if marker.credential_owner.is_none() {
+        if let Some(file) = &cred_file {
+            report.credentials_restored = restore_credentials(&marker.credentials, file)?;
+        }
     }
     if let Some(rec) = &marker.android {
         crate::snapshot_android::restore(rec, &snap_dir)?;
@@ -1546,4 +1711,84 @@ pub fn recover_all(managed_root: &Path) -> Result<Vec<String>> {
         notes.push(format!("crash recovery: {}", report.describe()));
     }
     Ok(notes)
+}
+
+
+#[cfg(test)]
+mod credential_validation_tests {
+    use super::*;
+
+    fn sets() -> Vec<CredRecord> {
+        vec![CredRecord {
+            service: "validation.only".into(),
+            windows_target: None,
+            windows_prefix: None,
+            accounts: vec!["first".into(), "later".into()],
+        }]
+    }
+
+    fn valid_file() -> CredFile {
+        CredFile { items: vec![
+            CredItem { set: 0, account: "first".into(), present: false, value: None, sha256: None },
+            CredItem { set: 0, account: "later".into(), present: true,
+                value: Some(base64_encode(b"nonempty")), sha256: Some(sha256_hex(b"nonempty")) },
+        ] }
+    }
+
+    #[test]
+    fn accepts_complete_present_and_absent_payload() {
+        assert!(validate_credentials(&sets(), &valid_file()).is_ok());
+    }
+
+    #[test]
+    fn rejects_later_corrupt_value_before_restore_can_begin() {
+        let mut file = valid_file();
+        file.items[1].sha256 = Some(sha256_hex(b"different"));
+        assert!(validate_credentials(&sets(), &file).is_err());
+        file.items[1].value = Some("%%%".into());
+        assert!(validate_credentials(&sets(), &file).is_err());
+        file.items[1].value = Some(String::new());
+        file.items[1].sha256 = Some(sha256_hex(b""));
+        assert!(validate_credentials(&sets(), &file).is_err());
+    }
+
+    #[test]
+    fn rejects_omission_duplication_and_unknown_accounts() {
+        let mut file = valid_file();
+        file.items.pop();
+        assert!(validate_credentials(&sets(), &file).is_err());
+        let mut file = valid_file();
+        file.items[1] = file.items[0].clone();
+        assert!(validate_credentials(&sets(), &file).is_err());
+        let mut file = valid_file();
+        file.items[1].account = "undeclared".into();
+        assert!(validate_credentials(&sets(), &file).is_err());
+        file.items[1].set = 1;
+        assert!(validate_credentials(&sets(), &file).is_err());
+    }
+
+    #[test]
+    fn rejects_absent_values_and_duplicate_declarations() {
+        let mut file = valid_file();
+        file.items[0].value = Some(base64_encode(b"unexpected"));
+        assert!(validate_credentials(&sets(), &file).is_err());
+        let mut declared = sets();
+        declared[0].accounts[1] = "first".into();
+        assert!(validate_credentials(&declared, &valid_file()).is_err());
+    }
+
+    #[test]
+    fn rejects_missing_unknown_and_duplicate_json_fields() {
+        let valid = serde_json::to_vec(&valid_file()).unwrap();
+        assert!(parse_credentials(&valid, &sets()).is_ok());
+        let mut value = serde_json::to_value(valid_file()).unwrap();
+        value["items"][0].as_object_mut().unwrap().remove("value");
+        assert!(parse_credentials(&serde_json::to_vec(&value).unwrap(), &sets()).is_err());
+        let mut value = serde_json::to_value(valid_file()).unwrap();
+        value["items"][0]["extra"] = serde_json::Value::Null;
+        assert!(parse_credentials(&serde_json::to_vec(&value).unwrap(), &sets()).is_err());
+        let text = String::from_utf8(valid).unwrap().replacen("\"set\":0", "\"set\":0,\"set\":0", 1);
+        assert!(parse_credentials(text.as_bytes(), &sets()).is_err());
+    }
+
 }
