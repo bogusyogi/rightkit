@@ -112,7 +112,9 @@ impl Cli {
             "--credential-owner" => {
                 let path = PathBuf::from(value);
                 if !path.is_absolute() {
-                    return err("--credential-owner requires an absolute installed executable path");
+                    return err(
+                        "--credential-owner requires an absolute installed executable path",
+                    );
                 }
                 self.credential_owner = Some(path);
             }

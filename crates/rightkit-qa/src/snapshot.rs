@@ -811,9 +811,16 @@ fn read_credentials(sets: &[CredRecord]) -> Result<CredFile> {
 // Validate every item before ANY live data or credential mutation. A hash alone does not
 // prove that absent items, accounts, set indices or base64 payloads are safe to restore.
 fn validate_credentials(sets: &[CredRecord], file: &CredFile) -> Result<()> {
-    let expected: Vec<_> = sets.iter().enumerate().flat_map(|(set, record)| {
-        record.accounts.iter().map(move |account| (set, account.as_str()))
-    }).collect();
+    let expected: Vec<_> = sets
+        .iter()
+        .enumerate()
+        .flat_map(|(set, record)| {
+            record
+                .accounts
+                .iter()
+                .map(move |account| (set, account.as_str()))
+        })
+        .collect();
     let unique: BTreeSet<_> = expected.iter().copied().collect();
     if unique.len() != expected.len() || file.items.len() != expected.len() {
         return err("credential snapshot item count or declared account uniqueness is invalid");
@@ -823,11 +830,19 @@ fn validate_credentials(sets: &[CredRecord], file: &CredFile) -> Result<()> {
             return err("credential snapshot set/account list differs from the declared list");
         }
         if item.present {
-            let encoded = item.value.as_deref().ok_or_else(|| Error("credential snapshot lacks a present value".into()))?;
-            let bytes = base64_decode(encoded).ok_or_else(|| Error("credential snapshot has invalid base64".into()))?;
-            if bytes.is_empty() || base64_encode(&bytes) != encoded
-                || item.sha256.as_deref() != Some(sha256_hex(&bytes).as_str()) {
-                return err("credential snapshot has an empty, noncanonical or damaged present value");
+            let encoded = item
+                .value
+                .as_deref()
+                .ok_or_else(|| Error("credential snapshot lacks a present value".into()))?;
+            let bytes = base64_decode(encoded)
+                .ok_or_else(|| Error("credential snapshot has invalid base64".into()))?;
+            if bytes.is_empty()
+                || base64_encode(&bytes) != encoded
+                || item.sha256.as_deref() != Some(sha256_hex(&bytes).as_str())
+            {
+                return err(
+                    "credential snapshot has an empty, noncanonical or damaged present value",
+                );
             }
         } else if item.value.is_some() || item.sha256.is_some() {
             return err("credential snapshot absent item carries a value or hash");
@@ -836,10 +851,22 @@ fn validate_credentials(sets: &[CredRecord], file: &CredFile) -> Result<()> {
     Ok(())
 }
 
-fn load_credentials(marker: &Marker, snap_dir: &Path, expected: Option<&str>) -> Result<(CredFile, String)> {
+fn load_credentials(
+    marker: &Marker,
+    snap_dir: &Path,
+    expected: Option<&str>,
+) -> Result<(CredFile, String)> {
     let path = snap_dir.join(CREDENTIALS_FILE);
-    fs_ctx(rightkit_fs::private::verify_owner_only(&path), "credential file is not private", &path)?;
-    let md = ctx(fs::symlink_metadata(&path), "cannot stat credential file", &path)?;
+    fs_ctx(
+        rightkit_fs::private::verify_owner_only(&path),
+        "credential file is not private",
+        &path,
+    )?;
+    let md = ctx(
+        fs::symlink_metadata(&path),
+        "cannot stat credential file",
+        &path,
+    )?;
     refuse_reparse(&path, &md)?;
     if !md.is_file() || md.len() > 16 * 1024 * 1024 {
         return err("credential snapshot must be a regular file within the size limit");
@@ -847,7 +874,9 @@ fn load_credentials(marker: &Marker, snap_dir: &Path, expected: Option<&str>) ->
     let bytes = ctx(fs::read(&path), "cannot read credential file", &path)?;
     let hash = sha256_hex(&bytes);
     if expected.is_some_and(|want| want != hash) {
-        return err("credential snapshot does not match the restore marker; live data was NOT touched");
+        return err(
+            "credential snapshot does not match the restore marker; live data was NOT touched",
+        );
     }
     let file = parse_credentials(&bytes, &marker.credentials)?;
     Ok((file, hash))
@@ -857,15 +886,23 @@ fn parse_credentials(bytes: &[u8], sets: &[CredRecord]) -> Result<CredFile> {
     // Nullable fields remain mandatory: Option<T> alone would accept a missing JSON key.
     let value: serde_json::Value = serde_json::from_slice(bytes)
         .map_err(|_| Error("credential snapshot JSON has an invalid shape".into()))?;
-    let object = value.as_object().ok_or_else(|| Error("credential snapshot must be an object".into()))?;
-    let items = object.get("items").and_then(serde_json::Value::as_array)
+    let object = value
+        .as_object()
+        .ok_or_else(|| Error("credential snapshot must be an object".into()))?;
+    let items = object
+        .get("items")
+        .and_then(serde_json::Value::as_array)
         .ok_or_else(|| Error("credential snapshot must hold an item array".into()))?;
-    if object.len() != 1 || items.iter().any(|item| {
-        item.as_object().is_none_or(|object| {
-            object.len() != 5 || ["set", "account", "present", "value", "sha256"]
-                .iter().any(|key| !object.contains_key(*key))
+    if object.len() != 1
+        || items.iter().any(|item| {
+            item.as_object().is_none_or(|object| {
+                object.len() != 5
+                    || ["set", "account", "present", "value", "sha256"]
+                        .iter()
+                        .any(|key| !object.contains_key(*key))
+            })
         })
-    }) {
+    {
         return err("credential snapshot JSON fields differ from its schema");
     }
     let file: CredFile = serde_json::from_slice(bytes)
@@ -880,12 +917,19 @@ fn single_component(value: &str) -> bool {
 }
 
 fn ensure_stopped(marker: &Marker) -> Result<()> {
-    if marker.process_names.iter().all(|name| name.trim().is_empty()) {
+    if marker
+        .process_names
+        .iter()
+        .all(|name| name.trim().is_empty())
+    {
         return Ok(());
     }
     let running = running_processes(&marker.process_names)?;
     if !running.is_empty() {
-        return err(format!("snapshot refuses while configured app/helper processes run ({}); marker retained", running.join(", ")));
+        return err(format!(
+            "snapshot refuses while configured app/helper processes run ({}); marker retained",
+            running.join(", ")
+        ));
     }
     Ok(())
 }
@@ -1536,8 +1580,13 @@ fn restore_marker(marker_path: &Path, marker: &mut Marker) -> Result<RestoreRepo
     if let Some(owner) = &marker.credential_owner {
         owner.verify()?;
         owner::verify_location(marker)?;
-        if snap_dir != managed.join(SNAPSHOTS_DIR).join(&marker.app).join(&marker.snapshot_id)
-            || marker_path != snap_dir.parent().unwrap().join(MARKER_FILE) {
+        if snap_dir
+            != managed
+                .join(SNAPSHOTS_DIR)
+                .join(&marker.app)
+                .join(&marker.snapshot_id)
+            || marker_path != snap_dir.parent().unwrap().join(MARKER_FILE)
+        {
             return err("credential owner snapshot directory differs from this restore marker");
         }
     }
@@ -1583,9 +1632,13 @@ fn restore_marker(marker_path: &Path, marker: &mut Marker) -> Result<RestoreRepo
         let mut paths = BTreeSet::new();
         for entry in entries {
             let path = Path::new(&entry.rel);
-            if entry.rel.is_empty() || path.is_absolute()
-                || path.components().any(|part| !matches!(part, Component::Normal(_)))
-                || !paths.insert(&entry.rel) {
+            if entry.rel.is_empty()
+                || path.is_absolute()
+                || path
+                    .components()
+                    .any(|part| !matches!(part, Component::Normal(_)))
+                || !paths.insert(&entry.rel)
+            {
                 return err("snapshot manifest contains an unsafe or duplicate relative path");
             }
         }
@@ -1713,7 +1766,6 @@ pub fn recover_all(managed_root: &Path) -> Result<Vec<String>> {
     Ok(notes)
 }
 
-
 #[cfg(test)]
 mod credential_validation_tests {
     use super::*;
@@ -1728,11 +1780,24 @@ mod credential_validation_tests {
     }
 
     fn valid_file() -> CredFile {
-        CredFile { items: vec![
-            CredItem { set: 0, account: "first".into(), present: false, value: None, sha256: None },
-            CredItem { set: 0, account: "later".into(), present: true,
-                value: Some(base64_encode(b"nonempty")), sha256: Some(sha256_hex(b"nonempty")) },
-        ] }
+        CredFile {
+            items: vec![
+                CredItem {
+                    set: 0,
+                    account: "first".into(),
+                    present: false,
+                    value: None,
+                    sha256: None,
+                },
+                CredItem {
+                    set: 0,
+                    account: "later".into(),
+                    present: true,
+                    value: Some(base64_encode(b"nonempty")),
+                    sha256: Some(sha256_hex(b"nonempty")),
+                },
+            ],
+        }
     }
 
     #[test]
@@ -1787,8 +1852,10 @@ mod credential_validation_tests {
         let mut value = serde_json::to_value(valid_file()).unwrap();
         value["items"][0]["extra"] = serde_json::Value::Null;
         assert!(parse_credentials(&serde_json::to_vec(&value).unwrap(), &sets()).is_err());
-        let text = String::from_utf8(valid).unwrap().replacen("\"set\":0", "\"set\":0,\"set\":0", 1);
+        let text =
+            String::from_utf8(valid)
+                .unwrap()
+                .replacen("\"set\":0", "\"set\":0,\"set\":0", 1);
         assert!(parse_credentials(text.as_bytes(), &sets()).is_err());
     }
-
 }

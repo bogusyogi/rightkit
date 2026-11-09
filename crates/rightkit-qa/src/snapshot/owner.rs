@@ -33,14 +33,27 @@ impl OwnerConfig {
         if !executable.is_absolute() {
             return err("credential owner executable must be absolute");
         }
-        let executable = ctx(crate::util::canonical_plain(executable), "cannot resolve credential owner", executable)?;
-        let md = ctx(fs::symlink_metadata(&executable), "cannot stat credential owner", &executable)?;
+        let executable = ctx(
+            crate::util::canonical_plain(executable),
+            "cannot resolve credential owner",
+            executable,
+        )?;
+        let md = ctx(
+            fs::symlink_metadata(&executable),
+            "cannot stat credential owner",
+            &executable,
+        )?;
         refuse_reparse(&executable, &md)?;
         if !md.is_file() || md.file_type().is_symlink() {
             return err("credential owner executable is not a regular file");
         }
-        let executable_sha256 = ctx(rightkit_fs::digest::sha256_file(&executable), "cannot hash credential owner", &executable)?;
-        let suite = Suite::per_user_default().map_err(|_| Error("cannot resolve current-user credential owner transport".into()))?;
+        let executable_sha256 = ctx(
+            rightkit_fs::digest::sha256_file(&executable),
+            "cannot hash credential owner",
+            &executable,
+        )?;
+        let suite = Suite::per_user_default()
+            .map_err(|_| Error("cannot resolve current-user credential owner transport".into()))?;
         Ok(Self {
             executable,
             executable_sha256,
@@ -60,19 +73,39 @@ impl OwnerConfig {
 
     pub(super) fn verify(&self) -> Result<()> {
         if !self.executable.is_absolute()
-            || ctx(crate::util::canonical_plain(&self.executable), "cannot resolve credential owner", &self.executable)? != self.executable {
+            || ctx(
+                crate::util::canonical_plain(&self.executable),
+                "cannot resolve credential owner",
+                &self.executable,
+            )? != self.executable
+        {
             return err("credential owner path changed; restore marker retained");
         }
-        let md = ctx(fs::symlink_metadata(&self.executable), "cannot stat credential owner", &self.executable)?;
+        let md = ctx(
+            fs::symlink_metadata(&self.executable),
+            "cannot stat credential owner",
+            &self.executable,
+        )?;
         refuse_reparse(&self.executable, &md)?;
-        if !md.is_file() || md.file_type().is_symlink()
-            || ctx(rightkit_fs::digest::sha256_file(&self.executable), "cannot hash credential owner", &self.executable)? != self.executable_sha256 {
+        if !md.is_file()
+            || md.file_type().is_symlink()
+            || ctx(
+                rightkit_fs::digest::sha256_file(&self.executable),
+                "cannot hash credential owner",
+                &self.executable,
+            )? != self.executable_sha256
+        {
             return err("credential owner executable changed; restore marker retained");
         }
-        let suite = Suite::per_user_default().map_err(|_| Error("cannot resolve current-user credential owner transport".into()))?;
+        let suite = Suite::per_user_default()
+            .map_err(|_| Error("cannot resolve current-user credential owner transport".into()))?;
         if self.suite_root != suite.root()
             || !self.service.starts_with("qa-credentials-")
-            || !self.service.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+            || !self
+                .service
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        {
             return err("credential owner transport differs from its current-user binding");
         }
         Ok(())
@@ -85,30 +118,60 @@ pub(super) fn verify_location(marker: &Marker) -> Result<()> {
         return err("credential owner snapshot app/id is invalid");
     }
     let dir = Path::new(&marker.snapshot_dir);
-    if !dir.is_absolute() || dir.components().any(|c| matches!(c, Component::ParentDir | Component::CurDir)) {
+    if !dir.is_absolute()
+        || dir
+            .components()
+            .any(|c| matches!(c, Component::ParentDir | Component::CurDir))
+    {
         return err("credential owner snapshot path is not absolute and normal");
     }
     if dir.file_name().and_then(|n| n.to_str()) != Some(marker.snapshot_id.as_str())
-        || dir.parent().and_then(Path::file_name).and_then(|n| n.to_str()) != Some(marker.app.as_str())
-        || dir.parent().and_then(Path::parent).and_then(Path::file_name).and_then(|n| n.to_str()) != Some(SNAPSHOTS_DIR) {
+        || dir
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|n| n.to_str())
+            != Some(marker.app.as_str())
+        || dir
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::file_name)
+            .and_then(|n| n.to_str())
+            != Some(SNAPSHOTS_DIR)
+    {
         return err("credential owner snapshot is outside its managed app layout");
     }
     let mut path = PathBuf::new();
     for component in dir.components() {
         path.push(component.as_os_str());
-        let md = ctx(fs::symlink_metadata(&path), "cannot stat snapshot ancestor", &path)?;
+        let md = ctx(
+            fs::symlink_metadata(&path),
+            "cannot stat snapshot ancestor",
+            &path,
+        )?;
         refuse_reparse(&path, &md)?;
         if !md.is_dir() || md.file_type().is_symlink() {
             return err("credential owner snapshot ancestry is not a real directory");
         }
     }
-    let owner = marker.credential_owner.as_ref().ok_or_else(|| Error("credential owner binding is missing".into()))?;
+    let owner = marker
+        .credential_owner
+        .as_ref()
+        .ok_or_else(|| Error("credential owner binding is missing".into()))?;
     if owner.token_file.as_deref() != Some(dir.join(TOKEN_FILE).as_path())
-        || owner.process_names != marker.process_names {
+        || owner.process_names != marker.process_names
+    {
         return err("credential owner token/process binding differs from the marker");
     }
-    for private in [dir.to_path_buf(), dir.parent().unwrap().to_path_buf(), dir.parent().unwrap().join(MARKER_FILE)] {
-        fs_ctx(rightkit_fs::private::verify_owner_only(&private), "credential owner snapshot is not private", &private)?;
+    for private in [
+        dir.to_path_buf(),
+        dir.parent().unwrap().to_path_buf(),
+        dir.parent().unwrap().join(MARKER_FILE),
+    ] {
+        fs_ctx(
+            rightkit_fs::private::verify_owner_only(&private),
+            "credential owner snapshot is not private",
+            &private,
+        )?;
     }
     Ok(())
 }
@@ -124,29 +187,45 @@ pub(super) struct Metadata {
     verified: bool,
 }
 
-fn exchange(marker: &Marker, operation: &str, child: &mut OwnedChild, auth: &str) -> Result<Metadata> {
+fn exchange(
+    marker: &Marker,
+    operation: &str,
+    child: &mut OwnedChild,
+    auth: &str,
+) -> Result<Metadata> {
     let owner = marker.credential_owner.as_ref().unwrap();
-    let suite = Suite::per_user_default().map_err(|_| Error("cannot resolve credential owner transport".into()))?;
+    let suite = Suite::per_user_default()
+        .map_err(|_| Error("cannot resolve credential owner transport".into()))?;
     let config = ClientConfig::new(&owner.service, "right-qa")
-        .suite(suite).ignore_env_overrides(true).deadline(Some(Duration::from_millis(500)));
+        .suite(suite)
+        .ignore_env_overrides(true)
+        .deadline(Some(Duration::from_millis(500)));
     let child_pid = child.id();
     let expected_hash = owner.executable_sha256.clone();
-    let expected = HostExpectation::executable(owner.executable.clone()).with_verifier(move |host| {
-        if host.pid != child_pid {
-            return Err("credential owner is not this launch".into());
-        }
-        if rightkit_fs::digest::sha256_file(&host.executable).ok().as_deref() != Some(expected_hash.as_str()) {
-            return Err("credential owner executable hash differs".into());
-        }
-        Ok(())
-    });
+    let expected =
+        HostExpectation::executable(owner.executable.clone()).with_verifier(move |host| {
+            if host.pid != child_pid {
+                return Err("credential owner is not this launch".into());
+            }
+            if rightkit_fs::digest::sha256_file(&host.executable)
+                .ok()
+                .as_deref()
+                != Some(expected_hash.as_str())
+            {
+                return Err("credential owner executable hash differs".into());
+            }
+            Ok(())
+        });
     let deadline = Instant::now() + START_TIMEOUT;
     let client = loop {
         if let Ok(client) = Client::connect_expecting(&config, &expected) {
             break client;
         }
-        if child.process_handle().and_then(|handle| handle.wait_exited_timeout(Duration::ZERO))
-            .map_err(|_| Error("cannot observe credential owner identity".into()))? {
+        if child
+            .process_handle()
+            .and_then(|handle| handle.wait_exited_timeout(Duration::ZERO))
+            .map_err(|_| Error("cannot observe credential owner identity".into()))?
+        {
             return err("credential owner exited before authenticated health");
         }
         if Instant::now() >= deadline {
@@ -155,10 +234,12 @@ fn exchange(marker: &Marker, operation: &str, child: &mut OwnedChild, auth: &str
         std::thread::sleep(Duration::from_millis(40));
     };
     client.set_deadline(Some(CALL_TIMEOUT));
-    let health = client.call("health", token::with_token(json!({}), Some(auth)))
+    let health = client
+        .call("health", token::with_token(json!({}), Some(auth)))
         .map_err(|_| Error("credential owner authenticated health failed".into()))?;
     if health.get("schema").and_then(serde_json::Value::as_str) != Some(OWNER_SCHEMA)
-        || health.get("mode").and_then(serde_json::Value::as_str) != Some(OWNER_MODE) {
+        || health.get("mode").and_then(serde_json::Value::as_str) != Some(OWNER_MODE)
+    {
         return err("credential owner health schema/mode mismatch");
     }
     let mut params = json!({
@@ -168,29 +249,64 @@ fn exchange(marker: &Marker, operation: &str, child: &mut OwnedChild, auth: &str
         "credentials": marker.credentials,
     });
     if operation == "restore" {
-        params["credentialsSha256"] = json!(marker.credentials_sha256.as_ref().ok_or_else(|| Error("credential restore lacks a file digest".into()))?);
+        params["credentialsSha256"] = json!(marker
+            .credentials_sha256
+            .as_ref()
+            .ok_or_else(|| Error("credential restore lacks a file digest".into()))?);
     }
-    let response = client.call(&format!("qa_credentials_{operation}"), token::with_token(params, Some(auth)))
-        .map_err(|_| Error(format!("credential owner {operation} failed; marker retained")))?;
+    let response = client
+        .call(
+            &format!("qa_credentials_{operation}"),
+            token::with_token(params, Some(auth)),
+        )
+        .map_err(|_| {
+            Error(format!(
+                "credential owner {operation} failed; marker retained"
+            ))
+        })?;
     let metadata: Metadata = serde_json::from_value(response)
         .map_err(|_| Error("credential owner returned invalid metadata".into()))?;
-    if metadata.schema != OWNER_SCHEMA || metadata.operation != operation
-        || metadata.snapshot_id != marker.snapshot_id || !metadata.verified
-        || metadata.item_count != marker.credentials.iter().map(|c| c.accounts.len()).sum::<usize>()
+    if metadata.schema != OWNER_SCHEMA
+        || metadata.operation != operation
+        || metadata.snapshot_id != marker.snapshot_id
+        || !metadata.verified
+        || metadata.item_count
+            != marker
+                .credentials
+                .iter()
+                .map(|c| c.accounts.len())
+                .sum::<usize>()
         || metadata.credentials_sha256.len() != 64
-        || !metadata.credentials_sha256.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+        || !metadata
+            .credentials_sha256
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
         return err("credential owner metadata does not prove this operation");
     }
     drop(client);
     // Observe natural exit before reaping, preserving ownership of any descendant identities.
-    let handle = child.process_handle().map_err(|_| Error("cannot hold credential owner process identity".into()))?;
-    if !handle.wait_exited_timeout(EXIT_TIMEOUT).map_err(|_| Error("cannot observe credential owner exit".into()))? {
+    let handle = child
+        .process_handle()
+        .map_err(|_| Error("cannot hold credential owner process identity".into()))?;
+    if !handle
+        .wait_exited_timeout(EXIT_TIMEOUT)
+        .map_err(|_| Error("cannot observe credential owner exit".into()))?
+    {
         return err("credential owner failed to exit after its operation");
     }
-    if !child.tree_members().map_err(|_| Error("cannot verify credential owner process tree".into()))?.is_empty() {
+    if !child
+        .tree_members()
+        .map_err(|_| Error("cannot verify credential owner process tree".into()))?
+        .is_empty()
+    {
         return err("credential owner left descendant processes");
     }
-    let status = ctx(child.wait(), "cannot reap credential owner", &owner.executable)?;
+    let status = ctx(
+        child.wait(),
+        "cannot reap credential owner",
+        &owner.executable,
+    )?;
     if !status.success() {
         return err("credential owner exited unsuccessfully");
     }
@@ -200,27 +316,47 @@ fn exchange(marker: &Marker, operation: &str, child: &mut OwnedChild, auth: &str
 }
 
 pub(super) fn operate(marker: &Marker, operation: &str) -> Result<Metadata> {
-    let owner = marker.credential_owner.as_ref().ok_or_else(|| Error("credential owner binding is missing".into()))?;
+    let owner = marker
+        .credential_owner
+        .as_ref()
+        .ok_or_else(|| Error("credential owner binding is missing".into()))?;
     owner.verify()?;
     verify_location(marker)?;
     ensure_stopped(marker)?;
-    if !matches!((operation, marker.state.as_str()), ("snapshot", STATE_SNAPSHOTTING) | ("restore", STATE_RESTORING)) {
+    if !matches!(
+        (operation, marker.state.as_str()),
+        ("snapshot", STATE_SNAPSHOTTING) | ("restore", STATE_RESTORING)
+    ) {
         return err("credential owner operation does not match the restore marker state");
     }
     let token_file = owner.token_file.as_ref().unwrap();
     let auth = token::write_file(token_file)?;
     let mut command = OwnedCommand::new(&owner.executable);
     // The owner entry runs before app startup; inherit no credential-bearing environment.
-    command.env_allowlist(["SystemRoot", "WINDIR", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL"]);
-    command.command_mut().arg(OWNER_SWITCH)
+    command.env_allowlist([
+        "SystemRoot",
+        "WINDIR",
+        "TMPDIR",
+        "TMP",
+        "TEMP",
+        "LANG",
+        "LC_ALL",
+    ]);
+    command
+        .command_mut()
+        .arg(OWNER_SWITCH)
         .env("RIGHTKIT_CONTROL_SERVICE", &owner.service)
         .env(token::ENV_AUTH_FILE, token_file)
-        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     command.windows_hide();
     // macOS/Linux need an explicit parent-death tie; Windows already owns a kill-on-close Job Object.
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     command.kill_on_parent_exit(true);
-    let mut child = command.spawn().map_err(|_| Error("cannot launch installed credential owner".into()))?;
+    let mut child = command
+        .spawn()
+        .map_err(|_| Error("cannot launch installed credential owner".into()))?;
     let result = exchange(marker, operation, &mut child, &auth);
     if result.is_err() {
         // The handle owns only this launch's process group / Job Object. Never kill by name.

@@ -871,7 +871,12 @@ fn drive(
             .transpose()?;
         let managed_root = retention::managed_root_of_run(run_dir)
             .ok_or_else(|| Error("run-tests: cannot resolve managed snapshot root".to_string()))?;
-        *armed = Some(snapshot::arm_with_owner(&opts.app, cfg, &managed_root, owner)?);
+        *armed = Some(snapshot::arm_with_owner(
+            &opts.app,
+            cfg,
+            &managed_root,
+            owner,
+        )?);
         let owned = armed
             .as_ref()
             .ok_or_else(|| Error("run-tests: snapshot was not armed".to_string()))?;
