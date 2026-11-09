@@ -704,7 +704,7 @@ export function recordLockChild(child, { platform = process.platform, env = proc
 // before any work runs; its children and their descendants are created inside it. A holder process outside the job (started by `cmd /c start /b`, so it is
 // cmd's child, not Node's) creates the job, assigns the gate, keeps the only handle and exits once the job is empty, writing `drained`. A self-check run as
 // the gate's child asks Windows whether it is IN the job; under a Node parent whose job lets children leave silently it is OUT, and then nothing proves the
-// tree gone after a crash: the record says `contained: false` and a dead holder's lock stays busy (fail closed).
+// tree gone, so the lock is refused before any work runs (fail closed).
 export const WINDOWS_JOB_SCHEMA = "rightkit.snapshot-lock-job/1";
 const windowsJobName = (token) => `Local\\RightKitSnapshotLock-${token}`;
 const holderFileOf = (lockFile) => path.join(childrenDirOf(lockFile), "job-holder.json");
@@ -790,7 +790,10 @@ export function containLockHolder(lockFile, token, { ops = windowsJobOps, pid = 
       ops.sleep(50);
     }
   } finally { fs.rmSync(script, { force: true }); }
-  const record = { schema: WINDOWS_JOB_SCHEMA, job: name, contained: ops.selfCheck(name) === "IN" };
+  // Under a parent whose job lets children leave silently the gate's children are not in this job (self-check OUT): nothing would then prove its
+  // descendants gone, at its own release or after a crash, so the lock is refused before any work runs.
+  if (ops.selfCheck(name) !== "IN") throw new Error(`the gate is not contained by its job ${name} (self-check OUT: its parent's job lets children leave silently); refused before any work ran`);
+  const record = { schema: WINDOWS_JOB_SCHEMA, job: name, contained: true };
   fs.writeFileSync(jobRecordOf(lockFile), JSON.stringify(record));
   return record;
 }
@@ -818,13 +821,13 @@ export function queryJobHolder(file, { timeoutMs = 5000, sleep = sleepMs } = {})
 /**
  * What still runs in `lockFile`'s job: [] when proven empty, else one descriptive entry (counts as live). `self` is how many of the job's processes are
  * the asking holder itself (1 at its own release, 0 when judging a dead holder). No job record means no Windows job was ever made for this lock.
- * An uncontained job (self-check OUT) proves nothing after the holder dies: live for a dead holder, ignored at the holder's own release.
+ * A record that is not contained proves nothing, at the holder's own release or after it died: live (acquisition refuses a self-check OUT, so only a damaged record says so).
  */
 export function windowsJobLive(lockFile, { self = 0, query = queryJobHolder } = {}) {
   let record = null;
   try { record = JSON.parse(fs.readFileSync(jobRecordOf(lockFile), "utf8")); } catch (e) { if (e?.code === "ENOENT") return []; return [`job record unreadable (${e?.code ?? e?.message})`]; }
   if (record?.schema !== WINDOWS_JOB_SCHEMA || typeof record.job !== "string") return ["job record malformed"];
-  if (record.contained !== true) return self > 0 ? [] : [`job ${record.job} did not contain its holder's children (self-check OUT): their end cannot be proven`];
+  if (record.contained !== true) return [`job ${record.job} did not contain its holder's children: their end cannot be proven`];
   const state = readJson(holderFileOf(lockFile));
   if (state?.schema === WINDOWS_JOB_SCHEMA && state.state === "drained") return [];
   try { const { active } = query(holderFileOf(lockFile)); return active - self > 0 ? [`job ${record.job} (${active - self} process(es))`] : []; }

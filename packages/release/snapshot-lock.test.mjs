@@ -268,10 +268,12 @@ test("Windows: the new holder is put in its lock's named job before work runs; a
   const other = path.join(dir, "other.lock");
   assert.throws(() => acquireSnapshotLock(other, {}, { platform: "win32", windowsOps: fakeWindowsOps({ state: "failed", why: "AssignProcessToJobObject failed (5)" }) }), (e) => e instanceof SnapshotError && /could not contain the gate: AssignProcessToJobObject failed/.test(e.message));
   assert.equal(fs.existsSync(other), false, "no lock is kept without containment");
-  assert.equal(containLockHolder(path.join(dir, "third.lock"), "t", { ops: fakeWindowsOps({ check: "OUT" }) }).contained, false);
+  const third = path.join(dir, "third.lock");
+  assert.throws(() => acquireSnapshotLock(third, {}, { platform: "win32", windowsOps: fakeWindowsOps({ check: "OUT" }) }), (e) => e instanceof SnapshotError && /not contained by its job .*self-check OUT.*refused before any work ran/.test(e.message));
+  assert.equal(fs.existsSync(third), false, "an uncontained gate keeps no lock");
 });
 
-test("Windows: what still runs in a lock's job: a fresh count from the holder; drained or no record is none; uncontained or unanswered is live for a dead holder", () => {
+test("Windows: what still runs in a lock's job: a fresh count from the holder; drained or no record is none; uncontained (at release too) or unanswered is live", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-lock-winlive-"));
   const lockFile = path.join(dir, "repo.lock");
   assert.deepEqual(windowsJobLive(lockFile), [], "no job record: no job was made for this lock");
@@ -284,8 +286,9 @@ test("Windows: what still runs in a lock's job: a fresh count from the holder; d
   assert.match(windowsJobLive(lockFile, { query: () => { throw new Error("no answer"); } })[0], /unknown \(no answer\)/);
   fs.writeFileSync(path.join(`${lockFile}.children`, "job-holder.json"), JSON.stringify({ schema: WINDOWS_JOB_SCHEMA, state: "drained" }));
   assert.deepEqual(windowsJobLive(lockFile, { query: () => assert.fail("a drained job needs no query") }), []);
-  const out = path.join(dir, "out.lock"); containLockHolder(out, "o", { ops: fakeWindowsOps({ check: "OUT" }) });
-  assert.match(windowsJobLive(out, at(0))[0], /self-check OUT/); assert.deepEqual(windowsJobLive(out, { self: 1, ...at(5) }), []);
+  const out = path.join(dir, "out.lock"); containLockHolder(out, "o", { ops: fakeWindowsOps() });
+  fs.writeFileSync(path.join(`${out}.children`, "job.json"), JSON.stringify({ schema: WINDOWS_JOB_SCHEMA, job: "j", contained: false }));
+  assert.match(windowsJobLive(out, at(0))[0], /did not contain/); assert.match(windowsJobLive(out, { self: 1, ...at(1) })[0], /did not contain/, "an uncontained record never authorizes the holder's own release");
   fs.writeFileSync(path.join(`${out}.children`, "job.json"), "{");
   assert.equal(liveLockChildren(out, { platform: "win32" }).length, 1, "an unreadable record is live");
 });
