@@ -1,7 +1,7 @@
 import { discoverBrokerSocket, resolveManagedRoots } from './managed-roots.mjs';
 import { spawnSync } from "./background-process.mjs";
 import { createHash } from "node:crypto";
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, lstatSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, lstatSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { buildLaunch, createNativeRunner } from "./build-launch.mjs";
 import { carriedOutputDir, carriedOutputDirsSince } from "./stage-seam.mjs";
 import { lockedTauriArgs } from "./tauri-locked.mjs";
@@ -225,6 +225,7 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
         installedExe: () => path.resolve(root, descriptor.expectedInstalledPath),
       } });
       assertDevSelfCheck({ config, paths: [path.resolve(root, descriptor.expectedInstalledPath)] });
+      writeSignedInPlaceReport(env, authenticode.stageOutputs);
       return { built: true, installed: true, ...(staged.length ? { staged } : {}), authenticode };
     }
     if (target.install.kind === ASSEMBLED_APP_KIND) {
@@ -602,4 +603,20 @@ export async function main(args = process.argv.slice(2)) {
 const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
 if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   main().catch((error) => { console.error(`right-release dev: ${error.code ? `[${error.code}] ` : ""}${error.message}`); process.exitCode = 1; });
+}
+
+/** The report variable a door run names for right-release dev: where the signer's in-place rewrites of staged files are reported (rightkit#1555). */
+export const SIGNED_IN_PLACE_REPORT_ENV = "RIGHTKIT_SIGNED_IN_PLACE_REPORT";
+export const SIGNED_IN_PLACE_SCHEMA = "rightkit.signed-in-place/1";
+/**
+ * A door run (the gate sets RIGHTKIT_SIGNED_IN_PLACE_REPORT to a file beside, never inside, its snapshot) learns which staged files the
+ * Authenticode step rewrote in place and from which bytes to which: `{ schema, files: [{ path (absolute), sha256Before, sha256After }] }`.
+ * Without the variable (a manual run) nothing is written.
+ */
+export function writeSignedInPlaceReport(env, stageOutputs) {
+  const file = env?.[SIGNED_IN_PLACE_REPORT_ENV];
+  if (typeof file !== "string" || !path.isAbsolute(file)) return null;
+  const files = (stageOutputs?.files ?? []).filter((f) => f?.kind === "signed-in-place").map((f) => ({ path: path.resolve(f.path), sha256Before: f.sha256Before, sha256After: f.sha256 }));
+  writeFileSync(file, `${JSON.stringify({ schema: SIGNED_IN_PLACE_SCHEMA, files }, null, 2)}\n`, { mode: 0o600 });
+  return file;
 }

@@ -393,3 +393,29 @@ test("appRootOf finds the nested app on Windows whatever the letter case of the 
   const exists = (f) => f.replace(/\\/g, "/").toLowerCase() === "d:/claude/heardright/tauri-app-next/right-release.config.mjs";
   assert.equal(appRootOf({ root: "D:/Claude/heardright", cwd: "D:\\claude\\heardright\\tauri-app-next", exists, platform: "win32" }).appDir, "tauri-app-next");
 });
+
+test("a staged entry re-signed in place is admitted only from its staged bytes to the reported signed bytes (rightkit#1555)", async () => {
+  const { signedInPlaceAdmits, readSignedInPlaceReport } = await import("./bin/rightkit-gate.mjs");
+  const { writeSignedInPlaceReport, SIGNED_IN_PLACE_REPORT_ENV } = await import("./development.mjs");
+  const a = "a".repeat(64), b = "b".repeat(64), c = "c".repeat(64);
+  const was = { path: "src-tauri/binaries/engine.exe", kind: "staged", sha256: a, size: 10 };
+  assert.equal(signedInPlaceAdmits(was, { sha256: b }, { sha256Before: a, sha256After: b }), true);
+  assert.equal(signedInPlaceAdmits(was, { sha256: c }, { sha256Before: a, sha256After: b }), false, "bytes changed again after signing");
+  assert.equal(signedInPlaceAdmits(was, { sha256: b }, { sha256Before: c, sha256After: b }), false, "signed from other bytes than staged");
+  assert.equal(signedInPlaceAdmits(was, { sha256: b }, undefined), false, "not reported");
+  assert.equal(signedInPlaceAdmits(was, undefined, { sha256Before: a, sha256After: b }), false, "removed");
+  // The report round trip: the dev step writes absolute paths; the gate reads snapshot-relative ones and refuses a path outside the snapshot.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-signed-"));
+  const snap = path.join(dir, "snap");
+  fs.mkdirSync(path.join(snap, "src-tauri", "binaries"), { recursive: true });
+  const report = path.join(dir, "snap.signed-in-place.json");
+  assert.equal(writeSignedInPlaceReport({}, { files: [] }), null, "no variable, no report");
+  writeSignedInPlaceReport({ [SIGNED_IN_PLACE_REPORT_ENV]: report }, { files: [{ path: path.join(snap, "src-tauri", "binaries", "engine.exe"), kind: "signed-in-place", sha256Before: a, sha256: b }] });
+  const map = readSignedInPlaceReport(report, snap);
+  assert.deepEqual([...map.entries()], [["src-tauri/binaries/engine.exe", { sha256Before: a, sha256After: b }]]);
+  assert.equal(readSignedInPlaceReport(path.join(dir, "absent.json"), snap).size, 0);
+  fs.writeFileSync(report, JSON.stringify({ schema: "rightkit.signed-in-place/1", files: [{ path: path.join(dir, "outside.exe"), sha256Before: a, sha256After: b }] }));
+  assert.throws(() => readSignedInPlaceReport(report, snap), /not inside the snapshot/);
+  fs.writeFileSync(report, JSON.stringify({ schema: "rightkit.signed-in-place/1", files: [{ path: path.join(snap, "x.exe"), sha256Before: a }] }));
+  assert.throws(() => readSignedInPlaceReport(report, snap), /before\/after sha256/);
+});

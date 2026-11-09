@@ -341,6 +341,8 @@ export function installTauriAuthenticode({ descriptor: raw, debugDir, appRoot, r
     if (kind === "tracked") refuse("TAURI_AUTHENTICODE_TRACKED_RESOURCE", `${file} is tracked by git, and signing it in place would change the commit's tree: stage it (or git-ignore it) the way release stages it`, { file });
     if (kind !== "ignored") refuse("TAURI_AUTHENTICODE_TRACKED_RESOURCE", `${file} is not a git-ignored stage output (${kind ?? "unknown"}): it cannot be signed in place`, { file, state: kind ?? "unknown" });
   }
+  // The bytes each in-place copy had before signing: the gate admits a staged entry's change only from exactly these bytes to the signed ones.
+  const inPlaceBefore = new Map(inPlace.map((file) => [file, sha256(file)]));
   // 2. The marker reaches its final value before any byte is signed.
   step("patch-marker", () => patchMarker(exe));
   // 3. Sign and verify the exe and every copy of every sidecar, and record each digest.
@@ -403,7 +405,7 @@ export function installTauriAuthenticode({ descriptor: raw, debugDir, appRoot, r
   return {
     order, exe, installer, installed, payload,
     // In-place signed stage outputs (git-ignored): the gate's ledger walk attributes them from `files` (stage-ledger.mjs reportedPaths); paths are absolute here, the caller makes them app-relative.
-    stageOutputs: { files: inPlace.map((file) => ({ path: file.replaceAll("\\", "/"), kind: "signed-in-place", sha256: sha256(file) })) },
+    stageOutputs: { files: inPlace.map((file) => ({ path: file.replaceAll("\\", "/"), kind: "signed-in-place", sha256Before: inPlaceBefore.get(file), sha256: sha256(file) })) },
     sidecars: installedSidecars.map((item) => ({ name: item.sidecar.name, copies: item.sidecar.copies.map((copy) => ({ role: copy.role, path: copy.path, sha256After: copy.sha256After })), installed: { path: item.path, sha256: item.sha256 } })),
     signing: { subject: SIGN_SUBJECT, files: [...signedExe, ...signedInstaller].map((item) => ({ file: item.file, sha256Before: item.before?.sha256, sha256After: item.after?.sha256, subject: item.subject })) },
   };

@@ -2328,11 +2328,35 @@ export async function openSnapshotStage({ o, ds, root, stage, tag = "rightkit-ga
 }
 
 /**
+ * rightkit#1555: whether a staged ledger entry `was` may now be `now` because the Authenticode step signed it in place: the signer's report names
+ * the path, its digest before signing is the staged digest, and its digest after signing is the digest on disk now. Anything else is still a
+ * change of an immutable staged entry.
+ */
+export function signedInPlaceAdmits(was, now, reported) {
+  return Boolean(was && now && reported && typeof was.sha256 === "string" && reported.sha256Before === was.sha256 && reported.sha256After === now.sha256);
+}
+
+/** The signer's report as `Map(snapshot-relative posix path -> { sha256Before, sha256After })`; a path outside the snapshot or a malformed report is refused. */
+export function readSignedInPlaceReport(file, snapshotDir, { readFile = (f) => fs.readFileSync(f, "utf8"), exists = fs.existsSync } = {}) {
+  const out = new Map();
+  if (!exists(file)) return out;
+  const report = JSON.parse(readFile(file));
+  if (report?.schema !== "rightkit.signed-in-place/1" || !Array.isArray(report.files)) throw new Error(`${file} is not a rightkit.signed-in-place/1 report`);
+  for (const f of report.files) {
+    const rel = typeof f?.path === "string" ? path.relative(snapshotDir, path.resolve(f.path)) : "";
+    if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) throw new Error(`${file} names ${f?.path}, which is not inside the snapshot ${snapshotDir}`);
+    if (!/^[0-9a-f]{64}$/.test(f.sha256Before ?? "") || !/^[0-9a-f]{64}$/.test(f.sha256After ?? "")) throw new Error(`${file}: ${rel} lacks its before/after sha256`);
+    out.set(rel.split(path.sep).join("/"), { sha256Before: f.sha256Before, sha256After: f.sha256After });
+  }
+  return out;
+}
+
+/**
  * The end of a stage: what its children wrote may remain only as ledger entries. A staged entry is immutable for the rest of the run
  * (the bytes the compile read are the bytes sealed); a generated entry may be rewritten or removed and is re-recorded here. Returns
  * `{ ok, entries }` and replaces the door's ledger with the entries just recorded.
  */
-export async function closeSnapshotStage({ o, ds, root, stage, step = "stage", tag = "rightkit-gate:" }) {
+export async function closeSnapshotStage({ o, ds, root, stage, step = "stage", tag = "rightkit-gate:", signedInPlace = new Map() }) {
   if (!ds.lock.held()) { o.err(`${tag} RK_CHECK_ERROR: [${stage}] the snapshot lock ${ds.lock.token} is no longer held`); return { ok: false, entries: ds.ledger?.entries ?? [] }; }
   const { entryKey } = await import("../stage-ledger.mjs");
   let walked;
@@ -2345,10 +2369,12 @@ export async function closeSnapshotStage({ o, ds, root, stage, step = "stage", t
   // of the same config, every file it names present with that digest; the files it names become this stage's staged entries.
   const restaged = stage === "package" ? await restagedSidecars({ o, ds, prior, now }) : { paths: new Set(), receipts: new Set(), producers: new Set(), problems: [] };
   problems.push(...restaged.problems);
-  for (const [p, e] of prior) if (e.kind === "staged" && !restaged.paths.has(p) && !restaged.receipts.has(p) && !(restaged.producers.has(e.producer?.step) && !now.has(p)) && (!now.has(p) || entryKey(now.get(p)) !== entryKey(e))) problems.push(`${p} is a staged sidecar output and ${now.has(p) ? "changed" : "was removed"} after it was staged (a staged entry is immutable for the door run)`);
+  // rightkit#1555: a staged entry the Authenticode step re-signed in place is admitted only from exactly its staged bytes to exactly the signed bytes it reported.
+  const signedOk = (p, e) => signedInPlaceAdmits(e, now.get(p), signedInPlace.get(p));
+  for (const [p, e] of prior) if (e.kind === "staged" && !restaged.paths.has(p) && !restaged.receipts.has(p) && !signedOk(p, e) && !(restaged.producers.has(e.producer?.step) && !now.has(p)) && (!now.has(p) || entryKey(now.get(p)) !== entryKey(e))) problems.push(`${p} is a staged sidecar output and ${now.has(p) ? "changed" : "was removed"} after it was staged (a staged entry is immutable for the door run)`);
   // Evidence (Pulse Windows dev, 2026-11-06): for each staged entry that changed, its sha256 then and now; for a receipt, the fields that differ.
   for (const [p, e] of prior) {
-    if (e.kind !== "staged" || !now.has(p) || entryKey(now.get(p)) === entryKey(e) || restaged.paths.has(p) || restaged.receipts.has(p)) continue;
+    if (e.kind !== "staged" || !now.has(p) || entryKey(now.get(p)) === entryKey(e) || restaged.paths.has(p) || restaged.receipts.has(p) || signedOk(p, e)) continue;
     o.err(`${tag} staged-change evidence: ${p}: sha256 ${String(e.sha256).slice(0, 16)} at staging (${e.size} bytes) -> ${String(now.get(p).sha256).slice(0, 16)} now (${now.get(p).size} bytes)`);
     const before = ds.stagedReceipts?.get(p);
     if (before) {
@@ -3661,9 +3687,14 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
       if (ds && !(await closeSnapshotStage({ o, ds, root, stage: to, step: to, tag })).ok) { o.err(`${tag} --to ${to} stopped: the result covers no known bytes`); return 2; }
       return rendered === 0 && carriedRendered ? 0 : 1;
     }
-    const r = (o.spawnInherit ?? inheritLaunch)(process.execPath, [cli, to, ...passthrough], { cwd: source ? snapshotAppRootOf(ds.path, appDir) : appRoot, env: childEnv });
+    // rightkit#1555: beside (never inside) the snapshot, a fixed name per snapshot, so no run-specific value reaches a key.
+    const signedReport = ds ? `${ds.path}.signed-in-place.json` : null;
+    if (signedReport) { try { fs.rmSync(signedReport, { force: true }); } catch { /* a stale report is refused below by its digests */ } }
+    const r = (o.spawnInherit ?? inheritLaunch)(process.execPath, [cli, to, ...passthrough], { cwd: source ? snapshotAppRootOf(ds.path, appDir) : appRoot, env: signedReport ? { ...childEnv, RIGHTKIT_SIGNED_IN_PLACE_REPORT: signedReport } : childEnv });
     const carriedOk = await carrier.finish({ stage: to });
-    if (ds && !(await closeSnapshotStage({ o, ds, root, stage: to, step: to, tag })).ok) { o.err(`${tag} --to ${to} stopped: the result covers no known bytes`); return 2; }
+    let signedInPlace = new Map();
+    if (ds) { try { signedInPlace = readSignedInPlaceReport(signedReport, ds.path); } catch (e) { o.err(`${tag} RK_CHECK_ERROR: [${to}] ${e.message}`); return 2; } }
+    if (ds && !(await closeSnapshotStage({ o, ds, root, stage: to, step: to, tag, signedInPlace })).ok) { o.err(`${tag} --to ${to} stopped: the result covers no known bytes`); return 2; }
     return r.status === 0 && carriedOk ? 0 : 1;
   } finally { endRun(run); carrier.cleanup(); try { pinMulti?.cleanup?.(); } catch { /* the wrapper map is the gate's own temp directory */ } }
 }
