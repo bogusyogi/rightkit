@@ -14,8 +14,9 @@
 //   gate.mjs --select "<tokens>" [--steps lock,fmt,test,closure,scans] [--base <sha>]
 // Tokens: rust:<crate> (tests, clippy and every feature row of a crate), rust-check:<crate> (a dependent that must still compile),
 // npm:<dir>, root:<suite id>, swift:<package id>. The diff and the last-green marker are not read: the plan already applied them.
-// Every crates/<x> is its own Cargo workspace with its own Cargo.lock (rightkit#1285): there is no root Cargo.toml or Cargo.lock, and every
-// cargo command below runs with cwd crates/<x>. A change to a crate selects it (tested) and every crate that path-depends on it (compiled).
+// RightKit is one Cargo workspace with one root Cargo.lock (rightkit#1505); a crate that declares its own `[workspace]` (crates/rightkit-mesh-ffi)
+// keeps its own root and lock. The class A scans run in the workspace that owns each selected crate (crate-scan-workspaces.mjs): "." for a
+// root crate, its own directory otherwise. A change to a crate selects it (tested) and every crate that path-depends on it (compiled).
 // `--steps` picks what runs (default: all): lock = each crate's Cargo.lock check, fmt = rustfmt per crate, test = tests/clippy/feature rows/npm/root/Swift,
 // closure = compile the rust-check dependents, scans = the class A deterministic scans over the changed paths (every tracked
 // file without a --base). A job without the scans step needs RK_SCANS_JOB_RESULT=success from the hygiene job. Known-red and the pass/fail report work exactly as in a diff run.
@@ -42,6 +43,7 @@ import { crateWorkspaces, pathDependencies, reverseDependents } from "../../pack
 import { crossCompileEnv, crossTargetsFor, oneOutput } from "../../packages/release/cross-targets.mjs";
 import { checkArgs, clippyArgs, planScans, runScans, scanDeferrals, scanFailures, scanToolPolicyFromPipeline } from "../../packages/release/deterministic-scans.mjs";
 import { scanGatePassed } from "./scan-receipt.mjs";
+import { scanRustUnits } from "./crate-scan-workspaces.mjs";
 import { judgeUnit, mergeCounts, ResultScanner, TEST_COMMAND } from "./test-results.mjs";
 import { dependentClosureEvidence } from "./gate-evidence.mjs";
 import { resolveDispatchRequest } from "./shards.mjs";
@@ -539,9 +541,15 @@ function scanPaths(selection) {
   const paths = new Set();
   if (selection.base) for (const f of git("diff", "--name-only", "--diff-filter=ACMR", selection.base, "HEAD").stdout.split("\n").filter(Boolean)) paths.add(f);
   const crateDirs = new Map(rustMembers(selection.config).map((m) => [m.name, m.dir]));
+  const crateWs = new Map(scanRustUnits(ROOT, workspaces()).map((u) => [u.crate, u.cargoDir]));
   const rustNames = [...new Set([...selection.rust.test, ...selection.rust.check])];
-  // Each crate carries its own lock and deny policy (rightkit#1285), so each selected crate contributes its own.
-  for (const name of rustNames) { const dir = crateDirs.get(name); if (dir) { for (const file of ["Cargo.toml", "CHANGELOG.md", "Cargo.lock", "deny.toml"]) paths.add(`${dir}/${file}`); } }
+  // A crate's manifest and changelog always count. Its own lock and deny policy count only when the crate is its own Cargo workspace;
+  // a crate of the root workspace reaches the root's cargo-metadata, cargo-deny and cargo-audit through its Cargo.toml (rightkit#1505).
+  for (const name of rustNames) {
+    const dir = crateDirs.get(name); if (!dir) continue;
+    const own = crateWs.get(name) === dir;
+    for (const file of own ? ["Cargo.toml", "CHANGELOG.md", "Cargo.lock", "deny.toml"] : ["Cargo.toml", "CHANGELOG.md"]) paths.add(`${dir}/${file}`);
+  }
   for (const dir of selection.npm.test) paths.add(`${dir}/package.json`);
   return [...paths];
 }
@@ -557,7 +565,7 @@ async function scansGate(selection) {
   // The npm units are the workspace's (npmPackages honours pnpm-workspace.yaml exclusions): a parked package is never installed, so a
   // scan planned for it (tsc on packages/sync-worker) could never pass. Unit names stay the directory names the scan ids use.
   const npmUnits = npmPackages().map((p) => ({ name: path.basename(p.dir), dir: p.dir }));
-  const planned = planScans({ changed: scanPaths(selection), contentRoot: ROOT, liveRoot: ROOT, includeTests: false, cargoCommand: ["cargo"], rustUnits: workspaces().map((w) => ({ name: w.name, dir: w.dir, cargoDir: w.dir, crate: w.name })), npmUnits, readBytes: (f) => fs.readFileSync(f) });
+  const planned = planScans({ changed: scanPaths(selection), contentRoot: ROOT, liveRoot: ROOT, includeTests: false, cargoCommand: ["cargo"], rustUnits: scanRustUnits(ROOT, workspaces()), npmUnits, readBytes: (f) => fs.readFileSync(f) });
   // generated-docs needs a trusted root to run the generator, which this job (one checkout of the candidate) cannot provide, so the
   // planner can only defer it here, and a deferred scan is never a pass. The same check runs in the plan job every job here needs:
   // scripts/preflight.mjs rule G10 runs scripts/generate-index.mjs --check. So this job does not plan the deferred copy.
