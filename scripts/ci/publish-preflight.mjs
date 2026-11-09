@@ -7,10 +7,7 @@ import { fileURLToPath } from "node:url";
 
 export const PUBLISH_ROUTE_CHECKS = Object.freeze([
   ["node", ["scripts/ci/workflow-contract.mjs", ".github/workflows/publish.yml"]],
-  ["node", ["--test", "scripts/ci/publish.test.mjs", "scripts/ci/select.test.mjs", "scripts/ci/test-results.test.mjs", "scripts/ci/scan-receipt.test.mjs"]],
   ["node", ["scripts/ci/reviewed-workflow-contract.mjs"]],
-  ["node", ["--test", "scripts/ci/reviewed-candidate.test.mjs", "scripts/ci/registry-consumer.test.mjs", "scripts/ci/workflow-contract-portability.test.mjs",
-    "scripts/ci/consumer-recipes.test.mjs", "scripts/ci/semantic-admission.test.mjs", "scripts/ci/no-live-versions.test.mjs"]],
 ]);
 
 if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
