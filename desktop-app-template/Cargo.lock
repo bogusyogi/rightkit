@@ -84,9 +84,9 @@ dependencies = [
 
 [[package]]
 name = "async-executor"
-version = "1.14.0"
+version = "1.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c96bf972d85afc50bf5ab8fe2d54d1586b4e0b46c97c50a0c9e71e2f7bcd812a"
+checksum = "f426a31126c735126297bc5ea7a521263c9faff4f63ca415267ee625651c4f37"
 dependencies = [
  "async-task",
  "concurrent-queue",
@@ -2271,9 +2271,9 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.38.2"
+version = "0.39.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1d20bef17f513b9b3004532233187769cd072d790971f4e4da0e346eb6401e8"
+checksum = "14a5f01b87b92705d07b433c06f96cbc764637d81a0bffb5734ce17cf0f9a2b3"
 dependencies = [
  "cc",
  "pkg-config",
@@ -3278,7 +3278,7 @@ dependencies = [
  "rightkit-child-process",
  "rightkit-crash",
  "rightkit-credentials",
- "rightkit-daemon",
+ "rightkit-daemon 0.5.1",
  "rightkit-device",
  "rightkit-fs",
  "rightkit-http",
@@ -3312,7 +3312,7 @@ dependencies = [
 name = "rightapp-protocol"
 version = "0.1.0"
 dependencies = [
- "rightkit-daemon",
+ "rightkit-daemon 0.5.1",
  "rightkit-fs",
  "rightkit-job-queue",
 ]
@@ -3323,16 +3323,16 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "30bc0fa579c8b707fddf9768bde4c6e1df74a699afb8011e4d79cea0e7f7a051"
 dependencies = [
- "rightkit-daemon",
+ "rightkit-daemon 0.4.0",
  "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "rightkit-app-settings"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15ad1401a796f00d3f026b1eee3725545d8f800fc3f291ed36c8fa33061c13ce"
+checksum = "0f3caf7d8a8ece602adebf488a29207b467ad686316c0236654a394b9ef53967"
 dependencies = [
  "rightkit-fs",
  "serde",
@@ -3342,9 +3342,9 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.6.1"
+version = "0.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "157af01f8f34e38dc50901e558c09c5c47380de43cde6d46a28d28cd75e615c0"
+checksum = "8159861f35bbe8519b58cda30a633177bd4d03f9f0088391d85a9068e02de6b9"
 dependencies = [
  "windows",
 ]
@@ -3374,9 +3374,9 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.4.2"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d6eae05bf2b22bde1bf2b6c0ddbdeb072f12a07bfe3a3037c754f4ef95c22e7"
+checksum = "533e3f2ee3bc3d5d713cd7925d66035eb41536874977847584ec0be72f852732"
 dependencies = [
  "getrandom 0.4.3",
  "secret-service",
@@ -3404,10 +3404,26 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-db"
-version = "0.5.2"
+name = "rightkit-daemon"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b9002971b2d1fd7c8f0e3a38ba3c884c16c2b414185a5f3f71ab2046fa30f4e"
+checksum = "0ed3a8f1b257e36398d6d5d32d0b35ed5d3e23a730580fdec56ae61d8b151645"
+dependencies = [
+ "getrandom 0.4.3",
+ "rightkit-child-process",
+ "rightkit-fs",
+ "rightkit-sidecar",
+ "serde",
+ "serde_json",
+ "subtle",
+ "windows",
+]
+
+[[package]]
+name = "rightkit-db"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fc2f7ad2f140de439380653f5f7db9019d9e3596355c67bceab18c64e3a9ae5"
 dependencies = [
  "libc",
  "rightkit-fs",
@@ -3418,33 +3434,33 @@ dependencies = [
 
 [[package]]
 name = "rightkit-device"
-version = "0.4.0"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "312a6ec60b64f4335cb3cf2eb863513a9f495f6ebb9afabc3eb1b66b5a7d220f"
+checksum = "7dd03f1837ef7560c6afce0d2f224fa179430cc3b4e41d169fa74fcdfd683566"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-credentials",
  "rightkit-license",
+ "serde",
 ]
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.7"
+version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65534c2f90c2cc8d218c249edd5410a2216d2682d74bf92e42f4980d050b81d1"
+checksum = "92607707d04e49b05dfea08e869a9b9d72fd49d2f87f979b9aab1606f956b617"
 dependencies = [
  "libc",
- "serde",
- "serde_json",
  "sha2 0.11.1",
  "thiserror 2.0.21",
+ "zeroize",
 ]
 
 [[package]]
 name = "rightkit-http"
-version = "0.3.8"
+version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7764a1e201a6ea18222ff936e4ee36024c08fa79c0852bbf73eed6d94c2a4837"
+checksum = "5011b57437a3c15b47b969b62dbbb018a13b935f48043dc0910be330f64214bd"
 dependencies = [
  "getrandom 0.4.3",
  "serde",
@@ -3470,9 +3486,9 @@ dependencies = [
 
 [[package]]
 name = "rightkit-license"
-version = "0.2.5"
+version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf03922f49f72ae08868d54df3e89419ed8e4fa8021b735636a3fb3db80a91b4"
+checksum = "9a8c4eca9c5b1ac71d484cb6764f493f10b4373ca2036b8480306357b807d840"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
@@ -3486,9 +3502,9 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.5"
+version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d00b6f923404ec52f3c42b6c1fc17da351d92a8c479208540716ef00ee4af19"
+checksum = "3a996a301d95207353541a4595ce2cb0e0557e770e66da5103fed4027420ac13"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -3501,21 +3517,22 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.9.1"
+version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71ff9d8d808d7972e6a17437b1f2a17a27808346f51ad1eb2edf663e1da1be88"
+checksum = "78bcfa58e295a63e69139b8b242989a979a135908c65058d4b6b62a5bcf3b5fc"
 dependencies = [
  "getrandom 0.4.3",
  "png",
  "rightkit-automation",
  "rightkit-child-process",
- "rightkit-daemon",
+ "rightkit-credentials",
+ "rightkit-daemon 0.5.1",
  "rightkit-fs",
  "rightkit-sidecar",
  "serde",
  "serde_json",
  "tauri",
- "toml 0.9.12+spec-1.1.0",
+ "toml 1.1.8+spec-1.1.0",
  "webview2-com",
  "windows",
  "windows-sys 0.61.2",
@@ -3535,9 +3552,9 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tauri-shell"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf93590c6a435d62c78577982cdac954bc9a6087adde2b1c89b82bae64ebe33d"
+checksum = "c8eab315d9fa1236242609a6e23c0577e3c8be3fdc3db29bbf98dcdc99c82aa7"
 dependencies = [
  "block2",
  "objc2",
@@ -3546,7 +3563,7 @@ dependencies = [
  "objc2-user-notifications",
  "rightkit-app-settings",
  "rightkit-child-process",
- "rightkit-daemon",
+ "rightkit-daemon 0.5.1",
  "rightkit-license",
  "rightkit-logs",
  "serde",
@@ -3573,9 +3590,9 @@ dependencies = [
 
 [[package]]
 name = "rusqlite"
-version = "0.40.2"
+version = "0.41.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23f2a97da3e3873c73cb2a2e71b35c40ff95e0b1eefa8d72d8499a6928c3b5b3"
+checksum = "da9bba6f3506135e120a6586df05be18b48d18896600646a4bec8f993d91a594"
 dependencies = [
  "bitflags 2.13.2",
  "fallible-iterator",
@@ -4826,21 +4843,6 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "0.9.12+spec-1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf92845e79fc2e2def6a5d828f0801e29a2f8acc037becc5ab08595c7d5e9863"
-dependencies = [
- "indexmap 2.14.2",
- "serde_core",
- "serde_spanned 1.1.2",
- "toml_datetime 0.7.5+spec-1.1.0",
- "toml_parser",
- "toml_writer",
- "winnow 0.7.15",
-]
-
-[[package]]
-name = "toml"
 version = "1.1.8+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20489e00e4d8741d6be680764cc12e270655e375a20d1011e844a9c3379e678d"
@@ -4861,15 +4863,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cda73e2f1397b1262d6dfdcef8aafae14d1de7748d66822d3bfeeb6d03e5e4b"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "toml_datetime"
-version = "0.7.5+spec-1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92e1cfed4a3038bc5a127e35a2d360f145e1f4b971b551a2ba5fd7aedf7e1347"
-dependencies = [
- "serde_core",
 ]
 
 [[package]]
@@ -5763,12 +5756,6 @@ checksum = "f593a95398737aeed53e489c785df13f3618e41dbcd6718c6addbf1395aa6876"
 dependencies = [
  "memchr",
 ]
-
-[[package]]
-name = "winnow"
-version = "0.7.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
 
 [[package]]
 name = "winnow"

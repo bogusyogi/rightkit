@@ -33,28 +33,28 @@ tauri-plugin-updater = "=2.14.1"
 # M1 window host: rightkit-tauri-shell hosts the window (hardened webview, window state, single instance, watchdog). `logs`
 # registers the renderer log commands @rightkit/logs invokes (M15); `license` (with `host-services`) registers the settings,
 # legal-receipt and licence commands under one caller policy (src/services.rs). Its default `wv2-0_39` matches Tauri 2.12.
-rightkit-tauri-shell = { version = "=0.6.0", features = ["logs", "license"] }
+rightkit-tauri-shell = { version = "=0.7.0", features = ["logs", "license"] }
 # M1 device identity (rightkit-device `credentials` keeps it in the OS credential store, M11).
-rightkit-device = { version = "=0.4.0", features = ["credentials"] }
-rightkit-credentials = "=0.4.2"
+rightkit-device = { version = "=0.4.2", features = ["credentials"] }
+rightkit-credentials = "=0.5.0"
 # M3 engine supervision: EngineSupervisor over the owned sidecar (restart budget, per-call deadline, no replay).
 rightkit-job-queue = { version = "=0.5.1", default-features = false, features = ["supervisor"] }
 rightkit-child-process = "=0.5.7"
 # M6 the release-or-test decision (rightkit_daemon::mode) is reached through rightapp-protocol; M8 safe file writes likewise.
-rightkit-daemon = "=0.4.0"
-rightkit-fs = { version = "=0.4.7", features = ["fs"] }
+rightkit-daemon = "=0.5.1"
+rightkit-fs = { version = "=0.4.12", features = ["fs"] }
 # M16 crash reporting: the window host installs the process hook first thing.
 rightkit-crash = { version = "=0.3.6", default-features = false }
 # M15 logging (the shell's `logs` feature brings it in; declared so the owner is visible here).
-rightkit-logs = { version = "=0.3.5", default-features = false }
+rightkit-logs = { version = "=0.3.7", default-features = false }
 # M10 settings: the settings document and the legal receipt's document (src/services.rs).
-rightkit-app-settings = { version = "=0.3.0", default-features = false }
+rightkit-app-settings = { version = "=0.3.1", default-features = false }
 # M12/M13 licence: the native licence client (`client`), disabled until the app registers its appKey, host and key.
-rightkit-license = { version = "=0.2.5", default-features = false, features = ["client"] }
+rightkit-license = { version = "=0.2.8", default-features = false, features = ["client"] }
 # M17 HTTP: the app's first-party client, pinned to the licence host.
-rightkit-http = { version = "=0.3.8", default-features = false }
+rightkit-http = { version = "=0.3.9", default-features = false }
 # M20 QA: the in-app control server, compiled only by the off-by-default `qa-native` feature below.
-rightkit-qa = { version = "=0.9.1", default-features = false, optional = true }
+rightkit-qa = { version = "=0.10.4", default-features = false, optional = true }
 
 [features]
 default = []

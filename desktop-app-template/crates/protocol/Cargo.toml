@@ -13,6 +13,6 @@ default = []
 # rightkit-job-queue: the serve contract's error types (JobError, JobResult).
 rightkit-job-queue = { version = "=0.5.1", default-features = false }
 # rightkit-daemon: the release-or-test decision and the roots every store must come through (M6).
-rightkit-daemon = "=0.4.0"
+rightkit-daemon = "=0.5.1"
 # rightkit-fs: owner-only directory creation (M8).
-rightkit-fs = { version = "=0.4.7", features = ["fs"] }
+rightkit-fs = { version = "=0.4.12", features = ["fs"] }
