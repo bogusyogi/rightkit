@@ -1083,16 +1083,14 @@ mod tests {
     // a vowel frame has tilt <= -1 and rest >= 1. A vowel entry counts from frame 74 (80 - 6).
     const ANCHOR: usize = 80;
 
-    fn d4_energy(
-        hiss: &[std::ops::Range<usize>],
-        vowel: &[std::ops::Range<usize>],
-    ) -> Vec<(f32, f32)> {
+    /// `hiss` and `vowel` are `(start, end)` frame pairs (end exclusive).
+    fn d4_energy(hiss: &[(usize, usize)], vowel: &[(usize, usize)]) -> Vec<(f32, f32)> {
         let mut frames = vec![(0.0_f32, 0.0_f32); 100]; // (high, rest)
-        for range in hiss {
-            frames[range.clone()].fill((3.0, 0.0));
+        for &(start, end) in hiss {
+            frames[start..end].fill((3.0, 0.0));
         }
-        for range in vowel {
-            frames[range.clone()].fill((0.0, 3.0));
+        for &(start, end) in vowel {
+            frames[start..end].fill((0.0, 3.0));
         }
         frames
             .into_iter()
@@ -1111,14 +1109,14 @@ mod tests {
     #[test]
     fn d4_cuts_at_the_hiss_that_enters_the_keyword_vowel() {
         // Hiss 70..=75, vowel 76..: entry 76 >= 74, run 6 >= 4 frames: cut at 70.
-        let energy = d4_energy(&[70..76], &[76..82]);
+        let energy = d4_energy(&[(70, 76)], &[(76, 82)]);
         assert_eq!(d4(&energy, ANCHOR, &FricativeParams::DEFAULT), Ok(70));
     }
 
     #[test]
     fn d4_ignores_a_preceding_word_hiss_followed_by_silence() {
         // Hiss 60..=65, silence, vowel only at 78: no vowel within one frame of the run.
-        let energy = d4_energy(&[60..66], &[78..82]);
+        let energy = d4_energy(&[(60, 66)], &[(78, 82)]);
         assert_eq!(
             d4(&energy, ANCHOR, &FricativeParams::DEFAULT),
             Err(FricativeAbstain::NoTransition)
@@ -1127,7 +1125,7 @@ mod tests {
 
     #[test]
     fn d4_abstains_on_a_non_finite_frame_between_hiss_and_vowel() {
-        let mut energy = d4_energy(&[70..75], &[76..82]);
+        let mut energy = d4_energy(&[(70, 75)], &[(76, 82)]);
         energy[75] = (f32::NAN, f32::NAN);
         assert_eq!(
             d4(&energy, ANCHOR, &FricativeParams::DEFAULT),
@@ -1138,7 +1136,7 @@ mod tests {
     #[test]
     fn d4_abstains_when_two_runs_qualify() {
         // D 20 -> 2 frames. Runs 72..=73 (entry 74) and 76..=77 (entry 78) both qualify.
-        let energy = d4_energy(&[72..74, 76..78], &[74..76, 78..80]);
+        let energy = d4_energy(&[(72, 74), (76, 78)], &[(74, 76), (78, 80)]);
         let params = FricativeParams {
             min_run_ms: 20,
             ..FricativeParams::DEFAULT
@@ -1150,14 +1148,14 @@ mod tests {
     fn d4_selects_the_valid_run_beside_a_short_one() {
         // Short run 74 (1 frame, entry 75) is set aside; run 76..=79 (4 frames, entry 80)
         // qualifies: cut at 76.
-        let energy = d4_energy(&[74..75, 76..80], &[75..76, 80..81]);
+        let energy = d4_energy(&[(74, 75), (76, 80)], &[(75, 76), (80, 81)]);
         assert_eq!(d4(&energy, ANCHOR, &FricativeParams::DEFAULT), Ok(76));
     }
 
     #[test]
     fn d4_rejects_a_30_ms_hiss_at_a_40_ms_minimum() {
         // Hiss 73..=75 is 3 frames < 4, entry 76: no eligible run, a short adjacent one.
-        let energy = d4_energy(&[73..76], &[76..82]);
+        let energy = d4_energy(&[(73, 76)], &[(76, 82)]);
         assert_eq!(
             d4(&energy, ANCHOR, &FricativeParams::DEFAULT),
             Err(FricativeAbstain::RunTooShort)
@@ -1167,7 +1165,7 @@ mod tests {
     #[test]
     fn d4_abstains_when_the_run_touches_the_window_start() {
         // Hiss 55..=75 starts at search_start 55: not a clipped boundary.
-        let energy = d4_energy(&[55..76], &[76..82]);
+        let energy = d4_energy(&[(55, 76)], &[(76, 82)]);
         assert_eq!(
             d4(&energy, ANCHOR, &FricativeParams::DEFAULT),
             Err(FricativeAbstain::WindowLimit)
@@ -1177,7 +1175,7 @@ mod tests {
     #[test]
     fn d4_abstains_when_the_floor_window_is_not_retained() {
         // Anchor 20 is inside the 25-frame window: no room for a search start or floor.
-        let energy = d4_energy(&[10..16], &[16..22]);
+        let energy = d4_energy(&[(10, 16)], &[(16, 22)]);
         assert_eq!(
             d4(&energy, 20, &FricativeParams::DEFAULT),
             Err(FricativeAbstain::FloorUnsupported)

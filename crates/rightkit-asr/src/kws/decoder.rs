@@ -753,7 +753,7 @@ mod tests {
     fn keyword_context_table_covers_every_path_window_or_declines() {
         // Context size 2, tokens 5 and 6: the blank context, [0, t], and every token pair.
         let flat = keyword_context_table(&[5, 6], 2, 100).expect("small table");
-        let mut rows: Vec<&[i64]> = flat.chunks_exact(2).collect();
+        let mut rows: Vec<&[i64]> = flat.as_chunks::<2>().0.iter().map(|row| row.as_slice()).collect();
         rows.sort();
         let mut expected: Vec<Vec<i64>> = vec![vec![-1, 0], vec![0, 5], vec![0, 6]];
         for a in [5, 6] {

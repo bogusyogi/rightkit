@@ -24,8 +24,8 @@ use rightkit_asr::kws as rust_kws;
 pub use rightkit_asr::kws::{
     AcousticSearch, BeamStart, DecoderTableReport, FiringTrace, FricativeAbstain, FricativeParams,
     JoinerBatching, MergeTimestamps, StepTrace, ThresholdTokens, TraceClock, TraceConfig,
-    TraceGapDrop, TraceHypothesis, TraceIdentity, TraceMatch, TraceMerge, TraceMergeSide,
-    TracePath, TraceRecords, TraceTop,
+    TraceExtension, TraceGapDrop, TraceHypothesis, TraceIdentity, TraceMatch, TraceMerge,
+    TraceMergeSide, TracePath, TraceRecords, TraceTop,
 };
 use rightkit_asr::parakeet_core::{TimedToken, TranscriptionResult};
 

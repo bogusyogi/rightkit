@@ -85,7 +85,7 @@ use model::{StateTensor, Zipformer2Transducer};
 use onset::OnsetHistory;
 pub use trace::{
     FiringTrace, StepTrace, TraceClock, TraceConfig, TraceHypothesis, TraceIdentity, TraceMatch,
-    TraceGapDrop, TraceMerge, TraceMergeSide, TracePath, TraceRecords, TraceTop,
+    TraceExtension, TraceGapDrop, TraceMerge, TraceMergeSide, TracePath, TraceRecords, TraceTop,
 };
 use shared::{plan_beam_start, shared_onset_retention, FrameRing, SharedFrontEnd};
 pub use shared::{BeamStart, BeamStream, FrontEndConfig, DEFAULT_RING_FRAMES};
