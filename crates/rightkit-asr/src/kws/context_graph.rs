@@ -88,6 +88,20 @@ impl ContextGraph {
         &self.nodes[index]
     }
 
+    /// Every token that labels an arc into a keyword node, sorted and distinct: the only
+    /// tokens a path on the keyword graph can hold.
+    pub(crate) fn keyword_tokens(&self) -> Vec<i32> {
+        let mut tokens: Vec<i32> = self
+            .nodes
+            .iter()
+            .map(|node| node.token)
+            .filter(|token| *token >= 0)
+            .collect();
+        tokens.sort_unstable();
+        tokens.dedup();
+        tokens
+    }
+
     /// Tokens that advance `state` along a keyword (its direct arcs; fail transitions are
     /// not followed). Trace only.
     pub(crate) fn extension_tokens(&self, state: usize) -> impl Iterator<Item = i32> + '_ {

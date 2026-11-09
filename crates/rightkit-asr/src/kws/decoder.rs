@@ -36,6 +36,9 @@ pub(crate) struct DecoderOptions {
     /// Serve decoder rows from the model's per-context cache
     /// ([`Zipformer2Transducer::run_decoder_cached`]).
     pub decoder_cache: bool,
+    /// Serve decoder rows from the model's precomputed keyword-context table
+    /// ([`Zipformer2Transducer::run_decoder_table`]); takes precedence over `decoder_cache`.
+    pub decoder_table: bool,
     /// Stale-token gap guard: drop a path whose newest keyword token is more than this many
     /// encoder frames after the previous one. `None` (the default) is Sherpa's behaviour.
     pub stale_gap_frames: Option<i32>,
@@ -180,6 +183,48 @@ fn topk_index(values: &[f32], k: usize) -> Vec<usize> {
     idx
 }
 
+/// The finite set of decoder contexts a path on the keyword graph can produce, flat
+/// (`rows * context_size` ids), or `None` when it would exceed `max_rows`. A path is the
+/// blank context `[-1, .., -1, 0]` followed by keyword tokens (it resets to blank on leaving
+/// the graph), so every context is a window of that sequence: the blank tail followed by `j`
+/// keyword tokens, for `j` from 0 to `context_size`. Not every row is reachable (any token
+/// pair is included), which only costs table space.
+pub(crate) fn keyword_context_table(
+    tokens: &[i32],
+    context_size: usize,
+    max_rows: usize,
+) -> Option<Vec<i64>> {
+    let base = blanks(context_size);
+    let mut rows: Vec<Vec<i64>> = Vec::new();
+    for j in 0..=context_size {
+        let prefix = &base[j..];
+        let mut combos: Vec<Vec<i64>> = vec![Vec::new()];
+        for _ in 0..j {
+            let mut next: Vec<Vec<i64>> = Vec::new();
+            for combo in &combos {
+                for token in tokens {
+                    let mut extended = combo.clone();
+                    extended.push(i64::from(*token));
+                    next.push(extended);
+                }
+                if next.len() > max_rows {
+                    return None;
+                }
+            }
+            combos = next;
+        }
+        for combo in combos {
+            let mut row = prefix.to_vec();
+            row.extend(combo);
+            rows.push(row);
+            if rows.len() > max_rows {
+                return None;
+            }
+        }
+    }
+    Some(rows.concat())
+}
+
 /// What the beam knew when the reported keyword fired; Sherpa keeps none of it.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Firing {
@@ -197,6 +242,13 @@ pub(crate) struct Firing {
     pub gap_drops: u64,
     /// Of those, the ones dropped in the chunk this keyword fired in, up to this step.
     pub gap_drops_chunk: u64,
+    /// The largest gap, in encoder frames, between consecutive emitted keyword tokens (`0`
+    /// for a single token). An observation of the output, never a filter.
+    pub max_gap_frames: i32,
+    /// The stale-token gap guard is on and `max_gap_frames` exceeds its limit: the emitted
+    /// chain contains a gap the guard should have dropped (expected never, as in the port's
+    /// firing re-check). Always `false` with the guard off.
+    pub gap_violation: bool,
     /// Onset estimates, filled in by the spotter when onset estimation is on.
     pub onset: Option<super::onset::KeywordOnset>,
 }
@@ -345,7 +397,9 @@ pub(crate) fn decode_chunk(
         for h in &prev {
             contexts.extend_from_slice(&h.ys[h.ys.len() - context_size..]);
         }
-        let (decoder_dim, decoder_out) = if options.decoder_cache {
+        let (decoder_dim, decoder_out) = if options.decoder_table {
+            model.run_decoder_table(&contexts)?
+        } else if options.decoder_cache {
             model.run_decoder_cached(&contexts)?
         } else {
             model.run_decoder(contexts)?
@@ -472,6 +526,13 @@ pub(crate) fn decode_chunk(
                 result.timestamps =
                     best.timestamps[best.timestamps.len().saturating_sub(end.level)..].to_vec();
                 result.keyword = end.phrase.clone();
+                // Observation of the emitted chain (every consecutive pair), not a filter.
+                let max_gap_frames = result
+                    .timestamps
+                    .windows(2)
+                    .map(|pair| pair[1] - pair[0])
+                    .max()
+                    .unwrap_or(0);
                 result.firing = Some(Firing {
                     context: best.ys[first.saturating_sub(context_size)..first].to_vec(),
                     token_probs: best.ys_probs[best.ys_probs.len().saturating_sub(end.level)..]
@@ -481,6 +542,10 @@ pub(crate) fn decode_chunk(
                     frame: t as i32 + result.frame_offset,
                     gap_drops: result.gap_drops,
                     gap_drops_chunk: chunk_gap_drops,
+                    max_gap_frames,
+                    gap_violation: options
+                        .stale_gap_frames
+                        .is_some_and(|limit| max_gap_frames > limit),
                     onset: None,
                 });
                 result.firings += 1;
@@ -678,6 +743,27 @@ mod tests {
         assert!(kept(None).iter().all(|keep| *keep));
         // Fewer timestamps than the depth (tokens left by a fail transition): untouched.
         assert_eq!(stale_gap_exceeds(&[50], 2, Some(G)), None);
+    }
+
+    #[test]
+    fn keyword_context_table_covers_every_path_window_or_declines() {
+        // Context size 2, tokens 5 and 6: the blank context, [0, t], and every token pair.
+        let flat = keyword_context_table(&[5, 6], 2, 100).expect("small table");
+        let mut rows: Vec<&[i64]> = flat.chunks_exact(2).collect();
+        rows.sort();
+        let mut expected: Vec<Vec<i64>> = vec![vec![-1, 0], vec![0, 5], vec![0, 6]];
+        for a in [5, 6] {
+            for b in [5, 6] {
+                expected.push(vec![a, b]);
+            }
+        }
+        expected.sort();
+        assert_eq!(rows, expected.iter().map(Vec::as_slice).collect::<Vec<_>>());
+        // The path windows the decoder really sees are all in the table.
+        assert!(rows.contains(&&blanks(2)[..]));
+        // Too many rows: no table, so the decoder runs as usual.
+        assert_eq!(keyword_context_table(&[5, 6], 2, 6), None);
+        assert_eq!(keyword_context_table(&[5, 6], 2, 7).map(|f| f.len() / 2), Some(7));
     }
 
     #[test]

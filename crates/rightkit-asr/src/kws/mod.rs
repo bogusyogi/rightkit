@@ -208,6 +208,17 @@ pub struct KeywordSpotterConfig {
     /// checked when the token is emitted. `None` (the default) is Sherpa's behaviour, bit for
     /// bit; `Some(g)` needs `g` in 1..=1000 and changes what can be detected.
     pub stale_gap_frames: Option<i32>,
+    /// Write the encoder's next states into the buffers the previous call left, instead of
+    /// allocating new ones (one set of spare buffers per model, a few MB). Every output is
+    /// identical: the same bytes are copied from the same encoder outputs. Default off.
+    pub encoder_state_reuse: bool,
+    /// Compute decoder rows once, at spotter creation, for every context a keyword path can
+    /// produce (a few hundred rows), and serve them from that table; a context outside it
+    /// runs the decoder as usual. Exact only where the decoder's rows do not depend on the
+    /// batch they are computed in (the fp32 decoder on x86-64:
+    /// `kws_decoder_is_batch_invariant`), as for [`Self::decoder_cache`], which it overrides
+    /// when both are set. Default off.
+    pub decoder_table: bool,
 }
 
 impl KeywordSpotterConfig {
@@ -243,6 +254,8 @@ impl KeywordSpotterConfig {
             decoder_cache: false,
             trace: None,
             stale_gap_frames: None,
+            encoder_state_reuse: false,
+            decoder_table: false,
         }
     }
 }
@@ -283,9 +296,18 @@ pub struct KeywordDetection {
     pub gap_drops: u64,
     /// Of those, the ones dropped in the chunk this detection fired in, up to the firing.
     pub gap_drops_chunk: u64,
+    /// The largest gap between consecutive emitted keyword tokens, in encoder frames: an
+    /// observation of the output (`0` for one token), recorded with the guard on or off.
+    pub max_gap_frames: i32,
+    /// The guard is on and `max_gap_frames` exceeds its limit; always `false` with it off.
+    pub gap_violation: bool,
     /// Onset estimates; `None` unless [`KeywordSpotterConfig::onset`] is set.
     pub onset: Option<KeywordOnset>,
 }
+
+/// Most rows [`KeywordSpotterConfig::decoder_table`] will precompute (1.3 KB each for the
+/// 320-dim decoder); a keyword graph needing more keeps the plain decoder path.
+const DECODER_TABLE_MAX_ROWS: usize = 4096;
 
 static NEXT_SPOTTER_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -385,6 +407,7 @@ pub struct KeywordSpotter {
     options: DecoderOptions,
     trailing_blank_reset: bool,
     onset: Option<OnsetConfig>,
+    encoder_state_reuse: bool,
     /// Set only when [`KeywordSpotterConfig::trace`] records something.
     trace: Option<(TraceConfig, Arc<TraceIdentity>)>,
 }
@@ -471,8 +494,21 @@ impl KeywordSpotter {
             merge_timestamps: config.merge_timestamps,
             math,
             decoder_cache: config.decoder_cache,
+            decoder_table: config.decoder_table,
             stale_gap_frames: config.stale_gap_frames,
         };
+        if config.decoder_table {
+            // Precompute the decoder rows of every keyword-path context in one batch. A
+            // graph too large for the table cap simply keeps the plain decoder path.
+            let context_size = model.context_size;
+            if let Some(contexts) = decoder::keyword_context_table(
+                &graph.keyword_tokens(),
+                context_size,
+                DECODER_TABLE_MAX_ROWS,
+            ) {
+                model.lock().extend_keyword_table(&contexts)?;
+            }
+        }
         let trace = config.trace.filter(TraceConfig::is_active).map(|trace| {
             let config_repr = format!(
                 "{options:?}|{}|{}|{:?}",
@@ -495,6 +531,7 @@ impl KeywordSpotter {
             options,
             trailing_blank_reset: config.trailing_blank_reset,
             onset: config.onset.clone(),
+            encoder_state_reuse: config.encoder_state_reuse,
             trace,
         })
     }
@@ -564,7 +601,11 @@ impl KeywordSpotter {
             );
         }
         let mut model = self.model.lock();
-        let encoder_out = model.run_encoder(&features, &mut stream.states)?;
+        let encoder_out = if self.encoder_state_reuse {
+            model.run_encoder_reuse(&features, &mut stream.states)?
+        } else {
+            model.run_encoder(&features, &mut stream.states)?
+        };
         if let Some(history) = stream.onset.as_mut() {
             history.push_encoder(stream.result.frame_offset, &encoder_out);
         }
@@ -639,6 +680,8 @@ impl KeywordSpotter {
             fired_frame: firing.frame,
             gap_drops: firing.gap_drops,
             gap_drops_chunk: firing.gap_drops_chunk,
+            max_gap_frames: firing.max_gap_frames,
+            gap_violation: firing.gap_violation,
             onset: firing.onset,
         })
     }

@@ -8,7 +8,11 @@
 //!
 //! Two opt-in speed levers live here: [`Zipformer2Transducer::load`]'s `static_batch` pins
 //! the encoder's free batch dimension `N` to 1, and [`Zipformer2Transducer::run_decoder_cached`]
-//! serves decoder rows from a per-context cache.
+//! serves decoder rows from a per-context cache. Two more speed levers, both default off and
+//! both leaving every output bit-identical where their stated preconditions hold:
+//! [`Zipformer2Transducer::run_encoder_reuse`] (the next encoder states are copied into
+//! buffers kept from the previous call) and [`Zipformer2Transducer::run_decoder_table`]
+//! (decoder rows for every context a keyword path can produce are computed once).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -80,6 +84,11 @@ pub(crate) struct Zipformer2Transducer {
     init_states: Vec<StateTensor>,
     /// Decoder output row per `context_size`-token context ([`Self::run_decoder_cached`]).
     decoder_cache: HashMap<Vec<i64>, Box<[f32]>>,
+    /// The previous call's state buffers, reused by [`Self::run_encoder_reuse`].
+    state_spare: Vec<StateTensor>,
+    /// Decoder rows precomputed for the finite set of keyword-path contexts
+    /// ([`Self::extend_keyword_table`]); never cleared, keyed by context alone.
+    keyword_table: HashMap<Vec<i64>, Box<[f32]>>,
 }
 
 /// Rows [`Zipformer2Transducer::run_decoder_cached`] keeps before it starts over (1.3 KB
@@ -286,6 +295,8 @@ impl Zipformer2Transducer {
             context_size,
             init_states,
             decoder_cache: HashMap::new(),
+            state_spare: Vec::new(),
+            keyword_table: HashMap::new(),
         })
     }
 
@@ -315,6 +326,26 @@ impl Zipformer2Transducer {
         features: &[f32],
         states: &mut Vec<StateTensor>,
     ) -> Result<EncoderOut> {
+        self.run_encoder_with(features, states, false)
+    }
+
+    /// [`Self::run_encoder`] that writes the next states into the buffers the previous call
+    /// left behind instead of allocating new ones: the same values copied from the same
+    /// encoder outputs, so every result is identical; only the allocations differ.
+    pub(crate) fn run_encoder_reuse(
+        &mut self,
+        features: &[f32],
+        states: &mut Vec<StateTensor>,
+    ) -> Result<EncoderOut> {
+        self.run_encoder_with(features, states, true)
+    }
+
+    fn run_encoder_with(
+        &mut self,
+        features: &[f32],
+        states: &mut Vec<StateTensor>,
+        reuse: bool,
+    ) -> Result<EncoderOut> {
         let x_shape = [1i64, self.chunk_size as i64, self.feature_dim as i64];
         let mut inputs: Vec<SessionInputValue<'_>> = Vec::with_capacity(states.len() + 1);
         inputs.push(TensorRef::from_array_view((x_shape, features))?.into());
@@ -331,6 +362,68 @@ impl Zipformer2Transducer {
             dim: shape[2] as usize,
             data: data.to_vec(),
         };
+        if reuse {
+            // The spare buffers hold the states from two calls ago; each is cleared and
+            // refilled with this call's output, so nothing stale survives.
+            let mut next = std::mem::take(&mut self.state_spare);
+            next.truncate(states.len());
+            for (i, previous) in states.iter().enumerate() {
+                let value = &outputs[i + 1];
+                match previous {
+                    StateTensor::F32 { .. } => {
+                        let (shape, data) = value.try_extract_tensor::<f32>()?;
+                        match next.get_mut(i) {
+                            Some(StateTensor::F32 {
+                                shape: kept_shape,
+                                data: kept_data,
+                            }) => {
+                                kept_shape.clear();
+                                kept_shape.extend(shape.iter().copied());
+                                kept_data.clear();
+                                kept_data.extend_from_slice(data);
+                            }
+                            Some(slot) => {
+                                *slot = StateTensor::F32 {
+                                    shape: shape.to_vec(),
+                                    data: data.to_vec(),
+                                };
+                            }
+                            None => next.push(StateTensor::F32 {
+                                shape: shape.to_vec(),
+                                data: data.to_vec(),
+                            }),
+                        }
+                    }
+                    StateTensor::I64 { .. } => {
+                        let (shape, data) = value.try_extract_tensor::<i64>()?;
+                        match next.get_mut(i) {
+                            Some(StateTensor::I64 {
+                                shape: kept_shape,
+                                data: kept_data,
+                            }) => {
+                                kept_shape.clear();
+                                kept_shape.extend(shape.iter().copied());
+                                kept_data.clear();
+                                kept_data.extend_from_slice(data);
+                            }
+                            Some(slot) => {
+                                *slot = StateTensor::I64 {
+                                    shape: shape.to_vec(),
+                                    data: data.to_vec(),
+                                };
+                            }
+                            None => next.push(StateTensor::I64 {
+                                shape: shape.to_vec(),
+                                data: data.to_vec(),
+                            }),
+                        }
+                    }
+                }
+            }
+            std::mem::swap(states, &mut next);
+            self.state_spare = next;
+            return Ok(out);
+        }
         let mut next = Vec::with_capacity(states.len());
         for (i, previous) in states.iter().enumerate() {
             let value = &outputs[i + 1];
@@ -388,6 +481,64 @@ impl Zipformer2Transducer {
             out.extend_from_slice(&self.decoder_cache[c]);
         }
         Ok((self.decoder_row_dim(), out))
+    }
+
+    /// Add decoder rows for `contexts` (`n * context_size` ids) to the keyword table, in one
+    /// decoder batch, skipping contexts already in it.
+    pub(crate) fn extend_keyword_table(&mut self, contexts: &[i64]) -> Result<()> {
+        let cs = self.context_size;
+        let mut fresh: Vec<i64> = Vec::new();
+        for c in contexts.chunks_exact(cs) {
+            if !self.keyword_table.contains_key(c) && !fresh.chunks_exact(cs).any(|f| f == c) {
+                fresh.extend_from_slice(c);
+            }
+        }
+        if fresh.is_empty() {
+            return Ok(());
+        }
+        let (dim, rows) = self.run_decoder(fresh.clone())?;
+        for (c, row) in fresh.chunks_exact(cs).zip(rows.chunks_exact(dim)) {
+            self.keyword_table.insert(c.to_vec(), row.into());
+        }
+        Ok(())
+    }
+
+    /// [`Self::run_decoder`] served from the keyword table: rows for contexts in the table
+    /// come from it; the rest (a context no keyword path produces) run through
+    /// [`Self::run_decoder`] as one batch in first-seen order and are not stored. Rows come
+    /// back in `contexts` order. Equal to [`Self::run_decoder`] only where the decoder's rows
+    /// do not depend on the batch they are computed in, the same precondition as
+    /// [`Self::run_decoder_cached`] (`kws_decoder_is_batch_invariant`).
+    pub(crate) fn run_decoder_table(&mut self, contexts: &[i64]) -> Result<(usize, Vec<f32>)> {
+        let cs = self.context_size;
+        let mut misses: Vec<i64> = Vec::new();
+        for c in contexts.chunks_exact(cs) {
+            if !self.keyword_table.contains_key(c) && !misses.chunks_exact(cs).any(|m| m == c) {
+                misses.extend_from_slice(c);
+            }
+        }
+        let mut miss_dim = 0;
+        let mut miss_rows: Vec<f32> = Vec::new();
+        if !misses.is_empty() {
+            let (dim, rows) = self.run_decoder(misses.clone())?;
+            miss_dim = dim;
+            miss_rows = rows;
+        }
+        let table_dim = self.keyword_table.values().next().map_or(0, |row| row.len());
+        let dim = if table_dim != 0 { table_dim } else { miss_dim };
+        let mut out = Vec::with_capacity(contexts.len() / cs * dim);
+        for c in contexts.chunks_exact(cs) {
+            if let Some(row) = self.keyword_table.get(c) {
+                out.extend_from_slice(row);
+            } else {
+                let at = misses
+                    .chunks_exact(cs)
+                    .position(|m| m == c)
+                    .expect("a missed context was decoded");
+                out.extend_from_slice(&miss_rows[at * miss_dim..(at + 1) * miss_dim]);
+            }
+        }
+        Ok((dim, out))
     }
 
     /// The distinct contexts in `contexts` that have no cached row, in first-seen order.

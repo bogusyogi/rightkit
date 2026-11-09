@@ -20,6 +20,12 @@
 //! row gains a `gap_guard` key (the setting and, per cascade report, the paths dropped up to
 //! that firing in total and in its chunk) and a text run prints a `GAP` line; with it off the
 //! output is unchanged. With `--trace` each drop also appears in the stream trace.
+//! Speed levers (default off, outputs expected identical, UNVERIFIED until a same-binary
+//! replay compares detections, timestamps, scores and timings): `--encoder-state-reuse` (C7)
+//! and `--decoder-table` (C8).
+//! `--report-gap` (implied by `--gap-guard`) adds the same key with the largest consecutive
+//! keyword-token gap of each firing (`max_gap_frames`) and `gap_violation` (the gap exceeds G;
+//! never true without `--gap-guard`), and a closing `gap_summary` counts reports and violations.
 //!
 //! Firing and no-fire trace (default off; observation only, detections are identical on and
 //! off): `--trace` snapshots every firing at its pre-reset beam event; `--trace-window FRAMES`
@@ -58,7 +64,7 @@ mod native {
         [--acoustic-search legacy|initial-fricative] [--d4] [--d4-window MS] [--d4-floor MS] \
         [--d4-rise F] [--d4-min-run MS] [--d4-vowel MS] [--d4-tilt F] [--d4-json JSON|FILE] \
         [--d4-strict] [--trace] [--trace-window FRAMES] [--trace-capacity STEPS] [--trace-history TOKENS] \
-        [--gap-guard G] [--jsonl]";
+        [--gap-guard G] [--report-gap] [--encoder-state-reuse] [--decoder-table] [--jsonl]";
 
     fn flag_value<I: Iterator<Item = OsString>>(
         args: &mut I,
@@ -272,15 +278,27 @@ mod native {
         })
     }
 
-    fn gap_json(gap: i32, reports: &[(&'static str, u64, u64)]) -> serde_json::Value {
+    /// One cascade report's gap-guard evidence.
+    #[derive(Clone, Copy, Debug)]
+    struct GapReport {
+        stage: &'static str,
+        drops: u64,
+        drops_chunk: u64,
+        max_gap_frames: i32,
+        violation: bool,
+    }
+
+    fn gap_json(gap: Option<i32>, reports: &[GapReport]) -> serde_json::Value {
         json!({
             "g": gap,
             "reports": reports
                 .iter()
-                .map(|(stage, total, chunk)| json!({
-                    "stage": stage,
-                    "gap_drops": total,
-                    "gap_drops_chunk": chunk,
+                .map(|report| json!({
+                    "stage": report.stage,
+                    "gap_drops": report.drops,
+                    "gap_drops_chunk": report.drops_chunk,
+                    "max_gap_frames": report.max_gap_frames,
+                    "gap_violation": report.violation,
                 }))
                 .collect::<Vec<_>>(),
         })
@@ -371,6 +389,8 @@ mod native {
         ort: Option<PathBuf>,
         step: usize,
         switches: KwsSwitches,
+        /// Report the gap evidence (set by `--report-gap` or `--gap-guard`).
+        report_gap: bool,
         jsonl: bool,
     }
 
@@ -384,6 +404,7 @@ mod native {
             ..KwsTraceConfig::default()
         };
         let mut trace_on = false;
+        let mut report_gap = false;
         let mut jsonl = false;
         while let Some(arg) = args.next() {
             match arg.to_str() {
@@ -482,6 +503,9 @@ mod native {
                     let value = parse_u32(&flag_value(&mut args, "--gap-guard")?, "--gap-guard")?;
                     switches.gap_guard = Some(i32::try_from(value).unwrap_or(i32::MAX));
                 }
+                Some("--report-gap") => report_gap = true,
+                Some("--encoder-state-reuse") => switches.encoder_state_reuse = true,
+                Some("--decoder-table") => switches.decoder_table = true,
                 Some("--trace-history") => {
                     trace.history_tokens = parse_u32(
                         &flag_value(&mut args, "--trace-history")?,
@@ -516,6 +540,7 @@ mod native {
             wavs,
             ort,
             step,
+            report_gap: report_gap || switches.gap_guard.is_some(),
             switches,
             jsonl,
         })
@@ -641,8 +666,8 @@ mod native {
         owner_missing: bool,
         /// What the cascade's trace drained during this clip; empty with the trace off.
         trace: Vec<KwsTrace>,
-        /// Per cascade report: stage, gap-guard drops up to the firing, drops in its chunk.
-        gap_reports: Vec<(&'static str, u64, u64)>,
+        /// Per cascade report: gap-guard drops, and the firing's gap observation.
+        gap_reports: Vec<GapReport>,
     }
 
     impl Replay {
@@ -734,7 +759,13 @@ mod native {
         replay.trace.extend(kws.take_trace());
         replay.gap_reports = reports
             .iter()
-            .map(|report| (report.stage, report.gap_drops, report.gap_drops_chunk))
+            .map(|report| GapReport {
+                stage: report.stage,
+                drops: report.gap_drops,
+                drops_chunk: report.gap_drops_chunk,
+                max_gap_frames: report.max_gap_frames,
+                violation: report.gap_violation,
+            })
             .collect();
         let stage = |report: &rightkit_dictation_engine::kws::KwsOnsetReport| D4Stage {
             origin: report.origin_sample,
@@ -786,6 +817,9 @@ mod native {
         let mut confirm_counts: BTreeMap<&'static str, usize> = BTreeMap::new();
         let mut selected_counts: BTreeMap<&'static str, usize> = BTreeMap::new();
         let mut direct_cuts = 0_usize;
+        // Firings (cascade reports) seen and those whose emitted chain has a gap over G.
+        let mut gap_reports_seen = 0_usize;
+        let mut gap_violations = 0_usize;
         if d4.enabled {
             if options.jsonl {
                 println!(
@@ -831,6 +865,14 @@ mod native {
                     direct_cuts += 1;
                 }
             }
+            if let Ok(row) = &outcome {
+                gap_reports_seen += row.gap_reports.len();
+                gap_violations += row
+                    .gap_reports
+                    .iter()
+                    .filter(|report| report.violation)
+                    .count();
+            }
             if options.jsonl {
                 let replay = outcome.as_ref().ok();
                 let mut row = json!({
@@ -870,18 +912,18 @@ mod native {
                     row["trace"] =
                         replay.map_or(serde_json::Value::Null, |clip| trace_json(&clip.trace));
                 }
-                if let Some(gap) = options.switches.gap_guard {
+                if options.report_gap {
                     row["gap_guard"] = replay.map_or(serde_json::Value::Null, |clip| {
-                        gap_json(gap, &clip.gap_reports)
+                        gap_json(options.switches.gap_guard, &clip.gap_reports)
                     });
                 }
                 println!("{row}");
             } else if let Ok(replay) = &outcome {
-                if let Some(gap) = options.switches.gap_guard {
+                if options.report_gap {
                     println!(
                         "GAP\t{}\t{}",
                         path.display(),
-                        gap_json(gap, &replay.gap_reports)
+                        gap_json(options.switches.gap_guard, &replay.gap_reports)
                     );
                 }
                 if options.switches.trace.is_some() {
@@ -939,6 +981,19 @@ mod native {
                     json!(confirm_counts),
                     json!(selected_counts)
                 );
+            }
+        }
+        if options.report_gap {
+            let summary = json!({
+                "kind": "gap_summary",
+                "g": options.switches.gap_guard,
+                "reports": gap_reports_seen,
+                "gap_violations": gap_violations,
+            });
+            if options.jsonl {
+                println!("{summary}");
+            } else {
+                println!("# gap {summary}");
             }
         }
         if errors == 0 {

@@ -107,6 +107,9 @@ struct RustKwsTuning {
     trace: Option<KwsTraceConfig>,
     /// Stale-token gap guard (default off).
     stale_gap_frames: Option<i32>,
+    /// Speed levers C7 and C8 (default off).
+    encoder_state_reuse: bool,
+    decoder_table: bool,
 }
 
 impl RustKwsTuning {
@@ -128,6 +131,8 @@ impl RustKwsTuning {
         shared_model: false,
         trace: None,
         stale_gap_frames: None,
+        encoder_state_reuse: false,
+        decoder_table: false,
     };
 }
 
@@ -227,6 +232,16 @@ pub struct KwsSwitches {
     /// behaviour, unchanged. It changes what can be detected and requires qualification; it
     /// applies to the wake and confirm spotters, not the hey-wake spotter.
     pub gap_guard: Option<i32>,
+    /// `0` | `1` (plan arm C7): write the encoder's next states into the previous call's
+    /// buffers instead of allocating new ones. Identical outputs by construction (the same
+    /// bytes are copied); any speedup is unverified until a replay on the same binary compares
+    /// detections, timestamps, scores and timings. Default `0`.
+    pub encoder_state_reuse: bool,
+    /// `0` | `1` (plan arm C8): precompute the decoder rows of every context a keyword path
+    /// can produce and serve them from that table (the same batch-invariance precondition as
+    /// `decoder_cache`, which it overrides when both are on). Identical outputs where the
+    /// decoder is batch-invariant; unverified until the same replay comparison. Default `0`.
+    pub decoder_table: bool,
 }
 
 /// Which trace records to keep. Default off (`KwsSwitches::trace` `None`); every value is
@@ -327,6 +342,8 @@ impl Default for KwsSwitches {
             shared_model: tuning.shared_model,
             trace: tuning.trace,
             gap_guard: tuning.stale_gap_frames,
+            encoder_state_reuse: tuning.encoder_state_reuse,
+            decoder_table: tuning.decoder_table,
         }
     }
 }
@@ -375,6 +392,8 @@ impl KwsSwitches {
             shared_model: self.shared_model,
             trace: self.trace,
             stale_gap_frames: self.gap_guard,
+            encoder_state_reuse: self.encoder_state_reuse,
+            decoder_table: self.decoder_table,
             ..base
         }
     }
@@ -439,6 +458,10 @@ pub struct KwsOnsetReport {
     /// chunk.
     pub gap_drops: u64,
     pub gap_drops_chunk: u64,
+    /// The largest gap between consecutive emitted keyword tokens, in encoder frames
+    /// (observed with the guard on or off), and whether it exceeds the guard's limit.
+    pub max_gap_frames: i32,
+    pub gap_violation: bool,
     pub token_probs: Vec<f32>,
     pub score: f32,
     pub threshold: f32,
@@ -1128,6 +1151,8 @@ impl Kws {
             fired_frame: detection.fired_frame,
             gap_drops: detection.gap_drops,
             gap_drops_chunk: detection.gap_drops_chunk,
+            max_gap_frames: detection.max_gap_frames,
+            gap_violation: detection.gap_violation,
             token_probs: detection.token_probs.clone(),
             score: detection.score,
             threshold: detection.threshold,
@@ -2271,6 +2296,8 @@ fn spotter_config(
     config.portable_math = tuning.portable_math;
     config.static_batch = tuning.static_batch;
     config.decoder_cache = tuning.decoder_cache;
+    config.encoder_state_reuse = tuning.encoder_state_reuse;
+    config.decoder_table = tuning.decoder_table;
     // The no-fire window rides the confirm stream only; every stream may trace firings.
     // The guard runs on the wake and confirm spotters, as in the offline port runs.
     config.stale_gap_frames = if keywords_file == HEY_WAKE_KEYWORDS_FILE {
@@ -2479,6 +2506,8 @@ mod tests {
             fired_frame: 0,
             gap_drops: 0,
             gap_drops_chunk: 0,
+            max_gap_frames: 0,
+            gap_violation: false,
             token_probs: Vec::new(),
             score: 0.0,
             threshold: 0.0,
