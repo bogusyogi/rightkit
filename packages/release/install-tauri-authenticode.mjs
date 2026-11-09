@@ -12,10 +12,13 @@
 //   8. verify                            (the installed exe equals the build, and its Authenticode subject is the signer's)
 // Nothing installs before step 6 has verified, so no unsigned installer is ever run. Every host effect is a dependency, so the order runs with fakes.
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { neutralIgnored } from "./stage-ledger.mjs";
+import { treeEntries } from "./snapshot.mjs";
+import { SOURCE_IDENTITY_FILE, sourceIdentityBytes } from "./snapshot-identity.mjs";
+import { readSourceSplit } from "./source-split.mjs";
 import { patchTauriBundleType } from "./tauri-bundle-marker.mjs";
 import { listNsisPayload, verifyNsisEmbeddedBinary } from "./nsis-payload.mjs";
 import { SIGN_SUBJECT, SuiteSigningError, WINDOWS_SIGNED_KIND, identifierOverrideReason, isProductBuildStep, stepWords } from "./suite-signing-policy.mjs";
@@ -221,9 +224,70 @@ export function deriveResourceExecutables({ tauriDir, readFile = readText }) {
   return [...found.values()];
 }
 
-/** `Map(file -> "tracked" | "ignored" | "unignored")` through git: `ls-files --error-unmatch` for tracked, then the commit's own ignore rules (stage-ledger.mjs neutralIgnored). Throws when git cannot answer. */
-export function classifyStagedFiles(files, { appRoot, tauriDir }) {
+const signingSourceError = (message, file) => refuse("TAURI_AUTHENTICODE_TRACKED_RESOURCE", message, { file });
+const containedRelative = (root, file) => {
+  const rel = path.relative(root, path.resolve(file));
+  if (!rel || rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) signingSourceError(`${file} is outside signing source ${root}`, file);
+  return rel.split(path.sep).join("/");
+};
+const regularSigningFile = (file) => {
+  const st = lstatSync(file);
+  if (!st.isFile() || st.nlink !== 1) signingSourceError(`${file} must be a regular file with exactly one hard link`, file);
+};
+const safeSigningPath = (root, file) => {
+  const rel = containedRelative(root, file);
+  let dir = root;
+  for (const segment of ["", ...rel.split("/").slice(0, -1)]) {
+    dir = path.join(dir, segment);
+    const st = lstatSync(dir);
+    if (!st.isDirectory() || st.isSymbolicLink()) signingSourceError(`${file} has a linked or non-directory signing source parent ${dir}`, file);
+  }
+  regularSigningFile(file);
+  return rel;
+};
+
+// The snapshot has no git directory. Its adjacent state names the checkout object database & selected commit; the generated
+// source identity must equal that commit's canonical identity. Read tracked paths from the sealed commit, never the checkout's
+// index or the state's mutable paths cache. This works with both legacy door-run and reset seam callers; neither marker is required.
+function signingSnapshot({ appRoot, tauriDir, env }) {
+  let root = path.resolve(appRoot ?? tauriDir);
+  while (true) {
+    const stateFile = `${root}.state.json`;
+    const identityFile = path.join(root, SOURCE_IDENTITY_FILE);
+    if (existsSync(stateFile) || existsSync(identityFile)) {
+      try {
+        regularSigningFile(stateFile);
+        safeSigningPath(root, identityFile);
+        const state = JSON.parse(readFileSync(stateFile, "utf8"));
+        if (state?.schema !== "rightkit.snapshot-state/1" || typeof state.repo !== "string" || !path.isAbsolute(state.repo)
+          || !/^[0-9a-f]{40}$/.test(state.commit ?? "") || !/^[0-9a-f]{40}$/.test(state.tree ?? "")) throw new Error("invalid snapshot state");
+        const entries = treeEntries(state.repo, state.commit);
+        const expected = sourceIdentityBytes({ checkout: state.repo, commit: state.commit, entries });
+        if (!readFileSync(identityFile).equals(expected) || JSON.parse(expected.toString("utf8")).trees[""] !== state.tree) throw new Error("snapshot state and selected commit source identity differ");
+        if (env.RUSTRIGHT_GATE_COMMIT && env.RUSTRIGHT_GATE_COMMIT !== state.commit) throw new Error("snapshot state differs from RUSTRIGHT_GATE_COMMIT");
+        const fold = process.platform === "win32" || process.platform === "darwin" ? (p) => p.toLowerCase() : (p) => p;
+        const split = readSourceSplit({ env, cwd: appRoot ?? tauriDir });
+        if (split && (fold(path.resolve(split.snapshot)) !== fold(root) || split.commit !== state.commit || split.tree !== state.tree || fold(path.resolve(split.checkout)) !== fold(path.resolve(state.repo)))) throw new Error("snapshot state differs from the live source split");
+        return { root, tracked: new Set(entries.map((entry) => fold(entry.path))), fold };
+      } catch (error) { signingSourceError(`cannot prove signing snapshot ${root}: ${error.message}`, root); }
+    }
+    const parent = path.dirname(root);
+    if (parent === root) return null;
+    root = parent;
+  }
+}
+
+/** `Map(file -> "tracked" | "ignored" | "unignored")`: selected sealed tree for a snapshot, else git's index; then neutral ignore rules. Fails closed on missing proof or unsafe paths. */
+export function classifyStagedFiles(files, { appRoot, tauriDir, env = process.env }) {
   const out = new Map();
+  if (!files.length) return out;
+  const snapshot = signingSnapshot({ appRoot, tauriDir, env });
+  if (snapshot) {
+    const paths = files.map((file) => safeSigningPath(snapshot.root, file));
+    const ignored = neutralIgnored({ dir: snapshot.root, paths, env });
+    files.forEach((file, index) => out.set(file, snapshot.tracked.has(snapshot.fold(paths[index])) ? "tracked" : ignored.has(paths[index]) ? "ignored" : "unignored"));
+    return out;
+  }
   for (const file of files) {
     const dir = path.dirname(path.resolve(file));
     const top = spawnSync("git", ["-C", dir, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true });

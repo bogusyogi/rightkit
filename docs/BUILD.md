@@ -129,6 +129,8 @@ The 42 GC-A27 non-negotiables are named checks of `packages/release/gate-accepta
 
 Signing and installation, enforced by refusal codes in `@rightkit/release`: `RK_SUITE_UNSIGNED_BUILD`, `RK_SUITE_ADHOC_SIGNING`, `RK_DEV_UNSIGNED_INSTALL`, `RK_DEV_WIN_UNSIGNED_INSTALL`, `RK_NATIVE_SIGNING_FILE_UNSUPPORTED`, `RK_ADAPTER_ENV_SIGNING`, `RK_ADAPTER_ENV_SIGNING_FILE`; credentials `RK_CRED_PROVIDER_*`; a host upload `RK_HOST_UPLOAD_REFUSED`.
 
+Windows dev signing in git-free snapshots binds adjacent snapshot state to selected commit's canonical source identity, reads tracked paths from its sealed tree & evaluates neutral ignore rules; tracked, unignored, escaping or linked resources refuse before signing (`TAURI_AUTHENTICODE_TRACKED_RESOURCE`; rightkit#1549, `packages/release/install-tauri-authenticode.test.mjs`). Legacy door-run & reset seam markers must agree when present.
+
 Enforced, test mapping not yet listed here (GAP: evidence, not an unimplemented obligation): notarization (`macos-signing-session.mjs` `MAC_SIGNING_AGENT_PROTOCOL` refuses incomplete notarization or stapling evidence; `install-app.mjs` `spctl-notarized` refuses an app not accepted as Notarized Developer ID) and the explicit `distribution.provider` (`admission-files.mjs` provider validation; `android-play-upload.mjs` `PLAY_CONFIG_INVALID`) and the explicit tier on upload (`release-state.mjs` "upload tier is required (patch|update)"; `addon-command.mjs` `--tier patch|update`). GAP: "upload no unsigned or test artifact" (RightKit `AGENTS.md`, locked invariants) has no test name or refusal code listed here yet; it enters with its check.
 
 ## 4. Decisions
