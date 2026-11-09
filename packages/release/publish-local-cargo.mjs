@@ -9,6 +9,9 @@
 //   2. a unit-gate report (`rightkit-gate --to compile --unit cargo:<name> --commit <sha> --receipt-out <file>`, schema
 //      rightkit.unit-gate-report/1) from either broker host names this crate and version, this exact commit and its tree, with the
 //      check and compile stages ok: the gate's Class A and its broker compile of that commit are the verification;
+//      or a unit-list receipt (`rightkit-gate --to compile --units-file <file> --receipt-dir <dir>`, schema
+//      rightkit.unit-list-compile/1, one per unit of one shared run) names this crate with status "passed", this exact commit, and
+//      binds every recorded command to this commit and tree with a passing broker seam receipt (rightkit#1560);
 //   3. the version is not on crates.io yet.
 // The commit's `crates/` folder is exported (git archive) to a temporary folder; `cargo package` and `cargo publish` run there with
 // `--no-verify --locked` and compile nothing, so they run with the broker's own cargo directly, as the gate's Class A cargo does
@@ -23,6 +26,41 @@ import { fileURLToPath } from "node:url";
 import { directCargoPath } from "./managed-cargo.mjs";
 
 export const UNIT_REPORT_SCHEMA = "rightkit.unit-gate-report/1";
+/** The per-unit receipt a unit-list run writes (`rightkit-gate --to compile --units-file <file> --receipt-dir <dir>`): one shared run, one receipt per unit (rightkit#1560). */
+export const UNIT_LIST_COMPILE_SCHEMA = "rightkit.unit-list-compile/1";
+
+/**
+ * Why a unit-list receipt does not prove this crate at this commit; empty when it does. The gate writes status "passed" only when its
+ * shared run exited 0, its union was verified and every requirement of the unit passed (rightkit-gate.mjs, the unit-list report). This
+ * re-checks what the file itself carries: the unit, the exact commit, every recorded command bound to that commit and tree with a
+ * passing broker seam receipt as its last attempt, every requirement and every scan passed. The receipt names no version: the caller
+ * reads the version from the commit's own Cargo.toml, and the commit and tree are bound here.
+ */
+export function unitListCompileProblems(report, { name, commit, tree }) {
+  const problems = [];
+  const unit = `cargo:${name}`;
+  const passed = (status) => status === "pass" || status === "passed";
+  const seamReceipt = (e) => e?.seam === true && typeof e.requestId === "string" && e.requestId !== "" && /^[0-9a-f]{64}$/.test(e.receiptSha256 ?? "");
+  if (report?.unit !== unit) problems.push(`unit is ${JSON.stringify(report?.unit)}, not ${unit}`);
+  if (report?.status !== "passed") problems.push(`unit status is ${JSON.stringify(report?.status)}, not "passed"`);
+  if (report?.commit !== commit) problems.push(`commit ${report?.commit} != ${commit}`);
+  const commands = Array.isArray(report?.commands) ? report.commands : [];
+  if (!commands.length) problems.push("no broker command is recorded for the unit");
+  for (const c of commands) {
+    if (c?.selector !== unit) problems.push(`command ${c?.id} belongs to ${JSON.stringify(c?.selector)}`);
+    if (c?.commit !== commit) problems.push(`command ${c?.id} ran on commit ${c?.commit}`);
+    if (c?.tree !== tree) problems.push(`command ${c?.id} ran on tree ${c?.tree}, not ${tree}`);
+    const last = Array.isArray(c?.attempts) ? c.attempts.at(-1) : undefined;
+    if (!last || !passed(last.status) || !seamReceipt(last.snapshotEvidence)) problems.push(`command ${c?.id} has no passing broker seam receipt as its last attempt`);
+  }
+  const requirements = Array.isArray(report?.requirements) ? report.requirements : [];
+  if (!requirements.length) problems.push("no requirement is recorded for the unit");
+  for (const r of requirements) if (r?.selector !== unit || !passed(r?.status)) problems.push(`requirement ${r?.id} (${JSON.stringify(r?.selector)}) is ${JSON.stringify(r?.status)}`);
+  const scans = Array.isArray(report?.scans) ? report.scans : [];
+  if (!scans.length) problems.push("no scan is recorded for the unit");
+  for (const sc of scans) if (!passed(sc?.status) || !seamReceipt(sc?.snapshotEvidence)) problems.push(`scan ${sc?.id} is ${JSON.stringify(sc?.status)} without a passing broker seam receipt`);
+  return problems;
+}
 
 /** The Keychain item cargo's macOS provider stores the crates.io token under. */
 export const CARGO_KEYCHAIN_SERVICE = "cargo-registry:https://github.com/rust-lang/crates.io-index";
@@ -48,6 +86,7 @@ export function parseArgs(argv) {
 
 /** The reasons a unit-gate report does not prove this crate, version and commit compiled; empty when it does. */
 export function compileReportProblems(report, { name, version, commit, tree }) {
+  if (report?.schema === UNIT_LIST_COMPILE_SCHEMA) return unitListCompileProblems(report, { name, commit, tree });
   const problems = [];
   if (report?.schema !== UNIT_REPORT_SCHEMA) problems.push(`schema is ${JSON.stringify(report?.schema)}, not ${UNIT_REPORT_SCHEMA}`);
   if (report?.unit?.kind !== "cargo" || report?.unit?.name !== name) problems.push(`unit is ${JSON.stringify(report?.unit)}, not cargo:${name}`);
@@ -101,7 +140,7 @@ export async function publishLocalCargo(argv, { run = spawnSync, log = console.l
   try { report = JSON.parse(fs.readFileSync(o.report, "utf8")); } catch (e) { fail(`cannot read the compile report ${o.report}: ${e.message}`); }
   const problems = compileReportProblems(report, { name, version, commit, tree });
   if (problems.length) fail(`the compile report does not prove cargo:${name} ${version} at ${commit}: ${problems.join("; ")}`);
-  log(`publish-local: compile report ok for cargo:${name} ${version} at ${commit.slice(0, 12)} (executor ${report.executor ?? "unknown"})`);
+  log(`publish-local: compile report ok for cargo:${name} ${version} at ${commit.slice(0, 12)} (executor ${report.executor ?? (report.schema === UNIT_LIST_COMPILE_SCHEMA ? `broker seam, unit-list run ${report.runId}` : "unknown")})`);
   // The broker's cargo, run directly: package and publish --no-verify compile nothing (GC-A11).
   const pathKey = platform === "win32" ? (Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "Path") : "PATH";
   const direct = directCargoPath({ env: { ...env, PATH: env[pathKey] }, platform, gateWrappers: true });
