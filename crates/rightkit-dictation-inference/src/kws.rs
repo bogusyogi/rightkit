@@ -250,8 +250,11 @@ pub struct KwsSwitches {
     /// the frame 2.0 s before the wake candidate (clamped to the stream origin, then to the
     /// ring, each reported), instead of running a second encoder from that anchor. It changes
     /// confirm's inputs and so can change detections. Fresh confirmation is unchanged and its
-    /// outcomes are reported separately. Thresholds are not changed. The matched-replay entry
-    /// `transcribe_continuous_full_command_result` is not supported with it. Default `0`.
+    /// outcomes are reported separately. Thresholds are not changed. The cascade entry points
+    /// (`transcribe_cascade_result_with_wake_start` and the scheduled probe, the route
+    /// `kws_onset_replay` uses) support it; the separate experimental full-command entry
+    /// `transcribe_continuous_full_command_result` has no wake stream and REJECTS it before it
+    /// changes any state. Default `0`.
     pub shared_front_end: bool,
 }
 
@@ -511,6 +514,17 @@ pub struct KwsOnsetReport {
     pub shared: Option<KwsSharedInfo>,
 }
 
+/// Shared-front-end counters ([`Kws::shared_front_end_stats`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct KwsSharedStats {
+    pub beams_created: u64,
+    pub origin_clamped: u64,
+    pub ring_truncated: u64,
+    /// `feed_shared_confirmation` failures (a missing wake stream, an evicted or replaced
+    /// source, a reset): the cascade drops the beam and reports the error.
+    pub errors: u64,
+}
+
 /// A shared confirm beam's context and retention state, so a clamped or truncated start is
 /// never read as the full requested context.
 #[derive(Clone, Debug, PartialEq)]
@@ -674,6 +688,8 @@ pub struct Kws {
     confirmation_stream: Option<ConfirmationStream>,
     /// The confirm beam when `shared_front_end` is on (then `confirmation_stream` stays `None`).
     shared_confirmation: Option<SharedConfirmation>,
+    /// Shared-front-end counters since load.
+    shared_stats: KwsSharedStats,
     latched: bool,
     /// Live switches.
     switches: KwsSwitches,
@@ -942,6 +958,7 @@ impl Kws {
             wake_stream: None,
             confirmation_stream: None,
             shared_confirmation: None,
+            shared_stats: KwsSharedStats::default(),
             latched: false,
             switches,
             max_active_paths: paths,
@@ -962,6 +979,14 @@ impl Kws {
             wake: self.wake_spotter.0.borrow().decoder_table_report(),
             confirm: self.confirm_spotter.0.borrow().decoder_table_report(),
         }
+    }
+
+    /// What the shared front end has done since load: beams created, how many started clamped
+    /// to the origin or truncated by the ring (a beam can be both), and shared-confirm errors.
+    /// The ring's 160-frame capacity is a budget, not proof of enough latency: these counts
+    /// are how a shortfall shows.
+    pub fn shared_front_end_stats(&self) -> KwsSharedStats {
+        self.shared_stats
     }
 
     /// The live switches this cascade runs with.
@@ -1509,6 +1534,12 @@ impl Kws {
         snapshot_start_sample: usize,
         live_total_sample: usize,
     ) -> Result<(TranscriptionResult, Option<usize>), String> {
+        if self.switches.shared_front_end {
+            // This entry feeds confirmation with no wake stream, so there is no shared front
+            // end to follow. Refused before any mutation; the cascade entry points are the
+            // C6 route.
+            return Err("KWS shared front end is not supported by the full-command entry".into());
+        }
         if self.latched {
             return Ok((empty_result(), None));
         }
@@ -2013,11 +2044,7 @@ impl Kws {
                 return Err("KWS shared front end needs the wake stream".into());
             };
             let origin = wake.seed_origin_sample;
-            let requested = candidate
-                .start_sample
-                .saturating_sub(CONFIRM_CONTEXT_SAMPLES);
-            let requested_frame =
-                (requested as i64 - origin as i64).div_euclid(ENCODER_FRAME_SAMPLES as i64);
+            let requested_frame = shared_requested_frame(candidate.start_sample, origin);
             let mut beam = self.confirm_spotter.create_beam(
                 &self.wake_spotter,
                 &wake.stream,
@@ -2032,6 +2059,10 @@ impl Kws {
                 );
                 beam.0.set_trace_window(from_frame, to_frame);
             }
+            let start = beam.0.start();
+            self.shared_stats.beams_created += 1;
+            self.shared_stats.origin_clamped += u64::from(start.origin_clamped);
+            self.shared_stats.ring_truncated += u64::from(start.ring_truncated);
             self.shared_confirmation = Some(SharedConfirmation {
                 beam,
                 candidate,
@@ -2069,11 +2100,12 @@ impl Kws {
         candidate: WakeCandidate,
     ) -> Result<Option<KeywordResult>, String> {
         if self.switches.shared_front_end {
-            return self.feed_shared_confirmation(
-                snapshot_start_sample,
-                live_total_sample,
-                candidate,
-            );
+            let result =
+                self.feed_shared_confirmation(snapshot_start_sample, live_total_sample, candidate);
+            if result.is_err() {
+                self.shared_stats.errors += 1;
+            }
+            return result;
         }
         if self
             .confirmation_stream
@@ -2686,6 +2718,19 @@ fn onset_sample(origin: usize, estimate: rust_kws::OnsetEstimate) -> usize {
     origin.saturating_add(estimate.feature_frame.max(0) as usize * FEATURE_SHIFT_SAMPLES)
 }
 
+/// The shared confirm beam's requested start on the wake clock, in encoder frames: the FULL
+/// signed expression `candidate_start - CONFIRM_CONTEXT_SAMPLES - wake_origin` floored toward
+/// minus infinity by 640. Negative when the request precedes the wake stream's origin; the
+/// beam, not this function, clamps it and reports `origin_clamped`. No unsigned subtraction
+/// happens first, so the sign is never lost.
+fn shared_requested_frame(candidate_start_sample: usize, wake_origin_sample: usize) -> i64 {
+    let signed = |sample: usize| i64::try_from(sample).unwrap_or(i64::MAX);
+    signed(candidate_start_sample)
+        .saturating_sub(CONFIRM_CONTEXT_SAMPLES as i64)
+        .saturating_sub(signed(wake_origin_sample))
+        .div_euclid(ENCODER_FRAME_SAMPLES as i64)
+}
+
 /// A frame on the confirm stream's own encoder clock, saturated to `i32`.
 fn trace_frame(frame: i64) -> i32 {
     frame.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
@@ -2906,6 +2951,23 @@ mod tests {
             switches.gap_guard = Some(gap);
             assert!(switches.validate().is_ok(), "{gap}");
         }
+    }
+
+    #[test]
+    fn shared_beam_request_keeps_the_sign_before_flooring() {
+        // origin 0, candidate 16,000: 16,000 - 32,000 = -16,000 samples = -25 frames, which
+        // the beam clamps and reports as origin_clamped (the old saturating subtraction asked
+        // for frame 0 and reported full context).
+        assert_eq!(shared_requested_frame(16_000, 0), -25);
+        // A normal case: (100,000 - 32,000 - 0) / 640 = 106.25 floors to 106.
+        assert_eq!(shared_requested_frame(100_000, 0), 106);
+        // The origin counts: (100,000 - 32,000 - 8,000) / 640 = 93.75 floors to 93.
+        assert_eq!(shared_requested_frame(100_000, 8_000), 93);
+        // One sample before the origin is frame -1, not 0 (floor, not truncation).
+        assert_eq!(shared_requested_frame(32_000, 1), -1);
+        // Exactly on the origin is frame 0: full, not clamped.
+        assert_eq!(shared_requested_frame(32_000, 0), 0);
+        assert!(shared_requested_frame(0, usize::MAX) < 0);
     }
 
     #[test]

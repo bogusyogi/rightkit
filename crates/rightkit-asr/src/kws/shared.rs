@@ -17,6 +17,7 @@
 //!   inferred from a shorter window.
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::decoder::DecoderResult;
 use super::model::EncoderOut;
@@ -150,8 +151,18 @@ impl FrameRing {
     }
 }
 
+static NEXT_FRONT_END_ID: AtomicU64 = AtomicU64::new(1);
+
+/// A new, never reused identity for a stream that owns a ring (monotonic from 1).
+pub(crate) fn next_front_end_id() -> u64 {
+    NEXT_FRONT_END_ID.fetch_add(1, Ordering::Relaxed)
+}
+
 /// What the stream that owns the encoder keeps for shared beams.
 pub(crate) struct SharedFrontEnd {
+    /// Identity of the owning stream, assigned when it was created. A beam is bound to this
+    /// and to the epoch: two streams of one spotter are never interchangeable.
+    pub(crate) id: u64,
     pub(crate) ring: FrameRing,
     /// The confirm beam's onset history, sized by [`shared_onset_retention`]; `None` when onset
     /// estimation is off.
@@ -220,6 +231,8 @@ pub struct BeamStream {
     pub(crate) next_frame: i32,
     pub(crate) start: BeamStart,
     pub(crate) epoch: u64,
+    /// Identity of the front-end stream the beam was made on.
+    pub(crate) front_end_id: u64,
     /// Ring frames and bytes held by the source when the beam was created.
     pub(crate) ring_frames: usize,
     pub(crate) ring_bytes: usize,
@@ -227,6 +240,22 @@ pub struct BeamStream {
 }
 
 impl BeamStream {
+    /// Whether `front_end_id` at `epoch` is the stream this beam was made on. An explicit
+    /// reason when it is not (another stream, even at the same epoch, or a reset).
+    pub(crate) fn check_source(
+        &self,
+        front_end_id: u64,
+        epoch: u64,
+    ) -> std::result::Result<(), &'static str> {
+        if front_end_id != self.front_end_id {
+            Err("beam was made on a different front-end stream")
+        } else if epoch != self.epoch {
+            Err("shared front end was reset since the beam was made")
+        } else {
+            Ok(())
+        }
+    }
+
     /// Where this beam started and why.
     pub fn start(&self) -> BeamStart {
         self.start
@@ -296,6 +325,46 @@ mod tests {
         assert_eq!(plan_beam_start(500, 40, 200).start_frame, 200);
         // An empty ring at the origin.
         assert_eq!(plan_beam_start(0, 0, 0).start_frame, 0);
+    }
+
+    #[test]
+    fn a_beam_is_bound_to_its_front_end_stream_and_epoch() {
+        let beam = BeamStream {
+            spotter_id: 1,
+            result: DecoderResult::new(2),
+            reported_last_frame: None,
+            next_frame: 0,
+            start: plan_beam_start(0, 0, 0),
+            epoch: 0,
+            front_end_id: 7,
+            ring_frames: 0,
+            ring_bytes: 0,
+            trace: None,
+        };
+        assert_eq!(beam.check_source(7, 0), Ok(()));
+        // A second wake stream at the SAME epoch is another stream: refused, not decoded.
+        assert!(beam.check_source(8, 0).is_err());
+        // The same stream after a reset is refused for the reset.
+        assert_eq!(
+            beam.check_source(7, 1),
+            Err("shared front end was reset since the beam was made")
+        );
+        // Identities are never reused.
+        assert_ne!(next_front_end_id(), next_front_end_id());
+    }
+
+    #[test]
+    fn a_negative_request_is_clamped_and_a_ring_eviction_is_truncation() {
+        // The cascade's origin 0, candidate start 16,000 request is frame -25 (see the
+        // inference test): clamped to frame 0 with a ring that still holds it.
+        let clamped = plan_beam_start(-25, 0, 100);
+        assert_eq!((clamped.start_frame, clamped.state()), (0, "origin_clamped"));
+        // The same -25 when the ring has moved on is both, in separate flags.
+        let both = plan_beam_start(-25, 40, 200);
+        assert!(both.origin_clamped && both.ring_truncated);
+        // An in-stream request the ring evicted is truncation only, never a clamp.
+        let truncated = plan_beam_start(10, 40, 200);
+        assert!(!truncated.origin_clamped && truncated.ring_truncated);
     }
 
     #[test]

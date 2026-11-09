@@ -33,7 +33,10 @@
 //! `origin_clamped`, `ring_truncated`, both), frames requested and actual, ring frames and
 //! bytes, and `onset_unavailable`; a closing `shared_front_end_summary` counts them. Compare
 //! against a pre-C6 build (rightkit ea382f068b6c683374dd3b64793def0ced48d3ae) and against this
-//! binary with the flag off; thresholds are untouched.
+//! binary with the flag off; thresholds are untouched. The route is the cascade entry
+//! (`transcribe_cascade_result_with_wake_start`, used here); only the separate experimental
+//! full-command entry, which this replay never calls, rejects the switch. A confirm onset that
+//! is unavailable is reported as such; the latched cut stays the wake candidate's.
 //! `--report-gap` (implied by `--gap-guard`) adds the same key with the largest consecutive
 //! keyword-token gap of each firing (`max_gap_frames`) and `gap_violation` (the gap exceeds G;
 //! never true without `--gap-guard`), and a closing `gap_summary` counts reports and violations.
@@ -59,8 +62,9 @@ fn main() {}
 mod native {
     use rightkit_dictation_engine::kws::{
         AcousticSearch, FiringTrace, FricativeParams, Kws, KwsDecoderTableReport, KwsFeedEvent,
-        KwsOnsetMethod, KwsSharedInfo, KwsSwitches, KwsTrace, KwsTraceConfig, StepTrace,
-        TraceClock, TraceExtension, TraceGapDrop, TraceHypothesis, TraceMerge, TracePath,
+        KwsOnsetMethod, KwsSharedInfo, KwsSharedStats, KwsSwitches, KwsTrace, KwsTraceConfig,
+        StepTrace, TraceClock, TraceExtension, TraceGapDrop, TraceHypothesis, TraceMerge,
+        TracePath,
     };
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -294,6 +298,9 @@ mod native {
     struct ConfirmReport {
         stage: &'static str,
         latched: bool,
+        /// The cut owner of the report: the wake candidate's (`emission`, ...), never derived
+        /// from the confirm beam's onset.
+        chosen_source: Option<&'static str>,
         shared: Option<KwsSharedInfo>,
     }
 
@@ -316,6 +323,7 @@ mod native {
     fn shared_json(
         reports: &[ConfirmReport],
         latched_stage: Option<&'static str>,
+        stats: Option<KwsSharedStats>,
     ) -> serde_json::Value {
         let stage = |name: &str| {
             let of: Vec<&ConfirmReport> = reports.iter().filter(|r| r.stage == name).collect();
@@ -328,6 +336,19 @@ mod native {
             "live_confirm": stage("confirm"),
             "fresh_confirm": stage("fresh_confirm"),
             "latched_stage": latched_stage,
+            // The wake-owned cut that latched; a confirm onset that is unavailable does not
+            // change it and no confirm-derived fallback exists.
+            "latched_cut_source": reports.iter().find(|r| r.latched).and_then(|r| r.chosen_source),
+            "confirm_onset_unavailable_reports": reports
+                .iter()
+                .filter(|r| r.shared.as_ref().is_some_and(|s| s.onset_unavailable.is_some()))
+                .count(),
+            "stats": stats.map(|stats| json!({
+                "beams_created": stats.beams_created,
+                "origin_clamped": stats.origin_clamped,
+                "ring_truncated": stats.ring_truncated,
+                "errors": stats.errors,
+            })),
             "beams": reports
                 .iter()
                 .filter_map(|r| r.shared.as_ref())
@@ -746,6 +767,8 @@ mod native {
         /// Confirm-stage reports and the stage that latched (shared front end evidence).
         confirm_reports: Vec<ConfirmReport>,
         latched_stage: Option<&'static str>,
+        /// Shared front end counters of the clip's cascade (only with `--shared-front-end`).
+        shared_stats: Option<KwsSharedStats>,
     }
 
     impl Replay {
@@ -817,12 +840,24 @@ mod native {
         let mut reports = Vec::new();
         for end in arrival_ends(replay.samples, options.step) {
             let start = end.saturating_sub(SNAPSHOT_SAMPLES);
-            let (result, boundary) = kws.transcribe_cascade_result_with_wake_start(
-                &wav.samples[start..end],
-                start,
-                end,
-                false,
-            )?;
+            let (result, boundary) = kws
+                .transcribe_cascade_result_with_wake_start(
+                    &wav.samples[start..end],
+                    start,
+                    end,
+                    false,
+                )
+                .map_err(|error| {
+                    if options.switches.shared_front_end {
+                        // A shared-confirm failure must stay visible with its counters.
+                        format!(
+                            "{error} [shared_front_end_stats {:?}]",
+                            kws.shared_front_end_stats()
+                        )
+                    } else {
+                        error
+                    }
+                })?;
             // Drain every step: the cascade keeps only the last 16 reports.
             reports.extend(kws.take_onset_reports());
             replay.trace.extend(kws.take_trace());
@@ -845,9 +880,14 @@ mod native {
             .map(|report| ConfirmReport {
                 stage: report.stage,
                 latched: report.latched,
+                chosen_source: report.chosen_source,
                 shared: report.shared.clone(),
             })
             .collect();
+        replay.shared_stats = options
+            .switches
+            .shared_front_end
+            .then(|| kws.shared_front_end_stats());
         replay.latched_stage = rightkit_dictation_engine::kws::latched_owner(&reports)
             .map(|(_, confirm)| confirm.stage);
         replay.gap_reports = reports
@@ -916,7 +956,9 @@ mod native {
         // Clips by the stage that latched, and clips with any degraded shared beam start.
         let mut latched_live = 0_usize;
         let mut latched_fresh = 0_usize;
-        let mut degraded_starts = 0_usize;
+        let mut clamped_clips = 0_usize;
+        let mut truncated_clips = 0_usize;
+        let mut shared_totals = KwsSharedStats::default();
         let mut onset_unavailable = 0_usize;
         if d4.enabled {
             if options.jsonl {
@@ -969,12 +1011,24 @@ mod native {
                     Some("fresh_confirm") => latched_fresh += 1,
                     _ => {}
                 }
-                degraded_starts += usize::from(row.confirm_reports.iter().any(|report| {
+                clamped_clips += usize::from(row.confirm_reports.iter().any(|report| {
                     report
                         .shared
                         .as_ref()
-                        .is_some_and(|info| info.origin_clamped || info.ring_truncated)
+                        .is_some_and(|info| info.origin_clamped)
                 }));
+                truncated_clips += usize::from(row.confirm_reports.iter().any(|report| {
+                    report
+                        .shared
+                        .as_ref()
+                        .is_some_and(|info| info.ring_truncated)
+                }));
+                if let Some(stats) = row.shared_stats {
+                    shared_totals.beams_created += stats.beams_created;
+                    shared_totals.origin_clamped += stats.origin_clamped;
+                    shared_totals.ring_truncated += stats.ring_truncated;
+                    shared_totals.errors += stats.errors;
+                }
                 onset_unavailable += usize::from(row.confirm_reports.iter().any(|report| {
                     report
                         .shared
@@ -1032,7 +1086,7 @@ mod native {
                 }
                 if options.switches.shared_front_end {
                     row["shared_front_end"] = replay.map_or(serde_json::Value::Null, |clip| {
-                        shared_json(&clip.confirm_reports, clip.latched_stage)
+                        shared_json(&clip.confirm_reports, clip.latched_stage, clip.shared_stats)
                     });
                 }
                 if options.report_gap {
@@ -1053,7 +1107,11 @@ mod native {
                     println!(
                         "SHARED\t{}\t{}",
                         path.display(),
-                        shared_json(&replay.confirm_reports, replay.latched_stage)
+                        shared_json(
+                            &replay.confirm_reports,
+                            replay.latched_stage,
+                            replay.shared_stats
+                        )
                     );
                 }
                 if options.report_gap {
@@ -1125,8 +1183,17 @@ mod native {
                 "kind": "shared_front_end_summary",
                 "clips_latched_live_confirm": latched_live,
                 "clips_latched_fresh_confirm": latched_fresh,
-                "clips_with_clamped_or_truncated_start": degraded_starts,
-                "clips_with_onset_unavailable": onset_unavailable,
+                // Start states are separate counts; the 160-frame ring is a budget, so a
+                // shortfall shows here (truncated starts, errors), never as full context.
+                "clips_with_origin_clamped_start": clamped_clips,
+                "clips_with_ring_truncated_start": truncated_clips,
+                "clips_with_confirm_onset_unavailable": onset_unavailable,
+                "beams_created": shared_totals.beams_created,
+                "beam_origin_clamped": shared_totals.origin_clamped,
+                "beam_ring_truncated": shared_totals.ring_truncated,
+                "shared_confirm_errors": shared_totals.errors,
+                // Every failed clip (an error under C6 is not hidden by a fallback).
+                "clip_errors": errors,
             });
             if options.jsonl {
                 println!("{summary}");

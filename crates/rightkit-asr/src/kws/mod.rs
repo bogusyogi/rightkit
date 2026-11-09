@@ -634,6 +634,7 @@ impl KeywordSpotter {
                 .map(|(config, identity)| TraceState::new(*config, Arc::clone(identity))),
             // An untraced stream is a throwaway one (a fresh decode); it never owns a ring.
             shared: self.shared.filter(|_| traced).map(|front_end| SharedFrontEnd {
+                id: shared::next_front_end_id(),
                 ring: FrameRing::new(front_end.ring_frames),
                 onset: self.onset.as_ref().map(|config| {
                     let mut config = config.clone();
@@ -885,6 +886,7 @@ impl KeywordSpotter {
             next_frame: start.start_frame,
             start,
             epoch: shared.epoch,
+            front_end_id: shared.id,
             ring_frames: shared.ring.len(),
             ring_bytes: shared.ring.bytes(),
             trace: self
@@ -894,12 +896,13 @@ impl KeywordSpotter {
         })
     }
 
-    /// True when the front end holds frames this beam has not decoded.
+    /// True when the front end holds frames this beam has not decoded. A front end that is not
+    /// the one the beam was made on (another stream, or reset) also answers true, so the next
+    /// [`Self::decode_beam`] fails with the explicit reason instead of the beam stalling.
     pub fn beam_ready(&self, beam: &BeamStream, front_end: &KeywordStream) -> bool {
-        front_end
-            .shared
-            .as_ref()
-            .is_some_and(|shared| beam.next_frame < shared.ring.end())
+        front_end.shared.as_ref().is_some_and(|shared| {
+            beam.check_source(shared.id, shared.epoch).is_err() || beam.next_frame < shared.ring.end()
+        })
     }
 
     /// Decode the next chunk (as many frames as one encoder call yields) of retained frames
@@ -913,9 +916,8 @@ impl KeywordSpotter {
         let Some(shared) = front_end.shared.as_ref() else {
             return Err(Error::Config("stream has no shared front end".into()));
         };
-        if shared.epoch != beam.epoch {
-            return Err(Error::Model("shared front end was reset since the beam was made".into()));
-        }
+        beam.check_source(shared.id, shared.epoch)
+            .map_err(|reason| Error::Model(reason.into()))?;
         let end = shared.ring.end();
         if beam.next_frame >= end {
             return Err(Error::Model("beam has no retained frames to decode".into()));
