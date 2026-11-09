@@ -147,7 +147,13 @@ export function brokerControlTarget(o, { client = o?.client } = {}) {
  * path): nothing is read from an outer scope at call time (two closure bugs of 2026-11-09 read a const that was out of scope or not yet initialized, and the
  * catch turned them into "no proof"). `query` is injectable for tests; the default crosses the real socket.
  */
-export function snapshotReclaimJudge({ o, client, snapshotPath, query = snapshotStatusSync }) {
+/**
+ * How long the reclaim judge waits for the broker's SNAPSHOT_STATUS. The broker answers it from a census of every durable completion proof
+ * (about 20k on the Mac, 2026-11-09): a direct query answered IDLE in 8.1 s and the former 10 s deadline read as "no proof", which kept a dead
+ * holder's lock for good (rightkit#1548). Bounded, never retried: a deadline is still no proof.
+ */
+export const RECLAIM_QUERY_MS = 60_000;
+export function snapshotReclaimJudge({ o, client, snapshotPath, query = snapshotStatusSync, timeoutMs = RECLAIM_QUERY_MS }) {
   if (typeof snapshotPath !== "string" || !path.isAbsolute(snapshotPath)) throw new TypeError("snapshotReclaimJudge: snapshotPath must be absolute");
   const bound = { o, client: typeof client === "string" && client ? client : null, snapshotPath };
   return (holder) => {
@@ -156,7 +162,7 @@ export function snapshotReclaimJudge({ o, client, snapshotPath, query = snapshot
       const target = brokerControlTarget(bound.o, { client: bound.client });
       if (!target.ok) return false;
       const message = snapshotStatusMessage({ protocol: BUILD_CONTROL_PROTOCOL, runtime: target.identity, snapshot: bound.snapshotPath, owner: holder });
-      return snapshotStatusAllowsReclaim(query({ endpoint: target.endpoint, message }), { snapshot: bound.snapshotPath, owner: holder });
+      return snapshotStatusAllowsReclaim(query({ endpoint: target.endpoint, message, timeoutMs }), { snapshot: bound.snapshotPath, owner: holder });
     } catch { return false; }
   };
 }

@@ -8,7 +8,7 @@ import test from "node:test";
 import { CLASS_A_ENV, CLASS_A_VERDICT_SCHEMA, GATE_COMMIT_ENV, classAVerdict, judgeSeamOutcome, normalizeWorkspace, parseIdentity, parseResultLine, processIdentity, readSeamReceipt, samePath, seamEnv, snapshotLockBody, verdictFileName, verdictForRun, writeClassAVerdict } from "./gate-seam.mjs";
 import { SNAPSHOT_STATUS_SCHEMA, snapshotStatusAllowsReclaim, snapshotStatusMessage, snapshotStatusSync } from "./gate-seam.mjs";
 import { spawn } from "node:child_process";
-import { snapshotReclaimJudge } from "./seam-broker.mjs";
+import { RECLAIM_QUERY_MS, snapshotReclaimJudge } from "./seam-broker.mjs";
 import { acquireSnapshotLock } from "./snapshot.mjs";
 
 test("only an exact SNAPSHOT_STATUS echo with state IDLE proves a dead holder's snapshot idle; the query crosses a real socket", async () => {
@@ -47,6 +47,13 @@ test("only an exact SNAPSHOT_STATUS echo with state IDLE proves a dead holder's 
     const o = { platform: process.platform, env: {}, readFile: (f) => fs.readFileSync(f, "utf8"), realpath: (p) => p, lstat: fs.lstatSync, uid: process.getuid?.() ?? null, discoverEndpoint: () => sock };
     const judge = snapshotReclaimJudge({ o, client, snapshotPath: snapshot });
     assert.equal(judge(owner), true, "the door's judge reclaims on the broker's IDLE echo");
+    // The query's deadline is the judge's bounded 60 s (the broker's census of ~20k completion proofs answered in 8.1 s; the former 10 s read as
+    // "no proof", rightkit#1548): the judge hands it to the query, and an exact IDLE echo that arrives within it still reclaims.
+    const asked = [];
+    const slowJudge = snapshotReclaimJudge({ o, client, snapshotPath: snapshot, query: (args) => { asked.push(args); return snapshotStatusSync(args); } });
+    assert.equal(slowJudge(owner), true);
+    assert.equal(RECLAIM_QUERY_MS, 60_000);
+    assert.equal(asked[0]?.timeoutMs, RECLAIM_QUERY_MS, "the judge's query carries the bounded reclaim deadline");
     assert.equal(judge({ ...owner, token: "t-2" }), false, "another token is not this owner");
     assert.equal(snapshotReclaimJudge({ o, client: null, snapshotPath: snapshot })(owner), false, "no client: no proof");
     assert.equal(snapshotReclaimJudge({ o: { ...o, discoverEndpoint: () => `${sock}.missing` }, client, snapshotPath: snapshot })(owner), false, "no broker: no proof");
