@@ -244,7 +244,14 @@ test("the receipt's postconditions are judged before the exit code; a refusal ke
   // pass: exit 0, durable receipt, postconditions hold, test executables carried
   const r1 = receipt(good, { testExecutables: [{ executable: "/t/out/release/deps/x-1" }] });
   const pass = judgeSeamOutcome({ child: { status: 0 }, stderr: line({ receipt: r1 }), commit, tree, classA: "/v/class-a.json" });
-  assert.equal(pass.status, "pass"); assert.deepEqual(pass.evidence.testExecutables, [{ executable: "/t/out/release/deps/x-1" }]); assert.equal(pass.evidence.requestId, "r1"); assert.match(pass.evidence.receiptSha256, /^[0-9a-f]{64}$/);
+  assert.equal(pass.status, "pass"); assert.deepEqual(pass.evidence.testExecutables, [{ executable: "/t/out/release/deps/x-1" }]); assert.equal(pass.evidence.requestId, "r1");
+  // The receipt's target triple is evidence (the gate records a broker row's linked binaries under <outputDir>/<triple>/release and nothing without it): carried when the
+  // broker wrote one (finish_impl.rs `targetTriple`), null otherwise (the deleted carrier carried it the same way; the reset judge dropped it: rustright 1fd4595c install refused).
+  assert.equal(pass.evidence.targetTriple, null);
+  const withTriple = judgeSeamOutcome({ child: { status: 0 }, stderr: line({ receipt: receipt(good, { testExecutables: [], targetTriple: "aarch64-apple-darwin" }) }), commit, tree, classA: "/v/class-a.json" });
+  assert.equal(withTriple.status, "pass"); assert.equal(withTriple.evidence.targetTriple, "aarch64-apple-darwin");
+  const emptyTriple = judgeSeamOutcome({ child: { status: 0 }, stderr: line({ receipt: receipt(good, { testExecutables: [], targetTriple: "" }) }), commit, tree, classA: "/v/class-a.json" });
+  assert.equal(emptyTriple.evidence.targetTriple, null); assert.match(pass.evidence.receiptSha256, /^[0-9a-f]{64}$/);
   // the snapshot changed during the job: fails at exit 0
   const changed = judgeSeamOutcome({ child: { status: 0 }, stderr: line({ receipt: receipt({ ...good, snapshotUnchanged: false }) }), commit, tree });
   assert.equal(changed.status, "fail"); assert.equal(changed.code, "RK_SNAPSHOT_CHANGED");
