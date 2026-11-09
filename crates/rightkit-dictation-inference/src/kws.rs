@@ -1008,9 +1008,7 @@ impl Kws {
     /// `idle_wake`, collected when it is stopped or drained) are collected too; the replay-only
     /// full-command decode and the hey-wake window check run untraced.
     pub fn take_trace(&mut self) -> Option<KwsTrace> {
-        if self.switches.trace.is_none() {
-            return None;
-        }
+        self.switches.trace.as_ref()?;
         self.collect_stream_trace("wake");
         self.collect_stream_trace("confirm");
         self.collect_stream_trace("idle_wake");
@@ -2906,8 +2904,10 @@ mod tests {
 
     #[test]
     fn strict_needs_the_fricative_onset() {
-        let mut switches = KwsSwitches::default();
-        switches.fricative_strict = true;
+        let mut switches = KwsSwitches {
+            fricative_strict: true,
+            ..KwsSwitches::default()
+        };
         assert!(switches.validate().is_err());
         switches.onset = Some(KwsOnsetMethod::Fricative);
         switches.fricative.enabled = true;
