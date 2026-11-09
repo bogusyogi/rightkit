@@ -1283,8 +1283,8 @@ impl Core {
         let wall = wall_now()?;
         let reply = self.transport.lease_renew(&hash, lease_id);
         let (next, outcome) = match reply {
-            Ok(reply) if reply.status == 410 || reply.status == 404 => {
-                // The server says this device's lease is gone: access ends now.
+            Ok(reply) if reply.status == 410 => {
+                // The server says this device was removed or revoked: access ends now.
                 (revoked_record(&record), RefreshViewOutcome::Revoked)
             }
             Ok(reply) if reply.status == 200 => {
@@ -1300,6 +1300,10 @@ impl Core {
                 )
             }
             // Offline, 5xx, anything else: the record stands, the offline episode is noted.
+            // A 404 is here too (rightkit#1557): it means "unknown device or stale lease", which a keychain that went back in time (a
+            // backup restore, a migration) produces for a device whose seat is still active. It is not a revocation, so the record and its
+            // tokens are kept and the lease is retried on the next renew; only the signed token's own validity and the offline rule bound
+            // access meanwhile. An explicit removal or revocation is the server's 410.
             _ => {
                 if record.stale_since.is_some() {
                     let view = self.evaluate(snap).view;

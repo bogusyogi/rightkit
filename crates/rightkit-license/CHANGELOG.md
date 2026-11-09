@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.9
+
+- **Fixed (rightkit#1557): a stale-lease 404 on renew no longer revokes.** `lease_renew` treated the server's 404 ("unknown device or stale lease") like 410 and wiped the signed token, activation token and lease, so a keychain that went back in time (a backup restore, a migration, a QA snapshot restore) lost Pro although the device's seat was still active. Only 410 (removed or revoked) revokes now; a 404 keeps the record and is handled as the stale/offline case, retried on the next renew.
+
 ## 0.2.8
 
 - **New: pending-release queue seam and drain (rightkit#1036; feature `client`).** `PendingReleaseQueue` (`enqueue` returns a `PendingReleaseId`, `pending` returns `PendingReleaseEntry { id, release }`, `acknowledge`), `LicenseClient::drain_pending_releases(&dyn PendingReleaseQueue) -> Result<DrainReport, LicenseError>` (`DrainReport { attempted, settled, kept, acknowledge_failed }`) and `LicenseClient::deactivate_with_queue(&dyn PendingReleaseQueue)`. The release transport is status-aware (`deactivate_status`, `lease_remove_status`; the old bool helpers keep their meaning): 2xx, 404 and 410 settle a row, anything else keeps it. The immediate release of a removal acknowledges the row it was handed, so a removal that reached the server leaves no row (today every removal left one for a later 404/410). Queue calls run under one lock per client; the release itself runs outside it. A tombstone write that is definitely not committed deletes the row it just queued, so a later drain cannot free the seat of a licence that is still active (the callback form `deactivate_with_pending_release` is unchanged). `PendingLicenseRelease` stays non-Debug and non-Serialize. Needs outside this crate (not done here, owners are other batches): `rightkit-tauri-shell` `LicenseOps` default method and `rightkit_license_retry_pending_releases`, and `@rightkit/license` `retryPendingReleases()`. Not compiled.
