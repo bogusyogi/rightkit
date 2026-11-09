@@ -16,6 +16,7 @@ import { committedCargoWorkspace } from "./committed-cargo-workspace.mjs";
 // visible in the registry index with the verified checksum.
 import { buildLaunch } from "./build-launch.mjs";
 import crypto from "node:crypto";
+import { createRequire } from "node:module";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -600,6 +601,34 @@ export function publisherRequirementsForUnits({ selected, snapshot, rustUnits, n
     // Class A's full pass (rustfmt over every Rust file of this snapshot) precedes these requirements in the same run: no per-crate fmt (GC-A24).
     const planned = compileRequirements({ kind, unit, dir, config, manifest, platform, workspace: cargo ? discovered.cargoDir : ".", env, assetGated, formatProven: true });
     out.push({ selector: row.selector, dir, ...planned });
+  }
+  return out;
+}
+
+/**
+ * The requirements of the example entries of a unit list (`example:<crate>/<name>`, rightkit#1543): ONE compile requirement per entry,
+ * `cargo build -p <crate> --example <name> --locked --message-format=json` from the crate's workspace (the gate adds the release profile and target, as for every compile
+ * row, and the broker pins them again). The example must be declared by the crate (a `[[example]]` entry, or `examples/<name>.rs` / `examples/<name>/main.rs` in the snapshot),
+ * so a typo is refused before anything runs. `rows` are `{ selector, dir, example: { crate, name } }`; returns entries shaped like publisherRequirementsForUnits' (`unit` is the crate).
+ */
+export function exampleRequirementsForRows({ rows, snapshot, rustUnits, env }) {
+  if (!Array.isArray(rows) || !Array.isArray(rustUnits)) throw new Error("verified unit discovery is required");
+  const assetGated = JSON.parse(fs.readFileSync(path.join(snapshot, "ci/asset-gated.json"), "utf8"));
+  const out = [];
+  for (const row of rows) {
+    const { crate, name } = row.example ?? {};
+    if (!/^rightkit-[a-z0-9-]+$/.test(String(crate)) || !/^[A-Za-z0-9_][A-Za-z0-9_-]*$/.test(String(name))) throw new Error(`${row.selector}: invalid example entry`);
+    const dir = `crates/${crate}`;
+    const discovered = rustUnits.find((u) => u.dir === dir);
+    if (!discovered) throw new Error(`${row.selector}: ${crate} is absent from authenticated workspace discovery`);
+    if ((discovered.crate ?? discovered.name) !== crate) throw new Error(`${row.selector}: discovered Cargo identity differs`);
+    const manifest = createRequire(import.meta.url)("smol-toml").parse(fs.readFileSync(path.join(snapshot, dir, "Cargo.toml"), "utf8"));
+    const declared = (manifest.example ?? []).some((e) => e?.name === name) || fs.existsSync(path.join(snapshot, dir, "examples", `${name}.rs`)) || fs.existsSync(path.join(snapshot, dir, "examples", name, "main.rs"));
+    if (!declared) throw new Error(`${row.selector}: ${crate} declares no example ${name} (no [[example]] entry, examples/${name}.rs or examples/${name}/main.rs in the commit)`);
+    const gated = Object.hasOwn(assetGated.crates ?? {}, crate);
+    const body = { workspace: discovered.cargoDir, cwd: dir, executable: "cargo", argv: ["build", "-p", crate, "--example", name, "--locked", "--message-format=json"], env: testEnv({ env }, gated), phase: "compile" };
+    out.push({ selector: row.selector, dir, unit: crate, requirements: [{ id: `publisher:example:${crate}/${name}:0`, ...body, coverageKey: sha256(JSON.stringify(body)), example: { crate, name } }],
+      verdict: { source: "example", allowNoTests: true, allowIgnored: false, allowMissingAssets: gated, requireZeroFailed: true, rejectTruncatedTestOutput: true, brokerCompiledTestsRunOutsideBroker: true } });
   }
   return out;
 }
