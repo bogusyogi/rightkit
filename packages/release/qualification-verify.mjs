@@ -98,7 +98,7 @@ function verifyReceiptStages(q, { sha, git, stages }) {
     return expectedByPlatform.get(platform);
   };
   let platform = null;
-  let primaryRoot = null;
+  let primaryRoot = null, primaryCheckout = null;
   let seamSnapshot = null, seamVerdictDir = null;
   const seen = new Set();
   const verified = {};
@@ -158,13 +158,17 @@ function verifyReceiptStages(q, { sha, git, stages }) {
       const { workspace, workspaceRoot } = job.payload.request;
       // A seam receipt has no caller nonce: its command binding is the argv/cwd assignment above plus the signed gate commit and tree.
       // The primary root: the signed workspace without the directory of the row's command (a carried cargo call runs from its manifest's
-      // directory, a pnpm job at the root). Every job of the qualification must show the same one, and so must its workspaceRoot.
+      // directory, a pnpm job at the root). Every job of the qualification must show the same one.
       // A seam receipt's paths are compared as the enrolled host compares them (hostPathKey).
       const keyOf = (p) => hostPathKey(p, platform);
       const cwdKey = platform === "win32" && typeof row.cwd === "string" ? row.cwd.toLowerCase() : row.cwd;
       const root = rootOfWorkspace(keyOf(workspace), cwdKey);
       requireThat(root !== null, `${stage} job ${job.id} ran in ${workspace}, which is not the directory ${row.cwd} of a checkout`);
-      requireThat(workspaceRoot === undefined || workspaceRoot === null || rootOfWorkspace(keyOf(workspaceRoot), cwdKey) === root, `${stage} job ${job.id} ran in ${workspace} with workspace root ${workspaceRoot}, not in one checkout`);
+      // The signed workspaceRoot of a gate-bound job is the app's target identity, the primary checkout the snapshot was taken from (rustright normalize_impl.rs:
+      // workspace_root = binding.primary; finish_impl.rs signs it), never a directory of the snapshot. Every job of the qualification must name the same one.
+      requireThat(isAbsolutePath(workspaceRoot), `${stage} job ${job.id} ran in ${workspace} and names no absolute workspace root (primary checkout): ${JSON.stringify(workspaceRoot)}`);
+      requireThat(primaryCheckout === null || primaryCheckout === keyOf(workspaceRoot), `${stage} job ${job.id} names the primary checkout ${workspaceRoot}, another one than the qualification's other jobs (${primaryCheckout})`);
+      primaryCheckout = keyOf(workspaceRoot);
       requireThat(primaryRoot === null || primaryRoot === root, `${stage} job ${job.id} ran in ${workspace}, another workspace than the qualification's other jobs (${primaryRoot})`);
       // A seam job's primary root is the snapshot its signed gate object names: the directory the request ran in lies in that very snapshot, so the request
       // and the gate evidence describe one checkout.

@@ -13,6 +13,8 @@ import { readSeamStageReceipts } from "./unit-gate.mjs";
 const sha = "a".repeat(40), tree = "b".repeat(40), otherSha = "c".repeat(40), otherTree = "d".repeat(40);
 const HOST = "mac.test", BROKER_DIGEST = "9".repeat(64);
 const DATA = "/data/rightkit", SNAP = `${DATA}/snapshots/repokey01`, VERDICTS = `${DATA}/class-a-verdicts`;
+// The app's primary checkout: what the broker signs as workspaceRoot for a gate-bound job (rustright normalize_impl.rs workspace_root = binding.primary).
+const PRIMARY = "/work/claude/app";
 const unit = { kind: "cargo", name: "rightkit-decimal" };
 const config = JSON.parse(fs.readFileSync(new URL("../../ci/gate.config.json", import.meta.url), "utf8"));
 const expected = expectedStageCommands({ kind: unit.kind, unit: unit.name, config, platform: "darwin" });
@@ -44,7 +46,7 @@ function seamPayload(row, { signer = key, jobId = nextId(), argv = row.argvs[0],
     host: signer.host, broker: { version: "test", brokerDigest: BROKER_DIGEST, clientDigest: "8".repeat(64) }, keyId: signer.keyId, jobId,
     // The client mints the nonce internally; the verifier must neither know nor check it.
     nonce: `client-minted-${jobId}`, requestDigest: "7".repeat(64),
-    request: { kind: "cargo", shim: "cargo", adapter: null, requestedArgv: argv, effectiveArgv: ["cargo", ...argv], workspace, workspaceRoot: workspace, envDigest: "6".repeat(64), manifestDigest: null, outputs: null, timeoutMs: null, transformations: [] },
+    request: { kind: "cargo", shim: "cargo", adapter: null, requestedArgv: argv, effectiveArgv: ["cargo", ...argv], workspace, workspaceRoot: PRIMARY, envDigest: "6".repeat(64), manifestDigest: null, outputs: null, timeoutMs: null, transformations: [] },
     result: { status: "SUCCEEDED", exitCode: 0, signal: null, reap: null, postChecks: null, ...result },
     terminalAt: "2026-11-09T00:00:00.000Z",
     gate: { commit: sha, tree, snapshot: SNAP, classA: verdictOf(row), snapshotUnchanged: true, ...gate },
@@ -187,7 +189,7 @@ test("a qualification for another tree, or with no unit, is refused", () => {
 });
 
 test("a seam receipt whose request ran outside the snapshot, or carries no workspace, is refused", () => {
-  refused(qualificationOf((stage, row, i) => seamReceipt(row, i === 0 && stage === "compile" ? { over: { request: { ...seamPayload(row).request, workspace: `/elsewhere/${row.cwd}`, workspaceRoot: `/elsewhere/${row.cwd}` } } } : {})), /another workspace than the qualification's other jobs|not the snapshot/);
+  refused(qualificationOf((stage, row, i) => seamReceipt(row, i === 0 && stage === "compile" ? { over: { request: { ...seamPayload(row).request, workspace: `/elsewhere/${row.cwd}` } } } : {})), /another workspace than the qualification's other jobs|not the snapshot/);
   refused(qualificationOf((stage, row, i) => seamReceipt(row, i === 0 && stage === "compile" ? { over: { request: { ...seamPayload(row).request, workspace: "" } } } : {})), /records no workspace/);
 });
 
@@ -274,7 +276,7 @@ test("Windows: the canonical \\\\?\\ snapshot and the submitted workspace are on
   const q = { schema: "rightkit.unit-qualification/1", unit, commit: sha, tree, stages: {} };
   for (const stage of ["compile", "package"]) q.stages[stage] = { ok: true, receipts: winExpected[stage].filter((row) => row.direct !== true).map((row) => {
     const base = seamPayload(row, { signer: winKey });
-    const payload = { ...base, request: { ...base.request, workspace: winWorkspace(row), workspaceRoot: winWorkspace(row) }, gate: { ...base.gate, snapshot: winSnap, classA: `\\\\?\\D:\\Rightkit\\class-a-verdicts\\${verdictOf(row).split("/").at(-1)}` } };
+    const payload = { ...base, request: { ...base.request, workspace: winWorkspace(row), workspaceRoot: "D:\\claude\\app" }, gate: { ...base.gate, snapshot: winSnap, classA: `\\\\?\\D:\\Rightkit\\class-a-verdicts\\${verdictOf(row).split("/").at(-1)}` } };
     return { id: payload.jobId, provenance: envelope(winKey, payload) };
   }) };
   const verified = verifyQualificationReceipts(JSON.stringify(q), { sha, git: gitFor({ pins: { win32: winKey.pin } }) });
@@ -282,4 +284,13 @@ test("Windows: the canonical \\\\?\\ snapshot and the submitted workspace are on
   // darwin: a snapshot spelled with another case than the workspace is another directory
   const mac = qualificationOf((stage, row) => seamReceipt(row, { gate: { snapshot: SNAP.toUpperCase() } }));
   refused(mac, /is not the snapshot/);
+});
+
+test("the signed workspaceRoot of a seam job is the primary checkout, not the snapshot: realistic receipts verify; a missing one or one that differs between jobs is refused", () => {
+  // Every fixture above signs workspaceRoot = PRIMARY, outside the snapshot, as the broker does; the cwd -> gate.snapshot binding still holds through workspace.
+  assert.ok(!PRIMARY.startsWith(SNAP));
+  const ok = verifyQualificationReceipts(JSON.stringify(qualificationOf((stage, row) => seamReceipt(row))), { sha, git: gitFor() });
+  assert.ok(ok.compile.length > 0);
+  refused(qualificationOf((stage, row, i) => seamReceipt(row, i === 0 && stage === "package" ? { over: { request: { ...seamPayload(row).request, workspaceRoot: "/work/claude/other-app" } } } : {})), /another one than the qualification's other jobs/);
+  refused(qualificationOf((stage, row, i) => seamReceipt(row, i === 0 && stage === "compile" ? { over: { request: { ...seamPayload(row).request, workspaceRoot: null } } } : {})), /names no absolute workspace root/);
 });
