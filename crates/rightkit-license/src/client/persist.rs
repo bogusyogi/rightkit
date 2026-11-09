@@ -209,6 +209,25 @@ impl RecordStore {
         })
     }
 
+    /// [`read_native`](Self::read_native) without the operation lock, for a reader that found
+    /// it held. The fence (no marker, no credentials call in flight, nothing flagged unresolved)
+    /// is checked before the item is read and again after, so a write that began during the read
+    /// is refused rather than read around; a write that finished is read as the new item (the
+    /// credential store sets the primary atomically). The caller must not write or upgrade
+    /// from this snapshot.
+    pub(crate) fn read_native_unlocked(&self) -> Result<Snapshot, super::reader::NativeRefusal> {
+        use super::reader::NativeRefusal;
+        let snap = self.read_native().map_err(|(_, why)| why)?;
+        let store = self.store.pinned().map_err(|_| NativeRefusal::Store)?;
+        let fence = store
+            .rotation_status(&self.account)
+            .map_err(|_| NativeRefusal::Store)?;
+        if !fence.is_idle() || self.flagged_unresolved() {
+            return Err(NativeRefusal::Unresolved);
+        }
+        Ok(snap)
+    }
+
     /// Write `envelope` on a fenced worker that owns `guard` for the whole sequence.
     pub(crate) fn write(&self, guard: OpGuard, envelope: &Envelope) -> Written<PersistOutcome> {
         let secret = envelope.encode();

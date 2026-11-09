@@ -13,6 +13,12 @@
 //! already holds, and refuses it when it does not authenticate (see [`NativeRefusal`]).
 //! [`stored_signed_token`](crate::stored_signed_token) still reads either form for the legacy
 //! engine token source.
+//!
+//! The client's native source takes the same lock for its read, and when it is still held after
+//! the 250 ms try it does not refuse a valid licence because an operation is on the network:
+//! see `ClientNativeEntitlementSource::read_held`. It serves the stored active signed record
+//! (read under the credentials fence, never around a write in flight) and refuses as busy for
+//! anything else.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -93,7 +99,8 @@ impl CredentialTokenSource {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum NativeRefusal {
-    /// The licence operation lock is held.
+    /// The licence operation lock is held and the stored record could not be served without
+    /// it: another operation is writing, or the record is not an admitted signed one.
     Busy,
     /// A marker or an unfinished write stands, or a bare record's upgrade did not settle.
     Unresolved,
@@ -202,21 +209,22 @@ impl ClientNativeEntitlementSource {
 }
 
 impl ClientNativeEntitlementSource {
-    /// One read under the operation lock. Must not call `signalled`: the engine's continuity
-    /// mutex is held around this call. The refusal code rides beside the error.
+    /// One read under the operation lock; while another operation holds that lock past the
+    /// wait, the stored record is served only as [`read_held`](Self::read_held) allows. Must
+    /// not call `signalled`: the engine's continuity mutex is held around this call. The
+    /// refusal code rides beside the error.
     fn read_coded(
         &self,
     ) -> Result<crate::NativeCredential, (crate::NativeSourceError, NativeRefusal)> {
         use super::envelope::RecordStatus;
-        use crate::{NativeCredential, NativeSignedCredential, NativeSourceError};
+        use crate::{NativeCredential, NativeSourceError};
         let refuse = |why: NativeRefusal| (NativeSourceError::Refused, why);
         let _level = order::enter(Level::Op);
-        let mut guard = self.core.op.acquire(ENGINE_WAIT).map_err(|error| {
-            refuse(match error {
-                LicenseError::Busy => NativeRefusal::Busy,
-                _ => NativeRefusal::Store,
-            })
-        })?;
+        let mut guard = match self.core.op.acquire(ENGINE_WAIT) {
+            Ok(guard) => guard,
+            Err(LicenseError::Busy) => return self.read_held(),
+            Err(_) => return Err(refuse(NativeRefusal::Store)),
+        };
         let records = self
             .core
             .records
@@ -269,19 +277,59 @@ impl ClientNativeEntitlementSource {
                 RecordStatus::Invalid => Err(refuse(NativeRefusal::InvalidRecord)),
             },
             Admission::Signed { revision, record } => {
-                let token = record
-                    .signed_token()
-                    .ok_or_else(|| refuse(NativeRefusal::InvalidRecord))?;
-                let device_binding = self
-                    .binding(record)
-                    .map_err(|_| refuse(NativeRefusal::Device))?;
-                Ok(NativeCredential::Signed(NativeSignedCredential {
-                    token: token.to_owned(),
-                    device_binding,
-                    clock_initialized: record.clock_initialized,
-                    revision: revision.to_owned(),
-                }))
+                self.signed_credential(revision, record).map_err(refuse)
             }
+        }
+    }
+
+    /// The credential of an admitted signed record, with the device binding derived here.
+    fn signed_credential(
+        &self,
+        revision: &str,
+        record: &super::envelope::StoredRecord,
+    ) -> Result<crate::NativeCredential, NativeRefusal> {
+        use crate::{NativeCredential, NativeSignedCredential};
+        let token = record.signed_token().ok_or(NativeRefusal::InvalidRecord)?;
+        let device_binding = self.binding(record).map_err(|_| NativeRefusal::Device)?;
+        Ok(NativeCredential::Signed(NativeSignedCredential {
+            token: token.to_owned(),
+            device_binding,
+            clock_initialized: record.clock_initialized,
+            revision: revision.to_owned(),
+        }))
+    }
+
+    /// The read when the operation lock is still held after the wait (rightkit#1557 follow-up).
+    ///
+    /// A renew, an activation, a link redemption or a trial request holds that lock across its
+    /// network call (up to the transport timeout, 15 s by default) and has written nothing yet,
+    /// so the stored record is exactly the one that was valid when the operation began, and
+    /// refusing it as busy would lock a paying user out of Pro for the whole call. This reads
+    /// the stored record WITHOUT the lock, under the same fence the locked read uses (no marker,
+    /// no credentials call in flight, no unresolved write flagged), checked before the item is
+    /// read and again after it, so a write that has begun is never read around: it refuses as
+    /// busy until the writer has committed. It then applies the same admission (`admit`) and
+    /// serves ONLY an active signed record in a revisioned envelope. Everything else (an absent
+    /// item, a tombstone, a revoked or invalid record, a corrupt item, a bare record, which
+    /// cannot be upgraded without the lock) keeps the busy refusal, so this path can never
+    /// grant what the locked read would not, and it writes nothing.
+    ///
+    /// Staleness: a licence change the holder is about to persist from its reply (a 410
+    /// revocation, a new lease) is not visible until it is committed; that is at most the
+    /// holder's own transport timeout after it began, the same moment the locked read would
+    /// have seen it. A revocation already committed is read as revoked here (the store, not a
+    /// cached copy, is read), so it never grants after it.
+    fn read_held(
+        &self,
+    ) -> Result<crate::NativeCredential, (crate::NativeSourceError, NativeRefusal)> {
+        let busy = (crate::NativeSourceError::Refused, NativeRefusal::Busy);
+        let records = self.core.records.pinned().map_err(|_| busy)?;
+        let snap = records.read_native_unlocked().map_err(|_| busy)?;
+        match admit(&snap, self.core.records.flagged_unresolved()) {
+            Admission::Signed { revision, record } => {
+                self.signed_credential(revision, record).map_err(|_| busy)
+            }
+            _ => Err(busy),
         }
     }
 }

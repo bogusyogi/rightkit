@@ -42,9 +42,11 @@ impl LicenseClient {
     /// The engine snapshot of the stored licence: the signed token, the device binding it was
     /// issued for and whether the anti-rollback ledger exists (see the `engine_snapshot` module
     /// docs). Never fails: a licence that is absent, revoked, unsigned or not yet migrated is an
-    /// absent snapshot (the engine is Free); a record that cannot be read right now (a busy
-    /// operation lock, an unresolved write, an unreadable store) is a failed read, which the engine
-    /// treats as unreadable and so refuses Pro.
+    /// absent snapshot (the engine is Free); a record that cannot be read right now (a write in
+    /// flight, an unresolved write, an unreadable store, or an operation holding the lock with no
+    /// active signed record stored) is a failed read, which the engine treats as unreadable and so
+    /// refuses Pro. An operation that is only on the network (a renew) does not make the read fail:
+    /// the stored active signed record is sent as it stands (`ClientNativeEntitlementSource`).
     ///
     /// A client built with `LicenseSetup::Disabled` has no licence product, so its snapshot is
     /// absent. Send a fresh snapshot when the engine starts and after every change

@@ -15,7 +15,10 @@
 //! One OS lock per app (`<license dir>/.lock`), only ever taken with `try_acquire` polled against
 //! a deadline (5 s for a mutation, 250 ms for a status or authorization read). A mutation holds
 //! it for its WHOLE workflow, and every record write runs on a worker that owns the guard until
-//! the backend (including any timed-out child call) has really finished. Fixed lock order:
+//! the backend (including any timed-out child call) has really finished. The native engine
+//! source (`reader`) does not refuse an active signed record while a mutation is only waiting on
+//! the network: it reads the record under the credentials fence without the lock and refuses as
+//! busy only while a write is in flight or for any other record. Fixed lock order:
 //! operation lock, then credentials rotation, then clock; a reentry or inversion is a debug
 //! assertion. See `lock`, `persist` and `order`.
 //!
