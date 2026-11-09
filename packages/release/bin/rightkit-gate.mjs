@@ -3696,7 +3696,8 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
     const r = (o.spawnInherit ?? inheritLaunch)(process.execPath, [cli, to, ...passthrough], { cwd: source ? snapshotAppRootOf(ds.path, appDir) : appRoot, env: signedReport ? { ...childEnv, RIGHTKIT_SIGNED_IN_PLACE_REPORT: signedReport } : childEnv });
     const carriedOk = await carrier.finish({ stage: to });
     let signedInPlace = new Map();
-    if (signedReport) { try { signedInPlace = readSignedInPlaceReport(signedReport, ds.path); } catch (e) { o.err(`${tag} RK_CHECK_ERROR: [${to}] ${e.message}`); return 2; } }
+    // Only a right-release dev that succeeded wrote its report last; a failed one is read as no report (every staged change then refuses).
+    if (signedReport && r.status === 0) { try { signedInPlace = readSignedInPlaceReport(signedReport, ds.path); } catch (e) { o.err(`${tag} RK_CHECK_ERROR: [${to}] ${e.message}`); return 2; } }
     if (ds && !(await closeSnapshotStage({ o, ds, root, stage: to, step: to, tag, signedInPlace })).ok) { o.err(`${tag} --to ${to} stopped: the result covers no known bytes`); return 2; }
     return r.status === 0 && carriedOk ? 0 : 1;
   } finally { endRun(run); carrier.cleanup(); try { pinMulti?.cleanup?.(); } catch { /* the wrapper map is the gate's own temp directory */ } }

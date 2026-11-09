@@ -225,7 +225,6 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
         installedExe: () => path.resolve(root, descriptor.expectedInstalledPath),
       } });
       assertDevSelfCheck({ config, paths: [path.resolve(root, descriptor.expectedInstalledPath)] });
-      writeSignedInPlaceReport(env, authenticode.stageOutputs);
       return { built: true, installed: true, ...(staged.length ? { staged } : {}), authenticode };
     }
     if (target.install.kind === ASSEMBLED_APP_KIND) {
@@ -588,6 +587,8 @@ export async function main(args = process.argv.slice(2)) {
   }
   if (!platform) throw new Error("right-release dev requires --platform win|mac|linux|android|ios");
   const absoluteConfig = path.resolve(configPath);
+  // rightkit#1555: the door's report path, read before the environment is reshaped; the report is written only after the whole dev step succeeded.
+  const reportEnv = { [SIGNED_IN_PLACE_REPORT_ENV]: process.env[SIGNED_IN_PLACE_REPORT_ENV] };
   const safeEnv = developmentEnvironment(process.env);
   for (const [key, value] of Object.entries(safeEnv)) process.env[key] = value;
   for (const key of RELEASE_ONLY_APPLE_ENV) delete process.env[key];
@@ -597,6 +598,9 @@ export async function main(args = process.argv.slice(2)) {
   const config = await importReleaseConfig(absoluteConfig, { lenient: true });
   const result = await runDevelopment({ root: path.dirname(absoluteConfig), platform, config, dryRun, buildOnly, serial });
   if (dryRun) console.log(JSON.stringify(result.plan, null, 2));
+  // Written last, on every successful route: the Authenticode install's verified in-place signatures, an empty list on any other route
+  // (--build-only, another install kind). A report a build step wrote earlier is overwritten; a failed step writes none.
+  if (!dryRun) writeSignedInPlaceReport(reportEnv, result?.authenticode?.stageOutputs ?? { files: [] });
   return result;
 }
 

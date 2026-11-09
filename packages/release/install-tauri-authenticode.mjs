@@ -402,10 +402,13 @@ export function installTauriAuthenticode({ descriptor: raw, debugDir, appRoot, r
     item.sha256 = sha256(item.path);
     if (!item.sidecar.digests.has(item.sha256)) refuse("TAURI_AUTHENTICODE_SIDECAR_STALE", `installed ${item.path} (sha256 ${item.sha256}) is not the signed ${item.sidecar.file}`, { sidecar: item.sidecar.name });
   }
+  const verifiedAfter = new Map(sidecars.flatMap((sidecar) => sidecar.copies.map((copy) => [copy.path, copy.sha256After])));
   return {
     order, exe, installer, installed, payload,
     // In-place signed stage outputs (git-ignored): the gate's ledger walk attributes them from `files` (stage-ledger.mjs reportedPaths); paths are absolute here, the caller makes them app-relative.
-    stageOutputs: { files: inPlace.map((file) => ({ path: file.replaceAll("\\", "/"), kind: "signed-in-place", sha256Before: inPlaceBefore.get(file), sha256: sha256(file) })) },
+    // The digest after signing is the one the signer recorded and the verify step checked (copy.sha256After), never a rehash after install:
+    // a copy rewritten after verification must stay a refused change at the gate's close.
+    stageOutputs: { files: inPlace.map((file) => ({ path: file.replaceAll("\\", "/"), kind: "signed-in-place", sha256Before: inPlaceBefore.get(file), sha256: verifiedAfter.get(file) })) },
     sidecars: installedSidecars.map((item) => ({ name: item.sidecar.name, copies: item.sidecar.copies.map((copy) => ({ role: copy.role, path: copy.path, sha256After: copy.sha256After })), installed: { path: item.path, sha256: item.sha256 } })),
     signing: { subject: SIGN_SUBJECT, files: [...signedExe, ...signedInstaller].map((item) => ({ file: item.file, sha256Before: item.before?.sha256, sha256After: item.after?.sha256, subject: item.subject })) },
   };
