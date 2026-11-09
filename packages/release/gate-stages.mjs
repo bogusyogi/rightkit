@@ -177,9 +177,13 @@ export function writeReceipt({ commonDir, receipt, write = (file, data) => write
  * The inputs a receipt binds besides the commit: the tree id, each lockfile's digest, the gate's own digest and the toolchain versions.
  * A receipt from an earlier run counts for a stage only when every one of these is unchanged.
  */
-export function bindingOf({ tree, lockFiles = {}, gateFile, readFile = (f) => fs.readFileSync(f), toolchain = {}, executor }) {
+export function bindingOf({ tree, lockFiles = {}, gateFile, gateJudge = null, readFile = (f) => fs.readFileSync(f), toolchain = {}, executor }) {
   let gate = null;
-  try { gate = sha256(readFile(gateFile)); } catch { /* unreadable: no binding, nothing reused */ }
+  try {
+    const bytes = readFile(gateFile);
+    // Imported judging code can change while the entrypoint stays byte-identical. A whole-stage hit must not bypass that judge.
+    gate = sha256(gateJudge ? Buffer.concat([Buffer.from(bytes), Buffer.from(`\0judge:${gateJudge}`)]) : bytes);
+  } catch { /* unreadable: no binding, nothing reused */ }
   return { tree, locks: Object.fromEntries(Object.entries(lockFiles).map(([k, v]) => [k, sha256(v)]).sort(([a], [b]) => a.localeCompare(b))), gate, toolchain, executor };
 }
 

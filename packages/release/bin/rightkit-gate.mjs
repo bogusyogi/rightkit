@@ -201,7 +201,7 @@ function gateCodeIdentity() {
     h.update("\0");
     h.update(fs.readFileSync(fileURLToPath(import.meta.url)));
     // The runtime cargo wrapper and the seam it sends through: their code decides what a broker compile did.
-    for (const f of ["cargo-target-shim.mjs", "seam-broker.mjs", "gate-seam.mjs", "snapshot-metadata.mjs", "cargo-ledger.mjs"]) { h.update(`\0${f}\0`); h.update(fs.readFileSync(new URL(`../${f}`, import.meta.url))); }
+    for (const f of ["cargo-target-shim.mjs", "seam-broker.mjs", "gate-seam.mjs", "snapshot-metadata.mjs", "cargo-ledger.mjs", "gate-stages.mjs"]) { h.update(`\0${f}\0`); h.update(fs.readFileSync(new URL(`../${f}`, import.meta.url))); }
     gateCodeIdentityMemo = h.digest("hex").slice(0, 24);
   }
   return gateCodeIdentityMemo;
@@ -1895,7 +1895,7 @@ async function runStages(o, args, root, git, io) {
     const shown = git("show", `${commit}:${f}`); if (!failed(shown)) lockFiles[f] = text(shown);
   }
   const binding = bindingOf({
-    tree, lockFiles, gateFile: fileURLToPath(import.meta.url), executor: o.brokerException ? `${executor.kind}:exception:${o.brokerException.exceptionId}` : executor.kind,
+    tree, lockFiles, gateFile: fileURLToPath(import.meta.url), gateJudge: gateCodeIdentity(), executor: o.brokerException ? `${executor.kind}:exception:${o.brokerException.exceptionId}` : executor.kind,
     toolchain: { classA: { "cargo-deny": version("cargo-deny", ["--version"]), "cargo-audit": version("cargo-audit", ["--version"]), actionlint: version("actionlint", ["-version"]), shellcheck: version("shellcheck", ["--version"]) }, node: process.version, rustc: version(executor.kind === "broker" && executor.cargo.length > 1 ? executor.cargo[0] : "rustc", executor.kind === "broker" && executor.cargo.length > 1 ? ["rustc", "-V"] : ["-V"]), pnpm: version("pnpm", ["--version"]) },
   });
   // Release writes to R2. The write credential lives only in the trusted publisher: a GitHub Actions job in the protected

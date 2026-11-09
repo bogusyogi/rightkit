@@ -131,6 +131,8 @@ Signing and installation, enforced by refusal codes in `@rightkit/release`: `RK_
 
 Windows dev signing in git-free snapshots binds adjacent snapshot state to selected commit's canonical source identity, reads tracked paths from its sealed tree & evaluates neutral ignore rules; tracked, unignored, escaping or linked resources refuse before signing (`TAURI_AUTHENTICODE_TRACKED_RESOURCE`; rightkit#1549, `packages/release/install-tauri-authenticode.test.mjs`). Legacy door-run & reset seam markers must agree when present.
 
+Whole-stage reuse binds entrypoint bytes & imported runtime judge identity; changing seam receipt interpretation invalidates old stage passes while retaining warm Cargo targets (`packages/release/gate-stage-binding.test.mjs`, rightkit#1550).
+
 Enforced, test mapping not yet listed here (GAP: evidence, not an unimplemented obligation): notarization (`macos-signing-session.mjs` `MAC_SIGNING_AGENT_PROTOCOL` refuses incomplete notarization or stapling evidence; `install-app.mjs` `spctl-notarized` refuses an app not accepted as Notarized Developer ID) and the explicit `distribution.provider` (`admission-files.mjs` provider validation; `android-play-upload.mjs` `PLAY_CONFIG_INVALID`) and the explicit tier on upload (`release-state.mjs` "upload tier is required (patch|update)"; `addon-command.mjs` `--tier patch|update`). GAP: "upload no unsigned or test artifact" (RightKit `AGENTS.md`, locked invariants) has no test name or refusal code listed here yet; it enters with its check.
 
 ## 4. Decisions
