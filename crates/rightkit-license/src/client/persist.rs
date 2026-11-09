@@ -211,10 +211,14 @@ impl RecordStore {
 
     /// [`read_native`](Self::read_native) without the operation lock, for a reader that found
     /// it held. The fence (no marker, no credentials call in flight, nothing flagged unresolved)
-    /// is checked before the item is read and again after, so a write that began during the read
-    /// is refused rather than read around; a write that finished is read as the new item (the
-    /// credential store sets the primary atomically). The caller must not write or upgrade
-    /// from this snapshot.
+    /// is checked before the item is read and again after: a write still in flight at either
+    /// check is refused. A whole write that begins and ends between the item read and the second
+    /// check is not detected (no revision is compared); the read then returns the item as it
+    /// stood just before that write, never a mix (the credential store sets the primary
+    /// atomically), and is ordered before it. The holder invalidates the engine after its
+    /// commit, so the next read sees the new item. The item can stay the pre-operation one
+    /// until the holder persists its outcome, however long that takes, not only for the
+    /// transport timeout. The caller must not write or upgrade from this snapshot.
     pub(crate) fn read_native_unlocked(&self) -> Result<Snapshot, super::reader::NativeRefusal> {
         use super::reader::NativeRefusal;
         let snap = self.read_native().map_err(|(_, why)| why)?;
