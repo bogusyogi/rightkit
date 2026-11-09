@@ -329,17 +329,6 @@ export function compileProofKey(scan, as = "check") {
 }
 
 /**
- * An example build row (rightkit#1543): the build of one named example of one crate, sent through the seam like any class B row. The row's own argv names the
- * example (so the existing class B key shape needs nothing new); `example` is only the crate and example name, accepted only when the argv builds exactly that.
- */
-export function exampleOfRequirement(requirement) {
-  const e = requirement?.example;
-  if (!e || typeof e.crate !== "string" || typeof e.name !== "string" || !Array.isArray(requirement.argv)) return null;
-  const a = requirement.argv; const p = a.indexOf("-p"); const x = a.indexOf("--example");
-  return a[0] === "build" && p > 0 && a[p + 1] === e.crate && x > 0 && a[x + 1] === e.name ? { crate: e.crate, name: e.name } : null;
-}
-
-/**
  * Translate one authenticated publisher requirement into a normal Class B scan. `batch` (a unit-list run, reset plan step 5) marks the scan `batchable`
  * exactly as planScans marks its own compile rows, so runScans' one class B grouping (classBBatching, the feature partition, the store rule, the
  * serial reuse) groups publisher rows with each other: a check, clippy or doc of one crate, or a Rust test whose executables run outside the
@@ -363,7 +352,7 @@ export function publisherRequirementScan(requirement, { platform = process.platf
   if (executable === "cargo") {
     args = oneOutput(isRustTest && cargoLiveRoot ? args : everyFailure(args), { platform, arch: nativeArch });
   }
-  const scan = { id, coverageKey, ...(executable === "cargo" ? { executionWorkspace: workspace } : {}), publisherPhase: phase, class: SCAN_CLASS.B, root: executable === "cargo" && cargoLiveRoot ? "cargoLive" : "live", cwd, tool: executable === "cargo" ? cargoCommand[0] : executable, args: executable === "cargo" ? [...cargoCommand.slice(1), ...args] : args, env: { ...env, ...(targetDirs?.[workspace] ? { CARGO_TARGET_DIR: targetDirs[workspace] } : {}) }, ...(quiet && phase === "test" ? { quiet: true } : {}), ...(runOutside ? { runOutside } : {}), ...(isRustTest ? { publisherRustTest: true, allowIgnored } : {}), ...(executable === "pnpm" && phase === "test" ? { kind: "test" } : {}), ...(exampleOfRequirement(requirement) ? { example: exampleOfRequirement(requirement), captureJson: true } : {}) };
+  const scan = { id, coverageKey, ...(executable === "cargo" ? { executionWorkspace: workspace } : {}), publisherPhase: phase, class: SCAN_CLASS.B, root: executable === "cargo" && cargoLiveRoot ? "cargoLive" : "live", cwd, tool: executable === "cargo" ? cargoCommand[0] : executable, args: executable === "cargo" ? [...cargoCommand.slice(1), ...args] : args, env: { ...env, ...(targetDirs?.[workspace] ? { CARGO_TARGET_DIR: targetDirs[workspace] } : {}) }, ...(quiet && phase === "test" ? { quiet: true } : {}), ...(runOutside ? { runOutside } : {}), ...(isRustTest ? { publisherRustTest: true, allowIgnored } : {}), ...(executable === "pnpm" && phase === "test" ? { kind: "test" } : {}) };
   // Do not render the inherited publisher environment into logs or receipts.
   scan.command = commandText({ ...scan, env: {} });
   if (batch && executable === "cargo") {
@@ -2383,35 +2372,6 @@ export function parseTestListing(text) {
   return out;
 }
 
-/**
- * The built example of an example build row (rightkit#1543), from cargo's own `compiler-artifact` record: `target.kind` includes "example", `target.name` is the
- * requested example, `package_id` is the requested crate, and `executable` is the absolute path cargo built (a warm run still emits the record, with `fresh: true`:
- * no rebuild is forced). The file must be a regular file inside the verified output directory (the receipt's outputDir on a seam row); its sha256 is read here.
- * Never a guessed path: no record, an ambiguous record, a cut listing, a build that did not finish or a file that is not there is EXAMPLE_MISSING (`detail` says why).
- * Returns { ok: true, example: { crate, version, name, kind, executable, path, sha256, fresh } } or { ok: false, detail }.
- */
-export function resolveExampleArtifact({ listingText, listingCut = false, crate, name, boundDirs, generationRoots = null, platform = process.platform, ops = TEST_RUN_OPS }) {
-  const miss = (detail) => ({ ok: false, detail });
-  if (listingCut) return miss("cargo's JSON listing was cut at the kept output tail, so the example's compiler-artifact record cannot be found");
-  let buildFinished = null; const hits = [];
-  for (const raw of String(listingText ?? "").split(/\r?\n/)) {
-    const line = raw.trimStart();
-    if (!line.startsWith("{")) continue;
-    let v; try { v = JSON.parse(line); } catch { continue; }
-    if (v?.reason === "build-finished") buildFinished = (buildFinished ?? true) && v.success === true;
-    else if (v?.reason === "compiler-artifact" && Array.isArray(v.target?.kind) && v.target.kind.includes("example") && v.target.name === name && packageOfId(v.package_id).name === crate && typeof v.executable === "string" && v.executable !== "") hits.push(v);
-  }
-  if (buildFinished !== true) return miss(buildFinished === false ? "a build-finished record said failure" : "cargo's listing has no successful build-finished record");
-  const executables = [...new Set(hits.map((h) => h.executable))];
-  if (executables.length === 0) return miss(`cargo's listing has no compiler-artifact record with an executable for example ${name} of ${crate}`);
-  if (executables.length > 1) return miss(`cargo's listing names ${executables.length} different executables for example ${name} of ${crate} (${executables.slice(0, 3).join(", ")})`);
-  const hit = hits[0];
-  const contained = containTestExecutables([{ executable: hit.executable }], { boundDirs, generationRoots, platform, ops });
-  if (contained.problems.length) return miss(contained.problems.slice(0, 3).join("; "));
-  const built = contained.accepted[0];
-  return { ok: true, example: { crate, version: packageOfId(hit.package_id).version, name, kind: hit.target.kind.filter((k) => typeof k === "string"), executable: hit.executable, path: built.real, sha256: built.sha256, fresh: hit.fresh === true } };
-}
-
 /** What a cargo `--message-format=json` stream says per package (NN40): the error diagnostics and whether a build artifact was reported. `{ records, errors: {name: {count, rendered[]}}, artifacts: {name: count} }`. */
 export function summarizeCargoJson(text) {
   const out = { records: 0, errors: {}, artifacts: {} };
@@ -3757,9 +3717,7 @@ export async function runScans(plan, options = {}) {
           const viaSeam = Boolean(deps.gateSeam) && s.class === SCAN_CLASS.B && s.root === "cargoLive" && (s.tool === "rustright" || s.tool === "cargo" || (s.tool === "swift" && carriedScan));
           if (viaSeam) row.seam = true;
           // NN02: a publisher row (coverageKey) is cached too, with the signed broker receipt and test-run evidence its publisher verify needs.
-          // An example build row (rightkit#1543) is never served from or stored in the result cache: its evidence is a file this run named and hashed, which a stored row
-          // cannot vouch for (cargo's own warm cache makes the rerun cheap, and a fresh artifact record is still emitted).
-          if (cache && !s.example) {
+          if (cache) {
             const cacheStarted = performance.now();
             try {
               // A plain node --check row has no guard, carrier, advisory or
@@ -4136,35 +4094,6 @@ export async function runScans(plan, options = {}) {
           } finally {
             if (tscProject) fs.rmSync(tscProject.dir, { recursive: true, force: true });
             if (listingDir) fs.rmSync(listingDir, { recursive: true, force: true });
-          }
-          // rightkit#1543: an example build row is judged from cargo's own compiler-artifact record (resolveExampleArtifact); on a seam row its receipt (SUCCEEDED, exit 0,
-          // snapshotUnchanged, this row's argv) was verified above. The built file is hashed here and bound to the commit, tree and receipt; the gate never runs it.
-          if (s.example && status === "pass" && r && !r.error) {
-            const boundDirs = viaSeam ? (row.snapshotEvidence?.outputDir ? [row.snapshotEvidence.outputDir] : []) : [path.resolve(path.join(rootDir(s.root), s.cwd ?? ""), s.env?.CARGO_TARGET_DIR ?? deps.env?.CARGO_TARGET_DIR ?? "target")];
-            const found = resolveExampleArtifact({ listingText, listingCut, crate: s.example.crate, name: s.example.name, boundDirs, generationRoots: viaSeam ? (deps.gateSeam.outputRoots ?? null) : null, platform: deps.platform ?? process.platform, ops: { ...TEST_RUN_OPS, ...(options.testRunOps ?? {}) } });
-            if (!found.ok) { status = "fail"; code = "EXAMPLE_MISSING"; detail = `${s.id}: EXAMPLE_MISSING: ${found.detail}`; }
-            else {
-              // cargo's uplifted `<target>/release/examples/<name>` is a mutable location (other rows of this run and later runs re-link it) and the broker's receipt attests no example bytes, so the
-              // verified file is copied into a gate-owned, content-addressed store (`<store>/<sha256>/<name>`), re-hashed there, and ONLY the copy is recorded as `path`; cargo's path is `builtFrom`.
-              const { executable: builtFrom, path: source, ...rest } = found.example;
-              const store = options.exampleStoreDir;
-              let copied = null; let why = null;
-              if (typeof store !== "string" || !path.isAbsolute(store)) why = "no gate-owned example store directory (a unit-list run names one with --receipt-dir)";
-              else {
-                try {
-                  const dir = path.join(store, rest.sha256); const dest = path.join(dir, `${rest.name}${/\.exe$/i.test(source) ? ".exe" : ""}`);
-                  fs.mkdirSync(dir, { recursive: true });
-                  if (fs.existsSync(dest)) fs.chmodSync(dest, 0o755);
-                  fs.copyFileSync(source, dest);
-                  const mode = fs.statSync(source).mode;
-                  const again = (options.testRunOps?.digestFile ?? TEST_RUN_OPS.digestFile)(dest);
-                  if (again !== rest.sha256) { fs.rmSync(dest, { force: true }); why = `the copy hashes ${again}, the file read moments before hashed ${rest.sha256}: the built file changed while it was copied`; }
-                  else { fs.chmodSync(dest, mode & 0o555); copied = dest; }
-                } catch (e) { why = `the verified file could not be copied into the example store (${e.message})`; }
-              }
-              if (copied === null) { status = "fail"; code = "EXAMPLE_MISSING"; detail = `${s.id}: EXAMPLE_MISSING: ${why}`; }
-              else row.example = { ...rest, path: copied, builtFrom, tests: "not-run", outputDir: row.snapshotEvidence?.outputDir ?? boundDirs[0] ?? null, commit: s.example.commit ?? deps.gateSeam?.commit ?? null, tree: s.example.tree ?? deps.gateSeam?.tree ?? null, receiptSha256: row.snapshotEvidence?.receiptSha256 ?? null, requestId: row.snapshotEvidence?.requestId ?? null };
-            }
           }
           // GATE-CONTRACT GC-A08: the compile above never ran a test. The gate runs the listed test executables here, outside the broker.
           // Quiet lane: a quiet suite keeps the broker's quiet lease (taken by runScans around this whole scan) through this run phase. The lease exists so nothing else

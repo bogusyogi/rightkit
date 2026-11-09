@@ -220,7 +220,7 @@ function directCargoBinOf(o) {
   return null;
 }
 
-const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify|release --unit npm:@rightkit/<name>|cargo:rightkit-<name> [--receipt-out <file>] | rightkit-gate --to tool --unit cargo:rightkit-qa|cargo:rightkit-credentials [--no-broker <exception-id>] [--receipt-out <file>] [--commit <rev>] (builds the unit's release binary from the commit and enrols it: cargo:rightkit-qa as the managed rightkit-qa runner, cargo:rightkit-credentials as the managed OS credential provider updater signing runs; Mac and Windows) | rightkit-gate --to check|compile|package|qualify --changed [--base <ref>] [--receipt-dir <absolute dir>] | rightkit-gate --to check|compile|package|qualify --units-file <json {"units":[<selector>,...]} written for this run; a selector is cargo:rightkit-<name>, npm:@rightkit/<name>, or (--to compile only) example:rightkit-<crate>/<example>: the build of that one Cargo example through the seam, its built binary named by path and sha256 in the unit's receipt, never run> [--receipt-dir <absolute dir>] | rightkit-gate --to check|compile|package|qualify --all-units-exception <id> (RightKit only: its unit is named on every run, or every unit by Adrian's entry in ci/all-units-exceptions.json of the commit) | rightkit-gate --to check|compile|package|qualify [--unit <selector>] --no-broker <exception-id> (Mac and Dell only; Adrian's recorded exception in .rightkit/broker-exceptions.json of the commit) | rightkit-gate --to dev|test [--commit <rev>] [-- <right-release args>] | rightkit-gate --to render [--commit <rev>] (builds the app's declared renderViews target from ci/gate.config.json through the carrier, runs it headless and stores the PNGs and a hashed receipt) | rightkit-gate --to check|compile|package|qualify|dev|test --route [--platform mac|win|ios|android] [--commit <rev>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] | rightkit-gate install-hook | rightkit-gate env-digest | rightkit-gate snapshot [--commit <rev>] [--verify [--env <sha256>]] [--json] | rightkit-gate live-scans --repo <root> | rightkit-gate clippy [<cargo clippy args>] | rightkit-gate env-digest [--snapshot <dir> --commit <sha>] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | rightkit-gate check --commit <sha> --full-a --snapshot <dir> | --version`;
+const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify|release --unit npm:@rightkit/<name>|cargo:rightkit-<name> [--receipt-out <file>] | rightkit-gate --to tool --unit cargo:rightkit-qa|cargo:rightkit-credentials [--no-broker <exception-id>] [--receipt-out <file>] [--commit <rev>] (builds the unit's release binary from the commit and enrols it: cargo:rightkit-qa as the managed rightkit-qa runner, cargo:rightkit-credentials as the managed OS credential provider updater signing runs; Mac and Windows) | rightkit-gate --to check|compile|package|qualify --changed [--base <ref>] [--receipt-dir <absolute dir>] | rightkit-gate --to check|compile|package|qualify --units-file <json {"units":[<selector>,...]} written for this run> [--receipt-dir <absolute dir>] | rightkit-gate --to check|compile|package|qualify --all-units-exception <id> (RightKit only: its unit is named on every run, or every unit by Adrian's entry in ci/all-units-exceptions.json of the commit) | rightkit-gate --to check|compile|package|qualify [--unit <selector>] --no-broker <exception-id> (Mac and Dell only; Adrian's recorded exception in .rightkit/broker-exceptions.json of the commit) | rightkit-gate --to dev|test [--commit <rev>] [-- <right-release args>] | rightkit-gate --to render [--commit <rev>] (builds the app's declared renderViews target from ci/gate.config.json through the carrier, runs it headless and stores the PNGs and a hashed receipt) | rightkit-gate --to check|compile|package|qualify|dev|test --route [--platform mac|win|ios|android] [--commit <rev>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] | rightkit-gate install-hook | rightkit-gate env-digest | rightkit-gate snapshot [--commit <rev>] [--verify [--env <sha256>]] [--json] | rightkit-gate live-scans --repo <root> | rightkit-gate clippy [<cargo clippy args>] | rightkit-gate env-digest [--snapshot <dir> --commit <sha>] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | rightkit-gate check --commit <sha> --full-a --snapshot <dir> | --version`;
 /** The host platform (process.platform) that constructs each platform's artifact; a platform missing here (android) builds on any host. */
 const STAGE_NATIVE_HOST = Object.freeze({ mac: "darwin", ios: "darwin", win: "win32" });
 
@@ -1483,32 +1483,24 @@ export function rightkitIdentityAt(git, commit) {
   return !failed(shown) && isRightKitIdentity(text(shown));
 }
 
-const UNIT_SELECTOR = /^(?:npm:@rightkit\/[a-z0-9-]+|cargo:rightkit-[a-z0-9-]+|example:rightkit-[a-z0-9-]+\/[A-Za-z0-9_][A-Za-z0-9_-]*)$/;
-/** `example:<crate>/<name>` (rightkit#1543, `--units-file` only): `{ crate, name }`, or null for any other selector. */
-export function parseExampleSelector(selector) {
-  const m = /^example:(rightkit-[a-z0-9-]+)\/([A-Za-z0-9_][A-Za-z0-9_-]*)$/.exec(String(selector));
-  return m ? { crate: m[1], name: m[2] } : null;
-}
-/** The receipt file name of a unit-list entry. */
-const unitReceiptName = (selector) => `gate-${selector.replace(/^npm:@rightkit\//, "npm-").replace(/^cargo:/, "").replace(/^example:/, "example-").replace(/\//g, "-")}.json`;
+const UNIT_SELECTOR = /^(?:npm:@rightkit\/[a-z0-9-]+|cargo:rightkit-[a-z0-9-]+)$/;
 
 /**
  * The unit list of `--units-file <file>`: JSON `{ "units": [ "cargo:rightkit-x", "npm:@rightkit/y", ... ] }` written for this run (not a
- * committed file: Adrian, 2026-10-31: "a JSON file that is created at that time"). Every entry is a `--unit` selector, once, or `example:rightkit-<crate>/<example>` (rightkit#1543, `--to compile` only): the build of that one
- * Cargo example of the crate through the seam, whose built binary the unit's receipt names by path and sha256 (the gate never runs it). Throws a usage error.
+ * committed file: Adrian, 2026-10-31: "a JSON file that is created at that time"). Every entry is a `--unit` selector, once. Throws a usage error.
  */
 export function readUnitList(readFile, file) {
   const usage = (what) => Object.assign(new Error(`RK_UNITS_FILE: ${file} ${what}`), { code: "RK_UNITS_FILE" });
   let parsed;
   try { parsed = JSON.parse(readFile(file)); } catch (e) { throw usage(`cannot be read as JSON (${e.message})`); }
   const units = parsed?.units;
-  if (!Array.isArray(units) || !units.length || !units.every((u) => typeof u === "string" && UNIT_SELECTOR.test(u))) throw usage('must be { "units": [ "cargo:rightkit-<name>" | "npm:@rightkit/<name>" | "example:rightkit-<crate>/<example>", ... ] } with at least one unit');
+  if (!Array.isArray(units) || !units.length || !units.every((u) => typeof u === "string" && UNIT_SELECTOR.test(u))) throw usage('must be { "units": [ "cargo:rightkit-<name>" | "npm:@rightkit/<name>", ... ] } with at least one unit');
   const duplicate = units.find((u, i) => units.indexOf(u) !== i);
   if (duplicate !== undefined) throw usage(`names ${duplicate} more than once`);
   return units;
 }
 
-const unitDirOfSelector = (sel) => { const ex = parseExampleSelector(sel); if (ex) return `crates/${ex.crate}`; const m = /^(?:npm:@rightkit\/([a-z0-9-]+)|cargo:(rightkit-[a-z0-9-]+))$/.exec(sel); return m ? (m[1] ? `packages/${m[1]}` : `crates/${m[2]}`) : null; };
+const unitDirOfSelector = (sel) => { const m = /^(?:npm:@rightkit\/([a-z0-9-]+)|cargo:(rightkit-[a-z0-9-]+))$/.exec(sel); return m ? (m[1] ? `packages/${m[1]}` : `crates/${m[2]}`) : null; };
 
 /**
  * The fixed unit inventory of one commit, read from its object database alone (never the checkout): every
@@ -1622,10 +1614,8 @@ export async function runSharedUnitList({ o, io, stage, commit, selected, invent
     try { o.mkdir(receiptDir); } catch (e) { o.err(`${tag} BLOCKED: receipt directory must be new: ${receiptDir} (${e.message}); nothing ran`); return 2; }
   }
   if (stage === "compile" && !runUnit && !io.runUnitForList && ordered.length) {
-    const union = { receiptDir, selected: ordered, inventory, rows: null, coverage: null, internal: [], commands: [], commit, runId: randomUUID() };
-    // An example entry (rightkit#1543) has no manifest of its own: the run is opened under a real unit, the first listed or else the crate of the first example.
-    const opener = ordered.find((r) => !r.example)?.selector ?? `cargo:${ordered[0].example.crate}`;
-    const exit = await main(["--to", "compile", "--unit", opener, "--commit", commit], { ...io, unitListClassA, [UNIT_LIST_UNION]: union });
+    const union = { selected: ordered, inventory, rows: null, coverage: null, internal: [], commands: [], commit, runId: randomUUID() };
+    const exit = await main(["--to", "compile", "--unit", ordered[0].selector, "--commit", commit], { ...io, unitListClassA, [UNIT_LIST_UNION]: union });
     const results = ordered.map((unit) => {
       const evidence = union.coverage?.filter((r) => r.selector === unit.selector) ?? [];
       const internal = union.internal.filter((r) => r.selector === unit.selector);
@@ -1636,16 +1626,14 @@ export async function runSharedUnitList({ o, io, stage, commit, selected, invent
       // A unit passes only on a run that exited 0: a scheduler or stage exception never leaves earlier evidence standing as a pass (cloud 2026-11-06:
       // a lookup's coverage was reported as 132 passed after "scheduleClassB: invalid projection").
       const status = failed ? "failed" : blocked ? "blocked" : exit === 0 && union.verified && all.every((r) => r.status === "passed" || r.status === "pass") ? "passed" : "failed";
-      // The built example (rightkit#1543): bound on the passed row only, so a caller reads path and sha256 from the receipt, never from a guess.
-      const example = status === "passed" ? union.examples?.get(unit.selector) : undefined;
-      return { selector: unit.selector, status, ...(example ? { example } : {}), ...(status === "failed" ? { code: exit || 1 } : {}) };
+      return { selector: unit.selector, status, ...(status === "failed" ? { code: exit || 1 } : {}) };
     });
     const report = unitListReport({ commit, stage, base, selected: ordered, results, unmatched }); report.runId = union.runId;
     for (const row of report.units) {
-      const evidence = { schema: "rightkit.unit-list-compile/1", runId: union.runId, commit, unit: row.selector, status: row.status, ...(row.example ? { example: row.example } : {}), requirements: [...union.internal.filter((r) => r.selector === row.selector), ...(union.coverage?.filter((r) => r.selector === row.selector) ?? [])], cwdProofs: (union.cwdProofs ?? []).filter((r) => union.owner?.get(r.id) === row.selector), commands: union.commands.filter((r) => r.selector === row.selector), scans: (union.rows ?? []).filter((r) => r.publisherUnit === row.selector || r.sharedOrigin === true), publisher: { scanSetDigest: union.publisher?.scanSetDigest ?? null, scanIds: union.publisher?.scanIds ?? [] } };
+      const evidence = { schema: "rightkit.unit-list-compile/1", runId: union.runId, commit, unit: row.selector, status: row.status, requirements: [...union.internal.filter((r) => r.selector === row.selector), ...(union.coverage?.filter((r) => r.selector === row.selector) ?? [])], cwdProofs: (union.cwdProofs ?? []).filter((r) => union.owner?.get(r.id) === row.selector), commands: union.commands.filter((r) => r.selector === row.selector), scans: (union.rows ?? []).filter((r) => r.publisherUnit === row.selector || r.sharedOrigin === true), publisher: { scanSetDigest: union.publisher?.scanSetDigest ?? null, scanIds: union.publisher?.scanIds ?? [] } };
       if (receiptDir === undefined) row.receipt = { status: "not-requested" };
       else {
-        const name = unitReceiptName(row.selector);
+        const name = `gate-${row.selector.replace(/^npm:@rightkit\//, "npm-").replace(/^cargo:/, "")}.json`;
         const data = `${JSON.stringify(evidence, null, 2)}\n`; o.writeFile(path.join(receiptDir, name), data);
         row.receipt = { status: "written", file: name, sha256: createHash("sha256").update(data).digest("hex") };
       }
@@ -1741,13 +1729,9 @@ export async function rightkitDoorRule(o, args, root, git, io, { unitsFileFlag, 
       o.err(`${tag} BLOCKED: cannot plan ${ownFlag} on ${pinned.commit.slice(0, 12)}: ${e.message}; nothing ran`); return { exit: 2 };
     }
     if (unitsFileFlag) {
-      // An `example:<crate>/<name>` entry (rightkit#1543) names a crate of the inventory and one of its examples; it runs under `--to compile` only.
-      const examples = unitList.filter((selector) => parseExampleSelector(selector));
-      if (examples.length && stage !== "compile") { o.err(`${tag} BLOCKED: ${examples.join(", ")}: an example entry builds an example and runs only under --to compile (not --to ${stage}); nothing ran`); return { exit: 2 }; }
-      if (examples.length && receiptDir === undefined) { o.err(`${tag} BLOCKED: ${examples.join(", ")}: an example entry needs --receipt-dir, whose examples/ directory holds the gate's own copy of the built binary named in the receipt; nothing ran`); return { exit: 2 }; }
-      const unknown = unitList.filter((selector) => { const ex = parseExampleSelector(selector); return !inventory.units.some((u) => u.selector === (ex ? `cargo:${ex.crate}` : selector)); });
+      const unknown = unitList.filter((selector) => !inventory.units.some((u) => u.selector === selector));
       if (unknown.length) { o.err(`${tag} BLOCKED: units missing from inventory: ${unknown.join(", ")}; nothing ran`); return { exit: 2 }; }
-      const selected = unitList.map((selector) => { const example = parseExampleSelector(selector); return { selector, reason: "listed", ...(example ? { example, dir: `crates/${example.crate}` } : {}) }; });
+      const selected = unitList.map((selector) => ({ selector, reason: "listed" }));
       return { exit: await runSharedUnitList({ o, io, stage, commit: pinned.commit, selected, inventory, receiptDir }) };
     }
     // --changed (rightkit#1505): no handwritten list for routine work. Changed paths against the base select their
@@ -3068,11 +3052,9 @@ async function runUnionSnapshot({ o, io, root, git, ds, union, unitListClassA })
     config = JSON.parse(o.readFile(path.join(ds.path, "ci/gate.config.json")));
     union.consumerDirs = [];
     for (const row of union.selected) {
-      // An example entry (rightkit#1543) is the crate's own manifest, grant, known-red entry and consumer rows: judged as the crate is.
-      const manifestSelector = row.example ? `cargo:${row.example.crate}` : row.selector;
-      const file = manifestSelector.startsWith("cargo:") ? `${row.dir}/Cargo.toml` : `${row.dir}/package.json`;
+      const file = row.selector.startsWith("cargo:") ? `${row.dir}/Cargo.toml` : `${row.dir}/package.json`;
       if (failed(git("cat-file", "-e", `${ds.commit}:${file}`))) throw new Error(`${file} is absent from the selected commit`);
-      const unit = privateUnitManifest({ selector: manifestSelector, content: o.readFile(path.join(ds.path, file)) });
+      const unit = privateUnitManifest({ selector: row.selector, content: o.readFile(path.join(ds.path, file)) });
       const red = knownRedEntry({ unit, root: ds.path, platform: o.platform });
       if (red) throw new Error(`${row.selector} is known red (${red.host}: ${red.reason})`);
       if (unit.kind === "cargo") for (const consumer of consumerRows(unit.name, config.rust?.[unit.name] ?? {})) {
@@ -4636,9 +4618,8 @@ export async function main(argv, io = {}) {
     const unionContext = o[UNIT_LIST_UNION];
     if (unionContext && snapshotB) {
       try {
-        const { publisherRequirementsForUnits, exampleRequirementsForRows, runPublisherSecretRequirement, proveWorkspaceCwd } = await import("../local-publish.mjs");
-        // An `example:<crate>/<name>` entry (rightkit#1543) has the one requirement of its example build and no other row of its own.
-        const requirements = [...publisherRequirementsForUnits({ selected: unionContext.selected.filter((r) => !r.example), snapshot: repo, rustUnits: rust.units, npmUnits: npm, platform: o.platform, env: o.env }), ...exampleRequirementsForRows({ rows: unionContext.selected.filter((r) => r.example), snapshot: repo, rustUnits: rust.units, env: o.env })];
+        const { publisherRequirementsForUnits, runPublisherSecretRequirement, proveWorkspaceCwd } = await import("../local-publish.mjs");
+        const requirements = publisherRequirementsForUnits({ selected: unionContext.selected, snapshot: repo, rustUnits: rust.units, npmUnits: npm, platform: o.platform, env: o.env });
         unionContext.expected = new Map(requirements.map((entry) => [entry.selector, entry.requirements.length]));
         const external = []; const scoped = []; const owner = new Map(); const verdicts = new Map(); const initialFailures = new Set();
         const { directReadSpawn } = await import("../snapshot-metadata.mjs");
@@ -4708,9 +4689,7 @@ export async function main(argv, io = {}) {
           const quiet = sel?.startsWith("cargo:") ? config.rust?.[unit]?.quietTests === true : false;
           // A crate that ci/shards.json lists solo, or that is sidecar-bound, never joins another crate's invocation (planScans' own rule for its rows).
           const alone = sel?.startsWith("cargo:") && (solo.includes(unit) || sidecarBoundCrate({ dir: path.join(repo, dirOf.get(sel) ?? `crates/${unit}`), exists: o.exists, readFile: o.readFile }).bound);
-          const scan = publisherRequirementScan(requirement, { platform: o.platform, cargoCommand: planCargoCommand, cargoLiveRoot, targetDirs, quiet, allowIgnored: verdicts.get(sel)?.allowIgnored === true, batch: !alone });
-          // The example row is bound to the commit and tree it builds (rightkit#1543); the row records them with the built file.
-          return scan.example ? { ...scan, example: { ...scan.example, commit: snapshotBCommit.commit, tree: snapshotBCommit.tree } } : scan;
+          return publisherRequirementScan(requirement, { platform: o.platform, cargoCommand: planCargoCommand, cargoLiveRoot, targetDirs, quiet, allowIgnored: verdicts.get(sel)?.allowIgnored === true, batch: !alone });
         };
         const planned = planUnitListScans({ entries: scoped, planned: plan.scans, normalizedCwds, adapt, blocked });
         const provers = new Set(planned.provers);
@@ -4721,9 +4700,8 @@ export async function main(argv, io = {}) {
           o.out(`${tag} note: unit-list publisher scans: ${planned.scans.length} scan(s) for ${scoped.reduce((n, e) => n + e.requirements.length, 0)} external requirement(s) of ${scoped.length} unit(s); ${planned.scans.filter((x) => x.batchable).length} batchable in ${keys.size} configuration group(s) (runScans groups them); ${planned.providerOf.size} proved by a plan row (NN27); ${blocked.size} unit(s) blocked before any compile; publisher scan-set digest ${publisherDigest}`); }
         unionContext.publisher = { scoped, dependencies, blocked, scanOf: planned.scanOf, providerOf: planned.providerOf, scanIds: planned.scans.map((x) => x.id), scanSetDigest: publisherDigest, verify: async ({ row, member, attempts, requirement }) => {
           const verdict = verdicts.get(member.selector);
-          const proof = { commit: snapshotBCommit.commit, tree: snapshotBCommit.tree, requirement: member.coverageKey, command: row?.command ?? null, attempts, snapshotEvidence: row?.snapshotEvidence ?? null, testRun: row?.testRun ?? null, results: row?.results ?? null, ...(row?.example ? { example: row.example } : {}) };
+          const proof = { commit: snapshotBCommit.commit, tree: snapshotBCommit.tree, requirement: member.coverageKey, command: row?.command ?? null, attempts, snapshotEvidence: row?.snapshotEvidence ?? null, testRun: row?.testRun ?? null, results: row?.results ?? null };
           unionContext.commands.push({ selector: member.selector, id: member.id, ...proof });
-          if (requirement.example && (!row?.example || row.example.sha256?.length !== 64)) return { ok: false };
           if (!row || row.status !== "pass" || (requirement.phase === "test" && (row.testRun?.outputTruncated || (!verdict.allowMissingAssets && (row.testRun?.skipMarkers ?? 0) > 0) || (!verdict.allowIgnored && (row.results?.skipped ?? 0) > 0)))) return { ok: false };
           if (executor.kind === "broker" && requirement.executable === "cargo" && !/^[0-9a-f]{64}$/.test(row.snapshotEvidence?.receiptSha256 ?? "")) return { ok: false };
           return { ok: true, evidenceHash: createHash("sha256").update(JSON.stringify(proof)).digest("hex") };
@@ -4988,8 +4966,6 @@ export async function main(argv, io = {}) {
       // executor's validated client, never a PATH lookup (withDeclaredClient).
       ...(declaredClient && !scanSpawn ? { spawn: withDeclaredClient(defaultSpawnAsync) } : {}),
       ...(gateSeam ? { gateSeam } : {}),
-      // rightkit#1543: the gate-owned, content-addressed home of a built example (`<receipt-dir>/examples/<sha256>/<name>`).
-      ...(o[UNIT_LIST_UNION]?.receiptDir ? { exampleStoreDir: path.join(o[UNIT_LIST_UNION].receiptDir, "examples") } : {}),
       toolPolicy: scanTools?.policy ?? {},
       // The class A cargo reads (deny, audit, metadata, fetch) are carried requests the broker executes (scanSpawn): cargo-deny and cargo-audit are then the
       // broker's registered tools, in the check stage too (which has no snapshotBroker). Only when the reads really go to the broker.
@@ -5067,7 +5043,7 @@ export async function main(argv, io = {}) {
       unionContext.rows = scanResult.scans.filter((row) => row.class === "B").map((row) => {
         const scan = scanById.get(row.id);
         const command = scan?.tool ? [scan.tool, ...(scan.args ?? [])].join(" ") : null;
-        return { id: row.id, status: row.status, ...(command ? { command } : {}), ...(row.batchCommand ? { batchCommand: row.batchCommand } : {}), ...(row.batchedWith ? { batchedWith: row.batchedWith } : {}), ...(row.batchFailure ? { batchFailure: row.batchFailure } : {}), ...(row.batchAttempts ? { batchAttempts: row.batchAttempts } : {}), ...(row.individualStatus ? { individualStatus: row.individualStatus, ...(row.individualCode ? { individualCode: row.individualCode } : {}) } : {}), ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), ...(row.testRun ? { testRun: row.testRun } : {}), ...(row.results ? { results: row.results } : {}), ...(row.example ? { example: row.example } : {}), ...(unionContext.owner?.has(row.id) ? { publisherUnit: unionContext.owner.get(row.id) } : { sharedOrigin: true }) };
+        return { id: row.id, status: row.status, ...(command ? { command } : {}), ...(row.batchCommand ? { batchCommand: row.batchCommand } : {}), ...(row.batchedWith ? { batchedWith: row.batchedWith } : {}), ...(row.batchFailure ? { batchFailure: row.batchFailure } : {}), ...(row.batchAttempts ? { batchAttempts: row.batchAttempts } : {}), ...(row.individualStatus ? { individualStatus: row.individualStatus, ...(row.individualCode ? { individualCode: row.individualCode } : {}) } : {}), ...(row.authenticatedFailure ? { authenticatedFailure: row.authenticatedFailure } : {}), ...(row.snapshotEvidence ? { snapshotEvidence: row.snapshotEvidence } : {}), ...(row.testRun ? { testRun: row.testRun } : {}), ...(row.results ? { results: row.results } : {}), ...(unionContext.owner?.has(row.id) ? { publisherUnit: unionContext.owner.get(row.id) } : { sharedOrigin: true }) };
       });
     }
     // The publisher requirements of a unit-list run, judged from the rows runScans returned (a cache lookup's rows never reach here: this is the real run).
@@ -5075,9 +5051,6 @@ export async function main(argv, io = {}) {
       const rowById = new Map(scanResult.scans.map((row) => [row.id, row]));
       const { scoped, dependencies, blocked, scanOf, providerOf, verify } = unionContext.publisher;
       unionContext.coverage = await judgeUnitList({ entries: scoped, dependencies, blocked, scanOf, providerOf, rowOf: (id) => rowById.get(id), verify });
-      // The built example of each passed example entry (rightkit#1543), read from its own row: the unit report and the unit receipt name it.
-      unionContext.examples = new Map();
-      for (const r of unionContext.coverage) { const built = r.status === "passed" ? rowById.get(scanOf.get(r.id))?.example : undefined; if (built) unionContext.examples.set(r.selector, built); }
     }
     if (unionContext) unionContext.sharedClean = unionContext.rows.filter((row) => row.sharedOrigin).every((row) => row.status === "pass");
     directTiming.cargoEnd = Date.now();
