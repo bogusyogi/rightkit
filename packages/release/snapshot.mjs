@@ -675,7 +675,7 @@ const statKey = (s) => `${s.size}:${s.mtimeNs}:${s.ctimeNs}:${s.ino}`;
 // The gate runs test executables, right-release builds and heavy commands itself (GC-A08: tests run outside the broker), POSIX ones detached in their own
 // process group so a timeout or cancel kills the whole group. A gate that crashes can leave such a group running and still reading or writing the snapshot,
 // and the broker's SNAPSHOT_STATUS proof covers only broker jobs. So while this process holds a snapshot lock, every detached child it starts is recorded beside
-// the lock (`<lock>.children/group-<pid>.json`, removed when the child exits), and a dead holder's lock is never reclaimed while a recorded group still answers.
+// the lock (`<lock>.children/group-<pid>.json`, removed only once the whole group is gone), and a dead holder's lock is never reclaimed while a recorded group still answers.
 // Windows children stay in the gate's job object and are not recorded. Residual, named: a crash between the spawn returning and the record being written
 // leaves that one group unrecorded.
 let heldLockFile = null;
@@ -689,14 +689,21 @@ export function recordLockChild(child, { platform = process.platform, env = proc
   const file = path.join(dir, `group-${child.pid}.json`);
   try { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); fs.writeFileSync(file, JSON.stringify({ group: child.pid, by: process.pid, at: new Date().toISOString() }), { mode: 0o600 }); }
   catch (error) { try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ } throw new SnapshotError("error", `the snapshot lock's child record ${file} cannot be written (${error.message}); the child was stopped`); }
-  const forget = () => { try { fs.rmSync(file, { force: true }); } catch { /* left: a dead group never blocks a reclaim */ } };
+  // The root's exit does not end the group: a descendant it started (a backgrounded process with its own stdio) can outlive it in the same group.
+  // The record goes only on proof the whole group is gone (kill(-group, 0) is ESRCH); otherwise it stays and liveLockChildren keeps seeing the group.
+  const forget = () => {
+    try { process.kill(-child.pid, 0); return; } catch (e) { if (e?.code !== "ESRCH") return; }
+    try { fs.rmSync(file, { force: true }); } catch { /* left: a dead group never blocks a reclaim */ }
+  };
   if (typeof child.once === "function") child.once("exit", forget);
   return child;
 }
-/** The recorded process groups of `lockFile` that still answer (kill(-group, 0) is not ESRCH); a group that cannot be judged counts as alive. */
-export function liveLockChildren(lockFile, { kill = (pid, sig) => process.kill(pid, sig) } = {}) {
+/** The recorded process groups of `lockFile` that still answer (kill(-group, 0) is not ESRCH); a group that cannot be judged counts as alive.
+ * Only a missing record directory (ENOENT) means no records; any other enumeration error (EACCES, EIO, ENOTDIR) returns ["unreadable"], which every caller treats as live. */
+export function liveLockChildren(lockFile, { kill = (pid, sig) => process.kill(pid, sig), readdir = (d) => fs.readdirSync(d) } = {}) {
   let names = [];
-  try { names = fs.readdirSync(childrenDirOf(lockFile)).filter((n) => /^group-\d+\.json$/.test(n)); } catch { return []; }
+  try { names = readdir(childrenDirOf(lockFile)).filter((n) => /^group-\d+\.json$/.test(n)); }
+  catch (e) { return e?.code === "ENOENT" ? [] : [`unreadable (${e?.code ?? e?.message ?? "unknown error"})`]; }
   const live = [];
   for (const n of names) {
     const group = Number(n.slice("group-".length, -".json".length));

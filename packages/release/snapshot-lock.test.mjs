@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { SnapshotError, acquireSnapshotLock, liveLockChildren, lockView, repositoryOf, snapshotCommand, syncSnapshot, takeSnapshotLock } from "./snapshot.mjs";
+import { SnapshotError, acquireSnapshotLock, liveLockChildren, lockView, recordLockChild, repositoryOf, snapshotCommand, syncSnapshot, takeSnapshotLock } from "./snapshot.mjs";
 import { spawn as spawnAsync } from "node:child_process";
 
 const GIT_ENV = { GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t", GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: "1" };
@@ -211,4 +211,42 @@ test("a dead holder's lock is not reclaimed while a process group it recorded st
   const mine = acquireSnapshotLock(lockFile);
   assert.ok(mine.reclaimed, "reclaimed once the group ended"); assert.equal(fs.existsSync(`${lockFile}.children`), false, "the dead records go with the reclaim");
   mine();
+});
+
+test("a recorded launcher that exits while a descendant survives in its group keeps its record and the lock (regression: the record went with the root's exit)", { skip: process.platform === "win32" }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-lock-launcher-"));
+  const lockFile = path.join(dir, "repo.lock");
+  const release = acquireSnapshotLock(lockFile);
+  // The launcher backgrounds a sleep with its own stdio and exits at once; the sleep stays in the launcher's process group.
+  const launcher = recordLockChild(spawnAsync("/bin/sh", ["-c", "sleep 30 </dev/null >/dev/null 2>&1 & exit 0"], { detached: true, stdio: "ignore" }));
+  const record = path.join(`${lockFile}.children`, `group-${launcher.pid}.json`);
+  try {
+    await new Promise((r) => launcher.once("exit", r));
+    await new Promise((r) => setImmediate(r));
+    assert.ok(fs.existsSync(record), "the record outlives the launcher while its group runs");
+    assert.deepEqual(liveLockChildren(lockFile), [launcher.pid]);
+    release();
+    assert.ok(fs.existsSync(lockFile), "release keeps the lock while the survivor runs");
+  } finally { try { process.kill(-launcher.pid, "SIGKILL"); } catch { /* gone */ } }
+  for (let i = 0; i < 100 && liveLockChildren(lockFile).length; i += 1) await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(liveLockChildren(lockFile), [], "the group is gone");
+  release();
+  assert.equal(fs.existsSync(lockFile), false, "released once the group ended");
+});
+
+test("an unreadable child-record directory counts as a live group: a dead holder's lock is not reclaimed (only ENOENT means no records)", { skip: process.platform === "win32" || process.getuid?.() === 0 }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-lock-unreadable-"));
+  const lockFile = path.join(dir, "repo.lock");
+  assert.deepEqual(liveLockChildren(lockFile), [], "no record directory: no records");
+  let dead = 4_000_000; while (dead > 3_000_000) { try { process.kill(dead, 0); dead -= 1; } catch (e) { if (e.code === "ESRCH") break; dead -= 1; } }
+  fs.writeFileSync(lockFile, JSON.stringify({ pid: dead, host: os.hostname(), startedAt: new Date().toISOString(), token: "old" }));
+  const records = `${lockFile}.children`;
+  fs.mkdirSync(records); fs.chmodSync(records, 0o000);
+  try {
+    const live = liveLockChildren(lockFile);
+    assert.equal(live.length, 1); assert.match(String(live[0]), /^unreadable \(EACCES\)$/);
+    assert.throws(() => acquireSnapshotLock(lockFile), (e) => e instanceof SnapshotError && e.code === "busy" && /still run \(unreadable/.test(e.message));
+    assert.ok(fs.existsSync(lockFile), "the lock stays");
+    assert.match(String(liveLockChildren(lockFile, { readdir: () => { throw Object.assign(new Error("io"), { code: "EIO" }); } })[0]), /unreadable \(EIO\)/);
+  } finally { fs.chmodSync(records, 0o700); }
 });
