@@ -2272,16 +2272,16 @@
     "rightkit-license": {
       "pkId": "PK05",
       "id": "ci/consumers/rightkit-license/src/main.rs",
-      "dependency": "rightkit-license = { version = \"=0.2.5\" }",
+      "dependency": "rightkit-license = { version = \"=0.2.9\" }",
       "extraDependencies": [],
       "gateEvidence": "pure and offline: public keys and vectors copied verbatim from crates/rightkit-license/test-vectors (public material, verified byte-equal); clock ledger in a temp directory; client feature enabled for explicitly disabled LicenseClient status with synthetic device id; no network, no OS keychain or real user data; configured client operations, update-auth, engine-gate and subject-entitlement not exercised",
       "consumes": "PK05 plan (01-packages.md:167-183): every app licence migration; public items exercised: verify_token (crates/rightkit-license/src/lib.rs:514), VerifyError (src/lib.rs:390), verify_lease_envelope (src/lease.rs:168), FileClockStore (src/file_store.rs:184), ClockStore::load (src/clock.rs:305), MemoryClockStore (src/clock.rs:348), ProcessAnchor::new (src/clock.rs:243), NativeEntitlementSource (src/native_engine.rs:42), NativeEngineEntitlements::new and current_at (src/native_engine.rs:158,208), LifecyclePolicy (src/lifecycle.rs:118), LicenseClient::new/status/is_disabled (src/client/mod.rs:108,157,140) in Disabled mode only",
       "files": {
-        "Cargo.toml": "2c80fcd075e32e9cae5b64a952bc1cbfa5a173477a5c3bf9d93435341bbdbf06",
+        "Cargo.toml": "4915eb221dedca5812be7ae4e8c1b52fbccf9b40ecb945f5e48f1275c999e963",
         "README.md": "4abd6869451076b56d9822016fc48733da706836d6f7cb4c2a7d51edb0bfe7a0",
         "src/main.rs": "d1a40968811a8ca407cf74c9902fa93cbf63821e680cf2c1f2410284b082a33c"
       },
-      "aggregateSha256": "fee457ea58474770d2cedd696dd80ad523a74f92026d40f4f8dcb2d423ea6305"
+      "aggregateSha256": "69891b2b4eeb615fa655b63d71d2bb2555153c1b35849acc517b304769b8b5dc"
     },
     "rightkit-child-process": {
       "pkId": "PK02",
