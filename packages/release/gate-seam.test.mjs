@@ -329,3 +329,36 @@ test("the lock body is { pid, identity, commit, token } with the broker's identi
   fs.writeFileSync(lockFile, JSON.stringify({ pid: deadPid, identity: `${process.platform === "win32" ? "linux" : "win32"}:${deadPid}:x`, commit, token: "t" }));
   assert.throws(() => acquireSnapshotLock(lockFile, {}, { body: mine, judge: () => true }), /is held by/);
 });
+
+test("the door's lock step resolves the judge's client as the seam does (absolute `which rustright`): with the real Mac/Dell executor shape, which carries no client field, the judge still asks the broker and reclaims on its IDLE echo (rightkit#1548)", async () => {
+  if (process.platform === "win32") return;
+  const { seamLockFor } = await import("./bin/rightkit-gate.mjs");
+  const { spawnSync } = await import("node:child_process");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-lockfor-")); const sock = path.join(dir, "b.sock"); const seenFile = path.join(dir, "seen.json");
+  const clientDir = path.join(dir, "runtime"); fs.mkdirSync(clientDir); const client = path.join(clientDir, "rustright");
+  fs.writeFileSync(client, "#!/bin/sh\n", { mode: 0o755 });
+  fs.writeFileSync(path.join(clientDir, "runtime-manifest.json"), JSON.stringify({ schema: "rustright.build-control.runtime.v2", version: "0.1.1", clientDigest: "a".repeat(64), brokerDigest: "b".repeat(64) }));
+  const snapshotsAt = path.join(dir, "snapshots"); fs.mkdirSync(snapshotsAt); const key = "abc"; const snapshot = path.join(snapshotsAt, key);
+  const holder = { pid: 4242, identity: "darwin:4242:Sun Nov  9 10:00:00 2026", commit: "a".repeat(40), token: "t-dead" };
+  const idle = { type: "SNAPSHOT_STATUS", schema: SNAPSHOT_STATUS_SCHEMA, snapshot, owner: holder, state: "IDLE", reasons: [] };
+  const serverScript = `const net=require("node:net"),fs=require("node:fs");const [sock,seen,reply]=process.argv.slice(1);net.createServer((c)=>{c.write(JSON.stringify({type:"HANDSHAKE",runtime:{},capabilities:[]})+"\\n");c.on("data",(d)=>{fs.writeFileSync(seen,String(d));c.write(reply+"\\n");});}).listen(sock);`;
+  const server = spawn(process.execPath, ["-e", serverScript, sock, seenFile, JSON.stringify(idle)], { stdio: "ignore" });
+  try {
+    for (let i = 0; i < 100 && !fs.existsSync(sock); i += 1) await new Promise((r) => setTimeout(r, 50));
+    const o = {
+      platform: process.platform, env: { PATH: "/usr/bin:/bin", RUSTRIGHT_BUILD_BROKER_SOCKET: sock }, exists: fs.existsSync, readFile: (f) => fs.readFileSync(f, "utf8"), err: () => {},
+      // `which rustright` answers the installed client by absolute path; everything else (the identity's `ps`) runs for real.
+      spawn: (cmd, args, opts) => (/(^|\/)which$/.test(cmd) && args[0] === "rustright" ? { status: 0, stdout: `${client}\n`, stderr: "" } : spawnSync(cmd, args, { encoding: "utf8", ...opts })),
+      resolveExecutor: () => ({ kind: "broker", cargo: ["rustright", "cargo"] }), // gate-executor.mjs's Mac/Dell shape: no `client` field
+    };
+    const snap = { repositoryOf: () => ({ key }) };
+    const { lock, body, refusal } = seamLockFor({ o, root: dir, snapshotsAt, commit: "b".repeat(40), snap, tag: "rightkit-gate:" });
+    assert.equal(refusal, undefined); assert.ok(body?.identity, "the lock body carries this process's identity");
+    assert.equal(lock.judge(holder), true, "the judge asked the broker through the resolved client and reclaimed on the IDLE echo");
+    const seen = JSON.parse(fs.readFileSync(seenFile, "utf8").trim());
+    assert.equal(seen.type, "SNAPSHOT_STATUS"); assert.deepEqual(seen.owner, holder);
+    // No absolute client on PATH: no query, no proof.
+    const none = seamLockFor({ o: { ...o, spawn: (cmd, args, opts) => (/(^|\/)which$/.test(cmd) ? { status: 1, stdout: "", stderr: "" } : spawnSync(cmd, args, { encoding: "utf8", ...opts })) }, root: dir, snapshotsAt, commit: "b".repeat(40), snap, tag: "rightkit-gate:" });
+    assert.equal(none.lock.judge(holder), false, "without a resolvable client the judge never proves anything");
+  } finally { server.kill(); }
+});

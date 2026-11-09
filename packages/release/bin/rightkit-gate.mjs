@@ -2737,12 +2737,15 @@ async function cargoOutputPinForScope(options) {
  * IDLE proof. A host with no broker (Linux direct) takes the legacy lock, held the same way and reclaimed when its holder is proven gone: a seam lock there would demand a
  * broker proof that cannot exist and wedge the snapshot after the first crash.
  */
-function seamLockFor({ o, root, snapshotsAt, commit, snap, tag }) {
+// The judge's client is the RustRight client by absolute path, resolved as every other seam call resolves it (brokerClientOf: the declared Linux route's client,
+// else `which rustright`): the Mac and Dell executor shape carries no `client` field, so reading `ex.client` gave the judge null and it never asked the broker
+// (HR retries of 2026-11-09, rightkit#1548). Exported for the test that drives it with the real executor shape.
+export function seamLockFor({ o, root, snapshotsAt, commit, snap, tag }) {
   if (!/^[0-9a-f]{40}$/.test(String(commit))) return { lock: {}, body: null };
   const identity = processIdentity(process.pid, { platform: o.platform, spawnSync: (c, a, opts) => o.spawn(c, a, opts) });
   // On a broker host the seam is the only class B path: without an identity the lock the broker reads cannot be written, so nothing runs (no silent legacy lock).
   let executorKind = null; let client = null;
-  try { const ex = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which: whichIn(o), readFile: o.readFile }); executorKind = ex?.kind ?? null; client = ex?.client ?? null; } catch { executorKind = null; client = null; }
+  try { const ex = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which: whichIn(o), readFile: o.readFile }); executorKind = ex?.kind ?? null; client = brokerClientOf(o, ex) ?? null; } catch { executorKind = null; client = null; }
   if (!identity && executorKind === "broker") return { refusal: `${tag} BLOCKED: RK_SEAM_IDENTITY: this process's birth identity could not be read (ps), so the snapshot lock the broker requires cannot be written; nothing ran` };
   if (executorKind !== "broker") {
     if (!identity) o.err(`${tag} note: this process's birth identity could not be read; the snapshot lock is the legacy one (no broker on this host)`);
