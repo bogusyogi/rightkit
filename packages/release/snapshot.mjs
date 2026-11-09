@@ -707,7 +707,10 @@ export function recordLockChild(child, { platform = process.platform, env = proc
 // tree gone, so the lock is refused before any work runs (fail closed).
 export const WINDOWS_JOB_SCHEMA = "rightkit.snapshot-lock-job/1";
 const windowsJobName = (token) => `Local\\RightKitSnapshotLock-${token}`;
-const holderFileOf = (lockFile) => path.join(childrenDirOf(lockFile), "job-holder.json");
+// The holder's files are scoped to the lock generation (its token): a holder of an earlier lock of the same name, still alive until its own gate exits,
+// writes only its own files and can never answer, or report drained, for the current one. Every report also names its job and is checked against it.
+const holderNameOf = (token) => `job-holder-${crypto.createHash("sha256").update(String(token)).digest("hex").slice(0, 16)}.json`;
+const HOLDER_NAME = /^job-holder-[0-9a-f]{16}\.json$/;
 const jobRecordOf = (lockFile) => path.join(childrenDirOf(lockFile), "job.json");
 const JOB_TYPE = `Add-Type @"
 using System; using System.Runtime.InteropServices;
@@ -740,9 +743,9 @@ export function windowsJobHolderScript({ name, pid, file }) {
     "  if (-not [RkJob]::AssignProcessToJobObject($h, $p)) { throw \"AssignProcessToJobObject failed ($([Runtime.InteropServices.Marshal]::GetLastWin32Error()))\" }",
     "  [RkJob]::CloseHandle($p) | Out-Null",
     "  Put @{ state = 'holding'; job = $name }",
-    "} catch { Put @{ state = 'failed'; why = \"$_\" }; exit 1 }",
+    "} catch { Put @{ state = 'failed'; job = $name; why = \"$_\" }; exit 1 }",
     "$query = \"$file.query\"; $ack = \"$file.ack\"; $answered = ''",
-    "function Answer { try { $q = [IO.File]::ReadAllText($query) | ConvertFrom-Json; $n = [string]$q.nonce; if ($n -notmatch '^[0-9a-f]{32,128}$' -or $n -eq $script:answered) { return }; $c = [RkJob]::Active($h); $o = @{ schema = '" + WINDOWS_JOB_SCHEMA + "'; nonce = $n; active = $c; holder = $PID; at = (Get-Date).ToUniversalTime().ToString('o') }; $tmp = \"$ack.$PID.tmp\"; [IO.File]::WriteAllText($tmp, ($o | ConvertTo-Json -Compress)); Move-Item -Force -LiteralPath $tmp -Destination $ack; $script:answered = $n } catch { } }",
+    "function Answer { try { $q = [IO.File]::ReadAllText($query) | ConvertFrom-Json; $n = [string]$q.nonce; if ($n -notmatch '^[0-9a-f]{32,128}$' -or $n -eq $script:answered) { return }; $c = [RkJob]::Active($h); $o = @{ schema = '" + WINDOWS_JOB_SCHEMA + "'; job = $name; nonce = $n; active = $c; holder = $PID; at = (Get-Date).ToUniversalTime().ToString('o') }; $tmp = \"$ack.$PID.tmp\"; [IO.File]::WriteAllText($tmp, ($o | ConvertTo-Json -Compress)); Move-Item -Force -LiteralPath $tmp -Destination $ack; $script:answered = $n } catch { } }",
     "while ($true) { if ([IO.File]::Exists($query)) { Answer }; if ([RkJob]::Active($h) -eq 0) { Put @{ state = 'drained'; job = $name }; exit 0 }; Start-Sleep -Milliseconds 50 }",
   ].join("\n");
 }
@@ -766,6 +769,13 @@ export const windowsJobOps = {
     return /^IN$/m.test(out) ? "IN" : "OUT";
   },
   sleep: sleepMs,
+  /** The host's last boot as Unix ms (the deleted build-ownership.mjs read it the same way: [DateTimeOffset] of LastBootUpTime, never local-time arithmetic). */
+  bootTime() {
+    const r = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from("'BOOT:' + ([DateTimeOffset](Get-CimInstance Win32_OperatingSystem).LastBootUpTime).ToUnixTimeMilliseconds()", "utf16le").toString("base64")], { encoding: "utf8", timeout: 60_000, windowsHide: true });
+    const m = /BOOT:(\d+)/.exec(String(r.stdout ?? ""));
+    if (r.error || r.status !== 0 || !m) throw new Error(`cannot read the boot time (${r.error?.message ?? String(r.stderr ?? "").trim().slice(0, 120)})`);
+    return Number(m[1]);
+  },
 };
 function spawnDetachedViaCmd(scriptFile) {
   const child = spawnAsyncDefault("cmd.exe", ["/d", "/c", "start", "\"\"", "/b", "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptFile], { stdio: "ignore", windowsHide: true });
@@ -773,7 +783,7 @@ function spawnDetachedViaCmd(scriptFile) {
 }
 /** Puts this process (the new lock holder) in its lock's named job. Returns the record; throws when the holder cannot contain the gate. */
 export function containLockHolder(lockFile, token, { ops = windowsJobOps, pid = process.pid, timeoutMs = 60_000 } = {}) {
-  const dir = childrenDirOf(lockFile); const file = holderFileOf(lockFile); const name = windowsJobName(token);
+  const dir = childrenDirOf(lockFile); const holder = holderNameOf(token); const file = path.join(dir, holder); const name = windowsJobName(token);
   fs.mkdirSync(dir, { recursive: true });
   const script = `${file}.ps1`;
   // A record left by an earlier holder of this lock name must never be read as this holder's report.
@@ -784,8 +794,8 @@ export function containLockHolder(lockFile, token, { ops = windowsJobOps, pid = 
     const until = Date.now() + timeoutMs;
     for (;;) {
       const state = readJson(file);
-      if (state?.schema === WINDOWS_JOB_SCHEMA && state.state === "holding") break;
-      if (state?.schema === WINDOWS_JOB_SCHEMA && state.state === "failed") throw new Error(`the job holder could not contain the gate: ${state.why}`);
+      if (state?.schema === WINDOWS_JOB_SCHEMA && state.job === name && state.state === "holding") break;
+      if (state?.schema === WINDOWS_JOB_SCHEMA && state.job === name && state.state === "failed") throw new Error(`the job holder could not contain the gate: ${state.why}`);
       if (Date.now() > until) throw new Error(`the job holder did not report within ${timeoutMs} ms`);
       ops.sleep(50);
     }
@@ -793,12 +803,13 @@ export function containLockHolder(lockFile, token, { ops = windowsJobOps, pid = 
   // Under a parent whose job lets children leave silently the gate's children are not in this job (self-check OUT): nothing would then prove its
   // descendants gone, at its own release or after a crash, so the lock is refused before any work runs.
   if (ops.selfCheck(name) !== "IN") throw new Error(`the gate is not contained by its job ${name} (self-check OUT: its parent's job lets children leave silently); refused before any work ran`);
-  const record = { schema: WINDOWS_JOB_SCHEMA, job: name, contained: true };
+  const record = { schema: WINDOWS_JOB_SCHEMA, job: name, holder, contained: true, at: Date.now() };
   fs.writeFileSync(jobRecordOf(lockFile), JSON.stringify(record));
   return record;
 }
 /** A fresh count of the job from its holder (outside the job): `{ active }` or a throw (no answer in time is unknown, never the last count). */
-export function queryJobHolder(file, { timeoutMs = 5000, sleep = sleepMs } = {}) {
+export function queryJobHolder(file, { job, timeoutMs = 5000, sleep = sleepMs } = {}) {
+  if (typeof job !== "string" || !job) throw new Error("a fresh count needs the job it is about");
   const nonce = crypto.randomBytes(16).toString("hex"); const query = `${file}.query`; const ack = `${file}.ack`;
   fs.rmSync(ack, { force: true });
   const tmp = `${query}.${crypto.randomUUID()}.tmp`;
@@ -808,11 +819,12 @@ export function queryJobHolder(file, { timeoutMs = 5000, sleep = sleepMs } = {})
     const until = Date.now() + timeoutMs;
     for (;;) {
       const answer = readJson(ack);
-      if (answer?.schema === WINDOWS_JOB_SCHEMA && answer.nonce === nonce) {
+      if (answer?.schema === WINDOWS_JOB_SCHEMA && answer.nonce === nonce && answer.job === job) {
         if (!Number.isInteger(answer.active) || answer.active < 0) throw new Error(`the job holder's answer carries no count`);
         return { active: answer.active };
       }
-      if (readJson(file)?.state === "drained") return { active: 0 };
+      const state = readJson(file);
+      if (state?.schema === WINDOWS_JOB_SCHEMA && state.job === job && state.state === "drained") return { active: 0 };
       if (Date.now() > until) throw new Error(`the job holder did not answer a fresh count within ${timeoutMs} ms`);
       sleep(25);
     }
@@ -822,15 +834,23 @@ export function queryJobHolder(file, { timeoutMs = 5000, sleep = sleepMs } = {})
  * What still runs in `lockFile`'s job: [] when proven empty, else one descriptive entry (counts as live). `self` is how many of the job's processes are
  * the asking holder itself (1 at its own release, 0 when judging a dead holder). No job record means no Windows job was ever made for this lock.
  * A record that is not contained proves nothing, at the holder's own release or after it died: live (acquisition refuses a self-check OUT, so only a damaged record says so).
+ * A dead holder's job made before the host's last boot is gone (the reboot ended it); a holder killed without a reboot leaves the lock busy (fail closed).
  */
-export function windowsJobLive(lockFile, { self = 0, query = queryJobHolder } = {}) {
+export function windowsJobLive(lockFile, { self = 0, query = queryJobHolder, bootTime = () => windowsJobOps.bootTime() } = {}) {
   let record = null;
   try { record = JSON.parse(fs.readFileSync(jobRecordOf(lockFile), "utf8")); } catch (e) { if (e?.code === "ENOENT") return []; return [`job record unreadable (${e?.code ?? e?.message})`]; }
-  if (record?.schema !== WINDOWS_JOB_SCHEMA || typeof record.job !== "string") return ["job record malformed"];
+  if (record?.schema !== WINDOWS_JOB_SCHEMA || typeof record.job !== "string" || typeof record.holder !== "string" || !HOLDER_NAME.test(record.holder)) return ["job record malformed"];
   if (record.contained !== true) return [`job ${record.job} did not contain its holder's children: their end cannot be proven`];
-  const state = readJson(holderFileOf(lockFile));
-  if (state?.schema === WINDOWS_JOB_SCHEMA && state.state === "drained") return [];
-  try { const { active } = query(holderFileOf(lockFile)); return active - self > 0 ? [`job ${record.job} (${active - self} process(es))`] : []; }
+  // A dead holder's job made before the host's last boot: a reboot ended every process of it (and its out-of-job holder, which then never writes
+  // drained). Without this a reboot left the lock busy for good. An unreadable boot time proves nothing and falls through to the holder.
+  if (self === 0 && Number.isFinite(record.at)) {
+    let boot = null; try { boot = bootTime(); } catch { boot = null; }
+    if (Number.isFinite(boot) && boot > record.at) return [];
+  }
+  const file = path.join(childrenDirOf(lockFile), record.holder);
+  const state = readJson(file);
+  if (state?.schema === WINDOWS_JOB_SCHEMA && state.job === record.job && state.state === "drained") return [];
+  try { const { active } = query(file, { job: record.job }); return active - self > 0 ? [`job ${record.job} (${active - self} process(es))`] : []; }
   catch (e) { return [`job ${record.job} unknown (${e.message})`]; }
 }
 
