@@ -442,3 +442,17 @@ test("the gate verifies every reported in-place file's Authenticode signature an
   // An empty report verifies nothing and never calls the verifier (Mac and every non-signing route).
   await assertSignedInPlaceSigned({ verifyWindows: () => { throw new Error("must not be called"); } }, snap, new Map());
 });
+
+test("the installed-exe check accepts the two NSS markers a patched tauri-utils 2.10 binary carries and still catches other differences", async () => {
+  const { assertInstalledExecutableMatches } = await import("./development.mjs");
+  const m = (code) => `__TAURI_BUNDLE_TYPE_VAR_${code}`;
+  // Built copy: the patched static next to tauri-utils' own match literal (both NSS); installed copy: the same bytes.
+  const built = Buffer.from(`MZ..${m("NSS")}${m("NSS")}..payload`, "ascii");
+  const read = (f) => (f === "built" ? built : f === "same" ? Buffer.from(built) : f === "other" ? Buffer.from(`MZ..${m("NSS")}${m("NSS")}..PAYLOAD`, "ascii") : Buffer.from(`MZ..${m("UNK")}${m("NSS")}..payload`, "ascii"));
+  // The check reads real files, so the four copies are written to a temp directory.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-marker-"));
+  const at = (name) => { const f = path.join(dir, name); fs.writeFileSync(f, read(name)); return f; };
+  assertInstalledExecutableMatches(at("built"), at("same"));
+  assertInstalledExecutableMatches(at("built"), at("unpatched"));
+  assert.throws(() => assertInstalledExecutableMatches(at("built"), at("other")), /does not match this dev build/);
+});

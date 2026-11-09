@@ -444,12 +444,14 @@ export function assertInstalledExecutableMatches(built, installed, read = readFi
   const digest = (file) => createHash("sha256").update(withUnknownBundleMarker(file, read)).digest("hex");
   if (digest(built) !== digest(installed)) throw new Error(`installed executable does not match this dev build: ${installed}`);
 }
-// Tauri's NSIS bundler rewrites the packaged copy's bundle marker UNK -> NSS; compare both copies as UNK.
+// Tauri's NSIS bundler rewrites the packaged copy's bundle marker UNK -> NSS; compare both copies with every NSS marker read as UNK.
+// tauri-utils 2.10 also compiles its match literal "__TAURI_BUNDLE_TYPE_VAR_NSS" into every binary (platform.rs bundle_type), so a
+// correctly patched exe carries two NSS markers (the patched static beside the literal; HeardRight Windows dev 64d82b16, 2026-11-09).
+// Both copies normalise the same offsets, so any other byte difference still fails the comparison.
 function withUnknownBundleMarker(file, read) {
   const bytes = Buffer.from(read(file));
   const nsis = readTauriBundleMarkers(file, { read: () => bytes }).markers.nsis ?? [];
-  if (nsis.length > 1) throw new Error(`installed executable verification failed: ${nsis.length} NSIS bundle markers in ${file}`);
-  if (nsis.length === 1) bundleMarkerBuffer(BUNDLE_MARKERS.unknown).copy(bytes, nsis[0]);
+  for (const offset of nsis) bundleMarkerBuffer(BUNDLE_MARKERS.unknown).copy(bytes, offset);
   return bytes;
 }
 function assertNonEmptyExecutable(file) { if (!existsSync(file) || !statSync(file).isFile() || statSync(file).size === 0) throw new Error(`installed executable verification failed: missing or empty file ${file}`); }
