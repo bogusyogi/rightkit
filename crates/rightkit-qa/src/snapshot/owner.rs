@@ -11,6 +11,22 @@ const OWNER_SCHEMA: &str = "rightkit.qa.credential-owner/1";
 const OWNER_SWITCH: &str = "--rightkit-qa-credentials";
 const OWNER_MODE: &str = "credentials";
 const TOKEN_FILE: &str = "owner-control.token";
+const OWNER_STDERR_FILE: &str = "owner-stderr.log";
+/// At most this much of the owner's stderr is quoted into a failure (its own refusal line; the file keeps the rest).
+const OWNER_STDERR_QUOTE: usize = 400;
+
+/// `message`, with the owner's own first stderr bytes appended when it wrote any (the file stays in the private snapshot directory).
+fn with_owner_stderr(message: String, file: &Path) -> String {
+    let text = fs::read(file).unwrap_or_default();
+    let text = String::from_utf8_lossy(&text[..text.len().min(OWNER_STDERR_QUOTE)])
+        .trim()
+        .replace(['\n', '\r'], " | ");
+    if text.is_empty() {
+        message
+    } else {
+        format!("{message} (owner stderr: {text}; {})", file.display())
+    }
+}
 const START_TIMEOUT: Duration = Duration::from_secs(15);
 const CALL_TIMEOUT: Duration = Duration::from_secs(30);
 const EXIT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -331,6 +347,15 @@ pub(super) fn operate(marker: &Marker, operation: &str) -> Result<Metadata> {
     }
     let token_file = owner.token_file.as_ref().unwrap();
     let auth = token::write_file(token_file)?;
+    // The owner's stderr goes to an owner-only file beside the token (the snapshot directory is private): the owner mode prints only its
+    // own redacted refusal lines (no panic text, no payload), and a launch that ends before authenticated health is otherwise unexplained.
+    let stderr_file = token_file.with_file_name(OWNER_STDERR_FILE);
+    rightkit_fs::private::write_private_file(&stderr_file, b"")
+        .map_err(|_| Error("cannot create credential owner stderr file".into()))?;
+    let stderr = fs::OpenOptions::new()
+        .append(true)
+        .open(&stderr_file)
+        .map_err(|_| Error("cannot open credential owner stderr file".into()))?;
     let mut command = OwnedCommand::new(&owner.executable);
     // The owner entry runs before app startup; inherit no credential-bearing environment.
     command.env_allowlist([
@@ -349,7 +374,7 @@ pub(super) fn operate(marker: &Marker, operation: &str) -> Result<Metadata> {
         .env(token::ENV_AUTH_FILE, token_file)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(Stdio::from(stderr));
     command.windows_hide();
     // macOS/Linux need an explicit parent-death tie; Windows already owns a kill-on-close Job Object.
     #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -362,6 +387,7 @@ pub(super) fn operate(marker: &Marker, operation: &str) -> Result<Metadata> {
         // The handle owns only this launch's process group / Job Object. Never kill by name.
         let _ = crate::process::terminate_bounded(&mut child);
     }
+    let result = result.map_err(|Error(message)| Error(with_owner_stderr(message, &stderr_file)));
     let _ = fs::remove_file(token_file);
     result
 }
