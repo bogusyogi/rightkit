@@ -420,4 +420,9 @@ test("a staged entry re-signed in place is admitted only from its staged bytes t
   assert.throws(() => readSignedInPlaceReport(report, snap), /before\/after sha256/);
   fs.writeFileSync(report, JSON.stringify({ schema: "rightkit.signed-in-place/1", files: [{ path: path.join(snap, "src-tauri", "tauri.conf.json"), sha256Before: a, sha256After: b }] }));
   assert.throws(() => readSignedInPlaceReport(report, snap), /not an executable or library/);
+  // A route that signs nothing (dry run, --build-only, another install kind) still writes last: a report forged earlier (by config code or a
+  // build step) is overwritten with an empty list, so the gate admits no staged change from it.
+  fs.writeFileSync(report, JSON.stringify({ schema: "rightkit.signed-in-place/1", files: [{ path: path.join(snap, "src-tauri", "binaries", "engine.exe"), sha256Before: a, sha256After: b }] }));
+  writeSignedInPlaceReport({ [SIGNED_IN_PLACE_REPORT_ENV]: report }, undefined);
+  assert.equal(readSignedInPlaceReport(report, snap).size, 0);
 });

@@ -598,9 +598,10 @@ export async function main(args = process.argv.slice(2)) {
   const config = await importReleaseConfig(absoluteConfig, { lenient: true });
   const result = await runDevelopment({ root: path.dirname(absoluteConfig), platform, config, dryRun, buildOnly, serial });
   if (dryRun) console.log(JSON.stringify(result.plan, null, 2));
-  // Written last, on every successful route: the Authenticode install's verified in-place signatures, an empty list on any other route
-  // (--build-only, another install kind). A report a build step wrote earlier is overwritten; a failed step writes none.
-  if (!dryRun) writeSignedInPlaceReport(reportEnv, result?.authenticode?.stageOutputs ?? { files: [] });
+  // Written last, on every successful route, a dry run included: the Authenticode install's verified in-place signatures, an empty list on
+  // any other route (--dry-run, --build-only, another install kind). Whatever the app's config code or a build step wrote earlier is
+  // overwritten; a failed step writes none.
+  writeSignedInPlaceReport(reportEnv, result?.authenticode?.stageOutputs ?? { files: [] });
   return result;
 }
 
