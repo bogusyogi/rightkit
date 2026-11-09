@@ -251,6 +251,9 @@ pub(crate) struct Firing {
     pub gap_violation: bool,
     /// Onset estimates, filled in by the spotter when onset estimation is on.
     pub onset: Option<super::onset::KeywordOnset>,
+    /// Shared confirm beams only: why `onset` is missing although estimation is on (the
+    /// history it needs was evicted); `None` otherwise.
+    pub onset_unavailable: Option<&'static str>,
 }
 
 /// Per-stream decoder state (`TransducerKeywordResult`).
@@ -547,6 +550,7 @@ pub(crate) fn decode_chunk(
                         .stale_gap_frames
                         .is_some_and(|limit| max_gap_frames > limit),
                     onset: None,
+                    onset_unavailable: None,
                 });
                 result.firings += 1;
                 if let (Some(tr), Some(firing)) = (trace.as_mut(), result.firing.as_ref()) {

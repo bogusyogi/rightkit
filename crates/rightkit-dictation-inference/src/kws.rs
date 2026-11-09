@@ -22,7 +22,7 @@ use std::sync::Arc;
 use rightkit_asr::kws as rust_kws;
 /// The spotter's lever types, as [`KwsSwitches`] carries them.
 pub use rightkit_asr::kws::{
-    AcousticSearch, DecoderTableReport, FiringTrace, FricativeAbstain, FricativeParams,
+    AcousticSearch, BeamStart, DecoderTableReport, FiringTrace, FricativeAbstain, FricativeParams,
     JoinerBatching, MergeTimestamps, StepTrace, ThresholdTokens, TraceClock, TraceConfig,
     TraceGapDrop, TraceHypothesis, TraceIdentity, TraceMatch, TraceMerge, TraceMergeSide,
     TracePath, TraceRecords, TraceTop,
@@ -110,6 +110,8 @@ struct RustKwsTuning {
     /// Speed levers C7 and C8 (default off).
     encoder_state_reuse: bool,
     decoder_table: bool,
+    /// Shared front end C6 (default off).
+    shared_front_end: bool,
 }
 
 impl RustKwsTuning {
@@ -133,6 +135,7 @@ impl RustKwsTuning {
         stale_gap_frames: None,
         encoder_state_reuse: false,
         decoder_table: false,
+        shared_front_end: false,
     };
 }
 
@@ -242,6 +245,14 @@ pub struct KwsSwitches {
     /// `decoder_cache`, which it overrides when both are on). Identical outputs where the
     /// decoder is batch-invariant; unverified until the same replay comparison. Default `0`.
     pub decoder_table: bool,
+    /// `0` | `1` (plan arm C6): ONE encoder run feeds both beams. The wake stream keeps a ring
+    /// of its encoder frames on the wake clock and the LIVE confirm beam decodes them, from
+    /// the frame 2.0 s before the wake candidate (clamped to the stream origin, then to the
+    /// ring, each reported), instead of running a second encoder from that anchor. It changes
+    /// confirm's inputs and so can change detections. Fresh confirmation is unchanged and its
+    /// outcomes are reported separately. Thresholds are not changed. The matched-replay entry
+    /// `transcribe_continuous_full_command_result` is not supported with it. Default `0`.
+    pub shared_front_end: bool,
 }
 
 /// Which trace records to keep. Default off (`KwsSwitches::trace` `None`); every value is
@@ -280,7 +291,8 @@ pub struct KwsDecoderTableReport {
 pub struct KwsFeedEvent {
     /// `wake` or `confirm`.
     pub stage: &'static str,
-    /// `create`, `suffix`, `duplicate`, `stale`, `gap`, `destroy` or `expire`.
+    /// `create`, `suffix`, `duplicate`, `stale`, `gap`, `destroy` or `expire`; with the shared
+    /// front end the live confirm beam logs `shared_create` and `shared_follow`.
     pub event: &'static str,
     /// Cascade resets and invalidations since load.
     pub epoch: u64,
@@ -351,6 +363,7 @@ impl Default for KwsSwitches {
             gap_guard: tuning.stale_gap_frames,
             encoder_state_reuse: tuning.encoder_state_reuse,
             decoder_table: tuning.decoder_table,
+            shared_front_end: tuning.shared_front_end,
         }
     }
 }
@@ -401,6 +414,7 @@ impl KwsSwitches {
             stale_gap_frames: self.gap_guard,
             encoder_state_reuse: self.encoder_state_reuse,
             decoder_table: self.decoder_table,
+            shared_front_end: self.shared_front_end,
             ..base
         }
     }
@@ -492,6 +506,32 @@ pub struct KwsOnsetReport {
     pub candidate_id: Option<u64>,
     /// `wake` reports only: whether the clock adopted this detection as the candidate.
     pub adopted: Option<bool>,
+    /// Shared front end only, `confirm` reports on a shared beam: where the beam started and
+    /// the ring state. `None` for every other report, and always with the switch off.
+    pub shared: Option<KwsSharedInfo>,
+}
+
+/// A shared confirm beam's context and retention state, so a clamped or truncated start is
+/// never read as the full requested context.
+#[derive(Clone, Debug, PartialEq)]
+pub struct KwsSharedInfo {
+    /// `full`, `origin_clamped`, `ring_truncated` or `origin_clamped_and_ring_truncated`.
+    pub state: &'static str,
+    /// Wake-clock encoder frame the beam started on, and the requested one (negative before
+    /// the stream's origin; the requested start is floor((sample - origin) / 640)).
+    pub start_frame: i32,
+    pub requested_frame: i64,
+    pub origin_clamped: bool,
+    pub ring_truncated: bool,
+    /// Frames from the requested and from the actual start to the newest retained frame at
+    /// creation.
+    pub requested_context_frames: i64,
+    pub actual_context_frames: i64,
+    /// Ring frames and bytes held when the beam was made.
+    pub ring_frames: usize,
+    pub ring_bytes: usize,
+    /// Why this detection's onset is missing although estimation is on (evicted history).
+    pub onset_unavailable: Option<&'static str>,
 }
 
 /// The latest latched confirm report in `reports` (oldest first; `confirm` or
@@ -527,6 +567,8 @@ const TRACE_FEEDS_KEPT: usize = 1024;
 const ENCODER_FRAME_SAMPLES: usize = SAMPLE_RATE as usize * 2 / 50;
 /// The confirm spotter's keyword file; only its stream carries the no-fire window.
 const CONFIRM_KEYWORDS_FILE: &str = "keywords-confirm.txt";
+/// The wake spotter's keyword file; only its streams own the shared front end's ring.
+const WAKE_KEYWORDS_FILE: &str = "keywords-wake.txt";
 
 /// The loaded keyword-spotting runtime; it creates every spotter of one cascade.
 ///
@@ -630,6 +672,8 @@ pub struct Kws {
     clock: CascadeClock,
     wake_stream: Option<WakeStream>,
     confirmation_stream: Option<ConfirmationStream>,
+    /// The confirm beam when `shared_front_end` is on (then `confirmation_stream` stays `None`).
+    shared_confirmation: Option<SharedConfirmation>,
     latched: bool,
     /// Live switches.
     switches: KwsSwitches,
@@ -668,6 +712,37 @@ const NO_BOUNDARY_SOURCE: &str = "no_boundary";
 impl WakeCandidate {
     fn cut(self) -> (Option<usize>, &'static str) {
         (self.cut_start_sample, self.cut_source)
+    }
+}
+
+/// A confirm beam on the wake stream's shared front end (switch `shared_front_end`): no audio
+/// of its own, only the wake stream's retained encoder frames.
+struct KwsBeam(rust_kws::BeamStream);
+
+struct SharedConfirmation {
+    beam: KwsBeam,
+    candidate: WakeCandidate,
+    /// The wake stream's origin sample: the clock the beam's frames are on.
+    origin_sample: usize,
+    fed_until_sample: usize,
+}
+
+impl SharedConfirmation {
+    fn info(&self, onset_unavailable: Option<&'static str>) -> KwsSharedInfo {
+        let start = self.beam.0.start();
+        let (ring_frames, ring_bytes) = self.beam.0.ring_size();
+        KwsSharedInfo {
+            state: start.state(),
+            start_frame: start.start_frame,
+            requested_frame: start.requested_frame,
+            origin_clamped: start.origin_clamped,
+            ring_truncated: start.ring_truncated,
+            requested_context_frames: start.requested_context_frames,
+            actual_context_frames: start.actual_context_frames,
+            ring_frames,
+            ring_bytes,
+            onset_unavailable,
+        }
     }
 }
 
@@ -866,6 +941,7 @@ impl Kws {
             clock: CascadeClock::default(),
             wake_stream: None,
             confirmation_stream: None,
+            shared_confirmation: None,
             latched: false,
             switches,
             max_active_paths: paths,
@@ -927,13 +1003,25 @@ impl Kws {
             return;
         }
         let taken = match stage {
-            "confirm" => self.confirmation_stream.as_mut().map(|state| {
-                (
-                    state.origin_sample,
-                    Some(state.candidate.id),
-                    state.stream.0.take_trace(),
-                )
-            }),
+            "confirm" => self
+                .confirmation_stream
+                .as_mut()
+                .map(|state| {
+                    (
+                        state.origin_sample,
+                        Some(state.candidate.id),
+                        state.stream.0.take_trace(),
+                    )
+                })
+                .or_else(|| {
+                    self.shared_confirmation.as_mut().map(|shared| {
+                        (
+                            shared.origin_sample,
+                            Some(shared.candidate.id),
+                            shared.beam.0.take_trace(),
+                        )
+                    })
+                }),
             "idle_wake" => self
                 .idle_wake_stream
                 .as_mut()
@@ -1020,14 +1108,21 @@ impl Kws {
             return;
         }
         let state: Option<(usize, usize, usize, usize)> = if stage == "confirm" {
-            self.confirmation_stream.as_ref().map(|state| {
-                (
-                    state.origin_sample,
-                    state.fed_until_sample,
-                    state.accepted_until_sample,
-                    state.pending_audio.len(),
-                )
-            })
+            self.confirmation_stream
+                .as_ref()
+                .map(|state| {
+                    (
+                        state.origin_sample,
+                        state.fed_until_sample,
+                        state.accepted_until_sample,
+                        state.pending_audio.len(),
+                    )
+                })
+                .or_else(|| {
+                    self.shared_confirmation
+                        .as_ref()
+                        .map(|shared| (shared.origin_sample, shared.fed_until_sample, 0, 0))
+                })
         } else {
             self.wake_stream.as_ref().map(|state| {
                 (
@@ -1155,8 +1250,11 @@ impl Kws {
         let Some(detection) = result.detection.as_deref() else {
             return;
         };
-        let Some(onset) = detection.onset.as_ref() else {
-            return;
+        // A shared beam whose onset history was evicted still reports, with no onset.
+        let onset = match (detection.onset.as_ref(), detection.onset_unavailable) {
+            (Some(onset), _) => Some(onset),
+            (None, Some(_)) => None,
+            (None, None) => return,
         };
         let base = origin.unwrap_or(0);
         let at = |estimate: Option<rust_kws::OnsetEstimate>| {
@@ -1170,18 +1268,29 @@ impl Kws {
             emission_sample: base.saturating_add(seconds_to_samples(
                 result.timestamps.first().copied().unwrap_or(0.0),
             )),
-            aligned_sample: at(onset.aligned),
-            posterior_sample: at(onset.posterior),
-            acoustic_sample: at(onset.acoustic),
-            acoustic_rule: onset.acoustic_rule.map(rust_kws::AcousticRule::as_str),
+            aligned_sample: at(onset.and_then(|onset| onset.aligned)),
+            posterior_sample: at(onset.and_then(|onset| onset.posterior)),
+            acoustic_sample: at(onset.and_then(|onset| onset.acoustic)),
+            acoustic_rule: onset
+                .and_then(|onset| onset.acoustic_rule)
+                .map(rust_kws::AcousticRule::as_str),
             // Only with a known origin: never a fabricated absolute coordinate.
-            fricative_sample: origin.and(onset.fricative).map(|e| onset_sample(base, e)),
-            fricative_abstain: onset.fricative_abstain.map(FricativeAbstain::as_str),
-            fricative_relative_feature: onset.fricative.map(|e| e.feature_frame),
-            fricative_unmappable: (onset.fricative.is_some() && origin.is_none())
-                .then_some("no_origin"),
+            fricative_sample: origin
+                .and(onset.and_then(|onset| onset.fricative))
+                .map(|e| onset_sample(base, e)),
+            fricative_abstain: onset
+                .and_then(|onset| onset.fricative_abstain)
+                .map(FricativeAbstain::as_str),
+            fricative_relative_feature: onset
+                .and_then(|onset| onset.fricative)
+                .map(|e| e.feature_frame),
+            fricative_unmappable: (onset.is_some_and(|onset| onset.fricative.is_some())
+                && origin.is_none())
+            .then_some("no_origin"),
             token_frames: detection.result.frames.clone(),
-            aligned_frames: onset.aligned_frames.clone(),
+            aligned_frames: onset
+                .map(|onset| onset.aligned_frames.clone())
+                .unwrap_or_default(),
             fired_frame: detection.fired_frame,
             gap_drops: detection.gap_drops,
             gap_drops_chunk: detection.gap_drops_chunk,
@@ -1197,6 +1306,13 @@ impl Kws {
             latched,
             candidate_id,
             adopted,
+            shared: if stage == "confirm" {
+                self.shared_confirmation
+                    .as_ref()
+                    .map(|shared| shared.info(detection.onset_unavailable))
+            } else {
+                None
+            },
         };
         let switches = self.switches;
         tracing::info!(
@@ -1724,7 +1840,11 @@ impl Kws {
                 let origin = self
                     .confirmation_stream
                     .as_ref()
-                    .map(|stream| stream.origin_sample);
+                    .map(|stream| stream.origin_sample)
+                    .or(self
+                        .shared_confirmation
+                        .as_ref()
+                        .map(|shared| shared.origin_sample));
                 self.report_onset(
                     "confirm",
                     &result,
@@ -1869,6 +1989,78 @@ impl Kws {
         }
     }
 
+    /// The LIVE confirm beam on the wake stream's shared front end. The requested start is the
+    /// frame `CONFIRM_CONTEXT_SAMPLES` before the candidate on the wake clock, rounded by floor
+    /// (toward minus infinity) in integer frames; the beam clamps it to the wake stream's
+    /// origin and then to the ring, and the report says which. It needs the wake stream fed in
+    /// the same call; the audio itself is never fed here.
+    fn feed_shared_confirmation(
+        &mut self,
+        snapshot_start_sample: usize,
+        live_total_sample: usize,
+        candidate: WakeCandidate,
+    ) -> Result<Option<KeywordResult>, String> {
+        if self
+            .shared_confirmation
+            .as_ref()
+            .is_some_and(|shared| shared.candidate != candidate)
+        {
+            self.destroy_confirmation_stream();
+        }
+        let created = self.shared_confirmation.is_none();
+        if created {
+            let Some(wake) = self.wake_stream.as_ref() else {
+                return Err("KWS shared front end needs the wake stream".into());
+            };
+            let origin = wake.seed_origin_sample;
+            let requested = candidate
+                .start_sample
+                .saturating_sub(CONFIRM_CONTEXT_SAMPLES);
+            let requested_frame =
+                (requested as i64 - origin as i64).div_euclid(ENCODER_FRAME_SAMPLES as i64);
+            let mut beam = self.confirm_spotter.create_beam(
+                &self.wake_spotter,
+                &wake.stream,
+                requested_frame,
+            )?;
+            if let Some(trace) = self.switches.trace.filter(|trace| trace.window_frames > 0) {
+                let (from_frame, to_frame) = confirm_trace_window(
+                    origin,
+                    candidate.start_sample,
+                    candidate.end_sample,
+                    trace.window_frames,
+                );
+                beam.0.set_trace_window(from_frame, to_frame);
+            }
+            self.shared_confirmation = Some(SharedConfirmation {
+                beam,
+                candidate,
+                origin_sample: origin,
+                fed_until_sample: live_total_sample,
+            });
+        }
+        let (Some(wake), Some(shared)) =
+            (self.wake_stream.as_ref(), self.shared_confirmation.as_mut())
+        else {
+            return Err("KWS shared front end needs the wake stream".into());
+        };
+        let result = self
+            .confirm_spotter
+            .decode_beam_ready(&mut shared.beam, &wake.stream)?;
+        shared.fed_until_sample = live_total_sample;
+        self.trace_feed(
+            "confirm",
+            if created {
+                "shared_create"
+            } else {
+                "shared_follow"
+            },
+            Some(snapshot_start_sample),
+            Some(live_total_sample),
+        );
+        Ok(result)
+    }
+
     fn feed_confirmation(
         &mut self,
         audio: &[f32],
@@ -1876,6 +2068,13 @@ impl Kws {
         live_total_sample: usize,
         candidate: WakeCandidate,
     ) -> Result<Option<KeywordResult>, String> {
+        if self.switches.shared_front_end {
+            return self.feed_shared_confirmation(
+                snapshot_start_sample,
+                live_total_sample,
+                candidate,
+            );
+        }
         if self
             .confirmation_stream
             .as_ref()
@@ -2008,15 +2207,22 @@ impl Kws {
 
     fn destroy_confirmation_stream(&mut self) {
         // Keep the stream's beam records before it goes (trace only).
-        if self.switches.trace.is_some() && self.confirmation_stream.is_some() {
+        if self.switches.trace.is_some()
+            && (self.confirmation_stream.is_some() || self.shared_confirmation.is_some())
+        {
             self.collect_stream_trace("confirm");
             self.trace_feed("confirm", "destroy", None, None);
         }
         // Dropping the stream destroys it.
         self.confirmation_stream = None;
+        self.shared_confirmation = None;
     }
 
     fn destroy_wake_stream(&mut self) {
+        // A shared confirm beam lives on the wake stream's frames: it goes with the stream.
+        if self.shared_confirmation.is_some() {
+            self.destroy_confirmation_stream();
+        }
         if self.switches.trace.is_some() && self.wake_stream.is_some() {
             self.collect_stream_trace("wake");
             self.trace_feed("wake", "destroy", None, None);
@@ -2060,6 +2266,72 @@ impl Drop for Kws {
 impl KwsSpotter {
     fn create_stream(&self) -> KwsStream {
         KwsStream(self.0.borrow().create_stream())
+    }
+
+    /// A confirm beam on `front_end` (a stream of `wake`, which keeps the shared ring).
+    fn create_beam(
+        &self,
+        wake: &KwsSpotter,
+        front_end: &KwsStream,
+        requested_frame: i64,
+    ) -> Result<KwsBeam, String> {
+        self.0
+            .borrow()
+            .create_beam_stream(&wake.0.borrow(), &front_end.0, requested_frame)
+            .map(KwsBeam)
+            .map_err(|error| format!("KWS shared beam: {error}"))
+    }
+
+    /// [`Self::decode_ready_result`] for a shared beam: decode the retained frames it has not
+    /// seen, returning the first accepted result with the same plausibility check.
+    fn decode_beam_ready(
+        &self,
+        beam: &mut KwsBeam,
+        front_end: &KwsStream,
+    ) -> Result<Option<KeywordResult>, String> {
+        let mut decode_steps = 0usize;
+        while self.0.borrow().beam_ready(&beam.0, &front_end.0) {
+            self.0
+                .borrow_mut()
+                .decode_beam(&mut beam.0, &front_end.0)
+                .map_err(|error| format!("KWS beam decode: {error}"))?;
+            decode_steps += 1;
+            if decode_steps > 4_096 {
+                return Err("KWS beam readiness did not converge".into());
+            }
+            let Some(detection) = self.0.borrow().beam_detection(&mut beam.0) else {
+                continue;
+            };
+            let result = KeywordResult {
+                keyword: detection.result.keyword.clone(),
+                timestamps: detection
+                    .result
+                    .timestamps
+                    .iter()
+                    .copied()
+                    .map(round_timestamp)
+                    .collect(),
+                detection: Some(Box::new(detection)),
+            };
+            if !accepts_keyword_result(&result.keyword) {
+                continue;
+            }
+            if !keyword_timestamps_are_plausible(&result.timestamps) {
+                let start = result.timestamps.first().copied();
+                let end = result.timestamps.last().copied();
+                tracing::warn!(
+                    keyword = result.keyword,
+                    ?start,
+                    ?end,
+                    "KWS rejected non-contiguous keyword path"
+                );
+                return Err(format!(
+                    "KWS keyword timing is non-contiguous: start={start:?} end={end:?}"
+                ));
+            }
+            return Ok(Some(result));
+        }
+        Ok(None)
     }
 
     /// A stream with no trace state even when tracing is on.
@@ -2332,6 +2604,9 @@ fn spotter_config(
     config.decoder_cache = tuning.decoder_cache;
     config.encoder_state_reuse = tuning.encoder_state_reuse;
     config.decoder_table = tuning.decoder_table;
+    // Only the wake spotter's streams own a ring; the confirm beam borrows it.
+    config.shared_front_end = (tuning.shared_front_end && keywords_file == WAKE_KEYWORDS_FILE)
+        .then(rust_kws::FrontEndConfig::default);
     // The no-fire window rides the confirm stream only; every stream may trace firings.
     // The guard runs on the wake and confirm spotters, as in the offline port runs.
     config.stale_gap_frames = if keywords_file == HEY_WAKE_KEYWORDS_FILE {
@@ -2552,6 +2827,7 @@ mod tests {
             latched,
             candidate_id,
             adopted,
+            shared: None,
         }
     }
 

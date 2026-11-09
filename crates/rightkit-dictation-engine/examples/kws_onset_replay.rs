@@ -26,6 +26,14 @@
 //! `DECODER_TABLE` line) reports the effective decoder mode per spotter (`table`, `cache`
 //! or `plain`, and why a table was declined), the startup precompute time in ms, and the
 //! table rows and bytes the model retains; compare steady decode timing with the trace off.
+//! `--shared-front-end` (C6, default off, detection-changing): one encoder run feeds both
+//! beams. Each row gains a `shared_front_end` key that keeps the LIVE confirm outcome apart
+//! from the FRESH confirm outcome (reports and latches per stage, which stage latched, so a
+//! fresh fallback cannot hide a live regression), and per live beam its start state (`full`,
+//! `origin_clamped`, `ring_truncated`, both), frames requested and actual, ring frames and
+//! bytes, and `onset_unavailable`; a closing `shared_front_end_summary` counts them. Compare
+//! against a pre-C6 build (rightkit ea382f068b6c683374dd3b64793def0ced48d3ae) and against this
+//! binary with the flag off; thresholds are untouched.
 //! `--report-gap` (implied by `--gap-guard`) adds the same key with the largest consecutive
 //! keyword-token gap of each firing (`max_gap_frames`) and `gap_violation` (the gap exceeds G;
 //! never true without `--gap-guard`), and a closing `gap_summary` counts reports and violations.
@@ -51,8 +59,8 @@ fn main() {}
 mod native {
     use rightkit_dictation_engine::kws::{
         AcousticSearch, FiringTrace, FricativeParams, Kws, KwsDecoderTableReport, KwsFeedEvent,
-        KwsOnsetMethod, KwsSwitches, KwsTrace, KwsTraceConfig, StepTrace, TraceClock,
-        TraceExtension, TraceGapDrop, TraceHypothesis, TraceMerge, TracePath,
+        KwsOnsetMethod, KwsSharedInfo, KwsSwitches, KwsTrace, KwsTraceConfig, StepTrace,
+        TraceClock, TraceExtension, TraceGapDrop, TraceHypothesis, TraceMerge, TracePath,
     };
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -67,7 +75,7 @@ mod native {
         [--acoustic-search legacy|initial-fricative] [--d4] [--d4-window MS] [--d4-floor MS] \
         [--d4-rise F] [--d4-min-run MS] [--d4-vowel MS] [--d4-tilt F] [--d4-json JSON|FILE] \
         [--d4-strict] [--trace] [--trace-window FRAMES] [--trace-capacity STEPS] [--trace-history TOKENS] \
-        [--gap-guard G] [--report-gap] [--encoder-state-reuse] [--decoder-table] [--jsonl]";
+        [--gap-guard G] [--report-gap] [--encoder-state-reuse] [--decoder-table] [--shared-front-end] [--jsonl]";
 
     fn flag_value<I: Iterator<Item = OsString>>(
         args: &mut I,
@@ -278,6 +286,53 @@ mod native {
             "merges": step.merges.iter().map(merge_json).collect::<Vec<_>>(),
             "extensions": step.extensions.iter().map(extension_json).collect::<Vec<_>>(),
             "extensions_omitted": step.extensions_omitted,
+        })
+    }
+
+    /// One confirm-stage report (live `confirm` or `fresh_confirm`) of a clip.
+    #[derive(Clone, Debug)]
+    struct ConfirmReport {
+        stage: &'static str,
+        latched: bool,
+        shared: Option<KwsSharedInfo>,
+    }
+
+    fn shared_info_json(info: &KwsSharedInfo) -> serde_json::Value {
+        json!({
+            "state": info.state,
+            "start_frame": info.start_frame,
+            "requested_frame": info.requested_frame,
+            "origin_clamped": info.origin_clamped,
+            "ring_truncated": info.ring_truncated,
+            "requested_context_frames": info.requested_context_frames,
+            "actual_context_frames": info.actual_context_frames,
+            "ring_frames": info.ring_frames,
+            "ring_bytes": info.ring_bytes,
+            "onset_unavailable": info.onset_unavailable,
+        })
+    }
+
+    /// Live and fresh confirm outcomes kept apart, with the stage that latched.
+    fn shared_json(
+        reports: &[ConfirmReport],
+        latched_stage: Option<&'static str>,
+    ) -> serde_json::Value {
+        let stage = |name: &str| {
+            let of: Vec<&ConfirmReport> = reports.iter().filter(|r| r.stage == name).collect();
+            json!({
+                "reports": of.len(),
+                "latched": of.iter().filter(|r| r.latched).count(),
+            })
+        };
+        json!({
+            "live_confirm": stage("confirm"),
+            "fresh_confirm": stage("fresh_confirm"),
+            "latched_stage": latched_stage,
+            "beams": reports
+                .iter()
+                .filter_map(|r| r.shared.as_ref())
+                .map(shared_info_json)
+                .collect::<Vec<_>>(),
         })
     }
 
@@ -523,6 +578,7 @@ mod native {
                 Some("--report-gap") => report_gap = true,
                 Some("--encoder-state-reuse") => switches.encoder_state_reuse = true,
                 Some("--decoder-table") => switches.decoder_table = true,
+                Some("--shared-front-end") => switches.shared_front_end = true,
                 Some("--trace-history") => {
                     trace.history_tokens = parse_u32(
                         &flag_value(&mut args, "--trace-history")?,
@@ -687,6 +743,9 @@ mod native {
         gap_reports: Vec<GapReport>,
         /// The decoder path and table cost of the clip's cascade (only with `--decoder-table`).
         decoder_table: Option<KwsDecoderTableReport>,
+        /// Confirm-stage reports and the stage that latched (shared front end evidence).
+        confirm_reports: Vec<ConfirmReport>,
+        latched_stage: Option<&'static str>,
     }
 
     impl Replay {
@@ -780,6 +839,17 @@ mod native {
         }
         // The latch (or the last step) may have left records in the cascade.
         replay.trace.extend(kws.take_trace());
+        replay.confirm_reports = reports
+            .iter()
+            .filter(|report| matches!(report.stage, "confirm" | "fresh_confirm"))
+            .map(|report| ConfirmReport {
+                stage: report.stage,
+                latched: report.latched,
+                shared: report.shared.clone(),
+            })
+            .collect();
+        replay.latched_stage = rightkit_dictation_engine::kws::latched_owner(&reports)
+            .map(|(_, confirm)| confirm.stage);
         replay.gap_reports = reports
             .iter()
             .map(|report| GapReport {
@@ -843,6 +913,11 @@ mod native {
         // Firings (cascade reports) seen and those whose emitted chain has a gap over G.
         let mut gap_reports_seen = 0_usize;
         let mut gap_violations = 0_usize;
+        // Clips by the stage that latched, and clips with any degraded shared beam start.
+        let mut latched_live = 0_usize;
+        let mut latched_fresh = 0_usize;
+        let mut degraded_starts = 0_usize;
+        let mut onset_unavailable = 0_usize;
         if d4.enabled {
             if options.jsonl {
                 println!(
@@ -889,6 +964,23 @@ mod native {
                 }
             }
             if let Ok(row) = &outcome {
+                match row.latched_stage {
+                    Some("confirm") => latched_live += 1,
+                    Some("fresh_confirm") => latched_fresh += 1,
+                    _ => {}
+                }
+                degraded_starts += usize::from(row.confirm_reports.iter().any(|report| {
+                    report
+                        .shared
+                        .as_ref()
+                        .is_some_and(|info| info.origin_clamped || info.ring_truncated)
+                }));
+                onset_unavailable += usize::from(row.confirm_reports.iter().any(|report| {
+                    report
+                        .shared
+                        .as_ref()
+                        .is_some_and(|info| info.onset_unavailable.is_some())
+                }));
                 gap_reports_seen += row.gap_reports.len();
                 gap_violations += row
                     .gap_reports
@@ -938,6 +1030,11 @@ mod native {
                 if let Some(table) = replay.and_then(|clip| clip.decoder_table.as_ref()) {
                     row["decoder_table"] = decoder_table_json(table);
                 }
+                if options.switches.shared_front_end {
+                    row["shared_front_end"] = replay.map_or(serde_json::Value::Null, |clip| {
+                        shared_json(&clip.confirm_reports, clip.latched_stage)
+                    });
+                }
                 if options.report_gap {
                     row["gap_guard"] = replay.map_or(serde_json::Value::Null, |clip| {
                         gap_json(options.switches.gap_guard, &clip.gap_reports)
@@ -950,6 +1047,13 @@ mod native {
                         "DECODER_TABLE\t{}\t{}",
                         path.display(),
                         decoder_table_json(table)
+                    );
+                }
+                if options.switches.shared_front_end {
+                    println!(
+                        "SHARED\t{}\t{}",
+                        path.display(),
+                        shared_json(&replay.confirm_reports, replay.latched_stage)
                     );
                 }
                 if options.report_gap {
@@ -1014,6 +1118,20 @@ mod native {
                     json!(confirm_counts),
                     json!(selected_counts)
                 );
+            }
+        }
+        if options.switches.shared_front_end {
+            let summary = json!({
+                "kind": "shared_front_end_summary",
+                "clips_latched_live_confirm": latched_live,
+                "clips_latched_fresh_confirm": latched_fresh,
+                "clips_with_clamped_or_truncated_start": degraded_starts,
+                "clips_with_onset_unavailable": onset_unavailable,
+            });
+            if options.jsonl {
+                println!("{summary}");
+            } else {
+                println!("# shared_front_end {summary}");
             }
         }
         if options.report_gap {

@@ -361,6 +361,36 @@ impl OnsetHistory {
     fn encoder_end(&self) -> i32 {
         self.encoder_first + self.encoder.len() as i32
     }
+
+    /// Whether this history still holds everything [`estimate`] would read for a firing whose
+    /// first token was emitted on encoder frame `emitted` and that fired on `fired_frame`:
+    /// encoder frames from `emitted - align_lead - posterior_max` (not before the epoch's frame
+    /// 0) to the firing, and energy frames from the acoustic or D4 reach before the first
+    /// token's feature frame (not before feature frame 0). `Err` names what was evicted; the
+    /// shared front end then reports the onset unavailable instead of estimating from a
+    /// shorter window. Used only for shared beams.
+    pub(crate) fn lookback_available(
+        &self,
+        emitted: i32,
+        fired_frame: i32,
+    ) -> std::result::Result<(), &'static str> {
+        let c = &self.config;
+        let encoder_need = (emitted - c.align_lead_frames as i32 - c.posterior_max_frames as i32).max(0);
+        if self.encoder.is_empty() || self.encoder_first > encoder_need || self.encoder_end() < fired_frame + 1 {
+            return Err("encoder_history_evicted");
+        }
+        let d4 = if c.fricative.enabled {
+            (c.fricative.window_ms + c.fricative.floor_ms) as usize / 10
+        } else {
+            0
+        };
+        let reach = c.acoustic_max_frames.max(d4) as i64;
+        let anchor = self.feature_origin as i64 + 4 * i64::from(emitted);
+        if self.energy.is_empty() || (self.energy_first as i64) > (anchor - reach).max(0) {
+            return Err("energy_history_evicted");
+        }
+        Ok(())
+    }
 }
 
 /// Mean log-mel over every bin and over bins `high_bin..`. The mean of logs, not the log

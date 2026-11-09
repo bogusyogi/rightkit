@@ -62,6 +62,7 @@ mod kissfft;
 mod math;
 mod model;
 mod onset;
+mod shared;
 mod trace;
 
 use std::path::PathBuf;
@@ -86,6 +87,8 @@ pub use trace::{
     FiringTrace, StepTrace, TraceClock, TraceConfig, TraceHypothesis, TraceIdentity, TraceMatch,
     TraceGapDrop, TraceMerge, TraceMergeSide, TracePath, TraceRecords, TraceTop,
 };
+use shared::{plan_beam_start, shared_onset_retention, FrameRing, SharedFrontEnd};
+pub use shared::{BeamStart, BeamStream, FrontEndConfig, DEFAULT_RING_FRAMES};
 use trace::TraceState;
 
 /// Where the keyword list comes from. One keyword per line: tokens from `tokens.txt`,
@@ -219,6 +222,11 @@ pub struct KeywordSpotterConfig {
     /// `kws_decoder_is_batch_invariant`), as for [`Self::decoder_cache`], which it overrides
     /// when both are set. Default off.
     pub decoder_table: bool,
+    /// Shared front end (plan arm C6): the streams of THIS spotter keep a ring of their
+    /// encoder frames so a confirm beam ([`KeywordSpotter::create_beam_stream`]) can decode
+    /// them without an encoder of its own. Set on the wake spotter only. `None` (the default)
+    /// keeps no ring and adds nothing to a stream. See [`FrontEndConfig`].
+    pub shared_front_end: Option<FrontEndConfig>,
 }
 
 impl KeywordSpotterConfig {
@@ -256,6 +264,7 @@ impl KeywordSpotterConfig {
             stale_gap_frames: None,
             encoder_state_reuse: false,
             decoder_table: false,
+            shared_front_end: None,
         }
     }
 }
@@ -303,6 +312,9 @@ pub struct KeywordDetection {
     pub gap_violation: bool,
     /// Onset estimates; `None` unless [`KeywordSpotterConfig::onset`] is set.
     pub onset: Option<KeywordOnset>,
+    /// Shared confirm beams only: why `onset` is `None` although estimation is on (the history
+    /// the estimator needs was evicted); always `None` for an ordinary stream.
+    pub onset_unavailable: Option<&'static str>,
 }
 
 /// What building the decoder table did for one spotter.
@@ -436,6 +448,8 @@ pub struct KeywordSpotter {
     trailing_blank_reset: bool,
     onset: Option<OnsetConfig>,
     encoder_state_reuse: bool,
+    /// Ring settings of the shared front end; `None` when it is off.
+    shared: Option<FrontEndConfig>,
     /// What `decoder_table` did at creation (default when it was not requested).
     table_build: TableBuild,
     /// Set only when [`KeywordSpotterConfig::trace`] records something.
@@ -457,6 +471,9 @@ pub struct KeywordStream {
     onset: Option<OnsetHistory>,
     /// Trace records; `None` when tracing is off.
     trace: Option<TraceState>,
+    /// Encoder-frame ring and confirm-beam onset history; `None` when the shared front end is
+    /// off, so an ordinary stream holds nothing extra.
+    shared: Option<SharedFrontEnd>,
 }
 
 impl KeywordSpotter {
@@ -480,6 +497,9 @@ impl KeywordSpotter {
     fn build(config: &KeywordSpotterConfig, model: Option<Arc<KwsModel>>) -> Result<Self> {
         if config.max_active_paths == 0 {
             return Err(Error::Config("max_active_paths must be at least 1".into()));
+        }
+        if config.shared_front_end.is_some_and(|front_end| !front_end.valid()) {
+            return Err(Error::Config("shared_front_end ring_frames must be 16 to 4096".into()));
         }
         if config
             .stale_gap_frames
@@ -579,6 +599,7 @@ impl KeywordSpotter {
             trailing_blank_reset: config.trailing_blank_reset,
             onset: config.onset.clone(),
             encoder_state_reuse: config.encoder_state_reuse,
+            shared: config.shared_front_end,
             table_build,
             trace,
         })
@@ -611,6 +632,18 @@ impl KeywordSpotter {
                 .as_ref()
                 .filter(|_| traced)
                 .map(|(config, identity)| TraceState::new(*config, Arc::clone(identity))),
+            // An untraced stream is a throwaway one (a fresh decode); it never owns a ring.
+            shared: self.shared.filter(|_| traced).map(|front_end| SharedFrontEnd {
+                ring: FrameRing::new(front_end.ring_frames),
+                onset: self.onset.as_ref().map(|config| {
+                    let mut config = config.clone();
+                    let (encoder, feature) = shared_onset_retention(front_end.ring_frames, &config);
+                    config.encoder_history = encoder;
+                    config.feature_history = feature;
+                    OnsetHistory::new(config, self.fbank.first_bin_from(onset::HIGH_BAND_HZ))
+                }),
+                epoch: 0,
+            }),
         }
     }
 
@@ -658,6 +691,9 @@ impl KeywordSpotter {
         if let Some(history) = stream.onset.as_mut() {
             history.push_features(stream.processed_frames, &features, self.fbank.dim());
         }
+        if let Some(history) = stream.shared.as_mut().and_then(|shared| shared.onset.as_mut()) {
+            history.push_features(stream.processed_frames, &features, self.fbank.dim());
+        }
         stream.processed_frames += self.model.chunk_shift;
         if let Some(trace) = stream.trace.as_mut() {
             trace.set_clock(
@@ -675,6 +711,12 @@ impl KeywordSpotter {
         };
         if let Some(history) = stream.onset.as_mut() {
             history.push_encoder(stream.result.frame_offset, &encoder_out);
+        }
+        if let Some(shared) = stream.shared.as_mut() {
+            shared.ring.push_chunk(stream.result.frame_offset, &encoder_out);
+            if let Some(history) = shared.onset.as_mut() {
+                history.push_encoder(stream.result.frame_offset, &encoder_out);
+            }
         }
         let firings = stream.result.firings;
         decoder::decode_chunk(
@@ -750,6 +792,7 @@ impl KeywordSpotter {
             max_gap_frames: firing.max_gap_frames,
             gap_violation: firing.gap_violation,
             onset: firing.onset,
+            onset_unavailable: firing.onset_unavailable,
         })
     }
 
@@ -794,6 +837,183 @@ impl KeywordSpotter {
         if let Some(trace) = stream.trace.as_mut() {
             trace.on_reset(stream.processed_frames);
         }
+        if let Some(shared) = stream.shared.as_mut() {
+            // The wake clock restarts: the ring is emptied and beams made before are dead.
+            shared.ring.clear();
+            shared.epoch += 1;
+            if let Some(history) = shared.onset.as_mut() {
+                history.reset(stream.processed_frames);
+            }
+        }
+    }
+
+    /// A confirm beam that decodes the encoder frames `front_end` (a stream of THIS or another
+    /// spotter built with [`KeywordSpotterConfig::shared_front_end`]) keeps, starting at the
+    /// wake-clock encoder frame `requested_frame` (FLOOR of the requested sample over 640;
+    /// negative when it precedes the stream's origin). `front_end_spotter` is the spotter that
+    /// owns `front_end`: both must run the same model files and feature settings. The start is
+    /// clamped to the origin and then to the ring, each reported separately in
+    /// [`BeamStream::start`]. The beam's frames are on the front end's clock.
+    pub fn create_beam_stream(
+        &self,
+        front_end_spotter: &KeywordSpotter,
+        front_end: &KeywordStream,
+        requested_frame: i64,
+    ) -> Result<BeamStream> {
+        let (ours, theirs) = (&self.model, &front_end_spotter.model);
+        if ours.encoder != theirs.encoder
+            || ours.decoder != theirs.decoder
+            || ours.joiner != theirs.joiner
+            || ours.feature_dim != theirs.feature_dim
+            || ours.context_size != theirs.context_size
+        {
+            return Err(Error::Config(
+                "shared front end: the beam and the front end differ in model files or features".into(),
+            ));
+        }
+        front_end_spotter.check_owner(front_end)?;
+        let Some(shared) = front_end.shared.as_ref() else {
+            return Err(Error::Config("stream has no shared front end".into()));
+        };
+        let start = plan_beam_start(requested_frame, shared.ring.first(), shared.ring.end());
+        let mut result = DecoderResult::new(self.model.context_size);
+        result.frame_offset = start.start_frame;
+        Ok(BeamStream {
+            spotter_id: self.id,
+            result,
+            reported_last_frame: None,
+            next_frame: start.start_frame,
+            start,
+            epoch: shared.epoch,
+            ring_frames: shared.ring.len(),
+            ring_bytes: shared.ring.bytes(),
+            trace: self
+                .trace
+                .as_ref()
+                .map(|(config, identity)| TraceState::new(*config, Arc::clone(identity))),
+        })
+    }
+
+    /// True when the front end holds frames this beam has not decoded.
+    pub fn beam_ready(&self, beam: &BeamStream, front_end: &KeywordStream) -> bool {
+        front_end
+            .shared
+            .as_ref()
+            .is_some_and(|shared| beam.next_frame < shared.ring.end())
+    }
+
+    /// Decode the next chunk (as many frames as one encoder call yields) of retained frames
+    /// into `beam`. Call while [`Self::beam_ready`] holds. Fails when the front end was reset
+    /// since the beam was made, or the frames the beam needs were evicted: the caller drops the
+    /// beam.
+    pub fn decode_beam(&mut self, beam: &mut BeamStream, front_end: &KeywordStream) -> Result<()> {
+        if beam.spotter_id != self.id {
+            return Err(Error::Model("beam belongs to a different spotter".into()));
+        }
+        let Some(shared) = front_end.shared.as_ref() else {
+            return Err(Error::Config("stream has no shared front end".into()));
+        };
+        if shared.epoch != beam.epoch {
+            return Err(Error::Model("shared front end was reset since the beam was made".into()));
+        }
+        let end = shared.ring.end();
+        if beam.next_frame >= end {
+            return Err(Error::Model("beam has no retained frames to decode".into()));
+        }
+        let per_call = (self.model.chunk_shift / 4).max(1) as i32;
+        let to = (beam.next_frame + per_call).min(end);
+        let Some(out) = shared.ring.slice(beam.next_frame, to) else {
+            return Err(Error::Model("frames the beam needs were evicted from the ring".into()));
+        };
+        if let Some(trace) = beam.trace.as_mut() {
+            trace.set_clock(
+                front_end.fbank.num_frames_ready(),
+                front_end.processed_frames,
+                self.model.chunk_shift,
+                self.model.chunk_size,
+            );
+        }
+        let mut model = self.model.lock();
+        let firings = beam.result.firings;
+        decoder::decode_chunk(
+            &mut model,
+            &self.graph,
+            &self.options,
+            &out,
+            &mut beam.result,
+            beam.trace.as_mut(),
+        )?;
+        beam.next_frame = to;
+        if beam.result.firings != firings {
+            self.estimate_beam_onset(&mut model, beam, shared)?;
+        }
+        Ok(())
+    }
+
+    /// The beam's onset from the front end's confirm history, or an explicit reason it is
+    /// unavailable (never an estimate from a shorter window).
+    fn estimate_beam_onset(
+        &self,
+        model: &mut Zipformer2Transducer,
+        beam: &mut BeamStream,
+        shared: &SharedFrontEnd,
+    ) -> Result<()> {
+        let Some(history) = shared.onset.as_ref() else {
+            return Ok(());
+        };
+        let Some(firing) = beam.result.firing.as_ref() else {
+            return Ok(());
+        };
+        let emitted = beam.result.timestamps.first().copied().unwrap_or(0);
+        match history.lookback_available(emitted, firing.frame) {
+            Err(reason) => {
+                if let Some(firing) = beam.result.firing.as_mut() {
+                    firing.onset_unavailable = Some(reason);
+                }
+            }
+            Ok(()) => {
+                let onset = onset::estimate(
+                    model,
+                    history,
+                    &onset::Firing {
+                        context: &firing.context,
+                        tokens: &beam.result.tokens,
+                        frames: &beam.result.timestamps,
+                        fired_frame: firing.frame,
+                    },
+                    self.options.joiner_batching,
+                    self.options.math,
+                )?;
+                if let Some(firing) = beam.result.firing.as_mut() {
+                    firing.onset = Some(onset);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// [`Self::detection`] for a beam: the newest detection, reported once.
+    pub fn beam_detection(&self, beam: &mut BeamStream) -> Option<KeywordDetection> {
+        let result = beam.take_new_result()?;
+        let firing = result.firing.clone();
+        let result = self.keyword_result(result);
+        if result.is_empty() {
+            return None;
+        }
+        let firing = firing?;
+        Some(KeywordDetection {
+            result,
+            token_probs: firing.token_probs,
+            score: firing.score,
+            threshold: firing.threshold,
+            fired_frame: firing.frame,
+            gap_drops: firing.gap_drops,
+            gap_drops_chunk: firing.gap_drops_chunk,
+            max_gap_frames: firing.max_gap_frames,
+            gap_violation: firing.gap_violation,
+            onset: firing.onset,
+            onset_unavailable: firing.onset_unavailable,
+        })
     }
 
     fn check_owner(&self, stream: &KeywordStream) -> Result<()> {
