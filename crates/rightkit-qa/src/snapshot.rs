@@ -924,15 +924,27 @@ fn ensure_stopped(marker: &Marker) -> Result<()> {
     {
         return Ok(());
     }
-    let running = running_processes(&marker.process_names)?;
-    if !running.is_empty() {
-        return err(format!(
-            "snapshot refuses while configured app/helper processes run ({}); marker retained",
-            running.join(", ")
-        ));
+    // A run's own app and its helpers may still be exiting when the restore begins (hr-r2-ultra-3: the QA-staged HeardRightMenuBar was gone
+    // moments after the check refused). The check waits a bounded time for them to leave; it never stops them, and a process still there after
+    // the bound refuses exactly as before.
+    let deadline = std::time::Instant::now() + STOPPED_WAIT;
+    loop {
+        let running = running_processes(&marker.process_names)?;
+        if running.is_empty() {
+            return Ok(());
+        }
+        if std::time::Instant::now() >= deadline {
+            return err(format!(
+                "snapshot refuses while configured app/helper processes run ({}); marker retained",
+                running.join(", ")
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(250));
     }
-    Ok(())
 }
+
+/// How long `ensure_stopped` waits for configured app/helper processes that are already exiting.
+const STOPPED_WAIT: Duration = Duration::from_secs(15);
 
 fn restore_credentials(sets: &[CredRecord], file: &CredFile) -> Result<usize> {
     validate_credentials(sets, file)?;
