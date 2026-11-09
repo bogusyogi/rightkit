@@ -426,3 +426,19 @@ test("a staged entry re-signed in place is admitted only from its staged bytes t
   writeSignedInPlaceReport({ [SIGNED_IN_PLACE_REPORT_ENV]: report }, undefined);
   assert.equal(readSignedInPlaceReport(report, snap).size, 0);
 });
+
+test("the gate verifies every reported in-place file's Authenticode signature and signer itself (rightkit#1555)", async () => {
+  const { assertSignedInPlaceSigned } = await import("./bin/rightkit-gate.mjs");
+  const { SIGN_SUBJECT } = await import("./suite-signing-policy.mjs");
+  const snap = path.join(os.tmpdir(), "rk-snap-verify");
+  const map = new Map([["src-tauri/binaries/engine.exe", { sha256Before: "a".repeat(64), sha256After: "b".repeat(64) }]]);
+  const file = path.join(snap, "src-tauri", "binaries", "engine.exe");
+  const seen = [];
+  await assertSignedInPlaceSigned({ verifyWindows: (files) => { seen.push(...files); return files.map((f) => ({ file: f, authenticode: "Valid", subject: SIGN_SUBJECT })); } }, snap, map);
+  assert.deepEqual(seen, [file]);
+  await assert.rejects(assertSignedInPlaceSigned({ verifyWindows: (files) => files.map((f) => ({ file: f, authenticode: "Valid", subject: "CN=Someone Else" })) }, snap, map), /not validly Authenticode-signed/);
+  await assert.rejects(assertSignedInPlaceSigned({ verifyWindows: () => { throw new Error("Authenticode verification did not report Valid"); } }, snap, map), /did not report Valid/);
+  await assert.rejects(assertSignedInPlaceSigned({ verifyWindows: () => [] }, snap, map), /not validly Authenticode-signed/);
+  // An empty report verifies nothing and never calls the verifier (Mac and every non-signing route).
+  await assertSignedInPlaceSigned({ verifyWindows: () => { throw new Error("must not be called"); } }, snap, new Map());
+});

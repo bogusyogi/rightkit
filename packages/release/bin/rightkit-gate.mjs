@@ -2336,6 +2336,25 @@ export function signedInPlaceAdmits(was, now, reported) {
   return Boolean(was && now && reported && typeof was.sha256 === "string" && reported.sha256Before === was.sha256 && reported.sha256After === now.sha256);
 }
 
+/**
+ * rightkit#1555: the gate itself checks every file the report admits: a valid, timestamped Authenticode signature whose leaf is the product's
+ * one signer (suite-signing-policy SIGN_SUBJECT), on the bytes now on disk. A report a child forged for unsigned or foreign-signed bytes is
+ * refused here, whoever wrote it. `o.verifyWindows` is the test seam; the default is sign-windows.mjs verifyWindowsFiles (signtool verify /pa).
+ */
+export async function assertSignedInPlaceSigned(o, snapshotDir, signedInPlace) {
+  if (!signedInPlace.size) return;
+  const { SIGN_SUBJECT } = await import("../suite-signing-policy.mjs");
+  const verify = o.verifyWindows ?? (await import("../sign-windows.mjs")).verifyWindowsFiles;
+  const files = [...signedInPlace.keys()].map((rel) => path.join(snapshotDir, ...rel.split("/")));
+  const records = verify(files);
+  for (const file of files) {
+    const record = (records ?? []).find((r) => path.resolve(r?.file ?? "") === path.resolve(file));
+    if (!record || record.subject !== SIGN_SUBJECT || record.authenticode !== "Valid") {
+      throw new Error(`${file} is reported signed in place but is not validly Authenticode-signed by ${SIGN_SUBJECT} (${JSON.stringify(record?.subject ?? null)} / ${JSON.stringify(record?.authenticode ?? null)})`);
+    }
+  }
+}
+
 /** The signer's report as `Map(snapshot-relative posix path -> { sha256Before, sha256After })`; a path outside the snapshot or a malformed report is refused. */
 export function readSignedInPlaceReport(file, snapshotDir, { readFile = (f) => fs.readFileSync(f, "utf8"), exists = fs.existsSync } = {}) {
   const out = new Map();
@@ -3697,7 +3716,7 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
     const carriedOk = await carrier.finish({ stage: to });
     let signedInPlace = new Map();
     // Only a right-release dev that succeeded wrote its report last; a failed one is read as no report (every staged change then refuses).
-    if (signedReport && r.status === 0) { try { signedInPlace = readSignedInPlaceReport(signedReport, ds.path); } catch (e) { o.err(`${tag} RK_CHECK_ERROR: [${to}] ${e.message}`); return 2; } }
+    if (signedReport && r.status === 0) { try { signedInPlace = readSignedInPlaceReport(signedReport, ds.path); await assertSignedInPlaceSigned(o, ds.path, signedInPlace); } catch (e) { o.err(`${tag} RK_CHECK_ERROR: [${to}] ${e.message}`); return 2; } }
     if (ds && !(await closeSnapshotStage({ o, ds, root, stage: to, step: to, tag, signedInPlace })).ok) { o.err(`${tag} --to ${to} stopped: the result covers no known bytes`); return 2; }
     return r.status === 0 && carriedOk ? 0 : 1;
   } finally { endRun(run); carrier.cleanup(); try { pinMulti?.cleanup?.(); } catch { /* the wrapper map is the gate's own temp directory */ } }
