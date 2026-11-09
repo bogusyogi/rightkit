@@ -23,8 +23,9 @@ use rightkit_asr::kws as rust_kws;
 /// The spotter's lever types, as [`KwsSwitches`] carries them.
 pub use rightkit_asr::kws::{
     AcousticSearch, FiringTrace, FricativeAbstain, FricativeParams, JoinerBatching,
-    MergeTimestamps, StepTrace, ThresholdTokens, TraceClock, TraceConfig, TraceHypothesis,
-    TraceIdentity, TraceMatch, TraceMerge, TraceMergeSide, TracePath, TraceRecords, TraceTop,
+    MergeTimestamps, StepTrace, ThresholdTokens, TraceClock, TraceConfig, TraceGapDrop,
+    TraceHypothesis, TraceIdentity, TraceMatch, TraceMerge, TraceMergeSide, TracePath,
+    TraceRecords, TraceTop,
 };
 use rightkit_asr::parakeet_core::{TimedToken, TranscriptionResult};
 
@@ -104,6 +105,8 @@ struct RustKwsTuning {
     shared_model: bool,
     /// Firing and no-fire trace; observation only (default off).
     trace: Option<KwsTraceConfig>,
+    /// Stale-token gap guard (default off).
+    stale_gap_frames: Option<i32>,
 }
 
 impl RustKwsTuning {
@@ -124,6 +127,7 @@ impl RustKwsTuning {
         decoder_cache: false,
         shared_model: false,
         trace: None,
+        stale_gap_frames: None,
     };
 }
 
@@ -217,6 +221,12 @@ pub struct KwsSwitches {
     /// [`Kws::take_trace`]. Observation only: detections, frames, probabilities and cuts
     /// are identical with it on or off.
     pub trace: Option<KwsTraceConfig>,
+    /// Stale-token gap guard (arms B28 to B30): `Some(G)`, G in 1..=1000 encoder frames
+    /// (40 ms each), drops a beam path whose newest keyword token came more than G frames
+    /// after the previous keyword token of the same path. `None` (default) is today's
+    /// behaviour, unchanged. It changes what can be detected and requires qualification; it
+    /// applies to the wake and confirm spotters, not the hey-wake spotter.
+    pub gap_guard: Option<i32>,
 }
 
 /// Which trace records to keep. Default off (`KwsSwitches::trace` `None`); every value is
@@ -316,6 +326,7 @@ impl Default for KwsSwitches {
             decoder_cache: tuning.decoder_cache,
             shared_model: tuning.shared_model,
             trace: tuning.trace,
+            gap_guard: tuning.stale_gap_frames,
         }
     }
 }
@@ -333,6 +344,9 @@ impl KwsSwitches {
         }
         if self.fricative_strict && self.onset != Some(KwsOnsetMethod::Fricative) {
             return Err("fricative_strict needs onset fricative".into());
+        }
+        if self.gap_guard.is_some_and(|gap| !(1..=1000).contains(&gap)) {
+            return Err("gap_guard must be 1 to 1000 encoder frames".into());
         }
         if let Some(trace) = self.trace {
             if !trace.firing && trace.window_frames == 0 {
@@ -360,6 +374,7 @@ impl KwsSwitches {
             decoder_cache: self.decoder_cache,
             shared_model: self.shared_model,
             trace: self.trace,
+            stale_gap_frames: self.gap_guard,
             ..base
         }
     }
@@ -419,6 +434,11 @@ pub struct KwsOnsetReport {
     /// Forced-alignment frame of each token.
     pub aligned_frames: Vec<i32>,
     pub fired_frame: i32,
+    /// Paths the stale-token gap guard had dropped on this stream since its last reset, up to
+    /// this firing (`0` with the guard off), and of those the ones dropped in the firing's
+    /// chunk.
+    pub gap_drops: u64,
+    pub gap_drops_chunk: u64,
     pub token_probs: Vec<f32>,
     pub score: f32,
     pub threshold: f32,
@@ -1106,6 +1126,8 @@ impl Kws {
             token_frames: detection.result.frames.clone(),
             aligned_frames: onset.aligned_frames.clone(),
             fired_frame: detection.fired_frame,
+            gap_drops: detection.gap_drops,
+            gap_drops_chunk: detection.gap_drops_chunk,
             token_probs: detection.token_probs.clone(),
             score: detection.score,
             threshold: detection.threshold,
@@ -2250,6 +2272,12 @@ fn spotter_config(
     config.static_batch = tuning.static_batch;
     config.decoder_cache = tuning.decoder_cache;
     // The no-fire window rides the confirm stream only; every stream may trace firings.
+    // The guard runs on the wake and confirm spotters, as in the offline port runs.
+    config.stale_gap_frames = if keywords_file == HEY_WAKE_KEYWORDS_FILE {
+        None
+    } else {
+        tuning.stale_gap_frames
+    };
     config.trace = tuning.trace.map(|trace| rust_kws::TraceConfig {
         history_tokens: trace.history_tokens,
         firing: trace.firing,
@@ -2449,6 +2477,8 @@ mod tests {
             token_frames: Vec::new(),
             aligned_frames: Vec::new(),
             fired_frame: 0,
+            gap_drops: 0,
+            gap_drops_chunk: 0,
             token_probs: Vec::new(),
             score: 0.0,
             threshold: 0.0,
@@ -2523,6 +2553,20 @@ mod tests {
             ..KwsTraceConfig::default()
         });
         assert!(switches.validate().is_ok());
+    }
+
+    #[test]
+    fn gap_guard_is_off_by_default_and_range_checked() {
+        let mut switches = KwsSwitches::default();
+        assert_eq!(switches.gap_guard, None);
+        for gap in [0, -1, 1001] {
+            switches.gap_guard = Some(gap);
+            assert!(switches.validate().is_err(), "{gap}");
+        }
+        for gap in [1, 8, 12, 16, 1000] {
+            switches.gap_guard = Some(gap);
+            assert!(switches.validate().is_ok(), "{gap}");
+        }
     }
 
     #[test]

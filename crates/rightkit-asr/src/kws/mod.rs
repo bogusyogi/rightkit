@@ -84,7 +84,7 @@ use model::{StateTensor, Zipformer2Transducer};
 use onset::OnsetHistory;
 pub use trace::{
     FiringTrace, StepTrace, TraceClock, TraceConfig, TraceHypothesis, TraceIdentity, TraceMatch,
-    TraceMerge, TraceMergeSide, TracePath, TraceRecords, TraceTop,
+    TraceGapDrop, TraceMerge, TraceMergeSide, TracePath, TraceRecords, TraceTop,
 };
 use trace::TraceState;
 
@@ -203,6 +203,11 @@ pub struct KeywordSpotterConfig {
     /// `None` (the default) records nothing and adds no work beyond an `Option` check per
     /// decoded chunk and a `bool` check per step. Never changes what is detected.
     pub trace: Option<TraceConfig>,
+    /// Stale-token gap guard: drop a beam path whose newest keyword token is more than this
+    /// many encoder frames (40 ms each) after the previous keyword token of the same path,
+    /// checked when the token is emitted. `None` (the default) is Sherpa's behaviour, bit for
+    /// bit; `Some(g)` needs `g` in 1..=1000 and changes what can be detected.
+    pub stale_gap_frames: Option<i32>,
 }
 
 impl KeywordSpotterConfig {
@@ -237,6 +242,7 @@ impl KeywordSpotterConfig {
             static_batch: false,
             decoder_cache: false,
             trace: None,
+            stale_gap_frames: None,
         }
     }
 }
@@ -272,6 +278,11 @@ pub struct KeywordDetection {
     /// Encoder frame (on the clock of `result.frames`) on which the keyword fired, after
     /// its last token and the trailing blanks the beam waited for.
     pub fired_frame: i32,
+    /// Paths the stale-token gap guard has dropped since the stream's last reset, up to this
+    /// firing (`0` with the guard off).
+    pub gap_drops: u64,
+    /// Of those, the ones dropped in the chunk this detection fired in, up to the firing.
+    pub gap_drops_chunk: u64,
     /// Onset estimates; `None` unless [`KeywordSpotterConfig::onset`] is set.
     pub onset: Option<KeywordOnset>,
 }
@@ -417,6 +428,12 @@ impl KeywordSpotter {
         if config.max_active_paths == 0 {
             return Err(Error::Config("max_active_paths must be at least 1".into()));
         }
+        if config
+            .stale_gap_frames
+            .is_some_and(|gap| !(1..=1000).contains(&gap))
+        {
+            return Err(Error::Config("stale_gap_frames must be 1 to 1000".into()));
+        }
         let symbols = SymbolTable::parse(&std::fs::read_to_string(&config.tokens).map_err(
             |e| Error::Config(format!("read {}: {e}", config.tokens.display())),
         )?)?;
@@ -454,6 +471,7 @@ impl KeywordSpotter {
             merge_timestamps: config.merge_timestamps,
             math,
             decoder_cache: config.decoder_cache,
+            stale_gap_frames: config.stale_gap_frames,
         };
         let trace = config.trace.filter(TraceConfig::is_active).map(|trace| {
             let config_repr = format!(
@@ -619,6 +637,8 @@ impl KeywordSpotter {
             score: firing.score,
             threshold: firing.threshold,
             fired_frame: firing.frame,
+            gap_drops: firing.gap_drops,
+            gap_drops_chunk: firing.gap_drops_chunk,
             onset: firing.onset,
         })
     }

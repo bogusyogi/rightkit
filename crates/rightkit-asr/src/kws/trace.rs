@@ -33,6 +33,8 @@ use super::decoder::{Firing, Hypothesis};
 
 /// Firing records held between drains.
 const FIRINGS_KEPT: usize = 16;
+/// Gap-guard drop records held between drains.
+const GAP_DROPS_KEPT: usize = 64;
 /// Hypotheses recorded at a firing: the selected path plus the best others.
 const TOP_HYPOTHESES: usize = 4;
 /// Path history kept per record when [`TraceConfig::history_tokens`] is `0`.
@@ -423,6 +425,47 @@ pub struct TraceExtension {
     pub sibling_score: Option<f32>,
 }
 
+/// A path the stale-token gap guard dropped when its newest keyword token was emitted.
+/// Recorded whenever tracing is on and the guard is set, independent of the step window.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraceGapDrop {
+    /// Encoder frame the offending token was emitted on.
+    pub frame: i32,
+    pub clock: TraceClock,
+    /// The offending gap in encoder frames (newest token minus the previous one).
+    pub gap: i32,
+    /// Keyword depth of the path's new state.
+    pub level: usize,
+    /// The active keyword's tokens and frames, last `history_tokens` of them (`level` gives
+    /// the original count).
+    pub tokens: Vec<i64>,
+    pub frames: Vec<i32>,
+    /// The offending consecutive pair.
+    pub pair_tokens: [i64; 2],
+    pub pair_frames: [i32; 2],
+    /// The path's score BEFORE this emission (the parent's), as the port logs it.
+    pub log_prob: f64,
+}
+
+impl TraceGapDrop {
+    pub(crate) fn capture(h: &Hypothesis, level: usize, frame: i32, gap: i32, cap: usize) -> Self {
+        let tokens_all = &h.ys[h.ys.len().saturating_sub(level)..];
+        let frames_all = &h.timestamps[h.timestamps.len().saturating_sub(level)..];
+        let (ys, ts) = (&h.ys, &h.timestamps);
+        Self {
+            frame,
+            clock: TraceClock::default(),
+            gap,
+            level,
+            tokens: tail(tokens_all, cap),
+            frames: tail(frames_all, cap),
+            pair_tokens: [ys[ys.len() - 2], ys[ys.len() - 1]],
+            pair_frames: [ts[ts.len() - 2], ts[ts.len() - 1]],
+            log_prob: h.log_prob,
+        }
+    }
+}
+
 /// One decoded encoder frame inside the window.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StepTrace {
@@ -464,19 +507,25 @@ pub struct TraceRecords {
     /// Window steps dropped for capacity since the last drain; nonzero means the window
     /// record is incomplete.
     pub steps_dropped: u64,
+    /// Paths the stale-token gap guard dropped (empty when the guard is off).
+    pub gap_drops: Vec<TraceGapDrop>,
+    /// Gap-guard drop records dropped for capacity since the last drain.
+    pub gap_drops_dropped: u64,
 }
 
 impl TraceRecords {
     pub fn is_empty(&self) -> bool {
         self.firings.is_empty()
             && self.steps.is_empty()
+            && self.gap_drops.is_empty()
             && self.firings_dropped == 0
             && self.steps_dropped == 0
+            && self.gap_drops_dropped == 0
     }
 
     /// Some record was dropped for capacity.
     pub fn truncated(&self) -> bool {
-        self.firings_dropped > 0 || self.steps_dropped > 0
+        self.firings_dropped > 0 || self.steps_dropped > 0 || self.gap_drops_dropped > 0
     }
 }
 
@@ -495,6 +544,8 @@ pub(crate) struct TraceState {
     firings_dropped: u64,
     steps: Vec<StepTrace>,
     steps_dropped: u64,
+    gap_drops: Vec<TraceGapDrop>,
+    gap_drops_dropped: u64,
 }
 
 impl TraceState {
@@ -511,7 +562,18 @@ impl TraceState {
             firings_dropped: 0,
             steps: Vec::new(),
             steps_dropped: 0,
+            gap_drops: Vec::new(),
+            gap_drops_dropped: 0,
         }
+    }
+
+    pub(crate) fn push_gap_drop(&mut self, mut drop: TraceGapDrop) {
+        drop.clock = self.clock;
+        if self.gap_drops.len() >= GAP_DROPS_KEPT {
+            self.gap_drops.remove(0);
+            self.gap_drops_dropped += 1;
+        }
+        self.gap_drops.push(drop);
     }
 
     pub(crate) fn note_samples(&mut self, samples: usize) {
@@ -603,6 +665,8 @@ impl TraceState {
             firings_dropped: std::mem::take(&mut self.firings_dropped),
             steps: std::mem::take(&mut self.steps),
             steps_dropped: std::mem::take(&mut self.steps_dropped),
+            gap_drops: std::mem::take(&mut self.gap_drops),
+            gap_drops_dropped: std::mem::take(&mut self.gap_drops_dropped),
         }
     }
 }

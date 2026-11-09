@@ -16,7 +16,7 @@ use super::math::Math;
 use super::model::{EncoderOut, Zipformer2Transducer};
 use super::trace::{
     keyword_first_frame, FiringTrace, StepTrace, TraceExtension, TraceMatch, TraceMerge,
-    TracePath, TraceState, TraceTop, MAX_STEP_EXTENSIONS,
+    TraceGapDrop, TracePath, TraceState, TraceTop, MAX_STEP_EXTENSIONS,
 };
 use super::{JoinerBatching, MergeTimestamps, ThresholdTokens};
 use crate::error::Result;
@@ -36,6 +36,9 @@ pub(crate) struct DecoderOptions {
     /// Serve decoder rows from the model's per-context cache
     /// ([`Zipformer2Transducer::run_decoder_cached`]).
     pub decoder_cache: bool,
+    /// Stale-token gap guard: drop a path whose newest keyword token is more than this many
+    /// encoder frames after the previous one. `None` (the default) is Sherpa's behaviour.
+    pub stale_gap_frames: Option<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -190,6 +193,10 @@ pub(crate) struct Firing {
     pub threshold: f32,
     /// Encoder frame (since reset) the keyword fired on.
     pub frame: i32,
+    /// Paths the stale-token gap guard dropped since the last reset, up to this step.
+    pub gap_drops: u64,
+    /// Of those, the ones dropped in the chunk this keyword fired in, up to this step.
+    pub gap_drops_chunk: u64,
     /// Onset estimates, filled in by the spotter when onset estimation is on.
     pub onset: Option<super::onset::KeywordOnset>,
 }
@@ -208,6 +215,8 @@ pub(crate) struct DecoderResult {
     pub firing: Option<Firing>,
     /// Keywords fired since the last reset.
     pub firings: u64,
+    /// Paths dropped by the stale-token gap guard since the last reset.
+    pub gap_drops: u64,
 }
 
 impl DecoderResult {
@@ -221,6 +230,7 @@ impl DecoderResult {
             hyps: Hypotheses::single(Hypothesis::blank(context_size)),
             firing: None,
             firings: 0,
+            gap_drops: 0,
         }
     }
 
@@ -234,6 +244,7 @@ impl DecoderResult {
             hyps: Hypotheses::default(),
             firing: None,
             firings: 0,
+            gap_drops: 0,
         }
     }
 }
@@ -253,6 +264,21 @@ fn keyword_score(ys_probs: &[f32], level: usize, mode: ThresholdTokens) -> f32 {
         sum += *p;
     }
     sum / level as f32
+}
+
+/// The stale-token gap guard's test, on plain values: `Some(gap)` when a path now at keyword
+/// depth `level` (at least 2) has a newest consecutive keyword-token pair more than `limit`
+/// frames apart (strictly greater; `limit` frames apart is kept). Only the newest pair is
+/// checked, because every earlier pair was checked when its token was emitted. `None` for
+/// the guard off, a path not on a keyword (`level` under 2), or one with too few timestamps.
+fn stale_gap_exceeds(timestamps: &[i32], level: usize, limit: Option<i32>) -> Option<i32> {
+    let limit = limit?;
+    if level < 2 || timestamps.len() < level {
+        return None;
+    }
+    let n = timestamps.len();
+    let gap = timestamps[n - 1] - timestamps[n - 2];
+    (gap > limit).then_some(gap)
 }
 
 /// A path whose active keyword context began more than `ttl` frames ago.
@@ -279,6 +305,9 @@ pub(crate) fn decode_chunk(
     let mut cur = std::mem::take(&mut result.hyps);
     // Trace only: the per-record history cap.
     let history = trace.as_ref().map_or(0, |tr| tr.config.history());
+    // Paths the gap guard dropped in this chunk (the guard is off when `stale_gap_frames` is
+    // `None`; then this stays 0).
+    let mut chunk_gap_drops = 0u64;
 
     for t in 0..encoder_out.frames {
         // Trace only: whether this step is recorded, and what the TTL pass dropped.
@@ -378,6 +407,27 @@ pub(crate) fn decode_chunk(
                     h.ys = blanks(context_size);
                     h.timestamps.clear();
                     h.ys_probs.clear();
+                } else if options.stale_gap_frames.is_some() {
+                    // Pure filter: a path whose newest keyword token came too long after
+                    // the previous one never enters the new beam (no merge, no log-add, no
+                    // back-fill), as in the offline port.
+                    let level = graph.state(state).level;
+                    if let Some(gap) =
+                        stale_gap_exceeds(&h.timestamps, level, options.stale_gap_frames)
+                    {
+                        chunk_gap_drops += 1;
+                        result.gap_drops += 1;
+                        if let Some(tr) = trace.as_mut() {
+                            tr.push_gap_drop(TraceGapDrop::capture(
+                                &h,
+                                level,
+                                result.frame_offset + t as i32,
+                                gap,
+                                history,
+                            ));
+                        }
+                        continue;
+                    }
                 }
             } else {
                 h.num_trailing_blanks += 1;
@@ -391,6 +441,10 @@ pub(crate) fn decode_chunk(
             );
         }
 
+        if options.stale_gap_frames.is_some() && hyps.0.is_empty() {
+            // Every candidate was dropped by the guard: the beam restarts from blank.
+            hyps = Hypotheses::single(Hypothesis::blank(context_size));
+        }
         let best = hyps.most_probable();
         // Trace only: the beam as the step leaves it, before a firing resets it.
         let step_head = if rec {
@@ -425,6 +479,8 @@ pub(crate) fn decode_chunk(
                     score: ys_prob,
                     threshold: end.ac_threshold,
                     frame: t as i32 + result.frame_offset,
+                    gap_drops: result.gap_drops,
+                    gap_drops_chunk: chunk_gap_drops,
                     onset: None,
                 });
                 result.firings += 1;
@@ -593,6 +649,35 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The gap guard's filter on a synthetic beam: a pair exactly G apart is kept, G + 1 is
+    /// dropped, paths that are not on a keyword of depth two or more are untouched, and with
+    /// the guard off every path is kept.
+    #[test]
+    fn stale_gap_guard_filters_only_keyword_paths_over_the_limit() {
+        const G: i32 = 8;
+        // (level, timestamps): the path's keyword depth and its token frames.
+        let beam: [(usize, Vec<i32>); 6] = [
+            (3, vec![10, 14, 22]),     // newest gap == G
+            (3, vec![10, 14, 23]),     // newest gap == G + 1
+            (3, vec![10, 40, 44]),     // an old large gap was checked when it was emitted
+            (1, vec![50]),             // first token: no consecutive pair
+            (0, vec![]),               // not on a keyword
+            (2, vec![5, 5 + G + 100]), // depth two, far apart
+        ];
+        let kept = |limit: Option<i32>| -> Vec<bool> {
+            beam.iter()
+                .map(|(level, ts)| stale_gap_exceeds(ts, *level, limit).is_none())
+                .collect()
+        };
+        assert_eq!(kept(Some(G)), [true, false, true, true, true, false]);
+        assert_eq!(stale_gap_exceeds(&[10, 14, 23], 3, Some(G)), Some(9));
+        assert_eq!(stale_gap_exceeds(&[10, 14, 22], 3, Some(G)), None);
+        // Guard off: nothing is ever dropped, whatever the gaps.
+        assert!(kept(None).iter().all(|keep| *keep));
+        // Fewer timestamps than the depth (tokens left by a fail transition): untouched.
+        assert_eq!(stale_gap_exceeds(&[50], 2, Some(G)), None);
     }
 
     #[test]

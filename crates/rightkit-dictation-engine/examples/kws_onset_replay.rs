@@ -14,6 +14,13 @@
 //! null (`feature_mapping`: `no_origin` | `before_origin`) when the sample cannot be mapped.
 //! `--d4-strict` (needs `--onset fricative`) returns no boundary when D4 has no candidate.
 //!
+//! Stale-token gap guard (default off; arms B28 to B30): `--gap-guard G` (1 to 1000 encoder
+//! frames of 40 ms; the plan uses 8, 12, 16) drops a beam path whose newest keyword token came
+//! more than G frames after the previous one. It can change detections. With it on each JSONL
+//! row gains a `gap_guard` key (the setting and, per cascade report, the paths dropped up to
+//! that firing in total and in its chunk) and a text run prints a `GAP` line; with it off the
+//! output is unchanged. With `--trace` each drop also appears in the stream trace.
+//!
 //! Firing and no-fire trace (default off; observation only, detections are identical on and
 //! off): `--trace` snapshots every firing at its pre-reset beam event; `--trace-window FRAMES`
 //! records every decoded encoder frame on the confirm stream within FRAMES (40 ms each) of the
@@ -35,7 +42,7 @@ fn main() {}
 mod native {
     use rightkit_dictation_engine::kws::{
         AcousticSearch, FiringTrace, FricativeParams, Kws, KwsFeedEvent, KwsOnsetMethod,
-        KwsSwitches, KwsTrace, KwsTraceConfig, StepTrace, TraceClock, TraceExtension,
+        KwsSwitches, KwsTrace, KwsTraceConfig, StepTrace, TraceClock, TraceExtension, TraceGapDrop,
         TraceHypothesis, TraceMerge, TracePath,
     };
     use serde_json::json;
@@ -51,7 +58,7 @@ mod native {
         [--acoustic-search legacy|initial-fricative] [--d4] [--d4-window MS] [--d4-floor MS] \
         [--d4-rise F] [--d4-min-run MS] [--d4-vowel MS] [--d4-tilt F] [--d4-json JSON|FILE] \
         [--d4-strict] [--trace] [--trace-window FRAMES] [--trace-capacity STEPS] [--trace-history TOKENS] \
-        [--jsonl]";
+        [--gap-guard G] [--jsonl]";
 
     fn flag_value<I: Iterator<Item = OsString>>(
         args: &mut I,
@@ -265,6 +272,34 @@ mod native {
         })
     }
 
+    fn gap_json(gap: i32, reports: &[(&'static str, u64, u64)]) -> serde_json::Value {
+        json!({
+            "g": gap,
+            "reports": reports
+                .iter()
+                .map(|(stage, total, chunk)| json!({
+                    "stage": stage,
+                    "gap_drops": total,
+                    "gap_drops_chunk": chunk,
+                }))
+                .collect::<Vec<_>>(),
+        })
+    }
+
+    fn gap_drop_json(drop: &TraceGapDrop) -> serde_json::Value {
+        json!({
+            "frame": drop.frame,
+            "clock": clock_json(&drop.clock),
+            "gap": drop.gap,
+            "level": drop.level,
+            "tokens": drop.tokens,
+            "frames": drop.frames,
+            "pair_tokens": drop.pair_tokens,
+            "pair_frames": drop.pair_frames,
+            "log_prob": drop.log_prob,
+        })
+    }
+
     fn feed_json(event: &KwsFeedEvent) -> serde_json::Value {
         json!({
             "stage": event.stage,
@@ -315,6 +350,8 @@ mod native {
                     "firings_dropped": stream.records.firings_dropped,
                     "steps": stream.records.steps.iter().map(step_json).collect::<Vec<_>>(),
                     "steps_dropped": stream.records.steps_dropped,
+                    "gap_drops": stream.records.gap_drops.iter().map(gap_drop_json).collect::<Vec<_>>(),
+                    "gap_drops_dropped": stream.records.gap_drops_dropped,
                 }));
             }
             feeds.extend(trace.feeds.iter().map(feed_json));
@@ -440,6 +477,10 @@ mod native {
                         "--trace-capacity",
                     )? as usize;
                     trace_on = true;
+                }
+                Some("--gap-guard") => {
+                    let value = parse_u32(&flag_value(&mut args, "--gap-guard")?, "--gap-guard")?;
+                    switches.gap_guard = Some(i32::try_from(value).unwrap_or(i32::MAX));
                 }
                 Some("--trace-history") => {
                     trace.history_tokens = parse_u32(
@@ -600,6 +641,8 @@ mod native {
         owner_missing: bool,
         /// What the cascade's trace drained during this clip; empty with the trace off.
         trace: Vec<KwsTrace>,
+        /// Per cascade report: stage, gap-guard drops up to the firing, drops in its chunk.
+        gap_reports: Vec<(&'static str, u64, u64)>,
     }
 
     impl Replay {
@@ -689,6 +732,10 @@ mod native {
         }
         // The latch (or the last step) may have left records in the cascade.
         replay.trace.extend(kws.take_trace());
+        replay.gap_reports = reports
+            .iter()
+            .map(|report| (report.stage, report.gap_drops, report.gap_drops_chunk))
+            .collect();
         let stage = |report: &rightkit_dictation_engine::kws::KwsOnsetReport| D4Stage {
             origin: report.origin_sample,
             sample: report.fricative_sample,
@@ -823,8 +870,20 @@ mod native {
                     row["trace"] =
                         replay.map_or(serde_json::Value::Null, |clip| trace_json(&clip.trace));
                 }
+                if let Some(gap) = options.switches.gap_guard {
+                    row["gap_guard"] = replay.map_or(serde_json::Value::Null, |clip| {
+                        gap_json(gap, &clip.gap_reports)
+                    });
+                }
                 println!("{row}");
             } else if let Ok(replay) = &outcome {
+                if let Some(gap) = options.switches.gap_guard {
+                    println!(
+                        "GAP\t{}\t{}",
+                        path.display(),
+                        gap_json(gap, &replay.gap_reports)
+                    );
+                }
                 if options.switches.trace.is_some() {
                     println!("TRACE\t{}\t{}", path.display(), trace_json(&replay.trace));
                 }
