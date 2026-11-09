@@ -22,7 +22,10 @@
 //! output is unchanged. With `--trace` each drop also appears in the stream trace.
 //! Speed levers (default off, outputs expected identical, UNVERIFIED until a same-binary
 //! replay compares detections, timestamps, scores and timings): `--encoder-state-reuse` (C7)
-//! and `--decoder-table` (C8).
+//! and `--decoder-table` (C8). With `--decoder-table` each row (and each text run, as a
+//! `DECODER_TABLE` line) reports the effective decoder mode per spotter (`table`, `cache`
+//! or `plain`, and why a table was declined), the startup precompute time in ms, and the
+//! table rows and bytes the model retains; compare steady decode timing with the trace off.
 //! `--report-gap` (implied by `--gap-guard`) adds the same key with the largest consecutive
 //! keyword-token gap of each firing (`max_gap_frames`) and `gap_violation` (the gap exceeds G;
 //! never true without `--gap-guard`), and a closing `gap_summary` counts reports and violations.
@@ -47,9 +50,9 @@ fn main() {}
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod native {
     use rightkit_dictation_engine::kws::{
-        AcousticSearch, FiringTrace, FricativeParams, Kws, KwsFeedEvent, KwsOnsetMethod,
-        KwsSwitches, KwsTrace, KwsTraceConfig, StepTrace, TraceClock, TraceExtension, TraceGapDrop,
-        TraceHypothesis, TraceMerge, TracePath,
+        AcousticSearch, FiringTrace, FricativeParams, Kws, KwsDecoderTableReport, KwsFeedEvent,
+        KwsOnsetMethod, KwsSwitches, KwsTrace, KwsTraceConfig, StepTrace, TraceClock,
+        TraceExtension, TraceGapDrop, TraceHypothesis, TraceMerge, TracePath,
     };
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -302,6 +305,20 @@ mod native {
                 }))
                 .collect::<Vec<_>>(),
         })
+    }
+
+    fn decoder_table_json(report: &KwsDecoderTableReport) -> serde_json::Value {
+        let spotter = |report: &rightkit_dictation_engine::kws::DecoderTableReport| {
+            json!({
+                "mode": report.mode,
+                "declined": report.declined,
+                "startup_precompute_ms": report.precompute_ms,
+                "spotter_rows": report.spotter_rows,
+                "table_rows": report.model_rows,
+                "table_bytes": report.model_bytes,
+            })
+        };
+        json!({ "wake": spotter(&report.wake), "confirm": spotter(&report.confirm) })
     }
 
     fn gap_drop_json(drop: &TraceGapDrop) -> serde_json::Value {
@@ -668,6 +685,8 @@ mod native {
         trace: Vec<KwsTrace>,
         /// Per cascade report: gap-guard drops, and the firing's gap observation.
         gap_reports: Vec<GapReport>,
+        /// The decoder path and table cost of the clip's cascade (only with `--decoder-table`).
+        decoder_table: Option<KwsDecoderTableReport>,
     }
 
     impl Replay {
@@ -729,6 +748,10 @@ mod native {
         }
         let mut kws = Kws::load_with_switches(&options.model, options.switches)?;
         let mut replay = Replay {
+            decoder_table: options
+                .switches
+                .decoder_table
+                .then(|| kws.decoder_table_report()),
             samples: wav.samples.len(),
             ..Replay::default()
         };
@@ -912,6 +935,9 @@ mod native {
                     row["trace"] =
                         replay.map_or(serde_json::Value::Null, |clip| trace_json(&clip.trace));
                 }
+                if let Some(table) = replay.and_then(|clip| clip.decoder_table.as_ref()) {
+                    row["decoder_table"] = decoder_table_json(table);
+                }
                 if options.report_gap {
                     row["gap_guard"] = replay.map_or(serde_json::Value::Null, |clip| {
                         gap_json(options.switches.gap_guard, &clip.gap_reports)
@@ -919,6 +945,13 @@ mod native {
                 }
                 println!("{row}");
             } else if let Ok(replay) = &outcome {
+                if let Some(table) = &replay.decoder_table {
+                    println!(
+                        "DECODER_TABLE\t{}\t{}",
+                        path.display(),
+                        decoder_table_json(table)
+                    );
+                }
                 if options.report_gap {
                     println!(
                         "GAP\t{}\t{}",

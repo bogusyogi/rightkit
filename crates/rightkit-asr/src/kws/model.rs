@@ -483,9 +483,26 @@ impl Zipformer2Transducer {
         Ok((self.decoder_row_dim(), out))
     }
 
+    /// Rows and bytes (row values plus context keys; not the map's own overhead) the keyword
+    /// table holds.
+    pub(crate) fn keyword_table_stats(&self) -> (usize, usize) {
+        let bytes = self
+            .keyword_table
+            .iter()
+            .map(|(key, row)| key.len() * std::mem::size_of::<i64>() + row.len() * std::mem::size_of::<f32>())
+            .sum();
+        (self.keyword_table.len(), bytes)
+    }
+
     /// Add decoder rows for `contexts` (`n * context_size` ids) to the keyword table, in one
-    /// decoder batch, skipping contexts already in it.
-    pub(crate) fn extend_keyword_table(&mut self, contexts: &[i64]) -> Result<()> {
+    /// decoder batch, skipping contexts already in it. All or nothing against the AGGREGATE
+    /// cap: when the rows already held plus the new ones would exceed `max_total`, nothing is
+    /// added and `false` comes back (the caller then does not use the table).
+    pub(crate) fn extend_keyword_table(
+        &mut self,
+        contexts: &[i64],
+        max_total: usize,
+    ) -> Result<bool> {
         let cs = self.context_size;
         let mut fresh: Vec<i64> = Vec::new();
         for c in contexts.chunks_exact(cs) {
@@ -493,14 +510,17 @@ impl Zipformer2Transducer {
                 fresh.extend_from_slice(c);
             }
         }
+        if self.keyword_table.len() + fresh.len() / cs > max_total {
+            return Ok(false);
+        }
         if fresh.is_empty() {
-            return Ok(());
+            return Ok(true);
         }
         let (dim, rows) = self.run_decoder(fresh.clone())?;
         for (c, row) in fresh.chunks_exact(cs).zip(rows.chunks_exact(dim)) {
             self.keyword_table.insert(c.to_vec(), row.into());
         }
-        Ok(())
+        Ok(true)
     }
 
     /// [`Self::run_decoder`] served from the keyword table: rows for contexts in the table

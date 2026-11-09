@@ -305,6 +305,34 @@ pub struct KeywordDetection {
     pub onset: Option<KeywordOnset>,
 }
 
+/// What building the decoder table did for one spotter.
+#[derive(Debug, Clone, Copy, Default)]
+struct TableBuild {
+    requested_rows: usize,
+    precompute_ms: f64,
+    declined: Option<&'static str>,
+}
+
+/// The effective decoder mode of a spotter and what its table cost
+/// ([`KeywordSpotter::decoder_table_report`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DecoderTableReport {
+    /// `table`, `cache` or `plain`: the decoder path decode actually takes (a declined table
+    /// falls back to `cache` when [`KeywordSpotterConfig::decoder_cache`] is set).
+    pub mode: &'static str,
+    /// Why a requested table was not used: `graph_over_cap` or `model_table_full`.
+    pub declined: Option<&'static str>,
+    /// Startup time of the table build (graph walk, one decoder batch, admission), in ms;
+    /// `0` when no table was requested.
+    pub precompute_ms: f64,
+    /// Rows this spotter's graph asked for.
+    pub spotter_rows: usize,
+    /// Rows the model's table holds in all (shared with other spotters on the model), and
+    /// the bytes of their values and context keys (not the map's overhead).
+    pub model_rows: usize,
+    pub model_bytes: usize,
+}
+
 /// Most rows [`KeywordSpotterConfig::decoder_table`] will precompute (1.3 KB each for the
 /// 320-dim decoder); a keyword graph needing more keeps the plain decoder path.
 const DECODER_TABLE_MAX_ROWS: usize = 4096;
@@ -408,6 +436,8 @@ pub struct KeywordSpotter {
     trailing_blank_reset: bool,
     onset: Option<OnsetConfig>,
     encoder_state_reuse: bool,
+    /// What `decoder_table` did at creation (default when it was not requested).
+    table_build: TableBuild,
     /// Set only when [`KeywordSpotterConfig::trace`] records something.
     trace: Option<(TraceConfig, Arc<TraceIdentity>)>,
 }
@@ -483,7 +513,7 @@ impl KeywordSpotter {
             }
             None => KwsModel::load(config)?,
         };
-        let options = DecoderOptions {
+        let mut options = DecoderOptions {
             max_active_paths: config.max_active_paths,
             num_trailing_blanks: config.num_trailing_blanks,
             unk_id: symbols.id("<unk>").map(i64::from),
@@ -497,16 +527,33 @@ impl KeywordSpotter {
             decoder_table: config.decoder_table,
             stale_gap_frames: config.stale_gap_frames,
         };
+        let mut table_build = TableBuild::default();
         if config.decoder_table {
             // Precompute the decoder rows of every keyword-path context in one batch. A
-            // graph too large for the table cap simply keeps the plain decoder path.
+            // declined table (this graph alone over the cap, or the model's table would pass
+            // it) turns the table OFF for this spotter, so it falls back to the configured
+            // `decoder_cache`, else the plain decoder; it never half-uses a table.
+            let started = std::time::Instant::now();
             let context_size = model.context_size;
-            if let Some(contexts) = decoder::keyword_context_table(
+            match decoder::keyword_context_table(
                 &graph.keyword_tokens(),
                 context_size,
                 DECODER_TABLE_MAX_ROWS,
             ) {
-                model.lock().extend_keyword_table(&contexts)?;
+                Some(contexts) => {
+                    table_build.requested_rows = contexts.len() / context_size;
+                    if !model
+                        .lock()
+                        .extend_keyword_table(&contexts, DECODER_TABLE_MAX_ROWS)?
+                    {
+                        table_build.declined = Some("model_table_full");
+                    }
+                }
+                None => table_build.declined = Some("graph_over_cap"),
+            }
+            table_build.precompute_ms = started.elapsed().as_secs_f64() * 1000.0;
+            if table_build.declined.is_some() {
+                options.decoder_table = false;
             }
         }
         let trace = config.trace.filter(TraceConfig::is_active).map(|trace| {
@@ -532,6 +579,7 @@ impl KeywordSpotter {
             trailing_blank_reset: config.trailing_blank_reset,
             onset: config.onset.clone(),
             encoder_state_reuse: config.encoder_state_reuse,
+            table_build,
             trace,
         })
     }
@@ -563,6 +611,25 @@ impl KeywordSpotter {
                 .as_ref()
                 .filter(|_| traced)
                 .map(|(config, identity)| TraceState::new(*config, Arc::clone(identity))),
+        }
+    }
+
+    /// The decoder path this spotter actually takes and what its table cost.
+    pub fn decoder_table_report(&self) -> DecoderTableReport {
+        let (model_rows, model_bytes) = self.model.lock().keyword_table_stats();
+        DecoderTableReport {
+            mode: if self.options.decoder_table {
+                "table"
+            } else if self.options.decoder_cache {
+                "cache"
+            } else {
+                "plain"
+            },
+            declined: self.table_build.declined,
+            precompute_ms: self.table_build.precompute_ms,
+            spotter_rows: self.table_build.requested_rows,
+            model_rows,
+            model_bytes,
         }
     }
 

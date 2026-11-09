@@ -22,10 +22,10 @@ use std::sync::Arc;
 use rightkit_asr::kws as rust_kws;
 /// The spotter's lever types, as [`KwsSwitches`] carries them.
 pub use rightkit_asr::kws::{
-    AcousticSearch, FiringTrace, FricativeAbstain, FricativeParams, JoinerBatching,
-    MergeTimestamps, StepTrace, ThresholdTokens, TraceClock, TraceConfig, TraceGapDrop,
-    TraceHypothesis, TraceIdentity, TraceMatch, TraceMerge, TraceMergeSide, TracePath,
-    TraceRecords, TraceTop,
+    AcousticSearch, DecoderTableReport, FiringTrace, FricativeAbstain, FricativeParams,
+    JoinerBatching, MergeTimestamps, StepTrace, ThresholdTokens, TraceClock, TraceConfig,
+    TraceGapDrop, TraceHypothesis, TraceIdentity, TraceMatch, TraceMerge, TraceMergeSide,
+    TracePath, TraceRecords, TraceTop,
 };
 use rightkit_asr::parakeet_core::{TimedToken, TranscriptionResult};
 
@@ -265,6 +265,13 @@ pub struct KwsTraceConfig {
 
 impl KwsTraceConfig {
     pub const DEFAULT_CAPACITY_STEPS: usize = 512;
+}
+
+/// The decoder path each cascade spotter takes ([`Kws::decoder_table_report`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct KwsDecoderTableReport {
+    pub wake: rust_kws::DecoderTableReport,
+    pub confirm: rust_kws::DecoderTableReport,
 }
 
 /// One audio hand-off or expiry on a cascade stream, on the outer sample clock: the feed
@@ -830,6 +837,23 @@ impl Kws {
             NUM_TRAILING_BLANKS,
             switches
         );
+        if switches.decoder_table {
+            let wake = wake_spotter.0.borrow().decoder_table_report();
+            let confirm = confirm_spotter.0.borrow().decoder_table_report();
+            tracing::info!(
+                wake_mode = wake.mode,
+                wake_declined = ?wake.declined,
+                wake_precompute_ms = wake.precompute_ms,
+                wake_table_rows = wake.model_rows,
+                wake_table_bytes = wake.model_bytes,
+                confirm_mode = confirm.mode,
+                confirm_declined = ?confirm.declined,
+                confirm_precompute_ms = confirm.precompute_ms,
+                confirm_table_rows = confirm.model_rows,
+                confirm_table_bytes = confirm.model_bytes,
+                "kws_decoder_mode"
+            );
+        }
         Ok(Self {
             runtime,
             model_dir: model_dir.to_path_buf(),
@@ -852,6 +876,16 @@ impl Kws {
             trace_feeds_dropped: 0,
             trace_epoch: 0,
         })
+    }
+
+    /// The effective decoder path and table cost of the wake and confirm spotters (`mode`
+    /// is `table`, `cache` or `plain`; a declined table says why). Each spotter reports its
+    /// own table build time; with a shared model the row and byte totals are the model's.
+    pub fn decoder_table_report(&self) -> KwsDecoderTableReport {
+        KwsDecoderTableReport {
+            wake: self.wake_spotter.0.borrow().decoder_table_report(),
+            confirm: self.confirm_spotter.0.borrow().decoder_table_report(),
+        }
     }
 
     /// The live switches this cascade runs with.
