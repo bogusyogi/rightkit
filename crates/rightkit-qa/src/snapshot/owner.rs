@@ -12,6 +12,20 @@ const OWNER_SWITCH: &str = "--rightkit-qa-credentials";
 const OWNER_MODE: &str = "credentials";
 const TOKEN_FILE: &str = "owner-control.token";
 const OWNER_STDERR_FILE: &str = "owner-stderr.log";
+const OWNER_SERVICE_PREFIX: &str = "qa-credentials-";
+
+/// A fresh owner service name the daemon host accepts: the prefix and 32 lowercase hex characters of a new id (47 bytes, within
+/// rightkit_daemon::MAX_SERVICE_NAME_LEN = 48). The hyphenated id made 51 bytes and every host refused it (hr-r2-ultra-2, owner stderr:
+/// "the control service name is missing or not a qa-credentials name").
+fn owner_service_name() -> String {
+    let id: String = new_id()
+        .chars()
+        .filter(char::is_ascii_hexdigit)
+        .map(|c| c.to_ascii_lowercase())
+        .take(32)
+        .collect();
+    format!("{OWNER_SERVICE_PREFIX}{id}")
+}
 /// At most this much of the owner's stderr is quoted into a failure (its own refusal line; the file keeps the rest).
 const OWNER_STDERR_QUOTE: usize = 400;
 
@@ -74,7 +88,7 @@ impl OwnerConfig {
             executable,
             executable_sha256,
             suite_root: suite.root().to_path_buf(),
-            service: format!("qa-credentials-{}", new_id()),
+            service: owner_service_name(),
             token_file: None,
             process_names: Vec::new(),
         })
@@ -116,7 +130,9 @@ impl OwnerConfig {
         let suite = Suite::per_user_default()
             .map_err(|_| Error("cannot resolve current-user credential owner transport".into()))?;
         if self.suite_root != suite.root()
-            || !self.service.starts_with("qa-credentials-")
+            // The binding rule stays the one older markers were written under: crash recovery must still read and discard a `snapshotting`
+            // marker whose name an earlier tool made (51 bytes); only a name this tool creates must pass the host's own rule.
+            || !self.service.starts_with(OWNER_SERVICE_PREFIX)
             || !self
                 .service
                 .bytes()
@@ -390,4 +406,25 @@ pub(super) fn operate(marker: &Marker, operation: &str) -> Result<Metadata> {
     let result = result.map_err(|Error(message)| Error(with_owner_stderr(message, &stderr_file)));
     let _ = fs::remove_file(token_file);
     result
+}
+
+#[cfg(test)]
+mod owner_service_name_tests {
+    use super::*;
+
+    #[test]
+    fn owner_service_names_are_fresh_and_hostable() {
+        let a = owner_service_name();
+        let b = owner_service_name();
+        assert_ne!(a, b);
+        for name in [&a, &b] {
+            assert!(name.starts_with(OWNER_SERVICE_PREFIX), "{name}");
+            assert_eq!(name.len(), OWNER_SERVICE_PREFIX.len() + 32, "{name}");
+            assert!(
+                name.len() <= rightkit_daemon::MAX_SERVICE_NAME_LEN,
+                "{name}"
+            );
+            assert!(rightkit_daemon::valid_service_name(name), "{name}");
+        }
+    }
 }
