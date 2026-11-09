@@ -369,3 +369,27 @@ test("the door's lock step resolves the judge's client as the seam does (absolut
     assert.equal(none.lock.judge(holder), false, "without a resolvable client the judge never proves anything");
   } finally { server.kill(); }
 });
+
+test("appRootOf finds the nested app on Windows whatever the letter case of the cwd, keeps the committed spelling, and refuses a sibling prefix (rightkit#1553)", async () => {
+  const { appRootOf } = await import("./bin/rightkit-gate.mjs");
+  const dirs = new Set([".", "tauri-app-next"]);
+  // The Dell counterexample: git reports the root as D:/Claude/heardright, the runner started in D:\claude\heardright\tauri-app-next.
+  const dell = appRootOf({ root: "D:/Claude/heardright", cwd: "D:\\claude\\heardright\\tauri-app-next", configDirs: dirs, platform: "win32" });
+  assert.equal(dell.appDir, "tauri-app-next");
+  assert.equal(dell.appRoot, "D:\\Claude\\heardright\\tauri-app-next");
+  // A deeper cwd spelled in another case is the same app, and the committed tree's spelling is returned, not the cwd's.
+  const deeper = appRootOf({ root: "D:\\Claude\\heardright", cwd: "d:\\CLAUDE\\HeardRight\\TAURI-APP-NEXT\\src-tauri\\src", configDirs: dirs, platform: "win32" });
+  assert.equal(deeper.appDir, "tauri-app-next");
+  // The root itself and a cwd outside the root (a sibling that shares its prefix) are the repository's root app, never the nested one.
+  assert.equal(appRootOf({ root: "D:/Claude/heardright", cwd: "D:\\claude\\HEARDRIGHT", configDirs: dirs, platform: "win32" }).appDir, ".");
+  assert.equal(appRootOf({ root: "D:/Claude/heardright", cwd: "D:\\Claude\\heardright-old\\tauri-app-next", configDirs: dirs, platform: "win32" }).appDir, ".");
+  // A directory the selected commit does not hold is no app, whatever the checkout holds.
+  assert.equal(appRootOf({ root: "D:/Claude/heardright", cwd: "D:\\claude\\heardright\\other", configDirs: dirs, platform: "win32" }).appDir, ".");
+  // POSIX keeps exact case: another case is another directory (macOS case-insensitive volumes resolve the cwd to git's own spelling first).
+  assert.equal(appRootOf({ root: "/v/heardright", cwd: "/v/heardright/tauri-app-next/src-tauri", configDirs: dirs, platform: "darwin" }).appDir, "tauri-app-next");
+  assert.equal(appRootOf({ root: "/v/heardright", cwd: "/v/heardright/Tauri-App-Next", configDirs: dirs, platform: "linux" }).appDir, ".");
+  assert.equal(appRootOf({ root: "/v/heardright", cwd: "/v/heardright-old/tauri-app-next", configDirs: dirs, platform: "darwin" }).appDir, ".");
+  // Without configDirs the live checkout answers through `exists`, with the same containment.
+  const exists = (f) => f.replace(/\\/g, "/").toLowerCase() === "d:/claude/heardright/tauri-app-next/right-release.config.mjs";
+  assert.equal(appRootOf({ root: "D:/Claude/heardright", cwd: "D:\\claude\\heardright\\tauri-app-next", exists, platform: "win32" }).appDir, "tauri-app-next");
+});

@@ -1452,18 +1452,30 @@ async function installHook(o, root) {
  * apps/coderight-tauri), else the repository root. Every right-release stage runs there, the sealed set is read from there, and the
  * receipt is keyed to it (receiptKey). Returns { appRoot, appDir } with appDir relative to the repository root, "." at the root.
  */
-export function appRootOf({ root, cwd, exists = fs.existsSync, configDirs = null }) {
-  const inside = cwd && (cwd === root || cwd.startsWith(root + path.sep));
+export function appRootOf({ root, cwd, exists = fs.existsSync, configDirs = null, platform = process.platform }) {
+  // rightkit#1553: on Windows a path names the same directory in any letter case (git reports D:/Claude/heardright, a runner may start in
+  // D:\claude\heardright\tauri-app-next). path.win32.relative compares case-blind and keeps the cwd's spelling of each segment; posix stays exact.
+  // A sibling sharing a prefix (D:\a\bc against root D:\a\b) is outside: relative() answers "..\bc", never a prefix match.
+  const p = platform === "win32" ? path.win32 : path.posix;
+  const fold = platform === "win32" ? (s) => s.toLowerCase() : (s) => s;
+  const rootAbs = p.resolve(root);
+  const rel = cwd ? p.relative(rootAbs, p.resolve(cwd)) : null;
+  const inside = rel !== null && (rel === "" || (rel !== ".." && !rel.startsWith(`..${p.sep}`) && !p.isAbsolute(rel)));
   // With `configDirs` (the directories whose committed tree holds a release config: `committedConfigDirs`) the scope is the SELECTED COMMIT's, read from
-  // its tree alone; the checkout's files are never asked, so a newer, dirty or edited checkout cannot move an older commit's app. Without it (callers that
-  // hold no commit) the live checkout answers, as before. Either way the directory the gate was run from is the explicit identity.
-  const hasConfig = configDirs
-    ? (d) => configDirs.has(path.relative(root, d).split(path.sep).join("/") || ".")
-    : (d) => ["right-release.config.json", "right-release.config.mjs"].some((f) => exists(path.join(d, f)));
+  // its tree alone, and the answer is that tree's own spelling of the directory; the checkout's files are never asked, so a newer, dirty or edited checkout
+  // cannot move an older commit's app. Without it (callers that hold no commit) the live checkout answers, as before. Either way the directory the gate was
+  // run from is the explicit identity.
+  const committed = configDirs ? new Map([...configDirs].map((d) => [fold(d), d])) : null;
+  const configDirAt = (relPosix) => committed
+    ? (committed.get(fold(relPosix)) ?? null)
+    : (["right-release.config.json", "right-release.config.mjs"].some((f) => exists(p.join(rootAbs, ...relPosix.split("/"), f))) ? relPosix : null);
   // The nearest directory at or above cwd (below the root) that carries a release config is the app; a deeper cwd (apps/foo/src) is apps/foo.
-  let appRoot = root;
-  if (inside) for (let d = path.resolve(cwd); d.startsWith(root) && d !== root; d = path.dirname(d)) { if (hasConfig(d)) { appRoot = d; break; } }
-  return { appRoot, appDir: path.relative(root, appRoot).split(path.sep).join("/") || "." };
+  let appDir = ".";
+  if (inside && rel !== "") {
+    const segments = rel.split(p.sep).filter(Boolean);
+    for (let n = segments.length; n > 0; n--) { const found = configDirAt(segments.slice(0, n).join("/")); if (found) { appDir = found; break; } }
+  }
+  return { appRoot: appDir === "." ? rootAbs : p.join(rootAbs, ...appDir.split("/")), appDir };
 }
 
 /**

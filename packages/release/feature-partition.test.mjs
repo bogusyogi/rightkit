@@ -20,6 +20,14 @@ test("a row's inherited environment is keyed on what its tool reads (rightkit#15
   // an npm row reads its registry, not pnpm's binary location or npm's cache location; it also reads the cargo family (a script can compile)
   assert.notEqual(inheritedEnvDigest(base, "pnpm"), inheritedEnvDigest({ ...base, NPM_CONFIG_REGISTRY: "https://other" }, "pnpm"));
   assert.equal(inheritedEnvDigest(base, "pnpm"), inheritedEnvDigest(moved, "pnpm"));
+  // rightkit#1552: the broker's control socket path (RUSTRIGHT_BUILD_BROKER_SOCKET, matched by the cargo family's RUST prefix) is a location, not an input:
+  // absent, present or different, the key is the same for every tool and for the union filter; a compiler variable beside it still moves the key.
+  for (const tool of ["rustright", "cargo", "pnpm", "node", null]) {
+    const without = inheritedEnvDigest(base, tool);
+    assert.equal(inheritedEnvDigest({ ...base, RUSTRIGHT_BUILD_BROKER_SOCKET: "/Users/a/Library/Application Support/RightKit/build-control/broker.sock" }, tool), without, `${tool}: socket present`);
+    assert.equal(inheritedEnvDigest({ ...base, RUSTRIGHT_BUILD_BROKER_SOCKET: "/elsewhere/broker.sock" }, tool), without, `${tool}: socket moved`);
+    assert.notEqual(inheritedEnvDigest({ ...base, RUSTRIGHT_BUILD_BROKER_SOCKET: "/elsewhere/broker.sock", RUSTFLAGS: "-C target-cpu=native" }, tool), without, `${tool}: compiler flag still keys`);
+  }
   assert.notEqual(inheritedEnvDigest(base, "pnpm"), inheritedEnvDigest({ ...base, RUSTFLAGS: "-C opt-level=1" }, "pnpm"));
   // a tool outside both families reads only CI
   assert.equal(inheritedEnvDigest(base, "shellcheck"), inheritedEnvDigest({ ...moved, RUSTFLAGS: "x" }, "shellcheck"));

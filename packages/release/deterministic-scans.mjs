@@ -170,9 +170,11 @@ const BUILD_ENV_PREFIXES = ["CARGO_", "RUST", "SCCACHE_", "RK_", "RIGHTKIT_", "R
 // Per-run identities never key a result (they change on every run, so the cache could never hit; measured 2026-11-02: HR Class A wrote
 // 3,809 entries and hit none across identical runs): the run's ownership handle, the attest nonce, the request-id file, the carried call's
 // snapshot request and cargo map, the direct receipt path.
+// The broker's control socket path (RUSTRIGHT_BUILD_BROKER_SOCKET) says where the client connects, never what a row proves; a launch wrapper that names it
+// explicitly made 171 rows miss with no input change (rightkit#1552, Mac 2026-11-09, inheritedEnv [RUSTRIGHT_BUILD_BROKER_SOCKET] only).
 // A network proxy (NPM_CONFIG_HTTPS_PROXY, NPM_CONFIG_NOPROXY, ...) changes how a download is routed, never what a scan proves, and a
 // cloud host sets it per session (measured 2026-11-06: the cloud's NPM_CONFIG_HTTPS_PROXY moved between two runs and 1,115 rows missed).
-const BUILD_ENV_EXCLUDED = /^(RK_GATE_|RUSTRIGHT_QUIET_LEASE$|RIGHTKIT_BUILD_OWNERSHIP$|RIGHTKIT_CARRIED_CARGO_MAP$|RUSTRIGHT_ATTEST_NONCE$|RUSTRIGHT_REQUEST_ID_FILE$|RUSTRIGHT_SNAPSHOT_REQUEST$|RK_DIRECT_RECEIPT$|RIGHTKIT_CROSS_CC_DIR$|.*PROXY)/;
+const BUILD_ENV_EXCLUDED = /^(RK_GATE_|RUSTRIGHT_QUIET_LEASE$|RIGHTKIT_BUILD_OWNERSHIP$|RIGHTKIT_CARRIED_CARGO_MAP$|RUSTRIGHT_ATTEST_NONCE$|RUSTRIGHT_REQUEST_ID_FILE$|RUSTRIGHT_SNAPSHOT_REQUEST$|RK_DIRECT_RECEIPT$|RUSTRIGHT_BUILD_BROKER_SOCKET$|RIGHTKIT_CROSS_CC_DIR$|.*PROXY)/;
 // PNPM_HOME (where pnpm keeps its own binaries; the calling app profile picks it) is not an input of any scan and is to leave this key once every row's stored index carries
 // its environment shape (a row that only hits never refreshed its index; excluding it first made 74 rows that had no shape miss; Mac 2026-11-07).
 // RIGHTKIT_CROSS_CC_DIR is where the zig wrappers live, not what they are: a cross clippy row keys on its own CC_/CXX_/AR_ variables
