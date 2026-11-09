@@ -35,7 +35,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "./background-process.mjs";
+import { spawn as spawnAsyncDefault, spawnSync } from "./background-process.mjs";
 import { readDiskPolicy, scratchRoots } from "./disk-policy.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
 import { HostConfigError, hostConfigFile, readSnapshotRootConfig } from "./snapshot-root-config.mjs";
@@ -676,7 +676,7 @@ const statKey = (s) => `${s.size}:${s.mtimeNs}:${s.ctimeNs}:${s.ino}`;
 // process group so a timeout or cancel kills the whole group. A gate that crashes can leave such a group running and still reading or writing the snapshot,
 // and the broker's SNAPSHOT_STATUS proof covers only broker jobs. So while this process holds a snapshot lock, every detached child it starts is recorded beside
 // the lock (`<lock>.children/group-<pid>.json`, removed only once the whole group is gone), and a dead holder's lock is never reclaimed while a recorded group still answers.
-// Windows children stay in the gate's job object and are not recorded. Residual, named: a crash between the spawn returning and the record being written
+// Windows children are contained by the lock holder's named job instead (below). Residual, named: a crash between the spawn returning and the record being written
 // leaves that one group unrecorded.
 let heldLockFile = null;
 const childrenDirOf = (lockFile) => `${lockFile}.children`;
@@ -698,9 +698,143 @@ export function recordLockChild(child, { platform = process.platform, env = proc
   if (typeof child.once === "function") child.once("exit", forget);
   return child;
 }
+// ---- Windows: the lock holder's process tree in a named Job Object (ported minimally from the deleted build-ownership.mjs) -------------------------
+// Node keeps its Windows children in a kill-on-close job that sets SILENT_BREAKAWAY_OK, so a child's own children (a test's native helper, a build's
+// background process) can leave it and outlive a crashed gate. So on Windows the lock holder puts itself in a named job `Local\RightKitSnapshotLock-<token>`
+// before any work runs; its children and their descendants are created inside it. A holder process outside the job (started by `cmd /c start /b`, so it is
+// cmd's child, not Node's) creates the job, assigns the gate, keeps the only handle and exits once the job is empty, writing `drained`. A self-check run as
+// the gate's child asks Windows whether it is IN the job; under a Node parent whose job lets children leave silently it is OUT, and then nothing proves the
+// tree gone after a crash: the record says `contained: false` and a dead holder's lock stays busy (fail closed).
+export const WINDOWS_JOB_SCHEMA = "rightkit.snapshot-lock-job/1";
+const windowsJobName = (token) => `Local\\RightKitSnapshotLock-${token}`;
+const holderFileOf = (lockFile) => path.join(childrenDirOf(lockFile), "job-holder.json");
+const jobRecordOf = (lockFile) => path.join(childrenDirOf(lockFile), "job.json");
+const JOB_TYPE = `Add-Type @"
+using System; using System.Runtime.InteropServices;
+public static class RkJob {
+  [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)] public static extern IntPtr CreateJobObjectW(IntPtr a, string name);
+  [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)] public static extern IntPtr OpenJobObjectW(uint access, bool inherit, string name);
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool AssignProcessToJobObject(IntPtr job, IntPtr proc);
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool QueryInformationJobObject(IntPtr job, int cls, byte[] info, int len, IntPtr ret);
+  [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr h);
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool IsProcessInJob(IntPtr proc, IntPtr job, out bool result);
+  [DllImport("kernel32.dll")] public static extern IntPtr GetCurrentProcess();
+  public static int Active(IntPtr job) { var b = new byte[48]; if (!QueryInformationJobObject(job, 1, b, 48, IntPtr.Zero)) return -1; return BitConverter.ToInt32(b, 40); }
+}
+"@`;
+const psString = (s) => `'${String(s).replace(/'/g, "''")}'`;
+/** The holder: creates the job, puts the gate in it, keeps the only handle, answers fresh counts (`<file>.query` -> `<file>.ack`), exits at zero. */
+export function windowsJobHolderScript({ name, pid, file }) {
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    "try { Remove-Item -LiteralPath $PSCommandPath -Force } catch { }",
+    JOB_TYPE,
+    `$name = ${psString(name)}; $gate = [uint32]${Number(pid)}; $file = ${psString(file)}`,
+    `function Put($o) { $o.schema = '${WINDOWS_JOB_SCHEMA}'; $o.holder = $PID; $o.at = (Get-Date).ToUniversalTime().ToString('o'); $tmp = "$file.$PID.tmp"; [IO.File]::WriteAllText($tmp, ($o | ConvertTo-Json -Compress)); Move-Item -Force -LiteralPath $tmp -Destination $file }`,
+    "try {",
+    "  $h = [RkJob]::CreateJobObjectW([IntPtr]::Zero, $name); $e = [Runtime.InteropServices.Marshal]::GetLastWin32Error()",
+    "  if ($h -eq [IntPtr]::Zero) { throw \"CreateJobObject failed ($e)\" }",
+    "  if ($e -eq 183) { throw \"job $name already exists\" }",
+    "  $p = [RkJob]::OpenProcess(0x0101, $false, $gate); if ($p -eq [IntPtr]::Zero) { throw \"OpenProcess $gate failed ($([Runtime.InteropServices.Marshal]::GetLastWin32Error()))\" }",
+    "  if (-not [RkJob]::AssignProcessToJobObject($h, $p)) { throw \"AssignProcessToJobObject failed ($([Runtime.InteropServices.Marshal]::GetLastWin32Error()))\" }",
+    "  [RkJob]::CloseHandle($p) | Out-Null",
+    "  Put @{ state = 'holding'; job = $name }",
+    "} catch { Put @{ state = 'failed'; why = \"$_\" }; exit 1 }",
+    "$query = \"$file.query\"; $ack = \"$file.ack\"; $answered = ''",
+    "function Answer { try { $q = [IO.File]::ReadAllText($query) | ConvertFrom-Json; $n = [string]$q.nonce; if ($n -notmatch '^[0-9a-f]{32,128}$' -or $n -eq $script:answered) { return }; $c = [RkJob]::Active($h); $o = @{ schema = '" + WINDOWS_JOB_SCHEMA + "'; nonce = $n; active = $c; holder = $PID; at = (Get-Date).ToUniversalTime().ToString('o') }; $tmp = \"$ack.$PID.tmp\"; [IO.File]::WriteAllText($tmp, ($o | ConvertTo-Json -Compress)); Move-Item -Force -LiteralPath $tmp -Destination $ack; $script:answered = $n } catch { } }",
+    "while ($true) { if ([IO.File]::Exists($query)) { Answer }; if ([RkJob]::Active($h) -eq 0) { Put @{ state = 'drained'; job = $name }; exit 0 }; Start-Sleep -Milliseconds 50 }",
+  ].join("\n");
+}
+export const windowsSelfCheckScript = (name) => [
+  "$ErrorActionPreference = 'Stop'", JOB_TYPE,
+  `$j = [RkJob]::OpenJobObjectW(0x0004, $false, ${psString(name)}); if ($j -eq [IntPtr]::Zero) { 'ERR:' + [Runtime.InteropServices.Marshal]::GetLastWin32Error(); exit 0 }`,
+  "$in = $false; if (-not [RkJob]::IsProcessInJob([RkJob]::GetCurrentProcess(), $j, [ref]$in)) { 'ERR:' + [Runtime.InteropServices.Marshal]::GetLastWin32Error(); exit 0 }",
+  "if ($in) { 'IN' } else { 'OUT' }",
+].join("\n");
+const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, "utf8").replace(/^﻿/, "")); } catch { return null; } };
+const sleepMs = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+/** The real Windows operations; tests pass their own. */
+export const windowsJobOps = {
+  /** Starts the holder via `cmd /c start /b` (never a Node child: it must outlive the gate and stay outside Node's kill-on-close job). */
+  startHolder(scriptFile) { spawnDetachedViaCmd(scriptFile); },
+  /** `IN`, `OUT` or a throw: run as this gate's child. */
+  selfCheck(name) {
+    const r = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(windowsSelfCheckScript(name), "utf16le").toString("base64")], { encoding: "utf8", timeout: 60_000, windowsHide: true });
+    const out = String(r.stdout ?? "").trim();
+    if (r.error || r.status !== 0 || !/^(IN|OUT)$/m.test(out)) throw new Error(`the containment self-check gave no answer (${r.error?.message ?? out.slice(0, 120)})`);
+    return /^IN$/m.test(out) ? "IN" : "OUT";
+  },
+  sleep: sleepMs,
+};
+function spawnDetachedViaCmd(scriptFile) {
+  const child = spawnAsyncDefault("cmd.exe", ["/d", "/c", "start", "\"\"", "/b", "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptFile], { stdio: "ignore", windowsHide: true });
+  child.unref?.();
+}
+/** Puts this process (the new lock holder) in its lock's named job. Returns the record; throws when the holder cannot contain the gate. */
+export function containLockHolder(lockFile, token, { ops = windowsJobOps, pid = process.pid, timeoutMs = 60_000 } = {}) {
+  const dir = childrenDirOf(lockFile); const file = holderFileOf(lockFile); const name = windowsJobName(token);
+  fs.mkdirSync(dir, { recursive: true });
+  const script = `${file}.ps1`;
+  // A record left by an earlier holder of this lock name must never be read as this holder's report.
+  for (const f of [script, file, `${file}.query`, `${file}.ack`, jobRecordOf(lockFile)]) fs.rmSync(f, { force: true });
+  fs.writeFileSync(script, windowsJobHolderScript({ name, pid, file }), { flag: "wx" });
+  try {
+    ops.startHolder(script);
+    const until = Date.now() + timeoutMs;
+    for (;;) {
+      const state = readJson(file);
+      if (state?.schema === WINDOWS_JOB_SCHEMA && state.state === "holding") break;
+      if (state?.schema === WINDOWS_JOB_SCHEMA && state.state === "failed") throw new Error(`the job holder could not contain the gate: ${state.why}`);
+      if (Date.now() > until) throw new Error(`the job holder did not report within ${timeoutMs} ms`);
+      ops.sleep(50);
+    }
+  } finally { fs.rmSync(script, { force: true }); }
+  const record = { schema: WINDOWS_JOB_SCHEMA, job: name, contained: ops.selfCheck(name) === "IN" };
+  fs.writeFileSync(jobRecordOf(lockFile), JSON.stringify(record));
+  return record;
+}
+/** A fresh count of the job from its holder (outside the job): `{ active }` or a throw (no answer in time is unknown, never the last count). */
+export function queryJobHolder(file, { timeoutMs = 5000, sleep = sleepMs } = {}) {
+  const nonce = crypto.randomBytes(16).toString("hex"); const query = `${file}.query`; const ack = `${file}.ack`;
+  fs.rmSync(ack, { force: true });
+  const tmp = `${query}.${crypto.randomUUID()}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify({ nonce }), { flag: "wx" });
+  try { fs.renameSync(tmp, query); } finally { fs.rmSync(tmp, { force: true }); }
+  try {
+    const until = Date.now() + timeoutMs;
+    for (;;) {
+      const answer = readJson(ack);
+      if (answer?.schema === WINDOWS_JOB_SCHEMA && answer.nonce === nonce) {
+        if (!Number.isInteger(answer.active) || answer.active < 0) throw new Error(`the job holder's answer carries no count`);
+        return { active: answer.active };
+      }
+      if (readJson(file)?.state === "drained") return { active: 0 };
+      if (Date.now() > until) throw new Error(`the job holder did not answer a fresh count within ${timeoutMs} ms`);
+      sleep(25);
+    }
+  } finally { for (const f of [query, ack]) { try { fs.rmSync(f, { force: true }); } catch { /* the next query replaces it */ } } }
+}
+/**
+ * What still runs in `lockFile`'s job: [] when proven empty, else one descriptive entry (counts as live). `self` is how many of the job's processes are
+ * the asking holder itself (1 at its own release, 0 when judging a dead holder). No job record means no Windows job was ever made for this lock.
+ * An uncontained job (self-check OUT) proves nothing after the holder dies: live for a dead holder, ignored at the holder's own release.
+ */
+export function windowsJobLive(lockFile, { self = 0, query = queryJobHolder } = {}) {
+  let record = null;
+  try { record = JSON.parse(fs.readFileSync(jobRecordOf(lockFile), "utf8")); } catch (e) { if (e?.code === "ENOENT") return []; return [`job record unreadable (${e?.code ?? e?.message})`]; }
+  if (record?.schema !== WINDOWS_JOB_SCHEMA || typeof record.job !== "string") return ["job record malformed"];
+  if (record.contained !== true) return self > 0 ? [] : [`job ${record.job} did not contain its holder's children (self-check OUT): their end cannot be proven`];
+  const state = readJson(holderFileOf(lockFile));
+  if (state?.schema === WINDOWS_JOB_SCHEMA && state.state === "drained") return [];
+  try { const { active } = query(holderFileOf(lockFile)); return active - self > 0 ? [`job ${record.job} (${active - self} process(es))`] : []; }
+  catch (e) { return [`job ${record.job} unknown (${e.message})`]; }
+}
+
 /** The recorded process groups of `lockFile` that still answer (kill(-group, 0) is not ESRCH); a group that cannot be judged counts as alive.
  * Only a missing record directory (ENOENT) means no records; any other enumeration error (EACCES, EIO, ENOTDIR) returns ["unreadable"], which every caller treats as live. */
-export function liveLockChildren(lockFile, { kill = (pid, sig) => process.kill(pid, sig), readdir = (d) => fs.readdirSync(d) } = {}) {
+export function liveLockChildren(lockFile, { kill = (pid, sig) => process.kill(pid, sig), readdir = (d) => fs.readdirSync(d), platform = process.platform, self = 0, windowsJob = windowsJobLive } = {}) {
+  if (platform === "win32") return windowsJob(lockFile, { self });
   let names = [];
   try { names = readdir(childrenDirOf(lockFile)).filter((n) => /^group-\d+\.json$/.test(n)); }
   catch (e) { return e?.code === "ENOENT" ? [] : [`unreadable (${e?.code ?? e?.message ?? "unknown error"})`]; }
@@ -712,7 +846,7 @@ export function liveLockChildren(lockFile, { kill = (pid, sig) => process.kill(p
   return live;
 }
 
-export function acquireSnapshotLock(lockFile, hooks = {}, { body: seamBody = null, judge = null, identityOf = (pid) => processIdentity(pid, { platform: process.platform, spawnSync: (c, a, o) => spawnSync(c, a, o) }) } = {}) {
+export function acquireSnapshotLock(lockFile, hooks = {}, { body: seamBody = null, judge = null, platform = process.platform, windowsOps = windowsJobOps, identityOf = (pid) => processIdentity(pid, { platform: process.platform, spawnSync: (c, a, o) => spawnSync(c, a, o) }) } = {}) {
   // The seam's lock body (reset plan section 3, gate-seam.mjs snapshotLockBody): exactly { pid, identity, commit, token }, which the broker reads at
   // submission and before spawn. Without one, the legacy body { pid, host, startedAt, token } is written.
   // The legacy body also names this process's birth identity (when readable), so a reused pid is told from the holder on a host with no broker proof to lean on.
@@ -730,12 +864,16 @@ export function acquireSnapshotLock(lockFile, hooks = {}, { body: seamBody = nul
   const create = () => {
     if (!publish(lockFile, body)) return false;
     if (!held()) throw busy(`snapshot lock ${lockFile} was replaced by another process`);
+    if (platform === "win32") {
+      try { containLockHolder(lockFile, JSON.parse(body).token, { ops: windowsOps }); }
+      catch (error) { try { fs.rmSync(childrenDirOf(lockFile), { recursive: true, force: true }); } catch { /* left */ } fs.rmSync(lockFile, { force: true }); throw new SnapshotError("error", `snapshot lock ${lockFile}: ${error.message}; the lock was not kept`); }
+    }
     heldLockFile = lockFile;
     process.env[LOCK_CHILDREN_ENV] = childrenDirOf(lockFile); // inherited by this process's children (they spawn with process.env or a copy made after this)
     const release = () => {
       if (!held()) return;
       // A recorded child group still running keeps the lock: its holder is this process, so a later run sees a live holder, and after this process exits the reclaim waits for the group.
-      if (liveLockChildren(lockFile).length) return;
+      if (liveLockChildren(lockFile, { self: 1 }).length) return;
       try { fs.rmSync(childrenDirOf(lockFile), { recursive: true, force: true }); } catch { /* empty records */ }
       fs.rmSync(lockFile, { force: true });
       if (heldLockFile === lockFile) { heldLockFile = null; delete process.env[LOCK_CHILDREN_ENV]; }

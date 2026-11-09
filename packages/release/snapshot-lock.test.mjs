@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { SnapshotError, acquireSnapshotLock, liveLockChildren, lockView, recordLockChild, repositoryOf, snapshotCommand, syncSnapshot, takeSnapshotLock } from "./snapshot.mjs";
+import { SnapshotError, WINDOWS_JOB_SCHEMA, acquireSnapshotLock, containLockHolder, liveLockChildren, queryJobHolder, lockView, recordLockChild, windowsJobLive, repositoryOf, snapshotCommand, syncSnapshot, takeSnapshotLock } from "./snapshot.mjs";
 import { spawn as spawnAsync } from "node:child_process";
 
 const GIT_ENV = { GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t", GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: "1" };
@@ -249,4 +249,55 @@ test("an unreadable child-record directory counts as a live group: a dead holder
     assert.ok(fs.existsSync(lockFile), "the lock stays");
     assert.match(String(liveLockChildren(lockFile, { readdir: () => { throw Object.assign(new Error("io"), { code: "EIO" }); } })[0]), /unreadable \(EIO\)/);
   } finally { fs.chmodSync(records, 0o700); }
+});
+
+// Windows: the holder's tree in a named job (the Windows behaviour itself runs only on the Dell; these pin the logic around it with the OS calls faked).
+const fakeWindowsOps = ({ state = "holding", why = "", check = "IN" } = {}) => ({
+  startHolder(script) { const file = script.slice(0, -".ps1".length); assert.ok(fs.existsSync(script), "the holder script is written before the launch"); fs.writeFileSync(file, JSON.stringify({ schema: WINDOWS_JOB_SCHEMA, state, why, job: "j" })); },
+  selfCheck: () => check, sleep: () => {},
+});
+
+test("Windows: the new holder is put in its lock's named job before work runs; a holder that cannot contain it refuses the lock and leaves none", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-lock-win-"));
+  const lockFile = path.join(dir, "repo.lock");
+  const release = acquireSnapshotLock(lockFile, {}, { platform: "win32", windowsOps: fakeWindowsOps() });
+  const record = JSON.parse(fs.readFileSync(path.join(`${lockFile}.children`, "job.json"), "utf8"));
+  assert.equal(record.contained, true); assert.match(record.job, /^Local\\RightKitSnapshotLock-/);
+  assert.equal(fs.existsSync(path.join(`${lockFile}.children`, "job-holder.json.ps1")), false, "the script file goes once the holder reported");
+  release();
+  const other = path.join(dir, "other.lock");
+  assert.throws(() => acquireSnapshotLock(other, {}, { platform: "win32", windowsOps: fakeWindowsOps({ state: "failed", why: "AssignProcessToJobObject failed (5)" }) }), (e) => e instanceof SnapshotError && /could not contain the gate: AssignProcessToJobObject failed/.test(e.message));
+  assert.equal(fs.existsSync(other), false, "no lock is kept without containment");
+  assert.equal(containLockHolder(path.join(dir, "third.lock"), "t", { ops: fakeWindowsOps({ check: "OUT" }) }).contained, false);
+});
+
+test("Windows: what still runs in a lock's job: a fresh count from the holder; drained or no record is none; uncontained or unanswered is live for a dead holder", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-lock-winlive-"));
+  const lockFile = path.join(dir, "repo.lock");
+  assert.deepEqual(windowsJobLive(lockFile), [], "no job record: no job was made for this lock");
+  containLockHolder(lockFile, "tok", { ops: fakeWindowsOps() });
+  const at = (active) => ({ query: () => ({ active }) });
+  assert.equal(windowsJobLive(lockFile, at(1)).length, 1, "a dead holder's job with a survivor is live");
+  assert.deepEqual(windowsJobLive(lockFile, at(0)), []);
+  assert.deepEqual(windowsJobLive(lockFile, { self: 1, ...at(1) }), [], "at its own release the holder is the one process");
+  assert.equal(windowsJobLive(lockFile, { self: 1, ...at(2) }).length, 1, "a child still running keeps the lock at release");
+  assert.match(windowsJobLive(lockFile, { query: () => { throw new Error("no answer"); } })[0], /unknown \(no answer\)/);
+  fs.writeFileSync(path.join(`${lockFile}.children`, "job-holder.json"), JSON.stringify({ schema: WINDOWS_JOB_SCHEMA, state: "drained" }));
+  assert.deepEqual(windowsJobLive(lockFile, { query: () => assert.fail("a drained job needs no query") }), []);
+  const out = path.join(dir, "out.lock"); containLockHolder(out, "o", { ops: fakeWindowsOps({ check: "OUT" }) });
+  assert.match(windowsJobLive(out, at(0))[0], /self-check OUT/); assert.deepEqual(windowsJobLive(out, { self: 1, ...at(5) }), []);
+  fs.writeFileSync(path.join(`${out}.children`, "job.json"), "{");
+  assert.equal(liveLockChildren(out, { platform: "win32" }).length, 1, "an unreadable record is live");
+});
+
+test("Windows: a fresh count is the holder's answer to this query's own nonce; a stale ack or no answer is never a count", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-lock-winq-"));
+  const file = path.join(dir, "job-holder.json");
+  fs.writeFileSync(file, JSON.stringify({ schema: WINDOWS_JOB_SCHEMA, state: "holding" }));
+  fs.writeFileSync(`${file}.ack`, JSON.stringify({ schema: WINDOWS_JOB_SCHEMA, nonce: "f".repeat(32), active: 0 }));
+  // The fake holder answers from inside the waiter's sleep, as the real one does from its own loop.
+  const answer = (active) => () => { const q = JSON.parse(fs.readFileSync(`${file}.query`, "utf8")); fs.writeFileSync(`${file}.ack`, JSON.stringify({ schema: WINDOWS_JOB_SCHEMA, nonce: q.nonce, active })); };
+  assert.deepEqual(queryJobHolder(file, { sleep: answer(3) }), { active: 3 });
+  assert.throws(() => queryJobHolder(file, { timeoutMs: 30, sleep: () => {} }), /did not answer a fresh count/);
+  assert.equal(fs.existsSync(`${file}.query`), false);
 });
