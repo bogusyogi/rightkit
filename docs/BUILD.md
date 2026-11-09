@@ -147,3 +147,5 @@ Enforced, test mapping not yet listed here (GAP: evidence, not an unimplemented 
 | 2026-11-09 | The seam is the gate's only route to the broker on a snapshot; stage children use it too. | rightkit 583adb06d |
 | 2026-11-09 | CI admits seam receipts from their signed gate binding; a seam receipt binds no unit, stage or run label beyond its command. | rightkit 40708cad4, ce0201965 |
 | 2026-11-09 | Adapter argv is judged for redirects; tauri's typed inline `--config` bundle overlay (four fields, value starts with `{`) is the one tauri exemption. | rightkit 7c62176b6, 1932403c1 + this commit; rustright 1fd4595c |
+
+Tool output lookup (rightkit#1551): a broker stage preserves its receipt target triple through the seam. Tool enrollment reads only `<outputDir>/<targetTriple>/release/<bin>` when present; direct builds without a triple retain `<outputDir>/release/<bin>`. Missing target-qualified output refuses enrollment even if an unqualified stale binary exists.

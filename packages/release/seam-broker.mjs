@@ -61,7 +61,7 @@ function runSeamCall(argv, { cwd, env, stdio = "pipe", client = "rustright", spa
   const preAdmissionRefusal = Boolean(judged.result) && !judged.evidence && judged.receiptRead !== true && judged.result.requestId === null;
   const settled = seamSettled(judged);
   const status = pass ? (r.status ?? 0) : (Number.isInteger(r.status) && r.status !== 0 ? r.status : (preAdmissionRefusal ? 125 : 1));
-  const evidence = judged.evidence ? { outputDir: judged.evidence.outputDir, requestId: judged.evidence.requestId, receipt: judged.evidence.receiptPath, receiptSha256: judged.evidence.receiptSha256 } : {};
+  const evidence = judged.evidence ? { outputDir: judged.evidence.outputDir, targetTriple: judged.evidence.targetTriple, requestId: judged.evidence.requestId, receipt: judged.evidence.receiptPath, receiptSha256: judged.evidence.receiptSha256 } : {};
   return {
     result: { status, signal: r.signal ?? null, stdout: r.stdout ?? "", stderr: r.stderr ?? "", error: null, ...evidence, ...(pass ? {} : { refusal: { code: judged.code, message: judged.detail } }) },
     ledger: { status: pass ? "verified" : !settled ? "unsettled" : preAdmissionRefusal ? "refused" : "failed", settled, ...(pass ? {} : { code: judged.code, message: String(judged.detail ?? "").slice(0, 2000) }), ...evidence },

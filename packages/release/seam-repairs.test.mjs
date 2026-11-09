@@ -134,9 +134,13 @@ test("4. a seam adapter's receipt outputDir is filed with its Cargo workspace: t
   const rdir = path.dirname(snap);
   const cwd = path.join(snap, "app"); // `tauri build` runs from the app root, above src-tauri
   const receipt = receiptFor(rdir, { argv: ["tauri", "build"], workspace: cwd, adapter: "rightkit-tauri", gate: { classA: "/v/class-a.json" } });
+  const receiptBytes = JSON.parse(fs.readFileSync(receipt, "utf8"));
+  receiptBytes.targetTriple = "aarch64-apple-darwin";
+  fs.writeFileSync(receipt, JSON.stringify(receiptBytes));
   const spawn = () => ({ status: 0, signal: null, stdout: "", stderr: line({ outputDir: out, receipt }) });
   const r = runStageAdapter("rightkit-tauri", ["tauri", "build"], { cwd, env }, { map, spawn });
   assert.equal(r.status, 0, JSON.stringify(r.refusal ?? null));
+  assert.equal(r.targetTriple, "aarch64-apple-darwin", "stage caller receives receipt target");
   const row = readLedgerDir(map.ledgerDir).entries.find((e) => e.adapter === "rightkit-tauri");
   assert.deepEqual(row.workspaces, [path.join(checkout, "app", "src-tauri")]); assert.equal(row.settled, true);
   assert.deepEqual(installed.outputsByWorkspace(), [[path.join(checkout, "app", "src-tauri"), out]]);

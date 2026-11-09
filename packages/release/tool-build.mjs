@@ -67,11 +67,13 @@ const sha256OfFile = (file) => crypto.createHash("sha256").update(fs.readFileSyn
 
 /**
  * The built binary under `outputDir` (the target directory: the carried receipt's `outputDir` on a broker host, the checkout's pinned target on a direct
- * one): `<outputDir>/release/<executable>`, a regular file the build just wrote, never a link. Returns its path or throws.
+ * one): `<outputDir>/<targetTriple>/release/<executable>` when the receipt names its target, else the direct layout
+ * `<outputDir>/release/<executable>`. Never falls back from a missing target-qualified output to stale direct bytes.
  */
-export function builtToolBinary({ outputDir, executable }) {
+export function builtToolBinary({ outputDir, executable, targetTriple = null }) {
   if (typeof outputDir !== "string" || !path.isAbsolute(outputDir)) refuse("RK_TOOL_NO_OUTPUT_DIR", `the build reported no absolute output directory (${JSON.stringify(outputDir ?? null)}); the produced binary cannot be located, so nothing was enrolled`);
-  const file = path.join(outputDir, "release", executable);
+  if (targetTriple !== null && (typeof targetTriple !== "string" || !/^[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)+$/.test(targetTriple))) refuse("RK_TOOL_NO_BINARY", "invalid receipt target triple; nothing was enrolled");
+  const file = path.join(outputDir, ...(targetTriple ? [targetTriple] : []), "release", executable);
   let meta;
   try { meta = fs.lstatSync(file); } catch (error) { refuse("RK_TOOL_NO_BINARY", `the build succeeded but ${file} does not exist (${error.code ?? error.message}); nothing was enrolled`); }
   if (meta.isSymbolicLink() || !meta.isFile()) refuse("RK_TOOL_NO_BINARY", `${file} is not a regular file; nothing was enrolled`);
@@ -120,7 +122,7 @@ export async function runUnitTool({
         throw new Error(`${selector}: cargo ${plan.argv.join(" ")} failed (${result?.error?.message ?? `exit ${result?.status}`})\nstdout:\n${String(result?.stdout ?? "").slice(-4000)}\nstderr:\n${String(result?.stderr ?? "").slice(-4000)}`);
       }
       // A carried (broker) call names the receipt's output directory; a direct call wrote the checkout target the gate pinned for this workspace.
-      built = builtToolBinary({ outputDir: result.outputDir ?? pinnedTargetDir(targetDirs, plan.cargoDir), executable: plan.executable });
+      built = builtToolBinary({ outputDir: result.outputDir ?? pinnedTargetDir(targetDirs, plan.cargoDir), executable: plan.executable, targetTriple: result.targetTriple ?? null });
     } finally { endRun(doorRun); }
     if (stageGuard && !(await stageGuard.end(TOOL_STAGE))) throw new Error(`RK_CHECK_ERROR: the ${TOOL_STAGE} stage's result covers no known bytes (a snapshot byte changed, a write is outside the ledger, or a cargo call did not complete)`);
     const builtSha256 = sha256OfFile(built);
