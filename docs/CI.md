@@ -256,7 +256,7 @@ gate report names it under "Now green" for removal in next commit.
 
 ## Publishing
 
-**Current route (Adrian, 2026-11-03, rightkit#1471): local, from the Mac, no CI.** `right-release publish-local npm --package
+**Current route (Adrian, 2026-11-03, rightkit#1471; either host since 2026-11-10, rightkit#1559): local, from the Mac or the Dell with that host's warm cache, no CI.** `right-release publish-local npm --package
 @rightkit/<name> --commit <sha>` publishes a pushed commit's package after the gate's Class A passes on that commit, with the Keychain
 token `npm-rightkit-publish` and npm provenance off (rightkit#1472). Crates publish locally too. Credentials, steps and who does what:
 `docs/PUBLISHING-CREDENTIALS.md`. The CI routes below are not in use.

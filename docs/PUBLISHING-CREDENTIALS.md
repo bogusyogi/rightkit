@@ -3,7 +3,9 @@
 ## How RightKit publishes today
 
 Adrian, 2026-11-03 (rightkit#1471): "i want you to publish it from local. the npm and crates are both local. we will do a provenance skip
-fuck your ci. feel free to push but no ci". RightKit's npm packages and crates publish from the Mac. Pushes to `main` carry `[skip ci]`.
+fuck your ci. feel free to push but no ci". RightKit's npm packages and crates publish from a local host, the Mac or the Dell, so the publish uses that host's warm cache (Adrian,
+2026-11-10, rightkit#1559: "there's no rule for MAC only. it can also be publsihed from the dell. thje point is to have local warm cache and use
+it"). Pushes to `main` carry `[skip ci]`.
 npm provenance is off for owned packages (rightkit#1472). This replaces the CI-only route described further down and in `docs/CI.md`.
 
 | Registry | Credential | Where it lives | Created by | Used by |
@@ -39,8 +41,9 @@ node packages/release/cli/right-release.mjs publish npm --check-auth
 ### Crates
 
 The crates.io token is in place, and the local cargo route comes next (`publish-local cargo`, same steps: pushed commit, gate on that
-commit, then `cargo publish` in dependency order, then a registry read-back). Until it lands, crates are published by hand on the Mac
-after the gate, with Adrian's approval for each one.
+commit, then `cargo publish` in dependency order, then a registry read-back), on either local host. On the Mac it reads the token from
+the Keychain itself; on the Dell cargo's `wincred` provider must hold it (not verified, rightkit#1559). Each publication needs Adrian's
+approval.
 
 ## The CI route (not in use since 2026-11-03)
 
