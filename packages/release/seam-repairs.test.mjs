@@ -306,3 +306,21 @@ test("NN41 on a broker host: a seam compile that failed with compiler diagnostic
   const changed = (await runScans(planOf(refusedRig.snapshot, [row]), { ...refusedRig.opts, cache: cache2, failureIdentity: "broker-1" })).scans[0];
   assert.notEqual(changed.code, "EXIT"); assert.ok(![...store2.values()].some((v) => v.row.status === "fail"), "a postcondition failure is not cached");
 });
+
+test("a seam row names no target directory: the broker pins it, so CARGO_TARGET_DIR and CARGO_BUILD_TARGET_DIR never reach the rustright client (first HR run on the reset broker, 2026-11-09)", async () => {
+  // Case 1, the regression: a row with no target of its own used to get the multi-workspace sentinel (options.cargoSentinel) as CARGO_TARGET_DIR
+  // and CARGO_BUILD_TARGET_DIR, which the broker refuses ("conflicting CARGO_BUILD_TARGET_DIR"). Case 2: an explicit row target is stripped too.
+  for (const rowEnv of [{}, { CARGO_TARGET_DIR: "/elsewhere/target", cargo_build_target_dir: "/elsewhere/target" }]) {
+    const rig = seamScanRig({ listing: [] });
+    const seen = [];
+    const spawn = async (cmd, args, opts = {}) => { if (!args.includes("--version")) seen.push({ args: [...args], env: { ...(opts.env ?? {}) } }); return rig.spawn(cmd, args, opts); };
+    const sentinelRoot = fs.mkdtempSync(path.join(os.tmpdir(), "rk-sentinel-"));
+    const row = { id: "check:a", class: "B", tool: "rustright", root: "cargoLive", args: ["cargo", "check", "-p", "a", "--locked"], command: "rustright cargo check -p a --locked", ...(Object.keys(rowEnv).length ? { env: rowEnv } : {}) };
+    const result = (await runScans(planOf(rig.snapshot, [row]), { ...rig.opts, spawn, cargoSentinel: sentinelRoot })).scans[0];
+    assert.equal(result.status, "pass", JSON.stringify(result));
+    assert.equal(seen.length, 1, "one seam compile spawned");
+    assert.equal(seen[0].env.RUSTRIGHT_GATE_COMMIT, commit, "the seam variables are present");
+    assert.deepEqual(Object.keys(seen[0].env).filter((k) => /^(CARGO_TARGET_DIR|CARGO_BUILD_TARGET_DIR)$/i.test(k)), [], `no target directory reaches the client (${JSON.stringify(rowEnv)})`);
+    assert.equal(fs.readdirSync(sentinelRoot).length, 0, "no sentinel directory is made for a seam row");
+  }
+});

@@ -3960,13 +3960,18 @@ export async function runScans(plan, options = {}) {
           // A wrapped snapshot compile with several Cargo workspaces (options.cargoSentinel, item 7): a scan whose own env binds no
           // CARGO_TARGET_DIR gets an empty directory of its own as one. Every cargo reached through the wrapper is bound elsewhere; only
           // a cargo that bypassed it (an absolute path, `rustup run`, a reset PATH) can write here, and the scan then fails below.
+          // A seam row never names a target directory: the broker pins the job's target (BUILD.md "Queue/tests/adapters": "Broker pins target"),
+          // and a caller-supplied CARGO_TARGET_DIR or CARGO_BUILD_TARGET_DIR that differs is refused at admission ("conflicting CARGO_BUILD_TARGET_DIR",
+          // every class B row of the first HR run on the reset broker, 2026-11-09). No sentinel is made for it and both variables are stripped below.
           let sentinel = null;
-          if (options.cargoSentinel && !Object.hasOwn(s.env ?? {}, "CARGO_TARGET_DIR")) {
+          if (!viaSeam && options.cargoSentinel && !Object.hasOwn(s.env ?? {}, "CARGO_TARGET_DIR")) {
             sentinel = path.join(options.cargoSentinel, sha256(s.id).slice(0, 16));
             fs.rmSync(sentinel, { recursive: true, force: true });
             fs.mkdirSync(sentinel, { recursive: true });
           }
           const sentinelEnv = sentinel ? { CARGO_TARGET_DIR: sentinel, CARGO_BUILD_TARGET_DIR: sentinel } : {};
+          // The composed spawn environment of a seam row, with no target directory of the caller's (the broker pins it; see above).
+          const seamSpawnEnv = (composed) => { if (!viaSeam) return composed; const out = { ...composed }; for (const key of Object.keys(out)) if (/^(CARGO_TARGET_DIR|CARGO_BUILD_TARGET_DIR)$/i.test(key)) delete out[key]; return out; };
           // A Rust test scan's JSON listing (every compiler-artifact record) streams whole to a file of its own: the kept tail of a spawn would lose the early artifact records of a noisy compile.
           let listingDir = null; let listingFile = null; let listingText = ""; let listingCut = false;
           let testOutputs = null;
@@ -3985,7 +3990,7 @@ export async function runScans(plan, options = {}) {
           if (swiftSeam) {
             // The adapter through the seam: one `rustright run rightkit-swift -- <argv>` in the snapshot; the result line and receipt are judged below exactly as a cargo row's.
             const client = toolCommand("rustright");
-            try { r = await deps.spawn(client, ["run", "rightkit-swift", "--", ...finalArgs], { cwd: path.join(deps.gateSeam.snapshot, s.cwd ?? ""), env: { ...deps.env, ...s.env, ...(extraEnv ?? {}), ...seamVars }, signal: scanSignal, timeout: limitMs }); }
+            try { r = await deps.spawn(client, ["run", "rightkit-swift", "--", ...finalArgs], { cwd: path.join(deps.gateSeam.snapshot, s.cwd ?? ""), env: seamSpawnEnv({ ...deps.env, ...s.env, ...(extraEnv ?? {}), ...seamVars }), signal: scanSignal, timeout: limitMs }); }
             catch (e) { r = { error: e }; } finally { stopClock(); advisory?.cleanup?.(); }
           } else {
           // The executables this scan runs are the ones resolved and verified above: read their bytes again now, immediately before the launch
@@ -4017,7 +4022,7 @@ export async function runScans(plan, options = {}) {
             admission = watchBrokerAdmission({ clock: runClock, refFiles, live: brokerLive, poller: statusPoller });
             admission.start();
           }
-          try { r = await deps.spawn(p.command, spawnArgs, { cwd: viaSeam ? path.join(deps.gateSeam.snapshot, s.cwd ?? "") : path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...readTargetEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...refEnv, ...(carriedScan && !watched ? scanOperationEnv({ ...deps.env, ...s.env }, limitMs) : {}), ...trustEnv, ...seamVars }, signal: scanSignal, ...(listingFile ? { stdoutFile: listingFile } : {}), ...(watched ? {} : { timeout: limitMs }) }); } finally { stopClock(); advisory?.cleanup?.(); }
+          try { r = await deps.spawn(p.command, spawnArgs, { cwd: viaSeam ? path.join(deps.gateSeam.snapshot, s.cwd ?? "") : path.join(rootDir(s.root), s.cwd ?? ""), env: seamSpawnEnv({ ...deps.env, ...sentinelEnv, ...readTargetEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...refEnv, ...(carriedScan && !watched ? scanOperationEnv({ ...deps.env, ...s.env }, limitMs) : {}), ...trustEnv, ...seamVars }), signal: scanSignal, ...(listingFile ? { stdoutFile: listingFile } : {}), ...(watched ? {} : { timeout: limitMs }) }); } finally { stopClock(); advisory?.cleanup?.(); }
           if ((s.runOutside || s.captureJson) && r && !r.error) {
             // The whole listing: the file the spawn streamed, else (a spawn that does not know stdoutFile) its stdout. What a reader sees of a failed compile is the rendered errors.
             let fromFile = false;
