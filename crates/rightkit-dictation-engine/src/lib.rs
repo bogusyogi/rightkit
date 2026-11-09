@@ -13,7 +13,10 @@
     clippy::manual_clamp
 )] // intentional: large variants live on cold error paths, a few arg-heavy platform fns, doc-comment style
 
-pub use rightkit_dictation_runtime::{crash_capture, ipc, owner_diagnostics, runtime, worker};
+pub use rightkit_dictation_runtime::{crash_capture, owner_diagnostics};
+// The resident engine exists only where the runtime does (macOS and Windows).
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+pub use rightkit_dictation_runtime::{ipc, runtime, worker};
 
 #[cfg(target_os = "macos")]
 pub use rightkit_dictation_command_host::macos_input;
@@ -21,13 +24,13 @@ pub use rightkit_dictation_command_host::{
     app_launch, command_classify, command_dispatch, delivery, focus,
 };
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+// All targets: the keyword-spotting cascade runs on the Rust spotter and builds everywhere.
 pub use rightkit_dictation_inference::kws;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-pub use rightkit_dictation_inference::{asr, trigger_audio_cut};
+pub use rightkit_dictation_inference::{asr, calibration, trigger_audio_cut};
 #[cfg(target_os = "macos")]
 pub use rightkit_dictation_inference::{av_decode, coreml, coreml_asr, whisper_coreml};
-pub use rightkit_dictation_inference::{calibration, file_transcribe, inference_gate, vad};
+pub use rightkit_dictation_inference::{file_transcribe, inference_gate, vad};
 #[cfg(target_os = "windows")]
 pub use rightkit_dictation_inference::{whisper_win, whisper_win_ffi};
 

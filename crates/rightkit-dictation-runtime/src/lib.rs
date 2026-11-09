@@ -8,15 +8,26 @@
     clippy::manual_clamp
 )]
 
+// The resident engine (runtime, worker, IPC host, speech service and the entry point) is built
+// only on macOS and Windows: `calibration` exists only there, and the finalize path builds its
+// polish contexts under the same gate. Those modules, and the roots only they use, carry the same
+// gate; Linux builds and lints the portable remainder (crash capture, owner diagnostics, the
+// lifecycle stub and the re-exports).
 pub mod crash_capture;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub mod engine_paths;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub mod entry;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub mod ipc;
 pub mod owner_diagnostics;
 /// Test-mode perf levers (2026-10-29 audit); release builds compile them to their defaults.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub mod runtime;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub mod speech_service;
 pub mod windows_audio_lifecycle;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub mod worker;
 
 #[cfg(target_os = "macos")]
@@ -27,10 +38,10 @@ pub use rightkit_dictation_command_host::{
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub use rightkit_dictation_inference::kws;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-pub use rightkit_dictation_inference::{asr, trigger_audio_cut};
+pub use rightkit_dictation_inference::{asr, calibration, trigger_audio_cut};
 #[cfg(target_os = "macos")]
 pub use rightkit_dictation_inference::{av_decode, coreml, coreml_asr, whisper_coreml};
-pub use rightkit_dictation_inference::{calibration, file_transcribe, inference_gate, vad};
+pub use rightkit_dictation_inference::{file_transcribe, inference_gate, vad};
 #[cfg(target_os = "windows")]
 pub use rightkit_dictation_inference::{whisper_win, whisper_win_ffi};
 pub use rightkit_dictation_text_pipeline::{

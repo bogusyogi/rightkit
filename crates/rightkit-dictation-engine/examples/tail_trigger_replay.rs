@@ -10,17 +10,24 @@
 //!
 //! Usage: tail_trigger_replay <models_dir> <wav> [<wav>...]
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::path::Path;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::time::Instant;
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use rightkit_dictation_engine::asr::{apply_probe_context_bias, AsrEp, AsrRuntime};
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use rightkit_text_polish::text_pipeline::{
     has_trailing_control_wake, parse_control_command, ControlCommand, ControlIntent,
 };
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const SAMPLE_RATE: usize = 16_000;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const TAIL_WINDOW_MS: usize = 3_000;
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn load_wav(path: &Path) -> Result<Vec<f32>, String> {
     let wav = rightkit_audio::wav::read_wav_mono_f32(path)
         .map_err(|e| format!("{}: {e}", path.display()))?;
@@ -35,12 +42,14 @@ fn load_wav(path: &Path) -> Result<Vec<f32>, String> {
     Ok(wav.samples)
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn normalize_token(token: &str) -> String {
     token
         .trim_matches(|c: char| c.is_whitespace() || ",.;:!?-".contains(c))
         .to_ascii_lowercase()
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 /// Mirror of the worker's private one-token split-prefix pairing.
 fn pair_with_latched_prefix(text: &str) -> Option<ControlCommand> {
     let trimmed = text.trim();
@@ -58,6 +67,7 @@ fn pair_with_latched_prefix(text: &str) -> Option<ControlCommand> {
     parse_control_command(&format!("zephyr {last}"))
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 struct CurrentVerdict {
     fired_ms: Option<usize>,
     how: &'static str,
@@ -65,6 +75,7 @@ struct CurrentVerdict {
     probe_latencies_ms: Vec<u64>,
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ProbeDecision {
     Awaiting,
@@ -73,12 +84,14 @@ enum ProbeDecision {
     FireSplit,
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 #[derive(Default)]
 struct CurrentPolicyState {
     pending_prefix_at_ms: Option<usize>,
     pending_fuzzy: Option<PendingFuzzy>,
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 #[derive(Clone, Copy)]
 struct PendingFuzzy {
     intent: ControlIntent,
@@ -86,6 +99,7 @@ struct PendingFuzzy {
     at_ms: usize,
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn strong_fuzzy_control_verb(verb: &str) -> bool {
     matches!(
         normalize_token(verb).as_str(),
@@ -114,6 +128,7 @@ fn strong_fuzzy_control_verb(verb: &str) -> bool {
     )
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn trailing_tokens_are(text: &str, wake: &str, verb: &str) -> bool {
     let mut tokens = text
         .split_whitespace()
@@ -126,6 +141,7 @@ fn trailing_tokens_are(text: &str, wake: &str, verb: &str) -> bool {
     last == normalize_token(verb) && previous == normalize_token(wake)
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn exact_control_command(control: &ControlCommand, paired: bool, text: &str) -> bool {
     !paired
         && control.wake_word.eq_ignore_ascii_case("zephyr")
@@ -133,12 +149,14 @@ fn exact_control_command(control: &ControlCommand, paired: bool, text: &str) -> 
         && trailing_tokens_are(text, &control.wake_word, &control.verb)
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn tail_text_ends_with_control_verb(text: &str) -> bool {
     text.split_whitespace()
         .last()
         .is_some_and(|last| parse_control_command(&format!("zephyr {last}")).is_some())
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 impl CurrentPolicyState {
     fn prefix_pending(&mut self, now_ms: usize) -> bool {
         if self
@@ -232,6 +250,7 @@ impl CurrentPolicyState {
     }
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn percentile(values: &[u64], percentile: f32) -> u64 {
     if values.is_empty() {
         return 0;
@@ -244,6 +263,7 @@ fn percentile(values: &[u64], percentile: f32) -> u64 {
     sorted[index]
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn replay_current(
     runtime: &mut AsrRuntime,
     audio: &[f32],
@@ -352,6 +372,7 @@ fn replay_current(
     })
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn main() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.len() < 2 {
@@ -417,4 +438,9 @@ fn main() -> Result<(), String> {
         percentile(&all_probe_latencies_ms, 0.95)
     );
     Ok(())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn main() {
+    eprintln!("tail_trigger_replay requires macOS or Windows (the ASR runtime)");
 }

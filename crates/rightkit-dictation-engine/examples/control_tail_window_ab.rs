@@ -2,13 +2,18 @@
 //!
 //! Usage: control_tail_window_ab <models_dir> <wav> [<wav>...]
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::path::Path;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::time::Instant;
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use rightkit_dictation_engine::asr::{AsrEp, AsrRuntime};
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const SAMPLE_RATE: usize = 16_000;
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn load_wav(path: &Path) -> Result<Vec<f32>, String> {
     let wav = rightkit_audio::wav::read_wav_mono_f32(path)
         .map_err(|e| format!("{}: {e}", path.display()))?;
@@ -23,6 +28,7 @@ fn load_wav(path: &Path) -> Result<Vec<f32>, String> {
     Ok(wav.samples)
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn transcribe_window(
     runtime: &mut AsrRuntime,
     audio: &[f32],
@@ -40,6 +46,7 @@ fn transcribe_window(
     Ok((text, started.elapsed().as_millis()))
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn main() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.len() < 2 {
@@ -58,4 +65,9 @@ fn main() -> Result<(), String> {
         );
     }
     Ok(())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn main() {
+    eprintln!("control_tail_window_ab requires macOS or Windows (the ASR runtime)");
 }

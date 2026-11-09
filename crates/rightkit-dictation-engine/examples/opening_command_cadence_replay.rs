@@ -1,24 +1,35 @@
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use rightkit_dictation_engine::asr::{AsrEp, AsrRuntime};
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use rightkit_dictation_engine::command_classify::{classify_streaming, CommandClassification};
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use serde::{Deserialize, Serialize};
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::path::{Path, PathBuf};
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::time::Instant;
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const SAMPLE_RATE: usize = 16_000;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MIN_PROBE_SAMPLES: usize = SAMPLE_RATE / 4;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const MAX_COMMAND_SAMPLES: usize = SAMPLE_RATE * 2;
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 #[derive(Deserialize)]
 struct Manifest {
     rows: Vec<ManifestRow>,
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 #[derive(Deserialize)]
 struct ManifestRow {
     clip: PathBuf,
     command_start: usize,
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 #[derive(Serialize)]
 struct ResultRow {
     clip: PathBuf,
@@ -32,6 +43,7 @@ struct ResultRow {
     classification: String,
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 #[derive(Serialize)]
 struct Report {
     cadence_ms: usize,
@@ -40,6 +52,7 @@ struct Report {
     rows: Vec<ResultRow>,
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn read_wav(path: &Path) -> Result<Vec<f32>, String> {
     let wav = rightkit_audio::wav::read_wav_mono_f32(path)
         .map_err(|e| format!("{}: {e}", path.display()))?;
@@ -54,6 +67,7 @@ fn read_wav(path: &Path) -> Result<Vec<f32>, String> {
     Ok(wav.samples)
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn main() -> Result<(), String> {
     let args = std::env::args().collect::<Vec<_>>();
     if args.len() != 5 {
@@ -151,4 +165,9 @@ fn main() -> Result<(), String> {
         report.cadence_ms, report.clips, report.fired
     );
     Ok(())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn main() {
+    eprintln!("opening_command_cadence_replay requires macOS or Windows (the ASR runtime)");
 }
