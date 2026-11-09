@@ -13,6 +13,13 @@
 //! (`selected`, legacy-control `fallback` to emission, `no_boundary`). A feature frame is
 //! null (`feature_mapping`: `no_origin` | `before_origin`) when the sample cannot be mapped.
 //! `--d4-strict` (needs `--onset fricative`) returns no boundary when D4 has no candidate.
+//!
+//! Firing and no-fire trace (default off; observation only, detections are identical on and
+//! off): `--trace` snapshots every firing at its pre-reset beam event; `--trace-window FRAMES`
+//! records every decoded encoder frame on the confirm stream within FRAMES (40 ms each) of the
+//! wake candidate, so a clip that never fires still shows the beam; `--trace-capacity STEPS`
+//! bounds that window (default 512; a dropped step is counted). Each clip's JSONL row gains a
+//! `trace` key (absent with the trace off) and a text run prints a `TRACE` line.
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn main() -> Result<(), String> {
@@ -25,7 +32,9 @@ fn main() {}
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod native {
     use rightkit_dictation_engine::kws::{
-        AcousticSearch, FricativeParams, Kws, KwsOnsetMethod, KwsSwitches,
+        AcousticSearch, FiringTrace, FricativeParams, Kws, KwsFeedEvent, KwsOnsetMethod,
+        KwsSwitches, KwsTrace, KwsTraceConfig, StepTrace, TraceClock, TraceHypothesis, TraceMerge,
+        TracePath,
     };
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -39,7 +48,7 @@ mod native {
         [--step SAMPLES] [--onset emission|aligned|posterior|acoustic|fricative] \
         [--acoustic-search legacy|initial-fricative] [--d4] [--d4-window MS] [--d4-floor MS] \
         [--d4-rise F] [--d4-min-run MS] [--d4-vowel MS] [--d4-tilt F] [--d4-json JSON|FILE] \
-        [--d4-strict] [--jsonl]";
+        [--d4-strict] [--trace] [--trace-window FRAMES] [--trace-capacity STEPS] [--jsonl]";
 
     fn flag_value<I: Iterator<Item = OsString>>(
         args: &mut I,
@@ -119,6 +128,164 @@ mod native {
         })
     }
 
+    fn clock_json(clock: &TraceClock) -> serde_json::Value {
+        json!({
+            "epoch": clock.epoch,
+            "epoch_origin_feature_frame": clock.epoch_origin_feature_frame,
+            "feature_frames_ready": clock.feature_frames_ready,
+            "encoder_window_end_feature_frame": clock.encoder_window_end_feature_frame,
+            "encoder_consumed_feature_frames": clock.encoder_consumed_feature_frames,
+            "samples_fed": clock.samples_fed,
+        })
+    }
+
+    fn path_json(path: &TracePath) -> serde_json::Value {
+        json!({
+            "first_token_frame": path.first_token_frame,
+            "level": path.level,
+            "context_state": path.context_state,
+            "log_prob": path.log_prob,
+        })
+    }
+
+    fn hypothesis_json(hypothesis: &TraceHypothesis) -> serde_json::Value {
+        json!({
+            "selected": hypothesis.selected,
+            "ys": hypothesis.ys,
+            "timestamps": hypothesis.timestamps,
+            "ys_probs": hypothesis.ys_probs,
+            "log_prob": hypothesis.log_prob,
+            "context_state": hypothesis.context_state,
+            "level": hypothesis.level,
+            "num_trailing_blanks": hypothesis.num_trailing_blanks,
+        })
+    }
+
+    fn merge_json(merge: &TraceMerge) -> serde_json::Value {
+        json!({
+            "context_state": merge.context_state,
+            "incoming_context_state": merge.incoming_context_state,
+            "level": merge.level,
+            "existing": {
+                "timestamps": merge.existing.timestamps,
+                "ys_probs": merge.existing.ys_probs,
+                "log_prob": merge.existing.log_prob,
+            },
+            "incoming": {
+                "timestamps": merge.incoming.timestamps,
+                "ys_probs": merge.incoming.ys_probs,
+                "log_prob": merge.incoming.log_prob,
+            },
+            "incoming_kept": merge.incoming_kept,
+            "merged_log_prob": merge.merged_log_prob,
+        })
+    }
+
+    fn firing_json(firing: &FiringTrace) -> serde_json::Value {
+        json!({
+            "occurrence": firing.occurrence,
+            "epoch_occurrence": firing.epoch_occurrence,
+            "keyword": firing.keyword,
+            "clock": clock_json(&firing.clock),
+            "context": firing.context,
+            "ys": firing.ys,
+            "timestamps": firing.timestamps,
+            "ys_probs": firing.ys_probs,
+            "fired_frame": firing.fired_frame,
+            "num_trailing_blanks": firing.num_trailing_blanks,
+            "score": firing.score,
+            "threshold": firing.threshold,
+            "hypotheses_total": firing.hypotheses_total,
+            "hypotheses": firing.hypotheses.iter().map(hypothesis_json).collect::<Vec<_>>(),
+        })
+    }
+
+    fn step_json(step: &StepTrace) -> serde_json::Value {
+        json!({
+            "frame": step.frame,
+            "clock": clock_json(&step.clock),
+            "hypotheses_in": step.hypotheses_in,
+            "hypotheses_out": step.hypotheses_out,
+            "refilled_blank": step.refilled_blank,
+            "top": step.top.as_ref().map(|top| json!({
+                "context_state": top.context_state,
+                "level": top.level,
+                "first_token_frame": top.first_token_frame,
+                "log_prob": top.log_prob,
+                "num_trailing_blanks": top.num_trailing_blanks,
+                "ys_probs": top.ys_probs,
+            })),
+            "matched": step.matched.as_ref().map(|matched| json!({
+                "score": matched.score,
+                "threshold": matched.threshold,
+                "trailing_blanks_ok": matched.trailing_blanks_ok,
+            })),
+            "fired": step.fired,
+            "expired": step.expired.iter().map(path_json).collect::<Vec<_>>(),
+            "pruned": step.pruned.iter().map(path_json).collect::<Vec<_>>(),
+            "merges": step.merges.iter().map(merge_json).collect::<Vec<_>>(),
+        })
+    }
+
+    fn feed_json(event: &KwsFeedEvent) -> serde_json::Value {
+        json!({
+            "stage": event.stage,
+            "event": event.event,
+            "epoch": event.epoch,
+            "snapshot_start_sample": event.snapshot_start_sample,
+            "live_total_sample": event.live_total_sample,
+            "origin_sample": event.origin_sample,
+            "fed_until_sample": event.fed_until_sample,
+            "accepted_until_sample": event.accepted_until_sample,
+            "pending_samples": event.pending_samples,
+            "candidate_id": event.candidate_id,
+            "candidate_start_sample": event.candidate_start_sample,
+            "candidate_end_sample": event.candidate_end_sample,
+            "expiry_deadline_sample": event.expiry_deadline_sample,
+        })
+    }
+
+    /// Everything one clip's replay drained. `truncated` is true when any buffer dropped a
+    /// record for capacity: the record is then incomplete.
+    fn trace_json(traces: &[KwsTrace]) -> serde_json::Value {
+        let mut streams = Vec::new();
+        let mut feeds = Vec::new();
+        let mut streams_dropped = 0_u64;
+        let mut feeds_dropped = 0_u64;
+        let mut truncated = false;
+        for trace in traces {
+            streams_dropped += trace.streams_dropped;
+            feeds_dropped += trace.feeds_dropped;
+            for stream in &trace.streams {
+                truncated |= stream.records.truncated();
+                let identity = &stream.records.identity;
+                streams.push(json!({
+                    "stage": stream.stage,
+                    "origin_sample": stream.origin_sample,
+                    "epoch": stream.epoch,
+                    "identity": {
+                        "crate_version": identity.crate_version,
+                        "keywords_fnv64": format!("{:016x}", identity.keywords_fnv64),
+                        "config_fnv64": format!("{:016x}", identity.config_fnv64),
+                        "model_bytes": identity.model_bytes,
+                    },
+                    "firings": stream.records.firings.iter().map(firing_json).collect::<Vec<_>>(),
+                    "firings_dropped": stream.records.firings_dropped,
+                    "steps": stream.records.steps.iter().map(step_json).collect::<Vec<_>>(),
+                    "steps_dropped": stream.records.steps_dropped,
+                }));
+            }
+            feeds.extend(trace.feeds.iter().map(feed_json));
+        }
+        json!({
+            "truncated": truncated || streams_dropped > 0 || feeds_dropped > 0,
+            "streams_dropped": streams_dropped,
+            "feeds_dropped": feeds_dropped,
+            "streams": streams,
+            "feeds": feeds,
+        })
+    }
+
     struct Options {
         model: PathBuf,
         wavs: Vec<PathBuf>,
@@ -133,6 +300,11 @@ mod native {
         let mut ort = None;
         let mut step = 320;
         let mut switches = KwsSwitches::default();
+        let mut trace = KwsTraceConfig {
+            capacity_steps: KwsTraceConfig::DEFAULT_CAPACITY_STEPS,
+            ..KwsTraceConfig::default()
+        };
+        let mut trace_on = false;
         let mut jsonl = false;
         while let Some(arg) = args.next() {
             match arg.to_str() {
@@ -211,6 +383,22 @@ mod native {
                     apply_d4_json(&mut switches.fricative, &source)?;
                 }
                 Some("--d4-strict") => switches.fricative_strict = true,
+                Some("--trace") => {
+                    trace.firing = true;
+                    trace_on = true;
+                }
+                Some("--trace-window") => {
+                    trace.window_frames =
+                        parse_u32(&flag_value(&mut args, "--trace-window")?, "--trace-window")?;
+                    trace_on = true;
+                }
+                Some("--trace-capacity") => {
+                    trace.capacity_steps = parse_u32(
+                        &flag_value(&mut args, "--trace-capacity")?,
+                        "--trace-capacity",
+                    )? as usize;
+                    trace_on = true;
+                }
                 Some("--jsonl") => jsonl = true,
                 _ if arg.to_string_lossy().starts_with('-') => {
                     return Err(format!("unknown option {:?}\n{USAGE}", arg));
@@ -222,6 +410,9 @@ mod native {
             && switches.onset != Some(KwsOnsetMethod::Acoustic)
         {
             return Err("--acoustic-search initial-fricative requires --onset acoustic".into());
+        }
+        if trace_on {
+            switches.trace = Some(trace);
         }
         switches.validate()?;
         let mut paths = paths.into_iter();
@@ -358,6 +549,8 @@ mod native {
         /// absent). Confirm evidence is kept; no owner-based claim (`wake_d4`,
         /// `chosen_source`, selected-cut status) is made.
         owner_missing: bool,
+        /// What the cascade's trace drained during this clip; empty with the trace off.
+        trace: Vec<KwsTrace>,
     }
 
     impl Replay {
@@ -433,6 +626,7 @@ mod native {
             )?;
             // Drain every step: the cascade keeps only the last 16 reports.
             reports.extend(kws.take_onset_reports());
+            replay.trace.extend(kws.take_trace());
             match result.text.as_str() {
                 "" => {}
                 "zephyr" => replay.wake_observed = true,
@@ -444,6 +638,8 @@ mod native {
                 }
             }
         }
+        // The latch (or the last step) may have left records in the cascade.
+        replay.trace.extend(kws.take_trace());
         let stage = |report: &rightkit_dictation_engine::kws::KwsOnsetReport| D4Stage {
             origin: report.origin_sample,
             sample: report.fricative_sample,
@@ -541,43 +737,48 @@ mod native {
             }
             if options.jsonl {
                 let replay = outcome.as_ref().ok();
-                println!(
-                    "{}",
-                    json!({
-                        "path": path.to_string_lossy(),
-                        "status": replay.map_or("error", Replay::status),
-                        "samples": replay.map(|row| row.samples),
-                        "command": replay.and_then(|row| row.command.as_deref()),
-                        "fire_sample": replay.and_then(|row| row.fire_sample),
-                        "boundary_sample": replay.and_then(|row| row.boundary_sample),
-                        "chosen_source": replay.and_then(|row| row.chosen_source),
-                        "candidate_status": replay.map(|row| row.candidate_status(method)),
-                        "onset": method,
-                        "acoustic_search": search,
-                        "fricative_enabled": d4.enabled,
-                        "fricative_strict": options.switches.fricative_strict,
-                        // The returned boundary is the wake candidate's cut; each stage's D4
-                        // estimate is its own and scores only that stage.
-                        "boundary_stage": replay.and_then(|row| {
-                            row.command.as_ref().map(|_| "wake_candidate_cut")
-                        }),
-                        "d4": replay.filter(|_| d4.enabled).map(|row| json!({
-                            "wake": D4Stage::json(
-                                row.wake_d4,
-                                if row.owner_missing { "owner_missing" } else { "no_wake_report" },
-                            ),
-                            "confirm": D4Stage::json(
-                                row.confirm_d4,
-                                if row.command.is_some() { "no_confirm_report" } else { "no_command" },
-                            ),
-                            "owner_missing": row.owner_missing,
-                            "direct_cut": row.d4_direct_cut(),
-                        })),
-                        "step": options.step,
-                        "error": outcome.as_ref().err(),
-                    })
-                );
+                let mut row = json!({
+                    "path": path.to_string_lossy(),
+                    "status": replay.map_or("error", Replay::status),
+                    "samples": replay.map(|row| row.samples),
+                    "command": replay.and_then(|row| row.command.as_deref()),
+                    "fire_sample": replay.and_then(|row| row.fire_sample),
+                    "boundary_sample": replay.and_then(|row| row.boundary_sample),
+                    "chosen_source": replay.and_then(|row| row.chosen_source),
+                    "candidate_status": replay.map(|row| row.candidate_status(method)),
+                    "onset": method,
+                    "acoustic_search": search,
+                    "fricative_enabled": d4.enabled,
+                    "fricative_strict": options.switches.fricative_strict,
+                    // The returned boundary is the wake candidate's cut; each stage's D4
+                    // estimate is its own and scores only that stage.
+                    "boundary_stage": replay.and_then(|row| {
+                        row.command.as_ref().map(|_| "wake_candidate_cut")
+                    }),
+                    "d4": replay.filter(|_| d4.enabled).map(|row| json!({
+                        "wake": D4Stage::json(
+                            row.wake_d4,
+                            if row.owner_missing { "owner_missing" } else { "no_wake_report" },
+                        ),
+                        "confirm": D4Stage::json(
+                            row.confirm_d4,
+                            if row.command.is_some() { "no_confirm_report" } else { "no_command" },
+                        ),
+                        "owner_missing": row.owner_missing,
+                        "direct_cut": row.d4_direct_cut(),
+                    })),
+                    "step": options.step,
+                    "error": outcome.as_ref().err(),
+                });
+                if options.switches.trace.is_some() {
+                    row["trace"] =
+                        replay.map_or(serde_json::Value::Null, |clip| trace_json(&clip.trace));
+                }
+                println!("{row}");
             } else if let Ok(replay) = &outcome {
+                if options.switches.trace.is_some() {
+                    println!("TRACE\t{}\t{}", path.display(), trace_json(&replay.trace));
+                }
                 if d4.enabled {
                     println!(
                         "D4\t{}\twake_sample={:?}\twake_feature={}\twake={}\tconfirm_sample={:?}\tconfirm_feature={}\tconfirm={}\tcut={}\tsource={:?}",

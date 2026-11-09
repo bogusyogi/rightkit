@@ -22,8 +22,9 @@ use std::sync::Arc;
 use rightkit_asr::kws as rust_kws;
 /// The spotter's lever types, as [`KwsSwitches`] carries them.
 pub use rightkit_asr::kws::{
-    AcousticSearch, FricativeAbstain, FricativeParams, JoinerBatching, MergeTimestamps,
-    ThresholdTokens,
+    AcousticSearch, FiringTrace, FricativeAbstain, FricativeParams, JoinerBatching,
+    MergeTimestamps, StepTrace, ThresholdTokens, TraceClock, TraceConfig, TraceHypothesis,
+    TraceIdentity, TraceMatch, TraceMerge, TraceMergeSide, TracePath, TraceRecords, TraceTop,
 };
 use rightkit_asr::parakeet_core::{TimedToken, TranscriptionResult};
 
@@ -101,6 +102,8 @@ struct RustKwsTuning {
     decoder_cache: bool,
     /// Wake, confirm and hey-wake spotters run on one [`rust_kws::KwsModel`].
     shared_model: bool,
+    /// Firing and no-fire trace; observation only (default off).
+    trace: Option<KwsTraceConfig>,
 }
 
 impl RustKwsTuning {
@@ -120,6 +123,7 @@ impl RustKwsTuning {
         static_batch: false,
         decoder_cache: false,
         shared_model: false,
+        trace: None,
     };
 }
 
@@ -209,6 +213,76 @@ pub struct KwsSwitches {
     /// spotters share one set of ONNX sessions (~46 MB less RSS for three).
     /// Default `0`.
     pub shared_model: bool,
+    /// Firing and no-fire trace (default off); see [`KwsTraceConfig`] and
+    /// [`Kws::take_trace`]. Observation only: detections, frames, probabilities and cuts
+    /// are identical with it on or off.
+    pub trace: Option<KwsTraceConfig>,
+}
+
+/// Which trace records to keep. Default off (`KwsSwitches::trace` `None`); every value is
+/// bounded and a record dropped for capacity is counted, never silently omitted.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct KwsTraceConfig {
+    /// Snapshot every firing at its pre-reset beam event, on the wake and the confirm
+    /// stream (`FiringTrace`).
+    pub firing: bool,
+    /// No-fire window on the CONFIRM stream: record every decoded encoder frame within this
+    /// many frames (40 ms each) before the wake candidate's first token and after its end
+    /// (`StepTrace`). `0` records no steps.
+    pub window_frames: u32,
+    /// Most steps held between drains (needs `window_frames` above `0`; see
+    /// [`KwsTraceConfig::DEFAULT_CAPACITY_STEPS`]).
+    pub capacity_steps: usize,
+}
+
+impl KwsTraceConfig {
+    pub const DEFAULT_CAPACITY_STEPS: usize = 512;
+}
+
+/// One audio hand-off or expiry on a cascade stream, on the outer sample clock: the feed
+/// and expiry schedule the no-fire window needs.
+#[derive(Clone, Debug, PartialEq)]
+pub struct KwsFeedEvent {
+    /// `wake` or `confirm`.
+    pub stage: &'static str,
+    /// `create`, `suffix`, `duplicate`, `stale`, `gap`, `destroy` or `expire`.
+    pub event: &'static str,
+    /// Cascade resets and invalidations since load.
+    pub epoch: u64,
+    pub snapshot_start_sample: Option<usize>,
+    pub live_total_sample: Option<usize>,
+    /// Absolute sample where the stream's clock starts (confirm origin).
+    pub origin_sample: Option<usize>,
+    pub fed_until_sample: Option<usize>,
+    pub accepted_until_sample: Option<usize>,
+    pub pending_samples: Option<usize>,
+    pub candidate_id: Option<u64>,
+    pub candidate_start_sample: Option<usize>,
+    pub candidate_end_sample: Option<usize>,
+    /// The sample after which the candidate expires: its end plus the confirm timeout.
+    pub expiry_deadline_sample: Option<usize>,
+}
+
+/// One stream's beam records, collected before the stream was destroyed or drained.
+#[derive(Clone, Debug, PartialEq)]
+pub struct KwsStreamTrace {
+    /// `wake` or `confirm`.
+    pub stage: &'static str,
+    /// Absolute sample where that stream's clock starts.
+    pub origin_sample: Option<usize>,
+    /// Cascade epoch when collected.
+    pub epoch: u64,
+    pub records: rust_kws::TraceRecords,
+}
+
+/// What [`Kws::take_trace`] returns. Dropped counters are nonzero when a buffer filled;
+/// then the record is incomplete.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct KwsTrace {
+    pub streams: Vec<KwsStreamTrace>,
+    pub streams_dropped: u64,
+    pub feeds: Vec<KwsFeedEvent>,
+    pub feeds_dropped: u64,
 }
 
 impl Default for KwsSwitches {
@@ -228,6 +302,7 @@ impl Default for KwsSwitches {
             static_batch: tuning.static_batch,
             decoder_cache: tuning.decoder_cache,
             shared_model: tuning.shared_model,
+            trace: tuning.trace,
         }
     }
 }
@@ -246,6 +321,14 @@ impl KwsSwitches {
         if self.fricative_strict && self.onset != Some(KwsOnsetMethod::Fricative) {
             return Err("fricative_strict needs onset fricative".into());
         }
+        if let Some(trace) = self.trace {
+            if !trace.firing && trace.window_frames == 0 {
+                return Err("trace records nothing: set firing or window_frames".into());
+            }
+            if trace.window_frames > 0 && !(1..=65_536).contains(&trace.capacity_steps) {
+                return Err("trace capacity_steps must be 1 to 65536 with a window".into());
+            }
+        }
         Ok(())
     }
 
@@ -263,6 +346,7 @@ impl KwsSwitches {
             static_batch: self.static_batch,
             decoder_cache: self.decoder_cache,
             shared_model: self.shared_model,
+            trace: self.trace,
             ..base
         }
     }
@@ -373,6 +457,13 @@ pub fn latched_owner(
 
 /// Reports kept for [`Kws::take_onset_reports`]; older ones are dropped.
 const ONSET_REPORTS_KEPT: usize = 16;
+/// Trace buffers between [`Kws::take_trace`] calls; older entries are dropped and counted.
+const TRACE_STREAMS_KEPT: usize = 64;
+const TRACE_FEEDS_KEPT: usize = 1024;
+/// Samples per encoder frame (40 ms): four 10 ms feature frames.
+const ENCODER_FRAME_SAMPLES: usize = SAMPLE_RATE as usize * 2 / 50;
+/// The confirm spotter's keyword file; only its stream carries the no-fire window.
+const CONFIRM_KEYWORDS_FILE: &str = "keywords-confirm.txt";
 
 /// The loaded keyword-spotting runtime; it creates every spotter of one cascade.
 ///
@@ -460,6 +551,13 @@ pub struct Kws {
     switches: KwsSwitches,
     max_active_paths: i32,
     onset_reports: VecDeque<KwsOnsetReport>,
+    /// Trace buffers; stay empty unless [`KwsSwitches::trace`] is set.
+    trace_streams: Vec<KwsStreamTrace>,
+    trace_streams_dropped: u64,
+    trace_feeds: VecDeque<KwsFeedEvent>,
+    trace_feeds_dropped: u64,
+    /// Resets and invalidations since load (trace only).
+    trace_epoch: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -671,6 +769,11 @@ impl Kws {
             switches,
             max_active_paths: paths,
             onset_reports: VecDeque::new(),
+            trace_streams: Vec::new(),
+            trace_streams_dropped: 0,
+            trace_feeds: VecDeque::new(),
+            trace_feeds_dropped: 0,
+            trace_epoch: 0,
         })
     }
 
@@ -683,6 +786,176 @@ impl Kws {
     /// older ones are dropped), oldest first. Each was also logged.
     pub fn take_onset_reports(&mut self) -> Vec<KwsOnsetReport> {
         self.onset_reports.drain(..).collect()
+    }
+
+    /// Drain the firing and no-fire trace (stream beam records of the wake and confirm
+    /// streams, collected before any stream was destroyed, plus the feed and expiry
+    /// schedule). `None` unless [`KwsSwitches::trace`] is set. Streams destroyed by a
+    /// reset keep their records until drained. Fresh-confirmation and idle-wake streams
+    /// are not traced.
+    pub fn take_trace(&mut self) -> Option<KwsTrace> {
+        if self.switches.trace.is_none() {
+            return None;
+        }
+        self.collect_stream_trace("wake");
+        self.collect_stream_trace("confirm");
+        Some(KwsTrace {
+            streams: std::mem::take(&mut self.trace_streams),
+            streams_dropped: std::mem::take(&mut self.trace_streams_dropped),
+            feeds: self.trace_feeds.drain(..).collect(),
+            feeds_dropped: std::mem::take(&mut self.trace_feeds_dropped),
+        })
+    }
+
+    /// Move one live stream's beam records into the trace buffer (trace only).
+    fn collect_stream_trace(&mut self, stage: &'static str) {
+        if self.switches.trace.is_none() {
+            return;
+        }
+        let taken = if stage == "confirm" {
+            self.confirmation_stream
+                .as_mut()
+                .map(|state| (state.origin_sample, state.stream.0.take_trace()))
+        } else {
+            self.wake_stream
+                .as_mut()
+                .map(|state| (state.seed_origin_sample, state.stream.0.take_trace()))
+        };
+        let Some((origin, Some(records))) = taken else {
+            return;
+        };
+        if records.is_empty() {
+            return;
+        }
+        for firing in &records.firings {
+            tracing::info!(
+                stage,
+                keyword = %firing.keyword,
+                occurrence = firing.occurrence,
+                epoch_occurrence = firing.epoch_occurrence,
+                fired_frame = firing.fired_frame,
+                context = ?firing.context,
+                ys = ?firing.ys,
+                timestamps = ?firing.timestamps,
+                ys_probs = ?firing.ys_probs,
+                num_trailing_blanks = firing.num_trailing_blanks,
+                score = firing.score,
+                threshold = firing.threshold,
+                hypotheses_total = firing.hypotheses_total,
+                clock = ?firing.clock,
+                "kws_firing_trace"
+            );
+        }
+        if self.trace_streams.len() == TRACE_STREAMS_KEPT {
+            self.trace_streams.remove(0);
+            self.trace_streams_dropped += 1;
+        }
+        self.trace_streams.push(KwsStreamTrace {
+            stage,
+            origin_sample: Some(origin),
+            epoch: self.trace_epoch,
+            records,
+        });
+    }
+
+    /// Record one feed or expiry event of `stage`'s stream and the clock's candidate
+    /// (trace only).
+    fn trace_feed(
+        &mut self,
+        stage: &'static str,
+        event: &'static str,
+        snapshot_start_sample: Option<usize>,
+        live_total_sample: Option<usize>,
+    ) {
+        if self.switches.trace.is_none() {
+            return;
+        }
+        let state: Option<(usize, usize, usize, usize)> = if stage == "confirm" {
+            self.confirmation_stream.as_ref().map(|state| {
+                (
+                    state.origin_sample,
+                    state.fed_until_sample,
+                    state.accepted_until_sample,
+                    state.pending_audio.len(),
+                )
+            })
+        } else {
+            self.wake_stream.as_ref().map(|state| {
+                (
+                    state.seed_origin_sample,
+                    state.fed_until_sample,
+                    state.accepted_until_sample,
+                    state.pending_audio.len(),
+                )
+            })
+        };
+        let candidate = self.clock.candidate();
+        self.push_trace_feed(KwsFeedEvent {
+            stage,
+            event,
+            epoch: self.trace_epoch,
+            snapshot_start_sample,
+            live_total_sample,
+            origin_sample: state.map(|state| state.0),
+            fed_until_sample: state.map(|state| state.1),
+            accepted_until_sample: state.map(|state| state.2),
+            pending_samples: state.map(|state| state.3),
+            candidate_id: candidate.map(|candidate| candidate.id),
+            candidate_start_sample: candidate.map(|candidate| candidate.start_sample),
+            candidate_end_sample: candidate.map(|candidate| candidate.end_sample),
+            expiry_deadline_sample: candidate
+                .map(|candidate| candidate.end_sample.saturating_add(CONFIRM_TIMEOUT_SAMPLES)),
+        });
+    }
+
+    fn push_trace_feed(&mut self, event: KwsFeedEvent) {
+        if self.trace_feeds.len() == TRACE_FEEDS_KEPT {
+            self.trace_feeds.pop_front();
+            self.trace_feeds_dropped += 1;
+        }
+        self.trace_feeds.push_back(event);
+    }
+
+    /// `CascadeClock::expire_if_needed`, recording the expiry when tracing.
+    fn expire_clock(&mut self, live_sample: usize) -> bool {
+        let candidate = if self.switches.trace.is_some() {
+            self.clock.candidate()
+        } else {
+            None
+        };
+        let expired = self.clock.expire_if_needed(live_sample);
+        if let (true, Some(candidate)) = (expired, candidate) {
+            self.push_trace_feed(KwsFeedEvent {
+                stage: "confirm",
+                event: "expire",
+                epoch: self.trace_epoch,
+                snapshot_start_sample: None,
+                live_total_sample: Some(live_sample),
+                origin_sample: self
+                    .confirmation_stream
+                    .as_ref()
+                    .map(|state| state.origin_sample),
+                fed_until_sample: self
+                    .confirmation_stream
+                    .as_ref()
+                    .map(|state| state.fed_until_sample),
+                accepted_until_sample: self
+                    .confirmation_stream
+                    .as_ref()
+                    .map(|state| state.accepted_until_sample),
+                pending_samples: self
+                    .confirmation_stream
+                    .as_ref()
+                    .map(|state| state.pending_audio.len()),
+                candidate_id: Some(candidate.id),
+                candidate_start_sample: Some(candidate.start_sample),
+                candidate_end_sample: Some(candidate.end_sample),
+                expiry_deadline_sample: Some(
+                    candidate.end_sample.saturating_add(CONFIRM_TIMEOUT_SAMPLES),
+                ),
+            });
+        }
+        expired
     }
 
     /// The cut start for a wake detection whose emission onset is
@@ -1132,7 +1405,7 @@ impl Kws {
             self.invalidate_cascade();
             return Err("KWS cascade snapshot cursor mismatch".into());
         }
-        if self.clock.expire_if_needed(live_total_sample) {
+        if self.expire_clock(live_total_sample) {
             self.destroy_confirmation_stream();
         }
         if use_fresh_confirmation {
@@ -1193,7 +1466,7 @@ impl Kws {
             return Err("KWS cascade snapshot cursor mismatch".into());
         }
 
-        if self.clock.expire_if_needed(live_total_sample) {
+        if self.expire_clock(live_total_sample) {
             self.destroy_confirmation_stream();
         }
         let previous_candidate = self.clock.candidate();
@@ -1329,6 +1602,12 @@ impl Kws {
                 pending_audio,
                 next_decode_sample,
             });
+            self.trace_feed(
+                "wake",
+                "create",
+                Some(snapshot_start_sample),
+                Some(live_total_sample),
+            );
             return Ok(result);
         }
 
@@ -1341,9 +1620,31 @@ impl Kws {
             )
         };
         match feed {
-            ConfirmationFeed::Duplicate => Ok(None),
-            ConfirmationFeed::Stale => Err("KWS wake snapshot is stale".into()),
+            ConfirmationFeed::Duplicate => {
+                self.trace_feed(
+                    "wake",
+                    "duplicate",
+                    Some(snapshot_start_sample),
+                    Some(live_total_sample),
+                );
+                Ok(None)
+            }
+            ConfirmationFeed::Stale => {
+                self.trace_feed(
+                    "wake",
+                    "stale",
+                    Some(snapshot_start_sample),
+                    Some(live_total_sample),
+                );
+                Err("KWS wake snapshot is stale".into())
+            }
             ConfirmationFeed::Gap => {
+                self.trace_feed(
+                    "wake",
+                    "gap",
+                    Some(snapshot_start_sample),
+                    Some(live_total_sample),
+                );
                 self.destroy_wake_stream();
                 self.feed_wake(audio, snapshot_start_sample, live_total_sample)
             }
@@ -1366,6 +1667,12 @@ impl Kws {
                 state.accepted_until_sample = accepted_until_sample;
                 state.pending_audio = pending_audio;
                 state.next_decode_sample = next_decode_sample;
+                self.trace_feed(
+                    "wake",
+                    "suffix",
+                    Some(snapshot_start_sample),
+                    Some(live_total_sample),
+                );
                 Ok(result)
             }
         }
@@ -1394,6 +1701,15 @@ impl Kws {
                 .min(live_total_sample);
             let anchor_offset = anchor_sample - snapshot_start_sample;
             let mut stream = self.confirm_spotter.create_stream();
+            if let Some(trace) = self.switches.trace.filter(|trace| trace.window_frames > 0) {
+                let (from_frame, to_frame) = confirm_trace_window(
+                    anchor_sample,
+                    candidate.start_sample,
+                    candidate.end_sample,
+                    trace.window_frames,
+                );
+                stream.0.set_trace_window(from_frame, to_frame);
+            }
             let next_decode_sample = next_decode_boundary(anchor_sample);
             // On error the new stream drops, which destroys it.
             let (result, accepted_until_sample, pending_audio, next_decode_sample) = self
@@ -1415,6 +1731,12 @@ impl Kws {
                 pending_audio,
                 next_decode_sample,
             });
+            self.trace_feed(
+                "confirm",
+                "create",
+                Some(snapshot_start_sample),
+                Some(live_total_sample),
+            );
             return Ok(result);
         }
 
@@ -1430,9 +1752,31 @@ impl Kws {
             )
         };
         match feed {
-            ConfirmationFeed::Duplicate => Ok(None),
-            ConfirmationFeed::Stale => Err("KWS confirmation snapshot is stale".into()),
+            ConfirmationFeed::Duplicate => {
+                self.trace_feed(
+                    "confirm",
+                    "duplicate",
+                    Some(snapshot_start_sample),
+                    Some(live_total_sample),
+                );
+                Ok(None)
+            }
+            ConfirmationFeed::Stale => {
+                self.trace_feed(
+                    "confirm",
+                    "stale",
+                    Some(snapshot_start_sample),
+                    Some(live_total_sample),
+                );
+                Err("KWS confirmation snapshot is stale".into())
+            }
             ConfirmationFeed::Gap => {
+                self.trace_feed(
+                    "confirm",
+                    "gap",
+                    Some(snapshot_start_sample),
+                    Some(live_total_sample),
+                );
                 self.destroy_confirmation_stream();
                 self.feed_confirmation(audio, snapshot_start_sample, live_total_sample, candidate)
             }
@@ -1460,17 +1804,32 @@ impl Kws {
                 state.accepted_until_sample = accepted_until_sample;
                 state.pending_audio = pending_audio;
                 state.next_decode_sample = next_decode_sample;
+                self.trace_feed(
+                    "confirm",
+                    "suffix",
+                    Some(snapshot_start_sample),
+                    Some(live_total_sample),
+                );
                 Ok(result)
             }
         }
     }
 
     fn destroy_confirmation_stream(&mut self) {
+        // Keep the stream's beam records before it goes (trace only).
+        if self.switches.trace.is_some() && self.confirmation_stream.is_some() {
+            self.collect_stream_trace("confirm");
+            self.trace_feed("confirm", "destroy", None, None);
+        }
         // Dropping the stream destroys it.
         self.confirmation_stream = None;
     }
 
     fn destroy_wake_stream(&mut self) {
+        if self.switches.trace.is_some() && self.wake_stream.is_some() {
+            self.collect_stream_trace("wake");
+            self.trace_feed("wake", "destroy", None, None);
+        }
         // Dropping the stream destroys it.
         self.wake_stream = None;
     }
@@ -1479,12 +1838,19 @@ impl Kws {
         self.destroy_wake_stream();
         self.destroy_confirmation_stream();
         self.clock.clear();
+        // After the destroys, so their records carry the epoch they were made in.
+        if self.switches.trace.is_some() {
+            self.trace_epoch += 1;
+        }
     }
 
     pub fn reset_stream(&mut self) -> Result<(), String> {
         self.destroy_wake_stream();
         self.destroy_confirmation_stream();
         self.clock.clear();
+        if self.switches.trace.is_some() {
+            self.trace_epoch += 1;
+        }
         self.latched = false;
         Ok(())
     }
@@ -1725,6 +2091,15 @@ fn spotter_config(
     config.portable_math = tuning.portable_math;
     config.static_batch = tuning.static_batch;
     config.decoder_cache = tuning.decoder_cache;
+    // The no-fire window rides the confirm stream only; every stream may trace firings.
+    config.trace = tuning.trace.map(|trace| rust_kws::TraceConfig {
+        firing: trace.firing,
+        window_steps: if keywords_file == CONFIRM_KEYWORDS_FILE && trace.window_frames > 0 {
+            trace.capacity_steps
+        } else {
+            0
+        },
+    });
     Ok(config)
 }
 
@@ -1786,6 +2161,29 @@ fn wake_tokens(
 /// Integer arithmetic: feature frame `f` is exactly `160 f` samples.
 fn onset_sample(origin: usize, estimate: rust_kws::OnsetEstimate) -> usize {
     origin.saturating_add(estimate.feature_frame.max(0) as usize * FEATURE_SHIFT_SAMPLES)
+}
+
+/// A frame on the confirm stream's own encoder clock, saturated to `i32`.
+fn trace_frame(frame: i64) -> i32 {
+    frame.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+}
+
+/// The confirm stream's no-fire window as encoder frames `from..to` on its own clock: from
+/// `margin_frames` before the wake candidate's first token to `margin_frames` after its end.
+fn confirm_trace_window(
+    anchor_sample: usize,
+    start_sample: usize,
+    end_sample: usize,
+    margin_frames: u32,
+) -> (i32, i32) {
+    let frame = |sample: usize| {
+        (sample as i64 - anchor_sample as i64).div_euclid(ENCODER_FRAME_SAMPLES as i64)
+    };
+    let margin = i64::from(margin_frames);
+    (
+        trace_frame(frame(start_sample) - margin),
+        trace_frame(frame(end_sample) + margin + 1),
+    )
 }
 
 fn transcription_result_at_wake(
@@ -1941,6 +2339,45 @@ mod tests {
         switches.onset = Some(KwsOnsetMethod::Fricative);
         switches.fricative.enabled = true;
         assert!(switches.validate().is_ok());
+    }
+
+    #[test]
+    fn trace_switch_must_record_something_and_has_bounded_capacity() {
+        let mut switches = KwsSwitches::default();
+        assert_eq!(switches.trace, None);
+        switches.trace = Some(KwsTraceConfig::default());
+        assert!(switches.validate().is_err());
+        switches.trace = Some(KwsTraceConfig {
+            firing: true,
+            ..KwsTraceConfig::default()
+        });
+        assert!(switches.validate().is_ok());
+        switches.trace = Some(KwsTraceConfig {
+            window_frames: 10,
+            capacity_steps: 0,
+            ..KwsTraceConfig::default()
+        });
+        assert!(switches.validate().is_err());
+        switches.trace = Some(KwsTraceConfig {
+            window_frames: 10,
+            capacity_steps: KwsTraceConfig::DEFAULT_CAPACITY_STEPS,
+            ..KwsTraceConfig::default()
+        });
+        assert!(switches.validate().is_ok());
+    }
+
+    #[test]
+    fn confirm_trace_window_is_on_the_stream_clock() {
+        // Stream starts at sample 32_000; the candidate spans frames 10..=20 of that clock.
+        let anchor = 32_000;
+        let start = anchor + 10 * ENCODER_FRAME_SAMPLES;
+        let end = anchor + 20 * ENCODER_FRAME_SAMPLES;
+        assert_eq!(confirm_trace_window(anchor, start, end, 5), (5, 26));
+        // A candidate before the anchor maps to negative frames, not a wrapped number.
+        assert_eq!(
+            confirm_trace_window(anchor, anchor - ENCODER_FRAME_SAMPLES, anchor, 0),
+            (-1, 1)
+        );
     }
 
     #[test]

@@ -14,6 +14,9 @@
 use super::context_graph::{ContextGraph, ROOT};
 use super::math::Math;
 use super::model::{EncoderOut, Zipformer2Transducer};
+use super::trace::{
+    FiringTrace, StepTrace, TraceMatch, TraceMerge, TracePath, TraceState, TraceTop,
+};
 use super::{JoinerBatching, MergeTimestamps, ThresholdTokens};
 use crate::error::Result;
 
@@ -76,11 +79,24 @@ impl Hypotheses {
         Self(vec![h])
     }
 
-    fn add(&mut self, h: Hypothesis, math: Math, merge: MergeTimestamps) {
+    /// `observe`, when given (trace only), receives one record per merge; it never feeds
+    /// back into the result.
+    fn add(
+        &mut self,
+        h: Hypothesis,
+        math: Math,
+        merge: MergeTimestamps,
+        observe: Option<&mut Vec<TraceMerge>>,
+    ) {
         match self.0.iter_mut().find(|e| e.ys == h.ys) {
             Some(existing) => {
                 let log_prob = log_add(existing.log_prob, h.log_prob, math);
-                if merge == MergeTimestamps::Likelier && h.log_prob > existing.log_prob {
+                let keep_incoming =
+                    merge == MergeTimestamps::Likelier && h.log_prob > existing.log_prob;
+                if let Some(events) = observe {
+                    events.push(TraceMerge::observe(existing, &h, keep_incoming, log_prob));
+                }
+                if keep_incoming {
                     *existing = h;
                 }
                 existing.log_prob = log_prob;
@@ -247,27 +263,46 @@ fn expired(h: &Hypothesis, graph: &ContextGraph, current_frame: i32, ttl: i32) -
     current_frame - h.timestamps[h.timestamps.len() - level] > ttl
 }
 
-/// Decode one encoder chunk, updating `result` in place.
+/// Decode one encoder chunk, updating `result` in place. `trace`, when present, only
+/// observes: it is never read to decide anything.
 pub(crate) fn decode_chunk(
     model: &mut Zipformer2Transducer,
     graph: &ContextGraph,
     options: &DecoderOptions,
     encoder_out: &EncoderOut,
     result: &mut DecoderResult,
+    mut trace: Option<&mut TraceState>,
 ) -> Result<()> {
     let vocab = model.vocab_size();
     let context_size = model.context_size();
     let mut cur = std::mem::take(&mut result.hyps);
 
     for t in 0..encoder_out.frames {
+        // Trace only: whether this step is recorded, and what the TTL pass dropped.
+        let rec = match trace.as_mut() {
+            Some(tr) => tr.begin_step(result.frame_offset + t as i32),
+            None => false,
+        };
+        let firings_before = result.firings;
+        let mut expired_paths: Vec<TracePath> = Vec::new();
+        let mut refilled_blank = false;
         if let Some(ttl) = options.active_path_ttl_frames {
             let current_frame = result.frame_offset + t as i32;
+            if rec {
+                for h in &cur.0 {
+                    if expired(h, graph, current_frame, ttl) {
+                        expired_paths.push(TracePath::of(graph, h));
+                    }
+                }
+            }
             cur.0.retain(|h| !expired(h, graph, current_frame, ttl));
             if cur.0.is_empty() {
+                refilled_blank = true;
                 cur.add(
                     Hypothesis::blank(context_size),
                     options.math,
                     options.merge_timestamps,
+                    None,
                 );
             }
         }
@@ -311,8 +346,14 @@ pub(crate) fn decode_chunk(
         }
 
         let mut hyps = Hypotheses::default();
+        // Trace only: parents with a child in the beam, and the merges on this step.
+        let mut survived: Vec<bool> = if rec { vec![false; rows] } else { Vec::new() };
+        let mut merges: Vec<TraceMerge> = Vec::new();
         for k in topk_index(&scores, options.max_active_paths) {
             let hyp_index = k / vocab;
+            if rec {
+                survived[hyp_index] = true;
+            }
             let token = (k % vocab) as i64;
             let mut h = prev[hyp_index].clone();
             let mut context_score = 0.0f32;
@@ -338,14 +379,33 @@ pub(crate) fn decode_chunk(
                 h.num_trailing_blanks += 1;
             }
             h.log_prob = (scores[k] + context_score) as f64;
-            hyps.add(h, options.math, options.merge_timestamps);
+            hyps.add(
+                h,
+                options.math,
+                options.merge_timestamps,
+                if rec { Some(&mut merges) } else { None },
+            );
         }
 
         let best = hyps.most_probable();
+        // Trace only: the beam as the step leaves it, before a firing resets it.
+        let step_head = if rec {
+            Some((hyps.0.len(), TraceTop::of(graph, best)))
+        } else {
+            None
+        };
+        let mut step_match: Option<TraceMatch> = None;
         if let Some(end) = graph.matched(best.context_state) {
             let end = graph.state(end);
             // Upstream averages the FIRST `level` token probabilities of the path.
             let ys_prob = keyword_score(&best.ys_probs, end.level, options.threshold_tokens);
+            if rec {
+                step_match = Some(TraceMatch {
+                    score: ys_prob,
+                    threshold: end.ac_threshold,
+                    trailing_blanks_ok: best.num_trailing_blanks > options.num_trailing_blanks,
+                });
+            }
             if best.num_trailing_blanks > options.num_trailing_blanks
                 && ys_prob >= end.ac_threshold
             {
@@ -364,8 +424,48 @@ pub(crate) fn decode_chunk(
                     onset: None,
                 });
                 result.firings += 1;
+                if let (Some(tr), Some(firing)) = (trace.as_mut(), result.firing.as_ref()) {
+                    if tr.config.firing {
+                        tr.push_firing(FiringTrace::capture(
+                            graph,
+                            best,
+                            &hyps.0,
+                            firing,
+                            &end.phrase,
+                            result.firings,
+                        ));
+                    }
+                }
                 hyps = Hypotheses::single(Hypothesis::blank(context_size));
             }
+        }
+        if let (Some((hypotheses_out, top)), Some(tr)) = (step_head, trace.as_mut()) {
+            let mut pruned = Vec::new();
+            for (h, kept) in prev.iter().zip(&survived) {
+                if !*kept && graph.state(h.context_state).level > 0 {
+                    pruned.push(TracePath::of(graph, h));
+                }
+            }
+            for merge in merges.iter_mut() {
+                merge.level = graph
+                    .state(merge.context_state)
+                    .level
+                    .max(graph.state(merge.incoming_context_state).level);
+            }
+            merges.retain(|merge| merge.level > 0);
+            tr.push_step(StepTrace {
+                frame: result.frame_offset + t as i32,
+                clock: Default::default(),
+                hypotheses_in: rows,
+                hypotheses_out,
+                refilled_blank,
+                top: Some(top),
+                matched: step_match,
+                fired: result.firings != firings_before,
+                expired: expired_paths,
+                pruned,
+                merges,
+            });
         }
         cur = hyps;
     }

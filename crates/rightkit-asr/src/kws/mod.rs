@@ -22,6 +22,10 @@
 //! - [`KeywordSpotterConfig::threshold_tokens`], [`KeywordSpotterConfig::joiner_batching`],
 //!   [`KeywordSpotterConfig::merge_timestamps`], [`KeywordSpotterConfig::portable_math`]:
 //!   accuracy and portability levers.
+//! - [`KeywordSpotterConfig::trace`]: record each firing at its pre-reset event and, in an
+//!   optional per-stream window, what the beam did on every step (hypotheses, pruning, TTL
+//!   expiry, merges, threshold evidence), read through [`KeywordStream::take_trace`].
+//!   Observation only: it changes nothing the decoder does.
 //! - [`KeywordSpotterConfig::static_batch`], [`KeywordSpotterConfig::decoder_cache`] and a
 //!   shared [`KwsModel`] ([`KeywordSpotter::with_model`]): speed and memory levers that leave
 //!   every detection bit-identical where their preconditions hold (see each).
@@ -58,6 +62,7 @@ mod kissfft;
 mod math;
 mod model;
 mod onset;
+mod trace;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -77,6 +82,11 @@ use fbank::{FbankTables, OnlineFbank};
 use math::Math;
 use model::{StateTensor, Zipformer2Transducer};
 use onset::OnsetHistory;
+pub use trace::{
+    FiringTrace, StepTrace, TraceClock, TraceConfig, TraceHypothesis, TraceIdentity, TraceMatch,
+    TraceMerge, TraceMergeSide, TracePath, TraceRecords, TraceTop,
+};
+use trace::TraceState;
 
 /// Where the keyword list comes from. One keyword per line: tokens from `tokens.txt`,
 /// then optional `:boost`, `#threshold` and `@label` (Sherpa's format), for example
@@ -189,6 +199,10 @@ pub struct KeywordSpotterConfig {
     /// and is never cached). The cache lives in the [`KwsModel`], holds at most 2048 rows
     /// (2.6 MB for the 320-dim decoder) and is cleared by [`KeywordSpotter::reset`]. Default off.
     pub decoder_cache: bool,
+    /// Record firings and, optionally, a per-step window of the beam ([`TraceConfig`]).
+    /// `None` (the default) records nothing and adds no work beyond an `Option` check per
+    /// decoded chunk and a `bool` check per step. Never changes what is detected.
+    pub trace: Option<TraceConfig>,
 }
 
 impl KeywordSpotterConfig {
@@ -222,6 +236,7 @@ impl KeywordSpotterConfig {
             portable_math: false,
             static_batch: false,
             decoder_cache: false,
+            trace: None,
         }
     }
 }
@@ -359,6 +374,8 @@ pub struct KeywordSpotter {
     options: DecoderOptions,
     trailing_blank_reset: bool,
     onset: Option<OnsetConfig>,
+    /// Set only when [`KeywordSpotterConfig::trace`] records something.
+    trace: Option<(TraceConfig, Arc<TraceIdentity>)>,
 }
 
 /// One audio stream's features, encoder cache and beam.
@@ -374,6 +391,8 @@ pub struct KeywordStream {
     reported_last_frame: Option<i32>,
     /// Retained frames for onset estimation; `None` when it is off.
     onset: Option<OnsetHistory>,
+    /// Trace records; `None` when tracing is off.
+    trace: Option<TraceState>,
 }
 
 impl KeywordSpotter {
@@ -436,6 +455,18 @@ impl KeywordSpotter {
             math,
             decoder_cache: config.decoder_cache,
         };
+        let trace = config.trace.filter(TraceConfig::is_active).map(|trace| {
+            let config_repr = format!(
+                "{options:?}|{}|{}|{:?}",
+                config.keywords_score, config.keywords_threshold, config.features
+            );
+            let identity = TraceIdentity::new(
+                &keywords_text,
+                &config_repr,
+                [&config.encoder, &config.decoder, &config.joiner],
+            );
+            (trace, Arc::new(identity))
+        });
         Ok(Self {
             id: NEXT_SPOTTER_ID.fetch_add(1, Ordering::Relaxed),
             model,
@@ -446,6 +477,7 @@ impl KeywordSpotter {
             options,
             trailing_blank_reset: config.trailing_blank_reset,
             onset: config.onset.clone(),
+            trace,
         })
     }
 
@@ -460,6 +492,9 @@ impl KeywordSpotter {
             reported_last_frame: None,
             onset: self.onset.clone().map(|config| {
                 OnsetHistory::new(config, self.fbank.first_bin_from(onset::HIGH_BAND_HZ))
+            }),
+            trace: self.trace.as_ref().map(|(config, identity)| {
+                TraceState::new(*config, Arc::clone(identity))
             }),
         }
     }
@@ -490,6 +525,14 @@ impl KeywordSpotter {
             history.push_features(stream.processed_frames, &features, self.fbank.dim());
         }
         stream.processed_frames += self.model.chunk_shift;
+        if let Some(trace) = stream.trace.as_mut() {
+            trace.set_clock(
+                stream.fbank.num_frames_ready(),
+                stream.processed_frames,
+                self.model.chunk_shift,
+                self.model.chunk_size,
+            );
+        }
         let mut model = self.model.lock();
         let encoder_out = model.run_encoder(&features, &mut stream.states)?;
         if let Some(history) = stream.onset.as_mut() {
@@ -502,6 +545,7 @@ impl KeywordSpotter {
             &self.options,
             &encoder_out,
             &mut stream.result,
+            stream.trace.as_mut(),
         )?;
         if stream.result.firings != firings {
             self.estimate_onset(&mut model, stream)?;
@@ -605,6 +649,9 @@ impl KeywordSpotter {
         if let Some(history) = stream.onset.as_mut() {
             history.reset(stream.processed_frames);
         }
+        if let Some(trace) = stream.trace.as_mut() {
+            trace.on_reset(stream.processed_frames);
+        }
     }
 
     fn check_owner(&self, stream: &KeywordStream) -> Result<()> {
@@ -628,7 +675,28 @@ impl KeywordStream {
                 self.sample_rate
             )));
         }
-        self.fbank.accept_waveform(samples)
+        let accepted = self.fbank.accept_waveform(samples);
+        if accepted.is_ok() {
+            if let Some(trace) = self.trace.as_mut() {
+                trace.note_samples(samples.len());
+            }
+        }
+        accepted
+    }
+
+    /// Record per-step window traces only for encoder frames in `from_frame..to_frame` (on
+    /// the clock of [`KeywordResult::frames`], counted from the last reset). Without a
+    /// window every frame is recorded until [`TraceConfig::window_steps`] is reached. A
+    /// reset clears the window. No effect when tracing is off.
+    pub fn set_trace_window(&mut self, from_frame: i32, to_frame: i32) {
+        if let Some(trace) = self.trace.as_mut() {
+            trace.set_window(from_frame, to_frame);
+        }
+    }
+
+    /// Drain what this stream recorded since the last call. `None` when tracing is off.
+    pub fn take_trace(&mut self) -> Option<TraceRecords> {
+        self.trace.as_mut().map(TraceState::take)
     }
 
     /// Append precomputed feature frames (`dim` values each) instead of audio, so a
