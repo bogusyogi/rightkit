@@ -2055,18 +2055,18 @@
     "rightkit-spend": {
       "pkId": "PK20",
       "id": "ci/consumers/rightkit-spend/src/main.rs",
-      "dependency": "rightkit-spend = { version = \"=0.2.0\" }",
+      "dependency": "rightkit-spend = { version = \"=0.2.3\" }",
       "extraDependencies": [
         "rightkit-db = { version = \"0.5\", features = [\"bundled\"] }"
       ],
       "gateEvidence": "no assets needed; in-memory SQLite; no ci/asset-gated.json entry needed",
       "consumes": "genright-gen ledger.rs:61 (imports), :385-393 and :911-913 (reserve_on), :1541 (record_provider_reported), :1665 (reconcile_invoice), :1842-1844 and :1920-1926 (caller budget); PostRight crates/engine/Cargo.toml:43 is a comment only (RIGHTKIT-PENDING), so PostRight has no current call site",
       "files": {
-        "Cargo.toml": "1779e4c4ec61820fc57a2dcc086422222d4d686a2357e3365c55f103af6cab1c",
+        "Cargo.toml": "7a7eef8aa24ab3beb2864d5683fbf3c673d21bba0d5280d4ff2ae9d6d39fd447",
         "README.md": "90cb5179447ec026176499498d2eea51b7b7424dd0d14d8ae48a14f570443066",
         "src/main.rs": "5b4178fe3400a0f5dcc27525f66dafee1b971c9a40bccabe4474d0ad4d51654c"
       },
-      "aggregateSha256": "8d40cb3742de30af29ca0f09c537dbfa1715a6e23eff18a6527f8ba348985ccb"
+      "aggregateSha256": "f7abae5b23424d823a13b510402b4f8b29267ab7b8cb2d9b698313350c508181"
     },
     "rightkit-motion": {
       "pkId": "PK19",
@@ -2458,16 +2458,16 @@
     "rightkit-overlay-win": {
       "pkId": "PK08",
       "id": "ci/consumers/rightkit-overlay-win/src/main.rs",
-      "dependency": "rightkit-overlay-win = { version = \"=0.1.0\" }",
+      "dependency": "rightkit-overlay-win = { version = \"=0.1.4\" }",
       "extraDependencies": [],
       "gateEvidence": "no assets needed; pure geometry, animation, colour, path and offscreen painting only, so it builds and runs on the macOS runner; no window, HWND, owner thread, DWM call, timer or file on any host (OverlayWindow::create is only refused: InvalidConfig everywhere, Unsupported off Windows)",
       "consumes": "PK08 overlay consumers (same family as rightkit-overlay; reviewed recipe, named product consumers not re-read here); rightkit-overlay-win public items used: Easing and Animation (src/anim.rs), Rgba (src/color.rs), scale_for_dpi, device_size, client_to_logical, hit_test, device_regions, HitRegion (src/geometry.rs), rounded_rect_path, parse_svg_path, transform_path (src/path.rs), bar_rects and BarStyle, PaintCtx::offscreen (src/paint.rs), OverlayWindow::create and OverlayConfig (src/window.rs)",
       "files": {
-        "Cargo.toml": "43e6b26b99a3930691b8aedee7f41b99b438ac12b41d22b0e197a2a915e35055",
+        "Cargo.toml": "55a20ff81fdc33adf96b08fb1098d44736a80c82b51b3cdf3a0bf68f2117d980",
         "README.md": "fdfb60ba5d3fdcef8473ca74e2d0797d6e44e9639f7c95dc97ce6bec6ddb0f18",
         "src/main.rs": "a3e53c37dce90b1c9fa9141384f3f28d28b47881852f0869d19cc1765fa1c025"
       },
-      "aggregateSha256": "1b537484384801629b02721b8c05b7a0672c2da0a6657f460182c3107b9e2741"
+      "aggregateSha256": "906904d1e39be44956f94efbbcde6dbdafb62a592dfe7619747377c6cafb5772"
     },
     "rightkit-android": {
       "pkId": "PK09",
@@ -2719,10 +2719,11 @@
       "pkId": "PK40",
       "id": "ci/consumers/rightkit-search/src/main.rs",
       "files": {
-        "Cargo.toml": "e2efc405c02fb247bb9a6c4b752c2f71c916a9481f1e9c453cff9238069fca2b",
+        "Cargo.toml": "7d53fdcdd17a750ffced313ef86a15eef1242d4331f237795ddd956554baab01",
         "README.md": "0ebdf7d0077620309017a5e663f35d5cdf67a44b1080e62ebccb2428e77a342e",
         "src/main.rs": "4aadf55d19cb48b083d6efa2ee6a6aa5d1c964ae40ead25c4652060218cca4ee"
-      }
+      },
+      "aggregateSha256": "685f3feb34dcc1aab751e3b91772c1c65e1a999d6c60b588846e77cf06a27df4"
     },
     "rightkit-send": {
       "pkId": "PK41",

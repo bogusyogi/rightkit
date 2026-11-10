@@ -9,7 +9,7 @@
 //! It needs an interactive Windows desktop, so it is ignored by default. Run it explicitly:
 //!
 //! ```text
-//! cargo test -p rightkit-overlay-win --test windows_gdi_handles -- --ignored --nocapture
+//! cargo test -p rightkit-overlay-win --features interactive-desktop --test windows_gdi_handles -- --ignored --nocapture
 //! ```
 //!
 //! It is one test on purpose: process-wide counts are only meaningful when nothing else in the

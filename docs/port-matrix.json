@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-09T22:44:19Z",
-  "rightkitHead": "92f3208",
+  "generatedAt": "2026-11-10T02:26:18Z",
+  "rightkitHead": "497f29a",
   "legend": [
     {
       "state": "adopted",
@@ -1785,7 +1785,7 @@
       "group": "mandatory-set app",
       "dir": "/Volumes/D/claude/heardright",
       "present": true,
-      "head": "6b3f921",
+      "head": "0de5bd8",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -4487,7 +4487,7 @@
       "group": "tool consumer",
       "dir": "/Volumes/D/claude/legion",
       "present": true,
-      "head": "6ad560c",
+      "head": "2617380",
       "profile": "cli",
       "inMandatorySet": true,
       "declaration": {
@@ -4603,7 +4603,7 @@
           "owners": [
             {
               "name": "rightkit-child-process",
-              "state": "adopted"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -10774,7 +10774,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.1.0 (no published version), 2 pins"
+          "detail": "0.1.2 (no published version), 2 pins"
         }
       }
     },
@@ -13108,8 +13108,8 @@
           "detail": ""
         },
         "legion": {
-          "state": "adopted",
-          "detail": "=0.5.7, 4 pins",
+          "state": "ahead",
+          "detail": "0.5.9 > 0.5.7, 4 pins",
           "rows": [
             "M5"
           ]
@@ -13439,7 +13439,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.1.0 (no published version), 4 pins"
+          "detail": "0.1.1 (no published version), 4 pins"
         }
       }
     },
@@ -16962,7 +16962,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.1.0 (no published version), 10 pins"
+          "detail": "0.1.1 (no published version), 10 pins"
         }
       }
     },
@@ -17029,7 +17029,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.1.0 (no published version)"
+          "detail": "0.1.1 (no published version)"
         }
       }
     },
@@ -17096,7 +17096,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.1.0 (no published version), 2 pins"
+          "detail": "0.1.1 (no published version), 2 pins"
         }
       }
     },
@@ -17163,7 +17163,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.1.0 (no published version), 2 pins"
+          "detail": "0.1.1 (no published version), 2 pins"
         }
       }
     },
@@ -17230,7 +17230,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.1.0 (no published version), 4 pins"
+          "detail": "0.1.1 (no published version), 4 pins"
         }
       }
     },
@@ -20525,9 +20525,9 @@
         "windows-native-overlay-renderer"
       ],
       "private": false,
-      "source": "0.1.3",
+      "source": "0.1.4",
       "registry": "0.1.0",
-      "staged": "0.1.3",
+      "staged": "0.1.4",
       "dir": "crates/rightkit-overlay-win",
       "toMoveFrom": {},
       "cells": {
@@ -21133,7 +21133,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.1.0 (no published version), 5 pins"
+          "detail": "0.1.1 (no published version), 5 pins"
         }
       }
     },
@@ -22133,7 +22133,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.1.1 (no published version)"
+          "detail": "0.1.2 (no published version)"
         }
       }
     },
@@ -22363,9 +22363,9 @@
         "search"
       ],
       "private": false,
-      "source": "0.4.4",
+      "source": "0.4.5",
       "registry": "0.4.0",
-      "staged": "0.4.4",
+      "staged": "0.4.5",
       "dir": "crates/rightkit-search",
       "toMoveFrom": {},
       "cells": {
@@ -23057,9 +23057,9 @@
         "spend-ledger"
       ],
       "private": false,
-      "source": "0.2.2",
+      "source": "0.2.3",
       "registry": "0.2.0",
-      "staged": "0.2.2",
+      "staged": "0.2.3",
       "dir": "crates/rightkit-spend",
       "toMoveFrom": {},
       "cells": {

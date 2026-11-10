@@ -17,7 +17,7 @@ Disable `sqlite` (`default-features = false`) to use the parser and data model w
 
 ## Platform support
 
-No `cfg(target_os)` gates in `src/`. `rusqlite` is a dependency with default features off, so the library build does not bundle SQLite; the `bundled` feature is enabled only for dev-dependencies, i.e. the tests (`Cargo.toml:20`, `:23`). Platform support follows `rusqlite` and the consumer's SQLite selection.
+No `cfg(target_os)` gates in `src/`. `rusqlite` is a dependency with default features off, so the library build does not bundle SQLite; the `bundled` feature is enabled only for dev-dependencies, i.e. the tests (`Cargo.toml:22`, `:31`). Platform support follows `rusqlite` and the consumer's SQLite selection.
 
 Published version: see `INDEX.md` at the repository root. Release notes are in `CHANGELOG.md`.
 

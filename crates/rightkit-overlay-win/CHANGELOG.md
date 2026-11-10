@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.1.3 (unpublished)
+## 0.1.4 (unpublished)
+
+- New feature `interactive-desktop` (no library code): `tests/windows_smoke.rs` and `tests/windows_gdi_handles.rs` build only with it (`[[test]] required-features`), as rightkit-sync gates its live proofs. A default test build no longer consists solely of tests that must be skipped, which the gate refuses (rightkit#1560). Run them with `--features interactive-desktop -- --ignored`.
+
+## 0.1.3
 
 - #914: `OverlayHandle::present(&PaintCtx)` publishes a frame the caller drew with `UpdateLayeredWindow` (premultiplied BGRA, the format `PaintCtx` already uses) at the window's current position and device size. The pixels are copied at call time and sent to the owner thread through the command queue; the painter does not run for that frame, and the next repaint replaces it. The frame must be exactly the window's device size, and nothing is presented while the window is hidden.
 - #1318: opt-in edit mode, `OverlayHandle::set_focusable(bool)`. On: the window clears `WS_EX_NOACTIVATE` (via `rightkit_overlay::windows::apply_style`), is activated and given keyboard focus with `SetForegroundWindow` and `SetFocus` when visible (or on the next `show`), and reports the new `OverlayEvent::Char(char)`, `OverlayEvent::Key(OverlayKey)` (`Enter`, `Escape`, `Backspace`, from `WM_KEYDOWN`) and `OverlayEvent::Focus(bool)` (from `WM_SETFOCUS` / `WM_KILLFOCUS`). Off, the default: the configured no-activate style is restored and nothing of the above is reported. Surrogate pairs are joined into one `char`; other control characters are not reported as `Char`.

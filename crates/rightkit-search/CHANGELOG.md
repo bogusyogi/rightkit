@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.5 (unpublished)
+
+- **Test build: bundled SQLite as a dev-dependency (#1560).** `rusqlite` with `bundled` is a dev-dependency again, so the crate's test build links on a host with no system SQLite (Windows: `LNK1181 sqlite3.lib`). The library's features are unchanged; the application still picks the SQLite backend.
+
 ## 0.4.4
 
 - **Added: exact-term MATCH builder and weighted BM25 projection (#851).** `fts::exact_or_match(terms)` builds one FTS5 MATCH from exact quoted terms joined by `OR` (no prefix matching; punctuation-only terms skipped). `Bm25Weights::new(&[f64])` validates per-column weights, and `Compiled::ranked_bm25_select(select_list, fts_table, &weights, limit)` ranks by `bm25(...)` ascending and bounds the rows (`limit` 1 to 100000). Weights must match the FTS table's column count.

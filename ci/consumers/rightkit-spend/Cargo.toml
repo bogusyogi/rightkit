@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-spend = { version = "=0.2.2" }
+rightkit-spend = { version = "=0.2.3" }
 rightkit-db = { version = "0.5", features = ["bundled"] }

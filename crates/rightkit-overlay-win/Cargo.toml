@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-overlay-win"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Native Win32 layered-window overlays for Right Suite apps: software painter, DWM-paced animation, hover and hit regions, per-monitor DPI, no WebView."
@@ -12,6 +12,13 @@ documentation = "https://docs.rs/rightkit-overlay-win"
 keywords = ["overlay", "win32", "layered-window", "dwm", "gdi"]
 categories = ["os::windows-apis", "gui"]
 include = ["src/**", "tests/**", "examples/**", "README.md", "CHANGELOG.md", "NOTICE", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[features]
+default = []
+# Builds the two interactive-desktop tests (`tests/windows_smoke.rs`, `tests/windows_gdi_handles.rs`), which need a real Windows
+# desktop and run by hand with `--features interactive-desktop -- --ignored`. Off by default so a default test build holds no test
+# that can only be skipped. Adds no code to the library.
+interactive-desktop = []
 
 [dependencies]
 # Overlay policy: OverlayStyle, HoverGate, Rect/WorkArea placement, show_noactivate, topmost repair, monitor_at.
@@ -30,12 +37,20 @@ windows-sys = { version = "0.61.2", features = [
 ] }
 
 [target.'cfg(windows)'.dev-dependencies]
-# Only the ignored GDI handle-count test (tests/windows_gdi_handles.rs) needs these.
+# Only the ignored GDI handle-count test (tests/windows_gdi_handles.rs) needs these (feature `interactive-desktop`).
 windows-sys = { version = "0.61.2", features = [
   "Win32_Foundation",
   "Win32_System_Diagnostics_ToolHelp",
   "Win32_System_Threading",
 ] }
+
+[[test]]
+name = "windows_smoke"
+required-features = ["interactive-desktop"]
+
+[[test]]
+name = "windows_gdi_handles"
+required-features = ["interactive-desktop"]
 
 [package.metadata.rightkit]
 continuous = "held-resource"

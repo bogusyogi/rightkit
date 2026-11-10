@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-overlay-win = { version = "=0.1.3" }
+rightkit-overlay-win = { version = "=0.1.4" }

@@ -131,11 +131,11 @@ A dark glass pill appears at the bottom centre of the monitor under the cursor. 
 
 Pure-logic unit tests cover animation frame maths, hit-region lookup, DPI scaling and frame placement across monitors, the surface growth policy, event coalescing and the bounded event channels, the hover model on top of `HoverGate`, path parsing and flattening, bar layout, the rasteriser (shapes, squircles, blits and their bounds, clip, fill rules, arcs, glass cache, glass caps and styles) and, on Windows, GDI text, the font and surface bounds, the window class registry and the session-lock pause.
 
-Two integration tests create real windows and are ignored by default because they need an interactive desktop:
+Two integration tests create real windows and are ignored and built only with the `interactive-desktop` feature, because they need an interactive desktop:
 
 ```text
-cargo test -p rightkit-overlay-win --test windows_smoke -- --ignored
-cargo test -p rightkit-overlay-win --test windows_gdi_handles -- --ignored --nocapture
+cargo test -p rightkit-overlay-win --features interactive-desktop --test windows_smoke -- --ignored
+cargo test -p rightkit-overlay-win --features interactive-desktop --test windows_gdi_handles -- --ignored --nocapture
 ```
 
 `windows_gdi_handles` creates, shows, animates, hides and closes 30 overlays, then three overlays of one name together, then one window resized 400 times, and asserts that `GetGuiResources(GR_GDIOBJECTS)` and the process thread count return to their baseline and that the window class is unregistered after the last close.

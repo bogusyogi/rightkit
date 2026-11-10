@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-search"
-version = "0.4.4"
+version = "0.4.5"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -23,6 +23,12 @@ rusqlite = { version = "0.41", default-features = false, optional = true }
 ignore = { version = "=0.4.33", optional = true }
 regex = { version = "1.13.1", optional = true }
 sha2 = { version = "0.11", optional = true }
+
+[dev-dependencies]
+# The library leaves the SQLite backend to the application (`default-features = false` above). The test build links one itself, so
+# the crate's test build links on a host with no system SQLite (Windows: `LNK1181 sqlite3.lib`) and runs the same bundled version
+# everywhere. Dev-dependencies do not reach the published library's features.
+rusqlite = { version = "0.41", features = ["bundled"] }
 
 [package.metadata.rightkit]
 continuous = false

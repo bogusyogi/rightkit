@@ -3,7 +3,7 @@
 //! It needs an interactive Windows desktop, so it is ignored by default. Run it explicitly:
 //!
 //! ```text
-//! cargo test -p rightkit-overlay-win --test windows_smoke -- --ignored --nocapture
+//! cargo test -p rightkit-overlay-win --features interactive-desktop --test windows_smoke -- --ignored --nocapture
 //! ```
 //!
 //! It checks what unit tests cannot: that the window gets the layered, topmost, tool-window,

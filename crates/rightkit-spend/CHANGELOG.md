@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.2.2 (unpublished)
+## 0.2.3 (unpublished)
+
+Test build (#1560): `rightkit-db` with `bundled` is a dev-dependency, so the crate's test build links on a host with no system SQLite (Windows: `LNK1181 sqlite3.lib`). The library's features are unchanged; the application still picks the SQLite backend.
+
+## 0.2.2
 
 Issue #422 (approved budgets). Migration 5, `spend-approved-budgets`: tables `spend_approved_budgets`, `spend_approved_reports`, `spend_approved_audit`; purely additive.
 
