@@ -6939,7 +6939,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tts-qwen-sys"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "cmake",
 ]

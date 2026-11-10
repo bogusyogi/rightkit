@@ -8,3 +8,4 @@ Changes from upstream: workspace inheritance replaced by literals; crates rename
 default features empty; `ort` pinned `=2.0.0-rc.12` (`load-dynamic`, `api-24`); benches/dev-deps/examples/tests dropped;
 unbuilt ggml backends removed (cuda, sycl, opencl, hip, musa, cann, webgpu, openvino, hexagon, zdnn, zendnn, virtgpu, rpc) with their cargo features and build.rs links;
 `links` renamed `rightkit_ggml`; build.rs GenRight host-tool discovery retained. Kept: cpu, metal, vulkan, blas.
+vendor/ggml CMake: `GGML_VULKAN_SHADERS_GEN_DIR` (empty by default, upstream layout) gives the vulkan-shaders-gen ExternalProject a short PREFIX/BINARY_DIR; `build.rs` sets it on Windows with `vulkan` (0.1.5).

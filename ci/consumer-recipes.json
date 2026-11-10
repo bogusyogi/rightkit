@@ -2783,10 +2783,11 @@
       "pkId": "PK18",
       "id": "ci/consumers/rightkit-tts-qwen-sys/src/main.rs",
       "files": {
-        "Cargo.toml": "2e665e9652de908cb1bf4cf5d964657caa667b1c8f4d8f971ac4622fda55db3e",
+        "Cargo.toml": "79fd30ea35873a6a3190cc1b406486ec1ce93d2f52daaba14a6386fd5861c3c0",
         "README.md": "c3b41560ddfdf3c504fc12a5e03f11248ca8aee9e755f34530d68e253a44a343",
         "src/main.rs": "80d9c02f5a0b1f26503b7c26366e3d52b86776a77e9840a7d411d798e516901d"
-      }
+      },
+      "aggregateSha256": "08f6eb1e4227bf51420bc47d0d5b5ada4736edd1391b840d4922c2fa1a67e31c"
     },
     "rightkit-typeset": {
       "pkId": "PK19",

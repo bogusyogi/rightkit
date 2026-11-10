@@ -78,6 +78,12 @@ fn main() {
     }
 
     map_feature_cmake(&mut cfg, "vulkan", "GGML_VULKAN");
+    if feature_enabled("vulkan") && target.contains("windows") {
+        // The shader generator's CMake sub-build nests about 120 characters under OUT_DIR/build and
+        // overruns MAX_PATH when OUT_DIR is deep; give it a short directory beside `build`.
+        let gen_dir = out_dir.join("v").to_string_lossy().replace('\\', "/");
+        cfg.define("GGML_VULKAN_SHADERS_GEN_DIR", gen_dir);
+    }
 
     let dst = cfg.build();
     let lib_dir = find_lib_dir(&dst, &out_dir).unwrap_or_else(|| {

@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-10T02:26:18Z",
-  "rightkitHead": "497f29a",
+  "generatedAt": "2026-11-10T07:37:42Z",
+  "rightkitHead": "3a6abf8",
   "legend": [
     {
       "state": "adopted",
@@ -24220,9 +24220,9 @@
         "text-to-speech"
       ],
       "private": false,
-      "source": "0.1.4",
+      "source": "0.1.5",
       "registry": "0.1.2",
-      "staged": "0.1.4",
+      "staged": "0.1.5",
       "dir": "crates/rightkit-tts-qwen-sys",
       "toMoveFrom": {},
       "cells": {

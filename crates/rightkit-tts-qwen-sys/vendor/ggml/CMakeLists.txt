@@ -262,6 +262,8 @@ set(GGML_HEXAGON_FP32_QUANTIZE_GROUP_SIZE 128 CACHE STRING "ggml: quantize group
 
 # toolchain for vulkan-shaders-gen
 set   (GGML_VULKAN_SHADERS_GEN_TOOLCHAIN "" CACHE FILEPATH "ggml: toolchain file for vulkan-shaders-gen")
+# RightKit: short build directory for vulkan-shaders-gen (empty = upstream layout)
+set   (GGML_VULKAN_SHADERS_GEN_DIR "" CACHE PATH "ggml: build directory for vulkan-shaders-gen")
 
 option(GGML_ZENDNN                          "ggml: use ZenDNN"                                OFF)
 option(ZENDNN_ROOT                          "ggml: path to ZenDNN installation"               "")

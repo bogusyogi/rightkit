@@ -694,7 +694,7 @@
     "rightkit-transcript-library": "0.1.2",
     "rightkit-tts": "0.2.5",
     "rightkit-tts-qwen": "0.2.8",
-    "rightkit-tts-qwen-sys": "0.1.4",
+    "rightkit-tts-qwen-sys": "0.1.5",
     "rightkit-typeset": "0.1.2",
     "rightkit-vad": "0.1.3",
     "rightkit-vault": "0.2.1",

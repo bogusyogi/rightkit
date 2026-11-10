@@ -146,8 +146,20 @@ if (Vulkan_FOUND)
         message(STATUS "vulkan-shaders-gen toolchain file: ${HOST_CMAKE_TOOLCHAIN_FILE}")
     endif()
 
+    # RightKit: optional short directories for the shader generator's sub-build. The default
+    # layout (<binary>/src/ggml-vulkan/vulkan-shaders-gen-prefix/src/vulkan-shaders-gen-build)
+    # puts CMake's try_compile scratch past the Windows 260 character path limit when the
+    # build tree is already deep. Unset (the default) keeps the upstream layout.
+    set(_ggml_vk_gen_ep_dirs "")
+    if (GGML_VULKAN_SHADERS_GEN_DIR)
+        list(APPEND _ggml_vk_gen_ep_dirs
+             PREFIX     ${GGML_VULKAN_SHADERS_GEN_DIR}/p
+             BINARY_DIR ${GGML_VULKAN_SHADERS_GEN_DIR})
+    endif()
+
     ExternalProject_Add(
         vulkan-shaders-gen
+        ${_ggml_vk_gen_ep_dirs}
         SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/vulkan-shaders
         CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/$<CONFIG>
                    -DCMAKE_INSTALL_BINDIR=.
