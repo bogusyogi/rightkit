@@ -546,10 +546,12 @@ export function resolvePnpmCli({ root, env = process.env } = {}) {
     if (parent === dir) break;
   }
   // A global pnpm (no Corepack in Node >= 25) exposes its JS entry only through its PATH shim.
+  // pnpm >= 11 installed by pnpm itself writes a shim naming the package's native launcher (`...\node_modules\pnpm\pnpm`, no extension); the JavaScript
+  // entry beside it (bin/pnpm.mjs) is derived below. The Dell, 2026-11-10: sign-updater could not find pnpm.
   for (const dir of String(env.PATH ?? env.Path ?? "").split(path.delimiter).filter(Boolean)) {
     const shim = path.join(dir, "pnpm.CMD");
     if (!existsSync(shim)) continue;
-    const match = /"%~dp0\\([^"]*pnpm\.(?:mjs|cjs|js))"/i.exec(readFileSync(shim, "utf8"));
+    const match = /"%~dp0\\([^"]*pnpm(?:\.(?:mjs|cjs|js|exe))?)"/i.exec(readFileSync(shim, "utf8"));
     if (match) candidates.push(path.resolve(dir, match[1]));
   }
   // Unix global pnpm exposes its JavaScript entry through a PATH symlink.
