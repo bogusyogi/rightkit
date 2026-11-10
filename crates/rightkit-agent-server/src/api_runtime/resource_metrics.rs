@@ -131,7 +131,7 @@ fn retained_resource_samples(window_secs: u64) -> (Vec<serde_json::Value>, u64) 
     let cutoff = std::time::Instant::now().checked_sub(std::time::Duration::from_secs(window_secs));
     let selected: Vec<&ResourceSampleRow> = rows
         .iter()
-        .filter(|row| cutoff.map_or(true, |cutoff| row.captured >= cutoff))
+        .filter(|row| cutoff.is_none_or(|cutoff| row.captured >= cutoff))
         .collect();
     let observed_secs = match (selected.first(), selected.last()) {
         (Some(first), Some(last)) => last.captured.duration_since(first.captured).as_secs(),

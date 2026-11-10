@@ -17,7 +17,7 @@
 //! - NASA: <https://images.nasa.gov/docs/images.nasa.gov_api_docs.pdf> (v1.22.0): `GET /search`
 //!   (`q`, `media_type`, `page`, `page_size`), Collection+JSON `collection.items[].data[0]`
 //!   (`nasa_id, title, description, keywords, photographer, center`), `GET /asset/{nasa_id}` manifest
-//!   links. No key in the document. NASA's guidelines say NASA content "generally [is] not subject to
+//!   links. No key in the document. NASA's guidelines say NASA content "generally \[is\] not subject to
 //!   copyright in the United States" and third-party material is "marked", so NASA rights stay
 //!   `unresolved` per item.
 //! - Wikimedia Commons: <https://www.mediawiki.org/wiki/API:Imageinfo> (`prop=imageinfo`, `iiprop`

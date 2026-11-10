@@ -1,4 +1,7 @@
 pub(crate) mod fts_index;
+// The resumable full-text rebuild is driven by the host app's background job (one `rebuild_step`
+// of `REBUILD_BATCH` rows per writer-lock acquisition); `migrate_v15` registers the rebuild it finishes.
+pub use fts_index::{rebuild_step, RebuildStep, REBUILD_BATCH};
 pub(crate) mod fts_text;
 mod migrations;
 pub(crate) use migrations::ensure_runtime_schema;

@@ -147,7 +147,7 @@ pub fn embed_query_vec(
     Ok(Some(arr))
 }
 
-/// The database half of [`hybrid_search_threads`], given the pre-computed
+/// The database half of the hybrid (full-text plus semantic) thread search, given the pre-computed
 /// query embedding and the embedder's `index_key`. Returns no results (the
 /// same "not ready" answer as a disabled index) while any account in scope
 /// holds vectors from a different pipeline, so wrong-space matches are never

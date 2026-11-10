@@ -316,10 +316,7 @@ async fn cli_provider_entry(
     provider_id: rightkit_agents::driver_host::cli_runtime::CliProviderId,
 ) -> Option<Value> {
     {
-        let state = state;
-        let Some(adapter) = state.cli_registry.adapter(&provider_id) else {
-            return None;
-        };
+        let adapter = state.cli_registry.adapter(&provider_id)?;
         let profile = match persisted_cli_profile(state, provider_id.clone()).await {
             Ok(profile) => profile,
             Err(_) => return None,

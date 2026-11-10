@@ -174,7 +174,7 @@ pub struct LiveSession {
     /// runtime state, reset whenever the operator replaces or clears the goal.
     pub goal_gap_tracker: Arc<Mutex<rightkit_agent_engine_core::GoalGapTracker>>,
     /// Send a rewind command; the engine task responds with the removed message text.
-    pub rewind_tx: tokio::sync::mpsc::Sender<crate::api_sessions::rewind::RewindRequest>,
+    pub(crate) rewind_tx: tokio::sync::mpsc::Sender<crate::api_sessions::rewind::RewindRequest>,
     /// Hook bus for this session's lifecycle events.
     pub hook_bus: rightkit_hooks::agent_hooks::HookBus,
     /// Per-sub-agent roster (F1 agent rail) accumulated from child session
@@ -399,6 +399,9 @@ impl rightkit_agent_tools::coding_tools::UserQuestioner for DaemonQuestioner {
 }
 
 // ── Daemon state ──────────────────────────────────────────────────────────────
+
+/// Per session id: the plugins unloaded for it and how many registrations that removed.
+pub type SessionPluginUnloads = Arc<Mutex<std::collections::HashMap<String, (Vec<String>, usize)>>>;
 
 #[derive(Clone)]
 pub struct DaemonState {
@@ -627,7 +630,7 @@ pub struct DaemonState {
     /// Observable so the unload is provable at the call site rather than only
     /// logged: a test that merely composes the same calls would pass with the
     /// production wiring deleted.
-    pub session_plugin_unloads: Arc<Mutex<std::collections::HashMap<String, (Vec<String>, usize)>>>,
+    pub session_plugin_unloads: SessionPluginUnloads,
     /// EFF-006: reconciliation of mutation batches that never settled,
     /// recorded per session when that session opened its workspace.
     ///

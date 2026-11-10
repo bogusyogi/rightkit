@@ -21,7 +21,7 @@
 //!    manifest, and only then removes the marker and the snapshot.
 //!    The same applies to the suite shared folder (`suite_shared = true`: `Orthic Labs/shared`, the
 //!    shared model store and service records) and to an Android app's package data on a device
-//!    (`[snapshot.android]`, see [`crate::snapshot_android`]), which is copied and restored with `adb`
+//!    (`[snapshot.android]`, see `crate::snapshot_android`), which is copied and restored with `adb`
 //!    and `run-as` and verified against a path and file-hash listing.
 //! 4. A kill or crash leaves the marker. `recover_all` runs at the next `rightkit-qa` start, before
 //!    anything else: state `snapshotting` discards the half-built snapshot, `armed` or `restoring`

@@ -227,56 +227,10 @@ pub(crate) fn effective_tool_filter(
     Some(selected)
 }
 
-pub(crate) fn build_session_tool_registry(
-    plugin_dir: PathBuf,
-    safe_mode: bool,
-    role_allowed_tools: Option<&Vec<String>>,
-    requested_allowed_tools: &[String],
-    requested_disallowed_tools: &[String],
-    lazy_tool_loading: bool,
-    model_interface: rightkit_agent_tools::coding_tools::ModelToolInterface,
-    memory: Option<(
-        std::sync::Arc<dyn rightkit_memory::backend::MemoryBackend>,
-        rightkit_memory::memory_provenance::MemoryProvenanceStore,
-        &str,
-    )>,
-) -> rightkit_agent_tools::coding_tools::ToolRegistry {
-    crate::session_tool_catalog::build_session_tool_registry_for_plugins(
-        (plugin_dir, &[]),
-        safe_mode,
-        role_allowed_tools,
-        requested_allowed_tools,
-        requested_disallowed_tools,
-        lazy_tool_loading,
-        model_interface,
-        memory,
-    )
-}
-
 pub(crate) fn build_session_tool_registry_for_plugins(
-    plugin_scope: (PathBuf, &[String]),
-    safe_mode: bool,
-    role_allowed_tools: Option<&Vec<String>>,
-    requested_allowed_tools: &[String],
-    requested_disallowed_tools: &[String],
-    lazy_tool_loading: bool,
-    model_interface: rightkit_agent_tools::coding_tools::ModelToolInterface,
-    memory: Option<(
-        std::sync::Arc<dyn rightkit_memory::backend::MemoryBackend>,
-        rightkit_memory::memory_provenance::MemoryProvenanceStore,
-        &str,
-    )>,
+    request: crate::session_tool_catalog::SessionToolRegistryRequest<'_>,
 ) -> rightkit_agent_tools::coding_tools::ToolRegistry {
-    crate::session_tool_catalog::build_session_tool_registry_for_plugins(
-        plugin_scope,
-        safe_mode,
-        role_allowed_tools,
-        requested_allowed_tools,
-        requested_disallowed_tools,
-        lazy_tool_loading,
-        model_interface,
-        memory,
-    )
+    crate::session_tool_catalog::build_session_tool_registry_for_plugins(request)
 }
 
 pub(crate) fn load_workspace_config_with_env(

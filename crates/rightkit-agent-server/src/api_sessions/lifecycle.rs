@@ -1494,18 +1494,17 @@ pub(crate) async fn update_session_lifecycle_status(
         if state.get_session(id).is_none() {
             return Err(StatusCode::NOT_FOUND);
         }
-        apply_live_session_status(&state, id, &status).await?;
+        apply_live_session_status(state, id, status).await?;
         return Ok(());
     };
     let id_owned = id.to_string();
-    let status_owned = status.clone();
     let updated_at = now.clone();
     let updated = tokio::task::spawn_blocking(move || {
         let store = store.blocking_lock();
         if store.get_session(&id_owned)?.is_none() {
             return Ok(false);
         }
-        store.update_session_status(&id_owned, &status_owned, &updated_at)?;
+        store.update_session_status(&id_owned, status, &updated_at)?;
         Ok::<bool, rightkit_agent_engine_storage::StorageError>(true)
     })
     .await
@@ -1517,7 +1516,7 @@ pub(crate) async fn update_session_lifecycle_status(
     if !updated {
         return Err(StatusCode::NOT_FOUND);
     }
-    apply_live_session_status(&state, id, &status).await
+    apply_live_session_status(state, id, status).await
 }
 
 /// Clone a conversation into an independent dormant session. Unlike `fork`,

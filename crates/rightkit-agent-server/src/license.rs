@@ -330,7 +330,7 @@ impl LicenseGate {
             };
             let unexpired = verdict
                 .exp
-                .map_or(true, |exp| system_now_unix().is_ok_and(|now| now < exp));
+                .is_none_or(|exp| system_now_unix().is_ok_and(|now| now < exp));
             if verdict.generation == generation && verdict.at.elapsed() < ttl && unexpired {
                 return verdict.features.clone();
             }

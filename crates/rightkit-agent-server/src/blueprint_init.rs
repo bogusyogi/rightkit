@@ -103,7 +103,7 @@ impl RepoMap {
             hasher.update(entry.len.to_string().as_bytes());
             hasher.update(&[0]);
             hasher.update(entry.modified_unix.to_string().as_bytes());
-            hasher.update(AsRef::<[u8]>::as_ref(&*b"\n"));
+            hasher.update(b"\n");
 
             let top = entry
                 .relative

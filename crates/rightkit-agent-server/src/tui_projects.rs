@@ -311,7 +311,7 @@ pub fn build_home(
     let mut chats: Vec<(&ProjectEntry, &ChatEntry)> = projects
         .iter()
         .flat_map(|p| p.chats.iter().map(move |c| (p, c)))
-        .filter(|(_, c)| active_session.map_or(true, |id| id != c.id))
+        .filter(|(_, c)| active_session.is_none_or(|id| id != c.id))
         .collect();
     chats.sort_by(|a, b| b.1.updated.cmp(&a.1.updated));
     for (project, chat) in chats.into_iter().take(15) {

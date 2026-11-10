@@ -26,23 +26,18 @@ async fn daemon_logs_until_terminal(base_url: &str, token: &str, session_id: &st
 
     let mut body = resp.into_stream();
     let mut buffer = String::new();
-    loop {
-        match body.next().await {
-            Some(Ok(bytes)) => {
-                let text = String::from_utf8_lossy(&bytes);
-                print!("{text}");
-                let _ = std::io::stdout().flush();
-                buffer.push_str(&text);
+    while let Some(Ok(bytes)) = body.next().await {
+        let text = String::from_utf8_lossy(&bytes);
+        print!("{text}");
+        let _ = std::io::stdout().flush();
+        buffer.push_str(&text);
 
-                while let Some(newline) = buffer.find('\n') {
-                    let line = buffer[..newline].trim_end_matches('\r').to_string();
-                    buffer.drain(..=newline);
-                    if let Some(code) = terminal_sse_exit_code(&line) {
-                        return code;
-                    }
-                }
+        while let Some(newline) = buffer.find('\n') {
+            let line = buffer[..newline].trim_end_matches('\r').to_string();
+            buffer.drain(..=newline);
+            if let Some(code) = terminal_sse_exit_code(&line) {
+                return code;
             }
-            Some(Err(_)) | None => break,
         }
     }
     1

@@ -11,8 +11,8 @@ pub fn service() -> &'static str {
     crate::host::config().app_identifier.as_str()
 }
 
-/// Holder of the `Store` a `Context` uses instead of the OS keychain (tests inject
-/// [`MemoryCredentials`]). The provided methods are conveniences over the store.
+/// Holder of the `Store` a `Context` reads provider keys from. The provided methods are
+/// conveniences over the store.
 pub trait CredentialSource: Send + Sync + std::fmt::Debug {
     fn store(&self) -> &Store;
     fn get(&self, provider: &str) -> GenResult<Option<String>> {

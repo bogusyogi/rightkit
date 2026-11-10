@@ -529,7 +529,7 @@ fn private_corpus_secret(token: &str, suite_namespace: &str) -> [u8; 32] {
     digest.update(token.as_bytes());
     digest.update(&[0]);
     digest.update(suite_namespace.as_bytes());
-    digest.finalize_bytes().into()
+    digest.finalize_bytes()
 }
 
 fn map_bakeoff_error(error: BakeoffError) -> StatusCode {

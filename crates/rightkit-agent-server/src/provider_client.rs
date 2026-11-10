@@ -873,6 +873,9 @@ pub type SharedProviderRoute = Arc<Mutex<ProviderRoute>>;
 
 /// Complete a small, provider-backed projection without exposing provider
 /// construction to API handlers.
+// `ProviderError` is rightkit-llm's error type (that crate allows this lint for it; `finish` below carries
+// the same allow); it is propagated as-is rather than re-wrapped.
+#[allow(clippy::result_large_err)]
 pub(crate) async fn complete_projection(
     config: &EngineConfig,
     messages: Vec<serde_json::Value>,
@@ -1957,6 +1960,9 @@ pub(crate) fn compaction_policy_for_model(
     )
 }
 
+// `ProviderError` is rightkit-llm's error type (that crate allows this lint for it; `finish` below carries
+// the same allow); it is propagated as-is rather than re-wrapped.
+#[allow(clippy::result_large_err)]
 fn capacity_profile_for_inference_route(
     route: &crate::inference_runtime::ResolvedInferenceRoute,
 ) -> Result<CapacityProfileV1, ProviderError> {
@@ -1999,6 +2005,9 @@ fn build_client(route: &ProviderRoute) -> OpenAiCompatClient {
 /// the HTTP client to exactly those validated addresses. This closes DNS-rebinding
 /// gaps between route rehydration and request execution while retaining
 /// explicit persisted private-route approval.
+// `ProviderError` is rightkit-llm's error type (that crate allows this lint for it; `finish` below carries
+// the same allow); it is propagated as-is rather than re-wrapped.
+#[allow(clippy::result_large_err)]
 async fn build_checked_client(route: &ProviderRoute) -> Result<OpenAiCompatClient, ProviderError> {
     // Native provider auth is resolved only at request construction. This
     // keeps OAuth refresh inside broker's per-provider lock and leaves
@@ -2144,6 +2153,9 @@ fn configured_image_budget_policy(
 
 /// Build one fallback attempt's client with the request authority (or direct
 /// dispatch) and submission observer applied. Shared by every attempt site.
+// `ProviderError` is rightkit-llm's error type (that crate allows this lint for it; `finish` below carries
+// the same allow); it is propagated as-is rather than re-wrapped.
+#[allow(clippy::result_large_err)]
 async fn build_attempt_client(
     route: &ProviderRoute,
     request_authority: Option<&RequestAuthorityBindingV1>,

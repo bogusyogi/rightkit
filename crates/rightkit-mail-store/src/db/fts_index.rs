@@ -27,7 +27,7 @@ const CLEANUP_ROWS: i64 = 400;
 /// Rows re-indexed per rebuild transaction. Each batch holds the writer:
 /// 500 rows held it about 0.7 s on a 164k-message mailbox and other
 /// commands were seen waiting up to 1.3 s; 50 rows is about 70 ms.
-pub(crate) const REBUILD_BATCH: usize = 50;
+pub const REBUILD_BATCH: usize = 50;
 
 const BASE_SQL: &str = "
 CREATE TABLE IF NOT EXISTS message_search (
@@ -163,7 +163,7 @@ pub(crate) fn serving_is_external(conn: &Connection) -> bool {
 
 /// Outcome of one [`rebuild_step`].
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum RebuildStep {
+pub enum RebuildStep {
     /// Nothing to do (no rebuild registered).
     Idle,
     /// A batch was indexed; call again. Carries the running total.
@@ -174,7 +174,7 @@ pub(crate) enum RebuildStep {
 
 /// Index one batch of messages into the new index, or swap it in when the
 /// scan is complete. Own transaction: the caller must not hold one.
-pub(crate) fn rebuild_step(conn: &Connection, batch: usize) -> Result<RebuildStep, String> {
+pub fn rebuild_step(conn: &Connection, batch: usize) -> Result<RebuildStep, String> {
     let cursor: Option<i64> = conn
         .query_row(
             "SELECT last_rowid FROM fts_rebuild_state WHERE id = 1",

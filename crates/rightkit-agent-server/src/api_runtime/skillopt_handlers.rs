@@ -203,7 +203,7 @@ async fn list_skillopt_rejected_edits(
 /// store is returned, so the next save cannot overwrite the only copy.
 pub(crate) fn load_skillopt_store(path: &FsPath) -> rightkit_adapt::SkillOptimizationStore {
     crate::store_write::load_or_set_aside::<rightkit_adapt::SkillOptimizationStore>(path)
-        .unwrap_or_else(rightkit_adapt::SkillOptimizationStore::new)
+        .unwrap_or_default()
 }
 
 fn persist_skillopt_store(

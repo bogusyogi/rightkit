@@ -118,9 +118,8 @@ async fn update_workspace_config_blocking(
             .update_workspace_from(
                 &workspace,
                 || {
-                    load_workspace_config_only(&workspace).map_err(|err| {
+                    load_workspace_config_only(&workspace).inspect_err(|_| {
                         read_failed.set(true);
-                        err
                     })
                 },
                 edit,

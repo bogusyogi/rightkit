@@ -657,7 +657,9 @@ impl DaemonState {
         }
         let (interrupt_tx, interrupt_rx) = tokio::sync::watch::channel(false);
         // CR3: a persistence latch cancels tools already running for this session.
-        let _ = spawn_latch_cancel(&conduit, id.to_string(), interrupt_tx.clone());
+        // The returned JoinHandle is dropped on purpose: the task is already
+        // spawned and detached, and nothing awaits its outcome.
+        drop(spawn_latch_cancel(&conduit, id.to_string(), interrupt_tx.clone()));
         let initial_mode = initial_mode_for_isolation;
         let (permission_mode_tx, permission_mode_rx) = tokio::sync::watch::channel(initial_mode);
         let mut permission_mode_idle_rx = permission_mode_rx.clone();
@@ -739,18 +741,20 @@ impl DaemonState {
             )
             .overrides_for_session(&catalog_session_id);
             let mut session_registry = build_session_tool_registry_for_plugins(
-                (catalog_plugin_dir.clone(), &enabled_plugins),
-                catalog_safe_mode,
-                catalog_role_allowed_tools.as_ref(),
-                &catalog_requested_allowed_tools,
-                &catalog_requested_disallowed_tools,
-                catalog_lazy_tool_loading,
-                catalog_model_interface,
-                Some((
-                    catalog_memory.clone(),
-                    catalog_memory_provenance.clone(),
-                    catalog_workspace.as_str(),
-                )),
+                crate::session_tool_catalog::SessionToolRegistryRequest {
+                    plugin_scope: (catalog_plugin_dir.clone(), &enabled_plugins),
+                    safe_mode: catalog_safe_mode,
+                    role_allowed_tools: catalog_role_allowed_tools.as_ref(),
+                    requested_allowed_tools: &catalog_requested_allowed_tools,
+                    requested_disallowed_tools: &catalog_requested_disallowed_tools,
+                    lazy_tool_loading: catalog_lazy_tool_loading,
+                    model_interface: catalog_model_interface,
+                    memory: Some((
+                        catalog_memory.clone(),
+                        catalog_memory_provenance.clone(),
+                        catalog_workspace.as_str(),
+                    )),
+                },
             );
             if !disabled_plugins.is_empty() {
                 let removed = session_registry.unload_disabled_plugins(&disabled_plugins);

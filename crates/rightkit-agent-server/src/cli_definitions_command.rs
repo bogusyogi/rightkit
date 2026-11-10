@@ -51,7 +51,7 @@ pub enum Command {
     #[command(visible_alias = "exec")]
     Run {
         #[command(flatten)]
-        args: cli_definitions_command_run::RunArgs,
+        args: Box<cli_definitions_command_run::RunArgs>,
     },
     /// Preflight: check whether the engine is ready to run (no models executed).
     Doctor {

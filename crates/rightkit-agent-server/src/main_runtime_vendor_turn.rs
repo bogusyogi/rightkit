@@ -597,18 +597,33 @@ fn claude_launch_extras(
     }
 }
 
+/// Inputs for [`vendor_launch_spec`].
+struct VendorLaunchRequest<'a> {
+    kind: VendorCli,
+    executable: &'a std::path::Path,
+    workspace: &'a std::path::Path,
+    model: Option<&'a str>,
+    conversation_id: Option<&'a str>,
+    permission_mode: rightkit_agent_policy::PermissionMode,
+    prompt: &'a str,
+    account: Option<&'a ClaudeAccountLaunch>,
+}
+
 /// Build the vendor child's launch spec + prompt delivery for one turn.
 /// `Err` strings are already presentation-ready.
 fn vendor_launch_spec(
-    kind: VendorCli,
-    executable: &std::path::Path,
-    workspace: &std::path::Path,
-    model: Option<&str>,
-    conversation_id: Option<&str>,
-    permission_mode: rightkit_agent_policy::PermissionMode,
-    prompt: &str,
-    account: Option<&ClaudeAccountLaunch>,
+    request: VendorLaunchRequest<'_>,
 ) -> Result<(rightkit_agents::driver_host::LaunchSpec, Option<String>), String> {
+    let VendorLaunchRequest {
+        kind,
+        executable,
+        workspace,
+        model,
+        conversation_id,
+        permission_mode,
+        prompt,
+        account,
+    } = request;
     match kind {
         VendorCli::ClaudeCode => {
             let current_exe = std::env::current_exe()
@@ -846,10 +861,8 @@ fn preview_stderr(tail: &str) -> String {
     }
 }
 
-/// Interactive vendor turn (TUI path): emits into the shared host event
-/// queue the renderer drains, honours `control` cancellation by killing the
-/// child, and always settles the cancellation slot so the next turn admits.
-async fn run_vendor_turn(
+/// Inputs for [`run_vendor_turn`].
+struct VendorTurnRequest {
     kind: VendorCli,
     model: Option<String>,
     workspace: String,
@@ -859,7 +872,23 @@ async fn run_vendor_turn(
     events: VendorEventQueue,
     conversations: VendorConversationMap,
     control: std::sync::Arc<RunCancellation>,
-) -> i32 {
+}
+
+/// Interactive vendor turn (TUI path): emits into the shared host event
+/// queue the renderer drains, honours `control` cancellation by killing the
+/// child, and always settles the cancellation slot so the next turn admits.
+async fn run_vendor_turn(request: VendorTurnRequest) -> i32 {
+    let VendorTurnRequest {
+        kind,
+        model,
+        workspace,
+        prompt,
+        session_id,
+        permission_mode,
+        events,
+        conversations,
+        control,
+    } = request;
     control
         .admission_started
         .store(true, std::sync::atomic::Ordering::Release);
@@ -895,16 +924,16 @@ async fn run_vendor_turn(
     } else {
         None
     };
-    let (mut spec, stdin_frame) = match vendor_launch_spec(
+    let (mut spec, stdin_frame) = match vendor_launch_spec(VendorLaunchRequest {
         kind,
-        &executable,
-        &workspace_path,
-        model.as_deref(),
-        stored.as_deref(),
+        executable: &executable,
+        workspace: &workspace_path,
+        model: model.as_deref(),
+        conversation_id: stored.as_deref(),
         permission_mode,
-        &prompt,
-        account.as_ref().map(|resolved| &resolved.launch),
-    ) {
+        prompt: &prompt,
+        account: account.as_ref().map(|resolved| &resolved.launch),
+    }) {
         Ok(launch) => launch,
         Err(message) => {
             vendor_system(&events, message);
@@ -1138,16 +1167,16 @@ async fn run_vendor_turn_headless(
     } else {
         None
     };
-    let (mut spec, stdin_frame) = match vendor_launch_spec(
+    let (mut spec, stdin_frame) = match vendor_launch_spec(VendorLaunchRequest {
         kind,
-        &executable,
-        &workspace_path,
-        model.as_deref(),
-        None,
+        executable: &executable,
+        workspace: &workspace_path,
+        model: model.as_deref(),
+        conversation_id: None,
         permission_mode,
-        &args.prompt,
-        account.as_ref().map(|resolved| &resolved.launch),
-    ) {
+        prompt: &args.prompt,
+        account: account.as_ref().map(|resolved| &resolved.launch),
+    }) {
         Ok(launch) => launch,
         Err(message) => {
             eprintln!("{message}");

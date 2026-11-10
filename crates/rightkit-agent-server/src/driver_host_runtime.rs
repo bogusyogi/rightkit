@@ -257,16 +257,16 @@ impl DriverHostRuntime {
             processes.insert(binding_id.clone(), managed);
         }
 
-        spawn_stdout_reader(
+        spawn_stdout_reader(StdoutReader {
             kind,
             stdout,
-            cursor.output_offset,
-            event_tx.clone(),
-            stdin.clone(),
-            child.clone(),
-            ready_tx,
+            initial_offset: cursor.output_offset,
+            events: event_tx.clone(),
+            stdin: stdin.clone(),
+            child: child.clone(),
+            ready: ready_tx,
             account,
-        );
+        });
         spawn_stderr_reader(stderr, event_tx.clone(), secret_values);
         spawn_exit_monitor(
             binding_id.clone(),
@@ -1094,7 +1094,8 @@ fn codex_usage_limit_events(
     }
 }
 
-fn spawn_stdout_reader(
+/// Everything the stdout reader task owns for one driver process.
+struct StdoutReader {
     kind: DriverKind,
     stdout: std::pin::Pin<Box<dyn AsyncRead + Send>>,
     initial_offset: u64,
@@ -1103,7 +1104,19 @@ fn spawn_stdout_reader(
     child: Arc<Mutex<Box<dyn rightkit_sandbox::execution::ManagedChild>>>,
     ready: watch::Sender<bool>,
     account: Option<ClaudeAccountIdentity>,
-) {
+}
+
+fn spawn_stdout_reader(reader: StdoutReader) {
+    let StdoutReader {
+        kind,
+        stdout,
+        initial_offset,
+        events,
+        stdin,
+        child,
+        ready,
+        account,
+    } = reader;
     tokio::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
         let mut offset = initial_offset;

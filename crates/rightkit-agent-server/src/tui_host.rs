@@ -953,6 +953,18 @@ fn next_paging_cursor(page: &[HistoryPageEntry]) -> Option<i64> {
     page.iter().map(|entry| entry.seq).min()
 }
 
+/// Calls that started together: the batch's first start plus
+/// `(call_id, name, args)` per call.
+type ToolCallBatch = (Instant, Vec<(String, String, String)>);
+
+/// In-flight `@` file search; resolves to the query and its matches.
+type FileSearchFuture<'a> = std::pin::Pin<
+    Box<
+        dyn std::future::Future<Output = (String, Vec<rightkit_terminal_ui::composer::FileMatch>)>
+            + 'a,
+    >,
+>;
+
 /// P2-5: scrollback paging state for the session whose transcript this view
 /// currently shows — the durable-history cursor (smallest seq still needed),
 /// whether the ledger has been exhausted, and how far eviction had advanced
@@ -1455,7 +1467,7 @@ struct SessionState {
     started_at: Instant,
     /// Calls that started together (one batch) as `(call_id, name, args)`
     /// with the batch's first start; merged into one parallel cell.
-    batch: Option<(Instant, Vec<(String, String, String)>)>,
+    batch: Option<ToolCallBatch>,
     /// Full (ctrl+o) lines of the most recently settled reasoning/exec cell.
     expandable: Option<Vec<rightkit_terminal_ui::ratatui::text::Line<'static>>>,
     /// Plan/todo list, rebuilt from durable `todo_write` calls (live and
@@ -2857,7 +2869,9 @@ mod stderr_guard {
 
         #[link(name = "kernel32")]
         unsafe extern "system" {
-            fn GetStdHandle(which: u32) -> isize;
+            // Same signature as the `GetStdHandle` declaration in `onboarding.rs`
+            // (the lint `clashing_extern_declarations` rejects a different one).
+            fn GetStdHandle(which: u32) -> *mut std::ffi::c_void;
             fn SetStdHandle(which: u32, handle: isize) -> i32;
         }
 
@@ -2869,7 +2883,7 @@ mod stderr_guard {
                 return;
             };
             // SAFETY: plain handle queries/swaps on this process's own std handle.
-            let saved = unsafe { GetStdHandle(STD_ERROR_HANDLE) };
+            let saved = unsafe { GetStdHandle(STD_ERROR_HANDLE) } as isize;
             if saved == 0 || saved == -1 {
                 return;
             }
@@ -3420,10 +3434,10 @@ fn normalize_alt_code_release(
                 (KeyEventKind::Press | KeyEventKind::Repeat, KeyCode::Char(c)) => {
                     pressed_chars.insert(physical_char(c));
                 }
-                (KeyEventKind::Release, KeyCode::Char(c)) => {
-                    if !pressed_chars.remove(&physical_char(c)) && key.modifiers.is_empty() {
-                        key.kind = KeyEventKind::Press;
-                    }
+                (KeyEventKind::Release, KeyCode::Char(c))
+                    if !pressed_chars.remove(&physical_char(c)) && key.modifiers.is_empty() =>
+                {
+                    key.kind = KeyEventKind::Press;
                 }
                 _ => {}
             }
@@ -3809,15 +3823,7 @@ pub async fn drive(host: impl TurnHost) -> i32 {
     let mut timeline_poll: Option<
         std::pin::Pin<Box<dyn std::future::Future<Output = Vec<DaemonEvent>> + '_>>,
     > = None;
-    let mut file_search: Option<
-        std::pin::Pin<
-            Box<
-                dyn std::future::Future<
-                        Output = (String, Vec<rightkit_terminal_ui::composer::FileMatch>),
-                    > + '_,
-            >,
-        >,
-    > = None;
+    let mut file_search: Option<FileSearchFuture<'_>> = None;
     while !should_exit {
         // Lane 4: window title + unfocused completion/approval notification.
         let _ = notifier.observe(
@@ -3954,7 +3960,7 @@ pub async fn drive(host: impl TurnHost) -> i32 {
                                     effective_background(&session.proj.settings.theme, profile.background),
                                     profile.capabilities.color_depth,
                                 );
-                                session.theme = theme.clone();
+                                session.theme = theme;
                                 transcript.set_theme(&theme);
                                 composer.set_vim_enabled(session.proj.settings.vim);
                                 notifier = build_notifier(
@@ -4114,7 +4120,7 @@ pub async fn drive(host: impl TurnHost) -> i32 {
                         turn = Some(handle);
                     }
                 }
-                while let Some(directive) = pending_followups.pop_front() {
+                if let Some(directive) = pending_followups.pop_front() {
                     match directive {
                         Directive::Steer(framed) | Directive::Reprompt(framed) => {
                             // The raw user text was already echoed at enqueue.
@@ -4124,7 +4130,6 @@ pub async fn drive(host: impl TurnHost) -> i32 {
                             session.working_signal = None;
                             session.begin_turn_status();
                             turn = Some(host.spawn_turn(framed));
-                            break;
                         }
                         // A cancelled turn has no reader left to deliver to;
                         // the text was recorded in the transcript when it was
@@ -4132,7 +4137,6 @@ pub async fn drive(host: impl TurnHost) -> i32 {
                         Directive::Cancel => {
                             session.notice(&mut transcript, "Turn cancelled.");
                             pending_followups.clear();
-                            break;
                         }
                     }
                 }
@@ -5169,6 +5173,9 @@ async fn apply_route_intent(
 /// Service a one-shot picker request raised by a command: route pickers go
 /// to `open_route_picker`; `/resume` opens the session list or switches in
 /// place and replays that session's history.
+// Same shape as the sibling drive-loop handlers (`handle_event`, ...): the
+// UI-surface `&mut` references are passed through, never bundled.
+#[allow(clippy::too_many_arguments)]
 async fn service_picker_request(
     host: &impl TurnHost,
     request: PickerRequest,
@@ -5354,6 +5361,9 @@ async fn open_route_picker(
 /// Switch the view and host to another root session and replay its durable
 /// history into the (cleared) transcript. Shared by the session picker and
 /// `/resume`.
+// Same shape as the sibling drive-loop handlers (`handle_event`, ...): the
+// UI-surface `&mut` references are passed through, never bundled.
+#[allow(clippy::too_many_arguments)]
 async fn switch_to_session(
     host: &impl TurnHost,
     id: SessionId,

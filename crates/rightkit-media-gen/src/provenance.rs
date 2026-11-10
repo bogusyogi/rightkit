@@ -161,7 +161,7 @@ fn pipeline_evidence(model: &str, parents: &[Parent]) -> EvidenceKind {
 /// Facts of an asset the host itself produced from `parents` (a pipeline compose, a transcode).
 /// Origin is `generated` by the named tool with the parents listed; rights are inherited from the
 /// parents (cleared only when every parent is cleared, unknown when any parent is unknown).
-/// Evidence follows the step's kind per [`pipeline_evidence`]. Rights are never changed by it.
+/// Evidence follows the step's kind per `pipeline_evidence`. Rights are never changed by it.
 pub fn derived_facts(provider: &str, model: &str, job_id: &str, parents: &[Parent]) -> AssetFacts {
     let mut ids: Vec<String> = Vec::new();
     for p in parents {

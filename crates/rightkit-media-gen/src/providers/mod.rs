@@ -68,7 +68,7 @@ pub enum Kind {
     Restyle,
     /// Speech in, transcript out: text plus timed segments (ElevenLabs Scribe v2 on fal and
     /// WaveSpeed). The artifact is the transcript JSON stored as `application/json` bytes; see
-    /// [`transcript_output`].
+    /// `transcript_output`.
     Transcribe,
 }
 
@@ -239,7 +239,7 @@ pub enum PollOutcome {
 const UNKNOWN_EXCERPT_CHARS: usize = 300;
 
 /// An excerpt of a provider reply that is safe to store and show: lossy UTF-8, whitespace
-/// collapsed, the API key replaced, cut to [`UNKNOWN_EXCERPT_CHARS`] characters.
+/// collapsed, the API key replaced, cut to `UNKNOWN_EXCERPT_CHARS` characters.
 pub fn clip_excerpt(body: &[u8], api_key: &str) -> String {
     let text = String::from_utf8_lossy(body);
     let text = if api_key.is_empty() {
@@ -369,7 +369,7 @@ pub(crate) fn request_may_have_reached<T>(sent: &Result<T, HttpError>) -> bool {
     }
 }
 
-/// [`request_may_have_reached`] for an error already in hand (callers that need the error afterwards, such as the
+/// `request_may_have_reached` for an error already in hand (callers that need the error afterwards, such as the
 /// rented-worker driver deciding whether to hold or release a billed reservation). The monotonic hop evidence of the
 /// last `Http::send` on this thread wins over the error variant: an `InvalidRequest` or `AddressDenied` raised by a
 /// later redirect hop never turns an earlier `Responded` hop into "not sent".

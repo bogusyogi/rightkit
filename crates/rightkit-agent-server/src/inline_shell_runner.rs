@@ -1,5 +1,5 @@
 //! Permission-gated runner for inline `!{cmd}` expansion in custom commands
-//! (A208; https://code.claude.com/docs/en/slash-commands, "Bash command execution").
+//! (A208; <https://code.claude.com/docs/en/slash-commands>, "Bash command execution").
 //!
 //! Every command is evaluated by `PermissionEngine::evaluate_shell_command`
 //! (the same policy the shell tool uses). Only an `Allow` verdict runs; `Ask`

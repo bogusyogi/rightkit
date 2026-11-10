@@ -59,11 +59,10 @@ pub(crate) async fn get_events_sse(
     Query(q): Query<AfterQuery>,
 ) -> Result<
     Sse<KeepAliveStream<tokio_stream::wrappers::ReceiverStream<Result<Event, Infallible>>>>,
-    Response,
+    StatusCode,
 > {
-    let live = state
-        .get_session(&id)
-        .ok_or_else(|| StatusCode::NOT_FOUND.into_response())?;
+    // `StatusCode` renders the same empty-body 404 the boxed-away `Response` did.
+    let live = state.get_session(&id).ok_or(StatusCode::NOT_FOUND)?;
 
     // Subscribe FIRST so any event that arrives between this call and
     // our history replay is captured by the live subscription. Without

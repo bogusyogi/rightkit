@@ -284,7 +284,7 @@ fn print_launch_run_argv(
     ];
     if let Some((provider, model)) = provider_model {
         argv.extend(["--model".to_string(), model.to_string()]);
-        if launch.provider.as_deref().unwrap_or(provider) != "" {
+        if !launch.provider.as_deref().unwrap_or(provider).is_empty() {
             argv.extend([
                 "--provider".to_string(),
                 launch.provider.as_deref().unwrap_or(provider).to_string(),

@@ -339,7 +339,7 @@ mod interactive_session {
             rows.into_iter()
                 .filter(|row| {
                     row.get("parentSessionId")
-                        .map_or(true, serde_json::Value::is_null)
+                        .is_none_or(serde_json::Value::is_null)
                 })
                 .filter(|row| {
                     !matches!(
@@ -1466,26 +1466,35 @@ mod interactive_session {
         }
     }
 
+    /// Launch-time seed for [`run_loop`].
+    struct LoopStart<'a> {
+        session_id: &'a str,
+        provider: &'a str,
+        initial_model: Option<&'a str>,
+        initial_workspace: Option<String>,
+        initial_effort: Option<String>,
+        initial_prompt: Option<String>,
+    }
+
     /// Drive the interactive loop over the given reader/writer pair. Returns
     /// the process exit code (0 on clean `/quit`/EOF). Each turn calls
     /// `run_turn` once; kept generic over the turn function so the loop
     /// control-flow (blank/quit/EOF/prompt) is unit-testable without
     /// spinning up a real engine session.
-    async fn run_loop<R, F, Fut>(
-        mut reader: R,
-        session_id: &str,
-        provider: &str,
-        initial_model: Option<&str>,
-        initial_workspace: Option<String>,
-        initial_effort: Option<String>,
-        initial_prompt: Option<String>,
-        mut run_turn: F,
-    ) -> i32
+    async fn run_loop<R, F, Fut>(mut reader: R, start: LoopStart<'_>, mut run_turn: F) -> i32
     where
         R: std::io::BufRead,
         F: FnMut(super::RunArgs) -> Fut,
         Fut: std::future::Future<Output = i32>,
     {
+        let LoopStart {
+            session_id,
+            provider,
+            initial_model,
+            initial_workspace,
+            initial_effort,
+            initial_prompt,
+        } = start;
         // 13a: the per-turn model is a session field, mutable at turn
         // boundaries only. `/model <id>` queues a switch that takes effect
         // starting the *next* turn (`begin_turn` below); it never rewrites
@@ -1763,12 +1772,14 @@ mod interactive_session {
             let reader = stdin.lock();
             return run_loop(
                 reader,
-                &session_id,
-                &provider,
-                (!model.is_empty()).then_some(model.as_str()),
-                workspace,
-                effort,
-                launch.prompt.clone(),
+                LoopStart {
+                    session_id: &session_id,
+                    provider: &provider,
+                    initial_model: (!model.is_empty()).then_some(model.as_str()),
+                    initial_workspace: workspace,
+                    initial_effort: effort,
+                    initial_prompt: launch.prompt.clone(),
+                },
                 super::run_session,
             )
             .await;
@@ -1870,7 +1881,9 @@ mod interactive_session {
         // first turn's admission.
         host.spawn_context_warmup();
         if let Some(prompt) = launch.prompt.clone() {
-            let _ = crate::tui_host::TurnHost::spawn_turn(&host, prompt);
+            // The turn is already spawned; its JoinHandle is detached on purpose
+            // (the TUI drive loop owns turn completion).
+            drop(crate::tui_host::TurnHost::spawn_turn(&host, prompt));
         }
         let code = crate::tui_host::drive(host).await;
 
@@ -3712,17 +3725,17 @@ mod interactive_session {
                 let conversations = std::sync::Arc::clone(&self.vendor_conversations);
                 let permission_mode = self.current_permission_mode();
                 return tokio::spawn(async move {
-                    let code = super::run_vendor_turn(
-                        vendor_kind,
-                        model_for_turn,
+                    let code = super::run_vendor_turn(super::VendorTurnRequest {
+                        kind: vendor_kind,
+                        model: model_for_turn,
                         workspace,
                         prompt,
                         session_id,
                         permission_mode,
                         events,
                         conversations,
-                        control.clone(),
-                    )
+                        control: control.clone(),
+                    })
                     .await;
                     control.settled();
                     code
@@ -7162,8 +7175,8 @@ mod interactive_session {
         };
         let root = field("workspaceRoot");
         let workspace = root
-            .trim_end_matches(|c: char| c == '/' || c == '\\')
-            .rsplit(|c: char| c == '/' || c == '\\')
+            .trim_end_matches(['/', '\\'])
+            .rsplit(['/', '\\'])
             .next()
             .unwrap_or("")
             .to_string();

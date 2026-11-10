@@ -116,10 +116,12 @@ pub fn rehydrate_engine_context(
     // replay never invents a successful result for them.
     let mut answered_call_ids = HashSet::new();
     for row in events {
-        if let Some(ProtocolEvent::ToolResultAdded { result, .. }) = decode_row_durable_event(row) {
-            if let TranscriptMessage::Tool { tool_call_id, .. } = &result {
-                answered_call_ids.insert(tool_call_id.clone());
-            }
+        if let Some(ProtocolEvent::ToolResultAdded {
+            result: TranscriptMessage::Tool { tool_call_id, .. },
+            ..
+        }) = decode_row_durable_event(row).as_ref()
+        {
+            answered_call_ids.insert(tool_call_id.clone());
         }
     }
 

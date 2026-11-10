@@ -1,5 +1,5 @@
 //! Custom slash commands for the interactive host (Fixes #132;
-//! https://code.claude.com/docs/en/slash-commands).
+//! <https://code.claude.com/docs/en/slash-commands>).
 //!
 //! Markdown files under the user state root `commands/` and, only when the
 //! workspace is trusted, the project's `.claude/commands/` and

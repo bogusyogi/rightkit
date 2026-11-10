@@ -670,7 +670,7 @@ fn repository_scope_id(path: &std::path::Path) -> String {
     if let Some(rest) = value.strip_prefix("//?/") {
         value = rest.to_owned();
     }
-    value = value.replace(':', "-").replace('/', "-");
+    value = value.replace([':', '/'], "-");
     let value = value.trim_matches('-');
     if value.is_empty() {
         return "global".to_owned();
@@ -844,21 +844,22 @@ fn normalize_event(session_id: &str, event: &ProtocolEvent, scope_id: &str) -> V
             obj.insert("injectedBy".into(), json!(injected_by));
             obj.remove("meta");
         }
-        ProtocolEvent::AssistantMessageCompleted { message, .. } => {
-            if let TranscriptMessage::Assistant {
-                content,
-                reasoning_content,
-                ..
-            } = message
-            {
-                obj.insert("kind".into(), json!("assistant_message"));
-                obj.insert("role".into(), json!("assistant"));
-                obj.insert("text".into(), json!(content));
-                if reasoning_content.is_some() {
-                    obj.insert("private_reasoning_omitted".into(), json!(true));
-                }
-                obj.remove("meta");
+        ProtocolEvent::AssistantMessageCompleted {
+            message:
+                TranscriptMessage::Assistant {
+                    content,
+                    reasoning_content,
+                    ..
+                },
+            ..
+        } => {
+            obj.insert("kind".into(), json!("assistant_message"));
+            obj.insert("role".into(), json!("assistant"));
+            obj.insert("text".into(), json!(content));
+            if reasoning_content.is_some() {
+                obj.insert("private_reasoning_omitted".into(), json!(true));
             }
+            obj.remove("meta");
         }
         ProtocolEvent::ToolCallStarted { call, .. } => {
             obj.insert("kind".into(), json!("tool_call"));
@@ -867,33 +868,34 @@ fn normalize_event(session_id: &str, event: &ProtocolEvent, scope_id: &str) -> V
             obj.insert("text".into(), json!(call.arguments_json));
             obj.remove("meta");
         }
-        ProtocolEvent::ToolResultAdded { result, .. } => {
-            if let TranscriptMessage::Tool {
-                tool_call_id,
-                summary,
-                output,
-                is_error,
-                ..
-            } = result
-            {
-                obj.insert("kind".into(), json!("tool_result"));
-                obj.insert("call_id".into(), json!(tool_call_id));
-                obj.insert("is_error".into(), json!(is_error));
-                // `output` is an OutputRef to the externalized payload; the
-                // stored preview is the bounded learning text, `summary` the
-                // fallback when no preview was persisted.
-                obj.insert(
-                    "text".into(),
-                    json!(output
-                        .as_ref()
-                        .and_then(|reference| reference.preview.clone())
-                        .unwrap_or_else(|| summary.clone())),
-                );
-                if output.as_ref().is_some_and(|reference| reference.truncated) {
-                    obj.insert("output_truncated".into(), json!(true));
-                }
-                obj.remove("meta");
+        ProtocolEvent::ToolResultAdded {
+            result:
+                TranscriptMessage::Tool {
+                    tool_call_id,
+                    summary,
+                    output,
+                    is_error,
+                    ..
+                },
+            ..
+        } => {
+            obj.insert("kind".into(), json!("tool_result"));
+            obj.insert("call_id".into(), json!(tool_call_id));
+            obj.insert("is_error".into(), json!(is_error));
+            // `output` is an OutputRef to the externalized payload; the
+            // stored preview is the bounded learning text, `summary` the
+            // fallback when no preview was persisted.
+            obj.insert(
+                "text".into(),
+                json!(output
+                    .as_ref()
+                    .and_then(|reference| reference.preview.clone())
+                    .unwrap_or_else(|| summary.clone())),
+            );
+            if output.as_ref().is_some_and(|reference| reference.truncated) {
+                obj.insert("output_truncated".into(), json!(true));
             }
+            obj.remove("meta");
         }
         _ => {}
     }

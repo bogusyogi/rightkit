@@ -107,7 +107,9 @@ fn inconsistent_threads(
 /// `messages`, and drop orphan rollup rows in the chunk's key range. It never
 /// touches the full-text index or the semantic vectors: apply paths keep both
 /// current per batch, and re-indexing unchanged text would only destroy
-/// embeddings. Same cursor contract as [`rebuild_rollups_chunk`].
+/// embeddings. Cursor contract: `after` is the last thread id of the previous
+/// chunk (`None` starts at the beginning); the result is the next cursor, or
+/// `None` once the account is done.
 pub fn repair_rollups_chunk(
     conn: &Connection,
     account_id: &str,

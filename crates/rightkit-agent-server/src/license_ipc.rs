@@ -49,6 +49,9 @@ pub fn service_name(port: u16) -> String {
 /// Host the licence snapshot service for this daemon, or `Ok(None)` when the launch gave no owner
 /// identity (the daemon then accepts no delivery). The returned [`Service`] keeps the endpoint
 /// published until it is dropped: hold it for the daemon's lifetime.
+// `rightkit_daemon::ServiceError` is the dependency's fixed method-handler error type (rightkit-daemon
+// itself allows this lint for it); the handler closure below cannot return a boxed one.
+#[allow(clippy::result_large_err)]
 pub fn host_license_service(
     gate: Arc<LicenseGate>,
     locators: &LicenseLocators,
@@ -89,6 +92,9 @@ pub fn host_license_service(
 }
 
 /// The `frame` parameter, base64-decoded, within [`MAX_FRAME_B64`].
+// `rightkit_daemon::ServiceError` is the dependency's fixed method-handler error type (rightkit-daemon
+// itself allows this lint for it); a handler helper cannot return a boxed one.
+#[allow(clippy::result_large_err)]
 fn decode_frame(params: &Value) -> Result<Vec<u8>, ServiceError> {
     let encoded = params
         .get("frame")

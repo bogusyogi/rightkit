@@ -20,7 +20,7 @@
 //! land): the daily cap (period `YYYY-MM-DD`), the monthly cap (period `YYYY-MM`; unlimited when
 //! no monthly cap is set, so month totals still exist) and the optional per-device offline
 //! allowance (period `device:<id>:<epoch>`). Every spender that reserves (`SpendHook::on_attempt`,
-//! `reserve`, `reserve_scoped`, `reserve_budgeted`) goes through [`reserve_attempt_on`], and
+//! `reserve`, `reserve_scoped`, `reserve_budgeted`) goes through `reserve_attempt_on`, and
 //! [`check`] is its advisory form.
 //!
 //! RESERVATIONS HELD ACROSS MIDNIGHT. An open reservation from an earlier UTC day still counts
@@ -394,7 +394,7 @@ fn try_attach(path: &Path) -> GenResult<Ledger> {
 
 /// The ledger's part of the job store: the per-attempt reservation (in the transaction that
 /// counts the attempt) and the settlement of a resolved held job. The hook is built before the
-/// store opens; [`SpendHook::bind`] hands it the ledger once the database exists.
+/// store opens; `SpendHook::bind` hands it the ledger once the database exists.
 #[derive(Clone, Default)]
 pub struct SpendHook {
     cell: Arc<OnceLock<SpendHandle>>,

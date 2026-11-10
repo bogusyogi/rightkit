@@ -41,6 +41,29 @@ enum RequestedExecutionProvider {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExecutionProviderParseError {
     Unknown,
+    // Constructed only for a feature this build lacks, so it exists only
+    // while at least one execution-provider feature is off.
+    #[cfg(not(all(
+        feature = "acl",
+        feature = "armnn",
+        feature = "azure",
+        feature = "cann",
+        feature = "coreml",
+        feature = "cuda",
+        feature = "directml",
+        feature = "migraphx",
+        feature = "nnapi",
+        feature = "nvrtx",
+        feature = "onednn",
+        feature = "openvino",
+        feature = "qnn",
+        feature = "rknpu",
+        feature = "tensorrt",
+        feature = "tvm",
+        feature = "vitis",
+        feature = "webgpu",
+        feature = "xnnpack",
+    )))]
     MissingFeature(&'static str),
 }
 
@@ -390,6 +413,27 @@ fn parse_requested_execution_provider() -> Result<RequestedExecutionProvider, Qw
         "" | "auto" => Ok(RequestedExecutionProvider::Auto),
         other => match VocoderExecutionProvider::parse_token(other) {
             Ok(provider) => Ok(RequestedExecutionProvider::Explicit(provider)),
+            #[cfg(not(all(
+                feature = "acl",
+                feature = "armnn",
+                feature = "azure",
+                feature = "cann",
+                feature = "coreml",
+                feature = "cuda",
+                feature = "directml",
+                feature = "migraphx",
+                feature = "nnapi",
+                feature = "nvrtx",
+                feature = "onednn",
+                feature = "openvino",
+                feature = "qnn",
+                feature = "rknpu",
+                feature = "tensorrt",
+                feature = "tvm",
+                feature = "vitis",
+                feature = "webgpu",
+                feature = "xnnpack",
+            )))]
             Err(ExecutionProviderParseError::MissingFeature(feature)) => {
                 Err(Qwen3TtsError::InvalidInput(format!(
                     "unsupported QWEN3_TTS_VOCODER_EP={other}; binary was built without the {feature} feature"

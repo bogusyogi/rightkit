@@ -27,10 +27,12 @@ fn secret_store() -> Result<rightkit_credentials::Store, String> {
 }
 
 fn oauth_client() -> Result<rightkit_oauth::OAuthClient, String> {
-    let mut config = rightkit_http::ClientConfig::default();
-    config.connect_timeout = Some(Duration::from_secs(20));
-    config.request_timeout = Duration::from_secs(20);
-    config.response_timeout = Some(Duration::from_secs(20));
+    let config = rightkit_http::ClientConfig {
+        connect_timeout: Some(Duration::from_secs(20)),
+        request_timeout: Duration::from_secs(20),
+        response_timeout: Some(Duration::from_secs(20)),
+        ..Default::default()
+    };
     let http = rightkit_http::Client::new(config);
     rightkit_oauth::OAuthClient::new(
         rightkit_oauth::OAuthConfig::github(GITHUB_CLIENT_ID, ["repo"]),
@@ -196,7 +198,7 @@ pub(crate) fn sign_in_device(
 
 pub(crate) fn device_sign_in_with_terminal() -> Result<(), String> {
     use std::io::{self, Write};
-    let mut show = |device: &DeviceAuthorization| {
+    let show = |device: &DeviceAuthorization| {
         let mut out = io::stdout().lock();
         let _ = writeln!(out, "GitHub sign-in: {}", device.verification_uri);
         let _ = writeln!(out, "Enter code: {}", device.user_code);
@@ -208,7 +210,7 @@ pub(crate) fn device_sign_in_with_terminal() -> Result<(), String> {
         let mut line = String::new();
         let _ = io::stdin().read_line(&mut line);
     };
-    sign_in_device(&mut show, &DeviceWait)
+    sign_in_device(show, &DeviceWait)
 }
 
 /// A started device flow whose public verification data is ready for the TUI.

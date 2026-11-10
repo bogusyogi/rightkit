@@ -45,22 +45,37 @@ pub(crate) fn default_tool_capabilities(
     rightkit_agent_tools::coding_tools::registry::default_tool_capabilities()
 }
 
+/// Inputs for [`build_session_tool_registry_for_plugins`].
+pub(crate) struct SessionToolRegistryRequest<'a> {
+    pub(crate) plugin_scope: (std::path::PathBuf, &'a [String]),
+    pub(crate) safe_mode: bool,
+    pub(crate) role_allowed_tools: Option<&'a Vec<String>>,
+    pub(crate) requested_allowed_tools: &'a [String],
+    pub(crate) requested_disallowed_tools: &'a [String],
+    pub(crate) lazy_tool_loading: bool,
+    pub(crate) model_interface: rightkit_agent_tools::coding_tools::ModelToolInterface,
+    pub(crate) memory: Option<(
+        Arc<dyn rightkit_memory::backend::MemoryBackend>,
+        rightkit_memory::memory_provenance::MemoryProvenanceStore,
+        &'a str,
+    )>,
+}
+
 /// Host composition owns executable session registries. API/config surfaces
 /// delegate here so they cannot construct a peer registry authority.
 pub(crate) fn build_session_tool_registry_for_plugins(
-    plugin_scope: (std::path::PathBuf, &[String]),
-    safe_mode: bool,
-    role_allowed_tools: Option<&Vec<String>>,
-    requested_allowed_tools: &[String],
-    requested_disallowed_tools: &[String],
-    lazy_tool_loading: bool,
-    model_interface: rightkit_agent_tools::coding_tools::ModelToolInterface,
-    memory: Option<(
-        Arc<dyn rightkit_memory::backend::MemoryBackend>,
-        rightkit_memory::memory_provenance::MemoryProvenanceStore,
-        &str,
-    )>,
+    request: SessionToolRegistryRequest<'_>,
 ) -> ToolRegistry {
+    let SessionToolRegistryRequest {
+        plugin_scope,
+        safe_mode,
+        role_allowed_tools,
+        requested_allowed_tools,
+        requested_disallowed_tools,
+        lazy_tool_loading,
+        model_interface,
+        memory,
+    } = request;
     let (plugin_dir, enabled_plugins) = plugin_scope;
     let filter = crate::api::effective_tool_filter(
         role_allowed_tools,

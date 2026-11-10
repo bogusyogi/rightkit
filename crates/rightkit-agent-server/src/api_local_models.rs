@@ -400,9 +400,8 @@ async fn add_local_model_provider(
                     .update_workspace_from(
                         &target,
                         || {
-                            load_workspace_config_only(&target).map_err(|err| {
+                            load_workspace_config_only(&target).inspect_err(|_| {
                                 read_failed.set(true);
-                                err
                             })
                         },
                         apply,
