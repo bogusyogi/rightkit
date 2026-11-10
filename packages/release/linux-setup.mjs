@@ -100,7 +100,7 @@ export function setup({ root, home = homedir(), arch = process.arch, run, fetchT
     log(`pnpm store: ${lr}`);
     // The throwaway virtual store keeps `pnpm fetch` from touching the root's node_modules.
     const vstore = dryRun ? join(tmpdir(), "rk-vstore") : mkdtempSync(join(tmpdir(), "rk-vstore-"));
-    try { sh("pnpm", ["fetch", "--virtual-store-dir", vstore], { cwd: dir }); } finally { if (!dryRun) rmSync(vstore, { recursive: true, force: true }); }
+    try { sh("pnpm", ["fetch", "--ignore-scripts", "--virtual-store-dir", vstore], { cwd: dir }); } finally { if (!dryRun) rmSync(vstore, { recursive: true, force: true }); }
   }
   return { pins, lockroots, steps };
 }
