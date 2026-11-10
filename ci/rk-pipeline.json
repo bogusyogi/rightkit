@@ -76,7 +76,7 @@
     "maxAttemptsPerUnit": 1,
     "exceptions": {
       "rightkit-ffmpeg": {
-        "version": "0.3.0",
+        "version": "0.3.1",
         "allow": [
           "allow_missing_assets"
         ],
@@ -97,14 +97,14 @@
         "reason": "ci/asset-gated.json: Whisper library (RIGHTKIT_WHISPER_LIB), ASR models and audio fixtures; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-automation": {
-        "version": "0.6.7",
+        "version": "0.6.8",
         "allow": [
           "allow_missing_assets"
         ],
         "reason": "ci/asset-gated.json: desktop session for the end-to-end tests (e2e_mac, e2e_win); the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-browser": {
-        "version": "0.3.9",
+        "version": "0.3.10",
         "allow": [
           "allow_missing_assets"
         ],
@@ -118,7 +118,7 @@
         "reason": "ci/asset-gated.json: ONNX Runtime and model files; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-qa": {
-        "version": "0.10.5",
+        "version": "0.10.6",
         "allow": [
           "allow_missing_assets",
           "allow_no_test"
