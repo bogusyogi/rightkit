@@ -2069,7 +2069,7 @@ async function runStages(o, args, root, git, io) {
     }
     // The start of every stage: the snapshot is exactly tree + dependencies + the ledger of the stages before it (7.08, decision 2 Q1).
     if (ds && !(await openSnapshotStage({ o, ds, root, stage, tag }))) { receipt.stages[stage] = { ok: false, at: new Date().toISOString(), snapshot: { path: ds.path, tree: ds.tree, intactAfter: false }, snapshotLock: ds.lock.token }; save(); o.err(`${tag} --to ${to} stopped before ${stage}: the snapshot is not the commit's bytes plus the ledger; nothing ran`); return 2; }
-    let ok = false; const at = new Date().toISOString(); const stageStartedMs = Date.now(); let extra = {}; let directReceipt = null;
+    let ok = false; const at = new Date().toISOString(); const stageStartedMs = Date.now(); let extra = {}; let directReceipt = null; let packageSigned = new Map();
     if (stage === "check") {
       { const problem = await pinFloor(false); if (problem) { o.err(`${tag} BLOCKED: ${problem.message}; no class A row ran and nothing compiled`); return 1; } }
       ok = (await (o.runCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), ...appScope, "--rule-tier", earlyTier], { ...io, cwd: root, ...(ds ? { snapshotLock: ds.lock } : {}) })))(earlyTier)) === 0;
@@ -2171,6 +2171,14 @@ async function runStages(o, args, root, git, io) {
       const sealed = ok ? (o.sealedFor ?? sealedFor)({ root: releaseRoot, commit, platform }) : null;
       if (ok && !sealed) { o.err(`${tag} [package] the build reported success but sealed nothing for ${commit.slice(0, 8)} on ${platform}`); ok = false; }
       if (sealed) extra = { platform, sealed: sealed.id, manifestSha256: sealed.digest };
+      // The Windows package build Authenticode-signs the staged sidecar executables in place before the installer embeds them (sign-windows.mjs; HeardRight on
+      // the Dell, 2026-11-10: the stage closed with "a staged sidecar output ... changed after it was staged" for the two files it had just signed). Such a
+      // change is admitted as on the dev route (rightkit#1555): from exactly the staged bytes to exactly the signed bytes the build's externalBin receipt
+      // names, and the gate itself verifies the signature on the bytes now on disk.
+      if (ok && sealed && ds && platform === "win") {
+        try { packageSigned = packageSignedInPlace({ ds, receipt: path.join(releaseRoot, ".right-release", "state", sealed.id, "windows", "external-bin.json") }); await assertSignedInPlaceSigned(o, ds.path, packageSigned); }
+        catch (e) { o.err(`${tag} RK_CHECK_ERROR: [package] ${e.message}`); ok = false; packageSigned = new Map(); }
+      }
       // The cross-check: the Cargo targets the sealed manifest records are the directory this door resolved itself. A different one voids the stage.
       try { packageMulti?.cleanup?.(); } catch { /* the wrapper's map is the gate's own temp directory */ }
       if (ok && sealed && ds && (packagePin.dir || packagePin.dirs?.length > 1)) {
@@ -2250,7 +2258,7 @@ async function runStages(o, args, root, git, io) {
       // The stage covers the commit only if the snapshot is still its tree plus the ledger and the host is still this door's (E6, 7.08):
       // what the stage's children wrote may remain only as ledger entries, recorded by this gate's own walk and kept in the receipt (never
       // in the snapshot); a staged entry changed since staging voids the stage.
-      const closed = await closeSnapshotStage({ o, ds, root, stage, step: stage, tag });
+      const closed = await closeSnapshotStage({ o, ds, root, stage, step: stage, tag, signedInPlace: packageSigned });
       const { receiptLedger } = await import("../stage-ledger.mjs");
       extra = { ...extra, snapshot: { path: ds.path, tree: ds.tree, intactAfter: closed.ok, ledger: receiptLedger(closed.entries) }, snapshotLock: ds.lock.token };
       if (!closed.ok) { receipt.stages[stage] = { ok: false, at, ...extra }; save(); o.err(`${tag} --to ${to} stopped at ${stage}: the result covers no known bytes`); return 2; }
@@ -2388,6 +2396,27 @@ export async function assertSignedInPlaceSigned(o, snapshotDir, signedInPlace) {
       throw new Error(`${file} is reported signed in place but is not validly Authenticode-signed by ${SIGN_SUBJECT} (${JSON.stringify(record?.subject ?? null)} / ${JSON.stringify(record?.authenticode ?? null)})`);
     }
   }
+}
+
+/**
+ * The staged executables a Windows package build signed in place, as `Map(snapshot-relative posix path -> { sha256Before, sha256After })`: a staged ledger
+ * entry whose bytes now differ, for which the build's externalBin receipt (external-bin.mjs, `rightkit-external-bin-v1`) names that exact pair of digests.
+ * An absent receipt admits nothing.
+ */
+export function packageSignedInPlace({ ds, receipt, readFile = (f) => fs.readFileSync(f), exists = fs.existsSync }) {
+  const out = new Map();
+  if (!exists(receipt)) return out;
+  const doc = JSON.parse(String(readFile(receipt)));
+  if (doc?.contract !== "rightkit-external-bin-v1" || !Array.isArray(doc.files)) throw new Error(`${receipt} is not a rightkit-external-bin-v1 receipt`);
+  for (const e of ds.ledger?.entries ?? []) {
+    if (e.kind !== "staged" || !/\.(exe|dll)$/i.test(e.path)) continue;
+    const file = path.join(ds.path, ...e.path.split("/"));
+    if (!exists(file)) continue;
+    const now = createHash("sha256").update(readFile(file)).digest("hex");
+    if (now === e.sha256) continue;
+    if (doc.files.some((f) => f?.preSignSha256 === e.sha256 && f?.signedSha256 === now)) out.set(e.path, { sha256Before: e.sha256, sha256After: now });
+  }
+  return out;
 }
 
 /** The signer's report as `Map(snapshot-relative posix path -> { sha256Before, sha256After })`; a path outside the snapshot or a malformed report is refused. */
