@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pnpmBuildClosureArgs } from "./select.mjs";
 import { TEST_COMMAND } from "./test-results.mjs";
+import { defaultCheckFeatureSets, hostFeatureSets } from "../../packages/release/feature-sets.mjs";
 
 // Pure shard planning for the RightKit CI workflow (.github/workflows/ci.yml): which GitHub Actions jobs a
 // push needs, per runner OS, and which gate tokens each job runs. No process. The only file read is a Swift
@@ -78,10 +79,10 @@ export function sanitizeId(text) {
  * How many cargo commands the gate runs for a crate on a host that applies to it: every test feature set
  * (doubled when the crate also reruns serially), clippy for each set, feature checks & consumer rows. Mirrors rustGate in gate.mjs.
  */
-export function rustWeight(entry = {}) {
-  const featureSets = entry.featureSets ?? [[]];
+export function rustWeight(entry = {}, platform = process.platform) {
+  const featureSets = hostFeatureSets(entry, platform) ?? [[]];
   const tests = featureSets.length * (entry.alsoSerial ? 2 : 1);
-  const checkSets = featureSets.some((features) => features.includes("--all-features")) ? [] : (entry.checkFeatureSets ?? [["--all-features"]]);
+  const checkSets = featureSets.some((features) => features.includes("--all-features")) ? [] : (hostFeatureSets(entry, platform, "checkFeatureSets") ?? defaultCheckFeatureSets(entry));
   const docs = new Set([...featureSets, ...checkSets].map((features) => JSON.stringify(features))).size;
   const consumers = (entry.consumerRows ?? []).reduce((count, row) => count + (row.targets?.length || 1), 0);
   return tests + featureSets.length + checkSets.length + docs + consumers;
@@ -348,9 +349,11 @@ export function requiredShardCommands(tokens, { config = {}, packages = [], swif
     const unit = kind === "rust-check" ? `rust:${name}` : `${kind}:${name}`;
     const entry = config.rust?.[name] ?? {};
     if (kind === "rust") {
-      const sets = entry.featureSets ?? [[]];
-      if (!sets.length) throw new Error(`${name}: empty featureSets`);
-      const checkSets = sets.some((features) => features.includes("--all-features")) ? [] : entry.checkFeatureSets ?? [["--all-features"]];
+      if (Array.isArray(entry.featureSets) && !entry.featureSets.length) throw new Error(`${name}: empty featureSets`);
+      // This host's sets: a set scoped to other hosts is not planned here (feature-sets.mjs); a crate with none planned here has no row on this host.
+      const sets = hostFeatureSets(entry, process.platform, "featureSets", name) ?? [[]];
+      if (!sets.length) continue;
+      const checkSets = sets.some((features) => features.includes("--all-features")) ? [] : hostFeatureSets(entry, process.platform, "checkFeatureSets", name) ?? defaultCheckFeatureSets(entry, name);
       for (const features of sets) add(unit, "cargo", ["clippy", "-p", name, "--no-deps", "--all-targets", ...features, "--", "-D", "warnings"]);
       for (const features of checkSets) add(unit, "cargo", ["check", "-p", name, "--all-targets", ...features]);
       const docSets = [...new Map([...sets, ...checkSets].map((features) => [JSON.stringify(features), features])).values()];
@@ -362,7 +365,7 @@ export function requiredShardCommands(tokens, { config = {}, packages = [], swif
     } else if (kind === "rust-check") {
       add(unit, "cargo", ["check", "-p", name, "--all-targets"]);
       // An empty checkFeatureSets row is the default check above; never run it twice.
-      for (const features of (entry.checkFeatureSets ?? [["--all-features"]]).filter((features) => features.length)) add(unit, "cargo", ["check", "-p", name, "--all-targets", ...features]);
+      for (const features of (hostFeatureSets(entry, process.platform, "checkFeatureSets", name) ?? defaultCheckFeatureSets(entry, name)).filter((features) => features.length)) add(unit, "cargo", ["check", "-p", name, "--all-targets", ...features]);
     } else if (kind === "npm") {
       if (npm.find((pkg) => pkg.dir === name).scripts?.test) add(unit, "pnpm", ["--dir", name, "run", "test"]);
     } else if (kind === "root") {

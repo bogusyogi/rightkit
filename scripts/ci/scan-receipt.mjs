@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { digestScanSet, requiredScanIds, requiredScanProblems } from "../../packages/release/scan-digest.mjs";
 import { effectiveCrateFeatures } from "../../packages/release/feature-coverage.mjs";
-import { LOCAL_SCAN_CLASSES, LOCAL_SCAN_SCHEMA, localScanShapeProblems } from "./upload.mjs";
+import { LOCAL_HOST_OS, LOCAL_SCAN_CLASSES, LOCAL_SCAN_SCHEMA, localScanShapeProblems } from "./upload.mjs";
 
 export const SCAN_RECEIPT_SCHEMA = "rightkit.scan-receipt/2";
 export const SCAN_RECEIPT_FILE = "scan-receipt.json";
@@ -228,7 +228,7 @@ export function buildLocalScanRecord({ result, planned, sourceCommit, headCommit
  * (feature sets), and which crates have src/lib.rs, a CHANGELOG, and the repository's own advisory/ownership/docs inputs.
  * `readText(path)` returns a source file's text or throws when it is absent; the record's own plan is never consulted.
  */
-export function localRequiredScanIds({ units, readText }) {
+export function localRequiredScanIds({ units, readText, platform = undefined }) {
   const exists = (name) => { try { readText(name); return true; } catch { return false; } };
   let crateFeatures = {};
   if (exists("ci/gate.config.json")) {
@@ -236,7 +236,8 @@ export function localRequiredScanIds({ units, readText }) {
   }
   // The same generated lint plan the gate's planner uses (rightkit#1231): a crate with no declared featureSets and Cargo features is linted with --all-features too.
   const manifestOf = (name) => { try { return readText(`crates/${name}/Cargo.toml`); } catch { return null; } };
-  return requiredScanIds({ units, crateFeatures: effectiveCrateFeatures({ crateFeatures, units, manifestOf }), exists });
+  // `platform`: the host that produced the record (a host-scoped feature set, ci/gate.config.json featureSets hosts, is required only from the hosts it names).
+  return requiredScanIds({ units, crateFeatures: effectiveCrateFeatures({ crateFeatures, units, manifestOf }), platform, exists });
 }
 
 /** Throws unless the record shows a complete, passed local scan of exactly this source commit, lockfile and unit set,
@@ -263,8 +264,9 @@ export function verifyLocalScanRecord(record, { sourceSha, cargoLocks, units, re
 export function verifyLocalScanReceipts({ candidate, receiptsDir, candidateDir }) {
   const cargoLocks = candidateCargoLocks({ candidateDir, units: candidate.units, registry: candidate.registry });
   const hosts = Object.keys(candidate.assets).filter((key) => key !== "packed");
-  const requiredIds = localRequiredScanIds({ units: candidate.units, readText: (name) => fs.readFileSync(path.join(candidateDir, name), "utf8") });
+  const requiredByHost = (host) => localRequiredScanIds({ units: candidate.units, readText: (name) => fs.readFileSync(path.join(candidateDir, name), "utf8"), platform: LOCAL_HOST_OS[host] });
   for (const host of hosts) {
+    const requiredIds = requiredByHost(host);
     const directory = path.join(receiptsDir, host);
     const files = fs.readdirSync(directory);
     requireThat(files.length === 1, `${host} receipt directory must hold exactly one receipt`);

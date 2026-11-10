@@ -34,6 +34,7 @@ import { prepareSwapHelper, SWAP_HELPER_CARGO_ARGS, SWAP_HELPER_PACKAGE } from "
 import { exclusionsFor, npmContentDigest } from "./pack-digest.mjs";
 import { requireDoorRun, gateStateDir } from "./gate-stages.mjs";
 import { crossCompileEnv, crossTargetsFor, oneOutput, scopedCrossTargets } from "./cross-targets.mjs";
+import { crossFeatureSets, defaultCheckFeatureSets, hostFeatureSets } from "./feature-sets.mjs";
 
 export const LOCAL_OPERATOR = "agent (local-build grant)";
 export const LOCAL_HOST_POLICY_REASON = "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run";
@@ -323,10 +324,11 @@ async function defaultLoadWorkspaceModules(workspaceRoot) {
  * include `--all-features` needs none. `checkFeatureSets` (ci/gate.config.json) lists them explicitly for
  * crates with mutually exclusive features; otherwise one `--all-features` check runs. Mirrored in scripts/ci/gate.mjs.
  */
-export function allFeatureCheckSets(entry = {}) {
-  const tested = entry.featureSets ?? [[]];
+export function allFeatureCheckSets(entry = {}, platform = undefined, crate = "<crate>") {
+  // The sets this host plans (feature-sets.mjs): a set scoped to other hosts is neither tested nor checked here.
+  const tested = hostFeatureSets(entry, platform, "featureSets", crate) ?? [[]];
   if (tested.some((features) => features.includes("--all-features"))) return [];
-  return entry.checkFeatureSets ?? [["--all-features"]];
+  return hostFeatureSets(entry, platform, "checkFeatureSets", crate) ?? defaultCheckFeatureSets(entry, crate);
 }
 
 const CONSUMER_ROW_KEYS = new Set(["manifestPath", "args", "kind", "targets", "locked"]);
@@ -447,7 +449,9 @@ export function localTestPlan({ kind, unit, dir, config, manifest, batch = false
   // gate.config.json names hosts "macos" and "windows" (scripts/ci/gate.mjs HOST).
   const gateHost = platform === "win32" ? "windows" : "macos";
   if (entry.os && !entry.os.includes(gateHost)) refuse(`${unit} is restricted to ${entry.os.join(", ")} by ci/gate.config.json; it cannot be qualified on this ${platform === "win32" ? "Windows host" : "Mac"}`);
-  const featureSets = entry.featureSets ?? [[]];
+  const featureSets = hostFeatureSets(entry, platform, "featureSets", unit) ?? [[]];
+  // The sets also linted for the other OSes' targets: a host-scoped set is a native-host set and has no cross-target row (feature-sets.mjs).
+  const crossSets = crossFeatureSets(entry, platform, "featureSets", unit) ?? [[]];
   // Stream Cargo artifact records to the broker; libtest summaries remain plain text for ResultScanner.
   const steps = [];
   for (const features of featureSets) {
@@ -461,17 +465,18 @@ export function localTestPlan({ kind, unit, dir, config, manifest, batch = false
   // lints them with the batch's own clippy (batchClippyInvocations crossTargetsOf).
   // A crate scoped to some OSes (ci/gate.config.json platforms) is checked only for those OSes' targets, as planScans does (scopedCrossTargets).
   if (!batch) for (const target of scopedCrossTargets(entry, platform)) {
-    for (const features of featureSets) {
+    for (const features of crossSets) {
       const env = crossCompileEnv(target);
       // GC-A14: a host without the zig C toolchain fails the check, never skips it.
       if (!env) refuse(`RK_CROSS_CC_UNPROVISIONED: the zig C toolchain for ${target} is not provisioned; run node scripts/ci/provision-zig.mjs <managed data root>/zig (or set RIGHTKIT_CROSS_CC_DIR)`);
       steps.push({ command: "cargo", args: ["clippy", "-p", unit, "--message-format=json-render-diagnostics", "--no-deps", "--all-targets", "--target", target, ...features, "--", "-D", "warnings"], test: false, ...(env ? { env } : {}) });
     }
   }
-  for (const features of allFeatureCheckSets(entry)) steps.push({ command: "cargo", args: ["check", "-p", unit, "--message-format=json-render-diagnostics", "--all-targets", ...features], test: false });
+  const checkSets = allFeatureCheckSets(entry, platform, unit);
+  for (const features of checkSets) steps.push({ command: "cargo", args: ["check", "-p", unit, "--message-format=json-render-diagnostics", "--all-targets", ...features], test: false });
   // rustdoc with -D warnings, for the tested and the checked feature sets: the same rows the CI shards (scripts/ci/gate.mjs) and
   // publish.yml's native verify run, so a broken or private intra-doc link fails this unit stage instead of a later verify.
-  const docSets = [...new Map([...featureSets, ...allFeatureCheckSets(entry)].map((features) => [JSON.stringify(features), features])).values()];
+  const docSets = [...new Map([...featureSets, ...checkSets].map((features) => [JSON.stringify(features), features])).values()];
   for (const features of docSets) steps.push({ command: "cargo", args: ["doc", "-p", unit, "--message-format=json-render-diagnostics", "--no-deps", ...features], test: false, env: { RUSTDOCFLAGS: "-D warnings" } });
   // Consumer rows (separate Cargo workspaces) gate only this crate: they come from this crate's own entry.
   const consumers = consumerRows(unit, entry);
@@ -616,7 +621,7 @@ export function publisherRequirementsForUnits({ selected, snapshot, rustUnits, n
  * a group share the invocation's verdict through the batch receipt, and each crate's tested/check/doc steps still
  * run per crate in its own publish flow.
  */
-export function batchClippyInvocations(layer, { featuresOf = () => [], featureSetsOf = (unit) => [featuresOf(unit)], assetGatedOf = () => false, crossTargetsOf = () => [], workspaceOf = () => "." } = {}) {
+export function batchClippyInvocations(layer, { featuresOf = () => [], featureSetsOf = (unit) => [featuresOf(unit)], crossSetsOf = featureSetsOf, assetGatedOf = () => false, crossTargetsOf = () => [], workspaceOf = () => "." } = {}) {
   const invocations = [];
   const groups = new Map(); // group key -> invocation being built (its index in `invocations` stays at first sight)
   const namesFeatures = (features) => features.some((f) => f === "--features" || f === "-F" || f.startsWith("--features=") || /^-F.+/.test(f));
@@ -638,10 +643,12 @@ export function batchClippyInvocations(layer, { featuresOf = () => [], featureSe
     // Every tested feature set of a crate is linted, in order; identical sets of one crate collapse to one run.
     const sets = featureSetsOf(unit) ?? [[]];
     const unique = sets.filter((set, index) => sets.findIndex((other) => JSON.stringify(other ?? []) === JSON.stringify(set ?? [])) === index);
+    // Only the sets crossSetsOf names are also linted for foreign targets: a host-scoped set is a native-host set (feature-sets.mjs).
+    const crossKeys = new Set((crossSetsOf(unit) ?? sets).map((set) => JSON.stringify(set ?? [])));
     for (const set of unique) {
       const features = set ?? [];
       add(unit, features, null);
-      for (const target of crossTargetsOf(unit)) add(unit, features, target);
+      if (crossKeys.has(JSON.stringify(features))) for (const target of crossTargetsOf(unit)) add(unit, features, target);
     }
   }
   return invocations;
@@ -1184,9 +1191,10 @@ async function runLocalPublishBatch(parsed, deps) {
   const scanText = `scanCrateForSecrets ${crates.map((unit) => `crates/${unit}`).join(" ")}`;
   checks.push({ name: "secret-scan", command: scanText, ok: true, ...stamp, crates });
   commands.push(scanText);
-  const featureSetsOf = (unit) => gateConfig?.rust?.[unit]?.featureSets ?? [[]];
+  const featureSetsOf = (unit) => hostFeatureSets(gateConfig?.rust?.[unit], platform, "featureSets", unit) ?? [[]];
+  const crossSetsOf = (unit) => crossFeatureSets(gateConfig?.rust?.[unit], platform, "featureSets", unit) ?? [[]];
   for (const layer of layers) {
-    for (const invocation of batchClippyInvocations(layer, { featureSetsOf, assetGatedOf: isAssetGated, crossTargetsOf: (unit) => scopedCrossTargets(gateConfig?.rust?.[unit], platform), workspaceOf: (unit) => workspaces[unit] })) {
+    for (const invocation of batchClippyInvocations(layer, { featureSetsOf, crossSetsOf, assetGatedOf: isAssetGated, crossTargetsOf: (unit) => scopedCrossTargets(gateConfig?.rust?.[unit], platform), workspaceOf: (unit) => workspaces[unit] })) {
       await batchCheck("clippy", "cargo", invocation.args, invocation.crates, { ...testEnv(deps, invocation.assetGated), ...(invocation.env ?? {}) }, invocation.workspace);
     }
   }

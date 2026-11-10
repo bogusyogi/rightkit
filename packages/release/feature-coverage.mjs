@@ -10,7 +10,11 @@
 //   2. `featureCoverageProblems`: every feature a crate's Cargo.toml declares must be enabled by at least one set of its plan (the
 //      default features, a declared set, or a generated one); FEATURE_UNCOVERED names the crate and the feature.
 //
-// Dependency-free by design: scan-digest.mjs-style callers (the credentialed receipt verifiers) import it.
+//   3. `unlintedFeatures` (ci/gate.config.json rust.<crate>): a feature the gate never lints, named with its reason; it counts as covered, and
+//      a name the crate does not declare, or that a set enables, is an error. Coverage is judged over every set whatever its hosts (feature-sets.mjs).
+//
+// Dependency-free by design (feature-sets.mjs imports nothing): scan-digest.mjs-style callers (the credentialed receipt verifiers) import it.
+import { hasHostScopedSets, unlintedFeatures } from "./feature-sets.mjs";
 
 /** The feature table of a Cargo.toml: a Map of feature name to its array of members ("other", "dep:x", "x/feat", "x?/feat"). `default` included. */
 export function manifestFeatures(text) {
@@ -100,20 +104,42 @@ export function featuresEnabledBy(features, set) {
   return enabled;
 }
 
-/** A crate's features that none of `sets` enables: `[]` when every declared feature is covered. */
-export function uncoveredFeatures(manifestText, sets) {
+/** A crate's features that none of `sets` enables and the crate does not list in `unlinted` (`unlintedFeatures`): `[]` when every declared feature is covered. */
+export function uncoveredFeatures(manifestText, sets, unlinted = {}) {
   const features = manifestFeatures(manifestText);
-  const declared = [...features.keys()].filter((name) => name !== "default");
+  const declared = [...features.keys()].filter((name) => name !== "default" && !Object.hasOwn(unlinted, name));
   const covered = new Set();
   for (const set of sets) for (const f of featuresEnabledBy(features, set)) covered.add(f);
   return declared.filter((name) => !covered.has(name)).sort();
 }
 
-/** The FEATURE_UNCOVERED lines of one crate (`name`, its manifest text, every feature set its plan runs). */
-export function featureCoverageProblems({ name, manifestText, sets }) {
-  const missing = uncoveredFeatures(manifestText, sets);
+/**
+ * The problem lines of a crate's `unlintedFeatures` (feature-sets.mjs): a feature it names must be declared by the crate's Cargo.toml and
+ * enabled by none of the planned sets, or the entry is stale and the gate would lint a feature the config says it never lints.
+ */
+export function unlintedFeatureProblems({ name, manifestText, sets, unlinted = {} }) {
+  const features = manifestFeatures(manifestText);
+  const enabled = new Set();
+  for (const set of sets) for (const f of featuresEnabledBy(features, set)) enabled.add(f);
+  const problems = [];
+  for (const feature of Object.keys(unlinted).sort()) {
+    if (feature === "default" || !features.has(feature)) problems.push(`UNLINTED_FEATURE_UNKNOWN ${name}: unlintedFeatures names "${feature}", which the crate's Cargo.toml does not declare; remove it from ci/gate.config.json rust.${name}.unlintedFeatures`);
+    else if (enabled.has(feature)) problems.push(`UNLINTED_FEATURE_ENABLED ${name}: unlintedFeatures names "${feature}" but a declared feature set enables it; it is linted, so remove it from ci/gate.config.json rust.${name}.unlintedFeatures`);
+  }
+  return problems;
+}
+
+/**
+ * The FEATURE_UNCOVERED lines of one crate (`name`, its manifest text, every feature set its plan runs on any host, its `unlintedFeatures`),
+ * and the lines of an `unlintedFeatures` entry that is stale.
+ */
+export function featureCoverageProblems({ name, manifestText, sets, unlinted = {} }) {
+  const missing = uncoveredFeatures(manifestText, sets, unlinted);
   const planned = sets.map((s) => (s.length ? s.join(" ") : "default features")).join("; ");
-  return missing.map((feature) => `FEATURE_UNCOVERED ${name}: feature "${feature}" is enabled by none of the planned feature sets (${planned}); add a set that enables it to ci/gate.config.json rust.${name}.featureSets, or --all-features where the features do not conflict`);
+  return [
+    ...missing.map((feature) => `FEATURE_UNCOVERED ${name}: feature "${feature}" is enabled by none of the planned feature sets (${planned}); add a set that enables it to ci/gate.config.json rust.${name}.featureSets, or --all-features where the features do not conflict, or name it with a reason in rust.${name}.unlintedFeatures`),
+    ...unlintedFeatureProblems({ name, manifestText, sets, unlinted }),
+  ];
 }
 
 /**
@@ -125,10 +151,20 @@ export function effectiveCrateFeatures({ crateFeatures = {}, units, manifestOf }
   const out = { ...crateFeatures };
   for (const name of units) {
     const own = crateFeatures?.[name] ?? {};
+    // A malformed `unlintedFeatures` or host-scoped set is refused here, loudly, before any plan is built from it.
+    const unlinted = Object.keys(unlintedFeatures(own, name));
+    hasHostScopedSets(own, name);
     if (Array.isArray(own.featureSets) && own.featureSets.length) continue;
     let text = null;
     try { text = manifestOf(name); } catch { text = null; }
-    if (typeof text === "string" && declaredFeatureNames(text).length) out[name] = { ...own, autoAllFeatures: true };
+    if (typeof text !== "string") continue;
+    const declared = declaredFeatureNames(text);
+    if (!declared.length) continue;
+    // A feature named in `unlintedFeatures` is never added to a generated set: the generated set lists every other feature instead of --all-features.
+    if (unlinted.length) {
+      const rest = declared.filter((feature) => !unlinted.includes(feature)).sort();
+      if (rest.length) out[name] = { ...own, autoAllFeatures: true, autoFeatures: rest };
+    } else out[name] = { ...own, autoAllFeatures: true };
   }
   return out;
 }

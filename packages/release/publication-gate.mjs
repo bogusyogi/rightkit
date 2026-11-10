@@ -5,6 +5,7 @@
 // Format: docs/RIGHTKIT-SHARED-PACKAGES.md, "Publication gate" -> "Evidence file format".
 import crypto from "node:crypto";
 import { crossTargetsFor, scopedCrossTargets } from "./cross-targets.mjs";
+import { crossFeatureSets, hostFeatureSets } from "./feature-sets.mjs";
 import { committedCargoWorkspace } from "./committed-cargo-workspace.mjs";
 import fs from "node:fs";
 import os from "node:os";
@@ -102,8 +103,10 @@ export function batchReceiptProblems(batch, evidence, tree, expectedWorkspace) {
 }
 
 /** Missing native and cross-target configurations, each bound to the authenticated workspace. */
-export function batchClippyMissingConfigurations(batch, evidence, featureSets, targets, expectedWorkspace) {
+export function batchClippyMissingConfigurations(batch, evidence, featureSets, targets, expectedWorkspace, crossSets = featureSets) {
   const sets = (Array.isArray(featureSets) && featureSets.length ? featureSets : [[]]);
+  // The sets that are also linted for foreign targets (feature-sets.mjs): a host-scoped set is a native-host set and owes no cross-target row.
+  const crossKeys = new Set((Array.isArray(crossSets) ? crossSets : sets).map((set) => JSON.stringify(set)));
   if (!text(expectedWorkspace) || !Array.isArray(targets) || sets.some((set) => !Array.isArray(set) || set.some((arg) => !text(arg)))) throw new Error("invalid batch clippy requirements");
   const rows = (Array.isArray(batch?.checks) ? batch.checks : []).filter((row) => row?.name === "clippy" && row.ok === true
     && row.commit === evidence.commit && row.tree === batch.tree && row.workspace === expectedWorkspace
@@ -111,11 +114,23 @@ export function batchClippyMissingConfigurations(batch, evidence, featureSets, t
     && new Set(row.crates).size === row.crates.length
     && row.crates.every((crate) => typeof crate === "string" && /^[A-Za-z0-9_-]+$/.test(crate) && batch.workspaces?.[crate] === expectedWorkspace));
   const missing = [];
-  for (const features of sets) for (const target of [null, ...targets]) {
+  for (const features of sets) for (const target of [null, ...(crossKeys.has(JSON.stringify(features)) ? targets : [])]) {
     const command = (crates) => ["cargo", "clippy", ...crates.flatMap((crate) => ["-p", crate]), "--message-format=json-render-diagnostics", "--no-deps", "--all-targets", ...(target ? ["--target", target] : []), ...features, "--", "-D", "warnings"].join(" ");
     if (!rows.some((row) => row.command === command(row.crates))) missing.push({ features, target });
   }
   return missing;
+}
+
+/**
+ * `batchClippyMissingConfigurations` for the crate's own entry in ci/gate.config.json on the host that PRODUCED the evidence (`platform`: its
+ * `run.host.os`): that host's feature sets (feature-sets.mjs), the foreign targets its `platforms` scope names, and a cross-target row only for
+ * the sets that are not host-scoped. A crate whose every declared set is scoped to other hosts has nothing a batch on this host could prove.
+ */
+export function batchClippyMissingForHost(batch, evidence, entry, platform, expectedWorkspace) {
+  const sets = hostFeatureSets(entry, platform, "featureSets", evidence?.name) ?? [[]];
+  if (sets.length === 0 && Array.isArray(entry?.featureSets) && entry.featureSets.length) return [{ features: [], target: null }];
+  const cross = crossFeatureSets(entry, platform, "featureSets", evidence?.name) ?? [[]];
+  return batchClippyMissingConfigurations(batch, evidence, sets, scopedCrossTargets(entry, platform), expectedWorkspace, cross);
 }
 
 // Historical helper keeps its feature-array result while requiring independent workspace identity.
@@ -144,7 +159,7 @@ export function provenGateSteps(evidence, expectedWorkspace, gateConfig) {
     if (!gateConfig || run.batch === undefined || batchReceiptProblems(run.batch, evidence, undefined, expectedWorkspace).length) return false;
     try {
       const entry = gateConfig?.rust?.[evidence.name] ?? {};
-      return batchClippyMissingConfigurations(run.batch, evidence, entry.featureSets ?? [[]], scopedCrossTargets(entry, run.host.os), expectedWorkspace).length === 0;
+      return batchClippyMissingForHost(run.batch, evidence, entry, run.host.os, expectedWorkspace).length === 0;
     } catch { return false; }
   };
   return {

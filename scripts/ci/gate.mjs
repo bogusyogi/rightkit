@@ -41,6 +41,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { crateWorkspaces, pathDependencies, reverseDependents } from "../../packages/release/crate-workspaces.mjs";
 import { crossCompileEnv, crossTargetsFor, oneOutput } from "../../packages/release/cross-targets.mjs";
+import { crossFeatureSets, defaultCheckFeatureSets, hostFeatureSets } from "../../packages/release/feature-sets.mjs";
 import { checkArgs, clippyArgs, planScans, runScans, scanDeferrals, scanFailures, scanToolPolicyFromPipeline } from "../../packages/release/deterministic-scans.mjs";
 import { scanGatePassed } from "./scan-receipt.mjs";
 import { scanRustUnits } from "./crate-scan-workspaces.mjs";
@@ -474,7 +475,9 @@ async function rustGate(selection, config, consumers = new Map()) {
   for (const name of STEPS.has("test") ? rust.test : []) {
     if (!applies(name)) continue;
     const entry = config.rust?.[name] ?? {};
-    const featureSets = entry.featureSets ?? [[]];
+    // The sets this host plans (a host-scoped set is absent elsewhere) and the unscoped ones that are also linted for the other OSes' targets (feature-sets.mjs).
+    const featureSets = hostFeatureSets(entry, process.platform, "featureSets", name) ?? [[]];
+    const crossSets = crossFeatureSets(entry, process.platform, "featureSets", name) ?? [[]];
     const timeoutMinutes = entry.timeoutMinutes ?? 25;
     let env = assetEnv(selection, name);
     const preflightStart = results.length;
@@ -488,10 +491,10 @@ async function rustGate(selection, config, consumers = new Map()) {
       const crossEnv = crossCompileEnv(target);
       // GC-A14: a host without the zig C toolchain fails the check, never skips it.
       if (!crossEnv) { results.push({ unit: `rust:${name}`, command: `cargo clippy --target ${target} (RK_CROSS_CC_UNPROVISIONED: run node scripts/ci/provision-zig.mjs)`, ok: false, code: 1, seconds: 0 }); continue; }
-      for (const features of featureSets) await run(`rust:${name}`, "cargo", clippyArgs(name, { features, target }), { cwd, timeoutMinutes, env: { ...env, ...crossEnv } });
+      for (const features of crossSets) await run(`rust:${name}`, "cargo", clippyArgs(name, { features, target }), { cwd, timeoutMinutes, env: { ...env, ...crossEnv } });
     }
     // Features the tests do not enable must still compile; keep in step with packages/release/local-publish.mjs.
-    const checkSets = featureSets.some((features) => features.includes("--all-features")) ? [] : (entry.checkFeatureSets ?? [["--all-features"]]);
+    const checkSets = featureSets.some((features) => features.includes("--all-features")) ? [] : (hostFeatureSets(entry, process.platform, "checkFeatureSets", name) ?? defaultCheckFeatureSets(entry, name));
     for (const features of checkSets) await run(`rust:${name}`, "cargo", checkArgs(name, { features }), { cwd, timeoutMinutes });
     // Keep rustdoc qualification when only static checks ran. Use configured rows
     // rather than blanket all-features: several crates have mutually exclusive feature families.
@@ -518,7 +521,7 @@ async function rustGate(selection, config, consumers = new Map()) {
     const cwd = crateCwd(name);
     await run(`rust:${name}`, "cargo", checkArgs(name), { cwd, timeoutMinutes: 30 });
     // R1: a dependent must also compile with the feature rows its own gate config names (all features unless it says otherwise).
-    for (const features of (config.rust?.[name]?.checkFeatureSets ?? [["--all-features"]]).filter((features) => features.length)) await run(`rust:${name}`, "cargo", checkArgs(name, { features }), { cwd, timeoutMinutes: 30 });
+    for (const features of (hostFeatureSets(config.rust?.[name], process.platform, "checkFeatureSets", name) ?? defaultCheckFeatureSets(config.rust?.[name] ?? {}, name)).filter((features) => features.length)) await run(`rust:${name}`, "cargo", checkArgs(name, { features }), { cwd, timeoutMinutes: 30 });
     for (const row of consumers.get(name) ?? []) {
       for (const step of consumerRowInvocations(row)) await run(`rust:${name}`, step.command, step.args, { timeoutMinutes: config.rust?.[name]?.timeoutMinutes ?? 30, env: assetEnv(selection, name) });
     }
@@ -635,7 +638,7 @@ const unitId = (selection, name) => (selection.unitRequest.registry === "crates"
 function requiredTestCommands(selection, name) {
   if (selection.unitRequest.registry !== "crates") return 1;
   const entry = selection.config.rust?.[name] ?? {};
-  return (entry.featureSets ?? [[]]).length * (entry.alsoSerial ? 2 : 1);
+  return (hostFeatureSets(entry, process.platform, "featureSets", name) ?? [[]]).length * (entry.alsoSerial ? 2 : 1);
 }
 
 /** The runner-reported verdict of every requested unit that was actually run on this host. */

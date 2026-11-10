@@ -104,32 +104,146 @@
     "rightkit-tts": {
       "featureSets": [
         [],
-        [
-          "--features",
-          "engine"
-        ]
+        {
+          "features": [
+            "--features",
+            "engine"
+          ],
+          "hosts": [
+            "darwin",
+            "win32"
+          ],
+          "hostsReason": "engine pulls rightkit-tts-qwen and so rightkit-tts-qwen-sys, which builds only for aarch64-apple-darwin and x86_64-pc-windows-msvc and cannot be cross-compiled by its CMake build: a native-host set with no foreign-OS lint row"
+        }
       ],
       "checkFeatureSets": [
         [],
-        [
-          "--features",
-          "metal"
-        ],
-        [
-          "--features",
-          "vulkan"
-        ]
+        {
+          "features": [
+            "--features",
+            "metal"
+          ],
+          "hosts": [
+            "darwin"
+          ],
+          "hostsReason": "metal forwards to rightkit-tts-qwen-sys metal, which is Apple-only"
+        },
+        {
+          "features": [
+            "--features",
+            "vulkan"
+          ],
+          "hosts": [
+            "win32"
+          ],
+          "hostsReason": "vulkan forwards to rightkit-tts-qwen-sys vulkan, which needs the Vulkan SDK and glslc that the Windows gate host provides and the Mac does not"
+        }
       ]
     },
     "rightkit-tts-qwen": {
+      "platforms": [
+        "darwin",
+        "win32"
+      ],
+      "platformsReason": "it depends on rightkit-tts-qwen-sys without a feature gate, and that crate supports only aarch64-apple-darwin and x86_64-pc-windows-msvc (its supported_targets) and cannot be cross-built by CMake, so the crate does not build on Linux and has no foreign-OS row that can pass",
+      "featureSets": [
+        {
+          "features": [],
+          "hosts": [
+            "darwin",
+            "win32"
+          ],
+          "hostsReason": "native-host set: rightkit-tts-qwen depends on rightkit-tts-qwen-sys unconditionally, which builds only for aarch64-apple-darwin and x86_64-pc-windows-msvc and cannot be cross-compiled by its CMake build, so every set of this crate is a darwin and win32 native-host set with no foreign-OS lint row"
+        },
+        {
+          "features": [
+            "--features",
+            "acl,armnn,azure,cann,coreml,cuda,directml,migraphx,nnapi,nvrtx,onednn,openvino,qnn,rknpu,tensorrt,tvm,vitis,webgpu,xnnpack,native"
+          ],
+          "hosts": [
+            "darwin",
+            "win32"
+          ],
+          "hostsReason": "native-host set: rightkit-tts-qwen depends on rightkit-tts-qwen-sys unconditionally, which builds only for aarch64-apple-darwin and x86_64-pc-windows-msvc and cannot be cross-compiled by its CMake build, so every set of this crate is a darwin and win32 native-host set with no foreign-OS lint row"
+        },
+        {
+          "features": [
+            "--features",
+            "metal,blas"
+          ],
+          "hosts": [
+            "darwin"
+          ],
+          "hostsReason": "forwards to rightkit-tts-qwen-sys metal and blas: metal is Apple-only and blas resolves to Accelerate on macOS; on Windows blas needs an OpenBLAS install the gate host does not provide"
+        },
+        {
+          "features": [
+            "--features",
+            "vulkan"
+          ],
+          "hosts": [
+            "win32"
+          ],
+          "hostsReason": "forwards to rightkit-tts-qwen-sys vulkan, which needs the Vulkan SDK and glslc that the Windows gate host provides and the Mac does not"
+        }
+      ],
       "checkFeatureSets": [
         []
       ]
     },
     "rightkit-tts-qwen-sys": {
+      "platforms": [
+        "darwin",
+        "win32"
+      ],
+      "platformsReason": "Cargo.toml package.metadata.rightkit supported_targets is aarch64-apple-darwin and x86_64-pc-windows-msvc (the only checked-in bindings-<target>.rs files; build.rs panics for any other target), and its build script drives CMake through the cmake crate, which ignores the cross CC/CXX wrappers, so no row for another OS can pass (Mac gate run 2026-11-10: Vulkan not found under --all-features; Windows: BLAS not found)",
+      "featureSets": [
+        {
+          "features": [],
+          "hosts": [
+            "darwin",
+            "win32"
+          ],
+          "hostsReason": "native-host set: rightkit-tts-qwen-sys builds only for aarch64-apple-darwin and x86_64-pc-windows-msvc (checked-in bindings, build.rs panics on any other target) and its CMake build ignores the cross CC wrappers, so it has no foreign-OS lint row on any host"
+        },
+        {
+          "features": [
+            "--features",
+            "native"
+          ],
+          "hosts": [
+            "darwin",
+            "win32"
+          ],
+          "hostsReason": "native-host set: rightkit-tts-qwen-sys builds only for aarch64-apple-darwin and x86_64-pc-windows-msvc (checked-in bindings, build.rs panics on any other target) and its CMake build ignores the cross CC wrappers, so it has no foreign-OS lint row on any host"
+        },
+        {
+          "features": [
+            "--features",
+            "metal,blas"
+          ],
+          "hosts": [
+            "darwin"
+          ],
+          "hostsReason": "metal is Apple-only (build.rs skips it on other targets) and blas resolves to the Accelerate framework on macOS (CMake log: \"BLAS found, Libraries: .../Accelerate.framework\"); on Windows blas needs an OpenBLAS install that the gate host does not provide (CMake: BLAS not found)"
+        },
+        {
+          "features": [
+            "--features",
+            "vulkan"
+          ],
+          "hosts": [
+            "win32"
+          ],
+          "hostsReason": "vulkan needs the Vulkan SDK (vulkan-1.lib and glslc), which the Windows gate host provides under C:\\VulkanSDK and the Mac does not (CMake: Could NOT find Vulkan: Vulkan_LIBRARY Vulkan_INCLUDE_DIR glslc)"
+        }
+      ],
       "checkFeatureSets": [
         []
-      ]
+      ],
+      "unlintedFeatures": {
+        "regenerate-bindings": "it rewrites the checked-in bindings-<target>.rs files from the vendored headers and needs libclang, so it must never run in the gate's read-only snapshot; it is run by hand to refresh bindings (README, VERSIONS.md)"
+      }
     },
     "rightkit-bench": {
       "checkFeatureSets": [
@@ -137,10 +251,17 @@
           "--features",
           "sqlcipher,qa-snapshot"
         ],
-        [
-          "--features",
-          "sqlcipher-system"
-        ]
+        {
+          "features": [
+            "--features",
+            "sqlcipher-system"
+          ],
+          "hosts": [
+            "darwin",
+            "linux"
+          ],
+          "hostsReason": "sqlcipher-system links the system crypto provider (CommonCrypto on Apple, libcrypto elsewhere): on Windows it needs an OpenSSL install (OPENSSL_DIR) that the gate host does not provide; the feature is linted on macOS and Linux hosts only"
+        }
       ],
       "featureSets": [
         [
@@ -301,10 +422,17 @@
           "--features",
           "db-adapter,os-auth,rightkit-db/sqlcipher-libtomcrypt"
         ],
-        [
-          "--features",
-          "db-adapter,os-auth,rightkit-db/sqlcipher-system"
-        ]
+        {
+          "features": [
+            "--features",
+            "db-adapter,os-auth,rightkit-db/sqlcipher-system"
+          ],
+          "hosts": [
+            "darwin",
+            "linux"
+          ],
+          "hostsReason": "rightkit-db/sqlcipher-system links the system crypto provider (CommonCrypto on Apple, libcrypto elsewhere): on Windows it needs an OpenSSL install (OPENSSL_DIR) that the gate host does not provide; Windows is covered by the sqlcipher-libtomcrypt set"
+        }
       ]
     },
     "rightkit-mcp": {
@@ -331,10 +459,17 @@
           "--features",
           "bundled,statement-cache,hooks"
         ],
-        [
-          "--features",
-          "sqlcipher-system,encrypted-lifecycle"
-        ]
+        {
+          "features": [
+            "--features",
+            "sqlcipher-system,encrypted-lifecycle"
+          ],
+          "hosts": [
+            "darwin",
+            "linux"
+          ],
+          "hostsReason": "sqlcipher-system links the system crypto provider (CommonCrypto on Apple, libcrypto elsewhere): on Windows it needs an OpenSSL install (OPENSSL_DIR) that the gate host does not provide; Windows is covered by the sqlcipher-libtomcrypt set"
+        }
       ]
     },
     "rightkit-daemon": {

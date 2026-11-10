@@ -1,6 +1,7 @@
 // Canonical JSON and the scan-set digest, shared by the scanner (deterministic-scans.mjs) and the credentialed
-// receipt verifiers (scripts/ci/scan-receipt.mjs). No imports beyond node:crypto, by design.
+// receipt verifiers (scripts/ci/scan-receipt.mjs). No imports beyond node:crypto and the import-free feature-sets.mjs, by design.
 import crypto from "node:crypto";
+import { allFeatureSets, crossFeatureSets, defaultCheckFeatureSets, hostFeatureSets } from "./feature-sets.mjs";
 
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
 
@@ -43,21 +44,47 @@ export const rustScanId = Object.freeze({
 });
 
 /**
- * A crate's compile feature plan (ci/gate.config.json rust.<crate>): `lintSets` (clippy; the declared sets, default features when none,
- * and default plus --all-features for a crate that declares none but has Cargo features, `autoAllFeatures`), `baseSets` (the declared sets
- * alone: tests, rustdoc and the other-OS-target lints), whether a default `check` is needed (no lint set covers default features), and the
- * `checkSets` that remain (none when a lint set already uses --all-features).
+ * A crate's compile feature plan (ci/gate.config.json rust.<crate>) for the host `platform` (a `process.platform` word): `lintSets` (clippy;
+ * the declared sets, default features when none, and default plus --all-features for a crate that declares none but has Cargo features,
+ * `autoAllFeatures`), `baseSets` (the declared sets alone: tests and rustdoc), `crossSets` (the declared sets that are also linted for the
+ * other OSes' targets: a host-scoped set is a native-host set and plans none), whether a default `check` is needed (no lint set covers
+ * default features), and the `checkSets` that remain (none when a lint set already uses --all-features). A set scoped to other hosts
+ * (feature-sets.mjs) is absent from every list; `none` is true when the crate declares sets and none of them is planned on this host.
+ * `platform` may be left out only for a crate with no host-scoped set. Pure.
  */
-export function rustCratePlan(own = {}) {
-  const declaredSets = Array.isArray(own?.featureSets) && own.featureSets.length ? own.featureSets : [[]];
+export function rustCratePlan(own = {}, platform = undefined, crate = "<crate>") {
+  const configured = Array.isArray(own?.featureSets) && own.featureSets.length > 0;
+  const declaredSets = configured ? hostFeatureSets(own, platform, "featureSets", crate) : [[]];
+  const crossSets = configured ? crossFeatureSets(own, platform, "featureSets", crate) : declaredSets;
+  const checkList = Array.isArray(own?.checkFeatureSets) ? hostFeatureSets(own, platform, "checkFeatureSets", crate) : null;
+  return planFrom(own, { configured, declaredSets, crossSets, checkList, crate });
+}
+
+/**
+ * Every feature set a crate's plan runs on SOME host (feature-coverage: a feature is covered when any declared set enables it, whatever its
+ * hosts): the default check, the lint sets and the check sets, each over all hosts' sets. For a crate with no host-scoped set this is the
+ * list the planner has always handed the coverage scan.
+ */
+export function rustCoverageSets(own = {}, crate = "<crate>") {
+  const configured = Array.isArray(own?.featureSets) && own.featureSets.length > 0;
+  const declaredSets = configured ? allFeatureSets(own, "featureSets", crate) : [[]];
+  const checkList = Array.isArray(own?.checkFeatureSets) ? allFeatureSets(own, "checkFeatureSets", crate) : null;
+  const plan = planFrom(own, { configured, declaredSets, crossSets: declaredSets, checkList, crate });
+  return [...(plan.defaultCheck ? [[]] : []), ...plan.lintSets, ...plan.checkSets];
+}
+
+function planFrom(own, { configured, declaredSets, crossSets, checkList, crate }) {
   // rightkit#1231 (feature-coverage.mjs effectiveCrateFeatures): a crate with no declared `featureSets` whose Cargo.toml declares features is linted with its default
   // features and with --all-features, so feature-gated code is never left unlinted. Its tests, the rustdoc check and the other-OS-target lints keep the declared
   // (here: default) sets, `baseSets`: more configurations than the declared ones would double every test run and cross-compile features nobody declared.
-  const auto = own?.autoAllFeatures === true && !(Array.isArray(own?.featureSets) && own.featureSets.length);
-  const lintSets = auto ? [[], ["--all-features"]] : declaredSets;
-  const defaultCheck = !lintSets.some((set) => set.length === 0);
-  const checkSets = (lintSets.some((set) => set.includes("--all-features")) ? [] : (Array.isArray(own?.checkFeatureSets) ? own.checkFeatureSets : [["--all-features"]])).filter((set) => set.length);
-  return { lintSets, baseSets: declaredSets, defaultCheck, checkSets };
+  // A crate that names `unlintedFeatures` gets the generated set `--features <every other feature>` instead (`autoFeatures`), never --all-features.
+  const auto = own?.autoAllFeatures === true && !configured;
+  const generated = Array.isArray(own?.autoFeatures) ? ["--features", own.autoFeatures.join(",")] : ["--all-features"];
+  const lintSets = auto ? [[], generated] : declaredSets;
+  const defaultCheck = lintSets.length > 0 && !lintSets.some((set) => set.length === 0);
+  const remaining = auto && Array.isArray(own?.autoFeatures) ? [] : (checkList ?? defaultCheckFeatureSets(own, crate));
+  const checkSets = (lintSets.some((set) => set.includes("--all-features")) ? [] : remaining).filter((set) => set.length);
+  return { lintSets, baseSets: declaredSets, crossSets, defaultCheck, checkSets, none: configured && lintSets.length === 0 };
 }
 
 // ---- Clippy batching (GATE-CONTRACT §1 "Clippy route & batching"; item 8 rows 8.6, 8.8, 8.15) -----------------------------------------
@@ -126,7 +153,7 @@ export const REQUIRED_SCAN_PREFIXES = Object.freeze(["rustfmt:"]);
  * `crateFeatures` is ci/gate.config.json `rust`. `includeTests` adds the per-feature-set test scans. Extra scans in a record are
  * allowed; a missing one is not. planScans builds its ids from the same helpers, and a test holds the two in agreement.
  */
-export function requiredScanIds({ units, crateFeatures = {}, exists, includeTests = false, perCrateWorkspaces = undefined, clippyBatching = false, shardSolo = [], clippySeparate = new Map(), sidecarBound = new Set() }) {
+export function requiredScanIds({ units, crateFeatures = {}, platform = undefined, exists, includeTests = false, perCrateWorkspaces = undefined, clippyBatching = false, shardSolo = [], clippySeparate = new Map(), sidecarBound = new Set() }) {
   if (!Array.isArray(units) || units.length === 0 || !units.every((n) => typeof n === "string" && n)) throw new TypeError("requiredScanIds: units must be a non-empty array of names");
   if (typeof exists !== "function") throw new TypeError("requiredScanIds: exists(repoPath) is required");
   // One Cargo workspace and lock per crate (rightkit#1285): every unit has its own crates/<name>/Cargo.lock, so the per-workspace scans
@@ -140,13 +167,15 @@ export function requiredScanIds({ units, crateFeatures = {}, exists, includeTest
   const clippyEntries = [];
   for (const name of units) {
     const own = crateFeatures?.[name] ?? {};
-    const { lintSets, baseSets, defaultCheck, checkSets } = rustCratePlan(own);
+    // `platform`: the host that produced the record; a crate with host-scoped feature sets (feature-sets.mjs) owes that host's sets only.
+    const { lintSets, baseSets, defaultCheck, checkSets, none } = rustCratePlan(own, platform, name);
     if (perCrate) {
       for (const id of ["cargo-metadata", "cargo-deny", "cargo-audit"]) ids.add(`${id}:${name}`);
       if (exists(`crates/${name}/.rightkit/advisory-exceptions.json`)) ids.add(`advisory-exceptions:${name}`);
     }
     ids.add(rustScanId.packageList(name));
     if (exists(`crates/${name}/CHANGELOG.md`)) ids.add(rustScanId.changelog(name));
+    if (none) continue; // every declared set is scoped to other hosts: this host plans no compile row for the crate
     if (defaultCheck) ids.add(rustScanId.check(name));
     checkSets.forEach((_set, i) => ids.add(rustScanId.checkFeatures(name, i)));
     if (clippyBatching) lintSets.forEach((set) => clippyEntries.push({ name, crate: name, ws: ".", set, count: lintSets.length, env: null }));

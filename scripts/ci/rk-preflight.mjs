@@ -12,6 +12,7 @@ import { cargoRecipe } from "./consumer-recipes.mjs";
 import { routeCrate, readOnlyQueries } from "./rk-routing.mjs";
 import { consumerStage } from "./rk-consumer-stage.mjs";
 import { brokerClientInvocation } from "../../packages/release/broker-client.mjs";
+import { defaultCheckFeatureSets, hostFeatureSets } from "../../packages/release/feature-sets.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const DEFAULT_OUT = "/Volumes/D/scratch/rk-pipeline/receipts";
@@ -91,10 +92,10 @@ export function parseArgs(argv) {
 }
 
 /** The hosted gate's rows for one crate, from ci/gate.config.json, cheapest first (scripts/ci/gate.mjs test loop). */
-export function crateRows(unit, config) {
+export function crateRows(unit, config, platform = process.platform) {
   const entry = config.rust?.[unit] ?? {};
-  const featureSets = entry.featureSets ?? [[]];
-  const checkSets = featureSets.some((f) => f.includes("--all-features")) ? [] : (entry.checkFeatureSets ?? [["--all-features"]]);
+  const featureSets = hostFeatureSets(entry, platform, "featureSets", unit) ?? [[]];
+  const checkSets = featureSets.some((f) => f.includes("--all-features")) ? [] : (hostFeatureSets(entry, platform, "checkFeatureSets", unit) ?? defaultCheckFeatureSets(entry, unit));
   const docSets = [...new Map([...featureSets, ...checkSets].map((f) => [JSON.stringify(f), f])).values()];
   const timeoutMinutes = entry.timeoutMinutes ?? 25;
   const rows = [];

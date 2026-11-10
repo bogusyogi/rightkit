@@ -77,8 +77,8 @@ jobs:
             extracted="$PWD/crates/$crate/target/package/$crate-$version"
             tar -tzf "$archive" "$crate-$version/Cargo.lock" >/dev/null || { echo "::error::$crate: packaged archive lacks Cargo.lock"; exit 1; }
             test -f "$extracted/Cargo.lock" || { echo "::error::$crate: package verification directory lacks Cargo.lock"; exit 1; }
-            # The feature rows gate.mjs runs: featureSets (default [[]]), then checkFeatureSets (default [["--all-features"]]) unless a test row already uses --all-features.
-            node -e 'const c=require("./ci/gate.config.json");const e=c.rust?.[process.argv[1]];if(!e){console.error("no ci/gate.config.json rust entry for "+process.argv[1]);process.exit(1)}const t=e.featureSets??[[]];const k=t.some(s=>s.includes("--all-features"))?[]:(e.checkFeatureSets??[["--all-features"]]);for(const s of [...t,...k])console.log(s.join(" ")||"(default)")' "$crate" > "$out/$crate.features"
+            # The feature rows gate.mjs runs on Linux: featureSets (default [[]]), then checkFeatureSets (default [["--all-features"]]) unless a test row already uses --all-features; a set scoped to other hosts is not a Linux row (packages/release/feature-sets.mjs).
+            node --input-type=module -e 'import fs from "node:fs"; import { defaultCheckFeatureSets, hostFeatureSets } from "./packages/release/feature-sets.mjs"; const crate=process.argv[1]; const c=JSON.parse(fs.readFileSync("./ci/gate.config.json","utf8")); const e=c.rust?.[crate]; if(!e){console.error("no ci/gate.config.json rust entry for "+crate);process.exit(1)} const t=hostFeatureSets(e,"linux","featureSets",crate)??[[]]; const k=t.some(s=>s.includes("--all-features"))?[]:(hostFeatureSets(e,"linux","checkFeatureSets",crate)??defaultCheckFeatureSets(e,crate)); for(const s of [...t,...k])console.log(s.join(" ")||"(default)")' "$crate" > "$out/$crate.features"
             test -s "$out/$crate.features"
             while IFS= read -r set; do
               args=()

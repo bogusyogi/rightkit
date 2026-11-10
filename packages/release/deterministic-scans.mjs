@@ -27,7 +27,8 @@ import { spawn as spawnChild, spawnSync } from "./background-process.mjs";
 import { checkAdvisoryExceptions } from "./advisory-exceptions.mjs";
 import { crateRunsOn, crossCompileEnv, oneOutput, scopedCrossTargets } from "./cross-targets.mjs";
 import { declaredFeatureNames, effectiveCrateFeatures, featureCoverageProblems } from "./feature-coverage.mjs";
-import { CLIPPY_UNIVERSAL_FEATURE_FLAGS, canonicalJson, clippyBatchPlan, clippySelectionOf, digestScanSet, requiredScanIds, rustCratePlan, rustScanId } from "./scan-digest.mjs";
+import { CLIPPY_UNIVERSAL_FEATURE_FLAGS, canonicalJson, clippyBatchPlan, clippySelectionOf, digestScanSet, requiredScanIds, rustCoverageSets, rustCratePlan, rustScanId } from "./scan-digest.mjs";
+import { unlintedFeatures } from "./feature-sets.mjs";
 import { reach } from "./lock-graph.mjs";
 import { cargoManifestState } from "./cargo-manifest-text.mjs";
 import { GRADLE_BUILD_FILE, gradleLockProblems, gradleOwnerOf } from "./gradle-lock.mjs";
@@ -1781,10 +1782,15 @@ export function planScans({
     // --all-features), none when a lint set already uses --all-features. Some crates' features cannot
     // all be on together (rightkit-db sqlcipher vs sqlcipher-system; qa-driver wv2 generations).
     const own = featuresOf(name);
-    const { lintSets, baseSets, defaultCheck, checkSets } = rustCratePlan(own);
-    // Every feature the crate declares must be enabled by one of these sets (the feature-coverage scan below, rightkit#1231).
-    coverageCrates.push({ name, manifest: inDir(rustDir(name), "Cargo.toml"), sets: [...(defaultCheck ? [[]] : []), ...lintSets, ...checkSets] });
-    const ws = wsOf(name); const crate = crateOf(name);
+    const crate = crateOf(name);
+    const { lintSets, baseSets, crossSets, defaultCheck, checkSets, none } = rustCratePlan(own, platform, crate);
+    // Every feature the crate declares must be enabled by one of the sets of ANY host (the feature-coverage scan below, rightkit#1231): a host-scoped set
+    // is linted on the host whose plan has it. `unlintedFeatures` names the features the gate never lints, each with its reason.
+    const unlinted = unlintedFeatures(own, crate);
+    coverageCrates.push({ name, manifest: inDir(rustDir(name), "Cargo.toml"), sets: rustCoverageSets(own, crate), ...(Object.keys(unlinted).length ? { unlinted } : {}) });
+    // Every set the crate declares is scoped to other hosts (ci/gate.config.json featureSets hosts): no compile row here, as for a crate scoped by `platforms`.
+    if (none) { notes.push(`${crate}: every declared feature set is scoped to other hosts (ci/gate.config.json featureSets hosts); its compile scans are not planned on ${platform}`); continue; }
+    const ws = wsOf(name);
     // `cargo clippy --all-targets` type-checks exactly what `cargo check --all-targets` does: the default
     // check runs only when no clippy set covers default features.
     if (defaultCheck) add({ id: rustScanId.check(name), class: B, batchUnit: name, ...cargoIn(ws, ...checkArgs(crate, { locked: true })) });
@@ -1794,10 +1800,11 @@ export function planScans({
     // The other two OS targets, every lint set, -D warnings, on every host (cross-targets.mjs; Adrian 2026-11-02/03, no skip). The zig C
     // toolchain must be provisioned (crossCcDir); without it the scan fails naming the fix, never skipped. On a broker host the broker must
     // admit the cross target and its CC_/CXX_/AR_ variables; a refusal there fails the scan.
+    // A host-scoped feature set is a native-host set and has no cross-target row (feature-sets.mjs): `crossSets` holds the unscoped ones, each keeping its index among the declared sets.
     for (const target of scopedCrossTargets(own, platform)) {
       const crossEnv = crossCompileEnv(target);
-      baseSets.forEach((set, i) => {
-        const id = `${rustScanId.clippy(name, baseSets.length, i)}@${target}`;
+      crossSets.forEach((set) => {
+        const id = `${rustScanId.clippy(name, baseSets.length, baseSets.indexOf(set))}@${target}`;
         if (!crossEnv) { add({ id, class: B, tool: "node", args: ["-e", `console.error("RK_CROSS_CC_UNPROVISIONED: the zig C toolchain for ${target} is not provisioned; run node scripts/ci/provision-zig.mjs <managed data root>/zig (or set RIGHTKIT_CROSS_CC_DIR)"); process.exit(1)`] }); return; }
         const scan = cargoIn(ws, ...clippyArgs(crate, { features: set, locked: true, target }));
         add({ id, class: B, batchUnit: name, ...scan, env: { ...(scan.env ?? {}), ...crossEnv } });
@@ -1813,7 +1820,7 @@ export function planScans({
   }
   // Class A, file-only (rightkit#1231): no feature of a crate's Cargo.toml may be left out of every planned feature set, so feature-gated code is never
   // unchecked. Crates without Cargo features need no row.
-  const featureful = coverageCrates.filter((c) => { const t = manifestTextOf(c.name); return typeof t === "string" && declaredFeatureNames(t).length > 0; });
+  const featureful = coverageCrates.filter((c) => { const t = manifestTextOf(c.name); return typeof t === "string" && (declaredFeatureNames(t).length > 0 || c.unlinted !== undefined); });
   if (featureful.length) add({ id: "feature-coverage", class: A, internal: "feature-coverage", crates: featureful });
   if (clippyBatching && clippyEntries.length) {
     // One Clippy scan per batch (row 8.6): the independent batches first, the sidecar-bound ones after them (row 8.8; the compile lane
@@ -1941,7 +1948,8 @@ export function planScans({
     for (const name of crateNames) {
       if (outOfScope(name)) continue;
       const own = featuresOf(name);
-      const sets = rustCratePlan(own).baseSets;
+      const sets = rustCratePlan(own, platform, crateOf(name)).baseSets;
+      if (!sets.length) continue; // every declared set is scoped to other hosts (hosts): no test row on this host
       const quiet = own.quietTests === true ? { quiet: true } : {};
       if (own.quietTests === true && quietTests === "ci") {
         deferredToCi.push(...sets.map((set, i) => rustScanId.testRust(name, sets.length, i)), ...(own.alsoSerial ? sets.map((set, i) => rustScanId.testRustSerial(name, sets.length, i)) : []));
@@ -2977,7 +2985,7 @@ const INTERNAL = {
     return [`${s.dir === "." ? "swift package" : s.dir}: the Swift type-check did not complete (exit ${r?.status ?? "none"}) and printed no Swift diagnostic: ${failureDetail(r)}`];
   },
   // Every Cargo feature of a planned crate is enabled by one of its planned feature sets (feature-coverage.mjs, rightkit#1231).
-  "feature-coverage": (s, ctx) => s.crates.flatMap((c) => featureCoverageProblems({ name: c.name, manifestText: ctx.read(c.manifest), sets: c.sets })),
+  "feature-coverage": (s, ctx) => s.crates.flatMap((c) => featureCoverageProblems({ name: c.name, manifestText: ctx.read(c.manifest), sets: c.sets, unlinted: c.unlinted })),
   // File-only SwiftPM lockfile check (swift-lock.mjs): runs no SwiftPM, reads Package.swift / project.pbxproj and Package.resolved as committed.
   "swift-lock": (s, ctx) => {
     const exists = (f) => ctx.deps.exists(path.join(ctx.contentRoot, f));

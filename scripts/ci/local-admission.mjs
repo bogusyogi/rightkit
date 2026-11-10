@@ -7,12 +7,11 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { candidateWorkspace } from "../../packages/release/committed-cargo-workspace.mjs";
-import { batchReceiptProblems, batchClippyMissingConfigurations, validatePublicationEvidence } from "../../packages/release/publication-gate.mjs";
+import { batchReceiptProblems, batchClippyMissingForHost, validatePublicationEvidence } from "../../packages/release/publication-gate.mjs";
 import { readCargoPackage } from "../../packages/release/crate-graph.mjs";
 import { readArchiveEntries } from "./archive-secret-scan.mjs";
 import { runtimeFeatureProofPolicy } from "./semantic-admission.mjs";
 import { cargoLocksFor, localRequiredScanIds, verifyLocalScanRecord } from "./scan-receipt.mjs";
-import { crossTargetsFor } from "../../packages/release/cross-targets.mjs";
 import { localTestPlan } from "../../packages/release/local-publish.mjs";
 import { LOCAL_HOST_OS } from "./upload.mjs";
 import { verifyLocalRuntimeProof } from "./runtime-supplement.mjs";
@@ -301,7 +300,7 @@ export function evidenceStepProblems({ evidence, unit, gateConfig, hostOs, works
     problems.push(...batchReceiptProblems(run.batch, evidence, tree, workspace).map((problem) => `batch: ${problem}`));
     try {
       const entry = gateConfig?.rust?.[unit.name] ?? {};
-      const missing = batchClippyMissingConfigurations(run.batch, evidence, entry.featureSets ?? [[]], crossTargetsFor(entry, hostOs), workspace);
+      const missing = batchClippyMissingForHost(run.batch, evidence, entry, hostOs, workspace);
       for (const item of missing) problems.push(`batch clippy missing ${item.features.join(" ") || "default"} @ ${item.target ?? "native"}`);
     } catch (error) { problems.push(`batch clippy requirements: ${error.message}`); }
   }
@@ -337,13 +336,14 @@ export async function localAdmission({ candidate, manifest, manifestSha256, sour
   } catch (error) { fail(`crate locks: ${error.message}`); }
   // fix5: what each host must prove is recomputed from the authenticated source, never from the receipts.
   const sourceText = (name) => source.readData(name).toString("utf8");
-  let requiredIds = null; let gateConfig = {};
-  try { requiredIds = localRequiredScanIds({ units: candidate.units, readText: sourceText }); } catch (error) { fail(`required scan set: ${error.message}`); }
+  // The required scan set is the host's own: a host-scoped feature set is required only from the hosts it names.
+  const requiredIds = {}; let gateConfig = {};
+  try { for (const host of hosts) requiredIds[host] = localRequiredScanIds({ units: candidate.units, readText: sourceText, platform: LOCAL_HOST_OS[host] }); } catch (error) { fail(`required scan set: ${error.message}`); }
   try { gateConfig = JSON.parse(sourceText("ci/gate.config.json")); } catch (error) { if (error instanceof SyntaxError) fail("ci/gate.config.json in the authenticated source is not valid JSON"); }
   for (const host of hosts) {
     const receipt = receipts[host];
     if (receipt?.commit !== candidate.sourceSha || receipt?.tree !== source.source.tree) fail(`${host}: receipt commit/tree differ from the authenticated source`);
-    try { verifyLocalScanRecord(receipt?.scans, { sourceSha: candidate.sourceSha, cargoLocks, units: candidate.units, requiredIds, registry: "crates" }); } catch (error) { fail(`${host}: ${error.message}`); }
+    try { verifyLocalScanRecord(receipt?.scans, { sourceSha: candidate.sourceSha, cargoLocks, units: candidate.units, requiredIds: requiredIds[host] ?? null, registry: "crates" }); } catch (error) { fail(`${host}: ${error.message}`); }
   }
   for (const unit of manifest.units) {
     const problems = [...failures]; const policies = {};

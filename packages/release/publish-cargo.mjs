@@ -3,8 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { crossTargetsFor, scopedCrossTargets } from "./cross-targets.mjs";
-import { enforcePublicationGate, defaultEvidencePath, provenGateSteps, singleHostOfPolicy, batchClippyMissingConfigurations } from "./publication-gate.mjs";
+import { enforcePublicationGate, defaultEvidencePath, provenGateSteps, singleHostOfPolicy, batchClippyMissingForHost } from "./publication-gate.mjs";
 import { runCargoSync } from "./managed-cargo.mjs";
 import { assertPublishCapability, refuseHostUpload } from "./host-upload-refusal.mjs";
 import { spawnSync } from "./background-process.mjs";
@@ -404,7 +403,7 @@ export async function runCargoPublish(options, execute = (_command, args, settin
     const proofHost = singleHostOfPolicy(gate.evidence) ?? "darwin";
     for (const run of gate.evidence.runs.filter((item) => item?.host?.os === proofHost && item.batch)) {
       const entry = batchConfig?.rust?.[options.crate] ?? {};
-      const missing = batchClippyMissingConfigurations(run.batch, gate.evidence, entry.featureSets ?? [[]], scopedCrossTargets(entry, run.host.os), gate.workspace);
+      const missing = batchClippyMissingForHost(run.batch, gate.evidence, entry, run.host.os, gate.workspace);
       if (missing.length) throw new Error(`batch clippy missing configured feature/target coverage: ${missing.map(({ features, target }) => `${features.join(" ") || "default"} @ ${target ?? "native"}`).join("; ")}`);
     }
   }
@@ -440,7 +439,7 @@ export async function runCargoPublish(options, execute = (_command, args, settin
       // A batch run's clippy lives in its batch receipt, which `expected` leaves out: demand one row per feature set (0.4.1 review A2).
       if (run.batch) {
         const entry = config?.rust?.[options.crate] ?? {};
-        const missing = batchClippyMissingConfigurations(run.batch, gate.evidence, entry.featureSets ?? [[]], scopedCrossTargets(entry, run.host.os), gate.workspace);
+        const missing = batchClippyMissingForHost(run.batch, gate.evidence, entry, run.host.os, gate.workspace);
         if (missing.length) throw new Error(`--from-evidence missing batch clippy feature/target coverage: ${missing.map(({ features, target }) => `${features.join(" ") || "default"} @ ${target ?? "native"}`).join("; ")}`);
       }
     }
