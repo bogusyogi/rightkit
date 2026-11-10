@@ -499,6 +499,27 @@ fn parse_auto_execution_provider_order() -> Result<Vec<VocoderExecutionProvider>
         }
         let provider = match VocoderExecutionProvider::parse_token(&value) {
             Ok(provider) => provider,
+            #[cfg(not(all(
+                feature = "acl",
+                feature = "armnn",
+                feature = "azure",
+                feature = "cann",
+                feature = "coreml",
+                feature = "cuda",
+                feature = "directml",
+                feature = "migraphx",
+                feature = "nnapi",
+                feature = "nvrtx",
+                feature = "onednn",
+                feature = "openvino",
+                feature = "qnn",
+                feature = "rknpu",
+                feature = "tensorrt",
+                feature = "tvm",
+                feature = "vitis",
+                feature = "webgpu",
+                feature = "xnnpack",
+            )))]
             Err(ExecutionProviderParseError::MissingFeature(feature)) => {
                 return Err(Qwen3TtsError::InvalidInput(format!(
                     "QWEN3_TTS_VOCODER_EP_FALLBACK includes {value}, but the binary was built without the {feature} feature"

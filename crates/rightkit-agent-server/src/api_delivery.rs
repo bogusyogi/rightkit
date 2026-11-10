@@ -1293,7 +1293,7 @@ async fn run_worktree_git(
         let runtime = tokio::runtime::Handle::current();
         // AppContainerProfile owns a native SID; keep it on this worker
         // rather than carrying a non-Send handle across an async suspension.
-        return tokio::task::spawn_blocking(move || {
+        tokio::task::spawn_blocking(move || {
             if target.parent().is_none()
                 || target
                     .components()
@@ -1323,7 +1323,7 @@ async fn run_worktree_git(
             Ok(result)
         })
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     }
     #[cfg(not(windows))]
     {
