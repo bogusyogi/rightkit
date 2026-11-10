@@ -246,7 +246,7 @@
       "checkFeatureSets": [
         [
           "--features",
-          "sqlcipher,qa-snapshot"
+          "qa-snapshot"
         ],
         {
           "features": [
@@ -263,7 +263,7 @@
       "featureSets": [
         [
           "--features",
-          "qa-snapshot"
+          "sqlcipher,qa-snapshot"
         ]
       ]
     },
