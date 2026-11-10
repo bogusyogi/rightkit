@@ -2084,10 +2084,19 @@ async function runStages(o, args, root, git, io) {
       // rightkit#1462 (ADR-001 section 7): a run that goes on to package runs the release admission, read-only, before anything compiles: the same rows `right-release build`
       // runs at its start (files: config and inputs; host: tools, credentials, signing hosts; network: pin freshness against the registries), asked through its own
       // `--dry-run`, which prints the rows and exits non-zero on a finding before any lock, cache, install or child build exists. A refusal then costs seconds, not a class B.
-      if (stages.includes("package") && !mobile && PLATFORMS.includes(platform)) {
-        o.out(`${tag} [compile] release admission dry-run for ${platform} before any compile (right-release build --platform ${platform} --dry-run)`);
-        if (!await rightRelease(stage, ["build", "--platform", platform, "--dry-run"])) { o.err(`${tag} BLOCKED: [compile] the release admission (pin freshness, host tools, credentials, signing hosts) refused ${platform}; nothing compiled`); ok = false; }
-      }
+      // On a broker host the admission's recipe expansion binds the app's Cargo target from a signed receipt (stage-seam.mjs carriedOutputDir; the snapshot holds no
+      // target and Cargo cannot be asked for one there). Before the first carried call of the door run no receipt exists, so the dry-run refused every package run with
+      // RK_SPLIT_TARGET_UNRESOLVED (HeardRight on the Dell, 2026-11-10: "the Cargo target directory <snapshot>/tauri-app-next/target is inside the snapshot"). There it runs
+      // right after the sidecars are staged, whose receipts name the target; an app with no carried call before its compile skips the early dry-run, and the package
+      // stage's own `right-release build` runs the same admission rows at its start.
+      const wantsAdmission = stages.includes("package") && !mobile && PLATFORMS.includes(platform);
+      const admissionDryRun = async (when) => {
+        o.out(`${tag} [compile] release admission dry-run for ${platform} ${when} (right-release build --platform ${platform} --dry-run)`);
+        if (!await rightRelease(stage, ["build", "--platform", platform, "--dry-run"])) { o.err(`${tag} BLOCKED: [compile] the release admission (pin freshness, host tools, credentials, signing hosts) refused ${platform}; nothing compiled`); return false; }
+        return true;
+      };
+      const admissionAfterStaging = wantsAdmission && executor.kind === "broker" && Boolean(ds);
+      if (wantsAdmission && !admissionAfterStaging) ok = await admissionDryRun("before any compile");
       // On the snapshot route the sidecars are staged from the snapshot's own config and sources through right-release's source split
       // (the staged files and receipt land beside the sources the compile reads; the caches and build trees stay the checkout's), before
       // `main --all` compiles. A broker host's stage-sidecar child reaches Cargo through the stage's carrier (stage-seam.mjs).
@@ -2101,6 +2110,10 @@ async function runStages(o, args, root, git, io) {
       if (ok && ds) ok = await stageWindowsIdentityOnce({ o, ds, root, git, appDir, cli, commonDir, commit, tree, stage, executor });
       if (ok && ds) ok = await stageSidecarsOnce({ o, ds, root, git, configs: sidecarConfigs, appDir, cli, commonDir, commit, tree, stage, executor });
       else for (const config of ok ? sidecarConfigs : []) if (!await rightRelease(stage, ["stage-sidecar", "--config", path.join(root, config)])) { ok = false; break; }
+      if (ok && admissionAfterStaging) {
+        if (ds.carriedOutputs?.size) ok = await admissionDryRun("after the sidecars were staged, before the app compiles");
+        else o.out(`${tag} [compile] release admission dry-run skipped here: no broker receipt names the app's Cargo target yet; the package stage's build runs the same admission rows at its start`);
+      }
       let compiledDirs = []; let compiledBins = null; let qualifyOwed = [];
       const reportOutputs = (dirs, bins = null) => { compiledDirs = [...dirs]; compiledBins = bins; };
       if (ok) ok = (await (o.runCompile ?? (() => main(ds ? ["--all", "--commit", commit, "--snapshot", ds.path] : ["--all"], { ...io, cwd: root, readStdin: () => "", ...(ds ? { snapshotLock: ds.lock, classAEarlier: true, seamScope: appDir === "." ? null : [appDir], snapshotLedger: ds.ledger?.entries ?? [], onCompileLedger: (entries) => { ds.compileAdmitted = entries; }, onDirectReceipt: (r) => { directReceipt = r; }, onCompileOutputs: reportOutputs, onQualifyOwed: (list) => { qualifyOwed = list; } } : {}) })))({ reportOutputs })) === 0;
