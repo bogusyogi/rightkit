@@ -279,10 +279,6 @@
         [
           "--features",
           "control,wv2-0_39,android,browser"
-        ],
-        [
-          "--features",
-          "control,wv2-0_38"
         ]
       ],
       "featureSets": [
@@ -304,20 +300,22 @@
           "locked": true
         }
       ],
-      "allowIgnored": "src/control/macos_focus.rs (3 tests: native_helper_records_rapid_activate_and_return, native_helper_loss_fails_closed, native_helper_starts_and_stops_without_focus_activity) are #[ignore] on purpose: they need a macOS foreground desktop with disposable GUI apps in an active login session, which no runner has, and run by hand with --ignored (3 ignored per default run on macOS, 0 on Windows where the module is cfg(target_os = \"macos\")); every other qa test runs and asserts on every default run"
+      "allowIgnored": "src/control/macos_focus.rs (3 tests: native_helper_records_rapid_activate_and_return, native_helper_loss_fails_closed, native_helper_starts_and_stops_without_focus_activity) are #[ignore] on purpose: they need a macOS foreground desktop with disposable GUI apps in an active login session, which no runner has, and run by hand with --ignored (3 ignored per default run on macOS, 0 on Windows where the module is cfg(target_os = \"macos\")); every other qa test runs and asserts on every default run",
+      "unlintedFeatures": {
+        "wv2-0_38": "it selects the WebView2 binding generation of Tauri 2.11 (wry 0.55: webview2-com 0.38, windows 0.61). The one workspace lock resolves Tauri 2.12 (wry 0.57: webview2-com 0.39, windows 0.62) since 81a836d4d, and the controller this code calls is Tauri's own type, so on Windows the 0.38 arguments no longer match it (E0271/E0277 at crates/rightkit-qa/src/embedded/win_view.rs:124, Dell batch at 8e6f0c43); it cannot be built in this workspace on the host where it means anything. wv2-0_39 is built on every host (rightkit#1562)"
+      }
     },
     "rightkit-qa-driver": {
       "checkFeatureSets": [
         [
           "--features",
           "qa-control,wv2-0_39,offscreen-private-spi"
-        ],
-        [
-          "--features",
-          "qa-control,wv2-0_38"
         ]
       ],
-      "allowIgnored": "tests/offscreen_windows.rs (3 tests: live_session_moves_window_off_all_displays_without_focus, hidden_at_start_window_is_placed_and_shown_without_ever_appearing_on_a_display, minimized_window_is_refused) and tests/offscreen_macos.rs (4 tests: launches_offscreen_with_native_identity, identity_cross_check_survives_after_end, never_shown_window_shows_hover_and_pressed_pixels, shown_unfocused_window_registers_hover_style_and_pressed_pixels) are #[ignore] on purpose: they create real windows in the interactive desktop session or launch the Tauri control fixture, which no runner provides, and run by hand with --ignored (3 ignored per default run on Windows, 4 on macOS); every other qa-driver test runs and asserts on every default run"
+      "allowIgnored": "tests/offscreen_windows.rs (3 tests: live_session_moves_window_off_all_displays_without_focus, hidden_at_start_window_is_placed_and_shown_without_ever_appearing_on_a_display, minimized_window_is_refused) and tests/offscreen_macos.rs (4 tests: launches_offscreen_with_native_identity, identity_cross_check_survives_after_end, never_shown_window_shows_hover_and_pressed_pixels, shown_unfocused_window_registers_hover_style_and_pressed_pixels) are #[ignore] on purpose: they create real windows in the interactive desktop session or launch the Tauri control fixture, which no runner provides, and run by hand with --ignored (3 ignored per default run on Windows, 4 on macOS); every other qa-driver test runs and asserts on every default run",
+      "unlintedFeatures": {
+        "wv2-0_38": "it selects the WebView2 binding generation of Tauri 2.11 (wry 0.55: webview2-com 0.38, windows 0.61). The one workspace lock resolves Tauri 2.12 (wry 0.57: webview2-com 0.39, windows 0.62) since 81a836d4d, and the controller this code calls is Tauri's own type, so on Windows the 0.38 arguments no longer match it (E0271/E0277 at crates/rightkit-qa/src/embedded/win_view.rs:124, Dell batch at 8e6f0c43); it cannot be built in this workspace on the host where it means anything. wv2-0_39 is built on every host (rightkit#1562)"
+      }
     },
     "rightkit-tauri-shell": {
       "featureSets": [

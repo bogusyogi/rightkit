@@ -212,7 +212,8 @@ fn task_output_preview(output: &str) -> String {
 }
 
 pub(crate) fn workspace_tasks_path(root: &FsPath) -> PathBuf {
-    root.join(".coderight").join("tasks.json")
+    // The file the `task_tools` of rightkit-agent-tools write (`<workspace>/.rightkit/tasks.json`).
+    root.join(".rightkit").join("tasks.json")
 }
 
 pub(crate) fn load_workspace_task_records(

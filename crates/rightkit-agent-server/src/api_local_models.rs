@@ -711,7 +711,9 @@ fn workspace_path(q: &WorkspaceQuery) -> std::path::PathBuf {
 }
 
 fn workspace_config_path(workspace: &std::path::Path) -> std::path::PathBuf {
-    workspace.join(".coderight").join("config.toml")
+    // The file `ConfigLoader::update_workspace_from` and `save_workspace` write and
+    // `load_files_for_workspace` reads (`<workspace>/.rightkit/config.toml`).
+    workspace.join(".rightkit").join("config.toml")
 }
 
 fn load_workspace_config_only(

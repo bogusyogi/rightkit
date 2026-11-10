@@ -121,7 +121,8 @@ pub(crate) async fn start_driver(
     let current_exe = std::env::current_exe().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     // Codex's startup status must name exactly the host MCP server
     // (`rightkit_agents::driver_host` rejects any other name).
-    const HOST_MCP_SERVER_NAME: &str = rightkit_agents::driver_host::agy_harness::HOST_MCP_SERVER_NAME;
+    const HOST_MCP_SERVER_NAME: &str =
+        rightkit_agents::driver_host::agy_harness::HOST_MCP_SERVER_NAME;
     let mcp_args = vec![
         "mcp-server".to_string(),
         "--session-id".to_string(),
@@ -173,7 +174,9 @@ pub(crate) async fn start_driver(
                 "-c".to_string(),
                 format!("mcp_servers.{HOST_MCP_SERVER_NAME}.required=true"),
                 "-c".to_string(),
-                format!("mcp_servers.{HOST_MCP_SERVER_NAME}.default_tools_approval_mode=\"approve\""),
+                format!(
+                    "mcp_servers.{HOST_MCP_SERVER_NAME}.default_tools_approval_mode=\"approve\""
+                ),
             ]);
             spec.env.insert(
                 "CODEX_HOME".to_string(),
@@ -867,7 +870,7 @@ pub(crate) fn spawn_driver_event_consumer(
                         &state,
                         &binding.id,
                         &binding.session_id,
-                        event,
+                        *event,
                     )
                     .await
                     {

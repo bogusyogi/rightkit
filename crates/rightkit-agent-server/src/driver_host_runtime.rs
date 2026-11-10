@@ -66,7 +66,7 @@ pub enum DiagnosticStream {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DriverRuntimeEvent {
-    Normalized(NormalizedEvent),
+    Normalized(Box<NormalizedEvent>),
     ServerRequest {
         id: Value,
         method: String,
@@ -782,7 +782,7 @@ impl rightkit_agents::driver_host::cli_runtime::CliDriverHostBridge for DaemonCl
             while let Some(event) = events.recv().await {
                 match event {
                     DriverRuntimeEvent::Normalized(event) => {
-                        if events_tx.send(event).await.is_err() {
+                        if events_tx.send(*event).await.is_err() {
                             break;
                         }
                     }
@@ -1088,7 +1088,7 @@ fn codex_usage_limit_events(
     match rightkit_agents::driver_host::parse_codex_usage_limit_event(line, offset) {
         Ok(Some(mut event)) => {
             rightkit_agents::driver_host::stamp_account(&mut event.kind, account);
-            vec![DriverRuntimeEvent::Normalized(event)]
+            vec![DriverRuntimeEvent::Normalized(Box::new(event))]
         }
         _ => Vec::new(),
     }
@@ -1143,7 +1143,7 @@ fn spawn_stdout_reader(
                         if is_ready {
                             let _ = ready.send(true);
                         }
-                        Ok(Some(DriverRuntimeEvent::Normalized(*event)))
+                        Ok(Some(DriverRuntimeEvent::Normalized(event)))
                     }
                     Ok(Some(CodexMessage::ServerRequest { id, method, params })) => {
                         Ok(Some(DriverRuntimeEvent::ServerRequest {
@@ -1166,7 +1166,7 @@ fn spawn_stdout_reader(
                                 ) {
                                     let _ = ready.send(true);
                                 }
-                                DriverRuntimeEvent::Normalized(event)
+                                DriverRuntimeEvent::Normalized(Box::new(event))
                             })
                         })
                         .map_err(|error| error.to_string())
@@ -1199,7 +1199,7 @@ fn spawn_stdout_reader(
                                 ) {
                                     let _ = ready.send(true);
                                 }
-                                DriverRuntimeEvent::Normalized(event)
+                                DriverRuntimeEvent::Normalized(Box::new(event))
                             })
                             .collect::<Vec<_>>();
                         let last = batch.pop();

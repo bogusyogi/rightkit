@@ -23,17 +23,17 @@ fastembed = ["rightkit-onnx/session", "rightkit-agent-tools/coding_tools-embeddi
 [dependencies]
 rightkit-doctor = { version = "0.1.0", path = "../rightkit-doctor" }
 rightkit-agent-host-traits = { version = "0.1.1", path = "../rightkit-agent-host-traits" }
-rightkit-agent-plugins = { version = "0.1.0", path = "../rightkit-agent-plugins" }
+rightkit-agent-plugins = { version = "0.1.1", path = "../rightkit-agent-plugins" }
 rightkit-agent-recipes = { version = "0.1.0", path = "../rightkit-agent-recipes" }
 rightkit-onnx = { version = "0.2.9", path = "../rightkit-onnx", features = ["agent_ort"], default-features = false }
-rightkit-agent-engine-protocol = { version = "0.1.0", path = "../rightkit-agent-engine-protocol" }
+rightkit-agent-engine-protocol = { version = "0.1.1", path = "../rightkit-agent-engine-protocol" }
 rightkit-agent-engine-core = { version = "0.1.0", path = "../rightkit-agent-engine-core" }
-rightkit-hooks = { version = "0.2.1", path = "../rightkit-hooks", features = ["agent_hooks", "agent_hooks-host-env"] }
+rightkit-hooks = { version = "0.2.3", path = "../rightkit-hooks", features = ["agent_hooks", "agent_hooks-host-env"] }
 rightkit-llm = { version = "0.3.2", path = "../rightkit-llm", features = ["agent_providers", "agent_providers-host-env", "agent_router"] }
 rightkit-memory = { version = "0.1.1", path = "../rightkit-memory", features = ["agent_host"] }
 rightkit-agent-policy = { version = "0.1.0", path = "../rightkit-agent-policy" }
-rightkit-logs = { version = "0.3.7", path = "../rightkit-logs", features = ["agent_telemetry", "tracing"], default-features = false }
-rightkit-agent-tools = { version = "0.3.1", path = "../rightkit-agent-tools", features = ["coding_tools"] }
+rightkit-logs = { version = "0.3.9", path = "../rightkit-logs", features = ["agent_telemetry", "tracing"], default-features = false }
+rightkit-agent-tools = { version = "0.3.3", path = "../rightkit-agent-tools", features = ["coding_tools"] }
 rightkit-app-settings = { version = "0.3.1", path = "../rightkit-app-settings", features = ["agent_config", "agent_config-host-env"] }
 rightkit-agent-orchestration = { version = "0.1.1", path = "../rightkit-agent-orchestration" , features = ["coding", "coding-host"] }
 rightkit-adapt = { version = "0.1.0", path = "../rightkit-adapt" }
@@ -44,7 +44,7 @@ rightkit-sandbox = { version = "0.6.2", path = "../rightkit-sandbox", features =
 rightkit-models = { version = "0.5.3", path = "../rightkit-models", features = ["agent_local_models"] }
 rightkit-agent-engine-runtime-middleware = { version = "0.1.0", path = "../rightkit-agent-engine-runtime-middleware" }
 rightkit-agent-engine-runtime-resources = { version = "0.1.0", path = "../rightkit-agent-engine-runtime-resources" }
-rightkit-agent-engine-storage = { version = "0.1.0", path = "../rightkit-agent-engine-storage", features = ["workflow"] }
+rightkit-agent-engine-storage = { version = "0.1.1", path = "../rightkit-agent-engine-storage", features = ["workflow"] }
 rightkit-workflow = { version = "0.2.1", path = "../rightkit-workflow" , features = ["control_plane", "control_plane_host"] }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", features = ["digest", "fs", "json", "lock", "transaction"] }
@@ -62,12 +62,12 @@ rightkit-db = { version = "0.5.3", path = "../rightkit-db", features = ["bundled
 rightkit-job-queue = { version = "0.5.1", path = "../rightkit-job-queue", default-features = false }
 rightkit-bot-messaging = { version = "0.1.0", path = "../rightkit-bot-messaging" }
 rightkit-mcp = { version = "0.7.2", path = "../rightkit-mcp", features = ["agent_mcp", "agent_mcp-host-env"] }
-rightkit-agents = { version = "0.2.2", path = "../rightkit-agents", features = ["agent_acp", "agent_host"] }
+rightkit-agents = { version = "0.2.4", path = "../rightkit-agents", features = ["agent_acp", "agent_host"] }
 rightkit-agent-engine-attention = { version = "0.1.0", path = "../rightkit-agent-engine-attention" }
 rightkit-agent-engine-api-sessions = { version = "0.1.0", path = "../rightkit-agent-engine-api-sessions" }
 rightkit-agent-engine-api-workflows = { version = "0.1.0", path = "../rightkit-agent-engine-api-workflows" }
 rightkit-agent-engine-api-integrations = { version = "0.1.0", path = "../rightkit-agent-engine-api-integrations" }
-rightkit-agent-engine-api-platform = { version = "0.1.0", path = "../rightkit-agent-engine-api-platform" }
+rightkit-agent-engine-api-platform = { version = "0.1.1", path = "../rightkit-agent-engine-api-platform" }
 rightkit-agent-engine-cli = { version = "0.1.0", path = "../rightkit-agent-engine-cli" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }

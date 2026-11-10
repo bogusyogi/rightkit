@@ -80,15 +80,14 @@ fn config_files(workspace: &FsPath) -> Vec<(&'static str, PathBuf)> {
     if let Some(state) = config_state_dir() {
         files.push(("user", state.join("config.toml")));
     }
-    files.push((
-        "workspace",
-        workspace.join(".coderight").join("config.toml"),
-    ));
+    files.push(("workspace", workspace_config_path(workspace)));
     files
 }
 
+/// The file `ConfigLoader::update_workspace_from` and `save_workspace` write and
+/// `load_files_for_workspace` reads (`<workspace>/.rightkit/config.toml`).
 fn workspace_config_path(workspace: &FsPath) -> PathBuf {
-    workspace.join(".coderight").join("config.toml")
+    workspace.join(".rightkit").join("config.toml")
 }
 
 fn workspace_path(q: &WorkspaceQuery) -> PathBuf {

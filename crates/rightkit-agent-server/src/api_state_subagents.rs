@@ -414,8 +414,7 @@ pub(crate) fn native_spawn_route(
     options: &rightkit_agent_tools::coding_tools::SubagentSpawnOptions,
 ) -> Option<(String, String)> {
     let runtime = options.runtime.as_ref()?;
-    let rightkit_agent_tools::coding_tools::SpawnRuntimeKind::HostNative { model_id, .. } =
-        runtime
+    let rightkit_agent_tools::coding_tools::SpawnRuntimeKind::HostNative { model_id, .. } = runtime
     else {
         return None;
     };
