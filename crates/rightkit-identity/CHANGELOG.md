@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Manifest only: dependency requirements and workspace metadata changed since 0.1.1 was published; no source change.
+
 ## 0.1.1 (unpublished)
 
 - Added the `rk-pair/1` short-authenticated-string functions to `pairing` (#965): `pairing_commit`, `pairing_code`, `label_bytes`, `NONCE_BYTES`, `MAX_LABEL_CHARS`, `CODE_DIGITS` (also re-exported at the crate root). Byte-identical to `rightkit-daemon`'s `remote/pairing.rs` and the `rightkit-sync-keys` copy it replaces. `rightkit-sync-keys` now consumes them and its `pairing_sas.rs` copy is deleted. The daemon's `remote/pairing.rs` is to delegate to this module (rightkit-daemon is owned by another batch). Not compiled here.

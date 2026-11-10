@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.10
+
+- Publishes the source changes made since 0.3.9 was published under the same version number (src/agent_telemetry/layer.rs, src/agent_telemetry/resource_report.rs).
+
 ## 0.3.9 (unpublished)
 
 Issues #1094, #1086. Source only: not compiled or run here; the root integration owns the check batch.

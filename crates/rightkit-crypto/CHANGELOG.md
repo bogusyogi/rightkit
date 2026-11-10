@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- Manifest only: dependency requirements and workspace metadata changed since 0.1.2 was published; no source change.
+
 ## 0.1.2 (unpublished)
 
 - Ed25519 sign/verify, ECDSA P-256 verify (ASN.1 and fixed), AES-256-GCM and ChaCha20-Poly1305 (`aead`), HKDF-SHA256, PBKDF2 (SHA-256/SHA-512), system RNG and a zeroizing `Secret` (#845). Backend decision: `ring` 0.17.14, the version rightkit-mesh, rightkit-daemon and rightkit-context-runtime already pin and every named consumer (Pulse, coderight, heardright, mailright, scraperight, rightkit-vault, rightkit-sync) already uses; RustCrypto would add several crates per primitive.

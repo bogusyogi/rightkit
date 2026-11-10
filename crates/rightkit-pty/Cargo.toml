@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-pty"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.98.0"
 description = "Async managed PTY child for Right Suite apps: owned tree, resize, bounded input, EOF, staged cancel, ConPTY and POSIX PTY."

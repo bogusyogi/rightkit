@@ -1,7 +1,6 @@
 # Changelog
 
-## Unreleased
-
+## 0.3.1
 - Feature `agent_media`: the `transcribe` tool (`MediaToolKind::Transcribe`) is removed.
 
 ## 0.3.0 (unpublished)

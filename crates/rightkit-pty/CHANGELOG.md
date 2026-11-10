@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Manifest only: dependency requirements and workspace metadata changed since 0.1.0 was published; no source change.
+
 ## 0.1.0 (unpublished)
 
 rightkit#557. Source only: not compiled or run here; the root integration owns the check batch. Needs `rightkit-child-process` 0.5.9 (`OwnedCommand::unix_controlling_terminal`, `pre_exec_last`, `windows_pseudoconsole`), so stage both together.

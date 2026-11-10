@@ -1,7 +1,6 @@
 # Changelog
 
-## Unreleased
-
+## 0.3.5
 - Fixed: `agent_config::agent_config` tripped clippy's `module_inception` under `-D warnings`; the lint is allowed on that declaration, the public path is unchanged.
 
 ## 0.3.4 (unpublished)

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.5
+
+- Publishes the source changes made since 0.3.4 was published under the same version number (src/agent_providers/client/transport.rs, src/agent_providers/http.rs, src/agent_providers/mod.rs, src/agent_providers/subscription_auth/native_oauth.rs, src/agent_providers/subscription_auth/token_store.rs, src/lib.rs).
+
 ## 0.3.4 (unpublished)
 
 - `agent_providers::host_credentials`: the credential variable names (providers, GitHub, web search, route `RIGHTKIT_<NAME>_API_KEY`, daemon secrets, licence locators) and `is_credential_env_name`, the R46 rule every child launcher scrubs by. Name checks only; where a key is stored is not part of it.

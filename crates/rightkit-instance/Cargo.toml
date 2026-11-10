@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-instance"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Single instance and second-launch forwarding without Tauri over rightkit-daemon, with the legacy tauri-plugin-single-instance socket and window handoff."

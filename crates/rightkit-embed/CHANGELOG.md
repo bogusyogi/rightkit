@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.5
+
+- Manifest only: dependency requirements and workspace metadata changed since 0.6.4 was published; no source change.
+
 ## 0.6.4 (unpublished)
 
 - `vector` now enables `rightkit-db/bundled`, so a consuming app links the bundled SQLite instead of a system SQLite (macOS) or failing to link (Windows). Before, SQLite was bundled only through dev-dependencies, which consumers never inherit (rightkit#1346 item 2).

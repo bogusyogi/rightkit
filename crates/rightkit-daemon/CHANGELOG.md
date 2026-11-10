@@ -1,7 +1,6 @@
 # Changelog
 
-## Unreleased
-
+## 0.5.4
 - Docs: `spawn_heartbeat_with` no longer links the private `write_atomic_with` (rustdoc `-D warnings` failed).
 
 ## 0.5.3 (unpublished)

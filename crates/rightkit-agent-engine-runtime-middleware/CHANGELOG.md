@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Publishes the source changes made since 0.1.1 was published under the same version number (src/lib.rs).
+
 ## 0.1.1 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

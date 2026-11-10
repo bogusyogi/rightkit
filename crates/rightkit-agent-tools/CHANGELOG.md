@@ -9,8 +9,7 @@
 - Added (rightkit#795): a loopback HTTP transport for apps whose control surface is not a `control-<app>` pipe service (CodeRight). `AppProfile::with_http(HttpEndpoint)` / `AppProfile::http` moves the profile's tools onto `POST <path>` with `{"method","params"}` and an `{"ok","result"|"error"}` answer (wire contract `control-http v1`, `src/backends/http.rs`). `HttpEndpoint::new` and `parse` refuse any non-loopback address; an optional bearer token is read from a named file on every call and is never held in the profile, argv, environment or a log. The profile's methods, command policy, batch checks and the hard exposure rules (no paste or pasteboard tool, dictation layer) apply to both transports unchanged. `right-ctl` selects it with `RIGHT_CTL_HTTP_<APP>=ip:port[/path]` (and `RIGHT_CTL_HTTP_<APP>_TOKEN_FILE`). `AppProfile` gains the public field `http`, so a struct literal needs `http: None`; the constructors set it.
 - Documented (rightkit#795): an agent host's own model-facing registry is not exposed through `right-ctl` (the README states the exemption); the host applies `exposure::forbidden` to its own tool and command names so the pasteboard rule holds there too.
 
-## Unreleased
-
+## 0.3.4
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 
 ## 0.3.2

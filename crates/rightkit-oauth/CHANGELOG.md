@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.5
+
+- Manifest only: dependency requirements and workspace metadata changed since 0.10.4 was published; no source change.
+
 ## 0.10.4 (unpublished)
 
 - Added async gateway calls on `rightkit_http::AsyncClient` behind feature `gateway-async` (#697): `GatewayExchange::exchange_async`, `exchange_tokens_async`, `exchange_raw_async` and `refresh_async`. Same request body, redaction, `NeedsReauth` mapping and token parsing as the blocking calls; the blocking calls are unchanged.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.11
+
+- Manifest only: dependency requirements and workspace metadata changed since 0.1.10 was published; no source change.
+
 ## 0.1.10 (unpublished)
 
 - Library-level fixture unit tests removed from `tests/fixtures.rs`; the real-binary CLI fixture runs stay (Adrian, 2026-11-03: end-to-end tests only).

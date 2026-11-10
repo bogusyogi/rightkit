@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-tools"
-version = "0.3.3"
+version = "0.3.4"
 edition = "2021"
 rust-version = "1.98.0"
 description = "One typed tool interface for agents over rightkit-automation, rightkit-browser and each app's engine commands (via rightkit-daemon), plus the `right-ctl <app> <command>` CLI."

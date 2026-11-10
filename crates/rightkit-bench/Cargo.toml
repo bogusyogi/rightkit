@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-bench"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Benchmark harness building blocks: warmup-and-percentile timing, concurrent load driver, real-data SQLite probes and EXPLAIN QUERY PLAN checks (read-only; writes only under a rightkit-qa snapshot), and article-quality corpus scoring."

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.5
+
+- Publishes the source changes made since 0.7.4 was published under the same version number (src/agent_mcp/config.rs, src/agent_mcp/manager.rs, src/agent_mcp/mod.rs, src/agent_mcp/oauth.rs, src/agent_mcp/transport.rs, src/agent_mcp/trust_gate.rs).
+
 ## 0.7.4 (unpublished)
 
 - Removed `tests/e2e.rs` and the `tempfile` dev-dependency: it ran the crate's own client against the crate's own example server with a fixed-token auth stand-in, not a real installed app or external service (Adrian, 2026-11-03: "My decision was no unit tests. Only e2e."). `examples/example_server.rs` stays as a documented example.

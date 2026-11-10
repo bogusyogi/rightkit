@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.4
+
+- Publishes the source changes made since 0.5.3 was published under the same version number (src/lib.rs).
+
 ## 0.5.3 (unpublished)
 
 Issues #1010, #1012, #1077, #1078, #1162, #406, #734, #805, #1020, #1072, #1079, #1080, #1103, #1114, #1482. Source only: not compiled or run here; the root integration owns the check batch.

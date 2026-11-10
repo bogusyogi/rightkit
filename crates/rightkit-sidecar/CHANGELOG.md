@@ -1,7 +1,6 @@
 # Changelog
 
-## Unreleased
-
+## 0.3.2
 - Docs: intra-doc links rustdoc could not resolve (feature-only, private or out-of-scope items) are plain code, so the doc build (`-D warnings`) passes.
 
 ## 0.3.1 (unpublished)

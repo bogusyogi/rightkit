@@ -1,7 +1,6 @@
 # Changelog
 
-## Unreleased
-
+## 0.6.8
 - Docs: the `secret` module links `Action::FillSecret` by its crate path; the doc build (`-D warnings`) failed on the unresolved link.
 
 ## 0.6.7 (unpublished)

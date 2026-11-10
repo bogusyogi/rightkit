@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- Publishes the source changes made since 0.2.3 was published under the same version number (src/engine/provider_handoff.rs).
+
 ## 0.2.3 (unpublished)
 
 - Removed (breaking): `controller` (`DictationController`, `FakeDeliveryBackend`, `for_test`), `engine::FakeEngine`, and `app_paths::test_binary_data_root` / `app_data_root_is_explicit_override`. The controller could only be driven by `FakeEngine` and had no caller; the two stubs always returned `None` / `false`. Adrian, 2026-11-03: "My decision was no unit tests. Only e2e."; "dev mode, is mine ... real data. snapshot and restore." `rightkit-transcript-library` stays declared in Cargo.toml (now unused here; drop it with the next lock refresh).

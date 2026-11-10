@@ -1,7 +1,6 @@
 # Changelog
 
-## Unreleased
-
+## 0.1.2
 - Synced with CodeRight: snapshots are session-scoped (`HistoryStore::new(workspace, state_dir, session_id)`, `fork_from` takes `state_dir`), plus redo, restore reports (`RestoreReport`), `HISTORY_UNAVAILABLE` and `rfc3339_utc_to_ns`.
 
 ## 0.1.1 (unpublished)

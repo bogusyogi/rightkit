@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1
+
+- Publishes the source changes made since 0.5.0 was published under the same version number (src/handoff.rs).
+
 ## 0.5.0 (unpublished)
 
 - Removed (breaking, rightkit#1505): the `settings-probe` feature and the optional `rightkit-app-settings` dependency. RightKit is one Cargo workspace with one lock (GATE-CONTRACT GC-T24), and cargo refuses a dependency circle even through an optional dependency (credentials, app-settings, daemon, oauth). The `SecretProbe` presence adapter for `Store` moved to `rightkit-app-settings` 0.3.4 behind its `credentials-probe` feature; enable that feature there instead.

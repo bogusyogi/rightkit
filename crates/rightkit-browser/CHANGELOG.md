@@ -1,7 +1,6 @@
 # Changelog
 
-## Unreleased
-
+## 0.3.10
 - Docs: links to `profile-vault`-only items (`ProfileVault`, `LaunchOptions::encrypted_profile`, `VaultError`, `ProfileSpec::Encrypted`) are plain code, so the default-feature doc build (`-D warnings`) passes.
 
 ## 0.3.9 (unpublished)

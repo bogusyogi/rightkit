@@ -42,8 +42,7 @@ Issues #823, #1083. Source only: not compiled or run here; the root integration 
 - Fixed the exhausted-loop path in `publish_strict` (#823): the final pass no longer removes an empty `dest` and then returns without publishing; a removal made by an earlier pass is undone (an empty directory given back at the name) before the error is returned.
 - Added `secret_file::read_secret_file(env_name, max_bytes) -> Result<Zeroizing<String>, SecretFileError>` (#1083): the path comes from the named environment variable, the file must pass `verify_owner_only`, is read through a bounded reader, and must be one line of non-control UTF-8 (one final line break is removed). New dependency `zeroize = "1.9"` (enabled by the `fs` feature).
 
-## Unreleased
-
+## 0.4.13
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 
 ## 0.4.10 (unpublished)

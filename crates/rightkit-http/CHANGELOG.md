@@ -9,8 +9,7 @@
 - `AddressPolicy::allow_host_of(url)`: pins the one configured host (any address it resolves to); other hosts keep the public-only policy, and the never-overridden denials still apply (#696).
 - `percent_decode_strict` and `PercentError`: strict decoding of untrusted URL text, with a malformed escape or invalid UTF-8 as an error (#1139).
 
-## Unreleased
-
+## 0.3.12
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 
 ## 0.3.10

@@ -34,8 +34,7 @@
 - Added (rightkit#1437): `[snapshot] extra_paths` entries may be `~/...` (under `rightkit_fs::account_home`, never the environment) and may be single files: the file is copied, put back, or deleted again when it was absent before the run (an apps's autostart plist). An absent entry is a file when its last component has an extension; a trailing `/` forces a folder. Folders keep the depth, home-ancestor and direct-child-of-home refusals; a file may sit directly in the home. The tauri-shell example app's `rightkit-qa.toml` lists its LaunchAgent plist.
 - Why: Adrian, 2026-11-03: "dev mode, is mine. im the fucking owner, my data. no dummy data, no fucking made up shit. real data. snapshot and restore." and "End to end tests ONLY".
 
-## Unreleased
-
+## 0.10.6
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 
 ## 0.10.2 (unpublished; GATE-CONTRACT GC-A07)

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- Publishes the source changes made since 0.2.3 was published under the same version number (src/agent_hooks/bus.rs, src/agent_hooks/chain.rs, src/agent_hooks/mod.rs, src/agent_hooks/registry.rs).
+
 ## 0.2.3 (unpublished)
 
 - Issue #1041: `ReceiptStore::list_all()` lists receipts of every session; `ReceiptStore::mark_observed(id)` flips the `emitted` receipts with that id in any session and returns every receipt with the id.

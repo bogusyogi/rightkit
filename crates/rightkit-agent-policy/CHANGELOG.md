@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Publishes the source changes made since 0.1.1 was published under the same version number (src/capabilities.rs, src/denial_tracking.rs, src/engine.rs, src/lib.rs, src/provenance.rs, src/shell_command.rs, src/trust.rs).
+
 ## 0.1.1 (unpublished)
 
 - `parse_capability`: `list_mcp_sources` is a read-class tool like `list_mcp_tools` (rightkit#1245), so the new tool is not treated as an unknown, gated class.
