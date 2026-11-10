@@ -175,6 +175,11 @@ pub(super) fn verify_location(marker: &Marker) -> Result<()> {
     let mut path = PathBuf::new();
     for component in dir.components() {
         path.push(component.as_os_str());
+        // The volume prefix (`\\?\D:` on Windows) and the root are not directories this check can or needs to
+        // stat: a bare prefix has no root and the OS refuses it. Every real directory below the root is checked.
+        if matches!(component, Component::Prefix(_) | Component::RootDir) {
+            continue;
+        }
         let md = ctx(
             fs::symlink_metadata(&path),
             "cannot stat snapshot ancestor",
