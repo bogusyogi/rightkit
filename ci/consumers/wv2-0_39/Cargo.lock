@@ -3036,7 +3036,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.6.7"
+version = "0.6.8"
 dependencies = [
  "windows 0.62.2",
 ]
@@ -3052,7 +3052,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.9"
+version = "0.5.10"
 dependencies = [
  "libc",
  "windows 0.62.2",
@@ -3071,7 +3071,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "getrandom 0.4.3",
  "secret-service",
@@ -3084,7 +3084,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "core-foundation",
  "getrandom 0.4.3",
@@ -3101,14 +3101,14 @@ dependencies = [
 
 [[package]]
 name = "rightkit-deep-link"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.12"
+version = "0.4.13"
 dependencies = [
  "libc",
  "sha2 0.11.1",
@@ -3118,7 +3118,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-instance"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-daemon",
  "serde",
@@ -3127,7 +3127,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-job-queue"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "rightkit-child-process",
  "rightkit-sidecar",
@@ -3151,7 +3151,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-presence"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "objc2",
  "objc2-foundation",
@@ -3160,7 +3160,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.10.5"
+version = "0.10.6"
 dependencies = [
  "getrandom 0.4.3",
  "png",
@@ -3181,7 +3181,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sidecar"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "libc",
  "serde",

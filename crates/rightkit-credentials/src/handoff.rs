@@ -1205,14 +1205,24 @@ pub fn scrub_inherited_env<'a>(cmd: &'a mut Command, names: &[&str]) -> &'a mut 
 /// (`*_API_KEY`) and not a fixed list: a provider added later is scrubbed without a code change, and the spawner's
 /// binary carries no secret variable name, so a release scan that denies such names in shipped bytes has nothing to
 /// find (HeardRight Windows release, 2026-11-10: five names were in the binary only as scrub targets).
-pub fn scrub_inherited_env_by_suffix<'a>(cmd: &'a mut Command, suffixes: &[&str]) -> &'a mut Command {
+pub fn scrub_inherited_env_by_suffix<'a>(
+    cmd: &'a mut Command,
+    suffixes: &[&str],
+) -> &'a mut Command {
     scrub_names_by_suffix(cmd, std::env::vars_os().map(|(name, _)| name), suffixes)
 }
 
-fn scrub_names_by_suffix<'a>(cmd: &'a mut Command, names: impl Iterator<Item = std::ffi::OsString>, suffixes: &[&str]) -> &'a mut Command {
+fn scrub_names_by_suffix<'a>(
+    cmd: &'a mut Command,
+    names: impl Iterator<Item = std::ffi::OsString>,
+    suffixes: &[&str],
+) -> &'a mut Command {
     for name in names {
         let upper = name.to_string_lossy().to_ascii_uppercase();
-        if suffixes.iter().any(|suffix| upper.ends_with(&suffix.to_ascii_uppercase())) {
+        if suffixes
+            .iter()
+            .any(|suffix| upper.ends_with(&suffix.to_ascii_uppercase()))
+        {
             cmd.env_remove(&name);
         }
     }
