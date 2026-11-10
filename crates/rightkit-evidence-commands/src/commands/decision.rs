@@ -68,7 +68,7 @@ pub struct ListArgs {
 
 #[derive(Debug, Args)]
 pub struct ShowArgs {
-    /// Stable decision id (for example architect:decision:<digest>).
+    /// Stable decision id (for example `architect:decision:<digest>`).
     pub id: String,
     #[command(flatten)]
     pub store_option: StoreOption,

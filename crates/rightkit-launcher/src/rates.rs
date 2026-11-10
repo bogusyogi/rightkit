@@ -207,8 +207,8 @@ fn object(map: &BTreeMap<String, f64>) -> String {
     format!("{{{}}}", members.join(","))
 }
 
-/// The answer and its detail line for "<amount> <currency or coin> to|in|as <currency or
-/// coin>", worded as the Mac does: ("86.42 EUR", "USD to EUR · rates from Oct 11, 2026").
+/// The answer and its detail line for `<amount> <currency or coin> to|in|as <currency or
+/// coin>`, worded as the Mac does: ("86.42 EUR", "USD to EUR · rates from Oct 11, 2026").
 /// `None` when the text is not such a conversion or a rate is missing. The answer is the
 /// number, a space, then the code; the code has no space, so the number is everything before
 /// the last space.
