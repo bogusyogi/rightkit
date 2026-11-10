@@ -59,17 +59,23 @@ const r = spawnSync(zig, [...fixed, ...rest], { stdio: "inherit", env });
 // requested output instead: the build script gets its object, the archive is empty, and the Rust type-check of the crate goes on. The Mac
 // compiles the same C for real. (HeardRight on the Dell, 2026-11-10: libsqlite3-sys's bundled SQLCipher, "os/log.h file not found".)
 const macTarget = fixed.some((a, i) => fixed[i - 1] === "-target" && /-macos/.test(a));
-const compiling = (fixed[0] === "cc" || fixed[0] === "c++") && rest.includes("-c");
+// The compile (-c) and the preprocess (-E, which a compiler cache runs first) are both stood in: the same command with every source file replaced by an empty one.
+const SOURCE = /\\.(c|cc|cpp|cxx|m|mm|s|S|i|ii)$/;
+const sources = rest.filter((a) => !a.startsWith("-") && SOURCE.test(a));
+const compiling = (fixed[0] === "cc" || fixed[0] === "c++") && (rest.includes("-c") || rest.includes("-E")) && sources.length > 0;
 if ((r.status ?? 1) !== 0 && macTarget && compiling && process.platform !== "darwin") {
-  let out = null;
-  for (let i = 0; i < rest.length; i += 1) { if (rest[i] === "-o" && rest[i + 1]) out = rest[i + 1]; else if (rest[i].startsWith("-o") && rest[i].length > 2) out = rest[i].slice(2); }
-  if (out) {
-    const { writeFileSync } = await import("node:fs");
-    const empty = out + ".rightkit-empty.c";
-    writeFileSync(empty, "/* RightKit cross type-check stand-in: the real source needs Apple SDK headers this host does not have. */\\n");
-    const s = spawnSync(zig, [...fixed, "-c", empty, "-o", out], { stdio: "inherit", env });
-    if ((s.status ?? 1) === 0) { process.stderr.write("rightkit cross-cc: Apple SDK stand-in used for " + out + " (C for a macOS target cannot be compiled on this host; the row type-checks Rust only)\\n"); process.exit(0); }
-  }
+  const { writeFileSync, mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join, extname } = await import("node:path");
+  const dir = mkdtempSync(join(env.OUT_DIR || tmpdir(), "rightkit-cc-standin-"));
+  const swapped = rest.map((a) => {
+    if (a.startsWith("-") || !SOURCE.test(a)) return a;
+    const empty = join(dir, "empty" + extname(a));
+    writeFileSync(empty, extname(a) === ".s" || extname(a) === ".S" ? "" : "/* RightKit cross type-check stand-in: the real source needs Apple SDK headers this host does not have. */\\n");
+    return empty;
+  });
+  const s = spawnSync(zig, [...fixed, ...swapped], { stdio: "inherit", env });
+  if ((s.status ?? 1) === 0) { process.stderr.write("rightkit cross-cc: Apple SDK stand-in used for " + sources.join(", ") + " (C for a macOS target cannot be compiled on this host; the row type-checks Rust only)\\n"); process.exit(0); }
 }
 process.exit(r.status ?? 1);
 `;
