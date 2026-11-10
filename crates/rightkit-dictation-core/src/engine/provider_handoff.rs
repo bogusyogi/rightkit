@@ -37,9 +37,14 @@ pub const AMBIENT_KEY_ENV: [&str; 5] = [
     "OPENROUTER_API_KEY",
 ];
 
-/// Remove ambient provider-key variables from a sidecar command (owner `scrub_inherited_env`).
+/// The family of ambient provider-key variables, by suffix: every `*_API_KEY` of the spawner's environment.
+pub const AMBIENT_KEY_SUFFIXES: [&str; 1] = ["_API_KEY"];
+
+/// Remove ambient provider-key variables from a sidecar command (owner `scrub_inherited_env_by_suffix`): every
+/// inherited `*_API_KEY`, by rule and not by name, so a provider added later is covered and the shipped binary
+/// carries none of the names in `AMBIENT_KEY_ENV` (kept for callers that list them; this function no longer reads it).
 pub fn scrub_sidecar_env(command: &mut Command) {
-    rightkit_credentials::handoff::scrub_inherited_env(command, &AMBIENT_KEY_ENV);
+    rightkit_credentials::handoff::scrub_inherited_env_by_suffix(command, &AMBIENT_KEY_SUFFIXES);
 }
 
 const HEX: &[u8; 16] = b"0123456789abcdef";
