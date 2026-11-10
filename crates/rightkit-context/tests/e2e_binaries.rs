@@ -785,8 +785,10 @@ fn g01_identity_enrolment_push_pull_fault_and_recovery() {
     }
     let reported_state = Path::new(status_doc["stateRoot"].as_str().unwrap_or_default());
     assert!(
-        reported_state.canonicalize().ok().is_some_and(|reported| Some(reported)
-            == fixture.state.canonicalize().ok()),
+        reported_state
+            .canonicalize()
+            .ok()
+            .is_some_and(|reported| Some(reported) == fixture.state.canonicalize().ok()),
         "the reported state root is not the one resolved from the fixture home {}: {status_doc}",
         fixture.state.display()
     );
@@ -869,7 +871,11 @@ fn g01_identity_enrolment_push_pull_fault_and_recovery() {
         init.describe()
     );
     let original_registry = std::fs::read(fixture.registry()).unwrap_or_else(|error| {
-        panic!("init exited 0 but the project registry {} was not written ({error}): {}", fixture.registry().display(), init.describe())
+        panic!(
+            "init exited 0 but the project registry {} was not written ({error}): {}",
+            fixture.registry().display(),
+            init.describe()
+        )
     });
     let registry: Value = serde_json::from_slice(&original_registry).expect("registry is JSON");
     let bindings = registry["bindings"]
