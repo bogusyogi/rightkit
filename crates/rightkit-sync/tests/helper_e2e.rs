@@ -1,5 +1,6 @@
 //! End-to-end proofs of the helper backend: the real signed Swift CloudKit helper against the app's
-//! real CloudKit container. Both tests are `#[ignore]`d (entitled helper and iCloud account needed).
+//! real CloudKit container. Built only with the `cloudkit-live` feature; both tests are `#[ignore]`d
+//! (entitled helper and iCloud account needed) and run with `--features cloudkit-live -- --ignored`.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

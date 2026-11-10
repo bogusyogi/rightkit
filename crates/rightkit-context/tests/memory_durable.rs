@@ -1,7 +1,7 @@
 //! End-to-end durable-memory journeys through `membrane memory <command>`.
 //!
-//! Every journey runs real processes against an isolated temp database (own `HOME` and state
-//! root, so no resident is found and the commands run in process), so each invocation is a
+//! Every journey runs real processes against an isolated temp database (own `HOME`, so no
+//! resident is found and the commands run in process, and the store named with `--db`), so each invocation is a
 //! "restart" of the engine and only the durable store carries state between steps.
 
 use rightkit_child_process::command_std;
@@ -30,23 +30,36 @@ impl Cortex {
         Self { dir, db }
     }
 
-    fn command(&self, db: &Path) -> Command {
+    /// One `membrane memory ...` process. The release binary reads no environment override for its
+    /// stores: the state root comes from the per-user data folders under `HOME` (set here to an
+    /// isolated folder), and a store other than the default is named with the real `--db` flag.
+    /// Source references a checkpoint carries resolve against the process working directory, which
+    /// is the isolated folder that holds the fixture documents.
+    fn command(&self) -> Command {
         let home = self.dir.path().join("home");
         let mut command = command_std(env!("CARGO_BIN_EXE_membrane"));
         command
-            .env("RIGHTKIT_CONTEXT_STATE_ROOT", self.dir.path().join("state"))
+            .current_dir(self.dir.path())
             .env("HOME", &home)
             .env("USERPROFILE", &home)
             .env("APPDATA", &home)
             .env("LOCALAPPDATA", &home)
-            .env("RIGHTKIT_CONTEXT_WORKSPACE_ROOT", self.dir.path())
-            .env("RIGHTKIT_MEMORY_DB", db)
+            .env("XDG_DATA_HOME", home.join(".local/share"))
+            .env("XDG_CACHE_HOME", home.join(".cache"))
+            .env("XDG_CONFIG_HOME", home.join(".config"))
             .arg("memory");
         command
     }
 
+    /// Run one memory command against the store at `db`, named with `--db`.
     fn run_on(&self, db: &Path, args: &[&str]) -> Out {
-        let output = self.command(db).args(args).output().unwrap();
+        let output = self
+            .command()
+            .args(args)
+            .arg("--db")
+            .arg(db)
+            .output()
+            .unwrap();
         Self::out(output)
     }
 

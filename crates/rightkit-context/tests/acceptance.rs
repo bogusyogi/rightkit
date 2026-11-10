@@ -1,8 +1,11 @@
 //! Acceptance scenarios Q1, Q2, Q4 and C6 (plus receipts) against the real `membrane` binary,
 //! walked as one user journey.
 //!
-//! Every process runs against an isolated temp state root, so nothing touches an installed
-//! product or the user's folders.
+//! Every process runs against an isolated home folder, so nothing touches an installed product or
+//! the user's folders. The binary runs the way the host app runs it: from a `Helpers` folder, with
+//! its state root resolved from the per-user data folders (the release build reads no override).
+
+mod common;
 
 use rightkit_child_process::command_std;
 use serde_json::Value;
@@ -11,22 +14,9 @@ use std::path::Path;
 use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
-fn isolate(command: &mut Command, root: &Path) {
-    command
-        .env("RIGHTKIT_CONTEXT_STATE_ROOT", root.join("state"))
-        .env("RIGHTKIT_CONTEXT_CONFIG_ROOT", root.join("config"))
-        .env("RIGHTKIT_CONTEXT_DATA_ROOT", root.join("data"))
-        .env("RIGHTKIT_CONTEXT_CACHE_ROOT", root.join("cache"))
-        .env("RIGHTKIT_CONTEXT_LOG_ROOT", root.join("log"))
-        .env("HOME", root)
-        .env("USERPROFILE", root)
-        .env("APPDATA", root)
-        .env("LOCALAPPDATA", root);
-}
-
 fn membrane(root: &Path) -> Command {
-    let mut command = command_std(env!("CARGO_BIN_EXE_membrane"));
-    isolate(&mut command, root);
+    let mut command = command_std(common::installed_binary(root));
+    common::isolate_home(&mut command, root);
     command
 }
 
@@ -78,7 +68,7 @@ fn wait_until(limit: Duration, mut done: impl FnMut() -> bool) -> bool {
 }
 
 fn wait_resident(root: &Path, serve: &mut Served) {
-    let resident = root.join("state").join("resident.json");
+    let resident = common::state_root_under(root).join("resident.json");
     let appeared = wait_until(Duration::from_secs(20), || {
         if let Ok(Some(status)) = serve.child.0.try_wait() {
             panic!("serve exited early: {status}");
@@ -147,7 +137,9 @@ fn list_receipts(root: &Path) -> Vec<Value> {
 }
 
 fn seed_receipt(root: &Path, session: &str, id: &str) {
-    let directory = root.join("state").join("receipts").join(session);
+    let directory = common::state_root_under(root)
+        .join("receipts")
+        .join(session);
     std::fs::create_dir_all(&directory).unwrap();
     let receipt = serde_json::json!({
         "id": id,
@@ -198,6 +190,7 @@ fn document(out: &Output, schema: &str, what: &str) -> Value {
 fn membrane_resident_and_one_shot_journey() {
     let root = tempfile::tempdir().unwrap();
     let repo = tempfile::tempdir().unwrap();
+    let installed = common::install_binary(root.path());
     let limit = Duration::from_secs(10);
 
     // Phase 1 (Q2, G4): with no resident, commands answer in process; the CLI contract's exit
@@ -425,7 +418,7 @@ fn membrane_resident_and_one_shot_journey() {
     wait_resident(root.path(), &mut serve);
     // G7: the resident records the absolute path of the binary that runs it.
     let record: Value = serde_json::from_slice(
-        &std::fs::read(root.path().join("state").join("resident.json"))
+        &std::fs::read(common::state_root_under(root.path()).join("resident.json"))
             .expect("read resident.json"),
     )
     .expect("resident.json is JSON");
@@ -437,7 +430,7 @@ fn membrane_resident_and_one_shot_journey() {
     assert!(recorded.is_absolute(), "phase 5 binary: {record}");
     assert_eq!(
         std::fs::canonicalize(recorded).expect("recorded binary exists"),
-        std::fs::canonicalize(env!("CARGO_BIN_EXE_membrane")).unwrap(),
+        std::fs::canonicalize(&installed).unwrap(),
         "phase 5 binary: {record}"
     );
     let out = one_shot(

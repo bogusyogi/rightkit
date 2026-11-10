@@ -16,6 +16,10 @@ default = ["helper", "process-usage"]
 # CloudKit-style helper-process backend (`helper` module, `rightkit-sync-helper/1`). Pure std +
 # serde_json; off for hosts that only use an HTTP or in-process backend (Android).
 helper = []
+# Builds `tests/helper_e2e.rs`: the two proofs against the real signed Swift CloudKit helper, the app's real
+# container and an iCloud account (RIGHTKIT_CLOUDKIT_*). Off by default, as `vault-s3` gates the real-bucket
+# test: a default test build holds no test that can only be skipped. Adds no code to the library.
+cloudkit-live = []
 # `SyncStatus::process` and its `rightkit-child-process` dependency. Off for Android builds.
 process-usage = ["dep:rightkit-child-process"]
 # `cipher` module: `RecordCipher` and `EncryptingBackend`, end-to-end encryption of record
@@ -54,7 +58,7 @@ required-features = ["process-usage"]
 
 [[test]]
 name = "helper_e2e"
-required-features = ["helper"]
+required-features = ["helper", "cloudkit-live"]
 
 [[test]]
 name = "vault_race_real_bucket"

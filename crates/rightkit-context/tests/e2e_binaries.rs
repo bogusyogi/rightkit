@@ -3,6 +3,13 @@
 //! Every invocation here is one the binary answers locally, against an isolated state root with
 //! no resident, so the suite proves the process-level contract hosts depend on: exit codes and
 //! the stdout/stderr split, without touching an installed product.
+//!
+//! The release binary reads no environment override for its stores, so every call isolates itself
+//! the way a user's machine is laid out: its own home folder (the state root is resolved from the
+//! per-user data folders under it), and, for the journey that opens the Cortex store, a copy of
+//! the binary in a `Helpers` folder, where the host app puts it.
+
+mod common;
 
 use rightkit_child_process::{command_std, OutputCapture, OwnedCommand};
 use serde_json::Value;
@@ -14,14 +21,11 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 fn run(state: &std::path::Path, args: &[&str]) -> Output {
-    command_std(env!("CARGO_BIN_EXE_membrane"))
+    let mut command = command_std(env!("CARGO_BIN_EXE_membrane"));
+    common::isolate_home(&mut command, state);
+    command
         .args(args)
         .stdin(Stdio::null())
-        .env("RIGHTKIT_CONTEXT_STATE_ROOT", state)
-        .env("HOME", state)
-        .env("USERPROFILE", state)
-        .env("APPDATA", state)
-        .env("LOCALAPPDATA", state)
         .output()
         .expect("spawn membrane")
 }
@@ -263,8 +267,14 @@ impl G01 {
         self.catalog.join("project-registry.json")
     }
 
+    /// The one Cortex store under the state root (`cortex_db_path`: the state root's
+    /// `tools/.cache/memory/cortex-engine.db`).
     fn cortex_db(&self) -> PathBuf {
-        self.catalog.join("cortex.db")
+        self.state
+            .join("tools")
+            .join(".cache")
+            .join("memory")
+            .join("cortex-engine.db")
     }
 
     /// The retained receipt file a `--wire coderight --request-id <id>` pull would write.
@@ -318,39 +328,15 @@ impl G01 {
     fn call(&self, args: &[&str], stdin: Option<&str>) -> Called {
         let argv = format!("membrane {}", args.join(" "));
         let limit = self.call_limit(&argv);
-        let mut command = command_std(env!("CARGO_BIN_EXE_membrane"));
+        // The copy under `Helpers` is the binary the host app runs; it resolves its state root from
+        // the home folder below and reads no environment override for any store.
+        let mut command = command_std(common::installed_binary(&self.home));
+        common::isolate_home(&mut command, &self.home);
         command
             .args(args)
-            .env("RIGHTKIT_CONTEXT_STATE_ROOT", &self.state)
-            .env("RIGHTKIT_CONTEXT_PROJECT_REGISTRY", self.registry())
-            .env("RIGHTKIT_MEMORY_DB", self.cortex_db())
-            .env("RIGHTKIT_NO_KEYCHAIN", "1");
-        for key in [
-            "HOME",
-            "USERPROFILE",
-            "APPDATA",
-            "LOCALAPPDATA",
-            "CFFIXED_USER_HOME",
-            "RIGHTKIT_QA_HOME",
-        ] {
-            command.env(key, &self.home);
-        }
-        // Debug-only overrides this fixture does not set must not leak in from the parent shell.
-        for key in [
-            "RIGHTKIT_CONTEXT_WORKSPACE_ROOT",
-            "RIGHTKIT_CONTEXT_CATALOG",
-            "RIGHTKIT_CONTEXT_HOME",
-            "RIGHTKIT_CONTEXT_EVENT_DB",
-            "RIGHTKIT_CONTEXT_MEMORY_DB",
-            "RIGHTKIT_CONTEXT_INSTALLATION_FILE",
-            "RIGHTKIT_CONTEXT_MIRROR",
-            "RIGHTKIT_CONTEXT_CACHE_ROOT",
-            "RIGHTKIT_CONTEXT_RUNTIME_ORIGIN",
-            "RIGHTKIT_CONTEXT_REPO_ROOT",
-            "RIGHTKIT_CONTEXT_ANCHOR_DIR",
-        ] {
-            command.env_remove(key);
-        }
+            .env("RIGHTKIT_NO_KEYCHAIN", "1")
+            .env("CFFIXED_USER_HOME", &self.home)
+            .env("RIGHTKIT_QA_HOME", &self.home);
         let called = run_owned(argv, command, stdin, limit);
         println!("[g01] {}", called.describe());
         if let Ok(mut log) = self.log.lock() {
@@ -734,11 +720,13 @@ fn g01_identity_enrolment_push_pull_fault_and_recovery() {
     // 1. Disposable fixture: nothing real is copied, and no Git metadata is needed (init and pull
     //    read the registry and the stores; a non-repository is only a Git-provider omission).
     let parent = tempfile::tempdir().unwrap();
+    let home = parent.path().join("home");
     let fixture = G01 {
         repo: parent.path().join("repo"),
-        state: parent.path().join("state"),
-        home: parent.path().join("home"),
-        catalog: parent.path().join("catalog"),
+        // Where the product resolves its state root and its project registry from `home`.
+        state: common::state_root_under(&home),
+        catalog: home.join("Cortex"),
+        home,
         started: journey,
         log: Mutex::new(Vec::new()),
         _parent: parent,
@@ -749,8 +737,9 @@ fn g01_identity_enrolment_push_pull_fault_and_recovery() {
         &fixture.home,
         &fixture.catalog,
     ] {
-        std::fs::create_dir(dir).unwrap();
+        std::fs::create_dir_all(dir).unwrap();
     }
+    common::install_binary(&fixture.home);
     std::fs::write(fixture.repo.join("AGENTS.md"), G01_RULE).unwrap();
     assert_eq!(std::fs::read_dir(&fixture.state).unwrap().count(), 0);
     let processes_before = membrane_pids(&fixture);
@@ -798,7 +787,8 @@ fn g01_identity_enrolment_push_pull_fault_and_recovery() {
     assert!(
         reported_state.canonicalize().ok().is_some_and(|reported| Some(reported)
             == fixture.state.canonicalize().ok()),
-        "RIGHTKIT_CONTEXT_STATE_ROOT ignored (qa_env reads are compiled out of release builds): {status_doc}"
+        "the reported state root is not the one resolved from the fixture home {}: {status_doc}",
+        fixture.state.display()
     );
     assert_eq!(
         status_doc["mode"].as_str(),
@@ -879,7 +869,7 @@ fn g01_identity_enrolment_push_pull_fault_and_recovery() {
         init.describe()
     );
     let original_registry = std::fs::read(fixture.registry()).unwrap_or_else(|error| {
-        panic!("init exited 0 but RIGHTKIT_CONTEXT_PROJECT_REGISTRY was not written ({error}); override ignored: {}", init.describe())
+        panic!("init exited 0 but the project registry {} was not written ({error}): {}", fixture.registry().display(), init.describe())
     });
     let registry: Value = serde_json::from_slice(&original_registry).expect("registry is JSON");
     let bindings = registry["bindings"]
@@ -1040,7 +1030,8 @@ fn g01_identity_enrolment_push_pull_fault_and_recovery() {
     );
     assert!(
         fixture.cortex_db().is_file(),
-        "CORTEX_DB ignored by memory push: {}",
+        "memory push did not create the Cortex store {}: {}",
+        fixture.cortex_db().display(),
         push.describe()
     );
 

@@ -2,6 +2,7 @@
 
 ## 0.2.3 (unpublished)
 
+- New feature `cloudkit-live` (no library code): `tests/helper_e2e.rs` builds only with it, as `vault-s3` gates the real-bucket test. A default test build no longer consists solely of tests that must be skipped, which the gate refuses (rightkit#1560).
 - Fixed: the S3 vault passed a `&hmac::Tag` where `hmac_sha256` takes bytes (`mismatched types` in the lib test build); it passes the tag's bytes.
 - Fixed: the `budget` bench cloned `HelperBackend`, which is not `Clone`; it takes a second handle from the helper (`helper.backend()`). Benches compile under clippy again; no library change.
 - Removed the `rightkit-sync-fake-helper` binary and every fake-helper case of `tests/helper_e2e.rs` (Adrian, 2026-11-03: no fakes, end-to-end only); the two `real_swift_helper_*` cases against the real CloudKit container stay.
