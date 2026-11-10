@@ -49,6 +49,7 @@ export function fileStore(dir) {
   };
 }
 
+const refusalOf = (sent) => (sent.refusal && sent.refusal.code !== "EXIT" ? sent.refusal : null);
 const allPassed = (results) => results.length > 0 && results.every((r) => r.result === "passed");
 const jobOf = (sent) => ({ exit: sent.status ?? null, requestId: sent.requestId ?? null, receipt: sent.receipt ?? null, receiptSha256: sent.receiptSha256 ?? null });
 
@@ -64,7 +65,9 @@ export function runCalls({ calls, send, store = null, identity, hostTriple, onCa
   const outcomes = [];
   const counts = { calls: calls.length, ran: 0, skipped: 0, jobs: 0, greenReruns: 0 };
   const judge = (call, sent) => {
-    const refusal = sent.refusal ? `${sent.refusal.code}: ${sent.refusal.message}` : null;
+    // The seam marks every non-passing call with a code. "EXIT" means Cargo ran and exited non-zero: that is a build result to read, not a refusal
+    // (Dell planted-failure run, 2026-11-10: treating it as a refusal made every crate of a red call unknown and sent no green rerun).
+    const refusal = refusalOf(sent) ? `${sent.refusal.code}: ${sent.refusal.message}` : null;
     if (call.consumer) {
       // A consumer manifest's own package is not one of the named crates: the call is judged whole. It passes for every crate that declares it
       // only when Cargo finished successfully and the job exited 0; any failure in it fails them all, with the errors it reported.
@@ -90,7 +93,7 @@ export function runCalls({ calls, send, store = null, identity, hostTriple, onCa
     const jobs = [jobOf(first)];
     let evidence = null;
     // A job that exited 0 with every crate passed is its own evidence, and the only kind that is remembered.
-    if (allPassed(results) && first.status === 0 && !first.refusal) {
+    if (allPassed(results) && first.status === 0 && !refusalOf(first)) {
       evidence = jobs[0];
       store?.put(key, { call: { id: call.id, cwd: call.cwd ?? ".", args: call.args }, job: evidence, crates: call.crates.map((c) => c.name) });
     } else {
@@ -101,7 +104,7 @@ export function runCalls({ calls, send, store = null, identity, hostTriple, onCa
         const second = send(reduced);
         const again = judge(reduced, second);
         jobs.push(jobOf(second));
-        const proven = allPassed(again) && second.status === 0 && !second.refusal;
+        const proven = allPassed(again) && second.status === 0 && !refusalOf(second);
         if (proven) {
           evidence = jobs[1];
           store?.put(callKey(reduced, identity), { call: { id: reduced.id, cwd: reduced.cwd ?? ".", args: reduced.args }, job: evidence, crates: reduced.crates.map((c) => c.name) });

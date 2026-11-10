@@ -362,3 +362,12 @@ test("the same consumer manifest declared by three crates is one call; it is jud
   assert.deepEqual(ok.outcomes[0].results.map((r) => r.result), ["passed", "passed", "passed"]);
   assert.equal(ok.outcomes[0].evidence.requestId, "j2");
 });
+
+test("a call the seam marks EXIT (Cargo ran and failed) is read as a build result: the red crate fails, the green ones get their rerun", () => {
+  const calls = plan([crate("a"), crate("c"), crate("d")]).filter((c) => c.stage === "lint");
+  const base = fakeBroker({ red: ["a"] });
+  const send = (call) => { const r = base.send(call); return r.status === 0 ? r : { ...r, refusal: { code: "EXIT", message: `exit ${r.status}` } }; };
+  const { outcomes, counts } = runCalls({ calls, send, store: tmpStore(), identity: IDENT, hostTriple: WIN });
+  assert.deepEqual(outcomes[0].results.map((r) => [r.crate, r.result]), [["a", "failed"], ["c", "passed"], ["d", "passed"]]);
+  assert.equal(counts.greenReruns, 1); assert.equal(outcomes[0].evidence.requestId, "job-2");
+});

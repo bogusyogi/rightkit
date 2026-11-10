@@ -1193,6 +1193,3 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let y = yoe + era * 400 + i64::from(m <= 2);
     (y, m, d)
 }
-
-// Planted for the gate proof run of 2026-11-10: one crate with a compile error must fail alone. Removed after the run.
-const PLANTED_PROOF_ERROR: u32 = "planted";
