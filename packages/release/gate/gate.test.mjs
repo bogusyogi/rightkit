@@ -292,6 +292,17 @@ test("compile stage, all green: exit 0, five broker jobs for any number of crate
   assert.equal(seam.sent.length, 5);
 });
 
+test("a test build's programs run before the next call is sent (a later build of the same crate replaces the binaries its tests start)", async () => {
+  const snap = fakeSnapshot({ a: {} }); const seam = fakeSeam(); const order = [];
+  const send = (call) => { order.push(call.id); return seam.send(call); };
+  const tests = fakeTests();
+  const run = await compileTogether({ snapshot: snap, commit: "c".repeat(40), crates: ["a"], platform: "win32", arch: "x64", client: null, verdictFile: path.join(snap, "verdict.json"), storeDir: path.join(snap, ".calls"), send, runTestsWith: async (input) => { order.push("tests"); return tests(input); } });
+  assert.equal(run.code, 0);
+  const at = order.indexOf("tests");
+  assert.ok(at > 0 && order[at - 1].startsWith("test-build:"), order.join(" > "));
+  assert.ok(at < order.length - 1, `a call follows the test build in this plan: ${order.join(" > ")}`);
+});
+
 test("compile stage, one red crate: exit 1, the red crate fails, its dependent is not built, the others pass with their own result file", async () => {
   const snap = fakeSnapshot({ a: {}, b: {}, c: {}, d: {} }); const seam = fakeSeam({ red: ["a"], deps: { b: ["a"] } });
   const run = await compile(snap, ["a", "b", "c", "d"], seam);

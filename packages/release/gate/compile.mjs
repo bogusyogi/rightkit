@@ -63,20 +63,14 @@ export async function compileTogether({ snapshot, commit, crates, rustConfig = {
   });
   out(`together compile: ${infos.length} crate(s), ${calls.length} call(s) planned (${calls.filter((c) => c.crates.length > 1).length} name more than one crate; the largest names ${Math.max(0, ...calls.map((c) => c.crates.length))})`);
   const started = Date.now();
-  const { outcomes, counts } = runCalls({
-    calls, send: sendCall, store, identity, hostTriple,
-    onCall: (o) => {
-      const red = o.results.filter((r) => r.result !== "passed");
-      out(`${o.state === "skipped" ? "skipped" : red.length ? "red    " : "passed "} ${o.call.id} (${o.call.crates.length} crate(s)${o.jobs.length > 1 ? ", green rerun sent" : ""})${red.length ? `: ${red.slice(0, 8).map((r) => `${r.crate} ${r.result}`).join(", ")}${red.length > 8 ? `, +${red.length - 8} more` : ""}` : ""}`);
-    },
-  });
-  const perStage = resultsByCrate(outcomes);
-
-  // Test programs: from the receipt of each test-build call's evidence job, for the crates that passed that call.
   const tests = {}; const testCounts = { programs: 0, ran: 0, cached: 0 };
-  for (const o of outcomes.filter((x) => x.call.stage === "test-build")) {
+  // Test programs: from the receipt of a test-build call's evidence job, for the crates that passed that call. They run as soon as that call
+  // ends and before the next call is sent: a test that starts its crate's own binary (CARGO_BIN_EXE_<name>) reads it from the shared target
+  // directory, where the next test build of the same crate with other features replaces it (Dell, 2026-11-11: rightkit-agent-tools'
+  // default-build test ran against the binary of the later `demo` build and failed).
+  const runTestsOf = async (o) => {
     const green = o.results.filter((r) => r.result === "passed").map((r) => infos.find((i) => i.name === r.crate));
-    if (!green.length) continue;
+    if (!green.length) return;
     let executables = null;
     try { executables = JSON.parse(fs.readFileSync(o.evidence.receipt, "utf8")).testExecutables ?? null; } catch { executables = null; }
     const ran = await runTestsWith({ executables, crates: green, env, store });
@@ -86,7 +80,21 @@ export async function compileTogether({ snapshot, commit, crates, rustConfig = {
       else if (cur.result === "passed") tests[name] = { ...cur, programs: cur.programs + r.programs, passed: cur.passed + r.passed, ignored: cur.ignored + r.ignored };
     }
     for (const k of Object.keys(testCounts)) testCounts[k] += ran.counts[k];
+  };
+  const outcomes = []; const counts = { calls: calls.length, ran: 0, skipped: 0, jobs: 0, greenReruns: 0 };
+  for (const call of calls) {
+    const one = runCalls({
+      calls: [call], send: sendCall, store, identity, hostTriple,
+      onCall: (o) => {
+        const red = o.results.filter((r) => r.result !== "passed");
+        out(`${o.state === "skipped" ? "skipped" : red.length ? "red    " : "passed "} ${o.call.id} (${o.call.crates.length} crate(s)${o.jobs.length > 1 ? ", green rerun sent" : ""})${red.length ? `: ${red.slice(0, 8).map((r) => `${r.crate} ${r.result}`).join(", ")}${red.length > 8 ? `, +${red.length - 8} more` : ""}` : ""}`);
+      },
+    });
+    outcomes.push(...one.outcomes);
+    for (const k of ["ran", "skipped", "jobs", "greenReruns"]) counts[k] += one.counts[k];
+    if (call.stage === "test-build") for (const o of one.outcomes) await runTestsOf(o);
   }
+  const perStage = resultsByCrate(outcomes);
 
   const byCrate = {};
   for (const info of infos) {
