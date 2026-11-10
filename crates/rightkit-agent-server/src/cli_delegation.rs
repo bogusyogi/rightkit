@@ -581,7 +581,7 @@ async fn prepare_child_runtime(
         status: "starting".into(),
         last_event_key: None,
         last_event_cursor: None,
-        coderight_agent_id: Some(agent_id.into()),
+        host_agent_id: Some(agent_id.into()),
         parent_agent_id: parent_agent_id.into(),
         provider_id: Some(provider_id.as_str().into()),
         transport_kind: Some(adapter.transport_kind().label().into()),
@@ -643,7 +643,7 @@ async fn prepare_child_runtime(
             executable,
             profile,
             mcp_server: CliMcpServerSpec {
-                name: "coderight".into(),
+                name: rightkit_agents::driver_host::agy_harness::HOST_MCP_SERVER_NAME.into(),
                 command,
                 args: vec![
                     "mcp-server".into(),
@@ -864,7 +864,7 @@ pub fn build_delegate_request(
             model_id: model_id.clone(),
             account_profile_id: account_profile_id.clone(),
         }),
-        Some(SpawnRuntimeKind::CodeRightNative { .. }) | None => None,
+        Some(SpawnRuntimeKind::HostNative { .. }) | None => None,
     };
     DelegateTaskRequest {
         parent_kind,
@@ -950,7 +950,7 @@ pub fn upsert_child_binding(
         status: "starting".to_string(),
         last_event_key: None,
         last_event_cursor: None,
-        coderight_agent_id: Some(session_id.to_string()),
+        host_agent_id: Some(session_id.to_string()),
         parent_agent_id: parent_agent_id.to_string(),
         provider_id: Some(provider_label.to_string()),
         transport_kind: None,

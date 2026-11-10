@@ -28,7 +28,7 @@ pub(crate) async fn agent_binding_id(
         .list_driver_bindings_for_session(session_id)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .into_iter()
-        .find(|binding| binding.coderight_agent_id.as_deref() == Some(agent_id))
+        .find(|binding| binding.host_agent_id.as_deref() == Some(agent_id))
         .map(|binding| binding.id)
         .ok_or(StatusCode::NOT_FOUND)
 }
@@ -128,7 +128,7 @@ pub(crate) async fn open_agent_runtime(
         status: "starting".to_string(),
         last_event_key: None,
         last_event_cursor: None,
-        coderight_agent_id: Some(agent_id.clone()),
+        host_agent_id: Some(agent_id.clone()),
         parent_agent_id: body.parent_agent_id.clone().unwrap_or_default(),
         provider_id: Some(provider_id.as_str().to_string()),
         transport_kind: Some(adapter.transport_kind().label().to_string()),
@@ -180,7 +180,7 @@ pub(crate) async fn open_agent_runtime(
         executable: executable.clone(),
         profile: profile.clone(),
         mcp_server: rightkit_agents::driver_host::cli_runtime::CliMcpServerSpec {
-            name: "coderight".to_string(),
+            name: rightkit_agents::driver_host::agy_harness::HOST_MCP_SERVER_NAME.to_string(),
             command: current_exe,
             args: vec![
                 "mcp-server".to_string(),
@@ -422,7 +422,7 @@ pub(crate) async fn recover_missing_agent_runtime(
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
             .filter(|binding| {
                 binding.session_id == session_id
-                    && binding.coderight_agent_id.as_deref() == Some(agent_id)
+                    && binding.host_agent_id.as_deref() == Some(agent_id)
             })
             .ok_or(StatusCode::NOT_FOUND)?;
         let profile_id = binding
@@ -598,7 +598,7 @@ pub(crate) async fn recover_missing_agent_runtime(
         executable: executable.clone(),
         profile: profile.clone(),
         mcp_server: rightkit_agents::driver_host::cli_runtime::CliMcpServerSpec {
-            name: "coderight".to_string(),
+            name: rightkit_agents::driver_host::agy_harness::HOST_MCP_SERVER_NAME.to_string(),
             command: current_exe,
             args: vec![
                 "mcp-server".to_string(),

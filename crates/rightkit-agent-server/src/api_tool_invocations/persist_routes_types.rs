@@ -91,6 +91,7 @@ pub(crate) fn persist_tool_invocation_event(
             created_at,
             tool_call_id,
             approved,
+            reason,
         } => {
             if let Some(mut row) = store
                 .get_tool_invocation(tool_call_id)
@@ -103,6 +104,14 @@ pub(crate) fn persist_tool_invocation_event(
                     .upsert_tool_invocation(&row)
                     .map_err(|e| e.to_string())?;
             }
+            let mut payload = serde_json::json!({
+                "toolCallId": tool_call_id,
+                "approved": approved,
+            });
+            // Same shape as the wire: `reason` is present only on a denial that carries one.
+            if let Some(reason) = reason {
+                payload["reason"] = serde_json::json!(reason);
+            }
             store
                 .append_tool_invocation_event(&storage_event_row(
                     session_id,
@@ -110,10 +119,7 @@ pub(crate) fn persist_tool_invocation_event(
                     *seq,
                     "toolApprovalResolved",
                     created_at,
-                    serde_json::json!({
-                        "toolCallId": tool_call_id,
-                        "approved": approved,
-                    }),
+                    payload,
                 ))
                 .map_err(|e| e.to_string())?;
         }

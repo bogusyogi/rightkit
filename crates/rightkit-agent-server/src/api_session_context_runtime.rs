@@ -110,10 +110,21 @@ pub(crate) struct MemoryReceiptItem {
     pub(crate) provenance: rightkit_memory::memory_provenance::MemoryCausalProvenance,
 }
 
+/// One recalled memory the host dropped from an injection (a duplicate, or one
+/// contradicted by a newer row). Membrane owns admission, so the list stays empty
+/// unless a host curation step reports a drop; the serialized shape is unchanged
+/// (`id`, `kept_id`, `reason`).
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub(crate) struct RecallDrop {
+    pub(crate) id: String,
+    pub(crate) kept_id: String,
+    pub(crate) reason: String,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct MemoryInjectionReceipt {
     pub(crate) items: Vec<MemoryReceiptItem>,
-    pub(crate) curation_drops: Vec<rightkit_memory::RecallDrop>,
+    pub(crate) curation_drops: Vec<RecallDrop>,
     pub(crate) workspace_scope: String,
     pub(crate) scope_chain: Vec<String>,
     pub(crate) source: &'static str,

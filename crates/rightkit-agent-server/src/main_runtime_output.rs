@@ -138,6 +138,7 @@ fn event_seq(ev: &rightkit_agent_engine_protocol::ProtocolEvent) -> i64 {
         | ToolCallStarted { seq, .. }
         | ToolApprovalRequested { seq, .. }
         | ToolApprovalResolved { seq, .. }
+        | ToolPolicyEvent { seq, .. }
         | ToolResultAdded { seq, .. }
         | SessionTurnFinished { seq, .. }
         | StreamResyncRequired { seq, .. }

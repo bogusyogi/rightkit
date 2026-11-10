@@ -432,7 +432,7 @@ fn decrement(map: &Mutex<BTreeMap<String, usize>>, key: &str) {
 }
 
 fn decrement_atomic(counter: &AtomicUsize, amount: usize) {
-    let _ = counter.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
+    let _ = counter.try_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
         Some(current.saturating_sub(amount))
     });
 }

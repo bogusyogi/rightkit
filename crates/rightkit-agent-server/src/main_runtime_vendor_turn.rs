@@ -1028,7 +1028,7 @@ async fn start_vendor_tool_bridge(
 ) -> Result<Option<VendorToolBridge>, String> {
     if kind == VendorCli::Antigravity {
         let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
-        agy_harness::ensure_coderight_mcp_registered(&spec.program, &current_exe)
+        agy_harness::ensure_host_mcp_registered(&spec.program, &current_exe)
             .map_err(|error| format!("Antigravity MCP registration failed: {error}"))?;
         return Ok(None);
     }

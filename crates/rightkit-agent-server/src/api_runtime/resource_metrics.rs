@@ -693,7 +693,7 @@ fn observe_coderight_helpers(
             ..Default::default()
         };
         report.observe(LabelledProcess {
-            ownership: ProcessOwnership::RightKitHelper,
+            ownership: ProcessOwnership::HostHelper,
             name: format!("coderight-helper-pid-{pid}"),
             sample,
         });
@@ -789,7 +789,7 @@ fn ops009_resource_report() -> serde_json::Value {
         ..Default::default()
     };
     report.observe(LabelledProcess {
-        ownership: ProcessOwnership::RightKitPrimary,
+        ownership: ProcessOwnership::HostPrimary,
         name: "coderight".to_string(),
         sample,
     });
@@ -798,7 +798,7 @@ fn ops009_resource_report() -> serde_json::Value {
     // check have genuine helper observations, not a fabricated zero.
     let _child_pids = observe_coderight_helpers(&mut report);
 
-    let incremental = report.incremental_coderight();
+    let incremental = report.incremental_host();
     let combined = match report.combined_with_membrane() {
         Ok(totals) => serde_json::json!({
             "available": true,
@@ -819,7 +819,7 @@ fn ops009_resource_report() -> serde_json::Value {
             "pssBytes": incremental.pss_bytes,
             "threads": incremental.threads,
             "openDescriptors": incremental.open_descriptors,
-            "helperProcesses": report.coderight_helper_count(),
+            "helperProcesses": report.host_helper_count(),
         },
         "combinedWithMembrane": combined,
         "note": "incremental RightKit cost only; a combined RightKit + Membrane steady state is reported only when a Membrane process is actually observed",

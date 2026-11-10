@@ -17,7 +17,7 @@
 // `hooks.rs`, which `include!`s this file into its own module. Only the symbols
 // new to this file are imported here.
 use axum::routing::post;
-use rightkit_hooks::agent_hooks::{HookDryRunReport, HookOutcome};
+use rightkit_hooks::agent_hooks::{HookDryRunReport, HookOutcome, HookSpec, IdentifiedHook};
 use serde::Deserialize;
 use std::sync::OnceLock;
 
@@ -128,6 +128,40 @@ struct HookTestResponse {
     revoked: Vec<String>,
 }
 
+/// The per-event command hook the daemon's env-var runner
+/// (`HookRunnerConfig::from_env`) runs for `event`, shaped as the hook list
+/// `dry_run_hook_with_adapter` takes. The id is the env-var name, the key
+/// `/hooks/list` and `/hooks/revoke` use. A non-empty `matcher` must be a
+/// substring of that name, as it always was for this endpoint.
+fn env_command_hooks_for_event(event: &str, matcher: Option<&str>) -> Vec<IdentifiedHook> {
+    let config = HookRunnerConfig::from_env();
+    let (env_var, command) = match event {
+        "PreToolUse" => ("RIGHTKIT_HOOK_PRE_TOOL_USE", config.pre_tool_use),
+        "PostToolUse" => ("RIGHTKIT_HOOK_POST_TOOL_USE", config.post_tool_use),
+        "UserPromptSubmit" => (
+            "RIGHTKIT_HOOK_USER_PROMPT_SUBMIT",
+            config.user_prompt_submit,
+        ),
+        "Notification" => ("RIGHTKIT_HOOK_NOTIFICATION", config.notification),
+        "SubagentStop" => ("RIGHTKIT_HOOK_SUBAGENT_STOP", config.subagent_stop),
+        "Stop" => ("RIGHTKIT_HOOK_STOP_BLOCKING", config.blocking_stop),
+        "PreCommit" => ("RIGHTKIT_HOOK_PRE_COMMIT", config.pre_commit),
+        _ => return Vec::new(),
+    };
+    if matcher.is_some_and(|m| !m.is_empty() && !env_var.contains(m)) {
+        return Vec::new();
+    }
+    command
+        .into_iter()
+        .map(|command| IdentifiedHook {
+            id: env_var.to_string(),
+            event: event.to_string(),
+            origin: "env",
+            spec: HookSpec::new(command),
+        })
+        .collect()
+}
+
 async fn test_hooks_handler(Json(req): Json<HookTestRequest>) -> Json<HookTestResponse> {
     let matcher = req.matcher.as_deref().filter(|m| !m.is_empty());
     let workspace_root = std::env::current_dir()
@@ -141,10 +175,12 @@ async fn test_hooks_handler(Json(req): Json<HookTestRequest>) -> Json<HookTestRe
         network_required: false,
     };
     let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
+    let hooks = env_command_hooks_for_event(&req.event, matcher);
     let report: HookDryRunReport = rightkit_hooks::agent_hooks::dry_run_hook_with_adapter(
         &req.event,
         matcher,
         Some(&shared_registry()),
+        &hooks,
         &adapter,
         &context,
     )

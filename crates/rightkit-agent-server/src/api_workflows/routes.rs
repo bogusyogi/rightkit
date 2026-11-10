@@ -701,7 +701,7 @@ fn ensure_enabled(state: &WorkflowApiState) -> Result<(), WorkflowApiError> {
 
 async fn submit_import(
     State(state): State<DaemonState>,
-    Json(req): Json<ImportRequest>,
+    Json(req): Json<ImportRequest<rightkit_workflow::control_plane::import_export::WorkflowPackage>>,
 ) -> Result<(axum::http::StatusCode, Json<Value>), WorkflowApiError> {
     let wf = workflow_state(&state)?;
     ensure_enabled(wf)?;

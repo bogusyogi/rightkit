@@ -6,10 +6,6 @@ fn apply_budget_to_store(
     store.per_goal_max_usd = budget.per_goal_max_usd;
     store.per_session_max_usd = budget.per_session_max_usd;
     store.per_agent_call_max_usd = budget.per_agent_call_max_usd;
-    store.global_monthly_max_usd = budget.global_monthly_max_usd;
-    store.warning_at = budget.warning_at;
-    store.max_jury_calls_per_run = budget.max_jury_calls_per_run;
-    store.max_escalation_depth = budget.max_escalation_depth;
     store.max_retries_per_role = budget.max_retries_per_role;
     store.max_wall_clock_minutes = budget.max_wall_clock_minutes;
     store.max_iterations = budget.max_iterations;

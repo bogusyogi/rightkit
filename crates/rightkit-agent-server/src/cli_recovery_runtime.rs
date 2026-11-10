@@ -201,7 +201,7 @@ impl IntoRecoverySnapshot for DriverBindingRow {
     fn into_recovery_snapshot(self) -> BindingSnapshot {
         let recovery_row = DriverBindingRecoveryRow {
             binding_id: self.id.clone(),
-            coderight_agent_id: self.coderight_agent_id.clone().unwrap_or_default(),
+            coderight_agent_id: self.host_agent_id.clone().unwrap_or_default(),
             session_id: self.session_id.clone(),
             executable_sha256: self.executable_sha256.clone().unwrap_or_default(),
             executable_path: self.executable_path.as_deref().map(PathBuf::from),

@@ -119,14 +119,19 @@ pub(crate) async fn start_driver(
         None
     };
     let current_exe = std::env::current_exe().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Codex's startup status must name exactly the host MCP server
+    // (`rightkit_agents::driver_host` rejects any other name).
+    const HOST_MCP_SERVER_NAME: &str = rightkit_agents::driver_host::agy_harness::HOST_MCP_SERVER_NAME;
     let mcp_args = vec![
         "mcp-server".to_string(),
         "--session-id".to_string(),
         session_id.clone(),
     ];
+    // Claude's launch policy pins `--allowedTools` to `mcp__rightkit`
+    // (`claude_harness::HOST_MCP_TOOL_SCOPE`), so the Claude config names the server `rightkit`.
     let mcp_config = json!({
         "mcpServers": {
-            "coderight": {
+            "rightkit": {
                 "type": "stdio",
                 "command": current_exe,
                 "args": mcp_args,
@@ -158,17 +163,17 @@ pub(crate) async fn start_driver(
             }
             spec.args.extend([
                 "-c".to_string(),
-                format!("mcp_servers.coderight.command={command_toml}"),
+                format!("mcp_servers.{HOST_MCP_SERVER_NAME}.command={command_toml}"),
                 "-c".to_string(),
-                format!("mcp_servers.coderight.args={args_toml}"),
+                format!("mcp_servers.{HOST_MCP_SERVER_NAME}.args={args_toml}"),
                 "-c".to_string(),
-                format!("mcp_servers.coderight.env_vars={env_vars_toml}"),
+                format!("mcp_servers.{HOST_MCP_SERVER_NAME}.env_vars={env_vars_toml}"),
                 "-c".to_string(),
-                "mcp_servers.coderight.enabled=true".to_string(),
+                format!("mcp_servers.{HOST_MCP_SERVER_NAME}.enabled=true"),
                 "-c".to_string(),
-                "mcp_servers.coderight.required=true".to_string(),
+                format!("mcp_servers.{HOST_MCP_SERVER_NAME}.required=true"),
                 "-c".to_string(),
-                "mcp_servers.coderight.default_tools_approval_mode=\"approve\"".to_string(),
+                format!("mcp_servers.{HOST_MCP_SERVER_NAME}.default_tools_approval_mode=\"approve\""),
             ]);
             spec.env.insert(
                 "CODEX_HOME".to_string(),
@@ -1249,7 +1254,7 @@ pub(crate) fn driver_status_after_event(
         NormalizedEventKind::SessionStarted { .. } if driver == DriverKind::Claude => "starting",
         NormalizedEventKind::SessionStarted { .. } => "ready",
         NormalizedEventKind::ToolCallStarted { tool_name, .. }
-            if driver == DriverKind::Claude && tool_name.starts_with("mcp__coderight") =>
+            if driver == DriverKind::Claude && tool_name.starts_with("mcp__rightkit") =>
         {
             "ready"
         }

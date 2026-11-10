@@ -429,10 +429,6 @@ impl InlineHost {
             s.per_goal_max_usd = budget.per_goal_max_usd;
             s.per_session_max_usd = budget.per_session_max_usd;
             s.per_agent_call_max_usd = budget.per_agent_call_max_usd;
-            s.global_monthly_max_usd = budget.global_monthly_max_usd;
-            s.warning_at = budget.warning_at;
-            s.max_jury_calls_per_run = budget.max_jury_calls_per_run;
-            s.max_escalation_depth = budget.max_escalation_depth;
             s.max_retries_per_role = budget.max_retries_per_role;
             s.max_wall_clock_minutes = budget.max_wall_clock_minutes;
             s.max_iterations = budget.max_iterations;

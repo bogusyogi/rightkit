@@ -33,21 +33,17 @@ pub(crate) fn health_routes() -> Router<DaemonState> {
         .route("/diagnostics/denials", get(list_denials_handler))
 }
 
-async fn health(State(state): State<DaemonState>) -> Json<HealthResponse> {
-    let storage_read_pool_idle = state
-        .storage
-        .as_ref()
-        .and_then(|storage| storage.read_pool())
-        .map(|pool| pool.idle_len());
-    let provider_key_health = rightkit_llm::agent_providers::provider_key_storage_health();
+/// The unauthenticated `GET /health` body is exactly the five fields of the
+/// client API contract (R37). The machine posture (`port`, `databasePath`,
+/// storage pool, provider-key posture) stays behind the bearer on
+/// `/machine/status` and `/machine/info`.
+async fn health() -> Json<HealthResponse> {
     Json(HealthResponse {
         ok: true,
         service: "coderight-daemon".to_string(),
-        port: state.bound_port,
-        database_path: state.database_path,
-        utc_now: now_iso(),
-        storage_read_pool_idle,
-        provider_key_storage: provider_key_storage_status(provider_key_health),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        contract_version: rightkit_agent_engine_api_platform::health::CONTRACT_VERSION,
+        protocol_version: rightkit_agent_engine_api_platform::health::PROTOCOL_VERSION,
     })
 }
 

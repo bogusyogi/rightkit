@@ -1143,7 +1143,7 @@ fn spawn_stdout_reader(
                         if is_ready {
                             let _ = ready.send(true);
                         }
-                        Ok(Some(DriverRuntimeEvent::Normalized(event)))
+                        Ok(Some(DriverRuntimeEvent::Normalized(*event)))
                     }
                     Ok(Some(CodexMessage::ServerRequest { id, method, params })) => {
                         Ok(Some(DriverRuntimeEvent::ServerRequest {

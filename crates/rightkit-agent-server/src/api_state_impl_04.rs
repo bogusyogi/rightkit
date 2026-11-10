@@ -1435,7 +1435,7 @@ impl DaemonState {
                     false
                 } else {
                     let Some(revision) = h9_revision
-                        .fetch_update(
+                        .try_update(
                             std::sync::atomic::Ordering::Relaxed,
                             std::sync::atomic::Ordering::Relaxed,
                             |current| current.checked_add(1),
@@ -1761,7 +1761,7 @@ impl DaemonState {
         // Consume one admission recorded by the gated user-prompt path.
         // Internal producers send without counting, so saturate at zero
         // instead of underflowing the busy signal.
-        let _ = pending_admissions_for_engine.fetch_update(
+        let _ = pending_admissions_for_engine.try_update(
             std::sync::atomic::Ordering::AcqRel,
             std::sync::atomic::Ordering::Acquire,
             |count| count.checked_sub(1),

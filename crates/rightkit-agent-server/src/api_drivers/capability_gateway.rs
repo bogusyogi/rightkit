@@ -93,12 +93,12 @@ pub(crate) async fn issue_capability_lease(
     let binding = if let Some(mut binding) = existing_binding.clone() {
         binding.binary_version = body.binary_version;
         binding.schema_hash = body.schema_hash;
-        binding.coderight_agent_id = body
+        binding.host_agent_id = body
             .agent_id
             .as_deref()
             .filter(|value| !value.trim().is_empty())
             .map(str::to_string)
-            .or(binding.coderight_agent_id);
+            .or(binding.host_agent_id);
         binding.account_profile_id = Some(profile.id.as_str().to_string());
         binding.auth_mode = Some(profile.auth_mode.label().to_string());
         binding.account_fingerprint = profile.account_fingerprint.clone();
@@ -127,7 +127,7 @@ pub(crate) async fn issue_capability_lease(
             status: "leased".to_string(),
             last_event_key: None,
             last_event_cursor: None,
-            coderight_agent_id: body
+            host_agent_id: body
                 .agent_id
                 .as_deref()
                 .filter(|value| !value.trim().is_empty())

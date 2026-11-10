@@ -6,11 +6,13 @@ use axum::{
 };
 use rightkit_agent_engine_protocol::ToolCall;
 use rightkit_agent_tools::coding_tools::{
-    SubagentContinuity, SubagentSpawnOptions, SubagentSpawner, ToolResult,
+    SpawnRuntimeKind, SubagentContinuity, SubagentSpawnOptions, SubagentSpawner, ToolRegistry,
+    ToolResult,
 };
 use rightkit_agents::driver_host::cli_runtime::AgentRuntimeExecutor;
 use rightkit_agents::driver_host::{
-    ClaudeLaunchOptions, CodexLaunchOptions, DriverCursor, NormalizedEvent, NormalizedEventKind,
+    ClaudeLaunchOptions, CodexLaunchOptions, DriverCursor, DriverKind, NormalizedEvent,
+    NormalizedEventKind,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -678,9 +680,9 @@ impl rightkit_agents::driver_host::cli_runtime::QualificationObserver
                 _ => {}
             }
         }
-        let coderight_mcp_discovered = gateway_ready || !rows.is_empty();
-        let expected_coderight_effect_observed = if probe.id == "pos.coderight_mcp_discovery" {
-            coderight_mcp_discovered
+        let host_mcp_discovered = gateway_ready || !rows.is_empty();
+        let expected_host_effect_observed = if probe.id == "pos.rightkit_mcp_discovery" {
+            host_mcp_discovered
         } else {
             !durable_effect_ids.is_empty()
         };
@@ -688,8 +690,8 @@ impl rightkit_agents::driver_host::cli_runtime::QualificationObserver
             rightkit_agents::driver_host::cli_runtime::QualificationEvidence {
                 native_effect_observed,
                 native_denial_observed: !native_denial_event_ids.is_empty(),
-                coderight_mcp_discovered,
-                expected_coderight_effect_observed,
+                host_mcp_discovered,
+                expected_host_effect_observed,
                 native_denial_event_ids,
                 durable_effect_ids,
                 detail: None,
@@ -749,7 +751,7 @@ async fn cli_provider_verify_harness(
     );
     let current_exe = std::env::current_exe().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let mcp_server = rightkit_agents::driver_host::cli_runtime::CliMcpServerSpec {
-        name: "coderight".to_string(),
+        name: rightkit_agents::driver_host::agy_harness::HOST_MCP_SERVER_NAME.to_string(),
         command: current_exe,
         args: vec![
             "mcp-server".to_string(),
@@ -797,7 +799,7 @@ async fn cli_provider_verify_harness(
         status: "qualifying".to_string(),
         last_event_key: None,
         last_event_cursor: None,
-        coderight_agent_id: Some(agent_id.clone()),
+        host_agent_id: Some(agent_id.clone()),
         parent_agent_id: String::new(),
         provider_id: Some(provider_id.as_str().to_string()),
         transport_kind: Some(adapter.transport_kind().label().to_string()),

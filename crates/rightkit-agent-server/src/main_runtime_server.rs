@@ -568,10 +568,6 @@ async fn serve(
         s.per_goal_max_usd = budget_cfg.per_goal_max_usd;
         s.per_session_max_usd = budget_cfg.per_session_max_usd;
         s.per_agent_call_max_usd = budget_cfg.per_agent_call_max_usd;
-        s.global_monthly_max_usd = budget_cfg.global_monthly_max_usd;
-        s.warning_at = budget_cfg.warning_at;
-        s.max_jury_calls_per_run = budget_cfg.max_jury_calls_per_run;
-        s.max_escalation_depth = budget_cfg.max_escalation_depth;
         s.max_retries_per_role = budget_cfg.max_retries_per_role;
         s.max_wall_clock_minutes = budget_cfg.max_wall_clock_minutes;
         s.max_iterations = budget_cfg.max_iterations;

@@ -688,10 +688,10 @@ fn settings_response(state: &DaemonState, q: &WorkspaceQuery) -> serde_json::Val
             "perGoalMaxUsd": store.per_goal_max_usd,
             "perSessionMaxUsd": store.per_session_max_usd,
             "perAgentCallMaxUsd": store.per_agent_call_max_usd,
-            "globalMonthlyMaxUsd": store.global_monthly_max_usd,
-            "warningAt": store.warning_at,
-            "maxJuryCallsPerRun": store.max_jury_calls_per_run,
-            "maxEscalationDepth": store.max_escalation_depth,
+            "globalMonthlyMaxUsd": persisted_config.orchestration.budget.global_monthly_max_usd,
+            "warningAt": persisted_config.orchestration.budget.warning_at,
+            "maxJuryCallsPerRun": persisted_config.orchestration.budget.max_jury_calls_per_run,
+            "maxEscalationDepth": persisted_config.orchestration.budget.max_escalation_depth,
             "maxRetriesPerRole": store.max_retries_per_role,
             "maxWallClockMinutes": store.max_wall_clock_minutes,
             "maxIterations": store.max_iterations,
@@ -811,18 +811,6 @@ async fn save_settings(
             }
             if let Some(v) = f("perAgentCallMaxUsd") {
                 store.per_agent_call_max_usd = v;
-            }
-            if let Some(v) = f("globalMonthlyMaxUsd") {
-                store.global_monthly_max_usd = v;
-            }
-            if let Some(v) = f("warningAt") {
-                store.warning_at = v;
-            }
-            if let Some(v) = u("maxJuryCallsPerRun") {
-                store.max_jury_calls_per_run = v;
-            }
-            if let Some(v) = u("maxEscalationDepth") {
-                store.max_escalation_depth = v;
             }
             if let Some(v) = u("maxRetriesPerRole") {
                 store.max_retries_per_role = v;

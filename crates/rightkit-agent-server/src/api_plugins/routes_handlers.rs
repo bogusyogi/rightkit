@@ -927,6 +927,8 @@ fn set_plugin_enabled(dir: &FsPath, id: &str, enabled: bool) -> Result<(), Statu
         rightkit_agent_plugins::PluginError::NotFound(_) => StatusCode::NOT_FOUND,
         rightkit_agent_plugins::PluginError::Io(_)
         | rightkit_agent_plugins::PluginError::Parse(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        rightkit_agent_plugins::PluginError::Refused(_) => StatusCode::BAD_REQUEST,
+        rightkit_agent_plugins::PluginError::Conflict(_) => StatusCode::CONFLICT,
     })
 }
 

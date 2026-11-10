@@ -290,7 +290,7 @@ pub(crate) async fn answer_claude_can_use_tool(
     let name = params
         .get("tool_name")
         .and_then(serde_json::Value::as_str)
-        .and_then(|name| name.strip_prefix("mcp__coderight__"))
+        .and_then(|name| name.strip_prefix("mcp__rightkit__"))
         .filter(|name| !name.is_empty() && *name != "permission_prompt");
     let Some(name) = name else {
         return deny("Only RightKit tools are permitted");

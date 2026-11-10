@@ -3606,8 +3606,10 @@ pub async fn drive(host: impl TurnHost) -> i32 {
     let mut composer = Composer::new();
     // Lane 4: cross-session prompt history (Up / Ctrl+R) and the shared
     // input-pause handle Ctrl+G's editor hand-off needs.
-    if let Some(path) = rightkit_terminal_ui::composer::default_history_path() {
-        composer.enable_persistent_history(path);
+    if let Some(state_root) = rightkit_app_settings::agent_config::state_root() {
+        composer.enable_persistent_history(rightkit_terminal_ui::composer::default_history_path(
+            &state_root,
+        ));
     }
     let mut notifier = build_notifier(
         &tui_settings.notify,
@@ -9784,7 +9786,9 @@ fn render(
                                         for column in from..to.min(chars.len()) {
                                             let x = transcript_area.x + column as u16;
                                             if x < transcript_area.x + transcript_area.width {
-                                                buffer.get_mut(x, row).set_style(rightkit_terminal_ui::ratatui::style::Style::default().add_modifier(rightkit_terminal_ui::ratatui::style::Modifier::REVERSED));
+                                                if let Some(cell) = buffer.cell_mut((x, row)) {
+                                                    cell.set_style(rightkit_terminal_ui::ratatui::style::Style::default().add_modifier(rightkit_terminal_ui::ratatui::style::Modifier::REVERSED));
+                                                }
                                             }
                                         }
                                     }
