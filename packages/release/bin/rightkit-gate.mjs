@@ -2175,9 +2175,15 @@ async function runStages(o, args, root, git, io) {
       // the Dell, 2026-11-10: the stage closed with "a staged sidecar output ... changed after it was staged" for the two files it had just signed). Such a
       // change is admitted as on the dev route (rightkit#1555): from exactly the staged bytes to exactly the signed bytes the build's externalBin receipt
       // names, and the gate itself verifies the signature on the bytes now on disk.
-      if (ok && sealed && ds && platform === "win") {
-        try { packageSigned = packageSignedInPlace({ ds, receipt: path.join(releaseRoot, ".right-release", "state", sealed.id, "windows", "external-bin.json") }); await assertSignedInPlaceSigned(o, ds.path, packageSigned); }
-        catch (e) { o.err(`${tag} RK_CHECK_ERROR: [package] ${e.message}`); ok = false; packageSigned = new Map(); }
+      // Read whether or not the build went on to seal: a build that failed after signing (updater signature, hardening, seal) otherwise closed the stage with
+      // the two signed sidecars reported as changed staged entries, on top of its real error.
+      if (ds && platform === "win") {
+        try {
+          const stateBase = path.join(releaseRoot, ".right-release", "state");
+          const ids = sealed ? [sealed.id] : fs.readdirSync(stateBase).filter((id) => id.endsWith(`-${commit.slice(0, 8)}`)).sort();
+          for (const id of ids) for (const [k, v] of packageSignedInPlace({ ds, receipt: path.join(stateBase, id, "windows", "external-bin.json") })) packageSigned.set(k, v);
+          await assertSignedInPlaceSigned(o, ds.path, packageSigned);
+        } catch (e) { if (ok) o.err(`${tag} RK_CHECK_ERROR: [package] ${e.message}`); ok = false; packageSigned = new Map(); }
       }
       // The cross-check: the Cargo targets the sealed manifest records are the directory this door resolved itself. A different one voids the stage.
       try { packageMulti?.cleanup?.(); } catch { /* the wrapper's map is the gate's own temp directory */ }
