@@ -67,8 +67,6 @@ function buildExtras(spec, label, { postBuild }) {
   };
 }
 
-/** Tauri v2 passes Cargo flags after `--`; the profile also decides where Tauri looks for the built binary. */
-const profileArgs = (extras) => (extras.profile ? ["--", "--profile", extras.profile] : []);
 /**
  * The build command also takes `--jobs N` (Cargo parallelism), after the same `--`. A generated Tauri build always forwards
  * `--locked` to Cargo, so a release can never resolve dependencies differently from the reviewed lockfile (rightkit#725).
@@ -224,7 +222,9 @@ export function expandWinPackageTarget(target, { appRoot, config = {}, env = pro
     resolve: mapPath.resolve(),
     ...(installerSource ? { post: [{ from: installerSource.from, to: installerFile, fresh: true }] } : {}),
   } : undefined;
-  const bundleArgs = ["exec", "tauri", "bundle", "--bundles", "nsis", "--target", plan.triple, ...configArgs(extras, plan.appRoot, cwd), "--config", JSON.stringify(override), ...profileArgs(extras)];
+  const bundleArgs = ["exec", "tauri", "bundle", "--bundles", "nsis", "--target", plan.triple, ...configArgs(extras, plan.appRoot, cwd), "--config", JSON.stringify(override)];
+  // `tauri bundle` takes no Cargo arguments (Tauri CLI 2.12: "error: unexpected argument '--profile' found", exit 2); the profile goes to
+  // `tauri build --no-bundle` only. HeardRight on the Dell, 2026-11-10: a recipe with `profile: "release"` could not bundle.
   const bundleCommand = packageStage
     ? recipeBuildCommand({ extras: { prepare: [], postBuild: [] }, build: { cmd: "pnpm", args: bundleArgs, cwd }, env: QUIET_TAURI_ENV, stage: packageStage, timeoutMs: timeout })
     : { cmd: "pnpm", args: bundleArgs, cwd, env: QUIET_TAURI_ENV, timeoutMs: timeout };
