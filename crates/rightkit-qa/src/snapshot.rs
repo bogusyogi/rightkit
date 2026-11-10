@@ -1459,9 +1459,7 @@ pub fn arm_with_owner(
     claim_marker(&marker_path, &marker)?;
     match build_snapshot(&snap_dir, &mut marker) {
         Ok((manifest_sha, cred_sha)) => {
-            if let Err(e) = ensure_stopped(&marker) {
-                return Err(e);
-            }
+            ensure_stopped(&marker)?;
             marker.manifest_sha256 = Some(manifest_sha);
             marker.credentials_sha256 = cred_sha;
             marker.state = STATE_ARMED.into();
