@@ -1628,6 +1628,28 @@ export async function runSharedUnitList({ o, io, stage, commit, selected, invent
   if (stage === "compile" && !runUnit && !io.runUnitForList && ordered.length) {
     const union = { selected: ordered, inventory, rows: null, coverage: null, internal: [], commands: [], commit, runId: randomUUID() };
     const exit = await main(["--to", "compile", "--unit", ordered[0].selector, "--commit", commit], { ...io, unitListClassA, [UNIT_LIST_UNION]: union });
+    if (union.fresh) {
+      // Each crate has its own result (gate/compile.mjs): passed, failed, or not built because something it depends on failed. A unit's status is its crate's.
+      const { unitResult } = await import("../gate/compile.mjs");
+      const statusOf = (unit) => { const r = union.fresh.byCrate[unit.selector.slice("cargo:".length)]?.result; return r === "passed" && union.verified ? "passed" : r === "not-built" ? "blocked" : "failed"; };
+      const results = ordered.map((unit) => { const status = statusOf(unit); return { selector: unit.selector, status, ...(status === "failed" ? { code: 1 } : {}) }; });
+      const report = unitListReport({ commit, stage, base, selected: ordered, results, unmatched }); report.runId = union.runId; report.counts2 = union.fresh.counts;
+      for (const row of report.units) {
+        if (receiptDir === undefined) row.receipt = { status: "not-requested" };
+        else {
+          const crate = row.selector.slice("cargo:".length);
+          const name = `gate-${crate}.json`;
+          const data = `${JSON.stringify(unitResult({ selector: row.selector, commit, tree: union.fresh.tree, platform: union.fresh.platform, crate, run: union.fresh }), null, 2)}
+`; o.writeFile(path.join(receiptDir, name), data);
+          row.receipt = { status: "written", file: name, sha256: createHash("sha256").update(data).digest("hex") };
+        }
+        o.out(`${tag} unit ${row.selector}: ${row.status}`);
+      }
+      o.out(`${tag} unit report: ${report.counts.passed} passed, ${report.counts.failed} failed, ${report.counts.blocked} blocked, ${report.counts["not-run"]} not-run of ${ordered.length} on ${commit.slice(0, 12)}`);
+      if (receiptDir !== undefined) o.writeFile(path.join(receiptDir, "units-report.json"), `${JSON.stringify(report, null, 2)}
+`);
+      return report.ok ? 0 : (exit || 1);
+    }
     const results = ordered.map((unit) => {
       const evidence = union.coverage?.filter((r) => r.selector === unit.selector) ?? [];
       const internal = union.internal.filter((r) => r.selector === unit.selector);
@@ -3131,6 +3153,30 @@ async function runUnionSnapshot({ o, io, root, git, ds, union, unitListClassA })
   if (!(await closeSnapshotStage({ o, ds, root, stage: "check", tag })).ok || check !== 0) return check || 1;
   if (!await openSnapshotStage({ o, ds, root, stage: "compile", tag })) return 1;
   let code = 1;
+  // Crates build together (docs/design/2026-11-10-gate-fresh-design.md; Adrian, 2026-11-04: "RK has to build all it's necessary crates together"): a list of crates on a
+  // broker host is compiled by gate/compile.mjs as a few Cargo calls naming every crate, each crate with its own result. RK_GATE_LEGACY_ROWS=1 keeps the per-crate rows
+  // until the proof runs pass on both hosts; the legacy branch and that switch are then deleted together.
+  let together = null;
+  try {
+    const ex = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which: whichIn(o), readFile: o.readFile });
+    if (o.env.RK_GATE_LEGACY_ROWS !== "1" && ex?.kind === "broker" && union.selected.every((row) => row.selector.startsWith("cargo:"))) together = { client: brokerClientOf(o, ex) };
+  } catch { together = null; }
+  if (together) {
+    try {
+      const { compileTogether } = await import("../gate/compile.mjs");
+      const verdictFile = path.join(path.dirname(path.dirname(path.resolve(ds.path))), "class-a-verdicts", verdictFileName({ commit: ds.commit, scope: unitListClassA.dirs, workspace: "." }));
+      const run = await compileTogether({
+        snapshot: path.resolve(ds.path), commit: ds.commit, crates: union.selected.map((row) => row.selector.slice("cargo:".length)), rustConfig: config.rust ?? {},
+        platform: o.platform, client: together.client ?? "rustright", env: o.env, verdictFile, storeDir: `${path.resolve(ds.path)}.calls`,
+        out: (line) => o.out(`${tag} ${line}`), onUnsettled: () => { seamRunState.unsettled += 1; },
+      });
+      union.fresh = { ...run, tree: ds.tree, platform: o.platform };
+      code = run.code;
+    } catch (error) { o.err(`${tag} unit-list compile (together): ${error.stack ?? error.message}`); code = 1; }
+    const closedTogether = await closeSnapshotStage({ o, ds, root, stage: "compile", tag });
+    union.verified = closedTogether.ok;
+    return closedTogether.ok ? code : 1;
+  }
   try {
     code = await main(["--all", "--commit", ds.commit, "--snapshot", ds.path, ...unitListClassA.dirs.flatMap((dir) => ["--scope", dir])], {
       ...io, cwd: root, readStdin: () => "", snapshotLock: ds.lock, classAEarlier: true, snapshotLedger: ds.ledger?.entries ?? [],

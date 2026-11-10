@@ -90,8 +90,39 @@ export function parseArgs(argv) {
   return out;
 }
 
+/** The per-unit result of a together compile (gate/compile.mjs unitResult): each crate carries its own result and the broker job that proves each call. */
+export const UNIT_RESULT_SCHEMA = "rightkit.unit-result/1";
+
+/**
+ * Why a unit result does not prove this crate at this commit; empty when it does. It must name the unit, the exact commit and tree, say
+ * "passed", show lint, test build and tests passed (docs too when the crate has a library call), and every call that named the crate must have
+ * passed with a broker job as evidence (a request id and the sha256 of its signed receipt). A call skipped because it had already passed for this
+ * commit carries the job that proved it then.
+ */
+export function unitResultProblems(report, { name, commit, tree }) {
+  const problems = [];
+  const unit = `cargo:${name}`;
+  const job = (e) => typeof e?.requestId === "string" && e.requestId !== "" && /^[0-9a-f]{64}$/.test(e.receiptSha256 ?? "");
+  if (report?.unit !== unit) problems.push(`unit is ${JSON.stringify(report?.unit)}, not ${unit}`);
+  if (report?.result !== "passed") problems.push(`unit result is ${JSON.stringify(report?.result)}, not "passed"`);
+  if (report?.commit !== commit) problems.push(`commit ${report?.commit} != ${commit}`);
+  if (report?.tree !== tree) problems.push(`tree ${report?.tree} != ${tree}`);
+  if (report?.stage !== "compile") problems.push(`stage is ${JSON.stringify(report?.stage)}, not "compile"`);
+  for (const stage of ["lint", "test-build", "tests"]) if (report?.stages?.[stage]?.result !== "passed") problems.push(`stage ${stage} is ${JSON.stringify(report?.stages?.[stage]?.result)}, not "passed"`);
+  if (report?.stages?.docs !== undefined && report.stages.docs.result !== "passed") problems.push(`stage docs is ${JSON.stringify(report.stages.docs.result)}, not "passed"`);
+  const calls = Array.isArray(report?.calls) ? report.calls : [];
+  if (!calls.length) problems.push("no call is recorded for the unit");
+  for (const c of calls) {
+    if (c?.result !== "passed") problems.push(`call ${c?.id} is ${JSON.stringify(c?.result)}`);
+    else if (!job(c.evidence)) problems.push(`call ${c?.id} carries no broker job as evidence`);
+  }
+  for (const stage of ["lint", "test-build"]) if (!calls.some((c) => c?.stage === stage)) problems.push(`no ${stage} call is recorded for the unit`);
+  return problems;
+}
+
 /** The reasons a unit-gate report does not prove this crate, version and commit compiled; empty when it does. */
 export function compileReportProblems(report, { name, version, commit, tree }) {
+  if (report?.schema === UNIT_RESULT_SCHEMA) return unitResultProblems(report, { name, commit, tree });
   if (report?.schema === UNIT_LIST_COMPILE_SCHEMA) return unitListCompileProblems(report, { name, commit, tree });
   const problems = [];
   if (report?.schema !== UNIT_REPORT_SCHEMA) problems.push(`schema is ${JSON.stringify(report?.schema)}, not ${UNIT_REPORT_SCHEMA}`);
@@ -146,7 +177,7 @@ export async function publishLocalCargo(argv, { run = spawnSync, log = console.l
   try { report = JSON.parse(fs.readFileSync(o.report, "utf8")); } catch (e) { fail(`cannot read the compile report ${o.report}: ${e.message}`); }
   const problems = compileReportProblems(report, { name, version, commit, tree });
   if (problems.length) fail(`the compile report does not prove cargo:${name} ${version} at ${commit}: ${problems.join("; ")}`);
-  log(`publish-local: compile report ok for cargo:${name} ${version} at ${commit.slice(0, 12)} (executor ${report.executor ?? (report.schema === UNIT_LIST_COMPILE_SCHEMA ? `broker seam, unit-list run ${report.runId}` : "unknown")})`);
+  log(`publish-local: compile report ok for cargo:${name} ${version} at ${commit.slice(0, 12)} (executor ${report.executor ?? (report.schema === UNIT_LIST_COMPILE_SCHEMA ? `broker seam, unit-list run ${report.runId}` : report.schema === UNIT_RESULT_SCHEMA ? "broker seam, together compile" : "unknown")})`);
   // The broker's cargo, run directly: package and publish --no-verify compile nothing (GC-A11).
   const pathKey = platform === "win32" ? (Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "Path") : "PATH";
   const direct = directCargoPath({ env: { ...env, PATH: env[pathKey] }, platform, gateWrappers: true });
