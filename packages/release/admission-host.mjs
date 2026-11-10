@@ -3,7 +3,9 @@
 // env, spawn and file system, and says NOT RUN with its reason when the probe cannot run on this host (a Windows probe on a Mac).
 // NOT RUN is never a pass. Real-credential acceptance runs on the Mac and the Dell; the unit tests use fakes.
 import { readFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { PROTECTED_SECRETS, protectedSecretStoreCommand } from "./protected-credentials.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
 import { CredentialProviderError, providerPlatformOf, updaterCredentialProvider } from "./credential-provider.mjs";
 import { ManagedHostEnvSecretError, isManagedHost } from "./managed-host-secrets.mjs";
@@ -227,9 +229,20 @@ export const HOST_ROWS = Object.freeze([
     run(ctx) {
       if (!signsUpdater(ctx)) return { na: "the target does not sign updater artifacts" };
       if (providerPlatformOf(ctx.hostPlatform) !== ctx.platform) return { notRun: `the updater credential provider is resolved on the ${ctx.platform === "win" ? "Windows" : "Mac"} host that signs` };
-      try { updaterCredentialProvider({ env: ctx.env, hostPlatform: ctx.hostPlatform }); } catch (error) {
+      let provider;
+      try { provider = updaterCredentialProvider({ env: ctx.env, hostPlatform: ctx.hostPlatform }).file; } catch (error) {
         if (error instanceof CredentialProviderError) return [error.message];
         throw error;
+      }
+      // The key itself, not only the provider: a Windows host with the provider enrolled and no key stored passed this row and failed after the whole build,
+      // at sign-updater ("invalid credential: not found"; HeardRight on the Dell, 2026-11-10). `status` reports presence only and never reads the secret.
+      if (ctx.hostPlatform === "win32") {
+        const account = os.userInfo().username;
+        const asked = ctx.spawn(provider, ["status", "--namespace", PROTECTED_SECRETS["updater-signing-key"].keychain, "--account", account], { encoding: "utf8", windowsHide: true, shell: false });
+        let present = null;
+        try { present = JSON.parse(String(asked.stdout ?? "")).present; } catch { present = null; }
+        if (present === false) return [`the updater signing key is not in this host's credential store (account ${account}); store it once with: ${protectedSecretStoreCommand("updater-signing-key", "win32", { provider, env: ctx.env })}`];
+        if (present !== true) return [`the credential provider could not report whether the updater signing key is stored (exit ${asked.status ?? "unavailable"})`];
       }
       return undefined;
     },
