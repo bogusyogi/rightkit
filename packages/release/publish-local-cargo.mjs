@@ -33,7 +33,8 @@ export const UNIT_LIST_COMPILE_SCHEMA = "rightkit.unit-list-compile/1";
  * Why a unit-list receipt does not prove this crate at this commit; empty when it does. The gate writes status "passed" only when its
  * shared run exited 0, its union was verified and every requirement of the unit passed (rightkit-gate.mjs, the unit-list report). This
  * re-checks what the file itself carries: the unit, the exact commit, every recorded command bound to that commit and tree with a
- * passing broker seam receipt as its last attempt, every requirement and every scan passed. The receipt names no version: the caller
+ * passing broker seam receipt as its last attempt, every requirement and every scan passed (a scan with evidence of its own must show a
+ * broker seam receipt; one answered from the gate's cache has none). The receipt names no version: the caller
  * reads the version from the commit's own Cargo.toml, and the commit and tree are bound here.
  */
 export function unitListCompileProblems(report, { name, commit, tree }) {
@@ -58,7 +59,12 @@ export function unitListCompileProblems(report, { name, commit, tree }) {
   for (const r of requirements) if (r?.selector !== unit || !passed(r?.status)) problems.push(`requirement ${r?.id} (${JSON.stringify(r?.selector)}) is ${JSON.stringify(r?.status)}`);
   const scans = Array.isArray(report?.scans) ? report.scans : [];
   if (!scans.length) problems.push("no scan is recorded for the unit");
-  for (const sc of scans) if (!passed(sc?.status) || !seamReceipt(sc?.snapshotEvidence)) problems.push(`scan ${sc?.id} is ${JSON.stringify(sc?.status)} without a passing broker seam receipt`);
+  // A scan the run answered from the gate's cache carries no evidence of its own (the pass was stored by the run that executed it); a scan
+  // that carries evidence must carry a broker seam receipt. The unit's own commands above are never answered without one.
+  for (const sc of scans) {
+    if (!passed(sc?.status)) problems.push(`scan ${sc?.id} is ${JSON.stringify(sc?.status)}`);
+    else if (sc.snapshotEvidence !== undefined && !seamReceipt(sc.snapshotEvidence)) problems.push(`scan ${sc?.id} carries evidence that is not a broker seam receipt`);
+  }
   return problems;
 }
 

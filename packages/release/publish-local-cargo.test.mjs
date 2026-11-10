@@ -46,9 +46,16 @@ test("a unit-list receipt is refused without commands, requirements or scans, or
   // A pass that is not a broker seam receipt (no seam flag, no request id, no receipt digest) is no proof of a broker compile.
   for (const evidence of [{ ...seam(), seam: false }, { ...seam(), requestId: "" }, { ...seam(), receiptSha256: "abc" }, undefined]) {
     assert.match(compileReportProblems(unitList({ commands: [command({ attempts: [{ status: "pass", snapshotEvidence: evidence }] })] }), ctx).join("; "), /no passing broker seam receipt/);
-    assert.match(compileReportProblems(unitList({ scans: [{ id: "clippy:x", status: "pass", snapshotEvidence: evidence }] }), ctx).join("; "), /scan clippy:x is "pass" without a passing broker seam receipt/);
   }
+  // A scan with evidence of its own must show a broker seam receipt; a scan answered from the gate's cache carries none and passes on its status.
+  for (const evidence of [{ ...seam(), seam: false }, { ...seam(), requestId: "" }, { ...seam(), receiptSha256: "abc" }, null, {}]) {
+    assert.match(compileReportProblems(unitList({ scans: [{ id: "clippy:x", status: "pass", snapshotEvidence: evidence }] }), ctx).join("; "), /scan clippy:x carries evidence that is not a broker seam receipt/);
+  }
+  assert.deepEqual(compileReportProblems(unitList({ scans: [{ id: "doc:x", status: "pass", sharedOrigin: true }] }), ctx), []);
   assert.match(compileReportProblems(unitList({ scans: [{ id: "doc:x", status: "fail", snapshotEvidence: seam() }] }), ctx).join("; "), /scan doc:x is "fail"/);
+  assert.match(compileReportProblems(unitList({ scans: [{ id: "doc:x", status: "cached" }] }), ctx).join("; "), /scan doc:x is "cached"/);
+  // The unit's own commands never pass on status alone.
+  assert.match(compileReportProblems(unitList({ commands: [command({ attempts: [{ status: "pass" }] })] }), ctx).join("; "), /no passing broker seam receipt/);
   assert.match(compileReportProblems(unitList({ requirements: [{ selector: unit, id: "r", status: "failed" }] }), ctx).join("; "), /requirement r/);
   assert.match(compileReportProblems(unitList({ requirements: [{ selector: "cargo:rightkit-agents", id: "r", status: "passed" }] }), ctx).join("; "), /requirement r/);
 });
