@@ -365,11 +365,6 @@
           "--no-default-features",
           "--features",
           "wv2-0_39,engine"
-        ],
-        [
-          "--no-default-features",
-          "--features",
-          "wv2-0_38"
         ]
       ],
       "paths": [
@@ -391,7 +386,10 @@
         }
       ],
       "quietTests": true,
-      "allowIgnored": "example-app/tests/e2e.rs (2 tests: positive_control_native_menu_is_detectable_where_the_shell_allows_it, native_menu_bar_matches_the_spec_through_accessibility) are #[ignore] on purpose: background-only QA forbids a native popup or global menu activation over the user's work, so they run by hand with --ignored (2 ignored per default run of the example-app package; the crate's own tests have none); every other tauri-shell test runs and asserts on every default run"
+      "allowIgnored": "example-app/tests/e2e.rs (2 tests: positive_control_native_menu_is_detectable_where_the_shell_allows_it, native_menu_bar_matches_the_spec_through_accessibility) are #[ignore] on purpose: background-only QA forbids a native popup or global menu activation over the user's work, so they run by hand with --ignored (2 ignored per default run of the example-app package; the crate's own tests have none); every other tauri-shell test runs and asserts on every default run",
+      "unlintedFeatures": {
+        "wv2-0_38": "it selects the WebView2 binding generation of Tauri 2.11 (wry 0.55: webview2-com 0.38, windows 0.61). The one workspace lock resolves Tauri 2.12 (wry 0.57: webview2-com 0.39, windows 0.62) since 81a836d4d, and the controller this code calls is Tauri's own type, so on Windows the 0.38 arguments no longer match it (E0631/E0308/E0277/E0599 in rightkit-tauri-shell with --no-default-features --features wv2-0_38, Dell batch at 8e6f0c43); it cannot be built in this workspace on the host where it means anything. wv2-0_39 is built on every host (rightkit#1562)"
+      }
     },
     "rightkit-file-watch": {
       "featureSets": [
