@@ -92,13 +92,16 @@ export function planCalls({ crates, host, hostTriple, otherTriples = [] }) {
   }
 
   // Consumer manifests: small separate workspaces that exercise a crate the way an app would.
+  // The same manifest with the same arguments is one call, whichever crates declare it; each of them gets its result. A consumer call is judged
+  // whole (run-calls.mjs): its own package is not one of the named crates, so the call passes for them only when the whole call succeeded.
+  const consumers = new Map();
   for (const c of here) {
     for (const row of c.config?.consumerRows ?? []) {
       const dir = String(row.manifestPath).replace(/[\\/]Cargo\.toml$/, "");
-      calls.push({
-        id: `lint:consumer:${dir}`, stage: "lint", round: `consumer:${dir}`, cwd: dir, crates: [{ name: c.name, targets: [hostTriple], consumer: dir }],
-        args: ["clippy", ...(row.args ?? []), "--all-targets", "--no-deps", "--target", hostTriple, ...(row.locked === false ? [] : ["--locked"]), "--message-format=json", "--", "-D", "warnings"],
-      });
+      const args = ["clippy", ...(row.args ?? []), "--all-targets", "--no-deps", "--target", hostTriple, ...(row.locked === false ? [] : ["--locked"]), "--message-format=json", "--", "-D", "warnings"];
+      const same = `${dir}\0${key(args)}`;
+      if (!consumers.has(same)) { const call = { id: `lint:consumer:${dir}${consumers.size ? `:${consumers.size + 1}` : ""}`, stage: "lint", round: `consumer:${dir}`, cwd: dir, consumer: true, crates: [], args }; consumers.set(same, call); calls.push(call); }
+      consumers.get(same).crates.push({ name: c.name, targets: [hostTriple], consumer: dir });
     }
   }
   return calls;

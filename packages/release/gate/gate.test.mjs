@@ -346,3 +346,19 @@ test("the publisher admits a passed unit result and refuses a red, misbound or e
   const noTests = { ...good, stages: { ...good.stages, tests: { result: "unknown" } } };
   assert.match(compileReportProblems(noTests, { name: "c", version: "0.1.0", commit, tree: "t1" }).join(";"), /stage tests/);
 });
+
+// ---- consumer manifests ---------------------------------------------------------------------------------------
+test("the same consumer manifest declared by three crates is one call; it is judged whole", () => {
+  const row = { manifestPath: "ci/consumers/wv2-0_39/Cargo.toml", args: ["--features", "qa"], locked: true };
+  const crates = ["qa", "qa-driver", "shell"].map((n) => crate(n, { config: { consumerRows: [row] } }));
+  const calls = plan(crates).filter((c) => c.consumer);
+  assert.equal(calls.length, 1); assert.deepEqual(calls[0].crates.map((c) => c.name), ["qa", "qa-driver", "shell"]);
+  // The consumer's own package fails; the named crates built fine. The call still fails for all of them.
+  const stdout = [artifact("qa", WIN), artifact("qa-driver", WIN), artifact("shell", WIN), error("wv2-0_39-consumer", "unused import"), finished(false)].join("\n");
+  const red = runCalls({ calls, send: () => ({ status: 101, stdout, stderr: "", requestId: "j1", receiptSha256: "0".repeat(64) }), store: null, identity: IDENT, hostTriple: WIN });
+  assert.deepEqual(red.outcomes[0].results.map((r) => r.result), ["failed", "failed", "failed"]);
+  assert.match(red.outcomes[0].results[0].detail, /wv2-0_39-consumer/);
+  const ok = runCalls({ calls, send: () => ({ status: 0, stdout: finished(true), stderr: "", requestId: "j2", receiptSha256: "0".repeat(64) }), store: null, identity: IDENT, hostTriple: WIN });
+  assert.deepEqual(ok.outcomes[0].results.map((r) => r.result), ["passed", "passed", "passed"]);
+  assert.equal(ok.outcomes[0].evidence.requestId, "j2");
+});

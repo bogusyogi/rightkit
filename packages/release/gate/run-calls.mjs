@@ -10,7 +10,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { crateResults } from "./crate-results.mjs";
+import { crateResults, readCargoStream } from "./crate-results.mjs";
 
 const sha256 = (text) => crypto.createHash("sha256").update(text).digest("hex");
 
@@ -63,7 +63,19 @@ const jobOf = (sent) => ({ exit: sent.status ?? null, requestId: sent.requestId 
 export function runCalls({ calls, send, store = null, identity, hostTriple, onCall = () => {} }) {
   const outcomes = [];
   const counts = { calls: calls.length, ran: 0, skipped: 0, jobs: 0, greenReruns: 0 };
-  const judge = (call, sent) => crateResults({ crates: call.crates, stdout: sent.stdout ?? "", stderr: sent.stderr ?? "", exit: sent.status ?? null, refusal: sent.refusal ? `${sent.refusal.code}: ${sent.refusal.message}` : null, host: hostTriple });
+  const judge = (call, sent) => {
+    const refusal = sent.refusal ? `${sent.refusal.code}: ${sent.refusal.message}` : null;
+    if (call.consumer) {
+      // A consumer manifest's own package is not one of the named crates: the call is judged whole. It passes for every crate that declares it
+      // only when Cargo finished successfully and the job exited 0; any failure in it fails them all, with the errors it reported.
+      if (refusal) return call.crates.map((c) => ({ crate: c.name, result: "unknown", detail: refusal }));
+      const s = readCargoStream({ stdout: sent.stdout ?? "", stderr: sent.stderr ?? "", targets: [hostTriple], host: hostTriple });
+      const ok = s.finished && s.success === true && sent.status === 0;
+      const why = ok ? "" : Object.entries(s.errors).slice(0, 4).map(([name, e]) => `${name}: ${e.rendered[0] ?? "error"}`).join(" | ") || (s.finished ? `the consumer call exited ${sent.status}` : "the consumer call produced no complete Cargo output");
+      return call.crates.map((c) => ({ crate: c.name, result: ok ? "passed" : s.finished ? "failed" : "unknown", detail: why }));
+    }
+    return crateResults({ crates: call.crates, stdout: sent.stdout ?? "", stderr: sent.stderr ?? "", exit: sent.status ?? null, refusal, host: hostTriple });
+  };
   for (const call of calls) {
     const key = callKey(call, identity);
     const remembered = store?.get(key) ?? null;
