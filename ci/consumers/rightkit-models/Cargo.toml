@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-models = { version = "=0.5.8" }
+rightkit-models = { version = "=0.5.9" }

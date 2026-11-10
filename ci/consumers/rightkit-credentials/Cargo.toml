@@ -7,7 +7,7 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-credentials = { version = "=0.5.0", default-features = false, features = ["db-adapter"] }
+rightkit-credentials = { version = "=0.5.1", default-features = false, features = ["db-adapter"] }
 rightkit-db = { version = "=0.5.3", default-features = false, optional = true }
 
 [features]

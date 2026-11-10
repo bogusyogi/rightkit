@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-pty = { version = "=0.1.0" }
+rightkit-pty = { version = "=0.1.1" }

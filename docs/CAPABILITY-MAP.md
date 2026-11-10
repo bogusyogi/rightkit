@@ -12,35 +12,35 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 
 | Capability | Owner | Tier | Detection | Fingerprints | Published availability |
 |---|---|---|---|---|---|
-| adapt | `rightkit-adapt` | none | declaration-only | 0 | rightkit-adapt: staged 0.1.1, not published |
-| adaptive-learning | `rightkit-adapt-taste` | none | declaration-only | 0 | rightkit-adapt-taste: staged 0.1.1, not published |
-| agent-api-integrations | `rightkit-agent-engine-api-integrations` | none | declaration-only | 0 | rightkit-agent-engine-api-integrations: staged 0.1.1, not published |
-| agent-api-platform | `rightkit-agent-engine-api-platform` | none | declaration-only | 0 | rightkit-agent-engine-api-platform: staged 0.1.1, not published |
+| adapt | `rightkit-adapt` | none | declaration-only | 0 | rightkit-adapt: staged 0.1.2, not published |
+| adaptive-learning | `rightkit-adapt-taste` | none | declaration-only | 0 | rightkit-adapt-taste: staged 0.1.2, not published |
+| agent-api-integrations | `rightkit-agent-engine-api-integrations` | none | declaration-only | 0 | rightkit-agent-engine-api-integrations: staged 0.1.2, not published |
+| agent-api-platform | `rightkit-agent-engine-api-platform` | none | declaration-only | 0 | rightkit-agent-engine-api-platform: staged 0.1.2, not published |
 | agent-api-sessions | `rightkit-agent-engine-api-sessions` | none | declaration-only | 0 | rightkit-agent-engine-api-sessions: staged 0.1.1, not published |
 | agent-api-workflows | `rightkit-agent-engine-api-workflows` | none | declaration-only | 0 | rightkit-agent-engine-api-workflows: staged 0.1.1, not published |
-| agent-attention | `rightkit-agent-engine-attention` | none | declaration-only | 0 | rightkit-agent-engine-attention: staged 0.1.1, not published |
+| agent-attention | `rightkit-agent-engine-attention` | none | declaration-only | 0 | rightkit-agent-engine-attention: staged 0.1.2, not published |
 | agent-cli | `rightkit-agent-engine-cli` | none | declaration-only | 0 | rightkit-agent-engine-cli: staged 0.1.1, not published |
 | agent-demo-mode | `rightkit-agent-demo` | none | declaration-only | 0 | rightkit-agent-demo: staged 0.1.0, not published |
 | agent-engine | `rightkit-agent-engine-core` | none | declaration-only | 0 | rightkit-agent-engine-core: staged 0.1.0, not published |
 | agent-experience-gates | `@rightkit/ax` | none | declaration-only | 0 | @rightkit/ax: published 0.3.2 (npm) |
 | agent-gateway | `rightkit-agent-gateway` | none | declaration-only | 0 | rightkit-agent-gateway: staged 0.1.1, not published |
-| agent-history | `rightkit-agent-engine-history` | none | declaration-only | 0 | rightkit-agent-engine-history: staged 0.1.1, not published |
-| agent-host-traits | `rightkit-agent-host-traits` | none | declaration-only | 0 | rightkit-agent-host-traits: staged 0.1.2, not published |
+| agent-history | `rightkit-agent-engine-history` | none | declaration-only | 0 | rightkit-agent-engine-history: staged 0.1.2, not published |
+| agent-host-traits | `rightkit-agent-host-traits` | none | declaration-only | 0 | rightkit-agent-host-traits: staged 0.1.3, not published |
 | agent-memory | `rightkit-memory` | none | declaration-only | 0 | rightkit-memory: staged 0.1.1, not published |
 | agent-mobile-runtime | `rightkit-agent-engine-mobile-runtime` | none | declaration-only | 0 | rightkit-agent-engine-mobile-runtime: staged 0.1.0, not published |
 | agent-orchestration | `rightkit-agent-orchestration` | none | declaration-only | 0 | rightkit-agent-orchestration: staged 0.1.1, not published |
 | agent-orchestration-handoff | `rightkit-agent-orchestration-handoff` | none | declaration-only | 0 | rightkit-agent-orchestration-handoff: staged 0.1.2, not published |
-| agent-plugins | `rightkit-agent-plugins` | none | declaration-only | 0 | rightkit-agent-plugins: staged 0.1.1, not published |
-| agent-policy | `rightkit-agent-policy` | none | declaration-only | 0 | rightkit-agent-policy: staged 0.1.1, not published |
-| agent-protocol | `rightkit-agent-engine-protocol` | none | declaration-only | 0 | rightkit-agent-engine-protocol: staged 0.1.1, not published |
+| agent-plugins | `rightkit-agent-plugins` | none | declaration-only | 0 | rightkit-agent-plugins: staged 0.1.2, not published |
+| agent-policy | `rightkit-agent-policy` | none | declaration-only | 0 | rightkit-agent-policy: staged 0.1.2, not published |
+| agent-protocol | `rightkit-agent-engine-protocol` | none | declaration-only | 0 | rightkit-agent-engine-protocol: staged 0.1.2, not published |
 | agent-recipes | `rightkit-agent-recipes` | none | declaration-only | 0 | rightkit-agent-recipes: staged 0.1.1, not published |
-| agent-runtime-middleware | `rightkit-agent-engine-runtime-middleware` | none | declaration-only | 0 | rightkit-agent-engine-runtime-middleware: staged 0.1.1, not published |
+| agent-runtime-middleware | `rightkit-agent-engine-runtime-middleware` | none | declaration-only | 0 | rightkit-agent-engine-runtime-middleware: staged 0.1.2, not published |
 | agent-runtime-resources | `rightkit-agent-engine-runtime-resources` | none | declaration-only | 0 | rightkit-agent-engine-runtime-resources: staged 0.1.1, not published |
 | agent-sessions | `rightkit-agents` | none | declaration-only | 0 | rightkit-agents: published 0.2.0 (crates.io) |
 | agent-storage | `rightkit-agent-engine-storage` | none | declaration-only | 0 | rightkit-agent-engine-storage: staged 0.1.1, not published |
 | agent-tasks | `rightkit-agent-engine-tasks` | none | declaration-only | 0 | rightkit-agent-engine-tasks: staged 0.1.1, not published |
 | agent-tools | `rightkit-agent-tools` | none | declaration-only | 0 | rightkit-agent-tools: published 0.3.0 (crates.io) |
-| agent-transcript | `rightkit-agent-transcript` | none | declaration-only | 0 | rightkit-agent-transcript: staged 0.1.1, not published |
+| agent-transcript | `rightkit-agent-transcript` | none | declaration-only | 0 | rightkit-agent-transcript: staged 0.1.2, not published |
 | agent-ui-approvals | `@rightkit/agent-ui-approvals` | none | declaration-only | 0 | @rightkit/agent-ui-approvals: staged 0.1.0, not published |
 | agent-ui-components | `@rightkit/agent-ui-components` | none | declaration-only | 0 | @rightkit/agent-ui-components: staged 0.1.0, not published |
 | agent-ui-core | `@rightkit/agent-ui-core` | none | declaration-only | 0 | @rightkit/agent-ui-core: staged 0.1.0, not published |
@@ -50,7 +50,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | agent-ui-workbench | `@rightkit/agent-ui-workbench` | none | declaration-only | 0 | @rightkit/agent-ui-workbench: staged 0.1.0, not published |
 | ai-accounts | `rightkit-ai-accounts` | none | declaration-only | 0 | rightkit-ai-accounts: staged 0.1.1, not published |
 | android-bridge | `rightkit-android` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-android: published 0.3.0 (crates.io) |
-| app-host | `rightkit-app-host` | none | declaration-only | 0 | rightkit-app-host: staged 0.1.0, not published |
+| app-host | `rightkit-app-host` | none | declaration-only | 0 | rightkit-app-host: staged 0.1.1, not published |
 | app-manager | `rightkit-app-manager` | none | declaration-only | 0 | rightkit-app-manager: staged 0.1.2, not published |
 | app-shell-ui | `@rightkit/react-shell` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/react-shell: published 0.7.2 (npm) |
 | appkit-autorelease-pool | `rightkit-ownership` | none | declaration-only | 0 | rightkit-ownership: published 0.4.2 (crates.io) |
@@ -58,7 +58,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | approvals | `rightkit-approvals` | none | declaration-only | 0 | rightkit-approvals: staged 0.1.0, not published |
 | article-extraction | `rightkit-web-extract` | none | declaration-only | 0 | rightkit-web-extract: staged 0.1.2, not published |
 | audio | `rightkit-audio` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-audio: published 0.3.1 (crates.io) |
-| benchmark-harness | `rightkit-bench` | none | declaration-only | 0 | rightkit-bench: staged 0.2.0, not published |
+| benchmark-harness | `rightkit-bench` | none | declaration-only | 0 | rightkit-bench: staged 0.2.1, not published |
 | bot-messaging | `rightkit-bot-messaging` | none | declaration-only | 0 | rightkit-bot-messaging: staged 0.1.1, not published |
 | browser-automation | `rightkit-browser` | block | fingerprinted | 11 (5 block, 6 advise) | rightkit-browser: published 0.3.6 (crates.io) |
 | browser-qa | `@rightkit/qa-chrome` | advise | fingerprinted | 5 (0 block, 5 advise) | @rightkit/qa-chrome: published 0.1.12 (npm) |
@@ -88,7 +88,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | desktop-shell | `@rightkit/tauri-shell`, `rightkit-tauri-shell` | advise | declaration-only, fingerprinted | 6 (0 block, 6 advise) | @rightkit/tauri-shell: published 0.1.3 (npm); rightkit-tauri-shell: published 0.6.0 (crates.io) |
 | device-link-types | `rightkit-device-link-types` | none | declaration-only | 0 | rightkit-device-link-types: staged 0.1.1, not published |
 | device-mesh | `rightkit-mesh` | none | declaration-only | 0 | rightkit-mesh: staged 0.1.2, not published |
-| dictation | `rightkit-dictation-core` | none | declaration-only | 0 | rightkit-dictation-core: staged 0.2.3, not published |
+| dictation | `rightkit-dictation-core` | none | declaration-only | 0 | rightkit-dictation-core: staged 0.2.4, not published |
 | dictation-app-runtime | `rightkit-dictation-app-runtime` | none | declaration-only | 0 | rightkit-dictation-app-runtime: staged 0.1.2, not published |
 | dictation-command-host | `rightkit-dictation-command-host` | none | declaration-only | 0 | rightkit-dictation-command-host: staged 0.1.0, not published |
 | dictation-engine | `rightkit-dictation-engine` | none | declaration-only | 0 | rightkit-dictation-engine: staged 0.1.0, not published |

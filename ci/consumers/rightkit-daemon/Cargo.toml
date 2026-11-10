@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-daemon = { version = "=0.5.3" }
+rightkit-daemon = { version = "=0.5.4" }
 serde_json = "1"

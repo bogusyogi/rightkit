@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-agent-plugins = { version = "=0.1.1" }
+rightkit-agent-plugins = { version = "=0.1.2" }
 
