@@ -13,7 +13,6 @@ export const osOfTriple = (triple) => (/-apple-/.test(triple) ? "darwin" : /-win
 
 const runsOn = (crate, os) => !Array.isArray(crate.platforms) || crate.platforms.includes(os);
 const packages = (names) => names.flatMap((n) => ["-p", n]);
-const targetArgs = (targets) => targets.flatMap((t) => ["--target", t]);
 const key = (list) => list.join(" ");
 
 /** The sets of `list` planned on `host` as [{ features, scoped }]; `scoped` (a host-scoped set) gets no other-OS lint. */
@@ -51,14 +50,16 @@ export function planCalls({ crates, host, hostTriple, otherTriples = [] }) {
   const calls = [];
   const lintTargets = (crate, scoped) => [hostTriple, ...(scoped ? [] : otherTriples.filter((t) => runsOn(crate, osOfTriple(t))))];
   const lintCalls = (round, members, features) => {
-    // One call per distinct target list, so no crate is asked for a target it cannot build.
-    const byTargets = new Map();
-    for (const m of members) { const k = key(m.targets); if (!byTargets.has(k)) byTargets.set(k, []); byTargets.get(k).push(m); }
-    for (const group of byTargets.values()) {
-      const targets = group[0].targets;
+    // One call per target triple, naming every crate that builds for it. Never several targets in one call: Cargo resolves features for
+    // host dependencies and target dependencies, not per triple, so a call naming two targets gives each the union of both targets'
+    // features (HeardRight on the Dell, 2026-11-10: the macOS-only `sqlcipher-system` was switched on for the Linux target and its C code
+    // then wanted OpenSSL headers). A crate is never asked for a target it cannot build.
+    const triples = [...new Set(members.flatMap((m) => m.targets))];
+    for (const triple of triples) {
+      const group = members.filter((m) => m.targets.includes(triple)).map((m) => ({ name: m.name, targets: [triple] }));
       calls.push({
-        id: `lint:${round}:${targets.map((t) => osOfTriple(t) ?? t).join("+")}`, stage: "lint", round, crates: group,
-        args: ["clippy", ...packages(group.map((m) => m.name)), ...features, "--all-targets", "--no-deps", ...targetArgs(targets), "--locked", "--message-format=json", "--", "-D", "warnings"],
+        id: `lint:${round}:${osOfTriple(triple) ?? triple}`, stage: "lint", round, crates: group,
+        args: ["clippy", ...packages(group.map((m) => m.name)), ...features, "--all-targets", "--no-deps", "--target", triple, "--locked", "--message-format=json", "--", "-D", "warnings"],
       });
     }
   };

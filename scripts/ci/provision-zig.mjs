@@ -53,6 +53,24 @@ if (base) {
   env.ZIG_LOCAL_CACHE_DIR ??= base + "/zig-cache/local";
 }
 const r = spawnSync(zig, [...fixed, ...rest], { stdio: "inherit", env });
+// Apple SDK stand-in. A cross row type-checks Rust for the other OS and never links (the same reason pkg-config-cross and windres-cross exist).
+// C code for a macOS target needs Apple SDK headers (os/log.h, CommonCrypto, Security) that exist on a Mac only; zig carries libc headers, not the
+// SDK. So when a C or C++ compile for a macOS target fails on a host that is not a Mac, the wrapper compiles an empty translation unit to the
+// requested output instead: the build script gets its object, the archive is empty, and the Rust type-check of the crate goes on. The Mac
+// compiles the same C for real. (HeardRight on the Dell, 2026-11-10: libsqlite3-sys's bundled SQLCipher, "os/log.h file not found".)
+const macTarget = fixed.some((a, i) => fixed[i - 1] === "-target" && /-macos/.test(a));
+const compiling = (fixed[0] === "cc" || fixed[0] === "c++") && rest.includes("-c");
+if ((r.status ?? 1) !== 0 && macTarget && compiling && process.platform !== "darwin") {
+  let out = null;
+  for (let i = 0; i < rest.length; i += 1) { if (rest[i] === "-o" && rest[i + 1]) out = rest[i + 1]; else if (rest[i].startsWith("-o") && rest[i].length > 2) out = rest[i].slice(2); }
+  if (out) {
+    const { writeFileSync } = await import("node:fs");
+    const empty = out + ".rightkit-empty.c";
+    writeFileSync(empty, "/* RightKit cross type-check stand-in: the real source needs Apple SDK headers this host does not have. */\\n");
+    const s = spawnSync(zig, [...fixed, "-c", empty, "-o", out], { stdio: "inherit", env });
+    if ((s.status ?? 1) === 0) { process.stderr.write("rightkit cross-cc: Apple SDK stand-in used for " + out + " (C for a macOS target cannot be compiled on this host; the row type-checks Rust only)\\n"); process.exit(0); }
+  }
+}
 process.exit(r.status ?? 1);
 `;
 

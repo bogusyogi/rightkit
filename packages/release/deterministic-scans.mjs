@@ -3375,7 +3375,11 @@ export async function runScans(plan, options = {}) {
         const targetsOf = new Map();
         for (const i of all) { const c = bScans[i].batchable.crate; if (!targetsOf.has(c)) targetsOf.set(c, new Set()); targetsOf.get(c).add(bScans[i].batchable.target ?? ""); }
         const parts = new Map();
-        for (const i of all) { const sig = [...targetsOf.get(bScans[i].batchable.crate)].sort().join("\0"); if (!parts.has(sig)) parts.set(sig, []); parts.get(sig).push(i); }
+        // One target per invocation (2026-11-10, HeardRight on the Dell): Cargo resolves features for host dependencies and target dependencies, never per triple, so a
+        // call naming two targets gives each the union of both targets' features (the macOS-only sqlcipher-system reached the Linux target, whose C code then wanted
+        // OpenSSL headers). Rows are grouped across crates for the SAME target; a crate's rows for different targets are never one invocation.
+        void targetsOf;
+        for (const i of all) { const sig = bScans[i].batchable.target ?? ""; if (!parts.has(sig)) parts.set(sig, []); parts.get(sig).push(i); }
         for (const members of parts.values()) if (members.length > 1) { const group = { members, promise: null }; for (const i of members) groupOf.set(i, group); }
       }
     }

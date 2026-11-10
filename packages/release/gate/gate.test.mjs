@@ -85,45 +85,46 @@ test("malformed JSON lines are counted, not fatal", () => {
 const crate = (name, extra = {}) => ({ name, hasLib: true, declaresFeatures: false, ...extra });
 const plan = (crates, host = "win32") => planCalls({ crates, host, hostTriple: host === "win32" ? WIN : host === "darwin" ? MAC : LIN, otherTriples: [WIN, LIN, MAC].filter((t) => osOfTriple(t) !== host) });
 
-test("plain crates: three together calls, every crate in each, lint names all three targets", () => {
+test("plain crates: five together calls, every crate in each; lint is one call per target, never two targets in one call", () => {
   const calls = plan([crate("a"), crate("b"), crate("c")]);
-  assert.deepEqual(calls.map((c) => c.id), ["lint:default:win32+linux+darwin", "test-build:default", "docs:default"]);
+  assert.deepEqual(calls.map((c) => c.id), ["lint:default:win32", "lint:default:linux", "lint:default:darwin", "test-build:default", "docs:default"]);
   for (const c of calls) assert.deepEqual(c.crates.map((x) => x.name), ["a", "b", "c"]);
-  assert.deepEqual(calls[0].args.filter((a, i, all) => all[i - 1] === "--target"), [WIN, LIN, MAC]);
+  for (const c of calls) assert.equal(c.args.filter((a) => a === "--target").length, 1, `${c.id} names exactly one target`);
+  assert.deepEqual(calls.slice(0, 3).map((c) => c.args[c.args.indexOf("--target") + 1]), [WIN, LIN, MAC]);
   assert.deepEqual(calls[0].args.slice(-3), ["--", "-D", "warnings"]);
-  assert.ok(calls[0].args.includes("--message-format=json") && calls[2].args.includes("--message-format=json"));
+  assert.ok(calls[0].args.includes("--message-format=json") && calls[4].args.includes("--message-format=json"));
 });
 
-test("216 plain crates are still three calls: the call count does not grow with the crate count", () => {
+test("216 plain crates are still five calls: the call count does not grow with the crate count", () => {
   const many = Array.from({ length: 216 }, (_, i) => crate(`c${String(i).padStart(3, "0")}`));
-  assert.equal(plan(many).length, 3);
+  assert.equal(plan(many).length, 5);
 });
 
 test("a crate limited to some platforms is left out of the targets it cannot build and off hosts it does not run on", () => {
   const limited = crate("sys", { platforms: ["darwin", "win32"] });
   const calls = plan([crate("a"), limited]);
   const lint = calls.filter((c) => c.stage === "lint");
-  assert.deepEqual(lint.map((c) => [c.crates.map((x) => x.name), c.crates[0].targets]), [[["a"], [WIN, LIN, MAC]], [["sys"], [WIN, MAC]]]);
+  assert.deepEqual(lint.map((c) => [c.crates.map((x) => x.name), c.crates[0].targets]), [[["a", "sys"], [WIN]], [["a"], [LIN]], [["a", "sys"], [MAC]]]);
   assert.equal(plan([limited], "linux").length, 0);
   assert.deepEqual(planNotes({ crates: [limited], host: "linux" }).notOnThisHost, ["sys"]);
 });
 
 test("a crate with features and no config gets default and --all-features, both together with its peers", () => {
   const calls = plan([crate("a", { declaresFeatures: true }), crate("b", { declaresFeatures: true }), crate("c")]);
-  const all = calls.find((c) => c.id.startsWith("lint:all-features"));
+  const all = calls.find((c) => c.id === "lint:all-features:win32");
   assert.deepEqual(all.crates.map((x) => x.name), ["a", "b"]);
   assert.ok(all.args.includes("--all-features"));
-  assert.equal(calls.filter((c) => c.round === "all-features").length, 1, "all-features is lint only");
+  assert.ok(calls.filter((c) => c.round === "all-features").every((c) => c.stage === "lint"), "all-features is lint only");
 });
 
 test("declared feature sets: each is its own single-crate call set; a host-scoped set runs only there and gets no other-OS lint", () => {
   const db = crate("db", { declaresFeatures: true, config: { featureSets: [["--features", "bundled"], ["--features", "sqlcipher-libtomcrypt"]], checkFeatureSets: [{ features: ["--features", "sqlcipher-system"], hosts: ["darwin", "linux"], hostsReason: "needs system crypto" }] } });
   const win = plan([db]);
-  assert.deepEqual(win.map((c) => c.id), ["lint:db[bundled]:win32+linux+darwin", "test-build:db[bundled]", "docs:db[bundled]", "lint:db[sqlcipher-libtomcrypt]:win32+linux+darwin", "test-build:db[sqlcipher-libtomcrypt]", "docs:db[sqlcipher-libtomcrypt]"]);
+  assert.deepEqual(win.map((c) => c.id), ["lint:db[bundled]:win32", "lint:db[bundled]:linux", "lint:db[bundled]:darwin", "test-build:db[bundled]", "docs:db[bundled]", "lint:db[sqlcipher-libtomcrypt]:win32", "lint:db[sqlcipher-libtomcrypt]:linux", "lint:db[sqlcipher-libtomcrypt]:darwin", "test-build:db[sqlcipher-libtomcrypt]", "docs:db[sqlcipher-libtomcrypt]"]);
   assert.ok(!win.some((c) => c.round === "default"), "a crate that declares sets without [] is not in the default round");
   const mac = plan([db], "darwin");
-  const scoped = mac.find((c) => c.id.startsWith("lint:db[sqlcipher-system]"));
-  assert.deepEqual(scoped.crates[0].targets, [MAC]);
+  const scoped = mac.filter((c) => c.id.startsWith("lint:db[sqlcipher-system]"));
+  assert.deepEqual(scoped.map((c) => c.crates[0].targets), [[MAC]], "a host-scoped set is linted for its own OS only");
 });
 
 test("unlinted features: no --all-features call, and the reason is carried to the summary", () => {
@@ -155,9 +156,9 @@ test("the real ci/gate.config.json plans without error on every host, and the to
     const together = calls.filter((c) => c.round === "default" || c.round === "all-features");
     const single = calls.length - together.length;
     const biggest = Math.max(...together.map((c) => c.crates.length));
-    assert.ok(together.length <= 12, `${host}: ${together.length} together calls`);
+    assert.ok(together.length <= 16, `${host}: ${together.length} together calls`);
     assert.ok(biggest >= names.length * 0.8, `${host}: the largest together call names ${biggest} of ${names.length} crates`);
-    assert.ok(calls.length < 400, `${host}: ${calls.length} calls`);
+    assert.ok(calls.length < 500, `${host}: ${calls.length} calls`);
     console.log(`${host}: ${names.length} crates -> ${calls.length} calls (${together.length} together, largest names ${biggest} crates; ${single} single-crate feature or consumer calls)`);
   }
 });
@@ -189,10 +190,10 @@ test("a clean run sends each call once; the same commit again sends nothing", ()
   const calls = plan([crate("a"), crate("b"), crate("c")]);
   const store = tmpStore(); const broker = fakeBroker();
   const first = runCalls({ calls, send: broker.send, store, identity: IDENT, hostTriple: WIN });
-  assert.deepEqual(first.counts, { calls: 3, ran: 3, skipped: 0, jobs: 3, greenReruns: 0 });
+  assert.deepEqual(first.counts, { calls: 5, ran: 5, skipped: 0, jobs: 5, greenReruns: 0 });
   const second = runCalls({ calls, send: broker.send, store, identity: IDENT, hostTriple: WIN });
-  assert.deepEqual(second.counts, { calls: 3, ran: 0, skipped: 3, jobs: 0, greenReruns: 0 });
-  assert.equal(broker.sent.length, 3, "the rerun reached the broker zero times");
+  assert.deepEqual(second.counts, { calls: 5, ran: 0, skipped: 5, jobs: 0, greenReruns: 0 });
+  assert.equal(broker.sent.length, 5, "the rerun reached the broker zero times");
   assert.ok(second.outcomes.every((o) => o.results.every((r) => r.result === "passed") && o.evidence?.requestId));
 });
 
@@ -200,13 +201,13 @@ test("a new commit sends every call again: evidence is never reused across commi
   const calls = plan([crate("a")]); const store = tmpStore(); const broker = fakeBroker();
   runCalls({ calls, send: broker.send, store, identity: IDENT, hostTriple: WIN });
   const next = runCalls({ calls, send: broker.send, store, identity: { ...IDENT, commit: "b".repeat(40) }, hostTriple: WIN });
-  assert.equal(next.counts.ran, 3);
+  assert.equal(next.counts.ran, 5);
   assert.notEqual(callKey(calls[0], IDENT), callKey(calls[0], { ...IDENT, gate: "0.7.1" }), "a gate change is a different key");
   assert.throws(() => callKey(calls[0], { ...IDENT, broker: "" }), /identity\.broker/);
 });
 
 test("one red crate fails alone: its dependent is not built, every other crate passes with signed evidence from a job that exited 0", () => {
-  const calls = plan([crate("a"), crate("b"), crate("c"), crate("d")]).filter((c) => c.stage === "lint");
+  const calls = plan([crate("a"), crate("b"), crate("c"), crate("d")]).filter((c) => c.id === "lint:default:win32");
   const broker = fakeBroker({ red: ["a"], deps: { b: ["a"] } });
   const { outcomes, counts } = runCalls({ calls, send: broker.send, store: tmpStore(), identity: IDENT, hostTriple: WIN });
   assert.deepEqual(outcomes[0].results.map((r) => [r.crate, r.result]), [["a", "failed"], ["b", "not-built"], ["c", "passed"], ["d", "passed"]]);
@@ -220,7 +221,7 @@ test("one red crate fails alone: its dependent is not built, every other crate p
 });
 
 test("a red call is never remembered: the next run sends it again; the green rerun is remembered under its own key", () => {
-  const calls = plan([crate("a"), crate("c")]).filter((c) => c.stage === "lint");
+  const calls = plan([crate("a"), crate("c")]).filter((c) => c.id === "lint:default:win32");
   const store = tmpStore();
   runCalls({ calls, send: fakeBroker({ red: ["a"] }).send, store, identity: IDENT, hostTriple: WIN });
   const fixed = fakeBroker();
@@ -230,7 +231,7 @@ test("a red call is never remembered: the next run sends it again; the green rer
 });
 
 test("a refused call and a job that exits non-zero with nothing attributed prove nothing", () => {
-  const calls = plan([crate("a")]).filter((c) => c.stage === "lint");
+  const calls = plan([crate("a")]).filter((c) => c.id === "lint:default:win32");
   const refused = runCalls({ calls, send: () => ({ status: 125, stdout: "", stderr: "", refusal: { code: "RK_APP_BUILD_IN_PROGRESS", message: "busy" } }), store: tmpStore(), identity: IDENT, hostTriple: WIN });
   assert.equal(refused.outcomes[0].results[0].result, "unknown"); assert.equal(refused.outcomes[0].evidence, null);
   const odd = runCalls({ calls, send: (c) => ({ status: 101, stdout: [...c.crates.flatMap((x) => x.targets.map((t) => artifact(x.name, t))), finished(false)].join("\n"), stderr: "" }), store: tmpStore(), identity: IDENT, hostTriple: WIN });
@@ -281,14 +282,14 @@ test("crate facts are read from the snapshot: library, declared features, config
   assert.deepEqual(targetsFor("win32", "x64"), { hostTriple: WIN, otherTriples: [LIN, MAC] });
 });
 
-test("compile stage, all green: exit 0, three broker jobs for any number of crates, every crate passed with tests; rerun sends nothing", async () => {
+test("compile stage, all green: exit 0, five broker jobs for any number of crates, every crate passed with tests; rerun sends nothing", async () => {
   const snap = fakeSnapshot({ a: {}, b: {}, c: {}, d: {} }); const seam = fakeSeam();
   const run = await compile(snap, ["a", "b", "c", "d"], seam);
-  assert.equal(run.code, 0); assert.equal(run.counts.jobs, 3);
+  assert.equal(run.code, 0); assert.equal(run.counts.jobs, 5);
   assert.ok(Object.values(run.byCrate).every((v) => v.result === "passed" && v.stages.tests.result === "passed"));
   const again = await compile(snap, ["a", "b", "c", "d"], seam);
-  assert.equal(again.code, 0); assert.equal(again.counts.jobs, 0); assert.equal(again.counts.skipped, 3);
-  assert.equal(seam.sent.length, 3);
+  assert.equal(again.code, 0); assert.equal(again.counts.jobs, 0); assert.equal(again.counts.skipped, 5);
+  assert.equal(seam.sent.length, 5);
 });
 
 test("compile stage, one red crate: exit 1, the red crate fails, its dependent is not built, the others pass with their own result file", async () => {
@@ -298,7 +299,7 @@ test("compile stage, one red crate: exit 1, the red crate fails, its dependent i
   assert.deepEqual(Object.fromEntries(Object.entries(run.byCrate).map(([k, v]) => [k, v.result])), { a: "failed", b: "not-built", c: "passed", d: "passed" });
   const file = unitResult({ selector: "cargo:c", commit: "c".repeat(40), tree: "t", platform: "win32", crate: "c", run });
   assert.equal(file.schema, UNIT_RESULT_SCHEMA); assert.equal(file.result, "passed");
-  assert.ok(file.calls.length === 3 && file.calls.every((c) => c.result === "passed" && c.evidence?.requestId), "each call that named the unit carries the job that proves it");
+  assert.ok(file.calls.length === 5 && file.calls.every((c) => c.result === "passed" && c.evidence?.requestId), "each call that named the unit carries the job that proves it");
   assert.ok(file.calls.every((c) => c.id !== undefined && Array.isArray(c.args)));
   assert.equal(unitResult({ selector: "cargo:a", commit: "c".repeat(40), tree: "t", platform: "win32", crate: "a", run }).result, "failed");
 });
@@ -364,7 +365,7 @@ test("the same consumer manifest declared by three crates is one call; it is jud
 });
 
 test("a call the seam marks EXIT (Cargo ran and failed) is read as a build result: the red crate fails, the green ones get their rerun", () => {
-  const calls = plan([crate("a"), crate("c"), crate("d")]).filter((c) => c.stage === "lint");
+  const calls = plan([crate("a"), crate("c"), crate("d")]).filter((c) => c.id === "lint:default:win32");
   const base = fakeBroker({ red: ["a"] });
   const send = (call) => { const r = base.send(call); return r.status === 0 ? r : { ...r, refusal: { code: "EXIT", message: `exit ${r.status}` } }; };
   const { outcomes, counts } = runCalls({ calls, send, store: tmpStore(), identity: IDENT, hostTriple: WIN });
