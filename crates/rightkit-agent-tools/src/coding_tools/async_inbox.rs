@@ -7,7 +7,7 @@
 //! daemon instance must be running to pick up. Nothing in this codebase
 //! lets *this* agent later ask "what arrived for me while I wasn't looking,"
 //! independent of whichever turn happens to be running when it arrives.
-//! [`AsyncInbox`] is that receiving side: a bounded, per-session FIFO queue
+//! The async inbox (this module: [`push`] in, [`AsyncInboxTool`] out) is that receiving side: a bounded, per-session FIFO queue
 //! that anything in-process can push into (a completed background shell, a
 //! webhook callback, a deferred-tool-call resolution — see
 //! `deferred_resolution.rs`'s module doc for how the two connect) and that

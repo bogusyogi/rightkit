@@ -16,9 +16,9 @@
 //!   file, a passphrase or memory; a caller that wants one offers its own slot (see
 //!   [`seal_with_pin`]).
 //!
-//! A plaintext key never reaches the caller before the OS operation: [`unseal`] returns it only
-//! after the Enclave or Hello operation succeeded. Nothing here stores a secret; the only item
-//! written is a public-key marker (macOS) that lets a lost key be reported as
+//! A plaintext key never reaches the caller before the OS operation: [`ProtectedKey::unseal`]
+//! returns it only after the Enclave or Hello operation succeeded. Nothing here stores a secret;
+//! the only item written is a public-key marker (macOS) that lets a lost key be reported as
 //! [`ProtectedKeyError::Invalidated`] rather than as missing.
 
 use crate::namespace::Namespace;

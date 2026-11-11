@@ -7,7 +7,7 @@
 //!   owner's database file read-only (`SQLITE_OPEN_READ_ONLY` plus `PRAGMA query_only`), so they
 //!   cannot change it and need no snapshot.
 //! - Anything that writes (a sync-latency workload, a rekey round trip) needs a [`WriteGate`], and
-//!   the only way to get one is [`WriteGate::from_armed_snapshot`] (feature `qa-snapshot`), which
+//!   the only way to get one is `WriteGate::from_armed_snapshot` (feature `qa-snapshot`), which
 //!   succeeds only while `rightkit-qa`'s snapshot of the app's data and credentials is armed and
 //!   will be restored. There is no environment switch and no other constructor.
 

@@ -12,7 +12,8 @@
 //! implemented in `send_message.rs` (steering an existing child fits that
 //! file's message-delivery domain).
 //!
-//! The live wait/interrupt boundary is [`SubagentSupervisor`], carried on
+//! The live wait/interrupt boundary is
+//! [`SubagentSupervisor`](crate::coding_tools::context::SubagentSupervisor), carried on
 //! [`ToolContext`]. These tools parse, validate, & invoke that typed contract
 //! while failing closed when a host has not configured a supervisor. Host
 //! ownership of child registration, lifecycle persistence & tool registry
@@ -333,7 +334,8 @@ impl AgentPath {
         }
     }
 
-    /// Canonical wire form understood by a host [`SubagentSupervisor`].
+    /// Canonical wire form understood by a host
+    /// [`SubagentSupervisor`](crate::coding_tools::context::SubagentSupervisor).
     pub fn canonical(&self) -> String {
         match &self.parent_agent_id {
             Some(parent) => format!("{parent}/{}", self.agent_id),

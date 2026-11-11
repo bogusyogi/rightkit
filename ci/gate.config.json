@@ -236,7 +236,14 @@
         }
       ],
       "checkFeatureSets": [
-        []
+        {
+          "features": [],
+          "hosts": [
+            "darwin",
+            "win32"
+          ],
+          "hostsReason": "native-host set: rightkit-tts-qwen-sys builds only for aarch64-apple-darwin and x86_64-pc-windows-msvc (checked-in bindings, build.rs panics on any other target), so the default-feature check and doc rows are planned on those hosts only; left unscoped, the publisher planned cargo check and cargo doc on a Linux host, where the build script stops (Linux gate run 2026-11-11: unsupported target x86_64-unknown-linux-gnu: no checked-in bindings)"
+        }
       ],
       "unlintedFeatures": {
         "regenerate-bindings": "it rewrites the checked-in bindings-<target>.rs files from the vendored headers and needs libclang, so it must never run in the gate's read-only snapshot; it is run by hand to refresh bindings (README, VERSIONS.md)"
