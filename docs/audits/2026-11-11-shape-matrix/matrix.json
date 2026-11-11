@@ -1,5 +1,5 @@
 {
- "generated": "2026-11-11T09:46:01.522Z",
+ "generated": "2026-11-11T09:57:08.172Z",
  "rightkitHead": "55b330d",
  "apps": [
   "heardright",
@@ -777,7 +777,52 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "@rightkit/blender-worker",
+    "kind": "npm",
+    "family": "Remaining packages",
+    "existsAs": [
+     "packages/blender-worker (@rightkit/blender-worker, Python source, GPL-3.0-or-later)"
+    ],
+    "feeds": {
+     "genright": 4386
+    },
+    "basis": "Not re-reviewed. Verdict copied from the row `rightkit-blender-worker` in matrix-rows-video-generative.json (Generative media family). That row's basis: GenRight workers/blender moved 2026-11-01 (npm wrapper around Python)",
+    "referenceApp": "genright",
+    "shape": "gaps",
+    "shapeReason": "Job protocol, schemas and scene authoring are a usable worker. It also ships one product's geometry and look development.",
+    "apps": {
+     "genright": {
+      "fit": "fits",
+      "note": "3,216 of 3,493 distinctive lines present in RightKit (coverage tgt shows 0 only because the package name differs from the planned crate name)"
+     },
+     "cutright": {
+      "fit": "n/a",
+      "note": ""
+     },
+     "heardright": {
+      "fit": "n/a",
+      "note": ""
+     },
+     "viewright": {
+      "fit": "n/a",
+      "note": ""
+     }
+    },
+    "boundary": [
+     "fenrir_geometry.py, fenrir registration reference, recipes/samples/fenrir-sample-product.json, stonewash.py + build_stonewash_library, editorial_look/premium_look/approved_materials: 296 \"fenrir\" and 164 \"stonewash\" occurrences; job.schema.json mentions fenrir",
+     "Python package named `renderright`",
+     "GPL-3.0 package beside MIT/Apache crates; providers/local_blender.rs (2,040 lines, in media-gen) is its MIT-side driver: licence boundary is the process boundary and should be stated",
+     "Planned as cargo `rightkit-blender-worker`; exists as npm"
+    ],
+    "actions": [
+     "Split generic worker (contract, worker, scene, pngcheck, install, qualify, schemas) from product look-dev (fenrir, stonewash, product_* modules) which becomes a host-supplied assets/recipes pack via RIGHTKIT_BLENDER_ASSETS_DIR",
+     "Fix the plan name to the npm package"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "@rightkit/build-control-policy",
@@ -802,7 +847,51 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "@rightkit/build-control-policy",
+    "kind": "npm",
+    "family": "Remaining packages",
+    "existsAs": [
+     "packages/build-control-policy (private, 0.1.5-phase1, 4,655 lines of .mjs)"
+    ],
+    "feeds": {},
+    "basis": "RightKit's own agent and build admission tooling (ownership write hooks, session hook, heavy-write guard, host gate); no app code",
+    "referenceApp": "none",
+    "shape": "gaps",
+    "shapeReason": "Correctly private and host-installed, not a dependency. But three apps' package.json scripts call its `rightkit-host-gate` bin, and the package carries the list of the owner's private repositories and machine roots in source.",
+    "apps": {
+     "heardright": {
+      "fit": "fits",
+      "note": "tauri-app-next/package.json scripts call rightkit-host-gate (main only) [verified by grep]"
+     },
+     "pulse": {
+      "fit": "fits",
+      "note": "package.json:5-20, every dev/test/package/release script goes through rightkit-host-gate [verified]"
+     },
+     "coderight": {
+      "fit": "fits",
+      "note": "apps/coderight-tauri/package.json:8-9 [verified]"
+     },
+     "viewright": {
+      "fit": "n/a",
+      "note": "no reference found"
+     }
+    },
+    "boundary": [
+     "src/ownership-repositories.json names the private app repositories (bogusyogi/coderight, cutright, genright, heardright, mailright, ...) [verified]",
+     "Machine paths in host-gate.mjs, ownership-write-hook.mjs, install-policy-assets.mjs, index.mjs (D:\\.rightkit-managed, ~/Library/Application Support/RightKit) [verified by grep]",
+     "agent-heavy-write-guard.mjs is 2,279 of 4,655 lines: a macOS write guard, a different job from build admission [suspicion that it should be its own unit; not read]",
+     "Not in any app's dependencies: the bin reaches apps only through the managed host install"
+    ],
+    "actions": [
+     "Do not publish; keep private and say so in the matrix",
+     "Record that app scripts depend on a host-installed bin, so a fresh machine needs the install step before any app script runs",
+     "Version string 0.1.5-phase1: settle a normal version before anything else pins it"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "@rightkit/ci",
@@ -1067,7 +1156,64 @@
      "any": 0
     }
    },
-   "review": null
+   "review": {
+    "package": "@rightkit/dictation-ui",
+    "kind": "npm",
+    "family": "Remaining packages",
+    "existsAs": [
+     "packages/dictation-ui (0.1.0, on the npm registry, 11,683 lines)"
+    ],
+    "feeds": {
+     "heardright": 8675,
+     "coderight": 1090
+    },
+    "basis": "HeardRight main's webview front end copied file for file (83 files have a same-path twin in heardright-main/tauri-app-next/src; 542 of 10,555 lines differ, mostly `.js` import suffixes and renamed helpers), plus CodeRight's voice-conversation loop under src/voice (3 files)",
+    "referenceApp": "heardright",
+    "shape": "wrong",
+    "shapeReason": "It is one app's whole front end (sidebar, title bar, licence, auto-update, theme, legal, settings registry, pill, pages) with a second app's unrelated voice loop beside it. No app depends on it; HeardRight main keeps the same files, and CodeRight's current tree no longer has the voice files.",
+    "apps": {
+     "heardright": {
+      "fit": "wrong",
+      "note": "main does not depend on it and holds the same 83 files; adopting means importing its own src back, through a Vite alias `@rightkit-host` to its own legal files. LIVE lacks 8 of the files (settingsRegistry, fieldStore, modelUpdate, pushToTalk, ...)"
+     },
+     "coderight": {
+      "fit": "wrong",
+      "note": "to use src/voice it must install HeardRight's shell with @rightkit/license, app-update, settings-ui, legal. Its current composer dictation (hooks/useDictation.ts, lib/voice/dictation.ts) asks the host (`voice_availability`, state `needs_heardright`) and has no mic loop of its own"
+     },
+     "scraperight": {
+      "fit": "gaps",
+      "note": "reaches it only through @rightkit/library-ui, which imports PageShell, ErrorBanner, fieldStore, historyUtils, AppIcon, invoke from here (see family-content-ingest-mail.md)"
+     },
+     "viewright": {
+      "fit": "n/a",
+      "note": ""
+     },
+     "pulse": {
+      "fit": "n/a",
+      "note": ""
+     }
+    },
+    "boundary": [
+     "Holds code other packages own: lib/license*, lib/license/* (@rightkit/license), lib/autoUpdates.ts and heardRightAutoUpdateClient.ts (@rightkit/app-update), lib/theme.ts (@rightkit/theme), lib/legal.ts (@rightkit/legal), Sidebar/TitleBar/WindowControls (@rightkit/react-shell), settings rows (@rightkit/settings-ui) [verified by file list]",
+     "HeardRight identifiers in the package: theme code `heardright`, storage keys `heardright.theme`, `heardright.skipDeleteHistoryConfirm`, `heardright.historySourceSelection.v1`, event `heardright://renderer-event` (lib/theme.ts:12,91; pages/history/historyUtils.ts:4,36; lib/tauriBridge.ts:14) [verified]",
+     "59 distinct Tauri command names are invoked directly; there is no client interface a second host could implement [verified by grep]",
+     "Generated barrel leaves 8 modules out because of export-name collisions (README)",
+     "History helpers (pages/history/AppIcon, historyUtils) live here while the History page lives in @rightkit/library-ui",
+     "src/voice (useMicRecorder, useVoiceConversation, VoiceConversation) is a browser MediaRecorder + speechSynthesis conversation loop for an agent chat; it shares nothing with the dictation pill or pages",
+     "The CodeRight files the plan maps here (inventory commit 0a85471d) are absent from the surveyed CodeRight tree; 646 of 3,193 inventory paths are missing there"
+    ],
+    "actions": [
+     "Redraw as three units: (a) dictation pill overlay (pill/*, hint catalog) with an event/command interface; (b) dictation pages (Home, Dictation, Vocabulary, Polish, replacements, snippets) over a typed `DictationClient` the host supplies; (c) voice conversation (src/voice) moved to the agent UI family or its own package",
+     "Delete the licence, auto-update, theme, legal, sidebar, title-bar and window-control copies; use the owning packages",
+     "Storage keys, event names and theme code from host configuration, not `heardright.*` literals",
+     "Move history helpers next to the History page in @rightkit/library-ui and drop that package's dependency on this one",
+     "Decide what happens to the published 0.1.0 (deprecate once the split packages exist)",
+     "Then HeardRight deletes its 83 twins; until then this package is a duplicate of HeardRight's src"
+    ],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "@rightkit/doc-render",
@@ -1353,7 +1499,43 @@
     "legion": "adopted"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "@rightkit/hooks",
+    "kind": "npm",
+    "family": "Remaining packages",
+    "existsAs": [
+     "packages/hooks (0.1.2, on the registry, 102 lines)",
+     "crates/rightkit-hooks (Rust pair)"
+    ],
+    "feeds": {},
+    "basis": "Fresh RightKit implementation: normalise a hook payload, run modules in order under a deadline",
+    "referenceApp": "none",
+    "shape": "best",
+    "shapeReason": "Small, neutral, no policy and no app names. Apps that have hook code use the Rust crate; nothing app-side maps to the npm package.",
+    "apps": {
+     "pulse": {
+      "fit": "n/a",
+      "note": "uses the crate rightkit-hooks =0.2.0 (core/Cargo.toml:46, membrane-runtime/Cargo.toml:27), not this package"
+     },
+     "coderight": {
+      "fit": "n/a",
+      "note": "engine/crates/hooks is Rust"
+     },
+     "heardright": {
+      "fit": "n/a",
+      "note": ""
+     }
+    },
+    "boundary": [
+     "rightkit-ownership.json still carries the note `stdin repair remains P1` while the README lists no known issue [verified]"
+    ],
+    "actions": [
+     "Resolve or delete the stale P1 note"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "@rightkit/html-editor",
@@ -1539,7 +1721,59 @@
      "any": 75
     }
    },
-   "review": null
+   "review": {
+    "package": "@rightkit/issues-tracker",
+    "kind": "npm",
+    "family": "Remaining packages",
+    "existsAs": [
+     "packages/issues-tracker (0.1.0, on the registry, 454 lines, plain .mjs)"
+    ],
+    "feeds": {
+     "postright": 88,
+     "mailright": 88
+    },
+    "basis": "Fresh RightKit tool (`right-issues` writes issues.html from GitHub issues)",
+    "referenceApp": "none",
+    "shape": "best",
+    "shapeReason": "One zero-dependency CLI that every repository runs the same way. The lines the plan maps to it are the generated issues.html pages, not app source.",
+    "apps": {
+     "heardright": {
+      "fit": "fits",
+      "note": "main package.json:6 pins 0.1.0; issues.html present"
+     },
+     "pulse": {
+      "fit": "fits",
+      "note": "package.json:29 and pnpm-workspace.yaml:3; .rightkit/issue-groups.json supplies groups"
+     },
+     "postright": {
+      "fit": "fits",
+      "note": "package.json:42"
+     },
+     "mailright": {
+      "fit": "fits",
+      "note": "package.json:39"
+     },
+     "scraperight": {
+      "fit": "fits",
+      "note": "package.json:34"
+     },
+     "coderight": {
+      "fit": "gaps",
+      "note": "rightkit-mandatory.json M24 says not adopted because 0.1.0 is not on the registry; the registry snapshot shows it is, so the note is stale"
+     }
+    },
+    "boundary": [
+     "Plan rows for postright and mailright (88 lines each, ADOPT) are generated output files, not code to move",
+     "README says `staged and never published`; npm-registry.json shows 0.1.0 on the registry"
+    ],
+    "actions": [
+     "Correct the README status line",
+     "Drop the two generated-file rows from the plan"
+    ],
+    "depth": "light",
+    "confidence": "high",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "@rightkit/legal",
@@ -2307,7 +2541,44 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "@rightkit/ml-lab",
+    "kind": "npm",
+    "family": "Remaining packages",
+    "existsAs": [
+     "packages/ml-lab"
+    ],
+    "feeds": {
+     "heardright": 53827
+    },
+    "basis": "Not re-reviewed. Verdict copied from the row `rightkit-ml-lab` in matrix-rows-context-tooling.json (Foundation & tooling family). That row's basis: HeardRight training and evaluation scripts copied with their directory layout",
+    "referenceApp": "heardright",
+    "shape": "wrong",
+    "shapeReason": "A private, unbuilt file dump of one product's experiments: no entry points, no dependency manifest, machine paths, dated experiment folders. Not a shared package and not publishable.",
+    "apps": {
+     "heardright": {
+      "fit": "wrong",
+      "note": "moving the scripts here gives nothing; they still refer to heardright-engine source files and D:\\Claude\\heardright paths"
+     }
+    },
+    "boundary": [
+     "60 files hold machine paths (D:\\Claude 86 times, E:\\heardright_archive, /Users/<name>)",
+     "183 files refer to heardright; schema ids heardright.l1.*",
+     "scripts read ../../heardright-engine/src/*.rs which is not in the package",
+     "23 PowerShell scripts delete or quarantine training data on a specific machine",
+     "no requirements.txt or pyproject for 158 Python files (torch, numpy)",
+     "score-asr-wer.mjs and the ASR adapter harness overlap the bench receipt shape",
+     "plan lists it as a crate; it is an npm package marked private"
+    ],
+    "actions": [
+     "do not publish",
+     "keep experiments (bakeoff/*, tools/zephyr_*, local-model-training) in a HeardRight research repository",
+     "extract only reusable pieces: WER scoring and ASR adapter harness to the bench package, CoreML/ONNX conversion to a model-tools package with a pinned Python manifest"
+    ],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "@rightkit/onboarding",
@@ -2461,7 +2732,46 @@
      "any": 23
     }
    },
-   "review": null
+   "review": {
+    "package": "@rightkit/outdated",
+    "kind": "npm",
+    "family": "Remaining packages",
+    "existsAs": [
+     "packages/outdated (tree 0.3.1; registry 0.3.0; 4,757 lines TS)"
+    ],
+    "feeds": {
+     "pulse": 324
+    },
+    "basis": "Fresh RightKit tool (`right-update`: check, apply, gate, land for cargo, pnpm, swiftpm, RightKit and external-tool pins)",
+    "referenceApp": "none",
+    "shape": "gaps",
+    "shapeReason": "Right design for dependency pins and already configured in two app trees. Pulse's mapped scripts do a different job (polling donor repositories recorded in upstream.lock.json), which the package has no source kind for.",
+    "apps": {
+     "heardright": {
+      "fit": "fits",
+      "note": ".rightkit/update.json present on main"
+     },
+     "scraperight": {
+      "fit": "fits",
+      "note": ".rightkit/update.json with cargo, pnpm, swiftpm, rightkit and a yt-dlp tool pin"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "scripts/upstream-check.mjs, upstream-report.mjs (2 of 233 distinctive lines in the package): git ls-remote of donor repositories against a lock file; no .rightkit/update.json"
+     }
+    },
+    "boundary": [
+     "README header says version 0.2.0; package.json says 0.3.1; registry has 0.3.0",
+     "pulse scripts/swiftright-step7-moves.sh (50 lines) is mapped here and is a one-off move script"
+    ],
+    "actions": [
+     "Decide whether a `donor` source kind (repository + recorded commit) belongs here; if yes add it so Pulse's poller can go, if no remap those files to stay with the app",
+     "Publish 0.3.1 and fix the README version"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "@rightkit/pdf-ui",
@@ -3115,7 +3425,46 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "@rightkit/send-ui",
+    "kind": "npm",
+    "family": "Remaining packages",
+    "existsAs": [
+     "packages/send-ui (0.1.0, not on the registry, 675 lines)"
+    ],
+    "feeds": {},
+    "basis": "Fresh RightKit implementation over rightkit-send's single JSON command (`createSendClient`, `useSend`, `SendPanel`)",
+    "referenceApp": "pulse",
+    "shape": "gaps",
+    "shapeReason": "The design (one host command, typed client, no per-action wrapper) is right for a second app. But Pulse's own nearby-sharing view sits in @rightkit/system-ui as a second implementation, and this one has never been built or tested.",
+    "apps": {
+     "pulse": {
+      "fit": "gaps",
+      "note": "hub/src/views/NearbySettings.tsx (628 lines) is in @rightkit/system-ui (263 of 267 distinctive lines) and calls share_state plus chat_* commands; not on send-ui"
+     },
+     "heardright": {
+      "fit": "n/a",
+      "note": ""
+     },
+     "viewright": {
+      "fit": "n/a",
+      "note": ""
+     }
+    },
+    "boundary": [
+     "Two nearby-sharing screens in RightKit: send-ui SendPanel and system-ui/src/views/NearbySettings.tsx [verified]",
+     "Pulse's view mixes chat settings (chat_set_enabled, chat_install_skill, ...) into the nearby page (system-ui NearbySettings.tsx:117-210)",
+     "CHANGELOG: no unit tests, not built here"
+    ],
+    "actions": [
+     "Build and test it against rightkit-send commands",
+     "Check parity with Pulse's view (devices, incoming requests, per-device trust), then delete NearbySettings from system-ui; the chat rows go to the chat settings package",
+     "Publish after that"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "@rightkit/settings-ui",
@@ -3335,7 +3684,37 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "@rightkit/sync-worker",
+    "kind": "npm",
+    "family": "Remaining packages",
+    "existsAs": [
+     "packages/sync-worker (private, 0.1.0, Cloudflare Worker, 1,164 lines TS)"
+    ],
+    "feeds": {},
+    "basis": "Fresh RightKit server for rightkit-sync-http/1 (D1 + R2), written for HeardRight's non-Apple sync",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "A deployable, not a publishable package, and its status is contradictory: pnpm-workspace.yaml says parked on 2026-10-16 and excluded from install and build, while its README and crates/rightkit-sync say the service is live and supported (ruling rightkit#967).",
+    "apps": {
+     "heardright": {
+      "fit": "gaps",
+      "note": "named as first consumer; no HttpBackend or rightkit-sync-http use found in heardright-main/tauri-app-next .rs or .toml [verified by grep]"
+     }
+    },
+    "boundary": [
+     "pnpm-workspace.yaml:3-4 (`Parked ... not installed, built or published`) against README:7 and crates/rightkit-sync/README.md:21 (`live and supported`)",
+     "wrangler.toml has ALLOWED_APPS = \"heardright\" and a placeholder bucket name `REPLACE_WITH_R2_BUCKET_NAME`, which does not read as a deployed service [suspicion]",
+     "No app name in src (0 occurrences of heardright)"
+    ],
+    "actions": [
+     "Owner decision: parked or supported. Make the workspace file, this README and the rightkit-sync README say the same thing",
+     "Keep private; never publish to npm. If supported, put it back in the workspace so it is built and tested"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "@rightkit/system-ui",
@@ -6079,7 +6458,47 @@
      "any": 237
     }
    },
-   "review": null
+   "review": {
+    "package": "rightkit-align",
+    "kind": "cargo",
+    "family": "Remaining packages",
+    "existsAs": [
+     "crates/rightkit-align (0.1.0, publish = false, 1,363 lines)"
+    ],
+    "feeds": {
+     "cutright": 2477
+    },
+    "basis": "Fresh RightKit implementation written to CutRight's contract request (docs/plans/2026-10-11-cutright-contract-asks...); no app code in it",
+    "referenceApp": "cutright",
+    "shape": "gaps",
+    "shapeReason": "Product-neutral script-to-ASR word alignment with a versioned contract; the API is sound. It has no consumer, no real-audio fixtures, and the CutRight code the plan maps to it is transcription, not alignment.",
+    "apps": {
+     "cutright": {
+      "fit": "gaps",
+      "note": "crates/cutright-speech (2,477 lines: ONNX/CoreML TDT, windowing, VAD, word timing) is ASR; window.rs matches rightkit-asr (19 lines) and dictation-inference (15), words.rs matches 1 line here. Its mic alignment already uses rightkit_audio::align_mic (cutright-project/src/audio_sync.rs:11)"
+     },
+     "genright": {
+      "fit": "gaps",
+      "note": "dubbing.rs:17,451 reports word alignment `unavailable: needs ... rightkit-align`; would adopt once published"
+     },
+     "heardright": {
+      "fit": "n/a",
+      "note": ""
+     }
+    },
+    "boundary": [
+     "Plan maps cutright-speech here; it belongs with rightkit-asr, rightkit-vad and rightkit-transcript",
+     "Two things called alignment: waveform offset (rightkit-audio align_mic) and script-to-word (this crate); the names should say which"
+    ],
+    "actions": [
+     "Remap cutright-speech to the ASR family",
+     "Add fixtures on real narration audio (README: pending on CutRight audio)",
+     "Set publish = true and publish so GenRight's dubbing can use it"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "rightkit-android",
@@ -6104,7 +6523,40 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-android",
+    "kind": "cargo",
+    "family": "Remaining packages",
+    "existsAs": [
+     "crates/rightkit-android (0.3.1, on crates.io, 1,123 lines Rust + Gradle module)"
+    ],
+    "feeds": {},
+    "basis": "Fresh RightKit implementation from HeardRight's Android plan; README: written without compiling or running anything",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right boundary (the one crate that links JNI and UniFFI; app exports stay in the app's cdylib) and no app names in the API. It has never been built, and its only consumer is not wired.",
+    "apps": {
+     "heardright": {
+      "fit": "gaps",
+      "note": "main has tauri-app-next/heardright-android with `Cargo.toml.pending`; lib.rs:88 says the bridge is not wired yet"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "android/meshlink Kotlin wrapper has no RightKit home (family-system-utilities.md, RightKitMeshLink action: add the Kotlin wrapper here)"
+     }
+    },
+    "boundary": [
+     "Published at 0.3.1 while unverified by any build",
+     "minSdk 28 is the crate's own choice (README)"
+    ],
+    "actions": [
+     "Build it once for arm64-v8a and x86_64 and run the bridge in an emulator before the next publish",
+     "Decide whether the mesh Kotlin wrapper lives here or beside RightKitMeshLink"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "rightkit-app-host",
@@ -9125,7 +9577,40 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-contrast",
+    "kind": "cargo",
+    "family": "Remaining packages",
+    "existsAs": [
+     "crates/rightkit-contrast (0.1.0, on crates.io, 97 lines, no dependencies)"
+    ],
+    "feeds": {},
+    "basis": "Fresh RightKit implementation of the WCAG maths already in @rightkit/theme color.ts and RightKitUI.RightKitContrast",
+    "referenceApp": "none",
+    "shape": "best",
+    "shapeReason": "Five pure functions on an Rgb type, std only. Nothing app-specific.",
+    "apps": {
+     "pulse": {
+      "fit": "fits",
+      "note": "CHANGELOG cites Pulse ownership-exception rows 31 and 32 as the reason; no rightkit-contrast dependency in the surveyed tree yet"
+     },
+     "viewright": {
+      "fit": "n/a",
+      "note": "contrast code is TypeScript (src/settings/themes.test.ts), served by @rightkit/theme"
+     },
+     "heardright": {
+      "fit": "n/a",
+      "note": "LIVE src/lib/theme.ts is TypeScript"
+     }
+    },
+    "boundary": [
+     "Same maths in three languages (theme, RightKitUI, this crate): keep one shared test vector file so they cannot drift [suggestion]"
+    ],
+    "actions": [],
+    "depth": "light",
+    "confidence": "high",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "rightkit-crash",
@@ -10133,7 +10618,7 @@
   {
    "package": "rightkit-dictation",
    "kind": "cargo",
-   "dir": null,
+   "dir": "crates/rightkit-dictation-core, crates/rightkit-dictation-telemetry, crates/rightkit-dictation-app-runtime, crates/rightkit-dictation-models, crates/rightkit-dictation-text-pipeline, crates/rightkit-dictation-command-host, crates/rightkit-dictation-inference, crates/rightkit-dictation-runtime, crates/rightkit-dictation-engine, crates/rightkit-dictation-tauri, crates/rightkit-dictation-ffi",
    "class": "planned",
    "domain": "planned",
    "rowsOwned": [],
@@ -10160,7 +10645,53 @@
      "any": 20877
     }
    },
-   "review": null
+   "review": {
+    "package": "rightkit-dictation",
+    "kind": "cargo",
+    "family": "Remaining packages",
+    "existsAs": [
+     "crates/rightkit-dictation-core",
+     "crates/rightkit-dictation-telemetry",
+     "crates/rightkit-dictation-app-runtime",
+     "crates/rightkit-dictation-models",
+     "crates/rightkit-dictation-text-pipeline",
+     "crates/rightkit-dictation-command-host",
+     "crates/rightkit-dictation-inference",
+     "crates/rightkit-dictation-runtime",
+     "crates/rightkit-dictation-engine",
+     "crates/rightkit-dictation-tauri",
+     "crates/rightkit-dictation-ffi"
+    ],
+    "feeds": {
+     "heardright": 63039
+    },
+    "basis": "Summary row. Forks of HeardRight main's engine crates, renamed with host configuration added (hr-review-dictation-chain.md, section 7; per-crate rows in matrix-rows-aa-heardright.json)",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Taken from hr-review-dictation-chain.md: no crate is the wrong shape and the module boundaries are HeardRight's own. Two crates are ready (telemetry, app-runtime); nine have listed gaps (engine CLI, renamed wire strings, model-host rename bug, KWS reconciliation, brand repair in the C entry point). Main does not use them above the core layer.",
+    "apps": {
+     "heardright": {
+      "fit": "gaps",
+      "note": "about 62,000 lines in ten crates have no consumer in main, which runs its own copy; 20,128 of 38,011 distinctive planned lines are present"
+     },
+     "coderight": {
+      "fit": "n/a",
+      "note": "delegates dictation to HeardRight (lib/voice/dictation.ts `needs_heardright`)"
+     }
+    },
+    "boundary": [
+     "The planned single name does not exist; it is eleven crates",
+     "All but rightkit-dictation-core are on crates.io at the tree version; core is 0.2.4 in the tree against 0.2.3 published (registry.json)",
+     "Until HeardRight switches, every crate is a duplicate of a HeardRight crate"
+    ],
+    "actions": [
+     "Carry out actions A1 to A11 of hr-review-dictation-chain.md (per-crate lists are in matrix-rows-aa-heardright.json)",
+     "Replace the plan's single `rightkit-dictation` row with the eleven crate names"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "rightkit-dictation-app-runtime",
@@ -15349,7 +15880,46 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-owner-approvals",
+    "kind": "cargo",
+    "family": "Remaining packages",
+    "existsAs": [
+     "crates/rightkit-owner-approvals (0.1.1, on crates.io, 4,508 lines)"
+    ],
+    "feeds": {},
+    "basis": "Pulse's signed owner approvals (approval_sig.rs, admin_sig.rs, protected_guard/*), per family-agent-platform.md",
+    "referenceApp": "pulse",
+    "shape": "wrong",
+    "shapeReason": "Conclusion taken from family-agent-platform.md (section `rightkit-approvals (with rightkit-owner-approvals)`, lines 269-293): approvals exist as three unconnected implementations in four crates; this crate should become the `signed` proof of a redrawn rightkit-approvals core, with its redact.rs and audit.rs moved out.",
+    "apps": {
+     "pulse": {
+      "fit": "fits",
+      "note": "its own code; the pending queue it works with is in rightkit-remote-gateway/src/approvals.rs"
+     },
+     "mailright": {
+      "fit": "wrong",
+      "note": "its approval store is inside rightkit-agent-gateway and shares nothing with this"
+     },
+     "genright": {
+      "fit": "wrong",
+      "note": "its approvals are rightkit-approvals (launch-secret HMAC), unrelated"
+     }
+    },
+    "boundary": [
+     "redact.rs masks secrets in output and audit.rs is an audit log: neither is approvals (family-agent-platform.md:175,195,286)",
+     "Depended on by rightkit-mesh, rightkit-app-lock, rightkit-remote-gateway, rightkit-web-session [verified in Cargo.toml], so a fold-in touches four crates",
+     "The plan has no row with this name; Pulse's 13,104 planned lines are under rightkit-approvals"
+    ],
+    "actions": [
+     "Follow the rightkit-approvals actions in matrix-rows-agent-platform.json: one core (request, states, single-use claim, store trait, proof trait); this crate becomes the signed proof or a `-signed` sub-crate",
+     "Move redact.rs and audit.rs to their owners",
+     "Do not publish further versions under this name until that decision is made"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "rightkit-ownership",
@@ -15682,7 +16252,49 @@
      "any": 63
     }
    },
-   "review": null
+   "review": {
+    "package": "rightkit-platform-rules",
+    "kind": "cargo",
+    "family": "Remaining packages",
+    "existsAs": [
+     "crates/rightkit-platform-rules (0.1.1, on crates.io, 1,195 lines + assets/platform-rules.json)"
+    ],
+    "feeds": {
+     "postright": 107
+    },
+    "basis": "Fresh RightKit implementation; PostRight is the consumer it was written for",
+    "referenceApp": "postright",
+    "shape": "gaps",
+    "shapeReason": "Catalog, revision hash and check are the right API and PostRight already uses them. The bundled data covers eight social platforms (29 rules, none for TikTok) and three other RightKit crates still hold platform limits in code.",
+    "apps": {
+     "postright": {
+      "fit": "fits",
+      "note": "crates/engine/Cargo.toml:47 pins =0.1.0; used in engine/src/variants.rs:37 and api_versions.rs:6. Its comment waits for an unpublished 0.2.0"
+     },
+     "cutright": {
+      "fit": "gaps",
+      "note": "render_qa PlatformRules, timeline presets and captions safe_zones hold YouTube/Shorts/Reels/TikTok limits as compiled data (family-video-generative.md:131-145, 688)"
+     },
+     "genright": {
+      "fit": "n/a",
+      "note": ""
+     }
+    },
+    "boundary": [
+     "postright engine/src/api_versions.rs (107 lines) is mapped here but matches rightkit-social-publish/src/api_versions.rs (22 of 25 distinctive lines); it is already owned there",
+     "Platform facts also in rightkit-timeline Preset, rightkit-captions safe_zones.json and rightkit-review render_qa (family-video-generative.md:688)",
+     "rightkit-social-publish ships a second data file (data/platform-rules.json) merged on top of the bundled seed: two places to edit a limit",
+     "README says `Not yet published (0.1.0)`; registry has 0.1.1"
+    ],
+    "actions": [
+     "Add video rules (aspect, duration, title/description/tag lengths, safe zones) and TikTok so the video crates can drop their compiled limits",
+     "State which file is the source for a limit: the bundled seed or social-publish's overrides",
+     "Fix the README status; publish the version PostRight is waiting for"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "rightkit-playback",
@@ -15789,7 +16401,46 @@
     "legion": "ahead"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-policy-rules",
+    "kind": "cargo",
+    "family": "Remaining packages",
+    "existsAs": [
+     "crates/rightkit-policy-rules (0.1.1, on crates.io, 6,538 lines with tests)"
+    ],
+    "feeds": {},
+    "basis": "Legion's legion-policy-model and legion-policy, moved 2026-11-01 (README). Legion source is not available, so this was not compared",
+    "referenceApp": "legion",
+    "shape": "gaps",
+    "shapeReason": "A policy model plus evaluator with precedence and frozen scopes is a reasonable shared unit, but it still carries Legion's internal port folders and comments, and RightKit has a second agent policy crate (CodeRight's rightkit-agent-policy) with overlapping matching code.",
+    "apps": {
+     "legion": {
+      "fit": "fits",
+      "note": "its own code; not verified, source unavailable"
+     },
+     "coderight": {
+      "fit": "gaps",
+      "note": "its policy is rightkit-agent-policy; family-agent-platform.md:246-249 found about 300 matching lines and asks for the overlap to be checked"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "remote-gateway term.rs has its own command allow/deny policy (family-agent-platform.md:245)"
+     }
+    },
+    "boundary": [
+     "Module names from Legion's work items: rules/wf_port/wf067, rules/arcane_port, analysis/wf_port/u06; 28 comment lines refer to legion crates (for example rules/wf_port/wf067/invocation_proof.rs:4-22 describes a duplicate of legion_arcane) [verified]",
+     "Two policy crates: rightkit-policy-rules (Legion) and rightkit-agent-policy (CodeRight)",
+     "Depends on rightkit-evidence-contracts; used by rightkit-evidence-commands and rightkit-code-audit-commands"
+    ],
+    "actions": [
+     "Decide the relation to rightkit-agent-policy: one evaluator, or a stated split (rule packs here, command classification there)",
+     "Rename the port folders by what they do and remove comments about Legion crates",
+     "Resolve the invocation-proof duplicate the comment describes"
+    ],
+    "depth": "light",
+    "confidence": "low",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "rightkit-power",
@@ -17344,7 +17995,41 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-signal",
+    "kind": "cargo",
+    "family": "Remaining packages",
+    "existsAs": [
+     "crates/rightkit-signal (0.1.0, on crates.io, 613 lines)"
+    ],
+    "feeds": {},
+    "basis": "Pulse hub's notch wake-up signalling (watch_notch, win_bridge) moved in shape and generalised (CHANGELOG)",
+    "referenceApp": "pulse",
+    "shape": "best",
+    "shapeReason": "One small API (post, Watcher, Lease, LeaseMonitor) over Darwin notifications and Windows named events, with names supplied by the caller. Nothing Pulse-specific.",
+    "apps": {
+     "pulse": {
+      "fit": "fits",
+      "note": "donor; still has its own calls in hub/src-tauri/src/lib.rs, win_bridge.rs, windows/src/bridge.rs and mac HubBridge.swift, no rightkit-signal dependency in the surveyed tree"
+     },
+     "heardright": {
+      "fit": "n/a",
+      "note": "Darwin notifications are used from Swift on iOS (MainAppDispatcher.swift, HeardRightAppIntents.swift), served by RightKitIntents"
+     },
+     "viewright": {
+      "fit": "n/a",
+      "note": ""
+     }
+    },
+    "boundary": [
+     "Re-exported as rightkit_tauri_shell::signal (tauri-shell/src/lib.rs:27), so Tauri apps get it without a direct dependency",
+     "The Swift side posts the same Darwin names from RightKitIntents and Pulse's HubBridge; the name format rule (validate_name) exists only in Rust [suspicion]"
+    ],
+    "actions": [],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "rightkit-social-analytics",
@@ -17943,7 +18628,51 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-sysmem",
+    "kind": "cargo",
+    "family": "Remaining packages",
+    "existsAs": [
+     "crates/rightkit-sysmem (0.1.0, on crates.io, 311 lines, no dependencies)"
+    ],
+    "feeds": {},
+    "basis": "Ember's `lightcraft-sysmem` crate (CHANGELOG names Ember as donor; Ember is not one of the surveyed apps)",
+    "referenceApp": "none",
+    "shape": "gaps",
+    "shapeReason": "A zero-dependency leaf for platform memory calls is a fine idea, but nothing depends on it and the same FFI is still declared in six other RightKit crates. One of its three functions is a monitor colour profile lookup, not memory.",
+    "apps": {
+     "pulse": {
+      "fit": "gaps",
+      "note": "own FFI copies: engine/src/disk_index.rs:815 (malloc_zone_pressure_relief), core/src/lib.rs:807 and windows/src/sensors.rs:884 (GlobalMemoryStatusEx)"
+     },
+     "genright": {
+      "fit": "gaps",
+      "note": "genright-studio/src/model_management/governor.rs:177 (GlobalMemoryStatusEx)"
+     },
+     "heardright": {
+      "fit": "gaps",
+      "note": "LIVE heardright-telemetry/src/system_metrics.rs:119 via windows-sys"
+     },
+     "viewright": {
+      "fit": "n/a",
+      "note": "no use of these calls found"
+     }
+    },
+    "boundary": [
+     "README says `this is the one place they live`; the same extern declarations are in rightkit-fsindex/src/index.rs:483, rightkit-qa/src/pool.rs:171, rightkit-system-monitor/src/lib.rs:878, rightkit-remote-compute/src/models/governor.rs:177, rightkit-models/src/hardware.rs:627, and rightkit-logs uses windows-sys for it [verified]",
+     "No crate or app depends on rightkit-sysmem [verified]",
+     "window_monitor_profile (ICC profile of a window's monitor) is display colour, unrelated to the crate name",
+     "family-system-utilities.md:188 already notes the overlap with rightkit-system-monitor"
+    ],
+    "actions": [
+     "Make the six RightKit crates call it, or delete it and let rightkit-system-monitor own memory reads",
+     "Move window_monitor_profile to a display or colour crate, or rename the crate to what it is (platform FFI leaf)",
+     "Add available memory alongside total, since every other copy reads both [suspicion from the governor and sensors call sites]"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "rightkit-system-monitor",
@@ -19854,7 +20583,7 @@
   {
    "package": "RightKitFS",
    "kind": "swift",
-   "dir": null,
+   "dir": "swift/RightKitSwift/Sources/RightKitFS (564 lines)",
    "class": "planned",
    "domain": "planned",
    "rowsOwned": [],
@@ -19881,12 +20610,52 @@
      "any": 45
     }
    },
-   "review": null
+   "review": {
+    "package": "RightKitFS",
+    "kind": "swift",
+    "family": "Remaining packages",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitFS (564 lines)"
+    ],
+    "feeds": {
+     "coderight": 846
+    },
+    "basis": "Fresh RightKit implementation mirroring rightkit-fs and rightkit-daemon naming rules (app root, containment, atomic write, verified copy, append record)",
+    "referenceApp": "none",
+    "shape": "best",
+    "shapeReason": "Three apps already build on the same type, `RightKitAppRoot`, with the same calls and no adapters beyond choosing a name and a protection class.",
+    "apps": {
+     "coderight": {
+      "fit": "fits",
+      "note": "iOS: Storage/RightKitFSAdapter.swift:10-19 (two roots with different file protection), ComposerDraftStore.swift:67, WorkspaceHistory.swift:46, SharedWorkspacesLocation.swift:19 (App Group)"
+     },
+     "pulse": {
+      "fit": "fits",
+      "note": "Mac: Notch/Sources/App/PulseStateRoot.swift:22, Hub/Sources/PulseHub/FileNotchBridge.swift:70 (baseOverride)"
+     },
+     "scraperight": {
+      "fit": "fits",
+      "note": "iOS: ScrapeRightApp.swift:28, Queue/QueueStore.swift:85,295 (copyVerified, atomicWrite), Library/ArtifactStore.swift:49"
+     },
+     "heardright": {
+      "fit": "n/a",
+      "note": "not imported on main; shared state goes through RightKitStore"
+     }
+    },
+    "boundary": [
+     "Plan maps CodeRight Storage/KeychainStore.swift (181) and AppleSyncedCredentialStore.swift (203) here; they are credential stores (RightKitCredentials, RightKitAppleCredentials)",
+     "`suiteDirectory = \"Orthic Labs\"` is fixed in the module (RightKitFS.swift, static let): a suite decision every adopter inherits"
+    ],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "RightKitHotkeys",
    "kind": "swift",
-   "dir": null,
+   "dir": "swift/RightKitSwift/Sources/RightKitHotkeys (760 lines)",
    "class": "planned",
    "domain": "planned",
    "rowsOwned": [],
@@ -19913,12 +20682,44 @@
      "any": 5
     }
    },
-   "review": null
+   "review": {
+    "package": "RightKitHotkeys",
+    "kind": "swift",
+    "family": "Remaining packages",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitHotkeys (760 lines)"
+    ],
+    "feeds": {
+     "pulse": 151
+    },
+    "basis": "Fresh RightKit implementation shaped on Pulse's Mac notch (Carbon hot-key registrar, event-tap hub with handler chain, keystroke planner)",
+    "referenceApp": "pulse",
+    "shape": "best",
+    "shapeReason": "Registrar, combo parsing, event-tap hub and keystroke posting are generic and Pulse already uses the registrar. What remains is on Pulse's side.",
+    "apps": {
+     "pulse": {
+      "fit": "fits",
+      "note": "imports it in LauncherHotKey.swift, WindowHotKeys.swift, WindowShortcut.swift, SettingsHotKey.swift. Still keeps its own Conveniences/EventTapHub.swift (168 lines, no RightKit import) beside RightKitEventTapHub"
+     },
+     "heardright": {
+      "fit": "n/a",
+      "note": "Mac hotkeys are in Rust (rightkit-hotkeys crate); the pill package has no hotkey code"
+     }
+    },
+    "boundary": [
+     "Plan maps Keyboard/FnCommand.swift (151 lines) here as ADOPT: it is a Pulse feature (Fn acts as Command for ten letters and the arrows) and belongs with the Mac tweaks module that family-system-utilities.md proposes, registered on RightKitEventTapHub",
+     "Pulse's EventTapHub.swift duplicates RightKitEventTapHub [file read at header level only]"
+    ],
+    "actions": [],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "RightKitHTTP",
    "kind": "swift",
-   "dir": null,
+   "dir": "swift/RightKitSwift/Sources/RightKitHTTP (786 lines)",
    "class": "planned",
    "domain": "planned",
    "rowsOwned": [],
@@ -19945,12 +20746,55 @@
      "any": 34
     }
    },
-   "review": null
+   "review": {
+    "package": "RightKitHTTP",
+    "kind": "swift",
+    "family": "Remaining packages",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitHTTP (786 lines)"
+    ],
+    "feeds": {
+     "coderight": 644
+    },
+    "basis": "Fresh RightKit implementation mirroring rightkit-http (client, retry policy, address policy, redirect guard, streamed download)",
+    "referenceApp": "none",
+    "shape": "gaps",
+    "shapeReason": "Sound client used inside RightKitSwift (LLM, Update, OAuth, Account), but no app imports it, and the one app with networking mapped to it needs server-sent events, which it does not parse.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "iOS Networking/SSEFrameParser.swift (67) has no counterpart here; DaemonClient.swift (245) and ConnectionLifecycle.swift belong to RightKitDaemonClient; CallbackURL/CallbackURLHandler.swift (255) is URL-scheme handling, not HTTP"
+     },
+     "heardright": {
+      "fit": "n/a",
+      "note": "not declared on main (hr-review-ios-swift.md:49)"
+     },
+     "pulse": {
+      "fit": "n/a",
+      "note": ""
+     },
+     "scraperight": {
+      "fit": "n/a",
+      "note": ""
+     }
+    },
+    "boundary": [
+     "Four of five mapped CodeRight files are not HTTP client code",
+     "RightKitDaemonClient and RightKitURLPolicy exist as separate modules and are the likelier owners [not read]"
+    ],
+    "actions": [
+     "Add an SSE frame parser over the existing `stream` transport (HTTPTransport.swift:39), taking CodeRight's parser as the reference",
+     "Remap DaemonClient and CallbackURLHandler in the plan"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "RightKitHub",
    "kind": "swift",
-   "dir": null,
+   "dir": "swift/RightKitSwift/Sources/RightKitHub (3,673 lines), swift/RightKitSwift/Sources/RightKitHubQA",
    "class": "planned",
    "domain": "planned",
    "rowsOwned": [],
@@ -19977,7 +20821,51 @@
      "any": 4422
     }
    },
-   "review": null
+   "review": {
+    "package": "RightKitHub",
+    "kind": "swift",
+    "family": "Remaining packages",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitHub (3,673 lines)",
+     "swift/RightKitSwift/Sources/RightKitHubQA"
+    ],
+    "feeds": {
+     "pulse": 8117
+    },
+    "basis": "Pulse's SwiftUI hub base moved unchanged: 29 files, 27 identical, HubSettingsView.swift and HubExports.swift differ by 19 lines; RightKitHubQA's 3 files identical",
+    "referenceApp": "pulse",
+    "shape": "gaps",
+    "shapeReason": "Shell, sidebar, search, settings model, theme and platform-services protocol with no Pulse product strings: a second Mac or iOS app could adopt it. But Pulse still builds from its own local copy, and the copy includes a module (RightKitPresentation) that RightKitSwift does not have.",
+    "apps": {
+     "pulse": {
+      "fit": "gaps",
+      "note": "68 files import RightKitHub from the local path package pulse/swift/RightKitHub (mac/Notch/project.yml:69, ios/project.yml:29, mac/Hub/Package.swift:21), not from the RightKitSwift pin; 11 files import RightKitPresentation"
+     },
+     "heardright": {
+      "fit": "n/a",
+      "note": "imports neither RightKitHub nor RightKitHubQA (hr-review-ios-swift.md:292)"
+     },
+     "coderight": {
+      "fit": "n/a",
+      "note": "6,899 lines of its tests are mapped to RightKitHubQA, which is desktop Hub fakes"
+     }
+    },
+    "boundary": [
+     "Pulse's package also holds RightKitPresentation (TextDocument.swift 628, CompactText, ResponseDocument, ResponsePlan: 888 lines); no such module exists in RightKitSwift [verified]",
+     "RightKitEngineClient differs from Pulse's copy: AttachedEngine.swift 91 of 525 lines, AttachedTransport.swift 19 of 437; RightKitEngine differs by 12 lines",
+     "The plan's 8,117 lines under RightKitHub include RightKitEngineClient (1,200), RightKitEngine (945), RightKitPresentation (888), the C header, native Rust and scripts; the Hub module itself is about 3,660",
+     "Platform/HubPlatformServices.swift:2 conditionally imports SwiftRightHost for Windows: a dependency on a Windows Swift host that is not part of the package [not followed]"
+    ],
+    "actions": [
+     "Add RightKitPresentation to RightKitSwift (or decide it belongs to the agent UI family) so Pulse can drop the local package",
+     "Reconcile AttachedEngine.swift with Pulse's copy and say which side is current",
+     "Pulse then replaces `path: ../../swift/RightKitHub` with the RightKitSwift products",
+     "Split the plan row into Hub, EngineClient, Engine and Presentation"
+    ],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "RightKitHubQA",
@@ -20834,7 +21722,82 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "RightKitSwift",
+    "kind": "swift",
+    "family": "Remaining packages",
+    "existsAs": [
+     "swift/RightKitSwift (VERSION 0.9.1, unreleased; 39 RightKit modules, one C target, 2 executables)"
+    ],
+    "feeds": {
+     "pulse": 58785,
+     "heardright": 46179,
+     "coderight": 36435,
+     "scraperight": 5099,
+     "cutright": 1859
+    },
+    "basis": "Mostly rewritten RightKit code (line matching finds little app code in it), except RightKitHub, HubQA, Engine and EngineClient which are Pulse's files",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "The package is in real use by four apps at one pinned version, and the foundation modules fit. But 62% of the Swift lines the plan maps (92,690 of 148,357) point at six modules that do not exist, and another 26,478 point at RightKitHubQA, which is the wrong home.",
+    "apps": {
+     "heardright": {
+      "fit": "gaps",
+      "note": "main imports 13 products on iOS at 0.8.1 and one on the Mac pill at 0.9.0; LIVE uses RightKitUI only, from the retired mirror at 0.1.1; about 6,700 lines of own copies remain (hr-review-ios-swift.md)"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "pins 0.8.1 by URL github.com/bogusyogi/rightkit; imports Hub, Accessibility, Overlay, EngineClient, Watch, Hotkeys, Diagnostics, AppleCredentials, License, FS, DB, Credentials, Store; Hub/Engine/Presentation come from a local path package"
+     },
+     "coderight": {
+      "fit": "gaps",
+      "note": "iOS and Mac helper pin 0.8.1 by URL github.com/Orthic-Labs/rightkit; imports Credentials, License, FS, AppleCredentials, UI, Store, Purchases, LiveActivity, Diagnostics, CloudSync; 30,723 planned lines wait on RightKitAgent"
+     },
+     "scraperight": {
+      "fit": "fits",
+      "note": "iOS pins 0.8.1; imports License, CloudSync, Purchases, FS, Speech, ImportQueue, AppleCredentials, Diagnostics, Artifacts; 1,072 lines wait on RightKitLibrary"
+     },
+     "cutright": {
+      "fit": "gaps",
+      "note": "15 Swift files, 1,859 lines, all mapped to RightKitMedia, which does not exist"
+     },
+     "viewright": {
+      "fit": "n/a",
+      "note": "no Swift"
+     },
+     "genright": {
+      "fit": "n/a",
+      "note": "no Swift"
+     },
+     "mailright": {
+      "fit": "n/a",
+      "note": "no Swift"
+     },
+     "postright": {
+      "fit": "n/a",
+      "note": "no Swift"
+     }
+    },
+    "boundary": [
+     "Planned but missing modules: RightKitAgent 34,981 (coderight 30,723, pulse 4,258), RightKitSystemUI 21,612 (pulse), RightKitNotch 17,668 (pulse), RightKitDictation 10,514 (heardright), RightKitLibrary 6,056 (heardright 4,984, scraperight 1,072), RightKitMedia 1,859 (cutright)",
+     "RightKitHubQA receives 26,478 planned lines of app tests (heardright 16,048, coderight 6,899, pulse 3,531); it is three files of desktop Hub fakes (hr-review-ios-swift.md:288-292)",
+     "RightKitWatch is an FSEvents file watcher; HeardRight's 3,476 Apple Watch lines are mapped to it (hr-review-ios-swift.md)",
+     "RightKitPresentation is imported by Pulse and absent from the package",
+     "RightKitMeshLink is a separate package outside RightKitSwift's versioning (family-system-utilities.md:66)",
+     "Two repository URLs for the same pin: bogusyogi/rightkit (Pulse) and Orthic-Labs/rightkit (CodeRight, ScrapeRight, HeardRight) [verified]; whether both stay valid is not verified",
+     "RightKitHTTP and RightKitUpdate are imported by no app"
+    ],
+    "actions": [
+     "Release 0.9.1 (tree is ahead of every app's pin)",
+     "Create or reassign the six missing modules before any app is told to move code: Agent and Dictation first, they carry the most lines",
+     "Remove app tests from the RightKitHubQA and RightKitWatch targets in the plan; app tests stay with the app",
+     "Add RightKitPresentation; bring RightKitMeshLink under the same version",
+     "One repository URL in every app manifest"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "RightKitSystemUI",
@@ -20998,7 +21961,7 @@
   {
    "package": "RightKitUpdate",
    "kind": "swift",
-   "dir": null,
+   "dir": "swift/RightKitSwift/Sources/RightKitUpdate (1,234 lines)",
    "class": "planned",
    "domain": "planned",
    "rowsOwned": [],
@@ -21031,7 +21994,48 @@
      "any": 7
     }
    },
-   "review": null
+   "review": {
+    "package": "RightKitUpdate",
+    "kind": "swift",
+    "family": "Remaining packages",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitUpdate (1,234 lines)"
+    ],
+    "feeds": {
+     "pulse": 703,
+     "coderight": 127
+    },
+    "basis": "RightKit rewrite shaped on Pulse's Mac updater (the Developer ID requirement text and relauncher match Pulse's lines) with feeds, channels, tiers and boot probation added",
+    "referenceApp": "pulse",
+    "shape": "gaps",
+    "shapeReason": "Feed protocol (GitHub release, static manifest, App Store lookup), verifier protocol and installer protocol are the right boundaries for both apps. The Mac installer is weaker than Pulse's: it swaps with replaceItemAt and has no swap journal, install lock or finish-after-crash step. No app imports the module.",
+    "apps": {
+     "pulse": {
+      "fit": "gaps",
+      "note": "mac/Notch/Sources/Updater/UpdateInstaller.swift:58-163 keeps a swap journal, takes an install lock, swaps with renamex_np and finishes a pending swap at next launch; MacInstall.swift:279 has none of these [verified by grep]. Bundle id and team id are constants in Pulse (UpdateVerifier.swift:7-8) and parameters here"
+     },
+     "coderight": {
+      "fit": "fits",
+      "note": "iOS Updates/UpdateAwareness.swift compares a static latest version and links to the App Store (placeholder id); AppStoreLookupFeed covers it. WhatsNewView.swift (58) is a view and stays out"
+     },
+     "heardright": {
+      "fit": "n/a",
+      "note": "HeardRight/AppUpdateController.swift (115) was flagged `check against RightKitUpdate`, not verified (hr-review-ios-swift.md:377)"
+     }
+    },
+    "boundary": [
+     "The Rust side has rightkit-app-update and @rightkit/app-update: three update owners across languages; the manifest and tier vocabulary should be one contract [not compared]",
+     "SemanticVersion exists here and in Pulse (34 lines) and is mapped ADOPT"
+    ],
+    "actions": [
+     "Port Pulse's journalled swap, install lock and finishPendingSwap into MacAppInstaller before Pulse adopts it",
+     "Keep verifier identifiers as parameters (already so)",
+     "Check the manifest and tier names against rightkit-app-update"
+    ],
+    "depth": "deep",
+    "confidence": "medium",
+    "source": "matrix-rows-remaining.json"
+   }
   },
   {
    "package": "RightKitWatch",
