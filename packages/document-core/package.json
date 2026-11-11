@@ -178,6 +178,7 @@
   ],
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
+    "@rightkit/license": "workspace:^",
     "@rightkit/logs": "workspace:^",
     "@rightkit/pdf-ui": "workspace:^",
     "@rightkit/platform-ui": "workspace:^",

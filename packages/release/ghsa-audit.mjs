@@ -34,10 +34,25 @@ export function registryPackages(lockText) {
 
 const utcDay = (now) => new Date(now()).toISOString().slice(0, 10);
 
-async function osvJson(fetchFn, url, init) {
-  const r = await fetchFn(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
-  if (!r.ok) throw new Error(`${url} answered HTTP ${r.status}`);
-  return r.json();
+// A network failure or a 429/5xx answer is retried (three attempts, 1 s then 3 s apart): parallel qualification jobs each ask
+// OSV for the whole root lock, and a single dropped connection refused whole units (qualify-direct runs 43071676354,
+// 43077177456: "fetch failed"). Any other answer, and a third failure, still throws: the audit never passes unasked.
+const RETRY_DELAYS_MS = [1_000, 3_000];
+const retryable = (status) => status === 429 || status >= 500;
+async function osvJson(fetchFn, url, init, { sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
+  for (let attempt = 0; ; attempt += 1) {
+    let r;
+    try {
+      r = await fetchFn(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    } catch (error) {
+      if (attempt >= RETRY_DELAYS_MS.length) throw error;
+      await sleep(RETRY_DELAYS_MS[attempt]);
+      continue;
+    }
+    if (r.ok) return r.json();
+    if (!retryable(r.status) || attempt >= RETRY_DELAYS_MS.length) throw new Error(`${url} answered HTTP ${r.status}`);
+    await sleep(RETRY_DELAYS_MS[attempt]);
+  }
 }
 
 /** One OSV batch query over `packages`, following page tokens: a Map of "name@version" to the ids OSV lists for it. */

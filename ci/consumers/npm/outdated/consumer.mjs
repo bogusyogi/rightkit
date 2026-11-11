@@ -224,7 +224,7 @@ try {
       [manifestOf([], { default: 'held', tier: { held: ['/(/'] } }), /policy\.tier\.held has an invalid regex: \/\(\//],
       [{ ...manifestOf([]), sources: {} }, /sources must be an array/],
       [withSource('x'), /sources\[0\] must be an object/],
-      [withSource({ kind: 'maven' }), /sources\[0\]: unknown kind "maven" \(expected cargo, pnpm, swiftpm, rightkit, tool\)/],
+      [withSource({ kind: 'maven' }), /sources\[0\]: unknown kind "maven" \(expected cargo, pnpm, swiftpm, rightkit, tool, native, toolchain\)/],
       [withSource({ kind: 'cargo', manifest: 'Cargo.toml', glob: 'a/Cargo.toml' }), /set exactly one of manifest and glob/],
       [withSource({ kind: 'cargo' }), /set exactly one of manifest and glob/],
       [withSource({ kind: 'cargo', manifest: '../Cargo.toml' }), /manifest must be a relative path/],
@@ -529,7 +529,9 @@ try {
     // Exit codes: 2 for any error, else 1 for any outdated, else 0.
     const entryOf = fields => ({ name: 'x', kind: 'cargo', source: 'Cargo.toml', pinned: '1', latest: '1', status: 'current', policy: 'auto-land', ...fields });
     assert.equal(outdated.exitCodeFor([entryOf({})]), 0);
-    assert.equal(outdated.exitCodeFor([entryOf({}), entryOf({ status: 'unknown' })]), 0);
+    assert.equal(outdated.exitCodeFor([entryOf({}), entryOf({ status: 'unknown' })]), 1, 'a row nobody could judge is not current');
+    assert.equal(outdated.exitCodeFor([entryOf({}), entryOf({ status: 'unknown' })], [], new Set(['x'])), 0, 'unless it is held with a reason');
+    assert.equal(outdated.exitCodeFor([entryOf({ status: 'unknown' })], [], new Set(['y'])), 1);
     assert.equal(outdated.exitCodeFor([entryOf({ status: 'outdated' })]), 1);
     assert.equal(outdated.exitCodeFor([entryOf({ status: 'outdated' }), entryOf({ error: 'x' })]), 2);
     assert.equal(outdated.exitCodeFor([entryOf({})], ['manifest invalid']), 2);
@@ -719,6 +721,7 @@ try {
       [tags('widgets')]: [{ name: '1.3.1' }, { name: '1.3.0' }], [tags('gizmo')]: [{ name: '2.0.0' }], [tags('narrow')]: [{ name: '0.10.0' }],
     });
     const exec = async () => ({ stdout: JSON.stringify({ broken: { latest: '1.2.0' }, left: { latest: '1.4.0' }, pinned: { latest: '2.0.3' }, dev: { latest: '3.2.0' } }), error: 'exit 1' });
+    const savePrefixes = [];
     const pnpmAdd = (argv, options) => {
       if (argv[0] !== 'pnpm') return undefined;
       assert.deepEqual(argv.slice(0, 2), ['pnpm', 'add']);
@@ -727,17 +730,31 @@ try {
       const wanted = spec.slice(spec.lastIndexOf('@') + 1);
       writeFileSync(path.join(options.cwd, 'pnpm-lock.yaml'), `locked: ${name}@${wanted}\n`);
       if (name === 'broken') return failed('ERR_PNPM_NO_MATCHING_VERSION  No matching version found for broken@1.2.0');
-      const prefix = argv.find(arg => arg.startsWith('--save-prefix='))?.slice('--save-prefix='.length) ?? '';
+      // A range prefix never reaches the command line (cmd.exe would eat `^`): it comes in the environment, for pnpm and npm alike.
+      assert.ok(!argv.some(arg => arg.startsWith('--save-prefix')), 'no --save-prefix argument');
+      const prefix = options.env?.pnpm_config_save_prefix ?? '';
+      assert.equal(options.env?.npm_config_save_prefix ?? '', prefix);
+      assert.equal(argv.includes('--save-exact'), prefix === '', 'only an exact pin is saved with --save-exact');
+      savePrefixes.push([argv.at(-1), prefix]);
       const file = path.join(options.cwd, 'package.json');
       const pkg = JSON.parse(readFileSync(file, 'utf8'));
       pkg[argv.includes('-D') ? 'devDependencies' : 'dependencies'][name] = prefix + wanted;
       writeFileSync(file, `${JSON.stringify(pkg, null, 2)}\n`);
       return ok();
     };
-    const { run: runFn, calls } = fakeRun((argv, options) => cargoUpdate(repo, ['fail-me'])(argv) ?? pnpmAdd(argv, options));
+    // Stands in for `swift package resolve`: it writes Package.resolved, next to Package.swift, from the requirements it finds there.
+    const swiftResolve = (argv, options) => {
+      if (argv[0] !== 'swift') return undefined;
+      assert.deepEqual(argv, ['swift', 'package', 'resolve']);
+      const pins = [...readFileSync(path.join(options.cwd, 'Package.swift'), 'utf8').matchAll(/url: "([^"]+)", (?:from|exact): "([^"]+)"/g)].map(([, location, pinned]) => ({ location, state: { version: pinned } }));
+      writeFileSync(path.join(options.cwd, 'Package.resolved'), `${JSON.stringify({ pins, version: 3 }, null, 2)}\n`);
+      return ok();
+    };
+    const resolvedFor = swiftText => `${JSON.stringify({ pins: [...swiftText.matchAll(/url: "([^"]+)", (?:from|exact): "([^"]+)"/g)].map(([, location, pinned]) => ({ location, state: { version: pinned } })), version: 3 }, null, 2)}\n`;
+    const { run: runFn, calls } = fakeRun((argv, options) => cargoUpdate(repo, ['fail-me'])(argv) ?? pnpmAdd(argv, options) ?? swiftResolve(argv, options));
     const deps = { fetch, exec, run: runFn, now: () => NOW };
     const restoredToOriginals = () => { for (const [rel, text] of Object.entries(originals)) assert.equal(read(repo, rel), text, rel); assert.equal(git(repo, 'status', '--porcelain'), ''); };
-    const effects = () => calls.filter(argv => argv[0] === 'rustright' || argv[0] === 'pnpm');
+    const effects = () => calls.filter(argv => argv[0] === 'rustright' || argv[0] === 'pnpm' || argv[0] === 'swift');
 
     // A dry run plans every row and touches nothing: no commands, no state directory, no report.
     const dry = await outdated.runApply({ repo, dryRun: true }, deps);
@@ -789,16 +806,17 @@ try {
     ]);
     assert.deepEqual(report.changes.map(change => change.commands), [
       [['rustright', 'cargo', 'update', '-p', 'alpha', '--precise', '1.0.9']], [['rustright', 'cargo', 'update', '-p', 'beta', '--precise', '1.9.0']],
-      [['pnpm', 'add', '--save-prefix=^', '--ignore-scripts', 'left@1.4.0']], [['pnpm', 'add', '--save-exact', '--ignore-scripts', 'pinned@2.0.3']],
-      [['pnpm', 'add', '-D', '--save-prefix=~', '--ignore-scripts', 'dev@3.2.0']], [],
+      [['pnpm', 'add', '--ignore-scripts', 'left@1.4.0']], [['pnpm', 'add', '--save-exact', '--ignore-scripts', 'pinned@2.0.3']],
+      [['pnpm', 'add', '-D', '--ignore-scripts', 'dev@3.2.0']], [['swift', 'package', 'resolve']],
     ]);
+    assert.deepEqual(savePrefixes.slice(-3), [['left@1.4.0', '^'], ['pinned@2.0.3', ''], ['dev@3.2.0', '~']], 'the range prefix reaches pnpm through the environment');
     assert.deepEqual(report.needsMigration.map(row => [row.name, row.before, row.latest]), [['gamma', '0.3.1', '0.4.0'], ['narrow', '0.9.0', '0.10.0']]);
     assert.match(report.needsMigration[0].reason, /breaking bump 0\.3\.1 -> 0\.4\.0/);
     assert.deepEqual(report.held.map(row => [row.name, row.reason, row.policy]), [['hold-me', 'policy: held', 'held']]);
     assert.deepEqual(report.failed.map(row => row.name), ['fail-me', 'broken']);
-    assert.match(report.failed[0].reason, /^rustright cargo update failed: error: package ID specification `fail-me` did not match any packages/);
+    assert.match(report.failed[0].reason, /^rustright cargo update failed in Cargo\.lock: error: package ID specification `fail-me` did not match any packages/);
     assert.deepEqual(report.skipped, []);
-    assert.equal(effects().length - before, 7, 'five applied rows and two failed ones ran one command each; the Swift row runs none');
+    assert.equal(effects().length - before, 8, 'six applied rows and two failed ones ran one command each');
 
     // Exact bytes: only the version strings moved. The failed rows left their files as they were.
     const expectedToml = cargoToml.replace('alpha = "1.0.0"', 'alpha = "1.0.9"').replace('version = "^1.2"', 'version = "^1.9"');
@@ -806,6 +824,10 @@ try {
     assert.equal(read(repo, 'Cargo.lock'), cargoLock.replace(/(name = "alpha"\nversion = ")1\.0\.0/, '$11.0.9').replace(/(name = "beta"\nversion = ")1\.2\.0/, '$11.9.0'));
     assert.deepEqual(JSON.parse(read(repo, 'web/package.json')), { name: 'web', dependencies: { broken: '1.0.0', left: '^1.4.0', pinned: '2.0.3' }, devDependencies: { dev: '~3.2.0' } });
     assert.equal(read(repo, 'Package.swift'), swiftPackage.replace('from: "1.2.0"', 'from: "1.3.1"'));
+    assert.equal(read(repo, 'Package.resolved'), resolvedFor(read(repo, 'Package.swift')), 'Package.resolved was regenerated from the edited Package.swift');
+    assert.deepEqual(report.changes[5].files.map(file => [file.path, file.sha256Before, file.sha256After]), [
+      ['Package.swift', sha(swiftPackage), sha(read(repo, 'Package.swift'))], ['Package.resolved', null, sha(read(repo, 'Package.resolved'))],
+    ]);
     const alpha = report.changes[0].files;
     assert.deepEqual(alpha.map(file => file.path), ['Cargo.toml', 'Cargo.lock']);
     assert.equal(alpha[0].sha256Before, sha(cargoToml));
@@ -815,7 +837,7 @@ try {
     assert.equal(last.sha256Before, sha('locked: pinned@2.0.3\n'));
     assert.equal(last.sha256After, sha(read(repo, 'web/pnpm-lock.yaml')));
     assert.deepEqual(git(repo, 'diff', '--name-only').split('\n').sort(), ['Cargo.lock', 'Cargo.toml', 'Package.swift', 'web/package.json']);
-    assert.equal(git(repo, 'ls-files', '--others', '--exclude-standard'), 'web/pnpm-lock.yaml', 'the state directory ignores itself, so it is not an untracked change');
+    assert.deepEqual(git(repo, 'ls-files', '--others', '--exclude-standard').split('\n').sort(), ['Package.resolved', 'web/pnpm-lock.yaml'], 'the state directory ignores itself, so it is not an untracked change');
 
     // The report on disk is the returned one, and the held rows are written next to it for an agent lane.
     assert.equal(applied.reportPath, path.join(repo, '.rightkit', 'update', 'apply-report.json'));
@@ -825,22 +847,33 @@ try {
     assert.equal(read(repo, '.rightkit/update/.gitignore'), '*\n');
     assert.ok(fetched.every(url => url.startsWith('https://crates.io/') || url.startsWith('https://api.github.com/')));
 
-    // A second apply refuses to stack on an apply that was never landed, and discard never overwrites later edits.
+    // A second apply refuses to stack on an apply that was never landed.
     const stacked = await outdated.runApply({ repo }, deps);
     assert.equal(stacked.exitCode, 2);
     assert.match(stacked.errors[0], /^a previous apply \(2026-10-11T00:00:00\.000Z\) has 6 change\(s\) that are not landed; run `right-update land` or `right-update discard` first$/);
-    appendFileSync(path.join(repo, 'Cargo.toml'), '# edited after apply\n');
-    const refused = await outdated.runDiscard({ repo }, { run: runFn });
-    assert.equal(refused.exitCode, 2);
-    assert.match(refused.errors[0], /^Cargo\.toml changed after apply; refusing to discard over unrelated edits$/);
-    assert.equal(read(repo, 'Cargo.toml'), `${expectedToml}# edited after apply\n`, 'a refused discard changes nothing');
     // Landing and discarding an apply whose rows share files (every cargo row shares Cargo.lock) is not asserted: see the README.
     // The repository is put back by hand instead.
     git(repo, 'checkout', '-q', '--', '.');
     rmSync(path.join(repo, 'web', 'pnpm-lock.yaml'), { force: true });
+    rmSync(path.join(repo, 'Package.resolved'), { force: true });
     rmSync(path.join(repo, '.rightkit', 'update'), { recursive: true, force: true });
     restoredToOriginals();
-    return { applied: report.changes.length, needsMigration: report.needsMigration.length, held: report.held.length, rolledBack: report.failed.length, dryRunPlanned: dry.report.changes.length, commands: ['rustright cargo update', 'pnpm add'] };
+
+    // Discard never overwrites later edits: a file edited after a single-row apply is left exactly as it is, the untouched one is
+    // restored, and the stale reports are cleared so the next apply is not blocked.
+    const single = await outdated.runApply({ repo, only: ['alpha'] }, deps);
+    assert.deepEqual([single.exitCode, single.report.changes.map(change => change.name)], [0, ['alpha']]);
+    appendFileSync(path.join(repo, 'Cargo.toml'), '# edited after apply\n');
+    const partial = await outdated.runDiscard({ repo }, { run: runFn });
+    assert.deepEqual([partial.exitCode, partial.errors, partial.restored, partial.moved], [0, [], ['Cargo.lock'], ['Cargo.toml']]);
+    assert.match(partial.notes.at(-1), /^1 recorded file\(s\) no longer match the apply-report and were left untouched: Cargo\.toml; the stale report was cleared$/);
+    assert.equal(read(repo, 'Cargo.toml'), `${cargoToml.replace('alpha = "1.0.0"', 'alpha = "1.0.9"')}# edited after apply\n`, 'the later edit survives');
+    assert.equal(read(repo, 'Cargo.lock'), cargoLock);
+    assert.equal(existsSync(path.join(repo, '.rightkit', 'update', 'apply-report.json')), false);
+    git(repo, 'checkout', '-q', '--', 'Cargo.toml');
+    rmSync(path.join(repo, '.rightkit', 'update'), { recursive: true, force: true });
+    restoredToOriginals();
+    return { applied: report.changes.length, needsMigration: report.needsMigration.length, held: report.held.length, rolledBack: report.failed.length, dryRunPlanned: dry.report.changes.length, commands: ['rustright cargo update', 'pnpm add', 'swift package resolve'] };
   });
 
   // ---- 9. `gate`: repository gates and tool journeys run as real child processes, and every outcome has its own exit code.
@@ -868,12 +901,13 @@ try {
       "else if (mode === 'shape') writeFileSync(path.join(out, 'report.json'), JSON.stringify({ ok: 'yes' }));",
       "else if (mode !== 'none') writeFileSync(path.join(out, 'report.json'), JSON.stringify({ ok: mode === 'pass', cases: 1 }));", '',
     ].join('\n');
-    const gates = [{ name: 'first', command: [NODE, 'gate.mjs', 'first'] }, { name: 'second', command: [NODE, 'gate.mjs', 'second'], timeoutSec: 3 }];
+    // Every gate step goes through rightkit-gate (`node <path>/rightkit-gate.mjs ...`); this script stands in for it.
+    const gates = [{ name: 'first', command: [NODE, 'rightkit-gate.mjs', 'first'] }, { name: 'second', command: [NODE, 'rightkit-gate.mjs', 'second'], timeoutSec: 3 }];
     const cargoToml = '[dependencies]\nalpha = "1.0.0"\n';
     const cargoLock = lockText({ alpha: '1.0.0' });
     const repo = gitRepo('pipeline', {
       '.rightkit/update.json': manifestOf([{ kind: 'cargo', manifest: 'Cargo.toml' }, toolSource], { default: 'auto-land' }, gates),
-      'Cargo.toml': cargoToml, 'Cargo.lock': cargoLock, 'gate.mjs': gateScript, 'journey.mjs': journeyScript,
+      'Cargo.toml': cargoToml, 'Cargo.lock': cargoLock, 'rightkit-gate.mjs': gateScript, 'journey.mjs': journeyScript,
     });
     const artifacts = path.join(scratch, 'artifacts');
     const host = { platform: process.platform, env: { RIGHTKIT_ARTIFACT_DIR: artifacts } };
@@ -968,6 +1002,17 @@ try {
     assert.equal(noManifest.exitCode, 2);
     assert.match(noManifest.errors[0], /cannot read/);
 
+    // A gate that runs a build tool directly, not through rightkit-gate, is refused without being spawned.
+    const direct = gitRepo('gate-direct', {
+      '.rightkit/update.json': manifestOf([], { default: 'auto-land' }, [{ name: 'raw', command: [NODE, 'gate.mjs'] }, { name: 'tool', command: ['pnpm', 'test'] }]), 'gate.mjs': gateScript,
+    });
+    const spawnedBefore = calls.length;
+    const refusedGates = await outdated.runGateCommand({ repo: direct }, { run: runFn, host });
+    assert.deepEqual([refusedGates.exitCode, refusedGates.report.passed, gateNames(refusedGates)], [1, false, [['raw', false], ['tool', false]]]);
+    assert.equal(refusedGates.report.gates[0].detail, `gate raw runs ${NODE} directly: a gate step must go through rightkit-gate (command rightkit-gate ... or node <path>/rightkit-gate.mjs ...)`);
+    assert.equal(refusedGates.report.gates[1].detail, 'gate tool runs pnpm directly: a gate step must go through rightkit-gate (command rightkit-gate ... or node <path>/rightkit-gate.mjs ...)');
+    assert.deepEqual([refusedGates.report.gates[0].exitCode, refusedGates.report.gates[0].stdoutPath, calls.length - spawnedBefore], [null, '', 0], 'nothing was spawned');
+
     // The last run leaves a report that matches the current apply and passes: the next scenario lands it.
     const last = await gateRun();
     assert.equal(last.exitCode, 0);
@@ -1057,9 +1102,9 @@ try {
 
   // ---- Fixtures for the single-crate repositories used by the next scenarios.
   const cratesUrl = name => `https://crates.io/api/v1/crates/${name}`;
-  const cargoRepo = (label, { policy = { default: 'auto-land' }, gates = [{ name: 'ok', command: [NODE, 'ok.mjs'] }], files = {} } = {}) => gitRepo(label, {
+  const cargoRepo = (label, { policy = { default: 'auto-land' }, gates = [{ name: 'ok', command: [NODE, 'rightkit-gate.mjs', 'ok'] }], files = {} } = {}) => gitRepo(label, {
     '.rightkit/update.json': manifestOf([{ kind: 'cargo', manifest: 'Cargo.toml' }], policy, gates),
-    'Cargo.toml': '[dependencies]\nalpha = "1.0.0"\n', 'Cargo.lock': lockText({ alpha: '1.0.0' }), 'ok.mjs': '// exits 0\n', 'fail.mjs': 'process.exit(1);\n', ...files,
+    'Cargo.toml': '[dependencies]\nalpha = "1.0.0"\n', 'Cargo.lock': lockText({ alpha: '1.0.0' }), 'rightkit-gate.mjs': "process.exit(process.argv[2] === 'fail' ? 1 : 0);\n", ...files,
   });
   const cargoDeps = (repo, latest = '1.0.5') => ({ fetch: mockFetch({ [cratesUrl('alpha')]: { crate: { max_stable_version: latest } } }).fetch, exec: noExec, run: fakeRun(cargoUpdate(repo)).run, now: () => NOW });
 
@@ -1245,7 +1290,7 @@ try {
     assert.equal(git(planned, 'status', '--porcelain'), '');
 
     // run, a gate fails: the applied changes are discarded, the tree is clean, nothing is committed, exit 1.
-    const failing = cargoRepo('cli-gate-fails', { gates: [{ name: 'bad', command: [NODE, 'fail.mjs'] }] });
+    const failing = cargoRepo('cli-gate-fails', { gates: [{ name: 'bad', command: [NODE, 'rightkit-gate.mjs', 'fail'] }] });
     const bad = drive(failing, ['run', '--repo', failing, '--quiet']);
     assert.equal(await bad.go(), 1);
     assert.deepEqual(bad.events().map(event => event.event), ['update.run.start', 'update.gate.result', 'update.run.end']);
@@ -1408,11 +1453,18 @@ try {
       '.rightkit/update.json': manifestOf([{ kind: 'cargo', manifest: 'Cargo.toml' }]),
       'Cargo.toml': '[dependencies]\nlocal = { path = "../local", version = "0.1.0" }\nupstream = { git = "https://example.invalid/up" }\n',
     });
+    // A row nobody could judge is not current: exit 1 until each one is held with a reason.
+    const unjudged = bin(['check', '--repo', repo]);
+    assert.equal(unjudged.code, 1);
+    assert.match(unjudged.stdout, /\n  unknown +cargo +local +- +- +auto-land *\n  unknown +cargo +upstream +- +- +auto-land *\n  0 current, 0 outdated, 2 unknown, exit 1\n$/);
+    const hold = name => ({ name, reason: `${name} is not from a registry`, evidence: 'Cargo.toml', exitCondition: 'it moves to crates.io' });
+    writeTree(repo, { '.rightkit/update.json': manifestOf([{ kind: 'cargo', manifest: 'Cargo.toml' }], { default: 'auto-land', held: [hold('local'), hold('upstream')] }) });
+    git(repo, 'commit', '-q', '-am', 'hold the unjudged rows with a reason');
     const text = bin(['check', '--repo', repo]);
     assert.equal(text.code, 0);
-    assert.match(text.stdout, /\n  unknown +cargo +local +- +- +auto-land *\n  unknown +cargo +upstream +- +- +auto-land *\n  0 current, 0 outdated, 2 unknown, exit 0\n$/);
+    assert.match(text.stdout, /\n  unknown +cargo +local +- +- +held *\n  unknown +cargo +upstream +- +- +held *\n  0 current, 0 outdated, 2 unknown, exit 0\n$/);
     const json = JSON.parse(bin(['check', '--json'], repo).stdout);
-    assert.deepEqual([json.repo, json.exitCode, json.entries.map(entry => [entry.name, entry.status, entry.reason])], [repo, 0, [['local', 'unknown', 'path or git dependency'], ['upstream', 'unknown', 'path or git dependency']]]);
+    assert.deepEqual([json.repo, json.exitCode, json.entries.map(entry => [entry.name, entry.status, entry.policy, entry.reason])], [repo, 0, [['local', 'unknown', 'held', 'path or git dependency'], ['upstream', 'unknown', 'held', 'path or git dependency']]]);
     const quiet = bin(['check', '--repo', repo, '--quiet']).stdout.trim().split('\n').map(line => JSON.parse(line));
     assert.deepEqual(quiet.map(event => [event.event, event.command]), [['update.run.start', 'check'], ['update.run.end', 'check']]);
     assert.equal(quiet[0].version, version);

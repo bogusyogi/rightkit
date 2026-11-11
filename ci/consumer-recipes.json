@@ -70,8 +70,8 @@
         "declaredOnly": []
       },
       "files": {
-        "ci/consumers/npm/onboarding/README.md": "3e36a2f34055fb9c4a5d9f6ac74e2d36fd0cf842fe48d75562551f382eceec4e",
-        "ci/consumers/npm/onboarding/consumer.mjs": "45bc8ac88c8188dbc67b3caab556577473618da28d3b403aa3518d0999122094",
+        "ci/consumers/npm/onboarding/README.md": "71c1017ff94aa69e7ff61ed31188af5f8a748e2b3497c3449fec352ef2943bec",
+        "ci/consumers/npm/onboarding/consumer.mjs": "5ad19f8c5c4b01f0b8172471ca6e51466ef9448aaad7c4cee4e5427456d97b76",
         "ci/consumers/npm/onboarding/package.json": "e72033f2dfcf6c03ad8aadfc18f8fbca9702b17166997bc77e388c32e46474a6",
         "ci/consumers/npm/onboarding/provenance-negative.mjs": "0d685129d02c216d539c6ff67305541596c6822a5c9354ea40ab375dcd924952",
         "ci/consumers/npm/onboarding/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
@@ -509,7 +509,7 @@
       },
       "files": {
         "ci/consumers/npm/legal-ui/README.md": "3be53fde66b12993b01d918da85eac9741f3ef008267c88358473a2ffbebf5c8",
-        "ci/consumers/npm/legal-ui/consumer.mjs": "f56ffe58499943c0867ac28de43ff9ce94cd7e59b73bc0f895c5e1d0d066504d",
+        "ci/consumers/npm/legal-ui/consumer.mjs": "75935940fec39b6dddd88b0a6e7f623a16daea516ba6c740e91285d5c7ac6c78",
         "ci/consumers/npm/legal-ui/package.json": "965eb21b72be70ce0340ef8bb4a4084d4a0346a064f0514c5c70d41d8f4ae15e",
         "ci/consumers/npm/legal-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
@@ -529,7 +529,7 @@
       },
       "files": {
         "ci/consumers/npm/license/README.md": "edd3164d9251bf2f682e90f53c25f349ba67c10154d15f0c24af12248c308ebd",
-        "ci/consumers/npm/license/consumer.mjs": "749d5a470eb3fc03769952f531f36f9db038d43e427c2f698b5ebd3251e8a4e5",
+        "ci/consumers/npm/license/consumer.mjs": "643643de5180c3ab2ff8768bfb2ae892eed22441f7b543626b50f8f07f33327c",
         "ci/consumers/npm/license/package.json": "f1140c62da167e39df470d7e9f8f588393ccdcaf0099c7247ab4954eb6abc64a",
         "ci/consumers/npm/license/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
@@ -557,7 +557,7 @@
       },
       "files": {
         "ci/consumers/npm/media-ui/README.md": "7fe2effda66969bf9c39fcf0eb3332a942047a9373f7f23ffdd3871bf23d1417",
-        "ci/consumers/npm/media-ui/consumer.mjs": "9fd8822bf99dc9546db7ba86ca752e3036426669880dc98e4a4259680c18fc05",
+        "ci/consumers/npm/media-ui/consumer.mjs": "a41472b39b74e5b16043a5d46a9cefc679e2edfdb1247383dcc077c957211c1b",
         "ci/consumers/npm/media-ui/package.json": "a60e7830b0f676c1e80f7c4407daa98e7640e689daf0e5ffb1a7e69a9fdf55ed",
         "ci/consumers/npm/media-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
@@ -579,8 +579,8 @@
         "declaredOnly": []
       },
       "files": {
-        "ci/consumers/npm/outdated/README.md": "89a962f787385361f31cadb3f936cb7bbf4d864252bc1c7fc38feb6278cc262e",
-        "ci/consumers/npm/outdated/consumer.mjs": "e7bb367bc701fac60d9f83967702e3c6c82d2b58ed8a38ab4adf794e6b9e275d",
+        "ci/consumers/npm/outdated/README.md": "859c95dc07478c416ed7df7ae17fef9f7d6022cf93dc5580aeafe22ab4ce5ea8",
+        "ci/consumers/npm/outdated/consumer.mjs": "2e2aa72aa7eb7a67cc7c927287af853b2a1d899bf387d8f681a7ea9c7ac00830",
         "ci/consumers/npm/outdated/package.json": "8dc6e951eda69be5ab5d8495f9b963ebb8beb63fb0fe843171bd5060b5ee2a80",
         "ci/consumers/npm/outdated/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
@@ -605,7 +605,7 @@
       },
       "files": {
         "ci/consumers/npm/pdf-ui/README.md": "ebceb3da872e2c45869b5b7965d37d1371eb422ae8ace5c6933ab5cb1a9a998a",
-        "ci/consumers/npm/pdf-ui/consumer.mjs": "b29247d38c20564ee8ee7eb54811ff6594d6c946c76ff42f79f16f33a99eae57",
+        "ci/consumers/npm/pdf-ui/consumer.mjs": "afcc249ab810e68c9667f404671cddd17de2aecd5d14b97c0f33cf44476bf87c",
         "ci/consumers/npm/pdf-ui/package.json": "f78cf2269bc46231b31177ed8927f91f1e36aedb7bb293d1bc0acc6a22a0c6c8",
         "ci/consumers/npm/pdf-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
@@ -632,7 +632,7 @@
       },
       "files": {
         "ci/consumers/npm/platform-ui/README.md": "529cad97cb28d6ae470612fb3ec624a3230410230ae80913e56c9ec8958b720f",
-        "ci/consumers/npm/platform-ui/consumer.mjs": "83a279045253444eea0a5b999c05082555fafecf961d4ad39c2578b64278cad8",
+        "ci/consumers/npm/platform-ui/consumer.mjs": "7626d71d55840bb7d137a88224232525d9dd2c9e5af6cb501ad7d60070e1bfa1",
         "ci/consumers/npm/platform-ui/package.json": "adc5f962a645a7faba026a0264093893b32d441f07ebf9a476f5b98db1ea21a9",
         "ci/consumers/npm/platform-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
@@ -655,7 +655,7 @@
       ],
       "closure": {
         "install": {
-          "@rightkit/platform-ui": "0.4.0",
+          "@rightkit/platform-ui": "0.4.1",
           "react": "19.3.1",
           "react-dom": "19.3.1"
         },
@@ -664,9 +664,9 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/react-shell/README.md": "4a1d21e0f4e2b44154ffaaa4d5bfc49c660375b2c26358743d060728d9a79b53",
-        "ci/consumers/npm/react-shell/consumer.mjs": "3b073a3849629443c25a495343a64414abd8c8243b7c48860daaa1dd649848fb",
-        "ci/consumers/npm/react-shell/package.json": "bfae5c1fd04cad9e3e24cc1615be69c8a95b887d679040428588585375a9056d",
+        "ci/consumers/npm/react-shell/README.md": "0b56a30e1bab0243bebcbaf47d8801e09f4bd6d64ef8e76ec38ea53fcb2b9ea6",
+        "ci/consumers/npm/react-shell/consumer.mjs": "356cf13ad645700be4c6ea54b56f6685879e663dc920258857b205b85a812a4e",
+        "ci/consumers/npm/react-shell/package.json": "4078f473686b6bb18857b48adca92e3553bc353620eb7359ed85c5999d4eb7ac",
         "ci/consumers/npm/react-shell/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -687,7 +687,7 @@
       },
       "files": {
         "ci/consumers/npm/theme/README.md": "828bb128917f3dca82ad7ceab9c3bec34dffb80d3da2682b19f4054cf47be633",
-        "ci/consumers/npm/theme/consumer.mjs": "fd0b22b98665a8fc9e3ee887442632f955e0f0cb142b8b22fc1a704088e3e85d",
+        "ci/consumers/npm/theme/consumer.mjs": "726026caab970adfe1e9bc1512eb75fa076d304f62fb5fe8b9e06f98f787ff8e",
         "ci/consumers/npm/theme/package.json": "86a3220ce2b1dd113baa3251251c104850683dd751941cd1dbdfabd4d0c6ef30",
         "ci/consumers/npm/theme/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
@@ -1244,14 +1244,14 @@
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
-          "@rightkit/license": "0.3.0",
+          "@rightkit/license": "0.3.1",
           "@rightkit/logs": "0.1.6",
-          "@rightkit/pdf-ui": "0.2.0",
-          "@rightkit/platform-ui": "0.4.0",
-          "@rightkit/react-shell": "0.7.2",
-          "@rightkit/settings-ui": "0.7.0",
-          "@rightkit/tauri-shell": "0.1.3",
-          "@rightkit/theme": "0.3.1"
+          "@rightkit/pdf-ui": "0.3.0",
+          "@rightkit/platform-ui": "0.4.1",
+          "@rightkit/react-shell": "0.7.3",
+          "@rightkit/settings-ui": "0.7.1",
+          "@rightkit/tauri-shell": "0.1.4",
+          "@rightkit/theme": "0.3.2"
         },
         "declaredOnly": [
           "@phosphor-icons/react",
@@ -1259,9 +1259,9 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/document-core/README.md": "6e23188764ce293c963d575a0f8c7686c0305d6f92c192315692b2a69268c414",
+        "ci/consumers/npm/document-core/README.md": "6a0f526f7aa680252b0f3b5c4837798322333624fb89e95d5796edbcd5a1d767",
         "ci/consumers/npm/document-core/consumer.mjs": "6279c3131b53288d222fae76f1c296a7bcbd682f1f4845039e59d7f98c1cb264",
-        "ci/consumers/npm/document-core/package.json": "d8e58958e093df57afaa83c9464511bd26f9734ea1bdd77a67e031a400bbb4cf",
+        "ci/consumers/npm/document-core/package.json": "ab1e987e2a4b47c3ea8fe2ca1ec095a5850cb32815d13d4de02e8e4013711515",
         "ci/consumers/npm/document-core/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1899,7 +1899,7 @@
       "pkId": "PK03",
       "id": "ci/consumers/rightkit-credentials/src/main.rs",
       "files": {
-        "Cargo.toml": "4ac0ea2dd553a151e01f9eff818e4a4c52d7a32f453e3894e99ce8213a9ae3bf",
+        "Cargo.toml": "d44b3e71a69b65cfd4a3fadba8812bbcc56c9e9fabbc6665e3bd7f5763bdc921",
         "prepare_signed_helper.py": "5416b80b5b81ef50528033bbc9b91131a73c421a66764b3390331dd80fa0cd6c",
         "qualification-helper/entitlements.plist": "a6aa6260390ae45abe50cc5bed4d0dd2b922a67ac93f69bd58b86419666f123c",
         "qualification-helper/Info.plist": "8a865dfac7975ff5b0bd3315625676af43490ed611e3e31d2a823debc7b664ad",
@@ -2159,7 +2159,7 @@
       ],
       "consumes": "rightkit-daemon-remote/src/remote/oauth.rs::FlowOAuthHandler; PK06-5 existing remote consumer; PK10-3 typed OAuth port is consumer-facing abstraction, not DB ownership",
       "files": {
-        "Cargo.toml": "e965060bdd8881138d97b0536b21e3a74173eb6dc2e5eccc10ca1333cbbcd636",
+        "Cargo.toml": "cd0f6d1ac81d72dc82722abf331df48ac3a9b85094957f786da4d754f6905412",
         "src/main.rs": "cf445197f627d3b5150e7e4837ec6bb2f209c644cbded7a6cf70382e75dcbf4c"
       },
       "runs": [
@@ -2173,6 +2173,7 @@
             "darwin"
           ],
           "env": {
+            "RIGHTKIT_TEST_REAL_USER_STORES": "literal1",
             "RK_CONSUMER_RUN_ROOT": "freshRunRoot"
           }
         }
@@ -2307,7 +2308,7 @@
       "files": {
         "Cargo.toml": "fe3f84c6cbd96c131f8236d0a95832550aad80f692c06496a3b767eb80404d91",
         "README.md": "d5b3c9c5f502f2e2f9280ca0b946ef3159fcbe912ba7cd1eaea71432e163c231",
-        "src/main.rs": "5968d3ccfc1dcec8152beb5bae6d914d0cae846f0d06f7b1ba7220c33af3f5b9"
+        "src/main.rs": "54f47a8ce81f6de0adda7336320487ee8d70039a03a03e57c5bb05c3c1858817"
       },
       "aggregateSha256": "e7e23f007ccee54fee15cbf3c97ff62eed581b3f2e2ddfad8f6fe7ac4c8904b9"
     },

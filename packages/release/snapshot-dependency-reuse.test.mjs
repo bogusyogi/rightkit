@@ -1,11 +1,12 @@
 import test from 'node:test';
+import os from "node:os";
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { dependencyDigest, canonicalConfigFingerprint, preparationInputComponents } from './snapshot-dependency-reuse.mjs';
 
 test('dependency proof binds bytes, metadata and modes', (t) => {
-  const scratch = process.platform === 'win32' ? 'D:\\scratch' : '/Volumes/D/scratch';
+  const scratch = ((root) => (fs.existsSync(root) ? root : os.tmpdir()))(process.platform === 'win32' ? 'D:\\scratch' : '/Volumes/D/scratch');
   const root = fs.mkdtempSync(path.join(scratch, 'rk-deps-proof-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const modules = path.join(root, 'node_modules'); fs.mkdirSync(modules);

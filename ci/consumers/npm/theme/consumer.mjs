@@ -11,8 +11,8 @@ const recipeId = 'theme-brand-tokens-cli-consumer';
 const result = { recipeId, schemaVersion: 1, ok: false, host: { platform: process.platform, arch: process.arch, node: process.version }, artifact: null, scenarios: [], errors: [], nativeHostQualified: false };
 const failure = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error) });
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
-const rootSurface = ['BrandError', 'DEFAULT_APPROVED_CONTEXTS', 'DEFAULT_APPROVED_VALUES', 'OVERRIDABLE_TOKENS', 'SUITE_ALIASES', 'SUITE_DEFAULTS', 'aliasCss', 'aliasTokens', 'applyBrand', 'applyThemeAttribute', 'applyTokens', 'assertCustomProperty', 'brandFromAccent', 'checkBrandContrast', 'checkGeneratedCss', 'contrastRatio', 'ensureContrast', 'fontTokens', 'generateCss', 'isHex', 'luminance', 'mix', 'modeVars', 'onPrefersDarkChange', 'parseBrand', 'parseHex', 'prefersDark', 'presetCss', 'presetTokens', 'readableOn', 'requiredVars', 'resolveBrand', 'scanHardcodedColors', 'shade', 'tailwindThemeCss', 'themeAttributeValue', 'themeBootScript', 'toHex'];
-const nodeSurface = ['checkBrandFile', 'checkGeneratedCss', 'checkLogo', 'generateFile', 'readBrand', 'scanFiles'];
+const rootSurface = ['BrandError', 'DEFAULT_APPROVED_CONTEXTS', 'DEFAULT_APPROVED_VALUES', 'OVERRIDABLE_TOKENS', 'SUITE_ALIASES', 'SUITE_DEFAULTS', 'SUITE_MOTION', 'aliasCss', 'aliasTokens', 'applyBrand', 'applyThemeAttribute', 'applyTokens', 'assertCustomProperty', 'brandFromAccent', 'checkBrandContrast', 'checkGeneratedCss', 'checkSuiteDefaults', 'contrastRatio', 'createPresetStore', 'deriveLineSecond', 'ensureContrast', 'fontTokens', 'generateCss', 'isHex', 'luminance', 'mix', 'modeVars', 'onPrefersDarkChange', 'parseBrand', 'parseHex', 'prefersDark', 'presetCss', 'presetOptions', 'presetTokens', 'readableOn', 'requiredVars', 'resolveBrand', 'rgbChannels', 'scanHardcodedColors', 'shade', 'tailwindThemeCss', 'themeAttributeValue', 'themeBootScript', 'toHex'];
+const nodeSurface = ['checkBrandFile', 'checkGeneratedCss', 'checkLogo', 'checkSuiteDefaults', 'checkSuiteDefaultsFile', 'generateFile', 'readBrand', 'scanFiles'];
 
 // A synthetic brand: invented name, colours and font; nothing here is a real product.
 const brandJson = () => ({ name: 'Fixture Suite', code: 'FS', colors: { brand: '#0C6AA5', 'brand-ink': '#0A5A8C' }, wordmark: 'FixtureSuite', wordmarkFont: '"Fixture Sans", sans-serif', logo: { master: 'logo.svg' } });
@@ -63,7 +63,7 @@ try {
   await run('export-surface-exact-and-bin-declared', async () => {
     assert.deepEqual(Object.keys(theme).sort(), rootSurface);
     assert.deepEqual(Object.keys(node).sort(), nodeSurface);
-    assert.deepEqual(Object.keys(manifest.exports), ['.', './node']);
+    assert.deepEqual(Object.keys(manifest.exports), ['.', './node', './wordmark.css']);
     assert.deepEqual(manifest.bin, { 'rightkit-theme': 'bin/rightkit-theme.mjs' });
     assert.equal(manifest.sideEffects, false);
     assert.equal(manifest.peerDependencies, undefined);
@@ -133,10 +133,10 @@ try {
     assert.equal(explicit.effective.dark.plane, '#000000');
     assert.equal(theme.SUITE_DEFAULTS.light.ink, '#231F1A');
     assert.equal(theme.SUITE_DEFAULTS.dark.ink, '#F2F0EC');
-    assert.equal(theme.OVERRIDABLE_TOKENS.length, 17);
+    assert.equal(theme.OVERRIDABLE_TOKENS.length, 24);
     assert.deepEqual(theme.brandFromAccent('Accent only', '#336699'), { name: 'Accent only', colors: { brand: '#336699' } });
     assert.throws(() => theme.brandFromAccent('x', 'teal'), /Invalid accent colour/);
-    return { refusedBrandFiles: 14, overridableTokens: 17 };
+    return { refusedBrandFiles: 14, overridableTokens: 24 };
   });
 
   await run('css-generation-is-deterministic-and-self-checking', async () => {
@@ -331,7 +331,7 @@ try {
       assert.equal(lines.length, 1, 'machine output is exactly one JSON line');
       return { status: child.status, json: JSON.parse(lines[0]) };
     };
-    assert.deepEqual(cli(), { status: 1, json: { event: 'usage', ok: false, usage: 'rightkit-theme generate|contrast|tokens ...' } });
+    assert.deepEqual(cli(), { status: 1, json: { event: 'usage', ok: false, usage: 'rightkit-theme generate|contrast|tokens|suite-defaults ...' } });
     const cliOut = path.join(scratch, 'cli.css');
     const generated = cli('generate', brandPath, '--out', cliOut);
     assert.deepEqual(generated, { status: 0, json: { event: 'brand_theme_synced', ok: true, brand: 'FS', out: cliOut, changed: true, contrastPass: true } });

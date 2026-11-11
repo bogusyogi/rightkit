@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import {
   CHECKS, CLAUSES, COVERAGE_SCHEMA, INSTALL_CLAUSES, INSTALL_STAGES, NEGATIVES, RECEIPT_SCHEMA, STEPS, assertCleanCheckout, assertManifestEdit, assertNegative, assertOneFileEdit, assertRecovery,
@@ -508,7 +509,8 @@ test("launchSpec: a .cmd launcher goes through cmd.exe with verbatim, safely quo
 });
 
 // --- S6 dirty-checkout setup and restore, against a temporary repository -------------------------------------------------------------------------
-const SCRATCH = "/Volumes/D/scratch/gate-acceptance";
+// The disk policy's scratch root where it exists, the system temp directory on a hosted runner or cloud box.
+const SCRATCH = path.join(fs.existsSync("/Volumes/D/scratch") ? "/Volumes/D/scratch" : os.tmpdir(), "gate-acceptance");
 const IDENT = { GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@invalid", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@invalid" };
 const g = (cwd, ...args) => { const r = spawnSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, ...IDENT } }); assert.equal(r.status, 0, `git ${args.join(" ")}: ${r.stderr}`); return r.stdout; };
 function tempRepo() {

@@ -48,7 +48,7 @@ try {
   }
 
   await run('export-surface-exact-and-stylesheet-shipped', async () => {
-    assert.deepEqual(Object.keys(ui).sort(), ['LegalDocumentBody', 'LegalGate', 'policyGateDocuments']);
+    assert.deepEqual(Object.keys(ui).sort(), ['LegalDocumentBody', 'LegalGate', 'manifestGateDocuments', 'policyGateDocuments']);
     assert.deepEqual(Object.keys(manifest.exports), ['.', './legal-ui.css']);
     assert.deepEqual(manifest.sideEffects, ['*.css']);
     assert.deepEqual(Object.keys(manifest.peerDependencies), ['react']);

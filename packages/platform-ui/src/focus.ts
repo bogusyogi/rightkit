@@ -17,6 +17,9 @@ export type ReturnFocusTarget = HTMLElement | null | (() => HTMLElement | null);
 const HISTORY_LIMIT = 8;
 const PRESSABLE = 'a[href],button,input,select,textarea,summary,[tabindex],[role="button"],[role="menuitem"],[role="tab"]';
 const histories = new WeakMap<Document, HTMLElement[]>();
+// The headless cores also run on fake event targets outside a DOM (tests, server), where these globals do not exist.
+const isHtmlElement = (v: unknown): v is HTMLElement => typeof HTMLElement !== "undefined" && v instanceof HTMLElement;
+const isElement = (v: unknown): v is Element => typeof Element !== "undefined" && v instanceof Element;
 
 function remember(list: HTMLElement[], el: HTMLElement) {
   const at = list.indexOf(el);
@@ -39,7 +42,7 @@ export function trackFocusHistory(doc: Document = document): readonly HTMLElemen
     "focusin",
     (event) => {
       const t = event.target;
-      if (t instanceof HTMLElement && t !== doc.body && t !== doc.documentElement) remember(list, t);
+      if (isHtmlElement(t) && t !== doc.body && t !== doc.documentElement) remember(list, t);
     },
     true,
   );
@@ -47,13 +50,13 @@ export function trackFocusHistory(doc: Document = document): readonly HTMLElemen
     "pointerdown",
     (event) => {
       const t = event.target;
-      const hit = t instanceof Element ? t.closest<HTMLElement>(PRESSABLE) : null;
+      const hit = isElement(t) ? t.closest<HTMLElement>(PRESSABLE) : null;
       if (hit) remember(list, hit);
     },
     true,
   );
   const active = doc.activeElement;
-  if (active instanceof HTMLElement && active !== doc.body) remember(list, active);
+  if (isHtmlElement(active) && active !== doc.body) remember(list, active);
   return list;
 }
 
@@ -73,8 +76,8 @@ export function resolveReturnFocus(input: {
   const { returnFocus, opener, history, exclude } = input;
   const explicit = typeof returnFocus === "function" ? returnFocus() : returnFocus;
   if (explicit?.isConnected) return explicit;
-  const body = opener?.ownerDocument.body;
-  if (opener?.isConnected && opener !== body && opener !== opener.ownerDocument.documentElement) return opener;
+  const body = opener?.ownerDocument?.body;
+  if (opener?.isConnected && opener !== body && opener !== opener.ownerDocument?.documentElement) return opener;
   for (let i = history.length - 1; i >= 0; i--) {
     const candidate = history[i];
     if (candidate.isConnected && candidate !== opener && !(exclude && (candidate === exclude || exclude.contains(candidate)))) return candidate;

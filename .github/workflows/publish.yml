@@ -309,7 +309,7 @@ jobs:
           set -euo pipefail
           out="$RUNNER_TEMP/swap-unsigned"
           mkdir -p "$out"
-          cp crates/rightkit-fs/target/release/rightkit-swap "$out/rightkit-swap"
+          cp target/release/rightkit-swap "$out/rightkit-swap"
           (cd "$out" && shasum -a 256 rightkit-swap > rightkit-swap.sha256)
           printf 'repository=%s\nsource=%s\nrun=%s\nattempt=%s\nworkflow=%s\nhost=%s\narch=%s\njob=build-swap\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKFLOW_REF" "$RUNNER_OS" "$RUNNER_ARCH" > "$out/source-receipt.txt"
           cat "$out/rightkit-swap.sha256" >> "$out/source-receipt.txt"

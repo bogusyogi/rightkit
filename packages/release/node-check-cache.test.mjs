@@ -1,4 +1,5 @@
 import test from 'node:test';
+import os from "node:os";
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -6,7 +7,7 @@ import crypto from 'node:crypto';
 import { createNodeCheckCacheDigest } from './node-check-cache.mjs';
 
 function fixture(t) {
-  const scratch = process.platform === 'win32' ? 'D:\\scratch' : '/Volumes/D/scratch';
+  const scratch = ((root) => (fs.existsSync(root) ? root : os.tmpdir()))(process.platform === 'win32' ? 'D:\\scratch' : '/Volumes/D/scratch');
   const base = fs.mkdtempSync(path.join(scratch, 'rk-node-check-'));
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));
   const snapshot = path.join(base, 'snapshot'), gatePackage = path.join(base, 'gate');
