@@ -1,5 +1,5 @@
 {
-  "_comment": "Shared hint catalog — single source of truth for pill hint TEXT on BOTH platforms. The container is generic per platform (React WebView pill on Windows via src/pill/HintPopup.tsx; native Swift pill on macOS via macos-native/.../PillModel.swift); both read this file, so add a hint here once and neither renderer hardcodes text. Per entry: `platform` (optional: 'both' (default) | 'windows' | 'macos') controls which pill shows it; `title`/`body` are either a plain string (identical on both) OR an object { \"windows\": \"…\", \"macos\": \"…\" } when the text differs by OS (e.g. keybinds — Ctrl+Shift+Space vs fn+Space). Interactive hints with their own controls (screenshot_prompt buttons, prompt_hint keyword) are NOT here — they are bespoke containers, not plain title/body.",
+  "_comment": "Shared hint catalog — single source of truth for pill hint TEXT on BOTH platforms. The container is generic per platform (React WebView pill on Windows via src/pill/HintPopup.tsx; native Swift pill on macOS via macos-native/.../PillModel.swift); both read this file, so add a hint here once and neither renderer hardcodes text. Per entry: `platform` (optional: 'both' (default) | 'windows' | 'macos') controls which pill shows it; `title`/`body` are either a plain string (identical on both) OR an object { \"windows\": \"…\", \"macos\": \"…\" } when the text differs by OS (e.g. keybinds — Ctrl+Shift+Space vs fn+Space). Text may name the product as `{app}`; renderers substitute the host product name. Interactive hints with their own controls (screenshot_prompt buttons, prompt_hint keyword) are NOT here — they are bespoke containers, not plain title/body.",
   "voice_commands": {
     "title": "Control by voice",
     "body": "Say “zephyr stop” or “zephyr send” while recording."
@@ -23,7 +23,7 @@
   },
   "file_transcription": {
     "title": "Transcribe a file",
-    "body": "Open HeardRight to transcribe an audio or video file."
+    "body": "Open {app} to transcribe an audio or video file."
   },
   "groq_key": {
     "title": "AI polish is Pro",

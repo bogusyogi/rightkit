@@ -7,10 +7,10 @@ import { loadTranscriptDetail } from "../lib/transcriptLoad.js";
 import { useFlash } from "../lib/flash.js";
 import { useTranscript } from "../lib/transcriptHooks.js";
 import { savedMediaKind } from "../lib/mediaSelection.js";
-import { countWords } from "../lib/queueView.js";
+import { countWords } from "../../reader/ReaderParts.js";
 import { copyTextToClipboard } from "../lib/workbench.js";
 import { TranscriptFileActions } from "./TranscriptFileActions.js";
-import { buttonClass, errorTextClass, mutedTextClass, panelClass } from "../lib/ui.js";
+import { buttonClass, errorTextClass, mutedTextClass, panelClass } from "../../ui.js";
 import {
   Check,
   Clipboard,

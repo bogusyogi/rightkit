@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/agent-ui-components",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Coding-agent UI components: app frame, chat, composer, review, panels, delivery, remote and usage.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -30,7 +30,6 @@
     "@rightkit/agent-ui-settings": "workspace:^",
     "@rightkit/agent-ui-workbench": "workspace:^",
     "@rightkit/app-update": "workspace:^",
-    "@rightkit/dictation-ui": "workspace:^",
     "@rightkit/legal-ui": "workspace:^",
     "@rightkit/platform-ui": "workspace:^",
     "@rightkit/react-shell": "workspace:^",

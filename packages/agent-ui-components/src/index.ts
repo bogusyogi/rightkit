@@ -92,3 +92,7 @@ export * from "./lib/appSurfaceProps/shared.js";
 export * from "./state/mcpStore.js";
 export * from "./state/permissionsStore.js";
 export * from "./state/storeSelectors.js";
+// Voice conversation loop (moved from @rightkit/dictation-ui 0.1.0 src/voice in 0.1.1).
+export { default as VoiceConversation, type VoiceConversationProps } from "./components/voice/VoiceConversation.js";
+export * from "./hooks/voice/useMicRecorder.js";
+export * from "./hooks/voice/useVoiceConversation.js";

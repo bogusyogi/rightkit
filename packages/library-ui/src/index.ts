@@ -1,59 +1,31 @@
-// Generated entry: every module whose exports do not collide with an earlier one.
-// Every module is also importable directly by subpath, e.g. `<package>/lib/foo`.
+// @rightkit/library-ui: one library contract (`LibrarySource`, `LibraryRow`, `LibraryDetail`), the
+// list (HeardRight's History as the reference) and the reader (ScrapeRight's Detail as the
+// reference). No IPC: the host supplies the source. ScrapeRight's queue screens are on the
+// `./queue` entry until a queue UI package exists.
 
-export * from "./appName.js";
-export * from "./history/pages/Transcribe.js";
-export * from "./history/pages/history/HistoryChrome.js";
-export * from "./history/pages/history/HistoryList.js";
-export * from "./history/pages/history/useHistoryQuery.js";
-export * from "./history/pages/history/useHistorySelection.js";
-export * from "./queue/components/CategoryIcon.js";
-export * from "./queue/components/DesktopWorkspace.js";
-export * from "./queue/components/DropOverlay.js";
-export * from "./queue/components/JobCard.js";
-export * from "./queue/components/JobStatePreview.js";
-export * from "./queue/components/NavTabs.js";
-export * from "./queue/components/PasteBar.js";
-export * from "./queue/components/QueueBoard.js";
-export * from "./queue/components/QueueView.js";
-export * from "./queue/components/SourcePlatformIcon.js";
-export * from "./queue/components/TitleBar.js";
-export * from "./queue/components/TranscriptFileActions.js";
-export * from "./queue/components/WorkbenchPreview.js";
-export * from "./queue/hooks/useEngineEvents.js";
-export * from "./queue/lib/alreadyQueued.js";
-export * from "./queue/lib/categoryDisplay.js";
-export * from "./queue/lib/desktopSources.js";
-export * from "./queue/lib/dropOverlay.js";
-export * from "./queue/lib/errorMessage.js";
-export * from "./queue/lib/fileFilters.js";
-export * from "./queue/lib/flash.js";
-export * from "./queue/lib/format.js";
-export * from "./queue/lib/ipc/index.js";
-export * from "./queue/lib/ipc/qaGate.js";
-export * from "./queue/lib/ipc/streamEvents.js";
-export * from "./queue/lib/ipc/subscribe.js";
-export * from "./queue/lib/jobAnnouncement.js";
-export * from "./queue/lib/jobDisplay.js";
-export * from "./queue/lib/jobState.js";
-export * from "./queue/lib/license.js";
-export * from "./queue/lib/notify.js";
-export * from "./queue/lib/platform.js";
-export * from "./queue/lib/playlistUrl.js";
-export * from "./queue/lib/queueView.js";
-export * from "./queue/lib/requestGate.js";
-export * from "./queue/lib/theme.js";
-export * from "./queue/lib/transcriptActions.js";
-export * from "./queue/lib/transcriptHooks.js";
-export * from "./queue/lib/transcriptLoad.js";
-export * from "./queue/lib/ui.js";
-export * from "./queue/lib/updateAuth.js";
-export * from "./queue/lib/workbench.js";
-export * from "./queue/views/Detail.js";
-export * from "./queue/views/DetailChrome.js";
-export * from "./queue/views/Library.js";
-export * from "./queue/views/LibraryList.js";
-export * from "./queue/views/LibraryToolbar.js";
-export * from "./queue/views/detailFind.js";
-export * from "./queue/views/settings/prefs.js";
-export * from "./queue/views/settings/useLicense.js";
+export * from "./contract.js";
+export * from "./host.js";
+export * from "./list/format.js";
+export * from "./list/LibraryChrome.js";
+export * from "./list/LibraryRows.js";
+export * from "./list/LibraryScreen.js";
+export * from "./list/OriginIcon.js";
+export * from "./list/RecoveryBanner.js";
+export * from "./list/useGroupSelection.js";
+export * from "./list/useLibraryQuery.js";
+export * from "./list/useLibrarySelection.js";
+export * from "./reader/find.js";
+export * from "./reader/LibraryReader.js";
+export * from "./reader/ReaderChrome.js";
+export {
+  CarouselLayout,
+  countWords,
+  type DetailTab,
+  FindBar,
+  ImageGrid,
+  MediaPlayer,
+  readingMinutes,
+  textForTab,
+  TranscriptBody,
+} from "./reader/ReaderParts.js";
+export * from "./ui.js";

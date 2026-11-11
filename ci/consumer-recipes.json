@@ -752,7 +752,6 @@
           "@rightkit/agent-ui-hooks",
           "@rightkit/agent-ui-settings",
           "@rightkit/agent-ui-workbench",
-          "@rightkit/dictation-ui",
           "@rightkit/terminal-ui",
           "@tauri-apps/api",
           "@tauri-apps/plugin-dialog",
@@ -760,7 +759,7 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/agent-ui-components/README.md": "a5b6fbd2afd41711bcd4960e3b9a4d4daaac83fe08fd9db004177c8285987165",
+        "ci/consumers/npm/agent-ui-components/README.md": "794556ef9f9f7716fdeb0c0284d88b36f201bbcc84ddbdd41368ef1279a40330",
         "ci/consumers/npm/agent-ui-components/consumer.mjs": "e93c693554e81959dc2e95c39b6cab846f7c627acdc08752f490662906b07101",
         "ci/consumers/npm/agent-ui-components/package.json": "df25963492ee52a3579908849383e60ba689f91b11ac122630739171bbce27d6",
         "ci/consumers/npm/agent-ui-components/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
@@ -1169,45 +1168,26 @@
       "scenarios": 1,
       "surface": [
         ".",
-        "./components/ErrorBanner",
-        "./components/PageShell",
-        "./hooks/useHistorySourceSelection",
-        "./hooks/usePlatform",
-        "./lib/fieldStore",
-        "./lib/homeMetrics",
-        "./lib/license",
-        "./lib/settingsRegistry",
-        "./lib/tauri",
-        "./lib/ui",
         "./package.json",
-        "./pages/history/AppIcon",
-        "./pages/history/historyUtils",
-        "./voice/components/VoiceConversation"
+        "./pill"
       ],
       "closure": {
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
-          "@rightkit/app-update": "0.4.2",
-          "@rightkit/legal": "0.6.3",
-          "@rightkit/license": "0.3.0",
-          "@rightkit/logs": "0.1.6",
+          "@rightkit/library-ui": "0.2.0",
           "@rightkit/platform-ui": "0.4.0",
           "@rightkit/react-shell": "0.7.2",
-          "@rightkit/settings-ui": "0.7.0",
-          "@rightkit/theme": "0.3.1"
+          "@rightkit/settings-ui": "0.7.0"
         },
         "declaredOnly": [
-          "@phosphor-icons/react",
-          "@tauri-apps/api",
-          "@tauri-apps/plugin-process",
-          "@tauri-apps/plugin-updater"
+          "@phosphor-icons/react"
         ]
       },
       "files": {
-        "ci/consumers/npm/dictation-ui/README.md": "87d785ae2c5108c56de7fb65b2b2974d4e0c6aef6342b34292c2650558776621",
-        "ci/consumers/npm/dictation-ui/consumer.mjs": "57a1bf89c959c9d9c91a0e9ac4a67eb128cf03adbfc50c31e75c4d29f84fb77a",
-        "ci/consumers/npm/dictation-ui/package.json": "cec3d47765b1ceaf8060e158746d29d4fcebed758c901f79dde31704811f5e19",
+        "ci/consumers/npm/dictation-ui/README.md": "7b6be5306b427f66ddf943d65afa02be6162670257250268cfa9bdffd36b3ffc",
+        "ci/consumers/npm/dictation-ui/consumer.mjs": "e5f2b5286ec8cd7ec50c909e49f4cab90ff3f77f66b91504fa69537c70b35f9f",
+        "ci/consumers/npm/dictation-ui/package.json": "55dc0391bc56ca15e195ce7eabdae7577b3de1440420e1adab4ee2ca4f64c739",
         "ci/consumers/npm/dictation-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -1465,35 +1445,30 @@
       "surface": [
         ".",
         "./package.json",
+        "./queue",
         "./styles.css"
       ],
       "closure": {
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
-          "@rightkit/app-update": "0.4.2",
           "@rightkit/doc-render": "0.2.1",
-          "@rightkit/license": "0.3.0",
           "@rightkit/media-ui": "0.3.4",
           "@rightkit/platform-ui": "0.4.0",
           "@rightkit/react-shell": "0.7.2",
-          "@rightkit/settings-ui": "0.7.0",
-          "@rightkit/tauri-shell": "0.1.3",
-          "@rightkit/theme": "0.3.1"
+          "@rightkit/tauri-shell": "0.1.3"
         },
         "declaredOnly": [
           "@phosphor-icons/react",
-          "@rightkit/dictation-ui",
           "@tauri-apps/api",
           "@tauri-apps/plugin-dialog",
-          "@tauri-apps/plugin-process",
           "lucide-react"
         ]
       },
       "files": {
-        "ci/consumers/npm/library-ui/README.md": "8521e747fbf31d1ba630b7ba5928820f9522e569b409e02fc1f8154c1a4c4ef1",
-        "ci/consumers/npm/library-ui/consumer.mjs": "bd5a642b9e74e447b42751321a662a4b25d5f4fca66379783fe4badac92502ca",
-        "ci/consumers/npm/library-ui/package.json": "66684047e6c026d07990ad232a195ad856f06fed993560454cc1327ab4399afe",
+        "ci/consumers/npm/library-ui/README.md": "c3b9e69cfa3b6eafd1c969407b90cfbd0d2ef4ad13d74049021b513dc0ea56e1",
+        "ci/consumers/npm/library-ui/consumer.mjs": "09d7e7864e55b23b56e46c6bc298373c079d2fe02c69b209dade5bcd4e2d6bb1",
+        "ci/consumers/npm/library-ui/package.json": "e5bb04d512972c776d70fe2e2af1413625aa79cac832e6b3d29a9cd27008ae42",
         "ci/consumers/npm/library-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }

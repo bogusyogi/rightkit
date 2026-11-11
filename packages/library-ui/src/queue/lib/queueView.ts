@@ -48,8 +48,3 @@ export function showsOutputChip(job: Pick<JobInfo, "media">): boolean {
   return Boolean(job.media) && job.media?.action !== "transcribe";
 }
 
-/** Whitespace-delimited word count of a transcript body (memoized by the preview; issue #224). */
-export function countWords(text: string | null | undefined): number {
-  if (!text) return 0;
-  return text.trim().split(/\s+/).filter(Boolean).length;
-}

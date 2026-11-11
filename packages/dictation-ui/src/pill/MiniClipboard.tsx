@@ -1,8 +1,8 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowClockwise, ArrowCounterClockwise, X } from "@phosphor-icons/react";
-import { invoke } from "../lib/tauri.js";
+import { listenPill, pillClient } from "./pillHost.js";
 import { pillTooltipProps } from "./pillTooltip.js";
-import { hostAppName } from "../appName.js";
+import { hostAppName } from "../host.js";
 
 export interface MiniClipboardItem {
   delivery_id: string;
@@ -124,7 +124,7 @@ export const MINI_CLIPBOARD_CSS = `
 `;
 
 async function openHub(tab: "home" | "history") {
-  await invoke(tab === "history" ? "open_hub_history" : "open_hub_home").catch(() => undefined);
+  await pillClient().action(tab === "history" ? "openHubHistory" : "openHubHome").catch(() => undefined);
 }
 
 // Memoized per-row component for the "recent" list (up to 5 items) so a
@@ -246,7 +246,7 @@ export default function MiniClipboard({
     // item refetch can reset the React draft, which would copy the stale original.
     const value = fieldRef.current?.value ?? editValue;
     try {
-      await withTimeout(invoke("copy_text_to_clipboard", { text: value }));
+      await withTimeout(pillClient().copyText(value));
       // Persist only user edits. AI undo/redo is a local view toggle so redo is
       // not lost by overwriting the persisted polished transcript.
       if (draft?.dirty && value !== current.transcript) {
@@ -258,10 +258,7 @@ export default function MiniClipboard({
         );
         setDraft({ id: current.delivery_id, text: value, dirty: true });
         const update = withTimeout(
-          invoke("update_history_item", {
-            deliveryId: current.delivery_id,
-            transcript: value,
-          }),
+          pillClient().updateHistoryItem(current.delivery_id, value),
           600,
         ).catch(() => undefined);
         if (current.delivery_id === "current") {
@@ -279,7 +276,7 @@ export default function MiniClipboard({
   const copy = useCallback(
     async (item: MiniClipboardItem) => {
       try {
-        await withTimeout(invoke("copy_text_to_clipboard", { text: item.transcript }));
+        await withTimeout(pillClient().copyText(item.transcript));
         finishCopy(item.delivery_id);
       } catch {
         setCopiedId("");

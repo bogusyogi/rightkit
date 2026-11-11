@@ -1,6 +1,6 @@
 # @rightkit/agent-ui-components npm consumer (npm.@rightkit/agent-ui-components)
 
-Packed-archive consumer for `@rightkit/agent-ui-components` 0.1.0 (the workspace version). The unit is installed only from the sealed `file:` archive; the reviewed closure pins `react` 19.3.1, `react-dom` 19.3.1, `@rightkit/app-update` 0.4.2, `@rightkit/legal-ui` 0.4.1, `@rightkit/platform-ui` 0.4.0, `@rightkit/react-shell` 0.7.2, `@rightkit/settings-ui` 0.7.0. Declared-only dependencies: `@rightkit/agent-ui-core`, `@rightkit/agent-ui-hooks`, `@rightkit/agent-ui-settings`, `@rightkit/agent-ui-workbench`, `@rightkit/dictation-ui`, `@rightkit/terminal-ui`, `@tauri-apps/api`, `@tauri-apps/plugin-dialog`, `zustand`.
+Packed-archive consumer for `@rightkit/agent-ui-components` 0.1.1 (the workspace version). The unit is installed only from the sealed `file:` archive; the reviewed closure pins `react` 19.3.1, `react-dom` 19.3.1, `@rightkit/app-update` 0.4.2, `@rightkit/legal-ui` 0.4.1, `@rightkit/platform-ui` 0.4.0, `@rightkit/react-shell` 0.7.2, `@rightkit/settings-ui` 0.7.0. Declared-only dependencies: `@rightkit/agent-ui-core`, `@rightkit/agent-ui-hooks`, `@rightkit/agent-ui-settings`, `@rightkit/agent-ui-workbench`, `@rightkit/terminal-ui`, `@tauri-apps/api`, `@tauri-apps/plugin-dialog`, `zustand`.
 
 Surface (exact `exports` keys): `.`, `./*`, `./*.css`, `./*.json`.
 

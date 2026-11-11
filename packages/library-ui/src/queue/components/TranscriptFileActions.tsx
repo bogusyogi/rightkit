@@ -1,6 +1,6 @@
 import { ExternalLink, FileText, FolderOpen } from "lucide-react";
 import { invoke } from "../lib/ipc/index.js";
-import { buttonClass } from "../lib/ui.js";
+import { buttonClass } from "../../ui.js";
 import { runTranscriptFileAction } from "../lib/transcriptActions.js";
 
 type TranscriptFileActionsProps = {

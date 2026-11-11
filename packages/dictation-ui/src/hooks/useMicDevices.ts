@@ -3,15 +3,9 @@
 // component is gone.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "../lib/tauri.js";
+import { dictationClient, type MicDevice } from "../host.js";
 
-export interface MicDevice {
-  id: number;
-  name: string;
-  default: boolean;
-  channels: number;
-  platform_id?: string | null;
-}
+export type { MicDevice };
 
 export interface UseMicDevices {
   devices: MicDevice[];
@@ -39,7 +33,7 @@ export function useMicDevices(refreshToken = 0): UseMicDevices {
     setError("");
     void (async () => {
       try {
-        const list = await invoke<MicDevice[]>("list_mic_devices");
+        const list = await dictationClient().micDevices();
         if (active) setDevices(list);
       } catch (e) {
         if (active) setError(String(e));

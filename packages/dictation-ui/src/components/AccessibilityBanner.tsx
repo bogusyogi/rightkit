@@ -3,12 +3,12 @@
 // identity). The hub re-checks on mount and focus. It polls only while access is
 // absent, so a healthy app does not make synchronous AX IPC every two seconds.
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "../lib/tauri.js";
-import { usePlatform } from "../hooks/usePlatform.js";
-import { hostAppName } from "../appName.js";
+import { dictationClient } from "../host.js";
+import { getPlatform } from "@rightkit/platform-ui";
+import { hostAppName } from "../host.js";
 
 export default function AccessibilityBanner() {
-  const platform = usePlatform();
+  const platform = getPlatform();
   // Assume granted until the first check resolves, so the banner never flashes.
   const [granted, setGranted] = useState(true);
   const shortcutsActivated = useRef(false);
@@ -17,13 +17,13 @@ export default function AccessibilityBanner() {
     if (platform !== "macos") return;
     let alive = true;
     const check = () =>
-      invoke<boolean>("macos_accessibility_status", { prompt: false })
+      (dictationClient().accessibilityGranted?.(false) ?? Promise.resolve(true))
         .then((ok) => {
           if (!alive) return;
           setGranted(ok);
           if (ok && !shortcutsActivated.current) {
             shortcutsActivated.current = true;
-            void invoke("activate_macos_shortcuts").catch(() => {
+            void (dictationClient().activateShortcuts?.() ?? Promise.resolve()).catch(() => {
               shortcutsActivated.current = false;
             });
           } else if (!ok) {
@@ -54,7 +54,7 @@ export default function AccessibilityBanner() {
       </span>
       <button
         type="button"
-        onClick={() => void invoke("open_macos_accessibility_settings").catch(() => undefined)}
+        onClick={() => void dictationClient().openAccessibilitySettings?.().catch(() => undefined)}
         className="shrink-0 cursor-pointer rounded-[var(--radius-sm)] bg-[var(--accent)] px-[var(--space-3)] py-[6px] font-medium text-[var(--accent-contrast)] transition-[filter] hover:brightness-110 focus-visible:outline-none focus-visible:[box-shadow:var(--focus-ring)]"
       >
         Open Settings

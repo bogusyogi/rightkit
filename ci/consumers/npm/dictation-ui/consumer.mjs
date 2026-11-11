@@ -8,8 +8,8 @@ const recipeId = 'dictation-ui-root-export-consumer';
 const result = { recipeId, schemaVersion: 1, ok: false, host: { platform: process.platform, arch: process.arch, node: process.version }, artifact: null, scenarios: [], errors: [], nativeHostQualified: false };
 const failure = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error) });
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
-const surface = [".", "./components/ErrorBanner", "./components/PageShell", "./hooks/useHistorySourceSelection", "./hooks/usePlatform", "./lib/fieldStore", "./lib/homeMetrics", "./lib/license", "./lib/settingsRegistry", "./lib/tauri", "./lib/ui", "./package.json", "./pages/history/AppIcon", "./pages/history/historyUtils", "./voice/components/VoiceConversation"];
-const expected = ["setHostAppName", "hostAppName", "TRAY_ICON_DATA_URI"];
+const surface = [".", "./package.json", "./pill"];
+const expected = ["configureDictationHost", "HomePage", "DictationHistory", "deliveryRow"];
 
 try {
   const archive = path.resolve(required('RIGHTKIT_CONSUMER_ARTIFACT'));

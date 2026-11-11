@@ -1,6 +1,6 @@
 import { useDismiss } from "@rightkit/platform-ui/headless";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke, listen } from "../lib/tauri.js";
+import { listenPill, pillClient } from "./pillHost.js";
 import { pillTooltipProps } from "./pillTooltip.js";
 import MiniClipboard, {
   MINI_CLIPBOARD_CSS,
@@ -49,14 +49,15 @@ export default function MiniClipboardPopup() {
   const dismiss = useCallback(() => {
     dismissedRef.current = true;
     setClosed(true);
-    void invoke("dismiss_pill_clipboard").catch(() => undefined);
+    void pillClient().dismissClipboard().catch(() => undefined);
   }, []);
 
   // Load (or reload) recent items. The popup is ephemeral, but the watchdog may
   // re-emit clipboard://show while the window is still alive and waiting for ready.
   const loadItems = useCallback(() => {
     setLoaded(false);
-    void invoke<MiniClipboardItem[]>("get_pill_clipboard_items")
+    void pillClient()
+      .clipboardItems()
       .then((rows) => {
         const next = Array.isArray(rows) ? rows.slice(0, 3) : [];
         setItems(next);
@@ -73,7 +74,7 @@ export default function MiniClipboardPopup() {
     dismissedRef.current = false;
     setClosed(false);
     loadItems();
-    const un = listen<unknown>("clipboard://show", () => {
+    const un = listenPill("clipboardShow", () => {
       // The window is persistent (hidden on dismiss, reused on show), so each
       // show is a fresh presentation: clear the previous dismissal/interaction
       // instead of ignoring the event.
@@ -110,11 +111,12 @@ export default function MiniClipboardPopup() {
       const last = lastSentRef.current;
       if (Math.abs(w - last.w) <= 4 && Math.abs(h - last.h) <= 4) return;
       lastSentRef.current = { w, h };
-      void invoke("pill_clipboard_resize", { width: w, height: h })
+      void pillClient()
+        .resizeClipboard(w, h)
         .catch(() => undefined)
         .finally(() => {
           if (revealReadyRef.current) {
-            void invoke("pill_clipboard_ready").catch(() => undefined);
+            void pillClient().clipboardReady().catch(() => undefined);
           }
         });
     };
@@ -151,11 +153,12 @@ export default function MiniClipboardPopup() {
         const w = Math.ceil(r.width) + WINDOW_X_GUARD;
         const h = Math.ceil(r.height) + WINDOW_TOP_GUARD;
         lastSentRef.current = { w, h };
-        void invoke("pill_clipboard_resize", { width: w, height: h })
+        void pillClient()
+        .resizeClipboard(w, h)
           .catch(() => undefined)
           .finally(() => {
             if (revealReadyRef.current) {
-              void invoke("pill_clipboard_ready").catch(() => undefined);
+              void pillClient().clipboardReady().catch(() => undefined);
             }
           });
       });

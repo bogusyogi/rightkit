@@ -22,8 +22,8 @@ import { categoryIcon } from "../components/CategoryIcon.js";
 import { cx, ContextMenu, type MenuItem } from "@rightkit/react-shell/react";
 import { createShortcutRegistry } from "@rightkit/react-shell";
 import { moveIndex } from "@rightkit/platform-ui/headless";
-import { buttonClass, errorTextClass, mutedTextClass } from "../lib/ui.js";
-import { BackButton, DetailShell, TabButton } from "./DetailChrome.js";
+import { buttonClass, errorTextClass, mutedTextClass } from "../../ui.js";
+import { BackButton, DetailShell, TabButton } from "../../reader/ReaderChrome.js";
 import {
   countEntryMatches,
   countMatches,
@@ -31,8 +31,8 @@ import {
   findTextForMarkdown,
   normalizeFindQuery,
   transcriptEntries,
-} from "./detailFind.js";
-import { useLicense } from "./settings/useLicense.js";
+} from "../../reader/find.js";
+import { toLibraryDetail } from "../lib/libraryDetail.js";
 import {
   CarouselLayout,
   countWords,
@@ -43,7 +43,7 @@ import {
   textForTab,
   TranscriptBody,
   type DetailTab,
-} from "./DetailReader.js";
+} from "../../reader/ReaderParts.js";
 import { SourcePlatformIcon, sourcePlatform } from "../components/SourcePlatformIcon.js";
 import {
   Check,
@@ -62,7 +62,7 @@ import {
   Text,
   Video,
 } from "lucide-react";
-import { hostAppName } from "../../appName.js";
+import { libraryAppName as hostAppName } from "../../host.js";
 
 /** Width of the Save / More transcript menus (right-aligned under their trigger). */
 const MENU_WIDTH = 220;
@@ -89,6 +89,8 @@ interface Props {
   attachAttempt?: { id: string; stage: string; pct: number; error?: string | null };
   /** WS-6: offered on saved download rows — starts transcribe_saved_media. */
   onTranscribe?: () => void;
+  /** Pro entitlement (the host's licence state); gates timed exports and transcribe. */
+  pro?: boolean;
 }
 
 export function Detail({
@@ -103,6 +105,7 @@ export function Detail({
   onOpenPro,
   attachAttempt,
   onTranscribe,
+  pro = false,
 }: Props) {
   const [detail, setDetail] = useState<TranscriptDetail | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -117,7 +120,6 @@ export function Detail({
   const [showTimestamps, setShowTimestamps] = useState(true);
   // Save / More menus: an anchored ContextMenu opened from a toolbar trigger.
   const [menu, setMenu] = useState<{ kind: "export" | "more"; x: number; y: number } | null>(null);
-  const { pro } = useLicense();
   // WS-7 in-reader player: the media element lives in MediaPlayer; timestamped
   // transcript lines seek it via `seekMediaTo`, and `playheadS` (updated from
   // timeupdate/seeked events) drives the current-line highlight. `mediaBroken`
@@ -206,18 +208,18 @@ export function Detail({
   }, [jobId, attachAttempt?.id, loadDetail]);
 
   // Find works on the deferred query so typing never blocks on re-highlighting,
-  // and counts over the same text the active view renders (see detailFind.ts).
+  // and counts over the same text the active view renders (see reader/find.ts).
   const deferredQuery = useDeferredValue(query);
   const findQuery = normalizeFindQuery(deferredQuery);
   const matchCount = useMemo(() => {
     if (!detail || !findQuery) return 0;
     if (desktop) {
       return countEntryMatches(
-        transcriptEntries(detail, showTimestamps && Boolean(detail.timed_text?.trim())),
+        transcriptEntries(toLibraryDetail(detail), showTimestamps && Boolean(detail.timed_text?.trim())),
         findQuery,
       );
     }
-    const text = textForTab(detail, tab);
+    const text = textForTab(toLibraryDetail(detail), tab);
     const isMd = tab === "md" || tab === "mdTime";
     return countMatches(isMd ? findTextForMarkdown(text) : text, findQuery);
   }, [detail, desktop, findQuery, tab, showTimestamps]);
@@ -240,7 +242,7 @@ export function Detail({
   const handleCopy = useCallback(
     (format: DetailTab = tab) => {
       if (!detail) return;
-      copyTextToClipboard(textForTab(detail, format))
+      copyTextToClipboard(textForTab(toLibraryDetail(detail), format))
         .then(flashCopied)
         .catch((e) => onError?.(formatInvokeError(e)));
     },
@@ -752,7 +754,7 @@ export function Detail({
             {isImages ? (
               <ImageGrid files={detail.slides} onReveal={handleRevealMedia} />
             ) : isCarousel ? (
-              <CarouselLayout detail={detail} activeSlide={activeSlide} onSlide={setActiveSlide} />
+              <CarouselLayout detail={toLibraryDetail(detail)} activeSlide={activeSlide} onSlide={setActiveSlide} />
             ) : hasTranscript ? (
               <DesktopTranscript
                 detail={detail}
@@ -932,10 +934,10 @@ export function Detail({
       {isImages ? (
         <ImageGrid files={detail.slides} onReveal={handleRevealMedia} />
       ) : isCarousel ? (
-        <CarouselLayout detail={detail} activeSlide={activeSlide} onSlide={setActiveSlide} />
+        <CarouselLayout detail={toLibraryDetail(detail)} activeSlide={activeSlide} onSlide={setActiveSlide} />
       ) : hasTranscript ? (
         <TranscriptBody
-          detail={detail}
+          detail={toLibraryDetail(detail)}
           tab={tab}
           query={findable ? findQuery : ""}
           matchIndex={matchIndex}
@@ -1078,7 +1080,7 @@ function DesktopTranscript({
   /** Seek handler — present only while a playable media element is mounted. */
   onSeekTime?: (seconds: number) => void;
 }) {
-  const entries = useMemo(() => transcriptEntries(detail, timestamps), [detail, timestamps]);
+  const entries = useMemo(() => transcriptEntries(toLibraryDetail(detail), timestamps), [detail, timestamps]);
 
   // Active line = the last timestamped entry at or before the playhead.
   // Untimed lines (headings, wrapped prose) never light up on their own.

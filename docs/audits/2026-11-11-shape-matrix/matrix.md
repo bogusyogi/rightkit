@@ -2,7 +2,7 @@
 
 Generated 2026-11-11T17:49Z from RightKit 55b330d.
 
-Packages: 306 (223 crates, 53 npm, 30 Swift). Reviewed for shape: 306 (best 67, gaps 200, wrong 32, missing 7). Not yet reviewed: 0.
+Packages: 306 (223 crates, 53 npm, 30 Swift). Reviewed for shape: 306 (best 67, gaps 202, wrong 30, missing 7). Not yet reviewed: 0.
 
 Cell: review fit · pin state on the app's main · planned lines and the share found in the package. Empty means the app has nothing for the package.
 
@@ -270,7 +270,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 
 | Package | Kind | Published | Shape | Basis | heardright | viewright | pulse | coderight | genright | mailright | scraperight | cutright | postright | legion |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `@rightkit/library-ui` | npm | yes | wrong | ScrapeRight desktop front end (src/queue) and HeardRight History/Transcribe pages (src/history) side by side | wrong · 2870L 83% |  |  |  |  |  | fits · ahead · 8194L 79% |  |  |  |
+| `@rightkit/library-ui` | npm | yes | gaps | one LibrarySource/row/detail contract with no IPC; list from HeardRight's History, reader from ScrapeRight's Detail (0.2.0, branch); ScrapeRight's queue screens left on ./queue | wrong · 2870L 83% |  |  |  |  |  | fits · ahead · 8194L 79% |  |  |  |
 | `rightkit-browser` | cargo | no (0.3.10, registry 0.3.9) | gaps | own implementation, used by ScrapeRight, GenRight, Pulse | local |  | adopted | adopted · 3460L 3% | adopted |  | gaps · adopted · 932L 3% |  |  | adopted |
 | `rightkit-catalog` | cargo | yes | best | fresh implementation (localisation catalog generator) |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-feed` | cargo | yes | best | fresh implementation (RSS/Atom parser) |  |  |  |  |  |  |  |  |  |  |
@@ -312,7 +312,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `@rightkit/blender-worker` | npm | yes | gaps | Not re-reviewed. Verdict copied from the row `rightkit-blender-worker` in matrix-rows-video-generative.json (Generative media family). That row's basis: GenRight workers/blender moved 2026-11-01 (npm wrapper around Python) |  |  |  |  | fits · ahead |  |  |  |  |  |
 | `@rightkit/build-control-policy` | npm | private | gaps | RightKit's own agent and build admission tooling (ownership write hooks, session hook, heavy-write guard, host gate); no app code | fits |  | fits | fits |  |  |  |  |  |  |
-| `@rightkit/dictation-ui` | npm | yes | wrong | HeardRight main's webview front end copied file for file (83 files have a same-path twin in heardright-main/tauri-app-next/src; 542 of 10,555 lines differ, mostly `.js` import suffixes and renamed helpers), plus CodeRight's voice-conversation loop under src/voice (3 files) | wrong · 8675L 96% |  |  | wrong · 1090L  |  |  | gaps |  |  |  |
+| `@rightkit/dictation-ui` | npm | yes | gaps | HeardRight's dictation pill and pages over a host DictationClient/PillClient (0.2.0, branch); app frame, licence, update, theme, legal and IPC copies deleted, voice loop moved to agent-ui-components | wrong · 8675L 96% |  |  | wrong · 1090L  |  |  | gaps |  |  |  |
 | `@rightkit/hooks` | npm | yes | best | Fresh RightKit implementation: normalise a hook payload, run modules in order under a deadline |  |  |  | exception |  |  |  |  |  | adopted |
 | `@rightkit/issues-tracker` | npm | yes | best | Fresh RightKit tool (`right-issues` writes issues.html from GitHub issues) | fits · adopted |  | fits · adopted | gaps |  | fits · adopted · 88L 93% | fits · adopted |  | fits · adopted · 88L 93% |  |
 | `@rightkit/ml-lab` | npm | private | wrong | Not re-reviewed. Verdict copied from the row `rightkit-ml-lab` in matrix-rows-context-tooling.json (Foundation & tooling family). That row's basis: HeardRight training and evaluation scripts copied with their directory layout | wrong |  |  |  |  |  |  |  |  |  |
@@ -387,12 +387,10 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-video-project` | cargo | yes | gaps | CutRight cutright-project moved (project, ingest, render, source, probe, worker, loudness, lock, audio_sync, still) |  |  |  |  |  |  |  | gaps · ahead · 14524L 35% |  |  |
 | `RightKitMedia` | swift | n/a | missing | not in RightKit |  |  |  |  |  |  |  | gaps · 1859L 0% |  |  |
 
-## Wrong shape (29 packages; sub-crates that inherit a family verdict are not repeated)
+## Wrong shape (27 packages; sub-crates that inherit a family verdict are not repeated)
 
 | Package | Why | Reference app |
 |---|---|---|
-| `@rightkit/dictation-ui` | It is one app's whole front end (sidebar, title bar, licence, auto-update, theme, legal, settings registry, pill, pages) with a second app's unrelated voice loop beside it. No app depends on it; HeardRight main keeps the same files, and CodeRight's current tree no longer has the voice files. | heardright |
-| `@rightkit/library-ui` | Two apps' screens in two folders with no shared component, literal Tauri command names and one app's theme, licence and title bar. | heardright |
 | `@rightkit/media-gen-ui` | The GenRight application frontend including a 4,003-line browser mock of the engine, legal documents, onboarding/license/app-update wiring and brand data. | genright |
 | `@rightkit/ml-lab` | A private, unbuilt file dump of one product's experiments: no entry points, no dependency manifest, machine paths, dated experiment folders. Not a shared package and not publishable. | heardright |
 | `@rightkit/system-ui` | Views call Tauri invoke directly with Pulse command names, carry Pulse strings and bundle chat, nearby, launcher settings, onboarding and legal; a second app cannot adopt it. | pulse |
@@ -439,7 +437,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 - `@rightkit/app-update` (gaps): see rightkit-app-update
 - `@rightkit/blender-worker` (gaps): Split generic worker (contract, worker, scene, pngcheck, install, qualify, schemas) from product look-dev (fenrir, stonewash, product_* modules) which becomes a host-supplied assets/recipes pack via RIGHTKIT_BLENDER_ASSETS_DIR; Fix the plan name to the npm package
 - `@rightkit/build-control-policy` (gaps): Do not publish; keep private and say so in the matrix; Record that app scripts depend on a host-installed bin, so a fresh machine needs the install step before any app script runs; Version string 0.1.5-phase1: settle a normal version before anything else pins it
-- `@rightkit/dictation-ui` (wrong): Redraw as three units: (a) dictation pill overlay (pill/*, hint catalog) with an event/command interface; (b) dictation pages (Home, Dictation, Vocabulary, Polish, replacements, snippets) over a typed `DictationClient` the host supplies; (c) voice conversation (src/voice) moved to the agent UI family or its own package; Delete the licence, auto-update, theme, legal, sidebar, title-bar and window-control copies; use the owning packages; Storage keys, event names and theme code from host configuration, not `heardright.*` literals; Move history helpers next to the History page in @rightkit/library-ui and drop that package's dependency on this one; Decide what happens to the published 0.1.0 (deprecate once the split packages exist); Then HeardRight deletes its 83 twins; until then this package is a duplicate of HeardRight's src
+- `@rightkit/dictation-ui` (gaps): HeardRight writes its DictationClient, PillClient and history LibrarySource adapters (mapping in reports/dictation-library-ui-redraw-design.md) and deletes its 83 twins; rename the hr-* CSS classes with a host stylesheet migration; move lib/ui's class table to the host theme; owner to confirm the dictation/library redraw; publish 0.2.0, then deprecate 0.1.0
 - `@rightkit/doc-render` (best): Settle the Mermaid policy with markdown-editor; Publish 0.2.2
 - `@rightkit/document-core` (gaps): replace generated root exports with hand-written ones; owner to confirm the documents redraw; publish 0.2.0
 - `@rightkit/document-workspace` (gaps): rebuild the PDF editor on @rightkit/pdf-ui PdfViewer (pageLayers) and verify against ViewRight; host passes the format-to-pane table instead of importing the editors; migrate the viewright-paper / viewright-night theme ids; one Mermaid sanitizer; decision 7 (DOCX toolbar); owner to confirm the documents redraw; publish 0.2.0
@@ -449,7 +447,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 - `@rightkit/i18n` (gaps): add xcstrings import or generate xcstrings from JSON; re-map Pulse table to rightkit-i18n
 - `@rightkit/issues-tracker` (best): Correct the README status line; Drop the two generated-file rows from the plan
 - `@rightkit/legal` (best): remove the deprecated write port once HeardRight and ViewRight move
-- `@rightkit/library-ui` (wrong): define LibrarySource/row/detail contract with no IPC; list from HeardRight History, reader from ScrapeRight Detail; move queue components to a queue package; remove theme/licence/update/title bar/settings/mocks; drop dictation-ui dependency
+- `@rightkit/library-ui` (gaps): move ./queue to a queue UI package with a QueueSource contract; ScrapeRight implements a LibrarySource over get_history_page/get_transcript; rename the claude-* CSS classes; owner to confirm the dictation/library redraw; publish 0.2.0
 - `@rightkit/license` (gaps): publish 0.3.1; Publish 0.3.1 (createAccountClient, requestLink, redeemLink, retryPendingReleases) and bump from 0.3.0
 - `@rightkit/mail-ui` (gaps): MailClient interface with Tauri binding as subpath; move workspace/agent IPC out; mocks to dev entry; hostAppName
 - `@rightkit/markdown-editor` (gaps): Link, undo and asset ports as props; One Mermaid sanitizer with ViewRight's policy, in doc-render; Neutral scheme and event names; keep '<!-- viewright: -->' hints accepted; Written entry point

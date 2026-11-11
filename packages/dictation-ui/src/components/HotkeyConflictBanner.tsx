@@ -1,32 +1,28 @@
 import { useEffect, useState } from "react";
-import { useTauriEvent } from "../hooks/useTauriEvent.js";
-import { invoke } from "../lib/tauri.js";
+import { useDictationEvent } from "../hooks/useDictationEvent.js";
+import { dictationClient, type HotkeyConflict } from "../host.js";
 import { cx, ui } from "../lib/ui.js";
-import { hostAppName } from "../appName.js";
-
-type HotkeyConflict = {
-  shortcuts: string[];
-  message: string;
-};
+import { hostAppName } from "../host.js";
 
 export default function HotkeyConflictBanner() {
   const [conflict, setConflict] = useState<HotkeyConflict | null>(null);
   const [retrying, setRetrying] = useState(false);
 
   useEffect(() => {
-    void invoke<HotkeyConflict | null>("get_hotkey_conflict")
+    void dictationClient()
+      .hotkeyConflict()
       .then(setConflict)
       .catch(() => undefined);
   }, []);
 
-  useTauriEvent<HotkeyConflict | null>("hotkey-registration-status", setConflict);
+  useDictationEvent("hotkeyStatus", setConflict);
 
   async function retry() {
     setRetrying(true);
     try {
-      await invoke("register_hotkeys_now");
+      await dictationClient().registerHotkeys();
     } catch {
-      const current = await invoke<HotkeyConflict | null>("get_hotkey_conflict").catch(
+      const current = await dictationClient().hotkeyConflict().catch(
         () => conflict,
       );
       setConflict(current);

@@ -15,9 +15,7 @@ import {
   splitImageLines,
   type MediaMode,
 } from "../lib/mediaSelection.js";
-import { loadPrefs } from "../views/settings/prefs.js";
-import { useLicense } from "../views/settings/useLicense.js";
-import { hostAppName } from "../../appName.js";
+import { libraryAppName as hostAppName } from "../../host.js";
 
 type PasteBarProps = {
   onAdd: (inputs: string[], media?: MediaSpec) => Promise<boolean> | boolean;
@@ -26,6 +24,10 @@ type PasteBarProps = {
   /** Free-tier click on the + Transcript pill → open Settings at the Pro
    *  section (combined download+transcript is a Pro surface). */
   onOpenPro?: () => void;
+  /** Pro entitlement (the host's licence state). */
+  pro?: boolean;
+  /** Starting output and qualities (the host's stored preferences). */
+  defaults?: { output?: MediaMode; videoQuality?: VideoQuality; audioQuality?: AudioQuality };
 };
 const OUTPUT_MODES = [
   { value: "transcribe", label: "Transcribe", Icon: Text },
@@ -39,6 +41,8 @@ export function PasteBar({
   onPickFiles,
   submitBlocked = false,
   onOpenPro,
+  pro = false,
+  defaults,
 }: PasteBarProps) {
   const draftRef = useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = useState("");
@@ -49,14 +53,9 @@ export function PasteBar({
   const [authPrompt, setAuthPrompt] = useState<{ platform: string; url: string } | null>(null);
   // WS-5: "+ Transcript" upgrades an audio/video download to action:"both".
   const [withTranscript, setWithTranscript] = useState(false);
-  const [mediaMode, setMediaMode] = useState<MediaMode>(() => loadPrefs().defaultOutput);
-  const [videoQuality, setVideoQuality] = useState<VideoQuality>(
-    () => loadPrefs().defaultVideoQuality,
-  );
-  const [audioQuality, setAudioQuality] = useState<AudioQuality>(
-    () => loadPrefs().defaultAudioQuality,
-  );
-  const { pro } = useLicense();
+  const [mediaMode, setMediaMode] = useState<MediaMode>(defaults?.output ?? "transcribe");
+  const [videoQuality, setVideoQuality] = useState<VideoQuality>(defaults?.videoQuality ?? "p1080");
+  const [audioQuality, setAudioQuality] = useState<AudioQuality>(defaults?.audioQuality ?? "best");
   const source = useMemo(() => mediaKindForInputs(draft), [draft]);
   // Free tier caps video downloads at 1080p — 4K/source stay visible but
   // Pro-marked, matching the Downloads & Files settings row.

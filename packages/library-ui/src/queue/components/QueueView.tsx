@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { JobInfo, MediaSpec } from "../contract.js";
-import { isQaMode, qaState } from "../lib/ipc/index.js";
 import { selectWorkbenchJobId } from "../lib/workbench.js";
 import { PasteBar } from "./PasteBar.js";
 import { QueueBoard } from "./QueueBoard.js";
@@ -63,18 +62,6 @@ export function QueueView({
   }, [jobs, doneIds]);
 
   const nextSelectedId = useMemo(() => {
-    if (isQaMode && qaState === "queue-auth") {
-      return jobs[0]?.id ?? null;
-    }
-    if (isQaMode && (qaState === "queue-default" || qaState === "queue-transcript")) {
-      return jobs.find((job) => job.stage === "done")?.id ?? jobs[0]?.id ?? null;
-    }
-    if (
-      isQaMode &&
-      ["queue-hover", "queue-selected", "queue-error", "queue-attachments"].includes(qaState)
-    ) {
-      return jobs[0]?.id ?? null;
-    }
     if (closed) {
       // Keep a still-valid selection, but never auto-pick a fresh one.
       return selectedId && jobs.some((job) => job.id === selectedId) ? selectedId : null;

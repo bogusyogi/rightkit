@@ -44,7 +44,7 @@
 // `pill_terminal_reset_error` strings to THIS file — keep them present in
 // this comment if the code itself stays in usePillEvents.ts.
 
-import { getPlatform } from "../hooks/usePlatform.js";
+import { getPlatform } from "@rightkit/platform-ui";
 import { Icon } from "./PillIcon.js";
 import {
   BAR_BUFFER_SIZE,
@@ -178,7 +178,7 @@ export default function PillOverlay() {
                       aria-label="Open hub"
                       title="Open hub"
                       data-tooltip="Open hub"
-                      onClick={() => dispatch("open_hub_home")}
+                      onClick={() => dispatch("openHubHome")}
                     >
                       <Icon name="hub" />
                     </button>
@@ -189,7 +189,7 @@ export default function PillOverlay() {
                       title="Start dictation"
                       data-tooltip="Start dictation"
                       onClick={() => {
-                        dispatch("start_dictation");
+                        dispatch("startDictation");
                       }}
                     >
                       <Icon name="mic" />
@@ -220,7 +220,7 @@ export default function PillOverlay() {
                 title="Cancel"
                 data-tooltip="Cancel"
                 aria-hidden={!hovered}
-                onClick={() => dispatch("cancel_dictation")}
+                onClick={() => dispatch("cancelDictation")}
               >
                 <Icon name="cancel" />
               </button>
@@ -241,7 +241,7 @@ export default function PillOverlay() {
                   aria-label="Stop"
                   title="Stop"
                   data-tooltip="Stop"
-                  onClick={() => dispatch("pill_stop_dictation")}
+                  onClick={() => dispatch("stopDictation")}
                 >
                   <Icon name="stop" />
                 </button>
@@ -251,7 +251,7 @@ export default function PillOverlay() {
                   aria-label="Stop and send"
                   title="Stop and send"
                   data-tooltip="Stop and send"
-                  onClick={() => dispatch("pill_stop_and_send")}
+                  onClick={() => dispatch("stopAndSend")}
                 >
                   <Icon name="send" />
                 </button>

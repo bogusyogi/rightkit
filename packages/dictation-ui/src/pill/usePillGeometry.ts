@@ -17,8 +17,8 @@
 // [48, 140, 260]ms re-report cadence + dependency list).
 
 import { useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from "react";
-import { getPlatform } from "../hooks/usePlatform.js";
-import { invoke } from "../lib/tauri.js";
+import { getPlatform } from "@rightkit/platform-ui";
+import { listenPill, pillClient } from "./pillHost.js";
 import type { Mode } from "./pillBars.js";
 
 // MUST equal `.hr-pill.idle` width in pillStyles.ts. This is the footprint the
@@ -60,10 +60,7 @@ export function usePillGeometry({
     document.body.style.background = "transparent";
     document.body.style.margin = "0";
     document.body.style.overflow = "hidden";
-    void invoke("frontend_log", {
-      event: "pill_frontend_mount",
-      message: `url=${window.location.href} platform=${getPlatform()}`,
-    }).catch(() => undefined);
+    void pillClient().log("pill_frontend_mount", `url=${window.location.href} platform=${getPlatform()}`).catch(() => undefined);
   }, []);
 
   // The idle hover shell (.hr-pill.idle.hover::before) expands with a scale
@@ -101,11 +98,8 @@ export function usePillGeometry({
       width: r.width,
       height: r.height,
     };
-    void invoke("pill_hitbox", payload).catch((error) => {
-      void invoke("frontend_log", {
-        event: "pill_hitbox_error",
-        message: `reason=${reason} error=${String(error).slice(0, 220)}`,
-      }).catch(() => undefined);
+    void pillClient().setHitbox(payload).catch((error) => {
+      void pillClient().log("pill_hitbox_error", `reason=${reason} error=${String(error).slice(0, 220)}`).catch(() => undefined);
     });
   }, []);
 
@@ -127,11 +121,8 @@ export function usePillGeometry({
       if (w === lastW && h === lastH) return;
       lastW = w;
       lastH = h;
-      void invoke("frontend_log", {
-        event: "pill_frontend_resize",
-        message: `wrap=${r.width.toFixed(1)}x${r.height.toFixed(1)} send=${w}x${h} mode=${modeRef.current}`,
-      }).catch(() => undefined);
-      void invoke("pill_resize", { width: w, height: h }).catch(() => undefined);
+      void pillClient().log("pill_frontend_resize", `wrap=${r.width.toFixed(1)}x${r.height.toFixed(1)} send=${w}x${h} mode=${modeRef.current}`).catch(() => undefined);
+      void pillClient().resize(w, h).catch(() => undefined);
       reportPillHitbox("resize");
     };
     const ro = new ResizeObserver(() => {

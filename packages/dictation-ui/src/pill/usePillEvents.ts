@@ -24,29 +24,21 @@
 // src-tauri/tests/pill_lifecycle_contract_tests.rs).
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { invoke, listen } from "../lib/tauri.js";
+import { dictationStorageKey, type DeliveryTarget, type PillAction, type PillHistoryItem } from "../host.js";
+import { listenPill, pillClient } from "./pillHost.js";
 import { modeFor, type Mode, type PillEvent } from "./pillBars.js";
 import { animatePillIntroBloom, playPillIntroSwell } from "./usePillAnimation.js";
 
-interface HistoryItem {
-  delivery_id: string;
-  transcript: string;
-  target?: {
-    process_name?: string | null;
-    window_title?: string | null;
-  };
-}
-
-const PROMPT_HINT_COUNT_STORAGE_ID = "hr_prompt_hint_ai_recordings_v1";
-const PROMPT_HINT_SEEN_STORAGE_ID = "hr_prompt_hint_shown_v1";
-const PROMPT_HINT_DISABLED_STORAGE_ID = "hr_prompt_hint_disabled";
+// Browser-storage keys come from the host (`storageKeys`), so a host keeps its stored latches.
+const PROMPT_HINT_COUNT_STORAGE_ID = () => dictationStorageKey("promptHintCount");
+const PROMPT_HINT_SEEN_STORAGE_ID = () => dictationStorageKey("promptHintSeen");
+const PROMPT_HINT_DISABLED_STORAGE_ID = () => dictationStorageKey("promptHintDisabled");
 const PROMPT_HINT_THRESHOLD = 3;
 // Keep the Swift controller's 100 ms leave grace. The native frame then returns
 // directly to its compact geometry; scaling the hover shell into its centre
 // created an obvious fold on Windows.
 const HOVER_EXIT_DELAY_MS = 100;
 
-type DeliveryTarget = { process_name?: string | null; window_title?: string | null };
 
 export function isLikelyAiTarget(item: { target?: DeliveryTarget | null } | undefined): boolean {
   const process = item?.target?.process_name?.toLowerCase() ?? "";
@@ -97,7 +89,7 @@ export interface PillEvents {
   nativeHoveredRef: RefObject<boolean>;
   hoverExitDelayRef: RefObject<number | null>;
   clearHoverExit: () => void;
-  dispatch: (cmd: string) => void;
+  dispatch: (cmd: PillAction) => void;
   openClipboard: () => void;
 }
 
@@ -132,7 +124,7 @@ export function usePillEvents(): PillEvents {
   }, [mode]);
 
   useEffect(() => {
-    const unlisten = listen<{ phase: string }>("local-asr-model", (e) => {
+    const unlisten = listenPill("modelPhase", (e) => {
       setModelPreparing(e.payload.phase !== "installed");
     });
     return () => {
@@ -140,11 +132,12 @@ export function usePillEvents(): PillEvents {
     };
   }, []);
 
-  const dispatch = useCallback((cmd: string) => {
+  const dispatch = useCallback((cmd: PillAction) => {
     const log = (message: string) =>
-      invoke("frontend_log", { event: "pill_action_click", message }).catch(() => undefined);
+      pillClient().log("pill_action_click", message).catch(() => undefined);
     void log(`action=${cmd} phase=clicked`);
-    void invoke(cmd)
+    void pillClient()
+      .action(cmd)
       .then(() => log(`action=${cmd} phase=result outcome=ok`))
       .catch((error) =>
         log(`action=${cmd} phase=result outcome=error error=${String(error).slice(0, 240)}`),
@@ -152,7 +145,7 @@ export function usePillEvents(): PillEvents {
   }, []);
 
   const openClipboard = useCallback(() => {
-    dispatch("open_pill_clipboard");
+    dispatch("openClipboard");
   }, [dispatch]);
 
   return {
@@ -209,7 +202,7 @@ function usePillModeSubscription({
 }): void {
   // biome-ignore lint/correctness/useExhaustiveDependencies: levelRef/modeRef are stable refs mutated inside the listener.
   useEffect(() => {
-    const unlisten = listen<PillEvent>("pill://event", (e) => {
+    const unlisten = listenPill("event", (e) => {
       const ev = e.payload;
       if (ev.kind === "voice") {
         // `starting` remains a backwards-compatible event kind for older app
@@ -262,12 +255,12 @@ function usePillModeSubscription({
 function usePillPromptHintSubscription(): void {
   useEffect(() => {
     const logPromptHint = (message: string) => {
-      void invoke("frontend_log", { event: "prompt_hint_trigger", message }).catch(() => undefined);
+      void pillClient().log("prompt_hint_trigger", message).catch(() => undefined);
     };
     // Only the newest delivery may decide the hint: history replies can
     // resolve out of order, and a stale one must not judge a newer target.
     let latestSequence = 0;
-    const unlisten = listen<{ delivery_id?: string; target?: DeliveryTarget | null }>("delivery-recorded", (event) => {
+    const unlisten = listenPill("deliveryRecorded", (event) => {
       const deliveryId = event.payload.delivery_id;
       if (!deliveryId) {
         logPromptHint("reason=missing_delivery_id");
@@ -279,7 +272,7 @@ function usePillPromptHintSubscription(): void {
       const resolveTarget: Promise<{ target?: DeliveryTarget | null } | undefined> = event.payload
         .target
         ? Promise.resolve({ target: event.payload.target })
-        : invoke<HistoryItem[]>("get_recent_history").then((history) =>
+        : pillClient().recentHistory().then((history) =>
             history.find((row) => row.delivery_id === deliveryId),
           );
       void resolveTarget
@@ -297,16 +290,16 @@ function usePillPromptHintSubscription(): void {
             return;
           }
           try {
-            if (localStorage.getItem(PROMPT_HINT_DISABLED_STORAGE_ID) === "1") {
+            if (localStorage.getItem(PROMPT_HINT_DISABLED_STORAGE_ID()) === "1") {
               logPromptHint("reason=disabled");
               return;
             }
-            if (localStorage.getItem(PROMPT_HINT_SEEN_STORAGE_ID) === "1") {
+            if (localStorage.getItem(PROMPT_HINT_SEEN_STORAGE_ID()) === "1") {
               logPromptHint("reason=already_shown");
               return;
             }
-            const next = Number(localStorage.getItem(PROMPT_HINT_COUNT_STORAGE_ID) ?? "0") + 1;
-            localStorage.setItem(PROMPT_HINT_COUNT_STORAGE_ID, String(next));
+            const next = Number(localStorage.getItem(PROMPT_HINT_COUNT_STORAGE_ID()) ?? "0") + 1;
+            localStorage.setItem(PROMPT_HINT_COUNT_STORAGE_ID(), String(next));
             if (next < PROMPT_HINT_THRESHOLD) {
               logPromptHint(`reason=below_threshold count=${next}`);
               return;
@@ -315,10 +308,11 @@ function usePillPromptHintSubscription(): void {
             // Storage denial should not suppress the hint forever.
             logPromptHint("reason=storage_unavailable action=open");
           }
-          void invoke("show_prompt_hint")
+          void pillClient()
+            .showPromptHint()
             .then(() => {
               try {
-                localStorage.setItem(PROMPT_HINT_SEEN_STORAGE_ID, "1");
+                localStorage.setItem(PROMPT_HINT_SEEN_STORAGE_ID(), "1");
               } catch {
                 // The popup opened; failure to persist only means it may be offered again.
               }
@@ -371,7 +365,8 @@ function usePillTerminalResetSubscription({
     // after a newer dictation/error began is a backend no-op.
     let generation: number | null = null;
     if (mode === "error") {
-      void invoke<number | null>("terminal_error_generation")
+      void pillClient()
+        .terminalErrorGeneration()
         .then((value) => {
           generation = value ?? null;
         })
@@ -387,11 +382,8 @@ function usePillTerminalResetSubscription({
       // the window never hides. Error uses a strict terminal-only reset: an
       // expiry from an older Error can never cancel a newer Recording.
       const command = mode === "error" ? "recover_terminal_error" : "reveal_pill";
-      void (mode === "error" ? invoke(command, { generation }) : invoke(command)).catch((error) => {
-        void invoke("frontend_log", {
-          event: "pill_terminal_reset_error",
-          message: `command=${command} error=${String(error).slice(0, 240)}`,
-        });
+      void (mode === "error" ? pillClient().recoverTerminalError(generation) : pillClient().revealPill()).catch((error) => {
+        void pillClient().log("pill_terminal_reset_error", `command=${command} error=${String(error).slice(0, 240)}`);
       });
     }, hold);
     return () => window.clearTimeout(id);
@@ -426,8 +418,8 @@ function usePillIntroSubscription({
       // A delivered event no longer needs replay. Clear the latch here so a
       // later WebView recreation cannot replay this launch over a new splash.
       // The mount-pull path already swapped it false; a second swap is harmless.
-      void invoke<boolean>("take_pill_intro").catch(() => undefined);
-      void invoke("frontend_log", { event: "pill_intro_received", message: "starting" }).catch(
+      void pillClient().takeIntro().catch(() => undefined);
+      void pillClient().log("pill_intro_received", "starting").catch(
         () => undefined,
       );
       setIntro(true);
@@ -436,10 +428,11 @@ function usePillIntroSubscription({
       animatePillIntroBloom(pillRef, setIntro);
       playPillIntroSwell();
     };
-    const unlisten = listen("pill://intro", runIntro);
+    const unlisten = listenPill("intro", runIntro);
     // Mount-time pull: covers the reveal that already happened before this
     // listener existed. No-op when the latch is clear.
-    void invoke<boolean>("take_pill_intro")
+    void pillClient()
+      .takeIntro()
       .then((pending) => {
         if (pending) runIntro();
       })
@@ -471,7 +464,7 @@ function usePillHoverSubscription({
   // another app or after focus moves away (the "stuck expanded" bug).
   // biome-ignore lint/correctness/useExhaustiveDependencies: hoveredRef/hoverExitDelayRef are stable refs used inside the hover listener.
   useEffect(() => {
-    const unlisten = listen<boolean>("pill://hover", (e) => {
+    const unlisten = listenPill("hover", (e) => {
       const next = Boolean(e.payload);
       nativeHoveredRef.current = next;
       hoveredRef.current = next;
@@ -518,7 +511,7 @@ function usePillCursorHighlightSubscription(): void {
       if (btn) btn.classList.add("jshover");
       current = btn;
     };
-    const unlisten = listen<[number, number]>("pill://cursor", (e) => {
+    const unlisten = listenPill("cursor", (e) => {
       const [x, y] = e.payload;
       if (x === lastX && y === lastY) return;
       lastX = x;
@@ -526,7 +519,7 @@ function usePillCursorHighlightSubscription(): void {
       const el = document.elementFromPoint(x, y);
       setHot(el ? el.closest(".hr-btn") : null);
     });
-    const unHover = listen<boolean>("pill://hover", (e) => {
+    const unHover = listenPill("hover", (e) => {
       if (!e.payload) {
         lastX = Number.NaN;
         lastY = Number.NaN;

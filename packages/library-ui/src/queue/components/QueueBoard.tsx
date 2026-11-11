@@ -1,9 +1,8 @@
 import { memo, type ReactNode, useMemo, useState } from "react";
 import type { JobInfo, Kind } from "../contract.js";
-import { isQaMode, qaState } from "../lib/ipc/index.js";
 import { categoryForKind } from "../lib/jobDisplay.js";
 import { countQueueChips, isRunningStage } from "../lib/queueView.js";
-import { buttonClass, panelClass } from "../lib/ui.js";
+import { buttonClass, panelClass } from "../../ui.js";
 import { EmptyState, cx } from "@rightkit/react-shell/react";
 import { JobCard } from "./JobCard.js";
 import { CircleSlash, RotateCcw, Trash2 } from "lucide-react";
@@ -51,7 +50,6 @@ export function QueueBoard({
   // One pass over the jobs for every chip count (issue #224).
   const counts = useMemo(() => countQueueChips(jobs), [jobs]);
   const { failed, ready, running, needs } = counts;
-  const qaHighlighted = isQaMode && (qaState === "queue-hover" || qaState === "queue-selected");
   const selectKind = (kind: Kind) => {
     setCatFilter("all");
     setKindFilter((current) => (current === kind ? "all" : kind));
@@ -286,7 +284,7 @@ export function QueueBoard({
                           <JobCard
                             key={job.id}
                             job={job}
-                            highlighted={qaHighlighted && index === 0}
+                            highlighted={false}
                             selected={job.id === selectedId}
                             onSelect={onSelect}
                             onOpen={onOpen}
@@ -305,7 +303,7 @@ export function QueueBoard({
                   <JobCard
                     key={job.id}
                     job={job}
-                    highlighted={qaHighlighted && index === 0}
+                    highlighted={false}
                     selected={job.id === selectedId}
                     onSelect={onSelect}
                     onOpen={onOpen}

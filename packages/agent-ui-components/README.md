@@ -5,7 +5,7 @@ Coding-agent UI components: app frame, chat, composer, review, panels, delivery,
 | Item | Value |
 |---|---|
 | Where it runs | App webview UI (React) |
-| Version | 0.1.0 |
+| Version | 0.1.1 |
 | License | MIT OR Apache-2.0 |
 
 ## Entry points
@@ -18,7 +18,7 @@ Coding-agent UI components: app frame, chat, composer, review, panels, delivery,
 
 ## Depends on
 
-`@rightkit/agent-ui-core`, `@rightkit/agent-ui-hooks`, `@rightkit/agent-ui-settings`, `@rightkit/agent-ui-workbench`, `@rightkit/dictation-ui`, `@rightkit/terminal-ui`
+`@rightkit/agent-ui-core`, `@rightkit/agent-ui-hooks`, `@rightkit/agent-ui-settings`, `@rightkit/agent-ui-workbench`, `@rightkit/terminal-ui`
 
 ## Peer dependencies
 

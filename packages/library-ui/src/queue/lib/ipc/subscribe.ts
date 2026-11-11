@@ -1,6 +1,6 @@
 import { Channel } from "@tauri-apps/api/core";
 import type { EngineLifecycleEvent, JobEvent, JobKindEvent } from "../../contract.js";
-import { invoke, isQaMode, listen } from "./index.js";
+import { invoke } from "./index.js";
 import { dispatchStreamEvent } from "./streamEvents.js";
 import type { EngineSnapshot, EngineStreamHandlers, StreamEvent } from "./streamEvents.js";
 
@@ -14,29 +14,12 @@ export interface EngineSubscription {
  * Attach to the engine once: one IPC returns the job snapshot and the lifecycle
  * state, and every later change arrives on the same ordered channel. The shell
  * attaches before it reads the snapshot, so nothing lands in the gap between
- * them. A QA build keeps the mock's per-event listeners.
+ * them.
  */
 export async function subscribeEngine(
   handlers: EngineStreamHandlers,
 ): Promise<EngineSubscription> {
   let open = true;
-  if (isQaMode) {
-    const unlisten = await Promise.all([
-      listen<JobEvent>("job://update", (e) => open && handlers.onJobUpdate(e.payload)),
-      listen<JobKindEvent>("job://kind", (e) => open && handlers.onJobKind(e.payload)),
-      listen<EngineLifecycleEvent>(
-        "engine://state",
-        (e) => open && handlers.onEngineState(e.payload),
-      ),
-    ]);
-    return {
-      snapshot: null,
-      close: () => {
-        open = false;
-        for (const f of unlisten) f();
-      },
-    };
-  }
   const channel = new Channel<StreamEvent>();
   channel.onmessage = (event) => {
     if (open) dispatchStreamEvent(handlers, event);

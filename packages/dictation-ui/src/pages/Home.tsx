@@ -13,30 +13,17 @@ import {
   Sparkle,
 } from "@phosphor-icons/react";
 import ErrorBanner from "../components/ErrorBanner.js";
-import Kbd, { DICTATION_CHORD, pushToTalkChord } from "../components/Kbd.js";
-import PageShell from "../components/PageShell.js";
+import { Kbd } from "@rightkit/platform-ui/react";
+import { OriginIcon, rowActionChip as historyActionChip } from "@rightkit/library-ui";
+import { DICTATION_CHORD, pushToTalkChord } from "../lib/chords.js";
+import { PageShell } from "@rightkit/react-shell/react";
 import { useHomeDashboard } from "../hooks/useHomeDashboard.js";
-import { usePlatform } from "../hooks/usePlatform.js";
+import { getPlatform } from "@rightkit/platform-ui";
 import { useSettings } from "../hooks/useSettings.js";
 import type { HistoryItem } from "../lib/homeMetrics.js";
-import { invoke, listen } from "../lib/tauri.js";
+import { dictationClient, type NativeDragDropPosition } from "../host.js";
 import { cx, ui } from "../lib/ui.js";
-import { AppIcon } from "./history/AppIcon.js";
-import { historyActionChip, historyDevice, isLocallyDeletable, targetDisplay } from "./history/historyUtils.js";
-
-// Same payload shape TranscribeSurface consumes - the backend emits
-// `native-drag-drop` for every file drag over the hub window, with the
-// pointer position in PHYSICAL pixels.
-interface NativeDragDropPosition {
-  x: number;
-  y: number;
-}
-
-type NativeDragDropPayload =
-  | { type: "enter"; paths: string[]; position: NativeDragDropPosition }
-  | { type: "over"; position: NativeDragDropPosition }
-  | { type: "drop"; paths: string[]; position: NativeDragDropPosition }
-  | { type: "leave" };
+import { deliveryRow, historyDevice, isLocallyDeletable, targetDisplay } from "../history/deliveryRows.js";
 
 function timeAgo(ms: number): string {
   const delta = Math.max(0, Date.now() - ms);
@@ -66,7 +53,7 @@ function positionInside(el: HTMLElement | null, position: NativeDragDropPosition
 
 export default function HomePage({ onOpenTranscribe }: { onOpenTranscribe?: () => void }) {
   const { history, error, clearError, refreshHistory } = useHomeDashboard("home");
-  const platform = usePlatform();
+  const platform = getPlatform();
   const { get } = useSettings();
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -102,8 +89,7 @@ export default function HomePage({ onOpenTranscribe }: { onOpenTranscribe?: () =
   // transcribed inside the modal, same as today). A drop that lands before
   // the modal mounts still opens it, so retrying is one motion.
   useEffect(() => {
-    const unlistenPromise = listen<NativeDragDropPayload>("native-drag-drop", (event) => {
-      const p = event.payload;
+    const unlistenPromise = dictationClient().on("nativeDragDrop", (p) => {
       if (p.type === "leave") {
         setFileDragOver(false);
         dragOpenedRef.current = false;
@@ -127,7 +113,8 @@ export default function HomePage({ onOpenTranscribe }: { onOpenTranscribe?: () =
 
   function copyTranscript(id: string, text: string) {
     setActionError("");
-    void invoke<void>("copy_text_to_clipboard", { text })
+    void dictationClient()
+      .copyText(text)
       .then(() => {
         setCopiedId(id);
         if (copiedTimer.current !== undefined) window.clearTimeout(copiedTimer.current);
@@ -145,7 +132,7 @@ export default function HomePage({ onOpenTranscribe }: { onOpenTranscribe?: () =
     const transcript = draft.trim();
     if (!transcript) return;
     try {
-      const saved = await invoke<boolean>("update_history_item", { deliveryId, transcript });
+      const saved = await dictationClient().updateHistoryItem(deliveryId, transcript);
       if (!saved) throw new Error("Transcript was not found.");
       setEditingId("");
       setDraft("");
@@ -178,7 +165,7 @@ export default function HomePage({ onOpenTranscribe }: { onOpenTranscribe?: () =
   const middleMouseOn = get("middle_mouse_recording", true);
 
   return (
-    <PageShell tab="home">
+    <PageShell maxWidth={1320} className="dictation-page dictation-page--home">
       <div className="flex w-full flex-col gap-[var(--space-4)]">
         <ErrorBanner
           message={actionError || error}
@@ -273,7 +260,7 @@ export default function HomePage({ onOpenTranscribe }: { onOpenTranscribe?: () =
                     <span className="mt-[1px] w-[56px] shrink-0 whitespace-nowrap [font-family:var(--font-mono)] text-[length:var(--size-xs)] text-[var(--muted-2)] [font-variant-numeric:tabular-nums]">
                       {timeAgo(item.delivered_at_ms)}
                     </span>
-                    <AppIcon item={item} size={28} className="mt-[1px]" />
+                    <OriginIcon origin={deliveryRow(item).origin} source={dictationClient().history} size={28} className="mt-[1px]" />
                     <div className="min-w-0 flex-1">
                       {isEditing ? (
                         <textarea

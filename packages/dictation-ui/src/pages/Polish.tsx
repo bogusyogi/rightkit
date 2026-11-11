@@ -6,27 +6,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import ErrorBanner from "../components/ErrorBanner.js";
-import Toggle from "../components/ui/Toggle.js";
 import {
   CompactSettingRow,
   CompactSettingsGroup,
 } from "../components/settings/CompactSettingsGroup.js";
 import { useSettings } from "../hooks/useSettings.js";
-import { invoke } from "../lib/tauri.js";
-import { openPricing } from "../lib/license.js";
-import { getLicenseLifecycle, subscribeLicenseLifecycle } from "../lib/licenseLifecycle.js";
+import { dictationClient } from "../host.js";
+import { useDictationEvent } from "../hooks/useDictationEvent.js";
 import { AI_POLISH_PRIVACY_NOTICE } from "../lib/privacyDisclosure.js";
 import { cx, ui } from "../lib/ui.js";
-import { isMac } from "../hooks/usePlatform.js";
-import PageShell from "../components/PageShell.js";
+import { getPlatform } from "@rightkit/platform-ui";
+import { PageShell, Toggle } from "@rightkit/react-shell/react";
 import ApiKeysPanel from "./polish/ApiKeysPanel.js";
 import { SmartPolishCard } from "./polish/PolishCards.js";
-
-type L3KeyStatus = {
-  groq_saved: boolean;
-  openrouter_saved: boolean;
-  nvidia_saved: boolean;
-};
 
 export default function PolishPage() {
   const { loaded, error, setError, patch, get } = useSettings();
@@ -35,10 +27,7 @@ export default function PolishPage() {
   const [clearKeyErrorSignal, setClearKeyErrorSignal] = useState(0);
   // pro=null until the license loads. AI polish is Pro and needs a saved
   // provider key. Local cleanup stays free.
-  const [pro, setPro] = useState<boolean | null>(() => {
-    const lifecycle = getLicenseLifecycle();
-    return lifecycle.kind === "checking" ? null : lifecycle.isPro;
-  });
+  const [pro, setPro] = useState<boolean | null>(() => dictationClient().entitlement());
   // Provider-key disclosure: flipping AI polish on with no saved key opens it
   // under the Provider key row; the row's button toggles it later to add, view,
   // or clear keys.
@@ -62,18 +51,13 @@ export default function PolishPage() {
   }, [keyPanelOpen]);
 
   useEffect(() => {
-    void invoke<L3KeyStatus>("get_l3_key_status")
+    void dictationClient()
+      .aiKeyStatus()
       .then((status) => setHasAiKey(status.groq_saved || status.openrouter_saved))
       .catch(() => undefined);
   }, []);
 
-  useEffect(
-    () =>
-      subscribeLicenseLifecycle((lifecycle) =>
-        setPro(lifecycle.kind === "checking" ? null : lifecycle.isPro),
-      ),
-    [],
-  );
+  useDictationEvent("entitlement", setPro);
 
   const cleanup = get<"clean" | "aggressive">("transcript_cleanup", "aggressive");
   const aiEnabled = get("ai_polish_enabled", false);
@@ -90,7 +74,7 @@ export default function PolishPage() {
   }
 
   return (
-    <PageShell tab="polish" className="!max-w-[880px] mx-auto">
+    <PageShell maxWidth={1320} className="dictation-page dictation-page--polish">
       <div className="grid gap-[var(--space-5)]">
         {error || keyError ? (
           <ErrorBanner
@@ -119,7 +103,7 @@ export default function PolishPage() {
                   onChange={(next) =>
                     void patch("transcript_cleanup", next ? "aggressive" : "clean")
                   }
-                  ariaLabel="Advanced cleanup"
+                  label="Advanced cleanup"
                 />
               </CompactSettingRow>
             </CompactSettingsGroup>
@@ -166,7 +150,7 @@ export default function PolishPage() {
                   <button
                     type="button"
                     className={cx(ui.button, ui.buttonCompact)}
-                    onClick={() => void openPricing()}
+                    onClick={() => void dictationClient().openPricing()}
                   >
                     Get Pro
                   </button>
@@ -178,7 +162,7 @@ export default function PolishPage() {
                     sublabel="Sends text to your provider only while on. Audio stays on this device."
                     settingId="polish.polish-with-ai"
                   >
-                    <Toggle checked={aiEnabled} onChange={onAiToggle} ariaLabel="Polish with AI" />
+                    <Toggle checked={aiEnabled} onChange={onAiToggle} label="Polish with AI" />
                   </CompactSettingRow>
                   <CompactSettingRow
                     label="Provider key"
@@ -191,7 +175,7 @@ export default function PolishPage() {
                         hasAiKey ? "text-[var(--muted)]" : "text-[var(--paper)]",
                       )}
                     >
-                      {hasAiKey ? (isMac() ? "Saved in Keychain" : "Saved securely on this device") : "Required"}
+                      {hasAiKey ? (getPlatform() === "macos" ? "Saved in Keychain" : "Saved securely on this device") : "Required"}
                     </span>
                     <button
                       type="button"

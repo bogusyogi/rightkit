@@ -1,12 +1,12 @@
 // useHomeDashboard - owns all Home state and side effects: app state, recent
 // history, wake-listen toggle, the transient wake pulse, and error. Uses
-// useTauriEvent for the per-mount listeners (consistent safe cleanup), a
+// useDictationEvent for the per-mount listeners (consistent safe cleanup), a
 // module-level shared store for recent history (see below), and a ref'd
 // timer for the wake pulse so it's cleared before re-scheduling and on unmount.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { invoke, listen } from "../lib/tauri.js";
-import { useTauriEvent } from "./useTauriEvent.js";
+import { dictationClient, type DictationCommand } from "../host.js";
+import { useDictationEvent } from "./useDictationEvent.js";
 import {
   fmtSeconds,
   timeSavedSeconds,
@@ -15,7 +15,7 @@ import {
   type HistoryItem,
 } from "../lib/homeMetrics.js";
 
-type CommandName = "start_dictation" | "stop_dictation" | "cancel_dictation";
+type CommandName = DictationCommand;
 
 // Shared recent-history store. Home and TitleBar each mount this hook, so the
 // `delivery-recorded` subscription and the `get_recent_history` refetch it
@@ -35,7 +35,8 @@ function publishHistory(items: HistoryItem[]): void {
 }
 
 function fetchRecentHistory(): Promise<HistoryItem[]> {
-  inFlightHistory ??= invoke<HistoryItem[]>("get_recent_history")
+  inFlightHistory ??= dictationClient()
+    .recentHistory()
     .then((items) => {
       publishHistory(items);
       return items;
@@ -49,12 +50,14 @@ function fetchRecentHistory(): Promise<HistoryItem[]> {
 function ensureHistoryListener(): void {
   if (historyListenerStarted) return;
   historyListenerStarted = true;
-  void listen<unknown>("delivery-recorded", () => {
-    void fetchRecentHistory().catch(() => undefined);
-  }).catch(() => {
-    // Browser-preview mode has no Tauri IPC; allow a retry on the next mount.
-    historyListenerStarted = false;
-  });
+  void dictationClient()
+    .on("deliveryRecorded", () => {
+      void fetchRecentHistory().catch(() => undefined);
+    })
+    .catch(() => {
+      // A preview host may have no events; allow a retry on the next mount.
+      historyListenerStarted = false;
+    });
 }
 
 export interface UseHomeDashboard {
@@ -82,7 +85,7 @@ export function useHomeDashboard(readySurface: "home" | "titlebar"): UseHomeDash
 
   const refresh = useCallback(async () => {
     const [nextState, recent] = await Promise.allSettled([
-      invoke<AppState>("get_app_state"),
+      dictationClient().appState(),
       fetchRecentHistory(),
     ] as const);
 
@@ -119,7 +122,7 @@ export function useHomeDashboard(readySurface: "home" | "titlebar"): UseHomeDash
     let cancelled = false;
     void refresh().finally(() => {
       if (!cancelled) {
-        void invoke("hub_frontend_ready", { surface: readySurface }).catch(() => undefined);
+        dictationClient().frontendReady?.(readySurface);
       }
     });
     return () => {
@@ -127,7 +130,7 @@ export function useHomeDashboard(readySurface: "home" | "titlebar"): UseHomeDash
     };
   }, [readySurface, refresh]);
 
-  useTauriEvent<AppState>("app-state-changed", (payload) => {
+  useDictationEvent("appState", (payload) => {
     setState(payload);
 
     // Track transcribing duration for slow-transcribe feedback.
@@ -160,7 +163,7 @@ export function useHomeDashboard(readySurface: "home" | "titlebar"): UseHomeDash
   // state nothing here displays. Add a subscription here only alongside an
   // actual consumer of the level.
 
-  useTauriEvent("wake-fired", () => {
+  useDictationEvent("wake", () => {
     if (wakePulseTimer.current !== undefined) {
       window.clearTimeout(wakePulseTimer.current);
     }
@@ -191,7 +194,7 @@ export function useHomeDashboard(readySurface: "home" | "titlebar"): UseHomeDash
     async (name: CommandName) => {
       setError("");
       try {
-        await invoke(name);
+        await dictationClient().run(name);
         await refresh();
       } catch (e) {
         setError(String(e));

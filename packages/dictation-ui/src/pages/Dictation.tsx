@@ -4,12 +4,13 @@
 // cancel, incl. the zephyr triggers) lives in Controls; standalone action
 // commands live in Commands.
 
-import PageShell from "../components/PageShell.js";
+import { PageShell } from "@rightkit/react-shell/react";
+import { formattingGuideUrl } from "../host.js";
 import VocabularyPage from "./Vocabulary.js";
 
 export default function DictationPage() {
   return (
-    <PageShell tab="dictation" fixedHeight={false}>
+    <PageShell maxWidth={1320} className="dictation-page dictation-page--dictation">
       <div className="flex w-full min-w-0 flex-col gap-[var(--space-4)]">
         {/* Informational, always on. Neutral: ember is reserved for the active
             row, switches, primary buttons, and recording. */}
@@ -18,14 +19,16 @@ export default function DictationPage() {
           className="m-0 text-[length:var(--size-sm)] leading-[1.5] text-[var(--muted)]"
         >
           Spoken formatting is always on. Say “new line”, “question mark”, “hashtag” and 30+ more.{" "}
+          {formattingGuideUrl() ? (
           <a
-            href="https://heardright.app/formatting"
+            href={formattingGuideUrl()}
             target="_blank"
             rel="noreferrer"
             className="whitespace-nowrap text-[var(--accent-cool)] underline decoration-[color-mix(in_srgb,var(--accent-cool),transparent_60%)] underline-offset-2 hover:decoration-[var(--accent-cool)]"
           >
             See the full list →
           </a>
+          ) : null}
         </p>
 
         <VocabularyPage />

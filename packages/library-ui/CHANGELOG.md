@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.2.0 (unpublished)
+
+Shape review 2026-11-11 (`docs/audits/2026-11-11-shape-matrix/reports/family-content-ingest-mail.md`; design in `reports/dictation-library-ui-redraw-design.md`). Taken on the recommended option, pending the owner's confirmation.
+
+The review judged this package the wrong shape: two apps' screens in two folders with no shared component, literal Tauri command names and one app's theme, licence and title bar. It is redrawn as one library contract with one list and one reader.
+
+Added:
+- `contract`: `LibrarySource` (the host's store: `query`, `copyText`, and optional `subscribe`, `remove`, `update`, `exportAll`, `saveText`, `retention`, `recovery`, `originIcon`, `detail`), `LibraryRow`, `LibraryOrigin`, `LibraryQuery`, `LibraryPageResult`, `LibraryVariant`, `LibraryGroup`, `LibraryDetail`. No IPC in the package.
+- `host`: `configureLibraryHost({ appName, storagePrefix, storageKeys })`; storage keys are no longer `heardright.*` / `hr.*` literals.
+- The list, from HeardRight's History page: `LibraryScreen` (filters, variants, retention, export, selection, edit, delete with confirmation, group visibility), `LibraryRows`, `LibraryRowView`, `LibraryToolbar`, `LibraryActionsLine`, `LibraryConfirmDialog`, `RecoveryBanner`, `OriginIcon`, `useLibraryQuery`, `useLibrarySelection`, `useGroupSelection`, list helpers (`format`). The generic half of `@rightkit/dictation-ui` 0.1.0's `pages/history/historyUtils` and `AppIcon` moved here.
+- The reader, from ScrapeRight's Detail reader: `LibraryReader` over `source.detail(id)`, with the reader parts (`TranscriptBody`, `FindBar`, `CarouselLayout`, `ImageGrid`, `MediaPlayer`, `textForTab`) and find helpers on `LibraryDetail`.
+- `./queue` entry for ScrapeRight's queue screens.
+
+Removed (breaking):
+- The dependency on `@rightkit/dictation-ui` (and on `@rightkit/license`, `@rightkit/app-update`, `@rightkit/settings-ui`, `@rightkit/theme`, `@tauri-apps/plugin-process`).
+- ScrapeRight's app frame and its copies of owned code: `DesktopWorkspace`, `TitleBar`, `NavTabs` (use `@rightkit/react-shell`), `lib/theme` (`@rightkit/theme` and the app's theme), `lib/license` and `lib/updateAuth` (`@rightkit/license`, `@rightkit/app-update`), `views/settings/*` (`@rightkit/settings-ui` and the app), the QA mock `lib/ipc/qaMock` and `qaGate` (app QA code).
+- ScrapeRight's library list `views/Library`, `LibraryList`, `LibraryToolbar` and `lib/historyPage`, `lib/desktopSources`: replaced by `LibraryScreen` over a `LibrarySource`.
+- `appName` (`setHostAppName`, `hostAppVersion`): use `configureLibraryHost`.
+- HeardRight's `Transcribe` page and `TranscribeModal` moved to `@rightkit/dictation-ui` (file transcription is dictation, not library).
+- The `<path>` subpath exports: the entries are `.`, `./queue` and `./styles.css`.
+
+Changed (breaking):
+- `PasteBar` and `Detail` take `pro` (and `PasteBar` its starting `defaults`) as props instead of reading the removed licence and preference modules.
+- "Export selected" writes `Origin:`/`Text:` lines (was `Target:`/`Transcript:`).
+- `countWords` is one function (the reader's), shared by the queue preview.
+- Stylesheets renamed: `queue/queue.css` (was `queue/components/ClaudeDesktop.css`), `reader/reader.css` (was `queue/views/ClaudeReader.css`).
+
+Not changed here, recorded: the queue screens still call ScrapeRight's command names and stay on `./queue` until a queue UI package exists; the `claude-*` CSS class names are unchanged.
+
 ## 0.1.0
 
 - First release. Library and queue UI for transcripts and downloads: queue board, job cards, library list, detail reader and history.

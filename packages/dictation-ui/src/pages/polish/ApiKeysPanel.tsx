@@ -1,31 +1,14 @@
 import { useEffect, useState } from "react";
-import { invoke } from "../../lib/tauri.js";
+import { dictationClient, type AiKeyCheck, type AiKeyProvider, type AiKeysUpdate, type AiKeyStatus } from "../../host.js";
 import { cx, ui } from "../../lib/ui.js";
-import { isMac } from "../../hooks/usePlatform.js";
+import { getPlatform } from "@rightkit/platform-ui";
 import { AI_POLISH_PRIVACY_NOTICE } from "../../lib/privacyDisclosure.js";
-import { hostAppName } from "../../appName.js";
+import { hostAppName } from "../../host.js";
 
-type L3KeyStatus = {
-  groq_saved: boolean;
-  openrouter_saved: boolean;
-  nvidia_saved: boolean;
-};
-
-// Mirror of `L3KeysUpdate` in `src-tauri/src/l3_keys.rs`. Every field is
-// optional; Tauri's IPC infers per-field types from the Rust struct, so a
-// permissive record would not round-trip. Keep aligned if upstream changes.
-type L3KeysUpdate = {
-  groq_key?: string | null;
-  openrouter_key?: string | null;
-  nvidia_key?: string | null;
-  clear_groq?: boolean;
-  clear_openrouter?: boolean;
-  clear_nvidia?: boolean;
-};
-
-type KeyCheckResult = { kind: "Valid" | "Rejected" | "Unverified" };
-
-type ProviderKey = "groq" | "openrouter";
+type L3KeyStatus = AiKeyStatus;
+type L3KeysUpdate = AiKeysUpdate;
+type KeyCheckResult = AiKeyCheck;
+type ProviderKey = AiKeyProvider;
 
 const blankStatus: L3KeyStatus = {
   groq_saved: false,
@@ -73,7 +56,8 @@ export default function ApiKeysPanel({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only status fetch; helpers are stable closures
   useEffect(() => {
-    void invoke<L3KeyStatus>("get_l3_key_status")
+    void dictationClient()
+      .aiKeyStatus()
       .then(updateKeys)
       .catch((e) => updateKeyError(String(e)));
   }, []);
@@ -100,10 +84,7 @@ export default function ApiKeysPanel({
     setKeyNotice("");
     setSaving(which);
     try {
-      const check = await invoke<KeyCheckResult>("validate_l3_key", {
-        provider: which,
-        key: value,
-      });
+      const check = await dictationClient().validateAiKey(which, value);
       if (check.kind === "Rejected") {
         updateKeyError(`Key rejected by ${providerLabel(which)}.`);
         return;
@@ -111,7 +92,7 @@ export default function ApiKeysPanel({
       const update: L3KeysUpdate = {};
       if (which === "groq") update.groq_key = value;
       else if (which === "openrouter") update.openrouter_key = value;
-      const status = await invoke<L3KeyStatus>("set_l3_api_keys", { update });
+      const status = await dictationClient().setAiKeys(update);
       updateKeys(status);
       onSaved?.();
       if (which === "groq") setGroqKey("");
@@ -135,7 +116,7 @@ export default function ApiKeysPanel({
       clear_openrouter: which === "openrouter",
     };
     try {
-      const status = await invoke<L3KeyStatus>("set_l3_api_keys", { update });
+      const status = await dictationClient().setAiKeys(update);
       updateKeys(status);
       setKeyNotice(`${providerLabel(which)} key cleared.`);
     } catch (e) {
@@ -267,7 +248,7 @@ function KeyBox({
       <div className="flex flex-wrap gap-[var(--space-2)]">
         {saved ? (
           <div className="min-h-[38px] min-w-[240px] flex-1 rounded-[var(--radius-sm)] border border-[color-mix(in_srgb,var(--line),transparent_12%)] bg-[var(--surface-1)] px-[var(--space-3)] py-[var(--space-2)] text-[length:var(--size-sm)] text-[var(--muted)]">
-            {isMac() ? "Saved in Keychain" : "Saved securely on this device"}
+            {getPlatform() === "macos" ? "Saved in Keychain" : "Saved securely on this device"}
           </div>
         ) : (
           <input

@@ -9,7 +9,7 @@
 
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Plus, UploadSimple, X } from "@phosphor-icons/react";
-import { invoke } from "../lib/tauri.js";
+import { dictationClient } from "../host.js";
 import type { VocabularyEntry, VocabularySuggestion } from "../types/vocabulary.js";
 import ErrorBanner from "../components/ErrorBanner.js";
 import { cx, ui } from "../lib/ui.js";
@@ -88,8 +88,8 @@ export default function VocabularyPage() {
   const refresh = useCallback(async () => {
     try {
       const [list, sug] = await Promise.all([
-        invoke<VocabularyEntry[]>("list_vocabulary"),
-        invoke<VocabularySuggestion[]>("list_vocab_suggestions"),
+        dictationClient().listVocabulary(),
+        dictationClient().listVocabularySuggestions(),
       ]);
       setEntries(list.sort((a, b) => b.created_at_ms - a.created_at_ms));
       // Multi-token phrase corrections surface immediately; single-token
@@ -121,10 +121,7 @@ export default function VocabularyPage() {
         .split(",")
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
-      const created = await invoke<VocabularyEntry>("add_vocabulary", {
-        term,
-        sounds_like: aliases.length > 0 ? aliases : undefined,
-      });
+      const created = await dictationClient().addVocabulary(term, aliases.length > 0 ? aliases : undefined);
       setEntries((prev) => [created, ...prev.filter((e) => e.id !== created.id)]);
       setSuggestions((prev) => prev.filter((s) => s.term.toLowerCase() !== term.toLowerCase()));
       setNewTerm("");
@@ -147,7 +144,7 @@ export default function VocabularyPage() {
         .split(/\r?\n/)
         .map((s) => s.trim())
         .filter((s) => s.length > 0 && s.length <= 200);
-      await invoke<VocabularyEntry[]>("import_vocabulary", { terms });
+      await dictationClient().importVocabulary(terms);
       await refresh();
     } catch (err) {
       setError(String(err));
@@ -168,7 +165,7 @@ export default function VocabularyPage() {
     setError("");
     try {
       const removalIndex = entries.findIndex((current) => current.id === entry.id);
-      const removed = await invoke<boolean>("remove_vocabulary", { id: entry.id });
+      const removed = await dictationClient().removeVocabulary(entry.id);
       if (!removed) throw new Error("Vocabulary entry was not found.");
       await refresh();
       setFocusAfterRemovalIndex(Math.max(0, removalIndex));
@@ -190,11 +187,10 @@ export default function VocabularyPage() {
     setUndo(null);
     setError("");
     try {
-      await invoke<VocabularyEntry>("add_vocabulary", {
-        term: entry.term,
-        sounds_like:
-          entry.sounds_like && entry.sounds_like.length > 0 ? entry.sounds_like : undefined,
-      });
+      await dictationClient().addVocabulary(
+        entry.term,
+        entry.sounds_like && entry.sounds_like.length > 0 ? entry.sounds_like : undefined,
+      );
       await refresh();
     } catch (e) {
       setError(String(e));
@@ -206,7 +202,7 @@ export default function VocabularyPage() {
       setError("");
       try {
         // The store promotes the suggestion (keeping the misheard form as a sound-alike) and removes it; add_vocabulary would do neither.
-        await invoke<VocabularyEntry | null>("accept_vocab_suggestion", { term });
+        await dictationClient().acceptVocabularySuggestion(term);
         await refresh();
       } catch (e) {
         setError(String(e));
@@ -218,7 +214,7 @@ export default function VocabularyPage() {
   const dismissSuggestion = useCallback(async (term: string) => {
     setError("");
     try {
-      await invoke("dismiss_vocab_suggestion", { term });
+      await dictationClient().dismissVocabularySuggestion(term);
       setSuggestions((prev) => prev.filter((s) => s.term !== term));
     } catch (e) {
       setError(String(e));

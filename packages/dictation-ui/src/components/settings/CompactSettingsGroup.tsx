@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { SettingRow as RightKitSettingRow, SettingsGroup } from "@rightkit/settings-ui";
+import { SettingRow as RightKitSettingRow, SettingsGroup } from "@rightkit/settings-ui/core";
 import { cx } from "../../lib/ui.js";
 
 // Grouped inset-row form grammar (System Settings style, per the redesign

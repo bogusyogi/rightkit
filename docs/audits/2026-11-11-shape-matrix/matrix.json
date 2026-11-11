@@ -1167,10 +1167,10 @@
      "heardright": 8675,
      "coderight": 1090
     },
-    "basis": "HeardRight main's webview front end copied file for file (83 files have a same-path twin in heardright-main/tauri-app-next/src; 542 of 10,555 lines differ, mostly `.js` import suffixes and renamed helpers), plus CodeRight's voice-conversation loop under src/voice (3 files)",
+    "basis": "HeardRight's dictation pill and pages over a host DictationClient/PillClient (0.2.0, branch); app frame, licence, update, theme, legal and IPC copies deleted, voice loop moved to agent-ui-components",
     "referenceApp": "heardright",
-    "shape": "wrong",
-    "shapeReason": "It is one app's whole front end (sidebar, title bar, licence, auto-update, theme, legal, settings registry, pill, pages) with a second app's unrelated voice loop beside it. No app depends on it; HeardRight main keeps the same files, and CodeRight's current tree no longer has the voice files.",
+    "shape": "gaps",
+    "shapeReason": "Redrawn as two units under the published name: the pill (entry ./pill) with a typed event/command interface (PillClient) and the dictation pages over a typed DictationClient; settings through settings-ui's SettingsBackend, history as a library-ui LibrarySource. The sidebar, title bar, window controls, licence, auto-update, theme, legal, settings registry and Tauri bridge copies are deleted in favour of their owning packages; storage keys and the product name come from host configuration; the voice loop moved to @rightkit/agent-ui-components 0.1.1 (0.2.0, branch). Remaining items are gaps.",
     "apps": {
      "heardright": {
       "fit": "wrong",
@@ -1203,12 +1203,10 @@
      "The CodeRight files the plan maps here (inventory commit 0a85471d) are absent from the surveyed CodeRight tree; 646 of 3,193 inventory paths are missing there"
     ],
     "actions": [
-     "Redraw as three units: (a) dictation pill overlay (pill/*, hint catalog) with an event/command interface; (b) dictation pages (Home, Dictation, Vocabulary, Polish, replacements, snippets) over a typed `DictationClient` the host supplies; (c) voice conversation (src/voice) moved to the agent UI family or its own package",
-     "Delete the licence, auto-update, theme, legal, sidebar, title-bar and window-control copies; use the owning packages",
-     "Storage keys, event names and theme code from host configuration, not `heardright.*` literals",
-     "Move history helpers next to the History page in @rightkit/library-ui and drop that package's dependency on this one",
-     "Decide what happens to the published 0.1.0 (deprecate once the split packages exist)",
-     "Then HeardRight deletes its 83 twins; until then this package is a duplicate of HeardRight's src"
+     "HeardRight writes its DictationClient, PillClient and history LibrarySource adapters (mapping in reports/dictation-library-ui-redraw-design.md) and deletes its 83 twins",
+     "rename the hr-* CSS classes with a host stylesheet migration; move lib/ui's class table to the host theme",
+     "owner to confirm the dictation/library redraw",
+     "publish 0.2.0, then deprecate 0.1.0"
     ],
     "depth": "deep",
     "confidence": "high",
@@ -2020,10 +2018,10 @@
      "scraperight": 8194,
      "heardright": 2870
     },
-    "basis": "ScrapeRight desktop front end (src/queue) and HeardRight History/Transcribe pages (src/history) side by side",
+    "basis": "one LibrarySource/row/detail contract with no IPC; list from HeardRight's History, reader from ScrapeRight's Detail (0.2.0, branch); ScrapeRight's queue screens left on ./queue",
     "referenceApp": "heardright",
-    "shape": "wrong",
-    "shapeReason": "Two apps' screens in two folders with no shared component, literal Tauri command names and one app's theme, licence and title bar.",
+    "shape": "gaps",
+    "shapeReason": "Redrawn as one library contract (LibrarySource, LibraryRow, LibraryDetail) with one list (HeardRight's History as the reference) and one reader (ScrapeRight's Detail reader as the reference), driven by the host's source with no IPC. Theme, licence, update, title bar, settings and QA mock code deleted; the dictation-ui dependency dropped; History's AppIcon and helpers are here (0.2.0, branch). The queue screens remain on ./queue with ScrapeRight's command names until a queue UI package exists.",
     "apps": {
      "heardright": {
       "fit": "wrong",
@@ -2043,11 +2041,11 @@
      "five modules excluded from barrel for name collisions"
     ],
     "actions": [
-     "define LibrarySource/row/detail contract with no IPC",
-     "list from HeardRight History, reader from ScrapeRight Detail",
-     "move queue components to a queue package",
-     "remove theme/licence/update/title bar/settings/mocks",
-     "drop dictation-ui dependency"
+     "move ./queue to a queue UI package with a QueueSource contract",
+     "ScrapeRight implements a LibrarySource over get_history_page/get_transcript",
+     "rename the claude-* CSS classes",
+     "owner to confirm the dictation/library redraw",
+     "publish 0.2.0"
     ],
     "depth": "deep",
     "confidence": "high",

@@ -8,8 +8,8 @@ const recipeId = 'library-ui-root-export-consumer';
 const result = { recipeId, schemaVersion: 1, ok: false, host: { platform: process.platform, arch: process.arch, node: process.version }, artifact: null, scenarios: [], errors: [], nativeHostQualified: false };
 const failure = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error) });
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
-const surface = [".", "./package.json", "./styles.css"];
-const expected = ["setHostAppName", "hostAppName", "TranscribeSurface"];
+const surface = [".", "./package.json", "./queue", "./styles.css"];
+const expected = ["configureLibraryHost", "LibraryScreen", "LibraryReader"];
 
 try {
   const archive = path.resolve(required('RIGHTKIT_CONSUMER_ARTIFACT'));

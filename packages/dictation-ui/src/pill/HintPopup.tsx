@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { X } from "@phosphor-icons/react";
-import { invoke, listen } from "../lib/tauri.js";
+import { dictationStorageKey, hostAppName } from "../host.js";
+import { listenPill, pillClient } from "./pillHost.js";
 import { CSS as PILL_CSS } from "./pillStyles.js";
 import { pillTooltipProps } from "./pillTooltip.js";
-import { getPlatform } from "../hooks/usePlatform.js";
+import { getPlatform } from "@rightkit/platform-ui";
 // Single source of truth for hint TEXT, shared with the macOS Swift pill (which
 // reads the same JSON). Add a hint there, not here — this renderer is just the
 // Windows container. See src/shared/hint-catalog.json.
@@ -24,6 +25,10 @@ type CatalogEntry = { platform?: "both" | "windows" | "macos"; title: LocalizedT
 const HINT_PLATFORM: "windows" | "macos" = getPlatform() === "macos" ? "macos" : "windows";
 function resolveHintText(text: LocalizedText): string {
   return typeof text === "string" ? text : text[HINT_PLATFORM];
+}
+// Catalog copy names the product as `{app}`; the host's name fills it in at render time.
+function withAppName(text: string): string {
+  return text.replaceAll("{app}", hostAppName());
 }
 const FEATURE_HINTS: Record<string, FeatureHint> = (() => {
   const out: Record<string, FeatureHint> = {};
@@ -108,15 +113,13 @@ export default function HintPopup() {
   const dismiss = useCallback(() => {
     clearTimers();
     setView({ kind: "hidden" });
-    void invoke("dismiss_pill_hint").catch(() => undefined);
+    void pillClient().dismissHint().catch(() => undefined);
   }, [clearTimers]);
 
   const saveScreenshotPreference = useCallback(
     async (destination: ScreenshotDestination) => {
       clearTimers();
-      await invoke("apply_settings_patch", {
-        patch: { screenshot_destination: destination, screenshot_prompt_selected: true },
-      }).catch(() => undefined);
+      await pillClient().setScreenshotDestination(destination).catch(() => undefined);
       dismiss();
     },
     [clearTimers, dismiss],
@@ -132,7 +135,7 @@ export default function HintPopup() {
       }
       if (payload.kind === "prompt_hint") {
         try {
-          if (localStorage.getItem("hr_prompt_hint_disabled") === "1") {
+          if (localStorage.getItem(dictationStorageKey("promptHintDisabled")) === "1") {
             dismiss();
             return;
           }
@@ -152,12 +155,10 @@ export default function HintPopup() {
   );
 
   const takePayload = useCallback(() => {
-    void invoke<PillHintPayload | null>("take_pill_hint_payload")
+    void pillClient()
+      .takeHintPayload()
       .then((payload) => {
-        void invoke("frontend_log", {
-          event: "pill_hint_payload_take",
-          message: `kind=${payload?.kind ?? "none"}`,
-        }).catch(() => undefined);
+        void pillClient().log("pill_hint_payload_take", `kind=${payload?.kind ?? "none"}`).catch(() => undefined);
         applyPayload(payload);
       })
       .catch(() => undefined);
@@ -168,15 +169,12 @@ export default function HintPopup() {
     document.body.style.background = "transparent";
     document.body.style.margin = "0";
     document.body.style.overflow = "hidden";
-    void invoke("frontend_log", {
-      event: "pill_hint_frontend_mount",
-      message: `url=${window.location.href}`,
-    }).catch(() => undefined);
+    void pillClient().log("pill_hint_frontend_mount", `url=${window.location.href}`).catch(() => undefined);
   }, []);
 
   useEffect(() => {
     takePayload();
-    const unlisten = listen("pill-hint://show", () => {
+    const unlisten = listenPill("hintShow", () => {
       lastSentRef.current = { w: 0, h: 0 };
       takePayload();
     });
@@ -204,18 +202,16 @@ export default function HintPopup() {
       const h = Math.ceil(r.height) + WINDOW_TOP_GUARD;
       const last = lastSentRef.current;
       if (Math.abs(w - last.w) <= 4 && Math.abs(h - last.h) <= 4) {
-        void invoke("pill_hint_ready").catch(() => undefined);
+        void pillClient().hintReady().catch(() => undefined);
         return;
       }
       lastSentRef.current = { w, h };
-      void invoke("frontend_log", {
-        event: "pill_hint_frontend_resize",
-        message: `view=${view.kind} send=${w}x${h}`,
-      }).catch(() => undefined);
-      void invoke("pill_hint_resize", { width: w, height: h })
+      void pillClient().log("pill_hint_frontend_resize", `view=${view.kind} send=${w}x${h}`).catch(() => undefined);
+      void pillClient()
+        .resizeHint(w, h)
         .catch(() => undefined)
         .finally(() => {
-          void invoke("pill_hint_ready").catch(() => undefined);
+          void pillClient().hintReady().catch(() => undefined);
         });
     };
     const ro = new ResizeObserver(() => {
@@ -281,8 +277,8 @@ export default function HintPopup() {
           </div>
         ) : (
           <div className="hr-hint-strip feature" role="status" aria-live="polite">
-            <strong>{FEATURE_HINTS[view.kind].title}</strong>
-            <span className="hr-hint-copy">{FEATURE_HINTS[view.kind].body}</span>
+            <strong>{withAppName(FEATURE_HINTS[view.kind].title)}</strong>
+            <span className="hr-hint-copy">{withAppName(FEATURE_HINTS[view.kind].body)}</span>
             <button type="button" className="hr-hint-close" aria-label="Dismiss feature tip" {...pillTooltipProps("pill_hint", "Dismiss feature tip")} onClick={dismiss}>
               <X weight="bold" aria-hidden="true" />
             </button>

@@ -1,64 +1,42 @@
-// Generated entry: every module whose exports do not collide with an earlier one.
-// Every module is also importable directly by subpath, e.g. `<package>/lib/foo`.
+// @rightkit/dictation-ui: the dictation pages over a host-supplied `DictationClient`, and (on the
+// `./pill` entry) the recording pill over a `PillClient`. No IPC, no app frame: the shell, licence,
+// updates, theme and legal screens come from their own packages.
 
-export * from "./appName.js";
-export * from "./assets/trayIconDataUri.js";
-export * from "./components/CommandPalette.js";
-export * from "./components/FeatureReel.js";
-export * from "./components/Kbd.js";
-export * from "./components/PageShell.js";
-export * from "./components/Sidebar.js";
-export * from "./components/TitleBar.js";
-export * from "./components/WindowControls.js";
-export * from "./components/featureReelState.js";
-export * from "./components/renderCrash.js";
+export * from "./host.js";
+
+// Pages
+export { default as HomePage } from "./pages/Home.js";
+export { default as DictationPage } from "./pages/Dictation.js";
+export { default as VocabularyPage } from "./pages/Vocabulary.js";
+export { default as PolishPage } from "./pages/Polish.js";
+export { TranscribeSurface } from "./pages/Transcribe.js";
+export { default as TranscribeModal } from "./components/TranscribeModal.js";
+export { default as ApiKeysPanel } from "./pages/polish/ApiKeysPanel.js";
+export * from "./pages/polish/PolishCards.js";
+export { DictationHistory } from "./history/DictationHistory.js";
+export * from "./history/deliveryRows.js";
+
+// Page parts
+export { default as AccessibilityBanner } from "./components/AccessibilityBanner.js";
+export { default as ErrorBanner } from "./components/ErrorBanner.js";
+export { default as HotkeyConflictBanner } from "./components/HotkeyConflictBanner.js";
+export { default as ReplacementsSettings } from "./components/settings/ReplacementsSettings.js";
+export { default as SnippetsSettings } from "./components/settings/SnippetsSettings.js";
 export * from "./components/settings/CompactSettingsGroup.js";
 export * from "./components/settings/DictationSection.js";
-export * from "./components/settings/SegmentedControl.js";
-export * from "./hooks/settingsSync.js";
-export * from "./hooks/useHistorySourceSelection.js";
+
+// Hooks and helpers
+export * from "./hooks/useDictationEvent.js";
 export * from "./hooks/useHomeDashboard.js";
 export * from "./hooks/useMicDevices.js";
-export * from "./hooks/usePaletteCommands.js";
-export * from "./hooks/usePaletteFocusRestore.js";
-export * from "./hooks/usePlatform.js";
 export * from "./hooks/useSettings.js";
-export * from "./hooks/useTauriEvent.js";
-export * from "./lib/autoUpdates.js";
-export * from "./lib/config.js";
-export * from "./lib/fieldStore.js";
-export * from "./lib/heardRightAutoUpdateClient.js";
+export * from "./lib/chords.js";
 export * from "./lib/homeMetrics.js";
-export * from "./lib/legacyPromptHint.js";
-export * from "./lib/legal.js";
-export * from "./lib/license.js";
-export * from "./lib/license/errors.js";
-export * from "./lib/logs.js";
 export * from "./lib/modelPrep.js";
-export * from "./lib/modelUpdate.js";
 export * from "./lib/privacyDisclosure.js";
 export * from "./lib/pushToTalk.js";
-export * from "./lib/relaunchForUpdate.js";
-export * from "./lib/settingsRegistry.js";
 export * from "./lib/sounds.js";
-export * from "./lib/syncProviderFlag.js";
-export * from "./lib/tauri.js";
-export * from "./lib/theme.js";
 export * from "./lib/time.js";
 export * from "./lib/ui.js";
-export * from "./pages/history/AppIcon.js";
-export * from "./pages/history/historyUtils.js";
-export * from "./pages/polish/PolishCards.js";
-export * from "./pill/MiniClipboard.js";
-export * from "./pill/PillIcon.js";
-export * from "./pill/hoverTarget.js";
-export * from "./pill/pillStyles.js";
-export * from "./pill/pillTooltip.js";
-export * from "./pill/usePillAnimation.js";
-export * from "./pill/usePillEvents.js";
-export * from "./pill/usePillGeometry.js";
 export * from "./types/settings.js";
 export * from "./types/vocabulary.js";
-export * from "./voice/components/Icon.js";
-export * from "./voice/components/VoiceConversation.js";
-export * from "./voice/hooks/useMicRecorder.js";

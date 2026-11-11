@@ -1,4 +1,4 @@
-import { hostAppName } from "../appName.js";
+import { hostAppName } from "../host.js";
 interface Props {
   message: string;
   onDismiss?: () => void;

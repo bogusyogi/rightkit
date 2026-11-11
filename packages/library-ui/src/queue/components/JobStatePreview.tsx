@@ -3,7 +3,7 @@ import { useCallback, useState } from "react";
 import type { JobInfo } from "../contract.js";
 import { invoke } from "../lib/ipc/index.js";
 import { statusText } from "../lib/jobDisplay.js";
-import { buttonClass, errorTextClass, panelClass, primaryButtonClass, subtlePanelClass } from "../lib/ui.js";
+import { buttonClass, errorTextClass, panelClass, primaryButtonClass, subtlePanelClass } from "../../ui.js";
 import { Clipboard, LogIn, PanelRightOpen, RotateCcw } from "lucide-react";
 
 type JobStatePreviewProps = {

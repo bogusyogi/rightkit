@@ -1,48 +1,54 @@
 # @rightkit/dictation-ui
 
-Dictation UI: recording pill, microphone and hotkey hooks, voice conversation and dictation pages.
+Dictation pill (event/command interface) and dictation pages over a host-supplied DictationClient.
 
 | Item | Value |
 |---|---|
 | Where it runs | App webview UI (React) |
-| Version | 0.1.0 |
+| Version | 0.2.0 |
 | License | MIT OR Apache-2.0 |
 
 ## Entry points
 
 | Import | Contents |
 |---|---|
-| `@rightkit/dictation-ui` | Every module whose exported names do not collide (generated barrel). |
-| `@rightkit/dictation-ui/<path>` | Any module under `src/` by path without extension, e.g. `@rightkit/dictation-ui/appName`. |
-| `@rightkit/dictation-ui/<path>.css` | Stylesheets shipped next to their components. |
+| `@rightkit/dictation-ui` | Host configuration and the `DictationClient` contract; the pages (`HomePage`, `DictationPage`, `VocabularyPage`, `PolishPage`, `TranscribeSurface`, `DictationHistory`) and their parts (banners, replacements, snippets, API keys); delivery-record mapping for the library (`deliveryRow`); hooks (`useSettings`, `useHomeDashboard`, `useMicDevices`, `useDictationEvent`). |
+| `@rightkit/dictation-ui/pill` | The recording pill and its popups (`PillOverlay`, `HintPopup`, `MiniClipboardPopup`) over the `PillClient` contract. Imports nothing from the pages. |
+
+## Host configuration
+
+The package holds no IPC, no command or event names and no app frame. Each window calls
+`configureDictationHost` once before rendering:
+
+```ts
+import { configureDictationHost } from "@rightkit/dictation-ui"; // or "@rightkit/dictation-ui/pill" in a pill window
+
+configureDictationHost({
+  appName: "Your App",
+  client,              // DictationClient: pages (hub window)
+  pill,                // PillClient: pill and popup windows
+  storageKeys: { promptHintCount: "your-app.promptHintCount" }, // keep existing stored values
+  formattingGuideUrl: "https://example.com/formatting",
+});
+```
+
+- `DictationClient`: `settings` (a `@rightkit/settings-ui` `SettingsBackend`), `history` (a `@rightkit/library-ui`
+  `LibrarySource` whose rows come from `deliveryRow`), one method per operation (vocabulary, AI keys, microphones,
+  hotkeys, accessibility, entitlement, file transcription) and typed events through `on` (`appState`,
+  `deliveryRecorded`, `wake`, `hotkeyStatus`, `nativeDragDrop`, `entitlement`).
+- `PillClient`: `action(PillAction)`, geometry (`resize`, `setHitbox`), intro and terminal reset, the popups'
+  calls, `log`, and typed events through `on` (`event`, `hover`, `cursor`, `intro`, `deliveryRecorded`,
+  `modelPhase`, `hintShow`, `clipboardShow`).
+
+The app frame (sidebar, title bar, window controls, palette) is `@rightkit/react-shell`; licence `@rightkit/license`;
+updates `@rightkit/app-update`; theme `@rightkit/theme`; legal `@rightkit/legal-ui`; settings screens
+`@rightkit/settings-ui`. The voice conversation loop is in `@rightkit/agent-ui-components`.
 
 ## Peer dependencies
 
 `react`
 
-## Host data
-
-Legal and version data stay in the host app. Alias `@rightkit-host` to the host project root
-(Vite `resolve.alias`); the package imports `@rightkit-host/legal/legal-manifest.json`,
-`@rightkit-host/src/generated/legal-contract.json`, `@rightkit-host/package.json` and
-`@rightkit-host/legal/*.md?raw` where it needs them.
-
-## Product name
-
-User-facing copy reads the product name from `hostAppName()` (default `"App"`). Call
-`setHostAppName("Your App")` (exported from the root and from `appName`) once at startup, before
-rendering.
-
 ## Host contract
 
-Hosts bundle this package with Vite (the build keeps extensionless relative imports and asset imports
-such as `?raw`). Tailwind hosts add `node_modules/@rightkit/dictation-ui/dist/**/*.js` to their content globs.
-
-## Testing
-
-```sh
-pnpm --dir packages/dictation-ui test
-```
-
-Modules left out of the root barrel because an export name collides with an earlier module
-(import them by subpath): `lib/license/accountSession.ts`, `lib/license/core.ts`, `lib/license/proBridge.ts`, `lib/license/windowsLink.ts`, `lib/licenseLifecycle.ts`, `lib/tauriBridge.ts`, `pill/pillBars.ts`, `voice/hooks/useVoiceConversation.ts`
+Hosts bundle this package with Vite. Tailwind hosts add `node_modules/@rightkit/dictation-ui/dist/**/*.js` to their
+content globs. The pill and pages use `hr-*` CSS classes the host stylesheet defines.

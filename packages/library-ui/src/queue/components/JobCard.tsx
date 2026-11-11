@@ -11,7 +11,7 @@ import {
 } from "../lib/jobDisplay.js";
 import { showsOutputChip } from "../lib/queueView.js";
 import { categoryIcon } from "./CategoryIcon.js";
-import { buttonClass, errorTextClass, iconActionAccentClass, iconActionDangerClass } from "../lib/ui.js";
+import { buttonClass, errorTextClass, iconActionAccentClass, iconActionDangerClass } from "../../ui.js";
 import { Badge, IconButton, cx } from "@rightkit/react-shell/react";
 import { ArrowRight, LogIn, RefreshCcw, RotateCcw, Square, X } from "lucide-react";
 

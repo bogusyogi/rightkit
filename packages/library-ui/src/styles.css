@@ -1,4 +1,4 @@
 /* Every stylesheet this package's components use. Hosts import "<package>/styles.css" once (Node cannot import CSS from JS). */
-@import "./queue/components/ClaudeDesktop.css";
-@import "./queue/views/ClaudeReader.css";
+@import "./queue/queue.css";
+@import "./reader/reader.css";
 @import "@rightkit/doc-render/styles.css";

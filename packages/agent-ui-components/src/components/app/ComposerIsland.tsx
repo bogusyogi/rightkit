@@ -42,7 +42,7 @@ import AttachmentStagingStrip from "../composer/AttachmentStagingStrip.js";
 import ComposerCompletionMenu from "../composer/ComposerCompletionMenu.js";
 import { MentionPopover, type PopoverItem } from "./composerIsland/MentionPopover.js";
 import TemplatePicker from "../composer/TemplatePicker.js";
-import VoiceConversation from "@rightkit/dictation-ui/voice/components/VoiceConversation";
+import VoiceConversation from "../voice/VoiceConversation.js";
 import { useAttachmentStaging, toDaemonAttachments } from "@rightkit/agent-ui-hooks/hooks/useAttachmentStaging";
 import { useComposerCompletions } from "../../hooks/useComposerCompletions.js";
 import {
