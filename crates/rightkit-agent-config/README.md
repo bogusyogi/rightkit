@@ -3,7 +3,7 @@
 Layered TOML configuration for an agent host app (CodeRight and the RightKit agent crates). It resolves one `HostConfig` from, in order of precedence (later overrides earlier for scalars; lists extend):
 
 1. built-in defaults
-2. user config: `<state root>/config.toml`, where the state root is the rightkit-daemon `AppRoot` (see `state_root`)
+2. user config: `<state root>/config.toml`, where the state root is the rightkit-roots `AppRoot` (see `state_root`)
 3. workspace config: `<workspace>/<state-dir>/config.toml`
 4. environment overrides (`RIGHTKIT_*`)
 5. session overrides (a map passed in)

@@ -1,14 +1,15 @@
 use crate::contract::{new_context, Caller};
 pub use crate::contract::{CallContext, Emit, Handler};
-use crate::discovery::{record_process_matches, try_lock_exclusive, LockedFile};
+use crate::discovery::record_process_matches;
 use crate::error::{ServiceError, ERROR_RESPONSE_TOO_LARGE};
 use crate::record::*;
-use crate::suite::{make_private_dir, valid_service_name, Suite, SuiteError};
 use crate::takeover_watch::{self, Bell, Wake, TAKEOVER_CHECK_INTERVAL};
 use crate::transport::{
     self, pid_alive, probe_endpoint, try_endpoint_for, Accepted, Conn, Listener,
     DEFAULT_MAX_PIPE_INSTANCES,
 };
+use rightkit_roots::lock::{try_lock_exclusive, LockedFile};
+use rightkit_roots::{make_private_dir, valid_service_name, Suite, SuiteError};
 use rightkit_sidecar::{read_json_line, write_json_line, FrameError};
 use serde_json::{json, Value};
 use std::collections::HashMap;

@@ -1,0 +1,10 @@
+# Changelog
+
+## 0.1.0 (unpublished)
+
+- New crate. Run mode, the suite root, app roots and root cutover moved here from `rightkit-daemon` 0.7.0 with `git mv` (`mode.rs`, `suite.rs`, `app_root.rs`, `root_cutover.rs`; 4,643 lines), with the exclusive lock file they share with the daemon's host election (`LockedFile`, `try_lock_exclusive`, from `discovery.rs`, now the public `lock` module). The 2026-11-11 shape review (docs/audits/2026-11-11-shape-matrix/reports/family-foundation-runtime.md, rightkit-daemon section) found this path and run-mode policy in the local-service crate, linked by ViewRight and ScrapeRight only for `mode`, `AppRoot` and `Suite` and by `rightkit-models` only for `Suite::resolve`; its action: "Move mode/Suite/AppRoot/root_cutover to one roots crate (or rightkit-fs) and make daemon, models and qa depend on that."
+- Why a crate and not `rightkit-fs`: the moved code needs the `windows` crate (reparse tags in the app-root migration) and `getrandom` (the cutover id), which `rightkit-fs` does not depend on, and it builds on the `rightkit-fs` `fs` and `transaction` layers; it is app policy (the `Orthic Labs` suite, run mode, migration and cutover protocols), not a filesystem primitive.
+- Paths: `rightkit_daemon::mode` is `rightkit_roots::mode`; `rightkit_daemon::{Suite, SuiteError, AppRoot, AppRootError, RootCutover, CutoverParticipant, ...}` are `rightkit_roots::{...}` with the same names. `rightkit-daemon` 0.8.0 re-exports all of them under the old paths for one release; they are the same types.
+- Newly public, because `rightkit-daemon` uses them from outside the crate: `make_private_dir`, `passwd_home_dir` (macOS and Linux), `lock::{LockedFile, try_lock_exclusive}`. They were crate-private in rightkit-daemon.
+- Re-exported from `rightkit-fs`, beside `Suite` and `AppRoot`: `app_dirs` and `StateDir`, the two other root implementations. They are not merged; the README ("Three root implementations") lists where they overlap.
+- No behaviour change: every root an existing install resolves (HeardRight's, ViewRight's) resolves to the same path.

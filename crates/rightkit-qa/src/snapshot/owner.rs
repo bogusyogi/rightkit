@@ -2,7 +2,8 @@
 use super::*;
 use crate::control::token;
 use rightkit_child_process::{OwnedChild, OwnedCommand};
-use rightkit_daemon::{Client, ClientConfig, HostExpectation, Suite};
+use rightkit_daemon::{Client, ClientConfig, HostExpectation};
+use rightkit_roots::Suite;
 use serde_json::json;
 use std::process::Stdio;
 use std::time::Instant;
@@ -15,7 +16,7 @@ const OWNER_STDERR_FILE: &str = "owner-stderr.log";
 const OWNER_SERVICE_PREFIX: &str = "qa-credentials-";
 
 /// A fresh owner service name the daemon host accepts: the prefix and 32 lowercase hex characters of a new id (47 bytes, within
-/// rightkit_daemon::MAX_SERVICE_NAME_LEN = 48). The hyphenated id made 51 bytes and every host refused it (hr-r2-ultra-2, owner stderr:
+/// rightkit_roots::MAX_SERVICE_NAME_LEN = 48). The hyphenated id made 51 bytes and every host refused it (hr-r2-ultra-2, owner stderr:
 /// "the control service name is missing or not a qa-credentials name").
 fn owner_service_name() -> String {
     let id: String = new_id()
@@ -425,11 +426,8 @@ mod owner_service_name_tests {
         for name in [&a, &b] {
             assert!(name.starts_with(OWNER_SERVICE_PREFIX), "{name}");
             assert_eq!(name.len(), OWNER_SERVICE_PREFIX.len() + 32, "{name}");
-            assert!(
-                name.len() <= rightkit_daemon::MAX_SERVICE_NAME_LEN,
-                "{name}"
-            );
-            assert!(rightkit_daemon::valid_service_name(name), "{name}");
+            assert!(name.len() <= rightkit_roots::MAX_SERVICE_NAME_LEN, "{name}");
+            assert!(rightkit_roots::valid_service_name(name), "{name}");
         }
     }
 }

@@ -17,7 +17,7 @@ path = "src/lib.rs"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rightkit-job-queue = { version = "0.5.1", features = ["contract", "doctor"], path = "../rightkit-job-queue" }
-rightkit-daemon = { version = "0.7.0", path = "../rightkit-daemon" }
+rightkit-daemon = { version = "0.8.0", path = "../rightkit-daemon" }
 
 rightkit-video-project = { version = "0.1.0", path = "../rightkit-video-project", optional = true }
 rightkit-timeline = { version = "0.1.0", path = "../rightkit-timeline", optional = true }

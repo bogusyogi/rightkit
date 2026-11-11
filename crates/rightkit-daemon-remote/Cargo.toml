@@ -14,7 +14,7 @@ include = ["src/**", "schemas/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "
 [dependencies]
 # The local service the remote side builds on: the method table, handler and call context the
 # device route dispatches to, the typed service error, and the atomic owner-only record write.
-rightkit-daemon = { version = "0.7.0", path = "../rightkit-daemon", default-features = false }
+rightkit-daemon = { version = "0.8.0", path = "../rightkit-daemon", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 subtle = "2.6"

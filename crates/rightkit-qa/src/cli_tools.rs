@@ -317,7 +317,7 @@ pub fn control_cmd(args: &[String]) -> Result<i32> {
             ))
         })?;
     let token = crate::control::token::read_file(Path::new(&token_file))?;
-    let suite = rightkit_daemon::Suite::per_user_default()
+    let suite = rightkit_roots::Suite::per_user_default()
         .map_err(|e| Error(format!("cannot resolve the suite root: {e}")))?;
     let client = rightkit_daemon::Client::connect(&suite, &service, &app)
         .map_err(|e| Error(format!("cannot connect to {service}: {e}")))?;

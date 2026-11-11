@@ -1,6 +1,6 @@
 //! The the host app state root.
 //!
-//! This is the rightkit-daemon `AppRoot`: `<platform data dir>/Orthic Labs/the host app`
+//! This is the rightkit-roots `AppRoot`: `<platform data dir>/Orthic Labs/the host app`
 //! (`%LOCALAPPDATA%\Orthic Labs\the host app` on Windows,
 //! `~/Library/Application Support/Orthic Labs/the host app` on macOS and iOS,
 //! `~/.local/share/Orthic Labs/the host app` on Linux). Every the host app process resolves it through
@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
-use rightkit_daemon::{Suite, SuiteError};
+use rightkit_roots::{Suite, SuiteError};
 
 /// Default folder name under `Orthic Labs` until the host calls [`set_app_name`].
 pub const APP_NAME: &str = "Agent";
@@ -43,7 +43,7 @@ fn cache() -> &'static Mutex<HashMap<PathBuf, Resolved>> {
 fn process_suite() -> Result<Suite, SuiteError> {
     #[cfg(target_os = "ios")]
     {
-        // rightkit-daemon has no per-user default for iOS; the app sandbox's Application Support
+        // rightkit-roots has no per-user default for iOS; the app sandbox's Application Support
         // directory is the platform data dir, so the same `Orthic Labs/the host app` layout applies.
         let home = dirs::home_dir()
             .ok_or_else(|| SuiteError::NoRoot("the app sandbox has no home directory".into()))?;

@@ -1157,11 +1157,11 @@ pub fn app_data_dir(cfg: &SnapshotConfig) -> Result<PathBuf> {
     }
 }
 
-/// The suite shared folder (`Orthic Labs/shared`): the one `rightkit_daemon::Suite` resolves for the
+/// The suite shared folder (`Orthic Labs/shared`): the one `rightkit_roots::Suite` resolves for the
 /// account (not from the environment), which is where the suite's apps keep the shared model store
 /// and the service records.
 fn suite_shared_dir() -> Result<PathBuf> {
-    let suite = rightkit_daemon::Suite::per_user_default()
+    let suite = rightkit_roots::Suite::per_user_default()
         .map_err(|e| Error(format!("cannot resolve the suite shared folder: {e}")))?;
     Ok(suite.root().to_path_buf())
 }

@@ -71,9 +71,8 @@ use rightkit_automation::control::lease::{
 };
 use rightkit_automation::json::esc;
 use rightkit_automation::keys::appkit as keys;
-use rightkit_daemon::{
-    host, Allowlist, CallContext, Emit, Handler, ServiceConfig, ServiceError, Suite,
-};
+use rightkit_daemon::{host, Allowlist, CallContext, Emit, Handler, ServiceConfig, ServiceError};
+use rightkit_roots::Suite;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -762,7 +761,7 @@ fn suite_from_override(root: Option<&str>) -> Result<Suite, Box<dyn std::error::
 
 fn control_suite() -> Result<Suite, Box<dyn std::error::Error>> {
     suite_from_override(
-        std::env::var(rightkit_daemon::ENV_SUITE_ROOT)
+        std::env::var(rightkit_roots::ENV_SUITE_ROOT)
             .ok()
             .as_deref(),
     )

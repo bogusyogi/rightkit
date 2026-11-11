@@ -1,4 +1,4 @@
-use crate::suite::Suite;
+use rightkit_roots::Suite;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -163,7 +163,7 @@ pub fn try_read_live_record(
 /// A host in another process finds the request on its next check of `takeover.json`, at most
 /// about a second later. A host in this process is woken at once.
 pub fn write_takeover(suite: &Suite, service: &str, req: &TakeoverRequest) -> std::io::Result<()> {
-    crate::suite::make_private_dir(&suite.service_dir(service)).map_err(std::io::Error::other)?;
+    rightkit_roots::make_private_dir(&suite.service_dir(service)).map_err(std::io::Error::other)?;
     let path = takeover_path(suite, service);
     write_atomic(&path, &serde_json::to_vec_pretty(req).unwrap_or_default())?;
     crate::takeover_watch::poke(&path);

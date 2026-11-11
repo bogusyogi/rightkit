@@ -272,7 +272,7 @@ use rightkit_models::{EntitlementError, ModelStore};
 use rightkit_models::suite::catalog::ModelSpec; // the suite's catalog spec, not the root `ModelSpec`
 ```
 
-- `ModelStore::shared(app_id)` binds the machine-wide shared store (the root is `rightkit_daemon::Suite::resolve`, the per-user default; no environment variable overrides it in any build); `ModelStore::at_models_root(root, app_id)`
+- `ModelStore::shared(app_id)` binds the machine-wide shared store (the root is `rightkit_roots::Suite::resolve`, the per-user default; no environment variable overrides it in any build); `ModelStore::at_models_root(root, app_id)`
   binds an explicit directory (tests, sandboxes). `with_http_client` swaps the transport.
 - `EntitlementError` is what `try_ensure_entitled` returns. Match on it to tell "not entitled"
   (`NotEntitled`), "back off" (`RateLimited`), "retry" (`Transport`) and "local failure" (`Install`).

@@ -6320,12 +6320,13 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "core-foundation 0.10.1",
  "getrandom 0.4.3",
  "rightkit-child-process",
  "rightkit-fs",
+ "rightkit-roots",
  "rightkit-sidecar",
  "security-framework",
  "serde",
@@ -6563,9 +6564,9 @@ dependencies = [
  "dirs",
  "flate2",
  "getrandom 0.4.3",
- "rightkit-daemon",
  "rightkit-fs",
  "rightkit-http",
+ "rightkit-roots",
  "serde",
  "serde_json",
  "tar",
@@ -6737,6 +6738,7 @@ dependencies = [
  "rightkit-credentials",
  "rightkit-daemon",
  "rightkit-fs",
+ "rightkit-roots",
  "rightkit-sidecar",
  "serde",
  "serde_json",
@@ -6775,6 +6777,16 @@ version = "0.4.3"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "rightkit-roots"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.4.3",
+ "rightkit-fs",
+ "serde_json",
+ "windows 0.62.2",
 ]
 
 [[package]]

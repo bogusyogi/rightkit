@@ -15,7 +15,8 @@
 use rightkit_automation::in_app::InApp;
 use rightkit_automation::keys::{Chord, Key, Named};
 use rightkit_automation::{Button, Error, InputEvent, Result};
-use rightkit_daemon::{Client, ServiceError, Suite, ERROR_NOT_ALLOWED};
+use rightkit_daemon::{Client, ServiceError, ERROR_NOT_ALLOWED};
+use rightkit_roots::Suite;
 use serde_json::{json, Value};
 use std::path::Path;
 

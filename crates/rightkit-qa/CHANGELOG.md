@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.6 (unpublished)
+
+- Dependencies: new `rightkit-roots` 0.1.0; `Suite`, `ENV_SUITE_ROOT`, `MAX_SERVICE_NAME_LEN` and `valid_service_name` now come from it (they moved there in rightkit-daemon 0.8.0, which still re-exports them) (2026-11-11 shape review, docs/audits/2026-11-11-shape-matrix/reports/family-foundation-runtime.md). `rightkit-daemon` stays for the client, host, record and endpoint calls. No behaviour change.
+
 ## 0.10.5 (unpublished)
 
 - Fix owner-bound credential snapshots (#1552): `run-tests --credential-owner <installed executable>` uses authenticated credential-only prelaunch control in the installed owner. Keep private snapshot files, immutable owner identity, crash recovery & verified restoration; no Keychain ACL changes or foreign-reader fallback.

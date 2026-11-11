@@ -1,10 +1,12 @@
-# rightkit-daemon 0.7.0 registry consumer (PK07-3 + PK07 R2)
+# rightkit-daemon 0.8.0 registry consumer (PK07-3 + PK07 R2)
 
-Standalone consumer, outside the workspace, pinning `rightkit-daemon =0.7.0` exactly with default
+Standalone consumer, outside the workspace, pinning `rightkit-daemon =0.8.0` exactly with default
 features only. It exercises the root-cutover surface a registered app uses to move its data root:
 `Suite::per_run_temp`, `Suite::app_root`, `RootCutover` with a `FsMove::Tree` copy and one no-op
 `CutoverParticipant`, `status`, `selected_root`, the completed rerun, `recover`, and
-`retire_old_root`. It also checks that a relative old root is refused with `InvalidRoot`.
+`retire_old_root`. It also checks that a relative old root is refused with `InvalidRoot`. Since 0.8.0 these
+root items live in `rightkit-roots` 0.1.0 and are re-exported here under their old paths, so this recipe
+proves the re-exports a not-yet-migrated app compiles against.
 
 It also runs frozen PK07 R2 example: `Service::builder().methods(..).handler(..).local(..).start()`
 with `Client::connect_expecting` against this process, echo round-trip, executable-mismatch refusal,

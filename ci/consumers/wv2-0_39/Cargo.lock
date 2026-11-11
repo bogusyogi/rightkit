@@ -3084,12 +3084,13 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "core-foundation",
  "getrandom 0.4.3",
  "rightkit-child-process",
  "rightkit-fs",
+ "rightkit-roots",
  "rightkit-sidecar",
  "security-framework",
  "serde",
@@ -3169,6 +3170,7 @@ dependencies = [
  "rightkit-credentials",
  "rightkit-daemon",
  "rightkit-fs",
+ "rightkit-roots",
  "rightkit-sidecar",
  "serde",
  "serde_json",
@@ -3177,6 +3179,16 @@ dependencies = [
  "webview2-com",
  "windows 0.62.2",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "rightkit-roots"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.4.3",
+ "rightkit-fs",
+ "serde_json",
+ "windows 0.62.2",
 ]
 
 [[package]]

@@ -38,7 +38,7 @@ use std::path::{Component, Path, PathBuf};
 
 use rightkit_fs::{AtomicWriteOptions, AtomicWriter, FsError, ReplaceMode};
 
-use crate::discovery::{try_lock_exclusive, LockedFile};
+use crate::lock::{try_lock_exclusive, LockedFile};
 use crate::suite::{make_private_dir, Suite, SuiteError};
 
 /// The longest app name accepted, in bytes.

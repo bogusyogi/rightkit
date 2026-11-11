@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-daemon"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist."
@@ -15,6 +15,9 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "transaction"] }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
+# Run mode, the suite root, app roots and root cutover (here until 0.8.0), re-exported under their
+# old paths for one release; and the exclusive lock file the host election and spawn claim use.
+rightkit-roots = { version = "0.1.0", path = "../rightkit-roots" }
 # Private per-run child service (`private`): constant-time secret check and the secret itself.
 subtle = "2.6"
 getrandom = "0.4"

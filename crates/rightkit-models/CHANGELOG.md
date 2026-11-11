@@ -3,6 +3,7 @@
 ## 0.6.0 (unpublished)
 
 - **Breaking:** removed the `agent_local_models` feature and the `agent_local_models` module. CodeRight's local model primitives (hardware report, runtime detection over a sandboxed launch adapter, local model catalog, provider route suggestion, local inference seam) are now their own crate, `rightkit-agent-local-models` 0.1.0: `rightkit_models::agent_local_models::X` becomes `rightkit_agent_local_models::X`. It is agent product code, not the model installer (2026-11-11 shape review, docs/audits/2026-11-11-shape-matrix/reports/family-foundation-runtime.md). The optional `rightkit-sandbox` and `tokio` dependencies are gone with it. The installer, hardware and suite APIs are unchanged; the review's other finding (two on-disk stores, `Store` and `suite::*`) is not addressed here.
+- Dependencies: `rightkit-daemon` is replaced by `rightkit-roots` 0.1.0, the crate `Suite` moved to in rightkit-daemon 0.8.0; this crate used nothing else from the daemon (2026-11-11 shape review, docs/audits/2026-11-11-shape-matrix/reports/family-foundation-runtime.md). `suite::paths` resolves the same root through the same `Suite::resolve` and `Suite::per_user_default`.
 
 ## 0.5.9
 - Docs: intra-doc links rustdoc could not resolve (feature-only, private or out-of-scope items) are plain code, so the doc build (`-D warnings`) passes.

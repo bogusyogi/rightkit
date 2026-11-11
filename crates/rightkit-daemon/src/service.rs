@@ -20,7 +20,7 @@ use std::sync::Arc;
 use crate::contract::{Handler, MethodTable, TableError};
 use crate::registration::{Registration, RegistrationError};
 use crate::server::{host_with_options, HostError, HostOptions, Hosted, ServiceConfig};
-use crate::suite::Suite;
+use rightkit_roots::Suite;
 
 /// Why [`ServiceBuilder::start`] failed.
 #[derive(Debug)]

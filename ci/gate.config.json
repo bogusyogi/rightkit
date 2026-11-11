@@ -499,6 +499,11 @@
         ]
       ]
     },
+    "rightkit-roots": {
+      "featureSets": [
+        []
+      ]
+    },
     "rightkit-pdfium": {
       "featureSets": [
         []

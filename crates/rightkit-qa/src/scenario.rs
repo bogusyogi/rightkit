@@ -164,7 +164,7 @@ const RESERVED_INPUT_KEYS: &[&str] = &[
     "RIGHTKIT_QA_PACE_MS",
     // The runner's own roots.
     "RIGHTKIT_QA_HOME",
-    rightkit_daemon::ENV_SUITE_ROOT,
+    rightkit_roots::ENV_SUITE_ROOT,
     "RIGHTKIT_RUN_ROOT",
     "RIGHTKIT_MANAGED_ROOT",
     // What `workspace::create` puts in every launch environment, and the runner's own settings.

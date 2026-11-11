@@ -443,7 +443,7 @@ impl LocalBackend {
         Self { client, expect }
     }
 
-    fn suite(&self) -> io::Result<crate::suite::Suite> {
+    fn suite(&self) -> io::Result<rightkit_roots::Suite> {
         self.client.resolve_suite().map_err(io::Error::other)
     }
 }

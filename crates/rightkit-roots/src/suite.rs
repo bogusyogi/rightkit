@@ -105,7 +105,7 @@ impl Suite {
 
     /// Kept for existing callers: the flag is ignored, because no build reads an override
     /// variable any more. An alias of [`Suite::per_user_default`].
-    #[deprecated(since = "0.1.6", note = "use rightkit_daemon::mode::{decide, roots}")]
+    #[deprecated(since = "0.1.6", note = "use rightkit_roots::mode::{decide, roots}")]
     pub fn resolve_ignoring_env_overrides(ignore_env_overrides: bool) -> Result<Suite, SuiteError> {
         let _ = ignore_env_overrides;
         Self::per_user_default()
@@ -304,9 +304,20 @@ fn platform_default_base() -> Result<PathBuf, SuiteError> {
     ))
 }
 
+/// The effective uid of this process (`geteuid`). Moved from `rightkit-daemon`'s transport, where
+/// it was the same call.
+#[cfg(unix)]
+fn current_uid() -> u32 {
+    extern "C" {
+        fn geteuid() -> u32;
+    }
+    // SAFETY: `geteuid` takes no arguments, cannot fail and touches no memory of ours.
+    unsafe { geteuid() }
+}
+
 /// The current user's home directory from `getpwuid_r(geteuid())`, ignoring `HOME`.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-pub(crate) fn passwd_home_dir() -> Result<PathBuf, SuiteError> {
+pub fn passwd_home_dir() -> Result<PathBuf, SuiteError> {
     use std::ffi::{c_char, c_int, CStr, OsStr};
     use std::os::unix::ffi::OsStrExt;
 
@@ -342,7 +353,7 @@ pub(crate) fn passwd_home_dir() -> Result<PathBuf, SuiteError> {
 
     /// ERANGE is 34 on macOS and Linux.
     const ERANGE: c_int = 34;
-    let uid = crate::transport::current_uid();
+    let uid = current_uid();
     let mut buf = vec![0u8; 1024];
     loop {
         let mut pwd = std::mem::MaybeUninit::<Passwd>::zeroed();
@@ -399,13 +410,13 @@ pub fn valid_service_name(s: &str) -> bool {
 }
 
 /// Create `dir` (and parents), make the leaf owner-only and prove it, through the
-/// `rightkit-fs` private primitives (one-way daemon -> fs dependency). On Windows this is the
+/// `rightkit-fs` private primitives (one-way roots -> fs dependency). On Windows this is the
 /// corrected existing-object repair: a pinned no-reparse handle, current-token ownership, a
 /// protected owner-only DACL, then a reverify; a foreign-owned or too-permissive directory is
 /// [`SuiteError::Insecure`], never silently inherited from whatever profile or explicit root
 /// happened to contain it. Unix behaviour is unchanged in effect: owner-only creation, the leaf
 /// narrowed, and a foreign owner refused as `Insecure`.
-pub(crate) fn make_private_dir(dir: &Path) -> Result<(), SuiteError> {
+pub fn make_private_dir(dir: &Path) -> Result<(), SuiteError> {
     #[cfg(unix)]
     {
         // Preserve the `Insecure` classification for a foreign-owned existing leaf: the fs
@@ -413,7 +424,7 @@ pub(crate) fn make_private_dir(dir: &Path) -> Result<(), SuiteError> {
         // below could name the owner problem.
         use std::os::unix::fs::MetadataExt;
         if let Ok(md) = std::fs::symlink_metadata(dir) {
-            if md.uid() != crate::transport::current_uid() {
+            if md.uid() != current_uid() {
                 return Err(SuiteError::Insecure(format!(
                     "{} is not owned by the current user",
                     dir.display()

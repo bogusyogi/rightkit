@@ -45,7 +45,6 @@
 //! as the `rightkit-job-queue` engine contract:
 //! `hello`, `request{id,method,params}`, `event{id,event}`, `response{id,ok,result|error}`.
 
-mod app_root;
 /// Approval workflow mechanics: request binding, verified decisions, one execution claim,
 /// audit before effect (PK07-4).
 pub mod approval;
@@ -66,19 +65,16 @@ pub mod lifecycle;
 #[cfg(feature = "remote-loopback")]
 pub mod loopback;
 pub mod metrics;
-pub mod mode;
 mod peer;
 mod peer_signature;
 pub mod private;
 mod record;
 mod registration;
 pub mod reload;
-mod root_cutover;
 mod server;
 mod service;
 mod shutdown;
 pub mod stop;
-mod suite;
 pub mod supervisor;
 mod takeover_watch;
 pub mod ticker;
@@ -101,12 +97,6 @@ pub use private::{
 };
 // Deprecated items stay exported for existing callers; their deprecation is reported at the
 // caller's own use site, not on this re-export.
-pub use app_root::{
-    valid_app_name, AppRoot, AppRootError, LinkNotCreated, MigrateOptions, MigratedLink,
-    MigrationOutcome, MigrationReport, MigrationScope, MigrationState, MigrationStatus,
-    OmittedLink, ReparseKind, SkippedReparsePoint, SkippedSpecial, SpecialKind, WriterLock,
-    MAX_APP_NAME_LEN, MIGRATION_MARKER, MIGRATION_STATE,
-};
 #[allow(deprecated)]
 pub use discovery::{discover_apps, KNOWN_APPS};
 pub use error::{
@@ -147,11 +137,6 @@ pub use record::{
 pub use registration::{
     MethodDescriptor, Registration, RegistrationError, ServiceIdentity, TransportProfile,
 };
-pub use root_cutover::{
-    CutoverContext, CutoverError, CutoverParticipant, CutoverPhase, CutoverReport, CutoverStep,
-    FsMove, ParticipantError, RecoverOutcome, RetireMode, Retired, RootCutover, RootSelection,
-    RootStatus, Settlement, CUTOVER_RECORD,
-};
 pub use server::{
     host, host_with_options, CallContext, Emit, Handler, HostError, HostOptions, Hosted,
     ServiceConfig, ServiceEvent, ServiceStatus, DEFAULT_FRAME_LIMIT, DEFAULT_HANDSHAKE_TIMEOUT,
@@ -159,12 +144,29 @@ pub use server::{
 };
 pub use service::{BuildError, Service, ServiceBuilder};
 pub use shutdown::{OrderedShutdown, PhaseOutcome, PhaseReport, ShutdownReport};
-pub use suite::{
-    valid_service_name, Suite, SuiteError, ENV_SUITE_ROOT, MAX_SERVICE_NAME_LEN, SHARED_DIR_NAME,
-    SUITE_DIR_NAME,
-};
 pub use transport::{
     endpoint_candidates, endpoint_for, find_live_endpoint, open_stream, open_stream_expecting,
     pid_alive, probe_endpoint, try_endpoint_for, Accepted, Conn, EndpointError, Listener, Stream,
     DEFAULT_MAX_PIPE_INSTANCES, MAX_UNIX_SOCKET_PATH,
+};
+
+// Run mode, the suite root, app roots and root cutover moved to `rightkit-roots` 0.1.0
+// (rightkit-daemon 0.8.0). They stay exported here under their old paths for one release so
+// existing callers keep compiling; new code depends on `rightkit-roots` directly. Deprecated
+// items keep their deprecation, reported at the caller's own use site.
+pub use rightkit_roots::mode;
+pub use rightkit_roots::{
+    valid_app_name, AppRoot, AppRootError, LinkNotCreated, MigrateOptions, MigratedLink,
+    MigrationOutcome, MigrationReport, MigrationScope, MigrationState, MigrationStatus,
+    OmittedLink, ReparseKind, SkippedReparsePoint, SkippedSpecial, SpecialKind, WriterLock,
+    MAX_APP_NAME_LEN, MIGRATION_MARKER, MIGRATION_STATE,
+};
+pub use rightkit_roots::{
+    valid_service_name, Suite, SuiteError, ENV_SUITE_ROOT, MAX_SERVICE_NAME_LEN, SHARED_DIR_NAME,
+    SUITE_DIR_NAME,
+};
+pub use rightkit_roots::{
+    CutoverContext, CutoverError, CutoverParticipant, CutoverPhase, CutoverReport, CutoverStep,
+    FsMove, ParticipantError, RecoverOutcome, RetireMode, Retired, RootCutover, RootSelection,
+    RootStatus, Settlement, CUTOVER_RECORD,
 };

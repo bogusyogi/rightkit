@@ -3,7 +3,7 @@
 //! connection never needs concurrent reads and writes on one handle.
 
 use crate::host_identity::{HostConnectError, HostExpectation, HostProcess};
-use crate::suite::Suite;
+use rightkit_roots::Suite;
 use std::io::{self, Read, Write};
 #[cfg(windows)]
 use std::os::windows::io::IntoRawHandle;

@@ -188,29 +188,13 @@ The 16 MiB frame limit stays the cap on every frame. `Client::call_large` sends 
 
 `stop::StopSource` is the one trigger for a host's stop: `stop_on_signals` (SIGINT and SIGTERM on Unix, the console control handler on Windows; a 50 ms watcher thread turns the signal into a trigger) and `stop_on_stdin_close` both feed it, and `StopToken` is what the host's threads wait on. `ticker::spawn_ticker` runs a closure every interval until the stop, and `ticker::spawn_heartbeat` writes a `{pid, updated_ms, state}` record atomically to a path on the same schedule.
 
-## No test mode
-
-There is no test mode, no `test-mode` feature, no `Mode::Test`, no `test_selector!` and no override selector (rightkit-daemon 0.5.3; rightkit#1437). Adrian, 2026-11-03: "dev mode, is mine. im the fucking owner, my data. no dummy data, no fucking made up shit. real data. snapshot and restore." Every build resolves the real per-user roots from the account database and reads no environment. QA runs against the real data under the snapshot and restore of `rightkit-qa`.
-
 ## Listener (`transport`)
 
 `Listener::bind`, `accept` (returning `Accepted::Conn(Conn)`, `Accepted::Rejected` or `Accepted::Vanished`), `wake` and `cleanup` are public. Each accepted peer is checked for the current user before any byte is read.
 
-## App-root migration (`AppRoot::migrate_from`)
+## Roots, run mode, app roots and root cutover (`rightkit-roots`)
 
-`AppRoot::migrate_from(src)` copies an old data root into the app root (empty directories included), verifies every byte and writes the marker `.rightkit-migrated.json` last. It is strict: a symlink, junction, reparse point or special file in `src` returns `UnsupportedSource`. `migrate_from_with(src, MigrateOptions)` opts in:
-
-* `preserve_links(true)` copies each symlink as a link and never follows it. A relative link that stays inside the tree keeps its text; one that leaves the tree is rewritten to an absolute path to its original target; an absolute or dangling link is copied as it is. If the destination cannot create a link (Windows without the symlink privilege or Developer Mode) the call fails with a retryable `AppRootError::Io` that carries a typed `LinkNotCreated { link, target, resolved, reason }`, read with `err.link_not_created()` (`err.is_retryable()` is true for it), before any marker is written; the old tree stays usable and the app decides whether to start from it. `optional_links(|path| ...)` lets the caller mark links that may be omitted instead; they are reported as `omitted_optional_links`.
-* `skip_ephemeral_specials(true)` skips sockets and FIFOs (never opened; on Windows an `AF_UNIX` socket file counts as a socket) and reports them. Devices and other specials still refuse.
-* `skip_reparse_points(true)` (Windows) skips a junction or any other reparse point that is not a symlink or socket, and reports it. Such an entry is never followed, opened, copied, recreated or recursed into; without this option it refuses with `UnsupportedSource` before anything is written.
-
-`migrate_from_with` returns a `MigrationReport`: `outcome()` (the same `MigrationOutcome` that `migrate_from` returns), `state()`, `migrated_links()`, `skipped_specials()`, `omitted_optional_links()`, `skipped_reparse_points()` and `complete()`. The old tree is never modified.
-
-**Completion states.** `.rightkit-migration-state.json` (version 2) records `Ready`, `ReadyWithOmissions` or `Incomplete`; read it with `AppRoot::migration_state(src)`. `Incomplete` is written before the destination is first touched and stays after any interruption or failure: the old root stays the authority and a rerun finishes the copy. `ReadyWithOmissions` means every required entry is in place and only entries the caller declared disposable (optional links, skipped reparse points) are missing, each listed; a rerun retries the omitted links only. The old-shape marker `.rightkit-migrated.json` is written only for `Ready`, so a reader of an earlier version never takes an incomplete or partial destination for a finished move.
-
-## Root cutover (`RootCutover`)
-
-`RootCutover::new(app_root, old_root)` moves an app's data root with the writers stopped and the old root left complete. The app registers participants (`CutoverParticipant`: `prepare`, `quiesce`, `relocate`, `reopen`, `settle`; the database relocation of `rightkit-db` is one, wrapped by the app) and picks how files travel (`FsMove::Tree` or `FsMove::Companions`). The persisted record `.rightkit-root-cutover.json` selects the root: `copying` and `aborted` the old one, `switched` and `completed` the new one. Read it with `RootCutover::status` or `selected_root`, and run `recover()` at startup so a switched cutover finishes before any root is opened. Cleanup is separate (`retire_old_root`): identity-checked, and it only renames the old root aside or sends it to the trash. Detail and the protocol table are in the module docs.
+`mode`, `Suite`, `AppRoot` (with `AppRoot::migrate_from`) and `RootCutover` moved to the `rightkit-roots` crate in 0.8.0. They are still exported here under their old paths (`rightkit_daemon::mode`, `rightkit_daemon::{Suite, AppRoot, RootCutover, ...}`) for one release, so existing callers compile unchanged; they are the same types, so a `Suite` built from either path is accepted by `host`, `Client` and the rest of this crate. New code that only needs paths depends on `rightkit-roots` and not on this crate. The rules (no test mode, fail-closed roots, migration and cutover) are in that crate's README.
 
 ## Approvals (`approval`)
 

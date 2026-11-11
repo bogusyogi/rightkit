@@ -2,7 +2,7 @@
 //!
 //! Merge precedence (later overrides earlier for scalars; lists extend):
 //! 1. built-in defaults
-//! 2. user config (`<state root>/config.toml`, the rightkit-daemon AppRoot, see [`state_root`](fn@state_root))
+//! 2. user config (`<state root>/config.toml`, the rightkit-roots AppRoot, see [`state_root`](fn@state_root))
 //! 3. workspace config (`<workspace>/<state-dir>/config.toml`)
 //! 4. env var overrides (`RIGHTKIT_*`)
 //! 5. session overrides (a passed-in map)

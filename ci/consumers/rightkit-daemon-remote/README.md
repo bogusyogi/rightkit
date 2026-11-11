@@ -1,7 +1,7 @@
 # rightkit-daemon-remote 0.1.0 registry consumer
 
 Standalone package outside the RightKit workspace. It depends on `rightkit-daemon-remote` by exact registry pin
-(`=0.1.0`) with the `remote` and `relay` features (`link` comes with both), and on `rightkit-daemon =0.7.0` with
+(`=0.1.0`) with the `remote` and `relay` features (`link` comes with both), and on `rightkit-daemon =0.8.0` with
 default features for the method table, handler and call context the device route dispatches to. It has no path,
 Git, workspace or patch dependency and no committed `Cargo.lock`. Extra dependencies: `ring = "0.17"` (the
 Ed25519 keys that sign device requests and relay tickets) and `serde_json = "1"`.

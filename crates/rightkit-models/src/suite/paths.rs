@@ -16,7 +16,7 @@
 //! (`crate::init_android_files_dir`) and that directory is the root (`<filesDir>/models`).
 //! Unverified on a device.
 //!
-//! The root is `rightkit_daemon::Suite::resolve`, the per-user default, in every build. No
+//! The root is `rightkit_roots::Suite::resolve`, the per-user default, in every build. No
 //! environment variable overrides it, and it is read on every call, never cached.
 
 use serde::{Deserialize, Serialize};
@@ -64,7 +64,7 @@ pub fn version_within(app_version: &str, max_version: &str) -> bool {
 
 /// Suite-wide root directory shared by all Orthic Labs apps.
 ///
-/// Resolved by [`rightkit_daemon::Suite::resolve`], which is always the operating system's
+/// Resolved by [`rightkit_roots::Suite::resolve`], which is always the operating system's
 /// per-user default from the account database. No environment variable overrides it.
 ///
 pub fn suite_root() -> PathBuf {
@@ -102,7 +102,7 @@ fn checked_suite_root() -> Result<PathBuf, String> {
         return Ok(files_dir);
     }
     // `Suite::resolve` is the per-user default in every build. Resolved fresh on every call.
-    Ok(match rightkit_daemon::Suite::resolve() {
+    Ok(match rightkit_roots::Suite::resolve() {
         Ok(suite) => suite.root().to_path_buf(),
         Err(_) => default_suite_root(),
     })
@@ -116,7 +116,7 @@ pub fn legacy_suite_root() -> PathBuf {
     if crate::android::android_files_dir().is_some() {
         return root;
     }
-    match rightkit_daemon::Suite::per_user_default() {
+    match rightkit_roots::Suite::per_user_default() {
         Ok(default) => default
             .root()
             .parent()

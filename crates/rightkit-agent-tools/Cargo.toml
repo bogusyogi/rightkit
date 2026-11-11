@@ -27,7 +27,7 @@ coding_tools-test-support = ["coding_tools"]
 coding_tools = ["dep:bytes", "dep:rightkit-db", "dep:anyhow", "dep:rightkit-agent-engine-protocol", "dep:rightkit-agent-engine-runtime-resources", "dep:rightkit-fs", "dep:rightkit-crypto", "dep:rightkit-time", "dep:rightkit-agent-policy", "dep:rightkit-agent-config", "dep:rightkit-mcp", "rightkit-mcp/agent_mcp", "dep:rightkit-agent-engine-history", "dep:rightkit-agent-host-traits", "dep:rightkit-llm", "dep:rightkit-agent-telemetry", "dep:thiserror", "dep:tracing", "dep:tokio", "tokio/full", "dep:rightkit-http", "dep:url", "dep:async-trait", "dep:rightkit-embed", "dep:rightkit-sandbox", "dep:rightkit-child-process", "dep:futures", "dep:tempfile", "dep:scraper", "dep:git2", "dep:ignore", "dep:globset", "dep:regex", "dep:flate2", "dep:libc", "dep:rightkit-daemon", "dep:winapi", "dep:windows", "coding_tools-host"]
 
 [dependencies]
-rightkit-daemon = { version = "0.7.0", path = "../rightkit-daemon" }
+rightkit-daemon = { version = "0.8.0", path = "../rightkit-daemon" }
 rightkit-automation = { version = "0.6.4", path = "../rightkit-automation", optional = true }
 rightkit-browser = { version = "0.3.7", path = "../rightkit-browser", optional = true }
 rightkit-speech-client = { version = "0.4.1", path = "../rightkit-speech-client", optional = true }
@@ -104,6 +104,6 @@ libc = {version = "0.2", optional = true}
 
 [target."cfg(windows)"]
 [target."cfg(windows)".dependencies]
-rightkit-daemon = {version = "0.7.0", default-features = false, features = ["local"], path = "../rightkit-daemon", optional = true}
+rightkit-daemon = {version = "0.8.0", default-features = false, features = ["local"], path = "../rightkit-daemon", optional = true}
 winapi = {version = "0.3", features = ["consoleapi", "handleapi", "processthreadsapi", "synchapi", "minwindef", "winbase", "winnt", "namedpipeapi", "wincontypes", "ntdef"], optional = true}
 windows = {version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Isolation", "Win32_System_JobObjects", "Win32_System_Threading"], optional = true}

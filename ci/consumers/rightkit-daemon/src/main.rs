@@ -1,4 +1,4 @@
-// rightkit-daemon 0.7.0 registry consumer, outside the workspace, pinning `rightkit-daemon =0.7.0`
+// rightkit-daemon 0.8.0 registry consumer, outside the workspace, pinning `rightkit-daemon =0.8.0`
 // exactly with default features only (the `local` marker). It avoids `remote-loopback`; the
 // `remote`, `link` and `relay` features left for `rightkit-daemon-remote` in 0.7.0.
 //
@@ -7,7 +7,8 @@
 // recover, retire_old_root}`, `FsMove::Tree` with `MigrateOptions::strict`, a no-op
 // `CutoverParticipant` that keeps the default hooks, a refused relative old root (`InvalidRoot`),
 // the completed rerun, the completed recovery, the retirement of the old root, `valid_app_name`,
-// and the record file name.
+// and the record file name. Since 0.8.0 those root items are `rightkit-roots` 0.1.0, re-exported
+// here under their old paths, so this proves the re-exports.
 // Also proves frozen PK07 R2 example at 0.4.0: `Service::builder().methods(..).handler(..)
 // .local(..).start()` + `Client::connect_expecting` (host = this process), echo round-trip,
 // executable-mismatch refusal before any request & unlisted-app refusal.
@@ -182,6 +183,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     service_r2()?;
 
-    println!("OK rightkit-daemon 0.7.0 (registry consumer, PK07-3 root cutover + PK07 R2 service)");
+    println!("OK rightkit-daemon 0.8.0 (registry consumer, PK07-3 root cutover + PK07 R2 service)");
     Ok(())
 }

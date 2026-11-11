@@ -17,7 +17,7 @@
 //! A listener that is dropped removes its endpoint. A crashed listener leaves a stale endpoint that
 //! the next `post` removes.
 
-use crate::suite::{valid_service_name, Suite};
+use rightkit_roots::{valid_service_name, Suite};
 use std::io;
 use std::time::Duration;
 
@@ -226,7 +226,7 @@ mod imp {
 
     pub(super) fn listen(suite: &Suite, name: &str) -> io::Result<Inner> {
         let dir = dir_for(suite, name);
-        crate::suite::make_private_dir(&dir).map_err(io::Error::other)?;
+        rightkit_roots::make_private_dir(&dir).map_err(io::Error::other)?;
         let event_name = format!(
             "Local\\rk-wake-{}-{}-{}",
             hash_hex(&format!("{}|{name}", suite.root().display())),

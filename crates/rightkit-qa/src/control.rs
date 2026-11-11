@@ -14,7 +14,8 @@ use crate::workspace::QaWorkspace;
 use rightkit_child_process::OwnedChild;
 #[cfg(not(target_os = "macos"))]
 use rightkit_child_process::OwnedCommand;
-use rightkit_daemon::{Client, ServiceError, Suite};
+use rightkit_daemon::{Client, ServiceError};
+use rightkit_roots::Suite;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};

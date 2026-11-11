@@ -1,0 +1,28 @@
+[package]
+name = "rightkit-roots"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Where a Right Suite app keeps its data: the one run-mode decision, the per-user suite root, app roots with their migration, and the crash-safe root cutover."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/bogusyogi/rightkit"
+readme = "README.md"
+keywords = ["app-data", "paths", "migration", "filesystem"]
+categories = ["filesystem"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[dependencies]
+# Atomic and owner-only writes, private directories, reads that do not follow links, the trash,
+# and the crash-recoverable transaction the cutover publishes with. `app-dirs` is only for the
+# re-export of the other root resolver (see the README, "Three root implementations").
+rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "transaction", "app-dirs"] }
+serde_json = "1.0.154"
+# The random cutover id.
+getrandom = "0.4"
+
+# Reparse-point tags of entries an app-root migration meets (`FindFirstFileW`).
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
+
+[features]
+default = []

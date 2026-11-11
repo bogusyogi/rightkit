@@ -15,7 +15,7 @@
 //! ```
 //!
 //! Suite root: the per-user Orthic Labs `shared` directory, resolved by
-//! `rightkit_daemon::Suite::resolve`; no environment variable overrides it. Readiness requires the *trusted catalog*
+//! `rightkit_roots::Suite::resolve`; no environment variable overrides it. Readiness requires the *trusted catalog*
 //! manifest (compiled into the app, per-file SHA-256 + size pins) - a manifest
 //! read from disk never defines its own identity.
 //!

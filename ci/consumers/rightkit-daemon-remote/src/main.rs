@@ -1,6 +1,6 @@
 // rightkit-daemon-remote 0.1.0 registry consumer, outside the workspace, pinning
 // `rightkit-daemon-remote =0.1.0` with the `remote` and `relay` features (so `link` too) and
-// `rightkit-daemon =0.7.0` with default features for the handler contract the device route calls.
+// `rightkit-daemon =0.8.0` with default features for the handler contract the device route calls.
 //
 // Proves, in process (the daemon core is transport-free; no listener, no TLS, no network):
 // `Daemon::open` over a per-run state directory with `DeviceCalls` built from a rightkit-daemon

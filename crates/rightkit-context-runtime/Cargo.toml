@@ -33,7 +33,7 @@ rightkit-embed = { version = "0.6.2", path = "../rightkit-embed" }
 rightkit-logs = { version = "0.4.0", default-features = false, path = "../rightkit-logs" }
 rightkit-fs = { version = "0.4.9", features = ["lock", "digest", "app-dirs"], path = "../rightkit-fs" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
-rightkit-daemon = { version = "0.7.0", path = "../rightkit-daemon" }
+rightkit-daemon = { version = "0.8.0", path = "../rightkit-daemon" }
 rightkit-sync = { version = "0.2.2", path = "../rightkit-sync" }
 rightkit-file-watch = { version = "0.4.2", path = "../rightkit-file-watch" }
 rightkit-hooks = { version = "0.2.1", path = "../rightkit-hooks" }

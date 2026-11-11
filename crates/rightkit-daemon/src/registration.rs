@@ -37,8 +37,8 @@ use crate::contract::{validate_method_id, CallContext, Emit, Handler, MethodPoli
 use crate::contract::{TableError, Transport};
 use crate::error::ServiceError;
 use crate::server::ServiceConfig;
-use crate::suite::valid_service_name;
 use crate::Allowlist;
+use rightkit_roots::valid_service_name;
 
 /// Which transports a registered service may be offered on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
