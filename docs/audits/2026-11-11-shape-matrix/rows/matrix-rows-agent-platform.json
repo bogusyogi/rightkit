@@ -1,0 +1,1006 @@
+[
+ {
+  "package": "rightkit-agent-engine",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-agent-engine",
+   "crates/rightkit-agent-engine-core",
+   "crates/rightkit-agent-engine-protocol",
+   "crates/rightkit-agent-engine-storage",
+   "crates/rightkit-agent-engine-history",
+   "crates/rightkit-agent-engine-tasks",
+   "crates/rightkit-agent-engine-mobile-runtime",
+   "crates/rightkit-agent-engine-runtime-middleware",
+   "crates/rightkit-agent-engine-runtime-resources",
+   "crates/rightkit-agent-engine-attention",
+   "crates/rightkit-agent-engine-cli",
+   "crates/rightkit-agent-engine-api-sessions",
+   "crates/rightkit-agent-engine-api-workflows",
+   "crates/rightkit-agent-engine-api-integrations",
+   "crates/rightkit-agent-engine-api-platform"
+  ],
+  "feeds": {
+   "coderight": 124089,
+   "pulse": 5097
+  },
+  "basis": "Two unrelated things under one name: the base crate is Pulse's always-on task contract (core/src/agent); the 14 -* crates are CodeRight's turn-loop engine",
+  "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
+  "shape": "wrong",
+  "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+  "apps": {
+   "coderight": {
+    "fit": "gaps",
+    "note": "loop, protocol, storage are its code; 11.7k of its engine lines sit in agent-server instead"
+   },
+   "pulse": {
+    "fit": "gaps",
+    "note": "only core/src/agent contracts (452 lines) are in; Swift iOS loop, budget ledger, approval gate and Windows engine supervisor are not, and most of that is app shell or belongs to RightKitAgent/daemon"
+   }
+  },
+  "boundary": [
+   "rightkit-agent-engine (Pulse contract) duplicates principal.rs, device.rs, effect.rs of rightkit-device-link-types almost line for line",
+   "voice.rs hard-codes VOICE_CHAT = \"heardright:control\" and a HeardRight R0/R1 routing model: a product decision in a contract crate",
+   "task_cli.rs (672 lines, a CLI) lives in a crate that says it has no runtime or IPC",
+   "Two task models: Pulse TaskEnvelope/TaskStatus (10 statuses, idempotency key, owner epoch) vs CodeRight TaskNode/TaskState (planning DAG) in engine-protocol + engine-tasks",
+   "Two approval records: Pulse ApprovalBinding (args_hash mandatory) vs CodeRight PendingApprovalContext (payload_digest optional)",
+   "Pulse planned files include windows/src/agent.rs (engine supervisor: belongs to rightkit-daemon/sidecar) and Swift UI panels (app shell)"
+  ],
+  "actions": [
+   "Rename the base crate rightkit-agent-task-contract (or fold into engine-protocol) and make rightkit-agent-engine a facade over the -* crates",
+   "Delete the duplicated Principal/DeviceRef/EffectClass; one home (device-link-types or the contract crate), re-exported",
+   "Move voice.rs to the dictation/voice family or make chat label and policy ref host parameters",
+   "Move task_cli.rs out to a CLI crate",
+   "Adopt Pulse's rule in the CodeRight loop: approval always bound to a digest of the exact arguments, destination, expiry and revision; map ExternalEffectSettlement::InterruptedUnknown to TaskStatus::Uncertain",
+   "Rename CodeRight TaskNode/TaskState to PlanTask* so the two task concepts cannot be confused"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "@rightkit/agent-ui",
+  "kind": "npm",
+  "family": "Agent platform",
+  "existsAs": [
+   "packages/agent-ui-core",
+   "packages/agent-ui-components",
+   "packages/agent-ui-hooks",
+   "packages/agent-ui-settings",
+   "packages/agent-ui-web",
+   "packages/agent-ui-workbench",
+   "packages/agent-ui-approvals"
+  ],
+  "feeds": {
+   "coderight": 118530,
+   "mailright": 1395,
+   "pulse": 1308
+  },
+  "basis": "CodeRight's desktop UI split into six packages; agent-ui-approvals is MailRight's approval card/queue and Pulse's hub remote views placed side by side, not merged",
+  "referenceApp": "pulse for approvals behaviour; coderight for the workbench",
+  "shape": "gaps",
+  "shapeReason": "Six CodeRight packages are a faithful lift (95% of lines found). agent-ui-approvals is two apps' screens in two folders with no shared approval model, depends on @rightkit/mail-ui and carries 134 Pulse strings.",
+  "apps": {
+   "coderight": {
+    "fit": "fits",
+    "note": "its own code; 74 'coderight' strings remain in the six packages"
+   },
+   "mailright": {
+    "fit": "gaps",
+    "note": "card, queue and settings are in; IPC client (agentApprovals.ts) landed in mail-ui"
+   },
+   "pulse": {
+    "fit": "gaps",
+    "note": "views are in verbatim under remote/, still Pulse-branded"
+   }
+  },
+  "boundary": [
+   "agent-ui-approvals depends on @rightkit/mail-ui: a generic approvals UI must not pull the mail UI",
+   "agent-ui-approvals/src/remote holds Pulse hub pages that are not approvals (Devices, Guests, Monitor, Membrane, Overview, PhonePairing)",
+   "No package named @rightkit/agent-ui exists; the plan name maps to seven packages"
+  ],
+  "actions": [
+   "Define one ApprovalItem model (id, kind, scope, origin, summary, detail, digest, expiry) matching the Rust approvals core and render both MailRight cards and Pulse lists from it",
+   "Move mail-specific card content behind a render prop; drop the mail-ui dependency",
+   "Move Pulse hub pages that are not approvals to a remote-gateway UI package",
+   "Replace product strings with the appName prop already present (appName.ts)"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-terminal-ui",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-terminal-ui"
+  ],
+  "feeds": {
+   "coderight": 94376
+  },
+  "basis": "CodeRight's ratatui TUI",
+  "referenceApp": "coderight",
+  "shape": "gaps",
+  "shapeReason": "Crate is brand-free and self-contained (3 deps), but 16.7k planned lines from CodeRight's binary (engine/bins/coderight/src) landed in agent-server, so the TUI host glue is not in this package.",
+  "apps": {
+   "coderight": {
+    "fit": "gaps",
+    "note": "73% of lines in target; host glue in agent-server"
+   }
+  },
+  "boundary": [
+   "TUI host/session glue sits in rightkit-agent-server"
+  ],
+  "actions": [
+   "Decide whether the session-facing TUI host belongs here behind a trait or stays in agent-server; document the seam"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "@rightkit/terminal-ui",
+  "kind": "npm",
+  "family": "Agent platform",
+  "existsAs": [
+   "packages/terminal-ui"
+  ],
+  "feeds": {
+   "coderight": 1370
+  },
+  "basis": "CodeRight's web terminal component",
+  "referenceApp": "coderight",
+  "shape": "best",
+  "shapeReason": "Small, 98% of CodeRight's lines present, no second implementation to reconcile.",
+  "apps": {
+   "coderight": {
+    "fit": "fits",
+    "note": ""
+   }
+  },
+  "boundary": [],
+  "actions": [],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-agent-server",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-agent-server"
+  ],
+  "feeds": {
+   "coderight": 91539
+  },
+  "basis": "CodeRight's coderight binary and HTTP API, 164k lines, plus code planned for nine other packages",
+  "referenceApp": "coderight",
+  "shape": "wrong",
+  "shapeReason": "It is CodeRight's application binary under a library name: 532 'coderight' strings, benchmarks, harness-radar data, and its own copies of the scheduler (3.0k), GitHub App (3.5k), workflow (7.2k) and Telegram (0.7k) modules. It does not depend on rightkit-scheduler or rightkit-github.",
+  "apps": {
+   "coderight": {
+    "fit": "gaps",
+    "note": "its code, but a second app cannot adopt it without CodeRight's product surface"
+   }
+  },
+  "boundary": [
+   "src/github_app duplicates rightkit-github (forge.rs 97% identical, 10 files)",
+   "src/scheduler duplicates and extends rightkit-scheduler; neither crate uses the other",
+   "src/workflow (7.2k) vs rightkit-workflow; src/telegram vs rightkit-bot-messaging",
+   "api_benchmarks, api_specs, learning, membrane_binding, data/harness-radar are CodeRight product features",
+   "Holds 11.7k lines planned for agent-engine, 6.8k for agents, 4.6k for llm, 3.7k for orchestration, 2.6k for sandbox, 1.8k for evidence"
+  ],
+  "actions": [
+   "Split: a small generic rightkit-agent-server (session hosting, daemon, API router, permission and session routes) and leave CodeRight's product routes in the app",
+   "Delete src/github_app and src/scheduler in favour of the crates; move execution/delivery/persistence into rightkit-scheduler",
+   "Move each misplaced module to the package the plan named, or change the plan"
+  ],
+  "depth": "light",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-agent-orchestration",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-agent-orchestration",
+   "crates/rightkit-agent-orchestration-handoff"
+  ],
+  "feeds": {
+   "coderight": 37870
+  },
+  "basis": "CodeRight's orchestration crate; -handoff also matches some Pulse transcript lines",
+  "referenceApp": "coderight",
+  "shape": "gaps",
+  "shapeReason": "80% of CodeRight's lines present; single app, 57k lines, 14 RightKit deps including repo-graph and code-audit-provider-sdk, which makes it a coding-agent orchestration, not a general one.",
+  "apps": {
+   "coderight": {
+    "fit": "fits",
+    "note": "3.7k lines still in agent-server"
+   }
+  },
+  "boundary": [
+   "Depends on rightkit-repo-graph and rightkit-code-audit-provider-sdk: coding-product coupling",
+   "rightkit-github depends on this crate (inverted)"
+  ],
+  "actions": [
+   "Put repo-graph and code-audit coupling behind features",
+   "Not read for behaviour"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-evidence",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-evidence",
+   "crates/rightkit-evidence-application",
+   "crates/rightkit-evidence-commands",
+   "crates/rightkit-evidence-contracts",
+   "crates/rightkit-evidence-decisions",
+   "crates/rightkit-evidence-effects",
+   "crates/rightkit-evidence-governance",
+   "crates/rightkit-evidence-report"
+  ],
+  "feeds": {
+   "coderight": 5738
+  },
+  "basis": "rightkit-evidence holds a quarter of CodeRight's planned evidence code; most (1.8k of 2.2k lines) is in agent-server. The seven -* crates (27k lines) are not fed by any planned app file in this family",
+  "referenceApp": "coderight",
+  "shape": "gaps",
+  "shapeReason": "Planned code is mostly in agent-server; the family's larger crates have no surveyed app source to compare against.",
+  "apps": {
+   "coderight": {
+    "fit": "gaps",
+    "note": "move evidence modules out of agent-server"
+   }
+  },
+  "boundary": [
+   "Evidence code split between rightkit-evidence and agent-server",
+   "Origin of rightkit-evidence-* not verified"
+  ],
+  "actions": [
+   "Move CodeRight evidence modules from agent-server",
+   "Establish which app owns the -* crates before publishing"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-agent-gateway",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-agent-gateway",
+   "crates/rightkit-remote-gateway"
+  ],
+  "feeds": {
+   "mailright": 14620,
+   "pulse": 20758
+  },
+  "basis": "rightkit-agent-gateway is MailRight's mail gateway (drafts, forward, send-with-approval, Gmail seams); Pulse's gateway is a separate crate, rightkit-remote-gateway",
+  "referenceApp": "pulse for gate order, approval binding, redaction and refusal codes; mailright for the paired-agent registry and SQL audit (the more general design: several agents, each with a profile and account scope)",
+  "shape": "wrong",
+  "shapeReason": "The package named 'agent gateway' is a mail product: it depends on rightkit-mail and its methods are mail verbs. Pulse's gateway shares none of its code. The common part (pairing, gate pipeline, audit, pending approvals, untrusted-content wrapping, redaction) exists twice and is not factored out.",
+  "apps": {
+   "mailright": {
+    "fit": "fits",
+    "note": "its own code; 34% matched because 9k of its 14.6k planned lines are tests and Gmail adapters that stay in the app"
+   },
+   "pulse": {
+    "fit": "wrong",
+    "note": "would have to adopt mail tables and verbs; its code is in rightkit-remote-gateway"
+   }
+  },
+  "boundary": [
+   "rightkit-agent-gateway depends on rightkit-mail and rightkit-search; description says 'for a mail-style app'",
+   "Approvals implemented inside the gateway (approval*.rs, 1.3k lines) instead of rightkit-approvals",
+   "redact.rs here only detects Google token markers (a release-gate check); rightkit-owner-approvals/redact.rs masks secrets in output: same name, different job",
+   "rightkit-remote-gateway carries Pulse product decisions: ChatGPT gateway (gptchat.rs), Spotify/Music control, 'owner app-state.json' switches, 31 Pulse strings",
+   "Pulse gateway/src/tools.rs and provider.rs (1.9k lines, the ChatGPT-facing server) are in no RightKit crate"
+  ],
+  "actions": [
+   "Extract a generic core as rightkit-agent-gateway: agent registry (hashed key, profile, scopes, revoke), gate pipeline (key, lock, profile, scope, rate limit, handler, one audit row), audit store trait (SQL and JSONL), Origin/door, Refusal with stable codes, untrusted-content wrapper",
+   "Rename today's crate rightkit-mail-agent-gateway (mail family) on top of the core",
+   "Rebase rightkit-remote-gateway on the same core; move ChatGPT and media-app specifics behind host-registered tools",
+   "Move all three approval stores to rightkit-approvals",
+   "One redaction module (Pulse's masking) plus MailRight's leak assertion as its test helper"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "RightKitAgent",
+  "kind": "swift",
+  "family": "Agent platform",
+  "existsAs": [],
+  "feeds": {
+   "coderight": 30723,
+   "pulse": 4258
+  },
+  "basis": "none",
+  "referenceApp": "pulse",
+  "shape": "missing",
+  "shapeReason": "No Swift module exists. CodeRight's 30.7k lines are its whole iOS app; Pulse's are iOS screens. The reusable part is small: provider protocol, budgeted loop step, approval gate with device-lock confirmation, pairing.",
+  "apps": {
+   "coderight": {
+    "fit": "n/a",
+    "note": "package missing; its iOS app uses the Rust mobile runtime (rightkit-agent-engine-mobile-runtime)"
+   },
+   "pulse": {
+    "fit": "n/a",
+    "note": "package missing"
+   }
+  },
+  "boundary": [
+   "Plan maps whole app screens (HomeView, SettingsView, CodeRight iOS app) to a library",
+   "Pulse's Swift loop and CodeRight's Rust mobile runtime are two answers to 'agent on iPhone'"
+  ],
+  "actions": [
+   "Decide first: Swift module wrapping rightkit-agent-engine-mobile-runtime over FFI (CodeRight) with Pulse's approval gate and budget ledger as the Swift-side policy; then write it",
+   "Re-map screens to SHELL"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-chat-bridge",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-chat-bridge"
+  ],
+  "feeds": {
+   "pulse": 26856
+  },
+  "basis": "Pulse's chat-between-chats code",
+  "referenceApp": "pulse",
+  "shape": "gaps",
+  "shapeReason": "75% of Pulse's lines present and the host supplies brand and state folder, but 52 Pulse strings remain and it depends on rightkit-ai-accounts (Claude account switching) for delivery.",
+  "apps": {
+   "pulse": {
+    "fit": "fits",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "Hard dependency on rightkit-ai-accounts",
+   "Claude Code/Codex chat discovery overlaps rightkit-agent-transcript discovery and rightkit-agents discovery (suspicion, not diffed)"
+  ],
+  "actions": [
+   "Remove remaining Pulse strings",
+   "Make ai-accounts an optional feature",
+   "Check discovery overlap with agent-transcript"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-agent-policy",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-agent-policy"
+  ],
+  "feeds": {
+   "coderight": 16018
+  },
+  "basis": "CodeRight's policy crate",
+  "referenceApp": "coderight",
+  "shape": "gaps",
+  "shapeReason": "85% present, 4 deps, 3 brand strings. Pulse's remote-gateway has its own command allow/deny policy (term.rs remoteTermAllow/Deny) and effect classes that do not use it.",
+  "apps": {
+   "coderight": {
+    "fit": "fits",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "Second command policy in rightkit-remote-gateway/term.rs; rightkit-policy-rules also matches ~300 lines"
+  ],
+  "actions": [
+   "Have remote-gateway's terminal command policy call this crate's classifier, or state why not",
+   "Check overlap with rightkit-policy-rules"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-ai-accounts",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-ai-accounts"
+  ],
+  "feeds": {
+   "pulse": 17592
+  },
+  "basis": "Part of Pulse's Claude account switching (29% of planned lines)",
+  "referenceApp": "pulse",
+  "shape": "gaps",
+  "shapeReason": "Single app, Claude-specific by design; two thirds of Pulse's planned code is not in.",
+  "apps": {
+   "pulse": {
+    "fit": "gaps",
+    "note": "most planned files absent"
+   }
+  },
+  "boundary": [
+   "Name says AI accounts; content is Claude Desktop/CLI only"
+  ],
+  "actions": [
+   "Port the remaining Pulse modules or re-map them to SHELL",
+   "Not read for behaviour"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-approvals",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-approvals",
+   "crates/rightkit-owner-approvals"
+  ],
+  "feeds": {
+   "pulse": 13104,
+   "mailright": 2083,
+   "genright": 1485
+  },
+  "basis": "rightkit-approvals is GenRight's paid-draft approval (launch-secret HMAC token, 'eyes' release, blender_finish). Pulse's signed owner approvals are in rightkit-owner-approvals and its pending queue in rightkit-remote-gateway/approvals.rs. MailRight's are in rightkit-agent-gateway/approval*.rs",
+  "referenceApp": "pulse",
+  "shape": "wrong",
+  "shapeReason": "Three apps, three unconnected approval implementations in four crates; the crate with the shared name depends on rightkit-media-gen and has GenRight draft kinds built in, so no other app can use it.",
+  "apps": {
+   "pulse": {
+    "fit": "wrong",
+    "note": "nothing of Pulse's model is here; uses owner-approvals + remote-gateway"
+   },
+   "mailright": {
+    "fit": "wrong",
+    "note": "0% in target; its store is inside agent-gateway"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "its own code"
+   }
+  },
+  "boundary": [
+   "rightkit-approvals depends on rightkit-media-gen (proto types) and names blender_finish and eyes",
+   "Pending-request queue exists three times: remote-gateway/approvals.rs (in memory, digest-bound), agent-gateway/approval_store.rs (SQL, boot-bound), approvals/lib.rs (files, nonce + .used marker)",
+   "A fourth and fifth approval record live in agent-engine (ApprovalBinding) and agent-engine-protocol (PermissionGateRequest)",
+   "Plan maps Pulse devicelink/phone.rs (3.6k) and winadmin service (3.5k) here; they are device-link and elevated-helper code"
+  ],
+  "actions": [
+   "Redraw rightkit-approvals as the core: Request {id, kind, scope, origin, client, bind digest of exact arguments, summary, detail, created, expires}; states pending/approved/denied/consumed/expired; single-use claim; caps and decline cooldown; ApprovalStore trait (memory, file, SQL); Proof trait (owner click with request digest, launch-secret HMAC, signed approver key)",
+   "Keep Pulse's rules as the reference: only the owner's app decides, the click is bound to a digest of what was shown, an approval is spent by one act",
+   "Move GenRight kinds (eyes, blender_finish) to a media-gen approvals crate that registers kinds; drop the media-gen dependency",
+   "Fold rightkit-owner-approvals in as the 'signed' Proof (or keep as -signed sub-crate); move its redact.rs and audit.rs out",
+   "Port agent-gateway/approval_store.rs and remote-gateway/approvals.rs onto the core"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-scheduler",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-scheduler"
+  ],
+  "feeds": {
+   "coderight": 9315
+  },
+  "basis": "A model-only subset (816 lines) of CodeRight's scheduler",
+  "referenceApp": "coderight",
+  "shape": "gaps",
+  "shapeReason": "Only 11% of CodeRight's scheduler is here; the rest (execution, delivery, lifecycle, persistence) is a second copy in agent-server/src/scheduler, and no crate depends on this one.",
+  "apps": {
+   "coderight": {
+    "fit": "gaps",
+    "note": "agent-server must use it"
+   }
+  },
+  "boundary": [
+   "model.rs and time.rs duplicated in agent-server (78-87% identical)",
+   "timezone.rs duplicated in rightkit-agent-tools schedule_cron_tool (100%)",
+   "Schedule spec also exists in agent-engine-protocol/schedule.rs"
+  ],
+  "actions": [
+   "Move execution, delivery, lifecycle, persistence here behind a runner trait; delete the copies"
+  ],
+  "depth": "light",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-github",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-github"
+  ],
+  "feeds": {
+   "coderight": 8586
+  },
+  "basis": "CodeRight's GitHub App module",
+  "referenceApp": "coderight",
+  "shape": "gaps",
+  "shapeReason": "Brand-free, but the same ten files are still in agent-server/src/github_app and the crate depends on rightkit-agent-orchestration and rightkit-review.",
+  "apps": {
+   "coderight": {
+    "fit": "gaps",
+    "note": "agent-server does not depend on it"
+   }
+  },
+  "boundary": [
+   "Duplicate of agent-server/src/github_app",
+   "Depends on agent-orchestration: a forge client should not need the orchestration runtime"
+  ],
+  "actions": [
+   "Delete the agent-server copy",
+   "Cut the orchestration and review dependencies down to shared contract types"
+  ],
+  "depth": "light",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-bot-messaging",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-bot-messaging"
+  ],
+  "feeds": {
+   "coderight": 6489
+  },
+  "basis": "Under half of CodeRight's bot messaging; the rest and the Telegram client are in agent-server",
+  "referenceApp": "coderight",
+  "shape": "gaps",
+  "shapeReason": "Right seam (4 deps, brand-free) but incomplete.",
+  "apps": {
+   "coderight": {
+    "fit": "gaps",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "agent-server/src/telegram"
+  ],
+  "actions": [
+   "Move telegram and remaining bridge code here"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-agent-demo",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-agent-demo"
+  ],
+  "feeds": {
+   "cutright": 4434
+  },
+  "basis": "CutRight's agent demo mode",
+  "referenceApp": "cutright",
+  "shape": "gaps",
+  "shapeReason": "79% present; needs Tauri shell, record, overlay, hotkeys. CutRight carries the least weight as a reference, and the crate names Pulse and GenRight in source.",
+  "apps": {
+   "cutright": {
+    "fit": "fits",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "8 Pulse and 4 GenRight strings in a generic crate",
+   "Hard dependency on rightkit-tauri-shell"
+  ],
+  "actions": [
+   "Remove product names",
+   "Not read for behaviour"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-agents",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-agents"
+  ],
+  "feeds": {
+   "coderight": 44458,
+   "pulse": 2835,
+   "postright": 339
+  },
+  "basis": "Two layers: RightKit's original sans-IO Claude Code and Codex clients with a blocking Session, plus CodeRight's driver_host (async executor, six provider profiles, ACP) behind features. Pulse's planned code is in rightkit-agent-transcript",
+  "referenceApp": "coderight (driver_host is plainly the more general design; Pulse has no vendor-session driver, it reads transcripts and delivers through hooks)",
+  "shape": "gaps",
+  "shapeReason": "CodeRight's driver_host won and is the right base, but it sits beside the older client rather than replacing it: two event models (AgentEvent, NormalizedEvent), two binary lookups (discovery.rs, driver_host/binary_lookup.rs), two session lifecycles, 48 'coderight' strings.",
+  "apps": {
+   "coderight": {
+    "fit": "gaps",
+    "note": "driver crate is in; 13k lines of api_drivers and vendor-turn runtime sit in agent-server"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "nothing to adopt here; its transcript normaliser is correctly a separate crate, plan target was wrong"
+   },
+   "postright": {
+    "fit": "n/a",
+    "note": "planned files are LLM drafting (drafting.rs), not agent sessions; belongs with rightkit-llm or content crates"
+   }
+  },
+  "boundary": [
+   "discovery.rs and driver_host/binary_lookup.rs both locate vendor CLIs",
+   "session.rs (blocking threads) and driver_host/cli_runtime/executor.rs (tokio) both run a vendor session",
+   "driver_host depends on rightkit-agent-tools, sandbox, app-settings, sidecar: heavy for apps that only want to parse stream-json",
+   "Third reader of Claude Code/Codex output: rightkit-agent-transcript (Pulse) parses the on-disk transcripts"
+  ],
+  "actions": [
+   "Split: rightkit-agents (sans-IO protocol codecs + AgentEvent + discovery) and rightkit-agent-drivers (driver_host, providers, ACP)",
+   "One event model: map NormalizedEvent onto AgentEvent or the reverse, delete the other",
+   "One binary lookup",
+   "Remove 'coderight' strings; re-target Pulse transcript files to rightkit-agent-transcript and PostRight drafting to an LLM package"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-agent-tools",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-agent-tools"
+  ],
+  "feeds": {
+   "coderight": 86283,
+   "genright": 302
+  },
+  "basis": "RightKit's right-ctl tool interface extended with CodeRight's coding tools (94% of its lines)",
+  "referenceApp": "coderight",
+  "shape": "gaps",
+  "shapeReason": "One crate now carries both the cross-app tool interface every app needs and 50k lines of coding tools, with 25 RightKit deps (automation, browser, speech, ocr, ffmpeg, embed, llm, mcp).",
+  "apps": {
+   "coderight": {
+    "fit": "fits",
+    "note": ""
+   },
+   "genright": {
+    "fit": "gaps",
+    "note": "its one file (302 lines) is not in; needs only the thin typed-tool interface"
+   }
+  },
+  "boundary": [
+   "Thin tool contract and heavy coding tools in one crate",
+   "schedule_cron_tool/timezone.rs duplicates rightkit-scheduler",
+   "18 'heardright' strings"
+  ],
+  "actions": [
+   "Split a thin rightkit-agent-tool-api (trait, schema, right-ctl) from rightkit-agent-coding-tools",
+   "Use rightkit-scheduler timezone"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-agent-host-traits",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-agent-host-traits"
+  ],
+  "feeds": {},
+  "basis": "CodeRight host seam traits (not fed by a plan target)",
+  "referenceApp": "coderight",
+  "shape": "best",
+  "shapeReason": "Small trait crate used by core, tools, orchestration; nothing to reconcile.",
+  "apps": {},
+  "boundary": [],
+  "actions": [],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-agent-plugins",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-agent-plugins"
+  ],
+  "feeds": {},
+  "basis": "CodeRight plugin discovery",
+  "referenceApp": "coderight",
+  "shape": "best",
+  "shapeReason": "Small, single consumer; not compared.",
+  "apps": {},
+  "boundary": [],
+  "actions": [],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-agent-recipes",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-agent-recipes"
+  ],
+  "feeds": {},
+  "basis": "CodeRight recipes",
+  "referenceApp": "coderight",
+  "shape": "best",
+  "shapeReason": "Small; not compared. rightkit-prompt-recipes also exists (possible overlap, not checked).",
+  "apps": {},
+  "boundary": [
+   "Possible overlap with rightkit-prompt-recipes (suspicion)"
+  ],
+  "actions": [],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-agent-skills",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-agent-skills"
+  ],
+  "feeds": {},
+  "basis": "CodeRight skills",
+  "referenceApp": "coderight",
+  "shape": "best",
+  "shapeReason": "Not compared; Pulse's chat-bridge installs its own chat skill (suspicion of overlap).",
+  "apps": {},
+  "boundary": [],
+  "actions": [],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-agent-transcript",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-agent-transcript"
+  ],
+  "feeds": {
+   "pulse": 2835
+  },
+  "basis": "Pulse's membrane-transcript crate (planned under rightkit-agents)",
+  "referenceApp": "pulse",
+  "shape": "gaps",
+  "shapeReason": "Clean single-dep crate holding Pulse's normaliser; 16 'coderight' strings and CodeRight's native_transcript_exporter (1k lines, in agent-server) is a second transcript reader.",
+  "apps": {
+   "pulse": {
+    "fit": "fits",
+    "note": "67% matched; rest is tests"
+   },
+   "coderight": {
+    "fit": "gaps",
+    "note": "its exporter should use this"
+   }
+  },
+  "boundary": [
+   "CodeRight native_transcript_exporter.rs in agent-server"
+  ],
+  "actions": [
+   "Point CodeRight's exporter at TranscriptEventV1",
+   "Fix plan target"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-llm",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-llm"
+  ],
+  "feeds": {
+   "coderight": 33990,
+   "mailright": 941
+  },
+  "basis": "RightKit's original BYOK clients (anthropic.rs, openai.rs, failover) plus CodeRight's agent_providers and agent_router (15.7k lines) behind features",
+  "referenceApp": "heardright/viewright for the plain client (existing users); coderight for agent providers",
+  "shape": "gaps",
+  "shapeReason": "Two Anthropic and two OpenAI clients in one crate; the agent_providers feature pulls rightkit-agent-policy and agent-engine-protocol into an LLM crate. Default features stay light, so simple apps are not harmed.",
+  "apps": {
+   "coderight": {
+    "fit": "gaps",
+    "note": "67% in target, 4.6k lines in agent-server"
+   },
+   "mailright": {
+    "fit": "gaps",
+    "note": "its 941 lines are not in (5% matched)"
+   }
+  },
+  "boundary": [
+   "anthropic.rs vs agent_providers/anthropic_client.rs; openai.rs vs agent_providers",
+   "agent_providers depends on agent-policy (inverted layering)"
+  ],
+  "actions": [
+   "Move agent_providers and agent_router to rightkit-agent-llm; keep rightkit-llm as the wire clients both use",
+   "Compare MailRight's four files with the plain client and adopt or drop"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-mcp",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-mcp"
+  ],
+  "feeds": {
+   "coderight": 10970
+  },
+  "basis": "RightKit MCP client/server with CodeRight's (74%)",
+  "referenceApp": "coderight",
+  "shape": "gaps",
+  "shapeReason": "Depends on agent-engine-protocol and sandbox; 1.1k CodeRight lines still in agent-server.",
+  "apps": {
+   "coderight": {
+    "fit": "fits",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "Depends on agent-engine-protocol"
+  ],
+  "actions": [
+   "Not read for behaviour"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-workflow",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-workflow"
+  ],
+  "feeds": {
+   "coderight": 26076
+  },
+  "basis": "RightKit scenario runtime; under half of CodeRight's workflow code",
+  "referenceApp": "coderight",
+  "shape": "gaps",
+  "shapeReason": "6.6k of CodeRight's workflow lines are in agent-server/src/workflow (7.2k) instead; two workflow engines.",
+  "apps": {
+   "coderight": {
+    "fit": "gaps",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "agent-server/src/workflow"
+  ],
+  "actions": [
+   "Decide whether CodeRight workflows run on this state machine; move or delete the agent-server copy"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-hooks",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-hooks"
+  ],
+  "feeds": {
+   "coderight": 5423
+  },
+  "basis": "Claude Code/Codex hook payloads; CodeRight 66% in; also used by Pulse's chat-bridge",
+  "referenceApp": "pulse",
+  "shape": "gaps",
+  "shapeReason": "Fed in practice by two apps (CodeRight plan, Pulse via chat-bridge); depends on rightkit-llm and sandbox, and has 18 Pulse strings.",
+  "apps": {
+   "coderight": {
+    "fit": "fits",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "Depends on rightkit-llm",
+   "Pulse strings"
+  ],
+  "actions": [
+   "Drop the llm dependency or gate it",
+   "Remove product names"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-sandbox",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-sandbox"
+  ],
+  "feeds": {
+   "coderight": 7177
+  },
+  "basis": "RightKit sandbox; a quarter of CodeRight's sandbox code",
+  "referenceApp": "coderight",
+  "shape": "gaps",
+  "shapeReason": "2.6k of CodeRight's sandbox lines are in agent-server; 10 'coderight' strings.",
+  "apps": {
+   "coderight": {
+    "fit": "gaps",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "Sandbox code in agent-server"
+  ],
+  "actions": [
+   "Move it"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-pty",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-pty"
+  ],
+  "feeds": {},
+  "basis": "RightKit's own",
+  "referenceApp": "none",
+  "shape": "gaps",
+  "shapeReason": "Not fed by the plan. rightkit-remote-gateway uses portable-pty directly for term.rs instead of this crate.",
+  "apps": {},
+  "boundary": [
+   "rightkit-remote-gateway/term.rs uses portable-pty, not rightkit-pty"
+  ],
+  "actions": [
+   "Port remote-gateway terminals to rightkit-pty or state why not"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-remote-gateway",
+  "kind": "cargo",
+  "family": "Agent platform",
+  "existsAs": [
+   "crates/rightkit-remote-gateway"
+  ],
+  "feeds": {
+   "pulse": 20758
+  },
+  "basis": "Pulse core/src/remote, 75% of its planned gateway lines",
+  "referenceApp": "pulse",
+  "shape": "gaps",
+  "shapeReason": "Faithful lift of the daily-used behaviour, but it is a product bundle (20 tool families, ChatGPT door, media apps, saved logins and payments) on 15+ RightKit crates rather than a gateway core plus tools.",
+  "apps": {
+   "pulse": {
+    "fit": "fits",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "See rightkit-agent-gateway: shares no core with MailRight's gateway",
+   "approvals.rs is a third pending-approval queue",
+   "agent_secrets.rs (2k lines: saved logins, virtual cards, spend ledger) is a separate product capability"
+  ],
+  "actions": [
+   "Rebase on the gateway core and approvals core",
+   "Split agent_secrets into its own crate",
+   "Remove Pulse and ChatGPT names from library text"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ }
+]

@@ -1,22 +1,102 @@
 # RightKit shape matrix
 
-Generated 2026-11-11T09:39Z from RightKit 55b330d.
+Generated 2026-11-11T09:44Z from RightKit 55b330d.
 
-Packages: 300 (217 crates, 53 npm, 30 Swift). Reviewed for shape: 175 (best 46, gaps 98, wrong 25, missing 6). Not yet reviewed: 125.
+Packages: 301 (218 crates, 53 npm, 30 Swift). Reviewed for shape: 234 (best 61, gaps 132, wrong 34, missing 7). Not yet reviewed: 67.
 
 Cell: review fit · pin state on the app's main · planned lines and the share found in the package. Empty means the app has nothing for the package.
 
-## Content pipeline & social (7)
+## Agent platform (31)
+
+| Package | Kind | Published | Shape | Basis | heardright | viewright | pulse | coderight | genright | mailright | scraperight | cutright | postright | legion |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `@rightkit/agent-ui` | npm | n/a | gaps | CodeRight's desktop UI split into six packages; agent-ui-approvals is MailRight's approval card/queue and Pulse's hub remote views placed side by side, not merged |  |  | gaps · 1308L 98% | fits · 118530L 95% |  | gaps · 1395L 73% |  |  |  |  |
+| `@rightkit/terminal-ui` | npm | yes | best | CodeRight's web terminal component |  |  |  | fits · 1370L 98% |  |  |  |  |  |  |
+| `rightkit-agent-demo` | cargo | yes | gaps | CutRight's agent demo mode |  |  |  |  |  |  |  | fits · 4434L 79% |  |  |
+| `rightkit-agent-engine` | cargo | yes | wrong | Two unrelated things under one name: the base crate is Pulse's always-on task contract (core/src/agent); the 14 -* crates are CodeRight's turn-loop engine |  |  | gaps · 5097L 13% | gaps · 124089L 82% |  |  |  |  |  |  |
+| `rightkit-agent-gateway` | cargo | yes | wrong | rightkit-agent-gateway is MailRight's mail gateway (drafts, forward, send-with-approval, Gmail seams); Pulse's gateway is a separate crate, rightkit-remote-gateway |  |  | wrong · 20758L 1% |  |  | fits · ahead · 14620L 34% |  |  |  |  |
+| `rightkit-agent-host-traits` | cargo | no (0.1.3, registry 0.1.2) | best | CodeRight host seam traits (not fed by a plan target) |  |  |  |  |  |  |  |  |  |  |
+| `rightkit-agent-orchestration` | cargo | yes | gaps | CodeRight's orchestration crate; -handoff also matches some Pulse transcript lines |  |  |  | fits · 37870L 80% |  |  |  |  |  |  |
+| `rightkit-agent-plugins` | cargo | no (0.1.2, registry 0.1.1) | best | CodeRight plugin discovery |  |  |  |  |  |  |  |  |  |  |
+| `rightkit-agent-policy` | cargo | no (0.1.2, registry 0.1.1) | gaps | CodeRight's policy crate |  |  |  | fits · 16018L 85% |  |  |  |  |  |  |
+| `rightkit-agent-recipes` | cargo | yes | best | CodeRight recipes |  |  |  |  |  |  |  |  |  |  |
+| `rightkit-agent-server` | cargo | yes | wrong | CodeRight's coderight binary and HTTP API, 164k lines, plus code planned for nine other packages |  |  |  | gaps · 91539L 88% |  |  |  |  |  |  |
+| `rightkit-agent-skills` | cargo | yes | best | CodeRight skills |  |  |  |  |  |  |  |  |  |  |
+| `rightkit-agent-tools` | cargo | no (0.3.4, registry 0.3.3) | gaps | RightKit's right-ctl tool interface extended with CodeRight's coding tools (94% of its lines) | n/a | n/a | adopted | fits · n/a · 86283L 94% | gaps · adopted · 302L 8% | n/a | n/a | adopted | n/a | adopted |
+| `rightkit-agent-transcript` | cargo | no (0.1.2, registry 0.1.1) | gaps | Pulse's membrane-transcript crate (planned under rightkit-agents) |  |  | fits · ahead | gaps |  |  |  |  |  |  |
+| `rightkit-agents` | cargo | yes | gaps | Two layers: RightKit's original sans-IO Claude Code and Codex clients with a blocking Session, plus CodeRight's driver_host (async executor, six provider profiles, ACP) behind features. Pulse's planned code is in rightkit-agent-transcript |  |  | fits · 2835L 6% | gaps · adopted · 44458L 66% |  |  |  |  | 339L 10% | adopted |
+| `rightkit-ai-accounts` | cargo | yes | gaps | Part of Pulse's Claude account switching (29% of planned lines) |  |  | gaps · ahead · 17592L 29% |  |  |  |  |  |  |  |
+| `rightkit-approvals` | cargo | yes | wrong | rightkit-approvals is GenRight's paid-draft approval (launch-secret HMAC token, 'eyes' release, blender_finish). Pulse's signed owner approvals are in rightkit-owner-approvals and its pending queue in rightkit-remote-gateway/approvals.rs. MailRight's are in rightkit-agent-gateway/approval*.rs |  |  | wrong · 13104L 1% |  | fits · 1485L 48% | wrong · 2083L 0% |  |  |  |  |
+| `rightkit-bot-messaging` | cargo | yes | gaps | Under half of CodeRight's bot messaging; the rest and the Telegram client are in agent-server |  |  |  | gaps · 6489L 47% |  |  |  |  |  |  |
+| `rightkit-chat-bridge` | cargo | yes | gaps | Pulse's chat-between-chats code |  |  | fits · 26856L 75% |  |  |  |  |  |  |  |
+| `rightkit-evidence` | cargo | yes | gaps | rightkit-evidence holds a quarter of CodeRight's planned evidence code; most (1.8k of 2.2k lines) is in agent-server. The seven -* crates (27k lines) are not fed by any planned app file in this family |  |  |  | gaps · ahead · 5738L 26% |  |  |  |  |  |  |
+| `rightkit-github` | cargo | yes | gaps | CodeRight's GitHub App module |  |  |  | gaps · 8586L 50% |  |  |  |  |  |  |
+| `rightkit-hooks` | cargo | no (0.2.4, registry 0.2.3) | gaps | Claude Code/Codex hook payloads; CodeRight 66% in; also used by Pulse's chat-bridge |  |  | ahead | fits · exception · 5423L 66% |  |  |  |  |  |  |
+| `rightkit-llm` | cargo | no (0.3.5, registry 0.3.4) | gaps | RightKit's original BYOK clients (anthropic.rs, openai.rs, failover) plus CodeRight's agent_providers and agent_router (15.7k lines) behind features | ahead |  | ahead | gaps · ahead · 33990L 67% |  | gaps · ahead · 941L 5% |  |  |  |  |
+| `rightkit-mcp` | cargo | no (0.7.5, registry 0.7.4) | gaps | RightKit MCP client/server with CodeRight's (74%) | local |  | ahead | fits · ahead · 10970L 74% |  |  |  |  |  |  |
+| `rightkit-pty` | cargo | no (0.1.1, registry 0.1.0) | gaps | RightKit's own |  |  |  |  |  |  |  |  |  |  |
+| `rightkit-remote-gateway` | cargo | yes | gaps | Pulse core/src/remote, 75% of its planned gateway lines |  |  | fits |  |  |  |  |  |  |  |
+| `rightkit-sandbox` | cargo | no (0.6.5, registry 0.6.4) | gaps | RightKit sandbox; a quarter of CodeRight's sandbox code |  |  |  | gaps · ahead · 7177L 26% |  |  |  |  |  |  |
+| `rightkit-scheduler` | cargo | yes | gaps | A model-only subset (816 lines) of CodeRight's scheduler |  |  |  | gaps · 9315L 11% |  |  |  |  |  |  |
+| `rightkit-terminal-ui` | cargo | yes | gaps | CodeRight's ratatui TUI |  |  |  | gaps · 94376L 73% |  |  |  |  |  |  |
+| `rightkit-workflow` | cargo | yes | gaps | RightKit scenario runtime; under half of CodeRight's workflow code |  |  |  | gaps · ahead · 26076L 46% |  |  |  |  |  |  |
+| `RightKitAgent` | swift | n/a | missing | none |  |  | 4258L 0% | 30723L 0% |  |  |  |  |  |  |
+
+## Content pipeline & social (6)
 
 | Package | Kind | Published | Shape | Basis | heardright | viewright | pulse | coderight | genright | mailright | scraperight | cutright | postright | legion |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `@rightkit/social-ui` | npm | yes | gaps | PostRight front end, near-complete copy |  |  |  |  |  |  |  |  | fits · 17034L 98% |  |
 | `rightkit-content-plan` | cargo | yes | gaps | PostRight calendar, variants, hook tests, drafts over store traits |  |  |  |  |  |  |  |  | gaps · 4599L 57% |  |
 | `rightkit-content-proof` | cargo | yes | gaps | only PostRight's claim-number canonicaliser (172 lines) |  |  |  |  |  |  |  |  | gaps · 3820L 3% |  |
-| `rightkit-research` | cargo | yes | gaps | Legion legion-research pipeline |  |  |  |  |  |  |  |  | wrong · 1572L 2% | ahead |
 | `rightkit-social-analytics` | cargo | yes | wrong | PostRight links/analytics/metric_import/optimise plus CutRight retention command under a feature |  |  |  |  |  |  |  | wrong · 1300L 89% | gaps · 5186L 58% |  |
 | `rightkit-social-inbox` | cargo | yes | gaps | PostRight webhook inbox and keyword automation over store traits |  |  |  |  |  |  |  |  | gaps · 3070L 48% |  |
 | `rightkit-social-publish` | cargo | yes | gaps | PostRight publish adapters, phase machine, quota, accounts over store traits |  |  |  |  |  |  |  |  | gaps · ahead · 16930L 62% |  |
+
+## Context, memory & code intelligence (10)
+
+| Package | Kind | Published | Shape | Basis | heardright | viewright | pulse | coderight | genright | mailright | scraperight | cutright | postright | legion |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `rightkit-adapt` | cargo | no (0.1.2, registry 0.1.1) | wrong | rightkit-adapt is CodeRight's coderight-learning crate; rightkit-adapt-taste is Pulse's membrane-adapt |  |  | fits · 15823L 96% | gaps · 8073L 76% |  |  |  |  |  |  |
+| `rightkit-channel-memory` | cargo | yes | best | pre-existing RightKit contract crate (0.2.3) |  |  |  |  | fits |  |  |  | fits · ahead · 1618L 2% |  |
+| `rightkit-code-audit` | cargo | n/a | gaps | Legion legion-audit, CLI commands and legion-dev modules, moved 1 Nov |  |  |  |  |  |  |  |  |  | gaps |
+| `rightkit-context` | cargo | yes | gaps | Pulse membrane engine crates, moved crate for crate |  |  | fits · 98511L 89% | gaps |  |  |  |  |  |  |
+| `rightkit-embed` | cargo | no (0.6.5, registry 0.6.4) | best | pre-existing RightKit crate (0.6.5) |  |  | fits · ahead |  |  | fits · ahead · 398L 0% |  |  |  |  |
+| `rightkit-memory` | cargo | yes | wrong | memory-core and memory-store are Pulse cortex-core and cortex-store; rightkit-memory is CodeRight's client of Pulse's membrane CLI plus its mobile in-memory store |  |  | fits · 14843L 99% | gaps · ahead · 9759L 62% |  |  |  |  |  |  |
+| `rightkit-repo-graph` | cargo | yes | gaps | Pulse membrane-blueprint plus CodeRight skeletonization as one added module |  |  | fits · 37279L 96% | fits · 600L 95% |  |  |  |  |  |  |
+| `rightkit-research` | cargo | yes | gaps | Legion legion-research; no PostRight code |  |  |  |  |  |  |  |  | wrong · 1572L 2% | gaps · ahead |
+| `rightkit-search` | cargo | yes | best | pre-existing RightKit crate (0.4.5); holds MailRight's html-to-text |  |  | exception | fits · ahead | ahead | fits · ahead · 944L 13% | ahead | ahead |  |  |
+| `rightkit-vault` | cargo | yes | gaps | fresh implementation of split-key secret sync; README says written without a build or test run |  |  | 1984L 0% |  |  |  |  |  |  |  |
+
+## Documents (12)
+
+| Package | Kind | Published | Shape | Basis | heardright | viewright | pulse | coderight | genright | mailright | scraperight | cutright | postright | legion |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `@rightkit/doc-render` | npm | no (0.2.2, registry 0.2.1) | best | ViewRight's Markdown reader pieces behind a written API |  | fits · adopted |  | fits · adopted |  |  | fits · adopted |  |  |  |
+| `@rightkit/document-core` | npm | no (0.1.2, registry 0.1.1) | wrong | Surveyed ViewRight (0.98 similar): bridge, settings, themes, chrome, printing and the whole PDF editor; not in the master plan |  | gaps |  |  |  |  |  |  |  |  |
+| `@rightkit/document-workspace` | npm | no (0.1.2, registry 0.1.1) | wrong | Surveyed ViewRight 0.1.165 src/app, settings, state copied at the same paths (0.97 similar; 0.75 to live 0.1.123) |  | gaps · 31171L 73% |  |  |  |  |  |  |  |  |
+| `@rightkit/docx-editor` | npm | yes | gaps | Surveyed ViewRight src/documents/docx, re-pointed from the vendored eigenpal source to published @eigenpal 1.9.0 |  | gaps · 1834L 96% |  |  |  |  |  |  |  |  |
+| `@rightkit/html-editor` | npm | yes | gaps | Surveyed ViewRight src/documents/html (0.99 similar; 0.95 to live) |  | gaps · 15898L 91% |  |  |  |  |  |  |  |  |
+| `@rightkit/markdown-editor` | npm | yes | gaps | Surveyed ViewRight src/documents/markdown and mdx (0.98 similar; 0.90 to live); reader pieces now imported from doc-render |  | gaps · 27905L 94% |  |  |  |  |  |  |  |  |
+| `@rightkit/pdf-ui` | npm | no (0.3.0, registry 0.2.0) | gaps | Written read-only pdf.js viewer; 0.3.0 adds props so ViewRight's editor can sit on it |  | gaps · adopted · 10411L 3% |  |  |  | fits · 144L 5% |  |  |  |  |
+| `rightkit-docs` | cargo | yes | gaps | Written DOCX/XLSX/PDF read and write library; feature 'files' is ViewRight's documents.rs |  | gaps · ahead · 695L 88% | fits · ahead |  |  |  |  |  |  |  |
+| `rightkit-document-workspace` | cargo | yes | gaps | ViewRight src-tauri persistence.rs and command bodies, reshaped behind PathGrants, DocumentBackend and WorkspaceWatcher traits |  | gaps · ahead · 3147L 51% |  |  |  |  |  |  |  |  |
+| `rightkit-ocr` | cargo | yes | best | Written crate: native Vision and Windows OCR, isolated worker, verified ONNX fallback |  | fits · adopted · 401L 4% |  | fits · adopted |  |  | fits · adopted · 586L 4% | fits · adopted |  |  |
+| `rightkit-pdf` | cargo | yes | gaps | ViewRight's PDF editor core moved earlier, plus Legion merge and ScrapeRight text-extraction donors |  | fits · ahead · 503L 5% |  |  |  |  | gaps · exception · 129L 0% |  |  |  |
+| `rightkit-typeset` | cargo | yes | best | Fresh small wrapper over Typst and mitex; CutRight's planned lines are the vendored citationberg fork only |  |  |  |  |  |  |  | fits |  |  |
+
+## Foundation & tooling (8)
+
+| Package | Kind | Published | Shape | Basis | heardright | viewright | pulse | coderight | genright | mailright | scraperight | cutright | postright | legion |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `@rightkit/config` | npm | yes | best | fresh presets (tsconfig, eslint, vite, Rust toml files) | fits · 159L 29% | gaps · 304L 8% | fits · 58L 50% | fits · 4L 100% | fits · 96L 27% | fits · 114L 38% | fits · ahead · 171L 33% | fits · ahead · 57L 57% | fits · 101L 30% |  |
+| `@rightkit/waitlist-worker` | npm | yes | best | config-driven factory generalising the ViewRight and MailRight workers |  | fits · ahead · 218L 35% |  |  |  | fits · 311L 20% |  |  |  |  |
+| `rightkit-apple-ops` | cargo | yes | gaps | Legion legion-apple, moved 1 Nov |  |  |  |  |  |  |  |  |  | gaps |
+| `rightkit-bench` | cargo | no (0.2.1, registry 0.2.0) | gaps | MailRight timing helpers and ScrapeRight article scorer, plus fresh load driver and real-database probes |  | gaps · 2725L 0% |  | 5329L 1% |  | wrong · 4191L 4% | gaps · ahead · 15276L 1% |  |  |  |
+| `rightkit-connector-gen` | cargo | yes | best | fresh, std-only generator from an engine contract |  |  |  |  |  |  |  |  |  |  |
+| `rightkit-doctor` | cargo | yes | gaps | fresh framework shaped on the engine doctor rows the apps share |  |  |  | gaps · ahead · 1652L 10% |  | fits · ahead · 95L 8% |  | fits · ahead · 177L 10% | gaps · 338L 6% |  |
+| `rightkit-ml-lab` | cargo | n/a | wrong | HeardRight training and evaluation scripts copied with their directory layout | wrong · 53827L 0% |  |  |  |  |  |  |  |  |  |
+| `rightkit-ownership` | cargo | yes | best | RightKit's own scanner, Rust port of the Node scanner in packages/release |  |  |  |  |  |  |  |  |  | ahead |
 
 ## Foundation: runtime (32)
 
@@ -75,7 +155,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-app-settings` | cargo | no (0.3.5, registry 0.3.4) | wrong | fresh store plus CodeRight's coderight-config moved in as feature agent_config | fits · ahead · 1470L 7% | fits · ahead | gaps · ahead · 7270L 1% | wrong · ahead · 10622L 47% | fits · ahead · 222L 4% | fits · ahead · 1032L 1% | fits · ahead · 163L 2% | ahead | ahead · 66L 2% | missing |
 | `rightkit-app-update` | cargo | yes | gaps | fresh: boot probation and fetch bridge only |  |  | gaps |  |  |  |  |  |  |  |
 | `rightkit-deep-link` | cargo | no (0.1.1, registry 0.1.0) | best | split from the shell, unpublished |  |  |  | fits |  |  |  |  |  |  |
-| `rightkit-engine-host` | cargo | yes | wrong | GenRight's engine framework, moved 2026-11-01 |  |  |  |  | fits |  |  | ahead |  |  |
+| `rightkit-engine-host` | cargo | yes | wrong | GenRight's engine framework, moved 2026-11-01 |  |  |  |  | fits | gaps | fits | gaps · ahead | gaps |  |
 | `rightkit-i18n` | cargo | yes | gaps | fresh Rust runtime for the same JSON catalogs, unpublished |  |  | gaps |  |  |  |  |  |  |  |
 | `rightkit-instance` | cargo | no (0.1.1, registry 0.1.0) | best | split from the shell, unpublished; carries HeardRight's legacy-plugin handoff | fits |  | fits |  |  | fits |  |  |  |  |
 | `rightkit-license` | cargo | yes | gaps | built from HeardRight's licence code | gaps · local · 1840L 5% | fits · ahead · 320L 2% | fits · ahead | gaps · ahead · 3623L 3% | fits · ahead · 301L 3% | gaps · ahead · 858L 2% | ahead · 1468L 2% | ahead · 126L 0% | ahead |  |
@@ -146,7 +226,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `RightKitWatch` | swift | n/a | wrong | fresh implementation of a macOS FSEvents file watcher; holds no HeardRight code | wrong · 3476L 1% |  |  |  |  |  |  |  |  |  |
 | `RightKitWatchBridge` | swift | n/a | gaps | rewritten code, not copied | gaps |  |  |  |  |  |  |  |  |  |
 
-## Ingest & library (12)
+## Ingest & library (11)
 
 | Package | Kind | Published | Shape | Basis | heardright | viewright | pulse | coderight | genright | mailright | scraperight | cutright | postright | legion |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -157,7 +237,6 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-fsindex` | cargo | yes | best | own implementation; Pulse already depends on 0.5.0 |  |  | fits · ahead · 2980L 5% |  |  |  |  |  |  |  |
 | `rightkit-library` | cargo | yes | wrong | ScrapeRight store, history reader and enrichment only | wrong · 6049L 1% |  |  |  | wrong · 4596L 23% |  | fits · 4280L 75% |  | wrong · 1836L 4% |  |
 | `rightkit-media-fetch` | cargo | yes | gaps | ScrapeRight audio/detect crates and extraction modules behind host traits |  |  |  |  | 1362L 2% |  | fits · 8515L 55% |  |  |  |
-| `rightkit-search` | cargo | yes | gaps | own implementation |  |  | exception | ahead | ahead | gaps · ahead · 944L 13% | ahead | ahead |  |  |
 | `rightkit-transcript-library` | cargo | yes | gaps | HeardRight heardright_core delivery/history/net (near-identical to live build) | gaps · ahead |  |  |  |  |  |  |  |  |  |
 | `rightkit-web-extract` | cargo | yes | best | ScrapeRight article extraction ladder over ArticleNet/BrowserHost traits |  |  |  |  |  |  | fits · ahead · 2734L 40% |  |  |  |
 | `rightkit-web-session` | cargo | yes | gaps | Pulse core/src/browser only |  |  | gaps · 2734L 67% |  |  |  | wrong · 1434L 1% |  |  |  |
@@ -226,23 +305,11 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-video-project` | cargo | yes | gaps | CutRight cutright-project moved (project, ingest, render, source, probe, worker, loudness, lock, audio_sync, still) |  |  |  |  |  |  |  | gaps · ahead · 14524L 35% |  |  |
 | `RightKitMedia` | swift | n/a | missing | not in RightKit |  |  |  |  |  |  |  | gaps · 1859L 0% |  |  |
 
-## agents (6)
+## agents (1)
 
 | Package | Kind | Published | Shape | Basis | heardright | viewright | pulse | coderight | genright | mailright | scraperight | cutright | postright | legion |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `@rightkit/hooks` | npm | yes | not reviewed |  |  |  |  | exception |  |  |  |  |  | adopted |
-| `rightkit-agent-tools` | cargo | no (0.3.4, registry 0.3.3) | not reviewed |  | n/a | n/a | adopted | n/a · 86283L 94% | adopted · 302L 8% | n/a | n/a | adopted | n/a | adopted |
-| `rightkit-agents` | cargo | yes | not reviewed |  |  |  | 2835L 6% | adopted · 44458L 66% |  |  |  |  | 339L 10% | adopted |
-| `rightkit-hooks` | cargo | no (0.2.4, registry 0.2.3) | not reviewed |  |  |  | ahead | exception · 5423L 66% |  |  |  |  |  |  |
-| `rightkit-mcp` | cargo | no (0.7.5, registry 0.7.4) | not reviewed |  | local |  | ahead | ahead · 10970L 74% |  |  |  |  |  |  |
-| `rightkit-workflow` | cargo | yes | not reviewed |  |  |  |  | ahead · 26076L 46% |  |  |  |  |  |  |
-
-## ai (2)
-
-| Package | Kind | Published | Shape | Basis | heardright | viewright | pulse | coderight | genright | mailright | scraperight | cutright | postright | legion |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `rightkit-embed` | cargo | no (0.6.5, registry 0.6.4) | not reviewed |  |  |  | ahead |  |  | ahead · 398L 0% |  |  |  |  |
-| `rightkit-llm` | cargo | no (0.3.5, registry 0.3.4) | not reviewed |  | ahead |  | ahead | ahead · 33990L 67% |  | ahead · 941L 5% |  |  |  |  |
 
 ## apple (2)
 
@@ -251,26 +318,11 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-android` | cargo | yes | not reviewed |  | exception |  |  |  |  |  |  |  |  |  |
 | `RightKitSwift` | swift | n/a | not reviewed |  | ahead |  | adopted | adopted |  |  | adopted |  |  |  |
 
-## content (3)
-
-| Package | Kind | Published | Shape | Basis | heardright | viewright | pulse | coderight | genright | mailright | scraperight | cutright | postright | legion |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `rightkit-docs` | cargo | yes | not reviewed |  |  | ahead · 695L 88% | ahead |  |  |  |  |  |  |  |
-| `rightkit-pdf` | cargo | yes | not reviewed |  |  | ahead · 503L 5% |  |  |  |  | exception · 129L 0% |  |  |  |
-| `rightkit-typeset` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-
-## identity (1)
-
-| Package | Kind | Published | Shape | Basis | heardright | viewright | pulse | coderight | genright | mailright | scraperight | cutright | postright | legion |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `rightkit-vault` | cargo | yes | not reviewed |  |  |  | 1984L 0% |  |  |  |  |  |  |  |
-
-## media (2)
+## media (1)
 
 | Package | Kind | Published | Shape | Basis | heardright | viewright | pulse | coderight | genright | mailright | scraperight | cutright | postright | legion |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `rightkit-align` | cargo | private | not reviewed |  |  |  |  |  |  |  |  | 2477L 0% |  |  |
-| `rightkit-ocr` | cargo | yes | not reviewed |  |  | adopted · 401L 4% |  | adopted |  |  | adopted · 586L 4% | adopted |  |  |
 
 ## network (1)
 
@@ -278,7 +330,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `@rightkit/sync-worker` | npm | private | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 
-## other (90)
+## other (52)
 
 | Package | Kind | Published | Shape | Basis | heardright | viewright | pulse | coderight | genright | mailright | scraperight | cutright | postright | legion |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -290,21 +342,10 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `@rightkit/agent-ui-web` | npm | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `@rightkit/agent-ui-workbench` | npm | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `@rightkit/blender-worker` | npm | yes | not reviewed |  |  |  |  |  | ahead |  |  |  |  |  |
-| `@rightkit/config` | npm | yes | not reviewed |  | 159L 29% | 304L 8% | 58L 50% | 4L 100% | 96L 27% | 114L 38% | ahead · 171L 33% | ahead · 57L 57% | 101L 30% |  |
 | `@rightkit/dictation-ui` | npm | yes | not reviewed |  | 8675L 96% |  |  | 1090L  |  |  |  |  |  |  |
-| `@rightkit/document-core` | npm | no (0.1.2, registry 0.1.1) | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `@rightkit/document-workspace` | npm | no (0.1.2, registry 0.1.1) | not reviewed |  |  | 31171L 73% |  |  |  |  |  |  |  |  |
-| `@rightkit/docx-editor` | npm | yes | not reviewed |  |  | 1834L 96% |  |  |  |  |  |  |  |  |
-| `@rightkit/html-editor` | npm | yes | not reviewed |  |  | 15898L 91% |  |  |  |  |  |  |  |  |
-| `@rightkit/markdown-editor` | npm | yes | not reviewed |  |  | 27905L 94% |  |  |  |  |  |  |  |  |
 | `@rightkit/ml-lab` | npm | private | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `@rightkit/send-ui` | npm | no (0.1.0, registry none) | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `@rightkit/terminal-ui` | npm | yes | not reviewed |  |  |  |  | 1370L 98% |  |  |  |  |  |  |
-| `@rightkit/waitlist-worker` | npm | yes | not reviewed |  |  | ahead · 218L 35% |  |  |  | 311L 20% |  |  |  |  |
-| `rightkit-adapt` | cargo | no (0.1.2, registry 0.1.1) | not reviewed |  |  |  | 15823L 96% | 8073L 76% |  |  |  |  |  |  |
 | `rightkit-adapt-taste` | cargo | no (0.1.2, registry 0.1.1) | not reviewed |  |  |  | ahead |  |  |  |  |  |  |  |
-| `rightkit-agent-demo` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  | 4434L 79% |  |  |
-| `rightkit-agent-engine` | cargo | yes | not reviewed |  |  |  | 5097L 13% | 124089L 82% |  |  |  |  |  |  |
 | `rightkit-agent-engine-api-integrations` | cargo | no (0.1.2, registry 0.1.1) | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-agent-engine-api-platform` | cargo | no (0.1.2, registry 0.1.1) | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-agent-engine-api-sessions` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
@@ -319,28 +360,11 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-agent-engine-runtime-resources` | cargo | yes | not reviewed |  |  |  |  | ahead |  |  |  |  |  |  |
 | `rightkit-agent-engine-storage` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-agent-engine-tasks` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-agent-gateway` | cargo | yes | not reviewed |  |  |  | 20758L 1% |  |  | ahead · 14620L 34% |  |  |  |  |
-| `rightkit-agent-host-traits` | cargo | no (0.1.3, registry 0.1.2) | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-agent-orchestration` | cargo | yes | not reviewed |  |  |  |  | 37870L 80% |  |  |  |  |  |  |
 | `rightkit-agent-orchestration-handoff` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  | ahead |
-| `rightkit-agent-plugins` | cargo | no (0.1.2, registry 0.1.1) | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-agent-policy` | cargo | no (0.1.2, registry 0.1.1) | not reviewed |  |  |  |  | 16018L 85% |  |  |  |  |  |  |
-| `rightkit-agent-recipes` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-agent-server` | cargo | yes | not reviewed |  |  |  |  | 91539L 88% |  |  |  |  |  |  |
-| `rightkit-agent-skills` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-agent-transcript` | cargo | no (0.1.2, registry 0.1.1) | not reviewed |  |  |  | ahead |  |  |  |  |  |  |  |
-| `rightkit-ai-accounts` | cargo | yes | not reviewed |  |  |  | ahead · 17592L 29% |  |  |  |  |  |  |  |
-| `rightkit-apple-ops` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-approvals` | cargo | yes | not reviewed |  |  |  | 13104L 1% |  | 1485L 48% | 2083L 0% |  |  |  |  |
-| `rightkit-bench` | cargo | no (0.2.1, registry 0.2.0) | not reviewed |  |  | 2725L 0% |  | 5329L 1% |  | 4191L 4% | ahead · 15276L 1% |  |  |  |
-| `rightkit-bot-messaging` | cargo | yes | not reviewed |  |  |  |  | 6489L 47% |  |  |  |  |  |  |
-| `rightkit-chat-bridge` | cargo | yes | not reviewed |  |  |  | 26856L 75% |  |  |  |  |  |  |  |
 | `rightkit-code-audit-commands` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-code-audit-engine` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-code-audit-provider-sdk` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  | ahead |
 | `rightkit-code-audit-qualification` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-connector-gen` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-context` | cargo | yes | not reviewed |  |  |  | 98511L 89% |  |  |  |  |  |  |  |
 | `rightkit-context-client` | cargo | yes | not reviewed |  |  |  | ahead |  |  |  |  |  |  |  |
 | `rightkit-context-core` | cargo | yes | not reviewed |  |  |  | ahead |  |  |  |  |  |  |  |
 | `rightkit-context-federation` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
@@ -348,9 +372,6 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-context-provider-sdk` | cargo | yes | not reviewed |  |  |  | ahead |  |  |  |  |  |  |  |
 | `rightkit-context-runtime` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-contrast` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-doctor` | cargo | yes | not reviewed |  |  |  |  | ahead · 1652L 10% |  | ahead · 95L 8% |  | ahead · 177L 10% | 338L 6% |  |
-| `rightkit-document-workspace` | cargo | yes | not reviewed |  |  | ahead · 3147L 51% |  |  |  |  |  |  |  |  |
-| `rightkit-evidence` | cargo | yes | not reviewed |  |  |  |  | ahead · 5738L 26% |  |  |  |  |  |  |
 | `rightkit-evidence-application` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-evidence-commands` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-evidence-contracts` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  | ahead |
@@ -358,75 +379,53 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-evidence-effects` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  | ahead |
 | `rightkit-evidence-governance` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  | ahead |
 | `rightkit-evidence-report` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  | ahead |
-| `rightkit-github` | cargo | yes | not reviewed |  |  |  |  | 8586L 50% |  |  |  |  |  |  |
-| `rightkit-memory` | cargo | yes | not reviewed |  |  |  | 14843L 99% | ahead · 9759L 62% |  |  |  |  |  |  |
 | `rightkit-memory-core` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-memory-store` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-owner-approvals` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-policy-rules` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  | ahead |
-| `rightkit-pty` | cargo | no (0.1.1, registry 0.1.0) | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-remote-gateway` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-repo-graph` | cargo | yes | not reviewed |  |  |  | 37279L 96% | 600L 95% |  |  |  |  |  |  |
 | `rightkit-repo-graph-grammars` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-scheduler` | cargo | yes | not reviewed |  |  |  |  | 9315L 11% |  |  |  |  |  |  |
 | `rightkit-signal` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-sysmem` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-terminal-ui` | cargo | yes | not reviewed |  |  |  |  | 94376L 73% |  |  |  |  |  |  |
 
-## planned (9)
+## planned (6)
 
 | Package | Kind | Published | Shape | Basis | heardright | viewright | pulse | coderight | genright | mailright | scraperight | cutright | postright | legion |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `@rightkit/agent-ui` | npm | n/a | not reviewed |  |  |  | 1308L 98% | 118530L 95% |  | 1395L 73% |  |  |  |  |
 | `rightkit-dictation` | cargo | n/a | not reviewed |  | 63039L 53% |  |  |  |  |  |  |  |  |  |
-| `rightkit-ml-lab` | cargo | n/a | not reviewed |  | 53827L 0% |  |  |  |  |  |  |  |  |  |
-| `RightKitAgent` | swift | n/a | not reviewed |  |  |  | 4258L 0% | 30723L 0% |  |  |  |  |  |  |
 | `RightKitFS` | swift | n/a | not reviewed |  |  |  |  | 846L 4% |  |  |  |  |  |  |
 | `RightKitHotkeys` | swift | n/a | not reviewed |  |  |  | 151L 4% |  |  |  |  |  |  |  |
 | `RightKitHTTP` | swift | n/a | not reviewed |  |  |  |  | 644L 3% |  |  |  |  |  |  |
 | `RightKitHub` | swift | n/a | not reviewed |  |  |  | 8117L 47% |  |  |  |  |  |  |  |
 | `RightKitUpdate` | swift | n/a | not reviewed |  |  |  | 703L 13% | 127L 4% |  |  |  |  |  |  |
 
-## processes (1)
-
-| Package | Kind | Published | Shape | Basis | heardright | viewright | pulse | coderight | genright | mailright | scraperight | cutright | postright | legion |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `rightkit-sandbox` | cargo | no (0.6.5, registry 0.6.4) | not reviewed |  |  |  |  | ahead · 7177L 26% |  |  |  |  |  |  |
-
-## release (5)
+## release (4)
 
 | Package | Kind | Published | Shape | Basis | heardright | viewright | pulse | coderight | genright | mailright | scraperight | cutright | postright | legion |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `@rightkit/build-control-policy` | npm | private | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `@rightkit/issues-tracker` | npm | yes | not reviewed |  | adopted |  | adopted |  |  | adopted · 88L 93% | adopted |  | adopted · 88L 93% |  |
 | `@rightkit/outdated` | npm | no (0.3.1, registry 0.3.0) | not reviewed |  |  |  | 324L 1% |  |  |  |  |  |  |  |
-| `rightkit-ownership` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  | ahead |
 | `rightkit-platform-rules` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  | adopted · 107L 3% |  |
-
-## shell-ui (2)
-
-| Package | Kind | Published | Shape | Basis | heardright | viewright | pulse | coderight | genright | mailright | scraperight | cutright | postright | legion |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `@rightkit/doc-render` | npm | no (0.2.2, registry 0.2.1) | not reviewed |  |  | adopted |  | adopted |  |  | adopted |  |  |  |
-| `@rightkit/pdf-ui` | npm | no (0.3.0, registry 0.2.0) | not reviewed |  |  | adopted · 10411L 3% |  |  |  | 144L 5% |  |  |  |  |
-
-## storage (1)
-
-| Package | Kind | Published | Shape | Basis | heardright | viewright | pulse | coderight | genright | mailright | scraperight | cutright | postright | legion |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `rightkit-channel-memory` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  | ahead · 1618L 2% |  |
 
 ## Actions before publication
 
+- `@rightkit/agent-ui` (gaps): Define one ApprovalItem model (id, kind, scope, origin, summary, detail, digest, expiry) matching the Rust approvals core and render both MailRight cards and Pulse lists from it; Move mail-specific card content behind a render prop; drop the mail-ui dependency; Move Pulse hub pages that are not approvals to a remote-gateway UI package; Replace product strings with the appName prop already present (appName.ts)
 - `@rightkit/app-update` (gaps): see rightkit-app-update
+- `@rightkit/doc-render` (best): Settle the Mermaid policy with markdown-editor; Publish 0.2.2
+- `@rightkit/document-core` (wrong): Move documents/pdf out; Bridge becomes an interface plus a default Tauri implementation configured with command and scheme names; Move themes, settings sections and file associations to the workspace package or ViewRight; Remove benchmark harness and QA globals; Generate the TS format table from the rightkit-docs file or add a gate check; Add the package to the plan
+- `@rightkit/document-workspace` (wrong): Move legal gate, licence and update sections to the ViewRight shell or props; Take format-to-pane table as a registry argument; Written entry point instead of the generated barrel; One setHostAppName in document-core, no module-level reads; Rename viewright:* events to a neutral prefix across the five packages
+- `@rightkit/docx-editor` (gaps): Make the host toolbar work on published 1.9.0: external toolbar via DocxEditorRef and selection events, or a dist-level pnpm patch registered in root and apps, or upstream PR then pin; Keep the source patch only as upstream PR text; ViewRight deletes vendor/docx-editor after cutover; Plan the move to the @docx-editor.dev 2.x line
+- `@rightkit/html-editor` (gaps): Scheme names and CSP sources from host configuration; Event wiring as props; Written entry point
 - `@rightkit/i18n` (gaps): add xcstrings import or generate xcstrings from JSON; re-map Pulse table to rightkit-i18n
 - `@rightkit/legal` (best): remove the deprecated write port once HeardRight and ViewRight move
 - `@rightkit/library-ui` (wrong): define LibrarySource/row/detail contract with no IPC; list from HeardRight History, reader from ScrapeRight Detail; move queue components to a queue package; remove theme/licence/update/title bar/settings/mocks; drop dictation-ui dependency
 - `@rightkit/license` (gaps): publish 0.3.1; Publish 0.3.1 (createAccountClient, requestLink, redeemLink, retryPendingReleases) and bump from 0.3.0
 - `@rightkit/mail-ui` (gaps): MailClient interface with Tauri binding as subpath; move workspace/agent IPC out; mocks to dev entry; hostAppName
+- `@rightkit/markdown-editor` (gaps): Link, undo and asset ports as props; One Mermaid sanitizer with ViewRight's policy, in doc-render; Neutral scheme and event names; keep '<!-- viewright: -->' hints accepted; Written entry point
 - `@rightkit/media-gen-ui` (wrong): Split into components a second app can mount (Generate form from gen-params, JobCard/Jobs, Gallery, Voices, ModelsPanel) over an injected API client; shell stays in GenRight; Move the mock to a dev-only entry or the app; Use MaskPainter; delete MaskBrush; One generation client shared with video-ui
 - `@rightkit/media-ui` (gaps): Add invert to MaskPainter/exportMaskPng; Remove MaskBrush from media-gen-ui
 - `@rightkit/onboarding` (gaps): continueLabel and blockedHint accept a function of step context; publish 0.6.4 card frame; add a native completion-flag port; Let continueLabel and blockedHint accept a function of the step context (O2); Publish 0.6.4 (frame="card") and bump the pin from 0.6.3 so about 20 CSS overrides can go (O3, O4); Step count should exclude the hidden Agreement step (O3); Model row: elapsed-seconds while preparing is lost (O7, minor); Adopt the native legal receipt create port instead of deprecated write (O11)
+- `@rightkit/pdf-ui` (gaps): Build and run 0.3.0 against ViewRight's four cases in its changelog; Move the PDF editor from document-core onto PdfViewer with pageLayers; Delete the duplicate transport and prompt; Publish 0.3.0
 - `@rightkit/qa` (best): Re-map the mock files to their UI packages in the plan
 - `@rightkit/react-shell` (gaps): add maximizable option to CaptionControls; document one theme path and drop the others; consider a palette-recents hook; Add a maximizable option to CaptionControls (R3); --ink means text in RightKit and chrome in HeardRight; product surfaces renamed to --hr-ink, missed uses not audited (R5); Title-bar theme toggle is gone; whether AppShell draws its own was not read (R2); Bump pin 0.7.2 to 0.7.3
 - `@rightkit/release` (gaps): Move Legion and ASR rule files behind a per-app rule plug-in; Split ownership governance and RightKit's own publishing from the app release CLI; Add one verified asset-fetch step to replace the per-app fetch scripts
@@ -437,29 +436,47 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 - `@rightkit/theme` (gaps): add Swift token output or generate from rightkit-theme; re-map scripts; Fix the mapping of the three iOS Swift files (T4); App: default font "system" in web vs "hanken" in Rust, and the patch allowlist rejects "system" (T3); App: confirm the palette change from live is intended (T1); Bump pin 0.3.1 to 0.3.2
 - `@rightkit/video-ui` (wrong): Split: (1) editor components (Timeline, Inspector, ColourInspector, CaptionInspector, TranscriptPanel, Player, RangePreview) taking an injected engine adapter with no Tauri import; (2) the CutRight shell (views, settings, legal, demo) stays in the app; Replace the generated export-everything index with a deliberate API; Move genright.ts to a generation client package shared with media-gen-ui
 - `@rightkit/workspace-ui` (wrong): own client interface and state slices; move Drive/Calendar hooks, nav and IPC from mail-ui; shared icons/account switcher in a lower package
+- `rightkit-adapt` (wrong): rename rightkit-adapt-taste to rightkit-adapt (Pulse governed learning is the reference); move CodeRight learning to its own crate (for example rightkit-agent-learning) or into rightkit-agent-skills; move harness_radar back to CodeRight or to a neutral watch-list crate; collapse the two proposal stores
+- `rightkit-agent-demo` (gaps): Remove product names; Not read for behaviour
+- `rightkit-agent-engine` (wrong): Rename the base crate rightkit-agent-task-contract (or fold into engine-protocol) and make rightkit-agent-engine a facade over the -* crates; Delete the duplicated Principal/DeviceRef/EffectClass; one home (device-link-types or the contract crate), re-exported; Move voice.rs to the dictation/voice family or make chat label and policy ref host parameters; Move task_cli.rs out to a CLI crate; Adopt Pulse's rule in the CodeRight loop: approval always bound to a digest of the exact arguments, destination, expiry and revision; map ExternalEffectSettlement::InterruptedUnknown to TaskStatus::Uncertain; Rename CodeRight TaskNode/TaskState to PlanTask* so the two task concepts cannot be confused
+- `rightkit-agent-gateway` (wrong): Extract a generic core as rightkit-agent-gateway: agent registry (hashed key, profile, scopes, revoke), gate pipeline (key, lock, profile, scope, rate limit, handler, one audit row), audit store trait (SQL and JSONL), Origin/door, Refusal with stable codes, untrusted-content wrapper; Rename today's crate rightkit-mail-agent-gateway (mail family) on top of the core; Rebase rightkit-remote-gateway on the same core; move ChatGPT and media-app specifics behind host-registered tools; Move all three approval stores to rightkit-approvals; One redaction module (Pulse's masking) plus MailRight's leak assertion as its test helper
+- `rightkit-agent-orchestration` (gaps): Put repo-graph and code-audit coupling behind features; Not read for behaviour
+- `rightkit-agent-policy` (gaps): Have remote-gateway's terminal command policy call this crate's classifier, or state why not; Check overlap with rightkit-policy-rules
+- `rightkit-agent-server` (wrong): Split: a small generic rightkit-agent-server (session hosting, daemon, API router, permission and session routes) and leave CodeRight's product routes in the app; Delete src/github_app and src/scheduler in favour of the crates; move execution/delivery/persistence into rightkit-scheduler; Move each misplaced module to the package the plan named, or change the plan
+- `rightkit-agent-tools` (gaps): Split a thin rightkit-agent-tool-api (trait, schema, right-ctl) from rightkit-agent-coding-tools; Use rightkit-scheduler timezone
+- `rightkit-agent-transcript` (gaps): Point CodeRight's exporter at TranscriptEventV1; Fix plan target
+- `rightkit-agents` (gaps): Split: rightkit-agents (sans-IO protocol codecs + AgentEvent + discovery) and rightkit-agent-drivers (driver_host, providers, ACP); One event model: map NormalizedEvent onto AgentEvent or the reverse, delete the other; One binary lookup; Remove 'coderight' strings; re-target Pulse transcript files to rightkit-agent-transcript and PostRight drafting to an LLM package
+- `rightkit-ai-accounts` (gaps): Port the remaining Pulse modules or re-map them to SHELL; Not read for behaviour
 - `rightkit-app-host` (wrong): decide whether it is mandatory; reconcile with agent_config state root
 - `rightkit-app-lock` (gaps): Move hello_key and pin_window; Add generation-checked transition core; Add Swift AppLock with grace period parameter
 - `rightkit-app-manager` (gaps): Add Windows inventory/leftovers and startup items
 - `rightkit-app-settings` (wrong): move agent_config to its own crate; extend the manifest for per-platform defaults and ranges, or retire one generator; publish 0.3.3+; document Document vs Store<T>; Publish and pin >= 0.3.3 so Store::snapshot() gives per-field repair on the UI read (S11); main pins 0.3.1; Windows replace is rename, not ReplaceFileW/write-through (S10); power-loss behaviour not verified; Check stat-per-snapshot cost on hot paths such as the hotkey hook (S8, suspicion)
 - `rightkit-app-update` (gaps): move the runtime-neutral update core out of rightkit-tauri-shell into this crate; use Pulse windows/src/update.rs as the Windows reference
+- `rightkit-apple-ops` (gaps): confirm no overlap with packages/release upload code; split App Store Connect client from build analysis and profiling if a second consumer needs only one
+- `rightkit-approvals` (wrong): Redraw rightkit-approvals as the core: Request {id, kind, scope, origin, client, bind digest of exact arguments, summary, detail, created, expires}; states pending/approved/denied/consumed/expired; single-use claim; caps and decline cooldown; ApprovalStore trait (memory, file, SQL); Proof trait (owner click with request digest, launch-secret HMAC, signed approver key); Keep Pulse's rules as the reference: only the owner's app decides, the click is bound to a digest of what was shown, an approval is spent by one act; Move GenRight kinds (eyes, blender_finish) to a media-gen approvals crate that registers kinds; drop the media-gen dependency; Fold rightkit-owner-approvals in as the 'signed' Proof (or keep as -signed sub-crate); move its redact.rs and audit.rs out; Port agent-gateway/approval_store.rs and remote-gateway/approvals.rs onto the core
 - `rightkit-asr` (gaps): Take main's tdt_beam rank scratch buffer (A8); Put the KWS parity tests and fixtures the changelog cites into the crate (S4); parakeet_coreml: port command-locator alignment, window health, hypothesis batching, fused graph (S5); whisper: decide on the Windows CLI fallback (S8); Reconcile onnx_tdt with heardright-onnx-asr, then HeardRight deletes its crate and three parakeet-core files (S10); Pin: 0.4.2 changes Windows duration cap 2 to 4; main already overrides to 4 (S6)
 - `rightkit-audio` (best): Route helper matches by exact platform id; HeardRight must convert its saved setting first, then drop the wrapper; Bump pin 0.3.1 to 0.3.4; whether route.rs exists in 0.3.1 not verified
 - `rightkit-autoedit` (gaps): Compare rules/ladder.rs with rightkit-review ladder and keep one; Move or justify cmd/mic.rs; Rename schema ids; Port edit-plan commands once the decision ledger has a home
 - `rightkit-automation` (gaps): Add desktop::delivery (DeliveryRules, capture_destination, choose_destination, deliver, DeliveryObserver): paste-first, receipt, no activation, no Policy::check; HeardRight: enable desktop-context, call set_own_window_owner_prefix("heardright") at startup, delete heardright_platform; Move in the persistent UIA worker, WezTerm pane channel and macOS paste probe; Make proof.rs the single home of the pure rules; fold the in-RightKit duplicates; Rewrite deliver_text tier 4 on the same transaction core; split policy lists (never_typed_into vs never_driven_by_agent); Owner decisions first: success rule, Enter without read-back on macOS, allowlist; then rewrite LOCKED_RULES.md and MOVED_FROM.md
 - `rightkit-autostart` (best): publish; check against pulse/windows/src/autostart.rs so the notch can adopt it
+- `rightkit-bench` (gaps): add the shared shape: Manifest{cases}, CaseResult, Receipt (JSON + Markdown), validate(receipt), Gate(thresholds); ship the same receipt schema as an npm module (@rightkit/qa/bench or @rightkit/bench) for the .mjs runners; remove readable_text and depend on rightkit-web-extract; allow a seeded temporary database path alongside owner probes; remap CodeRight api_benchmarks to rightkit-agent-server
 - `rightkit-blender-worker` (gaps): Split generic worker (contract, worker, scene, pngcheck, install, qualify, schemas) from product look-dev (fenrir, stonewash, product_* modules) which becomes a host-supplied assets/recipes pack via RIGHTKIT_BLENDER_ASSETS_DIR; Fix the plan name to the npm package
+- `rightkit-bot-messaging` (gaps): Move telegram and remaining bridge code here
 - `rightkit-browser` (gaps): add blocking adapter; host cookie sign-in flow
 - `rightkit-cache` (gaps): Move prefix to rightkit-llm
 - `rightkit-captions` (gaps): Safe zones keyed by platform-rules ids or moved there; Port caption commands under the chosen command rule; Rename cutright.caption-cue.v1
 - `rightkit-catalog` (best): list under i18n family
+- `rightkit-chat-bridge` (gaps): Remove remaining Pulse strings; Make ai-accounts an optional feature; Check discovery overlap with agent-transcript
 - `rightkit-child-process` (best): Run kill_on_parent_exit on a signed macOS build: it double-forks the multi-threaded shell without exec (P3); Bump pin 0.5.7 to 0.5.10
 - `rightkit-clipboard` (best): Add change listening and sequence number if clipboard-history is to use it
 - `rightkit-clipboard-history` (gaps): Split strip UI from the store; Use rightkit-clipboard for raw access or state why not; Single json module; Decide the Mac twin's home
+- `rightkit-code-audit` (gaps): delete or wire orphan native_providers/security/history_qualification_record.rs (408 lines, no mod declaration); replace Legion names in paths, ids and messages or document them as fixed schema ids; explain the 100k-line difference from the plan (tests, fixtures or code not moved); split 5,399-line commands/audit.rs and 6,423-line reasoning/ingest.rs
 - `rightkit-color` (best): none for the library; port colour_cmd under the chosen command rule
 - `rightkit-compose` (gaps): Move still_finish out (media-pipeline or media-gen finish); One Ticks/Fps/Rational definition used by compose and timeline; Split `native` into a crate (e.g. rightkit-video-preview) that also receives CutRight playback.rs session logic
 - `rightkit-compositor` (gaps): GpuContext::from(rightkit_gpu::GpuContext) so device creation, backend policy and the crash sentinel come from rightkit-gpu; keep pipelines/samplers here
 - `rightkit-content-plan` (gaps): add content records and digests; README; tests
 - `rightkit-content-proof` (gaps): move claim review over a store trait; remap acquisition.rs
+- `rightkit-context` (gaps): move the membrane CLI client from rightkit-memory into rightkit-context-client; move context_telemetry out of memory-store into context-runtime or its own module crate; Pulse host files (engine/src/membrane_child.rs, membrane_enroll.rs, membrane_cmds.rs, 2,151 lines) need a supervisor API in the package
 - `rightkit-contracts` (gaps): Take it out of the mandatory set or split daemon-api from the content contracts
 - `rightkit-crash` (gaps): Keep one install entry point and deprecate the other; HeardRight capture gaps; Add an option for macOS sample duration; it is 1 s for every kind, live used 2 s (C3); Hang native capture repeats at most once per 10 minutes; main does not override (C7); Publish 0.3.8 (admit_crash_artifacts) and bump the pin from 0.3.6; Pre-upgrade crash_*.log reports are dropped from exports (C1); UI-stall sampling option lost: main passes capture None (C8)
 - `rightkit-credentials` (best): macOS reads only the default keychain; an item elsewhere reads as absent (C3); Verify keyring-core target and blob layout equals KeyringCompat (C2, source not in tree); Windows persist type may change on rewrite (C9, suspicion); Bump pin 0.5.0 to 0.5.1
@@ -483,13 +500,19 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 - `rightkit-dictation-telemetry` (best): Publish the crate (A11); HeardRight: re-export it and call configure_dump_helper_name and configure_feedback_endpoint
 - `rightkit-dictation-text-pipeline` (gaps): Make User-Agent, prompt-version header name and diagnostic prefix host-configurable or restore the HeardRight values (A3); Publish the crate (A11); HeardRight: call configure_brand_homophones and configure_product_terms in the engine main
 - `rightkit-disk-cleanup` (gaps): One owner for snapshot.rs with host-supplied schema name; Add the scan runner; Re-map the journal to job-queue/agent engine
-- `rightkit-engine-host` (wrong): compare with HeardRight and CodeRight engine hosting before publishing as mandatory
+- `rightkit-docs` (gaps): Move 'files' into rightkit-document-workspace or make that crate depend on it and delete its copies; Keep the format table in one place
+- `rightkit-doctor` (gaps): single report builder; decide where CodeRight's doctor dimensions live; move clipboard copy to rightkit-clipboard
+- `rightkit-document-workspace` (gaps): Use or absorb rightkit-docs 'files'; delete duplicate types and the DocumentBackend seam; Optional tauri feature or companion crate registering the command set; Publish 0.1.4
+- `rightkit-engine-host` (wrong): compare with HeardRight and CodeRight engine hosting before publishing as mandatory; move project.rs to rightkit-video-project; keep one doctor report (in rightkit-doctor) and delete engine-host/src/doctor.rs; produce per-app inventory rows so adoption can be measured; check HeardRight and Pulse engine entry points against the registry before publication
+- `rightkit-evidence` (gaps): Move CodeRight evidence modules from agent-server; Establish which app owns the -* crates before publishing
 - `rightkit-ffmpeg` (gaps): Move agent_media to rightkit-agent-tools; drop the agent-policy/tokio optional deps; One encoder decision API: keep pick_h264 + qualify_encoder as the mechanism and one policy function with options {qualify, allow_software, allow_mpeg4}; h264_rule keeps only the error code/details/is_init_failure; delete select_delivery vs select_qualified_delivery split; Delete rightkit-media-gen media.rs and host/h264.rs in favour of this crate; rightkit-timeline uses encoders::Encoder; Confirm the bundled ffmpeg is the catalogued build or file transcription fails (F2); Decide the re-pin from 0.2.13 to 0.3.1; 0.2.13 API not verified; HeardRight: collapse the three path lists into one passed to RightKit; No decode timeout; cancel token never triggered (F5)
 - `rightkit-file-watch` (best): Confirm one backend under the three front ends and document which to pick
 - `rightkit-fs` (gaps): One root resolver (see rightkit-daemon action); One hashing owner: fs::digest re-exports rightkit-crypto or the reverse; HeardRight F2/F3/F6 from hr-review-storage-network; Decide whether any shipped install relied on HR_APP_DATA_DIR or a redirected $HOME (F2, F3); Windows replace is rename, not ReplaceFileW: different ACL inheritance, not write-through (F6); HeardRight: replace the remaining hand-written atomic and hash helpers and drop the dirs dependency; Check the mobile entry injects the data root (F4, suspicion); Bump pin 0.4.12 to 0.4.13
+- `rightkit-github` (gaps): Delete the agent-server copy; Cut the orchestration and review dependencies down to shared contract types
 - `rightkit-google-apis` (gaps): scopes as parameter with per-API constants; cargo features per API; port tests
 - `rightkit-google-identity` (wrong): merge into or re-base on rightkit-oauth; verify endpoints
 - `rightkit-gpu` (gaps): Wire into rightkit-compositor before publishing as the adopted shape
+- `rightkit-hooks` (gaps): Drop the llm dependency or gate it; Remove product names
 - `rightkit-hotkeys` (gaps): Add hooks for the lost diagnostics: fn+Escape accepted, tap re-enable count, ptt_hold_suppressed (H2 to H4); Move diag off the event-tap callback thread (H5); Derive Serialize on HotkeyConflict (H7); Add a Windows push-to-talk tap and Windows middle-mouse type, or move HeardRight's hooks onto LowLevelHooks; Carry hold duration, stop reason and key in FnHotkeyCallbacks (H1); Publish 0.1.3; main pins 0.1.2
 - `rightkit-http` (gaps): Remove direct ureq use from rightkit-models; HeardRight gaps; Add a parity preset that takes a single timeout, or HeardRight shares one constructor; New public-web address policy refuses private and loopback hosts (H2); confirm no split-DNS user is affected; HeardRight: delete the ureq error-text shim once logs stop depending on ureq wording; Bump pin 0.3.9 to 0.3.12
 - `rightkit-i18n` (gaps): publish; provide catalog conversion from Pulse's table
@@ -499,16 +522,20 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 - `rightkit-launcher` (wrong): Split portable core (calc, config, notes, rates, files, commands) from the Win32 panel; Product pages and strings via host; Single json module; Move response_layout; Decide Mac: FFI to core or Swift module
 - `rightkit-library` (wrong): remove or properly home artifacts.rs/path_policy.rs; host-supplied kind; delete duplicate Kind; drop media-fetch dependency; single publish_replacing in rightkit-fs; move tier rules to host; port ScrapeRight history tests; correct plan mapping for HeardRight, GenRight, PostRight
 - `rightkit-license` (gaps): publish 0.2.9; publish shell link and account commands; add the Apple credential helper driver; resolve lease expiry in view vs native gate; Publish 0.2.9 and bump main from =0.2.8 (K10, K11: Pro refused during a launch-time renew); Decide K8: native gate also enforces lease expiry plus grace, or the status view stops doing so; Replace license/trial.rs with request_trial_for and license/removal.rs with the release-queue API; Publish the shell account and link commands, then drop account_session.rs and license/link.rs; Check publication state: INDEX.md lists 0.2.5
+- `rightkit-llm` (gaps): Move agent_providers and agent_router to rightkit-agent-llm; keep rightkit-llm as the wire clients both use; Compare MailRight's four files with the plain client and adopt or drop
 - `rightkit-local-gen` (gaps): Either rename to rightkit-local-image or receive the local providers from media-gen; One local model catalogue (with remote-compute/models and rightkit-models)
 - `rightkit-logs` (gaps): Move agent_telemetry to a rightkit-agent-* crate; Move random_uuid out (apps import it from logs); Check that 0.3.7 (main's pin) is published; INDEX.md records 0.3.5; JsonlStore opens the file per append (L1); cost not measured
 - `rightkit-mail` (gaps): create rightkit-mail-engine for method table and sync/outbox/backfill over MailRemote; port tests; update plan: target is three crates
 - `rightkit-mail-store` (gaps): host passed at open; store-owned input types; reverse dependency on google-apis; semantic feature; port db tests
+- `rightkit-mcp` (gaps): Not read for behaviour
 - `rightkit-media-control` (missing): Owner decision: new crate or extend rightkit-now-playing (design question 4); Move media_control/{backend,mac,win,worker}.rs as they are; HeardRight keeps the call at recording start and stop
 - `rightkit-media-fetch` (gaps): move tier and entitlement types to host; one Kind; remove stock.rs from plan mapping; port tests
 - `rightkit-media-gen` (wrong): Split by owner: provider trait + remote adapters + routing + catalogue (media-gen core); jobs on rightkit-job-queue; spend layer thinned onto rightkit-spend; voices to rightkit-tts; local providers to rightkit-local-gen; library onto rightkit-library; delete media.rs and host/h264.rs; Add a typed request/result API beside the JSON command surface; Remove organisation and app names from paths, table names and context strings (host supplies them)
 - `rightkit-media-pipeline` (gaps): Move brief.rs to the shared brief-run skeleton (see rightkit-pipeline); Decide owner of production.rs against rightkit-content-plan; Rename so it is distinguishable from rightkit-pipeline
+- `rightkit-memory` (wrong): delete retriever.rs; move membrane.rs to rightkit-context-client; keep MemoryBackend trait and native backend as rightkit-memory-client or a feature of it; re-export MemoryTier/MemoryEntry from memory-core instead of redeclaring; make the membrane binary locations a host-supplied list; move agent_host modules (memory_save_tool, blueprint_tools, memory_provenance, api_memright) to rightkit-agent-server; decide whether rightkit-memory becomes a facade over core+store or is renamed
 - `rightkit-mesh` (gaps): Add a desktop host layer: controller, registry-backed PeerTrust, pairing session runner, ALPN dispatcher with app handlers; Make vault service and relay caps host-supplied; Move or generalise policy.rs; Decide and document the pulse-* wire names; Fix stale crate header
 - `rightkit-mesh-ffi` (gaps): Take the link ALPN from the caller or the host-layer crate
+- `rightkit-ml-lab` (wrong): do not publish; keep experiments (bakeoff/*, tools/zephyr_*, local-model-training) in a HeardRight research repository; extract only reusable pieces: WER scoring and ASR adapter harness to the bench package, CoreML/ONNX conversion to a model-tools package with a pinned Python manifest
 - `rightkit-models` (wrong): Pick the suite layout as the one store and migrate Store users (MailRight, GenRight) or give Store a suite backend; Move the trusted catalog entries to data each app or a catalog crate supplies; Move agent_local_models to an agent crate; Resolve rightkit-dictation-models vs heardright-model-store; HeardRight M7 full-hash-on-launch; Add HeardRight's legacy_dirs and retired_legacy_paths to parakeet_ultra_spec before HeardRight drops ultra_model.rs; Decide the per-launch full hash of 363 to 433 MB (M7); stat-receipt fix is switched off; suite::whisper must install the macOS CoreML bundle; HeardRight: use suite::grant (it also parses Retry-After); Verify the download engine keeps live retry and resume rules; Bump pin 0.5.3 to 0.5.9
 - `rightkit-motion` (gaps): Move cmd/ to the video-project command layer; have it lay out tiles with sheet::plan_sheets; Remove the engine-commands feature and its four optional deps; pick_encoder delegates to the single rightkit-ffmpeg policy; Decide owner of HyperFrames templates/plan (media-pipeline motion)
 - `rightkit-notch-ui` (wrong): Make cells and marks host-defined; Keep AI rings in Pulse or an AI-accounts UI crate
@@ -517,18 +544,24 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 - `rightkit-overlay` (gaps): Add Voice{level} and Success to OverlayEvent (O2); foreground_fullscreen_on must require a borderless window or it hides the pill under a maximised window on a taskbar-less monitor (O5); Borderless check: 2 px tolerance, DWM frame bounds, shell-class exclusion, same-monitor rule (O6); align shell class list (O7); Visibility must allow the always-show setting and full-screen rule (O4); Starting mode mapping (O3); Decide an owner for dispatch queue, visibility guardian and temporary-event timer (O8, O9); Publish 0.2.2; main pins 0.2.0
 - `rightkit-overlay-win` (gaps): Publish 0.1.3+ (set_focusable, key events) and bump the pin from 0.1.0 to restore clip-card editing (W2); Show visual and interaction parity of the native pill by a run; Work-area clamp default would move the pill; main turns it off (W4); No drag support (W3, probably no loss)
 - `rightkit-passkeys` (gaps): Find a first consumer before it is called mandatory; not verified
+- `rightkit-pdf` (gaps): Add an optional PDFium render feature with a bundle-restricted loader, or record that page rendering stays in ScrapeRight; ViewRight moves its pin to the current version
 - `rightkit-pipeline` (wrong): Redraw as engine-to-engine calling: (a) owned engine call with PostRight's attempt/sweep discipline and CutRight's contract/capability handshake, (b) generate client (submit, wait, import, journal) named for the contract, (c) brief dispatcher, (d) shared `brief run` skeleton (CLI, envelope validation and writing) with per-engine deliverable producers; Move channel_recipe to the video side; add brief-run caller runner and executor harness; rename or add genright module; move channel_recipe out; port orchestration tests and fake engine
 - `rightkit-playback` (gaps): Do not extend this crate with timeline preview; create the preview-session crate (see rightkit-compose) with the Tauri commands behind a feature, as this crate does with tauri_commands; Publish as is for ScrapeRight
 - `rightkit-privileged-helper` (gaps): Add Swift helper module with parameterised identifiers and TrashPolicy
 - `rightkit-prompt-recipes` (wrong): Keep contracts + validator + recipe composer + video templates as a pure library over data; Brands become host-supplied data; KDP moves to the GenRight app (or a recipes data pack); Command handlers move to the engine layer
+- `rightkit-pty` (gaps): Port remote-gateway terminals to rightkit-pty or state why not
 - `rightkit-qa` (gaps): Add a PTY/terminal driver or rule that TUI acceptance stays CodeRight's; Consider splitting media assertions from the control harness
 - `rightkit-qa-driver` (wrong): Remove from the mandatory set; publish no new versions
 - `rightkit-record` (gaps): Add still-frame window capture; Re-map the rest
 - `rightkit-reframe` (gaps): Single copy of track.rs (here); Rename schema ids; Decide whether approval is mandatory at library level
 - `rightkit-remote-compute` (wrong): Move models/ to rightkit-local-gen (or rightkit-models for catalogue/install); Worker registry behind a small store trait; Spend bracket on rightkit-spend
-- `rightkit-research` (gaps): remap PostRight files; move to rightkit-http
+- `rightkit-remote-gateway` (gaps): Rebase on the gateway core and approvals core; Split agent_secrets into its own crate; Remove Pulse and ChatGPT names from library text
+- `rightkit-repo-graph` (gaps): drive skeletonization from the graph's language registry and grammars crate; put embed/onnx behind a feature; state in README whether repo-graph is usable without the membrane resident
+- `rightkit-research` (gaps): remap PostRight digest to rightkit-content-plan; decide whether reddit_reader becomes a source in rightkit-research::source or stays in media-fetch; remove the code-audit-provider-sdk dependency; remap PostRight files; move to rightkit-http
 - `rightkit-review` (gaps): render_qa takes a file + a spec, running ffmpeg through rightkit-ffmpeg directly; drop the video-project/timeline deps; Move package.rs to the publishing side (social-publish or video-project exports) and read limits from rightkit-platform-rules; Rename cutright.* schema ids (no live users); Consider splitting code/minimize (Legion) into rightkit-code-review; they share nothing with media review
-- `rightkit-search` (gaps): lift resumable rebuild-and-swap into rightkit-search::fts
+- `rightkit-sandbox` (gaps): Move it
+- `rightkit-scheduler` (gaps): Move execution, delivery, lifecycle, persistence here behind a runner trait; delete the copies
+- `rightkit-search` (best): lift resumable rebuild-and-swap into rightkit-search::fts
 - `rightkit-send` (gaps): Build the Swift engine or FFI; Extract the generic part of the mesh Send route
 - `rightkit-shorts` (gaps): Model id from caller or rightkit-llm default; Move moments search to the project command layer; Rename cutright.shorts.proposals.v1
 - `rightkit-sidecar` (best): A 0.1.213 engine and a main shell cannot talk; check the updater never leaves a stale engine binary (P5); Bump pin 0.3.0 to 0.3.2
@@ -540,18 +573,23 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 - `rightkit-sync-keys` (gaps): First consumer before mandatory; not verified
 - `rightkit-system-monitor` (gaps): Single snapshot owner; Add Windows sensors, volumes, health; Re-map usage.rs to ai-accounts/spend
 - `rightkit-tauri-shell` (gaps): add a custom tray left-click action; state core vs optional host modules; gate or split viewer and overlay hosts; settle one IPC allowlist model against CodeRight ipc_policy.rs; publish 0.7.x; Add a custom tray left-click action so the app stops reaching into the raw icon (H5); Publish 0.7.3 (main pins 0.7.0); publish the account and link license host commands; Run the single-instance and autostart migrations against a real 0.1.213 install (H1, H3 read, not run); Verify close-handler ordering between app handler and plugin (H8); Window builder is Wry-only so main downcasts the app handle (H11); Tray icon field named icon_png receives .ico bytes (H7)
+- `rightkit-terminal-ui` (gaps): Decide whether the session-facing TUI host belongs here behind a trait or stays in agent-server; document the seam
 - `rightkit-text-polish` (best): Bump pin 0.1.0 to 0.1.1 (test removal)
 - `rightkit-theme` (best): publish with a parity test against @rightkit/theme
 - `rightkit-timeline` (gaps): Share Ticks/Fps with compose (one small time module, either crate re-exports); Use rightkit-ffmpeg Encoder; Presets as data (name, size, safe zone id) resolved against rightkit-platform-rules ids
 - `rightkit-transcript` (best): Bump pin 0.4.0 to 0.4.2
 - `rightkit-transcript-library` (gaps): add feature-gated SQLCipher store, recovery, export with key source and paths as parameters; move non-record delivery logic to rightkit-dictation-*; port history tests; fix plan mapping; Fold the duplicated pure delivery rules with rightkit-automation
 - `rightkit-tts` (best): Decide owner of the voice library (recommended: a `voices` module here, since it needs no provider code) and drop the qts facade from media-gen
+- `rightkit-typeset` (best): Give apps one source for the fork so CutRight deletes its copy
 - `rightkit-vad` (best): Library default is Warmup::ResetAfter; HeardRight must keep KeepState set (V1)
+- `rightkit-vault` (gaps): remap Pulse agent_secrets to rightkit-remote-gateway; build and test the crate before publication (README states it never compiled); depends on entitlement endpoints that must exist first
 - `rightkit-video-project` (gaps): Delete reframe_track.rs here; Pick one rule for engine commands (recommended: a `cmd` module per domain crate behind `engine-commands`, engine-host stays free of video deps) and port media/bundle/project/outputs/storage/slot commands under it; Rename ids and env prefixes to an app-supplied prefix; Give decision ledger + edit plan + relink a home (here as modules, or rightkit-decisions)
 - `rightkit-voice-commands` (best): Owner decision on V1: non-desktop platforms now report commands supported; Bump pin 0.1.0 to 0.1.1
 - `rightkit-web-extract` (best): port tests; decide home for iOS extractors
 - `rightkit-web-session` (gaps): remove Pulse names and paths; remap ScrapeRight sign-in to rightkit-browser/rightkit-tauri-shell; tests
 - `rightkit-win-ui` (gaps): Choose one canvas (overlay-win is the reference by app priority) and port notch-ui and the clipboard strip to it
+- `rightkit-workflow` (gaps): Decide whether CodeRight workflows run on this state machine; move or delete the agent-server copy
+- `RightKitAgent` (missing): Decide first: Swift module wrapping rightkit-agent-engine-mobile-runtime over FFI (CodeRight) with Pulse's approval gate and budget ledger as the Swift-side policy; then write it; Re-map screens to SHELL
 - `RightKitAppleCredentials` (gaps): HeardRight: shrink the Mac helper to service name, access group, account allowlist and a call to AppleCredentialHelperHost; Check how much of the iOS facade is thin
 - `RightKitAudio` (gaps): Add in-memory sample accumulation, speech-activity snapshot and a WAV writer to WarmAudioCapture; Add a session policy layer if RecordingAudioPolicy is to move (mix policies, retry ladder, Bluetooth, warm hold); Move the iOS pin to a published version containing 0.9.0 modules; HeardRight: use AudioFileRecorder on the watch
 - `RightKitCloudSync` (gaps): HeardRight: replace CloudSyncNotifications.swift with CloudKitWakeHost, keeping identifiers and FFI entry points

@@ -1,0 +1,308 @@
+[
+  {
+    "package": "@rightkit/document-workspace",
+    "kind": "npm",
+    "family": "Documents",
+    "existsAs": ["packages/document-workspace"],
+    "feeds": {"viewright": 31171},
+    "basis": "Surveyed ViewRight 0.1.165 src/app, settings, state copied at the same paths (0.97 similar; 0.75 to live 0.1.123)",
+    "referenceApp": "viewright",
+    "shape": "wrong",
+    "shapeReason": "It is the whole ViewRight application: hard-coded legal gate, licence and update settings, format list, and a generated barrel exporting every module. A second app would inherit ViewRight's product decisions.",
+    "apps": {
+      "viewright": {"fit": "gaps", "note": "Own code, but legal gate shows 'App' (hostAppName read at module load, AppRoot.tsx:29-32,50); basis is an unreleased tree"},
+      "mailright": {"fit": "n/a", "note": "nothing mapped"}
+    },
+    "boundary": [
+      "AppRoot.tsx hard-codes ViewRight legal gate: 960x560 window, palette, Tanker font, document list",
+      "Depends on legal, legal-ui, license, app-update, onboarding, settings-ui",
+      "appName.ts duplicated in all five document packages, five separate setters",
+      "viewright:* window events are the wiring to the editors",
+      "Imports the three editors directly instead of a format registry"
+    ],
+    "actions": [
+      "Move legal gate, licence and update sections to the ViewRight shell or props",
+      "Take format-to-pane table as a registry argument",
+      "Written entry point instead of the generated barrel",
+      "One setHostAppName in document-core, no module-level reads",
+      "Rename viewright:* events to a neutral prefix across the five packages"
+    ],
+    "depth": "deep",
+    "confidence": "high"
+  },
+  {
+    "package": "@rightkit/markdown-editor",
+    "kind": "npm",
+    "family": "Documents",
+    "existsAs": ["packages/markdown-editor"],
+    "feeds": {"viewright": 27905},
+    "basis": "Surveyed ViewRight src/documents/markdown and mdx (0.98 similar; 0.90 to live); reader pieces now imported from doc-render",
+    "referenceApp": "viewright",
+    "shape": "gaps",
+    "shapeReason": "Module split is sound, but the host is reached through viewright:* window events, a viewright-local scheme and ViewRight's Tauri bridge in document-core.",
+    "apps": {
+      "viewright": {"fit": "gaps", "note": "Works by construction once names and ports are settled"}
+    },
+    "boundary": [
+      "Links, undo and redo wired by global viewright:* events (renderNodes.tsx:195,448; MarkdownEditor.tsx:587)",
+      "Scheme viewright-local: in sanitizeMarkdownHtml.ts:8",
+      "Second Mermaid sanitizer beside doc-render sanitizeMermaidSvg, different policy",
+      "QA global window.__viewrightQaMarkdown in shipped code",
+      "Cannot be used without document-core's ViewRight bridge"
+    ],
+    "actions": [
+      "Link, undo and asset ports as props",
+      "One Mermaid sanitizer with ViewRight's policy, in doc-render",
+      "Neutral scheme and event names; keep '<!-- viewright: -->' hints accepted",
+      "Written entry point"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "@rightkit/html-editor",
+    "kind": "npm",
+    "family": "Documents",
+    "existsAs": ["packages/html-editor"],
+    "feeds": {"viewright": 15898},
+    "basis": "Surveyed ViewRight src/documents/html (0.99 similar; 0.95 to live)",
+    "referenceApp": "viewright",
+    "shape": "gaps",
+    "shapeReason": "Custom scheme names are hard-coded (viewright-site, viewright-preview) although rightkit-tauri-shell lets the app choose them; host wiring is by global events.",
+    "apps": {
+      "viewright": {"fit": "gaps", "note": "Fits once scheme names and events are configurable"}
+    },
+    "boundary": [
+      "htmlInline.ts:157 builds viewright-site://; CSP in htmlInteractive.ts:180 names viewright-site:",
+      "HtmlDocumentView.tsx:29 assumes the viewright-preview protocol",
+      "viewright:undo, viewright:html-reload, viewright:print window events",
+      "Own DOMPurify sanitizer beside doc-render's full-document sanitizer (different job; document it)"
+    ],
+    "actions": [
+      "Scheme names and CSP sources from host configuration",
+      "Event wiring as props",
+      "Written entry point"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-document-workspace",
+    "kind": "cargo",
+    "family": "Documents",
+    "existsAs": ["crates/rightkit-document-workspace"],
+    "feeds": {"viewright": 3147},
+    "basis": "ViewRight src-tauri persistence.rs and command bodies, reshaped behind PathGrants, DocumentBackend and WorkspaceWatcher traits",
+    "referenceApp": "viewright",
+    "shape": "gaps",
+    "shapeReason": "Right design (store plus synchronous command bodies behind host traits, app name passed in). It redeclares rightkit-docs types and has no IPC layer for the 57 command names the npm bridge calls.",
+    "apps": {
+      "viewright": {"fit": "gaps", "note": "Must keep about 3,000 lines of Tauri wrappers and an adapter between two identical type sets"}
+    },
+    "boundary": [
+      "RawDocument, FileFingerprint, WriteDocumentResult duplicated in rightkit-docs files/mod.rs:112-151",
+      "No RightKit crate registers the Tauri commands document-core invokes",
+      "app_paths.rs mapped here but not in the crate; belongs to rightkit-fs AppDirs or the shell"
+    ],
+    "actions": [
+      "Use or absorb rightkit-docs 'files'; delete duplicate types and the DocumentBackend seam",
+      "Optional tauri feature or companion crate registering the command set",
+      "Publish 0.1.4"
+    ],
+    "depth": "deep",
+    "confidence": "high"
+  },
+  {
+    "package": "@rightkit/docx-editor",
+    "kind": "npm",
+    "family": "Documents",
+    "existsAs": ["packages/docx-editor"],
+    "feeds": {"viewright": 1834},
+    "basis": "Surveyed ViewRight src/documents/docx, re-pointed from the vendored eigenpal source to published @eigenpal 1.9.0",
+    "referenceApp": "viewright",
+    "shape": "gaps",
+    "shapeReason": "Follows the owner's decision (published eigenpal plus small host-toolbar patch), but the carried patch is a source diff and the published package ships only minified dist, so it cannot apply; the host toolbar is silently lost.",
+    "apps": {
+      "viewright": {"fit": "gaps", "note": "Would show eigenpal's built-in toolbar instead of its own; live and surveyed trees still vendor the fork"}
+    },
+    "boundary": [
+      "patches/docx-editor-react-host-toolbar.patch targets packages/react/src; not registered in pnpm-workspace.yaml",
+      "A published package cannot carry a pnpm patch into consumers; each app must register it"
+    ],
+    "actions": [
+      "Make the host toolbar work on published 1.9.0: external toolbar via DocxEditorRef and selection events, or a dist-level pnpm patch registered in root and apps, or upstream PR then pin",
+      "Keep the source patch only as upstream PR text",
+      "ViewRight deletes vendor/docx-editor after cutover",
+      "Plan the move to the @docx-editor.dev 2.x line"
+    ],
+    "depth": "deep",
+    "confidence": "high"
+  },
+  {
+    "package": "@rightkit/pdf-ui",
+    "kind": "npm",
+    "family": "Documents",
+    "existsAs": ["packages/pdf-ui"],
+    "feeds": {"viewright": 10411, "mailright": 144},
+    "basis": "Written read-only pdf.js viewer; 0.3.0 adds props so ViewRight's editor can sit on it",
+    "referenceApp": "viewright",
+    "shape": "gaps",
+    "shapeReason": "The viewer API is right and MailRight uses it as designed. ViewRight's planned 10,411 editor lines did not land here but in document-core, with a second PdfViewer, range transport and password prompt.",
+    "apps": {
+      "viewright": {"fit": "gaps", "note": "Uses only helpers; keeps its own 1,760-line viewer; 0.3.0 props never built or run"},
+      "mailright": {"fit": "fits", "note": "Already on 0.2.0 with PdfViewer, onPassword, maxRenderPages"}
+    },
+    "boundary": [
+      "Duplicate range transport: pdf-ui rangeTransport.ts:106 and document-core pdfBenchTransport.ts:106",
+      "PdfPasswordPrompt and PdfViewer exist in both packages",
+      "PDF editor needs a home: pdf-ui/editor subpath or a new @rightkit/pdf-editor"
+    ],
+    "actions": [
+      "Build and run 0.3.0 against ViewRight's four cases in its changelog",
+      "Move the PDF editor from document-core onto PdfViewer with pageLayers",
+      "Delete the duplicate transport and prompt",
+      "Publish 0.3.0"
+    ],
+    "depth": "deep",
+    "confidence": "high"
+  },
+  {
+    "package": "rightkit-pdf",
+    "kind": "cargo",
+    "family": "Documents",
+    "existsAs": ["crates/rightkit-pdf"],
+    "feeds": {"viewright": 503, "scraperight": 129},
+    "basis": "ViewRight's PDF editor core moved earlier, plus Legion merge and ScrapeRight text-extraction donors",
+    "referenceApp": "viewright",
+    "shape": "gaps",
+    "shapeReason": "Feature layout suits ViewRight. ScrapeRight renders full pages with PDFium for OCR; the raster feature draws image XObjects only.",
+    "apps": {
+      "viewright": {"fit": "fits", "note": "On 0.3.3 with 'host'; remaining lines are Tauri wrappers"},
+      "scraperight": {"fit": "gaps", "note": "Needs full-page render (extraction/pdf.rs:22-80 uses pdfium-render)"}
+    },
+    "boundary": [],
+    "actions": [
+      "Add an optional PDFium render feature with a bundle-restricted loader, or record that page rendering stays in ScrapeRight",
+      "ViewRight moves its pin to the current version"
+    ],
+    "depth": "light",
+    "confidence": "medium"
+  },
+  {
+    "package": "@rightkit/doc-render",
+    "kind": "npm",
+    "family": "Documents",
+    "existsAs": ["packages/doc-render"],
+    "feeds": {},
+    "basis": "ViewRight's Markdown reader pieces behind a written API",
+    "referenceApp": "viewright",
+    "shape": "best",
+    "shapeReason": "Explicit policies, options default off, no host import; ViewRight, CodeRight and ScrapeRight already pin 0.2.1.",
+    "apps": {
+      "viewright": {"fit": "fits", "note": "0.2.1 pinned in surveyed tree; live build has the code locally"},
+      "coderight": {"fit": "fits", "note": "0.2.1 pinned; call sites not read"},
+      "scraperight": {"fit": "fits", "note": "0.2.1 pinned; call sites not read"}
+    },
+    "boundary": ["Mermaid sanitizer policy differs from markdown-editor's copy"],
+    "actions": ["Settle the Mermaid policy with markdown-editor", "Publish 0.2.2"],
+    "depth": "light",
+    "confidence": "medium"
+  },
+  {
+    "package": "@rightkit/document-core",
+    "kind": "npm",
+    "family": "Documents",
+    "existsAs": ["packages/document-core"],
+    "feeds": {},
+    "basis": "Surveyed ViewRight (0.98 similar): bridge, settings, themes, chrome, printing and the whole PDF editor; not in the master plan",
+    "referenceApp": "viewright",
+    "shape": "wrong",
+    "shapeReason": "A catch-all created to break an import cycle. Adopting any editor pulls in ViewRight's concrete Tauri bridge (57 command names), settings schema, theme list and PDF editor.",
+    "apps": {
+      "viewright": {"fit": "gaps", "note": "Works for it once names are settled"}
+    },
+    "boundary": [
+      "documents/pdf (34 files, about 10,000 lines) was planned for @rightkit/pdf-ui",
+      "PDF benchmark harness (pdfBench*.ts) shipped in the package; plan mapped it to rightkit-bench",
+      "tauriBridge.ts hard-codes viewright-stream scheme and x-viewright-path-hex header",
+      "ViewRight theme ids and migrations in settings/themes.ts and settings.tsx",
+      "Format table exists three times (rightkit-docs data, document-core tsv, generated ts) with no agreement check",
+      "window.__viewrightQaPerf installed by perfEventCounters.ts"
+    ],
+    "actions": [
+      "Move documents/pdf out",
+      "Bridge becomes an interface plus a default Tauri implementation configured with command and scheme names",
+      "Move themes, settings sections and file associations to the workspace package or ViewRight",
+      "Remove benchmark harness and QA globals",
+      "Generate the TS format table from the rightkit-docs file or add a gate check",
+      "Add the package to the plan"
+    ],
+    "depth": "deep",
+    "confidence": "high"
+  },
+  {
+    "package": "rightkit-docs",
+    "kind": "cargo",
+    "family": "Documents",
+    "existsAs": ["crates/rightkit-docs"],
+    "feeds": {"viewright": 695},
+    "basis": "Written DOCX/XLSX/PDF read and write library; feature 'files' is ViewRight's documents.rs",
+    "referenceApp": "viewright",
+    "shape": "gaps",
+    "shapeReason": "Core is right and Pulse uses it. The 'files' feature is viewer file IO whose types carry workspace fields and are redeclared in rightkit-document-workspace.",
+    "apps": {
+      "viewright": {"fit": "gaps", "note": "Needs only 'files'; must adapt it to an identical type set"},
+      "pulse": {"fit": "fits", "note": "read and write on 0.1.2 (core/src/remote/docs.rs:412, docs_write.rs:106)"}
+    },
+    "boundary": [
+      "'files' belongs with rightkit-document-workspace",
+      "RawDocument with last_view, view_meta, stream_token duplicated across two crates",
+      "Format table copies"
+    ],
+    "actions": [
+      "Move 'files' into rightkit-document-workspace or make that crate depend on it and delete its copies",
+      "Keep the format table in one place"
+    ],
+    "depth": "deep",
+    "confidence": "high"
+  },
+  {
+    "package": "rightkit-typeset",
+    "kind": "cargo",
+    "family": "Documents",
+    "existsAs": ["crates/rightkit-typeset", "vendor/citationberg"],
+    "feeds": {"cutright": 6243},
+    "basis": "Fresh small wrapper over Typst and mitex; CutRight's planned lines are the vendored citationberg fork only",
+    "referenceApp": "cutright",
+    "shape": "best",
+    "shapeReason": "Small neutral API (Typesetter, Request, explicit fonts, no file access); CutRight already uses it.",
+    "apps": {
+      "cutright": {"fit": "fits", "note": "cutright-captions re-exports rightkit_typeset::font, pinned 0.1.0"}
+    },
+    "boundary": ["citationberg fork vendored in both RightKit and CutRight; each app writes its own [patch.crates-io]"],
+    "actions": ["Give apps one source for the fork so CutRight deletes its copy"],
+    "depth": "light",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-ocr",
+    "kind": "cargo",
+    "family": "Documents",
+    "existsAs": ["crates/rightkit-ocr"],
+    "feeds": {"scraperight": 586, "viewright": 401},
+    "basis": "Written crate: native Vision and Windows OCR, isolated worker, verified ONNX fallback",
+    "referenceApp": "viewright",
+    "shape": "best",
+    "shapeReason": "Feature split, model lease hook and worker cover all four consuming apps; what remains app-side is policy and wiring.",
+    "apps": {
+      "viewright": {"fit": "fits", "note": "native plus isolated worker; probe and canary policy stays in the app"},
+      "scraperight": {"fit": "fits", "note": "native, ONNX fallback on Windows through ModelLeaseHook"},
+      "cutright": {"fit": "fits", "note": "Ocr with OnnxConfig in moments_cmd.rs"},
+      "coderight": {"fit": "fits", "note": "native only, engine/crates/media"}
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "high"
+  }
+]
