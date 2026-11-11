@@ -17,8 +17,8 @@ import type { DocxMenuApi } from "@rightkit/docx-editor/documents/docx/menuApi";
 import type { ImageSaveFunction } from "@rightkit/media-ui";
 import type { MarkdownExportApi } from "@rightkit/markdown-editor/documents/markdown/export/markdownExportTypes";
 import type { SourceEditorViewState } from "../documents/txt/TxtEditor.js";
-import type { PdfSaveFunction } from "@rightkit/document-core/documents/pdf/pdfEditor";
-import type { PdfSavePlan } from "@rightkit/document-core/documents/pdf/pdfEditModel";
+import type { PdfSaveFunction } from "../documents/pdf/pdfEditor.js";
+import type { PdfSavePlan } from "../documents/pdf/pdfEditModel.js";
 import { PaneActiveContext } from "@rightkit/document-core/app/shell/docBar";
 import { hostAppName } from "../appName.js";
 

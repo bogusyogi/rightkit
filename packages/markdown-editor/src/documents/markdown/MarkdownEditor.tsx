@@ -67,6 +67,7 @@ import {
 } from "./markdownResourceLifecycle.js";
 import { FIND_REPLACE_META, useMarkdownSearchProvider } from "./useMarkdownSearchProvider.js";
 import { useMarkdownImageIngest } from "./assets/useMarkdownImageIngest.js";
+import { documentEvent } from "@rightkit/document-core/host";
 
 interface Props {
   text: string;
@@ -584,7 +585,7 @@ export function MarkdownEditor({
           event.preventDefault();
           if (readOnlyRef.current || !core) return true;
           window.dispatchEvent(
-            new Event(inputType === "historyUndo" ? "viewright:undo" : "viewright:redo", {
+            new Event(inputType === "historyUndo" ? documentEvent("undo") : documentEvent("redo"), {
               cancelable: true,
             }),
           );

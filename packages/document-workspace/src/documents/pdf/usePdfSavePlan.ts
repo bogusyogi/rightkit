@@ -6,8 +6,8 @@ import { prepareAndVerifyPdfSave } from "./pdfSave.js";
 import type { PdfCommitResult, PdfEditCommand, PdfPageGraph, PdfSavePlan } from "./pdfEditModel.js";
 // New PDF-edit backend commands (docs/PDF-EDITOR-NOW.md §10.1-§10.3), imported by name from
 // tauriBridge.ts against the frozen type contract in pdfEditModel.ts.
-import { preparePdfSave, commitPdfSave } from "../../state/tauriBridge.js";
-import { logError, logEvent } from "../../state/diagnostics.js";
+import { preparePdfSave, commitPdfSave } from "./pdfBridge.js";
+import { logError, logEvent } from "@rightkit/document-core/state/diagnostics";
 import type { usePdfEditSession } from "./usePdfEditSession.js";
 import type { usePdfEditor } from "./usePdfEditor.js";
 

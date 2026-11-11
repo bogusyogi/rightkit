@@ -15,6 +15,7 @@ import { logError } from "@rightkit/document-core/state/diagnostics";
 import { toast } from "@rightkit/platform-ui/headless";
 import { acquireResource, updateResource, type ResourceKind } from "@rightkit/document-core/app/resourceCensus";
 import { hostAppName } from "../appName.js";
+import { documentEvent } from "@rightkit/document-core/host";
 
 const ADAPTERS: MediaAdapters = {
   icons: {
@@ -87,7 +88,7 @@ export function ImageViewer({ doc, ...props }: Props) {
         displayName={doc.displayName}
         src={doc.content || displaySrc}
         displaySrc={displaySrc}
-        printEventName="viewright:print"
+        printEventName={documentEvent("print")}
         toolbarContainer={capsuleHost}
         panelsContainer={panelsHost}
         adapters={ADAPTERS}

@@ -2,6 +2,7 @@ import type { ErrorInfo, ReactNode } from "react";
 import { ErrorBoundary as ShellErrorBoundary } from "@rightkit/react-shell/react";
 import { logError } from "@rightkit/document-core/state/diagnostics";
 import { hostAppName } from "../appName.js";
+import { documentEvent } from "@rightkit/document-core/host";
 
 interface Props {
   children: ReactNode;
@@ -56,7 +57,7 @@ export function ErrorBoundary({ children, label, resetKey, closeTabPath }: Props
                 aria-label="Close tab"
                 onClick={() =>
                   window.dispatchEvent(
-                    new CustomEvent("viewright:close-tab", { detail: { path: closeTabPath } }),
+                    new CustomEvent(documentEvent("close-tab"), { detail: { path: closeTabPath } }),
                   )
                 }
                 className="vr-press vr-focus ml-2 rounded px-3 py-1.5 font-sans text-chrome-sm text-muted hover:bg-ink/40 hover:text-paper"

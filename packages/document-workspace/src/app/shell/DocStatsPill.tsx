@@ -7,7 +7,7 @@ import { Check } from "@phosphor-icons/react/dist/icons/Check";
 import type { LoadedDocument } from "@rightkit/document-core/documents/types";
 import { shortcutLabel } from "@rightkit/document-core/platform";
 import { useTabDirty } from "../tabs/useTabDirty.js";
-import { useEditText } from "@rightkit/document-core/app/useEditText";
+import { useEditText } from "../useEditText.js";
 
 const STATS_FORMATS = new Set<LoadedDocument["format"]>(["md", "mdx", "txt", "html", "unknown"]);
 

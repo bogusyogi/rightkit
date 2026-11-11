@@ -2,8 +2,8 @@
 import { writeDocumentBytes } from "@rightkit/document-core/state/tauriBridge";
 import { errorMessage } from "@rightkit/document-core/state/errors";
 import type { ImageSaveFunction, ImageSavePayload } from "@rightkit/media-ui";
-import type { PdfSaveFunction } from "@rightkit/document-core/documents/pdf/pdfEditor";
-import type { PdfSavePlan } from "@rightkit/document-core/documents/pdf/pdfEditModel";
+import type { PdfSaveFunction } from "../documents/pdf/pdfEditor.js";
+import type { PdfSavePlan } from "../documents/pdf/pdfEditModel.js";
 
 interface FormatDirtyStateDeps {
   setError: Dispatch<SetStateAction<string | null>>;

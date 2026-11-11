@@ -11,8 +11,8 @@ import { printHtmlMarkup } from "@rightkit/document-core/app/documentPrinting";
 export function useFormatApis(onPrint: (doc: LoadedDocument | null) => void) {
   const [docxMenu, setDocxMenu] = useState<DocxMenuApi | null>(null);
   // The active PDF pane's own print function, using the PDFDocumentProxy it already has loaded/
-  // rendering on screen — NOT a fresh fetch of the same viewright-stream:// URL, which hung
-  // indefinitely with no error (see documentPrinting.ts printPdf's fallback for the no-registration
+  // rendering on screen — NOT a fresh fetch of the same <host id>-stream:// URL, which hung
+  // indefinitely with no error (see documents/pdf/pdfPrinting.ts printPdf's fallback for the no-registration
   // case). Mirrors the docxMenu single-active-slot pattern above.
   const [pdfPrint, setPdfPrint] = useState<(() => Promise<boolean>) | null>(null);
   const [markdownExport, setMarkdownExport] = useState<MarkdownExportApi | null>(null);

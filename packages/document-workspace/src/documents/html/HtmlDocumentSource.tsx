@@ -1,6 +1,6 @@
 import type { EditorView } from "@codemirror/view";
 import type { RefObject, ReactNode } from "react";
-import { FullscreenIcon } from "@rightkit/document-core/documents/FullscreenIcon";
+import { FullscreenIcon } from "../FullscreenIcon.js";
 import { TextEditor, type SourceEditorViewState } from "../txt/TxtEditor.js";
 import type { SearchProvider } from "@rightkit/document-core/documents/types";
 import type { SourceRange } from "@rightkit/html-editor/documents/html/sourceMap";

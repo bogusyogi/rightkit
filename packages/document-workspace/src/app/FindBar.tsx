@@ -7,6 +7,7 @@ import { useDismiss } from "@rightkit/platform-ui/headless";
 import { createShortcutRegistry } from "@rightkit/react-shell";
 import { isValidSearchRegex } from "@rightkit/document-core/documents/searchUtils";
 import type { SearchOptions, SearchProvider, SearchResult } from "@rightkit/document-core/documents/types";
+import { documentEvent } from "@rightkit/document-core/host";
 
 interface FindBarProps {
   provider: SearchProvider | null;
@@ -171,8 +172,8 @@ export function FindBar({
       const dir = (e as CustomEvent<{ dir: number }>).detail?.dir;
       void stepRef.current(dir && dir < 0 ? "prev" : "next");
     };
-    window.addEventListener("viewright:find-step", onStep);
-    return () => window.removeEventListener("viewright:find-step", onStep);
+    window.addEventListener(documentEvent("find-step"), onStep);
+    return () => window.removeEventListener(documentEvent("find-step"), onStep);
   }, []);
 
   const doReplace = async () => {

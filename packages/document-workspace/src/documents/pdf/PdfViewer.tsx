@@ -3,11 +3,11 @@ import { createPortal } from "react-dom";
 import { createShortcutRegistry } from "@rightkit/react-shell";
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy, PageViewport } from "pdfjs-dist";
-import type { SearchProvider, ViewMeta } from "../types.js";
+import type { SearchProvider, ViewMeta } from "@rightkit/document-core/documents/types";
 import { boundedCanvasDpr, highlightSpan, viewportRotation } from "./pdfShared.js";
 import { PdfToolbar } from "./PdfToolbar.js";
 import { PdfViewerBody } from "./PdfViewerBody.js";
-import { PdfPasswordPrompt } from "./PdfPasswordPrompt.js";
+import { PdfPasswordPrompt } from "@rightkit/pdf-ui";
 import { usePdfDocumentLoader } from "./usePdfDocumentLoader.js";
 import { usePdfPreviewRecompose } from "./usePdfPreviewRecompose.js";
 import { usePdfSavePlan } from "./usePdfSavePlan.js";
@@ -17,7 +17,7 @@ import {
   createPdfLinkService,
   type PdfLinkActions,
 } from "@rightkit/pdf-ui";
-import { openExternal } from "../../state/tauriBridge.js";
+import { openExternal } from "@rightkit/document-core/state/tauriBridge";
 import { usePdfSearch } from "./usePdfSearch.js";
 import { usePdfOcr } from "./usePdfOcr.js";
 import type { NativePdfEditingAction } from "./macPdfNativeBridge.js";
@@ -41,15 +41,15 @@ import type {
 // New PDF-edit backend commands (docs/PDF-EDITOR-NOW.md §5.2/§7.2/§9.4/§10.1/§10.3). These land in
 // tauriBridge.ts at Dispatch D2 — this lane imports them by name against the frozen type contract
 // in pdfEditModel.ts, per the dispatch brief ("D2 is responsible for making those exports real").
-import { inspectPdfPage, listPdfFonts } from "../../state/tauriBridge.js";
+import { inspectPdfPage, listPdfFonts } from "./pdfBridge.js";
 // Worker-src setup lives in pdfPrinting.ts (module side effect), the one shared resolution point
 // for both the viewer and the print path — see its comment for why the worker URL must never be
 // resolved twice through different chunks.
 import "./pdfPrinting.js";
 import { printPdfDocument } from "./pdfPrinting.js";
-import { acquireResource } from "../../app/resourceCensus.js";
-import { logError, logPerf } from "../../state/diagnostics.js";
-import { errorMessage } from "../../state/errors.js";
+import { acquireResource } from "@rightkit/document-core/app/resourceCensus";
+import { logError, logPerf } from "@rightkit/document-core/state/diagnostics";
+import { errorMessage } from "@rightkit/document-core/state/errors";
 import {
   isPdfBenchEnabled,
   markPdfBenchError,
@@ -57,6 +57,7 @@ import {
   registerPdfBenchLatePageNavigator,
 } from "./pdfBench.js";
 import { nearestVisiblePdfPage } from "./nearestVisiblePdfPage.js";
+import { documentEvent } from "@rightkit/document-core/host";
 
 // pdf.js's own bundled code (build/pdf.mjs) has at least one call site — converting an existing
 // Stamp annotation into an editable `StampEditor` object, which `AnnotationEditorLayer`'s
@@ -209,7 +210,7 @@ export function PdfViewer({
   initialEditingAction?: NativePdfEditingAction;
   onViewState?: (m: ViewMeta) => void;
   /** Register a print function that uses THIS pane's already-loaded PDFDocumentProxy — see
-   *  documentPrinting.ts printPdfDocument. */
+   *  documents/pdf/pdfPrinting.ts printPdfDocument. */
   registerPrint?: (fn: (() => Promise<boolean>) | null) => void;
   registerSearchProvider?: (provider: SearchProvider | null) => void;
   /** Shared FindBar element, floated over content below toolbar triggers. */
@@ -713,13 +714,13 @@ export function PdfViewer({
       }
       historyShortcuts.handle(event);
     };
-    window.addEventListener("viewright:undo", undo);
-    window.addEventListener("viewright:redo", redo);
+    window.addEventListener(documentEvent("undo"), undo);
+    window.addEventListener(documentEvent("redo"), redo);
     window.addEventListener("keydown", onKeyDown, true);
     document.addEventListener("keydown", onEditableHistoryKeyDown);
     return () => {
-      window.removeEventListener("viewright:undo", undo);
-      window.removeEventListener("viewright:redo", redo);
+      window.removeEventListener(documentEvent("undo"), undo);
+      window.removeEventListener(documentEvent("redo"), redo);
       window.removeEventListener("keydown", onKeyDown, true);
       document.removeEventListener("keydown", onEditableHistoryKeyDown);
     };

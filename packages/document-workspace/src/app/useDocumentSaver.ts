@@ -38,8 +38,8 @@ import { incDiskWrites } from "@rightkit/document-core/documents/perfEventCounte
 import type { ImageSaveFunction, ImageSavePayload } from "@rightkit/media-ui";
 import { resolveDocumentDrafts } from "./draftResolution.js";
 import type { BlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
-import type { PdfSaveFunction } from "@rightkit/document-core/documents/pdf/pdfEditor";
-import type { PdfCommitResult, PdfSavePlan } from "@rightkit/document-core/documents/pdf/pdfEditModel";
+import type { PdfSaveFunction } from "../documents/pdf/pdfEditor.js";
+import type { PdfCommitResult, PdfSavePlan } from "../documents/pdf/pdfEditModel.js";
 
 // Save-As default name for an untitled buffer: seed the dialog with the same first-line title shown in
 // the tab/titlebar (filesystem-sanitized), or "untitled.<ext>" when the buffer is empty/unusable.

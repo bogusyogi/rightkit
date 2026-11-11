@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import { logError, logEvent } from "../../state/diagnostics.js";
+import { logError, logEvent } from "@rightkit/document-core/state/diagnostics";
 import { modeToAnnotationEditorType, type PdfEditorMode } from "./pdfEditor.js";
 
 // pdf.js does not expose AnnotationEditorUIManager's dependencies (EventBus, GenericL10n) from the

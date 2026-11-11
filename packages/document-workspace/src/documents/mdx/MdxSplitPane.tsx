@@ -9,11 +9,11 @@
 // the other. The shared code (TextEditor, MarkdownSourceToolbar, MarkdownSourceActions, etc.)
 // lives in the markdown/ folder; this file reuses them by import.
 
-import { useCloseFindOnSurfaceChange } from "@rightkit/document-core/app/useCloseFindOnSurfaceChange";
+import { useCloseFindOnSurfaceChange } from "../../app/useCloseFindOnSurfaceChange.js";
 import { useCallback, useEffect, useRef, type ReactNode } from "react";
-import { useEditText } from "@rightkit/document-core/app/useEditText";
-import { useMirroredEditText } from "@rightkit/document-core/documents/useMirroredEditText";
-import { useSplitResize } from "@rightkit/document-core/documents/useSplitResize";
+import { useEditText } from "../../app/useEditText.js";
+import { useMirroredEditText } from "../useMirroredEditText.js";
+import { useSplitResize } from "../useSplitResize.js";
 import type { SearchProvider } from "@rightkit/document-core/documents/types";
 import { MarkdownSourceDrawer, useMarkdownSourceDrawer } from "../markdown/MarkdownSplitPane.js";
 import { MdxPreviewFrame } from "@rightkit/markdown-editor/documents/mdx/MdxPreviewFrame";

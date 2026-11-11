@@ -1,22 +1,22 @@
-// Frame-source construction for documents served from the `viewright-preview` custom protocol
-// (the shell's preview store, configured in src-tauri/src/preview_protocol.rs). The protocol is
+// Frame-source construction for documents served from the host's `<host id>-preview` custom
+// protocol (the shell's preview store). The protocol is
 // registered by the Rust side; this file talks to the shell's register/revoke commands and takes the
 // iframe `src` from the URL the host builds. Content is keyed by an unguessable token, never by
 // file path.
 
 import { PREVIEW_COMMANDS, type PreviewHandle } from "@rightkit/tauri-shell";
+import { hostScheme } from "../../host.js";
 
 export type PreviewKind = "mdx" | "interactive";
 
-export const PREVIEW_SCHEME = "viewright-preview";
+/** The host's preview scheme, `<host id>-preview` (`hostScheme`). */
+export const previewScheme = (): string => hostScheme("preview");
 
-/** The origin a registered token is served from: `viewright-preview://localhost/<token>` on
- *  macOS/Linux, `http://viewright-preview.localhost/<token>` on Windows/WebView2. */
+/** The origin a registered token is served from: `<scheme>://localhost/<token>` on
+ *  macOS/Linux, `http://<scheme>.localhost/<token>` on Windows/WebView2. */
 function isPreviewUrl(url: string, token: string): boolean {
-  return (
-    url === `${PREVIEW_SCHEME}://localhost/${token}` ||
-    url === `http://${PREVIEW_SCHEME}.localhost/${token}`
-  );
+  const scheme = previewScheme();
+  return url === `${scheme}://localhost/${token}` || url === `http://${scheme}.localhost/${token}`;
 }
 
 export { isTauri as inTauriWebview } from "@rightkit/platform-ui";

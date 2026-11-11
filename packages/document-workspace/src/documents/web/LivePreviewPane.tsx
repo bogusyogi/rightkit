@@ -7,6 +7,7 @@ import { viewportWidthPx, type Viewport } from "@rightkit/document-core/document
 import { PreviewChrome } from "@rightkit/document-core/documents/PreviewChrome";
 import { acquireResource } from "@rightkit/document-core/app/resourceCensus";
 import { hostAppName } from "../../appName.js";
+import { documentEvent } from "@rightkit/document-core/host";
 
 interface Props {
   doc: LoadedDocument;
@@ -43,12 +44,12 @@ function LiveUrlPreview({ web, documentPath }: { web: WebDocument; documentPath:
     return release;
   }, [blockedOwnOrigin, documentPath]);
 
-  // Ctrl+R / F5 (dispatched from the global shortcut handler as "viewright:web-reload") remounts the
+  // Ctrl+R / F5 (dispatched from the global shortcut handler as documentEvent("web-reload")) remounts the
   // iframe — same as the chrome reload button — so the URL re-fetches from its server.
   useEffect(() => {
     const onReload = () => setReloadKey((n) => n + 1);
-    window.addEventListener("viewright:web-reload", onReload);
-    return () => window.removeEventListener("viewright:web-reload", onReload);
+    window.addEventListener(documentEvent("web-reload"), onReload);
+    return () => window.removeEventListener(documentEvent("web-reload"), onReload);
   }, []);
   const width = viewportWidthPx(viewport); // null = full-width desktop; otherwise a device frame
 

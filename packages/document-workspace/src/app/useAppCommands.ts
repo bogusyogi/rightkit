@@ -13,6 +13,7 @@ import type { useSettings } from "@rightkit/document-core/settings/settings";
 import type { useViewState } from "./useViewState.js";
 import type { useAppTabChrome } from "./useAppTabChrome.js";
 import type { useAppPaneSearch } from "./useAppPaneSearch.js";
+import { documentEvent } from "@rightkit/document-core/host";
 
 type Docs = ReturnType<typeof useDocuments>;
 type Formats = ReturnType<typeof useFormatApis>;
@@ -148,7 +149,7 @@ export function useAppCommands({
     reopenClosed: docs.reopenLastClosed,
     resetZoom: () => update({ fontSizePx: 16, sourceFontSizePx: 12 }),
     toggleWordWrap: () => update({ wordWrap: !settings.wordWrap }),
-    toggleSidebar: () => window.dispatchEvent(new CustomEvent("viewright:toggle-sidebar")),
+    toggleSidebar: () => window.dispatchEvent(new CustomEvent(documentEvent("toggle-sidebar"))),
     toggleTabOverview: () => setTabOverviewOpen((o) => !o),
     showHelp: () => setHelpOpen(true),
     findOpen,

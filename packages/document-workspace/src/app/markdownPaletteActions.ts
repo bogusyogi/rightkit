@@ -117,7 +117,7 @@ export function buildCopyAsMarkdown(active: LoadedDocument | null): (() => void)
   return () => {
     const convert =
       format === "pdf"
-        ? import("@rightkit/document-core/documents/pdf/pdfToMarkdown").then((m) => m.pdfUrlToMarkdown(assetUrl as string))
+        ? import("../documents/pdf/pdfToMarkdown.js").then((m) => m.pdfUrlToMarkdown(assetUrl as string))
         : (assetUrl
             ? fetch(assetUrl).then((r) => r.arrayBuffer())
             : import("@rightkit/docx-editor/documents/docx/blankDocx").then((m) => m.base64ToBuffer(content)))

@@ -23,6 +23,7 @@ import { logError } from "@rightkit/document-core/state/diagnostics";
 import { toast } from "@rightkit/platform-ui/headless";
 import type { SourceEditorViewState, SourceLinkState, TextEditorProps } from "./sourceEditorTypes.js";
 import { DocBar } from "@rightkit/document-core/app/shell/docBar";
+import { documentEvent } from "@rightkit/document-core/host";
 export type { SourceEditorViewState } from "./sourceEditorTypes.js";
 
 const MarkdownSourceToolbar = lazy(() =>
@@ -110,8 +111,8 @@ export function TextEditor({
           toast("Couldn't open print dialog", "error");
         });
     };
-    window.addEventListener("viewright:print", onPrint);
-    return () => window.removeEventListener("viewright:print", onPrint);
+    window.addEventListener(documentEvent("print"), onPrint);
+    return () => window.removeEventListener(documentEvent("print"), onPrint);
   }, [active, language]);
   const allowNextTabFocusRef = useRef(false);
   const suppressChangeRef = useRef(false);

@@ -5,7 +5,7 @@ DOCX editing pane over @eigenpal/docx-editor with a host-owned toolbar, find, pr
 | Item | Value |
 |---|---|
 | Where it runs | App webview UI (React) |
-| Version | 0.1.0 |
+| Version | 0.1.2 |
 | License | MIT OR Apache-2.0 |
 
 ## Entry points
@@ -40,9 +40,10 @@ file and does not import the editor's stylesheet separately.
 
 ## Product name
 
-User-facing copy reads the product name from `hostAppName()` (default `"App"`). Call
-`setHostAppName("Your App")` (exported from the root and from `appName`) once at startup, before
-rendering.
+User-facing copy reads the product name from `hostAppName()` (default `"App"`). The store is the one
+in `@rightkit/document-core/host`, which this package's `appName` module re-exports: call
+`configureDocumentHost({ appName, id })` (or `setHostAppName("Your App")`) once at startup, before
+rendering, and every document package reads it.
 
 ## Host contract
 

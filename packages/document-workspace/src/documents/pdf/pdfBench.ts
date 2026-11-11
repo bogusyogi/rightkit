@@ -1,8 +1,8 @@
 import { isTauri } from "@rightkit/platform-ui";
 import { invoke } from "@tauri-apps/api/core";
-import { getResourceCensus, type ResourceCensus } from "../../app/resourceCensus.js";
-import { isMac, isWindows } from "../../platform.js";
-import { logEvent } from "../../state/diagnostics.js";
+import { getResourceCensus, type ResourceCensus } from "@rightkit/document-core/app/resourceCensus";
+import { isMac, isWindows } from "@rightkit/document-core/platform";
+import { logEvent } from "@rightkit/document-core/state/diagnostics";
 import {
   autopilotOnComplete,
   autopilotStatus,
@@ -10,6 +10,7 @@ import {
   startAutopilot,
   stopAutopilot,
 } from "./pdfBenchAutopilot.js";
+import { hostId } from "@rightkit/document-core/host";
 
 export type PdfBenchLoadMode = "buffer" | "url-native" | "custom-range";
 
@@ -646,7 +647,7 @@ function installConsoleApi(): void {
         history: loadHistory(),
         active: report,
       };
-      downloadJson(`viewright-pdf-bench-${Date.now()}.json`, payload);
+      downloadJson(`${hostId()}-pdf-bench-${Date.now()}.json`, payload);
       return payload;
     },
     // Unattended matrix (modes x repeats), results written to the diagnostics log.

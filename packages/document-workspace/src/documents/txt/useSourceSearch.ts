@@ -2,7 +2,7 @@ import { useCallback, useRef, type MutableRefObject } from "react";
 import type { EditorView } from "@codemirror/view";
 import { findLiteralMatches, type TextMatch } from "@rightkit/document-core/documents/searchUtils";
 import { setSearchHighlights } from "./sourceExtensions.js";
-import { scrollPosIntoView } from "@rightkit/document-core/documents/txt/cmScroll";
+import { scrollPosIntoView } from "./cmScroll.js";
 
 type SearchOptions = { matchCase: boolean; wholeWord: boolean; regex?: boolean };
 

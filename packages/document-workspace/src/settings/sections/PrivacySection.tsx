@@ -7,7 +7,7 @@ import { DIALOG_SLOTS, cancelAction, dangerAction } from "@rightkit/document-cor
 import { purgeUserPaths } from "@rightkit/document-core/state/tauriBridge";
 import { clearAllDiagnostics, collectDiagnosticsText } from "@rightkit/document-core/state/diagnostics";
 import { useSettings } from "@rightkit/document-core/settings/settings";
-import { onOff } from "@rightkit/document-core/settings/sections/onOff";
+import { onOff } from "./onOff.js";
 import { writeClipboardText } from "@rightkit/document-core/state/tauriBridge";
 import { hostAppName } from "../../appName.js";
 

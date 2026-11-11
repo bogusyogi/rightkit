@@ -22,7 +22,7 @@ import { TextSelection } from "prosemirror-state";
 import { useOptionalBlockDrafts } from "@rightkit/document-core/app/BlockDraftContext";
 import { Dropdown, Group, Item, Sep, TBtn } from "@rightkit/document-core/documents/toolbarPrimitives";
 import { DocumentToolbarShell } from "@rightkit/document-core/documents/DocumentToolbarShell";
-import { MARKDOWN_FORMAT_EVENT } from "@rightkit/document-core/app/shell/nativeMenu";
+import { markdownFormatEvent } from "@rightkit/document-core/app/shell/nativeMenu";
 import { MarkdownSelectionBubble } from "./MarkdownSelectionBubble.js";
 import { insertTableTemplate } from "../markdownTools.js";
 import { ListNumbers } from "@phosphor-icons/react/dist/icons/ListNumbers";
@@ -513,8 +513,9 @@ export function MarkdownWorkspacePanel({
     if (readOnly) return;
     const onFormat = (event: Event) =>
       menuHandlers.current[(event as CustomEvent<string>).detail]?.();
-    window.addEventListener(MARKDOWN_FORMAT_EVENT, onFormat);
-    return () => window.removeEventListener(MARKDOWN_FORMAT_EVENT, onFormat);
+    const formatEvent = markdownFormatEvent();
+    window.addEventListener(formatEvent, onFormat);
+    return () => window.removeEventListener(formatEvent, onFormat);
   }, [readOnly]);
 
   return (

@@ -5,16 +5,16 @@ import {
   mergeSections,
   type SettingsSection,
 } from "@rightkit/settings-ui";
-import { AboutSection } from "./sections/AboutSection.js";
 import { DiagnosticsSection } from "./sections/DiagnosticsSection.js";
-import { EditorSection } from "@rightkit/document-core/settings/sections/EditorSection";
-import { FileAssociationsSection } from "@rightkit/document-core/settings/sections/FileAssociationsSection";
+import { EditorSection } from "./sections/EditorSection.js";
+import { FileAssociationsSection } from "./sections/FileAssociationsSection.js";
 import { PrivacySection } from "./sections/PrivacySection.js";
-import { ThemeSection } from "@rightkit/document-core/settings/sections/ThemeSection";
-import { TypographySection } from "@rightkit/document-core/settings/sections/TypographySection";
+import { ThemeSection } from "./sections/ThemeSection.js";
+import { TypographySection } from "./sections/TypographySection.js";
 import { isMac, isWindows } from "@rightkit/document-core/platform";
 import { inTauri } from "@rightkit/document-core/state/tauriBridge";
 import { hostAppName } from "../appName.js";
+import { workspaceConfig } from "../config.js";
 
 const SETTINGS_MODAL_SLOTS = {
   overlay: "z-[60] bg-black/50 p-4 transition-opacity duration-[80ms] ease-out",
@@ -92,18 +92,24 @@ function Body({ subtitle, children }: { subtitle?: string; children: ReactNode }
   );
 }
 
-function viewRightSections(onHistoryPurged?: () => void): SettingsSection[] {
+/** The workspace's own sections, plus the host's About page when it supplies one. */
+function workspaceSections(onHistoryPurged?: () => void): SettingsSection[] {
   const showFileAssociations = (isMac() || isWindows()) && inTauri();
+  const about = workspaceConfig().settings?.about;
   return [
-    {
-      id: "about",
-      label: "About",
-      group: "App",
-      order: 100,
-      icon: ICONS.about,
-      hideSectionHeading: true,
-      render: () => <AboutSection />,
-    },
+    ...(about
+      ? [
+          {
+            id: "about",
+            label: "About",
+            group: "App",
+            order: 100,
+            icon: ICONS.about,
+            hideSectionHeading: true,
+            render: () => about(),
+          } satisfies SettingsSection,
+        ]
+      : []),
     {
       id: "files",
       label: "File associations",
@@ -191,7 +197,7 @@ export function SettingsPanel({
   onHistoryPurged?: () => void;
 }) {
   const sections = useMemo(
-    () => mergeSections([], viewRightSections(onHistoryPurged)),
+    () => mergeSections(workspaceSections(onHistoryPurged), workspaceConfig().settings?.sections ?? []),
     [onHistoryPurged],
   );
   return (
@@ -207,7 +213,7 @@ export function SettingsPanel({
           className="h-full"
           sections={sections}
           title="Settings"
-          defaultActiveId="about"
+          defaultActiveId={sections[0]?.id}
           hideSearch
           navFooter={
             <button

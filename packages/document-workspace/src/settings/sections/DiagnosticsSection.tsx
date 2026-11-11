@@ -4,10 +4,10 @@ import {
   collectDiagnosticsText,
   getDiagnostics,
 } from "@rightkit/document-core/state/diagnostics";
-import { APP_VERSION } from "../../state/updateLicense.js";
 import { useSettings } from "@rightkit/document-core/settings/settings";
 import { writeClipboardText } from "@rightkit/document-core/state/tauriBridge";
 import { hostAppName } from "../../appName.js";
+import { workspaceConfig } from "../../config.js";
 
 export function DiagnosticsSection() {
   const { settings } = useSettings();
@@ -24,13 +24,15 @@ export function DiagnosticsSection() {
     }
     setTimeout(() => setCopied(""), 1800);
   };
+  const supportEmail = workspaceConfig().supportEmail;
   const emailLog = async () => {
+    if (!supportEmail) return;
     await copyLog();
-    const subject = encodeURIComponent(`${hostAppName()} ${APP_VERSION} diagnostics`);
+    const subject = encodeURIComponent(`${hostAppName()} ${workspaceConfig().appVersion} diagnostics`);
     const body = encodeURIComponent(
       "The diagnostics log has been copied to your clipboard — please paste it below this line, then send.\n\n----\n",
     );
-    window.location.href = `mailto:hello@viewright.cc?subject=${subject}&body=${body}`;
+    window.location.href = `mailto:${supportEmail}?subject=${subject}&body=${body}`;
   };
   const clear = async () => {
     try {
@@ -58,17 +60,18 @@ export function DiagnosticsSection() {
     <div className="space-y-4 text-sm text-muted">
       <p>
         A local log of loads, document timings, and errors — stays on your machine. Use it to report
-        a problem: it never sends on its own; “Email to support” copies the log and opens a
-        prefilled message you send yourself.
+        a problem: it never sends on its own{supportEmail ? "; “Email to support” copies the log and opens a prefilled message you send yourself" : ""}.
       </p>
       <div className="flex flex-wrap gap-2 font-mono text-xs">
-        <button
-          type="button"
-          onClick={emailLog}
-          className="vr-press vr-focus rounded bg-copper/20 px-3 py-1.5 text-copper-hi hover:bg-copper/30"
-        >
-          Email to support
-        </button>
+        {supportEmail && (
+          <button
+            type="button"
+            onClick={emailLog}
+            className="vr-press vr-focus rounded bg-copper/20 px-3 py-1.5 text-copper-hi hover:bg-copper/30"
+          >
+            Email to support
+          </button>
+        )}
         <button
           type="button"
           onClick={copyLog}

@@ -9,9 +9,9 @@ import {
 } from "react";
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import type { ViewMeta } from "../types.js";
+import type { ViewMeta } from "@rightkit/document-core/documents/types";
 import type { OutlineNode, Size } from "./pdfShared.js";
-import { acquireResource } from "../../app/resourceCensus.js";
+import { acquireResource } from "@rightkit/document-core/app/resourceCensus";
 import {
   beginPdfBench,
   getPdfBenchLoadMode,

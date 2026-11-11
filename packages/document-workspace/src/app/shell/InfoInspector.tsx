@@ -12,7 +12,7 @@ import { X } from "@phosphor-icons/react/dist/icons/X";
 import type { LoadedDocument } from "@rightkit/document-core/documents/types";
 import { KIND_LABEL } from "../Toolbar.js";
 import { copyText, isLocalFileDoc } from "../sidebar/SidebarPathUtils.js";
-import { useEditText } from "@rightkit/document-core/app/useEditText";
+import { useEditText } from "../useEditText.js";
 
 // Same formats the DocStatsPill counts — the only surfaces with a live text buffer.
 const COUNT_FORMATS = new Set<LoadedDocument["format"]>(["md", "mdx", "txt", "html", "unknown"]);

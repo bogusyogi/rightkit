@@ -1,5 +1,4 @@
 import { useCallback, useMemo, useRef } from "react";
-import type { LegalGateTheme } from "@rightkit/legal-ui";
 import { Onboarding, type LegalReceiptPort, type LegalStepConfig } from "@rightkit/onboarding";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { isTauri } from "@rightkit/platform-ui";
@@ -19,41 +18,18 @@ import { useReadyShow } from "./useReadyShow.js";
 import { logError, type DiagnosticEvent } from "@rightkit/document-core/state/diagnostics";
 import { getShell } from "@rightkit/document-core/state/tauriBridge";
 import { hostAppName } from "../appName.js";
+import { workspaceConfig } from "../config.js";
 
-// Locked (Adrian, 2026-07-17): the gate is its own fixed 960x560 window, independent of whatever
-// size the user last left the main 1100x750 workspace at. See memory
-// "legal-gate-fixed-960x560-own-window".
-const GATE_WIDTH = 960;
-const GATE_HEIGHT = 560;
-
-const TRUST_LINE =
-  `${hostAppName()} works on the documents already on your disk. Nothing is uploaded to open or edit them.`;
-const AGREEMENT_STATEMENT =
-  `I have read and agree to the ${hostAppName()} License, End User License Agreement, Acceptable Use Policy, and Product Schedule.`;
-
-// Transcribed from .claude/rules/brands.md (Right Suite — App Identities — the host app) LIGHT tokens.
-// The legal gate is locked to light mode for every app regardless of the app's own theme setting.
-const RIGHTKIT_LEGAL_GATE_THEME: LegalGateTheme = {
-  bg: "#F7F3EC",
-  surface: "#FFFDF8",
-  border: "#E2DAD1",
-  text: "#211C18",
-  muted: "#6E665F",
-  accent: "#0C6AA5",
-  accentContrast: "#FFFFFF",
-  fontDisplay: "Tanker, 'Arial Narrow', sans-serif",
-  fontBody: "Geist, 'Hanken Grotesk', sans-serif",
-};
-
-const LEGAL_STEP: LegalStepConfig = {
-  theme: RIGHTKIT_LEGAL_GATE_THEME,
-  appName: hostAppName(),
-  trustLine: TRUST_LINE,
-  documents: LEGAL_GATE_DOCUMENTS,
-  agreementStatement: AGREEMENT_STATEMENT,
-  onQuit: () => void destroyWindow(),
-  wordmarkFontUrl: "/fonts/Tanker-400.woff2",
-};
+function legalStep(): LegalStepConfig | null {
+  const firstRun = workspaceConfig().firstRun;
+  if (!firstRun) return null;
+  return {
+    appName: hostAppName(),
+    documents: LEGAL_GATE_DOCUMENTS,
+    onQuit: () => void destroyWindow(),
+    ...firstRun.legal,
+  };
+}
 
 async function resizeWindow(width: number, height: number): Promise<void> {
   if (!isTauri()) return;
@@ -100,7 +76,9 @@ async function prepareLegalGateWindow(): Promise<void> {
   await tryWindowAction("legal-gate:unmaximize-failed", () => win.do("unmaximize"));
   await tryWindowAction("legal-gate:resizable-failed", () => getCurrentWindow().setResizable(false));
   await tryWindowAction("legal-gate:maximizable-failed", () => getCurrentWindow().setMaximizable(false));
-  await resizeWindow(GATE_WIDTH, GATE_HEIGHT);
+  // The host may give the gate its own fixed size, independent of the workspace window's last size.
+  const size = workspaceConfig().firstRun?.gateWindow;
+  if (size) await resizeWindow(size.width, size.height);
 }
 
 /** Restore normal controls & maximize workspace before the accepted app shell mounts. */
@@ -123,17 +101,18 @@ async function destroyWindow(): Promise<void> {
 }
 
 /**
- * Top-level shell: renders the shared Right Suite legal gate in place of the document workspace
- * until the acceptance receipt in settings is current, then swaps to <App/>. Owns the one call to
- * useReadyShow() for BOTH paths — the gate's own window (960x560, fixed) must reveal itself just
- * like the main app window does, or a real first-run user launching the installer-hidden window
- * sees nothing at all.
+ * Top-level shell: when the host configured a first-run gate (`configureDocumentWorkspace({ firstRun })`),
+ * renders the shared Right Suite legal gate in place of the document workspace until the acceptance
+ * receipt in settings is current, then swaps to <App/>. Owns the one call to useReadyShow() for BOTH
+ * paths — the gate's own window must reveal itself just like the main app window does, or a real
+ * first-run user launching the installer-hidden window sees nothing at all.
  */
 export function AppRoot() {
   const { settings, update, updateAsync } = useSettings();
-  const needsGate = !legalAcceptanceCurrent(settings);
+  const legal = useMemo(legalStep, []);
+  const needsGate = legal !== null && !legalAcceptanceCurrent(settings);
 
-  // Configure native state before reveal. The gate is exact 960x560 and fixed; accepted/current
+  // Configure native state before reveal. The gate is fixed at the host's size; accepted/current
   // workspace launches with normal controls and maximized geometry.
   const beforeShow = useCallback(
     () => (needsGate ? prepareLegalGateWindow() : prepareWorkspaceWindow()),
@@ -163,14 +142,14 @@ export function AppRoot() {
     [],
   );
 
-  if (!needsGate) return <App />;
+  if (!needsGate || !legal) return <App />;
 
   // Onboarding's legal step comes first and wraps the shared LegalGate; with no further steps,
   // accepting the receipt is the whole first run and the settings swap above mounts <App/>.
   return (
     <Onboarding
       settings={onboardingSettings}
-      legal={LEGAL_STEP}
+      legal={legal}
       legalReceipt={legalReceipt}
       requiredVersion={REQUIRED_LEGAL_ACCEPTANCE_VERSION}
       requiredDocumentsHash={LEGAL_MATERIAL_SHA256}

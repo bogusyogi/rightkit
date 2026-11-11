@@ -1,7 +1,7 @@
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { pdfDocumentInit } from "@rightkit/pdf-ui";
-import { mountPrintImage, printHost } from "../../app/printPipelineShared.js";
+import { mountPrintImage, printHost } from "@rightkit/document-core/app/printPipelineShared";
 import { withTimeout } from "./pdfShared.js";
 
 // pdf.js's getDocument() spins up a Web Worker to parse the PDF off the main thread, and if that
@@ -97,7 +97,7 @@ export async function printPdfBytes(bytes: ArrayBuffer | Uint8Array): Promise<bo
 }
 
 /** Print the PDF a viewer pane already has open, WITHOUT re-fetching it. `getData()` hands back the
- *  bytes pdf.js already holds in memory, so this never re-opens the revocable viewright-stream:// URL
+ *  bytes pdf.js already holds in memory, so this never re-opens the revocable <host id>-stream:// URL
  *  that the on-screen viewer is still streaming from. */
 export async function printPdfDocument(doc: PDFDocumentProxy): Promise<boolean> {
   const bytes = await withTimeout(doc.getData(), 15_000, "pdf.js getData timed out");

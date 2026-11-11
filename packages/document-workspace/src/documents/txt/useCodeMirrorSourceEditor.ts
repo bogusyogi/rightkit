@@ -35,6 +35,7 @@ import {
 } from "./sourceExtensions.js";
 import { sourceHighlightStyle } from "./sourceTheme.js";
 import { acquireResource } from "@rightkit/document-core/app/resourceCensus";
+import { documentEvent } from "@rightkit/document-core/host";
 
 interface UseCodeMirrorSourceEditorArgs {
   activeRef: MutableRefObject<boolean>;
@@ -402,8 +403,8 @@ export function useCodeMirrorSourceEditor(args: UseCodeMirrorSourceEditorArgs) {
       if (args.activeRef.current) redo(view);
     };
     if (!args.externalHistory) {
-      window.addEventListener("viewright:undo", onUndo);
-      window.addEventListener("viewright:redo", onRedo);
+      window.addEventListener(documentEvent("undo"), onUndo);
+      window.addEventListener(documentEvent("redo"), onRedo);
     }
     requestAnimationFrame(() => {
       if (args.viewRef.current !== view) return;
@@ -452,8 +453,8 @@ export function useCodeMirrorSourceEditor(args: UseCodeMirrorSourceEditorArgs) {
     return () => {
       unsubscribeCore?.();
       if (!args.externalHistory) {
-        window.removeEventListener("viewright:undo", onUndo);
-        window.removeEventListener("viewright:redo", onRedo);
+        window.removeEventListener(documentEvent("undo"), onUndo);
+        window.removeEventListener(documentEvent("redo"), onRedo);
       }
       view.scrollDOM.removeEventListener("scroll", onSourceScroll);
       const sel = view.state.selection.main;

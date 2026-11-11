@@ -41,6 +41,7 @@ import {
   webKitSelectedWordTarget,
 } from "./htmlViewerUtils.js";
 import { publishHtmlSurface } from "./htmlBridgeScript.js";
+import { hostScheme } from "@rightkit/document-core/host";
 
 function stripSafeResourceHints(html: string): string {
   const doc = new DOMParser().parseFromString(html, "text/html");
@@ -246,7 +247,8 @@ export function HtmlViewer({
       const viewport = `<meta name="viewport" content="width=device-width, initial-scale=1">`;
       // Explicit script-src 'none' is redundant for policy but required to suppress WebKit 218086:
       // Safari otherwise reports every parent-owned event listener on scriptless srcdoc as blocked.
-      const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src viewright-site: data: blob:; media-src viewright-site: data: blob:; style-src 'unsafe-inline' viewright-site:; font-src viewright-site: data:; base-uri viewright-site:; form-action 'none'">`;
+      const site = hostScheme("site");
+      const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src ${site}: data: blob:; media-src ${site}: data: blob:; style-src 'unsafe-inline' ${site}:; font-src ${site}: data:; base-uri ${site}:; form-action 'none'">`;
       // DOMPurify flattens locked custom elements (KEEP_CONTENT), so child indices counted on the
       // sanitized DOM drift from source. Stamp each editable element with its source-equivalent
       // body path on the FIRST hook call, while DOMPurify's parsed tree is still unmutated; Safe

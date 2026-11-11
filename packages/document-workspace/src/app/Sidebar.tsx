@@ -1,6 +1,6 @@
 ﻿// The sidebar shell. Open documents moved to the titlebar tab strip — the sidebar is now a file
 // explorer (Pinned / Recent / Locations). Collapsed shows a thin rail (expand, New, Recent, pinned
-// files, Settings); "viewright:toggle-sidebar" + "vr.sidebar.pinned" still drive it.
+// files, Settings); documentEvent("toggle-sidebar") + "vr.sidebar.pinned" still drive it.
 import {
   memo,
   useEffect,
@@ -14,6 +14,7 @@ import type { FileEntry, PinEntry } from "../state/library.js";
 import { loadExplorerPersisted, saveExplorerPersisted } from "./sidebar/explorer/explorerState.js";
 import { SidebarExpandedPanel } from "./sidebar/SidebarExpandedPanel.js";
 import { SidebarRail } from "./sidebar/SidebarRail.js";
+import { documentEvent } from "@rightkit/document-core/host";
 
 export interface SidebarProps {
   activePath: string | null;
@@ -85,8 +86,8 @@ function SidebarImpl(props: SidebarProps) {
   // Ctrl+E (App dispatches this) toggles the sidebar from anywhere in the app.
   useEffect(() => {
     const toggle = () => setOpen((o) => !o);
-    window.addEventListener("viewright:toggle-sidebar", toggle);
-    return () => window.removeEventListener("viewright:toggle-sidebar", toggle);
+    window.addEventListener(documentEvent("toggle-sidebar"), toggle);
+    return () => window.removeEventListener(documentEvent("toggle-sidebar"), toggle);
   }, []);
 
   useEffect(() => {

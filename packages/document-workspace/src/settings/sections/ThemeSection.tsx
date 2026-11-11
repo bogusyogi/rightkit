@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { resolveAccentColors, resolveTheme, useSettings } from "../settings.js";
+import { resolveAccentColors, resolveTheme, useSettings } from "@rightkit/document-core/settings/settings";
 import {
   ACCENT_PRESETS,
   DEFAULT_DARK,
@@ -7,7 +7,7 @@ import {
   THEMES,
   themeById,
   type AccentPreset,
-} from "../themes.js";
+} from "@rightkit/document-core/settings/themes";
 
 export function ThemeSection() {
   const { settings, update, reset } = useSettings();

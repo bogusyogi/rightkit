@@ -2,7 +2,7 @@
 
 Generated 2026-11-11T17:49Z from RightKit 55b330d.
 
-Packages: 306 (223 crates, 53 npm, 30 Swift). Reviewed for shape: 306 (best 67, gaps 197, wrong 35, missing 7). Not yet reviewed: 0.
+Packages: 306 (223 crates, 53 npm, 30 Swift). Reviewed for shape: 306 (best 67, gaps 199, wrong 33, missing 7). Not yet reviewed: 0.
 
 Cell: review fit · pin state on the app's main · planned lines and the share found in the package. Empty means the app has nothing for the package.
 
@@ -117,8 +117,8 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | Package | Kind | Published | Shape | Basis | heardright | viewright | pulse | coderight | genright | mailright | scraperight | cutright | postright | legion |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `@rightkit/doc-render` | npm | no (0.2.2, registry 0.2.1) | best | ViewRight's Markdown reader pieces behind a written API |  | fits · adopted |  | fits · adopted |  |  | fits · adopted |  |  |  |
-| `@rightkit/document-core` | npm | no (0.1.2, registry 0.1.1) | wrong | Surveyed ViewRight (0.98 similar): bridge, settings, themes, chrome, printing and the whole PDF editor; not in the master plan |  | gaps |  |  |  |  |  |  |  |  |
-| `@rightkit/document-workspace` | npm | no (0.1.2, registry 0.1.1) | wrong | Surveyed ViewRight 0.1.165 src/app, settings, state copied at the same paths (0.97 similar; 0.75 to live 0.1.123) |  | gaps · 31171L 73% |  |  |  |  |  |  |  |  |
+| `@rightkit/document-core` | npm | no (0.1.2, registry 0.1.1) | gaps | shared editor base; ViewRight's single-owner code moved out |  | gaps |  |  |  |  |  |  |  |  |
+| `@rightkit/document-workspace` | npm | no (0.1.2, registry 0.1.1) | gaps | ViewRight's workspace as a host-configured shell |  | gaps · 31171L 73% |  |  |  |  |  |  |  |  |
 | `@rightkit/docx-editor` | npm | yes | gaps | Surveyed ViewRight src/documents/docx, re-pointed from the vendored eigenpal source to published @eigenpal 1.9.0 |  | gaps · 1834L 96% |  |  |  |  |  |  |  |  |
 | `@rightkit/html-editor` | npm | yes | gaps | Surveyed ViewRight src/documents/html (0.99 similar; 0.95 to live) |  | gaps · 15898L 91% |  |  |  |  |  |  |  |  |
 | `@rightkit/markdown-editor` | npm | yes | gaps | Surveyed ViewRight src/documents/markdown and mdx (0.98 similar; 0.90 to live); reader pieces now imported from doc-render |  | gaps · 27905L 94% |  |  |  |  |  |  |  |  |
@@ -387,13 +387,11 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-video-project` | cargo | yes | gaps | CutRight cutright-project moved (project, ingest, render, source, probe, worker, loudness, lock, audio_sync, still) |  |  |  |  |  |  |  | gaps · ahead · 14524L 35% |  |  |
 | `RightKitMedia` | swift | n/a | missing | not in RightKit |  |  |  |  |  |  |  | gaps · 1859L 0% |  |  |
 
-## Wrong shape (32 packages; sub-crates that inherit a family verdict are not repeated)
+## Wrong shape (30 packages; sub-crates that inherit a family verdict are not repeated)
 
 | Package | Why | Reference app |
 |---|---|---|
 | `@rightkit/dictation-ui` | It is one app's whole front end (sidebar, title bar, licence, auto-update, theme, legal, settings registry, pill, pages) with a second app's unrelated voice loop beside it. No app depends on it; HeardRight main keeps the same files, and CodeRight's current tree no longer has the voice files. | heardright |
-| `@rightkit/document-core` | A catch-all created to break an import cycle. Adopting any editor pulls in ViewRight's concrete Tauri bridge (57 command names), settings schema, theme list and PDF editor. | viewright |
-| `@rightkit/document-workspace` | It is the whole ViewRight application: hard-coded legal gate, licence and update settings, format list, and a generated barrel exporting every module. A second app would inherit ViewRight's product decisions. | viewright |
 | `@rightkit/library-ui` | Two apps' screens in two folders with no shared component, literal Tauri command names and one app's theme, licence and title bar. | heardright |
 | `@rightkit/media-gen-ui` | The GenRight application frontend including a 4,003-line browser mock of the engine, legal documents, onboarding/license/app-update wiring and brand data. | genright |
 | `@rightkit/ml-lab` | A private, unbuilt file dump of one product's experiments: no entry points, no dependency manifest, machine paths, dated experiment folders. Not a shared package and not publishable. | heardright |
@@ -444,8 +442,8 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 - `@rightkit/build-control-policy` (gaps): Do not publish; keep private and say so in the matrix; Record that app scripts depend on a host-installed bin, so a fresh machine needs the install step before any app script runs; Version string 0.1.5-phase1: settle a normal version before anything else pins it
 - `@rightkit/dictation-ui` (wrong): Redraw as three units: (a) dictation pill overlay (pill/*, hint catalog) with an event/command interface; (b) dictation pages (Home, Dictation, Vocabulary, Polish, replacements, snippets) over a typed `DictationClient` the host supplies; (c) voice conversation (src/voice) moved to the agent UI family or its own package; Delete the licence, auto-update, theme, legal, sidebar, title-bar and window-control copies; use the owning packages; Storage keys, event names and theme code from host configuration, not `heardright.*` literals; Move history helpers next to the History page in @rightkit/library-ui and drop that package's dependency on this one; Decide what happens to the published 0.1.0 (deprecate once the split packages exist); Then HeardRight deletes its 83 twins; until then this package is a duplicate of HeardRight's src
 - `@rightkit/doc-render` (best): Settle the Mermaid policy with markdown-editor; Publish 0.2.2
-- `@rightkit/document-core` (wrong): Move documents/pdf out; Bridge becomes an interface plus a default Tauri implementation configured with command and scheme names; Move themes, settings sections and file associations to the workspace package or ViewRight; Remove benchmark harness and QA globals; Generate the TS format table from the rightkit-docs file or add a gate check; Add the package to the plan
-- `@rightkit/document-workspace` (wrong): Move legal gate, licence and update sections to the ViewRight shell or props; Take format-to-pane table as a registry argument; Written entry point instead of the generated barrel; One setHostAppName in document-core, no module-level reads; Rename viewright:* events to a neutral prefix across the five packages
+- `@rightkit/document-core` (gaps): replace generated root exports with hand-written ones; owner to confirm the documents redraw; publish 0.2.0
+- `@rightkit/document-workspace` (gaps): rebuild the PDF editor on @rightkit/pdf-ui PdfViewer (pageLayers) and verify against ViewRight; host passes the format-to-pane table instead of importing the editors; migrate the viewright-paper / viewright-night theme ids; one Mermaid sanitizer; decision 7 (DOCX toolbar); owner to confirm the documents redraw; publish 0.2.0
 - `@rightkit/docx-editor` (gaps): Make the host toolbar work on published 1.9.0: external toolbar via DocxEditorRef and selection events, or a dist-level pnpm patch registered in root and apps, or upstream PR then pin; Keep the source patch only as upstream PR text; ViewRight deletes vendor/docx-editor after cutover; Plan the move to the @docx-editor.dev 2.x line
 - `@rightkit/hooks` (best): Resolve or delete the stale P1 note
 - `@rightkit/html-editor` (gaps): Scheme names and CSP sources from host configuration; Event wiring as props; Written entry point

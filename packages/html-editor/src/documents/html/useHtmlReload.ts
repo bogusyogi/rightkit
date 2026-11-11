@@ -8,6 +8,7 @@ import {
 } from "react";
 import { sourceChecksum } from "./sourceMap.js";
 import { incIframeLoads, incPreviewGenerations } from "@rightkit/document-core/documents/perfEventCounters";
+import { documentEvent } from "@rightkit/document-core/host";
 
 interface HtmlReloadDeps {
   /** Inactive keep-alive panes stay mounted but must not own global shortcut events. */
@@ -46,7 +47,7 @@ export function useHtmlReload({
 
   // Browser-style refresh: re-read the CURRENT page from disk (prompts if it has unsaved edits) AND
   // force a preview rebuild so scripts re-run even when the bytes are unchanged. Used by the Reload
-  // button and by Ctrl+R / F5 (dispatched from the global shortcut handler as "viewright:html-reload").
+  // button and by Ctrl+R / F5 (dispatched from the global shortcut handler as documentEvent("html-reload")).
   // biome-ignore lint/correctness/useExhaustiveDependencies: refs/setters arrive as stable hook params
   const doReload = useCallback(() => {
     reloadPendingRef.current = true;
@@ -66,8 +67,8 @@ export function useHtmlReload({
 
   useEffect(() => {
     if (!active) return;
-    window.addEventListener("viewright:html-reload", doReload);
-    return () => window.removeEventListener("viewright:html-reload", doReload);
+    window.addEventListener(documentEvent("html-reload"), doReload);
+    return () => window.removeEventListener(documentEvent("html-reload"), doReload);
   }, [active, doReload]);
 
   // When a reload's disk re-read lands (the active buffer changes to the new on-disk content), snapshot

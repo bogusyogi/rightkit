@@ -1,10 +1,15 @@
 import { useCallback } from "react";
 import type { LoadedDocument } from "@rightkit/document-core/documents/types";
 import { editImageExternal, printCurrentWebview } from "@rightkit/document-core/state/tauriBridge";
-import { printPdf } from "@rightkit/document-core/app/documentPrinting";
 import { errorMessage } from "@rightkit/document-core/state/errors";
 import { toast } from "@rightkit/platform-ui/headless";
 import { logError, logEvent } from "@rightkit/document-core/state/diagnostics";
+import { documentEvent } from "@rightkit/document-core/host";
+
+/** Lazy PDF print path: the pdf.js rasterizer stays out of the shell's entry chunk and resolves the
+ *  same module the on-screen PDF viewer already loaded (see documents/pdf/pdfPrinting.ts). */
+const printPdf = (assetUrl: string): Promise<boolean> =>
+  import("../documents/pdf/pdfPrinting.js").then((m) => m.printPdf(assetUrl));
 
 /** External-edit and print entry points (no shared document state beyond the error setter). */
 export function useDocumentOutputActions(setError: (message: string | null) => void) {
@@ -34,7 +39,7 @@ export function useDocumentOutputActions(setError: (message: string | null) => v
         });
       return;
     }
-    if (!window.dispatchEvent(new Event("viewright:print", { cancelable: true }))) return;
+    if (!window.dispatchEvent(new Event(documentEvent("print"), { cancelable: true }))) return;
     // Frame previews claim print above; native documents use the window-level print command.
     logEvent("print:requested");
     void printCurrentWebview().then((printed) => {

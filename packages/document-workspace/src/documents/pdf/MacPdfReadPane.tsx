@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { logError } from "../../state/diagnostics.js";
-import { PdfPasswordPrompt } from "./PdfPasswordPrompt.js";
+import { logError } from "@rightkit/document-core/state/diagnostics";
+import { PdfPasswordPrompt } from "@rightkit/pdf-ui";
 import { PdfToolbar } from "./PdfToolbar.js";
 import { ZOOM_MAX, ZOOM_MIN } from "./pdfShared.js";
-import type { SearchOptions, SearchProvider, ViewMeta } from "../types.js";
+import type { SearchOptions, SearchProvider, ViewMeta } from "@rightkit/document-core/documents/types";
 import {
   listenNativePdfKey,
   listenNativePdfState,
@@ -20,6 +20,7 @@ import {
   type NativePdfOutlineNode,
   type NativePdfState,
 } from "./macPdfNativeBridge.js";
+import { hostId } from "@rightkit/document-core/host";
 export type { NativePdfEditingAction } from "./macPdfNativeBridge.js";
 
 export interface MacPdfReadPaneProps {
@@ -44,7 +45,7 @@ let ownerSequence = 0;
 
 function nextOwner(): string {
   ownerSequence += 1;
-  return `viewright-native-pdf-${ownerSequence}`;
+  return `${hostId()}-native-pdf-${ownerSequence}`;
 }
 
 function asError(error: unknown): Error {

@@ -1,11 +1,12 @@
 // macOS native menu bridge. The document's File/View/Format/Insert commands live in the system
 // menu bar on Mac instead of in-window menus. Rust builds the menu once (every item disabled);
 // this hook tells it which `vr-cmd:` items apply to the active document (and which are checked),
-// and runs the matching command when the menu fires `viewright:menu-command`.
+// and runs the matching command when the menu fires `<host id>:menu-command` (`documentEvent`).
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef } from "react";
 import { isMac } from "../../platform.js";
 import { inTauri } from "../../state/tauriBridge.js";
+import { documentEvent } from "../../host.js";
 
 export interface NativeMenuCommand {
   id: string;
@@ -13,12 +14,13 @@ export interface NativeMenuCommand {
   checked?: boolean;
 }
 
-export const MENU_COMMAND_EVENT = "viewright:menu-command";
+/** Window event the native menu fires with the command id: `<host id>:menu-command`. */
+export const menuCommandEvent = (): string => documentEvent("menu-command");
 
 /** Menu-bar formatting commands for the active Markdown editor (event detail = command id).
  *  Lives here (not in documents/markdown/) because the dispatcher is format-agnostic app chrome —
  *  keeping it in the markdown tree would pull a markdown module into every format's closure. */
-export const MARKDOWN_FORMAT_EVENT = "viewright:markdown-format";
+export const markdownFormatEvent = (): string => documentEvent("markdown-format");
 
 export function nativeMenuActive(): boolean {
   return isMac() && inTauri();
@@ -34,8 +36,9 @@ export function useNativeDocumentMenu(commands: NativeMenuCommand[] | null): voi
       const id = (event as CustomEvent<string>).detail;
       latest.current?.find((command) => command.id === id)?.run();
     };
-    window.addEventListener(MENU_COMMAND_EVENT, onCommand);
-    return () => window.removeEventListener(MENU_COMMAND_EVENT, onCommand);
+    const name = menuCommandEvent();
+    window.addEventListener(name, onCommand);
+    return () => window.removeEventListener(name, onCommand);
   }, [commands]);
 
   const enabled = commands?.map((command) => command.id) ?? [];

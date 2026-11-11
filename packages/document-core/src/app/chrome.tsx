@@ -11,7 +11,7 @@ function looksLikeLocalPath(input: string) {
   );
 }
 import { ActionDialog, Button, IconButton, Input, type DialogAction } from "@rightkit/react-shell/react";
-import { hostAppName } from "../appName.js";
+import { hostAppName } from "../host.js";
 
 // Presentational shell chrome for App: confirmation dialogs and the Open-URL dialog. Pure leaf
 // components — no app state, no file semantics. Extracted from App.tsx so the shell composition

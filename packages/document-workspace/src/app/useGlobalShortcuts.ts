@@ -4,6 +4,7 @@ import type { ShortcutDef } from "@rightkit/react-shell";
 import { capabilitiesFor } from "../documents/capabilities.js";
 import type { LoadedDocument, SearchProvider } from "@rightkit/document-core/documents/types";
 import type { DocxMenuApi } from "@rightkit/docx-editor/documents/docx/menuApi";
+import { documentEvent } from "@rightkit/document-core/host";
 
 interface Options {
   active: LoadedDocument | null;
@@ -129,8 +130,8 @@ export function useGlobalShortcuts({
     const reloadActiveDoc = () => {
       const { active, reloadActiveFromDisk } = latestRef.current;
       if (!active) return;
-      if (active.format === "html") window.dispatchEvent(new Event("viewright:html-reload"));
-      else if (active.format === "web") window.dispatchEvent(new Event("viewright:web-reload"));
+      if (active.format === "html") window.dispatchEvent(new Event(documentEvent("html-reload")));
+      else if (active.format === "web") window.dispatchEvent(new Event(documentEvent("web-reload")));
       else reloadActiveFromDisk(active);
     };
     bind({
@@ -160,7 +161,7 @@ export function useGlobalShortcuts({
     // If the bar is open, let it own the step; otherwise open it.
     const findStep = (dir: 1 | -1) => {
       const { findOpen, canOpenFind, searchProvider, openFind } = latestRef.current;
-      if (findOpen) window.dispatchEvent(new CustomEvent("viewright:find-step", { detail: { dir } }));
+      if (findOpen) window.dispatchEvent(new CustomEvent(documentEvent("find-step"), { detail: { dir } }));
       else if (canOpenFind ?? !!searchProvider) openFind(false);
     };
     bind({
@@ -409,20 +410,20 @@ export function useGlobalShortcuts({
     // these events instead ("Select Next/Previous Tab").
     const nextTab = () => latestRef.current.cycleTab(1);
     const prevTab = () => latestRef.current.cycleTab(-1);
-    window.addEventListener("viewright:next-tab", nextTab);
-    window.addEventListener("viewright:prev-tab", prevTab);
+    window.addEventListener(documentEvent("next-tab"), nextTab);
+    window.addEventListener(documentEvent("prev-tab"), prevTab);
     // The crash screen's "Close tab" action (ErrorBoundary) asks the shell to close a tab through
     // the same unsaved-guarded path as Ctrl+W.
     const closeTab = (e: Event) => {
       const path = (e as CustomEvent<{ path?: string }>).detail?.path;
       if (path) latestRef.current.requestClose(path);
     };
-    window.addEventListener("viewright:close-tab", closeTab);
+    window.addEventListener(documentEvent("close-tab"), closeTab);
     return () => {
-      window.removeEventListener("viewright:close-tab", closeTab);
+      window.removeEventListener(documentEvent("close-tab"), closeTab);
       detachKeys();
-      window.removeEventListener("viewright:next-tab", nextTab);
-      window.removeEventListener("viewright:prev-tab", prevTab);
+      window.removeEventListener(documentEvent("next-tab"), nextTab);
+      window.removeEventListener(documentEvent("prev-tab"), prevTab);
     };
   }, []);
 }

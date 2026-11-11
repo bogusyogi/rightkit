@@ -31,6 +31,7 @@ import { toast } from "@rightkit/platform-ui/headless";
 import { printHtmlMarkup } from "@rightkit/document-core/app/documentPrinting";
 import { acquireResource } from "@rightkit/document-core/app/resourceCensus";
 import { usePreviewFrameSrc } from "@rightkit/document-core/documents/preview/usePreviewFrameSrc";
+import { documentEvent } from "@rightkit/document-core/host";
 
 interface Props {
   source: string;
@@ -174,8 +175,8 @@ export function MdxPreviewFrame({
       // viewport, not the full document (the isMdxPrintContent branch above handles the reply).
       postMdxPrint(iframeRef.current, sessionId);
     };
-    window.addEventListener("viewright:print", onPrint);
-    return () => window.removeEventListener("viewright:print", onPrint);
+    window.addEventListener(documentEvent("print"), onPrint);
+    return () => window.removeEventListener(documentEvent("print"), onPrint);
   }, [active, printPreview, sessionId]);
 
   // ── Compile: debounce source → call mdxCompiler → post the function-body to the iframe.
@@ -248,7 +249,7 @@ export function MdxPreviewFrame({
       }
       if (isMdxFindOpen(data, sessionId)) {
         // Reuse the same App-level Ctrl+F handler; the FindBar opens against the active tab.
-        window.dispatchEvent(new CustomEvent("viewright:open-find"));
+        window.dispatchEvent(new CustomEvent(documentEvent("open-find")));
         return;
       }
       if (isMdxRuntimeError(data, sessionId)) {
@@ -416,7 +417,7 @@ async function handleHref(
     const normalized = normalizeLivePreviewUrl(href);
     if (normalized) {
       window.dispatchEvent(
-        new CustomEvent("viewright:open-url-tab", {
+        new CustomEvent(documentEvent("open-url-tab"), {
           detail: newTab ? { url: normalized, background: true } : normalized,
         }),
       );

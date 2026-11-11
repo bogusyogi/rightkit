@@ -1226,48 +1226,30 @@
         "./app/documentPrinting",
         "./app/dropCoordination",
         "./app/nativePrintPreview",
+        "./app/printPipelineShared",
         "./app/resourceCensus",
         "./app/shell/docBar",
         "./app/shell/nativeMenu",
-        "./app/shortcutChords",
-        "./app/useCloseFindOnSurfaceChange",
-        "./app/useEditText",
         "./documents/BackToTopButton",
         "./documents/DocumentToolbarFind",
         "./documents/DocumentToolbarShell",
-        "./documents/FullscreenIcon",
         "./documents/PreviewChrome",
         "./documents/PreviewMessage",
         "./documents/base64",
-        "./documents/mdx/mdxRuntimeScript",
-        "./documents/pdf/NativePdfDocument",
-        "./documents/pdf/PdfViewer",
-        "./documents/pdf/macPdfNativeBridge",
-        "./documents/pdf/pdfEditModel",
-        "./documents/pdf/pdfEditor",
-        "./documents/pdf/pdfToMarkdown",
+        "./documents/documentFormats",
         "./documents/perfEventCounters",
         "./documents/preview/usePreviewFrameSrc",
         "./documents/previewViewport",
-        "./documents/scopedSelectAll",
         "./documents/searchUtils",
         "./documents/splitResizeMath",
         "./documents/toolbarPrimitives",
-        "./documents/txt/cmScroll",
         "./documents/types",
-        "./documents/useMirroredEditText",
         "./documents/usePreviewFind",
-        "./documents/useSplitResize",
         "./documents/web/webUrl",
+        "./host",
         "./package.json",
         "./platform",
         "./settings/fonts",
-        "./settings/rk-settings.css",
-        "./settings/sections/EditorSection",
-        "./settings/sections/FileAssociationsSection",
-        "./settings/sections/ThemeSection",
-        "./settings/sections/TypographySection",
-        "./settings/sections/onOff",
         "./settings/settings",
         "./settings/themes",
         "./state/bridgeEvents",
@@ -1292,15 +1274,13 @@
           "@rightkit/theme": "0.3.1"
         },
         "declaredOnly": [
-          "@codemirror/view",
           "@phosphor-icons/react",
-          "@tauri-apps/api",
-          "pdfjs-dist"
+          "@tauri-apps/api"
         ]
       },
       "files": {
-        "ci/consumers/npm/document-core/README.md": "03b09c349079000a76b25b9381408fa2f552bc512583ae6900e76f9a7930ea74",
-        "ci/consumers/npm/document-core/consumer.mjs": "0f6a3e75d1d6002168318fadd321251698fcdfa7a2ec94eb547871570fe93472",
+        "ci/consumers/npm/document-core/README.md": "6e23188764ce293c963d575a0f8c7686c0305d6f92c192315692b2a69268c414",
+        "ci/consumers/npm/document-core/consumer.mjs": "6279c3131b53288d222fae76f1c296a7bcbd682f1f4845039e59d7f98c1cb264",
         "ci/consumers/npm/document-core/package.json": "d8e58958e093df57afaa83c9464511bd26f9734ea1bdd77a67e031a400bbb4cf",
         "ci/consumers/npm/document-core/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
@@ -1347,16 +1327,17 @@
           "@rightkit/docx-editor",
           "@rightkit/html-editor",
           "@rightkit/markdown-editor",
+          "@rightkit/pdf-ui",
           "@tauri-apps/api",
-          "@tauri-apps/plugin-process",
+          "pdfjs-dist",
           "prosemirror-state",
           "prosemirror-view",
           "tailwindcss"
         ]
       },
       "files": {
-        "ci/consumers/npm/document-workspace/README.md": "73e6357bf6bd69fe4d97c2c4048d0581583192fb956ffc6d46779e639700d0db",
-        "ci/consumers/npm/document-workspace/consumer.mjs": "376ee9ec1737b6a2c78858d06c50e5e32ba90fed304b36e4b4de08c177a84b06",
+        "ci/consumers/npm/document-workspace/README.md": "bab715aaafe229da26e375331ab135d35e3ec88a064c5dd3361491dac9b0f53c",
+        "ci/consumers/npm/document-workspace/consumer.mjs": "fd7898324ea9304de7c215e14bee1152238969f67d48cabc343d9ec8016c9927",
         "ci/consumers/npm/document-workspace/package.json": "1af58ff9e54e84de62f0ceba2db4bc3ed7a4ee871b93dc276b5225ca85ece12a",
         "ci/consumers/npm/document-workspace/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
@@ -1452,12 +1433,12 @@
           "react": "19.3.1",
           "react-dom": "19.3.1",
           "@rightkit/platform-ui": "0.4.0",
-          "@rightkit/react-shell": "0.7.2",
-          "@rightkit/document-core": "0.1.0"
+          "@rightkit/react-shell": "0.7.2"
         },
         "declaredOnly": [
           "@codemirror/view",
           "@phosphor-icons/react",
+          "@rightkit/document-core",
           "dompurify",
           "parse5",
           "prosemirror-commands",
@@ -1469,7 +1450,7 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/html-editor/README.md": "81c00bf6ec38282b7f514f37177bfaf54ad05564340e7e717c3a6322b3ed29a6",
+        "ci/consumers/npm/html-editor/README.md": "60ef2f914f9783fde63a3b199c952152e239d8bf923fa7a8f6d193fc360312b4",
         "ci/consumers/npm/html-editor/consumer.mjs": "ccb3194a9aecc8d14d6fff6b74dac9a9a3fb4c89e6ce8e4c84acdff1a91716ef",
         "ci/consumers/npm/html-editor/package.json": "047bcbc2d5ff9160e46b7c237092925bcc8d625c6321cc8696d91dec8f1d2837",
         "ci/consumers/npm/html-editor/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
@@ -1618,8 +1599,7 @@
           "react-dom": "19.3.1",
           "@rightkit/doc-render": "0.2.1",
           "@rightkit/platform-ui": "0.4.0",
-          "@rightkit/react-shell": "0.7.2",
-          "@rightkit/document-core": "0.1.0"
+          "@rightkit/react-shell": "0.7.2"
         },
         "declaredOnly": [
           "@codemirror/lint",
@@ -1627,6 +1607,7 @@
           "@codemirror/view",
           "@mdx-js/mdx",
           "@phosphor-icons/react",
+          "@rightkit/document-core",
           "@tauri-apps/api",
           "dompurify",
           "github-slugger",
@@ -1648,8 +1629,8 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/markdown-editor/README.md": "423fdd32ae1f42f2ac5b7a1278cd8698ba4726101538e0c3625b759feec9be78",
-        "ci/consumers/npm/markdown-editor/consumer.mjs": "b142bf1e17e5d5b15e800e7f172a5224e1d7f7d3904fc0dd3e9af59a642f6543",
+        "ci/consumers/npm/markdown-editor/README.md": "bfab02e469caffd29629f41c1521f8cdb17701f28c9ae1b403764b12661c2b1c",
+        "ci/consumers/npm/markdown-editor/consumer.mjs": "029b00e70bab59b317d261ae8eb740329da655eb3a9d2d5b7db5d4d19e91083f",
         "ci/consumers/npm/markdown-editor/package.json": "574d72ca53ec89c5132a25bd9bf718e4ea4c75511e32064b8959d369e293d54e",
         "ci/consumers/npm/markdown-editor/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"

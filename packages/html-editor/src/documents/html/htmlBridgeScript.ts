@@ -27,7 +27,7 @@ import {
   INTERACTIVE_HTML_EDIT_REFUSED,
 } from "./htmlInteractiveProtocol.js";
 
-export const HTML_SURFACE_MESSAGE = "viewright:interactive-html-surface";
+export const HTML_SURFACE_MESSAGE = "rk-document:interactive-html-surface";
 
 function surfaceTokens(value: string): [string, string] | null {
   if (!value.startsWith("rgb")) return null;

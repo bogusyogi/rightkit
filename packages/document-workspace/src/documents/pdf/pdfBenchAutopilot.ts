@@ -17,7 +17,7 @@
  * Delete this file together with the rest of the benchmark harness once the study is decided.
  */
 
-import { logEvent } from "../../state/diagnostics.js";
+import { logEvent } from "@rightkit/document-core/state/diagnostics";
 import type { PdfBenchLoadMode } from "./pdfBench.js";
 
 const PLAN_KEY = "vr.pdf.bench.autopilot.v1";

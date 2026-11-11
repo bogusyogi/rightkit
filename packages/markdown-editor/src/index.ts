@@ -127,5 +127,7 @@ export * from "./documents/mdx/mdxBridgeScript.js";
 export * from "./documents/mdx/mdxCompiler.js";
 export * from "./documents/mdx/mdxProtocol.js";
 export * from "./documents/mdx/mdxResolver.js";
+export * from "./documents/mdx/mdxRuntimeScript.js";
 export * from "./documents/mdx/mdxTheme.js";
 export * from "./documents/mdx/useMdxPreviewFind.js";
+export * from "./documents/scopedSelectAll.js";

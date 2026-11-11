@@ -31,6 +31,7 @@ import { useTabDirty } from "./useTabDirty.js";
 import { DocumentMenu } from "../sidebar/SidebarDocumentMenu.js";
 import { TabFuseCurves } from "./TabFuseCurves.js";
 import { TabOverview } from "./TabOverview.js";
+import { documentEvent } from "@rightkit/document-core/host";
 
 /**
  * Everything the strip needs, supplied by the shell (App builds this once so the
@@ -41,7 +42,7 @@ export interface TabStripProps {
   docs: LoadedDocument[];
   activePath: string | null;
   sidebarCollapsed: boolean;
-  /** Dispatches "viewright:toggle-sidebar" (the sidebar owns the actual state). */
+  /** Dispatches documentEvent("toggle-sidebar") (the sidebar owns the actual state). */
   onToggleSidebar: () => void;
   onActivate: (path: string) => void;
   /** Goes through the existing dirty-confirm flow (requestClose). */

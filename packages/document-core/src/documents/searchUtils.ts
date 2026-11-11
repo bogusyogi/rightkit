@@ -23,7 +23,7 @@ export interface TextMatch {
   end: number;
 }
 
-const SEARCH_HIGHLIGHT_STYLE_ID = "viewright-search-highlight-styles";
+const SEARCH_HIGHLIGHT_STYLE_ID = "rk-document-search-highlight-styles";
 type HighlightValue = object;
 type HighlightCtor = new (...ranges: Range[]) => HighlightValue;
 type HighlightRegistryWindow = Window & {

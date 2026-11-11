@@ -104,7 +104,7 @@ export async function renderPageToPng(
   }
 }
 
-export { ocrPage, ocrAvailable, ocrBackendMissing } from "../../state/tauriBridge.js";
+export { ocrPage, ocrAvailable, ocrBackendMissing } from "./pdfBridge.js";
 
 export function isBackendUnavailable(message: string): boolean {
   return (

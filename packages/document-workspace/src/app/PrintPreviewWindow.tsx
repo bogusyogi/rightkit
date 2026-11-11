@@ -3,9 +3,10 @@ import { createRoot } from "react-dom/client";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { printCurrentWebview } from "@rightkit/document-core/state/tauriBridge";
 import { takePrintPreviewPayload } from "@rightkit/document-core/app/nativePrintPreview";
+import { hostScheme } from "@rightkit/document-core/host";
 
 export function isPrintPreviewWindow(): boolean {
-  return new URLSearchParams(window.location.search).has("viewright-print-preview");
+  return new URLSearchParams(window.location.search).has(hostScheme("print-preview"));
 }
 
 function PrintPreviewWindow() {

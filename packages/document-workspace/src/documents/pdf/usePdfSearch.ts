@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import type { SearchOptions, SearchProvider, SearchResult } from "../types.js";
-import { findLiteralMatches } from "../searchUtils.js";
+import type { SearchOptions, SearchProvider, SearchResult } from "@rightkit/document-core/documents/types";
+import { findLiteralMatches } from "@rightkit/document-core/documents/searchUtils";
 import { MARK_ACTIVE_BG, MARK_BG, highlightSpan, type Match } from "./pdfShared.js";
 
 const NO_RESULT: SearchResult = { count: 0, activeIndex: -1 };

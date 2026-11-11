@@ -23,6 +23,7 @@ import { shortcutLabel } from "@rightkit/document-core/platform";
 import type { MarkdownIndexedFile } from "./references/folderIndex.js";
 import { defaultWikiLinkDisplay, resolveWikiLink } from "./wikiLinkResolver.js";
 import { MarkdownRenderTrackerContext } from "./export/MarkdownRenderTracker.js";
+import { documentEvent } from "@rightkit/document-core/host";
 
 export const MarkdownLinkContext = createContext<{
   documentPath?: string;
@@ -192,7 +193,7 @@ const RenderNode = memo(function RenderNode({ node }: { node: RootContent }): Re
                     const normalized = normalizeLivePreviewUrl(url);
                     if (normalized) {
                       window.dispatchEvent(
-                        new CustomEvent("viewright:open-url-tab", { detail: normalized }),
+                        new CustomEvent(documentEvent("open-url-tab"), { detail: normalized }),
                       );
                     } else {
                       void openExternal(url);
@@ -445,7 +446,7 @@ function WikiLinkNode({ node }: { node: WikiLinkMdastNode }) {
         }
         const normalized = normalizeLivePreviewUrl(target);
         if (normalized) {
-          window.dispatchEvent(new CustomEvent("viewright:open-url-tab", { detail: normalized }));
+          window.dispatchEvent(new CustomEvent(documentEvent("open-url-tab"), { detail: normalized }));
         } else if (target) {
           void openExternal(target);
         }

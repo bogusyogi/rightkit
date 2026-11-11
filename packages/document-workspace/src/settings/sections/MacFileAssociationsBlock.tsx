@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import { documentFormatEntries } from "../../documents/documentFormats.js";
+import { documentFormatEntries } from "@rightkit/document-core/documents/documentFormats";
 import {
   fileAssociationStatus,
   inTauri,
   openFileAssociationSettings,
   setFileAssociationDefaults,
-} from "../../state/tauriBridge.js";
+} from "@rightkit/document-core/state/tauriBridge";
 import type {
   FileAssociationFormatStatus,
   FileAssociationStatus,
   MarkdownUtiHandlerStatus,
-} from "../../state/tauriBridge.js";
-import { isMac, isWindows } from "../../platform.js";
+} from "@rightkit/document-core/state/tauriBridge";
+import { isMac, isWindows } from "@rightkit/document-core/platform";
 import { hostAppName } from "../../appName.js";
 
 export const SUPPORTED_ASSOCIATION_FORMATS = [

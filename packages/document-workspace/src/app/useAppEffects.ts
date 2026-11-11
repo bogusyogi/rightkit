@@ -5,6 +5,7 @@ import { getPersistenceStatus } from "@rightkit/document-core/state/tauriBridge"
 import { scheduleAfterPaint } from "@rightkit/document-core/app/deferredMount";
 import { syncActiveFormatSavers } from "./activeFormatSavers.js";
 import { hostAppName } from "../appName.js";
+import { documentEvent } from "@rightkit/document-core/host";
 
 type SyncArgs = Parameters<typeof syncActiveFormatSavers>;
 
@@ -72,7 +73,7 @@ export function useAppEffects({
   }, [activePath, docxSaver, docxSaversRef, imageSaver, imageSaversRef]);
   // macOS app menu: the host app › Settings… (⌘,) fires this from the native menu bridge.
   useEffect(() => {
-    window.addEventListener("viewright:open-settings", openSettings);
-    return () => window.removeEventListener("viewright:open-settings", openSettings);
+    window.addEventListener(documentEvent("open-settings"), openSettings);
+    return () => window.removeEventListener(documentEvent("open-settings"), openSettings);
   }, [openSettings]);
 }

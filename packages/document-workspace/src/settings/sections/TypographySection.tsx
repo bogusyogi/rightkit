@@ -1,7 +1,7 @@
 import { SegmentedControl } from "@rightkit/react-shell/react";
 import { SettingsGroup } from "@rightkit/settings-ui";
-import { FONT_SIZES } from "../fonts.js";
-import { useSettings } from "../settings.js";
+import { FONT_SIZES } from "@rightkit/document-core/settings/fonts";
+import { useSettings } from "@rightkit/document-core/settings/settings";
 
 
 export function TypographySection() {

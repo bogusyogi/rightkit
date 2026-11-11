@@ -1307,10 +1307,10 @@
      "packages/document-core"
     ],
     "feeds": {},
-    "basis": "Surveyed ViewRight (0.98 similar): bridge, settings, themes, chrome, printing and the whole PDF editor; not in the master plan",
+    "basis": "shared editor base; ViewRight's single-owner code moved out",
     "referenceApp": "viewright",
-    "shape": "wrong",
-    "shapeReason": "A catch-all created to break an import cycle. Adopting any editor pulls in ViewRight's concrete Tauri bridge (57 command names), settings schema, theme list and PDF editor.",
+    "shape": "gaps",
+    "shapeReason": "Reduced to the shared editor base the three editors and the workspace import (types, bridge, drafts, diagnostics, settings store, toolbar and find helpers) plus one host name store (configureDocumentHost). Single-owner code moved to its owner (0.2.0, branch).",
     "apps": {
      "viewright": {
       "fit": "gaps",
@@ -1326,12 +1326,9 @@
      "window.__viewrightQaPerf installed by perfEventCounters.ts"
     ],
     "actions": [
-     "Move documents/pdf out",
-     "Bridge becomes an interface plus a default Tauri implementation configured with command and scheme names",
-     "Move themes, settings sections and file associations to the workspace package or ViewRight",
-     "Remove benchmark harness and QA globals",
-     "Generate the TS format table from the rightkit-docs file or add a gate check",
-     "Add the package to the plan"
+     "replace generated root exports with hand-written ones",
+     "owner to confirm the documents redraw",
+     "publish 0.2.0"
     ],
     "depth": "deep",
     "confidence": "high",
@@ -1378,10 +1375,10 @@
     "feeds": {
      "viewright": 31171
     },
-    "basis": "Surveyed ViewRight 0.1.165 src/app, settings, state copied at the same paths (0.97 similar; 0.75 to live 0.1.123)",
+    "basis": "ViewRight's workspace as a host-configured shell",
     "referenceApp": "viewright",
-    "shape": "wrong",
-    "shapeReason": "It is the whole ViewRight application: hard-coded legal gate, licence and update settings, format list, and a generated barrel exporting every module. A second app would inherit ViewRight's product decisions.",
+    "shape": "gaps",
+    "shapeReason": "Host-configured since 0.2.0 (branch): configureDocumentWorkspace takes app name, id, version, support email, first-run legal gate, settings sections and update check; no ViewRight strings in code; update, licence and about wiring are the host's. Still two PDF viewers: ViewRight's PDF editor draws pages itself instead of using pdf-ui's PdfViewer.",
     "apps": {
      "viewright": {
       "fit": "gaps",
@@ -1400,11 +1397,13 @@
      "Imports the three editors directly instead of a format registry"
     ],
     "actions": [
-     "Move legal gate, licence and update sections to the ViewRight shell or props",
-     "Take format-to-pane table as a registry argument",
-     "Written entry point instead of the generated barrel",
-     "One setHostAppName in document-core, no module-level reads",
-     "Rename viewright:* events to a neutral prefix across the five packages"
+     "rebuild the PDF editor on @rightkit/pdf-ui PdfViewer (pageLayers) and verify against ViewRight",
+     "host passes the format-to-pane table instead of importing the editors",
+     "migrate the viewright-paper / viewright-night theme ids",
+     "one Mermaid sanitizer",
+     "decision 7 (DOCX toolbar)",
+     "owner to confirm the documents redraw",
+     "publish 0.2.0"
     ],
     "depth": "deep",
     "confidence": "high",

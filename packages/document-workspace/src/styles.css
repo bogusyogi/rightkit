@@ -3,4 +3,6 @@
 @import "./styles/explorer.css";
 @import "./styles/tabs.css";
 @import "@rightkit/media-ui/styles.css";
-@import "@rightkit/document-core/settings/rk-settings.css";
+@import "pdfjs-dist/web/pdf_viewer.css";
+@import "@rightkit/pdf-ui/styles.css";
+@import "./settings/rk-settings.css";

@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react";
 import type { TabStripProps } from "./tabs/TabStrip.js";
 import { isLocalFileDoc } from "./sidebar/SidebarPathUtils.js";
 import type { LoadedDocument } from "@rightkit/document-core/documents/types";
+import { documentEvent } from "@rightkit/document-core/host";
 
 type DocsApi = {
   activate: (path: string) => unknown;
@@ -107,7 +108,7 @@ export function useTabChrome({
   // Tab-strip props for the titlebar — memoized so the memoized TabStrip skips per-keystroke App
   // re-renders the same way Sidebar/Toolbar do. openDocs order IS the tab order (single source).
   const toggleSidebarEvent = useCallback(
-    () => window.dispatchEvent(new CustomEvent("viewright:toggle-sidebar")),
+    () => window.dispatchEvent(new CustomEvent(documentEvent("toggle-sidebar"))),
     [],
   );
   const openLocalPaths = useMemo(

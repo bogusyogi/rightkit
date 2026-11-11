@@ -1,7 +1,7 @@
 {
   "name": "@rightkit/document-core",
-  "version": "0.1.2",
-  "description": "Shared base for the document editors: platform bridge, settings, state, PDF helpers and the format registry.",
+  "version": "0.2.0",
+  "description": "Shared base for the document editors and the document workspace: document types and format registry, host bridge, drafts, diagnostics, settings store, find, print and toolbar primitives, and the one host-identity store.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
   "main": "dist/index.js",
@@ -11,7 +11,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./styles.css": "./dist/styles.css",
     "./app/BlockDraftContext": {
       "types": "./dist/app/BlockDraftContext.d.ts",
       "import": "./dist/app/BlockDraftContext.js"
@@ -40,6 +39,10 @@
       "types": "./dist/app/nativePrintPreview.d.ts",
       "import": "./dist/app/nativePrintPreview.js"
     },
+    "./app/printPipelineShared": {
+      "types": "./dist/app/printPipelineShared.d.ts",
+      "import": "./dist/app/printPipelineShared.js"
+    },
     "./app/resourceCensus": {
       "types": "./dist/app/resourceCensus.d.ts",
       "import": "./dist/app/resourceCensus.js"
@@ -51,18 +54,6 @@
     "./app/shell/nativeMenu": {
       "types": "./dist/app/shell/nativeMenu.d.ts",
       "import": "./dist/app/shell/nativeMenu.js"
-    },
-    "./app/shortcutChords": {
-      "types": "./dist/app/shortcutChords.d.ts",
-      "import": "./dist/app/shortcutChords.js"
-    },
-    "./app/useCloseFindOnSurfaceChange": {
-      "types": "./dist/app/useCloseFindOnSurfaceChange.d.ts",
-      "import": "./dist/app/useCloseFindOnSurfaceChange.js"
-    },
-    "./app/useEditText": {
-      "types": "./dist/app/useEditText.d.ts",
-      "import": "./dist/app/useEditText.js"
     },
     "./documents/BackToTopButton": {
       "types": "./dist/documents/BackToTopButton.d.ts",
@@ -76,10 +67,6 @@
       "types": "./dist/documents/DocumentToolbarShell.d.ts",
       "import": "./dist/documents/DocumentToolbarShell.js"
     },
-    "./documents/FullscreenIcon": {
-      "types": "./dist/documents/FullscreenIcon.d.ts",
-      "import": "./dist/documents/FullscreenIcon.js"
-    },
     "./documents/PreviewChrome": {
       "types": "./dist/documents/PreviewChrome.d.ts",
       "import": "./dist/documents/PreviewChrome.js"
@@ -92,33 +79,9 @@
       "types": "./dist/documents/base64.d.ts",
       "import": "./dist/documents/base64.js"
     },
-    "./documents/mdx/mdxRuntimeScript": {
-      "types": "./dist/documents/mdx/mdxRuntimeScript.d.ts",
-      "import": "./dist/documents/mdx/mdxRuntimeScript.js"
-    },
-    "./documents/pdf/NativePdfDocument": {
-      "types": "./dist/documents/pdf/NativePdfDocument.d.ts",
-      "import": "./dist/documents/pdf/NativePdfDocument.js"
-    },
-    "./documents/pdf/PdfViewer": {
-      "types": "./dist/documents/pdf/PdfViewer.d.ts",
-      "import": "./dist/documents/pdf/PdfViewer.js"
-    },
-    "./documents/pdf/macPdfNativeBridge": {
-      "types": "./dist/documents/pdf/macPdfNativeBridge.d.ts",
-      "import": "./dist/documents/pdf/macPdfNativeBridge.js"
-    },
-    "./documents/pdf/pdfEditModel": {
-      "types": "./dist/documents/pdf/pdfEditModel.d.ts",
-      "import": "./dist/documents/pdf/pdfEditModel.js"
-    },
-    "./documents/pdf/pdfEditor": {
-      "types": "./dist/documents/pdf/pdfEditor.d.ts",
-      "import": "./dist/documents/pdf/pdfEditor.js"
-    },
-    "./documents/pdf/pdfToMarkdown": {
-      "types": "./dist/documents/pdf/pdfToMarkdown.d.ts",
-      "import": "./dist/documents/pdf/pdfToMarkdown.js"
+    "./documents/documentFormats": {
+      "types": "./dist/documents/documentFormats.d.ts",
+      "import": "./dist/documents/documentFormats.js"
     },
     "./documents/perfEventCounters": {
       "types": "./dist/documents/perfEventCounters.d.ts",
@@ -132,10 +95,6 @@
       "types": "./dist/documents/previewViewport.d.ts",
       "import": "./dist/documents/previewViewport.js"
     },
-    "./documents/scopedSelectAll": {
-      "types": "./dist/documents/scopedSelectAll.d.ts",
-      "import": "./dist/documents/scopedSelectAll.js"
-    },
     "./documents/searchUtils": {
       "types": "./dist/documents/searchUtils.d.ts",
       "import": "./dist/documents/searchUtils.js"
@@ -148,30 +107,23 @@
       "types": "./dist/documents/toolbarPrimitives.d.ts",
       "import": "./dist/documents/toolbarPrimitives.js"
     },
-    "./documents/txt/cmScroll": {
-      "types": "./dist/documents/txt/cmScroll.d.ts",
-      "import": "./dist/documents/txt/cmScroll.js"
-    },
     "./documents/types": {
       "types": "./dist/documents/types.d.ts",
       "import": "./dist/documents/types.js"
-    },
-    "./documents/useMirroredEditText": {
-      "types": "./dist/documents/useMirroredEditText.d.ts",
-      "import": "./dist/documents/useMirroredEditText.js"
     },
     "./documents/usePreviewFind": {
       "types": "./dist/documents/usePreviewFind.d.ts",
       "import": "./dist/documents/usePreviewFind.js"
     },
-    "./documents/useSplitResize": {
-      "types": "./dist/documents/useSplitResize.d.ts",
-      "import": "./dist/documents/useSplitResize.js"
-    },
     "./documents/web/webUrl": {
       "types": "./dist/documents/web/webUrl.d.ts",
       "import": "./dist/documents/web/webUrl.js"
     },
+    "./host": {
+      "types": "./dist/host.d.ts",
+      "import": "./dist/host.js"
+    },
+    "./package.json": "./package.json",
     "./platform": {
       "types": "./dist/platform.d.ts",
       "import": "./dist/platform.js"
@@ -179,27 +131,6 @@
     "./settings/fonts": {
       "types": "./dist/settings/fonts.d.ts",
       "import": "./dist/settings/fonts.js"
-    },
-    "./settings/rk-settings.css": "./dist/settings/rk-settings.css",
-    "./settings/sections/EditorSection": {
-      "types": "./dist/settings/sections/EditorSection.d.ts",
-      "import": "./dist/settings/sections/EditorSection.js"
-    },
-    "./settings/sections/FileAssociationsSection": {
-      "types": "./dist/settings/sections/FileAssociationsSection.d.ts",
-      "import": "./dist/settings/sections/FileAssociationsSection.js"
-    },
-    "./settings/sections/ThemeSection": {
-      "types": "./dist/settings/sections/ThemeSection.d.ts",
-      "import": "./dist/settings/sections/ThemeSection.js"
-    },
-    "./settings/sections/TypographySection": {
-      "types": "./dist/settings/sections/TypographySection.d.ts",
-      "import": "./dist/settings/sections/TypographySection.js"
-    },
-    "./settings/sections/onOff": {
-      "types": "./dist/settings/sections/onOff.d.ts",
-      "import": "./dist/settings/sections/onOff.js"
     },
     "./settings/settings": {
       "types": "./dist/settings/settings.d.ts",
@@ -233,7 +164,7 @@
       "types": "./dist/state/tauriBridge.d.ts",
       "import": "./dist/state/tauriBridge.js"
     },
-    "./package.json": "./package.json"
+    "./styles.css": "./dist/styles.css"
   },
   "files": [
     "dist",
@@ -246,7 +177,6 @@
     "*.css"
   ],
   "dependencies": {
-    "@codemirror/view": "^6.43.14",
     "@phosphor-icons/react": "^2.1.10",
     "@rightkit/logs": "workspace:^",
     "@rightkit/pdf-ui": "workspace:^",
@@ -255,8 +185,7 @@
     "@rightkit/settings-ui": "workspace:^",
     "@rightkit/tauri-shell": "workspace:^",
     "@rightkit/theme": "workspace:^",
-    "@tauri-apps/api": "^2.12.2",
-    "pdfjs-dist": "6.4.299"
+    "@tauri-apps/api": "^2.12.2"
   },
   "peerDependencies": {
     "react": ">=18 <21",

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject, type RefObject } from "react";
 import { printIsolatedHtmlMarkup } from "@rightkit/document-core/app/documentPrinting";
 import { createShortcutRegistry } from "@rightkit/react-shell";
-import { ctrlMetaChords } from "@rightkit/document-core/app/shortcutChords";
+import { ctrlMetaChords } from "../../app/shortcutChords.js";
 import { logError } from "@rightkit/document-core/state/diagnostics";
 import { toast } from "@rightkit/platform-ui/headless";
 import {
@@ -10,6 +10,7 @@ import {
   postInteractiveSelectAll,
   postInteractiveZoomReset,
 } from "./htmlInteractiveProtocol.js";
+import { documentEvent } from "@rightkit/document-core/host";
 
 interface Args {
   active: boolean;
@@ -63,8 +64,8 @@ export function useHtmlPreviewControls({
         toast("Couldn't open print dialog", "error");
       });
     };
-    window.addEventListener("viewright:print", onPrint);
-    return () => window.removeEventListener("viewright:print", onPrint);
+    window.addEventListener(documentEvent("print"), onPrint);
+    return () => window.removeEventListener(documentEvent("print"), onPrint);
   }, [active, drawer, error, iframeRef, mode, sessionId]);
 
   // WebView2 paints a freshly-mounted iframe's compositor surface WHITE before its document commits
@@ -113,8 +114,8 @@ export function useHtmlPreviewControls({
       if (!selectInteractivePreview()) return;
       event.preventDefault();
     };
-    window.addEventListener("viewright:html-select-all", onSelectAll);
-    return () => window.removeEventListener("viewright:html-select-all", onSelectAll);
+    window.addEventListener(documentEvent("html-select-all"), onSelectAll);
+    return () => window.removeEventListener(documentEvent("html-select-all"), onSelectAll);
   }, [active, selectInteractivePreview]);
 
   useEffect(() => {

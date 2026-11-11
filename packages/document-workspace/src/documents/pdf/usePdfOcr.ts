@@ -10,7 +10,7 @@ import {
   type OcrLine,
 } from "./pdfOcr.js";
 import { viewportRotation } from "./pdfShared.js";
-import { logError, logPerf } from "../../state/diagnostics.js";
+import { logError, logPerf } from "@rightkit/document-core/state/diagnostics";
 
 export type PdfOcrStatus = "idle" | "running" | "done" | "error";
 

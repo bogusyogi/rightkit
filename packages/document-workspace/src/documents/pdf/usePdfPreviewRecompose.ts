@@ -3,9 +3,9 @@ import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { pdfDocumentInit, pdfWasmUrl } from "@rightkit/pdf-ui";
 import { recomposePdfPreview } from "./pdfSave.js";
-import { composePdfPreview } from "../../state/tauriBridge.js";
-import { logError } from "../../state/diagnostics.js";
-import { acquireResource } from "../../app/resourceCensus.js";
+import { composePdfPreview } from "./pdfBridge.js";
+import { logError } from "@rightkit/document-core/state/diagnostics";
+import { acquireResource } from "@rightkit/document-core/app/resourceCensus";
 import type { usePdfEditSession } from "./usePdfEditSession.js";
 
 interface PdfPreviewRecomposeDeps {

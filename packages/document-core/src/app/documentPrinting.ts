@@ -167,29 +167,6 @@ export async function printIsolatedHtmlMarkup(markup: string): Promise<boolean> 
   });
 }
 
-/** Lazy bridge to the PDF print path. The pdf.js-dependent rasterizer lives in
- *  src/documents/pdf/pdfPrinting.ts so the shell's entry chunk never pays for it; this module keeps
- *  only the non-PDF printing helpers. The dynamic import resolves the SAME module the on-screen PDF
- *  viewer already loaded (it shares the one worker-src setup), so the worker URL is never resolved
- *  through a fresh chunk. See pdfPrinting.ts for the silent-hang trap this shape exists to avoid. */
-async function lazyPdfPrinting(): Promise<typeof import("../documents/pdf/pdfPrinting.js")> {
-  return import("../documents/pdf/pdfPrinting.js");
-}
-
-/** Print the PDF a viewer pane already has open, WITHOUT re-fetching it. See
- *  src/documents/pdf/pdfPrinting.ts. */
-export async function printPdfDocument(
-  doc: Parameters<typeof import("../documents/pdf/pdfPrinting.js").printPdfDocument>[0],
-): Promise<boolean> {
-  return lazyPdfPrinting().then((m) => m.printPdfDocument(doc));
-}
-
-/** Fallback PDF print path for when no viewer pane is registered: fetch the bytes from the stream URL
- *  and rasterize them. See src/documents/pdf/pdfPrinting.ts. */
-export async function printPdf(assetUrl: string): Promise<boolean> {
-  return lazyPdfPrinting().then((m) => m.printPdf(assetUrl));
-}
-
 /** Print a fully-baked image data: URI (crop/filters/text layers already rendered to a single canvas
  *  by exportNativeImageEdit — the same pipeline Save/Save As uses). Deliberately NOT the on-screen
  *  stage: that `<img>` loads through Tauri's custom asset:// scheme, which the native print

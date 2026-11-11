@@ -1,10 +1,11 @@
 import { isTauri as inTauri } from "@rightkit/platform-ui";
 import { EVENTS } from "@rightkit/tauri-shell";
+import { documentEvent } from "../host.js";
 
 export type Unlisten = () => void | Promise<void>;
 
 export async function onAppEvent(
-  event: "open-file" | "file-changed" | "viewright:open-url" | "prepare-setup",
+  event: "open-file" | "file-changed" | "open-url" | "prepare-setup",
   cb: (path: string) => void,
 ): Promise<Unlisten> {
   if (!inTauri()) return () => {};
@@ -16,27 +17,29 @@ export async function onAppEvent(
       for (const path of e.payload?.paths ?? []) cb(path);
     });
   }
-  const un = await listen<string>(event, (e) => cb(e.payload));
+  // `open-url` is the host's own event, `<host id>:open-url`; the others are shell events.
+  const name = event === "open-url" ? documentEvent("open-url") : event;
+  const un = await listen<string>(name, (e) => cb(e.payload));
   return un;
 }
 
 export async function onContextViewSource(cb: () => void): Promise<Unlisten> {
   if (!inTauri()) return () => {};
   const { listen } = await import("@tauri-apps/api/event");
-  const un = await listen("viewright:context-view-source", () => cb());
+  const un = await listen(documentEvent("context-view-source"), () => cb());
   return un;
 }
 
 export async function onContextOpenLinkTab(cb: () => void): Promise<Unlisten> {
   if (!inTauri()) return () => {};
   const { listen } = await import("@tauri-apps/api/event");
-  const un = await listen("viewright:context-open-link-tab", () => cb());
+  const un = await listen(documentEvent("context-open-link-tab"), () => cb());
   return un;
 }
 
 export async function onContextOpenLinkExternal(cb: () => void): Promise<Unlisten> {
   if (!inTauri()) return () => {};
   const { listen } = await import("@tauri-apps/api/event");
-  const un = await listen("viewright:context-open-link-external", () => cb());
+  const un = await listen(documentEvent("context-open-link-external"), () => cb());
   return un;
 }

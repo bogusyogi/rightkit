@@ -164,7 +164,7 @@ export function useDocumentLoader({
             void import("@rightkit/docx-editor/documents/docx/DocxPane").catch(() => {});
             break;
           case "pdf":
-            void import("@rightkit/document-core/documents/pdf/PdfViewer").catch(() => {});
+            void import("../documents/pdf/PdfViewer.js").catch(() => {});
             break;
           case "image":
             void import("../documents/ImageDocument.js").catch(() => {});

@@ -15,8 +15,8 @@ import type { ImageSaveFunction } from "@rightkit/media-ui";
 import type { HtmlPageBuffer } from "@rightkit/html-editor/documents/html/sessionTypes";
 import type { MarkdownExportApi } from "@rightkit/markdown-editor/documents/markdown/export/markdownExportTypes";
 import type { SourceEditorViewState } from "./txt/TxtEditor.js";
-import type { PdfSaveFunction } from "@rightkit/document-core/documents/pdf/pdfEditor";
-import type { PdfSavePlan } from "@rightkit/document-core/documents/pdf/pdfEditModel";
+import type { PdfSaveFunction } from "./pdf/pdfEditor.js";
+import type { PdfSavePlan } from "./pdf/pdfEditModel.js";
 import { type DiagnosticEvent, logEvent } from "@rightkit/document-core/state/diagnostics";
 
 // Heavy viewers — load only when their format is actually opened (keeps cold launch fast).
@@ -36,7 +36,7 @@ const HtmlDocument = lazy(() =>
 );
 const DocxPane = lazy(() => import("@rightkit/docx-editor/documents/docx/DocxPane").then((m) => ({ default: m.DocxPane })));
 const PdfViewer = lazy(() =>
-  import("@rightkit/document-core/documents/pdf/NativePdfDocument").then((m) => ({ default: m.NativePdfDocument })),
+  import("./pdf/NativePdfDocument.js").then((m) => ({ default: m.NativePdfDocument })),
 );
 const LivePreviewPane = lazy(() =>
   import("./web/LivePreviewPane.js").then((m) => ({ default: m.LivePreviewPane })),
@@ -128,7 +128,7 @@ interface Props {
   pdfInitialView?: ViewMeta;
   onPdfViewState?: (m: ViewMeta) => void;
   /** Register the active PDF pane's print function (uses its own already-loaded document — see
-   *  documentPrinting.ts printPdfDocument for why re-fetching the stream URL is unreliable). */
+   *  documents/pdf/pdfPrinting.ts printPdfDocument for why re-fetching the stream URL is unreliable). */
   registerPdfPrint?: (fn: (() => Promise<boolean>) | null) => void;
   /** Register PDF annotation serialization for app-level Save / Save As / Ctrl+S. */
   registerPdfSave?: (fn: PdfSaveFunction | null) => void;

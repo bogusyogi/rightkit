@@ -1,4 +1,4 @@
-import { useCloseFindOnSurfaceChange } from "@rightkit/document-core/app/useCloseFindOnSurfaceChange";
+import { useCloseFindOnSurfaceChange } from "../../app/useCloseFindOnSurfaceChange.js";
 import {
   lazy,
   Suspense,
@@ -11,15 +11,15 @@ import {
   type RefObject,
   type UIEventHandler,
 } from "react";
-import { useEditText } from "@rightkit/document-core/app/useEditText";
-import { useMirroredEditText } from "@rightkit/document-core/documents/useMirroredEditText";
-import { FullscreenIcon } from "@rightkit/document-core/documents/FullscreenIcon";
+import { useEditText } from "../../app/useEditText.js";
+import { useMirroredEditText } from "../useMirroredEditText.js";
+import { FullscreenIcon } from "../FullscreenIcon.js";
 import type { EditorView } from "@codemirror/view";
 import type { EditorView as ProseMirrorEditorView } from "prosemirror-view";
 import { TextSelection } from "prosemirror-state";
 import type { SearchProvider, ViewMode } from "@rightkit/document-core/documents/types";
 import type { SourceEditorViewState } from "../txt/TxtEditor.js";
-import { scrollPosIntoView } from "@rightkit/document-core/documents/txt/cmScroll";
+import { scrollPosIntoView } from "../txt/cmScroll.js";
 import { MarkdownEditor, type MarkdownToolbarState } from "@rightkit/markdown-editor/documents/markdown/MarkdownEditor";
 import type { MarkdownSourceRange } from "@rightkit/markdown-editor/documents/markdown/MarkdownProtectedBlock";
 import type { MarkdownTableContext } from "@rightkit/markdown-editor/documents/markdown/tables/markdownTableCommands";
@@ -36,6 +36,7 @@ import type { MarkdownExportApi } from "@rightkit/markdown-editor/documents/mark
 import { useSettings } from "@rightkit/document-core/settings/settings";
 import { logicalSourceToPmPosition, postPmSelectionToCore } from "@rightkit/markdown-editor/documents/markdown/projection/pmSelectionBridge";
 import { publishMarkdownDocumentActivity } from "@rightkit/markdown-editor/documents/markdown/markdownDocumentActivity";
+import { documentEvent } from "@rightkit/document-core/host";
 
 // Source editor (CodeMirror) is lazy so md OPEN stays light — only the preview loads. DocumentRouter
 // prefetches this chunk when a md doc opens, so by the time the drawer is opened it's already warm
@@ -568,11 +569,11 @@ export function MarkdownSplitPane({
       if (!drawer) captureHybridSelection();
       resolvedCore.redo();
     };
-    window.addEventListener("viewright:undo", onUndo);
-    window.addEventListener("viewright:redo", onRedo);
+    window.addEventListener(documentEvent("undo"), onUndo);
+    window.addEventListener(documentEvent("redo"), onRedo);
     return () => {
-      window.removeEventListener("viewright:undo", onUndo);
-      window.removeEventListener("viewright:redo", onRedo);
+      window.removeEventListener(documentEvent("undo"), onUndo);
+      window.removeEventListener(documentEvent("redo"), onRedo);
     };
   }, [active, resolvedCore, readOnly, drawer, captureHybridSelection]);
 

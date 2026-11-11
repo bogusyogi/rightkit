@@ -1,5 +1,6 @@
 import { isWindows } from "@rightkit/document-core/platform";
 import { getResourceCensus, type DocumentFormat, type ResourceCensus } from "@rightkit/document-core/app/resourceCensus";
+import { hostQaGlobal } from "@rightkit/document-core/host";
 
 type ResourceMatrixFormat = "shell" | "txt" | "md" | "html" | "docx" | "image" | "pdf";
 type ResourceMatrixScenario = "A" | "B" | "E";
@@ -47,26 +48,18 @@ function matrixTimeoutMs(): number {
     : MATRIX_TIMEOUT_MS;
 }
 
-declare global {
-  interface Window {
-    /**
-     * Development/QA-only read surface for the cross-format resource matrix. It deliberately
-     * exposes a snapshot function, not mutable registry state or app controls.
-     */
-    __viewrightResourceCensus?: () => ResourceCensus;
-    /** Development-only one-shot matrix probe status, for native QA inspection. */
-    __viewrightResourceMatrixStatus?: () => {
-      readonly state: string;
-      readonly error: string | null;
-    };
-  }
+/** Development/QA-only read surfaces for the cross-format resource matrix, installed on `window`
+ *  under the host's QA-global names (`hostQaGlobal`): `ResourceCensus` is a snapshot function, not
+ *  mutable registry state or app controls; `ResourceMatrixStatus` is the one-shot matrix probe status. */
+function setQaGlobal(name: "ResourceCensus" | "ResourceMatrixStatus", value: unknown): void {
+  (window as unknown as Record<string, unknown>)[hostQaGlobal(name)] = value;
 }
 
 /** Install only in dev or an explicitly-built browser-QA artifact; production has no global. */
 export function installResourceCensusDevHook(): void {
   if (typeof window === "undefined") return;
   if (!import.meta.env?.DEV && import.meta.env?.VITE_RIGHTKIT_BROWSER_QA !== "1") return;
-  window.__viewrightResourceCensus = getResourceCensus;
+  setQaGlobal("ResourceCensus", getResourceCensus);
   installResourceMatrixAutopilot();
 }
 
@@ -486,7 +479,7 @@ function installResourceMatrixAutopilot(): void {
     const startedAt = performance.now();
     const baseline = getResourceCensus();
     const state = { value: "running", error: null as string | null };
-    window.__viewrightResourceMatrixStatus = () => ({ state: state.value, error: state.error });
+    setQaGlobal("ResourceMatrixStatus", () => ({ state: state.value, error: state.error }));
     void runResourceMatrixPlan(plan, planRunId, baseline, startedAt)
       .then(async (result) => {
         state.value = "writing";
@@ -526,7 +519,7 @@ function installResourceMatrixAutopilot(): void {
   const startedAt = performance.now();
   const baseline = getResourceCensus();
   const state = { value: "waiting", error: null as string | null };
-  window.__viewrightResourceMatrixStatus = () => ({ state: state.value, error: state.error });
+  setQaGlobal("ResourceMatrixStatus", () => ({ state: state.value, error: state.error }));
   let quietSince: number | null = null;
   let lastSignature = "";
   const deadline = startedAt + matrixTimeoutMs();

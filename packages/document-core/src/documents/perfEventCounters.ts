@@ -15,6 +15,8 @@
  * cache hits are free.
  */
 
+import { hostQaGlobal } from "../host.js";
+
 export interface PerfEventCounters {
   /** Canonical source mutations (core applyCommand or HTML splice). */
   sourceWrites: number;
@@ -96,14 +98,6 @@ export interface PerfQaFamily {
   reset(): void;
 }
 
-declare global {
-  interface Window {
-    __viewrightQaPerf?: {
-      read(): Record<string, unknown>;
-      reset(): void;
-    };
-  }
-}
 
 const qaFamilies = new Map<string, PerfQaFamily>();
 
@@ -116,7 +110,7 @@ function qaReadoutEnabled(): boolean {
 
 function installQaReadout(): void {
   if (!qaReadoutEnabled()) return;
-  window.__viewrightQaPerf = {
+  (window as unknown as Record<string, unknown>)[hostQaGlobal("QaPerf")] = {
     read: () => ({
       perf: getPerfCounters(),
       ...Object.fromEntries([...qaFamilies].map(([name, family]) => [name, family.read()])),

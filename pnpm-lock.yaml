@@ -671,9 +671,6 @@ importers:
 
   packages/document-core:
     dependencies:
-      '@codemirror/view':
-        specifier: ^6.43.14
-        version: 6.43.15
       '@phosphor-icons/react':
         specifier: ^2.1.10
         version: 2.1.10(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -701,9 +698,6 @@ importers:
       '@tauri-apps/api':
         specifier: ^2.12.2
         version: 2.12.4
-      pdfjs-dist:
-        specifier: 6.4.299
-        version: 6.4.299
     devDependencies:
       '@types/node':
         specifier: ^26.6.6
@@ -765,9 +759,6 @@ importers:
       '@phosphor-icons/react':
         specifier: ^2.1.10
         version: 2.1.10(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
-      '@rightkit/app-update':
-        specifier: workspace:^
-        version: link:../app-update
       '@rightkit/document-core':
         specifier: workspace:^
         version: link:../document-core
@@ -780,12 +771,6 @@ importers:
       '@rightkit/legal':
         specifier: workspace:^
         version: link:../legal
-      '@rightkit/legal-ui':
-        specifier: workspace:^
-        version: link:../legal-ui
-      '@rightkit/license':
-        specifier: workspace:^
-        version: link:../license
       '@rightkit/markdown-editor':
         specifier: workspace:^
         version: link:../markdown-editor
@@ -795,6 +780,9 @@ importers:
       '@rightkit/onboarding':
         specifier: workspace:^
         version: link:../onboarding
+      '@rightkit/pdf-ui':
+        specifier: workspace:^
+        version: link:../pdf-ui
       '@rightkit/platform-ui':
         specifier: workspace:^
         version: link:../platform-ui
@@ -807,9 +795,9 @@ importers:
       '@tauri-apps/api':
         specifier: ^2.12.2
         version: 2.12.4
-      '@tauri-apps/plugin-process':
-        specifier: ^2.4.0
-        version: 2.4.0
+      pdfjs-dist:
+        specifier: 6.4.299
+        version: 6.4.299
       prosemirror-state:
         specifier: ^1.4.4
         version: 1.4.4

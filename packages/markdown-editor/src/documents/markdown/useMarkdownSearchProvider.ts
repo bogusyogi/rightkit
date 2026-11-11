@@ -19,11 +19,12 @@ import {
 } from "@rightkit/document-core/documents/searchUtils";
 import { searchMappingsFor } from "./markdownHybridDom.js";
 import { editablePmRangeForMatch } from "./projection/pmEditorState.js";
+import { documentEvent } from "@rightkit/document-core/host";
 
 const EMPTY_SEARCH: SearchResult = { count: 0, activeIndex: -1 };
 /** Transaction meta stamped on find/replace edits so the commit path can label
  *  them "Replace" and isolate history instead of coalescing with typing. */
-export const FIND_REPLACE_META = "viewright:markdown-find-replace";
+export const FIND_REPLACE_META = "rk-document:markdown-find-replace";
 
 /**
  * Options for {@link useMarkdownSearchProvider}.

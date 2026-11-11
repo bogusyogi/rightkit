@@ -1,5 +1,5 @@
 import type { LoadedDocument } from "@rightkit/document-core/documents/types";
-import { useEditText } from "@rightkit/document-core/app/useEditText";
+import { useEditText } from "./useEditText.js";
 
 /**
  * A document title that stays live as you type — for untitled buffers whose name is derived from their

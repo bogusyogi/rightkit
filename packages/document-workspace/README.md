@@ -1,11 +1,11 @@
 # @rightkit/document-workspace
 
-Multi-format document workspace shell: tabs, sidebar, document router, loaders, savers and actions.
+Multi-format document workspace shell a host configures: tabs, sidebar, document router, loaders, savers, actions, settings and the PDF editor pane. It names no product and carries no product's legal, licence or update wiring.
 
 | Item | Value |
 |---|---|
 | Where it runs | App webview UI (React) |
-| Version | 0.1.0 |
+| Version | 0.2.0 |
 | License | MIT OR Apache-2.0 |
 
 ## Entry points
@@ -18,7 +18,7 @@ Multi-format document workspace shell: tabs, sidebar, document router, loaders, 
 
 ## Depends on
 
-`@rightkit/document-core`, `@rightkit/docx-editor`, `@rightkit/html-editor`, `@rightkit/markdown-editor`
+`@rightkit/document-core`, `@rightkit/docx-editor`, `@rightkit/html-editor`, `@rightkit/markdown-editor`, `@rightkit/pdf-ui`, `@rightkit/media-ui`, `@rightkit/onboarding`, `@rightkit/settings-ui`
 
 ## Peer dependencies
 
@@ -36,16 +36,34 @@ Until `configureLegal` runs, the legal exports (`REQUIRED_LEGAL_ACCEPTANCE_VERSI
 `LEGAL_MATERIAL_SHA256`, `LEGAL_GATE_DOCUMENTS`, `LEGAL_ABOUT_LINKS`) are empty or unset, so call it
 before the first render. The exports are live bindings, so every importer sees the configured values.
 
-The `@rightkit-host` alias is only used by this package's own test fixture (`test/host-fixture`,
-set in `vitest.config.ts`). The `@rightkit-host/*` module declarations in `src/env.d.ts` describe the
-same files for type-checking; a host does not need to alias them to run the package.
 
-## Product name
+## Host configuration
 
-User-facing copy reads the product name from `hostAppName()` (default `"App"`). Call
-`setHostAppName("Your App")` (exported from the root and from `appName`) once at startup, before
-rendering. Accent preset names and copy are read at display time, so the order matters only for
-values the host reads at import.
+Call `configureDocumentWorkspace(config)` (root export, `config` module) once at startup, before the
+first render. Nothing product-specific is built in; everything comes from this object:
+
+| Field | Meaning |
+|---|---|
+| `appName` | Product name in user-facing copy. Sets the one name store of every document package. |
+| `id` | The host's native identifier, prefix of event names, schemes (`<id>-stream`, `<id>-site`, `<id>-preview`), the `x-<id>-path-hex` header, storage keys and QA globals. Default `"rk-document"`. See `@rightkit/document-core` (`configureDocumentHost`). |
+| `appVersion` | The running build's version (diagnostics). Required. |
+| `supportEmail` | Address for "Email to support" in Diagnostics. Absent: the action is not shown. |
+| `firstRun` | The first-run legal gate: `legal` (the gate's theme, trust line, agreement sentence, wordmark font and the rest of `LegalStepConfig` from `@rightkit/onboarding`) and `gateWindow` (`{ width, height }`, the gate's own fixed window). Absent: no gate. |
+| `settings.about` | The host's About page (brand card, updates, licence, legal documents), rendered as the first settings section. Absent: no About section. |
+| `settings.sections` | Further settings sections, merged after the workspace's own (same id replaces). |
+| `backgroundUpdateCheck` | Advisory update check run once per launch while automatic checks are on; resolve `{ version, tier }` to show a toast, or null. Absent: no check. |
+
+The licence, update and About composition (`@rightkit/license`, `@rightkit/app-update`,
+`@rightkit/settings-ui` `aboutSection`/`legalSection`/`UpdatesControls`) is the host's, passed in
+through `settings.about` and `backgroundUpdateCheck`.
+
+## PDF
+
+The PDF pane (`documents/pdf/*`: viewer with text editing, OCR, save plan and the macOS native read
+pane) moved here from `@rightkit/document-core` in 0.2.0. It uses `@rightkit/pdf-ui` for the range
+transport, the password dialog, find and the pdf.js helpers; it still renders pages itself rather
+than through `PdfViewer` (see the CHANGELOG). Hosts load `@rightkit/document-workspace/styles.css`,
+which includes pdf.js's `pdf_viewer.css` and `@rightkit/pdf-ui/styles.css`.
 
 ## Host toolbar (DOCX)
 
@@ -70,4 +88,4 @@ pnpm --dir packages/document-workspace test
 ```
 
 Modules left out of the root barrel because an export name collides with an earlier module
-(import them by subpath): `app/useDocuments.ts`, `documents/html/HtmlDocumentProps.ts`, `documents/txt/sourceEditorTypes.ts`, `documents/txt/sourceFormatting.ts`
+(import them by subpath): `app/useDocuments.ts`, `documents/html/HtmlDocumentProps.ts`, `documents/pdf/pdfBridge.ts`, `documents/txt/sourceEditorTypes.ts`, `documents/txt/sourceFormatting.ts`

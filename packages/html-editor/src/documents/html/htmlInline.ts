@@ -1,5 +1,6 @@
 ﻿import { toast } from "@rightkit/platform-ui/headless";
 import { readRelativeAsset } from "@rightkit/document-core/state/tauriBridge";
+import { hostScheme } from "@rightkit/document-core/host";
 
 // Cap how many sibling assets one preview will inline, so a pathological page can't fan out into
 // thousands of backend reads.
@@ -154,7 +155,7 @@ export function siteBaseHref(docPath: string, grant: SiteRootGrant): string | nu
   // Drop the file name: the base is a directory URL and must end in "/".
   const relDir = docSegments.slice(rootSegments.length, -1);
   const encoded = relDir.map((segment) => encodeURIComponent(segment)).join("/");
-  return `viewright-site://localhost/${grant.token}/${encoded}${encoded ? "/" : ""}`;
+  return `${hostScheme("site")}://localhost/${grant.token}/${encoded}${encoded ? "/" : ""}`;
 }
 
 function isWindowsStylePath(path: string): boolean {

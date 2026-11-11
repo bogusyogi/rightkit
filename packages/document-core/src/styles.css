@@ -1,2 +1,2 @@
-/* Every stylesheet this package's components use. Hosts import "<package>/styles.css" once (Node cannot import CSS from JS). */
-@import "pdfjs-dist/web/pdf_viewer.css";
+/* The editor base ships no stylesheet of its own. The PDF viewer styles (pdf.js `pdf_viewer.css`) moved
+   with the PDF editor to @rightkit/document-workspace in 0.2.0; this file stays so `<package>/styles.css` keeps resolving. */

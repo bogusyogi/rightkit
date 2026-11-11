@@ -29,6 +29,7 @@ import { toast } from "@rightkit/platform-ui/headless";
 import type { HtmlInspectTarget, HtmlSafeBlockTarget } from "./sourceMap.js";
 import type { SearchResult } from "@rightkit/document-core/documents/types";
 import { HTML_SURFACE_MESSAGE, publishHtmlSurface } from "./htmlBridgeScript.js";
+import { documentEvent } from "@rightkit/document-core/host";
 
 /**
  * The interactive-preview postMessage bridge + the three native-context-menu Tauri event listeners
@@ -119,7 +120,7 @@ export function useHtmlDocumentBridge({
       }
       if (isInteractiveHistory(event.data, sessionId)) {
         window.dispatchEvent(
-          new Event(event.data.direction === "undo" ? "viewright:undo" : "viewright:redo", {
+          new Event(event.data.direction === "undo" ? documentEvent("undo") : documentEvent("redo"), {
             cancelable: true,
           }),
         );

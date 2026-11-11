@@ -22,7 +22,7 @@ export type MarkdownTransactionIntent =
   | "table-structural"
   | "other";
 
-export const MARKDOWN_INTENT_META = "viewright:markdown-intent";
+export const MARKDOWN_INTENT_META = "rk-document:markdown-intent";
 
 /** Stamp an explicit intent on a transaction before dispatching it. */
 export function setMarkdownTransactionIntent<T extends Transaction>(

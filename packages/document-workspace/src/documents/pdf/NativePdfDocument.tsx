@@ -7,9 +7,9 @@ import {
   useState,
   type ComponentProps,
 } from "react";
-import { isMac } from "../../platform.js";
-import { logError } from "../../state/diagnostics.js";
-import type { ViewMeta } from "../types.js";
+import { isMac } from "@rightkit/document-core/platform";
+import { logError } from "@rightkit/document-core/state/diagnostics";
+import type { ViewMeta } from "@rightkit/document-core/documents/types";
 import type { PdfViewer as LegacyPdfViewer } from "./PdfViewer.js";
 import type { NativePdfEditingAction } from "./macPdfNativeBridge.js";
 

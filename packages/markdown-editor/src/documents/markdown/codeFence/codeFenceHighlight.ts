@@ -23,7 +23,7 @@ import { SHIKI_DARK_THEME, SHIKI_LIGHT_THEME } from "../shikiThemes.js";
  * only refreshes the plugin's decoration set via a metadata-only transaction.
  */
 
-const HIGHLIGHT_META = "viewright:code-fence-highlight";
+const HIGHLIGHT_META = "rk-document:code-fence-highlight";
 
 interface TokenSpec {
   /** Content text of the token. */

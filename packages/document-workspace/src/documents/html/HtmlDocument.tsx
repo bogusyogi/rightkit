@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EditorView } from "@codemirror/view";
 import type { ViewMode } from "@rightkit/document-core/documents/types";
 import type { SourceEditorViewState } from "../txt/TxtEditor.js";
-import { scrollPosIntoView } from "@rightkit/document-core/documents/txt/cmScroll";
+import { scrollPosIntoView } from "../txt/cmScroll.js";
 import { previewBootHtml } from "@rightkit/html-editor/documents/html/htmlInline";
 import { useSiteRootGrant } from "@rightkit/html-editor/documents/html/useSiteRootGrant";
 import { logEvent } from "@rightkit/document-core/state/diagnostics";
@@ -21,7 +21,7 @@ import { useHtmlInframeTarget } from "@rightkit/html-editor/documents/html/useHt
 import { resolveSafeBlockTarget, type HtmlInspectTarget, type SourceRange } from "@rightkit/html-editor/documents/html/sourceMap";
 import { useHtmlDocumentBridge } from "@rightkit/html-editor/documents/html/HtmlDocumentBridge";
 import { HtmlDocumentLayout } from "./HtmlDocumentLayout.js";
-import { useCloseFindOnSurfaceChange } from "@rightkit/document-core/app/useCloseFindOnSurfaceChange";
+import { useCloseFindOnSurfaceChange } from "../../app/useCloseFindOnSurfaceChange.js";
 import { trackHtmlDocumentMount, trackHtmlUnmount } from "@rightkit/html-editor/documents/html/htmlResourceLifecycle";
 import { useOptionalBlockDrafts } from "@rightkit/document-core/app/BlockDraftContext";
 import { createBlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
@@ -37,6 +37,7 @@ import { useHtmlRichEditState } from "@rightkit/html-editor/documents/html/useHt
 import { useHtmlSrcDocLifecycle } from "@rightkit/html-editor/documents/html/useHtmlSrcDocLifecycle";
 import { initialSourceDrawerOpen, type ViewportMode } from "@rightkit/html-editor/documents/html/htmlDocumentShared";
 import type { HtmlDocumentProps } from "./HtmlDocumentProps.js";
+import { documentEvent } from "@rightkit/document-core/host";
 
 export type { HtmlDocumentProps } from "./HtmlDocumentProps.js";
 
@@ -497,7 +498,7 @@ export function HtmlDocument({
 
   const toggleSourceDrawer = useCallback(() => {
     // Read mode: the source drawer is the editing surface — the toggle is hidden in chrome and
-    // any programmatic call (viewright:html-toggle-source) must also be a no-op.
+    // any programmatic call (the html-toggle-source event) must also be a no-op.
     if (readOnly) return;
     const identity = { documentPath: entryPath, pagePath: activePath };
     if (blockDrafts.get(identity)) {
@@ -512,11 +513,11 @@ export function HtmlDocument({
   useEffect(() => {
     if (!active) return;
     const onToggleSource = toggleSourceDrawer;
-    window.addEventListener("viewright:html-toggle-source", onToggleSource);
-    return () => window.removeEventListener("viewright:html-toggle-source", onToggleSource);
+    window.addEventListener(documentEvent("html-toggle-source"), onToggleSource);
+    return () => window.removeEventListener(documentEvent("html-toggle-source"), onToggleSource);
   }, [active, toggleSourceDrawer]);
 
-  // Browser-style reload (viewright:html-reload) + the reload-pending buffer snapshot.
+  // Browser-style reload (the html-reload event) + the reload-pending buffer snapshot.
   const { doReload } = useHtmlReload({
     active,
     activePath,

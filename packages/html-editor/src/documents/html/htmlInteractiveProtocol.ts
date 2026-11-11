@@ -6,52 +6,52 @@ import type { HtmlSafeBlockTarget } from "./sourceMap.js";
 // Ctrl+F, and find run INSIDE the frame and only these tagged messages cross the boundary. The frame
 // side of this protocol is the injected bridge script (see htmlBridgeScript.ts).
 
-export const INTERACTIVE_HTML_LINK_MESSAGE = "viewright:interactive-html-link";
+export const INTERACTIVE_HTML_LINK_MESSAGE = "rk-document:interactive-html-link";
 /** Pointer entered/left a link in the preview; carries the href to show (or null to clear). */
-export const INTERACTIVE_HTML_LINK_HOVER = "viewright:interactive-html-link-hover";
-export const INTERACTIVE_HTML_APPLY_CSS = "viewright:interactive-html-apply-css";
-export const INTERACTIVE_HTML_APPLY_THEME = "viewright:interactive-html-apply-theme";
-export const INTERACTIVE_HTML_ACTIVITY = "viewright:interactive-html-activity";
-export const INTERACTIVE_HTML_SCROLL = "viewright:interactive-html-scroll";
-export const INTERACTIVE_HTML_SCROLL_TOP = "viewright:interactive-html-scroll-top";
-export const INTERACTIVE_HTML_ZOOM = "viewright:interactive-html-zoom";
-export const INTERACTIVE_HTML_ZOOM_RESET = "viewright:interactive-html-zoom-reset";
+export const INTERACTIVE_HTML_LINK_HOVER = "rk-document:interactive-html-link-hover";
+export const INTERACTIVE_HTML_APPLY_CSS = "rk-document:interactive-html-apply-css";
+export const INTERACTIVE_HTML_APPLY_THEME = "rk-document:interactive-html-apply-theme";
+export const INTERACTIVE_HTML_ACTIVITY = "rk-document:interactive-html-activity";
+export const INTERACTIVE_HTML_SCROLL = "rk-document:interactive-html-scroll";
+export const INTERACTIVE_HTML_SCROLL_TOP = "rk-document:interactive-html-scroll-top";
+export const INTERACTIVE_HTML_ZOOM = "rk-document:interactive-html-zoom";
+export const INTERACTIVE_HTML_ZOOM_RESET = "rk-document:interactive-html-zoom-reset";
 // Find bridge: the sandboxed (opaque-origin) preview runs the actual search + highlighting itself —
 // the parent can't read its DOM — and only the query/step commands and the {count, activeIndex}
 // results travel across postMessage. FIND_OPEN is the in-frame Ctrl+F asking the app to show its FindBar.
-export const INTERACTIVE_HTML_FIND_OPEN = "viewright:interactive-html-find-open";
-export const INTERACTIVE_HTML_HISTORY = "viewright:interactive-html-history";
-export const INTERACTIVE_HTML_OPEN_DEVTOOLS = "viewright:interactive-html-open-devtools";
-export const INTERACTIVE_HTML_FIND = "viewright:interactive-html-find";
-export const INTERACTIVE_HTML_FIND_STEP = "viewright:interactive-html-find-step";
-export const INTERACTIVE_HTML_FIND_CLEAR = "viewright:interactive-html-find-clear";
-export const INTERACTIVE_HTML_FIND_RESULT = "viewright:interactive-html-find-result";
-export const INTERACTIVE_HTML_SELECT_ALL = "viewright:interactive-html-select-all";
-export const INTERACTIVE_HTML_INSPECT_MODE = "viewright:interactive-html-inspect-mode";
-export const INTERACTIVE_HTML_INSPECT_TARGET = "viewright:interactive-html-inspect-target";
-export const INTERACTIVE_HTML_INSPECT_MENU = "viewright:interactive-html-inspect-menu";
+export const INTERACTIVE_HTML_FIND_OPEN = "rk-document:interactive-html-find-open";
+export const INTERACTIVE_HTML_HISTORY = "rk-document:interactive-html-history";
+export const INTERACTIVE_HTML_OPEN_DEVTOOLS = "rk-document:interactive-html-open-devtools";
+export const INTERACTIVE_HTML_FIND = "rk-document:interactive-html-find";
+export const INTERACTIVE_HTML_FIND_STEP = "rk-document:interactive-html-find-step";
+export const INTERACTIVE_HTML_FIND_CLEAR = "rk-document:interactive-html-find-clear";
+export const INTERACTIVE_HTML_FIND_RESULT = "rk-document:interactive-html-find-result";
+export const INTERACTIVE_HTML_SELECT_ALL = "rk-document:interactive-html-select-all";
+export const INTERACTIVE_HTML_INSPECT_MODE = "rk-document:interactive-html-inspect-mode";
+export const INTERACTIVE_HTML_INSPECT_TARGET = "rk-document:interactive-html-inspect-target";
+export const INTERACTIVE_HTML_INSPECT_MENU = "rk-document:interactive-html-inspect-menu";
 // On right-click, the in-iframe bridge records the element under the cursor (WITHOUT preventing the
 // native WebView2 menu) so that when the user picks the grafted native "View source" item, the app
 // can reveal that element's source. Distinct from INSPECT_TARGET, which opens the drawer immediately.
-export const INTERACTIVE_HTML_CONTEXT_TARGET = "viewright:interactive-html-context-target";
+export const INTERACTIVE_HTML_CONTEXT_TARGET = "rk-document:interactive-html-context-target";
 // After "View source" opens the drawer, the preview narrows and can reflow (e.g. a page @media
 // breakpoint), scrolling the clicked element out of view — so ask the frame to scroll the LAST
 // right-clicked element back into view, keeping rendered + source aligned.
-export const INTERACTIVE_HTML_SCROLL_TO_INSPECT = "viewright:interactive-html-scroll-to-inspect";
-export const INTERACTIVE_HTML_PRINT = "viewright:interactive-html-print";
+export const INTERACTIVE_HTML_SCROLL_TO_INSPECT = "rk-document:interactive-html-scroll-to-inspect";
+export const INTERACTIVE_HTML_PRINT = "rk-document:interactive-html-print";
 // The frame replies with its own fully-rendered markup (parent → iframe → parent) instead of calling
 // window.print() itself: this iframe is pinned to the on-screen content-pane box (h-full w-full), and
 // printing an iframe prints only that rendered box, not the document's full scrollable height —
 // anything below the on-screen fold would silently never reach paper. Serializing the DOM back to the
 // parent lets the app print it in-flow (see documentPrinting.ts printHtmlMarkup), where it can paginate
 // naturally across as many pages as the content needs.
-export const INTERACTIVE_HTML_PRINT_CONTENT = "viewright:interactive-html-print-content";
+export const INTERACTIVE_HTML_PRINT_CONTENT = "rk-document:interactive-html-print-content";
 // Interactive double-click hint: session-scoped & untrusted. Parent resolves stamped identity
 // against current source before opening an app-owned editor; this message never mutates source.
-export const INTERACTIVE_HTML_EDIT_VISUAL = "viewright:interactive-html-edit-visual";
+export const INTERACTIVE_HTML_EDIT_VISUAL = "rk-document:interactive-html-edit-visual";
 // Double-click on content outside any editable (stamped) block. Carries no page data: the parent
 // only ever shows its fixed "can only be edited in Source" toast in response.
-export const INTERACTIVE_HTML_EDIT_REFUSED = "viewright:interactive-html-edit-refused";
+export const INTERACTIVE_HTML_EDIT_REFUSED = "rk-document:interactive-html-edit-refused";
 
 // ── Senders (parent → iframe) ─────────────────────────────────────────────────────────────────
 

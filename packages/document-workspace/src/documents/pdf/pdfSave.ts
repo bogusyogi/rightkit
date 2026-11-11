@@ -43,7 +43,7 @@ import type {
 } from "./pdfEditModel.js";
 import { pdfDocumentInit, pdfWasmUrl } from "@rightkit/pdf-ui";
 import { withTimeout } from "./pdfShared.js";
-import { logEvent } from "../../state/diagnostics.js";
+import { logEvent } from "@rightkit/document-core/state/diagnostics";
 
 // ---------------------------------------------------------------------------------------------
 // §9.4 in-memory preview composition

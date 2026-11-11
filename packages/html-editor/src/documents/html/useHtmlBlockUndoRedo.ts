@@ -7,12 +7,13 @@ import {
 } from "react";
 import { createShortcutRegistry } from "@rightkit/react-shell";
 import type { BlockDraftRegistry } from "@rightkit/document-core/app/blockDrafts";
-import { ctrlMetaChords } from "@rightkit/document-core/app/shortcutChords";
+import { ctrlMetaChords } from "../../app/shortcutChords.js";
 import type { HtmlSafeBlockTarget } from "./sourceMap.js";
 import { sourceChecksum } from "./sourceMap.js";
 import { incIframeLoads, incPreviewGenerations, incSourceWrites } from "@rightkit/document-core/documents/perfEventCounters";
 import type { HtmlMutationPlan } from "./htmlMutationEngine.js";
 import type { HtmlBlockHistoryEntry } from "./useHtmlPreviewLifecycle.js";
+import { documentEvent } from "@rightkit/document-core/host";
 
 interface HtmlBlockUndoRedoDeps {
   /** Inactive keep-alive panes stay mounted but must not own global shortcut events. */
@@ -156,11 +157,11 @@ export function useHtmlBlockUndoRedo({
         (e as Event & { defaultPrevented?: boolean }).preventDefault?.();
       }
     };
-    window.addEventListener("viewright:undo", onUndoEvent);
-    window.addEventListener("viewright:redo", onRedoEvent);
+    window.addEventListener(documentEvent("undo"), onUndoEvent);
+    window.addEventListener(documentEvent("redo"), onRedoEvent);
     return () => {
-      window.removeEventListener("viewright:undo", onUndoEvent);
-      window.removeEventListener("viewright:redo", onRedoEvent);
+      window.removeEventListener(documentEvent("undo"), onUndoEvent);
+      window.removeEventListener(documentEvent("redo"), onRedoEvent);
     };
   }, [active, readOnly, blockDrafts, entryPath, activePath, undoLastBlock, redoLastBlock]);
 

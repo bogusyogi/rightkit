@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/docx-editor",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "DOCX editing pane over @eigenpal/docx-editor with a host-owned toolbar, find, print and Markdown export.",
   "license": "MIT OR Apache-2.0",
   "type": "module",

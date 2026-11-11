@@ -5,6 +5,7 @@ import { bridgeScript } from "./htmlBridgeScript.js";
 import { htmlThemeStyleHtml } from "./htmlTheme.js";
 import { HTML_INLINE_EDITABLE_SELECTOR, htmlElementPathFromBody } from "./sourceMap.js";
 import { hostAppName } from "../../appName.js";
+import { hostScheme } from "@rightkit/document-core/host";
 
 function isClassicScript(type: string | null): boolean {
   const t = (type ?? "").trim().toLowerCase();
@@ -165,19 +166,20 @@ export async function buildInteractivePreviewHtml(
 
   const head = ensureHead(doc);
   ensureResponsiveViewport(doc);
+  const site = hostScheme("site");
   const csp = doc.createElement("meta");
   csp.setAttribute("http-equiv", "Content-Security-Policy");
   csp.setAttribute(
     "content",
     // AUTHORITATIVE copy is the response header in src-tauri/src/preview_protocol.rs
     // (INTERACTIVE_CSP); this meta must stay identical and mainly backs the plain-browser srcdoc
-    // fallback. `viewright-site:` is granted for SUBRESOURCES only, and `base-uri` is narrowed to it so our
+    // fallback. the host's `<id>-site:` scheme is granted for SUBRESOURCES only, and `base-uri` is narrowed to it so our
     // injected <base> is allowed while a page-authored one still cannot point anywhere else.
     // `connect-src` deliberately omits it: a page may DISPLAY files from the granted root, but may
     // not read their bytes back via fetch/XHR and ship them somewhere. That is exactly what a
     // browser permits for a `file://` document, and it is what stops a hostile page from
     // exfiltrating the project tree the tab was granted.
-    "default-src 'none'; script-src 'unsafe-inline' viewright-site: blob: http: https:; style-src 'unsafe-inline' viewright-site: http: https:; img-src viewright-site: data: blob: http: https:; font-src viewright-site: data: http: https:; media-src viewright-site: data: blob: http: https:; connect-src http: https:; base-uri viewright-site:; form-action 'none'",
+    `default-src 'none'; script-src 'unsafe-inline' ${site}: blob: http: https:; style-src 'unsafe-inline' ${site}: http: https:; img-src ${site}: data: blob: http: https:; font-src ${site}: data: http: https:; media-src ${site}: data: blob: http: https:; connect-src http: https:; base-uri ${site}:; form-action 'none'`,
   );
   head.insertBefore(csp, head.firstChild);
 

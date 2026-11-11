@@ -7,23 +7,23 @@
 import type { SearchOptions } from "@rightkit/document-core/documents/types";
 import type { CompiledMdxModule } from "./mdxCompiler.js";
 
-export const MDX_LINK = "viewright:mdx-link"; // iframe → parent
-export const MDX_COMPILED = "viewright:mdx-compiled"; // parent → iframe
-export const MDX_COMPILE_ERROR = "viewright:mdx-compile-error"; // iframe → parent (post-eval)
-export const MDX_RUNTIME_ERROR = "viewright:mdx-runtime-error"; // iframe → parent (render throw)
-export const MDX_HEIGHT = "viewright:mdx-height"; // iframe → parent (ResizeObserver)
-export const MDX_FIND_OPEN = "viewright:mdx-find-open"; // iframe → parent (in-frame Ctrl+F)
-export const MDX_FIND = "viewright:mdx-find"; // parent → iframe
-export const MDX_FIND_STEP = "viewright:mdx-find-step"; // parent → iframe
-export const MDX_FIND_CLEAR = "viewright:mdx-find-clear"; // parent → iframe
-export const MDX_FIND_RESULT = "viewright:mdx-find-result"; // iframe → parent
-export const MDX_PRINT = "viewright:mdx-print"; // parent → iframe
+export const MDX_LINK = "rk-document:mdx-link"; // iframe → parent
+export const MDX_COMPILED = "rk-document:mdx-compiled"; // parent → iframe
+export const MDX_COMPILE_ERROR = "rk-document:mdx-compile-error"; // iframe → parent (post-eval)
+export const MDX_RUNTIME_ERROR = "rk-document:mdx-runtime-error"; // iframe → parent (render throw)
+export const MDX_HEIGHT = "rk-document:mdx-height"; // iframe → parent (ResizeObserver)
+export const MDX_FIND_OPEN = "rk-document:mdx-find-open"; // iframe → parent (in-frame Ctrl+F)
+export const MDX_FIND = "rk-document:mdx-find"; // parent → iframe
+export const MDX_FIND_STEP = "rk-document:mdx-find-step"; // parent → iframe
+export const MDX_FIND_CLEAR = "rk-document:mdx-find-clear"; // parent → iframe
+export const MDX_FIND_RESULT = "rk-document:mdx-find-result"; // iframe → parent
+export const MDX_PRINT = "rk-document:mdx-print"; // parent → iframe
 // The frame replies with its own rendered markup rather than calling window.print() on itself: this
 // iframe is pinned to the on-screen content-pane box, so printing it directly paginates against that
 // fixed viewport, not the document's full height (see htmlInteractiveProtocol.ts for the identical
 // HTML-side rationale). documentPrinting.ts prints the returned markup in-flow instead.
-export const MDX_PRINT_CONTENT = "viewright:mdx-print-content"; // iframe → parent
-export const MDX_THEME = "viewright:mdx-theme"; // parent → iframe (resolved app theme vars)
+export const MDX_PRINT_CONTENT = "rk-document:mdx-print-content"; // iframe → parent
+export const MDX_THEME = "rk-document:mdx-theme"; // parent → iframe (resolved app theme vars)
 
 // ── Senders (parent → iframe) ─────────────────────────────────────────────────────
 

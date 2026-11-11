@@ -26,7 +26,7 @@ function InteractiveHtmlFrame({
   active: boolean;
 }) {
   const frameRevision = useMemo(() => sourceChecksum(srcDoc), [srcDoc]);
-  // Served from the viewright-preview protocol under its own CSP header (src-tauri/src/
+  // Served from the host's `<id>-preview` protocol under its own CSP header (src-tauri/src/
   // preview_protocol.rs), so the main window needs no 'unsafe-eval' or remote script allowance.
   // srcdoc is only the plain-browser (browser QA) fallback.
   const frameSource = usePreviewFrameSrc("interactive", srcDoc);

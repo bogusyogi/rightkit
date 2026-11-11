@@ -33,7 +33,7 @@ export function useClosedTabEviction({
           // A PDF pane can unmount merely because its router leaves the live-tab budget.
           // Only removal from openDocs is terminal for its parked native reader.
           if (doc.format === "pdf" && inTauri() && isMac()) {
-            void import("@rightkit/document-core/documents/pdf/macPdfNativeBridge")
+            void import("../documents/pdf/macPdfNativeBridge.js")
               .then(({ nativePdfClosePath }) => nativePdfClosePath(doc.path))
               .catch(() => undefined);
           }

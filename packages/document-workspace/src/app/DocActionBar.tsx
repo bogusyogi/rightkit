@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { MARKDOWN_FORMAT_EVENT } from "@rightkit/document-core/app/shell/nativeMenu";
+import { markdownFormatEvent } from "@rightkit/document-core/app/shell/nativeMenu";
 import { useSettings } from "@rightkit/document-core/settings/settings";
 import type { LoadedDocument, ViewMode } from "@rightkit/document-core/documents/types";
 import { capabilitiesFor } from "../documents/capabilities.js";
@@ -12,6 +12,7 @@ import {
   useNativeDocumentMenu,
 } from "@rightkit/document-core/app/shell/nativeMenu";
 import { hostAppName } from "../appName.js";
+import { documentEvent } from "@rightkit/document-core/host";
 
 interface Props {
   doc: LoadedDocument;
@@ -164,7 +165,7 @@ export function documentMenuCommands({
     // The Markdown editor applies these; the menu just forwards the command id.
     const md = (id: string) => ({
       id,
-      run: () => window.dispatchEvent(new CustomEvent(MARKDOWN_FORMAT_EVENT, { detail: id })),
+      run: () => window.dispatchEvent(new CustomEvent(markdownFormatEvent(), { detail: id })),
     });
     commands.push(md("bold"), md("italic"), md("strikethrough"));
     commands.push(md("insert-link"), md("insert-table"), md("insert-image"));
@@ -494,7 +495,7 @@ function TextMenus({
   };
   const selectAll = () => {
     if (doc.format === "html") {
-      const event = new Event("viewright:html-select-all", { cancelable: true });
+      const event = new Event(documentEvent("html-select-all"), { cancelable: true });
       window.dispatchEvent(event);
       if (event.defaultPrevented) return;
     }
@@ -579,7 +580,7 @@ function TextMenus({
               <Item
                 hint={shortcutLabel("mod+z")}
                 onRun={() => {
-                  dispatchEditorCommand("viewright:undo")();
+                  dispatchEditorCommand(documentEvent("undo"))();
                   close();
                 }}
               >
@@ -588,7 +589,7 @@ function TextMenus({
               <Item
                 hint={shortcutLabel("mod+y")}
                 onRun={() => {
-                  dispatchEditorCommand("viewright:redo")();
+                  dispatchEditorCommand(documentEvent("redo"))();
                   close();
                 }}
               >

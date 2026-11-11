@@ -4,8 +4,8 @@ import { ArrowCounterClockwise } from "@phosphor-icons/react/dist/icons/ArrowCou
 import { ArrowClockwise } from "@phosphor-icons/react/dist/icons/ArrowClockwise";
 import { Scan } from "@phosphor-icons/react/dist/icons/Scan";
 import { useRef, useState, type ReactNode } from "react";
-import { DocumentToolbarSearch, type DocumentSearchMode } from "../DocumentToolbarFind.js";
-import { DocumentToolbarShell } from "../DocumentToolbarShell.js";
+import { DocumentToolbarSearch, type DocumentSearchMode } from "@rightkit/document-core/documents/DocumentToolbarFind";
+import { DocumentToolbarShell } from "@rightkit/document-core/documents/DocumentToolbarShell";
 import { PDF_EDITOR_TOOLS, type PdfEditorMode } from "./pdfEditor.js";
 import type { PdfOcrDocumentState, PdfOcrStatus } from "./usePdfOcr.js";
 import {
@@ -19,7 +19,7 @@ import {
   IconHighlight,
   IconImage,
 } from "./toolbarIcons.js";
-import { DocBar } from "../../app/shell/docBar.js";
+import { DocBar } from "@rightkit/document-core/app/shell/docBar";
 
 // Maps each Stage 1 annotation-editor tool (defined in pdfEditor.ts, kept dependency-free of
 // React) to its toolbar icon. "none" never appears in PDF_EDITOR_TOOLS so it has no icon.
