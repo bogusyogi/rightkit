@@ -16,7 +16,7 @@ State: per-run private temp suites, removed on drop. Local current-user transpor
 no real user data. The `remote-loopback` feature is not enabled (`remote`, `link` and `relay` are `rightkit-daemon-remote` since 0.7.0).
 
 Not covered: `FsMove::Companions`, participant failure, abort and panic paths, path substitution,
-the db relocation participant, approvals (PK07-4), separate-process host, takeover across processes,
-and the PK06 client lifecycle. This recipe must be revisited if the PK07 public API changes.
+the db relocation participant, separate-process host, takeover across processes, and the PK06 client
+lifecycle. Approvals (PK07-4) left this crate in 0.8.0 for `rightkit-approvals`, whose recipe covers them. This recipe must be revisited if the PK07 public API changes.
 
 Run only by the CI consumer lane.

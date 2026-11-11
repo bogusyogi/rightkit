@@ -13,8 +13,9 @@
 // .local(..).start()` + `Client::connect_expecting` (host = this process), echo round-trip,
 // executable-mismatch refusal before any request & unlisted-app refusal.
 // Does not prove: `FsMove::Companions`, participant failure, abort or panic paths, path
-// substitution, the db relocation participant, approvals (PK07-4), separate-process host,
-// takeover across processes, or any non-default feature.
+// substitution, the db relocation participant, separate-process host, takeover across
+// processes, or any non-default feature. Approvals (PK07-4) left this crate in 0.8.0 for
+// `rightkit-approvals`, whose recipe covers them.
 // State: per-run private temp suites, removed on drop. No network/TCP, no real user data.
 use rightkit_daemon::contract::{MethodPolicy, MethodTable};
 use rightkit_daemon::{

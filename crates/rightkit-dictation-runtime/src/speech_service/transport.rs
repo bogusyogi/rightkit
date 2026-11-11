@@ -17,8 +17,11 @@ pub fn user_tag() -> io::Result<String> {
     Ok("user".into())
 }
 
+/// Current user's SID string (the pipe-name tag), from `rightkit_daemon::current_user_sid`.
 #[cfg(windows)]
-pub use win::user_tag;
+pub fn user_tag() -> io::Result<String> {
+    rightkit_daemon::current_user_sid()
+}
 
 /// Bind `endpoint` and serve accepted connections until `stop` is set. Returns the
 /// listener so the owner can `wake()` the blocked accept when it stops.
@@ -79,60 +82,4 @@ pub fn listen(ctx: Arc<Ctx>, endpoint: &str, stop: Arc<AtomicBool>) -> io::Resul
             }
         })?;
     Ok(listener)
-}
-
-#[cfg(windows)]
-mod win {
-    use std::ffi::c_void;
-    use std::io;
-    use std::ptr::null_mut;
-
-    use windows_sys::Win32::Foundation::{CloseHandle, LocalFree, HANDLE};
-    use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
-    use windows_sys::Win32::Security::{GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER};
-    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
-
-    // GAP (rightkit-daemon): `current_user_sid_string` is pub(crate); the pipe-name tag still
-    // needs the SID, so this one query stays until rightkit-daemon exports it.
-    /// Current user's SID string (also the pipe-name tag).
-    pub fn user_tag() -> io::Result<String> {
-        // SAFETY: standard token query; buffers sized from the first call.
-        unsafe {
-            let mut token: HANDLE = null_mut();
-            if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
-                return Err(io::Error::last_os_error());
-            }
-            let mut len = 0u32;
-            GetTokenInformation(token, TokenUser, null_mut(), 0, &mut len);
-            if len == 0 {
-                let e = io::Error::last_os_error();
-                CloseHandle(token);
-                return Err(e);
-            }
-            let mut buf = vec![0u64; (len as usize).div_ceil(8)];
-            let ok = GetTokenInformation(
-                token,
-                TokenUser,
-                buf.as_mut_ptr() as *mut c_void,
-                len,
-                &mut len,
-            );
-            CloseHandle(token);
-            if ok == 0 {
-                return Err(io::Error::last_os_error());
-            }
-            let user = &*(buf.as_ptr() as *const TOKEN_USER);
-            let mut sid_str: *mut u16 = null_mut();
-            if ConvertSidToStringSidW(user.User.Sid, &mut sid_str) == 0 {
-                return Err(io::Error::last_os_error());
-            }
-            let mut n = 0usize;
-            while *sid_str.add(n) != 0 {
-                n += 1;
-            }
-            let s = String::from_utf16_lossy(std::slice::from_raw_parts(sid_str, n));
-            LocalFree(sid_str as *mut c_void);
-            Ok(s)
-        }
-    }
 }

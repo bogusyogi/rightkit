@@ -9,7 +9,8 @@ use crate::store::Store;
 
 /// How much a [`MemoryStore`] keeps. Every access sweeps first: a pending request past its
 /// expiry and an approval whose grant ended are dropped, a closed one (denied, failed,
-/// expired) stays visible for `closed_visible_ms`, and past each cap the oldest go first.
+/// expired) stays visible for `closed_visible_ms`, and past each cap the oldest go first. A
+/// claimed record is never dropped: it waits for its settlement.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Retention {
     /// Most pending records kept.
@@ -79,7 +80,7 @@ impl MemoryStore {
 fn sweep(records: &mut Vec<Record>, keep: &Retention, now_ms: u64) {
     records.retain(|r| match r.state {
         State::Pending | State::Approved => r.live(now_ms),
-        State::Done => true,
+        State::Done | State::Claimed => true,
         _ => now_ms.saturating_sub(r.decided_ms) <= keep.closed_visible_ms,
     });
     let cap = |records: &mut Vec<Record>, select: fn(State) -> bool, max: usize| {
@@ -96,7 +97,7 @@ fn sweep(records: &mut Vec<Record>, keep: &Retention, now_ms: u64) {
     cap(records, |s| s == State::Pending, keep.max_pending);
     cap(
         records,
-        |s| !matches!(s, State::Pending | State::Done),
+        |s| !matches!(s, State::Pending | State::Done | State::Claimed),
         keep.max_decided,
     );
     cap(records, |s| s == State::Done, keep.max_done);
@@ -136,6 +137,17 @@ impl Store for MemoryStore {
             .filter(|r| r.state == State::Approved)
             .cloned()
             .collect())
+    }
+
+    fn claimed(&self) -> Result<Vec<Record>> {
+        let mut out: Vec<Record> = self
+            .lock()
+            .iter()
+            .filter(|r| r.state == State::Claimed)
+            .cloned()
+            .collect();
+        out.sort_by_key(|r| r.decided_ms);
+        Ok(out)
     }
 
     fn transition(&self, id: &str, from: State, change: &Change) -> Result<bool> {

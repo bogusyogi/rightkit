@@ -145,11 +145,17 @@ pub enum State {
     Pending,
     /// Approved and not yet used (a session grant stays here while it lives).
     Approved,
-    /// Refused by the decider.
+    /// Taken by one act whose outcome is not settled yet ([`crate::rules::claim`]). Never taken
+    /// again; settled to done or failed ([`crate::rules::settle`]), or, after a crash, by
+    /// [`crate::rules::recover`], which never guesses that the act did not happen.
+    Claimed,
+    /// Refused by the decider, or revoked or cancelled before it was used
+    /// ([`crate::rules::revoke`]; the reason says which).
     Denied,
     /// Used: the act ran. Final.
     Done,
-    /// Claimed, but the act failed or its outcome is unknown. Final; never retried.
+    /// Claimed, but the act failed or its outcome is unknown (reason `failed` or
+    /// `unknown_outcome`). Final; never retried.
     Failed,
     /// Its time ran out before a decision. Final.
     Expired,
@@ -160,6 +166,7 @@ impl State {
         match self {
             State::Pending => "pending",
             State::Approved => "approved",
+            State::Claimed => "claimed",
             State::Denied => "denied",
             State::Done => "done",
             State::Failed => "failed",
@@ -197,7 +204,8 @@ pub struct Record {
     /// Set by an approving decision.
     #[serde(default)]
     pub grant: Option<Grant>,
-    /// A reason code for the last move (`user`, `timeout`, `unknown_outcome`).
+    /// A reason code for the last move (`user`, `timeout`, `revoked`, `failed`,
+    /// `unknown_outcome`).
     #[serde(default)]
     pub reason: Option<String>,
     /// What the act produced, when it names something (a message id, a stored name).

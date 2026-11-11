@@ -2,8 +2,10 @@
 //! with `create_new`, so of two racing moves exactly one wins.
 //!
 //! Layout under the store's root: `<kind>/<destination>.<id>.json` holds the request;
-//! `<...>.json.approved` an approval, `<...>.json.used` the use, `<...>.json.closed` a refusal,
-//! failure or expiry, each holding the move as JSON. The request file also carries `nonce` (the
+//! `<...>.json.approved` an approval, `<...>.json.claimed` a claim, `<...>.json.used` the use,
+//! `<...>.json.closed` a refusal, revocation, failure or expiry, each holding the move as JSON.
+//! A claim, a use and a close of an approval exclude each other; a claim is then settled by
+//! exactly one of `.used` or `.closed`. The request file also carries `nonce` (the
 //! id) and `input_hash` (the binding's arguments) at its top level, so a reader that only checks
 //! "this request was issued for these arguments and used" (`<file>` plus `<file>.used`) needs
 //! nothing else.
@@ -27,6 +29,7 @@ pub struct FileStore {
 }
 
 const APPROVED: &str = "approved";
+const CLAIMED: &str = "claimed";
 const USED: &str = "used";
 const CLOSED: &str = "closed";
 
@@ -108,7 +111,7 @@ impl FileStore {
         let value: Value = serde_json::from_str(&text).map_err(|e| io(path, e))?;
         let mut record: Record =
             serde_json::from_value(value["record"].clone()).map_err(|e| io(path, e))?;
-        for marker in [APPROVED, CLOSED, USED] {
+        for marker in [APPROVED, CLAIMED, CLOSED, USED] {
             let Ok(text) = std::fs::read_to_string(with_suffix(path, marker)) else {
                 continue;
             };
@@ -118,6 +121,7 @@ impl FileStore {
             let state =
                 serde_json::from_value::<State>(change["state"].clone()).unwrap_or(match marker {
                     APPROVED => State::Approved,
+                    CLAIMED => State::Claimed,
                     USED => State::Done,
                     _ => State::Denied,
                 });
@@ -206,6 +210,16 @@ impl Store for FileStore {
             .collect())
     }
 
+    fn claimed(&self) -> Result<Vec<Record>> {
+        let mut out: Vec<Record> = self
+            .all()
+            .into_iter()
+            .filter(|r| r.state == State::Claimed)
+            .collect();
+        out.sort_by_key(|r| r.decided_ms);
+        Ok(out)
+    }
+
     fn transition(&self, id: &str, from: State, change: &Change) -> Result<bool> {
         let Some(path) = self.find(id)? else {
             return Ok(false);
@@ -215,17 +229,22 @@ impl Store for FileStore {
         }
         let marker = match change.to {
             State::Approved => APPROVED,
+            State::Claimed => CLAIMED,
             State::Done => USED,
             State::Pending => return Ok(false),
             _ => CLOSED,
         };
-        // A use and a close exclude each other: whichever marker exists first wins.
-        let rival = match marker {
-            USED => Some(CLOSED),
-            CLOSED => Some(USED),
-            _ => None,
+        // A use and a close exclude each other, and a claim excludes both unless they settle
+        // it: whichever marker exists first wins.
+        let rivals: &[&str] = match marker {
+            CLAIMED => &[USED, CLOSED],
+            USED if from == State::Claimed => &[CLOSED],
+            CLOSED if from == State::Claimed => &[USED],
+            USED => &[CLOSED, CLAIMED],
+            CLOSED => &[USED, CLAIMED],
+            _ => &[],
         };
-        if rival.is_some_and(|r| with_suffix(&path, r).exists()) {
+        if rivals.iter().any(|r| with_suffix(&path, r).exists()) {
             return Ok(false);
         }
         let marker_path = with_suffix(&path, marker);

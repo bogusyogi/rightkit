@@ -2360,10 +2360,10 @@
       "consumes": "PK07 named consumers per docs/plans/2026-10-20-rightkit-implementation/01-packages.md: HeardRight and ScrapeRight data-folder move; Pulse migrated_app_root() retirement (PK07-3); CutoverParticipant surface at crates/rightkit-roots/src/root_cutover.rs:231 (re-exported by rightkit-daemon since 0.8.0); PK07 R2 Service builder/local host, Client::connect_expecting, echo, method/app denial & executable mismatch",
       "files": {
         "Cargo.toml": "9ea7f8dffc77fb709514a709fa871ec741cf956484a4d02843ce959af2c45559",
-        "README.md": "b53a3615addd587c54e675daddb3719b8461ad62e93dfbb304d178fbdd745155",
-        "src/main.rs": "f655fff5b120649fa7050c1f5a41d22569d8f06692030da33c1b9771f036f3dd"
+        "README.md": "156538d245707b7578db94158ecc8f4858c0d9ce7bf252b3683190cfa4eec38e",
+        "src/main.rs": "74661e6ad14bbf7f2343942d49416820b3cbc0ec9e149846a1a1e7d06054d4a8"
       },
-      "aggregateSha256": "aee91886090173a28e03e15a51b4490c3214f5b6201ac45fdcc3e71054e115e3"
+      "aggregateSha256": "311c44490db7502f9752e032c37ce6c46a3e625f1a9764ba38aa5e50eba64e94"
     },
     "rightkit-qa": {
       "pkId": "PK14",
@@ -3479,8 +3479,8 @@
       "id": "ci/consumers/rightkit-approvals/src/main.rs",
       "files": {
         "Cargo.toml": "961b5b024b708926c9aaae97aea157906903cd98bcdb651782c74b501a30f0d4",
-        "README.md": "7a5c7764e4900e2bbbf8e4cf71c9711b6b231aafa44a0fc141bd9067724a5974",
-        "src/main.rs": "0d2c1941ba004713e40e09e0650008cef642b05f08e6b1bcf19e47bbfc853097"
+        "README.md": "00a6aedada841170d8fa28d76cc504291464396569e40c3d8e21a4d381da365a",
+        "src/main.rs": "f26f87acca027839789cdcfcd38ba2fa3fec683a65e76728697c4ae440983caa"
       }
     },
     "rightkit-content-plan": {

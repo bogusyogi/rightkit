@@ -45,9 +45,6 @@
 //! as the `rightkit-job-queue` engine contract:
 //! `hello`, `request{id,method,params}`, `event{id,event}`, `response{id,ok,result|error}`.
 
-/// Approval workflow mechanics: request binding, verified decisions, one execution claim,
-/// audit before effect (PK07-4).
-pub mod approval;
 mod attach;
 pub mod chunk;
 mod client;

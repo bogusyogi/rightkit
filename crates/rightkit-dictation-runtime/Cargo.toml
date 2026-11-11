@@ -41,13 +41,6 @@ libloading = { version = "0.9" }
 anyhow = { version = "1" }
 rightkit-onnx = { version = "0.2.9", default-features = false, features = ["session"], path = "../rightkit-onnx" }
 
-[target.'cfg(target_os = "macos")'.dependencies]
-security-framework = { version = "3.7", default-features = false }
-core-foundation = { version = "0.10" }
-
-[target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_Security_Cryptography_Catalog", "Win32_Security_Cryptography_Sip", "Win32_Security_WinTrust", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_Debug", "Win32_System_IO", "Win32_System_Pipes", "Win32_System_Threading"] }
-
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Media_Audio", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Power", "Win32_UI_WindowsAndMessaging"] }
 windows-core = { version = "0.62.2" }

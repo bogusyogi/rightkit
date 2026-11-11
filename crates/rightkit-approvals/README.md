@@ -5,8 +5,8 @@ runs once. The record and the rules live here once; apps differ only in where re
 the decider is proven.
 
 * **Model.** `Request` (id, kind, scope, `Origin` {door, filer, client}, `Binding`, summary, display-only
-  detail, created, deadline) and `Record` (the request, its `State`: pending, approved, denied, done,
-  failed, expired; the `Grant` an approval gives; a reason code; a result).
+  detail, created, deadline) and `Record` (the request, its `State`: pending, approved, claimed, denied,
+  done, failed, expired; the `Grant` an approval gives; a reason code; a result).
 * **Binding (the reference rule).** An approval is bound to a digest of the exact arguments, the
   destination, the expiry and the revision (`Binding`, `bind_of`: length-prefixed SHA-256). The act about
   to run presents its binding and must match (`Binding::check`). A decision is bound to the display
@@ -14,7 +14,13 @@ the decider is proven.
 * **Rules** (`rules`): `file` (repeat of a waiting request gets the same id; pending cap), `decide` (only
   a pending, unexpired request; proof and display digest checked; one compare-and-set), `take` (spent by
   one act for the same kind, scope, door, filer, destination, arguments and revision; with a proof a
-  pending request is decided and used in one move), `session` (a live session grant, refreshed by use).
+  pending request is decided and used in one move), `session` (a live session grant, refreshed by use),
+  `claim`, `settle` and `recover` (an act whose outcome is known only after it ran claims the approval,
+  one claimant wins, and settles it done or failed; a claim nobody settles is settled after a crash or
+  timeout as the app's reconciler says, else as `unknown_outcome`; never retried), `revoke` and
+  `revoke_where` (a pending or approved request withdrawn before use).
+* **Audit before effect.** `Audited` wraps any store so the app's `Audit` row is durable before every
+  filing and every move; a failed append changes nothing.
 * **Stores.** The `Store` trait (atomic `transition`), `MemoryStore` (nothing on disk approves; a restart
   forgets) and `FileStore` (feature `file`, default: one owner-only file per request, a `create_new`
   marker per move). An app's database implements the trait (MailRight's SQL store does, in
@@ -26,7 +32,8 @@ the decider is proven.
 Who uses it: Pulse's remote-tool queue (`rightkit-remote-gateway`, `MemoryStore`), GenRight's draft and
 delivery approvals (`rightkit-media-gen-approvals`, `FileStore`), MailRight's send, forward, delete and
 attach approvals (`rightkit-agent-gateway`, SQL). Pulse's `ApprovalBinding` (`rightkit-agent-engine`)
-converts to the core `Binding`; CodeRight's payload digest (`rightkit-agent-policy`) is `bind_of`.
+converts to the core `Binding`; CodeRight's payload digest (`rightkit-agent-policy`) is `bind_of`. The
+claim-and-settle workflow of `rightkit-daemon`'s former `approval` module is folded in here.
 
 Design note: `docs/audits/2026-11-11-shape-matrix/reports/approvals-core-design.md`. Version 0.1.0 of
 this crate was GenRight's approvals; they are now `rightkit-media-gen-approvals`.

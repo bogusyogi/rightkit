@@ -11410,7 +11410,6 @@ name = "rightkit-dictation-runtime"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "core-foundation 0.10.1",
  "libloading 0.9.0",
  "parking_lot 0.13.0",
  "rightkit-audio",
@@ -11432,7 +11431,6 @@ dependencies = [
  "rightkit-text-polish",
  "rightkit-transcript-library",
  "rightkit-voice-commands",
- "security-framework",
  "serde",
  "serde_json",
  "sys-locale",
@@ -11440,7 +11438,6 @@ dependencies = [
  "windows 0.62.2",
  "windows-core 0.62.2",
  "windows-implement",
- "windows-sys 0.61.2",
 ]
 
 [[package]]

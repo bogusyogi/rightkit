@@ -24,6 +24,11 @@ pub trait Store {
     /// Approved records whose grant still lives at `now_ms`, oldest first.
     fn approved(&self, now_ms: u64) -> Result<Vec<Record>>;
 
+    /// Claimed records ([`State::Claimed`]) whatever their age, oldest first: what
+    /// [`crate::rules::recover`] settles after a crash. A store that refuses the move to
+    /// `Claimed` returns none.
+    fn claimed(&self) -> Result<Vec<Record>>;
+
     /// Moves `id` from `from` as `change` says, only while it is in `from`. `true` only for the
     /// caller that made the move.
     fn transition(&self, id: &str, from: State, change: &Change) -> Result<bool>;

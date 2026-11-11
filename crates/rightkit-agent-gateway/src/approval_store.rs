@@ -86,11 +86,13 @@ fn ms_i64(v: u64) -> i64 {
 }
 
 /// The table's status word for a core state. A timeout is stored as `denied` with reason
-/// `timeout`, as before.
+/// `timeout`, as before. The table has no claimed status (its `approved` row is the send in
+/// flight, settled by `sweep`), so a move to or from `Claimed` is refused before it gets here.
 fn status_word(state: State) -> &'static str {
     match state {
         State::Pending => "pending",
-        State::Approved => "approved",
+        // Never reached for `Claimed` (`move_row` refuses it).
+        State::Approved | State::Claimed => "approved",
         State::Done => "sent",
         State::Denied | State::Expired => "denied",
         State::Failed => "failed",
@@ -216,7 +218,11 @@ impl<'c> SqlStore<'c> {
 
     /// One guarded UPDATE: `id` moves only while it is in `from` (a claim also only while
     /// unexpired and from this run). True only for the caller that made the move.
+    /// A move to or from `Claimed` is refused: the table's in-flight send is its `approved` row.
     pub fn move_row(&self, id: &str, from: State, change: &Change) -> Result<bool, String> {
+        if from == State::Claimed || change.to == State::Claimed {
+            return Err("approval: this store keeps no claimed approvals".to_string());
+        }
         let at = ms_i64(change.at_ms);
         let n = if from == State::Pending && change.to == State::Approved {
             self.conn
@@ -312,6 +318,12 @@ impl Store for SqlStore<'_> {
         .map_err(refusal)
     }
 
+    /// None: the table has no claimed status (see `transition`).
+    fn claimed(&self) -> rightkit_approvals::Result<Vec<Record>> {
+        Ok(Vec::new())
+    }
+
+    /// A move to or from `Claimed` is refused (`move_row`).
     fn transition(
         &self,
         id: &str,

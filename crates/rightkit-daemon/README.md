@@ -196,9 +196,9 @@ The 16 MiB frame limit stays the cap on every frame. `Client::call_large` sends 
 
 `mode`, `Suite`, `AppRoot` (with `AppRoot::migrate_from`) and `RootCutover` moved to the `rightkit-roots` crate in 0.8.0. They are still exported here under their old paths (`rightkit_daemon::mode`, `rightkit_daemon::{Suite, AppRoot, RootCutover, ...}`) for one release, so existing callers compile unchanged; they are the same types, so a `Suite` built from either path is accepted by `host`, `Client` and the rest of this crate. New code that only needs paths depends on `rightkit-roots` and not on this crate. The rules (no test mode, fail-closed roots, migration and cutover) are in that crate's README.
 
-## Approvals (`approval`)
+## Approvals (moved)
 
-A request is bound to one effect digest, decided by a principal an app-supplied `ApprovalVerifier` has proven (the coordinator never re-encodes signed bytes), claimed exactly once, and settled with an outcome; expiry, revocation, account scope, replay, audit before effect and `OutcomeUnknown` after a crash are enforced by `ApprovalCoordinator` over an `ApprovalStore`. Per-action policy is an `ApprovalProfile` (data). See the module docs for the state machine and the guarantees.
+The `approval` module (`ApprovalCoordinator`) was removed in 0.8.0. Approvals are the one core in `rightkit-approvals`: claim and settle with an unknown outcome after a crash (`rules::claim`, `rules::settle`, `rules::recover`), revoke (`rules::revoke`, `rules::revoke_where`) and audit before effect (`Audited`) are there.
 
 ## Service registration (`Registration`)
 

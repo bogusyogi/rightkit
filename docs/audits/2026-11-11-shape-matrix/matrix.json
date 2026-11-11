@@ -9325,7 +9325,7 @@
     "basis": "the core all apps share; Pulse's binding rule is the reference",
     "referenceApp": "pulse",
     "shape": "gaps",
-    "shapeReason": "One approvals core since 0.2.0 (branch): request, record, Pulse's digest binding, decide/take/session rules, Store and Proof traits, memory and file stores. Pulse's and MailRight's queues run on it; GenRight's studio code moved to rightkit-media-gen-approvals.",
+    "shapeReason": "One approvals core since 0.2.0 (branch): request, record, Pulse's digest binding, decide/take/session rules, Store and Proof traits, memory and file stores. Pulse's and MailRight's queues run on it; GenRight's studio code moved to rightkit-media-gen-approvals. The daemon's unused sixth copy (ApprovalCoordinator) is folded in: claim and settle with an unknown outcome after a crash, revoke, audit before effect.",
     "apps": {
      "pulse": {
       "fit": "wrong",
@@ -12266,10 +12266,10 @@
      "crates/rightkit-daemon"
     ],
     "feeds": {},
-    "basis": "local service plus several other products; CodeRight's agent daemon code moved out in 0.6.0",
+    "basis": "local service, loopback, peer trust and lifecycle; agent daemon (0.6.0), remote host (0.7.0), roots and the approval workflow (0.8.0) moved out",
     "referenceApp": "heardright",
-    "shape": "wrong",
-    "shapeReason": "Agent daemon code moved to rightkit-agent-daemon (0.6.0). Still wrong: run mode and app roots, the remote HTTPS host with link and relay, and an approval workflow share the crate with the local service.",
+    "shape": "gaps",
+    "shapeReason": "Agent daemon code moved to rightkit-agent-daemon (0.6.0), remote/link/relay to rightkit-daemon-remote (0.7.0), run mode and app roots to rightkit-roots (0.8.0, re-exported for one release), and the unused approval workflow was folded into rightkit-approvals and deleted (0.8.0). What remains is the local same-user service (discovery, takeover, host, client, private child service), loopback, peer trust (peer credentials, verify_peer, current_user_sid) and lifecycle (supervisor, reload, stop, install, shutdown). Remaining items are gaps.",
     "apps": {
      "heardright": {
       "fit": "gaps",
@@ -12309,30 +12309,17 @@
      }
     },
     "boundary": [
-     "root resolution exists three times: fs::app_dirs, fs::StateDir and daemon::Suite/AppRoot/mode",
-     "agent_daemon_core and agent_daemon_runtime are CodeRight's daemon_core/daemon_runtime crates (lifecycle.rs 166/166 lines) and pull axum and rightkit-agent-engine-protocol into a foundation crate",
-     "mode, Suite, AppRoot, root_cutover (about 5k lines) are path and run-mode policy, used by apps with no daemon; rightkit-fs has its own app_dirs::AppDirs",
-     "remote + link + relay (HTTPS, device enrolment, OAuth callback) is a second product in the crate; pairing also exists in rightkit-identity, rightkit-mesh and rightkit-device-link",
-     "approval module here and approval tokens in rightkit-crypto",
-     "CodeRight daemon files and MailRight runtime/* are mapped here by path but are app or agent-server code",
-     "speech_service/peer_trust.rs (391 lines) duplicates peer_signature::verify_peer (RightKit 0.5.3+)",
-     "speech_service/transport.rs:80-110 SID query stays until current_user_sid_string is exported",
-     "Declared but never called in src-tauri, heardright-engine, heardright-app-runtime, heardright_platform",
-     "speech_service/ has a twin in rightkit-dictation-runtime"
+     "three supervision surfaces: supervisor here, EngineSupervisor in rightkit-job-queue, rightkit-child-process policies",
+     "run mode, Suite, AppRoot and root cutover still re-exported from rightkit-roots for one release"
     ],
     "actions": [
-     "move mode/Suite/AppRoot/root_cutover to one roots crate or rightkit-fs",
-     "split remote/link/relay into their own crate, leaving local service and loopback",
-     "GenRight and CutRight use discover_apps_in_with instead of their own discovery",
-     "Move mode/Suite/AppRoot/root_cutover to one roots crate (or rightkit-fs) and make daemon, models and qa depend on that",
-     "Move agent_daemon_core/agent_daemon_runtime to rightkit-agent-server",
-     "Split remote/link/relay into their own crate, leaving local service + loopback",
-     "Make GenRight and CutRight delete their discovery.rs in favour of discover_apps_in_with",
-     "Carry the HeardRight gaps (verify_peer pin, SID query export)",
-     "Bump pin from 0.5.1 to >= 0.5.3, then HeardRight deletes peer_trust.rs",
-     "Export current_user_sid_string (pub(crate) today)",
+     "drop the rightkit-roots re-exports in the next minor release, once apps import rightkit-roots",
+     "decide one engine supervisor (supervisor here vs EngineSupervisor in rightkit-job-queue) and re-export from the other",
+     "GenRight and CutRight delete their discovery.rs in favour of discover_apps_in_with",
+     "HeardRight: move the pin to 0.8.0, then delete peer_trust.rs and the SID query (rightkit-dictation-runtime already uses verify_peer and current_user_sid)",
      "HeardRight: remove the four unused dependency declarations",
-     "Owner note about a suite-root guard in the two main.rs files is stale (D2)"
+     "HeardRight: the owner note about a suite-root guard in the two main.rs files is stale (D2)",
+     "publish 0.8.0"
     ],
     "depth": "deep",
     "confidence": "medium",

@@ -46,6 +46,9 @@ pub enum Error {
     Denied,
     /// It was used already: an approval is spent by one act.
     Used,
+    /// Nothing is claimed under this id to settle: it was never claimed, or its claim was
+    /// settled already (by the act or by [`crate::rules::recover`]).
+    Unclaimed,
     /// It was given for another kind, scope, door, filer or destination.
     Different,
     /// The exact arguments (or their revision) changed after it was asked for.
@@ -75,6 +78,10 @@ impl Error {
             Error::Pending => Refusal::new("approval_pending", "still waiting for a decision"),
             Error::Denied => Refusal::new("approval_denied", "the approval was refused"),
             Error::Used => Refusal::new("approval_used", "the approval was already used"),
+            Error::Unclaimed => Refusal::new(
+                "approval_unclaimed",
+                "nothing is claimed under this approval to settle",
+            ),
             Error::Different => Refusal::new(
                 "approval_different",
                 "the approval was given for a different action or target",

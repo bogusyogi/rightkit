@@ -124,6 +124,61 @@ their key material, not in the core:
 | CodeRight `PendingApprovalContext` (`agent-engine-protocol/src/approvals.rs:120-133`) | not changed: follow-up with decision 4 |
 | owner-approvals `Refusal` (`lib.rs:27-54`) | the core's `Refusal`, re-exported under the same path |
 
+## Daemon approval workflow folded in
+
+The review missed a sixth implementation: `crates/rightkit-daemon/src/approval.rs` (1,538 lines,
+PK07-4; line references to it are at commit `aa1f9a5`), `ApprovalCoordinator` over an `ApprovalStore` with an app `ApprovalVerifier`, an
+`ApprovalProfile` of per-action data and an optional `AuditSink`. No crate, recipe or app in this repo
+called it. It is deleted (rightkit-daemon 0.8.0, no re-export); what it guaranteed is either in the core
+now or already covered there. Pulse's digest binding stays the reference rule.
+
+Kept, as app-neutral rules in `rightkit-approvals` 0.2.0:
+
+* **Claim, then settle.** The daemon's `Approved -> Claimed -> Settled` (`claim`, `settle`,
+  `approval.rs:1381-1487`) is `State::Claimed`, `rules::claim` (every check of `take`; one claimant
+  wins the compare-and-set, the others get `Used`) and `rules::settle` with `rules::Outcome`
+  (`Done`; `Failed`, reason `failed`; `Unknown`, reason `unknown_outcome`). The settled states are the
+  core's existing `Done` and `Failed`, whose reason code already named `unknown_outcome` (MailRight's
+  sweep). The daemon's non-`Clone` `ClaimToken` with a claim id is not kept: the store's compare-and-set
+  from `Claimed` already lets exactly one settlement win, and a late settlement after a recovery is
+  `Error::Unclaimed`.
+* **Outcome unknown after a crash or timeout.** `recover_claims` (`approval.rs:1488-1530`) is
+  `rules::recover(store, claimed_before_ms, now, reconcile)`: every claim made at or before the cut-off
+  that nobody settled is settled as the app's reconciler answers, and as `unknown_outcome` when it
+  cannot tell. Never retried, never read as "did not happen". `Store` gains `claimed()`; `MemoryStore`
+  never sweeps a claimed record; `FileStore` writes a `.claimed` marker that excludes `.used` and
+  `.closed` until they settle it. MailRight's table has no claimed status (its `approved` row is the
+  send in flight, settled by its own `sweep`), so `SqlStore` refuses a move to or from `Claimed`.
+* **Revoke before use.** `decide(Revoke)`, `cancel` and `revoke_account` (`approval.rs:1231-1360`) are
+  `rules::revoke(store, id, reason, now)` and `rules::revoke_where(store, select, reason, now)`: a
+  pending or approved request becomes `Denied` with the app's reason (`revoked`, `cancelled`). No
+  proof: revoking only reduces trust (as Pulse's `remove_where`). Who may cancel (the requester) is the
+  app's check. A claimed request is past revoking: its act may be running.
+* **Audit before effect.** `AuditRequirement::BeforeEffect` (`approval.rs:106-115`, `1063-1075`) is a store wrapper,
+  `Audited<S, A: Audit>`: the app's row is appended before every filing and every move, and a failed
+  append changes nothing. A row records an attempted move (another mover can still win the
+  compare-and-set), as the daemon's did. What a row holds and where it is written stays the app's.
+
+Dropped, and why:
+
+* **Per-revision decision binding and `StaleRevision`.** The core binds a decision to the display digest
+  of what the decider was shown and moves it with a compare-and-set from `Pending`; an answer to an
+  earlier view fails `Shown` or finds the request no longer pending. The thing approved has its own
+  revision in `Binding`.
+* **The cross-request nonce ledger** (`claim_nonce`). A `Proof` is bound to one record and a record is
+  decided once; a proof that carries a nonce spends it in `Proof::verify`, where its key material lives
+  (`rightkit-owner-approvals` `admin_sig.rs` already keeps its spent nonces on disk).
+* **Principals, account scope and named approvers** (`VerifiedPrincipal`, `AccountScope`). Who may
+  decide for what is the app's proof (an approver key enrolled for an account, a window session).
+* **`ApprovalProfile` / `ActionProfile`** (per-action lifetimes, required account or client,
+  reconcilable flag, `max_open`). App policy: the request carries its own deadline, `Limits` caps what
+  waits, `recover` takes the reconciler as an argument.
+* **`redact_detail` and `AuditEvent::line`.** The core's `detail` is display-only and never digested;
+  what reaches an audit row is the app's `Audit`.
+* **The injected clock.** Every core rule already takes `now_ms`.
+* **`Expired` on every touch and the `Revoked` and `Cancelled` states.** `Record::live` refuses an
+  expired request at every rule; revoked and cancelled are `Denied` with a reason.
+
 ## What is left (follow-up)
 
 * CodeRight's `PendingApprovalContext.payload_digest` is optional ("for back-compat"); making it a core
@@ -134,5 +189,8 @@ their key material, not in the core:
 * MailRight records no display digest at the decision (its card re-reads the draft and the hash is compared
   after the claim). Storing the shown hash in the row would make its decision digest-bound like Pulse's; it
   needs a column in the app's schema.
+* MailRight's in-flight send (`approved` row, `sweep` to `failed`/`unknown_outcome` after `STUCK_MS`) is
+  the core's claim and recover; storing it as `claimed` needs a status value in the app's schema (the
+  `agent_approvals` CHECK constraint), after which `SqlStore` can stop refusing `Claimed`.
 * `rightkit_media_gen::host::approval` (token mint and verify, receipts) stays in `rightkit-media-gen`: the
   app shell and providers use it without the engine.
