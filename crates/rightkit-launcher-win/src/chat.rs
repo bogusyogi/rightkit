@@ -7,9 +7,9 @@
 //! The history lives in `ai-chat.json` in the launcher folder: newest first, the pinned
 //! ones kept however old, the rest capped at `KEEP`.
 
-use crate::config::quoted;
 use crate::host::{self, EngineFailure as Failure};
-use crate::json::{self, Value};
+use rightkit_launcher::config::quoted;
+use rightkit_launcher::json::{self, Value};
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -121,7 +121,7 @@ pub fn ask(question: &str) -> Result<Reply, String> {
     )
     .map_err(|failure| match failure {
         Failure::Unreachable(_) => host::t(
-            "Pulse's engine is not running, so the question cannot reach your AI provider. Try again in a moment.",
+            "The assistant's engine is not running, so the question cannot reach your AI provider. Try again in a moment.",
         )
         .to_string(),
         Failure::Unknown(_) => host::t("The assistant did not answer in time.").to_string(),

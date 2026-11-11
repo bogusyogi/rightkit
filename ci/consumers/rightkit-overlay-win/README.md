@@ -1,6 +1,6 @@
-# rightkit-overlay-win 0.1.0 (registry consumer recipe)
+# rightkit-overlay-win 0.1.5 (registry consumer recipe)
 
-Standalone consumer, outside the workspace, pinning `rightkit-overlay-win =0.1.0` exactly. It builds
+Standalone consumer, outside the workspace, pinning `rightkit-overlay-win =0.1.5` exactly. It builds
 and runs on every host, including the macOS runner, because it uses only the pure, window-free parts of
 the public API:
 
@@ -11,6 +11,7 @@ the public API:
   region wins) and `device_regions` (rounded outwards, degenerate regions skipped).
 - Paths and layout: `rounded_rect_path`, `parse_svg_path`, `transform_path`, `bar_rects` with `BarStyle`.
 - Painting into an offscreen `PaintCtx` (`fill_rounded_rect`, `pixel`, `logical_size`, `clear`).
+- The AI answer layout (`response_layout::excerpt`, moved from `rightkit-launcher` in 0.1.5) keeps a short answer's text.
 - `OverlayWindow::create` refusing an empty name with `InvalidConfig` on every host, and, off Windows,
   refusing a valid config with `Unsupported`.
 

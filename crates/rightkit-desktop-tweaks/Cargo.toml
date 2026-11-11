@@ -1,9 +1,9 @@
 [package]
 name = "rightkit-desktop-tweaks"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.98.0"
-description = "Desktop tweaks: the Windows global keyboard layer with Mac-style editing shortcuts, screenshot hot keys, hook hub and key injection."
+description = "Desktop tweaks for Windows: Mac-style editing shortcuts (left Alt as Ctrl, terminal-aware) on the rightkit-hotkeys hook hub, with tagged key injection."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
@@ -15,5 +15,5 @@ path = "src/lib.rs"
 
 [target.'cfg(windows)'.dependencies]
 rightkit-automation = { version = "0.6.4", path = "../rightkit-automation" }
-rightkit-hotkeys = { version = "0.1.2", path = "../rightkit-hotkeys" }
+rightkit-hotkeys = { version = "0.1.4", path = "../rightkit-hotkeys" }
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }

@@ -101,7 +101,7 @@ async fn execute_skillopt_epoch(
     State(state): State<DaemonState>,
     Path(id): Path<String>,
     headers: HeaderMap,
-    Json(body): Json<rightkit_adapt::SkillOptimizationEpochInput>,
+    Json(body): Json<rightkit_agent_learning::SkillOptimizationEpochInput>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     enforce_trusted_source_authority(&headers)?;
     require_license_feature(&state, "evolution")?;
@@ -129,7 +129,7 @@ async fn propose_skillopt_candidate(
     State(state): State<DaemonState>,
     Path(id): Path<String>,
     headers: HeaderMap,
-    Json(body): Json<rightkit_adapt::SkillOptimizationProposalInput>,
+    Json(body): Json<rightkit_agent_learning::SkillOptimizationProposalInput>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     enforce_trusted_source_authority(&headers)?;
     require_license_feature(&state, "evolution")?;
@@ -201,14 +201,14 @@ async fn list_skillopt_rejected_edits(
 
 /// A missing file is an empty store; a file that does not parse is set aside (`<name>.damaged-<time>`) before the empty
 /// store is returned, so the next save cannot overwrite the only copy.
-pub(crate) fn load_skillopt_store(path: &FsPath) -> rightkit_adapt::SkillOptimizationStore {
-    crate::store_write::load_or_set_aside::<rightkit_adapt::SkillOptimizationStore>(path)
+pub(crate) fn load_skillopt_store(path: &FsPath) -> rightkit_agent_learning::SkillOptimizationStore {
+    crate::store_write::load_or_set_aside::<rightkit_agent_learning::SkillOptimizationStore>(path)
         .unwrap_or_default()
 }
 
 fn persist_skillopt_store(
     state: &DaemonState,
-    store: &rightkit_adapt::SkillOptimizationStore,
+    store: &rightkit_agent_learning::SkillOptimizationStore,
 ) -> Result<(), StatusCode> {
     let Some(path) = state.skillopt_store_path.as_deref() else {
         return Ok(());

@@ -7,10 +7,10 @@
 
 use std::path::Path;
 
-use rightkit_adapt_taste::model_boundary::{
+use rightkit_adapt::model_boundary::{
     DeterministicProposalBindingV1, ModelExtractionProposal, ModelProposalError,
 };
-use rightkit_adapt_taste::proposal_state::{
+use rightkit_adapt::proposal_state::{
     ProposalPlanStore, ProposalPlanV1, ProposalRisk, ProposalStateError, ProposalVerificationV1,
 };
 use serde::{Deserialize, Serialize};
@@ -71,12 +71,10 @@ pub fn execute_adapt_proposal_plan(
                 .bind_deterministically(&deterministic_binding)
                 .map_err(AdaptProposalServiceError::ModelBinding)?;
             let risk = match payload.authority_effect {
-                rightkit_adapt_taste::authority::AuthorityEffect::Neutral => ProposalRisk::Low,
-                rightkit_adapt_taste::authority::AuthorityEffect::Restrictive => {
-                    ProposalRisk::Medium
-                }
-                rightkit_adapt_taste::authority::AuthorityEffect::PermissionExpanding
-                | rightkit_adapt_taste::authority::AuthorityEffect::SecurityWeakening => {
+                rightkit_adapt::authority::AuthorityEffect::Neutral => ProposalRisk::Low,
+                rightkit_adapt::authority::AuthorityEffect::Restrictive => ProposalRisk::Medium,
+                rightkit_adapt::authority::AuthorityEffect::PermissionExpanding
+                | rightkit_adapt::authority::AuthorityEffect::SecurityWeakening => {
                     ProposalRisk::High
                 }
             };

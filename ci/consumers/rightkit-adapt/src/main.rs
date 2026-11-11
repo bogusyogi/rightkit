@@ -1,43 +1,34 @@
-// rightkit-adapt 0.1.0 consumed by exact registry pin: the evaluation gate and the proposal store over an
-// in-memory agent database. No files are written.
-use rightkit_adapt::{EvalEvidence, EvalGate, GateOutcome, ProposalStore};
-use rightkit_agent_engine_storage::Storage;
-use std::sync::Arc;
+//! Registry consumer for rightkit-adapt 0.2.0 (Pulse's governed learning, `rightkit-adapt-taste` until
+//! 0.1.2): builds against the published API only.
+use rightkit_adapt::canonical::{
+    derive_preference_id, sha256_canonical, to_canonical_json, PREFERENCE_ID_PREFIX,
+};
 
 fn check(ok: bool, what: &str) {
-    if ok {
-        println!("ok: {what}");
-    } else {
+    if !ok {
         eprintln!("FAIL: {what}");
         std::process::exit(1);
     }
+    println!("ok: {what}");
 }
 
 fn main() {
-    let weak = EvalEvidence {
-        train_pass_rate_pct: 10.0,
-        heldout_pass_rate_pct: 10.0,
-        safety_pass_rate_pct: 10.0,
-        cost_ratio_to_baseline: 5.0,
-        latency_ratio_to_baseline: 5.0,
-        pass_rate_pct: 10.0,
-        regression_count: 3,
-        new_untested_capability_requested: false,
-        total_runs: 1,
-        expected_run_count_min: 10,
-    };
-    let outcome = EvalGate::new().evaluate(&weak);
     check(
-        !matches!(outcome, GateOutcome::Proceed { .. }),
-        "weak evidence does not proceed",
+        to_canonical_json(&serde_json::json!({"b": 2, "a": 1})) == r#"{"a":1,"b":2}"#,
+        "canonical JSON sorts keys",
     );
-    let storage = Arc::new(Storage::open_in_memory().expect("in-memory storage"));
-    let store = ProposalStore::new(storage);
+    let a = derive_preference_id("global", "style", "Prefer short answers");
     check(
-        store
-            .list_pending_review()
-            .map(|p| p.is_empty())
-            .unwrap_or(false),
-        "no pending proposals at start",
+        a == derive_preference_id("global", "style", "Prefer short answers"),
+        "preference ids are deterministic",
     );
+    check(
+        a.starts_with(PREFERENCE_ID_PREFIX),
+        "preference ids carry the published prefix",
+    );
+    check(
+        sha256_canonical(&serde_json::json!(1)).len() >= 64,
+        "canonical digests are sha256 hex",
+    );
+    println!("rightkit-adapt consumer: all checks passed");
 }

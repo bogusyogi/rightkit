@@ -6,6 +6,8 @@ Package names are final, after cross-app merging (see master plan in RightKit `d
 
 ## Summary
 
+Corrected again 2026-11-11 (`docs/audits/2026-11-11-shape-matrix/reports/pulse-crates-redraw.md`): the Windows launcher panel goes to `rightkit-launcher-win` and the core stays `rightkit-launcher`; the notch drawing core (`render.rs`, `layout.rs`, `motion.rs`, `card.rs`) to `rightkit-notch-ui`, where it already is, instead of `rightkit-overlay-win`; `keys.rs` to `rightkit-desktop-tweaks` (the shortcut layer; its hook hub is `rightkit-hotkeys`); the Mac conveniences and the Finder extension to the planned Swift module `RightKitDesktopTweaks` instead of the Windows crate. Line counts are `wc -l` of the moved files; per-app totals are unchanged.
+
 Corrected 2026-11-11 by the shape review (`docs/audits/2026-11-11-shape-matrix/reports/library-and-swift-mapping-redraw.md`): nothing is planned into `RightKitUI` (settings and app entry are app code), and the Notch view snapshots stay with the app; `RightKitHubQA` keeps only the Hub fixtures, renderer and AX tour, which are Hub QA tooling like the three fakes it already holds. Totals below are recomputed from the corrected rows; the per-file list in the app repo was not changed here.
 
 | Action | Meaning | Files | Lines |
@@ -57,12 +59,13 @@ Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **655,778 
 | `rightkit-clipboard-history` | crate | NEW | clipboard history: capture, detect, images, paste, seal, search, strip, shelf, snippet expansion | 18 | 12,760 | `mac/Notch/Sources/Conveniences/`, `windows/src/`, `windows/src/clip_paste/` +1 dirs |
 | `rightkit-context` | crate | NEW | context engine: protocol, client, provider SDK, federation, budget/lanes, runtime, schemas, hooks | 187 | 95,959 | `membrane/engine/`, `membrane/engine/crates/membrane/`, `membrane/engine/crates/membrane-client/` +26 dirs |
 | `rightkit-context` | crate | NEW | host side of context engine | 5 | 2,552 | `engine/src/`, `mac/Notch/Sources/System/`, `windows/src/` |
-| `rightkit-desktop-tweaks` | crate | NEW | Finder cut/paste, path field, window closer, dock-click minimize, window maximizer, event tap hub (Swift + Win) | 15 | 2,032 | `mac/Notch/Sources/Conveniences/`, `mac/Notch/Sources/Conveniences/Windows/` |
-| `rightkit-desktop-tweaks` | crate | NEW | Finder sync extension | 1 | 136 | `mac/Notch/FinderExtension/` |
+| `RightKitDesktopTweaks` | Swift | NEW | Finder cut/paste, path field, window closer, dock-click minimize, window maximizer, event tap hub (Swift twin of rightkit-desktop-tweaks; planned module) | 15 | 2,032 | `mac/Notch/Sources/Conveniences/`, `mac/Notch/Sources/Conveniences/Windows/` |
+| `RightKitDesktopTweaks` | Swift | NEW | Finder sync extension | 1 | 136 | `mac/Notch/FinderExtension/` |
 | `rightkit-disk-cleanup` | crate | NEW | bounded metadata scans, cleanup plans/rules w/ undo journal, duplicates, folder growth, snapshots, storage browser, media compression | 27 | 22,352 | `core/src/`, `engine/src/`, `engine/src/journal/` |
 | `rightkit-disk-cleanup` | crate | NEW | tests | 6 | 2,694 | `core/tests/` |
 | `rightkit-engine-host` | crate | NEW | engine binary framework: sidecar + headless CLI modes, command registration, contract export & TS codegen, human/JSON presentation, engine client | 12 | 8,909 | `core/src/`, `core/src/ipc/`, `engine/src/` +1 dirs |
-| `rightkit-launcher` | crate | NEW | command launcher: calculator, dictionary, files, notes, rates, snippets, commands (Win32 + Swift) | 49 | 22,237 | `mac/Notch/Sources/Launcher/`, `windows/src/` |
+| `rightkit-launcher` | crate | NEW | command launcher core: calculator, dictionary, files, notes, rates, commands, config (Win32 core; Mac launcher home open) | 45 | 15,003 | `mac/Notch/Sources/Launcher/`, `windows/src/` |
+| `rightkit-launcher-win` | crate | NEW | Windows launcher panel: search window, snippet expansion, Store apps, handover overlay (product pages from the host) | 4 | 7,234 | `windows/src/` |
 | `rightkit-memory` | crate | NEW | durable memory store (Cortex): scopes, identity, telemetry | 34 | 14,843 | `membrane/engine/crates/cortex-core/`, `membrane/engine/crates/cortex-core/src/`, `membrane/engine/crates/cortex-store/` +1 dirs |
 | `rightkit-mesh` | crate | NEW | device mesh (iroh): link, device circle, join tokens, relay & mailbox/admission, FFI for iOS/Android (already named rightkit-mesh but lives in app repo: move & publish) | 53 | 28,747 | `android/meshlink/`, `android/meshlink/src/main/kotlin/dev/orthic/meshlink/`, `core/src/devicelink/` +16 dirs |
 | `rightkit-mesh` | crate | NEW | device link module glue | 6 | 1,754 | `core/src/devicelink/`, `core/src/devicelink/transport/` |
@@ -101,7 +104,8 @@ Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **655,778 
 | `rightkit-fs` | crate | EXTEND | native metadata adapters, bulk dir reads, volume identity, account home | 6 | 1,653 | `core/src/`, `core/src/platform/` |
 | `rightkit-identity` | crate | EXTEND | device identity & short-code pairing | 2 | 1,360 | `core/src/devicelink/` |
 | `rightkit-job-queue` | crate | EXTEND | activity leases | 1 | 63 | `engine/src/` |
-| `rightkit-overlay-win` | crate | EXTEND | Win32 notch surface toolkit: render, text layout, motion, cards, alerts, tool wheel | 24 | 20,798 | `mac/Notch/Sources/Conveniences/`, `windows/src/` |
+| `rightkit-overlay-win` | crate | EXTEND | Win32 notch surface toolkit: text layout, canvas, alerts, answer card, tool wheel | 20 | 13,608 | `mac/Notch/Sources/Conveniences/`, `windows/src/` |
+| `rightkit-notch-ui` | crate | EXTEND | notch drawing core: geometry, spring motion, hover card model, software renderer (cells from the host) | 4 | 7,190 | `windows/src/` |
 | `rightkit-overlay-win` | crate | EXTEND | native Win32 notch app host: message loop, hub bridge & launch, lifecycle, placement, RAII, engine client | 8 | 10,429 | `windows/src/` |
 | `rightkit-record` | crate | EXTEND | screenshots via WGC | 3 | 4,656 | `windows/src/` |
 | `rightkit-spend` | crate | EXTEND | per-project spend budgets | 3 | 1,655 | `core/src/`, `membrane/engine/crates/membrane-core/src/` |
@@ -119,7 +123,8 @@ Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **655,778 
 | `rightkit-crash` | crate | ADOPT | crash | 2 | 227 | `core/src/`, `windows/src/` |
 | `rightkit-file-watch` | crate | ADOPT | watch | 1 | 328 | `engine/src/` |
 | `rightkit-fsindex` | crate | ADOPT | disk index | 1 | 2,980 | `engine/src/` |
-| `rightkit-hotkeys` | crate | ADOPT | hotkeys | 2 | 1,798 | `windows/src/` |
+| `rightkit-hotkeys` | crate | ADOPT | hotkeys | 1 | 928 | `windows/src/` |
+| `rightkit-desktop-tweaks` | crate | ADOPT | Mac-style shortcut layer (left Alt as Ctrl) on the rightkit-hotkeys hook hub | 1 | 870 | `windows/src/` |
 | `rightkit-logs` | crate | ADOPT | diag | 2 | 845 | `engine/src/`, `windows/src/` |
 | `rightkit-send` | crate | ADOPT | nearby sharing glue & UI | 10 | 9,261 | `core/src/`, `engine/src/`, `mac/Notch/Sources/Sharing/` +1 dirs |
 | `rightkit-tauri-shell` | crate | ADOPT | autostart & update | 2 | 1,640 | `windows/src/` |

@@ -1,15 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
-- Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
-- Removed the `fake-membrane` test-double binary and `tests/membrane_fake_binary.rs` (fake, not end to end).
+- The name now holds the memory engine: the crate re-exports `rightkit-memory-core` 0.1.1 at its root and `rightkit-memory-store` 0.1.1 as `store`. It has no code of its own.
+- Breaking: the client that was published as `rightkit-memory` 0.1.x (the `MemoryBackend` over the membrane CLI, screening, the in-memory store and the `agent_host` modules) is now `rightkit-memory-client` 0.1.0, unchanged apart from using the engine's `MemoryTier` and `MemoryEntry`. Depend on it and replace `rightkit_memory::` with `rightkit_memory_client::`.
+- Taken on the recommended option of the 2026-11-11 shape review, pending the owner's confirmation.
 
-## 0.1.1
+## 0.1.1 and earlier
 
-- Add `agent_host` feature: modules api_memright, blueprint_tools, memory, memory_provenance, memory_save_tool (moved from an agent host binary).
-
-## 0.1.0 (unreleased)
-
-- Synced with CodeRight: the adaptive retrieval router (`retriever`: bandit, tier router, `RecallCandidate`, `curate_recall_candidates`) and `MemoryStore::as_recall_candidates` are removed; the membrane owns retrieval and this crate ships no embedder.
-- First RightKit release, moved from `coderight-memory` (engine).
+Published as CodeRight's memory client; see `rightkit-memory-client`.

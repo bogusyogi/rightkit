@@ -4807,7 +4807,7 @@
   "wave": 3,
   "tier": "public"
  },
- "rightkit-desktop-tweaks": {
+ "RightKitDesktopTweaks": {
   "repos": {
    "pulse": 2168
   },
@@ -4823,7 +4823,7 @@
    "Finder sync extension": [
     "pulse"
    ],
-   "Finder cut/paste, path field, window closer, dock-click minimize, window maximizer, event tap hub (Swift + Win)": [
+   "Finder cut/paste, path field, window closer, dock-click minimize, window maximizer, event tap hub (Swift twin of rightkit-desktop-tweaks)": [
     "pulse"
    ]
   },
@@ -4832,6 +4832,27 @@
   },
   "wave": 3,
   "tier": "public"
+ },
+ "rightkit-desktop-tweaks": {
+  "repos": {
+   "pulse": 870
+  },
+  "loc": 870,
+  "files": 1,
+  "actions": {
+   "ADOPT": 870
+  },
+  "merged": [],
+  "caps": {
+   "Mac-style shortcut layer (left Alt as Ctrl) on the rightkit-hotkeys hook hub": [
+    "pulse"
+   ]
+  },
+  "ext": {
+   ".rs": 870
+  },
+  "wave": 0,
+  "tier": "existing"
  },
  "RightKitUpdate": {
   "repos": {
@@ -4887,18 +4908,18 @@
  },
  "rightkit-overlay-win": {
   "repos": {
-   "pulse": 31227
+   "pulse": 24037
   },
-  "loc": 31227,
-  "files": 32,
+  "loc": 24037,
+  "files": 28,
   "actions": {
-   "EXTEND": 31227
+   "EXTEND": 24037
   },
   "merged": [
    "app-shell"
   ],
   "caps": {
-   "Win32 notch surface toolkit: render, text layout, motion, cards, alerts, tool wheel": [
+   "Win32 notch surface toolkit: text layout, canvas, alerts, answer card, tool wheel": [
     "pulse"
    ],
    "native Win32 notch app host: message loop, hub bridge & launch, lifecycle, placement, RAII, engine client": [
@@ -4907,7 +4928,28 @@
   },
   "ext": {
    ".swift": 1408,
-   ".rs": 29819
+   ".rs": 22629
+  },
+  "wave": 1,
+  "tier": "existing"
+ },
+ "rightkit-notch-ui": {
+  "repos": {
+   "pulse": 7190
+  },
+  "loc": 7190,
+  "files": 4,
+  "actions": {
+   "EXTEND": 7190
+  },
+  "merged": [],
+  "caps": {
+   "notch drawing core: geometry, spring motion, hover card model, software renderer (cells from the host)": [
+    "pulse"
+   ]
+  },
+  "ext": {
+   ".rs": 7190
   },
   "wave": 1,
   "tier": "existing"
@@ -4935,74 +4977,129 @@
  },
  "rightkit-launcher": {
   "repos": {
-   "pulse": 22237
+   "pulse": 15003
   },
-  "loc": 22237,
-  "files": 49,
+  "loc": 15003,
+  "files": 45,
   "actions": {
-   "NEW": 22237
+   "NEW": 15003
   },
   "merged": [],
   "caps": {
-   "command launcher: calculator, dictionary, files, notes, rates, snippets, commands (Win32 + Swift)": [
+   "command launcher core: calculator, dictionary, files, notes, rates, commands, config (Win32 core; Mac launcher home open)": [
     "pulse"
    ]
   },
   "ext": {
    ".swift": 12919,
-   ".rs": 9318
+   ".rs": 2084
+  },
+  "wave": 3,
+  "tier": "public"
+ },
+ "rightkit-launcher-win": {
+  "repos": {
+   "pulse": 7234
+  },
+  "loc": 7234,
+  "files": 4,
+  "actions": {
+   "NEW": 7234
+  },
+  "merged": [],
+  "caps": {
+   "Windows launcher panel: search window, snippet expansion, Store apps, handover overlay (product pages from the host)": [
+    "pulse"
+   ]
+  },
+  "ext": {
+   ".rs": 7234
   },
   "wave": 3,
   "tier": "public"
  },
  "rightkit-memory": {
   "repos": {
-   "pulse": 14843,
-   "coderight": 9759
+   "pulse": 14843
   },
-  "loc": 24602,
-  "files": 66,
+  "loc": 14843,
+  "files": 34,
   "actions": {
-   "NEW": 24602
+   "NEW": 14843
   },
   "merged": [],
   "caps": {
    "durable memory store (Cortex): scopes, identity, telemetry": [
     "pulse"
-   ],
-   "adaptive memory retrieval & backend (over context engine)": [
-    "coderight"
    ]
   },
   "ext": {
    ".toml": 95,
-   ".rs": 24507
+   ".rs": 14748
+  },
+  "wave": 2,
+  "tier": "public"
+ },
+ "rightkit-memory-client": {
+  "repos": {
+   "coderight": 9759
+  },
+  "loc": 9759,
+  "files": 32,
+  "actions": {
+   "NEW": 9759
+  },
+  "merged": [],
+  "caps": {
+   "memory backend & membrane client (over the memory engine)": [
+    "coderight"
+   ]
+  },
+  "ext": {
+   ".rs": 9759
   },
   "wave": 2,
   "tier": "public"
  },
  "rightkit-adapt": {
   "repos": {
-   "pulse": 15823,
-   "coderight": 8073
+   "pulse": 15823
   },
-  "loc": 23896,
-  "files": 69,
+  "loc": 15823,
+  "files": 38,
   "actions": {
-   "NEW": 23896
+   "NEW": 15823
   },
   "merged": [],
   "caps": {
    "governed behavioural learning (taste + insights)": [
     "pulse"
-   ],
+   ]
+  },
+  "ext": {
+   ".toml": 35,
+   ".rs": 15788
+  },
+  "wave": 2,
+  "tier": "public"
+ },
+ "rightkit-agent-learning": {
+  "repos": {
+   "coderight": 8073
+  },
+  "loc": 8073,
+  "files": 31,
+  "actions": {
+   "NEW": 8073
+  },
+  "merged": [],
+  "caps": {
    "post-session learning pipeline": [
     "coderight"
    ]
   },
   "ext": {
-   ".toml": 35,
-   ".rs": 23861
+   ".rs": 8073
   },
   "wave": 2,
   "tier": "public"
@@ -5112,13 +5209,13 @@
  },
  "rightkit-hotkeys": {
   "repos": {
-   "pulse": 1798,
+   "pulse": 928,
    "heardright": 580
   },
-  "loc": 2378,
-  "files": 5,
+  "loc": 1508,
+  "files": 4,
   "actions": {
-   "ADOPT": 2378
+   "ADOPT": 1508
   },
   "merged": [],
   "caps": {
@@ -5130,7 +5227,7 @@
    ]
   },
   "ext": {
-   ".rs": 2378
+   ".rs": 1508
   },
   "wave": 0,
   "tier": "existing"

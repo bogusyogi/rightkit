@@ -10,7 +10,9 @@ pub mod detect;
 pub mod host;
 #[cfg(windows)]
 pub mod img;
-pub mod json;
+/// Bounded JSON reading: the launcher core's one copy (`rightkit_launcher::json`), re-exported
+/// under its old path.
+pub use rightkit_launcher::json;
 pub mod model;
 #[cfg(windows)]
 pub mod paste;

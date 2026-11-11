@@ -6440,37 +6440,31 @@
      "pulse": 15823,
      "coderight": 8073
     },
-    "basis": "rightkit-adapt is CodeRight's coderight-learning crate; rightkit-adapt-taste is Pulse's membrane-adapt",
+    "basis": "Pulse's governed behavioural learning (membrane-adapt) under the name (0.2.0, branch); CodeRight's learning moved to rightkit-agent-learning",
     "referenceApp": "pulse",
-    "shape": "wrong",
-    "shapeReason": "Two unrelated subsystems under one name with no shared type and no dependency between them; the Pulse one (the reference) has the suffixed name.",
+    "shape": "gaps",
+    "shapeReason": "Since 0.2.0 (branch) the name holds the reference: Pulse's governed learning (taste and insights), the code of rightkit-adapt-taste unchanged; rightkit-adapt-taste 0.1.2 re-exports it for one release. CodeRight's post-session learning, which held the name and shared no type with it, is rightkit-agent-learning. Remaining items are gaps.",
     "apps": {
      "pulse": {
       "fit": "fits",
-      "note": "adapt-taste is its code unchanged (9,686 of 10,046 distinctive lines)"
+      "note": "its membrane-adapt code unchanged; Pulse pins rightkit-adapt-taste, which re-exports this crate"
      },
      "coderight": {
-      "fit": "gaps",
-      "note": "learning crate held verbatim; bin-side learning/* and adapt_application_host.rs are not in the package"
+      "fit": "n/a",
+      "note": "its learning is rightkit-agent-learning (plan corrected)"
      }
     },
     "boundary": [
-     "three Proposal types: rightkit-adapt types::Proposal, proposals::Proposal (exported as WorkflowProposal), adapt-taste proposal.rs",
-     "two in-memory proposal stores inside rightkit-adapt (store.rs LearningProposalStore, proposal_store.rs ProposalStore)",
-     "harness_radar.rs (532 lines) is CodeRight's product backlog feed",
-     "skill_opt, skill_synthesis, meta_skill, skill_bundle are agent-skill optimisation, closer to rightkit-agent-skills",
-     "eval_gate name used in rightkit-adapt and rightkit-memory-core for different things",
-     "CodeRight reaches Pulse's adapt through membrane CLI calls in rightkit-memory/src/membrane.rs:229-256"
+     "eval_gate names different things here and in rightkit-memory-core"
     ],
     "actions": [
-     "rename rightkit-adapt-taste to rightkit-adapt (Pulse governed learning is the reference)",
-     "move CodeRight learning to its own crate (for example rightkit-agent-learning) or into rightkit-agent-skills",
-     "move harness_radar back to CodeRight or to a neutral watch-list crate",
-     "collapse the two proposal stores"
+     "Pulse depends on rightkit-adapt instead of rightkit-adapt-taste; then drop the rightkit-adapt-taste name",
+     "owner to confirm the Pulse-crates redraw",
+     "publish 0.2.0"
     ],
     "depth": "deep",
     "confidence": "high",
-    "source": "matrix-rows-context-tooling.json"
+    "source": "matrix-rows-context-tooling.json, matrix-rows-zz-redraws.json"
    }
   },
   {
@@ -6510,23 +6504,23 @@
     },
     "basis": "family verdict of rightkit-adapt",
     "referenceApp": "pulse",
-    "shape": "wrong",
-    "shapeReason": "Two unrelated subsystems under one name with no shared type and no dependency between them; the Pulse one (the reference) has the suffixed name.",
+    "shape": "gaps",
+    "shapeReason": "Since 0.2.0 (branch) the name holds the reference: Pulse's governed learning (taste and insights), the code of rightkit-adapt-taste unchanged; rightkit-adapt-taste 0.1.2 re-exports it for one release. CodeRight's post-session learning, which held the name and shared no type with it, is rightkit-agent-learning. Remaining items are gaps.",
     "apps": {
      "pulse": {
       "fit": "fits",
-      "note": "adapt-taste is its code unchanged (9,686 of 10,046 distinctive lines)"
+      "note": "its membrane-adapt code unchanged; Pulse pins rightkit-adapt-taste, which re-exports this crate"
      },
      "coderight": {
-      "fit": "gaps",
-      "note": "learning crate held verbatim; bin-side learning/* and adapt_application_host.rs are not in the package"
+      "fit": "n/a",
+      "note": "its learning is rightkit-agent-learning (plan corrected)"
      }
     },
     "boundary": [],
     "actions": [],
     "depth": "deep",
     "confidence": "high",
-    "source": "matrix-rows-context-tooling.json",
+    "source": "matrix-rows-context-tooling.json, matrix-rows-zz-redraws.json",
     "inheritedFrom": "rightkit-adapt"
    }
   },
@@ -7889,6 +7883,65 @@
    }
   },
   {
+   "package": "rightkit-agent-learning",
+   "kind": "cargo",
+   "dir": "crates/rightkit-agent-learning",
+   "class": "tool",
+   "domain": "other",
+   "rowsOwned": [],
+   "version": "0.1.0",
+   "registryLatest": null,
+   "published": "no",
+   "pins": {
+    "heardright": "unused",
+    "viewright": "unused",
+    "pulse": "unused",
+    "coderight": "unused",
+    "genright": "unused",
+    "mailright": "unused",
+    "scraperight": "unused",
+    "cutright": "unused",
+    "postright": "unused",
+    "legion": "unused"
+   },
+   "plan": {},
+   "review": {
+    "package": "rightkit-agent-learning",
+    "kind": "cargo",
+    "family": "Redraws on the branch, 2026-11-11",
+    "existsAs": [
+     "crates/rightkit-agent-learning"
+    ],
+    "feeds": {
+     "coderight": 8073
+    },
+    "basis": "CodeRight's coderight-learning, published as rightkit-adapt 0.1.x, renamed (0.1.0, branch); harness radar moved to rightkit-agent-server",
+    "referenceApp": "coderight",
+    "shape": "gaps",
+    "shapeReason": "New name for CodeRight's post-session learning, which was published as rightkit-adapt 0.1.x; its harness-radar backlog feed is a private module of rightkit-agent-server, its only user. The crate holds one capability; what remains is gaps inside it.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "learning crate held verbatim; bin-side learning/* and adapt_application_host.rs are not in the package"
+     }
+    },
+    "boundary": [
+     "two proposal stores for two Proposal types: store.rs LearningProposalStore (in memory, types::Proposal) and proposal_store.rs ProposalStore (SQLite, proposals::Proposal); ProposalStore's insert repeats rightkit-agent-engine-storage WorkflowRepository::insert_learning_proposal, which sits behind that crate's workflow feature",
+     "skill_opt, skill_synthesis, meta_skill and skill_bundle are agent-skill optimisation, closer to rightkit-agent-skills"
+    ],
+    "actions": [
+     "one Proposal type and one store (the durable one through WorkflowRepository, enabling engine-storage's workflow feature here)",
+     "move skill optimisation to rightkit-agent-skills or say why not",
+     "move CodeRight's bin-side learning and adapt_application_host.rs in",
+     "owner to confirm the Pulse-crates redraw",
+     "publish 0.1.0"
+    ],
+    "depth": "deep",
+    "confidence": "medium",
+    "source": "matrix-rows-zz-redraws.json"
+   }
+  },
+  {
    "package": "rightkit-agent-local-models",
    "kind": "cargo",
    "dir": "crates/rightkit-agent-local-models",
@@ -8850,10 +8903,10 @@
      "crates/rightkit-app-host"
     ],
     "feeds": {},
-    "basis": "seam for companion crates moved out of Pulse",
+    "basis": "optional seam for five companion crates moved out of Pulse; read in full on 2026-11-11, no duplicate found",
     "referenceApp": "pulse",
-    "shape": "wrong",
-    "shapeReason": "A process-global host registry created by moving Pulse code; not a capability every desktop app adopts, so it should not sit in the mandatory set. Low confidence: README only.",
+    "shape": "gaps",
+    "shapeReason": "Read in full: one trait (AppHost, every method defaulted: state folder, product name, profile-aware home and environment, published settings and state) and a process-wide install, read by rightkit-chat-bridge, rightkit-ai-accounts, rightkit-owner-approvals, rightkit-remote-gateway and rightkit-web-session. It repeats nothing: rightkit-tauri-shell, rightkit-instance and rightkit-app-settings keep no process-wide host, rightkit-agent-config's state_root computes an agent app's root from rightkit-roots (a host returns it from AppHost::state_root), and the home comes from rightkit-fs profile_home. Optional, not mandatory: an app needs it only with those crates, and it is not on the mandatory set. Remaining items are gaps.",
     "apps": {
      "heardright": {
       "fit": "n/a",
@@ -8865,7 +8918,7 @@
      },
      "pulse": {
       "fit": "fits",
-      "note": "source of the seam (not verified at call sites)"
+      "note": "source of the seam; the five companion crates read it"
      },
      "coderight": {
       "fit": "n/a",
@@ -8873,15 +8926,16 @@
      }
     },
     "boundary": [
-     "overlaps agent_config::state_root / set_app_name in rightkit-app-settings (suspicion)"
+     "per-crate host traits remain beside it (rightkit-agent-gateway GatewayHost, rightkit-launcher, rightkit-clipboard-history, rightkit-notch-ui): each holds that crate's own services"
     ],
     "actions": [
-     "decide whether it is mandatory",
-     "reconcile with agent_config state root"
+     "keep it out of the mandatory set; list it as optional for apps embedding the companion crates",
+     "owner to confirm the Pulse-crates redraw",
+     "publish 0.1.1"
     ],
-    "depth": "light",
-    "confidence": "low",
-    "source": "matrix-rows-foundation-shell-ui.json"
+    "depth": "deep",
+    "confidence": "medium",
+    "source": "matrix-rows-foundation-shell-ui.json, matrix-rows-zz-redraws.json"
    }
   },
   {
@@ -12634,28 +12688,26 @@
     "feeds": {
      "pulse": 2032
     },
-    "basis": "Pulse windows/src/keys.rs (planned for rightkit-hotkeys); none of the planned Mac Swift",
+    "basis": "Mac-style editing shortcuts on Windows (Pulse keys.rs) as one handler on the rightkit-hotkeys hook hub (0.2.0, branch); the Mac tweaks are the planned Swift module RightKitDesktopTweaks",
     "referenceApp": "pulse",
-    "shape": "wrong",
-    "shapeReason": "The crate holds the Windows keyboard hook wired to screenshots, snippets, wheel and strip, not the planned Mac Finder and window tweaks.",
+    "shape": "gaps",
+    "shapeReason": "Since 0.2.0 (branch) the crate holds only the shortcut layer (left Alt as Ctrl, terminal-aware), configured with Shortcuts and registered on rightkit_hotkeys::windows::hub; the hub (one hook, ordered handlers, modifier and swallow bookkeeping) moved to rightkit-hotkeys 0.1.4 and the launcher type-ahead to rightkit-launcher-win. Pulse's screenshot, snippet, wheel, burst and strip wiring is the app's own hub handlers. The plan sends Pulse's keys.rs here and its Mac conveniences to a planned RightKitDesktopTweaks. Remaining items are gaps.",
     "apps": {
      "pulse": {
-      "fit": "wrong",
-      "note": "Mac code has no home; Windows crate couples unrelated features"
+      "fit": "gaps",
+      "note": "Windows shortcut layer is its code; Pulse registers its screenshot, snippet, wheel and burst handlers on the hub when it adopts; Mac tweaks have no module yet"
      }
     },
-    "boundary": [
-     "services.rs encodes Pulse's wiring (screenshot, snippets, wheel, burst, strip)",
-     "Hook hub belongs in rightkit-hotkeys"
-    ],
+    "boundary": [],
     "actions": [
-     "Move the hook hub to rightkit-hotkeys with a generic handler chain",
-     "Keep only shortcut mapping here",
-     "Create the Swift side"
+     "create the Swift module RightKitDesktopTweaks (Finder cut and paste, path field, window closer, dock-click minimise, window maximiser, Finder sync)",
+     "Pulse moves its keys.rs onto the hub and this crate",
+     "owner to confirm the Pulse-crates redraw",
+     "publish 0.2.0 with rightkit-hotkeys 0.1.4"
     ],
     "depth": "deep",
     "confidence": "medium",
-    "source": "matrix-rows-system-utilities.json"
+    "source": "matrix-rows-system-utilities.json, matrix-rows-zz-redraws.json"
    }
   },
   {
@@ -15815,38 +15867,90 @@
     "kind": "cargo",
     "family": "System utilities",
     "existsAs": [
-     "crates/rightkit-launcher"
+     "crates/rightkit-launcher",
+     "crates/rightkit-launcher-win"
     ],
     "feeds": {
      "pulse": 22237
     },
-    "basis": "Pulse's Windows launcher (panel.rs = windows/src/launcher.rs); Mac Swift twin absent",
+    "basis": "portable launcher core (calc, config, dictionary, files, notes, rates, commands, json) (0.2.0, branch); the Win32 panel is rightkit-launcher-win",
     "referenceApp": "pulse",
-    "shape": "wrong",
-    "shapeReason": "The crate is Pulse's Windows launcher product (Pulse pages, strings, data folder) rather than a launcher core; the portable logic should be split from the Win32 panel.",
+    "shape": "gaps",
+    "shapeReason": "Since 0.2.0 (branch) the crate is the portable launcher core with a host for translation, HTTPS and logging only; the Win32 panel moved to rightkit-launcher-win with Pulse's pages, readings, cleanup file and strings host-supplied; response_layout moved to rightkit-overlay-win; json is the one bounded JSON reader (clipboard-history re-exports it). Remaining items are gaps.",
     "apps": {
      "pulse": {
-      "fit": "wrong",
-      "note": "fits Pulse Windows only because it is Pulse Windows; Mac Swift (12,919 lines) has no home"
+      "fit": "gaps",
+      "note": "Windows core is its code; the Mac Swift launcher (12,919 lines) still has no home"
      }
     },
     "boundary": [
-     "panel.rs holds Pulse pages, Section::Pulse, launcherPulseCommands, %LOCALAPPDATA%\\Pulse",
-     "json.rs identical to clipboard-history's",
-     "response_layout.rs (AI answer model) does not belong here",
-     "Mac Clipboard*.swift mapped here belongs to clipboard history",
-     "Cargo description stale"
+     "Mac Clipboard*.swift mapped here belongs to clipboard history"
     ],
     "actions": [
-     "Split portable core (calc, config, notes, rates, files, commands) from the Win32 panel",
-     "Product pages and strings via host",
-     "Single json module",
-     "Move response_layout",
-     "Decide Mac: FFI to core or Swift module"
+     "decide the Mac launcher: FFI to this core or a Swift module",
+     "Pulse adopts the core and rightkit-launcher-win",
+     "owner to confirm the Pulse-crates redraw",
+     "publish 0.2.0"
     ],
     "depth": "deep",
     "confidence": "high",
-    "source": "matrix-rows-system-utilities.json"
+    "source": "matrix-rows-system-utilities.json, matrix-rows-zz-redraws.json"
+   }
+  },
+  {
+   "package": "rightkit-launcher-win",
+   "kind": "cargo",
+   "dir": "crates/rightkit-launcher-win",
+   "class": "tool",
+   "domain": "other",
+   "rowsOwned": [],
+   "version": "0.1.0",
+   "registryLatest": null,
+   "published": "no",
+   "pins": {
+    "heardright": "unused",
+    "viewright": "unused",
+    "pulse": "unused",
+    "coderight": "unused",
+    "genright": "unused",
+    "mailright": "unused",
+    "scraperight": "unused",
+    "cutright": "unused",
+    "postright": "unused",
+    "legion": "unused"
+   },
+   "plan": {},
+   "review": {
+    "package": "rightkit-launcher-win",
+    "kind": "cargo",
+    "family": "Redraws on the branch, 2026-11-11",
+    "existsAs": [
+     "crates/rightkit-launcher-win"
+    ],
+    "feeds": {
+     "pulse": 7234
+    },
+    "basis": "Pulse's Windows launcher panel (windows/src/launcher.rs and its snippets, Store and handover modules) over rightkit-launcher, with the product's pages, readings and strings from the host (0.1.0, branch)",
+    "referenceApp": "pulse",
+    "shape": "gaps",
+    "shapeReason": "New crate: the Win32 panel split from the launcher core. Pulse's seven hub pages, its Claude and Codex usage rows, its cleanup findings file, the Pulse section and the Pulse strings are the host's (PanelHost: product_name, app_section_title, app_pages, usage_rows, storage_pages, cleanup_summary); the type-ahead is a handler on the rightkit-hotkeys hook hub. Remaining items are gaps.",
+    "apps": {
+     "pulse": {
+      "fit": "gaps",
+      "note": "Pulse's launcher.rs; Pulse implements PanelHost with its pages and readings when it adopts it"
+     }
+    },
+    "boundary": [
+     "the engine method names (launcher.ask) and the ChatGPT ask row are the assistant's protocol, not host-supplied"
+    ],
+    "actions": [
+     "Pulse implements PanelHost and deletes its launcher.rs",
+     "owner to confirm the Pulse-crates redraw",
+     "publish 0.1.0"
+    ],
+    "depth": "deep",
+    "confidence": "medium",
+    "source": "matrix-rows-zz-redraws.json"
    }
   },
   {
@@ -16911,46 +17015,102 @@
     "existsAs": [
      "crates/rightkit-memory",
      "crates/rightkit-memory-core",
-     "crates/rightkit-memory-store"
+     "crates/rightkit-memory-store",
+     "crates/rightkit-memory-client"
     ],
     "feeds": {
      "pulse": 14843,
      "coderight": 9759
     },
-    "basis": "memory-core and memory-store are Pulse cortex-core and cortex-store; rightkit-memory is CodeRight's client of Pulse's membrane CLI plus its mobile in-memory store",
+    "basis": "the memory engine (Pulse's Cortex) as a facade over rightkit-memory-core and rightkit-memory-store (0.2.0, branch); CodeRight's client is rightkit-memory-client",
     "referenceApp": "pulse",
-    "shape": "wrong",
-    "shapeReason": "Not two competing engines: Pulse's engine and CodeRight's client of that engine. But the crate named rightkit-memory is the client, it does not use the engine crates' types, and it carries a dead second retrieval router.",
+    "shape": "gaps",
+    "shapeReason": "Since 0.2.0 (branch) the name holds the engine: the crate re-exports rightkit-memory-core at its root and rightkit-memory-store as store. CodeRight's client of the engine is rightkit-memory-client and uses the engine's MemoryTier and MemoryEntry (its copies deleted); the dead second retrieval router (retriever.rs) is deleted. Remaining items are gaps.",
     "apps": {
      "pulse": {
       "fit": "fits",
       "note": "memory-core and memory-store are its code unchanged"
      },
      "coderight": {
+      "fit": "n/a",
+      "note": "its client is rightkit-memory-client"
+     }
+    },
+    "boundary": [
+     "memory-core absorbed.rs and memory-store absorbed_records.rs declare SessionRecord, SessionEvent, TaskRecord, ArtifactRecord, ProvenanceRef, EventCursor and ABSORBED_SCHEMA_VERSION twice, with different field order (content hashes depend on it)",
+     "memory-store depends on rightkit-context-protocol",
+     "eval_gate names different things here and in rightkit-adapt"
+    ],
+    "actions": [
+     "one declaration of the absorbed records (store uses core's), after checking that content hashes do not change",
+     "Pulse depends on rightkit-memory (or core and store) from the registry",
+     "owner to confirm the Pulse-crates redraw",
+     "publish rightkit-memory-core 0.1.1 and rightkit-memory 0.2.0"
+    ],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-context-tooling.json, matrix-rows-zz-redraws.json"
+   }
+  },
+  {
+   "package": "rightkit-memory-client",
+   "kind": "cargo",
+   "dir": "crates/rightkit-memory-client",
+   "class": "tool",
+   "domain": "other",
+   "rowsOwned": [],
+   "version": "0.1.0",
+   "registryLatest": null,
+   "published": "no",
+   "pins": {
+    "heardright": "unused",
+    "viewright": "unused",
+    "pulse": "unused",
+    "coderight": "unused",
+    "genright": "unused",
+    "mailright": "unused",
+    "scraperight": "unused",
+    "cutright": "unused",
+    "postright": "unused",
+    "legion": "unused"
+   },
+   "plan": {},
+   "review": {
+    "package": "rightkit-memory-client",
+    "kind": "cargo",
+    "family": "Redraws on the branch, 2026-11-11",
+    "existsAs": [
+     "crates/rightkit-memory-client"
+    ],
+    "feeds": {
+     "coderight": 9759
+    },
+    "basis": "CodeRight's memory backend and membrane CLI client, published as rightkit-memory 0.1.x, renamed (0.1.0, branch); tiers and rows are rightkit-memory-core's",
+    "referenceApp": "coderight",
+    "shape": "gaps",
+    "shapeReason": "New name for CodeRight's client of the memory engine (published as rightkit-memory 0.1.x). It uses the engine's MemoryTier and MemoryEntry instead of copies, and the uncompiled second retrieval router is deleted. Remaining items are gaps.",
+    "apps": {
+     "coderight": {
       "fit": "gaps",
       "note": "backend and CLI client held; bin-side binding code (membrane_binding/*, api_memory.rs, about 3,000 lines) is in agent-server, not here"
      }
     },
     "boundary": [
-     "MemoryTier and MemoryEntry declared twice (rightkit-memory/src/backend/types.rs:76,103 and rightkit-memory-core/src/types.rs:8,26)",
-     "rightkit-memory/src/retriever.rs (486 lines) is not declared in lib.rs and duplicates memory-core routing",
      "membrane.rs is the client for context pull, blueprint, adapt and transcript commands, not only memory",
-     "membrane.rs:420-460 hard-codes Pulse.app install paths and notch-state.json",
+     "membrane.rs hard-codes Pulse.app install paths and notch-state.json",
      "store.rs is a third, in-memory BTreeMap store for mobile",
-     "agent_host feature pulls axum and four agent crates into a memory crate",
-     "memory-store depends on rightkit-context-protocol"
+     "agent_host feature pulls axum and four agent crates into a memory crate"
     ],
     "actions": [
-     "delete retriever.rs",
-     "move membrane.rs to rightkit-context-client; keep MemoryBackend trait and native backend as rightkit-memory-client or a feature of it",
-     "re-export MemoryTier/MemoryEntry from memory-core instead of redeclaring",
+     "move membrane.rs to rightkit-context-client",
      "make the membrane binary locations a host-supplied list",
-     "move agent_host modules (memory_save_tool, blueprint_tools, memory_provenance, api_memright) to rightkit-agent-server",
-     "decide whether rightkit-memory becomes a facade over core+store or is renamed"
+     "move the agent_host modules (memory_save_tool, blueprint_tools, memory_provenance, api_memright) to rightkit-agent-server",
+     "owner to confirm the Pulse-crates redraw",
+     "publish 0.1.0"
     ],
     "depth": "deep",
     "confidence": "high",
-    "source": "matrix-rows-context-tooling.json"
+    "source": "matrix-rows-zz-redraws.json"
    }
   },
   {
@@ -16983,7 +17143,8 @@
     "existsAs": [
      "crates/rightkit-memory",
      "crates/rightkit-memory-core",
-     "crates/rightkit-memory-store"
+     "crates/rightkit-memory-store",
+     "crates/rightkit-memory-client"
     ],
     "feeds": {
      "pulse": 14843,
@@ -16991,23 +17152,23 @@
     },
     "basis": "family verdict of rightkit-memory",
     "referenceApp": "pulse",
-    "shape": "wrong",
-    "shapeReason": "Not two competing engines: Pulse's engine and CodeRight's client of that engine. But the crate named rightkit-memory is the client, it does not use the engine crates' types, and it carries a dead second retrieval router.",
+    "shape": "gaps",
+    "shapeReason": "Since 0.2.0 (branch) the name holds the engine: the crate re-exports rightkit-memory-core at its root and rightkit-memory-store as store. CodeRight's client of the engine is rightkit-memory-client and uses the engine's MemoryTier and MemoryEntry (its copies deleted); the dead second retrieval router (retriever.rs) is deleted. Remaining items are gaps.",
     "apps": {
      "pulse": {
       "fit": "fits",
       "note": "memory-core and memory-store are its code unchanged"
      },
      "coderight": {
-      "fit": "gaps",
-      "note": "backend and CLI client held; bin-side binding code (membrane_binding/*, api_memory.rs, about 3,000 lines) is in agent-server, not here"
+      "fit": "n/a",
+      "note": "its client is rightkit-memory-client"
      }
     },
     "boundary": [],
     "actions": [],
     "depth": "deep",
     "confidence": "high",
-    "source": "matrix-rows-context-tooling.json",
+    "source": "matrix-rows-context-tooling.json, matrix-rows-zz-redraws.json",
     "inheritedFrom": "rightkit-memory"
    }
   },
@@ -17041,7 +17202,8 @@
     "existsAs": [
      "crates/rightkit-memory",
      "crates/rightkit-memory-core",
-     "crates/rightkit-memory-store"
+     "crates/rightkit-memory-store",
+     "crates/rightkit-memory-client"
     ],
     "feeds": {
      "pulse": 14843,
@@ -17049,23 +17211,23 @@
     },
     "basis": "family verdict of rightkit-memory",
     "referenceApp": "pulse",
-    "shape": "wrong",
-    "shapeReason": "Not two competing engines: Pulse's engine and CodeRight's client of that engine. But the crate named rightkit-memory is the client, it does not use the engine crates' types, and it carries a dead second retrieval router.",
+    "shape": "gaps",
+    "shapeReason": "Since 0.2.0 (branch) the name holds the engine: the crate re-exports rightkit-memory-core at its root and rightkit-memory-store as store. CodeRight's client of the engine is rightkit-memory-client and uses the engine's MemoryTier and MemoryEntry (its copies deleted); the dead second retrieval router (retriever.rs) is deleted. Remaining items are gaps.",
     "apps": {
      "pulse": {
       "fit": "fits",
       "note": "memory-core and memory-store are its code unchanged"
      },
      "coderight": {
-      "fit": "gaps",
-      "note": "backend and CLI client held; bin-side binding code (membrane_binding/*, api_memory.rs, about 3,000 lines) is in agent-server, not here"
+      "fit": "n/a",
+      "note": "its client is rightkit-memory-client"
      }
     },
     "boundary": [],
     "actions": [],
     "depth": "deep",
     "confidence": "high",
-    "source": "matrix-rows-context-tooling.json",
+    "source": "matrix-rows-context-tooling.json, matrix-rows-zz-redraws.json",
     "inheritedFrom": "rightkit-memory"
    }
   },
@@ -17542,28 +17704,29 @@
     "feeds": {
      "pulse": 6400
     },
-    "basis": "Pulse windows/src render, layout, motion, card (planned under overlay-win)",
+    "basis": "Pulse windows/src render, layout, motion, card; cells and card marks host-defined (0.2.0, branch); plan maps those files here",
     "referenceApp": "pulse",
-    "shape": "wrong",
-    "shapeReason": "The cell and mark set is Pulse's AI-usage product (Cell::Claude, Cell::Codex, accounts); a second app would inherit it.",
+    "shape": "gaps",
+    "shapeReason": "Since 0.2.0 (branch) the cells are the host's (Cell::new(id, glyph, section), set_shown, set_anchor for the cell a minimised notch keeps) and a card's mark is the host's glyph; Pulse's Claude, Codex, account, Send and Tools set is Pulse's own. Geometry, motion, hit-testing, the card model and the renderer are unchanged. Remaining items are gaps.",
     "apps": {
      "pulse": {
       "fit": "fits",
-      "note": "it is Pulse's notch"
+      "note": "it is Pulse's notch; Pulse defines its cells when it adopts 0.2.0"
      }
     },
     "boundary": [
-     "layout.rs:132-175 and card.rs:12-13 hard-code Claude/Codex",
      "render.rs keeps hub colour settings in process-wide atomics",
      "Windows-only renderer; Mac twin is the missing RightKitNotch"
     ],
     "actions": [
-     "Make cells and marks host-defined",
-     "Keep AI rings in Pulse or an AI-accounts UI crate"
+     "Pulse moves its cell set (CPU, disk, Claude, Codex, accounts, Send, Tools) into its own code and adopts 0.2.0",
+     "colour settings through the host instead of process-wide atomics",
+     "owner to confirm the Pulse-crates redraw",
+     "publish 0.2.0"
     ],
     "depth": "deep",
     "confidence": "high",
-    "source": "matrix-rows-system-utilities.json"
+    "source": "matrix-rows-system-utilities.json, matrix-rows-zz-redraws.json"
    }
   },
   {

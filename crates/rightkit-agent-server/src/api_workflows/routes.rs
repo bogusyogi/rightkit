@@ -847,7 +847,7 @@ async fn create_optimization(
             "baseVersionId must be a published version of workflowId",
         ));
     }
-    let proposal = rightkit_adapt::ProposalBuilder::new(req.workflow_id.clone())
+    let proposal = rightkit_agent_learning::ProposalBuilder::new(req.workflow_id.clone())
         .proposed_by(req.proposed_by)
         .change_kind(req.change_kind)
         .diff_summary(req.diff_summary)
@@ -858,9 +858,9 @@ async fn create_optimization(
         .build()
         .map_err(WorkflowApiError::bad_request)?;
     let status = match proposal.gate_outcome {
-        rightkit_adapt::GateOutcome::Proceed { .. } => "proceed",
-        rightkit_adapt::GateOutcome::Block { .. } => "blocked",
-        rightkit_adapt::GateOutcome::HoldForReview { .. } => "hold",
+        rightkit_agent_learning::GateOutcome::Proceed { .. } => "proceed",
+        rightkit_agent_learning::GateOutcome::Block { .. } => "blocked",
+        rightkit_agent_learning::GateOutcome::HoldForReview { .. } => "hold",
     };
     let proposal_json = serde_json::to_string(&proposal)
         .map_err(|error| WorkflowApiError::bad_request(error.to_string()))?;
@@ -926,18 +926,18 @@ async fn promote_optimization(
         .find_learning_proposal(&id)
         .map_err(WorkflowApiError::from)?
         .ok_or_else(|| WorkflowApiError::not_found(format!("learning proposal `{id}`")))?;
-    let proposal: rightkit_adapt::WorkflowProposal = serde_json::from_str(&proposal_json)
+    let proposal: rightkit_agent_learning::WorkflowProposal = serde_json::from_str(&proposal_json)
         .map_err(|error| WorkflowApiError::conflict(format!("invalid proposal: {error}")))?;
     if proposal.id != id
         || proposal.workflow_id != workflow_id
         || proposal_status != "proceed"
         || !matches!(
             &proposal.gate_outcome,
-            rightkit_adapt::GateOutcome::Proceed { .. }
+            rightkit_agent_learning::GateOutcome::Proceed { .. }
         )
         || !matches!(
-            rightkit_adapt::EvalGate::new().evaluate(&proposal.evidence),
-            rightkit_adapt::GateOutcome::Proceed { .. }
+            rightkit_agent_learning::EvalGate::new().evaluate(&proposal.evidence),
+            rightkit_agent_learning::GateOutcome::Proceed { .. }
         )
         || proposal.promotion.is_some()
     {
@@ -1002,7 +1002,7 @@ async fn promote_optimization(
         ));
     }
     proposal
-        .reviewed_promotion(rightkit_adapt::PromotionRecord {
+        .reviewed_promotion(rightkit_agent_learning::PromotionRecord {
             approver: actor.clone(),
             benchmark_id: req.benchmark_id.clone(),
             activation_id: activation_id.clone(),

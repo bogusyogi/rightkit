@@ -2471,21 +2471,21 @@ fn memory_store_path(storage_dir: &Path) -> std::path::PathBuf {
     storage_dir.join("memory_store.json")
 }
 
-fn read_memory_store(storage_dir: &Path) -> Result<rightkit_memory::MemoryStore, String> {
+fn read_memory_store(storage_dir: &Path) -> Result<rightkit_memory_client::MemoryStore, String> {
     let path = memory_store_path(storage_dir);
     if !path.exists() {
-        return Ok(rightkit_memory::MemoryStore::new());
+        return Ok(rightkit_memory_client::MemoryStore::new());
     }
     let raw = std::fs::read_to_string(&path).map_err(|error| error.to_string())?;
     if raw.trim().is_empty() {
-        return Ok(rightkit_memory::MemoryStore::new());
+        return Ok(rightkit_memory_client::MemoryStore::new());
     }
     serde_json::from_str(&raw).map_err(|error| error.to_string())
 }
 
 fn write_memory_store(
     storage_dir: &Path,
-    store: &rightkit_memory::MemoryStore,
+    store: &rightkit_memory_client::MemoryStore,
 ) -> Result<(), String> {
     std::fs::create_dir_all(storage_dir).map_err(|error| error.to_string())?;
     let body = serde_json::to_string_pretty(store).map_err(|error| error.to_string())?;
@@ -2502,7 +2502,7 @@ struct MemoryListRequest {
 }
 
 /// All durable memories in a scope (or every memory when `scope` is
-/// omitted). See [`rightkit_memory::MemoryStore::list`].
+/// omitted). See [`rightkit_memory_client::MemoryStore::list`].
 ///
 /// # Safety
 /// `request_json` must be null or a valid NUL-terminated UTF-8 C string.
@@ -2533,7 +2533,7 @@ struct MemoryDeleteRequest {
 
 /// Explicit user delete of one durable memory, pinned or not. Returns `true`
 /// (as `value`) if a record was actually removed. See
-/// [`rightkit_memory::MemoryStore::delete`].
+/// [`rightkit_memory_client::MemoryStore::delete`].
 ///
 /// # Safety
 /// `request_json` must be null or a valid NUL-terminated UTF-8 C string.
@@ -2623,7 +2623,7 @@ pub unsafe extern "C" fn host_mobile_memory_write(request_json: *const c_char) -
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
-    let candidate = rightkit_memory::NewMemory {
+    let candidate = rightkit_memory_client::NewMemory {
         id: request.id.clone(),
         scope: "project".into(),
         content: content.into(),

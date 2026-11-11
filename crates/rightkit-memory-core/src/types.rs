@@ -20,10 +20,29 @@ impl MemoryTier {
             MemoryTier::Semantic => 2,
         }
     }
+
+    /// The tier's wire name (`Working`, `Episodic`, `Semantic`), as serde writes it.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Working => "Working",
+            Self::Episodic => "Episodic",
+            Self::Semantic => "Semantic",
+        }
+    }
+
+    /// Reads a tier name in any letter case; `None` for anything else.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.to_ascii_lowercase().as_str() {
+            "working" => Some(Self::Working),
+            "episodic" => Some(Self::Episodic),
+            "semantic" => Some(Self::Semantic),
+            _ => None,
+        }
+    }
 }
 
 /// A single memory entry stored in the registry.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MemoryEntry {
     pub id: String,
     pub tier: MemoryTier,

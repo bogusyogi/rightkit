@@ -153,11 +153,11 @@ pub struct SynthesizeSkillBody {
 #[serde(rename_all = "camelCase")]
 pub struct CreateSkillOptRunBody {
     pub name: String,
-    pub target: rightkit_adapt::SkillOptimizationTarget,
+    pub target: rightkit_agent_learning::SkillOptimizationTarget,
     #[serde(default)]
-    pub rejected_edits: Vec<rightkit_adapt::RejectedEdit>,
+    pub rejected_edits: Vec<rightkit_agent_learning::RejectedEdit>,
     #[serde(default)]
-    pub gates: Vec<rightkit_adapt::BenchmarkGate>,
+    pub gates: Vec<rightkit_agent_learning::BenchmarkGate>,
 }
 
 #[derive(Deserialize)]

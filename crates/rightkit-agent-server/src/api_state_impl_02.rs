@@ -209,7 +209,7 @@ impl DaemonState {
     /// Attach causal provenance backed by the selected Hub memory binding.
     pub(crate) fn with_memory_provenance(
         mut self,
-        provenance: rightkit_memory::memory_provenance::MemoryProvenanceStore,
+        provenance: rightkit_memory_client::memory_provenance::MemoryProvenanceStore,
     ) -> Self {
         self.memory_provenance = provenance;
         self
@@ -218,7 +218,7 @@ impl DaemonState {
     /// Inject the already-selected sticky backend used by production startup.
     pub(crate) fn with_memory_backend(
         mut self,
-        backend: Arc<dyn rightkit_memory::backend::MemoryBackend>,
+        backend: Arc<dyn rightkit_memory_client::backend::MemoryBackend>,
     ) -> Self {
         self.memory_backend = backend;
         self
@@ -227,7 +227,7 @@ impl DaemonState {
     /// Attach the Pulse Membrane CLI backend selected at startup.
     pub(crate) fn with_membrane(
         mut self,
-        backend: Arc<dyn rightkit_memory::membrane::MembraneBackend + Send + Sync>,
+        backend: Arc<dyn rightkit_memory_client::membrane::MembraneBackend + Send + Sync>,
     ) -> Self {
         self.membrane = backend;
         self

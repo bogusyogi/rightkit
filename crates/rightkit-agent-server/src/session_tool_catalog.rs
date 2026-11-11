@@ -55,8 +55,8 @@ pub(crate) struct SessionToolRegistryRequest<'a> {
     pub(crate) lazy_tool_loading: bool,
     pub(crate) model_interface: rightkit_agent_tools::coding_tools::ModelToolInterface,
     pub(crate) memory: Option<(
-        Arc<dyn rightkit_memory::backend::MemoryBackend>,
-        rightkit_memory::memory_provenance::MemoryProvenanceStore,
+        Arc<dyn rightkit_memory_client::backend::MemoryBackend>,
+        rightkit_memory_client::memory_provenance::MemoryProvenanceStore,
         &'a str,
     )>,
 }
@@ -146,7 +146,7 @@ pub(crate) fn build_session_tool_registry_for_plugins(
     // Canonical Membrane read aliases are always available unless explicitly
     // denied. They expose only existing read operations and remain gated by
     // the per-session attested transport and registry identity at execution.
-    rightkit_memory::blueprint_tools::register(&mut registry, |name| {
+    rightkit_memory_client::blueprint_tools::register(&mut registry, |name| {
         !requested_disallowed_tools.iter().any(|tool| tool == name)
             && (filter
                 .as_ref()
@@ -170,7 +170,7 @@ pub(crate) fn build_session_tool_registry_for_plugins(
         };
         if allowed {
             registry.register(Box::new(
-                rightkit_memory::memory_save_tool::MemorySaveTool::new(
+                rightkit_memory_client::memory_save_tool::MemorySaveTool::new(
                     backend,
                     provenance,
                     workspace_root,

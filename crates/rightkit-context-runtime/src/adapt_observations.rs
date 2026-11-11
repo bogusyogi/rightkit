@@ -82,7 +82,7 @@ fn exact<T>(field: &ObservedFieldV1<T>) -> Option<&T> {
         .flatten()
 }
 fn hash(v: &impl Serialize) -> String {
-    rightkit_adapt_taste::canonical::sha256_canonical(
+    rightkit_adapt::canonical::sha256_canonical(
         &serde_json::to_value(v).expect("typed observations serialize"),
     )
 }
@@ -404,8 +404,7 @@ pub fn execute_with_catalog(
                 || ack.acknowledged_at_unix_ms == 0
                 || loaded.observed_at_unix_ms < ack.acknowledged_at_unix_ms
                 || exact(&ack.serialized_bytes).is_none()
-                || emission["task_digest"]
-                    != rightkit_adapt_taste::canonical::sha256_hex(task.as_bytes())
+                || emission["task_digest"] != rightkit_adapt::canonical::sha256_hex(task.as_bytes())
             {
                 return Err("host loading acknowledgement binding mismatch".into());
             }
@@ -431,7 +430,7 @@ pub fn execute_with_catalog(
                     record["record_id"] == c.record_id
                         && c.semantic_verified
                         && c.lifecycle_eligible
-                        && c.lifecycle_state == rightkit_adapt_taste::record::LifecycleState::Active
+                        && c.lifecycle_state == rightkit_adapt::record::LifecycleState::Active
                         && record["record_sha256"].as_str()
                             == inventory
                                 .record_versions

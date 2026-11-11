@@ -1,29 +1,25 @@
-//! `rightkit-memory` — agent memory: a local `MemoryStore`, durable-write screening, the
-//! consolidation-status projection and a typed backend ([`backend`]) over the external membrane
-//! CLI ([`membrane`]). The membrane owns memory ranking, tiering and retrieval; this crate ships no
-//! embedder and no retrieval router.
+//! `rightkit-memory` — the RightKit memory engine, Pulse's Cortex. One dependency for an app that
+//! embeds the engine:
+//!
+//! - the crate root is `rightkit-memory-core`: memory tiers ([`MemoryTier`], [`MemoryEntry`]),
+//!   retrieval ranking and routing, the context planner, review contracts, transcript chunks and
+//!   token accounting, with no I/O;
+//! - [`store`] is `rightkit-memory-store`: the SQLite memory store ([`store::MemDb`]), scopes,
+//!   installation identity, absorbed records, temporal facts and context telemetry.
+//!
+//! An app that reaches an engine running elsewhere (through the membrane CLI) uses
+//! `rightkit-memory-client` instead; its tiers and rows are these types.
+//!
+//! ```
+//! use rightkit_memory::MemoryTier;
+//!
+//! assert_eq!(MemoryTier::parse("semantic"), Some(MemoryTier::Semantic));
+//! assert!(MemoryTier::Semantic.rank() > MemoryTier::Working.rank());
+//! ```
 
-pub mod backend;
-pub mod consolidation_status;
-pub mod membrane;
-pub mod screening;
-pub mod store;
+pub use rightkit_memory_core::*;
 
-pub use consolidation_status::{
-    ConsolidationRunOutcome, ConsolidationRunStatus, ConsolidationStatusState,
-};
-pub use screening::{screen, RejectReason, ScreeningVerdict, MIN_DURABLE_LEN};
-pub use store::{MemoryRecord, MemoryStore, NewMemory, WriteRejection};
-
-#[cfg(feature = "agent_host")]
-#[allow(missing_docs, clippy::all, rustdoc::all, unused)]
-pub mod api_memright;
-#[cfg(feature = "agent_host")]
-#[allow(missing_docs, clippy::all, rustdoc::all, unused)]
-pub mod blueprint_tools;
-#[cfg(feature = "agent_host")]
-#[allow(missing_docs, clippy::all, rustdoc::all, unused)]
-pub mod memory_provenance;
-#[cfg(feature = "agent_host")]
-#[allow(missing_docs, clippy::all, rustdoc::all, unused)]
-pub mod memory_save_tool;
+/// The durable store: `rightkit-memory-store`.
+pub mod store {
+    pub use rightkit_memory_store::*;
+}

@@ -1,4 +1,5 @@
-//! Registry consumer for rightkit-adapt-taste 0.1.0: builds against the published API only.
+//! Registry consumer for rightkit-adapt-taste 0.1.2, the deprecated name that re-exports
+//! rightkit-adapt 0.2.0: the old paths still resolve and behave as before.
 use rightkit_adapt_taste::canonical::{
     derive_preference_id, sha256_canonical, to_canonical_json, PREFERENCE_ID_PREFIX,
 };

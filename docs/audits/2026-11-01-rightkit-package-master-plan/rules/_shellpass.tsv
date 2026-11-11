@@ -30,7 +30,7 @@
 :pulse:windows/src/desktop\.rs	rightkit-ai-accounts	NEW	Claude Desktop state on Windows
 :pulse:windows/src/	rightkit-overlay-win	EXTEND	native Win32 notch app host: message loop, hub bridge & launch, lifecycle, placement, RAII, engine client
 :pulse:mac/Notch/Sources/App/Updater	RightKitUpdate	ADOPT	own updater duplicates RightKitUpdate
-:pulse:mac/Notch/FinderExtension/	rightkit-desktop-tweaks	NEW	Finder sync extension
+:pulse:mac/Notch/FinderExtension/	RightKitDesktopTweaks	NEW	Finder sync extension
 :pulse:mac/Sources/PulseProbe/	rightkit-system-monitor	NEW	process probe
 :pulse:mac/	RightKitNotch	NEW	macOS notch app host: delegate, hub bridge & launcher, engine service, terminal command, l10n
 :pulse:ios/Sources/App/(Computers|ComputerPath)	rightkit-mesh	NEW	paired computers (Swift)

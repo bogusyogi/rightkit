@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-context-runtime"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Context runtime: pull/push context packets, durable memory service, ledger, freshness, planning, background review and the resident service."
@@ -26,7 +26,7 @@ rightkit-repo-graph = { version = "0.1.0", path = "../rightkit-repo-graph" }
 rightkit-context-core = { version = "0.1.0", path = "../rightkit-context-core" }
 rightkit-context-federation = { version = "0.1.0", path = "../rightkit-context-federation" }
 rightkit-context-provider-sdk = { version = "0.1.0", path = "../rightkit-context-provider-sdk" }
-rightkit-adapt-taste = { version = "0.1.0", path = "../rightkit-adapt-taste" }
+rightkit-adapt = { version = "0.2.0", path = "../rightkit-adapt" }
 rightkit-agent-transcript = { version = "0.1.0", path = "../rightkit-agent-transcript" }
 rightkit-db = { version = "0.5.3", features = ["bundled", "hooks"], path = "../rightkit-db" }
 rightkit-embed = { version = "0.6.2", path = "../rightkit-embed" }

@@ -3,7 +3,7 @@ async fn get_harness_radar() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "sources": radar.sources,
         "entries": radar.entries,
-        "capabilities": rightkit_adapt::HARNESS_RADAR_CAPABILITIES,
+        "capabilities": crate::harness_radar_feed::HARNESS_RADAR_CAPABILITIES,
         "capabilityMap": radar.capability_map,
         "proposals": radar.proposals,
         "changes": radar.changes,
@@ -27,9 +27,9 @@ async fn promote_harness_radar_proposal(
     let Some(proposal) = radar.proposals.iter().find(|proposal| proposal.id == id) else {
         return Err(StatusCode::NOT_FOUND);
     };
-    let learning = rightkit_adapt::Proposal {
+    let learning = rightkit_agent_learning::Proposal {
         id: proposal.id.clone(),
-        kind: rightkit_adapt::ProposalKind::HarnessRule,
+        kind: rightkit_agent_learning::ProposalKind::HarnessRule,
         summary: proposal.title.clone(),
         evidence: format!(
             "Harness Radar promoted proposal. source={} capability={} projects={} rationale={}",
@@ -39,7 +39,7 @@ async fn promote_harness_radar_proposal(
             proposal.rationale
         ),
         score: 0.0,
-        status: rightkit_adapt::ProposalStatus::Candidate,
+        status: rightkit_agent_learning::ProposalStatus::Candidate,
         created_at: now_iso(),
         age_sessions: 0,
         rejection_reason: None,
@@ -134,32 +134,32 @@ fn harness_radar_refresh_prompt() -> String {
 }
 
 struct RuntimeHarnessRadarSnapshot {
-    sources: Vec<rightkit_adapt::HarnessRadarSource>,
-    entries: Vec<rightkit_adapt::HarnessRadarEntry>,
-    proposals: Vec<rightkit_adapt::HarnessRadarProposal>,
-    changes: Vec<rightkit_adapt::HarnessRadarChange>,
-    validations: Vec<rightkit_adapt::HarnessRadarValidation>,
+    sources: Vec<crate::harness_radar_feed::HarnessRadarSource>,
+    entries: Vec<crate::harness_radar_feed::HarnessRadarEntry>,
+    proposals: Vec<crate::harness_radar_feed::HarnessRadarProposal>,
+    changes: Vec<crate::harness_radar_feed::HarnessRadarChange>,
+    validations: Vec<crate::harness_radar_feed::HarnessRadarValidation>,
     capability_map: std::collections::BTreeMap<String, usize>,
 }
 
 fn current_harness_radar_snapshot() -> RuntimeHarnessRadarSnapshot {
-    let sources = rightkit_adapt::parse_harness_radar_sources(include_str!(
+    let sources = crate::harness_radar_feed::parse_harness_radar_sources(include_str!(
         "../../data/assets__harness-radar__sources.toml"
     ));
     let source_id = sources
         .first()
         .map(|source| source.id.as_str())
         .unwrap_or("awesome-agent-harness");
-    let entries = rightkit_adapt::import_harness_radar_yaml(
+    let entries = crate::harness_radar_feed::import_harness_radar_yaml(
         source_id,
         include_str!("../../data/assets__harness-radar__projects.snapshot.yaml"),
     );
-    let previous_entries = rightkit_adapt::import_harness_radar_yaml(
+    let previous_entries = crate::harness_radar_feed::import_harness_radar_yaml(
         source_id,
         include_str!("../../data/assets__harness-radar__projects.previous.yaml"),
     );
     let changes =
-        rightkit_adapt::diff_harness_radar_entries(source_id, &previous_entries, &entries);
+        crate::harness_radar_feed::diff_harness_radar_entries(source_id, &previous_entries, &entries);
     let actionable_entries = entries
         .iter()
         .filter(|entry| {
@@ -179,18 +179,18 @@ fn current_harness_radar_snapshot() -> RuntimeHarnessRadarSnapshot {
         })
         .cloned()
         .collect::<Vec<_>>();
-    let proposals = rightkit_adapt::generate_harness_radar_proposals(&actionable_entries);
+    let proposals = crate::harness_radar_feed::generate_harness_radar_proposals(&actionable_entries);
     let validations = sources
         .iter()
-        .map(|source| rightkit_adapt::validate_harness_radar_snapshot(source, &entries))
+        .map(|source| crate::harness_radar_feed::validate_harness_radar_snapshot(source, &entries))
         .collect::<Vec<_>>();
     let mut capability_map = std::collections::BTreeMap::<String, usize>::new();
-    for capability in rightkit_adapt::HARNESS_RADAR_CAPABILITIES {
+    for capability in crate::harness_radar_feed::HARNESS_RADAR_CAPABILITIES {
         capability_map.insert((*capability).to_string(), 0);
     }
     for entry in &entries {
         let count = capability_map
-            .entry(rightkit_adapt::harness_radar_capability_for_entry(entry))
+            .entry(crate::harness_radar_feed::harness_radar_capability_for_entry(entry))
             .or_insert(0);
         *count += 1;
     }

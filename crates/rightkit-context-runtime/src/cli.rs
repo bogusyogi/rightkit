@@ -107,9 +107,9 @@ macro_rules! eprintln {
 use std::time::{Duration, UNIX_EPOCH};
 
 fn insight_admission_requests(
-    issues: &[rightkit_adapt_taste::insights::sealed_issue::SealedInsightIssueV1],
+    issues: &[rightkit_adapt::insights::sealed_issue::SealedInsightIssueV1],
     installation_id: &str,
-) -> Vec<rightkit_adapt_taste::gates::CortexAdmissionEnvelope> {
+) -> Vec<rightkit_adapt::gates::CortexAdmissionEnvelope> {
     issues
         .iter()
         .map(|issue| issue.cortex_admission_envelope(installation_id))
@@ -2228,17 +2228,15 @@ struct TasteReviewInputV1 {
     candidate_set_sha256: String,
 }
 
-fn taste_candidate_set_sha256(
-    candidates: &[rightkit_adapt_taste::taste::TasteCandidateV1],
-) -> String {
-    rightkit_adapt_taste::canonical::sha256_canonical(
+fn taste_candidate_set_sha256(candidates: &[rightkit_adapt::taste::TasteCandidateV1]) -> String {
+    rightkit_adapt::canonical::sha256_canonical(
         &serde_json::to_value(candidates).expect("Taste candidates serialize"),
     )
 }
 
 fn require_current_taste_canonical_pool(
     reviewed_pool_sha256: &str,
-    current: &rightkit_adapt_taste::proposal::Gate1ReviewContextV1,
+    current: &rightkit_adapt::proposal::Gate1ReviewContextV1,
 ) -> Result<(), String> {
     if reviewed_pool_sha256 != current.canonical_pool_sha256() {
         return Err("Taste canonical pool changed since review".into());
@@ -2248,7 +2246,7 @@ fn require_current_taste_canonical_pool(
 
 fn adapt_scope_dimensions(
     values: &[String],
-) -> Result<rightkit_adapt_taste::scope::ScopeDimensions, String> {
+) -> Result<rightkit_adapt::scope::ScopeDimensions, String> {
     let mut raw = std::collections::BTreeMap::new();
     for value in values {
         let Some((key, item)) = value.split_once('=') else {
@@ -2260,7 +2258,7 @@ fn adapt_scope_dimensions(
             return Err(format!("duplicate Adapt dimension `{key}`"));
         }
     }
-    rightkit_adapt_taste::scope::ScopeDimensions::normalize(&raw).map_err(|error| error.to_string())
+    rightkit_adapt::scope::ScopeDimensions::normalize(&raw).map_err(|error| error.to_string())
 }
 
 /// Hub-safe input for native Adapt mining. Caller-selected transcript files
@@ -2277,7 +2275,7 @@ pub struct NativeAdaptMineRequest {
 /// Execute deterministic Adapt mining in-process. This is shared by CLI & Hub
 /// so resident scheduling never spawns another Membrane authority process.
 pub fn run_native_adapt_mine(request: NativeAdaptMineRequest) -> Result<serde_json::Value, String> {
-    use rightkit_adapt_taste::cli_api;
+    use rightkit_adapt::cli_api;
 
     if request.scope.trim().is_empty() || request.min_recurrence < 1 {
         return Err("invalid native Adapt mine request".into());
@@ -2333,13 +2331,13 @@ pub fn run_native_adapt_mine(request: NativeAdaptMineRequest) -> Result<serde_js
             stream_id: None,
             tip_seq: None,
         });
-        taste_candidates.extend(rightkit_adapt_taste::taste::extract_candidates_with_source(
+        taste_candidates.extend(rightkit_adapt::taste::extract_candidates_with_source(
             &normalized,
             &request.scope,
             &prefix.receipt.prefix_digest,
         ));
         for event in &normalized {
-            match rightkit_adapt_taste::insights::TranscriptEventV1::try_from(event) {
+            match rightkit_adapt::insights::TranscriptEventV1::try_from(event) {
                 Ok(event) => events.push(event),
                 Err(reason) => omissions.push(serde_json::json!({
                     "event_id": event.event_id, "reason": reason,
@@ -2380,7 +2378,7 @@ fn run_native_adapt_mine_stream(
     min_recurrence: u32,
 ) -> Result<serde_json::Value, String> {
     use crate::adapt_observations::session_transcript as stream;
-    use rightkit_adapt_taste::cli_api;
+    use rightkit_adapt::cli_api;
 
     if scope.trim().is_empty() || min_recurrence < 1 {
         return Err("invalid native Adapt mine-session request".into());
@@ -2467,13 +2465,13 @@ fn run_native_adapt_mine_stream(
             stream_id: Some(session_id.clone()),
             tip_seq: Some(tip.last_seq),
         });
-        taste_candidates.extend(rightkit_adapt_taste::taste::extract_candidates_with_source(
+        taste_candidates.extend(rightkit_adapt::taste::extract_candidates_with_source(
             &normalized,
             scope,
             &tip.prefix_digest,
         ));
         for event in &normalized {
-            match rightkit_adapt_taste::insights::TranscriptEventV1::try_from(event) {
+            match rightkit_adapt::insights::TranscriptEventV1::try_from(event) {
                 Ok(event) => events.push(event),
                 Err(reason) => omissions.push(serde_json::json!({
                     "event_id": event.event_id, "reason": reason,
@@ -2524,7 +2522,7 @@ pub(crate) fn execute_adapt_command(
     resident: Option<&MemoryStore>,
     deployed: Option<&DeployedRuntime>,
 ) -> Result<serde_json::Value, String> {
-    use rightkit_adapt_taste::cli_api;
+    use rightkit_adapt::cli_api;
 
     match command {
         AdaptCmd::ProposalPlan { store, input } => {
@@ -2640,7 +2638,7 @@ pub(crate) fn execute_adapt_command(
                         &tip.prefix_digest,
                         &native_rows,
                     );
-                    candidates.extend(rightkit_adapt_taste::taste::extract_candidates_with_source(
+                    candidates.extend(rightkit_adapt::taste::extract_candidates_with_source(
                         &normalized,
                         &review.scope,
                         &tip.prefix_digest,
@@ -2667,7 +2665,7 @@ pub(crate) fn execute_adapt_command(
                 .map_err(|error| {
                     format!("reparse Taste source {}: {error}", source.path.display())
                 })?;
-                candidates.extend(rightkit_adapt_taste::taste::extract_candidates_with_source(
+                candidates.extend(rightkit_adapt::taste::extract_candidates_with_source(
                     &normalized,
                     &review.scope,
                     &prefix.receipt.prefix_digest,
@@ -2687,7 +2685,7 @@ pub(crate) fn execute_adapt_command(
                 .map_err(|error| format!("load complete Taste Gate 1 context: {error}"))?;
             let canonical_pool_sha256 =
                 canonical_pool_sha256.unwrap_or_else(|| gate1.canonical_pool_sha256().to_string());
-            let manifest = rightkit_adapt_taste::proposal::build_pending_manifest(
+            let manifest = rightkit_adapt::proposal::build_pending_manifest(
                 &candidates,
                 &installation_id,
                 &canonical_pool_sha256,
@@ -2702,48 +2700,45 @@ pub(crate) fn execute_adapt_command(
             decisions,
             validated_at,
         } => {
-            let pending: rightkit_adapt_taste::manifest::PreferenceManifestV1 =
+            let pending: rightkit_adapt::manifest::PreferenceManifestV1 =
                 read_adapt_json(&manifest)?;
-            let adjudication: rightkit_adapt_taste::proposal::SemanticAdjudicationV1 =
+            let adjudication: rightkit_adapt::proposal::SemanticAdjudicationV1 =
                 read_adapt_json(&decisions)?;
             if adjudication.validated_at != validated_at {
                 return Err("validated-at must match the semantic adjudication".into());
             }
             let verified = if adjudication.contract_version
-                == rightkit_adapt_taste::proposal::USER_TASTE_REVIEW_CONTRACT
+                == rightkit_adapt::proposal::USER_TASTE_REVIEW_CONTRACT
             {
-                rightkit_adapt_taste::proposal::verify_user_taste_review(&pending, adjudication)
+                rightkit_adapt::proposal::verify_user_taste_review(&pending, adjudication)
             } else {
                 let trust_path = deployed
                     .map(|runtime| runtime.semantic_adjudicator_trust.as_path())
                     .ok_or_else(|| {
                         "deployed semantic-adjudicator trust is unavailable".to_string()
                     })?;
-                let trust = rightkit_adapt_taste::proposal::SemanticAdjudicatorTrustStoreV1::load(
-                    trust_path,
-                )
-                .map_err(|error| format!("load semantic-adjudicator trust: {error}"))?;
-                rightkit_adapt_taste::proposal::verify_semantic_adjudication(
+                let trust =
+                    rightkit_adapt::proposal::SemanticAdjudicatorTrustStoreV1::load(trust_path)
+                        .map_err(|error| format!("load semantic-adjudicator trust: {error}"))?;
+                rightkit_adapt::proposal::verify_semantic_adjudication(
                     &pending,
                     adjudication,
                     &trust,
                 )
             }
             .map_err(|error| format!("verify Taste semantic adjudication: {error}"))?;
-            let finalised =
-                rightkit_adapt_taste::proposal::adjudicate_manifest(&pending, &verified)
-                    .map_err(|error| format!("adjudicate Taste manifest: {error}"))?;
+            let finalised = rightkit_adapt::proposal::adjudicate_manifest(&pending, &verified)
+                .map_err(|error| format!("adjudicate Taste manifest: {error}"))?;
             adapt_value(&finalised)
         }
         AdaptCmd::Apply { manifest, dry_run } => {
-            let manifest: rightkit_adapt_taste::manifest::PreferenceManifestV1 =
+            let manifest: rightkit_adapt::manifest::PreferenceManifestV1 =
                 read_adapt_json(&manifest)?;
             let local_review = manifest
                 .semantic_adjudication
                 .as_ref()
                 .is_some_and(|value| {
-                    value.contract_version
-                        == rightkit_adapt_taste::proposal::USER_TASTE_REVIEW_CONTRACT
+                    value.contract_version == rightkit_adapt::proposal::USER_TASTE_REVIEW_CONTRACT
                 });
             let trust = if local_review {
                 None
@@ -2754,13 +2749,11 @@ pub(crate) fn execute_adapt_command(
                         "deployed semantic-adjudicator trust is unavailable".to_string()
                     })?;
                 Some(
-                    rightkit_adapt_taste::proposal::SemanticAdjudicatorTrustStoreV1::load(
-                        trust_path,
-                    )
-                    .map_err(|error| format!("load semantic-adjudicator trust: {error}"))?,
+                    rightkit_adapt::proposal::SemanticAdjudicatorTrustStoreV1::load(trust_path)
+                        .map_err(|error| format!("load semantic-adjudicator trust: {error}"))?,
                 )
             };
-            rightkit_adapt_taste::proposal::verify_final_manifest_adjudication_or_local(
+            rightkit_adapt::proposal::verify_final_manifest_adjudication_or_local(
                 &manifest,
                 trust.as_ref(),
             )
@@ -2800,7 +2793,7 @@ pub(crate) fn execute_adapt_command(
             installation_id,
             dry_run,
         } => {
-            let issues: Vec<rightkit_adapt_taste::insights::sealed_issue::SealedInsightIssueV1> =
+            let issues: Vec<rightkit_adapt::insights::sealed_issue::SealedInsightIssueV1> =
                 read_adapt_json(&input)?;
             for issue in &issues {
                 issue.verify().map_err(|error| {
@@ -2816,7 +2809,7 @@ pub(crate) fn execute_adapt_command(
             let batch_material = serde_json::to_value(&ids).expect("issue ids serialize");
             let batch_id = format!(
                 "adapt-insights-{}",
-                rightkit_adapt_taste::canonical::sha256_canonical(&batch_material)
+                rightkit_adapt::canonical::sha256_canonical(&batch_material)
             );
             let envelopes = insight_admission_requests(&issues, &installation_id);
             if dry_run || issues.is_empty() {
@@ -2859,9 +2852,9 @@ pub(crate) fn execute_adapt_command(
             limit,
         ),
         AdaptCmd::Compare { input } => {
-            let request: rightkit_adapt_taste::comparison::CandidateComparisonV1 =
+            let request: rightkit_adapt::comparison::CandidateComparisonV1 =
                 read_adapt_json(&input)?;
-            let decision = rightkit_adapt_taste::comparison::compare(&request)?;
+            let decision = rightkit_adapt::comparison::compare(&request)?;
             let receipt = crate::adapt_service::journal(
                 resident.ok_or("membrane_unavailable { hub_inactive }")?,
                 &request.scope,
@@ -2872,9 +2865,9 @@ pub(crate) fn execute_adapt_command(
             Ok(serde_json::json!({"decision":decision,"receipt":receipt}))
         }
         AdaptCmd::GuardEligibility { input } => {
-            let request: rightkit_adapt_taste::guard_rollout::GuardTransitionRequestV1 =
+            let request: rightkit_adapt::guard_rollout::GuardTransitionRequestV1 =
                 read_adapt_json(&input)?;
-            let decision = rightkit_adapt_taste::guard_rollout::evaluate(&request)?;
+            let decision = rightkit_adapt::guard_rollout::evaluate(&request)?;
             let receipt = crate::adapt_service::journal(
                 resident.ok_or("membrane_unavailable { hub_inactive }")?,
                 &request.proposed_scope,
@@ -2904,10 +2897,9 @@ pub(crate) fn execute_adapt_command(
                                 format!("parse portable benchmark line {}: {error}", index + 1)
                             })?;
                         corpus.push(
-                            rightkit_adapt_taste::benchmark::portable_case_from_value(&value)
-                                .map_err(|error| {
-                                    format!("portable benchmark line {}: {error}", index + 1)
-                                })?,
+                            rightkit_adapt::benchmark::portable_case_from_value(&value).map_err(
+                                |error| format!("portable benchmark line {}: {error}", index + 1),
+                            )?,
                         );
                     }
                     cli_api::BenchmarkRequest { corpus }

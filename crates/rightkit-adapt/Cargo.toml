@@ -1,9 +1,9 @@
 [package]
 name = "rightkit-adapt"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
-description = "Adaptive agent learning: outcome observation, guidance proposals, application receipts and scoring"
+description = "Governed behavioural learning from agent transcripts (Pulse's Membrane Adapt): taste preferences and insights, deterministic and model-free."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
@@ -14,9 +14,10 @@ name = "rightkit_adapt"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = { version = "2" }
-rightkit-agent-engine-storage = { version = "0.1.0", path = "../rightkit-agent-engine-storage" }
-rightkit-db = { version = "0.5.3", features = ["bundled", "statement-cache"], path = "../rightkit-db" }
+rightkit-fs = { version = "0.4.9", features = ["digest"], path = "../rightkit-fs" }
+regex = { version = "1" }
+ring = { version = "0.17" }
+rightkit-agent-transcript = { version = "0.1.0", path = "../rightkit-agent-transcript" }

@@ -1,7 +1,7 @@
 //! The launcher (the Windows counterpart of the Mac's `Launcher`): Alt+Space opens a search
 //! panel over whatever is in front. With nothing typed it lists pinned apps, the apps used
 //! most, and the apps that are running; typing matches the Start menu's apps with the Mac's
-//! fuzzy score (plus a bonus for use), a typed address or path, and Pulse's own pages; a sum
+//! fuzzy score (plus a bonus for use), a typed address or path, and the host's own pages; a sum
 //! or a unit conversion ("12 km in mi") is answered first, and Return copies the answer.
 //!
 //! Keys: Up/Down move, Return runs, Esc closes, Alt+1..9 run a row, Alt+P pins or unpins an
@@ -12,9 +12,9 @@
 //! destroyed. The search field is drawn too (a caret in a line of text), so there is no child
 //! control. The hot key (Alt+Space, or Ctrl+Space when chosen) is held only while the
 //! `launcherEnabled` switch is on. When another program already holds Alt+Space (ChatGPT's
-//! app does by default) the panel asks once which one gets it: "Use Alt+Space for Pulse"
+//! app does by default) the panel asks once which one gets it: `"Use Alt+Space for <product>"`
 //! (the key layer's hook then takes the chord, so the other program no longer sees it),
-//! "Keep it for <program>" (left alone, never retried) or "Choose another key" (the hub's
+//! `"Keep it for <program>"` (left alone, never retried) or "Choose another key" (the hub's
 //! settings). The answer is the setting `launcherHotkeyConflict`; the hub shows the state under the switch
 //! (`status`), with Ctrl+Space as the way to give the chord back.
 //!
@@ -22,22 +22,23 @@
 //! thread of their own (`spawn_scan`), so a key never waits on the disk or the shell. File
 //! names are searched on another thread after a 60 ms pause, and a newer key cancels the
 //! older search. The rows run apps, files, then two closing rows holding the typed text:
-//! "Ask ChatGPT" and "Search <engine>" (Tab selects them). `launcher_open` and
+//! "Ask ChatGPT" and `"Search <engine>"` (Tab selects them). `launcher_open` and
 //! `launcher_query` diag lines carry the timings.
 //!
-//! Kept in `%LOCALAPPDATA%\Pulse\launcher\`: `usage.json` (how often and how recently each
+//! Kept in the host's data folder (`PanelHost::data_dir`), under `launcher\`: `usage.json` (how often and how recently each
 //! app was run from here) and `pins.json` (the pinned apps, used while the hub's
 //! `launcherConfig` lists none). Quicklinks, snippets and pins come from `launcherConfig`
 //! (`launcher_config.rs`); Alt+P writes the pins back into it.
 
-use crate::config::{self as launcher_config, Config};
-use crate::host::{self, AltChord, LauncherHotkey};
-use crate::json::{self, Value};
-use crate::{
-    calc as launcher_calc, commands as launcher_commands, files as launcher_files,
-    notes as launcher_notes, response_layout,
-};
+use crate::host::{self, AltChord, LauncherHotkey, PageGlyph};
 use rightkit_hotkeys::windows::GlobalHotkeys;
+use rightkit_launcher::config::{self as launcher_config, Config};
+use rightkit_launcher::json::{self, Value};
+use rightkit_launcher::{
+    calc as launcher_calc, commands as launcher_commands, files as launcher_files,
+    notes as launcher_notes,
+};
+use rightkit_overlay_win::response_layout;
 use rightkit_win_ui::canvas::{Canvas, Mask};
 use rightkit_win_ui::raii::{ClassGuard, OwnedWindow, hwnd_from_key, hwnd_key};
 use rightkit_win_ui::surface::{self, TextPainter};
@@ -117,7 +118,7 @@ mod ffi {
     }
 }
 
-use crate::dictionary;
+use rightkit_launcher::dictionary;
 
 const PANEL_CLASS: PCWSTR = w!("RightKitLauncher");
 const WM_SYNC: u32 = WM_APP + 1;
@@ -245,7 +246,8 @@ const NOTES_MAX: usize = 8;
 const CHATS_MAX: usize = 20;
 /// File rows shown, as on the Mac.
 const FILES_MAX: usize = 6;
-const PULSE_MAX: usize = 4;
+/// The application's own rows shown (pages, readings).
+const APP_MAX: usize = 4;
 /// Clipboard rows shown for "clip".
 const CLIPS_MAX: usize = 8;
 /// How deep the Start menu's folders are followed.
@@ -309,9 +311,9 @@ struct Scanned {
     running: Vec<Running>,
 }
 
-const ALT_TAKEN: &str = "Another app holds Alt+Space. Pulse takes the key while the launcher \
-                         is on, so that app's shortcut stops working. Choose Ctrl+Space to \
-                         give it back.";
+const ALT_TAKEN: &str = "Another app holds Alt+Space. The launcher takes the key while it is \
+                         on, so that app's shortcut stops working. Choose Ctrl+Space to give \
+                         it back.";
 const ALT_ASK: &str = "Another app holds Alt+Space and the launcher has not taken it. Choose \
                        which one gets it in the prompt, or choose Ctrl+Space.";
 const ALT_KEPT: &str = "Another app keeps Alt+Space. Open the launcher from the tool wheel, or \
@@ -357,10 +359,10 @@ static PANEL_UP: AtomicBool = AtomicBool::new(false);
 
 /// The hot key was just pressed: "hotkey to visible" starts here.
 fn note_hotkey() {
-    // Keys typed before the panel owns the keyboard are held for it (`keys::capture_begin`);
+    // Keys typed before the panel owns the keyboard are held for it (`type_ahead::begin`);
     // a press that closes the open panel holds nothing.
     if !PANEL_UP.load(Ordering::Relaxed) {
-        host::capture_begin();
+        crate::type_ahead::begin();
     }
     HOTKEY_AT.store(mono_ms() + 1, Ordering::Relaxed);
 }
@@ -392,11 +394,12 @@ fn scheme_registered(scheme: &str) -> bool {
     true
 }
 
-/// The Alt+Space answer kept from an earlier run: `Some(true)` Pulse takes it, `Some(false)`
+/// The Alt+Space answer kept from an earlier run: `Some(true)` this application takes it, `Some(false)`
 /// the other program keeps it, `None` nobody has said.
 fn conflict_answer() -> Option<bool> {
     match host::launcher_hotkey_conflict()?.as_str() {
-        "pulse" => Some(true),
+        // "pulse" is the token Pulse's Windows launcher stored before 0.1.0 of this crate.
+        "app" | "pulse" => Some(true),
         "other" => Some(false),
         _ => None,
     }
@@ -404,8 +407,8 @@ fn conflict_answer() -> Option<bool> {
 
 /// Keeps the answer as the setting `launcherHotkeyConflict`, through the notch's own command
 /// folder (the one thread that owns the settings file writes it); in force here at once.
-fn save_conflict_answer(pulse: bool) {
-    let answer = if pulse { "pulse" } else { "other" };
+fn save_conflict_answer(take: bool) {
+    let answer = if take { "app" } else { "other" };
     host::set_live_hotkey_conflict(Some(answer));
     let Some(commands) = launcher_dir().and_then(|dir| Some(dir.parent()?.join("hub-commands")))
     else {
@@ -424,6 +427,7 @@ fn save_conflict_answer(pulse: bool) {
 
 /// Starts the launcher's thread. It holds the hot key only while the switch is on.
 pub fn start() {
+    crate::type_ahead::install();
     let spawned = std::thread::Builder::new()
         .name("rightkit-launcher".to_string())
         .spawn(thread_main);
@@ -637,7 +641,8 @@ enum Section {
     Commands,
     Files,
     Notes,
-    Pulse,
+    /// The host application's own rows: its pages, readings, drives and cleanup scan.
+    App,
     Clipboard,
     /// "define word": one row that looks the word up when chosen.
     Dictionary,
@@ -663,7 +668,7 @@ impl Section {
             Section::Commands => "commands",
             Section::Files => "files",
             Section::Notes => "notes",
-            Section::Pulse => "pulse",
+            Section::App => "app",
             Section::Clipboard => "clipboard",
             Section::Dictionary => "dictionary",
             Section::Actions => "actions",
@@ -684,7 +689,7 @@ impl Section {
             Section::Commands => host::t("COMMANDS"),
             Section::Files => host::t("FILES"),
             Section::Notes => host::t("NOTES"),
-            Section::Pulse => host::t("PULSE"),
+            Section::App => host::app_section_title(),
             Section::Clipboard => host::t("CLIPBOARD"),
             Section::Dictionary => host::t("DICTIONARY"),
             Section::Actions => host::t("ASK OR SEARCH"),
@@ -697,8 +702,8 @@ impl Section {
 /// The answers to the Alt+Space question.
 #[derive(Clone, Copy, PartialEq)]
 enum Conflict {
-    /// Pulse takes the chord from the other program.
-    Pulse,
+    /// This application takes the chord from the other program.
+    App,
     /// The other program keeps it.
     Other,
     /// Neither yet: the hub's launcher key setting opens.
@@ -711,8 +716,8 @@ enum Action {
     Open(String),
     /// A running app's window, brought to the front.
     Focus(isize),
-    /// One of the hub's pages.
-    Hub(&'static str),
+    /// One of the hub's pages, with the row's icon.
+    Hub(&'static str, PageGlyph),
     /// Asks every running app's window to close.
     QuitAll,
     /// Puts an answer on the clipboard.
@@ -799,12 +804,15 @@ impl Item {
             Section::Dictionary => RowGlyph::Note,
             Section::Actions => RowGlyph::Magnifier,
             Section::Hotkey => RowGlyph::Sliders,
-            Section::Pulse => match self.action {
-                Action::Hub("cleanup") => RowGlyph::Sparkles,
-                Action::Hub("monitor") => RowGlyph::Monitor,
-                Action::Hub("apps") => RowGlyph::Grid,
-                Action::Hub("settings") => RowGlyph::Sliders,
-                Action::Hub("accounts") => RowGlyph::Gauge,
+            Section::App => match self.action {
+                Action::Hub(_, glyph) if glyph != PageGlyph::Drive => match glyph {
+                    PageGlyph::Sparkles => RowGlyph::Sparkles,
+                    PageGlyph::Monitor => RowGlyph::Monitor,
+                    PageGlyph::Grid => RowGlyph::Grid,
+                    PageGlyph::Sliders => RowGlyph::Sliders,
+                    PageGlyph::Gauge => RowGlyph::Gauge,
+                    PageGlyph::Drive => RowGlyph::Drive,
+                },
                 // A shot row carries no page: the Mac's cleanup findings still read as such.
                 _ if self.title.starts_with("Cleanup") => RowGlyph::Sparkles,
                 _ => RowGlyph::Drive,
@@ -1185,7 +1193,7 @@ fn scan_apps() -> Vec<App> {
 }
 
 /// The full path of the program a process runs, or `None` when it cannot be opened (an elevated
-/// process, from a Pulse that is not).
+/// process, from an application that is not).
 pub fn image_path(pid: u32) -> Option<String> {
     // SAFETY: a plain OpenProcess for limited query rights; the handle is closed below.
     let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }.ok()?;
@@ -1866,7 +1874,7 @@ struct Panel {
     before_tab: usize,
     /// The cached exchange rates, read when the panel opens; `None` with money conversions
     /// off or before the first fetch.
-    rates: Option<crate::rates::Rates>,
+    rates: Option<rightkit_launcher::rates::Rates>,
     usage: Usage,
     /// The rows that read the disk or the clipboard, for the text they were asked for.
     slow: Option<Slow>,
@@ -2024,7 +2032,7 @@ impl Panel {
                 section: Section::Running,
                 title: host::t("Quit all running apps").to_string(),
                 subtitle: Some(
-                    host::t("Asks every app's window to close, except Pulse").to_string(),
+                    host::t("Asks every app's window to close, except this one").to_string(),
                 ),
                 icon: None,
                 pin: None,
@@ -2079,7 +2087,7 @@ impl Panel {
         let money = self
             .rates
             .as_ref()
-            .and_then(|rates| crate::rates::convert(text, rates));
+            .and_then(|rates| rightkit_launcher::rates::convert(text, rates));
         // The calculator and units switch (the Mac's `launcherCalculator`) covers units and sums;
         // money has its own switch (`launcherCurrency`).
         let calculator = host::switch_on("launcherCalculator");
@@ -2285,7 +2293,7 @@ impl Panel {
             "inLauncher" => out.push(Self::plain_item(
                 Section::Actions,
                 host::tf("Ask AI: {}", &[&shown]),
-                host::t("Answered here by Pulse's assistant \u{00B7} Return asks").to_string(),
+                host::t("Answered here by the assistant \u{00B7} Return asks").to_string(),
                 Action::AiAsk(question),
             )),
             "chatgpt" => out.push(Self::plain_item(
@@ -2383,7 +2391,7 @@ impl Panel {
             run,
             ask: Some(AskView::new(
                 AskState::Pending,
-                host::t("Asking Pulse's assistant\u{2026}"),
+                host::t("Asking the assistant\u{2026}"),
             )),
         });
         let spawned = std::thread::Builder::new()
@@ -2819,15 +2827,20 @@ impl Panel {
         vec![
             Self::plain_item(
                 Section::Hotkey,
-                host::t("Use Alt+Space for Pulse").to_string(),
-                host::tf("Pulse opens first; {} no longer gets the key", &[holder]),
-                Action::Conflict(Conflict::Pulse),
+                host::tf("Use Alt+Space for {}", &[&host::product_name()]),
+                host::tf(
+                    "{} opens first; {} no longer gets the key",
+                    &[&host::product_name(), holder],
+                ),
+                Action::Conflict(Conflict::App),
             ),
             Self::plain_item(
                 Section::Hotkey,
                 host::tf("Keep it for {}", &[holder]),
-                host::t("Pulse leaves the key alone; open the launcher from the tool wheel")
-                    .to_string(),
+                host::tf(
+                    "{} leaves the key alone; open the launcher from the tool wheel",
+                    &[&host::product_name()],
+                ),
                 Action::Conflict(Conflict::Other),
             ),
             Self::plain_item(
@@ -3213,7 +3226,7 @@ impl Panel {
         self.files_job = None;
         self.file_rows.clear();
         self.file_text.clear();
-        // The walk runs when the hub's file index switch is on (Pulse's own index, opt-in) or folders
+        // The walk runs when the hub's file index switch is on (the application's own index, opt-in) or folders
         // were chosen for it; the walk then covers the home folder, the Start Menu, the chosen
         // volumes and folders. Otherwise file rows come from Windows Search (S12, the default).
         if self.config.file_folders.is_empty() && !host::switch_on("hubFileIndex") {
@@ -3252,7 +3265,7 @@ impl Panel {
         let Some(dir) = launcher_dir() else {
             return;
         };
-        self.rates = crate::rates::load(&dir);
+        self.rates = rightkit_launcher::rates::load(&dir);
         if self.shown && self.output.is_none() {
             self.recompute();
             self.draw();
@@ -3519,64 +3532,28 @@ impl Panel {
         }
     }
 
-    /// Pulse's own pages, and the notch's reading for each account.
-    fn pulse_items(&self, text: &str) -> Vec<Item> {
-        let pages: [(&str, &str, &str); 7] = [
-            (
-                host::t("Open Storage"),
-                "storage",
-                host::t("Pulse: what fills the drives"),
-            ),
-            (
-                host::t("Open Cleanup"),
-                "cleanup",
-                host::t("Pulse: what can be removed"),
-            ),
-            (
-                host::t("Open Monitor"),
-                "monitor",
-                host::t("Pulse: processor, memory, network"),
-            ),
-            (
-                host::t("Open Apps"),
-                "apps",
-                host::t("Pulse: installed apps and updates"),
-            ),
-            (
-                host::t("Open Settings"),
-                "settings",
-                host::t("Pulse: settings"),
-            ),
-            (
-                host::t("Open Appearance"),
-                "appearance",
-                host::t("Pulse: appearance"),
-            ),
-            (
-                host::t("Open Notifications"),
-                "notifications",
-                host::t("Pulse: notifications"),
-            ),
-        ];
-        // The Pulse commands switch (the Mac's `launcherPulseCommands`) covers the pages, the
-        // usage readings and the disk and cleanup rows.
-        if text.chars().count() < 2 || !host::switch_on("launcherPulseCommands") {
+    /// The host application's own pages and readings (`PanelHost::app_pages`, `usage_rows`),
+    /// and the clipboard's clear rows.
+    fn host_items(&self, text: &str) -> Vec<Item> {
+        // The application commands switch (the Mac's `launcherPulseCommands`) covers the pages,
+        // the readings and the disk and cleanup rows.
+        if text.chars().count() < 2 || !host::switch_on("launcherAppCommands") {
             return Vec::new();
         }
-        let mut out: Vec<Item> = pages
-            .iter()
-            .filter(|(name, _, _)| score(text, name).is_some())
-            .take(PULSE_MAX)
-            .map(|&(name, page, note)| Item {
-                section: Section::Pulse,
-                title: name.to_string(),
-                subtitle: Some(note.to_string()),
+        let mut out: Vec<Item> = host::app_pages()
+            .into_iter()
+            .filter(|page| score(text, &page.title).is_some())
+            .take(APP_MAX)
+            .map(|page| Item {
+                section: Section::App,
+                title: page.title,
+                subtitle: Some(page.note),
                 icon: None,
                 pin: None,
                 window: 0,
                 usage: None,
                 kind: None,
-                action: Action::Hub(page),
+                action: Action::Hub(page.page, page.glyph),
             })
             .collect();
         // The clipboard's clear rows, while the history is on (the Mac's "Clear clipboard ...").
@@ -3587,32 +3564,21 @@ impl Panel {
                 }
             }
         }
-        // The Mac's "Claude usage" and "Codex usage": the live reading, found by the title or
-        // by the start of one of its words.
+        // The host's readings (the Mac's "Claude usage" and "Codex usage" in Pulse), found by the
+        // title or by the start of one of their words.
         let typed = text.trim().to_lowercase();
-
-        for (title, words, reading) in [
-            (
-                host::tf("{} usage", &["Claude"]),
-                ["claude", "usage", "limit", "anthropic"],
-                0usize,
-            ),
-            (
-                host::tf("{} usage", &["Codex"]),
-                ["codex", "usage", "limit", "openai"],
-                1usize,
-            ),
-        ] {
-            if out.len() >= PULSE_MAX {
+        for row in host::usage_rows() {
+            if out.len() >= APP_MAX {
                 break;
             }
-            let by_word = !typed.is_empty() && words.iter().any(|word| word.starts_with(&typed));
-            if score(text, &title).is_some() || by_word {
+            let by_word =
+                !typed.is_empty() && row.words.iter().any(|word| word.starts_with(&typed));
+            if score(text, &row.title).is_some() || by_word {
                 out.push(Self::plain_item(
-                    Section::Pulse,
-                    title,
-                    host::usage_line(reading),
-                    Action::Hub("accounts"),
+                    Section::App,
+                    row.title,
+                    row.line,
+                    Action::Hub(row.page, PageGlyph::Gauge),
                 ));
             }
         }
@@ -3621,13 +3587,17 @@ impl Panel {
 
     /// The Mac's disk rows: one per fixed drive with its used share, for a word that names the
     /// drive or a storage word ("disk", "storage", "space", "free", "clean", "cleanup"), and for
-    /// those words the saved cleanup scan. Reads the drive thread's last reading and the saved
-    /// findings file only: nothing here starts a scan.
+    /// those words the saved cleanup scan. Shown only when the host names its storage and
+    /// cleanup pages (`PanelHost::storage_pages`). Reads the drive thread's last reading and the
+    /// host's saved scan only: nothing here starts a scan.
     fn storage_rows(text: &str) -> Vec<Item> {
-        // The Pulse commands switch and two typed characters, as for the pages above.
-        if text.chars().count() < 2 || !host::switch_on("launcherPulseCommands") {
+        // The application commands switch and two typed characters, as for the pages above.
+        if text.chars().count() < 2 || !host::switch_on("launcherAppCommands") {
             return Vec::new();
         }
+        let Some((storage_page, cleanup_page)) = host::storage_pages() else {
+            return Vec::new();
+        };
         const STORAGE_WORDS: [&str; 6] = ["disk", "storage", "space", "free", "clean", "cleanup"];
         let generic = STORAGE_WORDS
             .iter()
@@ -3655,63 +3625,47 @@ impl Panel {
                 )
             );
             out.push(Self::plain_item(
-                Section::Pulse,
+                Section::App,
                 title,
                 subtitle,
-                Action::Hub("storage"),
+                Action::Hub(storage_page, PageGlyph::Drive),
             ));
         }
         if generic {
-            out.push(Self::cleanup_item());
+            out.push(Self::cleanup_item(cleanup_page));
         }
         out
     }
 
-    /// The saved cleanup scan (`cleanup-findings-v1.json` in `%LOCALAPPDATA%\Pulse`, the hub's
-    /// `{version, data}` envelope): its item count and safe bytes. With no saved scan, the row
-    /// only opens Cleanup.
-    fn cleanup_item() -> Item {
-        const FILE_MAX: usize = 64 * 1024 * 1024;
-        let saved = host::data_dir()
-            .map(|dir| dir.join("cleanup-findings-v1.json"))
-            .and_then(|path| std::fs::read(path).ok())
-            .and_then(|bytes| json::parse(&bytes, FILE_MAX));
-        let report = saved.as_ref().and_then(|root| {
-            if root.get("version").and_then(Value::as_f64) != Some(1.0) {
-                return None;
-            }
-            let data = root.get("data")?;
-            let items = data.get("findings")?.as_array()?.len();
-            let safe = data.get("safe_bytes").and_then(Value::as_f64)?;
-            let scanned = data.get("scanned_at").and_then(Value::as_f64)?;
-            Some((items, safe, scanned))
-        });
-        match report {
-            Some((items, safe, scanned)) => {
+    /// The host's saved cleanup scan (`PanelHost::cleanup_summary`): its item count and safe
+    /// bytes. With no saved scan, the row only opens the cleanup page.
+    fn cleanup_item(page: &'static str) -> Item {
+        match host::cleanup_summary() {
+            Some(summary) => {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs_f64())
-                    .unwrap_or(scanned);
-                let freed = size_text(safe.max(0.0) as u64);
+                    .unwrap_or(summary.scanned_at);
+                let freed = size_text(summary.safe_bytes.max(0.0) as u64);
                 Self::plain_item(
-                    Section::Pulse,
-                    if items == 1 {
+                    Section::App,
+                    if summary.items == 1 {
                         host::tf("Cleanup: 1 item, {} could be freed", &[&freed])
                     } else {
                         host::tf(
                             "Cleanup: {} items, {} could be freed",
-                            &[&items.to_string(), &freed],
+                            &[&summary.items.to_string(), &freed],
                         )
                     },
-                    found_text(scanned, now),
-                    Action::Hub("cleanup"),
+                    found_text(summary.scanned_at, now),
+                    Action::Hub(page, PageGlyph::Sparkles),
                 )
             }
             None => Self::plain_item(
-                Section::Pulse,
+                Section::App,
                 host::t("Cleanup: open to scan").to_string(),
                 host::t("No saved scan yet \u{00b7} opens Cleanup").to_string(),
-                Action::Hub("cleanup"),
+                Action::Hub(page, PageGlyph::Sparkles),
             ),
         }
     }
@@ -3834,7 +3788,7 @@ impl Panel {
             items.extend(self.command_items(&text));
             items.extend(self.file_items(&text));
             items.extend(self.held(&text, |slow| &slow.notes));
-            items.extend(self.pulse_items(&text));
+            items.extend(self.host_items(&text));
             items.extend(self.held(&text, |slow| &slow.storage));
             items.extend(self.held(&text, |slow| &slow.clips));
             items.extend(self.dictionary_items(&text));
@@ -3887,8 +3841,8 @@ impl Panel {
         if host::switch_on("launcherCurrency")
             && let Some(dir) = launcher_dir()
         {
-            self.rates = crate::rates::load(&dir);
-            crate::rates::refresh_in_background(&dir);
+            self.rates = rightkit_launcher::rates::load(&dir);
+            rightkit_launcher::rates::refresh_in_background(&dir);
         }
     }
 
@@ -4437,7 +4391,7 @@ impl Panel {
         let mut point = POINT::default();
         let _ = unsafe { GetCursorPos(&mut point) };
         let Some(monitor) = rightkit_overlay::windows::monitor_at(point.x, point.y) else {
-            host::capture_release();
+            crate::type_ahead::release();
             return;
         };
         self.scale = monitor.scale() as f32;
@@ -4494,8 +4448,8 @@ impl Panel {
             self.start_files();
         }
         // Characters typed behind the chord, while this window was not yet the foreground, go
-        // into the cleared query in order (the hook held them; see `keys::capture_begin`).
-        let early = host::capture_take();
+        // into the cleared query in order (the hook held them; see `type_ahead::begin`).
+        let early = crate::type_ahead::take();
         if !early.is_empty() {
             self.insert(&early);
         }
@@ -4624,7 +4578,7 @@ impl Panel {
         }
     }
 
-    /// Another program holds Alt+Space. Pulse takes it through the key hook only when the
+    /// Another program holds Alt+Space. The launcher takes it through the key hook only when the
     /// user said so (the setting `launcherHotkeyConflict`); with no answer yet it asks once, with the
     /// answer "keep it" it leaves the key alone and does not try again.
     fn settle_alt_conflict(&mut self) {
@@ -4681,7 +4635,7 @@ impl Panel {
         };
         // The question has no field: whatever was typed behind the chord goes back to the window
         // still in front, before the panel takes the foreground.
-        host::capture_release();
+        crate::type_ahead::release();
         self.prompt = Some(holder.to_string());
         if self.shown {
             self.recompute();
@@ -4754,7 +4708,8 @@ pub fn shot(
             "commands" => Section::Commands,
             "files" => Section::Files,
             "notes" => Section::Notes,
-            "pulse" => Section::Pulse,
+            // "pulse" is the section name Pulse's launcher configuration used.
+            "app" | "pulse" => Section::App,
             "clipboard" => Section::Clipboard,
             "shortcuts" => return Err("The Windows launcher has no shortcuts section"),
             "dictionary" => Section::Dictionary,
@@ -4922,7 +4877,7 @@ fn carry_out(action: Do) {
     }
 }
 
-/// A clipboard clear row in the launcher's Pulse section (docs/clipboard-spec.md 9).
+/// A clipboard clear row in the launcher's application section (docs/clipboard-spec.md 9).
 fn clip_clear_item(scope: rightkit_clipboard_history::model::ClearScope) -> Item {
     let subtitle = if scope == rightkit_clipboard_history::model::ClearScope::All {
         host::t("Removes every stored copy")
@@ -5020,7 +4975,7 @@ fn run(action: &Action) {
                 let _ = SetForegroundWindow(hwnd);
             }
         }
-        Action::Hub(page) => {
+        Action::Hub(page, _) => {
             host::open_hub(page);
         }
         Action::Copy(text) => {
@@ -5069,7 +5024,7 @@ fn run(action: &Action) {
             host::open_hub("settings");
         }
         Action::Conflict(answer) => {
-            save_conflict_answer(*answer == Conflict::Pulse);
+            save_conflict_answer(*answer == Conflict::App);
             with_panel(Panel::settle_alt_conflict);
         }
         Action::QuitAll => {

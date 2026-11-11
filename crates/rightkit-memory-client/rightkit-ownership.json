@@ -1,9 +1,9 @@
 {
-  "package": "rightkit-adapt-taste",
+  "package": "rightkit-memory-client",
   "capabilities": [
     {
-      "capability": "adaptive-learning",
-      "summary": "Governed behavioural learning from agent transcripts (taste preferences and insights), deterministic and model-free.; declaration-only detection (no precise implementation fingerprint)",
+      "capability": "agent-memory",
+      "summary": "Agent memory: durable memory store, write screening, adaptive retrieval routing and a typed backend over an external membrane CLI; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

@@ -10,7 +10,7 @@ use crate::{
     digest::{digest_bytes, digest_str},
     MemoryStore,
 };
-use rightkit_adapt_taste::multiwriter::{
+use rightkit_adapt::multiwriter::{
     proposal_emission as multiwriter_proposal_emission,
     validate_proposal_emission as validate_multiwriter_emission, WriterRequestV1, MULTIWRITER_KIND,
 };
@@ -2742,7 +2742,7 @@ pub fn drain_background_proposals(
                     // ADP-029/035: Adapt learner output enters the same
                     // daemon-owned admission boundary — pre-gates, pending
                     // review, and idempotency stay intact.
-                    let adapt: rightkit_adapt_taste::learner::AdaptLearnerProposalV1 =
+                    let adapt: rightkit_adapt::learner::AdaptLearnerProposalV1 =
                         serde_json::from_value(proposal).map_err(|_| {
                             fail(
                                 "proposal_emission_text_required",

@@ -4,17 +4,15 @@
 use crate::layout::Edge;
 use rightkit_win_ui::glyphs::{Glyph, Symbol, Tile};
 
-/// The icon beside a card's title (the Mac's provider glyph); drawn by `render.rs`.
+/// The icon beside a card's title (the Mac's provider glyph); drawn by `render.rs`. Which
+/// glyph a card carries is the host's choice.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Mark {
+    /// No icon.
     #[default]
     None,
-    Claude,
-    Codex,
-    System,
-    Disks,
-    Send,
-    Tools,
+    /// This glyph.
+    Glyph(Glyph),
 }
 
 /// The speech-bubble tail: the notch's `edge` (the tail leaves the card on the side facing
@@ -57,7 +55,7 @@ pub enum Head {
     /// until `render.rs` drops its arm for it.
     #[allow(dead_code)]
     Refresh,
-    /// Sync the Claude chats (SF Symbols' `arrow.triangle.2.circlepath`, as on the Mac).
+    /// Sync (SF Symbols' `arrow.triangle.2.circlepath`, as on the Mac).
     Sync,
     /// A scan is running: a spinner where Refresh would be.
     Scanning,
@@ -147,7 +145,7 @@ pub enum Row {
         trailing: String,
         fraction: Option<f32>,
         summary: String,
-        /// A provider's usage window (Claude, Codex): its bar follows the colour transition setting.
+        /// A usage window: its bar follows the colour transition setting.
         ramp: bool,
     },
     /// A model's or feature's own limits (the Mac's grouped box): its title in bold over a
@@ -157,7 +155,7 @@ pub enum Row {
     Note(String),
     /// Primary-ink paragraph.
     Text(String),
-    /// Critical-ink line that says the account is stopped (a spent limit).
+    /// Critical-ink line that says the subject is stopped (a spent limit).
     Alert(String),
     /// A line in a tone (the amber caveat under a disk image's detail).
     Tinted { text: String, tone: Tone },
@@ -173,7 +171,7 @@ pub enum Row {
     },
     /// A file or picture on a card: its thumbnail (`the host thumbnail`, else the shell icon
     /// `fileicon::of`) and its name. A received file on the Send card's shelf (press, move to drag
-    /// it out; a double-click opens it; on the shelf `name` carries the whole detail line, "name · size · from <device> · <age>") and an image in the copy burst's hover preview.
+    /// it out; a double-click opens it; on the shelf `name` carries the whole detail line, `"name · size · from <device> · <age>"`) and an image in the copy burst's hover preview.
     File { name: String, path: String },
     /// A spinner with a line beside it.
     Waiting(String),
@@ -232,9 +230,12 @@ pub struct CardContent {
     pub height: Option<f32>,
     /// Quiet text on the title's line, at the right.
     pub accessory: Option<String>,
-    /// Quiet line under the title (the account's plan).
+    /// Quiet line under the title (such as an account's plan).
     pub subtitle: Option<String>,
     pub mark: Mark,
+    /// The header's round buttons sit centred on the title row without making the header
+    /// taller (the Mac's provider cards, whose sync button shares the row with the title).
+    pub inline_head: bool,
     /// The Send hover card: laid out in the Send metrics with whole-pixel heights.
     pub send: bool,
     pub tail: Option<Tail>,

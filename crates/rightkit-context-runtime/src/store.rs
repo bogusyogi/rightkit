@@ -1014,7 +1014,7 @@ const MAX_TASTE_DELIVERY_CANDIDATES: usize = 128;
 
 #[derive(Clone, Debug)]
 pub struct TasteDeliveryInventoryV1 {
-    pub candidates: Vec<rightkit_adapt_taste::delivery::PreferenceDeliveryCandidateV1>,
+    pub candidates: Vec<rightkit_adapt::delivery::PreferenceDeliveryCandidateV1>,
     pub memory_ids: HashSet<String>,
     pub record_versions: BTreeMap<String, String>,
     bindings: BTreeMap<String, (String, String)>,
@@ -2245,25 +2245,25 @@ fn claims_reserved_adapt_authority(item: &MemoryBatchItem) -> bool {
             && item.lifecycle.influence_class.as_deref() == Some("behavioral_directive"))
 }
 
-fn taste_authority(tier: rightkit_adapt_taste::authority::PrecedenceTier) -> &'static str {
+fn taste_authority(tier: rightkit_adapt::authority::PrecedenceTier) -> &'static str {
     match tier {
-        rightkit_adapt_taste::authority::PrecedenceTier::CurrentExplicitUserInstruction
-        | rightkit_adapt_taste::authority::PrecedenceTier::SafetyOrganizationPolicy
-        | rightkit_adapt_taste::authority::PrecedenceTier::ExplicitRepositoryPolicy => "A1",
-        rightkit_adapt_taste::authority::PrecedenceTier::ExplicitScopedUserPreference
-        | rightkit_adapt_taste::authority::PrecedenceTier::ExplicitGlobalUserPreference => "A2",
-        rightkit_adapt_taste::authority::PrecedenceTier::InferredScopedUserPreference
-        | rightkit_adapt_taste::authority::PrecedenceTier::InferredGlobalUserPreference => "A3",
-        rightkit_adapt_taste::authority::PrecedenceTier::TrustedImportedPreference => "A4",
-        rightkit_adapt_taste::authority::PrecedenceTier::ProvisionalCandidate => "A5",
+        rightkit_adapt::authority::PrecedenceTier::CurrentExplicitUserInstruction
+        | rightkit_adapt::authority::PrecedenceTier::SafetyOrganizationPolicy
+        | rightkit_adapt::authority::PrecedenceTier::ExplicitRepositoryPolicy => "A1",
+        rightkit_adapt::authority::PrecedenceTier::ExplicitScopedUserPreference
+        | rightkit_adapt::authority::PrecedenceTier::ExplicitGlobalUserPreference => "A2",
+        rightkit_adapt::authority::PrecedenceTier::InferredScopedUserPreference
+        | rightkit_adapt::authority::PrecedenceTier::InferredGlobalUserPreference => "A3",
+        rightkit_adapt::authority::PrecedenceTier::TrustedImportedPreference => "A4",
+        rightkit_adapt::authority::PrecedenceTier::ProvisionalCandidate => "A5",
     }
 }
 
-fn taste_influence(influence: rightkit_adapt_taste::record::InfluenceClass) -> &'static str {
+fn taste_influence(influence: rightkit_adapt::record::InfluenceClass) -> &'static str {
     match influence {
-        rightkit_adapt_taste::record::InfluenceClass::BehavioralDirective => "behavioral_directive",
-        rightkit_adapt_taste::record::InfluenceClass::Provisional => "provisional",
-        rightkit_adapt_taste::record::InfluenceClass::ReferenceOnly => "reference",
+        rightkit_adapt::record::InfluenceClass::BehavioralDirective => "behavioral_directive",
+        rightkit_adapt::record::InfluenceClass::Provisional => "provisional",
+        rightkit_adapt::record::InfluenceClass::ReferenceOnly => "reference",
     }
 }
 
@@ -7426,7 +7426,7 @@ impl MemoryStore {
     /// are treated as immutable evidence, while lifecycle and influence eligibility
     /// are read from the current Cortex envelope on every request.
     pub fn taste_delivery_inventory(&self) -> Result<TasteDeliveryInventoryV1, String> {
-        use rightkit_adapt_taste::record::{InfluenceClass, LifecycleState, RecordClass};
+        use rightkit_adapt::record::{InfluenceClass, LifecycleState, RecordClass};
 
         let now = crate::time::now_millis() as i64;
         let conn = self.db.lock();
@@ -7495,8 +7495,7 @@ impl MemoryStore {
         let mut bindings = BTreeMap::new();
         let mut record_versions = BTreeMap::new();
         for (memory_id, content, scope_id, lifecycle, influence, authority) in rows {
-            let parsed =
-                serde_json::from_str::<rightkit_adapt_taste::manifest::ManifestRecord>(&content);
+            let parsed = serde_json::from_str::<rightkit_adapt::manifest::ManifestRecord>(&content);
             let fallback_id = memory_id
                 .rsplit_once('/')
                 .map(|(_, name)| name)
@@ -7519,11 +7518,11 @@ impl MemoryStore {
                         .iter()
                         .find_map(|context| context.counterfactual.clone());
                     let class = RecordClass::parse(&record.record_type);
-                    let dimensions = rightkit_adapt_taste::scope::ScopeDimensions::normalize(
+                    let dimensions = rightkit_adapt::scope::ScopeDimensions::normalize(
                         &record.scope_dimensions.0,
                     );
                     let sealed = record.semantic_payload.as_ref().and_then(|payload| {
-                        rightkit_adapt_taste::manifest::verify_manifest_record_seal(
+                        rightkit_adapt::manifest::verify_manifest_record_seal(
                             &record,
                             &payload.canonical_pool_sha256,
                         )
@@ -7531,9 +7530,9 @@ impl MemoryStore {
                     });
                     let envelope_matches_seal = sealed.is_some_and(|payload| {
                         let expected_tier = if scope_id == "global" {
-                            rightkit_adapt_taste::authority::PrecedenceTier::ExplicitGlobalUserPreference
+                            rightkit_adapt::authority::PrecedenceTier::ExplicitGlobalUserPreference
                         } else {
-                            rightkit_adapt_taste::authority::PrecedenceTier::ExplicitScopedUserPreference
+                            rightkit_adapt::authority::PrecedenceTier::ExplicitScopedUserPreference
                         };
                         payload.scope == record.scope
                             && payload.scope_dimensions == dimensions.clone().unwrap_or_default()
@@ -7548,14 +7547,14 @@ impl MemoryStore {
                     });
                     let machine_binding =
                         sealed.and_then(|payload| payload.machine_binding.clone());
-                    let authority_tier = sealed.map(|payload| payload.authority_tier).unwrap_or(
-                        rightkit_adapt_taste::authority::PrecedenceTier::ProvisionalCandidate,
-                    );
+                    let authority_tier = sealed
+                        .map(|payload| payload.authority_tier)
+                        .unwrap_or(rightkit_adapt::authority::PrecedenceTier::ProvisionalCandidate);
                     let verified = record.status == "accepted"
                         && record.id == fallback_id
                         && crate::scope::normalize_scope(&record.scope) == scope_id
                         && record.payload_sha256
-                            == rightkit_adapt_taste::manifest::payload_sha256(&record)
+                            == rightkit_adapt::manifest::payload_sha256(&record)
                         && class.is_some()
                         && dimensions.is_ok()
                         && authority == "A2"
@@ -7575,9 +7574,9 @@ impl MemoryStore {
                     fallback_id,
                     String::new(),
                     RecordClass::StandingPreference,
-                    rightkit_adapt_taste::scope::ScopeDimensions::default(),
+                    rightkit_adapt::scope::ScopeDimensions::default(),
                     None,
-                    rightkit_adapt_taste::authority::PrecedenceTier::ProvisionalCandidate,
+                    rightkit_adapt::authority::PrecedenceTier::ProvisionalCandidate,
                     false,
                     None,
                 ),
@@ -7597,22 +7596,20 @@ impl MemoryStore {
                 "provisional" => InfluenceClass::Provisional,
                 _ => InfluenceClass::ReferenceOnly,
             };
-            candidates.push(
-                rightkit_adapt_taste::delivery::PreferenceDeliveryCandidateV1 {
-                    record_id,
-                    rule,
-                    class,
-                    scope: scope_id,
-                    scope_dimensions: dimensions,
-                    machine_binding,
-                    authority_tier,
-                    lifecycle_state,
-                    lifecycle_eligible: eligible_ids.contains(&memory_id),
-                    influence_class,
-                    semantic_verified,
-                    counterfactual,
-                },
-            );
+            candidates.push(rightkit_adapt::delivery::PreferenceDeliveryCandidateV1 {
+                record_id,
+                rule,
+                class,
+                scope: scope_id,
+                scope_dimensions: dimensions,
+                machine_binding,
+                authority_tier,
+                lifecycle_state,
+                lifecycle_eligible: eligible_ids.contains(&memory_id),
+                influence_class,
+                semantic_verified,
+                counterfactual,
+            });
         }
         Ok(TasteDeliveryInventoryV1 {
             candidates,
@@ -7629,7 +7626,7 @@ impl MemoryStore {
     /// exact duplicate or a contradiction.
     pub fn taste_gate1_review_context(
         &self,
-    ) -> Result<rightkit_adapt_taste::proposal::Gate1ReviewContextV1, String> {
+    ) -> Result<rightkit_adapt::proposal::Gate1ReviewContextV1, String> {
         self.taste_gate1_review_context_excluding(&BTreeMap::new())
     }
 
@@ -7638,7 +7635,7 @@ impl MemoryStore {
     pub fn taste_gate1_review_context_excluding(
         &self,
         excluded_record_payloads: &BTreeMap<String, String>,
-    ) -> Result<rightkit_adapt_taste::proposal::Gate1ReviewContextV1, String> {
+    ) -> Result<rightkit_adapt::proposal::Gate1ReviewContextV1, String> {
         let conn = self.db.lock();
         self.taste_gate1_review_context_excluding_on(&conn, excluded_record_payloads)
     }
@@ -7647,7 +7644,7 @@ impl MemoryStore {
         &self,
         conn: &rusqlite::Connection,
         excluded_record_payloads: &BTreeMap<String, String>,
-    ) -> Result<rightkit_adapt_taste::proposal::Gate1ReviewContextV1, String> {
+    ) -> Result<rightkit_adapt::proposal::Gate1ReviewContextV1, String> {
         let mut statement = conn
             .prepare(
                 "SELECT id,content,scope_id,lifecycle_state,authority,influence_class
@@ -7687,18 +7684,18 @@ impl MemoryStore {
         let mut canonical_records = Vec::with_capacity(rows.len());
         let mut canonical_record_ids = HashSet::with_capacity(rows.len());
         for (memory_id, content, scope_id, lifecycle, authority, influence_class) in rows {
-            let record: rightkit_adapt_taste::manifest::ManifestRecord =
-                serde_json::from_str(&content).map_err(|error| {
-                    self.persist_error(format!(
-                        "Taste Gate 1 record {memory_id} is malformed: {error}"
-                    ))
-                })?;
+            let record: rightkit_adapt::manifest::ManifestRecord = serde_json::from_str(&content)
+                .map_err(|error| {
+                self.persist_error(format!(
+                    "Taste Gate 1 record {memory_id} is malformed: {error}"
+                ))
+            })?;
             let expected_id = memory_id
                 .rsplit_once('/')
                 .map(|(_, name)| name)
                 .unwrap_or(memory_id.as_str());
             let dimensions =
-                rightkit_adapt_taste::scope::ScopeDimensions::normalize(&record.scope_dimensions.0)
+                rightkit_adapt::scope::ScopeDimensions::normalize(&record.scope_dimensions.0)
                     .map_err(|error| {
                         self.persist_error(format!(
                             "Taste Gate 1 record {memory_id} has malformed scope: {error}"
@@ -7709,7 +7706,7 @@ impl MemoryStore {
                     "Taste Gate 1 record {memory_id} lacks a semantic seal"
                 ))
             })?;
-            let sealed = rightkit_adapt_taste::manifest::verify_manifest_record_seal(
+            let sealed = rightkit_adapt::manifest::verify_manifest_record_seal(
                 &record,
                 &semantic.canonical_pool_sha256,
             )
@@ -7720,31 +7717,27 @@ impl MemoryStore {
             })?
             .clone();
             let expected_authority = match sealed.authority_tier {
-                rightkit_adapt_taste::authority::PrecedenceTier::CurrentExplicitUserInstruction
-                | rightkit_adapt_taste::authority::PrecedenceTier::SafetyOrganizationPolicy
-                | rightkit_adapt_taste::authority::PrecedenceTier::ExplicitRepositoryPolicy => "A1",
-                rightkit_adapt_taste::authority::PrecedenceTier::ExplicitScopedUserPreference
-                | rightkit_adapt_taste::authority::PrecedenceTier::ExplicitGlobalUserPreference => {
-                    "A2"
-                }
-                rightkit_adapt_taste::authority::PrecedenceTier::InferredScopedUserPreference
-                | rightkit_adapt_taste::authority::PrecedenceTier::InferredGlobalUserPreference => {
-                    "A3"
-                }
-                rightkit_adapt_taste::authority::PrecedenceTier::TrustedImportedPreference => "A4",
-                rightkit_adapt_taste::authority::PrecedenceTier::ProvisionalCandidate => "A5",
+                rightkit_adapt::authority::PrecedenceTier::CurrentExplicitUserInstruction
+                | rightkit_adapt::authority::PrecedenceTier::SafetyOrganizationPolicy
+                | rightkit_adapt::authority::PrecedenceTier::ExplicitRepositoryPolicy => "A1",
+                rightkit_adapt::authority::PrecedenceTier::ExplicitScopedUserPreference
+                | rightkit_adapt::authority::PrecedenceTier::ExplicitGlobalUserPreference => "A2",
+                rightkit_adapt::authority::PrecedenceTier::InferredScopedUserPreference
+                | rightkit_adapt::authority::PrecedenceTier::InferredGlobalUserPreference => "A3",
+                rightkit_adapt::authority::PrecedenceTier::TrustedImportedPreference => "A4",
+                rightkit_adapt::authority::PrecedenceTier::ProvisionalCandidate => "A5",
             };
             let expected_influence = match sealed.influence_class {
-                rightkit_adapt_taste::record::InfluenceClass::BehavioralDirective => {
+                rightkit_adapt::record::InfluenceClass::BehavioralDirective => {
                     "behavioral_directive"
                 }
-                rightkit_adapt_taste::record::InfluenceClass::Provisional => "provisional",
-                rightkit_adapt_taste::record::InfluenceClass::ReferenceOnly => "reference",
+                rightkit_adapt::record::InfluenceClass::Provisional => "provisional",
+                rightkit_adapt::record::InfluenceClass::ReferenceOnly => "reference",
             };
             if record.status != "accepted"
                 || record.id != expected_id
                 || crate::scope::normalize_scope(&record.scope) != scope_id
-                || record.payload_sha256 != rightkit_adapt_taste::manifest::payload_sha256(&record)
+                || record.payload_sha256 != rightkit_adapt::manifest::payload_sha256(&record)
                 || sealed.scope != record.scope
                 || sealed.scope_dimensions != dimensions
                 || authority != expected_authority
@@ -7766,8 +7759,8 @@ impl MemoryStore {
             {
                 continue;
             }
-            canonical_records.push(rightkit_adapt_taste::proposal::CanonicalTasteRecordV1 {
-                stored_rule: rightkit_adapt_taste::authority::StoredRule {
+            canonical_records.push(rightkit_adapt::proposal::CanonicalTasteRecordV1 {
+                stored_rule: rightkit_adapt::authority::StoredRule {
                     id: record.id,
                     rule: record.rule,
                     scope: record.scope,
@@ -7784,7 +7777,7 @@ impl MemoryStore {
             });
         }
         Ok(
-            rightkit_adapt_taste::proposal::Gate1ReviewContextV1::from_verified_canonical_inventory(
+            rightkit_adapt::proposal::Gate1ReviewContextV1::from_verified_canonical_inventory(
                 canonical_records,
             ),
         )
@@ -7796,7 +7789,7 @@ impl MemoryStore {
     pub fn persist_taste_delivery_receipts(
         &self,
         inventory: &TasteDeliveryInventoryV1,
-        receipts: &[rightkit_adapt_taste::delivery::PreferenceDeliveryReceiptV1],
+        receipts: &[rightkit_adapt::delivery::PreferenceDeliveryReceiptV1],
         attribution: &TasteDeliveryAttributionV1,
     ) -> Result<(), String> {
         let session = if attribution.session_id.trim().is_empty() {
@@ -8652,8 +8645,8 @@ impl MemoryStore {
 
     pub(crate) fn try_put_verified_adapt_taste_manifest(
         &self,
-        manifest: &rightkit_adapt_taste::manifest::PreferenceManifestV1,
-        trust: Option<&rightkit_adapt_taste::proposal::SemanticAdjudicatorTrustStoreV1>,
+        manifest: &rightkit_adapt::manifest::PreferenceManifestV1,
+        trust: Option<&rightkit_adapt::proposal::SemanticAdjudicatorTrustStoreV1>,
     ) -> Result<MemoryBatchReceipt, MemoryBatchError> {
         if manifest.installation_id != self.installation_id() {
             return Err(MemoryBatchError::Invalid(format!(
@@ -8662,15 +8655,13 @@ impl MemoryStore {
                 manifest.installation_id
             )));
         }
-        rightkit_adapt_taste::proposal::verify_final_manifest_adjudication_or_local(
-            manifest, trust,
-        )
-        .map_err(|error| {
-            MemoryBatchError::Invalid(format!(
-                "verified Adapt Taste adjudication is invalid: {error}"
-            ))
-        })?;
-        let accepted = rightkit_adapt_taste::manifest::apply_plan(manifest)
+        rightkit_adapt::proposal::verify_final_manifest_adjudication_or_local(manifest, trust)
+            .map_err(|error| {
+                MemoryBatchError::Invalid(format!(
+                    "verified Adapt Taste adjudication is invalid: {error}"
+                ))
+            })?;
+        let accepted = rightkit_adapt::manifest::apply_plan(manifest)
             .map_err(|error| MemoryBatchError::Invalid(error.to_string()))?
             .into_iter()
             .collect::<HashSet<_>>();
@@ -8679,7 +8670,7 @@ impl MemoryStore {
             .iter()
             .filter(|record| accepted.contains(&record.id))
             .map(|record| {
-                let sealed = rightkit_adapt_taste::manifest::verify_manifest_record_seal(
+                let sealed = rightkit_adapt::manifest::verify_manifest_record_seal(
                     record,
                     &manifest.canonical_pool_sha256,
                 )
@@ -8730,12 +8721,11 @@ impl MemoryStore {
             // All-rejected manifests still consume a durable batch identity. This
             // keeps an identical replay idempotent, while binding any changed
             // adjudication to a conflict even when no memory rows are written.
-            let request_sha256 =
-                rightkit_adapt_taste::canonical::sha256_canonical(&serde_json::json!({
-                    "batch_id": &manifest.batch_id,
-                    "manifest_sha256": &manifest.manifest_sha256,
-                    "canonical_pool_sha256": &manifest.canonical_pool_sha256,
-                }));
+            let request_sha256 = rightkit_adapt::canonical::sha256_canonical(&serde_json::json!({
+                "batch_id": &manifest.batch_id,
+                "manifest_sha256": &manifest.manifest_sha256,
+                "canonical_pool_sha256": &manifest.canonical_pool_sha256,
+            }));
             let updated_at = crate::time::now_iso();
             let mut conn = self.db.lock();
             let tx = conn
@@ -8792,7 +8782,7 @@ impl MemoryStore {
 
     pub(crate) fn try_put_verified_adapt_insights(
         &self,
-        issues: &[rightkit_adapt_taste::insights::sealed_issue::SealedInsightIssueV1],
+        issues: &[rightkit_adapt::insights::sealed_issue::SealedInsightIssueV1],
     ) -> Result<MemoryBatchReceipt, MemoryBatchError> {
         if issues.is_empty() {
             return Err(MemoryBatchError::Invalid(
@@ -8807,8 +8797,7 @@ impl MemoryStore {
                     issue.issue_id
                 ))
             })?;
-            if issue.schema_version
-                != rightkit_adapt_taste::insights::sealed_issue::SEALED_ISSUE_SCHEMA
+            if issue.schema_version != rightkit_adapt::insights::sealed_issue::SEALED_ISSUE_SCHEMA
                 || issue.contract != "InsightIssueV1"
                 || issue.payload.record_kind != "insight_issue"
                 || issue.payload.authority_class != "reference"
@@ -8831,7 +8820,7 @@ impl MemoryStore {
         }
         let batch_id = format!(
             "adapt-insights-{}",
-            rightkit_adapt_taste::canonical::sha256_canonical(
+            rightkit_adapt::canonical::sha256_canonical(
                 &serde_json::to_value(&ids).expect("Insight ids serialize")
             )
         );

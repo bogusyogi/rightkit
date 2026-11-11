@@ -6,7 +6,7 @@ use axum::{
     Router,
 };
 use rightkit_agent_host_traits::skill_host::CommandResult;
-use rightkit_memory::backend::{CallContext, MemoryBackendError, MemoryEntry};
+use rightkit_memory_client::backend::{CallContext, MemoryBackendError, MemoryEntry};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
@@ -135,7 +135,7 @@ fn default_memory_limit() -> usize {
 }
 
 fn memory_call_context() -> CallContext {
-    rightkit_memory::api_memright::current_memory_call_context()
+    rightkit_memory_client::api_memright::current_memory_call_context()
 }
 
 #[derive(Deserialize)]
@@ -167,7 +167,7 @@ async fn list_memory_handler(
     let entries = match entries {
         Ok(entries) => entries
             .into_iter()
-            .filter(|entry| !rightkit_memory::memory_provenance::is_provenance_id(&entry.id))
+            .filter(|entry| !rightkit_memory_client::memory_provenance::is_provenance_id(&entry.id))
             .take(limit)
             .collect::<Vec<_>>(),
         Err(error) => {
@@ -218,7 +218,7 @@ async fn add_memory_handler(
 
 /// FM-074 roster-status projection: reports the daily-analyzer consolidation
 /// cycle's last-run outcome and lifetime counters (see
-/// `rightkit_memory::ConsolidationStatusState`, populated by
+/// `rightkit_memory_client::ConsolidationStatusState`, populated by
 /// `learning::daily_analysis::run_daily_analysis`). Requires
 /// `state.memory_consolidation_status`, a hub-owned `DaemonState` field this
 /// lane does not add — see the A11 wiring doc.
@@ -272,7 +272,9 @@ pub async fn render_memory_command(state: &DaemonState, args: &[String]) -> Comm
             Ok(rows) => {
                 let rows = rows
                     .into_iter()
-                    .filter(|row| !rightkit_memory::memory_provenance::is_provenance_id(&row.id))
+                    .filter(|row| {
+                        !rightkit_memory_client::memory_provenance::is_provenance_id(&row.id)
+                    })
                     .collect::<Vec<_>>();
                 if rows.is_empty() {
                     return command_ok("No durable memories recorded yet.");
@@ -304,7 +306,7 @@ pub async fn render_memory_command(state: &DaemonState, args: &[String]) -> Comm
     let entries = match entries {
         Ok(entries) => entries
             .into_iter()
-            .filter(|entry| !rightkit_memory::memory_provenance::is_provenance_id(&entry.id))
+            .filter(|entry| !rightkit_memory_client::memory_provenance::is_provenance_id(&entry.id))
             .take(10)
             .collect::<Vec<_>>(),
         Err(error) => return command_error(format!("memory lookup failed: {error}")),
@@ -355,13 +357,13 @@ fn command_error(output: impl Into<String>) -> CommandResult {
 
 fn memory_backend_status(error: MemoryBackendError) -> StatusCode {
     match error.kind() {
-        rightkit_memory::backend::MemoryBackendErrorKind::Invalid => StatusCode::BAD_REQUEST,
-        rightkit_memory::backend::MemoryBackendErrorKind::Denied => StatusCode::FORBIDDEN,
-        rightkit_memory::backend::MemoryBackendErrorKind::BackendUnavailable
-        | rightkit_memory::backend::MemoryBackendErrorKind::Unavailable
-        | rightkit_memory::backend::MemoryBackendErrorKind::CommitUnknown
-        | rightkit_memory::backend::MemoryBackendErrorKind::Timeout
-        | rightkit_memory::backend::MemoryBackendErrorKind::Cancelled => {
+        rightkit_memory_client::backend::MemoryBackendErrorKind::Invalid => StatusCode::BAD_REQUEST,
+        rightkit_memory_client::backend::MemoryBackendErrorKind::Denied => StatusCode::FORBIDDEN,
+        rightkit_memory_client::backend::MemoryBackendErrorKind::BackendUnavailable
+        | rightkit_memory_client::backend::MemoryBackendErrorKind::Unavailable
+        | rightkit_memory_client::backend::MemoryBackendErrorKind::CommitUnknown
+        | rightkit_memory_client::backend::MemoryBackendErrorKind::Timeout
+        | rightkit_memory_client::backend::MemoryBackendErrorKind::Cancelled => {
             StatusCode::SERVICE_UNAVAILABLE
         }
         _ => StatusCode::INTERNAL_SERVER_ERROR,

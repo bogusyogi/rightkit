@@ -2,6 +2,7 @@
 
 ## 0.1.1 (unpublished)
 
+- Depends on `rightkit-memory-client` 0.1.0, CodeRight's memory client under its new name (it was published as `rightkit-memory` 0.1.x; that name is now the memory engine). No behaviour change. Taken on the recommended option of the 2026-11-11 shape review, pending the owner's confirmation.
 - Requires `rightkit-agent-engine-protocol` 0.2.0 (its approval records carry the approvals core's `Binding`, a mandatory digest, instead of an optional `payload_digest`) and `rightkit-agent-engine-core` 0.1.1. Decision 4 of the 2026-11-11 shape review (docs/audits/2026-11-11-shape-matrix/README.md, "Agent engine") taken on the recommended option, pending the owner's confirmation; design note: docs/audits/2026-11-11-shape-matrix/reports/agent-engine-contract-design.md.
 
 ## Unreleased

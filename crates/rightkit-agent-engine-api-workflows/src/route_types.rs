@@ -80,11 +80,11 @@ pub struct CreateOptimizationRequest {
     pub workflow_id: String,
     pub base_version_id: String,
     pub candidate_definition: Value,
-    pub change_kind: rightkit_adapt::WorkflowProposalKind,
+    pub change_kind: rightkit_agent_learning::WorkflowProposalKind,
     pub diff_summary: String,
     pub proposed_by: String,
     pub benchmark_id: String,
-    pub evidence: rightkit_adapt::EvalEvidence,
+    pub evidence: rightkit_agent_learning::EvalEvidence,
 }
 
 #[derive(Debug, Deserialize)]

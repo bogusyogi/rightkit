@@ -23,7 +23,7 @@ use rightkit_agent_engine_core::{
     SelfReviewProposalDraft, SelfReviewProposalKind,
 };
 
-use rightkit_adapt::{
+use rightkit_agent_learning::{
     DailyAnalyzer, DailyReport, EvaluationEngine, LearningProposalStore,
     PostSessionLearningExtractor, Proposal, ProposalKind, ProposalStatus, ReviewCandidate,
     SessionSummary,

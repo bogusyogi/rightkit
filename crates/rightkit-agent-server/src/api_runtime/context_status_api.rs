@@ -7,7 +7,7 @@ async fn get_context_status(State(state): State<DaemonState>) -> Json<serde_json
         Ok(Ok(info)) if info.mode == "off" => Json(serde_json::json!({
             "schemaVersion": "coderight.context-status.v1",
             "state": "unavailable",
-            "reason": degraded_reason.as_deref().unwrap_or(rightkit_memory::membrane::OFF_REASON),
+            "reason": degraded_reason.as_deref().unwrap_or(rightkit_memory_client::membrane::OFF_REASON),
             "contextDegraded": degraded_reason.is_some(),
             "degradedReason": degraded_reason,
         })),

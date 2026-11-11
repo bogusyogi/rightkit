@@ -476,7 +476,7 @@ fn serde_tag<T: serde::Serialize>(value: &T) -> Option<String> {
 /// authority. This never overrides Adapt's precedence resolution; it only
 /// gives the planner a stable ranking key inside this provider's candidate
 /// list.
-fn precedence_score(tier: rightkit_adapt_taste::authority::PrecedenceTier) -> f64 {
+fn precedence_score(tier: rightkit_adapt::authority::PrecedenceTier) -> f64 {
     let ordinal = tier as i32; // 1 (highest authority) ..= 9 (lowest)
     (1.0 - (ordinal.saturating_sub(1) as f64 / 8.0)).clamp(0.0, 1.0)
 }

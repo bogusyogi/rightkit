@@ -1,6 +1,6 @@
-# rightkit-hotkeys 0.1.2 registry consumer
+# rightkit-hotkeys 0.1.4 registry consumer
 
-Standalone consumer, outside the workspace, pinning `rightkit-hotkeys =0.1.2` exactly. The crate has no features, so none are selected; this is the dependency CutRight, HeardRight and Pulse declare. It installs the crate from the sealed archive through the offline directory registry and runs `src/main.rs`, which exits non-zero on the first failed assertion. The same source compiles and runs on Windows, macOS and Linux.
+Standalone consumer, outside the workspace, pinning `rightkit-hotkeys =0.1.4` exactly. The crate has no features, so none are selected; this is the dependency CutRight, HeardRight and Pulse declare. It installs the crate from the sealed archive through the offline directory registry and runs `src/main.rs`, which exits non-zero on the first failed assertion. The same source compiles and runs on Windows, macOS and Linux.
 
 ## What it proves
 
@@ -15,7 +15,7 @@ These are the pure modules, which behave the same on every platform:
 - Decoding. `KeyEventDetail::from_raw`, `MouseEvent::from_raw`, `classify_mouse_message` and `is_thread_message`.
 - Middle click. `MiddleClickGate`, `handle_other_mouse` and `run_job` keep the lookup off the tap callback (a toggle, a replayed click, a stale lookup, a vanished worker). `ArmTimer` fires once, cancels, re-arms to replace a pending deadline, stops on drop, and clamps its delay.
 
-On Windows and macOS only, the platform types are checked by name at compile time (nothing is constructed), so an unintended removal of an exported type fails the build.
+On Windows and macOS only, the platform types are checked by name at compile time (nothing is constructed), so an unintended removal of an exported type fails the build. On Windows the hook hub (`windows::hub`, 0.1.4) is checked without installing a hook: no hook runs and no modifier side is known while no handler is registered, the default injection tag, and an empty `KeyContext`.
 
 ## What it deliberately does not prove
 

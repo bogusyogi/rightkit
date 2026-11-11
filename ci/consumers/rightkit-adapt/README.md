@@ -1,4 +1,7 @@
-# rightkit-adapt registry consumer
+# rightkit-adapt 0.2.0 registry consumer
 
-Standalone package that depends on `rightkit-adapt` by exact registry pin (`=0.1.0`) outside the RightKit workspace and
-exercises a few cheap public API checks with no external assets. Each passing check prints an `ok:` line; a failure exits 1.
+Standalone consumer, outside the workspace, pinning `rightkit-adapt =0.2.0` exactly. It installs the crate from the sealed archive through the offline directory registry and runs `src/main.rs`, which exits non-zero on the first failed check.
+
+## What it proves
+
+That the published crate (Pulse's governed behavioural learning, which was `rightkit-adapt-taste` until 0.1.2) canonicalizes JSON and derives stable preference ids with the published prefix and sha256 digests. CodeRight's learning crate, published as `rightkit-adapt` until 0.1.2, has its own consumer under `rightkit-agent-learning`.

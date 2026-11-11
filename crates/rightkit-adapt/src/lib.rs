@@ -1,60 +1,53 @@
-//! rightkit-adapt — the post-session learning pipeline.
+//! # rightkit-adapt — governed behavioural learning (Pulse's Membrane Adapt)
 //!
-//! Extracts proposal candidates from a finished session, evaluates them, promotes
-//! good ones into a target sink, and detects regressions against a baseline.
+//! Governed behavioral learning: **Taste** (user-backed preference learning)
+//! and **Insights** (failure/gotcha learning), implemented as a deterministic,
+//! native library with no Python, no Node, no network, and no `unsafe`.
 //!
-//! The crate also provides evaluation-gated workflow optimization proposals.
+//! Authority boundaries enforced structurally in this crate:
+//!
+//! * Model output is an untrusted [`model_boundary`] proposal; it can never
+//!   set authority class, source identity, signal strength, or permissions.
+//! * Taste candidates derive only from caller-selected, external-user
+//!   transcript events; exact source digests bind review to those files.
+//! * Insights records are diagnostic/reference-only; they never create user
+//!   preference authority ([`insights`], [`remediation`]).
+//! * Durable outputs cross exactly one typed Cortex admission boundary,
+//!   represented here as a proposal envelope ([`gates`]); Adapt never owns a
+//!   parallel durable store.
+//! * The three admission decisions (proposal eligibility, Cortex durable
+//!   admission, Membrane context admission) are distinct types that never
+//!   collapse into each other ([`gates`]).
 
-pub mod analyzer;
-pub mod deployer;
-pub mod error;
-pub mod eval_gate;
-pub mod evaluation;
-pub mod extractor;
-pub mod finetuning;
-pub mod harness_radar;
-pub mod instincts;
-pub mod meta_skill;
-pub mod proposal_store;
-pub mod proposals;
-pub mod regression;
-pub mod skill_bundle;
-pub mod skill_opt;
-pub mod skill_synthesis;
-pub mod store;
-pub mod types;
+pub mod adaptive;
+pub mod admission;
+pub mod attribution;
+pub mod authority;
+pub mod benchmark;
+pub mod canonical;
+pub mod cli_api;
+pub mod context_cost;
+pub mod delivery;
+pub mod detector_contract;
+pub mod duplicate_groups;
+pub mod evidence;
+pub mod gates;
+pub mod insights;
+pub mod learner;
+pub mod lineage;
+pub mod manifest;
+pub mod model_boundary;
+pub mod multiwriter;
+pub mod outcomes;
+pub mod procedural_effectiveness;
+pub mod proposal;
+pub mod proposal_state;
+pub mod record;
+pub mod remediation;
+pub mod scope;
+pub mod seal;
+pub mod taste;
 
-pub use analyzer::{AnalyzerSource, DailyAnalyzer, DailyReport, ReviewCandidate};
-pub use deployer::{DeploymentSink, ProposalDeployer, RecordingSink};
-pub use error::LearningError;
-pub use eval_gate::{EvalEvidence, EvalGate, GateOutcome};
-pub use evaluation::{EvaluationConfig, EvaluationEngine};
-pub use extractor::{PostSessionLearningExtractor, SessionSummary};
-pub use finetuning::{ExportPlan, FineTuneTrigger};
-pub use harness_radar::{
-    diff_harness_radar_entries, generate_harness_radar_proposals,
-    harness_radar_capability_for_entry, import_harness_radar_yaml, parse_harness_radar_sources,
-    validate_harness_radar_snapshot, HarnessRadarChange, HarnessRadarEntry, HarnessRadarProposal,
-    HarnessRadarSource, HarnessRadarValidation, HarnessRadarValidationIssue,
-    HARNESS_RADAR_CAPABILITIES,
-};
-pub use instincts::{Instinct, InstinctStore, PreferenceEvalGate};
-pub use meta_skill::{initial_skillopt_meta_skill, refine_skillopt_meta_skill, SkillOptMetaSkill};
-pub use proposal_store::ProposalStore;
-pub use proposals::{
-    OptimizationAdmission, PromotionRecord, Proposal as WorkflowProposal, ProposalBuilder,
-    ProposalKind as WorkflowProposalKind,
-};
-pub use regression::{RegressionDetector, RegressionVerdict};
-pub use skill_bundle::SkillBundle;
-pub use skill_opt::{
-    BenchmarkGate, BenchmarkGateKind, RejectedEdit, SkillOptimizationCandidate,
-    SkillOptimizationCandidateProposal, SkillOptimizationEpochInput, SkillOptimizationEpochResult,
-    SkillOptimizationHistoryEntry, SkillOptimizationProposalInput, SkillOptimizationProposalResult,
-    SkillOptimizationRun, SkillOptimizationStatus, SkillOptimizationStore, SkillOptimizationTarget,
-};
-pub use skill_synthesis::{
-    SkillSynthesisLoop, SynthesisConfig, SynthesisCycleResult, SynthesizeFn, VerifyFn,
-};
-pub use store::LearningProposalStore;
-pub use types::{Proposal, ProposalKind, ProposalStatus};
+pub mod clarification;
+pub mod comparison;
+pub mod guard_rollout;

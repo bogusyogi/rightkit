@@ -161,15 +161,15 @@ pub(crate) fn load_or_set_aside<T: serde::de::DeserializeOwned>(path: &Path) -> 
 
 /// The instinct store at `path`: empty when the file is missing; when it exists but does not parse it is set aside
 /// first (see [`set_aside_damaged`]), so the empty store is never saved over the only copy.
-pub(crate) fn load_instincts(path: &Path) -> rightkit_adapt::InstinctStore {
-    match rightkit_adapt::InstinctStore::load_from_json(&path.to_string_lossy()) {
+pub(crate) fn load_instincts(path: &Path) -> rightkit_agent_learning::InstinctStore {
+    match rightkit_agent_learning::InstinctStore::load_from_json(&path.to_string_lossy()) {
         Ok(store) => store,
         Err(_) => {
             // Only a file we could read but not parse is damaged; a missing or unreadable one has nothing to keep.
             if std::fs::metadata(path).is_ok_and(|m| m.is_file()) {
                 set_aside_damaged(path);
             }
-            rightkit_adapt::InstinctStore::default()
+            rightkit_agent_learning::InstinctStore::default()
         }
     }
 }

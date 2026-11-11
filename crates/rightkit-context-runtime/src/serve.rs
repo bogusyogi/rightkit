@@ -662,7 +662,7 @@ pub(crate) fn explicit_memory_response(
 ) -> (u16, Value) {
     use rightkit_context_protocol::explicit::ExplicitOperation as Op;
     if operation == Op::AdaptCompare {
-        let request: rightkit_adapt_taste::comparison::CandidateComparisonV1 =
+        let request: rightkit_adapt::comparison::CandidateComparisonV1 =
             match serde_json::from_value(Value::Object(request.clone())) {
                 Ok(value) => value,
                 Err(error) => {
@@ -672,7 +672,7 @@ pub(crate) fn explicit_memory_response(
                     );
                 }
             };
-        let decision = match rightkit_adapt_taste::comparison::compare(&request) {
+        let decision = match rightkit_adapt::comparison::compare(&request) {
             Ok(value) => value,
             Err(error) => return (400, json!({"code":"invalid_request","error":error})),
         };
@@ -2108,7 +2108,7 @@ fn route_with_context_ingest_lease(
             }
             raw_dimensions.insert(key.into(), value.into());
         }
-        let taste_dimensions = match rightkit_adapt_taste::scope::ScopeDimensions::normalize(
+        let taste_dimensions = match rightkit_adapt::scope::ScopeDimensions::normalize(
             &raw_dimensions,
         ) {
             Ok(dimensions) => dimensions,
@@ -2133,7 +2133,7 @@ fn route_with_context_ingest_lease(
         );
         let (inventory, delivery_plan) = match crate::adapt_service::select(
             store,
-            &rightkit_adapt_taste::delivery::PreferenceDeliveryContextV1 {
+            &rightkit_adapt::delivery::PreferenceDeliveryContextV1 {
                 allowed_scopes: allowed_taste_scopes,
                 dimensions: taste_dimensions,
                 machine,

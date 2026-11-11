@@ -262,7 +262,7 @@ mod interactive_session {
 
     // ── Repository scope selection (1C) ──────────────────────────────────
 
-    type SelectedRepository = rightkit_memory::backend::repository_scope::CanonicalRepositoryScope;
+    type SelectedRepository = rightkit_memory_client::backend::repository_scope::CanonicalRepositoryScope;
 
     /// Initialize the selected repository from the launch directory. The cwd
     /// is consulted ONCE here and only when the existing canonical
@@ -278,7 +278,7 @@ mod interactive_session {
     /// Resolve `root` to its registry binding. Enrolment is Pulse's concern;
     /// RightKit never runs `membrane init`.
     fn resolve_repository(root: &std::path::Path) -> Result<Option<SelectedRepository>, String> {
-        use rightkit_memory::backend::repository_scope::resolve_canonical_repository_scope;
+        use rightkit_memory_client::backend::repository_scope::resolve_canonical_repository_scope;
         resolve_canonical_repository_scope(root)
     }
 
@@ -1590,7 +1590,7 @@ mod interactive_session {
                             selected_root.as_deref(),
                         );
                         if let Ok(scopes) =
-                            rightkit_memory::backend::repository_scope::enrolled_repository_scopes()
+                            rightkit_memory_client::backend::repository_scope::enrolled_repository_scopes()
                         {
                             roots.extend(scopes.into_iter().map(|scope| scope.root));
                         }
@@ -5461,7 +5461,7 @@ mod interactive_session {
                 &self.session_roots.lock().unwrap_or_else(|e| e.into_inner()),
                 current.as_deref(),
             );
-            match rightkit_memory::backend::repository_scope::enrolled_repository_scopes() {
+            match rightkit_memory_client::backend::repository_scope::enrolled_repository_scopes() {
                 Ok(scopes) => roots.extend(scopes.into_iter().map(|scope| scope.root)),
                 Err(error) => tracing::warn!("repository catalog: {error}"),
             }

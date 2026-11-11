@@ -457,7 +457,7 @@ pub trait BackgroundReviewProposalAdmission: Send + Sync {
     fn admit_adapt_proposals(
         &self,
         _job: &BackgroundReviewJobV1,
-        _proposals: &[rightkit_adapt_taste::learner::AdaptLearnerProposalV1],
+        _proposals: &[rightkit_adapt::learner::AdaptLearnerProposalV1],
     ) -> Result<(), BackgroundReviewReasonV1> {
         Err(BackgroundReviewReasonV1::ProposalSinkUnavailable)
     }
@@ -465,7 +465,7 @@ pub trait BackgroundReviewProposalAdmission: Send + Sync {
     fn submit_adapt_proposals(
         &self,
         job: &BackgroundReviewJobV1,
-        proposals: &[rightkit_adapt_taste::learner::AdaptLearnerProposalV1],
+        proposals: &[rightkit_adapt::learner::AdaptLearnerProposalV1],
     ) -> Result<(), BackgroundReviewReasonV1> {
         self.admit_adapt_proposals(job, proposals)
     }
@@ -573,7 +573,7 @@ impl BackgroundReviewProposalAdmission for JsonlBackgroundReviewProposalAdmissio
     fn admit_adapt_proposals(
         &self,
         job: &BackgroundReviewJobV1,
-        proposals: &[rightkit_adapt_taste::learner::AdaptLearnerProposalV1],
+        proposals: &[rightkit_adapt::learner::AdaptLearnerProposalV1],
     ) -> Result<(), BackgroundReviewReasonV1> {
         self.append(job, "adapt_proposal", proposals)
     }
@@ -1436,7 +1436,7 @@ pub fn execute_background_semantic_review(
             .curation_proposals
             .iter()
             .map(|value| {
-                serde_json::from_value::<rightkit_adapt_taste::learner::AdaptLearnerProposalV1>(
+                serde_json::from_value::<rightkit_adapt::learner::AdaptLearnerProposalV1>(
                     value.clone(),
                 )
             })

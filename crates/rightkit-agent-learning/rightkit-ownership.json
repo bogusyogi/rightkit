@@ -1,9 +1,9 @@
 {
-  "package": "rightkit-memory",
+  "package": "rightkit-agent-learning",
   "capabilities": [
     {
-      "capability": "agent-memory",
-      "summary": "Agent memory: durable memory store, write screening, adaptive retrieval routing and a typed backend over an external membrane CLI; declaration-only detection (no precise implementation fingerprint)",
+      "capability": "adapt",
+      "summary": "Post-session learning for a coding agent: proposal extraction, evaluation and promotion, instincts, workflow proposals and skill optimisation; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

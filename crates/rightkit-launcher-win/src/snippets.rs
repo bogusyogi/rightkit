@@ -36,12 +36,12 @@
 //! in; a document with no edit control is never a target. Input methods are judged by the keyboard
 //! layout's language, not by their composition state.
 
-use crate::config as launcher_config;
 use crate::host;
 use rightkit_automation::win::input::{ModifierSnapshot, RawInput, vk};
 use rightkit_automation::win::uia;
 use rightkit_clipboard_history::capture as clip_capture;
 use rightkit_clipboard_history::win::{self, Open};
+use rightkit_launcher::config as launcher_config;
 use std::mem::size_of;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};

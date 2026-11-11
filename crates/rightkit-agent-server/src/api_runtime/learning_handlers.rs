@@ -24,7 +24,7 @@ async fn approve_learning_proposal(
 
 fn write_approved_proposal_instinct(
     state: &DaemonState,
-    proposal: &rightkit_adapt::Proposal,
+    proposal: &rightkit_agent_learning::Proposal,
 ) -> Result<bool, String> {
     let Some(instinct) = proposal_to_instinct(proposal) else {
         return Ok(false);
@@ -42,10 +42,10 @@ fn write_approved_proposal_instinct(
     Ok(true)
 }
 
-fn proposal_to_instinct(proposal: &rightkit_adapt::Proposal) -> Option<rightkit_adapt::Instinct> {
+fn proposal_to_instinct(proposal: &rightkit_agent_learning::Proposal) -> Option<rightkit_agent_learning::Instinct> {
     if !matches!(
         proposal.kind,
-        rightkit_adapt::ProposalKind::HarnessRule | rightkit_adapt::ProposalKind::Memory
+        rightkit_agent_learning::ProposalKind::HarnessRule | rightkit_agent_learning::ProposalKind::Memory
     ) {
         return None;
     }
@@ -53,7 +53,7 @@ fn proposal_to_instinct(proposal: &rightkit_adapt::Proposal) -> Option<rightkit_
     if rule.is_empty() {
         return None;
     }
-    Some(rightkit_adapt::Instinct {
+    Some(rightkit_agent_learning::Instinct {
         id: format!("learning-{}", sanitize_instinct_id(&proposal.id)),
         rule: rule.to_string(),
         observed_at_sessions: vec![proposal.id.clone()],
@@ -85,7 +85,7 @@ fn sanitize_instinct_id(value: &str) -> String {
 }
 
 fn persist_instinct_store(
-    store: &rightkit_adapt::InstinctStore,
+    store: &rightkit_agent_learning::InstinctStore,
     path: &FsPath,
 ) -> Result<(), String> {
     if let Some(parent) = path.parent() {

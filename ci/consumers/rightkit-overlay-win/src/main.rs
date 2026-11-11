@@ -1,8 +1,8 @@
-// rightkit-overlay-win 0.1.0 consumed by exact registry pin, outside the workspace.
+// rightkit-overlay-win 0.1.5 consumed by exact registry pin, outside the workspace.
 //
 // Proves the pure, window-free API on every host (so it builds and runs on the macOS runner): Easing and
 // Animation sampling, Rgba, DPI and hit-test geometry, path construction and parsing, bar layout, and
-// painting into an offscreen PaintCtx. OverlayWindow::create is checked only for its config refusal and,
+// painting into an offscreen PaintCtx, and the AI answer layout (response_layout, 0.1.5). OverlayWindow::create is checked only for its config refusal and,
 // off Windows, its Unsupported refusal; on Windows no window is created.
 // Does not prove: a live window, hover, presentation, text, glass, per-monitor DPI.
 // State: none. No network, no files, no real user data.
@@ -177,6 +177,11 @@ fn main() -> Result<(), String> {
         Err(OverlayError::Unsupported)
     ));
 
-    println!("OK rightkit-overlay-win 0.1.0 (registry consumer)");
+    // The answer layout (0.1.5, moved from rightkit-launcher): a short answer keeps its text in the
+    // one-line excerpt.
+    let short = rightkit_overlay_win::response_layout::excerpt("short text", 40);
+    assert!(short.contains("short text"));
+
+    println!("OK rightkit-overlay-win 0.1.5 (registry consumer)");
     Ok(())
 }

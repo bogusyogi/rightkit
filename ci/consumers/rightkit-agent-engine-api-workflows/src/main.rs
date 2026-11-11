@@ -1,4 +1,4 @@
-// rightkit-agent-engine-api-workflows 0.1.0 consumed by exact registry pin: OpenAPI document, stable
+// rightkit-agent-engine-api-workflows 0.2.0 consumed by exact registry pin: OpenAPI document, stable
 // error codes and the generic import request. No I/O.
 use rightkit_agent_engine_api_workflows::error::code;
 use rightkit_agent_engine_api_workflows::{openapi_v1_schema, ImportRequest};

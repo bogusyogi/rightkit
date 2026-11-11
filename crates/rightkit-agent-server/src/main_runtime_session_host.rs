@@ -300,7 +300,7 @@ type InlineHostState = (api::DaemonState, ());
 
 /// Compose the memory backend for a fresh inline `DaemonState` through the
 /// Membrane CLI adapter. Pulse absent resolves to the adapter's `Unavailable`
-/// backend: context off with `rightkit_memory::membrane::OFF_REASON`, memory save
+/// backend: context off with `rightkit_memory_client::membrane::OFF_REASON`, memory save
 /// an explicit tool error. Every adapter call carries its own timeout.
 fn apply_membrane_cli_composition(mut state: api::DaemonState) -> api::DaemonState {
     state = state.with_membrane(crate::native_transcript_exporter::membrane_backend());
@@ -308,10 +308,10 @@ fn apply_membrane_cli_composition(mut state: api::DaemonState) -> api::DaemonSta
     state = state.with_transcript_exporter(Some(Arc::new(
         crate::native_transcript_exporter::NativeTranscriptExporter::new(),
     )));
-    match rightkit_memory::backend::native::connect_from_environment() {
+    match rightkit_memory_client::backend::native::connect_from_environment() {
         Ok(backend) => {
             let provenance =
-                rightkit_memory::memory_provenance::MemoryProvenanceStore::from_backend(
+                rightkit_memory_client::memory_provenance::MemoryProvenanceStore::from_backend(
                     backend.clone(),
                 );
             state = state
@@ -319,23 +319,23 @@ fn apply_membrane_cli_composition(mut state: api::DaemonState) -> api::DaemonSta
                 .with_memory_provenance(provenance);
             // Pulse absent connects to the typed unavailable backend; the
             // context is still off and must be reported degraded.
-            if rightkit_memory::backend::native::context_is_off() {
+            if rightkit_memory_client::backend::native::context_is_off() {
                 state =
-                    state.with_context_degraded(rightkit_memory::membrane::OFF_REASON.to_string());
+                    state.with_context_degraded(rightkit_memory_client::membrane::OFF_REASON.to_string());
             }
         }
         Err(error) => {
-            let reason = rightkit_memory::membrane::OFF_REASON.to_string();
+            let reason = rightkit_memory_client::membrane::OFF_REASON.to_string();
             tracing::warn!(host = "inline", error = %error, "Membrane CLI context unavailable; turns run degraded (context off)");
             state = state
                 .with_memory_backend(std::sync::Arc::new(
-                    rightkit_memory::backend::unavailable::UnavailableMemoryBackend::new(
+                    rightkit_memory_client::backend::unavailable::UnavailableMemoryBackend::new(
                         error.code(),
                         error.message(),
                     ),
                 ))
                 .with_memory_provenance(
-                    rightkit_memory::memory_provenance::MemoryProvenanceStore::unavailable(
+                    rightkit_memory_client::memory_provenance::MemoryProvenanceStore::unavailable(
                         reason.clone(),
                     ),
                 )

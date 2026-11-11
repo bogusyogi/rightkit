@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-desktop-tweaks = { version = "=0.1.0" }
+rightkit-desktop-tweaks = { version = "=0.2.0" }

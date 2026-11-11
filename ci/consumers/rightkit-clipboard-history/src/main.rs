@@ -1,11 +1,12 @@
-// rightkit-clipboard-history 0.1.0 consumed by exact registry pin (`=0.1.0`), outside the workspace.
+// rightkit-clipboard-history 0.2.0 consumed by exact registry pin (`=0.2.0`), outside the workspace.
 //
 // Proves, through the public API only, the platform-neutral pure helpers that compile on every host:
 // - model::Kind round-trips its wire names through as_str and parse, and refuses an unknown name;
 // - detect::detect classifies a plain sentence as Text, a web address as Link (host without www.,
 //   lower-case scheme) and a #RRGGBB value as Colour;
 // - detect::colour accepts a hex colour and refuses a non-hex one;
-// - json::parse reads a small object within its byte cap and refuses input over the cap.
+// - json::parse (the launcher core's reader, re-exported under this path since 0.2.0) reads a small
+//   object within its byte cap and refuses input over the cap.
 // The Store, the Windows capture and paste paths, and any persisted history are not touched.
 // No I/O, no network, no clipboard access. Exits 1 on the first failed check.
 use rightkit_clipboard_history::detect::{colour, detect, Detected};
@@ -71,5 +72,5 @@ fn main() {
         json::parse(br#"{"n": 2}"#, 3).is_none(),
         "json::parse refuses input over its byte cap",
     );
-    println!("OK rightkit-clipboard-history 0.1.0 (registry consumer)");
+    println!("OK rightkit-clipboard-history 0.2.0 (registry consumer)");
 }

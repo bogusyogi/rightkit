@@ -114,7 +114,7 @@ pub fn build_router(state: DaemonState) -> Router {
     let management_routes = management_routes
         .with_state(state)
         .layer(middleware::from_fn(
-            rightkit_memory::api_memright::memory_request_context,
+            rightkit_memory_client::api_memright::memory_request_context,
         ))
         // Gate the API behind the per-launch token. CORS stays outermost so
         // preflight is handled first.

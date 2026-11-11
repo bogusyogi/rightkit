@@ -1,4 +1,4 @@
-//! Notch geometry and the view model for its five cells. Metrics are in DIPs (1/96 inch)
+//! Notch geometry and the view model for its cells (which cells exist is the host's). Metrics are in DIPs (1/96 inch)
 //! and scale with the monitor DPI; they are the Mac notch's design frame (a 44 pt ring in a
 //! 117 px design ring, so one design px is `DESIGN` DIPs). Pure code.
 
@@ -7,52 +7,56 @@ use crate::host;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, RwLock};
 
-/// Number of cells in the full order (`Cell::ALL`).
-pub const CELL_COUNT: usize = 6;
-
-/// The cells the notch draws, in order: `Cell::ALL` minus the gauges turned off. Cell indices
-/// everywhere (hit-testing, hover, cards, drops, rendering) index into this list.
+/// The cells the notch draws, in order, as the host set them (`set_shown`); cell indices
+/// everywhere (hit-testing, hover, cards, drops, rendering) indexes into this list.
 static SHOWN: RwLock<Vec<Cell>> = RwLock::new(Vec::new());
 
-/// The notch is minimised to its Send cell (what `shown` draws, preview included).
+/// The cell the notch keeps when minimised (`set_anchor`), if the host has one.
+static ANCHOR: RwLock<Option<Cell>> = RwLock::new(None);
+
+/// The notch is minimised to its anchor cell (what `shown` draws, preview included).
 static MINIMISED: AtomicBool = AtomicBool::new(false);
 /// The view shots draw no room for the minimise button: their frame is the Mac's.
 static NO_LEAD: AtomicBool = AtomicBool::new(false);
 
-/// The cells the user has on, in notch order, whatever the notch is showing of them (all of
-/// `Cell::ALL` until `set_shown` is called).
+/// The cells the host has on, in notch order, whatever the notch is showing of them (empty
+/// until `set_shown` is called).
 pub fn base_shown() -> Vec<Cell> {
-    let list = SHOWN.read().unwrap_or_else(|e| e.into_inner());
-    if list.is_empty() {
-        Cell::ALL.to_vec()
-    } else {
-        list.clone()
-    }
+    SHOWN.read().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
-/// Whether the Send cell is among the cells the user has on.
-fn base_has_send() -> bool {
+/// The anchor cell, when the host set one and it is among the cells that are on.
+fn base_anchor() -> Option<Cell> {
+    let anchor = (*ANCHOR.read().unwrap_or_else(|e| e.into_inner()))?;
     let list = SHOWN.read().unwrap_or_else(|e| e.into_inner());
-    list.is_empty() || list.contains(&Cell::Send)
+    list.contains(&anchor).then_some(anchor)
 }
 
-/// Minimises the notch to its Send cell, or restores it. Ignored without a Send cell to keep.
+/// Sets the cell the notch keeps when it is minimised (or none: the notch then never minimises).
+/// The host decides which; a sharing app keeps its Send cell.
+pub fn set_anchor(cell: Option<Cell>) {
+    *ANCHOR.write().unwrap_or_else(|e| e.into_inner()) = cell;
+}
+
+/// Minimises the notch to its anchor cell, or restores it. Ignored without an anchor to keep.
 pub fn set_minimised(on: bool) {
     MINIMISED.store(on, Ordering::Relaxed);
 }
 
-/// Whether the notch is drawn as the Send cell alone (a preview counts).
+/// Whether the notch is drawn as the anchor cell alone (a preview counts).
 pub fn minimised() -> bool {
-    MINIMISED.load(Ordering::Relaxed) && base_has_send()
+    MINIMISED.load(Ordering::Relaxed) && base_anchor().is_some()
 }
 
-/// The shown cells in notch order: the cells that are on, or the Send cell alone while minimised.
+/// The shown cells in notch order: the cells that are on, or the anchor cell alone while
+/// minimised.
 pub fn shown() -> Vec<Cell> {
-    if minimised() {
-        vec![Cell::Send]
-    } else {
-        base_shown()
+    if MINIMISED.load(Ordering::Relaxed)
+        && let Some(anchor) = base_anchor()
+    {
+        return vec![anchor];
     }
+    base_shown()
 }
 
 /// Replaces the shown cells. An empty list is ignored: the notch never has no rings.
@@ -62,27 +66,22 @@ pub fn set_shown(cells: Vec<Cell>) {
     }
 }
 
-/// How many cells the notch draws.
+/// How many cells the notch draws: at least one, so the geometry is defined before the host
+/// sets its cells.
 pub fn count() -> usize {
     if minimised() {
         return 1;
     }
-    let list = SHOWN.read().unwrap_or_else(|e| e.into_inner());
-    if list.is_empty() {
-        CELL_COUNT
-    } else {
-        list.len()
-    }
+    SHOWN.read().unwrap_or_else(|e| e.into_inner()).len().max(1)
 }
 
-/// The notch has a minimise button: the switch is on, a Send cell is among the cells and there
-/// is another cell to put away.
+/// The notch has a minimise button: the switch is on, the anchor cell is among the cells and
+/// there is another cell to put away.
 pub fn minimise_available() -> bool {
     if NO_LEAD.load(Ordering::Relaxed) || !host::switch_on("notchMinimizeButton") {
         return false;
     }
-    let list = SHOWN.read().unwrap_or_else(|e| e.into_inner());
-    list.is_empty() || (list.contains(&Cell::Send) && list.len() > 1)
+    base_anchor().is_some() && SHOWN.read().unwrap_or_else(|e| e.into_inner()).len() > 1
 }
 
 /// Room the window keeps before the start of the shape for the minimise button's zone (the
@@ -118,64 +117,49 @@ pub fn cell_at(index: usize) -> Option<Cell> {
     shown().get(index).copied()
 }
 
-/// Index of the nearby-sharing cell among the shown cells, if it is shown.
-pub fn send_cell() -> Option<usize> {
-    shown().iter().position(|c| *c == Cell::Send)
+/// Index of the anchor cell among the shown cells, if it is shown.
+pub fn anchor_cell() -> Option<usize> {
+    let anchor = base_anchor()?;
+    shown().iter().position(|c| *c == anchor)
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Cell {
-    /// The one System gauge (the Mac's `system-cpu`): memory pressure on the main (outer)
-    /// ring, CPU load on the thin inner ring (#393, Adrian 2026-10-06: "cpu inside, ram outside").
-    Cpu,
-    Disk,
-    Claude,
-    Codex,
-    /// One Claude Code profile beyond the default Claude ring (#309): the index into
-    /// `usage::profiles()`. Never part of `Cell::ALL`; `bridge::apply_gauges` adds one per
-    /// profile that is on, after the Claude ring.
-    Profile(u8),
-    /// One saved Claude account that is not the signed-in one (#454): the index into
-    /// `usage::account_rings()`. Never part of `Cell::ALL`; `bridge::apply_gauges` adds one per
-    /// account after the Claude ring, tagged A, B, ... and drawn from its last saved reading.
-    Account(u8),
-    /// Nearby sharing (the Send ring).
-    Send,
-    /// The utilities (screenshots to the other computer, paste, copy last, lock): no reading.
-    Tools,
+/// One cell of the notch, defined by the host: which cells exist, what they read and what a
+/// click opens are the application's. The notch only places, hit-tests and draws them.
+///
+/// ```
+/// use rightkit_notch_ui::layout::{self, Cell};
+///
+/// const CPU: Cell = Cell::new(1, "cpu", "monitor");
+/// const SEND: Cell = Cell::new(2, "Snd", "general");
+/// layout::set_shown(vec![CPU, SEND]);
+/// layout::set_anchor(Some(SEND));
+/// assert_eq!(layout::cell_at(1).map(Cell::section), Some("general"));
+/// assert_eq!(layout::anchor_cell(), Some(1));
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Cell {
+    /// The host's own id for the cell (unique among the cells it shows).
+    pub id: u32,
+    /// Key of the mark drawn inside the ring (`rightkit_win_ui::glyphs::Glyph::from_key`).
+    pub glyph: &'static str,
+    /// What a click opens (the host's page or section name).
+    pub section: &'static str,
 }
 
 impl Cell {
-    pub const ALL: [Cell; CELL_COUNT] = [
-        Cell::Claude,
-        Cell::Codex,
-        Cell::Cpu,
-        Cell::Disk,
-        Cell::Send,
-        Cell::Tools,
-    ];
-
-    /// Hub section a click opens (same mapping as the Mac notch).
-    pub fn section(self) -> &'static str {
-        match self {
-            Cell::Cpu => "monitor",
-            Cell::Disk => "storage",
-            Cell::Claude | Cell::Codex | Cell::Profile(_) | Cell::Account(_) => "accounts",
-            Cell::Send => "general",
-            Cell::Tools => "settings",
-        }
+    /// A cell with the host's `id`, the mark `glyph` and the `section` a click opens.
+    pub const fn new(id: u32, glyph: &'static str, section: &'static str) -> Self {
+        Self { id, glyph, section }
     }
 
-    /// Key of the mark drawn inside the ring (see `glyphs::Glyph::from_key`).
+    /// What a click opens.
+    pub fn section(self) -> &'static str {
+        self.section
+    }
+
+    /// Key of the mark drawn inside the ring.
     pub fn glyph(self) -> &'static str {
-        match self {
-            Cell::Cpu => "cpu",
-            Cell::Disk => "disk",
-            Cell::Claude | Cell::Profile(_) | Cell::Account(_) => "claude",
-            Cell::Codex => "openai",
-            Cell::Send => "Snd",
-            Cell::Tools => "tools",
-        }
+        self.glyph
     }
 }
 
@@ -434,7 +418,7 @@ pub struct CellView {
     pub glyph: &'static str,
     /// Main ring, percent used.
     pub main: Option<u8>,
-    /// Thin inner ring (the session window on an AI cell), percent used.
+    /// Thin inner ring (a second, shorter window of the same reading), percent used.
     pub inner: Option<u8>,
     /// Latest poll failed; the reading is dimmed.
     pub stale: bool,
@@ -445,22 +429,22 @@ pub struct CellView {
     /// Ring colour decided by the reading itself rather than by the used share (the System cell's memory ring).
     /// `None` colours by the share's band.
     pub band: Option<u32>,
-    /// An AI provider's usage ring (Claude, Codex): the colour transition setting applies to it.
+    /// A usage ring the host marks as such: the colour transition setting applies to it.
     pub provider: bool,
     /// The reading drawn under the ring (`showsNotchReadings`): a percentage, the pair
-    /// "30%/70%", or a dash. `None` draws nothing: only Claude and Codex carry one.
+    /// "30%/70%", or a dash. `None` draws nothing.
     pub reading: Option<String>,
-    /// The Send cell while a gauge is past its warning level: the band between its ring and its
-    /// icon pulses deep red.
+    /// The cell carries the notch's warning (a gauge is past its level): the band between its
+    /// ring and its icon pulses deep red.
     pub warn: bool,
-    /// The copy burst's dots round the Send cell, one per item still to paste in copied order
-    /// (`true` = selected); empty for every other cell and while no burst is up (#387).
+    /// Dots round the ring, one per pending item in order (`true` = selected), such as a copy
+    /// burst's items still to paste; empty draws none.
     pub burst: Vec<bool>,
-    /// A Claude account's tag ("A", "B") drawn on its ring while more than one account has a
-    /// ring (#454); `None` on every other cell.
+    /// A short tag ("A", "B") drawn on the ring, such as which of several accounts it reads;
+    /// `None` draws none.
     pub badge: Option<String>,
-    /// An agent is working on this ring's provider: a short arc spins round the ring (the
-    /// Mac's activity arc). Only the Claude and Codex cells, whose session watch reads a turn.
+    /// The cell's subject is working: a short arc spins round the ring (the Mac's activity
+    /// arc).
     pub working: bool,
 }
 

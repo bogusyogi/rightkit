@@ -419,7 +419,7 @@ pub struct DaemonState {
     /// FM-074/FM-091 dream-cycle status projection (A11): last consolidation
     /// run's outcome, surfaced via `GET /memory/consolidation-status`.
     pub memory_consolidation_status:
-        rightkit_memory::consolidation_status::ConsolidationStatusState,
+        rightkit_memory_client::consolidation_status::ConsolidationStatusState,
     pub sessions: Arc<Mutex<HashMap<String, Arc<LiveSession>>>>,
     /// Shared authority for root-controller handoffs. Intake paths consult
     /// this controller before accepting work for a session being transferred.
@@ -494,17 +494,17 @@ pub struct DaemonState {
     /// Self-evaluating harness: per-role performance + learning proposals.
     pub learning: crate::learning::LearningHarness,
     /// Approved taste/memory instincts injected into session system prompts.
-    pub instincts: Arc<Mutex<rightkit_adapt::InstinctStore>>,
+    pub instincts: Arc<Mutex<rightkit_agent_learning::InstinctStore>>,
     /// Named SkillOpt-style optimization runs and candidate skill bundles.
-    pub skillopt_runs: Arc<Mutex<rightkit_adapt::SkillOptimizationStore>>,
+    pub skillopt_runs: Arc<Mutex<rightkit_agent_learning::SkillOptimizationStore>>,
     /// Durable SkillOpt run ledger path.
     pub skillopt_store_path: Option<PathBuf>,
     /// One sticky, startup-selected memory authority shared by routes, tools,
     /// session retrieval, & compaction.
-    pub memory_backend: Arc<dyn rightkit_memory::backend::MemoryBackend>,
+    pub memory_backend: Arc<dyn rightkit_memory_client::backend::MemoryBackend>,
     /// Pulse Membrane CLI adapter (`coderight-membrane-cli`); `Unavailable` when Pulse is not
     /// installed. Every call is bounded by the adapter timeout.
-    pub membrane: Arc<dyn rightkit_memory::membrane::MembraneBackend + Send + Sync>,
+    pub membrane: Arc<dyn rightkit_memory_client::membrane::MembraneBackend + Send + Sync>,
     /// Lane-C native session-transcript exporter on the same authenticated
     /// binding. `None` when the installation identity recorded no usable
     /// service claim at bind time — durable events simply remain RightKit-
@@ -515,7 +515,7 @@ pub struct DaemonState {
     /// fails closed at its pre-effect mutation seam when this is absent.
     pub mutation_diagnostics: Option<Arc<dyn rightkit_agent_engine_core::MutationDiagnostics>>,
     /// RightKit-owned causal labels paired with the pinned MemRight content store.
-    pub(crate) memory_provenance: rightkit_memory::memory_provenance::MemoryProvenanceStore,
+    pub(crate) memory_provenance: rightkit_memory_client::memory_provenance::MemoryProvenanceStore,
     /// Write-once, hash-chained governance audit log.
     pub audit: crate::audit::AuditLog,
     /// Observation layer: per-agent execution records feeding TasteScore.

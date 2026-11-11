@@ -2181,7 +2181,7 @@ fn sha256_digest(value: &Value) -> Result<String, String> {
         .map_err(|error| format!("serialize final Pull representation for digest: {error}"))?;
     Ok(format!(
         "sha256:{}",
-        rightkit_adapt_taste::canonical::sha256_hex(canonical.as_bytes())
+        rightkit_adapt::canonical::sha256_hex(canonical.as_bytes())
     ))
 }
 

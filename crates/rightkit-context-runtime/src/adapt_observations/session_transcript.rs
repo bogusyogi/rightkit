@@ -183,11 +183,7 @@ pub(crate) fn tip_at(
     };
     let prefix_digest = format!(
         "sha256:{}",
-        rightkit_adapt_taste::canonical::sha256_canonical(&json!([
-            tip_seq,
-            event_id,
-            content_hash
-        ]))
+        rightkit_adapt::canonical::sha256_canonical(&json!([tip_seq, event_id, content_hash]))
     );
     Ok(SessionTranscriptCursorTipV1 {
         stream_id: session_id.to_string(),
@@ -366,7 +362,7 @@ pub fn append(
                     .and_then(Value::as_str)
                     .map(str::to_string),
             }],
-            content_hash: rightkit_adapt_taste::canonical::sha256_canonical(&event.payload),
+            content_hash: rightkit_adapt::canonical::sha256_canonical(&event.payload),
             occurred_at_ms: event.occurred_at_unix_ms,
             recorded_at_ms,
         };

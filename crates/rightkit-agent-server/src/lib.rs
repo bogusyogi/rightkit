@@ -75,6 +75,7 @@ mod evo_db;
 mod github_app;
 mod github_signin;
 mod goal_terminal;
+mod harness_radar_feed;
 mod hooks;
 mod host_retained_context;
 mod inference_runtime;

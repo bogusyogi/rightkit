@@ -430,13 +430,13 @@ fn list_at(lines: &[&str], i: usize) -> Parsed {
         }
         // A continuation of the last item: any line indented deeper than the list.
         let indent = line.chars().take_while(|c| *c == ' ' || *c == '\t').count();
-        if indent > first_indent
-            && let Some(last) = raw.last_mut()
-        {
-            last.text.push('\n');
-            last.text.push_str(text);
-            j += 1;
-            continue;
+        if indent > first_indent {
+            if let Some(last) = raw.last_mut() {
+                last.text.push('\n');
+                last.text.push_str(text);
+                j += 1;
+                continue;
+            }
         }
         break;
     }
@@ -468,11 +468,10 @@ fn table_cells(line: &str) -> Vec<String> {
     if let Some(rest) = text.strip_prefix('|') {
         text = rest;
     }
-    if text.ends_with('|')
-        && !text.ends_with("\\|")
-        && let Some(rest) = text.strip_suffix('|')
-    {
-        text = rest;
+    if !text.ends_with("\\|") {
+        if let Some(rest) = text.strip_suffix('|') {
+            text = rest;
+        }
     }
     let mut out: Vec<String> = Vec::new();
     let mut current = String::new();
@@ -600,14 +599,15 @@ fn push_run(
 fn merge(runs: Vec<InlineRun>) -> Vec<InlineRun> {
     let mut out: Vec<InlineRun> = Vec::new();
     for run in runs {
-        if let Some(last) = out.last_mut()
-            && last.emphasis == run.emphasis
-            && last.strong == run.strong
-            && last.code == run.code
-            && last.link == run.link
-        {
-            last.text.push_str(&run.text);
-            continue;
+        if let Some(last) = out.last_mut() {
+            if last.emphasis == run.emphasis
+                && last.strong == run.strong
+                && last.code == run.code
+                && last.link == run.link
+            {
+                last.text.push_str(&run.text);
+                continue;
+            }
         }
         out.push(run);
     }
@@ -777,12 +777,12 @@ pub fn runs_text(runs: &[InlineRun]) -> String {
     let mut out = String::new();
     for run in runs {
         out.push_str(&run.text);
-        if let Some(url) = &run.link
-            && *url != run.text
-        {
-            out.push_str(" (");
-            out.push_str(url);
-            out.push(')');
+        if let Some(url) = &run.link {
+            if *url != run.text {
+                out.push_str(" (");
+                out.push_str(url);
+                out.push(')');
+            }
         }
     }
     out

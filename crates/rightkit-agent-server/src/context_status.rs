@@ -67,7 +67,7 @@ fn component(name: &str, state: ComponentState, reason: Option<&str>) -> Context
 /// `membraneBinding` object for `/runtime/resource-metrics`: whether Pulse's Membrane CLI
 /// is installed. `bound` means the binary was located, not that it is healthy.
 pub(crate) fn cli_binding_json() -> Value {
-    match rightkit_memory::membrane::MembraneCli::locate() {
+    match rightkit_memory_client::membrane::MembraneCli::locate() {
         Some(binary) => serde_json::json!({
             "bound": true,
             "mode": "cli",
@@ -77,7 +77,7 @@ pub(crate) fn cli_binding_json() -> Value {
         None => serde_json::json!({
             "bound": false,
             "mode": "off",
-            "note": rightkit_memory::membrane::OFF_REASON,
+            "note": rightkit_memory_client::membrane::OFF_REASON,
         }),
     }
 }

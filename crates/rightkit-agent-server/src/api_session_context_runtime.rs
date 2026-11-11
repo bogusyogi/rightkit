@@ -107,7 +107,7 @@ pub(crate) struct MemoryReceiptItem {
     pub(crate) id: String,
     pub(crate) scope: String,
     pub(crate) score: f32,
-    pub(crate) provenance: rightkit_memory::memory_provenance::MemoryCausalProvenance,
+    pub(crate) provenance: rightkit_memory_client::memory_provenance::MemoryCausalProvenance,
 }
 
 /// One recalled memory the host dropped from an injection (a duplicate, or one
@@ -136,8 +136,8 @@ pub(crate) struct WorkspaceMemoryInjection {
     pub(crate) receipt: MemoryInjectionReceipt,
 }
 
-fn memory_call_context() -> rightkit_memory::backend::CallContext {
-    rightkit_memory::api_memright::current_memory_call_context()
+fn memory_call_context() -> rightkit_memory_client::backend::CallContext {
+    rightkit_memory_client::api_memright::current_memory_call_context()
 }
 
 /// Retrieve durable memory for one live workspace's canonical scope chain
@@ -146,8 +146,8 @@ fn memory_call_context() -> rightkit_memory::backend::CallContext {
 /// Scoped retrieval keeps concurrent sessions attributable to their own injection
 /// & makes prompt provenance inspectable.
 pub(crate) async fn retrieve_workspace_memory(
-    memory: &dyn rightkit_memory::backend::MemoryBackend,
-    provenance_store: &rightkit_memory::memory_provenance::MemoryProvenanceStore,
+    memory: &dyn rightkit_memory_client::backend::MemoryBackend,
+    provenance_store: &rightkit_memory_client::memory_provenance::MemoryProvenanceStore,
     workspace_root: &str,
     query: &str,
     limit: usize,
@@ -155,9 +155,9 @@ pub(crate) async fn retrieve_workspace_memory(
     // Route handlers bind this to their request-owned deadline/cancellation;
     // internal session paths receive the same bounded fallback context.
     let context = memory_call_context();
-    let workspace_scope = rightkit_memory::backend::path_to_scope(workspace_root.trim());
+    let workspace_scope = rightkit_memory_client::backend::path_to_scope(workspace_root.trim());
     let scopes = memory.scopes(&context).await.unwrap_or_default();
-    let scope_chain = rightkit_memory::backend::scope_chain(&workspace_scope, &scopes);
+    let scope_chain = rightkit_memory_client::backend::scope_chain(&workspace_scope, &scopes);
 
     // Membrane owns automatic semantic ranking and admission. RightKit asks
     // for the exact bounded result set it can render, then preserves Membrane's
@@ -253,7 +253,7 @@ pub(crate) async fn retrieve_session_memory(
     )
     .await;
     let now = now_iso();
-    let workspace_scope = rightkit_memory::backend::path_to_scope(workspace_root.trim());
+    let workspace_scope = rightkit_memory_client::backend::path_to_scope(workspace_root.trim());
     let (scope_chain, items, provenance) = if let Some(value) = injection.as_ref() {
         (
             value.receipt.scope_chain.clone(),
@@ -280,7 +280,7 @@ pub(crate) async fn retrieve_session_memory(
             .await
             .unwrap_or_default();
         (
-            rightkit_memory::backend::scope_chain(&workspace_scope, &scopes),
+            rightkit_memory_client::backend::scope_chain(&workspace_scope, &scopes),
             vec![],
             "memright",
         )
@@ -336,12 +336,12 @@ pub(crate) async fn retrieve_session_memory(
 /// perform another semantic/lexical/score/token admission pass.
 pub(crate) fn preserve_membrane_admission(
     admitted: Vec<(
-        rightkit_memory::backend::MemoryEntry,
-        rightkit_memory::backend::Score,
+        rightkit_memory_client::backend::MemoryEntry,
+        rightkit_memory_client::backend::Score,
     )>,
 ) -> Vec<(
-    rightkit_memory::backend::MemoryEntry,
-    rightkit_memory::backend::Score,
+    rightkit_memory_client::backend::MemoryEntry,
+    rightkit_memory_client::backend::Score,
 )> {
     admitted
 }

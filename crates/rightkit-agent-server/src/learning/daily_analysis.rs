@@ -24,12 +24,12 @@ async fn run_daily_analysis(state: &crate::api::DaemonState) {
     // FM-074 roster-status projection: every tick of the consolidation cycle
     // records its outcome so a status/roster surface can report it, instead
     // of the cycle running invisibly in the background. `memory_consolidation_status`
-    // is a `rightkit_memory::ConsolidationStatusState` field the orchestrator
+    // is a `rightkit_memory_client::ConsolidationStatusState` field the orchestrator
     // adds to `DaemonState` (see the A11 wiring doc — this lane cannot edit
     // `DaemonState` itself).
     state
         .memory_consolidation_status
-        .record_run(rightkit_memory::ConsolidationRunOutcome {
+        .record_run(rightkit_memory_client::ConsolidationRunOutcome {
             started_at,
             completed_at: crate::api::now_iso(),
             review_candidates_seen: report.review_candidates.len() as u64,
@@ -84,7 +84,7 @@ fn review_candidate_to_proposal(candidate: &ReviewCandidate) -> Proposal {
 /// memory candidates and repeated failure patterns become stable semantic
 /// memories, while workflow/harness-rule candidates remain approval-gated.
 async fn consolidate_daily_memory(
-    memory: &dyn rightkit_memory::backend::MemoryBackend,
+    memory: &dyn rightkit_memory_client::backend::MemoryBackend,
     report: &DailyReport,
 ) -> Result<usize, String> {
     let mut written = 0usize;
@@ -97,7 +97,7 @@ async fn consolidate_daily_memory(
             candidate.session_id, candidate.reason, candidate.trajectory_excerpt
         );
         let context =
-            rightkit_memory::backend::CallContext::after(std::time::Duration::from_secs(5));
+            rightkit_memory_client::backend::CallContext::after(std::time::Duration::from_secs(5));
         if memory
             .remember_consolidated(
                 &context,
@@ -123,7 +123,7 @@ async fn consolidate_daily_memory(
             "Repeated failure pattern observed by daily analyzer: '{error}' appeared {count} times across recent sessions."
         );
         let context =
-            rightkit_memory::backend::CallContext::after(std::time::Duration::from_secs(5));
+            rightkit_memory_client::backend::CallContext::after(std::time::Duration::from_secs(5));
         if memory
             .remember_consolidated(
                 &context,

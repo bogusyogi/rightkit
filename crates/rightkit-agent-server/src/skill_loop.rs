@@ -5,7 +5,7 @@
 //! replacing the deterministic stubs used by `synthesize_blocking`.
 
 use crate::api::EngineConfig;
-use rightkit_adapt::{SkillSynthesisLoop, SynthesisConfig, SynthesizeFn, VerifyFn};
+use rightkit_agent_learning::{SkillSynthesisLoop, SynthesisConfig, SynthesizeFn, VerifyFn};
 use rightkit_llm::agent_providers::OpenAiCompatClient;
 use std::sync::Arc;
 

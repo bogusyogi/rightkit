@@ -2,8 +2,8 @@
   "package": "rightkit-adapt",
   "capabilities": [
     {
-      "capability": "adapt",
-      "summary": "Adaptive agent learning: outcome observation, guidance proposals, application receipts and scoring; declaration-only detection (no precise implementation fingerprint)",
+      "capability": "adaptive-learning",
+      "summary": "Governed behavioural learning from agent transcripts (taste preferences and insights), deterministic and model-free.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

@@ -44,17 +44,24 @@ membrane/engine/crates/membrane-adapt/	rightkit-adapt	NEW	governed behavioural l
 membrane/engine/crates/membrane-transcript/	rightkit-agents	EXTEND	Claude Code/Codex transcript discovery & normalisation
 ^membrane/skills/	legion	LEGION	membrane skill
 ^membrane/	rightkit-context	NEW	context engine: protocol, client, provider SDK, federation, budget/lanes, runtime, schemas, hooks
-windows/src/(launcher|spot_takeover)|mac/Notch/Sources/Launcher/	rightkit-launcher	NEW	command launcher: calculator, dictionary, files, notes, rates, snippets, commands (Win32 + Swift)
+# corrected 2026-11-11 (shape review, docs/audits/2026-11-11-shape-matrix/reports/pulse-crates-redraw.md): the Windows launcher panel is rightkit-launcher-win; rightkit-launcher is the portable core (Mac launcher home still open)
+windows/src/(launcher\.rs|launcher_(chat|snippets|store)|spot_takeover)	rightkit-launcher-win	NEW	Windows launcher panel: search window, assistant, snippet expansion, Store apps, handover overlay (product pages from the host)
+windows/src/launcher_|mac/Notch/Sources/Launcher/	rightkit-launcher	NEW	command launcher core: calculator, dictionary, files, notes, rates, commands, config (Win32 core; Mac launcher home open)
 windows/src/(clip|shelf)|mac/Notch/Sources/Conveniences/(WheelClipboardRing|SnippetExpansion)	rightkit-clipboard-history	NEW	clipboard history: capture, detect, images, paste, seal, search, strip, shelf, snippet expansion
 windows/src/(shot|viewshots)	rightkit-record	EXTEND	screenshots via WGC
-windows/src/(wheel|answer_card|alerts|browser_alerts|remote_alerts|notify|card|canvas|render|text_layout|surface|layout|motion|glyphs|response_layout|visibility|fileicon|tick_cost)|mac/Notch/Sources/Conveniences/(ToolWheel|WheelConflict|Tools)	rightkit-overlay-win	EXTEND	Win32 notch surface toolkit: render, text layout, motion, cards, alerts, tool wheel
+# corrected 2026-11-11 (shape review, docs/audits/2026-11-11-shape-matrix/reports/pulse-crates-redraw.md): the notch drawing core (render, layout, motion, card model) is rightkit-notch-ui, where it already is
+windows/src/(card|render|layout|motion)\.rs	rightkit-notch-ui	EXTEND	notch drawing core: geometry, spring motion, hover card model, software renderer (cells from the host)
+windows/src/(wheel|answer_card|alerts|browser_alerts|remote_alerts|notify|canvas|text_layout|surface|glyphs|response_layout|visibility|fileicon|tick_cost)|mac/Notch/Sources/Conveniences/(ToolWheel|WheelConflict|Tools)	rightkit-overlay-win	EXTEND	Win32 notch surface toolkit: render, text layout, motion, cards, alerts, tool wheel
 windows/src/(unlock_auth)|ios/Sources/Owners/	rightkit-app-lock	NEW	owner unlock auth / app lock
 windows/src/(autostart|update)	rightkit-tauri-shell	ADOPT	autostart & update
 windows/src/(i18n)	@rightkit/i18n	ADOPT	i18n
-windows/src/(keys|window_keys|wheel_conflict)	rightkit-hotkeys	ADOPT	hotkeys
+# corrected 2026-11-11 (shape review, docs/audits/2026-11-11-shape-matrix/reports/pulse-crates-redraw.md): keys.rs is the Mac-style shortcut layer in rightkit-desktop-tweaks; its hook hub is rightkit-hotkeys windows::hub
+windows/src/keys\.rs	rightkit-desktop-tweaks	ADOPT	Mac-style shortcut layer (left Alt as Ctrl) on the rightkit-hotkeys hook hub
+windows/src/(window_keys|wheel_conflict)	rightkit-hotkeys	ADOPT	hotkeys
 windows/src/(zstd|json)\.rs|mac/Notch/Sources/Vendor/	none	DROP	hand-rolled zstd/json & vendored zstd: use crates/system lib
 windows/src/(devices)	rightkit-mesh	NEW	devices UI
-mac/Notch/Sources/Conveniences/	rightkit-desktop-tweaks	NEW	Finder cut/paste, path field, window closer, dock-click minimize, window maximizer, event tap hub (Swift + Win)
+# corrected 2026-11-11 (shape review, docs/audits/2026-11-11-shape-matrix/reports/pulse-crates-redraw.md): the Mac tweaks go to a planned Swift module, not the Windows crate
+mac/Notch/Sources/Conveniences/	RightKitDesktopTweaks	NEW	Finder cut/paste, path field, window closer, dock-click minimize, window maximizer, event tap hub (Swift twin of rightkit-desktop-tweaks)
 mac/Notch/Sources/(Notch|DesignSystem|Presentation|Features|Model|Face)/|^mac/Notch/Face/	RightKitNotch	NEW	macOS notch surface: notch window, design system, rings & cards, model
 mac/Notch/Sources/Agent/	rightkit-agent-runtime	NEW	Swift agent UI/bridge
 mac/Notch/Sources/Sessions/	rightkit-claude-accounts	NEW	Claude sessions (Swift)

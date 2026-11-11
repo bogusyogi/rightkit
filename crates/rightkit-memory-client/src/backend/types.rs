@@ -72,51 +72,10 @@ pub fn scope_chain(scope_id: &str, existing: &[String]) -> Vec<String> {
     chain
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum MemoryTier {
-    Working,
-    Episodic,
-    Semantic,
-}
-
-impl MemoryTier {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Working => "Working",
-            Self::Episodic => "Episodic",
-            Self::Semantic => "Semantic",
-        }
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        match value.to_ascii_lowercase().as_str() {
-            "working" => Some(Self::Working),
-            "episodic" => Some(Self::Episodic),
-            "semantic" => Some(Self::Semantic),
-            _ => None,
-        }
-    }
-}
-
-/// The route-visible memory row. Field names match the stable resident wire shape.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MemoryEntry {
-    pub id: MemoryId,
-    pub tier: MemoryTier,
-    pub content: String,
-    pub keywords: Vec<String>,
-    pub score: Score,
-    pub created_at: String,
-    pub access_count: AccessCount,
-    #[serde(default)]
-    pub embedding: Option<Vec<f32>>,
-    #[serde(default = "default_scope")]
-    pub scope_id: String,
-}
-
-fn default_scope() -> String {
-    "global".to_string()
-}
+/// The engine's tier and route-visible memory row (`rightkit-memory-core`), used unchanged at
+/// the backend boundary: one declaration for the engine and its clients. The wire shape is the
+/// same as the row this crate declared before 0.1.0 of `rightkit-memory-client`.
+pub use rightkit_memory_core::{default_scope, MemoryEntry, MemoryTier};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FullMemoryRecord {

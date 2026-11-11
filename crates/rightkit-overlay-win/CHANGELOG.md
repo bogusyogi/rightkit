@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5 (unpublished)
+
+- New module `response_layout` (portable, no Win32): the AI answer's display model (parse answer text into blocks, wrap it into visual lines, the one-line excerpt for a card), moved unchanged from `rightkit-launcher` 0.1.0, where it did not belong; the launcher panel (`rightkit-launcher-win`) and the notch's answer card use it from here, as the plan maps Pulse's `response_layout.rs` to this crate. Additive. Taken on the recommended option of the 2026-11-11 shape review, pending the owner's confirmation.
+
 ## 0.1.4 (unpublished)
 
 - New feature `interactive-desktop` (no library code): `tests/windows_smoke.rs` and `tests/windows_gdi_handles.rs` build only with it (`[[test]] required-features`), as rightkit-sync gates its live proofs. A default test build no longer consists solely of tests that must be skipped, which the gate refuses (rightkit#1560). Run them with `--features interactive-desktop -- --ignored`.

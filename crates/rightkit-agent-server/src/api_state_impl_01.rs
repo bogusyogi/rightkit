@@ -10,14 +10,14 @@ impl DaemonState {
         let permission_denials = load_permission_denial_store(&permission_denial_store_path);
         let workspace_trust_store_path = default_workspace_trust_store_path();
         let workspace_trust_store = load_workspace_trust_store(&workspace_trust_store_path);
-        let memory_backend: Arc<dyn rightkit_memory::backend::MemoryBackend> = Arc::new(
-            rightkit_memory::backend::unavailable::UnavailableMemoryBackend::new(
+        let memory_backend: Arc<dyn rightkit_memory_client::backend::MemoryBackend> = Arc::new(
+            rightkit_memory_client::backend::unavailable::UnavailableMemoryBackend::new(
                 "backend_unavailable",
-                rightkit_memory::membrane::OFF_REASON,
+                rightkit_memory_client::membrane::OFF_REASON,
             ),
         );
         let memory_provenance =
-            rightkit_memory::memory_provenance::MemoryProvenanceStore::from_backend(
+            rightkit_memory_client::memory_provenance::MemoryProvenanceStore::from_backend(
                 memory_backend.clone(),
             );
         let instincts = crate::store_write::load_instincts(&default_instincts_store_path());
@@ -53,7 +53,7 @@ impl DaemonState {
             )),
             fs_watch: Default::default(),
             memory_consolidation_status:
-                rightkit_memory::consolidation_status::ConsolidationStatusState::new(),
+                rightkit_memory_client::consolidation_status::ConsolidationStatusState::new(),
             sessions: Arc::new(Mutex::new(HashMap::new())),
             handoff_controller: Arc::new(
                 rightkit_agent_tools::coding_tools::handoff::HandoffController,
@@ -99,10 +99,10 @@ impl DaemonState {
             bound_port: 0,
             database_path: String::new(),
             learning: crate::learning::LearningHarness::new(),
-            skillopt_runs: Arc::new(Mutex::new(rightkit_adapt::SkillOptimizationStore::new())),
+            skillopt_runs: Arc::new(Mutex::new(rightkit_agent_learning::SkillOptimizationStore::new())),
             skillopt_store_path: None,
             memory_backend,
-            membrane: Arc::new(rightkit_memory::membrane::Unavailable),
+            membrane: Arc::new(rightkit_memory_client::membrane::Unavailable),
             transcript_exporter: None,
             mutation_diagnostics: None,
             memory_provenance,

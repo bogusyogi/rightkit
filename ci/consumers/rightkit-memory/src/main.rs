@@ -1,8 +1,8 @@
-// rightkit-memory 0.1.0 consumed by exact registry pin: write screening, scope slugs and the membrane
-// schema check. No external membrane binary is run.
-use rightkit_memory::backend::types::path_to_scope;
-use rightkit_memory::membrane::{check_schema, SUPPORTED_MAJOR};
-use rightkit_memory::screen;
+// rightkit-memory 0.2.0 consumed by exact registry pin: the memory engine as one crate. The root is
+// rightkit-memory-core (tiers, token accounting, the hash embedder), `store` is rightkit-memory-store
+// (the SQLite memory store); the store is opened in memory only. No file is written.
+use rightkit_memory::store::MemDb;
+use rightkit_memory::{estimate_tokens, Embedder, HashEmbedder, MemoryTier};
 
 fn check(ok: bool, what: &str) {
     if ok {
@@ -14,18 +14,22 @@ fn check(ok: bool, what: &str) {
 }
 
 fn main() {
-    check(!screen("").is_admit(), "empty memory is rejected");
     check(
-        screen("The MyApp desktop UI lives in apps/myapp-desktop.").is_admit(),
-        "a durable fact is admitted",
+        MemoryTier::parse("episodic") == Some(MemoryTier::Episodic),
+        "tier names parse in any case",
     );
     check(
-        path_to_scope("D:/work/app") == "D--work-app",
-        "path_to_scope slug",
+        MemoryTier::Semantic.rank() > MemoryTier::Episodic.rank(),
+        "semantic ranks above episodic",
     );
-    let doc = serde_json::json!({ "schema": format!("membrane.status.v{SUPPORTED_MAJOR}") });
+    check(estimate_tokens("") == 0, "empty text costs no tokens");
+    let embedder = HashEmbedder::new();
     check(
-        check_schema(&doc, &["membrane.status"]).is_ok(),
-        "supported schema accepted",
+        embedder.embed("same input") == embedder.embed("same input"),
+        "the hash embedder is deterministic",
     );
+    // Opening migrates the schema; it panics (and the consumer fails) if that does not work.
+    let db = MemDb::open_in_memory();
+    drop(db);
+    check(true, "the engine's store opens and migrates in memory");
 }

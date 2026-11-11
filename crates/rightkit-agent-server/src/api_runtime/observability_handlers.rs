@@ -89,7 +89,7 @@ async fn synthesize_skill_handler(
     Json(body): Json<SynthesizeSkillBody>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     enforce_trusted_source_authority(&headers)?;
-    use rightkit_adapt::types::{Proposal, ProposalKind, ProposalStatus};
+    use rightkit_agent_learning::types::{Proposal, ProposalKind, ProposalStatus};
 
     let cfg = state
         .engine_cfg

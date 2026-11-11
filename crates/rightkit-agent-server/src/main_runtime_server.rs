@@ -374,22 +374,22 @@ async fn serve(
     // with context off (OFF_REASON). No resident holder, no loopback transport.
     let mut serve_context_degraded: Option<String> = None;
     let (memory_backend, memory_provenance) =
-        match rightkit_memory::backend::native::connect_from_environment() {
+        match rightkit_memory_client::backend::native::connect_from_environment() {
             Ok(backend) => {
                 // Pulse absent connects to the typed unavailable backend; the
                 // context is still off and must be reported degraded.
-                if rightkit_memory::backend::native::context_is_off() {
+                if rightkit_memory_client::backend::native::context_is_off() {
                     use std::io::Write as _;
                     let _ = writeln!(
                         std::io::stderr(),
                         "[serve] Membrane context unavailable (context off): {}",
-                        rightkit_memory::membrane::OFF_REASON
+                        rightkit_memory_client::membrane::OFF_REASON
                     );
                     serve_context_degraded =
-                        Some(rightkit_memory::membrane::OFF_REASON.to_string());
+                        Some(rightkit_memory_client::membrane::OFF_REASON.to_string());
                 }
                 let provenance =
-                    rightkit_memory::memory_provenance::MemoryProvenanceStore::from_backend(
+                    rightkit_memory_client::memory_provenance::MemoryProvenanceStore::from_backend(
                         backend.clone(),
                     );
                 (backend, provenance)
@@ -405,17 +405,17 @@ async fn serve(
                 // D18: context failure never prevents local execution. Keep the
                 // daemon alive with typed-unavailable memory and a visible reason;
                 // no local context store is created as a fallback.
-                serve_context_degraded = Some(rightkit_memory::membrane::OFF_REASON.to_string());
-                let backend: std::sync::Arc<dyn rightkit_memory::backend::MemoryBackend> =
+                serve_context_degraded = Some(rightkit_memory_client::membrane::OFF_REASON.to_string());
+                let backend: std::sync::Arc<dyn rightkit_memory_client::backend::MemoryBackend> =
                     std::sync::Arc::new(
-                        rightkit_memory::backend::unavailable::UnavailableMemoryBackend::new(
+                        rightkit_memory_client::backend::unavailable::UnavailableMemoryBackend::new(
                             error.code(),
                             error.message(),
                         ),
                     );
                 let provenance =
-                    rightkit_memory::memory_provenance::MemoryProvenanceStore::unavailable(
-                        rightkit_memory::membrane::OFF_REASON.to_string(),
+                    rightkit_memory_client::memory_provenance::MemoryProvenanceStore::unavailable(
+                        rightkit_memory_client::membrane::OFF_REASON.to_string(),
                     );
                 (backend, provenance)
             }

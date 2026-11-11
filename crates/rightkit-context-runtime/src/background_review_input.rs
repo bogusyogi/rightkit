@@ -109,7 +109,7 @@ fn cursor_path(root: &Path) -> PathBuf {
 pub fn adapt_consumer_stream(scope: &str, session_id: &str, task_id: &str) -> String {
     format!(
         "adapt:consumer:{}",
-        rightkit_adapt_taste::canonical::sha256_canonical(&json!([
+        rightkit_adapt::canonical::sha256_canonical(&json!([
             scope,
             session_id,
             task_id,

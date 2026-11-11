@@ -12,12 +12,12 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 
 | Capability | Owner | Tier | Detection | Fingerprints | Published availability |
 |---|---|---|---|---|---|
-| adapt | `rightkit-adapt` | none | declaration-only | 0 | rightkit-adapt: staged 0.1.2, not published |
+| adapt | `rightkit-adapt` | none | declaration-only | 0 | rightkit-adapt: staged 0.2.0, not published |
 | adaptive-learning | `rightkit-adapt-taste` | none | declaration-only | 0 | rightkit-adapt-taste: staged 0.1.2, not published |
 | agent-api-integrations | `rightkit-agent-engine-api-integrations` | none | declaration-only | 0 | rightkit-agent-engine-api-integrations: staged 0.1.2, not published |
 | agent-api-platform | `rightkit-agent-engine-api-platform` | none | declaration-only | 0 | rightkit-agent-engine-api-platform: staged 0.1.2, not published |
 | agent-api-sessions | `rightkit-agent-engine-api-sessions` | none | declaration-only | 0 | rightkit-agent-engine-api-sessions: staged 0.1.1, not published |
-| agent-api-workflows | `rightkit-agent-engine-api-workflows` | none | declaration-only | 0 | rightkit-agent-engine-api-workflows: staged 0.1.1, not published |
+| agent-api-workflows | `rightkit-agent-engine-api-workflows` | none | declaration-only | 0 | rightkit-agent-engine-api-workflows: staged 0.2.0, not published |
 | agent-attention | `rightkit-agent-engine-attention` | none | declaration-only | 0 | rightkit-agent-engine-attention: staged 0.1.2, not published |
 | agent-cli | `rightkit-agent-engine-cli` | none | declaration-only | 0 | rightkit-agent-engine-cli: staged 0.1.1, not published |
 | agent-demo-mode | `rightkit-agent-demo` | none | declaration-only | 0 | rightkit-agent-demo: staged 0.1.0, not published |
@@ -26,7 +26,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | agent-gateway | `rightkit-agent-gateway` | none | declaration-only | 0 | rightkit-agent-gateway: staged 0.2.0, not published |
 | agent-history | `rightkit-agent-engine-history` | none | declaration-only | 0 | rightkit-agent-engine-history: staged 0.1.2, not published |
 | agent-host-traits | `rightkit-agent-host-traits` | none | declaration-only | 0 | rightkit-agent-host-traits: staged 0.1.3, not published |
-| agent-memory | `rightkit-memory` | none | declaration-only | 0 | rightkit-memory: staged 0.1.1, not published |
+| agent-memory | `rightkit-memory` | none | declaration-only | 0 | rightkit-memory: staged 0.2.0, not published |
 | agent-mobile-runtime | `rightkit-agent-engine-mobile-runtime` | none | declaration-only | 0 | rightkit-agent-engine-mobile-runtime: staged 0.1.1, not published |
 | agent-orchestration | `rightkit-agent-orchestration` | none | declaration-only | 0 | rightkit-agent-orchestration: staged 0.1.2, not published |
 | agent-orchestration-handoff | `rightkit-agent-orchestration-handoff` | none | declaration-only | 0 | rightkit-agent-orchestration-handoff: staged 0.1.2, not published |
@@ -77,7 +77,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | context-federation | `rightkit-context-federation` | none | declaration-only | 0 | rightkit-context-federation: staged 0.1.0, not published |
 | context-protocol | `rightkit-context-protocol` | none | declaration-only | 0 | rightkit-context-protocol: staged 0.1.1, not published |
 | context-provider-sdk | `rightkit-context-provider-sdk` | none | declaration-only | 0 | rightkit-context-provider-sdk: staged 0.1.1, not published |
-| context-runtime | `rightkit-context-runtime` | none | declaration-only | 0 | rightkit-context-runtime: staged 0.1.0, not published |
+| context-runtime | `rightkit-context-runtime` | none | declaration-only | 0 | rightkit-context-runtime: staged 0.1.1, not published |
 | crash-reporting | `rightkit-crash` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-crash: published 0.3.6 (crates.io) |
 | crypto-primitives | `rightkit-crypto` | none | declaration-only | 0 | rightkit-crypto: published 0.1.0 (crates.io) |
 | dependency-updates | `@rightkit/outdated` | none | declaration-only | 0 | @rightkit/outdated: published 0.3.0 (npm) |
@@ -110,7 +110,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | docx | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.2 (crates.io) |
 | docx-editor | `@rightkit/docx-editor` | none | declaration-only | 0 | @rightkit/docx-editor: staged 0.1.2, not published |
 | durable-memory | `rightkit-memory-store` | none | declaration-only | 0 | rightkit-memory-store: staged 0.1.1, not published |
-| durable-memory-core | `rightkit-memory-core` | none | declaration-only | 0 | rightkit-memory-core: staged 0.1.0, not published |
+| durable-memory-core | `rightkit-memory-core` | none | declaration-only | 0 | rightkit-memory-core: staged 0.1.1, not published |
 | embeddings | `rightkit-embed` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-embed: published 0.6.1 (crates.io) |
 | engine-host | `rightkit-engine-host` | none | declaration-only | 0 | rightkit-engine-host: staged 0.1.2, not published |
 | evidence | `rightkit-evidence` | none | declaration-only | 0 | rightkit-evidence: staged 0.1.1, not published |

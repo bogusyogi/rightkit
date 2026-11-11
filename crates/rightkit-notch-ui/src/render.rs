@@ -477,7 +477,7 @@ fn draw_reading(
     canvas.draw_mask(&mask, x, y, INK_PRIMARY, 1.0);
 }
 
-/// A Claude account's tag ("A", "B") on its ring, bottom right inside the track, so it never
+/// A ring's tag ("A", "B"), bottom right inside the track, so it never
 /// reaches a neighbouring ring (#454).
 fn draw_badge(
     canvas: &mut Canvas,
@@ -1278,7 +1278,7 @@ struct Metrics {
     /// Extra height of a meter's label row when it has no trailing text: the Mac's row is
     /// taller then (measured, the System card's CPU and memory meters), drawn only.
     bare: f32,
-    /// The height the Claude card's sync button gives its header, drawn only: the Mac centres
+    /// The height an `inline_head` card's button gives its header, drawn only: the Mac centres
     /// the button in the header row it draws but sizes the card without it.
     button: f32,
     /// Sizing the card as the Mac's budget does, not laying out what is drawn: a group's box
@@ -1879,18 +1879,18 @@ fn flow_row(
     }
 }
 
-/// The Claude card's header holds a sync button (or its spinner). The Mac lays that header out
-/// as the Codex card's, which has none, with the button centred on the row: the row is the
-/// taller of the title block and the button (drawn only; the card is sized without it), and
-/// the gap under it is the plain one.
-fn claude_head(content: &CardContent) -> bool {
-    content.mark == Mark::Claude && content.head.iter().any(|head| *head != Head::Dismiss)
+/// A card with `inline_head` holds its round buttons (a sync button or its spinner) on the title
+/// row: the Mac lays that header out as a card with none, with the button centred on the row:
+/// the row is the taller of the title block and the button (drawn only; the card is sized
+/// without it), and the gap under it is the plain one.
+fn inline_head(content: &CardContent) -> bool {
+    content.inline_head && content.head.iter().any(|head| *head != Head::Dismiss)
 }
 
 /// Whether a round header button makes the header taller and closes the gap under it (the
 /// Send card's).
 fn round_head(content: &CardContent) -> bool {
-    !claude_head(content) && content.head.iter().any(|head| *head != Head::Dismiss)
+    !inline_head(content) && content.head.iter().any(|head| *head != Head::Dismiss)
 }
 
 fn header_height(content: &CardContent, m: Metrics) -> f32 {
@@ -1907,7 +1907,7 @@ fn header_height(content: &CardContent, m: Metrics) -> f32 {
     };
     if round_head(content) {
         text.max(HEAD_HEIGHT)
-    } else if claude_head(content) {
+    } else if inline_head(content) {
         text.max(m.button)
     } else {
         text
@@ -2742,14 +2742,8 @@ impl Pen<'_> {
 
     /// The icon in front of a card's title.
     fn mark(&mut self, mark: Mark, (x, y): (f32, f32)) {
-        let glyph = match mark {
-            Mark::None => return,
-            Mark::Claude => Glyph::Claude,
-            Mark::Codex => Glyph::OpenAi,
-            Mark::System => Glyph::Chip,
-            Mark::Disks => Glyph::Drive,
-            Mark::Send => Glyph::Plane,
-            Mark::Tools => Glyph::Tools,
+        let Mark::Glyph(glyph) = mark else {
+            return;
         };
         let centre = (x + MARK_SIZE * self.s / 2.0, y + MARK_SIZE * self.s / 2.0);
         glyphs::draw(self.canvas, glyph, centre, self.s, TIP_INK, 1.0);

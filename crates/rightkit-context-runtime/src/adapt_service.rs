@@ -2,7 +2,7 @@
 //! commands keep the existing reviewed Cortex admission boundary. No DB path
 //! can be selected by a transport and no call starts a daemon.
 use crate::{store::TasteDeliveryInventoryV1, MemoryStore};
-use rightkit_adapt_taste::{delivery::*, insights::IssueState, learner, scope::ScopeDimensions};
+use rightkit_adapt::{delivery::*, insights::IssueState, learner, scope::ScopeDimensions};
 use rightkit_db::rusqlite::{self, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -148,7 +148,7 @@ pub fn inspect_issues(store: &MemoryStore, scope: &str, limit: usize) -> Result<
     let mut items = Vec::new();
     for row in rows {
         let (id, content, lifecycle) = row.map_err(|e| e.to_string())?;
-        let issue: rightkit_adapt_taste::insights::sealed_issue::SealedInsightIssueV1 =
+        let issue: rightkit_adapt::insights::sealed_issue::SealedInsightIssueV1 =
             serde_json::from_str(&content).map_err(|e| e.to_string())?;
         issue
             .verify()
@@ -665,9 +665,9 @@ pub(crate) fn journal(
     if id.trim().is_empty() || id.len() > 512 {
         return Err("invalid Adapt receipt identity".into());
     }
-    let key = rightkit_adapt_taste::canonical::sha256_canonical(&json!([scope, kind, id]));
+    let key = rightkit_adapt::canonical::sha256_canonical(&json!([scope, kind, id]));
     let session_id = format!("adapt:{key}");
-    let hash = rightkit_adapt_taste::canonical::sha256_canonical(&payload);
+    let hash = rightkit_adapt::canonical::sha256_canonical(&payload);
     let events =
         rightkit_memory_store::AbsorbedStore::new(store.db().clone()).map_err(|e| e.to_string())?;
     if let Some(existing) = events
@@ -734,8 +734,8 @@ pub fn operator_response(store: &MemoryStore, body: &str) -> (u16, String) {
 /// and canonical-pool CAS stay in `try_put_verified_adapt_taste_manifest`.
 pub fn admit_verified_taste_manifest(
     store: &MemoryStore,
-    manifest: &rightkit_adapt_taste::manifest::PreferenceManifestV1,
-    trust: Option<&rightkit_adapt_taste::proposal::SemanticAdjudicatorTrustStoreV1>,
+    manifest: &rightkit_adapt::manifest::PreferenceManifestV1,
+    trust: Option<&rightkit_adapt::proposal::SemanticAdjudicatorTrustStoreV1>,
 ) -> Result<crate::store::MemoryBatchReceipt, String> {
     store
         .try_put_verified_adapt_taste_manifest(manifest, trust)
@@ -745,7 +745,7 @@ pub fn admit_verified_taste_manifest(
 // ---------------------------------------------------------------------------
 // ADP-035: first-party semantic provider for `adapt_behavioral_review`.
 //
-// The provider executes `rightkit_adapt_taste::learner` — deterministic behavioral
+// The provider executes `rightkit_adapt::learner` — deterministic behavioral
 // learner semantics over the request's already-validated event window — and
 // returns proposal-only values. It holds no store, no sink, and no cursor:
 // `execute_background_semantic_review` remains the only path onward, and the

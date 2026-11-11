@@ -1,5 +1,3 @@
-# rightkit-adapt-taste
+# rightkit-adapt-taste (deprecated)
 
-Governed behavioural learning from agent transcripts (taste preferences and insights), deterministic and model-free.
-
-Moved into RightKit from `membrane-adapt` (engine) on 2026-11-01.
+Deprecated name. Pulse's governed behavioural learning (taste preferences and insights) is `rightkit-adapt` since 0.2.0; this crate re-exports it unchanged under the old paths for one release. Depend on `rightkit-adapt` and replace `rightkit_adapt_taste::` with `rightkit_adapt::`.

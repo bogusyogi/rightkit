@@ -2,7 +2,7 @@ struct DaemonAnalyzerSource<'a> {
     state: &'a crate::api::DaemonState,
 }
 
-impl rightkit_adapt::AnalyzerSource for DaemonAnalyzerSource<'_> {
+impl rightkit_agent_learning::AnalyzerSource for DaemonAnalyzerSource<'_> {
     fn recent_sessions(&self) -> Vec<SessionSummary> {
         let Some(storage) = &self.state.storage else {
             return vec![];

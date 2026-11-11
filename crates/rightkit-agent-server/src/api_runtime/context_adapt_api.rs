@@ -79,23 +79,23 @@ fn manifest_input(
 
 fn with_manifest_path<T>(
     input: ManifestInput,
-    call: impl FnOnce(std::path::PathBuf) -> Result<T, rightkit_memory::membrane::MembraneError>,
-) -> Result<T, rightkit_memory::membrane::MembraneError> {
+    call: impl FnOnce(std::path::PathBuf) -> Result<T, rightkit_memory_client::membrane::MembraneError>,
+) -> Result<T, rightkit_memory_client::membrane::MembraneError> {
     match input {
         ManifestInput::Path(path) => call(path),
         ManifestInput::Inline(value) => {
             let mut file = tempfile::NamedTempFile::new().map_err(|error| {
-                rightkit_memory::membrane::MembraneError::Spawn(format!(
+                rightkit_memory_client::membrane::MembraneError::Spawn(format!(
                     "create temporary Adapt manifest: {error}"
                 ))
             })?;
             serde_json::to_writer(&mut file, &value).map_err(|error| {
-                rightkit_memory::membrane::MembraneError::Parse(format!(
+                rightkit_memory_client::membrane::MembraneError::Parse(format!(
                     "serialize inline Adapt manifest: {error}"
                 ))
             })?;
             file.flush().map_err(|error| {
-                rightkit_memory::membrane::MembraneError::Spawn(format!(
+                rightkit_memory_client::membrane::MembraneError::Spawn(format!(
                     "flush temporary Adapt manifest: {error}"
                 ))
             })?;
@@ -202,8 +202,8 @@ async fn run_adapt<F>(
 ) -> Result<Json<Value>, (axum::http::StatusCode, Json<Value>)>
 where
     F: FnOnce(
-            &dyn rightkit_memory::membrane::MembraneBackend,
-        ) -> Result<Value, rightkit_memory::membrane::MembraneError>
+            &dyn rightkit_memory_client::membrane::MembraneBackend,
+        ) -> Result<Value, rightkit_memory_client::membrane::MembraneError>
         + Send
         + 'static,
 {
@@ -228,7 +228,7 @@ fn adapt_unavailable() -> (axum::http::StatusCode, Json<Value>) {
         Json(serde_json::json!({
             "schemaVersion": "coderight.context-adapt.v1",
             "error": "adapt_unavailable",
-            "reason": rightkit_memory::membrane::OFF_REASON
+            "reason": rightkit_memory_client::membrane::OFF_REASON
         })),
     )
 }
@@ -245,9 +245,9 @@ fn adapt_not_available() -> (axum::http::StatusCode, Json<Value>) {
 }
 
 fn adapt_error(
-    error: rightkit_memory::membrane::MembraneError,
+    error: rightkit_memory_client::membrane::MembraneError,
 ) -> (axum::http::StatusCode, Json<Value>) {
-    use rightkit_memory::membrane::MembraneError;
+    use rightkit_memory_client::membrane::MembraneError;
     if matches!(error, MembraneError::Unavailable(_)) {
         return adapt_unavailable();
     }

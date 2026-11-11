@@ -1,4 +1,4 @@
-// rightkit-hotkeys 0.1.2 consumed by exact registry pin (no features: the crate has none, and the
+// rightkit-hotkeys 0.1.4 consumed by exact registry pin (no features: the crate has none, and the
 // apps use it that way), outside the workspace.
 //
 // Proves, through the public API only, the pure modules that compile and behave the same on
@@ -81,7 +81,7 @@ fn main() {
     middle_click_machinery();
     arm_timer();
     platform_surface();
-    println!("OK rightkit-hotkeys 0.1.2 (registry consumer)");
+    println!("OK rightkit-hotkeys 0.1.4 (registry consumer)");
 }
 
 // ---- chord parsing and keys ----------------------------------------------------------------
@@ -1055,6 +1055,15 @@ fn platform_surface() {
         std::mem::size_of::<UnregisterError>(),
     ];
     assert!(sizes.iter().all(|size| *size > 0));
+    // The hook hub (0.1.4): nothing registered, so no hook runs and no side is known; the default
+    // tag is "RKHB"; a key context starts with nothing held.
+    use rightkit_hotkeys::windows::hub;
+    assert!(!hub::keyboard_running());
+    assert_eq!(hub::physically_down(0xA0), None);
+    assert_eq!(hub::own_tag(), 0x524B_4842);
+    let context = hub::KeyContext::default();
+    assert!(!context.ctrl && !context.shift && !context.win && !context.repeat);
+    assert!(std::mem::size_of::<hub::HandlerId>() > 0);
 }
 
 #[cfg(target_os = "macos")]

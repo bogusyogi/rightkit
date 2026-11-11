@@ -253,7 +253,7 @@ pub(crate) fn probe_csprng(verbose: bool) -> Dimension {
 /// is reported as `unknown` (no live store surface is reachable from the
 /// doctor CLI today).
 pub(crate) fn probe_learning(verbose: bool) -> Dimension {
-    use rightkit_adapt::InstinctStore;
+    use rightkit_agent_learning::InstinctStore;
 
     let Some(home) = coderight_home() else {
         let detail =

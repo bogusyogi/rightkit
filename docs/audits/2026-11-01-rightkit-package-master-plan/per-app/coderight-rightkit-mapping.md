@@ -6,6 +6,8 @@ Package names are final, after cross-app merging (see master plan in RightKit `d
 
 ## Summary
 
+Corrected 2026-11-11 (`docs/audits/2026-11-11-shape-matrix/reports/pulse-crates-redraw.md`): CodeRight's learning goes to `rightkit-agent-learning` (`rightkit-adapt` is Pulse's governed learning) and its memory backend and membrane client to `rightkit-memory-client` (`rightkit-memory` is the memory engine). Totals unchanged.
+
 Corrected 2026-11-11 by the shape review (`docs/audits/2026-11-11-shape-matrix/reports/library-and-swift-mapping-redraw.md`): nothing is planned into `RightKitUI`: the iOS app entry, File Provider extension and widgets are app code. The iOS tests stay with the app (APPTEST), never `RightKitHubQA`. Totals below are recomputed from the corrected rows; the per-file list in the app repo was not changed here.
 
 | Action | Meaning | Files | Lines |
@@ -34,7 +36,7 @@ Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **895,571 
 | `@rightkit/dictation-ui` | npm | NEW | voice conversation | 6 | 1,090 | `apps/coderight-tauri/src/components/`, `apps/coderight-tauri/src/hooks/` |
 | `@rightkit/terminal-ui` | npm | NEW | xterm terminal pane | 6 | 1,370 | `apps/coderight-tauri/src/components/`, `apps/coderight-tauri/src/hooks/` |
 | `RightKitAgent` | Swift | NEW | Swift agent client: local runtime bridge, chat library, code editor, diff walkthrough, plan review, markdown rendering, approvals | 154 | 30,723 | `apps/coderight-ios/CodeRight/Approvals/`, `apps/coderight-ios/CodeRight/CommandPalette/`, `apps/coderight-ios/CodeRight/Demo/` +17 dirs |
-| `rightkit-adapt` | crate | NEW | post-session learning pipeline | 31 | 8,073 | `engine/bins/coderight/src/`, `engine/bins/coderight/src/learning/`, `engine/crates/learning/` +2 dirs |
+| `rightkit-agent-learning` | crate | NEW | post-session learning pipeline | 31 | 8,073 | `engine/bins/coderight/src/`, `engine/bins/coderight/src/learning/`, `engine/crates/learning/` +2 dirs |
 | `rightkit-agent-engine` | crate | NEW | agent loop, edit history & diffs, task graph, runtime middleware & bounded resources, attention, session storage, context folds/rehydrate, trajectory journal, wire protocol | 262 | 99,073 | `engine/bins/coderight/src/`, `engine/crates/api_integrations/`, `engine/crates/api_integrations/src/` +36 dirs |
 | `rightkit-agent-engine` | crate | NEW | interactive & headless session host | 6 | 13,951 | `engine/bins/coderight/src/` |
 | `rightkit-agent-engine` | crate | NEW | embedded agent runtime for fork-less hosts (iOS) | 14 | 11,065 | `engine/crates/mobile_runtime/`, `engine/crates/mobile_runtime/src/` |
@@ -51,7 +53,7 @@ Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **895,571 
 | `rightkit-evidence` | crate | NEW | spec-governed artifacts & coverage | 29 | 5,738 | `engine/bins/coderight/src/`, `engine/bins/coderight/src/api_specs/`, `engine/bins/coderight/src/api_specs/evidence_protocol/` +4 dirs |
 | `rightkit-github` | crate | NEW | GitHub App: auth, webhooks, PR/issue ops | 12 | 5,127 | `engine/bins/coderight/src/`, `engine/bins/coderight/src/github_app/` |
 | `rightkit-github` | crate | NEW | Swift forge connectors: GitHub, Cloudflare, Fly.io, git, PRs | 16 | 3,459 | `apps/coderight-ios/CodeRight/LocalRuntime/` |
-| `rightkit-memory` | crate | NEW | adaptive memory retrieval & backend (over context engine) | 32 | 9,759 | `engine/bins/coderight/src/`, `engine/bins/coderight/src/membrane_binding/`, `engine/crates/coderight-membrane-cli/` +7 dirs |
+| `rightkit-memory-client` | crate | NEW | memory backend & membrane client (over the memory engine) | 32 | 9,759 | `engine/bins/coderight/src/`, `engine/bins/coderight/src/membrane_binding/`, `engine/crates/coderight-membrane-cli/` +7 dirs |
 | `rightkit-mesh` | crate | NEW | pairing | 5 | 605 | `apps/coderight-ios/CodeRight/Pairing/` |
 | `rightkit-repo-graph` | crate | NEW | tree-sitter skeletonization | 2 | 600 | `engine/crates/skeletonization/`, `engine/crates/skeletonization/src/` |
 | `rightkit-scheduler` | crate | NEW | cron schedules & triggers for agent runs | 33 | 9,315 | `engine/bins/coderight/src/`, `engine/bins/coderight/src/api_schedules/`, `engine/bins/coderight/src/api_triggers/` +4 dirs |

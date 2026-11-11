@@ -36,6 +36,8 @@ use crate::registration::{modifier_bits, HotkeyApi, Registrations, UnregisterFai
 
 pub use crate::hold::HotkeyState;
 
+pub mod hub;
+
 /// Poll period for release detection. Thread timers tick at the system clock resolution
 /// (about 15.6 ms by default), so a release is reported within roughly 15 to 30 ms of the key-up.
 pub const RELEASE_POLL_MS: u32 = 15;

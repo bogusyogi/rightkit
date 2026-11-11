@@ -33,7 +33,7 @@ use rightkit_agent_engine_protocol::{ProtocolEvent, TranscriptMessage};
 use rightkit_agent_engine_storage::{
     AdaptObservationCursor, EventPersistenceState, TranscriptExportCursor,
 };
-use rightkit_memory::membrane::{MembraneBackend, MembraneCli, TranscriptAppend};
+use rightkit_memory_client::membrane::{MembraneBackend, MembraneCli, TranscriptAppend};
 use serde_json::{json, Value};
 
 use crate::api::{lock_recover, SharedStorage};
@@ -42,7 +42,7 @@ use crate::api::{lock_recover, SharedStorage};
 /// CLI, else `Unavailable`. Discovery goes through `MembraneHandle::shared()`, the
 /// same handle the memory backend uses.
 pub(crate) fn membrane_backend() -> Arc<dyn MembraneBackend + Send + Sync> {
-    rightkit_memory::backend::MembraneHandle::shared().backend_arc()
+    rightkit_memory_client::backend::MembraneHandle::shared().backend_arc()
 }
 
 /// Rows per `transcript append` call.
@@ -86,7 +86,7 @@ pub struct NativeTranscriptExporter {
 impl NativeTranscriptExporter {
     /// Locate Pulse's `membrane` binary; absent leaves the exporter inert.
     pub fn new() -> Self {
-        Self::with_cli(rightkit_memory::backend::MembraneHandle::shared().verified_cli())
+        Self::with_cli(rightkit_memory_client::backend::MembraneHandle::shared().verified_cli())
     }
 
     pub fn with_cli(cli: Option<MembraneCli>) -> Self {
@@ -508,7 +508,7 @@ impl NativeTranscriptExporter {
                         ));
                     }
                 },
-                Err(rightkit_memory::membrane::MembraneError::Unavailable(_)) => {
+                Err(rightkit_memory_client::membrane::MembraneError::Unavailable(_)) => {
                     return ExportOutcome::UpToDate {
                         exported: exported_total,
                     };

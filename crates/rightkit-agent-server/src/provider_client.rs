@@ -291,10 +291,10 @@ impl rightkit_agent_engine_core::CompactionDecisionProvider for CompactionDecisi
 }
 
 /// The shared verified CLI backend with the context timeout, else `Unavailable`.
-fn context_backend() -> Box<dyn rightkit_memory::membrane::MembraneBackend> {
-    match rightkit_memory::backend::MembraneHandle::shared().verified_cli() {
+fn context_backend() -> Box<dyn rightkit_memory_client::membrane::MembraneBackend> {
+    match rightkit_memory_client::backend::MembraneHandle::shared().verified_cli() {
         Some(cli) => Box::new(cli.with_timeout(CONTEXT_PULL_TIMEOUT)),
-        None => Box::new(rightkit_memory::membrane::Unavailable),
+        None => Box::new(rightkit_memory_client::membrane::Unavailable),
     }
 }
 

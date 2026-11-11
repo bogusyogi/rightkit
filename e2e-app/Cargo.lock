@@ -6457,7 +6457,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-hotkeys"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "windows-sys 0.61.2",
 ]
@@ -6649,7 +6649,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-overlay-win"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "rightkit-overlay",
  "windows-sys 0.61.2",

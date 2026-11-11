@@ -400,7 +400,7 @@ impl DaemonState {
             .filter(|r| !r.success)
             .map(|r| truncate(&r.output, 200))
             .collect();
-        let learning_summary = rightkit_adapt::SessionSummary {
+        let learning_summary = rightkit_agent_learning::SessionSummary {
             session_id: session_id.to_string(),
             succeeded: goal_complete,
             tool_calls: outcome.results.len() as u32,
@@ -425,7 +425,7 @@ impl DaemonState {
             },
         );
         let memory_context =
-            rightkit_memory::backend::CallContext::after(std::time::Duration::from_secs(5));
+            rightkit_memory_client::backend::CallContext::after(std::time::Duration::from_secs(5));
         if let Err(error) = self
             .memory_backend
             .remember(
