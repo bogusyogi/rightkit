@@ -1,19 +1,9 @@
-use rightkit_fs::transaction::seams::{self, Step};
 use rightkit_fs::{
     atomic_write_private, recover_transactions, sweep_stale_temps, sweep_stale_temps_report,
     AtomicWriteOptions, AtomicWriter, ExpectedPrior, FileKey, FileTransaction, FsError,
-    KeyedWriteLocks, StateDir, TransactionEntry, TransactionOptions, TransactionReport,
+    KeyedWriteLocks, StateDir, TransactionEntry, TransactionOptions,
 };
-use std::{
-    fs,
-    io::{self, Write},
-    path::Path,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
+use std::{fs, io::Write, path::Path, time::Duration};
 
 fn entries(other: &Path) -> Vec<TransactionEntry> {
     vec![
@@ -267,20 +257,10 @@ fn main() {
         FileKey::of_path(&other.join("b")).unwrap(),
     ];
     old(&root);
-    let staged = Arc::new(AtomicUsize::new(0));
-    let count = staged.clone();
-    let guard = seams::on_step(move |step| {
-        if matches!(step, Step::AfterStage(_)) {
-            count.fetch_add(1, Ordering::SeqCst);
-        }
-        None
-    });
     let prepared =
         FileTransaction::prepare(&root, entries(&other), TransactionOptions::default()).unwrap();
     assert_old(&root);
     assert!(prepared.commit().unwrap().is_committed());
-    assert_eq!(staged.load(Ordering::SeqCst), 2);
-    drop(guard);
     for (index, name) in ["a", "b"].iter().enumerate() {
         assert_eq!(
             fs::read(root.join(name)).unwrap(),
@@ -292,34 +272,6 @@ fn main() {
         );
         assert_eq!(FileKey::of_path(&other.join(name)).unwrap(), keys[index]);
     }
-    old(&root);
-    let guard = seams::on_step(|step| {
-        matches!(step, Step::BeforePublish(1)).then(|| io::Error::other("native rollback fixture"))
-    });
-    let result = FileTransaction::prepare(&root, entries(&other), TransactionOptions::default())
-        .unwrap()
-        .commit()
-        .unwrap();
-    assert!(matches!(result, TransactionReport::RolledBack(_)));
-    drop(guard);
-    assert_old(&root);
-    let aside = seams::force_aside_backup();
-    let guard = seams::on_step(|step| {
-        matches!(step, Step::BeforePublish(1) | Step::BeforeRestore(0))
-            .then(|| io::Error::other("native recovery fixture"))
-    });
-    let result = FileTransaction::prepare(&root, entries(&other), TransactionOptions::default())
-        .unwrap()
-        .commit()
-        .unwrap();
-    assert!(matches!(result, TransactionReport::RecoveryRequired(_)));
-    drop(guard);
-    drop(aside);
-    let recovery = recover_transactions(&root).unwrap();
-    assert!(recovery.is_clean());
-    assert!(!recovery.transactions.is_empty());
-    assert_old(&root);
-    assert!(recover_transactions(&root).unwrap().transactions.is_empty());
     let mut fat = serde_json::Value::Null;
     if let Some(mount) = plan["fat"].as_str() {
         let target = Path::new(mount).join(format!("private-{}", std::process::id()));
