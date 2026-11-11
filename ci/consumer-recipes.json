@@ -70,8 +70,8 @@
         "declaredOnly": []
       },
       "files": {
-        "ci/consumers/npm/onboarding/README.md": "3e36a2f34055fb9c4a5d9f6ac74e2d36fd0cf842fe48d75562551f382eceec4e",
-        "ci/consumers/npm/onboarding/consumer.mjs": "45bc8ac88c8188dbc67b3caab556577473618da28d3b403aa3518d0999122094",
+        "ci/consumers/npm/onboarding/README.md": "71c1017ff94aa69e7ff61ed31188af5f8a748e2b3497c3449fec352ef2943bec",
+        "ci/consumers/npm/onboarding/consumer.mjs": "5ad19f8c5c4b01f0b8172471ca6e51466ef9448aaad7c4cee4e5427456d97b76",
         "ci/consumers/npm/onboarding/package.json": "e72033f2dfcf6c03ad8aadfc18f8fbca9702b17166997bc77e388c32e46474a6",
         "ci/consumers/npm/onboarding/provenance-negative.mjs": "0d685129d02c216d539c6ff67305541596c6822a5c9354ea40ab375dcd924952",
         "ci/consumers/npm/onboarding/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
@@ -655,7 +655,7 @@
       ],
       "closure": {
         "install": {
-          "@rightkit/platform-ui": "0.4.0",
+          "@rightkit/platform-ui": "0.4.1",
           "react": "19.3.1",
           "react-dom": "19.3.1"
         },
@@ -664,9 +664,9 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/react-shell/README.md": "4a1d21e0f4e2b44154ffaaa4d5bfc49c660375b2c26358743d060728d9a79b53",
-        "ci/consumers/npm/react-shell/consumer.mjs": "3b073a3849629443c25a495343a64414abd8c8243b7c48860daaa1dd649848fb",
-        "ci/consumers/npm/react-shell/package.json": "bfae5c1fd04cad9e3e24cc1615be69c8a95b887d679040428588585375a9056d",
+        "ci/consumers/npm/react-shell/README.md": "0b56a30e1bab0243bebcbaf47d8801e09f4bd6d64ef8e76ec38ea53fcb2b9ea6",
+        "ci/consumers/npm/react-shell/consumer.mjs": "356cf13ad645700be4c6ea54b56f6685879e663dc920258857b205b85a812a4e",
+        "ci/consumers/npm/react-shell/package.json": "4078f473686b6bb18857b48adca92e3553bc353620eb7359ed85c5999d4eb7ac",
         "ci/consumers/npm/react-shell/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }

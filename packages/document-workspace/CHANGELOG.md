@@ -4,6 +4,7 @@
 
 - Removed the browser-QA fixtures: `state/explorer` fixture locations and listings, `state/library` fixture recents and pins, the `qaLegal` legal-gate bypass in `AppRoot` and the `isBrowserQaMode()` gates in `SettingsPanel`. The legal gate shows until acceptance is current; the host bridge is native only.
 - `getLicenseClient()` always returns the native licence client (`createLicenseClient(nativeIpc)`); the browser-QA mock branch is gone with `@rightkit/license/testing`.
+- Type-checks against `@rightkit/app-update` 0.4.3, whose `install` can refuse with `deferred` (#1019): a deferred install is not a licence refusal and still reports the native message, as before.
 
 ## 0.1.1
 

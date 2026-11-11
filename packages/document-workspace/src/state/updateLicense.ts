@@ -83,7 +83,7 @@ function updates(): NativeUpdateClient {
 }
 
 /** Refusals that mean "this licence does not entitle the update" (nudge to the licence panel). */
-const LICENSE_REFUSALS = new Set<UpdateRefusal | "stale" | "consumed">([
+const LICENSE_REFUSALS = new Set<UpdateRefusal | "stale" | "consumed" | "deferred">([
   "notLicensed",
   "expired",
   "revoked",

@@ -1,6 +1,6 @@
 # @rightkit/react-shell npm consumer (npm.@rightkit/react-shell)
 
-Packed-archive consumer for `@rightkit/react-shell` 0.7.2 (the workspace version). The unit is installed only from the sealed `file:` archive. The reviewed closure pins `@rightkit/platform-ui` 0.4.0, the required peer, `react` 19.3.1 and `react-dom` 19.3.1 (server rendering only). The optional peer `@tauri-apps/plugin-os` is declared-only and not installed; the consumer asserts that it does not resolve, so platform detection takes the documented host-injected path.
+Packed-archive consumer for `@rightkit/react-shell` 0.7.3 (the workspace version). The unit is installed only from the sealed `file:` archive. The reviewed closure pins `@rightkit/platform-ui` 0.4.1, the required peer, `react` 19.3.1 and `react-dom` 19.3.1 (server rendering only). The optional peer `@tauri-apps/plugin-os` is declared-only and not installed; the consumer asserts that it does not resolve, so platform detection takes the documented host-injected path.
 
 Surface (exact `exports` keys): `.`, `./headless`, `./react`, `./shell.css`, `./shell.layered.css`, `./shell.structure.css`, `./shell.visual.css` and `./suite-aliases.css`. The consumer asserts the sorted export names of the three code entries (32 in the root entry, 106 in `./react`, 2 in `./headless`) and reads the five stylesheets through archive-bound export URLs. It also asserts that the helpers the shell re-exports are the same functions as in the installed `@rightkit/platform-ui`, so the peer is shared and not duplicated.
 
