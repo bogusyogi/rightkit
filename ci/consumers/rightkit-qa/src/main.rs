@@ -28,7 +28,6 @@ app = "genright"
 GENRIGHT_NO_KEYCHAIN = "1"
 [engine]
 binary = { darwin = "target/debug/genright-engine", win32 = "target/debug/genright-engine.exe" }
-data_dir_env = "GENRIGHT_APP_DATA"
 [ui]
 binaries = { macos = "a", windows = "b" }
 mode = "background"

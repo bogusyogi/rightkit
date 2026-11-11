@@ -2397,7 +2397,7 @@
       "files": {
         "Cargo.toml": "fe3f84c6cbd96c131f8236d0a95832550aad80f692c06496a3b767eb80404d91",
         "README.md": "d5b3c9c5f502f2e2f9280ca0b946ef3159fcbe912ba7cd1eaea71432e163c231",
-        "src/main.rs": "5968d3ccfc1dcec8152beb5bae6d914d0cae846f0d06f7b1ba7220c33af3f5b9"
+        "src/main.rs": "54f47a8ce81f6de0adda7336320487ee8d70039a03a03e57c5bb05c3c1858817"
       },
       "aggregateSha256": "e7e23f007ccee54fee15cbf3c97ff62eed581b3f2e2ddfad8f6fe7ac4c8904b9"
     },
