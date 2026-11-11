@@ -2249,6 +2249,7 @@
             "darwin"
           ],
           "env": {
+            "RIGHTKIT_TEST_REAL_USER_STORES": "literal1",
             "RK_CONSUMER_RUN_ROOT": "freshRunRoot"
           }
         }
