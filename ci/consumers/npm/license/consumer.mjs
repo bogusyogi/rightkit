@@ -50,7 +50,7 @@ try {
   }
 
   await run('export-surface-exact', async () => {
-    assert.deepEqual(Object.keys(license).sort(), ['LICENSE_MESSAGES', 'LicenseClientError', 'createLicenseClient', 'hasAllFeatures', 'hasAnyFeature', 'hasFeature', 'isLicensed', 'isPro', 'licenseMessage', 'lifecycleGrantsAccess', 'lifecycleNeedsOnlineRefresh', 'satisfiesRequirement', 'tier', 'tierAtLeast']);
+    assert.deepEqual(Object.keys(license).sort(), ['ACCOUNT_MESSAGES', 'AccountClientError', 'LICENSE_MESSAGES', 'LicenseClientError', 'createAccountClient', 'createLicenseClient', 'hasAllFeatures', 'hasAnyFeature', 'hasFeature', 'isLicensed', 'isPro', 'licenseMessage', 'lifecycleGrantsAccess', 'lifecycleNeedsOnlineRefresh', 'satisfiesRequirement', 'tier', 'tierAtLeast']);
     assert.deepEqual(Object.keys(manifest.exports), ['.']);
     let code = null;
     try { import.meta.resolve('@rightkit/license/testing'); } catch (error) { code = error.code; }
