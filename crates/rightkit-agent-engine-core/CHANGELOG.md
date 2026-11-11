@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.1 (unpublished)
+
+- A tool call that waits for approval is bound by the approvals core's rule: its `PendingApprovalContext` carries
+  a mandatory `rightkit_approvals::Binding` (the effect payload digest of the exact final payload, and the
+  destination: the call's network host, else the tool) built with `rightkit_agent_engine_protocol::effect_binding`,
+  instead of an optional `payload_digest`. Requires `rightkit-agent-engine-protocol` 0.2.0. Decision 4 of the
+  2026-11-11 shape review (docs/audits/2026-11-11-shape-matrix/README.md, "Agent engine") taken on the
+  recommended option, pending the owner's confirmation; design note:
+  docs/audits/2026-11-11-shape-matrix/reports/agent-engine-contract-design.md.
+
 ## Unreleased
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

@@ -137,8 +137,8 @@ pub(crate) async fn resolve_tool_approval(
             // A call with a command keeps the session pattern grant so
             // "approve for session" stays usable. Only a tool with no command
             // (where a pattern would allow the whole tool) gets an EFF-002
-            // grant bound to the digest of the final post-transform payload;
-            // with no digest either, nothing is installed (approved once).
+            // grant bound to the digest of the final post-transform payload,
+            // which every pending approval carries (its core binding).
             // The pre-execute digest re-check applies to every approval.
             let Some(context) = context.as_ref() else {
                 return Err(StatusCode::NOT_FOUND);
@@ -151,12 +151,7 @@ pub(crate) async fn resolve_tool_approval(
                         rightkit_agent_policy::RuleSource::Session,
                     ));
                 }
-                None => match context.payload_digest.as_ref() {
-                    Some(digest) => payload_grant = Some(digest.clone()),
-                    None => tracing::warn!(
-                        "session approval has no command or payload digest; approving once without a grant"
-                    ),
-                },
+                None => payload_grant = Some(context.payload_digest()),
             }
             gate_response.as_ref().map(|r| r.allow).unwrap_or(true)
         }

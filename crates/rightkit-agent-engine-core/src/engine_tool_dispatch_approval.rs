@@ -302,35 +302,42 @@ impl SessionEngine {
                         .lock()
                         .unwrap()
                         .insert(call.id.clone(), tx);
+                    let network = serde_json::from_str::<serde_json::Value>(&call.arguments_json)
+                        .ok()
+                        .and_then(|args| {
+                            let host = args.get("host")?.as_str()?.to_string();
+                            let protocol = match args
+                                .get("protocol")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("http")
+                            {
+                                "https" => rightkit_agent_engine_protocol::NetworkApprovalProtocol::Https,
+                                "socks5_tcp" => {
+                                    rightkit_agent_engine_protocol::NetworkApprovalProtocol::Socks5Tcp
+                                }
+                                "socks5_udp" => {
+                                    rightkit_agent_engine_protocol::NetworkApprovalProtocol::Socks5Udp
+                                }
+                                _ => rightkit_agent_engine_protocol::NetworkApprovalProtocol::Http,
+                            };
+                            Some(rightkit_agent_engine_protocol::NetworkApprovalContext { host, protocol })
+                        });
+                    // The approvals core's rule: bound to the digest of the exact final
+                    // payload and to what the call reaches (its network host, else the tool).
+                    let binding = rightkit_agent_engine_protocol::effect_binding(
+                        &approved_digest,
+                        network
+                            .as_ref()
+                            .map_or(call.name.as_str(), |n| n.host.as_str()),
+                    );
                     self.pending_approval_contexts.lock().unwrap().insert(
                         call.id.clone(),
                         rightkit_agent_engine_protocol::PendingApprovalContext {
                             request_id: Some(correlation.clone()),
                             tool_name: call.name.clone(),
                             command: extract_command_arg(&call.arguments_json),
-                            payload_digest: Some(approved_digest.clone()),
-                            network: serde_json::from_str::<serde_json::Value>(
-                                &call.arguments_json,
-                            )
-                            .ok()
-                            .and_then(|args| {
-                                let host = args.get("host")?.as_str()?.to_string();
-                                let protocol = match args
-                                    .get("protocol")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("http")
-                                {
-                                    "https" => rightkit_agent_engine_protocol::NetworkApprovalProtocol::Https,
-                                    "socks5_tcp" => {
-                                        rightkit_agent_engine_protocol::NetworkApprovalProtocol::Socks5Tcp
-                                    }
-                                    "socks5_udp" => {
-                                        rightkit_agent_engine_protocol::NetworkApprovalProtocol::Socks5Udp
-                                    }
-                                    _ => rightkit_agent_engine_protocol::NetworkApprovalProtocol::Http,
-                                };
-                                Some(rightkit_agent_engine_protocol::NetworkApprovalContext { host, protocol })
-                            }),
+                            network,
+                            binding,
                         },
                     );
                     rx

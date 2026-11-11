@@ -49,7 +49,7 @@ pub enum IntentSource {
         decision: String,
     },
     /// A quote whose source cannot be read (chat closed, link down). Reversible
-    /// work only; anything else asks the sending chat, or Astra per workspace rule.
+    /// work only; anything else asks the sending chat, or whoever the workspace rule names.
     UnavailablePointer {
         chat: String,
         device: String,
@@ -96,7 +96,7 @@ pub struct DelegationRef {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum GrantOrigin {
-    /// ChatGPT through the gateway. Tunnel authentication identifies the
+    /// A remote chat client through the gateway. Tunnel authentication identifies the
     /// installation and is not requester identity.
     Gateway,
 }

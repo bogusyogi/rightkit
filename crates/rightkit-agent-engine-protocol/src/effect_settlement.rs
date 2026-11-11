@@ -1,3 +1,4 @@
+use rightkit_agent_task_contract::TaskStatus;
 use serde::{Deserialize, Serialize};
 
 /// Durable settlement state for an external effect attempt.
@@ -32,5 +33,20 @@ impl ExternalEffectSettlement {
 
     pub fn requires_reconciliation(self) -> bool {
         matches!(self, Self::InterruptedUnknown)
+    }
+
+    /// The task contract's status for a task whose current effect is in this
+    /// settlement: `running`, `succeeded`, `failed`, and `uncertain` for
+    /// `InterruptedUnknown` (outcome unknown: query the receipt, never repeat
+    /// the effect blindly). `NotStarted` is `None`: no effect has begun, so
+    /// the task keeps the status it has.
+    pub fn task_status(self) -> Option<TaskStatus> {
+        match self {
+            Self::NotStarted => None,
+            Self::Running => Some(TaskStatus::Running),
+            Self::Succeeded => Some(TaskStatus::Succeeded),
+            Self::Failed => Some(TaskStatus::Failed),
+            Self::InterruptedUnknown => Some(TaskStatus::Uncertain),
+        }
     }
 }

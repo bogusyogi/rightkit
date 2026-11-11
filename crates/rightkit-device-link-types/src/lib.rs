@@ -6,14 +6,16 @@
 //! * [`registry`]: paired-device records and the registry document that holds them.
 //! * [`circle`]: the signed device-circle records a paired-device record embeds.
 //!
+//! `device`, `effect` and `principal` are the agent task contract's own modules
+//! (`rightkit-agent-task-contract`), re-exported: one definition of each record.
+//!
 //! Everything here is serde data and pure rules: no file, no socket, no signature check.
 //! `rightkit-owner-approvals` and `rightkit-mesh` build on it.
 
 pub mod circle;
-pub mod device;
-pub mod effect;
-pub mod principal;
 pub mod registry;
+
+pub use rightkit_agent_task_contract::{device, effect, principal};
 
 pub use circle::{
     secret_hash, CheckKey, EndorsementBatch, EndorsementBody, GrantPair, KeyBinding, OwnerSig,

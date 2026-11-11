@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-engine-protocol"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Agent engine protocol: events, envelopes, tool calls, trust wrapping and settlement types shared by agent hosts"
@@ -18,3 +18,7 @@ rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = { version = "2" }
+# The approvals core's `Binding` on every pending approval; no store, no file IO.
+rightkit-approvals = { version = "0.2.0", default-features = false, path = "../rightkit-approvals" }
+# The task contract the protocol uses for authority (task statuses, approval binding).
+rightkit-agent-task-contract = { version = "0.1.0", path = "../rightkit-agent-task-contract" }

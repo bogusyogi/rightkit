@@ -1,5 +1,4 @@
-//! Principal: who submitted or authorized an act.
-//! Source: `always-on-agent.md` section 2, "Gateway-origin requests": the
+//! Principal: who submitted or authorized an act. For gateway-origin requests the
 //! principal is the gateway's local connection and client id.
 
 use serde::{Deserialize, Serialize};
@@ -29,9 +28,9 @@ pub enum PrincipalKind {
     /// A chat that relays the owner's request. Its authority is the relayed
     /// provenance in `intent.source`, never the relay itself.
     RelayingChat,
-    /// A ChatGPT gateway call. Authority is the local grant the owner set.
+    /// A gateway client call. Authority is the local grant the owner set.
     GatewayClient,
-    /// A UI, CLI or another local client attached to the engine.
+    /// Notch, hub, CLI or another local client attached to the engine.
     LocalClient,
     /// A remote device paired with this one through the device link. A grant holder
     /// (`devicelink` grants, rechecked on every request), never the owner; a policy check

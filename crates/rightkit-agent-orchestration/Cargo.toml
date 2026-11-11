@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-orchestration"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Agent orchestration runtime: plans, routes, tasks, budgets, grants, escalation, scheduling, delivery, inventories and platform layers"
@@ -29,7 +29,7 @@ toml = { version = "1.1", optional = true }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto", optional = true }
 rightkit-agent-engine-tasks = { version = "0.1.0", path = "../rightkit-agent-engine-tasks", optional = true }
 rightkit-cache = { version = "0.2.3", path = "../rightkit-cache", optional = true }
-rightkit-agent-engine-protocol = { version = "0.1.1", path = "../rightkit-agent-engine-protocol", optional = true }
+rightkit-agent-engine-protocol = { version = "0.2.0", path = "../rightkit-agent-engine-protocol", optional = true }
 rightkit-agent-host-traits = { version = "0.1.0", path = "../rightkit-agent-host-traits", optional = true }
 rightkit-llm = { version = "0.3.2", path = "../rightkit-llm", features = ["agent_providers", "agent_router"], optional = true }
 rightkit-repo-graph = { version = "0.1.0", path = "../rightkit-repo-graph", optional = true }

@@ -30,12 +30,19 @@ pub const VOICE_MODE_SCHEMA_VERSION: u32 = 1;
 pub const VOICE_CHECKS_SCHEMA_VERSION: u32 = 1;
 /// Vocabulary version for [`R0Outcome`] and [`R1Outcome`].
 pub const VOICE_CHECK_OUTCOME_SCHEMA_VERSION: u32 = 1;
-/// Chat label that `intent.source` records for the voice front end's control path.
-pub const VOICE_CHAT: &str = "heardright:control";
-/// Policy reference applied to voice-submitted tasks until the policy record exists.
-pub const VOICE_POLICY_REF: &str = "voice-control/v1";
 /// Largest accepted transcript, in bytes.
 pub const MAX_TRANSCRIPT_BYTES: usize = 4096;
+
+/// The labels a hand-off is mapped with. They name a product and its policy, so the caller
+/// supplies them; the contract holds no product's names.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VoiceLabels {
+    /// Chat label that `intent.source` records for the voice front end's control path, such as
+    /// `<voice-app>:control`.
+    pub chat: String,
+    /// Policy reference applied to voice-submitted tasks, such as `voice-control/v1`.
+    pub policy_ref: String,
+}
 
 /// What the voice front end sends for one final addressed CONTROL utterance.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -180,7 +187,7 @@ impl VoiceHandoff {
         Ok(())
     }
 
-    /// Maps a validated hand-off onto a [`TaskEnvelope`].
+    /// Maps a validated hand-off onto a [`TaskEnvelope`], labelled with `labels`.
     ///
     /// * `task_id` is empty: the engine mints it at ACCEPTANCE.
     /// * `origin` is the owner, connected through the voice device.
@@ -190,8 +197,10 @@ impl VoiceHandoff {
     /// * `status` is a placeholder. The engine sets the real status at ACCEPTANCE.
     /// * `idempotency_key` is derived from the utterance, so a resend after an
     ///   unknown outcome resolves to the same task.
-    pub fn to_task_envelope(&self) -> Result<TaskEnvelope, VoiceError> {
+    pub fn to_task_envelope(&self, labels: &VoiceLabels) -> Result<TaskEnvelope, VoiceError> {
         self.validate()?;
+        non_empty("chat label", &labels.chat)?;
+        non_empty("policy reference", &labels.policy_ref)?;
         let utterance_id = &self.utterance.utterance_id;
         let generation = self.utterance.generation;
         let device_id = &self.device.device_id;
@@ -214,7 +223,7 @@ impl VoiceHandoff {
             intent: Intent {
                 schema_version: INTENT_SCHEMA_VERSION,
                 source: IntentSource::Direct {
-                    chat: VOICE_CHAT.to_string(),
+                    chat: labels.chat.clone(),
                     device: device_id.clone(),
                     message_id: format!("{utterance_id}#{generation}"),
                     quote: self.transcript.clone(),
@@ -223,7 +232,7 @@ impl VoiceHandoff {
             target_device: self.device.clone(),
             idempotency_key: format!("voice:{utterance_id}:{generation}"),
             deadline_ms: None,
-            policy_ref: VOICE_POLICY_REF.to_string(),
+            policy_ref: labels.policy_ref.clone(),
             owner_epoch: 0,
             status: TaskStatus::Accepted,
             checkpoint_ref: None,

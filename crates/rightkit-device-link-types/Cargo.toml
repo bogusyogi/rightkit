@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-device-link-types"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Record types of the device link: device reference, effect classes, principals, paired-device registry records and the signed device-circle records."
@@ -16,3 +16,5 @@ path = "src/lib.rs"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
+# `DeviceRef`, `EffectClass` and `Principal`: one definition, in the agent task contract.
+rightkit-agent-task-contract = { version = "0.1.0", path = "../rightkit-agent-task-contract" }

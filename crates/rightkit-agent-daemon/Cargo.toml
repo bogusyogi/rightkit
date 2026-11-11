@@ -15,7 +15,7 @@ include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE
 default = []
 
 [dependencies]
-rightkit-agent-engine-protocol = { version = "0.1.1", path = "../rightkit-agent-engine-protocol" }
+rightkit-agent-engine-protocol = { version = "0.2.0", path = "../rightkit-agent-engine-protocol" }
 axum = { version = "0.8", default-features = false }
 async-trait = "0.1"
 tokio = { version = "1", features = ["sync"] }

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-tools"
-version = "0.3.4"
+version = "0.3.5"
 edition = "2021"
 rust-version = "1.98.0"
 description = "One typed tool interface for agents over rightkit-automation, rightkit-browser and each app's engine commands (via rightkit-daemon), plus the `right-ctl <app> <command>` CLI."
@@ -37,7 +37,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "time"], optional = true
 bytes = {version = "1", optional = true}
 rightkit-db = {version = "0.5.3", features = ["bundled", "statement-cache"], path = "../rightkit-db", optional = true}
 anyhow = {version = "1", optional = true}
-rightkit-agent-engine-protocol = {version = "0.1.0", path = "../rightkit-agent-engine-protocol", optional = true}
+rightkit-agent-engine-protocol = {version = "0.2.0", path = "../rightkit-agent-engine-protocol", optional = true}
 rightkit-agent-engine-runtime-resources = {version = "0.1.0", path = "../rightkit-agent-engine-runtime-resources", optional = true}
 rightkit-fs = {version = "0.4.9", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs", optional = true}
 rightkit-crypto = {version = "0.1.0", path = "../rightkit-crypto", optional = true}

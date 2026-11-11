@@ -9966,12 +9966,12 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
- "rightkit-approvals",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
+ "rightkit-agent-engine-core",
+ "rightkit-agent-engine-protocol",
+ "rightkit-agent-engine-storage",
+ "rightkit-agent-task-contract",
 ]
 
 [[package]]
@@ -10029,7 +10029,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "futures",
@@ -10066,7 +10066,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-mobile-runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "git2",
@@ -10093,8 +10093,10 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-protocol"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
+ "rightkit-agent-task-contract",
+ "rightkit-approvals",
  "rightkit-time",
  "serde",
  "serde_json",
@@ -10120,7 +10122,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-storage"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "rightkit-agent-engine-protocol",
  "rightkit-crypto",
@@ -10137,7 +10139,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-tasks"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "rightkit-agent-engine-protocol",
  "serde",
@@ -10182,7 +10184,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-orchestration"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "hex",
@@ -10270,7 +10272,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-server"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -10365,6 +10367,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-agent-task-contract"
+version = "0.1.0"
+dependencies = [
+ "rightkit-approvals",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "rightkit-agent-telemetry"
 version = "0.1.0"
 dependencies = [
@@ -10377,7 +10389,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-tools"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -10441,7 +10453,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agents"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "async-trait",
  "libc 0.2.191",
@@ -10683,7 +10695,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-bot-messaging"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "rightkit-agent-engine-protocol",
@@ -11245,8 +11257,9 @@ version = "0.1.0"
 
 [[package]]
 name = "rightkit-device-link-types"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
+ "rightkit-agent-task-contract",
  "rightkit-crypto",
  "serde",
 ]
@@ -11798,7 +11811,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-hooks"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "async-trait",
  "regex",
@@ -11930,7 +11943,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-llm"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "async-stream",
  "bytes",
@@ -12030,7 +12043,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-mcp"
-version = "0.7.5"
+version = "0.7.6"
 dependencies = [
  "async-trait",
  "futures",
@@ -12763,7 +12776,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-scheduler"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "rightkit-agent-engine-protocol",
  "rightkit-time",

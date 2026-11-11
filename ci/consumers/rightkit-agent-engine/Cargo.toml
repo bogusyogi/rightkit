@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-agent-engine = { version = "=0.1.1" }
+rightkit-agent-engine = { version = "=0.2.0" }

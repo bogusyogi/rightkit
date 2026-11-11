@@ -1,9 +1,9 @@
 {
-  "package": "rightkit-agent-engine",
+  "package": "rightkit-agent-task-contract",
   "capabilities": [
     {
       "capability": "agent-contracts",
-      "summary": "Always-on agent contracts: task envelope and transitions, principals, intents, effects, device and approval binding, voice hand-off; declaration-only detection (no precise implementation fingerprint)",
+      "summary": "Agent task contract: task envelope and transitions, principals, intents, effects, device references, approval binding on the approvals core, voice hand-off; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

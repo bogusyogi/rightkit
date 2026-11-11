@@ -71,6 +71,12 @@ pub trait TaskHost {
     fn program_name(&self) -> &str;
     /// The product name in the help text.
     fn product_name(&self) -> &str;
+    /// The labels a voice hand-off is mapped with (its chat label and policy reference).
+    fn voice_labels(&self) -> VoiceLabels;
+    /// The chat session this command runs in, sent as `fromChat` with `agent.act` so the engine
+    /// can say who is asking. The application reads it from wherever its chat hosts put it (for
+    /// example a session-id environment variable); `None` sends none.
+    fn submitter_chat(&self) -> Option<String>;
 }
 
 use std::io::Read;
@@ -80,13 +86,13 @@ use crate::device::{DEVICE_REF_SCHEMA_VERSION, DevicePlatform, DeviceRef};
 use crate::intent::{INTENT_SCHEMA_VERSION, Intent, IntentSource};
 use crate::principal::{PRINCIPAL_SCHEMA_VERSION, Principal, PrincipalKind};
 use crate::task::{TASK_ENVELOPE_SCHEMA_VERSION, UTTERANCE_REF_SCHEMA_VERSION, UtteranceRef};
-use crate::{TaskEnvelope, TaskStatus, VoiceHandoff};
+use crate::{TaskEnvelope, TaskStatus, VoiceHandoff, VoiceLabels};
 use serde_json::{Map, Value, json};
 
 /// The job kind that asks the agent a question. It answers only, with no tools. The engine
 /// refuses it until it runs that kind.
 pub const AGENT_REQUEST_KIND: &str = "agent.request";
-/// The job kind that acts: one bounded Claude Code run over the tools that are switched on, every act approved by the owner. The engine
+/// The job kind that acts: one bounded agent run over the tools that are switched on, every act approved by the owner. The engine
 /// refuses it with `agent_actions_off` unless the `agentActions` setting is on.
 pub const AGENT_ACT_KIND: &str = "agent.act";
 /// The owner the `ask` envelope names as its origin.
@@ -110,7 +116,7 @@ Each command forwards to the engine method of the same name (task.submit, task.s
 task.cancel, task.events) over the local engine connection. submit validates a task envelope or a\n\
 voice hand-off first. --kind names a job kind the engine runs; a voice hand-off with no\n\
 --kind runs agent.request (agent.act while agentActions is on). The engine runs only the kinds it lists in the engine's job-kind list.\n\
-act sends one request to the acting agent on this computer as agent.act: Claude Code with only the {product}\n\
+act sends one request to the acting agent on this computer as agent.act, with only the {product}\n\
 tools that are switched on, each act approved by you in {product} (the task is waiting-user until you answer).\n\
 It needs the agentActions setting (off by default). Cancel it with {prog} task cancel <task-id>. act takes\n\
 --wait and --key like ask; with --wait it waits up to 10 minutes, so a longer run is unknown here and\n\
@@ -182,7 +188,7 @@ fn submit(host: &dyn TaskHost, arguments: Vec<String>) -> Result<(), CliError> {
         }
     };
 
-    let (kind_label, envelope) = match parse(&text) {
+    let (kind_label, envelope) = match parse(host, &text) {
         Ok(parsed) => parsed,
         Err(reason) => {
             println!(
@@ -259,21 +265,13 @@ fn forward_submit(
     // The chat this runs in, so the engine can say who is asking (an explicit `fromChat` wins).
     // Only `agent.act` takes it (the bridge verifies and removes it, `agent_act::stamp_submitter`);
     // every other kind's params refuse unknown fields.
-    if kind == "agent.act"
+    if kind == AGENT_ACT_KIND
         && let Value::Object(map) = &mut params
         && !map.contains_key("fromChat")
-        && let Some(chat) = [
-            "CLAUDE_CODE_SESSION_ID",
-            "CODEX_THREAD_ID",
-            "MUSE_SESSION_ID",
-        ]
-        .iter()
-        .find_map(|name| {
-            std::env::var(name)
-                .ok()
-                .map(|v| v.trim().to_string())
-                .filter(|v| !v.is_empty())
-        })
+        && let Some(chat) = host
+            .submitter_chat()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
     {
         map.insert("fromChat".to_string(), Value::String(chat));
     }
@@ -641,13 +639,13 @@ fn failed(method: &str, failure: Failure, detail: Value) -> CliError {
 }
 
 /// Reads a voice hand-off (recognised by its `mode` field) or a task envelope, and checks it.
-fn parse(text: &str) -> Result<(&'static str, TaskEnvelope), String> {
+fn parse(host: &dyn TaskHost, text: &str) -> Result<(&'static str, TaskEnvelope), String> {
     let value: Value = serde_json::from_str(text).map_err(|error| format!("not JSON: {error}"))?;
     if value.get("mode").is_some() {
         let handoff: VoiceHandoff = serde_json::from_value(value)
             .map_err(|error| format!("invalid voice hand-off: {error}"))?;
         let envelope = handoff
-            .to_task_envelope()
+            .to_task_envelope(&host.voice_labels())
             .map_err(|error| error.to_string())?;
         return Ok(("voice-handoff", envelope));
     }

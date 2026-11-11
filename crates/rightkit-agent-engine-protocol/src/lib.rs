@@ -26,8 +26,8 @@ pub mod trust;
 
 // ── Most-used re-exports ──────────────────────────────────────────────────────
 pub use approvals::{
-    ElicitationAction, ElicitationRequest, ElicitationRequestEvent, ExecApprovalKind,
-    ExecApprovalRequestEvent, ExecPolicyAmendment, GuardianAssessmentAction,
+    effect_binding, ElicitationAction, ElicitationRequest, ElicitationRequestEvent,
+    ExecApprovalKind, ExecApprovalRequestEvent, ExecPolicyAmendment, GuardianAssessmentAction,
     GuardianAssessmentDecisionSource, GuardianAssessmentEvent, GuardianAssessmentOutcome,
     GuardianAssessmentStatus, GuardianCommandSource, GuardianRiskLevel, GuardianUserAuthorization,
     NetworkApprovalContext, NetworkApprovalProtocol, NetworkPolicyAmendment,
@@ -54,6 +54,11 @@ pub use protocol::{AskForApproval, GranularApprovalConfig, NetworkAccess};
 pub use references::{ReferenceMeta, ReferenceProvenance};
 pub use refs::{ArtifactRef, OutputRef, TOOL_OUTPUT_INTERNAL_KIND};
 pub use retry_notice::{RetryNotice, RetryNotifier};
+/// The task contract this protocol uses for authority: task statuses, the approval binding,
+/// principals and intent provenance.
+pub use rightkit_agent_task_contract as task_contract;
+/// The approvals core's binding a pending approval carries.
+pub use rightkit_approvals::Binding as ApprovalCoreBinding;
 pub use schedule::{
     default_job_mode, default_schema_version, ScheduleRunEvent, ScheduleRunResourceLimits,
     ScheduleRunState,

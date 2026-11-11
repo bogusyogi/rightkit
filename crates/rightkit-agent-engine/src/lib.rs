@@ -1,38 +1,26 @@
-//! Always-on agent contracts: typed task, authority, device and approval records.
+//! The agent engine, as one crate.
 //!
-//! This crate holds serde types and pure functions. It has no runtime, no
-//! journal, no IPC and no effects. Each type that is recorded or sent carries
-//! a `schema_version`. Enums carry their vocabulary version as a module
-//! constant, and the record that embeds them carries the record's version.
+//! One engine and one task contract:
 //!
-//! The records follow the agent task contract: task envelope, authority, device and relay provenance.
+//! * [`core`]: the turn loop (`rightkit-agent-engine-core`): tool dispatch with the permission
+//!   gate and approval flow, compaction, goals, guardian and worker agents.
+//! * [`protocol`]: the events, envelopes, tool calls and approval records the loop sends
+//!   (`rightkit-agent-engine-protocol`). A tool call that waits for approval carries the
+//!   approvals core's binding; an effect whose result was lost maps to
+//!   [`TaskStatus::Uncertain`].
+//! * [`storage`]: the SQLite session journal, transcripts, tasks and goals
+//!   (`rightkit-agent-engine-storage`).
+//! * [`contract`]: the task contract (`rightkit-agent-task-contract`): task envelope, its ten
+//!   statuses and legal transitions, principals, intent provenance, effect classes, device
+//!   references, approval binding, voice hand-off. Its modules and records are also re-exported
+//!   at this crate's root, where they were before 0.2.0.
 //!
-//! Modules
-//! * `task`: task envelope, the ten statuses, legal transitions.
-//! * `device`: portable device reference.
-//! * `principal`: who submitted or authorized an act.
-//! * `intent`: `intent.source` provenance (direct, delegated, unavailable
-//!   pointer, revoked, out of scope, grant).
-//! * `approval`: approval binding for consequential acts.
-//! * `effect`: effect classification.
-//! * `voice`: voice addressed CONTROL hand-off, mapped onto a task envelope.
+//! The other `rightkit-agent-engine-*` crates (history, tasks, attention, runtime middleware and
+//! resources, the API route crates, the mobile runtime and the command line) are used directly.
 
-pub mod approval;
-pub mod device;
-pub mod effect;
-pub mod intent;
-pub mod principal;
-pub mod task;
-pub mod task_cli;
-pub mod voice;
+pub use rightkit_agent_engine_core as core;
+pub use rightkit_agent_engine_protocol as protocol;
+pub use rightkit_agent_engine_storage as storage;
+pub use rightkit_agent_task_contract as contract;
 
-pub use approval::{ApprovalBinding, ExecutorRef};
-pub use device::{DevicePlatform, DeviceRef};
-pub use effect::EffectClass;
-pub use intent::{DelegationRef, GrantOrigin, Intent, IntentSource};
-pub use principal::{Principal, PrincipalKind};
-pub use task::{
-    AuthorityKind, AuthorityRef, IllegalTransition, TaskEnvelope, TaskStatus, UtteranceRef,
-    is_legal_transition, transition,
-};
-pub use voice::{VoiceError, VoiceHandoff};
+pub use rightkit_agent_task_contract::*;

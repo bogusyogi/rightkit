@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.5 (unpublished)
+
+- Requires `rightkit-agent-engine-protocol` 0.2.0, whose approval records carry the approvals core's `Binding` (mandatory digest) instead of an optional `payload_digest`. Decision 4 of the 2026-11-11 shape review (docs/audits/2026-11-11-shape-matrix/README.md, "Agent engine") taken on the recommended option, pending the owner's confirmation; design note: docs/audits/2026-11-11-shape-matrix/reports/agent-engine-contract-design.md.
+
 ## 0.3.3 (unpublished)
 
 - Added (rightkit#421): feature `mcp-provider` and `ToolboxProvider`, a `rightkit_mcp::ToolProvider` over a `Toolbox` for one `Caller` (src/mcp_provider.rs). `tools/list` is `Toolbox::list_for`; every `tools/call` runs `Toolbox::call_cancellable`, so exposure rules, allowlist, schema and admission apply unchanged; refusals are tool-level errors, an unknown tool is `ToolNotFound`; MCP cancellation reaches the tool's `CancelToken`. M22 decision recorded in the spec adjudication. The `rightkit-mcp` dependency no longer enables `agent_mcp` itself (feature `coding_tools` does), and its floor is 0.7.4.

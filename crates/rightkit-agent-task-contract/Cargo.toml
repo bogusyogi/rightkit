@@ -1,0 +1,27 @@
+[package]
+name = "rightkit-agent-task-contract"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.0"
+description = "The agent task contract: task envelope, its ten statuses and legal transitions, principals, intent provenance, effect classes, device references, approval binding on the approvals core and the voice hand-off."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["agent", "task", "authority", "approval"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_agent_task_contract"
+path = "src/lib.rs"
+
+[features]
+default = []
+# `task_cli`: the task command line over a host trait (stdin, stdout and a poll loop; no transport of its own).
+cli = ["dep:serde_json"]
+
+[dependencies]
+serde_json = { version = "1.0", optional = true }
+serde = { version = "1.0", features = ["derive"] }
+thiserror = { version = "2.0" }
+# The approvals core's `Binding` inside `ApprovalBinding`; no store, no file IO.
+rightkit-approvals = { version = "0.2.0", default-features = false, path = "../rightkit-approvals" }

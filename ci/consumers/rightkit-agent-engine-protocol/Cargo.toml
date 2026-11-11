@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-agent-engine-protocol = { version = "=0.1.2" }
+rightkit-agent-engine-protocol = { version = "=0.2.0" }
 serde_json = "1"

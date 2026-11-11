@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-mcp"
-version = "0.7.5"
+version = "0.7.6"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared MCP client (stdio + streamable HTTP, trust gate, pool, OAuth hook) and server host (stdio + loopback HTTP, per-tool admission) for Right Suite apps."
@@ -69,7 +69,7 @@ rightkit-oauth = {version = "0.10.0", default-features = false, path = "../right
 tracing = {version = "0.1", optional = true}
 rightkit-agent-engine-runtime-resources = {version = "0.1.0", path = "../rightkit-agent-engine-runtime-resources", optional = true}
 rightkit-sandbox = {version = "0.6.3", path = "../rightkit-sandbox", features = ["execution"], optional = true}
-rightkit-agent-engine-protocol = {version = "0.1.1", path = "../rightkit-agent-engine-protocol", optional = true}
+rightkit-agent-engine-protocol = {version = "0.2.0", path = "../rightkit-agent-engine-protocol", optional = true}
 rightkit-agent-config = { version = "0.1.0", path = "../rightkit-agent-config", optional = true }
 
 [features]

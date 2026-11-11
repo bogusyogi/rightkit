@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-engine-tasks"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Agent engine task model: task records, states and transitions for agent hosts"
@@ -14,7 +14,7 @@ name = "rightkit_agent_engine_tasks"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-agent-engine-protocol = { version = "0.1.0", path = "../rightkit-agent-engine-protocol" }
+rightkit-agent-engine-protocol = { version = "0.2.0", path = "../rightkit-agent-engine-protocol" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = { version = "2" }

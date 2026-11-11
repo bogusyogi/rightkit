@@ -1,21 +1,29 @@
 [package]
 name = "rightkit-agent-engine"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.98.0"
-description = "Always-on agent contracts: task envelope and transitions, principals, intents, effects, device and approval binding, voice hand-off."
+description = "The agent engine: one facade over the turn loop (core), its protocol and storage, and the agent task contract."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [lib]
 name = "rightkit_agent_engine"
 path = "src/lib.rs"
 
+[features]
+default = []
+# The task command line of the contract (`contract::task_cli`).
+cli = ["rightkit-agent-task-contract/cli"]
+
 [dependencies]
-serde_json = { version = "1.0" }
-serde = { version = "1.0", features = ["derive"] }
-thiserror = { version = "2.0" }
-# The core binding record (`ApprovalBinding::core_binding`); no store, no file IO.
-rightkit-approvals = { version = "0.2.0", default-features = false, path = "../rightkit-approvals" }
+# Who asked, with what authority, on which device: task envelope, statuses, approval binding.
+rightkit-agent-task-contract = { version = "0.1.0", path = "../rightkit-agent-task-contract" }
+# The turn loop: tool dispatch, permission and approval flow, compaction, goals.
+rightkit-agent-engine-core = { version = "0.1.1", path = "../rightkit-agent-engine-core" }
+# Events, envelopes, tool calls and the approval records the loop sends.
+rightkit-agent-engine-protocol = { version = "0.2.0", path = "../rightkit-agent-engine-protocol" }
+# The SQLite session journal, transcripts, tasks and goals.
+rightkit-agent-engine-storage = { version = "0.1.2", path = "../rightkit-agent-engine-storage" }

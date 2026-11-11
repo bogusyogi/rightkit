@@ -11,6 +11,7 @@
 //! changes were made to the ported shapes beyond the module path
 //! (`codex_protocol` -> `rightkit_agent_engine_protocol::approvals`).
 
+use rightkit_approvals::Binding;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -38,6 +39,8 @@ pub struct PermissionDecisionResult {
 
 /// Structured pending request sent to an operator surface. `tool_call_id`
 /// binds response to one concrete invocation; `input` remains untrusted data.
+/// `binding` is what the operator approves: the digest of the exact final
+/// payload, its destination, expiry and revision (the approvals core's rule).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PermissionGateRequest {
@@ -47,6 +50,7 @@ pub struct PermissionGateRequest {
     pub tool_name: String,
     pub description: String,
     pub input: Value,
+    pub binding: Binding,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -110,10 +114,36 @@ pub struct PendingApprovalContext {
     pub command: Option<String>,
     #[serde(default)]
     pub network: Option<NetworkApprovalContext>,
-    /// EFF-002: digest of the final post-transform payload shown to the
-    /// approver. Session grants bind to it. Optional for back-compat.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub payload_digest: Option<String>,
+    /// EFF-002, on the approvals core's rule: the digest of the final
+    /// post-transform payload shown to the approver (mandatory), the
+    /// destination the call reaches, the expiry and the revision. Session
+    /// grants bind to [`PendingApprovalContext::payload_digest`].
+    pub binding: Binding,
+}
+
+/// Prefix of an effect payload digest (`sha256:<hex>`); the binding holds the hex.
+pub const EFFECT_DIGEST_PREFIX: &str = "sha256:";
+
+/// The approvals core binding for one tool call: `effect_digest` is the
+/// engine's effect payload digest (`sha256:<hex>` or bare hex) of the final
+/// payload, `destination` what the call reaches (the network host, else the
+/// tool). No expiry of its own (the pending request lives until answered or
+/// cancelled) and revision 0.
+pub fn effect_binding(effect_digest: &str, destination: &str) -> Binding {
+    Binding::new(
+        effect_digest
+            .strip_prefix(EFFECT_DIGEST_PREFIX)
+            .unwrap_or(effect_digest),
+        destination,
+    )
+}
+
+impl PendingApprovalContext {
+    /// The effect payload digest in the engine's form, `sha256:<hex>`, the
+    /// key session payload grants are stored under.
+    pub fn payload_digest(&self) -> String {
+        format!("{EFFECT_DIGEST_PREFIX}{}", self.binding.args)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

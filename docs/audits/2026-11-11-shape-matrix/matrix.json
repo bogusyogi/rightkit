@@ -4365,6 +4365,2029 @@
    }
   },
   {
+   "package": "RightKitAgent",
+   "kind": "swift",
+   "dir": "",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {
+    "pulse": {
+     "loc": 4258,
+     "n": 2684,
+     "tgt": 0,
+     "any": 135
+    },
+    "coderight": {
+     "loc": 30723,
+     "n": 18315,
+     "tgt": 0,
+     "any": 1398
+    }
+   },
+   "review": {
+    "package": "RightKitAgent",
+    "kind": "swift",
+    "family": "Agent platform",
+    "existsAs": [],
+    "feeds": {
+     "coderight": 30723,
+     "pulse": 4258
+    },
+    "basis": "none",
+    "referenceApp": "pulse",
+    "shape": "missing",
+    "shapeReason": "No Swift module exists. CodeRight's 30.7k lines are its whole iOS app; Pulse's are iOS screens. The reusable part is small: provider protocol, budgeted loop step, approval gate with device-lock confirmation, pairing.",
+    "apps": {
+     "coderight": {
+      "fit": "n/a",
+      "note": "package missing; its iOS app uses the Rust mobile runtime (rightkit-agent-engine-mobile-runtime)"
+     },
+     "pulse": {
+      "fit": "n/a",
+      "note": "package missing"
+     }
+    },
+    "boundary": [
+     "Plan maps whole app screens (HomeView, SettingsView, CodeRight iOS app) to a library",
+     "Pulse's Swift loop and CodeRight's Rust mobile runtime are two answers to 'agent on iPhone'"
+    ],
+    "actions": [
+     "Decide first: Swift module wrapping rightkit-agent-engine-mobile-runtime over FFI (CodeRight) with Pulse's approval gate and budget ledger as the Swift-side policy; then write it",
+     "Re-map screens to SHELL"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-agent-platform.json"
+   }
+  },
+  {
+   "package": "RightKitAppleCredentials",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift/Sources/RightKitAppleCredentials",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {
+    "scraperight": {
+     "loc": 615,
+     "n": 396,
+     "tgt": 23,
+     "any": 45
+    },
+    "heardright": {
+     "loc": 300,
+     "n": 201,
+     "tgt": 16,
+     "any": 21
+    },
+    "coderight": {
+     "loc": 321,
+     "n": 198,
+     "tgt": 5,
+     "any": 19
+    }
+   },
+   "review": {
+    "package": "RightKitAppleCredentials",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitAppleCredentials"
+    ],
+    "feeds": {},
+    "basis": "rewritten store; AppleCredentialHelperHost was moved out of HeardRight's HeardRightAppleCredentials CLI",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: the store is in use on iOS and Mac. The gap is on HeardRight's side: AppleCredentialHelperHost is not adopted, and the 300-line iOS facade was not checked line by line.",
+    "apps": {
+     "heardright": {
+      "fit": "gaps",
+      "note": "Store in use on iOS and Mac; AppleCredentialHelperHost not adopted by the Mac helper."
+     }
+    },
+    "boundary": [
+     "Mac helper main.swift (309) still reads and decodes the request line itself; AppleCredentialHelperHost owns that wire protocol",
+     "iOS AppleSyncedCredentialStore.swift still defines SyncedCredentialAccount, CredentialSyncOutcome and the store beside RightKit's types",
+     "The Mac helper main.swift is mapped to the rightkit-overlay crate"
+    ],
+    "actions": [
+     "HeardRight: shrink the Mac helper to service name, access group, account allowlist and a call to AppleCredentialHelperHost",
+     "Check how much of the iOS facade is thin"
+    ],
+    "depth": "deep",
+    "confidence": "medium",
+    "source": "matrix-rows-aa-heardright.json"
+   }
+  },
+  {
+   "package": "RightKitAudio",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift/Sources/RightKitAudio",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {},
+   "review": {
+    "package": "RightKitAudio",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitAudio"
+    ],
+    "feeds": {},
+    "basis": "rewritten code, not copied; WarmAudioCapture has the same name and role as HeardRight's",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: not linked by HeardRight at all. RightKit gaps are in-memory accumulation, speech-activity snapshot and WAV writer; a session policy richer than one category, mode and option set is a suspicion.",
+    "apps": {
+     "heardright": {
+      "fit": "gaps",
+      "note": "Not linked by HeardRight at all; WarmAudioCapture lacks accumulation, speech-activity snapshot and WAV writer."
+     }
+    },
+    "boundary": [
+     "HeardRight WarmAudioCapture.swift (772) duplicates RightKitAudio WarmAudioCapture (546); mapped to RightKitDictation",
+     "WatchRecordingController owns its own AVAudioRecorder instead of AudioFileRecorder",
+     "Arrived in 0.9.0; iOS pins 0.8.1"
+    ],
+    "actions": [
+     "Add in-memory sample accumulation, speech-activity snapshot and a WAV writer to WarmAudioCapture",
+     "Add a session policy layer if RecordingAudioPolicy is to move (mix policies, retry ladder, Bluetooth, warm hold)",
+     "Move the iOS pin to a published version containing 0.9.0 modules",
+     "HeardRight: use AudioFileRecorder on the watch"
+    ],
+    "depth": "deep",
+    "confidence": "low",
+    "source": "matrix-rows-aa-heardright.json"
+   }
+  },
+  {
+   "package": "RightKitCloudSync",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift/Sources/RightKitCloudSync",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {
+    "scraperight": {
+     "loc": 1212,
+     "n": 777,
+     "tgt": 35,
+     "any": 67
+    }
+   },
+   "review": {
+    "package": "RightKitCloudSync",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitCloudSync"
+    ],
+    "feeds": {},
+    "basis": "rewritten engine; CloudKitWakeHost was moved out of HeardRight's macOS pill helper",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: the iOS engine is in use and four live sync files became two. The gap is on HeardRight's side: the Mac CloudKitWakeHost is not adopted.",
+    "apps": {
+     "heardright": {
+      "fit": "gaps",
+      "note": "iOS engine in use; Mac CloudKitWakeHost not adopted, main keeps a 610-line copy."
+     }
+    },
+    "boundary": [
+     "Mac CloudSyncNotifications.swift (610 lines) duplicates CloudKitWakeHost and re-implements the entitlement check RightKit has as CloudKitEntitlement",
+     "CloudSyncNotifications.swift and the live CloudSyncMain.swift are mapped to the rightkit-overlay crate"
+    ],
+    "actions": [
+     "HeardRight: replace CloudSyncNotifications.swift with CloudKitWakeHost, keeping identifiers and FFI entry points"
+    ],
+    "depth": "deep",
+    "confidence": "medium",
+    "source": "matrix-rows-aa-heardright.json"
+   }
+  },
+  {
+   "package": "RightKitCredentials",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift/Sources/RightKitCredentials",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {},
+   "review": {
+    "package": "RightKitCredentials",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitCredentials"
+    ],
+    "feeds": {},
+    "basis": "rewritten code, not copied",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for HeardRight: used by license and account code.",
+    "apps": {
+     "heardright": {
+      "fit": "fits",
+      "note": "Used by license and account code."
+     }
+    },
+    "boundary": [
+     "BYOKPolishKeyStore.swift (138, Keychain storage) is mapped to the rightkit-text-polish crate but belongs here"
+    ],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "medium",
+    "source": "matrix-rows-aa-heardright.json"
+   }
+  },
+  {
+   "package": "RightKitDiagnostics",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift/Sources/RightKitDiagnostics",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {
+    "scraperight": {
+     "loc": 18,
+     "n": 13,
+     "tgt": 1,
+     "any": 2
+    },
+    "heardright": {
+     "loc": 463,
+     "n": 303,
+     "tgt": 9,
+     "any": 28
+    },
+    "coderight": {
+     "loc": 886,
+     "n": 546,
+     "tgt": 10,
+     "any": 42
+    }
+   },
+   "review": {
+    "package": "RightKitDiagnostics",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitDiagnostics"
+    ],
+    "feeds": {},
+    "basis": "JSONLDiagnosticStore is an extraction of HeardRight's DogfoodTraceStore; the rest is rewritten",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: only PrivacyRedactor is in use. Gaps are non-string field values, the DEBUG campaign file and a MetricKit subscriber.",
+    "apps": {
+     "heardright": {
+      "fit": "gaps",
+      "note": "Only PrivacyRedactor in use; JSONLDiagnosticStore, extracted from HeardRight's DogfoodTraceStore, is unused."
+     }
+    },
+    "boundary": [
+     "Shared/DogfoodTraceStore.swift (223) duplicates JSONLDiagnosticStore",
+     "MobileDiagnosticSubscriber (MetricKit) has no RightKit counterpart",
+     "MobileTelemetryUploader was deleted and the uploader option is not wired"
+    ],
+    "actions": [
+     "DiagnosticEvent must accept non-string field values",
+     "Cover the DEBUG campaign file kept outside Caches",
+     "Add a MetricKit subscriber",
+     "HeardRight: replace DogfoodTraceStore with JSONLDiagnosticStore"
+    ],
+    "depth": "deep",
+    "confidence": "medium",
+    "source": "matrix-rows-aa-heardright.json"
+   }
+  },
+  {
+   "package": "RightKitDictation",
+   "kind": "swift",
+   "dir": "",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {
+    "heardright": {
+     "loc": 10514,
+     "n": 7361,
+     "tgt": 0,
+     "any": 381
+    }
+   },
+   "review": {
+    "package": "RightKitDictation",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [],
+    "feeds": {},
+    "basis": "does not exist; HeardRight iOS code (30 files / 10,514 lines on main) is the only implementation",
+    "referenceApp": "heardright",
+    "shape": "missing",
+    "shapeReason": "Planned NEW and not in RightKitSwift. One of only two missing Swift packages HeardRight needs; it is the iOS dictation runtime built on RightKitAudio, RightKitSpeech, RightKitStore and RightKitLiveActivity.",
+    "apps": {
+     "heardright": {
+      "fit": "gaps",
+      "note": "iOS dictation runtime, about 9,835 lines, is still HeardRight code; parts already sit on RightKit primitives."
+     }
+    },
+    "boundary": [
+     "RightKitSpeech/Dictation.swift is an unrelated 40-line enum of composer draft rules",
+     "WarmAudioCapture.swift is mapped here but belongs with RightKitAudio",
+     "RecordingLiveActivityController is an adapter over RightKitLiveActivity",
+     "Import intake files belong with RightKitImportQueue",
+     "App group, defaults keys, deep-link scheme and strings must be injected"
+    ],
+    "actions": [
+     "Create the module: command plane and snapshot first, then coordinator and transcriber, then audio session and policy",
+     "Decide whether a RightKitDictationUI view target is wanted",
+     "Decide whether a watchOS slice here is the watch-recording home"
+    ],
+    "depth": "deep",
+    "confidence": "medium",
+    "source": "matrix-rows-aa-heardright.json"
+   }
+  },
+  {
+   "package": "RightKitFS",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift/Sources/RightKitFS (564 lines)",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {
+    "coderight": {
+     "loc": 846,
+     "n": 508,
+     "tgt": 18,
+     "any": 45
+    }
+   },
+   "review": {
+    "package": "RightKitFS",
+    "kind": "swift",
+    "family": "Remaining packages",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitFS (564 lines)"
+    ],
+    "feeds": {
+     "coderight": 846
+    },
+    "basis": "Fresh RightKit implementation mirroring rightkit-fs and rightkit-daemon naming rules (app root, containment, atomic write, verified copy, append record)",
+    "referenceApp": "none",
+    "shape": "best",
+    "shapeReason": "Three apps already build on the same type, `RightKitAppRoot`, with the same calls and no adapters beyond choosing a name and a protection class.",
+    "apps": {
+     "coderight": {
+      "fit": "fits",
+      "note": "iOS: Storage/RightKitFSAdapter.swift:10-19 (two roots with different file protection), ComposerDraftStore.swift:67, WorkspaceHistory.swift:46, SharedWorkspacesLocation.swift:19 (App Group)"
+     },
+     "pulse": {
+      "fit": "fits",
+      "note": "Mac: Notch/Sources/App/PulseStateRoot.swift:22, Hub/Sources/PulseHub/FileNotchBridge.swift:70 (baseOverride)"
+     },
+     "scraperight": {
+      "fit": "fits",
+      "note": "iOS: ScrapeRightApp.swift:28, Queue/QueueStore.swift:85,295 (copyVerified, atomicWrite), Library/ArtifactStore.swift:49"
+     },
+     "heardright": {
+      "fit": "n/a",
+      "note": "not imported on main; shared state goes through RightKitStore"
+     }
+    },
+    "boundary": [
+     "Plan maps CodeRight Storage/KeychainStore.swift (181) and AppleSyncedCredentialStore.swift (203) here; they are credential stores (RightKitCredentials, RightKitAppleCredentials)",
+     "`suiteDirectory = \"Orthic Labs\"` is fixed in the module (RightKitFS.swift, static let): a suite decision every adopter inherits"
+    ],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-remaining.json"
+   }
+  },
+  {
+   "package": "RightKitHTTP",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift/Sources/RightKitHTTP (786 lines)",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {
+    "coderight": {
+     "loc": 644,
+     "n": 405,
+     "tgt": 11,
+     "any": 34
+    }
+   },
+   "review": {
+    "package": "RightKitHTTP",
+    "kind": "swift",
+    "family": "Remaining packages",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitHTTP (786 lines)"
+    ],
+    "feeds": {
+     "coderight": 644
+    },
+    "basis": "Fresh RightKit implementation mirroring rightkit-http (client, retry policy, address policy, redirect guard, streamed download)",
+    "referenceApp": "none",
+    "shape": "gaps",
+    "shapeReason": "Sound client used inside RightKitSwift (LLM, Update, OAuth, Account), but no app imports it, and the one app with networking mapped to it needs server-sent events, which it does not parse.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "iOS Networking/SSEFrameParser.swift (67) has no counterpart here; DaemonClient.swift (245) and ConnectionLifecycle.swift belong to RightKitDaemonClient; CallbackURL/CallbackURLHandler.swift (255) is URL-scheme handling, not HTTP"
+     },
+     "heardright": {
+      "fit": "n/a",
+      "note": "not declared on main (hr-review-ios-swift.md:49)"
+     },
+     "pulse": {
+      "fit": "n/a",
+      "note": ""
+     },
+     "scraperight": {
+      "fit": "n/a",
+      "note": ""
+     }
+    },
+    "boundary": [
+     "Four of five mapped CodeRight files are not HTTP client code",
+     "RightKitDaemonClient and RightKitURLPolicy exist as separate modules and are the likelier owners [not read]"
+    ],
+    "actions": [
+     "Add an SSE frame parser over the existing `stream` transport (HTTPTransport.swift:39), taking CodeRight's parser as the reference",
+     "Remap DaemonClient and CallbackURLHandler in the plan"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-remaining.json"
+   }
+  },
+  {
+   "package": "RightKitHotkeys",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift/Sources/RightKitHotkeys (760 lines)",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {
+    "pulse": {
+     "loc": 151,
+     "n": 106,
+     "tgt": 4,
+     "any": 5
+    }
+   },
+   "review": {
+    "package": "RightKitHotkeys",
+    "kind": "swift",
+    "family": "Remaining packages",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitHotkeys (760 lines)"
+    ],
+    "feeds": {
+     "pulse": 151
+    },
+    "basis": "Fresh RightKit implementation shaped on Pulse's Mac notch (Carbon hot-key registrar, event-tap hub with handler chain, keystroke planner)",
+    "referenceApp": "pulse",
+    "shape": "best",
+    "shapeReason": "Registrar, combo parsing, event-tap hub and keystroke posting are generic and Pulse already uses the registrar. What remains is on Pulse's side.",
+    "apps": {
+     "pulse": {
+      "fit": "fits",
+      "note": "imports it in LauncherHotKey.swift, WindowHotKeys.swift, WindowShortcut.swift, SettingsHotKey.swift. Still keeps its own Conveniences/EventTapHub.swift (168 lines, no RightKit import) beside RightKitEventTapHub"
+     },
+     "heardright": {
+      "fit": "n/a",
+      "note": "Mac hotkeys are in Rust (rightkit-hotkeys crate); the pill package has no hotkey code"
+     }
+    },
+    "boundary": [
+     "Plan maps Keyboard/FnCommand.swift (151 lines) here as ADOPT: it is a Pulse feature (Fn acts as Command for ten letters and the arrows) and belongs with the Mac tweaks module that family-system-utilities.md proposes, registered on RightKitEventTapHub",
+     "Pulse's EventTapHub.swift duplicates RightKitEventTapHub [file read at header level only]"
+    ],
+    "actions": [],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-remaining.json"
+   }
+  },
+  {
+   "package": "RightKitHub",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift/Sources/RightKitHub (3,673 lines), swift/RightKitSwift/Sources/RightKitHubQA",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {
+    "pulse": {
+     "loc": 8117,
+     "n": 4992,
+     "tgt": 2371,
+     "any": 4422
+    }
+   },
+   "review": {
+    "package": "RightKitHub",
+    "kind": "swift",
+    "family": "Remaining packages",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitHub (3,673 lines)",
+     "swift/RightKitSwift/Sources/RightKitHubQA"
+    ],
+    "feeds": {
+     "pulse": 8117
+    },
+    "basis": "Pulse's SwiftUI hub base moved unchanged: 29 files, 27 identical, HubSettingsView.swift and HubExports.swift differ by 19 lines; RightKitHubQA's 3 files identical",
+    "referenceApp": "pulse",
+    "shape": "gaps",
+    "shapeReason": "Shell, sidebar, search, settings model, theme and platform-services protocol with no Pulse product strings: a second Mac or iOS app could adopt it. But Pulse still builds from its own local copy, and the copy includes a module (RightKitPresentation) that RightKitSwift does not have.",
+    "apps": {
+     "pulse": {
+      "fit": "gaps",
+      "note": "68 files import RightKitHub from the local path package pulse/swift/RightKitHub (mac/Notch/project.yml:69, ios/project.yml:29, mac/Hub/Package.swift:21), not from the RightKitSwift pin; 11 files import RightKitPresentation"
+     },
+     "heardright": {
+      "fit": "n/a",
+      "note": "imports neither RightKitHub nor RightKitHubQA (hr-review-ios-swift.md:292)"
+     },
+     "coderight": {
+      "fit": "n/a",
+      "note": "6,899 lines of its tests are mapped to RightKitHubQA, which is desktop Hub fakes"
+     }
+    },
+    "boundary": [
+     "Pulse's package also holds RightKitPresentation (TextDocument.swift 628, CompactText, ResponseDocument, ResponsePlan: 888 lines); no such module exists in RightKitSwift [verified]",
+     "RightKitEngineClient differs from Pulse's copy: AttachedEngine.swift 91 of 525 lines, AttachedTransport.swift 19 of 437; RightKitEngine differs by 12 lines",
+     "The plan's 8,117 lines under RightKitHub include RightKitEngineClient (1,200), RightKitEngine (945), RightKitPresentation (888), the C header, native Rust and scripts; the Hub module itself is about 3,660",
+     "Platform/HubPlatformServices.swift:2 conditionally imports SwiftRightHost for Windows: a dependency on a Windows Swift host that is not part of the package [not followed]"
+    ],
+    "actions": [
+     "Add RightKitPresentation to RightKitSwift (or decide it belongs to the agent UI family) so Pulse can drop the local package",
+     "Reconcile AttachedEngine.swift with Pulse's copy and say which side is current",
+     "Pulse then replaces `path: ../../swift/RightKitHub` with the RightKitSwift products",
+     "Split the plan row into Hub, EngineClient, Engine and Presentation"
+    ],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-remaining.json"
+   }
+  },
+  {
+   "package": "RightKitHubQA",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift/Sources/RightKitHubQA",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {
+    "pulse": {
+     "loc": 3531,
+     "n": 2505,
+     "tgt": 17,
+     "any": 66
+    },
+    "heardright": {
+     "loc": 16048,
+     "n": 11530,
+     "tgt": 40,
+     "any": 694
+    }
+   },
+   "review": {
+    "package": "RightKitHubQA",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitHubQA"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation of desktop Hub fakes; holds no HeardRight code",
+    "referenceApp": "heardright",
+    "shape": "wrong",
+    "shapeReason": "Wrong shape: it is three files of fakes for the desktop Hub and depends on RightKitHub. The 48 iOS test files mapped to it stay with the app, as the mapping document's own APPTEST rows say.",
+    "apps": {
+     "heardright": {
+      "fit": "wrong",
+      "note": "Fakes for the desktop Hub; no iOS tests belong here."
+     }
+    },
+    "boundary": [
+     "48 iOS test files (6,749 lines on main) are mapped here by the inventory JSON; the mapping document lists them as app-shell APPTEST",
+     "HeardRight imports neither RightKitHub nor RightKitHubQA"
+    ],
+    "actions": [
+     "Correct the mapping so the iOS tests stay with the app"
+    ],
+    "depth": "deep",
+    "confidence": "medium",
+    "source": "matrix-rows-aa-heardright.json"
+   }
+  },
+  {
+   "package": "RightKitImportQueue",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift/Sources/RightKitImportQueue",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {
+    "scraperight": {
+     "loc": 680,
+     "n": 435,
+     "tgt": 10,
+     "any": 34
+    }
+   },
+   "review": {
+    "package": "RightKitImportQueue",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitImportQueue"
+    ],
+    "feeds": {},
+    "basis": "rewritten code, not copied",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for HeardRight: in use by the share extension and the app; ShareViewController shrank from 157 to 53 lines.",
+    "apps": {
+     "heardright": {
+      "fit": "fits",
+      "note": "In use by the share extension and the app."
+     }
+    },
+    "boundary": [
+     "SharedImportQueue, PendingImportProcessor, AudioImportCoordinator, DocumentImportCoordinator (398 lines) are mapped to RightKitDictation but belong here (generic part)"
+    ],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "medium",
+    "source": "matrix-rows-aa-heardright.json"
+   }
+  },
+  {
+   "package": "RightKitIntents",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift/Sources/RightKitIntents",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {
+    "heardright": {
+     "loc": 1224,
+     "n": 795,
+     "tgt": 15,
+     "any": 39
+    }
+   },
+   "review": {
+    "package": "RightKitIntents",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitIntents"
+    ],
+    "feeds": {},
+    "basis": "rewritten thin seam (1 file, 139 lines)",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: driver, Darwin post and permission handshake are in use; RightKitRecordingBridge.dispatch is unused. The module is a seam, not a home for 855 lines of intents, which must be declared by the app.",
+    "apps": {
+     "heardright": {
+      "fit": "gaps",
+      "note": "Driver, Darwin post and permission handshake in use; dispatch unused; a seam, not a home for intents."
+     }
+    },
+    "boundary": [
+     "HeardRight keeps its own HeardRightRecordingBridge instead of RightKitRecordingBridge.dispatch",
+     "Shared/IOSVoiceCommand.swift (340) is a spoken-command parser, not App Intents",
+     "Mac HeardRightShortcuts/main.swift (App Intents broker) is mapped to the rightkit-overlay crate"
+    ],
+    "actions": [
+     "HeardRight: use RightKitRecordingBridge.dispatch",
+     "Share the recording intent bodies only if the owner wants; AppIntent declarations stay in the app"
+    ],
+    "depth": "deep",
+    "confidence": "medium",
+    "source": "matrix-rows-aa-heardright.json"
+   }
+  },
+  {
+   "package": "RightKitLibrary",
+   "kind": "swift",
+   "dir": "",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {
+    "scraperight": {
+     "loc": 1072,
+     "n": 666,
+     "tgt": 0,
+     "any": 46
+    },
+    "heardright": {
+     "loc": 4984,
+     "n": 3292,
+     "tgt": 0,
+     "any": 162
+    }
+   },
+   "review": {
+    "package": "RightKitLibrary",
+    "kind": "swift",
+    "family": "Ingest & library",
+    "existsAs": [],
+    "feeds": {
+     "heardright": 4984,
+     "scraperight": 1072
+    },
+    "basis": "none",
+    "referenceApp": "heardright",
+    "shape": "missing",
+    "shapeReason": "No Swift module exists; HeardRight's transcript store with tombstones and CloudKit sync and ScrapeRight's small artifact store are different things.",
+    "apps": {
+     "heardright": {
+      "fit": "gaps",
+      "note": "module absent; store, sync, import/export in app"
+     },
+     "scraperight": {
+      "fit": "gaps",
+      "note": "module absent; 150 lines of artifact store"
+     }
+    },
+    "boundary": [
+     "settings views (ContentViewSettings*.swift, 1,400 lines) mis-mapped here",
+     "SharedTranscriptContracts.swift holds shortcuts, recording state, deep links",
+     "TranscriptCloudSync overlaps RightKitCloudSync",
+     "ContentViewSettings.swift and ContentViewSettingsAdvanced.swift (1,400 lines) are mapped here but are settings screens",
+     "The Rust crate rightkit-library holds no HeardRight code and has no HeardRight consumer"
+    ],
+    "actions": [
+     "create transcript library module from HeardRight on RightKitStore/RightKitCloudSync",
+     "remap settings views",
+     "Create the module: store and library first, then the cloud adapter, then the history view (RightKitLibraryUI)",
+     "Verify the shared data model with ScrapeRight"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-aa-heardright.json, matrix-rows-content-ingest-mail.json"
+   }
+  },
+  {
+   "package": "RightKitLicense",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift/Sources/RightKitLicense",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {
+    "scraperight": {
+     "loc": 753,
+     "n": 531,
+     "tgt": 44,
+     "any": 71
+    },
+    "heardright": {
+     "loc": 1456,
+     "n": 962,
+     "tgt": 60,
+     "any": 88
+    },
+    "coderight": {
+     "loc": 1759,
+     "n": 1106,
+     "tgt": 63,
+     "any": 122
+    }
+   },
+   "review": {
+    "package": "RightKitLicense",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitLicense"
+    ],
+    "feeds": {},
+    "basis": "rewritten code, not copied; verification and HTTP moved out of HeardRight",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: covers what HeardRight does. The remaining gap is on HeardRight's side: iOS pin at 0.8.1 and facades not yet removed. The desktop licence review did not review this module, so the iOS review is used.",
+    "apps": {
+     "heardright": {
+      "fit": "gaps",
+      "note": "Client and store in use; HeardRight keeps its own controller, removal queue, link-code call and bridge client."
+     }
+    },
+    "boundary": [
+     "LicenseController (346) duplicates RightKit LicenseController",
+     "PendingLeaseRemoval and three UserDefaults keys duplicate PendingLicenseRemovalQueue and BridgeConsumptionGate",
+     "Hand-written Windows link-code request duplicates requestWindowsLinkCode",
+     "ProBridge and ProBridgeClient duplicate ContinuityBridgeClient",
+     "StoreKitProController.swift and ProAccessStore.swift are mapped here but belong with RightKitPurchases"
+    ],
+    "actions": [
+     "Tag a version containing ContinuityBridgeClient and move the iOS pin from 0.8.1",
+     "HeardRight: delete its controller, removal queue, link-code call and bridge client for the RightKit owners"
+    ],
+    "depth": "deep",
+    "confidence": "medium",
+    "source": "matrix-rows-aa-heardright.json"
+   }
+  },
+  {
+   "package": "RightKitLiveActivity",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift/Sources/RightKitLiveActivity",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {
+    "heardright": {
+     "loc": 934,
+     "n": 598,
+     "tgt": 1,
+     "any": 55
+    },
+    "coderight": {
+     "loc": 173,
+     "n": 113,
+     "tgt": 2,
+     "any": 7
+    }
+   },
+   "review": {
+    "package": "RightKitLiveActivity",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitLiveActivity"
+    ],
+    "feeds": {},
+    "basis": "rewritten lifecycle code; replaced HeardRight's RecordingActivityStateMachine",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for HeardRight (lifecycle): in use through LiveActivityHost and ActivityLifecycle. It has no SwiftUI views and is not a home for the Live Activity views mapped to it.",
+    "apps": {
+     "heardright": {
+      "fit": "fits",
+      "note": "Lifecycle in use; it is not a home for the Live Activity views mapped to it."
+     }
+    },
+    "boundary": [
+     "RecordingActivityViews, RecordingDesignGallery and the ActivityAttributes type (934 lines) are mapped EXTEND here; the module has no view layer and ActivityAttributes must stay in the app",
+     "RecordingLiveActivityController is mapped to RightKitDictation but is an adapter over this module"
+    ],
+    "actions": [
+     "Owner decision whether Live Activity views move to a view target or stay app screens"
+    ],
+    "depth": "deep",
+    "confidence": "medium",
+    "source": "matrix-rows-aa-heardright.json"
+   }
+  },
+  {
+   "package": "RightKitMedia",
+   "kind": "swift",
+   "dir": "",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {
+    "cutright": {
+     "loc": 1859,
+     "n": 1304,
+     "tgt": 0,
+     "any": 46
+    }
+   },
+   "review": {
+    "package": "RightKitMedia",
+    "kind": "swift",
+    "family": "Video editing",
+    "existsAs": [],
+    "feeds": {
+     "cutright": 1859
+    },
+    "basis": "not in RightKit",
+    "referenceApp": "cutright",
+    "shape": "missing",
+    "shapeReason": "No RightKitMedia module in swift/RightKitSwift/Sources or Package.swift. CutRight's macOS media worker (AVFoundation timeline render, Vision, audio finish) has 46 matching lines anywhere.",
+    "apps": {
+     "cutright": {
+      "fit": "gaps",
+      "note": "sidecars/macos-media-worker/*.swift (TimelineRenderService 683 lines) unported"
+     },
+     "heardright": {
+      "fit": "n/a",
+      "note": "uses RightKitAudio/RightKitSpeech"
+     },
+     "viewright": {
+      "fit": "n/a",
+      "note": ""
+     },
+     "genright": {
+      "fit": "n/a",
+      "note": ""
+     }
+    },
+    "boundary": [
+     "rightkit-reframe states \"all Rust, no Swift\" and replaced the Vision anchor worker; the Swift render/vision services may be superseded by the Rust path (suspicion; decide before porting)",
+     "silero-vad-macos.swift duplicates rightkit-vad (suspicion, 8 lines)"
+    ],
+    "actions": [
+     "Decide whether the macOS worker is still CutRight's render path; if superseded mark DROP, otherwise create the module from AssetService/AudioService/VisionService with the wire Protocol.swift"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-video-generative.json"
+   }
+  },
+  {
+   "package": "RightKitMeshLink",
+   "kind": "swift",
+   "dir": "swift/RightKitMeshLink",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {},
+   "review": {
+    "package": "RightKitMeshLink",
+    "kind": "swift",
+    "family": "System utilities",
+    "existsAs": [
+     "swift/RightKitMeshLink"
+    ],
+    "feeds": {
+     "pulse": 2800
+    },
+    "basis": "Pulse swift/MeshLink, identical file",
+    "referenceApp": "pulse",
+    "shape": "gaps",
+    "shapeReason": "Thin Swift wrapper is right; it sits outside RightKitSwift and the Android Kotlin twin has no RightKit home.",
+    "apps": {
+     "pulse": {
+      "fit": "fits",
+      "note": "Pulse*Client.swift stay in the app"
+     }
+    },
+    "boundary": [
+     "Standalone package, not a RightKitSwift module",
+     "android/meshlink Kotlin wrapper not in RightKit"
+    ],
+    "actions": [
+     "State why it is standalone (binary dependency)",
+     "Add the Kotlin wrapper to rightkit-android"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-system-utilities.json"
+   }
+  },
+  {
+   "package": "RightKitNotch",
+   "kind": "swift",
+   "dir": "",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {
+    "pulse": {
+     "loc": 17668,
+     "n": 12801,
+     "tgt": 0,
+     "any": 236
+    }
+   },
+   "review": {
+    "package": "RightKitNotch",
+    "kind": "swift",
+    "family": "System utilities",
+    "existsAs": [],
+    "feeds": {
+     "pulse": 17668
+    },
+    "basis": "none",
+    "referenceApp": "pulse",
+    "shape": "missing",
+    "shapeReason": "No module in RightKitSwift; should be a generic notch surface, not a lift of Pulse's Features and Model.",
+    "apps": {
+     "pulse": {
+      "fit": "gaps",
+      "note": "nothing to adopt"
+     }
+    },
+    "boundary": [
+     "Features/ and Model/ look like Pulse product (not read in depth)"
+    ],
+    "actions": [
+     "Create with generic window, geometry, card container and motion only"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-system-utilities.json"
+   }
+  },
+  {
+   "package": "RightKitOverlay",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift/Sources/RightKitOverlay",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {},
+   "review": {
+    "package": "RightKitOverlay",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitOverlay"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation (one file, 804 lines); neither live nor main's HeardRightPillMac depends on it",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps (panel layer only): panel, key policy, collection behaviour and event names fit. Missing are level, done, hover state, hosting view, anchored animated resize, C interface, pill content and splash.",
+    "apps": {
+     "heardright": {
+      "fit": "gaps",
+      "note": "Panel layer fits; the Mac pill uses none of it; no level, done, hover, animation or C interface."
+     }
+    },
+    "boundary": [
+     "HeardRightNonActivatingPanel plus HeardRightPillPanel duplicate RightKitOverlayPanel with a configuration",
+     "All pill Swift (4,735 lines) is mapped to the Rust crate rightkit-overlay; this module is the only place Swift can go",
+     "Splash, launch hand-off and hub transition (864 lines) are launch behaviour, not overlay"
+    ],
+    "actions": [
+     "Add an audio level path and a smoothing driver",
+     "Add a done outcome or rule that done is status(\"Done\")",
+     "Add hover enter/leave state and a SwiftUI hosting view",
+     "Add anchored resize and generation-guarded frame animation",
+     "Add a logging seam; decide the C interface and whether pill content moves in",
+     "Decide the owner of splash and transitions"
+    ],
+    "depth": "deep",
+    "confidence": "medium",
+    "source": "matrix-rows-aa-heardright.json"
+   }
+  },
+  {
+   "package": "RightKitPurchases",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift/Sources/RightKitPurchases",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {},
+   "review": {
+    "package": "RightKitPurchases",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitPurchases"
+    ],
+    "feeds": {},
+    "basis": "rewritten code, not copied",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for HeardRight: PurchaseController is in use; ProAccessStore is still to fold into AccessCache.",
+    "apps": {
+     "heardright": {
+      "fit": "fits",
+      "note": "PurchaseController with StoreKit2Backend in use; ProAccessStore still to fold into AccessCache."
+     }
+    },
+    "boundary": [
+     "Shared/ProAccessStore.swift (57) duplicates AccessCache and AccessResolver",
+     "StoreKitProController.swift and ProAccessStore.swift (397 lines) are mapped to RightKitLicense"
+    ],
+    "actions": [
+     "HeardRight: replace ProAccessStore with AccessCache"
+    ],
+    "depth": "deep",
+    "confidence": "medium",
+    "source": "matrix-rows-aa-heardright.json"
+   }
+  },
+  {
+   "package": "RightKitSpeech",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift/Sources/RightKitSpeech",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {
+    "scraperight": {
+     "loc": 327,
+     "n": 205,
+     "tgt": 10,
+     "any": 19
+    },
+    "heardright": {
+     "loc": 5217,
+     "n": 3431,
+     "tgt": 258,
+     "any": 417
+    },
+    "coderight": {
+     "loc": 121,
+     "n": 0,
+     "tgt": 0,
+     "any": 0
+    }
+   },
+   "review": {
+    "package": "RightKitSpeech",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitSpeech"
+    ],
+    "feeds": {},
+    "basis": "rewritten code, not copied; replaced HeardRight's own Parakeet and Whisper runtime (14 files, 2,322 lines)",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: engines are in use. Model grant, validator and download owner exist but are unused; RightKit gaps are ANE cache maintenance, the Files-import install path, a download telemetry hook and keyword spotting.",
+    "apps": {
+     "heardright": {
+      "fit": "gaps",
+      "note": "ASR engines in use; model grant, validator and download owners exist but HeardRight keeps its copies."
+     }
+    },
+    "boundary": [
+     "ModelGrantClient.swift (162) duplicates RightKitSpeech.ModelGrantClient",
+     "CoreMLModelValidator exists three times: app (259), Packages/SharedModelRoot (146), RightKit",
+     "ModelArtifactInstaller, ModelDownload*, ModelInstallation (about 2,200) overlap ModelDownloader, ModelInstaller, ModelDownloadCoordinator",
+     "ASRBenchRunner and ComputePlanProbe are mapped ADOPT but are app bench screens",
+     "ANECacheMaintenance is mapped ADOPT but has no RightKit equivalent (should be EXTEND)",
+     "Live ASR runtime files were mapped to app-shell (moot on main)"
+    ],
+    "actions": [
+     "Add ANE cache maintenance and SharedModelPublisher",
+     "Add the Files-import install path (4 GB inflate cap) and a download telemetry hook",
+     "Decide a home for keyword spotting over the Rust core (RustKWSBridge, KeywordCommandDetector)",
+     "HeardRight: delete ModelGrantClient and both CoreMLModelValidator copies, then the download and install copies"
+    ],
+    "depth": "deep",
+    "confidence": "medium",
+    "source": "matrix-rows-aa-heardright.json"
+   }
+  },
+  {
+   "package": "RightKitStore",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift/Sources/RightKitStore",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {},
+   "review": {
+    "package": "RightKitStore",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitStore"
+    ],
+    "feeds": {},
+    "basis": "rewritten code, not copied; AppGroupFileLock is the same flock loop as live HeardRight",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Right shape for HeardRight: command queue, owner lease, revisioned state and file lock are all in use in MAIN.",
+    "apps": {
+     "heardright": {
+      "fit": "fits",
+      "note": "Command queue, owner lease, revisioned state and file lock all in use on main."
+     }
+    },
+    "boundary": [],
+    "actions": [
+     "iOS pin is 0.8.1 while the Mac pill pins 0.9.0; move to one published pin"
+    ],
+    "depth": "deep",
+    "confidence": "medium",
+    "source": "matrix-rows-aa-heardright.json"
+   }
+  },
+  {
+   "package": "RightKitSwift",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift",
+   "class": "add-on",
+   "domain": "apple",
+   "rowsOwned": [],
+   "version": "0.9.1",
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "ahead",
+    "viewright": "unused",
+    "pulse": "adopted",
+    "coderight": "adopted",
+    "genright": "unused",
+    "mailright": "unused",
+    "scraperight": "adopted",
+    "cutright": "unused",
+    "postright": "unused",
+    "legion": "unused"
+   },
+   "plan": {},
+   "review": {
+    "package": "RightKitSwift",
+    "kind": "swift",
+    "family": "Remaining packages",
+    "existsAs": [
+     "swift/RightKitSwift (VERSION 0.9.1, unreleased; 39 RightKit modules, one C target, 2 executables)"
+    ],
+    "feeds": {
+     "pulse": 58785,
+     "heardright": 46179,
+     "coderight": 36435,
+     "scraperight": 5099,
+     "cutright": 1859
+    },
+    "basis": "Mostly rewritten RightKit code (line matching finds little app code in it), except RightKitHub, HubQA, Engine and EngineClient which are Pulse's files",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "The package is in real use by four apps at one pinned version, and the foundation modules fit. But 62% of the Swift lines the plan maps (92,690 of 148,357) point at six modules that do not exist, and another 26,478 point at RightKitHubQA, which is the wrong home.",
+    "apps": {
+     "heardright": {
+      "fit": "gaps",
+      "note": "main imports 13 products on iOS at 0.8.1 and one on the Mac pill at 0.9.0; LIVE uses RightKitUI only, from the retired mirror at 0.1.1; about 6,700 lines of own copies remain (hr-review-ios-swift.md)"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "pins 0.8.1 by URL github.com/bogusyogi/rightkit; imports Hub, Accessibility, Overlay, EngineClient, Watch, Hotkeys, Diagnostics, AppleCredentials, License, FS, DB, Credentials, Store; Hub/Engine/Presentation come from a local path package"
+     },
+     "coderight": {
+      "fit": "gaps",
+      "note": "iOS and Mac helper pin 0.8.1 by URL github.com/Orthic-Labs/rightkit; imports Credentials, License, FS, AppleCredentials, UI, Store, Purchases, LiveActivity, Diagnostics, CloudSync; 30,723 planned lines wait on RightKitAgent"
+     },
+     "scraperight": {
+      "fit": "fits",
+      "note": "iOS pins 0.8.1; imports License, CloudSync, Purchases, FS, Speech, ImportQueue, AppleCredentials, Diagnostics, Artifacts; 1,072 lines wait on RightKitLibrary"
+     },
+     "cutright": {
+      "fit": "gaps",
+      "note": "15 Swift files, 1,859 lines, all mapped to RightKitMedia, which does not exist"
+     },
+     "viewright": {
+      "fit": "n/a",
+      "note": "no Swift"
+     },
+     "genright": {
+      "fit": "n/a",
+      "note": "no Swift"
+     },
+     "mailright": {
+      "fit": "n/a",
+      "note": "no Swift"
+     },
+     "postright": {
+      "fit": "n/a",
+      "note": "no Swift"
+     }
+    },
+    "boundary": [
+     "Planned but missing modules: RightKitAgent 34,981 (coderight 30,723, pulse 4,258), RightKitSystemUI 21,612 (pulse), RightKitNotch 17,668 (pulse), RightKitDictation 10,514 (heardright), RightKitLibrary 6,056 (heardright 4,984, scraperight 1,072), RightKitMedia 1,859 (cutright)",
+     "RightKitHubQA receives 26,478 planned lines of app tests (heardright 16,048, coderight 6,899, pulse 3,531); it is three files of desktop Hub fakes (hr-review-ios-swift.md:288-292)",
+     "RightKitWatch is an FSEvents file watcher; HeardRight's 3,476 Apple Watch lines are mapped to it (hr-review-ios-swift.md)",
+     "RightKitPresentation is imported by Pulse and absent from the package",
+     "RightKitMeshLink is a separate package outside RightKitSwift's versioning (family-system-utilities.md:66)",
+     "Two repository URLs for the same pin: bogusyogi/rightkit (Pulse) and Orthic-Labs/rightkit (CodeRight, ScrapeRight, HeardRight) [verified]; whether both stay valid is not verified",
+     "RightKitHTTP and RightKitUpdate are imported by no app"
+    ],
+    "actions": [
+     "Release 0.9.1 (tree is ahead of every app's pin)",
+     "Create or reassign the six missing modules before any app is told to move code: Agent and Dictation first, they carry the most lines",
+     "Remove app tests from the RightKitHubQA and RightKitWatch targets in the plan; app tests stay with the app",
+     "Add RightKitPresentation; bring RightKitMeshLink under the same version",
+     "One repository URL in every app manifest"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-remaining.json"
+   }
+  },
+  {
+   "package": "RightKitSystemUI",
+   "kind": "swift",
+   "dir": "",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {
+    "pulse": {
+     "loc": 21612,
+     "n": 13192,
+     "tgt": 0,
+     "any": 1622
+    }
+   },
+   "review": {
+    "package": "RightKitSystemUI",
+    "kind": "swift",
+    "family": "System utilities",
+    "existsAs": [],
+    "feeds": {
+     "pulse": 21612
+    },
+    "basis": "none",
+    "referenceApp": "pulse",
+    "shape": "missing",
+    "shapeReason": "No module in RightKitSwift; it is the SwiftUI twin of @rightkit/system-ui and should share that package's contract.",
+    "apps": {
+     "pulse": {
+      "fit": "gaps",
+      "note": "nothing to adopt"
+     }
+    },
+    "boundary": [
+     "Chat, Membrane and Devices sections belong to other families (not verified)"
+    ],
+    "actions": [
+     "Create section by section after the React package's client contract is settled"
+    ],
+    "depth": "light",
+    "confidence": "low",
+    "source": "matrix-rows-system-utilities.json"
+   }
+  },
+  {
+   "package": "RightKitUI",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift/Sources/RightKitUI",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {
+    "scraperight": {
+     "loc": 422,
+     "n": 264,
+     "tgt": 0,
+     "any": 4
+    },
+    "pulse": {
+     "loc": 2745,
+     "n": 2100,
+     "tgt": 8,
+     "any": 14
+    },
+    "heardright": {
+     "loc": 1563,
+     "n": 946,
+     "tgt": 0,
+     "any": 51
+    },
+    "coderight": {
+     "loc": 835,
+     "n": 541,
+     "tgt": 0,
+     "any": 24
+    }
+   },
+   "review": {
+    "package": "RightKitUI",
+    "kind": "swift",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitUI"
+    ],
+    "feeds": {
+     "scraperight": 422,
+     "pulse": 2745,
+     "heardright": 1563,
+     "coderight": 835
+    },
+    "basis": "fresh, two files (glass surface, contrast)",
+    "referenceApp": "heardright",
+    "shape": "wrong",
+    "shapeReason": "The module is fine for what it holds, but about 5.5k planned lines mapped to it are settings models, app entry points, File Provider and widget code, none of which is UI kit.",
+    "apps": {
+     "heardright": {
+      "fit": "n/a",
+      "note": "see hr-review-ios-swift.md; not covered by the two reviews used here"
+     },
+     "viewright": {
+      "fit": "n/a",
+      "note": ""
+     },
+     "pulse": {
+      "fit": "wrong",
+      "note": "Mac notch Preferences.swift and settings enums belong with RightKitStore and generated settings, or stay app-side"
+     },
+     "coderight": {
+      "fit": "wrong",
+      "note": "iOS app entry, File Provider extension and widgets are not UI kit"
+     }
+    },
+    "boundary": [
+     "mapping error throughout",
+     "contrast maths now in three languages (TypeScript, Rust, Swift)",
+     "Five onboarding files (1,563 lines) are mapped here; they are HeardRight screens with HeardRight copy",
+     "Mapping document sends 23 scaffold files / 3,903 lines here while the inventory JSON marks them app-shell"
+    ],
+    "actions": [
+     "re-map",
+     "generate Swift tokens from rightkit-theme instead of hand-written contrast",
+     "Add onboarding and settings scaffolds only if a second app will use them; otherwise they are app screens",
+     "Make the mapping document and inventory JSON agree"
+    ],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-aa-heardright.json, matrix-rows-foundation-shell-ui.json"
+   }
+  },
+  {
+   "package": "RightKitUpdate",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift/Sources/RightKitUpdate (1,234 lines)",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {
+    "pulse": {
+     "loc": 703,
+     "n": 460,
+     "tgt": 59,
+     "any": 77
+    },
+    "coderight": {
+     "loc": 127,
+     "n": 75,
+     "tgt": 3,
+     "any": 7
+    }
+   },
+   "review": {
+    "package": "RightKitUpdate",
+    "kind": "swift",
+    "family": "Remaining packages",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitUpdate (1,234 lines)"
+    ],
+    "feeds": {
+     "pulse": 703,
+     "coderight": 127
+    },
+    "basis": "RightKit rewrite shaped on Pulse's Mac updater (the Developer ID requirement text and relauncher match Pulse's lines) with feeds, channels, tiers and boot probation added",
+    "referenceApp": "pulse",
+    "shape": "gaps",
+    "shapeReason": "Feed protocol (GitHub release, static manifest, App Store lookup), verifier protocol and installer protocol are the right boundaries for both apps. The Mac installer is weaker than Pulse's: it swaps with replaceItemAt and has no swap journal, install lock or finish-after-crash step. No app imports the module.",
+    "apps": {
+     "pulse": {
+      "fit": "gaps",
+      "note": "mac/Notch/Sources/Updater/UpdateInstaller.swift:58-163 keeps a swap journal, takes an install lock, swaps with renamex_np and finishes a pending swap at next launch; MacInstall.swift:279 has none of these [verified by grep]. Bundle id and team id are constants in Pulse (UpdateVerifier.swift:7-8) and parameters here"
+     },
+     "coderight": {
+      "fit": "fits",
+      "note": "iOS Updates/UpdateAwareness.swift compares a static latest version and links to the App Store (placeholder id); AppStoreLookupFeed covers it. WhatsNewView.swift (58) is a view and stays out"
+     },
+     "heardright": {
+      "fit": "n/a",
+      "note": "HeardRight/AppUpdateController.swift (115) was flagged `check against RightKitUpdate`, not verified (hr-review-ios-swift.md:377)"
+     }
+    },
+    "boundary": [
+     "The Rust side has rightkit-app-update and @rightkit/app-update: three update owners across languages; the manifest and tier vocabulary should be one contract [not compared]",
+     "SemanticVersion exists here and in Pulse (34 lines) and is mapped ADOPT"
+    ],
+    "actions": [
+     "Port Pulse's journalled swap, install lock and finishPendingSwap into MacAppInstaller before Pulse adopts it",
+     "Keep verifier identifiers as parameters (already so)",
+     "Check the manifest and tier names against rightkit-app-update"
+    ],
+    "depth": "deep",
+    "confidence": "medium",
+    "source": "matrix-rows-remaining.json"
+   }
+  },
+  {
+   "package": "RightKitWatch",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift/Sources/RightKitWatch",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {
+    "heardright": {
+     "loc": 3476,
+     "n": 2299,
+     "tgt": 20,
+     "any": 145
+    }
+   },
+   "review": {
+    "package": "RightKitWatch",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitWatch"
+    ],
+    "feeds": {},
+    "basis": "fresh implementation of a macOS FSEvents file watcher; holds no HeardRight code",
+    "referenceApp": "heardright",
+    "shape": "wrong",
+    "shapeReason": "Wrong shape: it is an FSEvents file watcher (the target is empty on iOS), not Apple Watch code. The 19 Apple Watch files mapped to it belong with RightKitWatchBridge, RightKitAudio and a new watch-recording home.",
+    "apps": {
+     "heardright": {
+      "fit": "wrong",
+      "note": "An FSEvents file watcher for macOS; no Apple Watch code belongs here."
+     }
+    },
+    "boundary": [
+     "19 Apple Watch files (3,476 lines on main) are mapped here by mistake",
+     "HeardRight does not declare this product"
+    ],
+    "actions": [
+     "Correct the mapping so no file is planned into RightKitWatch",
+     "Choose a watch-recording home that is not this module"
+    ],
+    "depth": "deep",
+    "confidence": "medium",
+    "source": "matrix-rows-aa-heardright.json"
+   }
+  },
+  {
+   "package": "RightKitWatchBridge",
+   "kind": "swift",
+   "dir": "swift/RightKitSwift/Sources/RightKitWatchBridge",
+   "class": "planned",
+   "domain": "planned",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "n/a",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {},
+   "review": {
+    "package": "RightKitWatchBridge",
+    "kind": "swift",
+    "family": "HeardRight review",
+    "existsAs": [
+     "swift/RightKitSwift/Sources/RightKitWatchBridge"
+    ],
+    "feeds": {},
+    "basis": "rewritten code, not copied",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right shape with listed gaps: ledger and senders are in use. It has no WCSessionDelegate halves and no recovery store, and is one candidate home for watch recording.",
+    "apps": {
+     "heardright": {
+      "fit": "gaps",
+      "note": "Ledger and senders in use; no WCSessionDelegate halves and no recovery store."
+     }
+    },
+    "boundary": [
+     "19 Apple Watch files (3,476 lines) are mapped to RightKitWatch, which is an FSEvents file watcher; this module and RightKitAudio are the real owners"
+    ],
+    "actions": [
+     "Decide the watch-recording home: extend this module with the two WCSessionDelegate halves or add a watchOS slice to RightKitDictation",
+     "Add a recovery store"
+    ],
+    "depth": "deep",
+    "confidence": "medium",
+    "source": "matrix-rows-aa-heardright.json"
+   }
+  },
+  {
    "package": "rightkit-adapt",
    "kind": "cargo",
    "dir": "crates/rightkit-adapt",
@@ -4720,10 +6743,10 @@
      "coderight": 124089,
      "pulse": 5097
     },
-    "basis": "Two unrelated things under one name: the base crate is Pulse's always-on task contract (core/src/agent); the 14 -* crates are CodeRight's turn-loop engine",
+    "basis": "facade over CodeRight's turn loop plus Pulse's task contract (decision 4, pending owner confirmation)",
     "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
-    "shape": "wrong",
-    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "shape": "gaps",
+    "shapeReason": "One engine and one task contract since 0.2.0 (branch): rightkit-agent-engine is the facade over CodeRight's -core, -protocol and -storage; Pulse's task contract is rightkit-agent-task-contract, and CodeRight's approval context carries the approvals core Binding. agent-server split still to do.",
     "apps": {
      "coderight": {
       "fit": "gaps",
@@ -4743,12 +6766,13 @@
      "Pulse planned files include windows/src/agent.rs (engine supervisor: belongs to rightkit-daemon/sidecar) and Swift UI panels (app shell)"
     ],
     "actions": [
-     "Rename the base crate rightkit-agent-task-contract (or fold into engine-protocol) and make rightkit-agent-engine a facade over the -* crates",
-     "Delete the duplicated Principal/DeviceRef/EffectClass; one home (device-link-types or the contract crate), re-exported",
-     "Move voice.rs to the dictation/voice family or make chat label and policy ref host parameters",
-     "Move task_cli.rs out to a CLI crate",
-     "Adopt Pulse's rule in the CodeRight loop: approval always bound to a digest of the exact arguments, destination, expiry and revision; map ExternalEffectSettlement::InterruptedUnknown to TaskStatus::Uncertain",
-     "Rename CodeRight TaskNode/TaskState to PlanTask* so the two task concepts cannot be confused"
+     "at the moment of use check approvals with Binding::check (expiry and revision), not the stored digest string",
+     "rename CodeRight TaskNode/TaskState to PlanTask*",
+     "remove the rightkit-mesh-ffi DeviceRef/Platform copies",
+     "merge the three EffectClass definitions (policy-rules, agent-policy legion adapter, evidence-contracts)",
+     "split rightkit-agent-server",
+     "owner to confirm decision 4",
+     "publish 0.2.0"
     ],
     "depth": "deep",
     "confidence": "high",
@@ -4805,8 +6829,8 @@
     },
     "basis": "family verdict of rightkit-agent-engine",
     "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
-    "shape": "wrong",
-    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "shape": "gaps",
+    "shapeReason": "One engine and one task contract since 0.2.0 (branch): rightkit-agent-engine is the facade over CodeRight's -core, -protocol and -storage; Pulse's task contract is rightkit-agent-task-contract, and CodeRight's approval context carries the approvals core Binding. agent-server split still to do.",
     "apps": {
      "coderight": {
       "fit": "gaps",
@@ -4875,8 +6899,8 @@
     },
     "basis": "family verdict of rightkit-agent-engine",
     "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
-    "shape": "wrong",
-    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "shape": "gaps",
+    "shapeReason": "One engine and one task contract since 0.2.0 (branch): rightkit-agent-engine is the facade over CodeRight's -core, -protocol and -storage; Pulse's task contract is rightkit-agent-task-contract, and CodeRight's approval context carries the approvals core Binding. agent-server split still to do.",
     "apps": {
      "coderight": {
       "fit": "gaps",
@@ -4945,8 +6969,8 @@
     },
     "basis": "family verdict of rightkit-agent-engine",
     "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
-    "shape": "wrong",
-    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "shape": "gaps",
+    "shapeReason": "One engine and one task contract since 0.2.0 (branch): rightkit-agent-engine is the facade over CodeRight's -core, -protocol and -storage; Pulse's task contract is rightkit-agent-task-contract, and CodeRight's approval context carries the approvals core Binding. agent-server split still to do.",
     "apps": {
      "coderight": {
       "fit": "gaps",
@@ -5015,8 +7039,8 @@
     },
     "basis": "family verdict of rightkit-agent-engine",
     "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
-    "shape": "wrong",
-    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "shape": "gaps",
+    "shapeReason": "One engine and one task contract since 0.2.0 (branch): rightkit-agent-engine is the facade over CodeRight's -core, -protocol and -storage; Pulse's task contract is rightkit-agent-task-contract, and CodeRight's approval context carries the approvals core Binding. agent-server split still to do.",
     "apps": {
      "coderight": {
       "fit": "gaps",
@@ -5085,8 +7109,8 @@
     },
     "basis": "family verdict of rightkit-agent-engine",
     "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
-    "shape": "wrong",
-    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "shape": "gaps",
+    "shapeReason": "One engine and one task contract since 0.2.0 (branch): rightkit-agent-engine is the facade over CodeRight's -core, -protocol and -storage; Pulse's task contract is rightkit-agent-task-contract, and CodeRight's approval context carries the approvals core Binding. agent-server split still to do.",
     "apps": {
      "coderight": {
       "fit": "gaps",
@@ -5155,8 +7179,8 @@
     },
     "basis": "family verdict of rightkit-agent-engine",
     "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
-    "shape": "wrong",
-    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "shape": "gaps",
+    "shapeReason": "One engine and one task contract since 0.2.0 (branch): rightkit-agent-engine is the facade over CodeRight's -core, -protocol and -storage; Pulse's task contract is rightkit-agent-task-contract, and CodeRight's approval context carries the approvals core Binding. agent-server split still to do.",
     "apps": {
      "coderight": {
       "fit": "gaps",
@@ -5225,8 +7249,8 @@
     },
     "basis": "family verdict of rightkit-agent-engine",
     "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
-    "shape": "wrong",
-    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "shape": "gaps",
+    "shapeReason": "One engine and one task contract since 0.2.0 (branch): rightkit-agent-engine is the facade over CodeRight's -core, -protocol and -storage; Pulse's task contract is rightkit-agent-task-contract, and CodeRight's approval context carries the approvals core Binding. agent-server split still to do.",
     "apps": {
      "coderight": {
       "fit": "gaps",
@@ -5295,8 +7319,8 @@
     },
     "basis": "family verdict of rightkit-agent-engine",
     "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
-    "shape": "wrong",
-    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "shape": "gaps",
+    "shapeReason": "One engine and one task contract since 0.2.0 (branch): rightkit-agent-engine is the facade over CodeRight's -core, -protocol and -storage; Pulse's task contract is rightkit-agent-task-contract, and CodeRight's approval context carries the approvals core Binding. agent-server split still to do.",
     "apps": {
      "coderight": {
       "fit": "gaps",
@@ -5365,8 +7389,8 @@
     },
     "basis": "family verdict of rightkit-agent-engine",
     "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
-    "shape": "wrong",
-    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "shape": "gaps",
+    "shapeReason": "One engine and one task contract since 0.2.0 (branch): rightkit-agent-engine is the facade over CodeRight's -core, -protocol and -storage; Pulse's task contract is rightkit-agent-task-contract, and CodeRight's approval context carries the approvals core Binding. agent-server split still to do.",
     "apps": {
      "coderight": {
       "fit": "gaps",
@@ -5435,8 +7459,8 @@
     },
     "basis": "family verdict of rightkit-agent-engine",
     "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
-    "shape": "wrong",
-    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "shape": "gaps",
+    "shapeReason": "One engine and one task contract since 0.2.0 (branch): rightkit-agent-engine is the facade over CodeRight's -core, -protocol and -storage; Pulse's task contract is rightkit-agent-task-contract, and CodeRight's approval context carries the approvals core Binding. agent-server split still to do.",
     "apps": {
      "coderight": {
       "fit": "gaps",
@@ -5505,8 +7529,8 @@
     },
     "basis": "family verdict of rightkit-agent-engine",
     "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
-    "shape": "wrong",
-    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "shape": "gaps",
+    "shapeReason": "One engine and one task contract since 0.2.0 (branch): rightkit-agent-engine is the facade over CodeRight's -core, -protocol and -storage; Pulse's task contract is rightkit-agent-task-contract, and CodeRight's approval context carries the approvals core Binding. agent-server split still to do.",
     "apps": {
      "coderight": {
       "fit": "gaps",
@@ -5575,8 +7599,8 @@
     },
     "basis": "family verdict of rightkit-agent-engine",
     "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
-    "shape": "wrong",
-    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "shape": "gaps",
+    "shapeReason": "One engine and one task contract since 0.2.0 (branch): rightkit-agent-engine is the facade over CodeRight's -core, -protocol and -storage; Pulse's task contract is rightkit-agent-task-contract, and CodeRight's approval context carries the approvals core Binding. agent-server split still to do.",
     "apps": {
      "coderight": {
       "fit": "gaps",
@@ -5645,8 +7669,8 @@
     },
     "basis": "family verdict of rightkit-agent-engine",
     "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
-    "shape": "wrong",
-    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "shape": "gaps",
+    "shapeReason": "One engine and one task contract since 0.2.0 (branch): rightkit-agent-engine is the facade over CodeRight's -core, -protocol and -storage; Pulse's task contract is rightkit-agent-task-contract, and CodeRight's approval context carries the approvals core Binding. agent-server split still to do.",
     "apps": {
      "coderight": {
       "fit": "gaps",
@@ -5715,8 +7739,8 @@
     },
     "basis": "family verdict of rightkit-agent-engine",
     "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
-    "shape": "wrong",
-    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "shape": "gaps",
+    "shapeReason": "One engine and one task contract since 0.2.0 (branch): rightkit-agent-engine is the facade over CodeRight's -core, -protocol and -storage; Pulse's task contract is rightkit-agent-task-contract, and CodeRight's approval context carries the approvals core Binding. agent-server split still to do.",
     "apps": {
      "coderight": {
       "fit": "gaps",
@@ -6278,6 +8302,54 @@
     "depth": "light",
     "confidence": "low",
     "source": "matrix-rows-agent-platform.json"
+   }
+  },
+  {
+   "package": "rightkit-agent-task-contract",
+   "kind": "cargo",
+   "dir": "crates/rightkit-agent-task-contract",
+   "class": "tool",
+   "domain": "other",
+   "rowsOwned": [],
+   "version": "0.1.0",
+   "registryLatest": null,
+   "published": "no",
+   "pins": {
+    "heardright": "unused",
+    "viewright": "unused",
+    "pulse": "unused",
+    "coderight": "unused",
+    "genright": "unused",
+    "mailright": "unused",
+    "scraperight": "unused",
+    "cutright": "unused",
+    "postright": "unused",
+    "legion": "unused"
+   },
+   "plan": {},
+   "review": {
+    "package": "rightkit-agent-task-contract",
+    "kind": "cargo",
+    "family": "Redraws on the branch, 2026-11-11",
+    "existsAs": [
+     "crates/rightkit-agent-task-contract"
+    ],
+    "feeds": {
+     "pulse": 0
+    },
+    "basis": "Pulse's task contract (moved from the old base crate); product strings caller-supplied",
+    "referenceApp": "pulse",
+    "shape": "gaps",
+    "shapeReason": "Pulse's contract as its own crate, used by the engine protocol for authority; ApprovalBinding holds the approvals core Binding with the same wire format.",
+    "apps": {},
+    "boundary": [],
+    "actions": [
+     "move task_cli to its own crate",
+     "owner to confirm decision 4",
+     "publish 0.1.0"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
    }
   },
   {
@@ -7276,7 +9348,6 @@
      "Plan maps Pulse devicelink/phone.rs (3.6k) and winadmin service (3.5k) here; they are device-link and elevated-helper code"
     ],
     "actions": [
-     "CodeRight: make PendingApprovalContext.payload_digest a mandatory core Binding (with the engine merge, decision 4)",
      "MailRight: bind the decision to the display digest (needs a schema column)",
      "owner to confirm decision 3",
      "publish 0.2.0"
@@ -20280,2029 +22351,6 @@
     "depth": "light",
     "confidence": "medium",
     "source": "matrix-rows-agent-platform.json"
-   }
-  },
-  {
-   "package": "RightKitAgent",
-   "kind": "swift",
-   "dir": "",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {
-    "pulse": {
-     "loc": 4258,
-     "n": 2684,
-     "tgt": 0,
-     "any": 135
-    },
-    "coderight": {
-     "loc": 30723,
-     "n": 18315,
-     "tgt": 0,
-     "any": 1398
-    }
-   },
-   "review": {
-    "package": "RightKitAgent",
-    "kind": "swift",
-    "family": "Agent platform",
-    "existsAs": [],
-    "feeds": {
-     "coderight": 30723,
-     "pulse": 4258
-    },
-    "basis": "none",
-    "referenceApp": "pulse",
-    "shape": "missing",
-    "shapeReason": "No Swift module exists. CodeRight's 30.7k lines are its whole iOS app; Pulse's are iOS screens. The reusable part is small: provider protocol, budgeted loop step, approval gate with device-lock confirmation, pairing.",
-    "apps": {
-     "coderight": {
-      "fit": "n/a",
-      "note": "package missing; its iOS app uses the Rust mobile runtime (rightkit-agent-engine-mobile-runtime)"
-     },
-     "pulse": {
-      "fit": "n/a",
-      "note": "package missing"
-     }
-    },
-    "boundary": [
-     "Plan maps whole app screens (HomeView, SettingsView, CodeRight iOS app) to a library",
-     "Pulse's Swift loop and CodeRight's Rust mobile runtime are two answers to 'agent on iPhone'"
-    ],
-    "actions": [
-     "Decide first: Swift module wrapping rightkit-agent-engine-mobile-runtime over FFI (CodeRight) with Pulse's approval gate and budget ledger as the Swift-side policy; then write it",
-     "Re-map screens to SHELL"
-    ],
-    "depth": "light",
-    "confidence": "medium",
-    "source": "matrix-rows-agent-platform.json"
-   }
-  },
-  {
-   "package": "RightKitAppleCredentials",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift/Sources/RightKitAppleCredentials",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {
-    "scraperight": {
-     "loc": 615,
-     "n": 396,
-     "tgt": 23,
-     "any": 45
-    },
-    "heardright": {
-     "loc": 300,
-     "n": 201,
-     "tgt": 16,
-     "any": 21
-    },
-    "coderight": {
-     "loc": 321,
-     "n": 198,
-     "tgt": 5,
-     "any": 19
-    }
-   },
-   "review": {
-    "package": "RightKitAppleCredentials",
-    "kind": "swift",
-    "family": "HeardRight review",
-    "existsAs": [
-     "swift/RightKitSwift/Sources/RightKitAppleCredentials"
-    ],
-    "feeds": {},
-    "basis": "rewritten store; AppleCredentialHelperHost was moved out of HeardRight's HeardRightAppleCredentials CLI",
-    "referenceApp": "heardright",
-    "shape": "gaps",
-    "shapeReason": "Right shape with listed gaps: the store is in use on iOS and Mac. The gap is on HeardRight's side: AppleCredentialHelperHost is not adopted, and the 300-line iOS facade was not checked line by line.",
-    "apps": {
-     "heardright": {
-      "fit": "gaps",
-      "note": "Store in use on iOS and Mac; AppleCredentialHelperHost not adopted by the Mac helper."
-     }
-    },
-    "boundary": [
-     "Mac helper main.swift (309) still reads and decodes the request line itself; AppleCredentialHelperHost owns that wire protocol",
-     "iOS AppleSyncedCredentialStore.swift still defines SyncedCredentialAccount, CredentialSyncOutcome and the store beside RightKit's types",
-     "The Mac helper main.swift is mapped to the rightkit-overlay crate"
-    ],
-    "actions": [
-     "HeardRight: shrink the Mac helper to service name, access group, account allowlist and a call to AppleCredentialHelperHost",
-     "Check how much of the iOS facade is thin"
-    ],
-    "depth": "deep",
-    "confidence": "medium",
-    "source": "matrix-rows-aa-heardright.json"
-   }
-  },
-  {
-   "package": "RightKitAudio",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift/Sources/RightKitAudio",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {},
-   "review": {
-    "package": "RightKitAudio",
-    "kind": "swift",
-    "family": "HeardRight review",
-    "existsAs": [
-     "swift/RightKitSwift/Sources/RightKitAudio"
-    ],
-    "feeds": {},
-    "basis": "rewritten code, not copied; WarmAudioCapture has the same name and role as HeardRight's",
-    "referenceApp": "heardright",
-    "shape": "gaps",
-    "shapeReason": "Right shape with listed gaps: not linked by HeardRight at all. RightKit gaps are in-memory accumulation, speech-activity snapshot and WAV writer; a session policy richer than one category, mode and option set is a suspicion.",
-    "apps": {
-     "heardright": {
-      "fit": "gaps",
-      "note": "Not linked by HeardRight at all; WarmAudioCapture lacks accumulation, speech-activity snapshot and WAV writer."
-     }
-    },
-    "boundary": [
-     "HeardRight WarmAudioCapture.swift (772) duplicates RightKitAudio WarmAudioCapture (546); mapped to RightKitDictation",
-     "WatchRecordingController owns its own AVAudioRecorder instead of AudioFileRecorder",
-     "Arrived in 0.9.0; iOS pins 0.8.1"
-    ],
-    "actions": [
-     "Add in-memory sample accumulation, speech-activity snapshot and a WAV writer to WarmAudioCapture",
-     "Add a session policy layer if RecordingAudioPolicy is to move (mix policies, retry ladder, Bluetooth, warm hold)",
-     "Move the iOS pin to a published version containing 0.9.0 modules",
-     "HeardRight: use AudioFileRecorder on the watch"
-    ],
-    "depth": "deep",
-    "confidence": "low",
-    "source": "matrix-rows-aa-heardright.json"
-   }
-  },
-  {
-   "package": "RightKitCloudSync",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift/Sources/RightKitCloudSync",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {
-    "scraperight": {
-     "loc": 1212,
-     "n": 777,
-     "tgt": 35,
-     "any": 67
-    }
-   },
-   "review": {
-    "package": "RightKitCloudSync",
-    "kind": "swift",
-    "family": "HeardRight review",
-    "existsAs": [
-     "swift/RightKitSwift/Sources/RightKitCloudSync"
-    ],
-    "feeds": {},
-    "basis": "rewritten engine; CloudKitWakeHost was moved out of HeardRight's macOS pill helper",
-    "referenceApp": "heardright",
-    "shape": "gaps",
-    "shapeReason": "Right shape with listed gaps: the iOS engine is in use and four live sync files became two. The gap is on HeardRight's side: the Mac CloudKitWakeHost is not adopted.",
-    "apps": {
-     "heardright": {
-      "fit": "gaps",
-      "note": "iOS engine in use; Mac CloudKitWakeHost not adopted, main keeps a 610-line copy."
-     }
-    },
-    "boundary": [
-     "Mac CloudSyncNotifications.swift (610 lines) duplicates CloudKitWakeHost and re-implements the entitlement check RightKit has as CloudKitEntitlement",
-     "CloudSyncNotifications.swift and the live CloudSyncMain.swift are mapped to the rightkit-overlay crate"
-    ],
-    "actions": [
-     "HeardRight: replace CloudSyncNotifications.swift with CloudKitWakeHost, keeping identifiers and FFI entry points"
-    ],
-    "depth": "deep",
-    "confidence": "medium",
-    "source": "matrix-rows-aa-heardright.json"
-   }
-  },
-  {
-   "package": "RightKitCredentials",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift/Sources/RightKitCredentials",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {},
-   "review": {
-    "package": "RightKitCredentials",
-    "kind": "swift",
-    "family": "HeardRight review",
-    "existsAs": [
-     "swift/RightKitSwift/Sources/RightKitCredentials"
-    ],
-    "feeds": {},
-    "basis": "rewritten code, not copied",
-    "referenceApp": "heardright",
-    "shape": "best",
-    "shapeReason": "Right shape for HeardRight: used by license and account code.",
-    "apps": {
-     "heardright": {
-      "fit": "fits",
-      "note": "Used by license and account code."
-     }
-    },
-    "boundary": [
-     "BYOKPolishKeyStore.swift (138, Keychain storage) is mapped to the rightkit-text-polish crate but belongs here"
-    ],
-    "actions": [],
-    "depth": "deep",
-    "confidence": "medium",
-    "source": "matrix-rows-aa-heardright.json"
-   }
-  },
-  {
-   "package": "RightKitDiagnostics",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift/Sources/RightKitDiagnostics",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {
-    "scraperight": {
-     "loc": 18,
-     "n": 13,
-     "tgt": 1,
-     "any": 2
-    },
-    "heardright": {
-     "loc": 463,
-     "n": 303,
-     "tgt": 9,
-     "any": 28
-    },
-    "coderight": {
-     "loc": 886,
-     "n": 546,
-     "tgt": 10,
-     "any": 42
-    }
-   },
-   "review": {
-    "package": "RightKitDiagnostics",
-    "kind": "swift",
-    "family": "HeardRight review",
-    "existsAs": [
-     "swift/RightKitSwift/Sources/RightKitDiagnostics"
-    ],
-    "feeds": {},
-    "basis": "JSONLDiagnosticStore is an extraction of HeardRight's DogfoodTraceStore; the rest is rewritten",
-    "referenceApp": "heardright",
-    "shape": "gaps",
-    "shapeReason": "Right shape with listed gaps: only PrivacyRedactor is in use. Gaps are non-string field values, the DEBUG campaign file and a MetricKit subscriber.",
-    "apps": {
-     "heardright": {
-      "fit": "gaps",
-      "note": "Only PrivacyRedactor in use; JSONLDiagnosticStore, extracted from HeardRight's DogfoodTraceStore, is unused."
-     }
-    },
-    "boundary": [
-     "Shared/DogfoodTraceStore.swift (223) duplicates JSONLDiagnosticStore",
-     "MobileDiagnosticSubscriber (MetricKit) has no RightKit counterpart",
-     "MobileTelemetryUploader was deleted and the uploader option is not wired"
-    ],
-    "actions": [
-     "DiagnosticEvent must accept non-string field values",
-     "Cover the DEBUG campaign file kept outside Caches",
-     "Add a MetricKit subscriber",
-     "HeardRight: replace DogfoodTraceStore with JSONLDiagnosticStore"
-    ],
-    "depth": "deep",
-    "confidence": "medium",
-    "source": "matrix-rows-aa-heardright.json"
-   }
-  },
-  {
-   "package": "RightKitDictation",
-   "kind": "swift",
-   "dir": "",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {
-    "heardright": {
-     "loc": 10514,
-     "n": 7361,
-     "tgt": 0,
-     "any": 381
-    }
-   },
-   "review": {
-    "package": "RightKitDictation",
-    "kind": "swift",
-    "family": "HeardRight review",
-    "existsAs": [],
-    "feeds": {},
-    "basis": "does not exist; HeardRight iOS code (30 files / 10,514 lines on main) is the only implementation",
-    "referenceApp": "heardright",
-    "shape": "missing",
-    "shapeReason": "Planned NEW and not in RightKitSwift. One of only two missing Swift packages HeardRight needs; it is the iOS dictation runtime built on RightKitAudio, RightKitSpeech, RightKitStore and RightKitLiveActivity.",
-    "apps": {
-     "heardright": {
-      "fit": "gaps",
-      "note": "iOS dictation runtime, about 9,835 lines, is still HeardRight code; parts already sit on RightKit primitives."
-     }
-    },
-    "boundary": [
-     "RightKitSpeech/Dictation.swift is an unrelated 40-line enum of composer draft rules",
-     "WarmAudioCapture.swift is mapped here but belongs with RightKitAudio",
-     "RecordingLiveActivityController is an adapter over RightKitLiveActivity",
-     "Import intake files belong with RightKitImportQueue",
-     "App group, defaults keys, deep-link scheme and strings must be injected"
-    ],
-    "actions": [
-     "Create the module: command plane and snapshot first, then coordinator and transcriber, then audio session and policy",
-     "Decide whether a RightKitDictationUI view target is wanted",
-     "Decide whether a watchOS slice here is the watch-recording home"
-    ],
-    "depth": "deep",
-    "confidence": "medium",
-    "source": "matrix-rows-aa-heardright.json"
-   }
-  },
-  {
-   "package": "RightKitFS",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift/Sources/RightKitFS (564 lines)",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {
-    "coderight": {
-     "loc": 846,
-     "n": 508,
-     "tgt": 18,
-     "any": 45
-    }
-   },
-   "review": {
-    "package": "RightKitFS",
-    "kind": "swift",
-    "family": "Remaining packages",
-    "existsAs": [
-     "swift/RightKitSwift/Sources/RightKitFS (564 lines)"
-    ],
-    "feeds": {
-     "coderight": 846
-    },
-    "basis": "Fresh RightKit implementation mirroring rightkit-fs and rightkit-daemon naming rules (app root, containment, atomic write, verified copy, append record)",
-    "referenceApp": "none",
-    "shape": "best",
-    "shapeReason": "Three apps already build on the same type, `RightKitAppRoot`, with the same calls and no adapters beyond choosing a name and a protection class.",
-    "apps": {
-     "coderight": {
-      "fit": "fits",
-      "note": "iOS: Storage/RightKitFSAdapter.swift:10-19 (two roots with different file protection), ComposerDraftStore.swift:67, WorkspaceHistory.swift:46, SharedWorkspacesLocation.swift:19 (App Group)"
-     },
-     "pulse": {
-      "fit": "fits",
-      "note": "Mac: Notch/Sources/App/PulseStateRoot.swift:22, Hub/Sources/PulseHub/FileNotchBridge.swift:70 (baseOverride)"
-     },
-     "scraperight": {
-      "fit": "fits",
-      "note": "iOS: ScrapeRightApp.swift:28, Queue/QueueStore.swift:85,295 (copyVerified, atomicWrite), Library/ArtifactStore.swift:49"
-     },
-     "heardright": {
-      "fit": "n/a",
-      "note": "not imported on main; shared state goes through RightKitStore"
-     }
-    },
-    "boundary": [
-     "Plan maps CodeRight Storage/KeychainStore.swift (181) and AppleSyncedCredentialStore.swift (203) here; they are credential stores (RightKitCredentials, RightKitAppleCredentials)",
-     "`suiteDirectory = \"Orthic Labs\"` is fixed in the module (RightKitFS.swift, static let): a suite decision every adopter inherits"
-    ],
-    "actions": [],
-    "depth": "deep",
-    "confidence": "high",
-    "source": "matrix-rows-remaining.json"
-   }
-  },
-  {
-   "package": "RightKitHotkeys",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift/Sources/RightKitHotkeys (760 lines)",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {
-    "pulse": {
-     "loc": 151,
-     "n": 106,
-     "tgt": 4,
-     "any": 5
-    }
-   },
-   "review": {
-    "package": "RightKitHotkeys",
-    "kind": "swift",
-    "family": "Remaining packages",
-    "existsAs": [
-     "swift/RightKitSwift/Sources/RightKitHotkeys (760 lines)"
-    ],
-    "feeds": {
-     "pulse": 151
-    },
-    "basis": "Fresh RightKit implementation shaped on Pulse's Mac notch (Carbon hot-key registrar, event-tap hub with handler chain, keystroke planner)",
-    "referenceApp": "pulse",
-    "shape": "best",
-    "shapeReason": "Registrar, combo parsing, event-tap hub and keystroke posting are generic and Pulse already uses the registrar. What remains is on Pulse's side.",
-    "apps": {
-     "pulse": {
-      "fit": "fits",
-      "note": "imports it in LauncherHotKey.swift, WindowHotKeys.swift, WindowShortcut.swift, SettingsHotKey.swift. Still keeps its own Conveniences/EventTapHub.swift (168 lines, no RightKit import) beside RightKitEventTapHub"
-     },
-     "heardright": {
-      "fit": "n/a",
-      "note": "Mac hotkeys are in Rust (rightkit-hotkeys crate); the pill package has no hotkey code"
-     }
-    },
-    "boundary": [
-     "Plan maps Keyboard/FnCommand.swift (151 lines) here as ADOPT: it is a Pulse feature (Fn acts as Command for ten letters and the arrows) and belongs with the Mac tweaks module that family-system-utilities.md proposes, registered on RightKitEventTapHub",
-     "Pulse's EventTapHub.swift duplicates RightKitEventTapHub [file read at header level only]"
-    ],
-    "actions": [],
-    "depth": "light",
-    "confidence": "medium",
-    "source": "matrix-rows-remaining.json"
-   }
-  },
-  {
-   "package": "RightKitHTTP",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift/Sources/RightKitHTTP (786 lines)",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {
-    "coderight": {
-     "loc": 644,
-     "n": 405,
-     "tgt": 11,
-     "any": 34
-    }
-   },
-   "review": {
-    "package": "RightKitHTTP",
-    "kind": "swift",
-    "family": "Remaining packages",
-    "existsAs": [
-     "swift/RightKitSwift/Sources/RightKitHTTP (786 lines)"
-    ],
-    "feeds": {
-     "coderight": 644
-    },
-    "basis": "Fresh RightKit implementation mirroring rightkit-http (client, retry policy, address policy, redirect guard, streamed download)",
-    "referenceApp": "none",
-    "shape": "gaps",
-    "shapeReason": "Sound client used inside RightKitSwift (LLM, Update, OAuth, Account), but no app imports it, and the one app with networking mapped to it needs server-sent events, which it does not parse.",
-    "apps": {
-     "coderight": {
-      "fit": "gaps",
-      "note": "iOS Networking/SSEFrameParser.swift (67) has no counterpart here; DaemonClient.swift (245) and ConnectionLifecycle.swift belong to RightKitDaemonClient; CallbackURL/CallbackURLHandler.swift (255) is URL-scheme handling, not HTTP"
-     },
-     "heardright": {
-      "fit": "n/a",
-      "note": "not declared on main (hr-review-ios-swift.md:49)"
-     },
-     "pulse": {
-      "fit": "n/a",
-      "note": ""
-     },
-     "scraperight": {
-      "fit": "n/a",
-      "note": ""
-     }
-    },
-    "boundary": [
-     "Four of five mapped CodeRight files are not HTTP client code",
-     "RightKitDaemonClient and RightKitURLPolicy exist as separate modules and are the likelier owners [not read]"
-    ],
-    "actions": [
-     "Add an SSE frame parser over the existing `stream` transport (HTTPTransport.swift:39), taking CodeRight's parser as the reference",
-     "Remap DaemonClient and CallbackURLHandler in the plan"
-    ],
-    "depth": "light",
-    "confidence": "medium",
-    "source": "matrix-rows-remaining.json"
-   }
-  },
-  {
-   "package": "RightKitHub",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift/Sources/RightKitHub (3,673 lines), swift/RightKitSwift/Sources/RightKitHubQA",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {
-    "pulse": {
-     "loc": 8117,
-     "n": 4992,
-     "tgt": 2371,
-     "any": 4422
-    }
-   },
-   "review": {
-    "package": "RightKitHub",
-    "kind": "swift",
-    "family": "Remaining packages",
-    "existsAs": [
-     "swift/RightKitSwift/Sources/RightKitHub (3,673 lines)",
-     "swift/RightKitSwift/Sources/RightKitHubQA"
-    ],
-    "feeds": {
-     "pulse": 8117
-    },
-    "basis": "Pulse's SwiftUI hub base moved unchanged: 29 files, 27 identical, HubSettingsView.swift and HubExports.swift differ by 19 lines; RightKitHubQA's 3 files identical",
-    "referenceApp": "pulse",
-    "shape": "gaps",
-    "shapeReason": "Shell, sidebar, search, settings model, theme and platform-services protocol with no Pulse product strings: a second Mac or iOS app could adopt it. But Pulse still builds from its own local copy, and the copy includes a module (RightKitPresentation) that RightKitSwift does not have.",
-    "apps": {
-     "pulse": {
-      "fit": "gaps",
-      "note": "68 files import RightKitHub from the local path package pulse/swift/RightKitHub (mac/Notch/project.yml:69, ios/project.yml:29, mac/Hub/Package.swift:21), not from the RightKitSwift pin; 11 files import RightKitPresentation"
-     },
-     "heardright": {
-      "fit": "n/a",
-      "note": "imports neither RightKitHub nor RightKitHubQA (hr-review-ios-swift.md:292)"
-     },
-     "coderight": {
-      "fit": "n/a",
-      "note": "6,899 lines of its tests are mapped to RightKitHubQA, which is desktop Hub fakes"
-     }
-    },
-    "boundary": [
-     "Pulse's package also holds RightKitPresentation (TextDocument.swift 628, CompactText, ResponseDocument, ResponsePlan: 888 lines); no such module exists in RightKitSwift [verified]",
-     "RightKitEngineClient differs from Pulse's copy: AttachedEngine.swift 91 of 525 lines, AttachedTransport.swift 19 of 437; RightKitEngine differs by 12 lines",
-     "The plan's 8,117 lines under RightKitHub include RightKitEngineClient (1,200), RightKitEngine (945), RightKitPresentation (888), the C header, native Rust and scripts; the Hub module itself is about 3,660",
-     "Platform/HubPlatformServices.swift:2 conditionally imports SwiftRightHost for Windows: a dependency on a Windows Swift host that is not part of the package [not followed]"
-    ],
-    "actions": [
-     "Add RightKitPresentation to RightKitSwift (or decide it belongs to the agent UI family) so Pulse can drop the local package",
-     "Reconcile AttachedEngine.swift with Pulse's copy and say which side is current",
-     "Pulse then replaces `path: ../../swift/RightKitHub` with the RightKitSwift products",
-     "Split the plan row into Hub, EngineClient, Engine and Presentation"
-    ],
-    "depth": "deep",
-    "confidence": "high",
-    "source": "matrix-rows-remaining.json"
-   }
-  },
-  {
-   "package": "RightKitHubQA",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift/Sources/RightKitHubQA",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {
-    "pulse": {
-     "loc": 3531,
-     "n": 2505,
-     "tgt": 17,
-     "any": 66
-    },
-    "heardright": {
-     "loc": 16048,
-     "n": 11530,
-     "tgt": 40,
-     "any": 694
-    }
-   },
-   "review": {
-    "package": "RightKitHubQA",
-    "kind": "swift",
-    "family": "HeardRight review",
-    "existsAs": [
-     "swift/RightKitSwift/Sources/RightKitHubQA"
-    ],
-    "feeds": {},
-    "basis": "fresh implementation of desktop Hub fakes; holds no HeardRight code",
-    "referenceApp": "heardright",
-    "shape": "wrong",
-    "shapeReason": "Wrong shape: it is three files of fakes for the desktop Hub and depends on RightKitHub. The 48 iOS test files mapped to it stay with the app, as the mapping document's own APPTEST rows say.",
-    "apps": {
-     "heardright": {
-      "fit": "wrong",
-      "note": "Fakes for the desktop Hub; no iOS tests belong here."
-     }
-    },
-    "boundary": [
-     "48 iOS test files (6,749 lines on main) are mapped here by the inventory JSON; the mapping document lists them as app-shell APPTEST",
-     "HeardRight imports neither RightKitHub nor RightKitHubQA"
-    ],
-    "actions": [
-     "Correct the mapping so the iOS tests stay with the app"
-    ],
-    "depth": "deep",
-    "confidence": "medium",
-    "source": "matrix-rows-aa-heardright.json"
-   }
-  },
-  {
-   "package": "RightKitImportQueue",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift/Sources/RightKitImportQueue",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {
-    "scraperight": {
-     "loc": 680,
-     "n": 435,
-     "tgt": 10,
-     "any": 34
-    }
-   },
-   "review": {
-    "package": "RightKitImportQueue",
-    "kind": "swift",
-    "family": "HeardRight review",
-    "existsAs": [
-     "swift/RightKitSwift/Sources/RightKitImportQueue"
-    ],
-    "feeds": {},
-    "basis": "rewritten code, not copied",
-    "referenceApp": "heardright",
-    "shape": "best",
-    "shapeReason": "Right shape for HeardRight: in use by the share extension and the app; ShareViewController shrank from 157 to 53 lines.",
-    "apps": {
-     "heardright": {
-      "fit": "fits",
-      "note": "In use by the share extension and the app."
-     }
-    },
-    "boundary": [
-     "SharedImportQueue, PendingImportProcessor, AudioImportCoordinator, DocumentImportCoordinator (398 lines) are mapped to RightKitDictation but belong here (generic part)"
-    ],
-    "actions": [],
-    "depth": "deep",
-    "confidence": "medium",
-    "source": "matrix-rows-aa-heardright.json"
-   }
-  },
-  {
-   "package": "RightKitIntents",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift/Sources/RightKitIntents",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {
-    "heardright": {
-     "loc": 1224,
-     "n": 795,
-     "tgt": 15,
-     "any": 39
-    }
-   },
-   "review": {
-    "package": "RightKitIntents",
-    "kind": "swift",
-    "family": "HeardRight review",
-    "existsAs": [
-     "swift/RightKitSwift/Sources/RightKitIntents"
-    ],
-    "feeds": {},
-    "basis": "rewritten thin seam (1 file, 139 lines)",
-    "referenceApp": "heardright",
-    "shape": "gaps",
-    "shapeReason": "Right shape with listed gaps: driver, Darwin post and permission handshake are in use; RightKitRecordingBridge.dispatch is unused. The module is a seam, not a home for 855 lines of intents, which must be declared by the app.",
-    "apps": {
-     "heardright": {
-      "fit": "gaps",
-      "note": "Driver, Darwin post and permission handshake in use; dispatch unused; a seam, not a home for intents."
-     }
-    },
-    "boundary": [
-     "HeardRight keeps its own HeardRightRecordingBridge instead of RightKitRecordingBridge.dispatch",
-     "Shared/IOSVoiceCommand.swift (340) is a spoken-command parser, not App Intents",
-     "Mac HeardRightShortcuts/main.swift (App Intents broker) is mapped to the rightkit-overlay crate"
-    ],
-    "actions": [
-     "HeardRight: use RightKitRecordingBridge.dispatch",
-     "Share the recording intent bodies only if the owner wants; AppIntent declarations stay in the app"
-    ],
-    "depth": "deep",
-    "confidence": "medium",
-    "source": "matrix-rows-aa-heardright.json"
-   }
-  },
-  {
-   "package": "RightKitLibrary",
-   "kind": "swift",
-   "dir": "",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {
-    "scraperight": {
-     "loc": 1072,
-     "n": 666,
-     "tgt": 0,
-     "any": 46
-    },
-    "heardright": {
-     "loc": 4984,
-     "n": 3292,
-     "tgt": 0,
-     "any": 162
-    }
-   },
-   "review": {
-    "package": "RightKitLibrary",
-    "kind": "swift",
-    "family": "Ingest & library",
-    "existsAs": [],
-    "feeds": {
-     "heardright": 4984,
-     "scraperight": 1072
-    },
-    "basis": "none",
-    "referenceApp": "heardright",
-    "shape": "missing",
-    "shapeReason": "No Swift module exists; HeardRight's transcript store with tombstones and CloudKit sync and ScrapeRight's small artifact store are different things.",
-    "apps": {
-     "heardright": {
-      "fit": "gaps",
-      "note": "module absent; store, sync, import/export in app"
-     },
-     "scraperight": {
-      "fit": "gaps",
-      "note": "module absent; 150 lines of artifact store"
-     }
-    },
-    "boundary": [
-     "settings views (ContentViewSettings*.swift, 1,400 lines) mis-mapped here",
-     "SharedTranscriptContracts.swift holds shortcuts, recording state, deep links",
-     "TranscriptCloudSync overlaps RightKitCloudSync",
-     "ContentViewSettings.swift and ContentViewSettingsAdvanced.swift (1,400 lines) are mapped here but are settings screens",
-     "The Rust crate rightkit-library holds no HeardRight code and has no HeardRight consumer"
-    ],
-    "actions": [
-     "create transcript library module from HeardRight on RightKitStore/RightKitCloudSync",
-     "remap settings views",
-     "Create the module: store and library first, then the cloud adapter, then the history view (RightKitLibraryUI)",
-     "Verify the shared data model with ScrapeRight"
-    ],
-    "depth": "light",
-    "confidence": "medium",
-    "source": "matrix-rows-aa-heardright.json, matrix-rows-content-ingest-mail.json"
-   }
-  },
-  {
-   "package": "RightKitLicense",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift/Sources/RightKitLicense",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {
-    "scraperight": {
-     "loc": 753,
-     "n": 531,
-     "tgt": 44,
-     "any": 71
-    },
-    "heardright": {
-     "loc": 1456,
-     "n": 962,
-     "tgt": 60,
-     "any": 88
-    },
-    "coderight": {
-     "loc": 1759,
-     "n": 1106,
-     "tgt": 63,
-     "any": 122
-    }
-   },
-   "review": {
-    "package": "RightKitLicense",
-    "kind": "swift",
-    "family": "HeardRight review",
-    "existsAs": [
-     "swift/RightKitSwift/Sources/RightKitLicense"
-    ],
-    "feeds": {},
-    "basis": "rewritten code, not copied; verification and HTTP moved out of HeardRight",
-    "referenceApp": "heardright",
-    "shape": "gaps",
-    "shapeReason": "Right shape with listed gaps: covers what HeardRight does. The remaining gap is on HeardRight's side: iOS pin at 0.8.1 and facades not yet removed. The desktop licence review did not review this module, so the iOS review is used.",
-    "apps": {
-     "heardright": {
-      "fit": "gaps",
-      "note": "Client and store in use; HeardRight keeps its own controller, removal queue, link-code call and bridge client."
-     }
-    },
-    "boundary": [
-     "LicenseController (346) duplicates RightKit LicenseController",
-     "PendingLeaseRemoval and three UserDefaults keys duplicate PendingLicenseRemovalQueue and BridgeConsumptionGate",
-     "Hand-written Windows link-code request duplicates requestWindowsLinkCode",
-     "ProBridge and ProBridgeClient duplicate ContinuityBridgeClient",
-     "StoreKitProController.swift and ProAccessStore.swift are mapped here but belong with RightKitPurchases"
-    ],
-    "actions": [
-     "Tag a version containing ContinuityBridgeClient and move the iOS pin from 0.8.1",
-     "HeardRight: delete its controller, removal queue, link-code call and bridge client for the RightKit owners"
-    ],
-    "depth": "deep",
-    "confidence": "medium",
-    "source": "matrix-rows-aa-heardright.json"
-   }
-  },
-  {
-   "package": "RightKitLiveActivity",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift/Sources/RightKitLiveActivity",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {
-    "heardright": {
-     "loc": 934,
-     "n": 598,
-     "tgt": 1,
-     "any": 55
-    },
-    "coderight": {
-     "loc": 173,
-     "n": 113,
-     "tgt": 2,
-     "any": 7
-    }
-   },
-   "review": {
-    "package": "RightKitLiveActivity",
-    "kind": "swift",
-    "family": "HeardRight review",
-    "existsAs": [
-     "swift/RightKitSwift/Sources/RightKitLiveActivity"
-    ],
-    "feeds": {},
-    "basis": "rewritten lifecycle code; replaced HeardRight's RecordingActivityStateMachine",
-    "referenceApp": "heardright",
-    "shape": "best",
-    "shapeReason": "Right shape for HeardRight (lifecycle): in use through LiveActivityHost and ActivityLifecycle. It has no SwiftUI views and is not a home for the Live Activity views mapped to it.",
-    "apps": {
-     "heardright": {
-      "fit": "fits",
-      "note": "Lifecycle in use; it is not a home for the Live Activity views mapped to it."
-     }
-    },
-    "boundary": [
-     "RecordingActivityViews, RecordingDesignGallery and the ActivityAttributes type (934 lines) are mapped EXTEND here; the module has no view layer and ActivityAttributes must stay in the app",
-     "RecordingLiveActivityController is mapped to RightKitDictation but is an adapter over this module"
-    ],
-    "actions": [
-     "Owner decision whether Live Activity views move to a view target or stay app screens"
-    ],
-    "depth": "deep",
-    "confidence": "medium",
-    "source": "matrix-rows-aa-heardright.json"
-   }
-  },
-  {
-   "package": "RightKitMedia",
-   "kind": "swift",
-   "dir": "",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {
-    "cutright": {
-     "loc": 1859,
-     "n": 1304,
-     "tgt": 0,
-     "any": 46
-    }
-   },
-   "review": {
-    "package": "RightKitMedia",
-    "kind": "swift",
-    "family": "Video editing",
-    "existsAs": [],
-    "feeds": {
-     "cutright": 1859
-    },
-    "basis": "not in RightKit",
-    "referenceApp": "cutright",
-    "shape": "missing",
-    "shapeReason": "No RightKitMedia module in swift/RightKitSwift/Sources or Package.swift. CutRight's macOS media worker (AVFoundation timeline render, Vision, audio finish) has 46 matching lines anywhere.",
-    "apps": {
-     "cutright": {
-      "fit": "gaps",
-      "note": "sidecars/macos-media-worker/*.swift (TimelineRenderService 683 lines) unported"
-     },
-     "heardright": {
-      "fit": "n/a",
-      "note": "uses RightKitAudio/RightKitSpeech"
-     },
-     "viewright": {
-      "fit": "n/a",
-      "note": ""
-     },
-     "genright": {
-      "fit": "n/a",
-      "note": ""
-     }
-    },
-    "boundary": [
-     "rightkit-reframe states \"all Rust, no Swift\" and replaced the Vision anchor worker; the Swift render/vision services may be superseded by the Rust path (suspicion; decide before porting)",
-     "silero-vad-macos.swift duplicates rightkit-vad (suspicion, 8 lines)"
-    ],
-    "actions": [
-     "Decide whether the macOS worker is still CutRight's render path; if superseded mark DROP, otherwise create the module from AssetService/AudioService/VisionService with the wire Protocol.swift"
-    ],
-    "depth": "light",
-    "confidence": "medium",
-    "source": "matrix-rows-video-generative.json"
-   }
-  },
-  {
-   "package": "RightKitMeshLink",
-   "kind": "swift",
-   "dir": "swift/RightKitMeshLink",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {},
-   "review": {
-    "package": "RightKitMeshLink",
-    "kind": "swift",
-    "family": "System utilities",
-    "existsAs": [
-     "swift/RightKitMeshLink"
-    ],
-    "feeds": {
-     "pulse": 2800
-    },
-    "basis": "Pulse swift/MeshLink, identical file",
-    "referenceApp": "pulse",
-    "shape": "gaps",
-    "shapeReason": "Thin Swift wrapper is right; it sits outside RightKitSwift and the Android Kotlin twin has no RightKit home.",
-    "apps": {
-     "pulse": {
-      "fit": "fits",
-      "note": "Pulse*Client.swift stay in the app"
-     }
-    },
-    "boundary": [
-     "Standalone package, not a RightKitSwift module",
-     "android/meshlink Kotlin wrapper not in RightKit"
-    ],
-    "actions": [
-     "State why it is standalone (binary dependency)",
-     "Add the Kotlin wrapper to rightkit-android"
-    ],
-    "depth": "light",
-    "confidence": "medium",
-    "source": "matrix-rows-system-utilities.json"
-   }
-  },
-  {
-   "package": "RightKitNotch",
-   "kind": "swift",
-   "dir": "",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {
-    "pulse": {
-     "loc": 17668,
-     "n": 12801,
-     "tgt": 0,
-     "any": 236
-    }
-   },
-   "review": {
-    "package": "RightKitNotch",
-    "kind": "swift",
-    "family": "System utilities",
-    "existsAs": [],
-    "feeds": {
-     "pulse": 17668
-    },
-    "basis": "none",
-    "referenceApp": "pulse",
-    "shape": "missing",
-    "shapeReason": "No module in RightKitSwift; should be a generic notch surface, not a lift of Pulse's Features and Model.",
-    "apps": {
-     "pulse": {
-      "fit": "gaps",
-      "note": "nothing to adopt"
-     }
-    },
-    "boundary": [
-     "Features/ and Model/ look like Pulse product (not read in depth)"
-    ],
-    "actions": [
-     "Create with generic window, geometry, card container and motion only"
-    ],
-    "depth": "light",
-    "confidence": "medium",
-    "source": "matrix-rows-system-utilities.json"
-   }
-  },
-  {
-   "package": "RightKitOverlay",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift/Sources/RightKitOverlay",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {},
-   "review": {
-    "package": "RightKitOverlay",
-    "kind": "swift",
-    "family": "HeardRight review",
-    "existsAs": [
-     "swift/RightKitSwift/Sources/RightKitOverlay"
-    ],
-    "feeds": {},
-    "basis": "fresh implementation (one file, 804 lines); neither live nor main's HeardRightPillMac depends on it",
-    "referenceApp": "heardright",
-    "shape": "gaps",
-    "shapeReason": "Right shape with listed gaps (panel layer only): panel, key policy, collection behaviour and event names fit. Missing are level, done, hover state, hosting view, anchored animated resize, C interface, pill content and splash.",
-    "apps": {
-     "heardright": {
-      "fit": "gaps",
-      "note": "Panel layer fits; the Mac pill uses none of it; no level, done, hover, animation or C interface."
-     }
-    },
-    "boundary": [
-     "HeardRightNonActivatingPanel plus HeardRightPillPanel duplicate RightKitOverlayPanel with a configuration",
-     "All pill Swift (4,735 lines) is mapped to the Rust crate rightkit-overlay; this module is the only place Swift can go",
-     "Splash, launch hand-off and hub transition (864 lines) are launch behaviour, not overlay"
-    ],
-    "actions": [
-     "Add an audio level path and a smoothing driver",
-     "Add a done outcome or rule that done is status(\"Done\")",
-     "Add hover enter/leave state and a SwiftUI hosting view",
-     "Add anchored resize and generation-guarded frame animation",
-     "Add a logging seam; decide the C interface and whether pill content moves in",
-     "Decide the owner of splash and transitions"
-    ],
-    "depth": "deep",
-    "confidence": "medium",
-    "source": "matrix-rows-aa-heardright.json"
-   }
-  },
-  {
-   "package": "RightKitPurchases",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift/Sources/RightKitPurchases",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {},
-   "review": {
-    "package": "RightKitPurchases",
-    "kind": "swift",
-    "family": "HeardRight review",
-    "existsAs": [
-     "swift/RightKitSwift/Sources/RightKitPurchases"
-    ],
-    "feeds": {},
-    "basis": "rewritten code, not copied",
-    "referenceApp": "heardright",
-    "shape": "best",
-    "shapeReason": "Right shape for HeardRight: PurchaseController is in use; ProAccessStore is still to fold into AccessCache.",
-    "apps": {
-     "heardright": {
-      "fit": "fits",
-      "note": "PurchaseController with StoreKit2Backend in use; ProAccessStore still to fold into AccessCache."
-     }
-    },
-    "boundary": [
-     "Shared/ProAccessStore.swift (57) duplicates AccessCache and AccessResolver",
-     "StoreKitProController.swift and ProAccessStore.swift (397 lines) are mapped to RightKitLicense"
-    ],
-    "actions": [
-     "HeardRight: replace ProAccessStore with AccessCache"
-    ],
-    "depth": "deep",
-    "confidence": "medium",
-    "source": "matrix-rows-aa-heardright.json"
-   }
-  },
-  {
-   "package": "RightKitSpeech",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift/Sources/RightKitSpeech",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {
-    "scraperight": {
-     "loc": 327,
-     "n": 205,
-     "tgt": 10,
-     "any": 19
-    },
-    "heardright": {
-     "loc": 5217,
-     "n": 3431,
-     "tgt": 258,
-     "any": 417
-    },
-    "coderight": {
-     "loc": 121,
-     "n": 0,
-     "tgt": 0,
-     "any": 0
-    }
-   },
-   "review": {
-    "package": "RightKitSpeech",
-    "kind": "swift",
-    "family": "HeardRight review",
-    "existsAs": [
-     "swift/RightKitSwift/Sources/RightKitSpeech"
-    ],
-    "feeds": {},
-    "basis": "rewritten code, not copied; replaced HeardRight's own Parakeet and Whisper runtime (14 files, 2,322 lines)",
-    "referenceApp": "heardright",
-    "shape": "gaps",
-    "shapeReason": "Right shape with listed gaps: engines are in use. Model grant, validator and download owner exist but are unused; RightKit gaps are ANE cache maintenance, the Files-import install path, a download telemetry hook and keyword spotting.",
-    "apps": {
-     "heardright": {
-      "fit": "gaps",
-      "note": "ASR engines in use; model grant, validator and download owners exist but HeardRight keeps its copies."
-     }
-    },
-    "boundary": [
-     "ModelGrantClient.swift (162) duplicates RightKitSpeech.ModelGrantClient",
-     "CoreMLModelValidator exists three times: app (259), Packages/SharedModelRoot (146), RightKit",
-     "ModelArtifactInstaller, ModelDownload*, ModelInstallation (about 2,200) overlap ModelDownloader, ModelInstaller, ModelDownloadCoordinator",
-     "ASRBenchRunner and ComputePlanProbe are mapped ADOPT but are app bench screens",
-     "ANECacheMaintenance is mapped ADOPT but has no RightKit equivalent (should be EXTEND)",
-     "Live ASR runtime files were mapped to app-shell (moot on main)"
-    ],
-    "actions": [
-     "Add ANE cache maintenance and SharedModelPublisher",
-     "Add the Files-import install path (4 GB inflate cap) and a download telemetry hook",
-     "Decide a home for keyword spotting over the Rust core (RustKWSBridge, KeywordCommandDetector)",
-     "HeardRight: delete ModelGrantClient and both CoreMLModelValidator copies, then the download and install copies"
-    ],
-    "depth": "deep",
-    "confidence": "medium",
-    "source": "matrix-rows-aa-heardright.json"
-   }
-  },
-  {
-   "package": "RightKitStore",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift/Sources/RightKitStore",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {},
-   "review": {
-    "package": "RightKitStore",
-    "kind": "swift",
-    "family": "HeardRight review",
-    "existsAs": [
-     "swift/RightKitSwift/Sources/RightKitStore"
-    ],
-    "feeds": {},
-    "basis": "rewritten code, not copied; AppGroupFileLock is the same flock loop as live HeardRight",
-    "referenceApp": "heardright",
-    "shape": "best",
-    "shapeReason": "Right shape for HeardRight: command queue, owner lease, revisioned state and file lock are all in use in MAIN.",
-    "apps": {
-     "heardright": {
-      "fit": "fits",
-      "note": "Command queue, owner lease, revisioned state and file lock all in use on main."
-     }
-    },
-    "boundary": [],
-    "actions": [
-     "iOS pin is 0.8.1 while the Mac pill pins 0.9.0; move to one published pin"
-    ],
-    "depth": "deep",
-    "confidence": "medium",
-    "source": "matrix-rows-aa-heardright.json"
-   }
-  },
-  {
-   "package": "RightKitSwift",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift",
-   "class": "add-on",
-   "domain": "apple",
-   "rowsOwned": [],
-   "version": "0.9.1",
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "ahead",
-    "viewright": "unused",
-    "pulse": "adopted",
-    "coderight": "adopted",
-    "genright": "unused",
-    "mailright": "unused",
-    "scraperight": "adopted",
-    "cutright": "unused",
-    "postright": "unused",
-    "legion": "unused"
-   },
-   "plan": {},
-   "review": {
-    "package": "RightKitSwift",
-    "kind": "swift",
-    "family": "Remaining packages",
-    "existsAs": [
-     "swift/RightKitSwift (VERSION 0.9.1, unreleased; 39 RightKit modules, one C target, 2 executables)"
-    ],
-    "feeds": {
-     "pulse": 58785,
-     "heardright": 46179,
-     "coderight": 36435,
-     "scraperight": 5099,
-     "cutright": 1859
-    },
-    "basis": "Mostly rewritten RightKit code (line matching finds little app code in it), except RightKitHub, HubQA, Engine and EngineClient which are Pulse's files",
-    "referenceApp": "heardright",
-    "shape": "gaps",
-    "shapeReason": "The package is in real use by four apps at one pinned version, and the foundation modules fit. But 62% of the Swift lines the plan maps (92,690 of 148,357) point at six modules that do not exist, and another 26,478 point at RightKitHubQA, which is the wrong home.",
-    "apps": {
-     "heardright": {
-      "fit": "gaps",
-      "note": "main imports 13 products on iOS at 0.8.1 and one on the Mac pill at 0.9.0; LIVE uses RightKitUI only, from the retired mirror at 0.1.1; about 6,700 lines of own copies remain (hr-review-ios-swift.md)"
-     },
-     "pulse": {
-      "fit": "gaps",
-      "note": "pins 0.8.1 by URL github.com/bogusyogi/rightkit; imports Hub, Accessibility, Overlay, EngineClient, Watch, Hotkeys, Diagnostics, AppleCredentials, License, FS, DB, Credentials, Store; Hub/Engine/Presentation come from a local path package"
-     },
-     "coderight": {
-      "fit": "gaps",
-      "note": "iOS and Mac helper pin 0.8.1 by URL github.com/Orthic-Labs/rightkit; imports Credentials, License, FS, AppleCredentials, UI, Store, Purchases, LiveActivity, Diagnostics, CloudSync; 30,723 planned lines wait on RightKitAgent"
-     },
-     "scraperight": {
-      "fit": "fits",
-      "note": "iOS pins 0.8.1; imports License, CloudSync, Purchases, FS, Speech, ImportQueue, AppleCredentials, Diagnostics, Artifacts; 1,072 lines wait on RightKitLibrary"
-     },
-     "cutright": {
-      "fit": "gaps",
-      "note": "15 Swift files, 1,859 lines, all mapped to RightKitMedia, which does not exist"
-     },
-     "viewright": {
-      "fit": "n/a",
-      "note": "no Swift"
-     },
-     "genright": {
-      "fit": "n/a",
-      "note": "no Swift"
-     },
-     "mailright": {
-      "fit": "n/a",
-      "note": "no Swift"
-     },
-     "postright": {
-      "fit": "n/a",
-      "note": "no Swift"
-     }
-    },
-    "boundary": [
-     "Planned but missing modules: RightKitAgent 34,981 (coderight 30,723, pulse 4,258), RightKitSystemUI 21,612 (pulse), RightKitNotch 17,668 (pulse), RightKitDictation 10,514 (heardright), RightKitLibrary 6,056 (heardright 4,984, scraperight 1,072), RightKitMedia 1,859 (cutright)",
-     "RightKitHubQA receives 26,478 planned lines of app tests (heardright 16,048, coderight 6,899, pulse 3,531); it is three files of desktop Hub fakes (hr-review-ios-swift.md:288-292)",
-     "RightKitWatch is an FSEvents file watcher; HeardRight's 3,476 Apple Watch lines are mapped to it (hr-review-ios-swift.md)",
-     "RightKitPresentation is imported by Pulse and absent from the package",
-     "RightKitMeshLink is a separate package outside RightKitSwift's versioning (family-system-utilities.md:66)",
-     "Two repository URLs for the same pin: bogusyogi/rightkit (Pulse) and Orthic-Labs/rightkit (CodeRight, ScrapeRight, HeardRight) [verified]; whether both stay valid is not verified",
-     "RightKitHTTP and RightKitUpdate are imported by no app"
-    ],
-    "actions": [
-     "Release 0.9.1 (tree is ahead of every app's pin)",
-     "Create or reassign the six missing modules before any app is told to move code: Agent and Dictation first, they carry the most lines",
-     "Remove app tests from the RightKitHubQA and RightKitWatch targets in the plan; app tests stay with the app",
-     "Add RightKitPresentation; bring RightKitMeshLink under the same version",
-     "One repository URL in every app manifest"
-    ],
-    "depth": "light",
-    "confidence": "medium",
-    "source": "matrix-rows-remaining.json"
-   }
-  },
-  {
-   "package": "RightKitSystemUI",
-   "kind": "swift",
-   "dir": "",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {
-    "pulse": {
-     "loc": 21612,
-     "n": 13192,
-     "tgt": 0,
-     "any": 1622
-    }
-   },
-   "review": {
-    "package": "RightKitSystemUI",
-    "kind": "swift",
-    "family": "System utilities",
-    "existsAs": [],
-    "feeds": {
-     "pulse": 21612
-    },
-    "basis": "none",
-    "referenceApp": "pulse",
-    "shape": "missing",
-    "shapeReason": "No module in RightKitSwift; it is the SwiftUI twin of @rightkit/system-ui and should share that package's contract.",
-    "apps": {
-     "pulse": {
-      "fit": "gaps",
-      "note": "nothing to adopt"
-     }
-    },
-    "boundary": [
-     "Chat, Membrane and Devices sections belong to other families (not verified)"
-    ],
-    "actions": [
-     "Create section by section after the React package's client contract is settled"
-    ],
-    "depth": "light",
-    "confidence": "low",
-    "source": "matrix-rows-system-utilities.json"
-   }
-  },
-  {
-   "package": "RightKitUI",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift/Sources/RightKitUI",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {
-    "scraperight": {
-     "loc": 422,
-     "n": 264,
-     "tgt": 0,
-     "any": 4
-    },
-    "pulse": {
-     "loc": 2745,
-     "n": 2100,
-     "tgt": 8,
-     "any": 14
-    },
-    "heardright": {
-     "loc": 1563,
-     "n": 946,
-     "tgt": 0,
-     "any": 51
-    },
-    "coderight": {
-     "loc": 835,
-     "n": 541,
-     "tgt": 0,
-     "any": 24
-    }
-   },
-   "review": {
-    "package": "RightKitUI",
-    "kind": "swift",
-    "family": "Foundation: shell and UI",
-    "existsAs": [
-     "swift/RightKitSwift/Sources/RightKitUI"
-    ],
-    "feeds": {
-     "scraperight": 422,
-     "pulse": 2745,
-     "heardright": 1563,
-     "coderight": 835
-    },
-    "basis": "fresh, two files (glass surface, contrast)",
-    "referenceApp": "heardright",
-    "shape": "wrong",
-    "shapeReason": "The module is fine for what it holds, but about 5.5k planned lines mapped to it are settings models, app entry points, File Provider and widget code, none of which is UI kit.",
-    "apps": {
-     "heardright": {
-      "fit": "n/a",
-      "note": "see hr-review-ios-swift.md; not covered by the two reviews used here"
-     },
-     "viewright": {
-      "fit": "n/a",
-      "note": ""
-     },
-     "pulse": {
-      "fit": "wrong",
-      "note": "Mac notch Preferences.swift and settings enums belong with RightKitStore and generated settings, or stay app-side"
-     },
-     "coderight": {
-      "fit": "wrong",
-      "note": "iOS app entry, File Provider extension and widgets are not UI kit"
-     }
-    },
-    "boundary": [
-     "mapping error throughout",
-     "contrast maths now in three languages (TypeScript, Rust, Swift)",
-     "Five onboarding files (1,563 lines) are mapped here; they are HeardRight screens with HeardRight copy",
-     "Mapping document sends 23 scaffold files / 3,903 lines here while the inventory JSON marks them app-shell"
-    ],
-    "actions": [
-     "re-map",
-     "generate Swift tokens from rightkit-theme instead of hand-written contrast",
-     "Add onboarding and settings scaffolds only if a second app will use them; otherwise they are app screens",
-     "Make the mapping document and inventory JSON agree"
-    ],
-    "depth": "light",
-    "confidence": "medium",
-    "source": "matrix-rows-aa-heardright.json, matrix-rows-foundation-shell-ui.json"
-   }
-  },
-  {
-   "package": "RightKitUpdate",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift/Sources/RightKitUpdate (1,234 lines)",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {
-    "pulse": {
-     "loc": 703,
-     "n": 460,
-     "tgt": 59,
-     "any": 77
-    },
-    "coderight": {
-     "loc": 127,
-     "n": 75,
-     "tgt": 3,
-     "any": 7
-    }
-   },
-   "review": {
-    "package": "RightKitUpdate",
-    "kind": "swift",
-    "family": "Remaining packages",
-    "existsAs": [
-     "swift/RightKitSwift/Sources/RightKitUpdate (1,234 lines)"
-    ],
-    "feeds": {
-     "pulse": 703,
-     "coderight": 127
-    },
-    "basis": "RightKit rewrite shaped on Pulse's Mac updater (the Developer ID requirement text and relauncher match Pulse's lines) with feeds, channels, tiers and boot probation added",
-    "referenceApp": "pulse",
-    "shape": "gaps",
-    "shapeReason": "Feed protocol (GitHub release, static manifest, App Store lookup), verifier protocol and installer protocol are the right boundaries for both apps. The Mac installer is weaker than Pulse's: it swaps with replaceItemAt and has no swap journal, install lock or finish-after-crash step. No app imports the module.",
-    "apps": {
-     "pulse": {
-      "fit": "gaps",
-      "note": "mac/Notch/Sources/Updater/UpdateInstaller.swift:58-163 keeps a swap journal, takes an install lock, swaps with renamex_np and finishes a pending swap at next launch; MacInstall.swift:279 has none of these [verified by grep]. Bundle id and team id are constants in Pulse (UpdateVerifier.swift:7-8) and parameters here"
-     },
-     "coderight": {
-      "fit": "fits",
-      "note": "iOS Updates/UpdateAwareness.swift compares a static latest version and links to the App Store (placeholder id); AppStoreLookupFeed covers it. WhatsNewView.swift (58) is a view and stays out"
-     },
-     "heardright": {
-      "fit": "n/a",
-      "note": "HeardRight/AppUpdateController.swift (115) was flagged `check against RightKitUpdate`, not verified (hr-review-ios-swift.md:377)"
-     }
-    },
-    "boundary": [
-     "The Rust side has rightkit-app-update and @rightkit/app-update: three update owners across languages; the manifest and tier vocabulary should be one contract [not compared]",
-     "SemanticVersion exists here and in Pulse (34 lines) and is mapped ADOPT"
-    ],
-    "actions": [
-     "Port Pulse's journalled swap, install lock and finishPendingSwap into MacAppInstaller before Pulse adopts it",
-     "Keep verifier identifiers as parameters (already so)",
-     "Check the manifest and tier names against rightkit-app-update"
-    ],
-    "depth": "deep",
-    "confidence": "medium",
-    "source": "matrix-rows-remaining.json"
-   }
-  },
-  {
-   "package": "RightKitWatch",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift/Sources/RightKitWatch",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {
-    "heardright": {
-     "loc": 3476,
-     "n": 2299,
-     "tgt": 20,
-     "any": 145
-    }
-   },
-   "review": {
-    "package": "RightKitWatch",
-    "kind": "swift",
-    "family": "HeardRight review",
-    "existsAs": [
-     "swift/RightKitSwift/Sources/RightKitWatch"
-    ],
-    "feeds": {},
-    "basis": "fresh implementation of a macOS FSEvents file watcher; holds no HeardRight code",
-    "referenceApp": "heardright",
-    "shape": "wrong",
-    "shapeReason": "Wrong shape: it is an FSEvents file watcher (the target is empty on iOS), not Apple Watch code. The 19 Apple Watch files mapped to it belong with RightKitWatchBridge, RightKitAudio and a new watch-recording home.",
-    "apps": {
-     "heardright": {
-      "fit": "wrong",
-      "note": "An FSEvents file watcher for macOS; no Apple Watch code belongs here."
-     }
-    },
-    "boundary": [
-     "19 Apple Watch files (3,476 lines on main) are mapped here by mistake",
-     "HeardRight does not declare this product"
-    ],
-    "actions": [
-     "Correct the mapping so no file is planned into RightKitWatch",
-     "Choose a watch-recording home that is not this module"
-    ],
-    "depth": "deep",
-    "confidence": "medium",
-    "source": "matrix-rows-aa-heardright.json"
-   }
-  },
-  {
-   "package": "RightKitWatchBridge",
-   "kind": "swift",
-   "dir": "swift/RightKitSwift/Sources/RightKitWatchBridge",
-   "class": "planned",
-   "domain": "planned",
-   "rowsOwned": [],
-   "version": null,
-   "registryLatest": null,
-   "published": "n/a",
-   "pins": {
-    "heardright": "-",
-    "viewright": "-",
-    "pulse": "-",
-    "coderight": "-",
-    "genright": "-",
-    "mailright": "-",
-    "scraperight": "-",
-    "cutright": "-",
-    "postright": "-",
-    "legion": "-"
-   },
-   "plan": {},
-   "review": {
-    "package": "RightKitWatchBridge",
-    "kind": "swift",
-    "family": "HeardRight review",
-    "existsAs": [
-     "swift/RightKitSwift/Sources/RightKitWatchBridge"
-    ],
-    "feeds": {},
-    "basis": "rewritten code, not copied",
-    "referenceApp": "heardright",
-    "shape": "gaps",
-    "shapeReason": "Right shape with listed gaps: ledger and senders are in use. It has no WCSessionDelegate halves and no recovery store, and is one candidate home for watch recording.",
-    "apps": {
-     "heardright": {
-      "fit": "gaps",
-      "note": "Ledger and senders in use; no WCSessionDelegate halves and no recovery store."
-     }
-    },
-    "boundary": [
-     "19 Apple Watch files (3,476 lines) are mapped to RightKitWatch, which is an FSEvents file watcher; this module and RightKitAudio are the real owners"
-    ],
-    "actions": [
-     "Decide the watch-recording home: extend this module with the two WCSessionDelegate halves or add a watchOS slice to RightKitDictation",
-     "Add a recovery store"
-    ],
-    "depth": "deep",
-    "confidence": "medium",
-    "source": "matrix-rows-aa-heardright.json"
    }
   }
  ]

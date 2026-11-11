@@ -2,7 +2,7 @@
 
 Generated 2026-11-11T17:49Z from RightKit 55b330d.
 
-Packages: 305 (222 crates, 53 npm, 30 Swift). Reviewed for shape: 305 (best 67, gaps 181, wrong 50, missing 7). Not yet reviewed: 0.
+Packages: 306 (223 crates, 53 npm, 30 Swift). Reviewed for shape: 306 (best 67, gaps 197, wrong 35, missing 7). Not yet reviewed: 0.
 
 Cell: review fit · pin state on the app's main · planned lines and the share found in the package. Empty means the app has nothing for the package.
 
@@ -20,21 +20,22 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `@rightkit/agent-ui-workbench` | npm | yes | gaps (family) | family verdict of @rightkit/agent-ui |  |  | gaps | fits |  | gaps |  |  |  |  |
 | `@rightkit/terminal-ui` | npm | yes | best | CodeRight's web terminal component |  |  |  | fits · 1370L 98% |  |  |  |  |  |  |
 | `rightkit-agent-demo` | cargo | yes | gaps | CutRight's agent demo mode |  |  |  |  |  |  |  | fits · 4434L 79% |  |  |
-| `rightkit-agent-engine` | cargo | yes | wrong | Two unrelated things under one name: the base crate is Pulse's always-on task contract (core/src/agent); the 14 -* crates are CodeRight's turn-loop engine |  |  | gaps · 5097L 13% | gaps · 124089L 82% |  |  |  |  |  |  |
-| `rightkit-agent-engine-api-integrations` | cargo | no (0.1.2, registry 0.1.1) | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
-| `rightkit-agent-engine-api-platform` | cargo | no (0.1.2, registry 0.1.1) | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
-| `rightkit-agent-engine-api-sessions` | cargo | yes | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
-| `rightkit-agent-engine-api-workflows` | cargo | yes | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
-| `rightkit-agent-engine-attention` | cargo | no (0.1.2, registry 0.1.1) | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
-| `rightkit-agent-engine-cli` | cargo | yes | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps · ahead |  |  |  |  |  |  |
-| `rightkit-agent-engine-core` | cargo | yes | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
-| `rightkit-agent-engine-history` | cargo | no (0.1.2, registry 0.1.1) | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
-| `rightkit-agent-engine-mobile-runtime` | cargo | yes | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
-| `rightkit-agent-engine-protocol` | cargo | no (0.1.2, registry 0.1.1) | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
-| `rightkit-agent-engine-runtime-middleware` | cargo | no (0.1.2, registry 0.1.1) | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
-| `rightkit-agent-engine-runtime-resources` | cargo | yes | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps · ahead |  |  |  |  |  |  |
-| `rightkit-agent-engine-storage` | cargo | yes | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
-| `rightkit-agent-engine-tasks` | cargo | yes | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine` | cargo | yes | gaps | facade over CodeRight's turn loop plus Pulse's task contract (decision 4, pending owner confirmation) |  |  | gaps · 5097L 13% | gaps · 124089L 82% |  |  |  |  |  |  |
+| `rightkit-agent-task-contract` | cargo | no (0.1.0, registry none) | gaps | Pulse's task contract (moved from the old base crate); product strings caller-supplied |  |  |  |  |  |  |  |  |  |
+| `rightkit-agent-engine-api-integrations` | cargo | no (0.1.2, registry 0.1.1) | gaps (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine-api-platform` | cargo | no (0.1.2, registry 0.1.1) | gaps (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine-api-sessions` | cargo | yes | gaps (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine-api-workflows` | cargo | yes | gaps (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine-attention` | cargo | no (0.1.2, registry 0.1.1) | gaps (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine-cli` | cargo | yes | gaps (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps · ahead |  |  |  |  |  |  |
+| `rightkit-agent-engine-core` | cargo | yes | gaps (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine-history` | cargo | no (0.1.2, registry 0.1.1) | gaps (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine-mobile-runtime` | cargo | yes | gaps (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine-protocol` | cargo | no (0.1.2, registry 0.1.1) | gaps (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine-runtime-middleware` | cargo | no (0.1.2, registry 0.1.1) | gaps (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine-runtime-resources` | cargo | yes | gaps (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps · ahead |  |  |  |  |  |  |
+| `rightkit-agent-engine-storage` | cargo | yes | gaps (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine-tasks` | cargo | yes | gaps (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
 | `rightkit-agent-gateway` | cargo | yes | wrong | rightkit-agent-gateway is MailRight's mail gateway (drafts, forward, send-with-approval, Gmail seams); Pulse's gateway is a separate crate, rightkit-remote-gateway |  |  | wrong · 20758L 1% |  |  | fits · ahead · 14620L 34% |  |  |  |  |
 | `rightkit-agent-host-traits` | cargo | no (0.1.3, registry 0.1.2) | best | CodeRight host seam traits (not fed by a plan target) |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-agent-orchestration` | cargo | yes | gaps | CodeRight's orchestration crate; -handoff also matches some Pulse transcript lines |  |  |  | fits · 37870L 80% |  |  |  |  |  |  |
@@ -386,7 +387,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-video-project` | cargo | yes | gaps | CutRight cutright-project moved (project, ingest, render, source, probe, worker, loudness, lock, audio_sync, still) |  |  |  |  |  |  |  | gaps · ahead · 14524L 35% |  |  |
 | `RightKitMedia` | swift | n/a | missing | not in RightKit |  |  |  |  |  |  |  | gaps · 1859L 0% |  |  |
 
-## Wrong shape (33 packages; sub-crates that inherit a family verdict are not repeated)
+## Wrong shape (32 packages; sub-crates that inherit a family verdict are not repeated)
 
 | Package | Why | Reference app |
 |---|---|---|
@@ -401,7 +402,6 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `@rightkit/video-ui` | It is the CutRight application frontend, not a component library: Home, Settings, legal config, demo mode, app name, GenRight client, and Tauri invokes of commands that exist only in the CutRight shell. | cutright |
 | `@rightkit/workspace-ui` | Every view imports mail-ui internals (store, hooks, ipc, icons), so the package cannot be used without the mail app's state. | mailright |
 | `rightkit-adapt` | Two unrelated subsystems under one name with no shared type and no dependency between them; the Pulse one (the reference) has the suffixed name. | pulse |
-| `rightkit-agent-engine` | The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types. | coderight for the turn loop; pulse for the task/authority contract |
 | `rightkit-agent-gateway` | The package named 'agent gateway' is a mail product: it depends on rightkit-mail and its methods are mail verbs. Pulse's gateway shares none of its code. The common part (pairing, gate pipeline, audit, pending approvals, untrusted-content wrapping, redaction) exists twice and is not factored out. | pulse for gate order, approval binding, redaction and refusal codes; mailright for the paired-agent registry and SQL audit (the more general design: several agents, each with a profile and account scope) |
 | `rightkit-agent-server` | It is CodeRight's application binary under a library name: 532 'coderight' strings, benchmarks, harness-radar data, and its own copies of the scheduler (3.0k), GitHub App (3.5k), workflow (7.2k) and Telegram (0.7k) modules. It does not depend on rightkit-scheduler or rightkit-github. | coderight |
 | `rightkit-app-host` | A process-global host registry created by moving Pulse code; not a capability every desktop app adopts, so it should not sit in the mandatory set. Low confidence: README only. | pulse |
@@ -478,7 +478,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 - `rightkit-agent-config` (gaps): compare with Pulse's agent configuration before publishing as the shared shape; publish 0.1.0
 - `rightkit-agent-daemon` (gaps): decide whether it folds into rightkit-agent-server when that crate is split; publish 0.1.0
 - `rightkit-agent-demo` (gaps): Remove product names; Not read for behaviour
-- `rightkit-agent-engine` (wrong): Rename the base crate rightkit-agent-task-contract (or fold into engine-protocol) and make rightkit-agent-engine a facade over the -* crates; Delete the duplicated Principal/DeviceRef/EffectClass; one home (device-link-types or the contract crate), re-exported; Move voice.rs to the dictation/voice family or make chat label and policy ref host parameters; Move task_cli.rs out to a CLI crate; Adopt Pulse's rule in the CodeRight loop: approval always bound to a digest of the exact arguments, destination, expiry and revision; map ExternalEffectSettlement::InterruptedUnknown to TaskStatus::Uncertain; Rename CodeRight TaskNode/TaskState to PlanTask* so the two task concepts cannot be confused
+- `rightkit-agent-engine` (gaps): at the moment of use check approvals with Binding::check (expiry and revision), not the stored digest string; rename CodeRight TaskNode/TaskState to PlanTask*; remove the rightkit-mesh-ffi DeviceRef/Platform copies; merge the three EffectClass definitions (policy-rules, agent-policy legion adapter, evidence-contracts); split rightkit-agent-server; owner to confirm decision 4; publish 0.2.0
 - `rightkit-agent-gateway` (wrong): Extract a generic core as rightkit-agent-gateway: agent registry (hashed key, profile, scopes, revoke), gate pipeline (key, lock, profile, scope, rate limit, handler, one audit row), audit store trait (SQL and JSONL), Origin/door, Refusal with stable codes, untrusted-content wrapper; Rename today's crate rightkit-mail-agent-gateway (mail family) on top of the core; Rebase rightkit-remote-gateway on the same core; move ChatGPT and media-app specifics behind host-registered tools; Move all three approval stores to rightkit-approvals; One redaction module (Pulse's masking) plus MailRight's leak assertion as its test helper
 - `rightkit-agent-local-models` (gaps): publish 0.1.0
 - `rightkit-agent-orchestration` (gaps): Put repo-graph and code-audit coupling behind features; Not read for behaviour
@@ -497,7 +497,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 - `rightkit-app-settings` (gaps): extend the manifest for per-platform defaults and ranges, or retire one generator; document Document vs Store<T>; publish 0.4.0; move agent_config to its own crate; publish 0.3.3+; Publish and pin >= 0.3.3 so Store::snapshot() gives per-field repair on the UI read (S11); main pins 0.3.1; Windows replace is rename, not ReplaceFileW/write-through (S10); power-loss behaviour not verified; Check stat-per-snapshot cost on hot paths such as the hotkey hook (S8, suspicion)
 - `rightkit-app-update` (gaps): move the runtime-neutral update core out of rightkit-tauri-shell into this crate; use Pulse windows/src/update.rs as the Windows reference
 - `rightkit-apple-ops` (gaps): confirm no overlap with packages/release upload code; split App Store Connect client from build analysis and profiling if a second consumer needs only one
-- `rightkit-approvals` (gaps): CodeRight: make PendingApprovalContext.payload_digest a mandatory core Binding (with the engine merge, decision 4); MailRight: bind the decision to the display digest (needs a schema column); owner to confirm decision 3; publish 0.2.0
+- `rightkit-approvals` (gaps): MailRight: bind the decision to the display digest (needs a schema column); owner to confirm decision 3; publish 0.2.0
 - `rightkit-asr` (gaps): Take main's tdt_beam rank scratch buffer (A8); Put the KWS parity tests and fixtures the changelog cites into the crate (S4); parakeet_coreml: port command-locator alignment, window health, hypothesis batching, fused graph (S5); whisper: decide on the Windows CLI fallback (S8); Reconcile onnx_tdt with heardright-onnx-asr, then HeardRight deletes its crate and three parakeet-core files (S10); Pin: 0.4.2 changes Windows duration cap 2 to 4; main already overrides to 4 (S6)
 - `rightkit-audio` (best): Route helper matches by exact platform id; HeardRight must convert its saved setting first, then drop the wrapper; Bump pin 0.3.1 to 0.3.4; whether route.rs exists in 0.3.1 not verified
 - `rightkit-autoedit` (gaps): Compare rules/ladder.rs with rightkit-review ladder and keep one; Move or justify cmd/mic.rs; Rename schema ids; Port edit-plan commands once the decision ledger has a home

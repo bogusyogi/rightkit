@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.6 (unpublished)
+
+- Requires `rightkit-agent-engine-protocol` 0.2.0, whose approval records carry the approvals core's `Binding` (mandatory digest) instead of an optional `payload_digest`. Decision 4 of the 2026-11-11 shape review (docs/audits/2026-11-11-shape-matrix/README.md, "Agent engine") taken on the recommended option, pending the owner's confirmation; design note: docs/audits/2026-11-11-shape-matrix/reports/agent-engine-contract-design.md.
+
 ## 0.7.5
 
 - Publishes the source changes made since 0.7.4 was published under the same version number (src/agent_mcp/config.rs, src/agent_mcp/manager.rs, src/agent_mcp/mod.rs, src/agent_mcp/oauth.rs, src/agent_mcp/transport.rs, src/agent_mcp/trust_gate.rs).

@@ -2,7 +2,7 @@
 autotests = false
 autobins = false
 name = "rightkit-agent-server"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Agent server host: HTTP/daemon API routes, CLI and interactive-session runtime, session hosting and orchestration glue for coding-agent applications"
@@ -26,8 +26,8 @@ rightkit-agent-host-traits = { version = "0.1.1", path = "../rightkit-agent-host
 rightkit-agent-plugins = { version = "0.1.1", path = "../rightkit-agent-plugins" }
 rightkit-agent-recipes = { version = "0.1.0", path = "../rightkit-agent-recipes" }
 rightkit-onnx = { version = "0.2.9", path = "../rightkit-onnx", features = ["agent_ort"], default-features = false }
-rightkit-agent-engine-protocol = { version = "0.1.1", path = "../rightkit-agent-engine-protocol" }
-rightkit-agent-engine-core = { version = "0.1.0", path = "../rightkit-agent-engine-core" }
+rightkit-agent-engine-protocol = { version = "0.2.0", path = "../rightkit-agent-engine-protocol" }
+rightkit-agent-engine-core = { version = "0.1.1", path = "../rightkit-agent-engine-core" }
 rightkit-hooks = { version = "0.2.3", path = "../rightkit-hooks", features = ["agent_hooks", "agent_hooks-host-env"] }
 rightkit-llm = { version = "0.3.2", path = "../rightkit-llm", features = ["agent_providers", "agent_providers-host-env", "agent_router"] }
 rightkit-memory = { version = "0.1.1", path = "../rightkit-memory", features = ["agent_host"] }
