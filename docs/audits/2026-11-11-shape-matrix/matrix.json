@@ -2548,10 +2548,10 @@
     "feeds": {
      "heardright": 53827
     },
-    "basis": "Not re-reviewed. Verdict copied from the row `rightkit-ml-lab` in matrix-rows-context-tooling.json (Foundation & tooling family). That row's basis: HeardRight training and evaluation scripts copied with their directory layout",
+    "basis": "Private ASR tooling (0.2.0, branch): ten bake-off adapters with a written contract, the WER scorer, the bundle-size qualifier, CoreML conversion and benchmark; HeardRight's experiments removed from RightKit",
     "referenceApp": "heardright",
-    "shape": "wrong",
-    "shapeReason": "A private, unbuilt file dump of one product's experiments: no entry points, no dependency manifest, machine paths, dated experiment folders. Not a shared package and not publishable.",
+    "shape": "gaps",
+    "shapeReason": "Redrawn on decision 8's recommended option: a small private tooling package with a manifest (package.json bin, exports, test; requirements/asr-adapters.txt and requirements/coreml.txt), entry points and a contract (asr-bakeoff/CONTRACT.md, which the adapters referred to but which had never been moved). No machine paths: adapter model and output directories default under the working directory, the VAD converter takes its ONNX path, the WER scorer has no built-in HeardRight vocabulary (--terms, --term-group) and hashes no HeardRight file; its self-test passes. Removed from RightKit (they stay with HeardRight): 17 dated bakeoff folders, training and screening pipelines, polish replay, bias experiments, streaming benches, wake-word and corpus tools, the control runner, report and roster, and the CoreML diagnostics bound to HeardRight's model registry (298 files to 30, about 46,000 lines removed). Remaining items are gaps.",
     "apps": {
      "heardright": {
       "fit": "wrong",
@@ -2568,9 +2568,9 @@
      "plan lists it as a crate; it is an npm package marked private"
     ],
     "actions": [
-     "do not publish",
-     "keep experiments (bakeoff/*, tools/zephyr_*, local-model-training) in a HeardRight research repository",
-     "extract only reusable pieces: WER scoring and ASR adapter harness to the bench package, CoreML/ONNX conversion to a model-tools package with a pinned Python manifest"
+     "pin exact Python versions in requirements/*.txt from a verified adapter and conversion run (only the lower bounds the scripts state are recorded)",
+     "run one adapter and the CoreML conversion end to end on their target machines",
+     "owner to confirm decision 8"
     ],
     "depth": "deep",
     "confidence": "high",
@@ -3753,10 +3753,10 @@
     "feeds": {
      "pulse": 7889
     },
-    "basis": "Pulse hub/src verbatim (api.ts differs by 18 lines)",
+    "basis": "Pulse's system views (Storage, Cleanup, Duplicates, Drive health, Apps, Activity) and chart helpers over host-supplied SystemClient/AppsClient (0.2.0, branch); chat, onboarding, legal and logging bootstrap deleted; device/remote clients, launcher and nearby settings moved to agent-ui-approvals",
     "referenceApp": "pulse",
-    "shape": "wrong",
-    "shapeReason": "Views call Tauri invoke directly with Pulse command names, carry Pulse strings and bundle chat, nearby, launcher settings, onboarding and legal; a second app cannot adopt it.",
+    "shape": "gaps",
+    "shapeReason": "Redrawn: the transport is injected (configureSystemHost with a typed SystemClient and AppsClient, typed SystemEventMap events; no @tauri-apps/api import and no command name in the package; Cleanup's private second client over the same commands is gone); product name and storage-key prefix come from the host (no Pulse string, no pulse.hub.* key); the non-system modules are out: chat, onboarding, legal, the import-time logging/device clients and the unused share client deleted (Pulse keeps its own; owners are agent-ui-*, @rightkit/onboarding, @rightkit/legal-ui, @rightkit/send-ui), and the device-link, remote-approval, remote-unlock, browser-login, secure-box and notch-setting clients with the launcher and nearby settings, settingsKit, QR and their stylesheets moved to @rightkit/agent-ui-approvals, their only user (0.2.0, branch). Packed-archive recipe passes. Remaining items are gaps.",
     "apps": {
      "pulse": {
       "fit": "fits",
@@ -3771,10 +3771,9 @@
      "Monitor and Overview named but absent"
     ],
     "actions": [
-     "Inject the transport",
-     "Remove product strings",
-     "Move non-system views to their packages",
-     "Add or drop Monitor/Overview"
+     "move Monitor (and Overview, if it is system UI) from @rightkit/agent-ui-approvals into this package over SystemClient",
+     "owner to confirm the system-ui redraw",
+     "publish 0.2.0 (agent-ui-approvals 0.2.0 depends on it)"
     ],
     "depth": "deep",
     "confidence": "high",
@@ -4338,10 +4337,10 @@
     "feeds": {
      "mailright": 2722
     },
-    "basis": "MailRight Calendar/Drive/Contacts/Tasks/Meet views",
+    "basis": "MailRight's calendar, contacts, Drive, tasks and Meet views and their navs over a host-supplied WorkspaceHost (0.2.0, branch); navs, useDrive, calendar helpers, avatar helpers and the workspace data model moved here from mail-ui",
     "referenceApp": "mailright",
-    "shape": "wrong",
-    "shapeReason": "Every view imports mail-ui internals (store, hooks, ipc, icons), so the package cannot be used without the mail app's state.",
+    "shape": "best",
+    "shapeReason": "Redrawn: every view and nav renders over a WorkspaceHost the app supplies (WorkspaceHostProvider): a typed WorkspaceClient for every call, a selector hook over the host's WorkspaceState slices (MailRight's zustand store satisfies it unchanged, checked by mail-ui's typecheck), and host actions for errors, notices, dialogs, preferences, compose, downloads and view switches; the account switcher is an optional host component. Nothing is imported from @rightkit/mail-ui (the dependency now runs the other way); glyphs come from lucide-react. The Drive, calendar, contacts and tasks navs, useDrive, calendarUtils, WEEKDAYS, colorFor/initialOf and the workspace types are deleted from mail-ui, which re-exports them from here and supplies MailRight's host (mailWorkspaceHost) (0.2.0, branch). Packed-archive recipe passes.",
     "apps": {
      "mailright": {
       "fit": "fits",
@@ -4353,9 +4352,8 @@
      "useDrive, CalendarNav, DriveNav mapped here but sit in mail-ui"
     ],
     "actions": [
-     "own client interface and state slices",
-     "move Drive/Calendar hooks, nav and IPC from mail-ui",
-     "shared icons/account switcher in a lower package"
+     "owner to confirm the workspace-ui redraw",
+     "publish 0.2.0 before @rightkit/mail-ui 0.2.0 (mail-ui depends on it)"
     ],
     "depth": "light",
     "confidence": "high",
@@ -15142,17 +15140,17 @@
      "crates/rightkit-google-identity"
     ],
     "feeds": {},
-    "basis": "fresh protocol-only Sign in with Google",
-    "referenceApp": "none",
-    "shape": "wrong",
-    "shapeReason": "Duplicates PKCE and ID-token verification already in rightkit-oauth (which google-apis uses); no dependant; endpoints marked unverified.",
+    "basis": "Deprecated re-export of rightkit-oauth's google module, publish = false from 0.3.0 (branch); its PKCE, token bodies, RSA verifier and ID-token verification deleted",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Its duplicates are deleted in favour of rightkit-oauth (feature google): PKCE, authorization URL and redirect parsing, token bodies, base64url, the in-crate RSA verifier and ID-token verification, RefreshTokenStore and the never-implemented IdTokenProvider seam; nothing Google-specific remained that rightkit-oauth lacks (GoogleIdVerifier, verify_with_jwks, GoogleSession, DRIVE_APPDATA_SCOPE, GOOGLE_ISSUERS), so the crate only re-exports rightkit_oauth::google and is publish = false (0.1.0 stays on crates.io). The e2e app's google_identity probe, which repeated the oauth probe's RFC 7636 vector, is deleted. Remaining items are gaps.",
     "apps": {},
     "boundary": [
      "duplicate of rightkit-oauth pkce/google"
     ],
     "actions": [
-     "merge into or re-base on rightkit-oauth",
-     "verify endpoints"
+     "move capability google-identity to rightkit-oauth through the ownership approval, then delete the crate",
+     "owner to confirm decision 9"
     ],
     "depth": "light",
     "confidence": "medium",
@@ -17418,10 +17416,10 @@
     "feeds": {
      "heardright": 53827
     },
-    "basis": "HeardRight training and evaluation scripts copied with their directory layout",
+    "basis": "No crate: the plan's crate name for the same package as @rightkit/ml-lab (0.2.0, branch)",
     "referenceApp": "heardright",
-    "shape": "wrong",
-    "shapeReason": "A private, unbuilt file dump of one product's experiments: no entry points, no dependency manifest, machine paths, dated experiment folders. Not a shared package and not publishable.",
+    "shape": "gaps",
+    "shapeReason": "There is no crate rightkit-ml-lab; the plan's crate row names packages/ml-lab, the npm package @rightkit/ml-lab. Both rows describe one private tooling package and carry the same verdict and actions (see @rightkit/ml-lab).",
     "apps": {
      "heardright": {
       "fit": "wrong",
@@ -17438,9 +17436,8 @@
      "plan lists it as a crate; it is an npm package marked private"
     ],
     "actions": [
-     "do not publish",
-     "keep experiments (bakeoff/*, tools/zephyr_*, local-model-training) in a HeardRight research repository",
-     "extract only reusable pieces: WER scoring and ASR adapter harness to the bench package, CoreML/ONNX conversion to a model-tools package with a pinned Python manifest"
+     "map the plan's rightkit-ml-lab row to @rightkit/ml-lab",
+     "the @rightkit/ml-lab actions"
     ],
     "depth": "deep",
     "confidence": "high",
@@ -19257,10 +19254,10 @@
      "crates/rightkit-qa-driver"
     ],
     "feeds": {},
-    "basis": "deprecated shim (its own Cargo description) over rightkit-qa control and rightkit-automation",
-    "referenceApp": "none",
-    "shape": "wrong",
-    "shapeReason": "Superseded by rightkit-qa; no surveyed app imports it. It should not be in the set apps adopt.",
+    "basis": "Deprecated shim, publish = false from 0.7.2 (branch); its uncompiled copies of rightkit-automation's keys and JSON helpers deleted",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Taken out of the set apps adopt (decision 9): publish = false (0.7.0 stays on crates.io, no new version), README and CHANGELOG say to use rightkit-qa and rightkit-automation, its registry consumer recipe and staged feed entry are removed, and the uncompiled src/keys.rs and src/json.rs copies of rightkit-automation and the stale registration.patch are deleted. It was not in the mandatory set. What remains is not duplicated by rightkit-qa: re-exports plus the WebDriver bridge and the macOS CLI, used only by the e2e app's qa_driver probe and the rk2-macos spike. Remaining items are gaps.",
     "apps": {
      "heardright": {
       "fit": "n/a",
@@ -19303,7 +19300,8 @@
      "Same capability as rightkit-qa::embedded"
     ],
     "actions": [
-     "Remove from the mandatory set; publish no new versions"
+     "decide whether the WebDriver bridge and macOS CLI are wanted; if so move them to rightkit-qa or rightkit-automation, then point the e2e probe and the spike there and delete the crate",
+     "drop its ci/gate.config.json and runtime-budget entries when it is deleted"
     ],
     "depth": "light",
     "confidence": "high",
