@@ -723,8 +723,8 @@ export const QUALIFIED_WORKFLOW = "publish-direct.yml";
 export const QUALIFIED_ARTIFACTS = { packed: "publish-packed", macos: "publish-receipt-verify-xcode-27", windows: "publish-receipt-verify-windows-2025", linux: "publish-receipt-verify-ubuntu-24.04" };
 const UNIT_NAME = /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 
-// The trusted checkout the scan receipt binds crate locks against: this repository root (publish-direct.yml checks out crates/*/Cargo.toml and
-// crates/*/Cargo.lock of the qualified commit). Tests pass their own `candidateDir`; no workflow or CLI does.
+// The trusted checkout the scan receipt binds crate locks against: this repository root (publish-direct.yml checks out the root Cargo.toml
+// and Cargo.lock, crates/*/Cargo.toml and crates/*/Cargo.lock of the qualified commit). Tests pass their own `candidateDir`; no workflow or CLI does.
 const TRUSTED_CANDIDATE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export async function prepareQualified({ env, fetchImpl = fetch, spawn = spawnSync, linuxFile, candidateDir = TRUSTED_CANDIDATE_DIR }) {
   requireThat(env.GITHUB_ACTIONS === "true" && env.GITHUB_REPOSITORY === REPOSITORY && env.GITHUB_REF === "refs/heads/main" && /^[0-9a-f]{40}$/.test(env.GITHUB_SHA ?? ""), "direct publication requires trusted main of the repository");

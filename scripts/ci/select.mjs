@@ -142,7 +142,7 @@ export function changedConfigCrates(previous, next) {
 
 /**
  * Explicit unit selection for a publish verification run: named units are tested in the order
- * given; `lock` (name -> entry, built from each crate's own crates/<x>/Cargo.lock) must contain each requested crate. Reverse workspace dependents
+ * given; `lock` (name -> entry, built from the Cargo.lock that governs each crate: the root lock, or a crate's own) must contain each requested crate. Reverse workspace dependents
  * belong to ordinary CI selection, never this publication request. `registry` is "crates" (units are crate names, `members` as for selectRust) or "npm" (units are package names, `packages` as
  * for selectNpm, each with `scripts`). Returns the shapes selectRust and selectNpm return, so the
  * gate runs them unchanged, plus `excluded` and `noTest`: the units the gate will NOT run on `host`
@@ -172,7 +172,7 @@ export function selectUnits({ registry, units, members = [], packages = [], lock
     const unknown = unique.filter((name) => !known.has(name));
     if (unknown.length) throw new Error(`unknown crate(s): ${unknown.join(", ")}`);
     const incomplete = unique.filter((name) => !lock.has(name));
-    if (incomplete.length) throw new Error(`crate lock graph is incomplete; no crates/<x>/Cargo.lock lists member(s): ${incomplete.join(", ")}`);
+    if (incomplete.length) throw new Error(`crate lock graph is incomplete; the Cargo.lock that governs each crate does not list member(s): ${incomplete.join(", ")}`);
     if (allowNoTest.length) throw new Error("allow_no_test applies to npm packages only");
     const excluded = []; const refused = [];
     for (const name of unique) {

@@ -154,7 +154,7 @@ export function provenGateSteps(evidence, expectedWorkspace, gateConfig) {
   if (!runs.length || runs.some((run) => run.commit !== evidence.commit)) return none;
   const name = escapeRegExp(evidence.name);
   const stepProves = (run, pattern, needTests) => (Array.isArray(run.steps) ? run.steps : []).some((step) => step?.ok === true
-    && pattern.test(String(step.command ?? "")) && (!needTests || (step.executed > 0 && step.failed === 0)));
+    && pattern.test(String(step.command ?? "")) && (!needTests || (ranTestsOrNone(step.executed, step) && step.failed === 0)));
   const batchOk = (run) => {
     if (!gateConfig || run.batch === undefined || batchReceiptProblems(run.batch, evidence, undefined, expectedWorkspace).length) return false;
     try {
@@ -170,6 +170,13 @@ export function provenGateSteps(evidence, expectedWorkspace, gateConfig) {
   };
 }
 
+/**
+ * The test count rule of GATE-CONTRACT GC-A08 (Adrian, 2026-11-03, end-to-end tests only: "My decision was no unit tests. Only e2e."):
+ * a positive count, or exactly zero tests with nothing skipped and nothing ignored (a crate or package with no test). The failure
+ * count is the caller's own check; zero tests beside a skip or an ignore is never a pass, named or not.
+ */
+export const ranTestsOrNone = (count, { skipped, ignored } = {}) => Number.isInteger(count) && (count > 0 || (count === 0 && !(skipped > 0) && !(ignored > 0)));
+
 // Names of the fields of one host run that do not qualify (empty when the run qualifies). Every run binds to
 // the same unit, commit and artifact: commit, host arch, feature set and artifactSha256 equal to the evidence.
 function invalidRunFields(run, evidence, tree, expectedWorkspace) {
@@ -181,7 +188,8 @@ function invalidRunFields(run, evidence, tree, expectedWorkspace) {
   if (!text(run.command)) bad.push("command");
   if (!text(run.operator)) bad.push("operator");
   if (!text(run.timestamp)) bad.push("timestamp");
-  if (!(Number.isInteger(run.passed) && run.passed > 0)) bad.push("passed (must be > 0)");
+  // A Swift package is outside the no-test decision (crates and npm units only): its run still needs a positive count.
+  if (!(evidence.kind === "swift" ? Number.isInteger(run.passed) && run.passed > 0 : ranTestsOrNone(run.passed, run))) bad.push("passed (must be > 0, or 0 with nothing skipped or ignored)");
   if (run.failed !== 0) bad.push("failed (must be 0)");
   if (run.jobs !== undefined && !(Number.isInteger(run.jobs) && run.jobs >= 1 && run.jobs <= MAX_CARGO_JOBS)) bad.push(`jobs (must be an integer from 1 to ${MAX_CARGO_JOBS})`);
   if (run.batch !== undefined) bad.push(...batchReceiptProblems(run.batch, evidence, tree ?? null, expectedWorkspace).map((problem) => `batch: ${problem}`));

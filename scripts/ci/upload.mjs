@@ -500,8 +500,9 @@ export function checkLocalReceipts({ manifest, manifestSha256, receiptsDir, allo
         const evidence = row.evidence; const run = evidence?.runs?.[0];
         const sound = evidence && evidence.schema === 1 && evidence.kind === "cargo" && evidence.name === unit.name && evidence.version === unit.version && evidence.commit === manifest.commit && evidence.artifactSha256 === unit.sha256
           && evidence.hostPolicy === LOCAL_HOST_POLICY[hostOs] && Array.isArray(evidence.runs) && evidence.runs.length === 1
-          && run?.host?.os === hostOs && run.commit === manifest.commit && run.artifactSha256 === unit.sha256 && run.failed === 0 && Number.isInteger(run.passed) && run.passed > 0 && run.batch === undefined;
-        if (!sound) bad(`${unit.name}: the gate evidence does not bind this host, commit and archive with a positive pass`);
+          && run?.host?.os === hostOs && run.commit === manifest.commit && run.artifactSha256 === unit.sha256 && run.failed === 0 && Number.isInteger(run.passed) && (run.passed > 0 || (run.passed === 0 && !(run.skipped > 0) && !(run.ignored > 0))) && run.batch === undefined;
+        // End-to-end tests only (Adrian, 2026-11-03): a crate that ran no test, with nothing failed, skipped or ignored, passes.
+        if (!sound) bad(`${unit.name}: the gate evidence does not bind this host, commit and archive with a pass`);
         else if (run.passed !== row.executed || (run.ignored ?? 0) !== (row.ignored ?? 0) || (run.skipped ?? 0) !== (row.skipped ?? 0)) bad(`${unit.name}: the receipt counts differ from its gate evidence`);
       }
       // A runtime owner carries its runtime proof on both native hosts; any other unit must not claim one.

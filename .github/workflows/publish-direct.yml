@@ -52,10 +52,13 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha || inputs.head_sha }}
           persist-credentials: false
-          # rightkit#1285: each crate is its own Cargo workspace; the scan receipt binds each unit to its own crates/<x>/Cargo.lock.
+          # The scan receipt binds each crate unit to the lock of the Cargo workspace that owns it (scripts/ci/scan-receipt.mjs): the root
+          # Cargo.lock for a member of the one root workspace (rightkit#1505), crates/<x>/Cargo.lock for a crate that is its own workspace.
           # RA-21: the packages/release entries are the complete static import closure of `reviewed-candidate.mjs run-qualified`,
           # checked by scripts/ci/publish-admission.test.mjs; keep the list in step with any new static import.
           sparse-checkout: |
+            /Cargo.toml
+            /Cargo.lock
             crates/*/Cargo.toml
             crates/*/Cargo.lock
             /package.json
@@ -166,6 +169,7 @@ jobs:
             packages/release/swift-scratch.mjs
             packages/release/tauri-locked.mjs
             scripts/ci/scan-receipt.mjs
+            scripts/ci/crate-scan-workspaces.mjs
             scripts/ci/upload.mjs
             scripts/ci/registry-spec.mjs
             scripts/ci/reviewed-candidate.mjs
