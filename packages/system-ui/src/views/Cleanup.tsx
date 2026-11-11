@@ -1,118 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button, Checkbox, ConfirmDialog, Notice, SegmentedControl } from "@rightkit/react-shell/react";
-import { invoke } from "@tauri-apps/api/core";
 import { ChevronRight } from "lucide-react";
-import { ago, bytes, isStale, isWindows, type ChromeSnapshots } from "../api.js";
+import {
+  ago,
+  api,
+  bytes,
+  isStale,
+  isWindows,
+  type ChromeSnapshots,
+  type CleanupActivity as Activity,
+  type CleanupFinding as Finding,
+  type CleanupReport as Report,
+  type CleanupVolumeFree as VolumeFree,
+} from "../api.js";
 import { readKept, writeKept } from "../kept.js";
+import { appName } from "../host.js";
 
 // Windows moves files to the Recycle Bin; the Mac moves them to the Trash.
 const TRASH = isWindows ? "Recycle Bin" : "Trash";
-const KEPT_SELECTED = "pulse.hub.cleanup.selected";
+const KEPT_SELECTED = "cleanup.selected";
 /** How each past move was measured, by activity id: a lower bound (≥) or an upper bound (up to). Absent means exact. */
-const KEPT_BOUNDS = "pulse.hub.cleanup.bounds";
+const KEPT_BOUNDS = "cleanup.bounds";
 type MoveBound = "lower" | "upper";
 import { ChromeSnapshotsLine } from "./ChromeSnapshots.js";
 
-interface Finding {
-  id: string;
-  rule_id: string;
-  category: string;
-  name: string;
-  path: string;
-  bytes: number;
-  partial: boolean;
-  /** The size is the most deleting could free; hard links or clones may free less. */
-  upper_bound?: boolean;
-  risk: "safe" | "review" | "info";
-  eligible: boolean;
-  preselected: boolean;
-  reason: string;
-  action: string;
-  dev: string;
-  ino: string;
-  /** Plain-language kind: "App cache", "RustRight build target", "Virtual machine", ... */
-  kind?: string;
-  /** Plain-language safety: "rebuildable cache", "experiment output", "virtual machine", "old release build". */
-  safety?: string;
-  /** The app, tool or project that made the item. */
-  owner?: string;
-  /** Unix seconds the item was last written; absent or 0 when unknown. */
-  last_used?: number;
-}
-
-interface Report {
-  chrome_snapshots?: ChromeSnapshots | null;
-  findings: Finding[];
-  safe_bytes: number;
-  review_bytes: number;
-  scanned_at: number;
-}
-
-interface Skipped {
-  path: string;
-  reason: string;
-}
-
-interface ApplyResult {
-  moved_items: number;
-  moved_bytes: number;
-  skipped: Skipped[];
-  activity_id: string | null;
-  warnings?: string[];
-  free_space?: VolumeFree[];
-}
-
-/** What the drive itself reported as available before and after a cleanup. */
-interface VolumeFree {
-  volume: string;
-  before_available: number;
-  after_available: number;
-}
-
-interface RestoreResult {
-  restored_items: number;
-  restored_bytes: number;
-  skipped: Skipped[];
-  warnings?: string[];
-}
-
-interface ActivityItem {
-  path: string;
-  trash_path: string | null;
-  bytes: number;
-  restored: boolean;
-  /** Set when a crash left this item's state unknown; Undo refuses it. */
-  interrupted?: string | null;
-}
-
-interface Activity {
-  id: string;
-  at: number;
-  bytes: number;
-  items: ActivityItem[];
-  /** Absent in older history, where it means 0. */
-  skipped?: number;
-  /** Items a crash left unconfirmed; absent in older history, where it means 0. */
-  unknown?: number;
-  /** True when the host app was interrupted during this cleanup and settled it afterwards. */
-  recovered?: boolean;
-  /** Observed free space per drive; absent when it could not be read and in older history. */
-  free_space?: VolumeFree[];
-}
-
-interface CleanupHistory {
-  actions: Activity[];
-  warnings: string[];
-}
-
-const cleanup = {
-  scan: () => invoke<Report>("cleanup_scan"),
-  cached: () => invoke<Report | null>("cleanup_cached"),
-  apply: (items: { rule_id: string; path: string; dev: string; ino: string }[]) =>
-    invoke<ApplyResult>("cleanup_apply", { items }),
-  history: () => invoke<CleanupHistory>("cleanup_history"),
-  restore: (id: string) => invoke<RestoreResult>("cleanup_restore", { id }),
-};
 
 const shortPath = (path: string) => path.replace(/^\/Users\/[^/]+/, "~");
 const items = (n: number) => `${n} item${n === 1 ? "" : "s"}`;
@@ -126,7 +37,7 @@ const runWarning = (a: Activity): string | null => {
   if (skipped > 0) parts.push(`${items(skipped)} ${skipped === 1 ? "was" : "were"} skipped`);
   const detail = parts.join(" and ");
   if (a.recovered) {
-    const lead = "Pulse was interrupted during this cleanup";
+    const lead = `${appName()} was interrupted during this cleanup`;
     return detail ? `${lead}; ${detail}.` : `${lead}.`;
   }
   if (!detail) return null;
@@ -270,7 +181,7 @@ export function Cleanup({ autoScan = true }: { autoScan?: boolean }) {
     try {
       do {
         again.current = false;
-        show(await cleanup.scan());
+        show(await api.cleanupScan());
       } while (again.current);
     } catch (e) {
       setError(String(e));
@@ -282,8 +193,8 @@ export function Cleanup({ autoScan = true }: { autoScan?: boolean }) {
 
   // A failed history load stays on screen until a later load succeeds.
   const loadHistory = () =>
-    cleanup
-      .history()
+    api
+      .cleanupHistory()
       .then((next) => {
         setHistory(next.actions);
         setHistoryWarnings(next.warnings);
@@ -294,8 +205,8 @@ export function Cleanup({ autoScan = true }: { autoScan?: boolean }) {
   // Saved findings show at once. A rescan follows only when there are none or they are old.
   useEffect(() => {
     void loadHistory();
-    cleanup
-      .cached()
+    api
+      .cleanupCached()
       .then((saved) => {
         if (saved) show(saved);
         if (autoScan && (!saved || isStale(saved.scanned_at))) void refresh();
@@ -347,7 +258,7 @@ export function Cleanup({ autoScan = true }: { autoScan?: boolean }) {
     setPending(null);
     return run(async () => {
       const sent = picked.filter(movable);
-      const result = await cleanup.apply(sent.map((f) => ({ rule_id: f.rule_id, path: f.path, dev: f.dev, ino: f.ino })));
+      const result = await api.cleanupApply(sent);
       const warnings = result.warnings ?? [];
       if (result.activity_id) {
         const bound: MoveBound | null = sent.some((f) => f.partial) ? "lower" : sent.some((f) => f.upper_bound) ? "upper" : null;
@@ -390,7 +301,7 @@ export function Cleanup({ autoScan = true }: { autoScan?: boolean }) {
         delete next[id];
         return next;
       });
-      const result = await cleanup.restore(id);
+      const result = await api.cleanupRestore(id);
       const detail = result.skipped.map((s) => `${shortPath(s.path)}: ${s.reason}`).join("\n");
       const warnings = result.warnings ?? [];
       if (result.skipped.length) setRestoreIssue((prev) => ({ ...prev, [id]: detail }));

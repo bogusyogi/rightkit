@@ -1,7 +1,7 @@
 import { Button } from "@rightkit/react-shell/react";
 import { useEffect, useMemo, useRef } from "react";
-import type { CalEvent } from "@rightkit/mail-ui/lib/ipc";
-import { DAY, WEEKDAY_LABELS, eventDay, hhmm, sameDay, startOfWeek } from "@rightkit/mail-ui/lib/calendarUtils";
+import { DAY, WEEKDAY_LABELS, eventDay, hhmm, sameDay, startOfWeek } from "../lib/calendarUtils.js";
+import type { CalEvent } from "../client.js";
 
 export function MonthGrid({ cursor, events, today, onDay, onEvent }: {
   cursor: number; events: CalEvent[]; today: number; onDay: (ms: number) => void; onEvent: (e: CalEvent) => void;

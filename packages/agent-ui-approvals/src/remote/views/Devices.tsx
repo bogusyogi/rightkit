@@ -1,20 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, ConfirmDialog, Select, Toggle } from "@rightkit/react-shell/react";
-import {
-  DEVICE_GRANT_CLASSES,
-  LISTEN_OFF_SENTENCE,
-  devicesApi,
-  isListenOff,
-  setNotchSetting,
-  type DeviceGrantClass,
-  type DeviceRecord,
-  type JoinCreated,
-  type OwnerProof,
-  type PendingPairing,
-} from "@rightkit/system-ui/api";
+import { DEVICE_GRANT_CLASSES, LISTEN_OFF_SENTENCE, devicesApi, isListenOff, setNotchSetting, type DeviceGrantClass, type DeviceRecord, type JoinCreated, type OwnerProof, type PendingPairing } from "../api.js";
 import { clearVisibleInterval, visibleInterval } from "@rightkit/system-ui/visible";
 import { SettingRow, SettingsGroup, SettingsSearchSection } from "@rightkit/settings-ui/core";
-import { openSectionLabel } from "@rightkit/system-ui/views/settingsKit";
+import { openSectionLabel } from "./settingsKit.js";
 import { PhonePairing } from "./PhonePairing.js";
 import { BrowserLogins } from "./BrowserLogins.js";
 import { OwnerPinCard, confirmOwnerKey, onMac, ownerProblem, touchIdProof } from "./OwnerPin.js";

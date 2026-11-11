@@ -2,38 +2,28 @@ import { Button, Dialog, SkeletonRows, Input } from "@rightkit/react-shell/react
 // Contacts — a browsable list (parity with contacts.google.com): search +
 // full contact list with avatars, a create/edit modal, delete, and the
 // import/export/dedupe tools. Group filtering reads the active group from the
-// store (set in ContactsNav). Directory search falls back to the People API for
+// host state (set in ContactsNav). Directory search falls back to the People API for
 // addresses outside the personal contact list.
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import Icon from "@rightkit/mail-ui/components/Icons";
-import { AccountSwitcher } from "@rightkit/mail-ui/components/AccountSwitcher";
-import { colorFor, initialOf } from "@rightkit/mail-ui/lib/mail";
+import { Icon } from "../icons.js";
+import { colorFor, initialOf } from "../lib/avatar.js";
 import { buildVcf, parseVcf, parseContactsCsv, type VCardContact } from "../lib/vcard.js";
-import { useAppStore } from "@rightkit/mail-ui/store/index";
-import { showDialog } from "@rightkit/mail-ui/hooks/dialog";
-import {
-  searchRecipients,
-  listAllContacts,
-  createContact,
-  updateContact,
-  deleteContact,
-  saveTextDownload,
-  type ContactFull,
-  type Recipient,
-} from "@rightkit/mail-ui/lib/ipc";
 import { EMPTY_EDITOR, type Editor } from "./ContactsView.types.js";
+import { HostAccountSwitcher, useWorkspaceClient, useWorkspaceHost, useWorkspaceState } from "../host.js";
+import type { ContactFull, Recipient } from "../client.js";
 function ContactsViewInner() {
-  const openComposeTo = useAppStore((s) => s.openComposeTo);
-  const activeAccount = useAppStore((s) => s.activeAccount);
-  const setErr = useAppStore((s) => s.setErr);
-  const showUndo = useAppStore((s) => s.showUndo);
-  const setView = useAppStore((s) => s.setView);
-  const contactsQuery = useAppStore((s) => s.contactsQuery);
-  const setContactsQuery = useAppStore((s) => s.setContactsQuery);
-  const contactsBusy = useAppStore((s) => s.contactsBusy);
-  const setContactsBusy = useAppStore((s) => s.setContactsBusy);
-  const contactDupes = useAppStore((s) => s.contactDupes);
-  const setContactDupes = useAppStore((s) => s.setContactDupes);
+  const { searchRecipients, listAllContacts, createContact, updateContact, deleteContact, saveTextDownload } = useWorkspaceClient();
+  const showDialog = useWorkspaceHost().dialog;
+  const openComposeTo = useWorkspaceHost().composeTo;
+  const activeAccount = useWorkspaceState((s) => s.activeAccount);
+  const setErr = useWorkspaceHost().reportError;
+  const showUndo = useWorkspaceHost().notify;
+  const contactsQuery = useWorkspaceState((s) => s.contactsQuery);
+  const setContactsQuery = useWorkspaceState((s) => s.setContactsQuery);
+  const contactsBusy = useWorkspaceState((s) => s.contactsBusy);
+  const setContactsBusy = useWorkspaceState((s) => s.setContactsBusy);
+  const contactDupes = useWorkspaceState((s) => s.contactDupes);
+  const setContactDupes = useWorkspaceState((s) => s.setContactDupes);
   const [contacts, setContacts] = useState<ContactFull[]>([]);
   const [dirResults, setDirResults] = useState<Recipient[]>([]);
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -87,8 +77,7 @@ function ContactsViewInner() {
     return dirResults.filter((r) => r.email && !known.has(r.email.toLowerCase()));
   }, [dirResults, contacts, query]);
   function emailContact(addr: string) {
-    setView("inbox");
-    setTimeout(() => openComposeTo(addr, "", ""), 0);
+    openComposeTo(addr, "", "");
   }
   function startCreate() {
     setEditor(EMPTY_EDITOR);
@@ -116,7 +105,7 @@ function ContactsViewInner() {
       ? updateContact(activeAccount, editor.resource_name, editor.etag, name, emails, phones)
       : createContact(activeAccount, name, emails, phones);
     op.then(() => {
-      showUndo(editor.resource_name ? "Contact saved" : "Contact created", [], "");
+      showUndo(editor.resource_name ? "Contact saved" : "Contact created");
       setEditor(null);
       loadAll();
     })
@@ -130,7 +119,7 @@ function ContactsViewInner() {
     setContactsBusy(true);
     deleteContact(activeAccount, c.resource_name)
       .then(() => {
-        showUndo("Contact deleted", [], "");
+        showUndo("Contact deleted");
         setContacts((prev) => prev.filter((x) => x.resource_name !== c.resource_name));
       })
       .catch((e) => setErr(String(e)))
@@ -143,7 +132,7 @@ function ContactsViewInner() {
     );
     // Saved natively to Downloads (exclusive atomic publish), like every other download.
     saveTextDownload("contacts.vcf", vcf)
-      .then(() => showUndo(`Exported ${contacts.length} contacts`, [], ""))
+      .then(() => showUndo(`Exported ${contacts.length} contacts`))
       .catch((e) => setErr(String(e)));
   }
   function importContactsFile(file: File) {
@@ -170,7 +159,7 @@ function ContactsViewInner() {
             break;
           }
         }
-        showUndo(`Imported ${ok} of ${parsed.length} contacts`, [], "");
+        showUndo(`Imported ${ok} of ${parsed.length} contacts`);
         loadAll();
       })
       .catch((e) => setErr(String(e)))
@@ -198,7 +187,7 @@ function ContactsViewInner() {
       groups.push({ primary: arr[0], dups: arr.slice(1) });
     }
     setContactDupes(groups);
-    if (groups.length === 0) showUndo("No duplicate contacts found", [], "");
+    if (groups.length === 0) showUndo("No duplicate contacts found");
   }
   async function mergeDupeGroup(group: { primary: ContactFull; dups: ContactFull[] }) {
     if (!activeAccount || contactsBusy) return;
@@ -212,7 +201,7 @@ function ContactsViewInner() {
     updateContact(activeAccount, group.primary.resource_name, group.primary.etag, name, emails, phones)
       .then(async () => {
         for (const d of group.dups) await deleteContact(activeAccount!, d.resource_name);
-        showUndo("Merged duplicates", [], "");
+        showUndo("Merged duplicates");
         setContactDupes((prev) => (prev ? prev.filter((g) => g !== group) : prev));
         loadAll();
       })
@@ -238,7 +227,7 @@ function ContactsViewInner() {
         <Button variant="primary" size="sm" onClick={startCreate}>
           <Icon name="person-add" size={15} /> Create
         </Button>
-        <AccountSwitcher />
+        <HostAccountSwitcher />
         <Input
           ref={fileRef}
           type="file"

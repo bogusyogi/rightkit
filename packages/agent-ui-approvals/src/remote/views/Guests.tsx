@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, ConfirmDialog, Select } from "@rightkit/react-shell/react";
 import { SettingRow, SettingsGroup } from "@rightkit/settings-ui/core";
-import { devicesApi, type GuestRecord, type JoinCreated, type OwnerProof } from "@rightkit/system-ui/api";
+import { devicesApi, type GuestRecord, type JoinCreated, type OwnerProof } from "../api.js";
 import { clearVisibleInterval, visibleInterval } from "@rightkit/system-ui/visible";
 import { OwnerPinCard, onMac, ownerProblem, touchIdProof } from "./OwnerPin.js";
 

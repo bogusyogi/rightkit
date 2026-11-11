@@ -1,20 +1,33 @@
 {
   "name": "@rightkit/ml-lab",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Speech and text-polish model lab: ASR bake-off harnesses, CoreML and ONNX conversion, local-model training and screening, wake-word corpus preparation.",
+  "description": "Private ASR model tooling: a bake-off adapter contract with ten model adapters, a WER scorer, a bundle-size qualifier, and CoreML conversion and benchmark scripts.",
   "license": "MIT OR Apache-2.0",
   "packageManager": "pnpm@12.16.1",
   "type": "module",
+  "bin": {
+    "rk-asr-wer": "wer/score-asr-wer.mjs",
+    "rk-bundle-qualify": "asr-bakeoff/bundle-qualify.mjs"
+  },
+  "exports": {
+    "./wer": "./wer/score-asr-wer.mjs",
+    "./bundle-qualify": "./asr-bakeoff/bundle-qualify.mjs",
+    "./package.json": "./package.json"
+  },
   "files": [
-    "scripts",
-    "bakeoff",
-    "tools",
+    "asr-bakeoff",
+    "wer",
+    "coreml",
+    "requirements",
     "README.md",
     "CHANGELOG.md",
     "LICENSE-MIT",
     "LICENSE-APACHE"
   ],
+  "scripts": {
+    "test": "node wer/score-asr-wer.mjs --self-test"
+  },
   "sideEffects": false,
   "repository": {
     "type": "git",

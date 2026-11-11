@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type WheelEvent } from "react";
 import { Button, Input } from "@rightkit/react-shell/react";
 import { SettingRow, SettingsGroup, SettingsItem } from "@rightkit/settings-ui/core";
-import { browserRemoteApi, browserRows, type BrowserFrame, type BrowserInput, type BrowserRequest, type BrowserSession } from "@rightkit/system-ui/api";
+import { browserRemoteApi, browserRows, type BrowserFrame, type BrowserInput, type BrowserRequest, type BrowserSession } from "../api.js";
 import { clearVisibleInterval, visibleInterval } from "@rightkit/system-ui/visible";
 
 /** Settings > Devices, under the paired computers: the sign-ins an agent asked for on each one, and the live view of a session. */

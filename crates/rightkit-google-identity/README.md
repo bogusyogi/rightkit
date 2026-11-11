@@ -1,14 +1,15 @@
 # rightkit-google-identity
 
-Sign in with Google, protocol layer only. Version 0.2.0 is unpublished staging; 0.1.0 is on crates.io. Design: Adrian's 2026-10-16 own-cloud identity decision (Orthic-Labs/rightkit#162): Google subject as identity, scopes `openid`, `email` and the Drive appDataFolder scope, refresh token in `rightkit-credentials`.
+**Deprecated, not published.** Use [`rightkit-oauth`](../rightkit-oauth/README.md) with its `google` feature. This crate held a second copy of PKCE, redirect parsing, token request bodies, an RSA verifier and Google ID-token verification that `rightkit-oauth` already provides (and `rightkit-google-apis` already uses). No app or crate depended on it.
 
-- `Pkce::generate()`: verifier and S256 challenge.
-- `AuthRequest::new(client_id, redirect_uri, scopes, login_hint)`: authorization URL, state and PKCE. `parse_redirect(url, expected_state)` returns the code.
-- `token_exchange_body` / `token_refresh_body`: form bodies; the app posts them.
-- `TokenResponse`, `decode_id_token_claims`, `validate_claims`.
-- `RefreshTokenStore`: refresh token per Google subject in a `rightkit_credentials::Store`.
-- `IdTokenProvider`: the seam the Android Credential Manager path (through rightkit-android) implements.
+From 0.3.0 it is `publish = false` and only re-exports `rightkit_oauth::google`. 0.1.0 stays on crates.io; no new version is published.
 
-## Unverified
+| Was here | Use |
+|---|---|
+| `Pkce`, `AuthRequest`, `parse_redirect`, `token_exchange_body`, `token_refresh_body`, `TokenResponse` | `rightkit_oauth::OAuthClient` with `OAuthConfig::google` (loopback PKCE, code exchange, refresh) |
+| `verify_id_token`, `verify_jws_rs256`, `JwkSet`, `decode_id_token_claims`, `validate_claims` | `rightkit_oauth::google::GoogleIdVerifier` (fetches and caches Google's keys) or `verify_with_jwks` (caller-supplied keys and clock) |
+| `RefreshTokenStore` | `rightkit_oauth::google::GoogleSession` over a `TokenStore` (normally the OS credential store) |
+| `SCOPE_DRIVE_APPDATA`, `ISSUERS` | `rightkit_oauth::google::DRIVE_APPDATA_SCOPE`, `GOOGLE_ISSUERS` |
+| `IdTokenProvider` (Android Credential Manager seam, never implemented) | platform code obtains the ID token and passes it to `GoogleIdVerifier::verify` |
 
-Endpoint URLs, the scope URL and the issuer list are not from a fetched source. `validate_claims` does not verify the ID-token signature; fetch Google's keys and verify before trusting a token that did not arrive over the token endpoint's TLS channel. No network, browser or Android code is in this crate.
+Changes are listed in [CHANGELOG.md](CHANGELOG.md).

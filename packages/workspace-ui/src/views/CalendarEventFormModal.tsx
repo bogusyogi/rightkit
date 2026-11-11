@@ -1,6 +1,6 @@
 import { Button, Dialog, Input, Checkbox, Select } from "@rightkit/react-shell/react";
-import { WEEKDAYS } from "@rightkit/mail-ui/lib/mail";
-import type { EventForm } from "@rightkit/mail-ui/store/types";
+import { WEEKDAYS } from "../lib/calendarUtils.js";
+import type { EventForm } from "../client.js";
 
 type CalendarEventFormModalProps = {
   eventForm: EventForm;

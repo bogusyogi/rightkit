@@ -1,5 +1,6 @@
 import { Badge, Notice } from "@rightkit/react-shell/react";
 import { bytes, isWindows, type DriveCard, type HealthAlert, type HealthReading } from "../api.js";
+import { appName } from "../host.js";
 
 const day = (secs: number) =>
   new Date(secs * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
@@ -10,7 +11,7 @@ export function isWarning(reading: HealthReading): boolean {
   return reading.passed === false || (reading.critical_warning ?? 0) !== 0 || (reading.media_errors ?? 0) > 0;
 }
 
-const NEEDS_ADMIN = "Temperature and wear need Pulse to run as administrator on Windows";
+const needsAdmin = () => `Temperature and wear need ${appName()} to run as administrator on Windows`;
 
 /** Windows only: the drive answered, but not one metric came with it (the unelevated paths gave nothing). */
 function lacksMetrics(reading: HealthReading): boolean {
@@ -66,7 +67,7 @@ export function DriveHealthLine({ card, toolAvailable }: { card: DriveCard | und
           {part}
         </span>
       ))}
-      {lacksMetrics(card.latest) && <span className="muted">{NEEDS_ADMIN}</span>}
+      {lacksMetrics(card.latest) && <span className="muted">{needsAdmin()}</span>}
     </span>
   );
 }
@@ -144,14 +145,14 @@ export function DriveHealthPanel({
         <span className="strong">{card.model ?? card.disk ?? "Drive"}</span>
         <span className="muted small">{card.mount}</span>
       </div>
-      {!card.disk && <div className="muted small">Pulse could not match this volume to a physical drive.</div>}
+      {!card.disk && <div className="muted small">{appName()} could not match this volume to a physical drive.</div>}
       {card.disk && !toolAvailable && <div className="muted small">Install smartmontools for drive health.</div>}
       {card.status === "unavailable" && (
         <Notice className="small" action={latest ? <span className="muted">Last good reading: {day(latest.at)}</span> : undefined}>
           Health unavailable through this connection.
         </Notice>
       )}
-      {latest && lacksMetrics(latest) && <div className="muted small">{NEEDS_ADMIN}.</div>}
+      {latest && lacksMetrics(latest) && <div className="muted small">{needsAdmin()}.</div>}
       {latest && (
         <div className="health-grid">
           <Metric label="Health" value={isWarning(latest) ? "Warning" : "OK"} />

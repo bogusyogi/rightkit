@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { appName, systemHost } from "../host.js";
 import { Badge, Button, ConfirmDialog, EmptyState, IconButton, Notice, Select, SegmentedControl, useContextMenu, Input } from "@rightkit/react-shell/react";
 import { Activity, ChevronDown, ChevronRight, Copy, File, Folder as FolderIcon, FolderInput, FolderOpen, HardDrive, Info, MoreHorizontal, Network, RefreshCw, ShieldCheck, Terminal, Trash2, Undo2, Usb, X } from "lucide-react";
 import {
@@ -180,7 +180,7 @@ const localTime = (secs: number) => new Date(secs * 1000).toLocaleString(undefin
 
 /** Most matches one search returns (the engine clamps to 1000). */
 const SEARCH_LIMIT = 100;
-const KEPT_SELECTED = "pulse.hub.storage.selected";
+const KEPT_SELECTED = "storage.selected";
 
 /** `autoScan` is Settings > General > Background > "Scan when Storage or Cleanup opens" (on by default). */
 export function Storage({ autoScan = true }: { autoScan?: boolean }) {
@@ -521,7 +521,7 @@ export function Storage({ autoScan = true }: { autoScan?: boolean }) {
         .catch(() => {});
     };
     try {
-      void listen<{ folders: string[]; stale: boolean }>("storage-updated", (event) => {
+      void systemHost().subscribe("storage-updated", (event) => {
         if (queryNow.current.trim().length >= 2) {
           if (searchTimer != null) clearTimeout(searchTimer);
           searchTimer = setTimeout(() => setSearchRefresh((n) => n + 1), 1000);
@@ -1520,7 +1520,7 @@ function ItemInspector({
           <FolderInput size={12} aria-hidden="true" /> Move to…
         </Button>
         {onCompress && (
-          <Button size="sm" onClick={() => onCompress(row)} disabled={busy} title="Writes a smaller copy in a Pulse Compressed folder beside it. The original is not changed.">
+          <Button size="sm" onClick={() => onCompress(row)} disabled={busy} title={`Writes a smaller copy in a ${appName()} Compressed folder beside it. The original is not changed.`}>
             Compress a copy
           </Button>
         )}

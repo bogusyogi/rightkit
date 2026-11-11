@@ -1,7 +1,7 @@
 {
   "name": "@rightkit/system-ui",
-  "version": "0.1.0",
-  "description": "System monitor views (activity, storage, cleanup, duplicates, drive health, apps, chat) and chart helpers for desktop utility apps.",
+  "version": "0.2.0",
+  "description": "System views (storage, cleanup, duplicates, drive health, apps, activity) and chart helpers for desktop utility apps, over typed clients the host supplies.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
   "main": "dist/index.js",
@@ -24,40 +24,22 @@
       "types": "./dist/components/Chart.d.ts",
       "import": "./dist/components/Chart.js"
     },
-    "./lib/qr": {
-      "types": "./dist/lib/qr.d.ts",
-      "import": "./dist/lib/qr.js"
-    },
     "./metrics": {
       "types": "./dist/metrics.d.ts",
       "import": "./dist/metrics.js"
-    },
-    "./onboarding/gate": {
-      "types": "./dist/onboarding/gate.d.ts",
-      "import": "./dist/onboarding/gate.js"
-    },
-    "./views/LauncherSettings": {
-      "types": "./dist/views/LauncherSettings.d.ts",
-      "import": "./dist/views/LauncherSettings.js"
-    },
-    "./views/NearbySettings": {
-      "types": "./dist/views/NearbySettings.d.ts",
-      "import": "./dist/views/NearbySettings.js"
     },
     "./views/Storage": {
       "types": "./dist/views/Storage.d.ts",
       "import": "./dist/views/Storage.js"
     },
-    "./views/membrane.css": "./dist/views/membrane.css",
     "./views/monitor.css": "./dist/views/monitor.css",
-    "./views/settings.css": "./dist/views/settings.css",
-    "./views/settingsKit": {
-      "types": "./dist/views/settingsKit.d.ts",
-      "import": "./dist/views/settingsKit.js"
-    },
     "./visible": {
       "types": "./dist/visible.d.ts",
       "import": "./dist/visible.js"
+    },
+    "./host": {
+      "types": "./dist/host.d.ts",
+      "import": "./dist/host.js"
     },
     "./package.json": "./package.json"
   },
@@ -72,15 +54,9 @@
     "*.css"
   ],
   "dependencies": {
-    "@rightkit/legal-ui": "workspace:^",
-    "@rightkit/logs": "workspace:^",
-    "@rightkit/onboarding": "workspace:^",
     "@rightkit/platform-ui": "workspace:^",
     "@rightkit/react-shell": "workspace:^",
     "@rightkit/settings-ui": "workspace:^",
-    "@rightkit/tauri": "workspace:^",
-    "@rightkit/tauri-shell": "workspace:^",
-    "@tauri-apps/api": "2.12.4",
     "lucide-react": "^1.57.0"
   },
   "peerDependencies": {

@@ -3,11 +3,10 @@
 // The live video call is Google's WebRTC client, so starting/joining launches it
 // externally (openExternal) — every desktop client does this.
 import { useState } from "react";
-import Icon from "@rightkit/mail-ui/components/Icons";
-import { useAppStore } from "@rightkit/mail-ui/store/index";
-import { createMeet, openExternal } from "@rightkit/mail-ui/lib/ipc";
+import { Icon } from "../icons.js";
 
 import { Button, Input } from "@rightkit/react-shell/react";
+import { useWorkspaceClient, useWorkspaceHost, useWorkspaceState } from "../host.js";
 /** Accept a raw code ("abc-defg-hij"), a full URL, or a code with spaces. */
 function meetUrlFromCode(input: string): string | null {
   const s = input.trim();
@@ -19,12 +18,13 @@ function meetUrlFromCode(input: string): string | null {
 }
 
 export function MeetView() {
-  const activeAccount = useAppStore((s) => s.activeAccount);
-  const setErr = useAppStore((s) => s.setErr);
-  const showUndo = useAppStore((s) => s.showUndo);
-  const openComposeTo = useAppStore((s) => s.openComposeTo);
-  const setEventSeed = useAppStore((s) => s.setEventSeed);
-  const setView = useAppStore((s) => s.setView);
+  const { createMeet, openExternal } = useWorkspaceClient();
+  const activeAccount = useWorkspaceState((s) => s.activeAccount);
+  const setErr = useWorkspaceHost().reportError;
+  const showUndo = useWorkspaceHost().notify;
+  const openComposeTo = useWorkspaceHost().composeTo;
+  const setEventSeed = useWorkspaceState((s) => s.setEventSeed);
+  const setView = useWorkspaceHost().openView;
   const [code, setCode] = useState("");
   const [starting, setStarting] = useState(false);
 
@@ -35,7 +35,7 @@ export function MeetView() {
       const sp = await createMeet(activeAccount);
       if (sp.meeting_uri) {
         await openExternal(sp.meeting_uri);
-        showUndo(`Meet ready · ${sp.meeting_code}`, [], "");
+        showUndo(`Meet ready · ${sp.meeting_code}`);
       }
     } catch (e) {
       setErr(String(e));
@@ -53,7 +53,7 @@ export function MeetView() {
         (uri ? `<p>Join: <a href="${uri}">${uri}</a></p>` : "") +
         (sp.meeting_code ? `<p>Meeting code: ${sp.meeting_code}</p>` : "");
       openComposeTo("", "Meeting invitation", body);
-      showUndo("Meeting link added to a new email", [], "");
+      showUndo("Meeting link added to a new email");
     } catch (e) {
       setErr(String(e));
     }

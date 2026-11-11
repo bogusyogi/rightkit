@@ -1,6 +1,6 @@
 # @rightkit/agent-ui-approvals npm consumer (npm.@rightkit/agent-ui-approvals)
 
-Packed-archive consumer for `@rightkit/agent-ui-approvals` 0.1.0 (the workspace version). The unit is installed only from the sealed `file:` archive; the reviewed closure pins `react` 19.3.1, `react-dom` 19.3.1, `@rightkit/app-update` 0.4.2, `@rightkit/platform-ui` 0.4.0, `@rightkit/react-shell` 0.7.2, `@rightkit/settings-ui` 0.7.0. Declared-only dependencies: `@rightkit/mail-ui`, `@rightkit/system-ui`, `@tauri-apps/api`, `lucide-react`.
+Packed-archive consumer for `@rightkit/agent-ui-approvals` (the workspace version, from `RIGHTKIT_CONSUMER_EXPECTED_VERSION`). The unit is installed only from the sealed `file:` archive; the reviewed closure pins `react` 19.3.1, `react-dom` 19.3.1, `@rightkit/app-update` 0.4.2, `@rightkit/platform-ui` 0.4.0, `@rightkit/react-shell` 0.7.2, `@rightkit/settings-ui` 0.7.0, `@rightkit/mail-ui` 0.2.0, `@rightkit/system-ui` 0.2.0 (both need 0.2.0 on npm; until then the run overrides them with packed archives). Declared-only dependencies: `@tauri-apps/api`, `lucide-react`.
 
 Surface (exact `exports` keys): `.`, `./*`, `./*.css`, `./*.json`.
 

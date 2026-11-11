@@ -5,7 +5,7 @@ Mail client UI: inbox, reader, compose editor, recipients, attachments, account 
 | Item | Value |
 |---|---|
 | Where it runs | App webview UI (React) |
-| Version | 0.1.0 |
+| Version | 0.2.0 |
 | License | MIT OR Apache-2.0 |
 
 ## Entry points
@@ -32,6 +32,12 @@ Legal and version data stay in the host app. Alias `@rightkit-host` to the host 
 User-facing copy reads the product name from `hostAppName()` (default `"App"`). Call
 `setHostAppName("Your App")` (exported from the root and from `appName`) once at startup, before
 rendering.
+
+## Workspace views
+
+The calendar, contacts, Drive, tasks and Meet views and their navs are `@rightkit/workspace-ui`'s. This package
+supplies MailRight's host for them: `mailWorkspaceHost` (wrap the views in
+`<WorkspaceHostProvider host={mailWorkspaceHost}>`) and `mailWorkspaceClient`.
 
 ## Host contract
 

@@ -1,52 +1,41 @@
 import { Button, IconButton, Dialog, SegmentedControl } from "@rightkit/react-shell/react";
 import { memo, useEffect, useRef, useState } from "react";
-import Icon from "@rightkit/mail-ui/components/Icons";
-import { AccountSwitcher } from "@rightkit/mail-ui/components/AccountSwitcher";
-import { setPref } from "@rightkit/mail-ui/lib/preferences";
-import { useAppStore } from "@rightkit/mail-ui/store/index";
-import { showDialog } from "@rightkit/mail-ui/hooks/dialog";
-import {
-  listCalendars,
-  listEvents,
-  createEvent,
-  updateEvent,
-  deleteEvent,
-  truncateEventSeries,
-  rsvpEvent,
-  freeBusy,
-  type CalEvent,
-  type EventInput,
-} from "@rightkit/mail-ui/lib/ipc";
+import { Icon } from "../icons.js";
 import { MonthGrid, TimeGrid } from "./CalendarGrids.js";
-import { DAY, rangeFor, startOfDay, startOfWeek } from "@rightkit/mail-ui/lib/calendarUtils";
+import { DAY, rangeFor, startOfDay, startOfWeek } from "../lib/calendarUtils.js";
 import { CalendarEventFormModal } from "./CalendarEventFormModal.js";
 import { CalendarEventPopover } from "./CalendarEventPopover.js";
+import { HostAccountSwitcher, useWorkspaceClient, useWorkspaceHost, useWorkspaceState } from "../host.js";
+import type { CalEvent, EventInput } from "../client.js";
 const CALENDAR_VIEWS = ["month", "week", "day"] as const;
 function CalendarViewInner() {
   const [recurScope, setRecurScope] = useState<{ ev: CalEvent; mode: "edit" | "delete" } | null>(null);
-  const activeAccount = useAppStore((s) => s.activeAccount);
-  const setErr = useAppStore((s) => s.setErr);
-  const showUndo = useAppStore((s) => s.showUndo);
-  const setCalendars = useAppStore((s) => s.setCalendars);
-  const selectedCal = useAppStore((s) => s.selectedCal);
-  const setSelectedCal = useAppStore((s) => s.setSelectedCal);
-  const shownCals = useAppStore((s) => s.shownCals);
-  const setShownCals = useAppStore((s) => s.setShownCals);
-  const calView = useAppStore((s) => s.calView);
-  const setCalView = useAppStore((s) => s.setCalView);
-  const calCursor = useAppStore((s) => s.calCursor);
-  const setCalCursor = useAppStore((s) => s.setCalCursor);
-  const events = useAppStore((s) => s.events);
-  const setEvents = useAppStore((s) => s.setEvents);
-  const openEvent = useAppStore((s) => s.openEvent);
-  const setOpenEvent = useAppStore((s) => s.setOpenEvent);
-  const eventForm = useAppStore((s) => s.eventForm);
-  const setEventForm = useAppStore((s) => s.setEventForm);
-  const freeBusyMsg = useAppStore((s) => s.freeBusyMsg);
-  const setFreeBusyMsg = useAppStore((s) => s.setFreeBusyMsg);
-  const setCalendarBusy = useAppStore((s) => s.setCalendarBusy);
-  const eventSeed = useAppStore((s) => s.eventSeed);
-  const setEventSeed = useAppStore((s) => s.setEventSeed);
+  const { listCalendars, listEvents, createEvent, updateEvent, deleteEvent, truncateEventSeries, rsvpEvent, freeBusy } = useWorkspaceClient();
+  const showDialog = useWorkspaceHost().dialog;
+  const setPref = useWorkspaceHost().savePreference;
+  const activeAccount = useWorkspaceState((s) => s.activeAccount);
+  const setErr = useWorkspaceHost().reportError;
+  const showUndo = useWorkspaceHost().notify;
+  const setCalendars = useWorkspaceState((s) => s.setCalendars);
+  const selectedCal = useWorkspaceState((s) => s.selectedCal);
+  const setSelectedCal = useWorkspaceState((s) => s.setSelectedCal);
+  const shownCals = useWorkspaceState((s) => s.shownCals);
+  const setShownCals = useWorkspaceState((s) => s.setShownCals);
+  const calView = useWorkspaceState((s) => s.calView);
+  const setCalView = useWorkspaceState((s) => s.setCalView);
+  const calCursor = useWorkspaceState((s) => s.calCursor);
+  const setCalCursor = useWorkspaceState((s) => s.setCalCursor);
+  const events = useWorkspaceState((s) => s.events);
+  const setEvents = useWorkspaceState((s) => s.setEvents);
+  const openEvent = useWorkspaceState((s) => s.openEvent);
+  const setOpenEvent = useWorkspaceState((s) => s.setOpenEvent);
+  const eventForm = useWorkspaceState((s) => s.eventForm);
+  const setEventForm = useWorkspaceState((s) => s.setEventForm);
+  const freeBusyMsg = useWorkspaceState((s) => s.freeBusyMsg);
+  const setFreeBusyMsg = useWorkspaceState((s) => s.setFreeBusyMsg);
+  const setCalendarBusy = useWorkspaceState((s) => s.setCalendarBusy);
+  const eventSeed = useWorkspaceState((s) => s.eventSeed);
+  const setEventSeed = useWorkspaceState((s) => s.setEventSeed);
   const [calendarNow] = useState(() => {
     const now = new Date();
     return {
@@ -190,7 +179,7 @@ function CalendarViewInner() {
       else await createEvent(activeAccount, selectedCal, ev);
       setEventForm(null);
       await reloadEvents();
-      showUndo(f.id ? "Event updated" : "Event created", [], "");
+      showUndo(f.id ? "Event updated" : "Event created");
     } catch (e) {
       setErr(String(e));
     }
@@ -203,7 +192,7 @@ function CalendarViewInner() {
         setOpenEvent(null);
         return reloadEvents();
       })
-      .then(() => showUndo("Event deleted", [], ""))
+      .then(() => showUndo("Event deleted"))
       .catch((e) => setErr(String(e)));
   }
   function performTruncate(ev: CalEvent) {
@@ -214,7 +203,7 @@ function CalendarViewInner() {
         setOpenEvent(null);
         return reloadEvents();
       })
-      .then(() => showUndo("This and following events removed", [], ""))
+      .then(() => showUndo("This and following events removed"))
       .catch((e) => setErr(String(e)));
   }
   async function deleteEv(ev: CalEvent) {
@@ -232,7 +221,7 @@ function CalendarViewInner() {
       .then(() => reloadEvents())
       .then(() => {
         setOpenEvent(null);
-        showUndo(`RSVP: ${response}`, [], "");
+        showUndo(`RSVP: ${response}`);
       })
       .catch((e) => setErr(String(e)));
   }
@@ -329,7 +318,7 @@ function CalendarViewInner() {
             onChange={(v) => pickView(v)}
           />
         </div>
-        <AccountSwitcher />
+        <HostAccountSwitcher />
       </div>
       <div className="cal-grid" onWheel={onWheel}>
         {calView === "month" ? (

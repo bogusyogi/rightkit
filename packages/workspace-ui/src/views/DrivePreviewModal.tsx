@@ -1,10 +1,10 @@
 import { Button, Dialog } from "@rightkit/react-shell/react";
-import Icon from "@rightkit/mail-ui/components/Icons";
-import { useDrive } from "@rightkit/mail-ui/hooks/useDrive";
-import { openExternal, type DriveFile } from "@rightkit/mail-ui/lib/ipc";
+import { Icon } from "../icons.js";
+import { useDrive } from "../hooks/useDrive.js";
 import { formatBytes } from "@rightkit/settings-ui/core";
-import { useAppStore } from "@rightkit/mail-ui/store/index";
 import { fileGlyph } from "./driveFileGlyph.js";
+import { useWorkspaceClient, useWorkspaceHost } from "../host.js";
+import type { DriveFile } from "../client.js";
 
 type DrivePreviewModalProps = {
   drivePreview: DriveFile;
@@ -13,7 +13,8 @@ type DrivePreviewModalProps = {
 };
 
 export function DrivePreviewModal({ drivePreview, setDrivePreview, drive }: DrivePreviewModalProps) {
-  const setErr = useAppStore((s) => s.setErr);
+  const { openExternal } = useWorkspaceClient();
+  const setErr = useWorkspaceHost().reportError;
 
   return (
     <Dialog title={drivePreview.name} width={520} onClose={() => setDrivePreview(null)}>

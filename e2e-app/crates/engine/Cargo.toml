@@ -45,7 +45,6 @@ rightkit-embed = { path = "../../../crates/rightkit-embed" }
 rightkit-ffmpeg = { path = "../../../crates/rightkit-ffmpeg" }
 rightkit-file-watch = { path = "../../../crates/rightkit-file-watch" }
 rightkit-fsindex = { path = "../../../crates/rightkit-fsindex" }
-rightkit-google-identity = { path = "../../../crates/rightkit-google-identity" }
 rightkit-hooks = { path = "../../../crates/rightkit-hooks" }
 rightkit-hotkeys = { path = "../../../crates/rightkit-hotkeys" }
 rightkit-identity = { path = "../../../crates/rightkit-identity" }

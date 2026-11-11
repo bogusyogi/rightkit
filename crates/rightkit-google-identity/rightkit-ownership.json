@@ -3,12 +3,11 @@
   "capabilities": [
     {
       "capability": "google-identity",
-      "summary": "Google sign-in building blocks: PKCE, redirect, token request body, ID-token claim validation and refresh-token store; Android Credential Manager seam",
+      "summary": "Deprecated, unpublished: re-exports the Google sign-in of rightkit-oauth (feature google: loopback PKCE, ID-token verification, refreshing session)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
-        "Declaration-only: apps call this crate instead of hand-rolling Google OAuth request shapes.",
-        "ID-token signatures are not verified here; callers must not grant access on claims alone."
+        "Deprecated: apps use rightkit-oauth (feature google); this crate holds no implementation of its own."
       ]
     }
   ]

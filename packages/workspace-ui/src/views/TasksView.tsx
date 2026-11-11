@@ -1,47 +1,36 @@
 // Tasks view (Google Tasks). Extracted from App.tsx (M5) — a prop-less,
-// memoized component that reads its state from the store and owns its handlers
+// memoized component that reads its state from the host state and owns its handlers
 // + load-on-mount, so it re-renders only when its own slices change.
 import { memo, useEffect } from "react";
-import Icon from "@rightkit/mail-ui/components/Icons";
+import { Icon } from "../icons.js";
 import { Button, IconButton, SkeletonRows, Input, Select, Checkbox } from "@rightkit/react-shell/react";
-import { useAppStore } from "@rightkit/mail-ui/store/index";
-import { showDialog } from "@rightkit/mail-ui/hooks/dialog";
-import {
-  listTasks,
-  listTaskLists,
-  createTaskList,
-  renameTaskList,
-  deleteTaskList,
-  clearCompletedTasks,
-  setTaskStatus,
-  createTaskIn,
-  deleteTask,
-  type TaskListInfo,
-  type TaskItem,
-} from "@rightkit/mail-ui/lib/ipc";
+import { useWorkspaceClient, useWorkspaceHost, useWorkspaceState } from "../host.js";
+import type { TaskItem, TaskListInfo } from "../client.js";
 
 function TasksViewInner() {
-  const activeAccount = useAppStore((s) => s.activeAccount);
-  const setErr = useAppStore((s) => s.setErr);
-  const showUndo = useAppStore((s) => s.showUndo);
-  const gtasks = useAppStore((s) => s.gtasks);
-  const setGtasks = useAppStore((s) => s.setGtasks);
-  const taskLists = useAppStore((s) => s.taskLists);
-  const setTaskLists = useAppStore((s) => s.setTaskLists);
-  const taskListId = useAppStore((s) => s.taskListId);
-  const setTaskListId = useAppStore((s) => s.setTaskListId);
-  const taskDue = useAppStore((s) => s.taskDue);
-  const setTaskDue = useAppStore((s) => s.setTaskDue);
-  const showCompletedTasks = useAppStore((s) => s.showCompletedTasks);
-  const setShowCompletedTasks = useAppStore((s) => s.setShowCompletedTasks);
-  const listMgrOpen = useAppStore((s) => s.listMgrOpen);
-  const setListMgrOpen = useAppStore((s) => s.setListMgrOpen);
-  const taskFormOpen = useAppStore((s) => s.taskFormOpen);
-  const setTaskFormOpen = useAppStore((s) => s.setTaskFormOpen);
-  const taskCreate = useAppStore((s) => s.taskCreate);
-  const setTaskCreate = useAppStore((s) => s.setTaskCreate);
-  const tasksBusy = useAppStore((s) => s.tasksBusy);
-  const setTasksBusy = useAppStore((s) => s.setTasksBusy);
+  const { listTasks, listTaskLists, createTaskList, renameTaskList, deleteTaskList, clearCompletedTasks, setTaskStatus, createTaskIn, deleteTask } = useWorkspaceClient();
+  const showDialog = useWorkspaceHost().dialog;
+  const activeAccount = useWorkspaceState((s) => s.activeAccount);
+  const setErr = useWorkspaceHost().reportError;
+  const showUndo = useWorkspaceHost().notify;
+  const gtasks = useWorkspaceState((s) => s.gtasks);
+  const setGtasks = useWorkspaceState((s) => s.setGtasks);
+  const taskLists = useWorkspaceState((s) => s.taskLists);
+  const setTaskLists = useWorkspaceState((s) => s.setTaskLists);
+  const taskListId = useWorkspaceState((s) => s.taskListId);
+  const setTaskListId = useWorkspaceState((s) => s.setTaskListId);
+  const taskDue = useWorkspaceState((s) => s.taskDue);
+  const setTaskDue = useWorkspaceState((s) => s.setTaskDue);
+  const showCompletedTasks = useWorkspaceState((s) => s.showCompletedTasks);
+  const setShowCompletedTasks = useWorkspaceState((s) => s.setShowCompletedTasks);
+  const listMgrOpen = useWorkspaceState((s) => s.listMgrOpen);
+  const setListMgrOpen = useWorkspaceState((s) => s.setListMgrOpen);
+  const taskFormOpen = useWorkspaceState((s) => s.taskFormOpen);
+  const setTaskFormOpen = useWorkspaceState((s) => s.setTaskFormOpen);
+  const taskCreate = useWorkspaceState((s) => s.taskCreate);
+  const setTaskCreate = useWorkspaceState((s) => s.setTaskCreate);
+  const tasksBusy = useWorkspaceState((s) => s.tasksBusy);
+  const setTasksBusy = useWorkspaceState((s) => s.setTasksBusy);
 
   async function reloadTasks(showCompleted = showCompletedTasks) {
     if (!activeAccount) return;
@@ -59,7 +48,7 @@ function TasksViewInner() {
     try {
       await createTaskList(activeAccount, title.trim());
       setTaskLists(await listTaskLists(activeAccount));
-      showUndo("List created", [], "");
+      showUndo("List created");
     } catch (e) {
       setErr(String(e));
     }
@@ -84,7 +73,7 @@ function TasksViewInner() {
       await deleteTaskList(activeAccount, l.id);
       setTaskLists(await listTaskLists(activeAccount));
       reloadTasks();
-      showUndo("List deleted", [], "");
+      showUndo("List deleted");
     } catch (e) {
       setErr(String(e));
     }
@@ -94,7 +83,7 @@ function TasksViewInner() {
     try {
       await clearCompletedTasks(activeAccount, l.id);
       reloadTasks();
-      showUndo(`Cleared completed in ${l.title}`, [], "");
+      showUndo(`Cleared completed in ${l.title}`);
     } catch (e) {
       setErr(String(e));
     }

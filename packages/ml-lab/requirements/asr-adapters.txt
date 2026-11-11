@@ -1,0 +1,12 @@
+# Python packages the ASR bake-off adapters import (asr-bakeoff/adapters). Python 3.11.
+# Lower bounds are the versions the adapters were written against; each run records the exact versions in
+# out/<model>/env.json (framework version). Install into a dedicated virtual environment; RightKit's build never installs these.
+torch
+torchaudio
+transformers>=5.14.1
+numpy
+soundfile
+librosa
+psutil
+# NeMo adapters only (canary-1b-flash, canary-qwen-2.5b):
+nemo_toolkit[asr]

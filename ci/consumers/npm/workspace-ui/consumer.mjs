@@ -8,8 +8,8 @@ const recipeId = 'workspace-ui-root-export-consumer';
 const result = { recipeId, schemaVersion: 1, ok: false, host: { platform: process.platform, arch: process.arch, node: process.version }, artifact: null, scenarios: [], errors: [], nativeHostQualified: false };
 const failure = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error) });
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
-const surface = [".", "./package.json"];
-const expected = ["buildVcf", "parseVcf", "parseContactsCsv"];
+const surface = [".", "./client", "./host", "./lib/avatar", "./lib/calendarUtils", "./package.json"];
+const expected = ["buildVcf", "parseVcf", "parseContactsCsv", "WorkspaceHostProvider", "useWorkspaceHost", "useWorkspaceState", "CalendarView", "ContactsView", "DriveView", "TasksView", "MeetView", "CalendarNav", "DriveNav", "useDrive", "colorFor", "WEEKDAYS"];
 
 try {
   const archive = path.resolve(required('RIGHTKIT_CONSUMER_ARTIFACT'));
@@ -36,6 +36,13 @@ try {
     assert.deepEqual(Object.keys(manifest.exports ?? {}).sort(), surface);
     const mod = await import(provenance.entries['@rightkit/workspace-ui']);
     for (const key of expected) assert.ok(key in mod, `missing root export ${key}`);
+    // The views hold no IPC: without a host they refuse to render rather than reach for a transport.
+    const { createElement } = await import('react');
+    const { renderToString } = await import('react-dom/server');
+    assert.throws(() => renderToString(createElement(mod.TasksNav)), /WorkspaceHostProvider/);
+    const avatar = await import(new URL('./lib/avatar.js', provenance.entries['@rightkit/workspace-ui']).href);
+    assert.equal(avatar.colorFor('ada@example.com'), mod.colorFor('ada@example.com'));
+    assert.equal(avatar.initialOf(' ada'), 'A');
     return { checked: expected, exportKeys: surface.length };
   });
 

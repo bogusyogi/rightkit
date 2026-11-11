@@ -9,7 +9,9 @@
   "dependencies": {
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "@rightkit/react-shell": "0.7.2",
-    "@rightkit/settings-ui": "0.7.0"
+    "@rightkit/platform-ui": "0.4.1",
+    "@rightkit/react-shell": "0.7.3",
+    "@rightkit/settings-ui": "0.7.1",
+    "lucide-react": "1.66.0"
   }
 }

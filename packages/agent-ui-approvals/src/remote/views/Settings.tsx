@@ -7,17 +7,20 @@ import { formatChord, getPlatform } from "@rightkit/platform-ui";
 import type { AutoUpdateStatus } from "@rightkit/app-update";
 import { UpdatesControls, type UpdatesController } from "@rightkit/settings-ui/standard";
 import { ChevronDown, ChevronUp, Cpu, HardDrive, MemoryStick, Pencil, Send as SendIcon, Wrench, X } from "lucide-react";
-import { LauncherLists, LauncherSearchRows, chordName, type LauncherConfig } from "@rightkit/system-ui/views/LauncherSettings";
-import { LocalNetworkRow, NearbyGroup } from "@rightkit/system-ui/views/NearbySettings";
+import { LauncherLists, LauncherSearchRows, chordName, type LauncherConfig } from "./LauncherSettings.js";
+import { LocalNetworkRow, NearbyGroup } from "./NearbySettings.js";
 import { FileIndexLadderRows, HubHealthRows, NumberRow, ProtectedPinPrompt, RemoteAccessGroup } from "./RemoteSettings.js";
 import { SecureBoxGroup } from "./SecureBoxSettings.js";
 import { DevicesSection } from "./Devices.js";
-import { api, devicesApi, isProtectedKey, isWindows, setProtectedSetting, tone, type DeviceRecord, type DiskIndexHealth } from "@rightkit/system-ui/api";
+import { api, isWindows, tone, type DiskIndexHealth } from "@rightkit/system-ui/api";
+import { devicesApi, isProtectedKey, setProtectedSetting, type DeviceRecord } from "../api.js";
 import { Bar } from "@rightkit/system-ui/views/Storage";
 import { SettingRow, SettingsGroup, SettingsItem, SettingsSearchProvider, SettingsSearchSection } from "@rightkit/settings-ui/core";
-import { NeedsLine, openSectionLabel, windowShortcutFrom } from "@rightkit/system-ui/views/settingsKit";
-import { SHOW_ONBOARDING } from "@rightkit/system-ui/onboarding/gate";
+import { NeedsLine, openSectionLabel, windowShortcutFrom } from "./settingsKit.js";
 import { clearVisibleInterval, visibleInterval } from "@rightkit/system-ui/visible";
+
+/** "Show onboarding again" fires this on `window`; the host's onboarding gate listens for it. */
+export const SHOW_ONBOARDING = "pulse-show-onboarding";
 
 export interface Limit {
   label: string;

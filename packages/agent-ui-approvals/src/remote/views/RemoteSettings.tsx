@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Button, Toggle, Input } from "@rightkit/react-shell/react";
-import { isWindows, onProtectedPin, remoteUnlockApi, setProtectedSetting, type PinAsk } from "@rightkit/system-ui/api";
+import { isWindows } from "@rightkit/system-ui/api";
+import { onProtectedPin, remoteUnlockApi, setProtectedSetting, type PinAsk } from "../api.js";
 import { SettingRow, SettingsGroup, SettingsItem } from "@rightkit/settings-ui/core";
 import { RemoteApprovals } from "./RemoteApprovals.js";
 

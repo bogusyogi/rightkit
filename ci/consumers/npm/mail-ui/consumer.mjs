@@ -8,8 +8,8 @@ const recipeId = 'mail-ui-root-export-consumer';
 const result = { recipeId, schemaVersion: 1, ok: false, host: { platform: process.platform, arch: process.arch, node: process.version }, artifact: null, scenarios: [], errors: [], nativeHostQualified: false };
 const failure = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error) });
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
-const surface = [".", "./components/AccountSwitcher", "./components/Icons", "./hooks/dialog", "./hooks/useDrive", "./lib/calendarUtils", "./lib/ipc", "./lib/ipc/agentApprovals", "./lib/mail", "./lib/preferences", "./lib/visibleText", "./package.json", "./store/index", "./store/types", "./styles.css"];
-const expected = ["setHostAppName", "hostAppName", "AccountSwitcher"];
+const surface = [".", "./components/AccountSwitcher", "./components/Icons", "./hooks/dialog", "./lib/ipc", "./lib/ipc/agentApprovals", "./lib/mail", "./lib/preferences", "./lib/visibleText", "./package.json", "./store/index", "./store/types", "./styles.css"];
+const expected = ["setHostAppName", "hostAppName", "AccountSwitcher", "mailWorkspaceHost", "mailWorkspaceClient"];
 
 try {
   const archive = path.resolve(required('RIGHTKIT_CONSUMER_ARTIFACT'));
@@ -36,6 +36,10 @@ try {
     assert.deepEqual(Object.keys(manifest.exports ?? {}).sort(), surface);
     const mod = await import(provenance.entries['@rightkit/mail-ui']);
     for (const key of expected) assert.ok(key in mod, `missing root export ${key}`);
+    // The workspace views and navs left mail-ui for @rightkit/workspace-ui; mail-ui supplies their host.
+    for (const gone of ["useDrive", "CalendarNav", "DriveNav", "rangeFor"]) assert.ok(!(gone in mod), `${gone} must come from @rightkit/workspace-ui`);
+    assert.equal(typeof mod.mailWorkspaceClient.listCalendars, 'function');
+    assert.equal(typeof mod.mailWorkspaceHost.useState, 'function');
     return { checked: expected, exportKeys: surface.length };
   });
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0 (unpublished, `publish = false`)
+
+Taken on the recommended option of the shape review (decision 9), pending the owner's confirmation.
+
+- BREAKING, deprecated: the duplicate PKCE (`Pkce`, `AuthRequest`, `parse_redirect`), token bodies and `TokenResponse`, base64url codec, in-crate RSA verifier (`rsa.rs`), ID-token verification (`verify_id_token`, `verify_jws_rs256`, `JwkSet`, `validate_claims`, claim types), `RefreshTokenStore` and the unimplemented `IdTokenProvider` seam are deleted in favour of `rightkit-oauth` (feature `google`): `OAuthClient` with `OAuthConfig::google`, `GoogleIdVerifier`, `verify_with_jwks`, `GoogleSession`. Nothing Google-specific remained that `rightkit-oauth` lacks, so the crate only re-exports `rightkit_oauth::google`.
+- `publish = false`: no dependant; 0.1.0 stays on crates.io and no new version is published. The only dependency is now `rightkit-oauth` 0.10.5 (`google`). The registry consumer recipe is removed.
+
 ## 0.2.1 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

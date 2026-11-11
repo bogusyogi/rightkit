@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.2 (unpublished, `publish = false`)
+
+Taken on the recommended option of the shape review (decision 9), pending the owner's confirmation.
+
+- Deprecated and taken out of publication: `publish = false`. Superseded by `rightkit-qa` (control server) and `rightkit-automation` (input, gate, lease, keys, JSON); no surveyed app imports it and it is not in the mandatory set. 0.7.0 stays on crates.io; no new version is published.
+- Deleted `src/keys.rs` and `src/json.rs`: uncompiled copies of `rightkit_automation::keys::appkit` and `rightkit_automation::json`, which `keys` and `json` already re-export. Deleted the stale `registration.patch`.
+- The registry consumer recipe (`ci/consumers/rightkit-qa-driver`) is removed with the publication.
+
 ## 0.7.1 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

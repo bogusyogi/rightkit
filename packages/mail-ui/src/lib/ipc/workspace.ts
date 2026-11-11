@@ -1,89 +1,7 @@
 import { invoke } from "./invoke.js";
 import type { OutAttachment } from "../ipc.js";
-
-export interface CalendarInfo {
-  id: string;
-  summary: string;
-  background_color: string;
-  primary: boolean;
-  access_role: string;
-}
-
-export interface Attendee {
-  email: string;
-  response_status: string;
-}
-
-export interface CalEvent {
-  id: string;
-  calendar_id: string;
-  summary: string;
-  description: string;
-  location: string;
-  start: string;
-  end: string;
-  all_day: boolean;
-  html_link: string;
-  meet_link: string;
-  organizer: string;
-  attendees: Attendee[];
-  my_response: string;
-  is_recurring: boolean;
-  recurring_event_id: string;
-}
-
-export interface EventInput {
-  summary: string;
-  description?: string;
-  location?: string;
-  startRfc3339: string;
-  endRfc3339: string;
-  allDay?: boolean;
-  timeZone: string;
-  attendees?: string[];
-  reminderMinutes?: number | null;
-  addMeet?: boolean;
-  recurrence?: string | null;
-}
-
-export interface TaskListInfo {
-  id: string;
-  title: string;
-}
-
-export interface TaskItem {
-  id: string;
-  title: string;
-  notes: string;
-  due: string;
-  status: string;
-  list_id: string;
-  list_title: string;
-}
-
-export interface DriveFile {
-  id: string;
-  name: string;
-  mime_type: string;
-  modified_time: string;
-  web_view_link: string;
-  size: string;
-  icon_link: string;
-  thumbnail_link: string;
-  is_folder: boolean;
-  parents: string[];
-}
-
-export interface DriveListing {
-  files: DriveFile[];
-  next_page_token: string;
-}
-
-export interface MeetSpace {
-  name: string;
-  meeting_uri: string;
-  meeting_code: string;
-}
+import type { CalendarInfo, Attendee, CalEvent, EventInput, TaskListInfo, TaskItem, DriveFile, DriveListing, MeetSpace, BusySlot, FreeBusyResult, StorageQuota, DrivePermission } from "@rightkit/workspace-ui/client";
+export type { CalendarInfo, Attendee, CalEvent, EventInput, TaskListInfo, TaskItem, DriveFile, DriveListing, MeetSpace, BusySlot, FreeBusyResult, StorageQuota, DrivePermission };
 
 export function listCalendars(accountId: string): Promise<CalendarInfo[]> {
   return invoke<CalendarInfo[]>("list_calendars", { accountId });
@@ -137,16 +55,6 @@ export function rsvpEvent(
   response: string
 ): Promise<void> {
   return invoke<void>("rsvp_event", { accountId, calendarId, eventId, selfEmail, response });
-}
-
-export interface BusySlot {
-  start: string;
-  end: string;
-}
-
-export interface FreeBusyResult {
-  calendar_id: string;
-  busy: BusySlot[];
 }
 
 export function freeBusy(
@@ -229,12 +137,6 @@ export function listDriveFiles(
     shelf: shelf ?? null,
     mimeFilter: mimeFilter ?? null,
   });
-}
-
-export interface StorageQuota {
-  limit: string;
-  usage: string;
-  usage_in_drive: string;
 }
 
 export function driveStorageQuota(accountId: string): Promise<StorageQuota> {
@@ -320,14 +222,6 @@ export function driveShare(
   role: string
 ): Promise<string> {
   return invoke<string>("drive_share", { accountId, fileId, email, role });
-}
-
-export interface DrivePermission {
-  id: string;
-  role: string;
-  kind: string;
-  email: string;
-  display_name: string;
 }
 
 export function driveListPermissions(accountId: string, fileId: string): Promise<DrivePermission[]> {

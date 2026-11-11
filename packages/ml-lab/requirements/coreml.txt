@@ -1,0 +1,13 @@
+# Python packages the CoreML conversion and benchmark scripts import (coreml/). Python 3.11.
+# Conversion (convert_parakeet_coreml.py, export_tdt_decoder_matrix_mac.py, vad/convert_silero_vad_coreml.py)
+# runs on Linux or WSL2; coreml_bench.py runs on an Apple Silicon Mac. Install into a dedicated virtual
+# environment; RightKit's build never installs these.
+torch
+numpy
+coremltools>=8
+nemo_toolkit[asr]
+huggingface_hub
+onnx
+soundfile
+# convert_whisper_coreml.sh only:
+whisperkittools

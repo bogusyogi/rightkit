@@ -5,7 +5,7 @@ Agent approval queue and cards, agent settings, remote approvals, owner PIN and 
 | Item | Value |
 |---|---|
 | Where it runs | App webview UI (React) |
-| Version | 0.1.0 |
+| Version | 0.2.0 |
 | License | MIT OR Apache-2.0 |
 
 ## Entry points

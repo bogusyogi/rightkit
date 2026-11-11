@@ -1,6 +1,6 @@
-import { invoke } from "@tauri-apps/api/core";
 import { getPlatform } from "@rightkit/platform-ui";
 import { formatBytes } from "@rightkit/settings-ui/core";
+import { systemHost } from "./host.js";
 
 /** True in the Windows webview: the hub runs one page on both systems and a few strings differ. */
 export const isWindows = getPlatform() === "windows";
@@ -217,6 +217,8 @@ export interface CleanupFinding {
   owner?: string;
   /** Unix seconds the item was last written; 0 when unknown. */
   last_used?: number;
+  /** The size is the most deleting could free; hard links or clones may free less. */
+  upper_bound?: boolean;
 }
 
 export interface ChromeSnapshots {
@@ -240,8 +242,58 @@ export interface CleanupReport {
 export interface CleanupApplyResult {
   moved_items: number;
   moved_bytes: number;
-  skipped: { path: string; reason: string }[];
+  skipped: CleanupSkipped[];
   activity_id: string | null;
+  warnings?: string[];
+  free_space?: CleanupVolumeFree[];
+}
+
+export interface CleanupSkipped {
+  path: string;
+  reason: string;
+}
+
+/** What the drive itself reported as available before and after a cleanup. */
+export interface CleanupVolumeFree {
+  volume: string;
+  before_available: number;
+  after_available: number;
+}
+
+export interface CleanupRestoreResult {
+  restored_items: number;
+  restored_bytes: number;
+  skipped: CleanupSkipped[];
+  warnings?: string[];
+}
+
+export interface CleanupActivityItem {
+  path: string;
+  trash_path: string | null;
+  bytes: number;
+  restored: boolean;
+  /** Set when a crash left this item's state unknown; Undo refuses it. */
+  interrupted?: string | null;
+}
+
+export interface CleanupActivity {
+  id: string;
+  at: number;
+  bytes: number;
+  items: CleanupActivityItem[];
+  /** Absent in older history, where it means 0. */
+  skipped?: number;
+  /** Items a crash left unconfirmed; absent in older history, where it means 0. */
+  unknown?: number;
+  /** True when the host app was interrupted during this cleanup and settled it afterwards. */
+  recovered?: boolean;
+  /** Observed free space per drive; absent when it could not be read and in older history. */
+  free_space?: CleanupVolumeFree[];
+}
+
+export interface CleanupHistory {
+  actions: CleanupActivity[];
+  warnings: string[];
 }
 
 export interface AppEntry {
@@ -394,77 +446,99 @@ export interface ActivityTimeline {
   unreadable: string[];
 }
 
-export const api = {
-  status: () => invoke<Status>("status"),
-  processes: () => invoke<Process[]>("processes"),
-  scan: (path?: string) => invoke<Folder>("scan", { path: path ?? null }),
-  scanStatus: () => invoke<ScanStatus>("scan_status"),
-  lastScan: () => invoke<Folder | null>("last_scan"),
-  growth: () => invoke<Growth>("growth"),
-  children: (path: string) => invoke<Folder>("children", { path }),
+/**
+ * Every system call the views make (storage, processes, disks, apps, cleanup, duplicates, drive health, activity).
+ * The host implements it over its own transport; the package names no command.
+ */
+/** One point of the live system history (`metricsHistory`). */
+export interface Sample {
+  /** Unix time, ms. */
+  ts: number;
+  /** Overall CPU, 0–100. */
+  cpu: number;
+  memUsed: number;
+  memTotal: number;
+  swapUsed: number;
+  swapTotal: number;
+  pressure: string | null;
+  /** Bytes per second; null while unread. */
+  netDown: number | null;
+  netUp: number | null;
+}
+
+export interface SystemClient {
+  /** Keeps the host sampling every 2 s while `client` renews within `ttlMs`. */
+  metricsLease: (client: string, ttlMs: number) => Promise<void>;
+  /** Samples newer than `sinceMs` (all kept samples when null). */
+  metricsHistory: (sinceMs: number | null) => Promise<Sample[]>;
+  /** Renews the live-activity lease of `client` (pages showing live activity poll faster while it lives). */
+  activityLease: (client: string) => Promise<void>;
+  status: () => Promise<Status>;
+  processes: () => Promise<Process[]>;
+  scan: (path?: string) => Promise<Folder>;
+  scanStatus: () => Promise<ScanStatus>;
+  lastScan: () => Promise<Folder | null>;
+  growth: () => Promise<Growth>;
+  children: (path: string) => Promise<Folder>;
   /** `minBytes` keeps only items larger than that many bytes. */
-  search: (query: string, limit?: number, extensions?: string[], minBytes?: number) =>
-    invoke<SearchResult>("search", { query, limit: limit ?? null, extensions: extensions ?? null, minBytes: minBytes ?? null, changed: null }).then((r) => r.rows),
+  search: (query: string, limit?: number, extensions?: string[], minBytes?: number) => Promise<Row[]>;
   /** `search` with a modified-time range; says how many matches had no date. */
-  searchChanged: (query: string, minBytes?: number, changed?: ChangedRange, limit?: number) =>
-    invoke<SearchResult>("search", { query, limit: limit ?? null, extensions: null, minBytes: minBytes ?? null, changed: changed ?? null }),
-  diskIndexStatus: () => invoke<DiskIndexStatus>("disk_index_status"),
-  diskIndexSizes: (paths: string[]) => invoke<IndexedSize[]>("disk_index_sizes", { paths }),
-  apps: () => invoke<AppEntry[]>("apps_list"),
-  appDetail: (path: string) => invoke<AppDetail>("app_detail", { path }),
-  uninstall: (path: string, bundleId: string | null, items: string[]) =>
-    invoke<UninstallResult>("app_uninstall", { path, bundleId, items }),
-  processRows: () => invoke<ProcessRow[]>("process_rows"),
-  quit: (r: ProcessRow) =>
-    invoke<QuitOutcome>("process_quit", { key: r.key, pid: r.lead.pid, startTime: r.lead.start_time }),
-  forceQuit: (r: ProcessRow) =>
-    invoke<QuitOutcome>("process_force_quit", { key: r.key, pid: r.lead.pid, startTime: r.lead.start_time }),
+  searchChanged: (query: string, minBytes?: number, changed?: ChangedRange, limit?: number) => Promise<SearchResult>;
+  diskIndexStatus: () => Promise<DiskIndexStatus>;
+  diskIndexSizes: (paths: string[]) => Promise<IndexedSize[]>;
+  apps: () => Promise<AppEntry[]>;
+  appDetail: (path: string) => Promise<AppDetail>;
+  uninstall: (path: string, bundleId: string | null, items: string[]) => Promise<UninstallResult>;
+  processRows: () => Promise<ProcessRow[]>;
+  quit: (r: ProcessRow) => Promise<QuitOutcome>;
+  forceQuit: (r: ProcessRow) => Promise<QuitOutcome>;
   /** Listening ports and open files of one process, read now. Nothing is sampled in the background. */
-  inspectProcess: (r: ProcessRow) =>
-    invoke<ProcessInspection>("process_inspect", { pid: r.lead.pid, startTime: r.lead.start_time }),
-  volumes: () => invoke<Volume[]>("volumes"),
-  eject: (mount: string) => invoke<void>("eject", { mount }),
+  inspectProcess: (r: ProcessRow) => Promise<ProcessInspection>;
+  volumes: () => Promise<Volume[]>;
+  eject: (mount: string) => Promise<void>;
   /** Opens the Full Disk Access pane in System Settings. */
-  openFullDiskAccess: () => invoke<void>("fda_request"),
-  fullDiskAccessStatus: () => invoke<string>("fda_status"),
-  cleanupScan: () => invoke<CleanupReport>("cleanup_scan"),
+  openFullDiskAccess: () => Promise<void>;
+  fullDiskAccessStatus: () => Promise<string>;
+  cleanupScan: () => Promise<CleanupReport>;
   /** The last saved findings, or null when none were saved. Never scans. */
-  cleanupCached: () => invoke<CleanupReport | null>("cleanup_cached"),
-  cleanupApply: (items: CleanupFinding[]) =>
-    invoke<CleanupApplyResult>("cleanup_apply", {
-      items: items.map((f) => ({ rule_id: f.rule_id, path: f.path, dev: f.dev, ino: f.ino })),
-    }),
-  cleanupRestore: (id: string) => invoke<unknown>("cleanup_restore", { id }),
-  reveal: (path: string) => invoke<void>("reveal", { path }),
+  cleanupCached: () => Promise<CleanupReport | null>;
+  cleanupApply: (items: CleanupFinding[]) => Promise<CleanupApplyResult>;
+  cleanupRestore: (id: string) => Promise<CleanupRestoreResult>;
+  /** Past cleanups, newest first, with what each moved and whether it can be undone. */
+  cleanupHistory: () => Promise<CleanupHistory>;
+  reveal: (path: string) => Promise<void>;
   /** Device and inode of an item now; the file actions check them again before acting. */
-  fileIdentity: (path: string) => invoke<FileIdentity>("file_identity", { path }),
+  fileIdentity: (path: string) => Promise<FileIdentity>;
   /** Opens a folder, or selects a file, in Finder. Read-only. */
-  finderOpen: (path: string) => invoke<void>("finder_open", { path }),
+  finderOpen: (path: string) => Promise<void>;
   /** The native folder picker; null when cancelled. */
-  fileChooseFolder: () => invoke<string | null>("file_choose_folder"),
-  fileMovePlan: (path: string, id: FileIdentity, destination: string) =>
-    invoke<MovePlan>("file_move_plan", { path, dev: id.dev, ino: id.ino, destination }),
+  fileChooseFolder: () => Promise<string | null>;
+  fileMovePlan: (path: string, id: FileIdentity, destination: string) => Promise<MovePlan>;
   /** Renames within one drive; across drives, copies then trashes the original when copyAcrossVolumes is set. */
-  fileMove: (path: string, id: FileIdentity, destination: string, copyAcrossVolumes: boolean) =>
-    invoke<MoveResult>("file_move", { path, dev: id.dev, ino: id.ino, destination, copyAcrossVolumes }),
-  fileTrash: (path: string, id: FileIdentity) => invoke<void>("file_trash", { path, dev: id.dev, ino: id.ino }),
-  mediaCompressStatus: () => invoke<MediaCompressStatus>("media_compress_status"),
-  mediaCompress: (path: string, options?: { quality?: number; max_dimension?: number }) =>
-    invoke<MediaCompressOutcome>("media_compress", { path, options }),
+  fileMove: (path: string, id: FileIdentity, destination: string, copyAcrossVolumes: boolean) => Promise<MoveResult>;
+  fileTrash: (path: string, id: FileIdentity) => Promise<void>;
+  mediaCompressStatus: () => Promise<MediaCompressStatus>;
+  mediaCompress: (path: string, options?: {
+      quality?: number;
+      max_dimension?: number;
+  }) => Promise<MediaCompressOutcome>;
   /** Facts the scan does not hold for one item: read-only, one path, never recursive. */
-  storageInspect: (path: string) => invoke<Inspect>("storage_inspect", { path }),
+  storageInspect: (path: string) => Promise<Inspect>;
   /** The raw bytes of one image for the inspector's preview; rejects with the reason when there is no preview. */
-  storagePreview: (path: string) => invoke<ArrayBuffer>("storage_preview", { path }),
+  storagePreview: (path: string) => Promise<ArrayBuffer>;
   /** Drive health for these mounts; samples smartctl only when ten minutes have passed. */
-  driveHealth: (mounts: string[]) => invoke<HealthReport>("drive_health", { mounts }),
+  driveHealth: (mounts: string[]) => Promise<HealthReport>;
   /** Read-only merge of the records each feature keeps; newest first, at most `limit` rows older than `before`. */
-  activityTimeline: (limit: number, before: number | null) => invoke<ActivityTimeline>("activity_timeline", { limit, before }),
-  homePath: () => invoke<string>("home_path"),
-  duplicatesScan: (path: string) => invoke<DuplicateReport>("duplicates_scan", { path }),
+  activityTimeline: (limit: number, before: number | null) => Promise<ActivityTimeline>;
+  homePath: () => Promise<string>;
+  duplicatesScan: (path: string) => Promise<DuplicateReport>;
   /** Moves each extra copy to the Trash after re-checking it; the kept copy is never touched. */
-  duplicatesTrash: (items: { kept: string; path: string }[]) =>
-    invoke<DuplicatesTrashResult>("duplicates_trash", { items }),
-};
+  duplicatesTrash: (items: {
+      kept: string;
+      path: string;
+  }[]) => Promise<DuplicatesTrashResult>;
+}
+
 
 // ---- Drive health (smartctl, kept by core) ----
 
@@ -626,7 +700,7 @@ export interface UpdateJob {
   message: string;
 }
 
-/** One login or background item that starts by itself (src-tauri/src/startup_items.rs). Read only. */
+/** One login or background item that starts by itself. Read only. */
 export interface StartupItem {
   name: string;
   kind: string;
@@ -646,505 +720,30 @@ export interface StartupReport {
   notes: string[];
 }
 
-export const appsApi = {
-  cached: () => invoke<CachedApps>("apps_cached"),
-  refresh: () => invoke<void>("apps_refresh"),
-  summary: (path: string) => invoke<AppEntry>("app_summary", { path }),
-  leftovers: (path: string) => invoke<void>("app_leftovers", { path }),
+/** The app inventory, updates and startup items. Rows and icons also arrive as `SystemEventMap` events. */
+export interface AppsClient {
+  /** The app the host was asked to open at start (`--app <path>`), or null. */
+  initialApp: () => Promise<string | null>;
+  cached: () => Promise<CachedApps>;
+  refresh: () => Promise<void>;
+  summary: (path: string) => Promise<AppEntry>;
+  leftovers: (path: string) => Promise<void>;
   /** Cached icons by path; the rest arrive as `apps-icon` events. */
-  icons: (paths: string[]) => invoke<Record<string, string>>("app_icons", { paths }),
-  updatesCached: () => invoke<UpdateReport>("apps_updates_cached"),
-  updatesRefresh: (force: boolean) => invoke<void>("apps_updates_refresh", { force }),
+  icons: (paths: string[]) => Promise<Record<string, string>>;
+  updatesCached: () => Promise<UpdateReport>;
+  updatesRefresh: (force: boolean) => Promise<void>;
   /** Returns "running", "opened" or "store". */
-  update: (path: string) => invoke<string>("app_update", { path }),
+  update: (path: string) => Promise<string>;
   /** Startup and login items, read only. Called when the Starts by itself section opens. */
-  startupItems: () => invoke<StartupReport>("startup_items"),
-};
-
-// ---- Nearby sharing (LocalSend protocol, run by the hub: src-tauri/src/share.rs) ----
-
-export interface ShareDevice {
-  fingerprint: string;
-  alias: string;
-  deviceModel?: string | null;
-  deviceType?: string | null;
-  ip: string;
-  port: number;
-  protocol: string;
+  startupItems: () => Promise<StartupReport>;
 }
 
-export interface ShareIncoming {
-  id: string;
-  from: string;
-  fingerprint: string;
-  fileCount: number;
-  totalBytes: number;
-  isMessage: boolean;
-  preview?: string | null;
-  files: { name: string; size: number }[];
-  known: boolean;
-}
+/** The host's system client (see `configureSystemHost`). */
+export const api: SystemClient = new Proxy({} as SystemClient, {
+  get: (_target, key) => systemHost().client[key as keyof SystemClient],
+});
 
-export interface ShareTransfer {
-  id: string;
-  direction: "send" | "receive";
-  peer: string;
-  state: "waiting" | "active" | "done" | "failed" | "cancelled" | "declined";
-  totalBytes: number;
-  doneBytes: number;
-  filesTotal: number;
-  filesDone: number;
-  current?: string | null;
-  savedTo?: string | null;
-  savedFiles: string[];
-  error?: string | null;
-}
-
-export interface ShareSnapshot {
-  running: boolean;
-  error: string | null;
-  alias?: string;
-  saveDir?: string;
-  devices: ShareDevice[];
-  incoming: ShareIncoming[];
-  transfers: ShareTransfer[];
-  warnings: string[];
-  localNetwork: "unknown" | "granted" | "blocked";
-}
-
-export const shareApi = {
-  state: () => invoke<ShareSnapshot>("share_state"),
-  devices: () => invoke<ShareDevice[]>("share_devices"),
-  /** Send files and/or text to a device (by fingerprint). Resolves with the transfer id. */
-  send: (to: string, paths: string[], text?: string) => invoke<string>("share_send", { to, paths, text }),
-  accept: (id: string) => invoke<boolean>("share_accept", { id }),
-  decline: (id: string) => invoke<boolean>("share_decline", { id }),
-  cancel: (id: string) => invoke<boolean>("share_cancel", { id }),
-  dismiss: (id: string) => invoke<void>("share_dismiss", { id }),
-  /**
-   * Events from the service: `share-devices` (ShareDevice[]), `share-incoming` (ShareIncoming),
-   * `share-incoming-resolved` (id), `share-progress` (ShareTransfer).
-   */
-};
-
-// ---- devices (device link; the resident engine's `device.*` methods, hub/src-tauri/src/commands.rs) ----
-
-/** Effect classes a paired device may request (`agent/effect.rs`, kebab-case). */
-export const DEVICE_GRANT_CLASSES = ["reversible", "irreversible-destruction", "spend", "publication"] as const;
-export type DeviceGrantClass = (typeof DEVICE_GRANT_CLASSES)[number];
-
-/** One device from `device.list` (the answer is `{ devices: DeviceRecord[] }`). */
-export interface DeviceRecord {
-  deviceId: string;
-  name: string;
-  platform: string;
-  /** Hex key fingerprint; null until the engine reports it. */
-  keyFingerprint: string | null;
-  state: string;
-  grants: string[];
-  grantsExpireAtMs: number | null;
-  revision: number;
-  /** Null when the engine does not say whether the link is up. */
-  linkUp: boolean | null;
-  /** The computer may add devices for the circle. */
-  admit?: boolean;
-}
-
-/** The answer to `device.list`. */
-export interface DeviceListResult {
-  devices: DeviceRecord[];
-}
-
-/**
- * `code`: only the code is known; the owner types it on the other computer. Name, platform, id and
- * fingerprint are empty and Approve is not offered. `confirm`: the other computer has confirmed and
- * the full card with Approve and Reject is shown.
- */
-export type PendingPairingStage = "code" | "confirm";
-
-/** The live pairing awaiting the owner (`device.pair.pending` → `pending`). */
-export interface PendingPairing {
-  pairingId: string;
-  /** Eight digits, shown as 4+4. */
-  code: string;
-  stage: PendingPairingStage;
-  deviceName: string;
-  platform: string;
-  deviceId: string;
-  keyFingerprint: string;
-  expiresAtMs: number;
-}
-
-/** The answer to `device.pair.pending`: `pending` is set only while `open` is true. */
-export interface PendingPairingResult {
-  open: boolean;
-  pending: PendingPairing | null;
-}
-
-/** What `device.pair.start` returns (the code is never in it). */
-export interface PairingStarted {
-  pairingId: string;
-  expiresAtMs: number;
-  /** The single-use join secret (64 hex) the QR carries as `s=`; a phone that proves it joins with one scan. */
-  secret?: string | null;
-  /** This computer's iroh endpoint id (64 hex); a phone's QR carries it. */
-  endpointId?: string;
-  /** Our relay, when one is set; null otherwise. */
-  relayUrl?: string | null;
-  /** This computer's private-network addresses (ip:port); the QR carries them for a phone. */
-  addrs?: string[];
-}
-
-/** What `device.join` returns once this computer joined a host. */
-export interface JoinedHost {
-  state: string;
-  deviceId: string;
-  hostName: string;
-}
-
-/** What `device.join.create` returns. `token` and `command` are a bearer secret until used or expired: show them to the owner only. */
-export interface JoinCreated {
-  /** `pulse-join:1:...` */
-  token: string;
-  /** `pulse device join <token>`, the one line to run on the computer being added. */
-  command: string;
-  pairingId: string;
-  expiresAtMs: number;
-  /** Guest links only (#493): per `uname -m` arch, the pinned artifact and the copyable install command (a bearer secret, it carries the pass). Absent on older engines. */
-  linux?: Record<string, { url: string; sha256: string; size: number; glibc: string; command: string }>;
-  /** Why no Linux command was made (no published Linux build, unreadable manifest). */
-  linuxUnavailable?: string;
-}
-
-/** The engine's refusal text is `code: message`; these codes mean the owner check wants a (new) PIN. */
-export const OWNER_CHECK_CODES = /^(unlock_needs_auth|pin_not_set|pin_wrong|pin_locked|pin_invalid): (.*)$/s;
-
-/** A Touch ID proof of the owner: the engine's single-use challenge and the signature the Mac notch made over it. The engine verifies it. */
-export interface OwnerProof {
-  challenge: string;
-  sig: unknown;
-}
-
-export type PhoneReadMode = "allow" | "deny";
-export type PhoneSendMode = "allow" | "ask" | "deny";
-
-/** One paired phone from `device.phone.access`; `error` is set when its policy file is unreadable. */
-export interface PhoneAccess {
-  deviceId: string;
-  name: string;
-  read?: PhoneReadMode;
-  send?: PhoneSendMode;
-  admin?: boolean;
-  error?: string;
-}
-
-export interface PhoneAccessResult {
-  enabled: boolean;
-  defaults: { read: PhoneReadMode; send: PhoneSendMode };
-  phones: PhoneAccess[];
-}
-
-/** A phone send held for the owner (`device.phone.asks`); it times out after 60 s. */
-export interface PhoneAsk {
-  askId: string;
-  deviceId: string;
-  deviceName: string;
-  chat: string;
-  chatName: string;
-  preview: string;
-  createdAtMs: number;
-}
-
-/** One guest from `device.guest.list` (#492): a cloud box that redeemed a guest link. */
-export interface GuestRecord {
-  deviceId: string;
-  name: string;
-  platform: string;
-  status: "pending" | "approved" | "lapsed";
-  /** The three digits the box printed when it joined; compare before approving. */
-  checkCode: string;
-  /** What the box said about itself; nothing verifies it. */
-  reportedSession: string | null;
-  mintedBy: string;
-  approvedAtMs: number | null;
-  leaseExpiresAtMs: number;
-  lastSeenMs: number | null;
-  /** What it may not do on any computer: add or manage devices, the phone admin path. */
-  refused: string[];
-}
-
-export const devicesApi = {
-  list: () => invoke<DeviceListResult>("device_list"),
-  pending: () => invoke<PendingPairingResult>("device_pair_pending"),
-  /** Opens a phone pairing. The engine checks the owner (`pin`, the the host app PIN) first. */
-  pairStart: (pin?: string, proof?: OwnerProof) =>
-    invoke<PairingStarted>("device_pair_start", { pin: pin ?? null, challenge: proof?.challenge ?? null, sig: proof?.sig ?? null }),
-  /** Joins the computer whose owner made `token` (`pulse-join:1:...`); nothing else is asked. */
-  joinWith: (token: string) => invoke<JoinedHost>("device_join", { token }),
-  /** The engine checks the owner itself: `pin` is the the host app PIN. Without it the engine refuses `unlock_needs_auth`. */
-  pairApprove: (pairingId: string, pin?: string, proof?: OwnerProof) =>
-    invoke<unknown>("device_pair_approve", { pairingId, pin: pin ?? null, challenge: proof?.challenge ?? null, sig: proof?.sig ?? null }),
-  /** Grants or takes away a computer's `admit` (it may add devices for the circle); owner-checked like Add a device. */
-  admitSet: (deviceId: string, allowed: boolean, pin?: string, proof?: OwnerProof) =>
-    invoke<unknown>("device_admit_set", { deviceId, allowed, pin: pin ?? null, challenge: proof?.challenge ?? null, sig: proof?.sig ?? null }),
-  /** The enrolled owner-check keys (`remote.owner.key.status`; the Mac notch's and Windows Hello's). */
-  ownerKeys: () =>
-    invoke<{
-      keys: { keyId: string; device: string; dev: boolean; bound?: boolean }[];
-      /** Where the owner-check keys are kept; `weaker` is Windows without the elevated the host app service (a file any process of this account can rewrite). */
-      ownerCheck?: { protection?: "service" | "file" | "keychain"; weaker?: boolean };
-      /** True once a day while the owner key needs confirming (the engine remembers the offer), so a recreated web view does not ask again. */
-      bindDue?: boolean;
-    }>("owner_key_status"),
-  /** Confirms this computer's owner-check key (binds it to this device) with one owner check. Windows signs in the hub; the Mac's notch signs (`notch_command`, `signOwnerChallenge`, op `bind`). */
-  ownerKeyBind: () => invoke<unknown>("owner_key_bind"),
-  /** Removes one owner-check key; the engine checks `pin`. */
-  ownerKeyRevoke: (keyId: string, pin: string) => invoke<unknown>("owner_key_revoke", { keyId, pin }),
-  /** "Add a device": the engine checks `pin` (the the host app PIN) first, then makes one join command valid for ten minutes. */
-  joinCreate: (pin?: string, proof?: OwnerProof) =>
-    invoke<JoinCreated>("device_join_create", { pin: pin ?? null, challenge: proof?.challenge ?? null, sig: proof?.sig ?? null }),
-  /** "Make a guest link" (#492): the same owner check as Add a device, then one single-use link for a cloud box. */
-  guestCreate: (leaseMs: number, pin?: string, proof?: OwnerProof) =>
-    invoke<JoinCreated>("device_guest_create", { pin: pin ?? null, challenge: proof?.challenge ?? null, sig: proof?.sig ?? null, leaseMs }),
-  guests: () => invoke<{ guests: GuestRecord[] }>("device_guest_list"),
-  /** Owner UI only: makes a pending cloud agent one of your machines until its lease ends. */
-  guestApprove: (deviceId: string) => invoke<unknown>("device_guest_approve", { deviceId }),
-  /** Voids the open join command. */
-  joinCancel: () => invoke<unknown>("device_join_cancel"),
-  pairReject: (pairingId: string) => invoke<unknown>("device_pair_reject", { pairingId }),
-  revoke: (deviceId: string) => invoke<unknown>("device_revoke", { deviceId }),
-  phoneAccess: () => invoke<PhoneAccessResult>("device_phone_access"),
-  /** `read` allow|deny|default; `send` allow|ask|deny|default; omit one to leave it. */
-  phoneAccessSet: (deviceId: string, change: { read?: PhoneReadMode | "default"; send?: PhoneSendMode | "default" }) =>
-    invoke<unknown>("device_phone_access_set", { deviceId, ...change }),
-  /** Off revokes the phone's approval key first (system prompt); rejects if cancelled, leaving admin on. */
-  phoneAdminSet: (deviceId: string, allow: boolean) => invoke<unknown>("device_phone_admin_set", { deviceId, allow }),
-  phoneAsks: () => invoke<{ asks: PhoneAsk[] }>("device_phone_asks"),
-  phoneAnswer: (askId: string, allow: boolean) => invoke<unknown>("device_phone_answer", { askId, allow }),
-  computerName: () => invoke<string | null>("device_computer_name"),
-  /** `revision` is the one the device was read at; `expiresAtMs` null means no expiry. */
-  grantsSet: (deviceId: string, revision: number, classes: DeviceGrantClass[], expiresAtMs: number | null) =>
-    invoke<unknown>("device_grants_set", { deviceId, revision, classes, expiresAtMs }),
-};
-
-// ---- remote approvals (Settings > Remote, "Waiting for your approval"; the engine's `remote.approvals.*`) ----
-
-/** One remote request waiting for the owner's answer (core/src/remote/approvals.rs `Item`, state `pending`). */
-export interface RemoteApproval {
-  id: string;
-  /** `act` (one change) or `session` (a family's grant). */
-  kind: string;
-  /** The tool for an act (e.g. `files.patch`), the family (`terminal`) for a session. */
-  scope: string;
-  /** The door the call came in by: `local` or `gateway`. */
-  origin: string;
-  /** What the request is bound to; shown to nobody, sent back with the answer so the engine can check it. */
-  bind: string;
-  /** What it will do and the folder or file name it touches; never file contents or secrets. */
-  summary: string;
-  /** The external chat's client name (unlock requests). */
-  client?: string;
-  state: string;
-  created: number;
-  decided: number;
-  lastUsed: number;
-}
-
-/** The engine answers `remote.approvals.pending` with `{ items: [...] }` (engine/src/contract.rs); a bare list or `{ approvals }` is read too. */
-export function pendingApprovals(answer: unknown): RemoteApproval[] {
-  const wrapped = answer as { items?: unknown; approvals?: unknown } | null;
-  const list = Array.isArray(answer) ? answer : (wrapped?.items ?? wrapped?.approvals);
-  return Array.isArray(list) ? (list as RemoteApproval[]).filter((a) => a && typeof a.id === "string") : [];
-}
-
-export const remoteApprovalsApi = {
-  pending: () => invoke<unknown>("remote_approvals_pending"),
-  /** Approves or denies one pending request, bound to the item as displayed (the engine compares a digest of its fields). Owner UI only: the engine checks that the caller is the the host app hub. */
-  decide: (a: RemoteApproval, approve: boolean, pin?: string) =>
-    invoke<unknown>("remote_approval_decide", {
-      id: a.id,
-      approve,
-      pin: approve ? pin ?? "" : null,
-      kind: a.kind,
-      scope: a.scope,
-      origin: a.origin,
-      bind: a.bind,
-      summary: a.summary,
-    }),
-};
-
-/** The per-chat unlock: the the host app PIN and the owner's answer to an unlock request (`scope === "unlock"`). Never log or keep a PIN. */
-export const remoteUnlockApi = {
-  pinStatus: () => invoke<unknown>("remote_unlock_pin_status"),
-  /** `current` is needed only when a PIN is already set. */
-  pinSet: (pin: string, current?: string) => invoke<unknown>("remote_unlock_pin_set", { pin, current: current || null }),
-  /** Denies, or approves with the the host app PIN (the hub cannot show the system prompt). */
-  decide: (a: RemoteApproval, approve: boolean, pin?: string) =>
-    invoke<unknown>("remote_unlock_decide", {
-      args: {
-        id: a.id,
-        approve,
-        kind: a.kind,
-        scope: a.scope,
-        origin: a.origin,
-        bind: a.bind,
-        summary: a.summary,
-        pin: approve ? pin ?? "" : null,
-      },
-    }),
-};
-
-// ---- browser logins (bogusyogi/pulse#460: the engine's `browser.remote.*`, per paired computer) ----
-// Each call goes through a hub command named `browser_remote_*`, which forwards to the engine method of
-// the same name and refuses without an attached engine. The engine owns the approval: Approve asks for a
-// nonce (`challenge`) and then `approve`, and the engine itself runs the owner check.
-
-/** A sign-in request an agent made on a paired computer and that waits for the owner. */
-export interface BrowserRequest {
-  id: string;
-  sites: string[];
-  reason: string;
-  chat: string;
-  expires_ms?: number;
-}
-
-/** A sign-in session on a paired computer. `needs-owner` is the state the live view is for. */
-export interface BrowserSession {
-  session: string;
-  sites: string[];
-  chat: string;
-  state: string;
-  url?: string;
-  title?: string;
-}
-
-/** One frame of a session: JPEG, at most 1280 wide; `seq` rises with each new frame. */
-export interface BrowserFrame {
-  seq: number;
-  jpeg_b64: string;
-  width: number;
-  height: number;
-  url: string;
-  title: string;
-}
-
-/** An input for the session, with x and y in frame pixels. `text` is never logged or kept. */
-export type BrowserInput =
-  | { type: "click"; x: number; y: number }
-  | { type: "text"; text: string }
-  | { type: "key"; key: string }
-  | { type: "scroll"; dy: number };
-
-/** The rows a list call answers: a bare list, or the list under `items` or the given key. */
-export function browserRows<T>(answer: unknown, key?: string): T[] {
-  if (Array.isArray(answer)) return answer as T[];
-  const wrapped = answer as Record<string, unknown> | null;
-  const list = wrapped?.items ?? (key ? wrapped?.[key] : undefined);
-  return Array.isArray(list) ? (list as T[]) : [];
-}
-
-export const browserRemoteApi = {
-  pending: (device: string) => invoke<unknown>("browser_remote_pending", { device }),
-  /** A single-use nonce for one approval (valid for 60 seconds). */
-  challenge: (device: string, id: string) => invoke<{ nonce: string }>("browser_remote_challenge", { device, id }),
-  approve: (device: string, id: string, nonce: string) => invoke<unknown>("browser_remote_approve", { device, id, nonce }),
-  deny: (device: string, id: string) => invoke<unknown>("browser_remote_deny", { device, id }),
-  sessions: (device: string) => invoke<unknown>("browser_remote_sessions", { device }),
-  frame: (device: string, session: string, afterSeq: number) =>
-    invoke<BrowserFrame>("browser_remote_frame", { device, session, afterSeq }),
-  input: (device: string, session: string, events: BrowserInput[]) =>
-    invoke<unknown>("browser_remote_input", { device, session, events }),
-  /** Hands the session back to the agent. */
-  done: (device: string, session: string) => invoke<unknown>("browser_remote_done", { device, session }),
-};
-
-/** One saved item of the agent secure box, as `remote.secure.list` answers: labels, hosts, last four and limits, never a value. */
-export interface SecureItem {
-  id: string;
-  kind: "login" | "card";
-  label: string;
-  /** A login's one site. */
-  host?: string;
-  /** A login has a one-time code saved (never the secret). */
-  totp?: boolean;
-  /** A card's shops. */
-  hosts?: string[];
-  last4?: string;
-  maxCents?: number;
-  autoCents?: number;
-  monthCents?: number;
-}
-export interface SecureList { items: SecureItem[]; month?: string; spentCents?: Record<string, number> }
-/** `cancelled` when the system dialog was closed; otherwise the saved item's metadata. */
-export type SecureSaved = SecureItem | { cancelled: true };
-
-/**
- * The agent secure box (#345 logins, #346 virtual cards). The renderer sends only non-secret fields and the PIN;
- * the username, password, card number, name, expiry and CVC are typed into a system dialog opened by the command
- * and go straight to the engine, so no secret ever exists in this page.
- */
-export const secureBoxApi = {
-  list: () => invoke<SecureList>("remote_secure_list"),
-  remove: (id: string) => invoke<unknown>("remote_secure_remove", { id }),
-  saveLogin: (label: string, host: string, pin: string, withTotp = false) =>
-    invoke<SecureSaved>("remote_secure_save_login", { label, host, pin, withTotp }),
-  /** Adds or replaces a saved login's one-time code; the secret is typed into the system dialog. */
-  setTotp: (id: string, host: string, pin: string) =>
-    invoke<SecureSaved>("remote_secure_set_totp", { id, host, pin }),
-  saveCard: (c: { label: string; hosts: string[]; zip: string; maxCents: number; autoCents: number; monthCents: number }, pin: string) =>
-    invoke<SecureSaved>("remote_secure_save_card", { ...c, pin }),
-};
-
-/** The sentence the Devices page shows when the engine refuses pairing with `listen_off`. */
-export const LISTEN_OFF_SENTENCE =
-  "Turn on Settings > Devices > Accept device links (LAN only) on this computer first.";
-
-/** The engine's `listen_off` refusal (engine/src/devicelink_host.rs, pair_start). The hub's engine link
- *  passes only the refusal's message, not its code, so the message text identifies it. */
-export function isListenOff(e: unknown): boolean {
-  const text = typeof e === "string" ? e : e instanceof Error ? e.message : String(e);
-  return text.startsWith("listen_off:") || text.includes("turn on Accept device links first");
-}
-
-/** The owner-only security settings (`PROTECTED_KEYS`, core/src/remote/settings.rs; listed in docs/settings.md).
- *  A `hub-commands` file never changes them: they go through the engine's owner check (`remote_setting_set`). */
-const PROTECTED_KEYS = new Set([
-  "chatUnlock", "chatUnlockMinutes", "remoteBlockedApps", "agentActions", "agentCliPath", "agentBrowser", "agentBrowserSessionMinutes", "remoteRoots", "remoteGateway",
-  "remoteChatRead", "phoneChatReadAll", "remoteDocs", "remoteLaunch", "remoteMedia",
-  "remoteReadMaxBytes", "remoteFindMaxResults", "remoteChatReadMaxTurns", "remoteChatReadMaxBytes", "remoteImageMaxBytes", "remoteDocsMaxBytes",
-  "remoteFormFill", "remoteFormFillStanding", "remoteFormFillProfile", "remoteScreenObserve", "remoteScreenAct",
-  "remoteScreenDisclosure", "remoteTerminals", "remoteTermStanding", "remoteTermAllow", "remoteTermDeny",
-  "remoteClipboard", "remoteReadOnly", "ledgerTranscriptSearch", "ledgerTranscriptShare", "remoteFilesWrite", "remoteTools",
-]);
-/** `PROTECTED_PREFIXES` in core: every key under one of these is owner-only too. */
-const PROTECTED_PREFIXES = ["remoteFormFill", "remoteScreen"];
-export const isProtectedKey = (key: string): boolean =>
-  PROTECTED_KEYS.has(key) || PROTECTED_PREFIXES.some((prefix) => key.startsWith(prefix));
-
-/** A protected change waiting for the the host app PIN (the engine asks for it when a change makes a gate less safe). */
-export interface PinAsk { key: string; value: unknown; problem: string | null }
-let pinListener: ((ask: PinAsk | null) => void) | null = null;
-export function onProtectedPin(fn: ((ask: PinAsk | null) => void) | null): void {
-  pinListener = fn;
-}
-
-/** Sends one protected change to the engine. Without a PIN a change that loosens a gate is refused with
- *  `unlock_needs_auth`; that opens the PIN prompt (`ProtectedPinPrompt`). Never logs or keeps the PIN. */
-export async function setProtectedSetting(key: string, value: unknown, pin?: string): Promise<void> {
-  try {
-    await invoke<unknown>("remote_setting_set", { key, value, pin: pin ? pin : null });
-    pinListener?.(null);
-  } catch (e) {
-    const text = typeof e === "string" ? e : e instanceof Error ? e.message : String(e);
-    const m = /^(unlock_needs_auth|pin_not_set|pin_wrong|pin_locked|pin_invalid): (.*)$/s.exec(text);
-    if (m && pinListener) pinListener({ key, value, problem: pin || m[1] !== "unlock_needs_auth" ? m[2] : null });
-    else throw e;
-  }
-}
-
-/** Sets one notch setting the way the Settings page does: `notch_command` with a `set` command
- *  (a protected key goes through the engine instead). */
-export function setNotchSetting(key: string, value: unknown): Promise<unknown> {
-  if (isProtectedKey(key)) return setProtectedSetting(key, value);
-  return invoke<unknown>("notch_command", { command: { command: "set", key, value } });
-}
+/** The host's apps client (see `configureSystemHost`). */
+export const appsApi: AppsClient = new Proxy({} as AppsClient, {
+  get: (_target, key) => systemHost().apps[key as keyof AppsClient],
+});

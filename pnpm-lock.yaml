@@ -1101,6 +1101,9 @@ importers:
       '@rightkit/theme':
         specifier: workspace:^
         version: link:../theme
+      '@rightkit/workspace-ui':
+        specifier: workspace:^
+        version: link:../workspace-ui
       '@tanstack/react-virtual':
         specifier: ^3.14.21
         version: 3.14.24(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -1574,15 +1577,6 @@ importers:
 
   packages/system-ui:
     dependencies:
-      '@rightkit/legal-ui':
-        specifier: workspace:^
-        version: link:../legal-ui
-      '@rightkit/logs':
-        specifier: workspace:^
-        version: link:../logs
-      '@rightkit/onboarding':
-        specifier: workspace:^
-        version: link:../onboarding
       '@rightkit/platform-ui':
         specifier: workspace:^
         version: link:../platform-ui
@@ -1592,15 +1586,6 @@ importers:
       '@rightkit/settings-ui':
         specifier: workspace:^
         version: link:../settings-ui
-      '@rightkit/tauri':
-        specifier: workspace:^
-        version: link:../tauri
-      '@rightkit/tauri-shell':
-        specifier: workspace:^
-        version: link:../tauri-shell
-      '@tauri-apps/api':
-        specifier: 2.12.4
-        version: 2.12.4
       lucide-react:
         specifier: ^1.57.0
         version: 1.66.0(@types/react@19.3.0)(react@19.3.1)
@@ -1776,15 +1761,15 @@ importers:
 
   packages/workspace-ui:
     dependencies:
-      '@rightkit/mail-ui':
-        specifier: workspace:^
-        version: link:../mail-ui
       '@rightkit/react-shell':
         specifier: workspace:^
         version: link:../react-shell
       '@rightkit/settings-ui':
         specifier: workspace:^
         version: link:../settings-ui
+      lucide-react:
+        specifier: ^1.57.0
+        version: 1.66.0(@types/react@19.3.0)(react@19.3.1)
     devDependencies:
       '@types/node':
         specifier: ^26.6.6

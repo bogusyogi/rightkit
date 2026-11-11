@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Checkbox, ConfirmDialog, Notice, SegmentedControl, Input } from "@rightkit/react-shell/react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { appName, systemHost } from "../host.js";
 import { AppWindow, ChevronLeft, Search } from "lucide-react";
 import {
   ago,
@@ -27,16 +26,16 @@ import { upTo } from "./storageEstimate.js";
 const DAY = 86_400;
 const UNUSED_DAYS = 90;
 /** The app whose detail was open when the hub closed; the web view is destroyed on window close. */
-const KEPT_APP = "pulse.hub.apps.open";
+const KEPT_APP = "apps.open";
 /** The open app's ticked uninstall items, kept across a hub close (#302): `{ app, picked, touched }`. */
-const KEPT_PICKED = "pulse.hub.apps.picked";
+const KEPT_PICKED = "apps.picked";
 interface KeptPicked {
   app: string;
   picked: string[];
   touched: string[];
 }
 /** Uninstalls that left failed paths, kept after Back and across a hub close until dismissed. */
-const KEPT_PENDING = "pulse.hub.apps.pending";
+const KEPT_PENDING = "apps.pending";
 interface PendingUninstall {
   path: string;
   name: string;
@@ -53,12 +52,6 @@ function lastUsedText(epoch: number | null): string {
   if (days === 1) return "Yesterday";
   if (days < 60) return `${days} days ago`;
   return `${Math.floor(days / 30)} months ago`;
-}
-
-/** One `apps-icon` event. A null data URL means the app has no usable icon. */
-interface IconEvent {
-  path: string;
-  data_url: string | null;
 }
 
 function byPath(apps: AppUpdate[]): Record<string, AppUpdate> {
@@ -152,24 +145,24 @@ export function Apps() {
   // Listeners first, then the saved data, then the background refreshes.
   useEffect(() => {
     const subs: Promise<() => void>[] = [
-      listen<AppEntry>("apps-row", (e) => setApps((prev) => upsertApp(prev, e.payload))),
-      listen<AppEntry[]>("apps-inventory", (e) => {
+      systemHost().subscribe("apps-row", (e) => setApps((prev) => upsertApp(prev, e.payload))),
+      systemHost().subscribe("apps-inventory", (e) => {
         setApps(e.payload);
         setRefreshing(false);
         setLoaded(true);
       }),
-      listen<AppUpdate>("apps-update-row", (e) =>
+      systemHost().subscribe("apps-update-row", (e) =>
         setUpdates((prev) => ({ ...prev, [e.payload.path]: e.payload })),
       ),
-      listen<UpdateReport>("apps-updates-done", (e) => {
+      systemHost().subscribe("apps-updates-done", (e) => {
         setUpdates(byPath(e.payload.apps));
         setUpdatesAt(e.payload.checked_at);
         setChecking(false);
       }),
-      listen<IconEvent>("apps-icon", (e) =>
+      systemHost().subscribe("apps-icon", (e) =>
         setIcons((prev) => ({ ...prev, [e.payload.path]: e.payload.data_url })),
       ),
-      listen<UpdateJob>("apps-update-job", (e) => {
+      systemHost().subscribe("apps-update-job", (e) => {
         setJob(e.payload.path, e.payload);
         // Homebrew changed an app: check again so its row reflects the new version.
         if (e.payload.state === "done") checkUpdates(false);
@@ -188,7 +181,7 @@ export function Apps() {
       }
       if (alive) checkUpdates(false);
       // `--app <path>` opens straight to that app's detail; otherwise the app that was open last.
-      const first = await invoke<string | null>("initial_app").catch(() => null);
+      const first = await appsApi.initialApp().catch(() => null);
       const target = first ?? readKept<string>(KEPT_APP);
       if (alive && target) {
         const entry = await appsApi.summary(target).catch((e) => {
@@ -721,7 +714,7 @@ function Detail({
   };
 
   useEffect(() => {
-    const sub = listen<LeftoversEvent>("apps-leftovers", (e) => {
+    const sub = systemHost().subscribe("apps-leftovers", (e) => {
       const event = e.payload;
       if (event.path !== app.path) return;
       if (event.kind === "part") {
@@ -899,7 +892,7 @@ function Detail({
       {app.protected && <Notice tone="warn">{app.protected} Uninstall is not offered.</Notice>}
       {app.running && !app.protected && (
         <Notice tone="warn">
-          Running. Pulse will ask it to quit first, and will not remove anything if it stays open.
+          Running. {appName()} will ask it to quit first, and will not remove anything if it stays open.
         </Notice>
       )}
       {status === "loading" && (
@@ -948,7 +941,7 @@ function Detail({
           <p>
             Sizes are measured on disk. Match shows how the file was tied to the app; items marked for review are left
             unchecked. {isWindows
-              ? "Leftover folders go to the Recycle Bin and can be restored. Registry and startup entries are listed only; Pulse never removes them."
+              ? `Leftover folders go to the Recycle Bin and can be restored. Registry and startup entries are listed only; ${appName()} never removes them.`
               : "Everything goes to the Trash and can be put back."}
           </p>
         </details>

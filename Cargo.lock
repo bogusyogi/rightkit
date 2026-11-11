@@ -11795,13 +11795,9 @@ dependencies = [
 
 [[package]]
 name = "rightkit-google-identity"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
- "getrandom 0.4.3",
- "rightkit-credentials",
- "serde",
- "serde_json",
- "sha2 0.11.1",
+ "rightkit-oauth",
 ]
 
 [[package]]
@@ -12580,7 +12576,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa-driver"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "rightkit-automation",
  "rightkit-daemon",

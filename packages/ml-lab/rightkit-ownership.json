@@ -3,7 +3,7 @@
   "capabilities": [
     {
       "capability": "ml-lab",
-      "summary": "Speech and text-polish model lab scripts: ASR bake-offs, model conversion, local-model training and screening, wake-word corpus preparation.; declaration-only detection (no precise implementation fingerprint)",
+      "summary": "Private ASR model tooling: bake-off adapter contract and adapters, WER scorer, bundle-size qualifier, CoreML conversion and benchmark.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

@@ -1,6 +1,6 @@
 # rightkit-qa-driver
 
-**Deprecated.** Use [`rightkit-qa`](../rightkit-qa/README.md) with its `control` feature for the in-app QA control server, and [`rightkit-automation`](../rightkit-automation/README.md) for background native input, the admission gate, the input lease and the key and JSON helpers. This crate stays for one release (0.5.0) as a shim so an app compiles unchanged after a version bump, and is then yanked.
+**Deprecated, not published.** Use [`rightkit-qa`](../rightkit-qa/README.md) with its `control` feature for the in-app QA control server, and [`rightkit-automation`](../rightkit-automation/README.md) for background native input, the admission gate, the input lease and the key and JSON helpers. No app imports this crate and it is not in the mandatory set. From 0.7.2 it is `publish = false`: 0.7.0 stays on crates.io for anything still pinned to it, and no new version is published. In RightKit it remains only for the e2e app's `qa_driver` probe and the `spikes/rk2-macos` fixture; new code does not depend on it.
 
 Catalog capability: `desktop-control`. Published versions are listed in [INDEX.md](../../INDEX.md).
 

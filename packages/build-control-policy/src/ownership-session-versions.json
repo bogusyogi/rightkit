@@ -13,7 +13,7 @@
     "@rightkit/updates": "0.2.3"
   },
   "stagedNpm": {
-    "@rightkit/agent-ui-approvals": "0.1.0",
+    "@rightkit/agent-ui-approvals": "0.2.0",
     "@rightkit/agent-ui-components": "0.1.1",
     "@rightkit/agent-ui-core": "0.1.0",
     "@rightkit/agent-ui-hooks": "0.1.0",
@@ -39,7 +39,7 @@
     "@rightkit/library-ui": "0.2.0",
     "@rightkit/license": "0.3.1",
     "@rightkit/logs": "0.1.6",
-    "@rightkit/mail-ui": "0.1.0",
+    "@rightkit/mail-ui": "0.2.0",
     "@rightkit/markdown-editor": "0.2.0",
     "@rightkit/media-gen-ui": "0.1.0",
     "@rightkit/media-ui": "0.3.5",
@@ -53,14 +53,14 @@
     "@rightkit/release": "0.6.53",
     "@rightkit/settings-ui": "0.7.1",
     "@rightkit/social-ui": "0.1.0",
-    "@rightkit/system-ui": "0.1.0",
+    "@rightkit/system-ui": "0.2.0",
     "@rightkit/tauri": "0.4.0",
     "@rightkit/tauri-shell": "0.1.4",
     "@rightkit/terminal-ui": "0.1.0",
     "@rightkit/theme": "0.3.2",
     "@rightkit/video-ui": "0.1.1",
     "@rightkit/waitlist-worker": "0.1.0",
-    "@rightkit/workspace-ui": "0.1.0"
+    "@rightkit/workspace-ui": "0.2.0"
   },
   "legacyNpm": {
     "@rightkit/app-shell": [
@@ -618,7 +618,6 @@
     "rightkit-fsindex": "0.6.2",
     "rightkit-github": "0.1.1",
     "rightkit-google-apis": "0.1.1",
-    "rightkit-google-identity": "0.2.1",
     "rightkit-gpu": "0.1.0",
     "rightkit-hooks": "0.2.5",
     "rightkit-hotkeys": "0.1.4",
@@ -670,7 +669,6 @@
     "rightkit-prompt-recipes": "0.1.0",
     "rightkit-pty": "0.1.1",
     "rightkit-qa": "0.10.6",
-    "rightkit-qa-driver": "0.7.1",
     "rightkit-record": "0.4.0",
     "rightkit-reframe": "0.1.1",
     "rightkit-remote-compute": "0.1.0",

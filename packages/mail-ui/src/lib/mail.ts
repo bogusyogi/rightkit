@@ -34,17 +34,6 @@ export const FOLDERS: { key: Folder; name: string }[] = [
   { key: "trash", name: "Trash" },
 ];
 
-// RRULE BYDAY codes (RFC5545) starting Monday, with display labels.
-export const WEEKDAYS: ReadonlyArray<readonly [string, string]> = [
-  ["MO", "Mon"],
-  ["TU", "Tue"],
-  ["WE", "Wed"],
-  ["TH", "Thu"],
-  ["FR", "Fri"],
-  ["SA", "Sat"],
-  ["SU", "Sun"],
-];
-
 /** Maps a folder to the Gmail label the backend filters on. ALL_MAIL is a
  * sentinel (matched in db::list_threads), not a real Gmail label. */
 export const FOLDER_LABEL: Record<Folder, string> = {
@@ -127,11 +116,8 @@ export function labelChip(l: string): string | null {
   return LABEL_NAMES[l] ?? l;
 }
 
-export const initialOf = (s: string) => (s.trim()[0] || "?").toUpperCase();
-
-const AVATAR_COLORS = [
-  "#C46A3D", "#6E8B6B", "#B07A84", "#7E8AA8", "#B59A52", "#8A6BA8", "#5E8C8C", "#A8675B",
-];
+// Avatars are the people helpers of @rightkit/workspace-ui (one copy).
+export { colorFor, initialOf } from "@rightkit/workspace-ui/lib/avatar";
 
 /** Executable / script extensions that warrant a download warning.
  *  Covers Windows (exe/msi/bat/…), macOS (dmg/pkg/app/command), and
@@ -151,13 +137,6 @@ export const LABEL_COLORS: { bg: string; text: string }[] = [
   { bg: "#f691b3", text: "#000000" },
   { bg: "#999999", text: "#ffffff" },
 ];
-
-/** Stable per-sender avatar color (Gmail-style colored initials). */
-export function colorFor(s: string): string {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return AVATAR_COLORS[h % AVATAR_COLORS.length];
-}
 
 /** The custom (user-created) labels from a label catalog. Generic so it stays
  *  free of app/IPC types. */

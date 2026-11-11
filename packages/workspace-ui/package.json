@@ -1,7 +1,7 @@
 {
   "name": "@rightkit/workspace-ui",
-  "version": "0.1.0",
-  "description": "Calendar, contacts, drive, tasks and meeting views for workspace-style apps.",
+  "version": "0.2.0",
+  "description": "Calendar, contacts, drive, tasks and meeting views and their navs, over a typed workspace client and state the host supplies.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
   "main": "dist/index.js",
@@ -10,6 +10,22 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js"
+    },
+    "./host": {
+      "types": "./dist/host.d.ts",
+      "import": "./dist/host.js"
+    },
+    "./lib/avatar": {
+      "types": "./dist/lib/avatar.d.ts",
+      "import": "./dist/lib/avatar.js"
+    },
+    "./lib/calendarUtils": {
+      "types": "./dist/lib/calendarUtils.d.ts",
+      "import": "./dist/lib/calendarUtils.js"
     },
     "./package.json": "./package.json"
   },
@@ -24,9 +40,9 @@
     "*.css"
   ],
   "dependencies": {
-    "@rightkit/mail-ui": "workspace:^",
     "@rightkit/react-shell": "workspace:^",
-    "@rightkit/settings-ui": "workspace:^"
+    "@rightkit/settings-ui": "workspace:^",
+    "lucide-react": "^1.57.0"
   },
   "peerDependencies": {
     "react": ">=18 <21"

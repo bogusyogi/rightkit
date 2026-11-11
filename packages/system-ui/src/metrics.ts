@@ -1,26 +1,13 @@
-// Live system history for the graphs. The Rust side (metrics_history.rs)
-// samples every 2 s and keeps 30 minutes, even while the window is closed.
+// Live system history for the graphs. The host samples every 2 s and keeps
+// 30 minutes, even while the window is closed.
 // This module loads that once, then polls only what is new while something
 // is subscribed.
 
 import { useSyncExternalStore } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { api, type Sample } from "./api.js";
 import { clearVisibleInterval, visibleInterval } from "./visible.js";
 
-export interface Sample {
-  /** Unix time, ms. */
-  ts: number;
-  /** Overall CPU, 0–100. */
-  cpu: number;
-  memUsed: number;
-  memTotal: number;
-  swapUsed: number;
-  swapTotal: number;
-  pressure: string | null;
-  /** Bytes per second; null while unread. */
-  netDown: number | null;
-  netUp: number | null;
-}
+export type { Sample } from "./api.js";
 
 export interface Metrics {
   samples: Sample[];
@@ -56,9 +43,9 @@ async function poll() {
   inFlight = true;
   try {
     // Lease first so the engine's immediate sample is in the read that follows.
-    await invoke("metrics_lease", { client: CLIENT_ID, ttlMs: LEASE_TTL_MS }).catch(() => {});
+    await api.metricsLease(CLIENT_ID, LEASE_TTL_MS).catch(() => {});
     const since = state.latest?.ts;
-    merge(await invoke<Sample[]>("metrics_history", { sinceMs: since ?? null }));
+    merge(await api.metricsHistory(since ?? null));
   } catch {
     // The next tick tries again; the graphs keep what they have.
   } finally {

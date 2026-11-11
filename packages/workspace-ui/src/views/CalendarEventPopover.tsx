@@ -1,6 +1,7 @@
 import { Button, Dialog } from "@rightkit/react-shell/react";
-import { eventDay, hhmm } from "@rightkit/mail-ui/lib/calendarUtils";
-import { openExternal, type CalEvent } from "@rightkit/mail-ui/lib/ipc";
+import { eventDay, hhmm } from "../lib/calendarUtils.js";
+import { useWorkspaceClient } from "../host.js";
+import type { CalEvent } from "../client.js";
 
 type CalendarEventPopoverProps = {
   openEvent: CalEvent;
@@ -17,6 +18,7 @@ export function CalendarEventPopover({
   deleteEv,
   rsvp,
 }: CalendarEventPopoverProps) {
+  const { openExternal } = useWorkspaceClient();
   return (
     <Dialog title={openEvent.summary || "(no title)"} width={420} onClose={() => setOpenEvent(null)}>
         <p className="event-when">

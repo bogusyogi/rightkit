@@ -1,7 +1,8 @@
-import type { DriveFile } from "@rightkit/mail-ui/lib/ipc";
+import type { DriveFile } from "../client.js";
+import type { WorkspaceIconName } from "../icons.js";
 
 /** File-type to recognizable glyph plus Google's semantic color, or null for themed. */
-export function fileGlyph(f: DriveFile): { icon: string; color: string | null } {
+export function fileGlyph(f: DriveFile): { icon: WorkspaceIconName; color: string | null } {
   if (f.is_folder) return { icon: "folder", color: null };
   const m = f.mime_type;
   if (m.includes("application/vnd.google-apps.document")) return { icon: "doc", color: "#4285F4" };

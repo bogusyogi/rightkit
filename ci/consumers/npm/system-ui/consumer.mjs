@@ -8,8 +8,8 @@ const recipeId = 'system-ui-root-export-consumer';
 const result = { recipeId, schemaVersion: 1, ok: false, host: { platform: process.platform, arch: process.arch, node: process.version }, artifact: null, scenarios: [], errors: [], nativeHostQualified: false };
 const failure = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error) });
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
-const surface = [".", "./activityLease", "./api", "./components/Chart", "./lib/qr", "./metrics", "./onboarding/gate", "./package.json", "./styles.css", "./views/LauncherSettings", "./views/NearbySettings", "./views/Storage", "./views/membrane.css", "./views/monitor.css", "./views/settings.css", "./views/settingsKit", "./visible"];
-const expected = ["useActivityLease", "isWindows", "api"];
+const surface = [".", "./activityLease", "./api", "./components/Chart", "./host", "./metrics", "./package.json", "./styles.css", "./views/Storage", "./views/monitor.css", "./visible"];
+const expected = ["useActivityLease", "isWindows", "api", "appsApi", "configureSystemHost", "systemHost", "Storage", "Cleanup", "Apps", "Activity", "Duplicates", "visibleInterval", "bytes"];
 
 try {
   const archive = path.resolve(required('RIGHTKIT_CONSUMER_ARTIFACT'));
@@ -36,6 +36,16 @@ try {
     assert.deepEqual(Object.keys(manifest.exports ?? {}).sort(), surface);
     const mod = await import(provenance.entries['@rightkit/system-ui']);
     for (const key of expected) assert.ok(key in mod, `missing root export ${key}`);
+    // No transport of its own: before the host is configured a call refuses; afterwards it reaches the host's client.
+    for (const gone of ["Chat", "NearbyGroup", "LauncherLists", "devicesApi", "shareApi", "qrMatrix"]) assert.ok(!(gone in mod), `${gone} is not system UI`);
+    assert.throws(() => mod.api.status(), /configureSystemHost/);
+    const seen = [];
+    const handler = { get: (_t, key) => async (...args) => { seen.push([key, args]); return key === 'status' ? { ok: true } : null; } };
+    mod.configureSystemHost({ client: new Proxy({}, handler), apps: new Proxy({}, handler), subscribe: async () => () => {}, appName: 'Consumer', storagePrefix: 'consumer.' });
+    assert.deepEqual(await mod.api.status(), { ok: true });
+    await mod.appsApi.initialApp();
+    assert.deepEqual(seen.map(([k]) => k), ['status', 'initialApp']);
+    assert.equal(mod.systemHost().appName, 'Consumer');
     return { checked: expected, exportKeys: surface.length };
   });
 

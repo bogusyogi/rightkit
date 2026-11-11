@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button, Input } from "@rightkit/react-shell/react";
-import { pendingApprovals, remoteApprovalsApi, remoteUnlockApi, type RemoteApproval } from "@rightkit/system-ui/api";
+import { pendingApprovals, remoteApprovalsApi, remoteUnlockApi, type RemoteApproval } from "../api.js";
 import { SettingRow, SettingsItem } from "@rightkit/settings-ui/core";
 import { clearVisibleInterval, visibleInterval } from "@rightkit/system-ui/visible";
 

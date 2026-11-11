@@ -41,7 +41,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | agent-tasks | `rightkit-agent-engine-tasks` | none | declaration-only | 0 | rightkit-agent-engine-tasks: staged 0.1.2, not published |
 | agent-tools | `rightkit-agent-tools` | none | declaration-only | 0 | rightkit-agent-tools: published 0.3.0 (crates.io) |
 | agent-transcript | `rightkit-agent-transcript` | none | declaration-only | 0 | rightkit-agent-transcript: staged 0.1.2, not published |
-| agent-ui-approvals | `@rightkit/agent-ui-approvals` | none | declaration-only | 0 | @rightkit/agent-ui-approvals: staged 0.1.0, not published |
+| agent-ui-approvals | `@rightkit/agent-ui-approvals` | none | declaration-only | 0 | @rightkit/agent-ui-approvals: staged 0.2.0, not published |
 | agent-ui-components | `@rightkit/agent-ui-components` | none | declaration-only | 0 | @rightkit/agent-ui-components: staged 0.1.1, not published |
 | agent-ui-core | `@rightkit/agent-ui-core` | none | declaration-only | 0 | @rightkit/agent-ui-core: staged 0.1.0, not published |
 | agent-ui-hooks | `@rightkit/agent-ui-hooks` | none | declaration-only | 0 | @rightkit/agent-ui-hooks: staged 0.1.0, not published |
@@ -144,7 +144,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | local-services | `rightkit-daemon` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-daemon: published 0.4.0 (crates.io) |
 | localization | `@rightkit/i18n` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/i18n: published 0.2.0 (npm) |
 | mail-client-core | `rightkit-mail` | none | declaration-only | 0 | rightkit-mail: staged 0.1.2, not published |
-| mail-ui | `@rightkit/mail-ui` | none | declaration-only | 0 | @rightkit/mail-ui: staged 0.1.0, not published |
+| mail-ui | `@rightkit/mail-ui` | none | declaration-only | 0 | @rightkit/mail-ui: staged 0.2.0, not published |
 | markdown-editor | `@rightkit/markdown-editor` | none | declaration-only | 0 | @rightkit/markdown-editor: staged 0.2.0, not published |
 | mcp | `rightkit-mcp` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-mcp: published 0.7.0 (crates.io) |
 | media-fetch | `rightkit-media-fetch` | none | declaration-only | 0 | rightkit-media-fetch: staged 0.1.3, not published |
@@ -206,7 +206,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | sync-key-management | `rightkit-sync-keys` | none | declaration-only | 0 | rightkit-sync-keys: none recorded |
 | sync-worker | `@rightkit/sync-worker` | none | declaration-only | 0 | @rightkit/sync-worker: none recorded |
 | system-monitor | `rightkit-system-monitor` | none | declaration-only | 0 | rightkit-system-monitor: staged 0.2.0, not published |
-| system-ui | `@rightkit/system-ui` | none | declaration-only | 0 | @rightkit/system-ui: staged 0.1.0, not published |
+| system-ui | `@rightkit/system-ui` | none | declaration-only | 0 | @rightkit/system-ui: staged 0.2.0, not published |
 | tauri-host-adapters | `@rightkit/tauri`, `rightkit-device` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/tauri: published 0.3.0 (npm); rightkit-device: published 0.4.0 (crates.io) |
 | terminal-ui | `rightkit-terminal-ui` | none | declaration-only | 0 | rightkit-terminal-ui: staged 0.1.2, not published |
 | terminal-ui-components | `@rightkit/terminal-ui` | none | declaration-only | 0 | @rightkit/terminal-ui: staged 0.1.0, not published |
@@ -232,5 +232,5 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | waitlist-worker | `@rightkit/waitlist-worker` | none | declaration-only | 0 | @rightkit/waitlist-worker: staged 0.1.0, not published |
 | web-session | `rightkit-web-session` | none | declaration-only | 0 | rightkit-web-session: staged 0.1.0, not published |
 | windows-native-overlay-renderer | `rightkit-overlay-win` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-overlay-win: published 0.1.0 (crates.io) |
-| workspace-ui | `@rightkit/workspace-ui` | none | declaration-only | 0 | @rightkit/workspace-ui: staged 0.1.0, not published |
+| workspace-ui | `@rightkit/workspace-ui` | none | declaration-only | 0 | @rightkit/workspace-ui: staged 0.2.0, not published |
 | xlsx | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.2 (crates.io) |

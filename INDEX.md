@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 1.
+Flagged mismatches: 3.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -141,7 +141,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-fsindex` | crates.io | 0.6.2 | 0.5.0 | 0.6.2 | staged, not yet published | file-index | Live whole-disk file index: fuzzy name search plus clone- and hard-link-aware folder size rollups on memory-mapped columns |
 | `rightkit-github` | crates.io | 0.1.1 | none recorded | 0.1.1 | staged, never published | github | GitHub App authority contracts, forge request specs, App state store, webhook verification, installation tokens and device-flow sign-in |
 | `rightkit-google-apis` | crates.io | 0.1.1 | none recorded | 0.1.1 | staged, never published | google-workspace-apis | Async Google Workspace REST clients: Gmail (sync, history, batch fetch, MIME, compose, labels, filters, settings, drafts, attachments), Calendar, Drive, People, Tasks and Meet, with desktop OAuth and shared retry/backoff. |
-| `rightkit-google-identity` | crates.io | 0.2.1 | 0.2.0 | 0.2.1 | staged, not yet published | google-identity | Sign in with Google protocol pieces for Right Suite apps: OAuth PKCE request and redirect handling, token response and ID-token claim checks, and refresh-token storage in rightkit-credentials. |
+| `rightkit-google-identity` | private | 0.3.0 | 0.2.0 |  | **MISMATCH published 0.2.0 != source 0.3.0** | google-identity | Deprecated, unpublished: re-exports the Google sign-in of rightkit-oauth (feature `google`). Use rightkit-oauth. |
 | `rightkit-gpu` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Shared wgpu device context for Right Suite apps: per-OS backend policy, a crash sentinel around device creation, adapter pick and limits, an exit gate for in-flight GPU work, and a device-memory budget that adapts to out-of-memory. |
 | `rightkit-hooks` | crates.io | 0.2.5 | 0.2.0 | 0.2.5 | staged, not yet published | lifecycle-hooks | Typed Claude Code and Codex hook payloads, a deadline-bound exit-0 dispatcher, exact output builders, and delivery receipts. |
 | `rightkit-hotkeys` | crates.io | 0.1.4 | 0.1.2 | 0.1.4 | staged, not yet published | global-hotkeys | Global shortcuts and low-level input hooks for Right Suite apps: chord parsing, conflict detection, CGEventTap/WH_KEYBOARD_LL primitives, push-to-talk state. |
@@ -194,7 +194,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-prompt-recipes` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Prompt contracts and validator, recipe composer and catalogue, character and LoRA lock, video quality templates, template swap, brand codes and the KDP workflow. |
 | `rightkit-pty` | crates.io | 0.1.1 | none recorded | 0.1.1 | staged, never published |  | Async managed PTY child for Right Suite apps: owned tree, resize, bounded input, EOF, staged cancel, ConPTY and POSIX PTY. |
 | `rightkit-qa` | crates.io | 0.10.6 | 0.9.1 | 0.10.6 | staged, not yet published | desktop-qa | Rust QA harness for Right Suite apps: engine black-box scenarios, hidden native UI driving (the in-app control server is the dev-only `control` feature), Rust-test scenario wrapper, dynamic paid-provider mocks, loudness/WAV/PNG/frame validators, run lock, orphan sweep, hashed evidence. |
-| `rightkit-qa-driver` | crates.io | 0.7.1 | 0.7.0 | 0.7.1 | staged, not yet published | desktop-control | Deprecated shim: use rightkit-qa (`control` feature) for the in-app QA control server and rightkit-automation for background input. Keeps the old rightkit-qa-driver paths, the WebDriver bridge and the macOS CLI. |
+| `rightkit-qa-driver` | private | 0.7.2 | 0.7.0 |  | **MISMATCH published 0.7.0 != source 0.7.2** | desktop-control | Deprecated shim: use rightkit-qa (`control` feature) for the in-app QA control server and rightkit-automation for background input. Keeps the old rightkit-qa-driver paths, the WebDriver bridge and the macOS CLI. |
 | `rightkit-record` | crates.io | 0.4.0 | 0.3.3 | 0.4.0 | staged, not yet published | screen-recording | Per-window screen capture for any app, chosen by window id and pid: ScreenCaptureKit on macOS, Windows.Graphics.Capture on Windows. Record lifecycle, session bundles, redaction, verification and frame reader. Never sends input; needs Screen Recording permission. |
 | `rightkit-reframe` | crates.io | 0.1.1 | none recorded | 0.1.1 | staged, never published | video-reframe | Tracked 9:16 reframe for Right Suite video apps: ONNX face detection (YuNet; CoreML, DirectML or CPU), subject tracking, a smoothed crop path, and approval-gated crop plans. |
 | `rightkit-remote-compute` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | remote-compute | Local and rented model compute: model catalogue, memory governor, installs, SSH and Vast.ai drivers, register/stage/run/teardown lifecycle, and the time-billed spend bracket with duration, budget and idle enforcement |
@@ -245,7 +245,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 
 | Package | Registry | Source | Published | Staged | Flag | CLI | Owns | What it is |
 |---|---|---|---|---|---|---|---|---|
-| `@rightkit/agent-ui-approvals` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | agent-ui-approvals | Agent approval queue and cards, agent settings, remote approvals, owner PIN and secure-box settings views. |
+| `@rightkit/agent-ui-approvals` | npm | 0.2.0 | none recorded | 0.2.0 | staged, never published |  | agent-ui-approvals | Agent approval queue and cards, agent settings, remote approvals, owner PIN and secure-box settings views. |
 | `@rightkit/agent-ui-components` | npm | 0.1.1 | none recorded | 0.1.1 | staged, never published |  | agent-ui-components | Coding-agent UI components: app frame, chat, composer, review, panels, delivery, remote and usage. |
 | `@rightkit/agent-ui-core` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | agent-ui-core | Coding-agent UI core: daemon client, session and transcript types, stores and helpers. |
 | `@rightkit/agent-ui-hooks` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | agent-ui-hooks | React hooks for coding-agent UIs: sessions, composer, workspace files, approvals and runtime. |
@@ -272,11 +272,11 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/library-ui` | npm | 0.2.0 | none recorded | 0.2.0 | staged, never published |  | library-ui | Library list and reader over a host-supplied LibrarySource (no IPC); ScrapeRight queue screens on ./queue. |
 | `@rightkit/license` | npm | 0.3.1 | 0.3.0 | 0.3.1 | staged, not yet published |  | licensing | Native licence invoke client & safe display views for Right Suite apps. |
 | `@rightkit/logs` | npm | 0.1.6 | 0.1.6 | 0.1.6 | ok |  | structured-logging | Local-only structured logging and diagnostics client for Right Suite apps. |
-| `@rightkit/mail-ui` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | mail-ui | Mail client UI: inbox, reader, compose editor, recipients, attachments, account switcher and the mail store. |
+| `@rightkit/mail-ui` | npm | 0.2.0 | none recorded | 0.2.0 | staged, never published |  | mail-ui | Mail client UI: inbox, reader, compose editor, recipients, attachments, account switcher and the mail store. |
 | `@rightkit/markdown-editor` | npm | 0.2.0 | none recorded | 0.2.0 | staged, never published |  | markdown-editor | Markdown and MDX editor: ProseMirror WYSIWYG, source mode, math, diagrams and properties panel. |
 | `@rightkit/media-gen-ui` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | media-gen-ui | Generative media studio UI: generate, jobs, gallery, recipes, voices and production panels. |
 | `@rightkit/media-ui` | npm | 0.3.5 | 0.3.4 | 0.3.5 | staged, not yet published |  | media-ui | Brand-neutral media player and image viewer/editor for Right Suite apps. |
-| `@rightkit/ml-lab` | private | 0.1.0 | none recorded |  | private |  |  | Speech and text-polish model lab: ASR bake-off harnesses, CoreML and ONNX conversion, local-model training and screening, wake-word corpus preparation. |
+| `@rightkit/ml-lab` | private | 0.2.0 | none recorded |  | private | rk-asr-wer, rk-bundle-qualify |  | Private ASR model tooling: a bake-off adapter contract with ten model adapters, a WER scorer, a bundle-size qualifier, and CoreML conversion and benchmark scripts. |
 | `@rightkit/onboarding` | npm | 0.6.4 | 0.6.3 | 0.6.4 | staged, not yet published |  | onboarding-ui | First-run onboarding framework: ordered steps, progress, skip/resume, legal gate first, permissions, model download and licence/trial steps. |
 | `@rightkit/outdated` | npm | 0.3.1 | 0.3.0 | 0.3.1 | staged, not yet published | right-update | dependency-updates | Per-repo dependency updater: check, apply, gate and land for cargo, pnpm, swiftpm and external-tool pins, plus a scheduled run (launchd, Task Scheduler). |
 | `@rightkit/pdf-ui` | npm | 0.3.0 | 0.2.0 | 0.3.0 | staged, not yet published |  | pdf-ui | Brand-neutral read-only PDF viewer (pdf.js) for Right Suite apps. |
@@ -289,14 +289,14 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/settings-ui` | npm | 0.7.1 | 0.7.0 | 0.7.1 | staged, not yet published |  | settings-ui | Settings panel frame, search and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-app-settings. The panel shell and primitives (/core) need only React. |
 | `@rightkit/social-ui` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | social-ui | Social media management UI: accounts, drafts, approvals and analytics screens with their data layer. |
 | `@rightkit/sync-worker` | private | 0.1.0 | none recorded |  | private |  | sync-worker | Cloudflare Worker (D1 + R2) implementing the server side of rightkit-sync-http/1: opaque encrypted records, per-account auth, version preconditions, paged change feeds, rate limits, account erase and tombstone compaction. |
-| `@rightkit/system-ui` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | system-ui | System monitor views (activity, storage, cleanup, duplicates, drive health, apps, chat) and chart helpers for desktop utility apps. |
+| `@rightkit/system-ui` | npm | 0.2.0 | none recorded | 0.2.0 | staged, never published |  | system-ui | System views (storage, cleanup, duplicates, drive health, apps, activity) and chart helpers for desktop utility apps, over typed clients the host supplies. |
 | `@rightkit/tauri` | npm | 0.4.0 | 0.3.0 | 0.4.0 | staged, not yet published |  | tauri-host-adapters | Typed host adapters for shared Right Suite Tauri commands. |
 | `@rightkit/tauri-shell` | npm | 0.1.4 | 0.1.3 | 0.1.4 | staged, not yet published |  | desktop-shell | Typed renderer bridge for the rightkit-tauri-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls. |
 | `@rightkit/terminal-ui` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | terminal-ui-components | Persistent terminal pane and its React hook. |
 | `@rightkit/theme` | npm | 0.3.2 | 0.3.1 | 0.3.2 | staged, not yet published | rightkit-theme | theme-ui | Brand file to CSS tokens generator for Right Suite apps: light/dark/system, derived dark accent, WCAG contrast and hard-coded-colour checks, runtime brand application. |
 | `@rightkit/video-ui` | npm | 0.1.1 | none recorded | 0.1.1 | staged, never published |  | video-ui | Video editor UI: timeline, inspector, preview and project views. |
 | `@rightkit/waitlist-worker` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | waitlist-worker | Cloudflare Worker that captures waitlist email signups in KV, rate-limits per IP and sends an optional Resend confirmation email. |
-| `@rightkit/workspace-ui` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | workspace-ui | Calendar, contacts, drive, tasks and meeting views for workspace-style apps. |
+| `@rightkit/workspace-ui` | npm | 0.2.0 | none recorded | 0.2.0 | staged, never published |  | workspace-ui | Calendar, contacts, drive, tasks and meeting views and their navs, over a typed workspace client and state the host supplies. |
 
 ## Version records without a manifest
 

@@ -72,7 +72,6 @@ pub mod ffmpeg;
 pub mod file_watch;
 pub mod fs;
 pub mod fsindex;
-pub mod google_identity;
 pub mod hooks;
 pub mod hotkeys;
 pub mod http;
@@ -147,7 +146,6 @@ pub fn all() -> Vec<(&'static str, Probe)> {
     v.push(("rightkit-file-watch", file_watch::probe));
     v.push(("rightkit-fs", fs::probe));
     v.push(("rightkit-fsindex", fsindex::probe));
-    v.push(("rightkit-google-identity", google_identity::probe));
     v.push(("rightkit-hooks", hooks::probe));
     v.push(("rightkit-hotkeys", hotkeys::probe));
     v.push(("rightkit-http", http::probe));

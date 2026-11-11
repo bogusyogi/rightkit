@@ -3,6 +3,7 @@ import { Button, Select } from "@rightkit/react-shell/react";
 import { api, bytes, isWindows, type ActivityRow, type ActivityTimeline } from "../api.js";
 import { clearVisibleInterval, visibleInterval } from "../visible.js";
 import { useActivityLease } from "../activityLease.js";
+import { appName } from "../host.js";
 
 /** Rows per page, both for the newest page and for each "Load older". */
 const PAGE = 50;
@@ -133,7 +134,7 @@ export function Activity({ onNavigate }: { onNavigate: (section: string) => void
   return (
     <div className="ck-activity">
       <div className="ck-activity-head">
-        <p className="muted">What Pulse did and saw, newest first. Read only: nothing is recorded here.</p>
+        <p className="muted">What {appName()} did and saw, newest first. Read only: nothing is recorded here.</p>
         <Select
           className="ck-activity-select"
           label="Filter by kind"

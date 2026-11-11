@@ -3,25 +3,14 @@
 // cards with thumbnails or colored type tiles, each with a hover ⋮ menu.
 // Shelf nav + storage live in DriveNav; shared Drive logic in useDrive.
 import { memo, useEffect, useState } from "react";
-import Icon from "@rightkit/mail-ui/components/Icons";
-import { AccountSwitcher } from "@rightkit/mail-ui/components/AccountSwitcher";
+import { Icon } from "../icons.js";
 import { Button, Dialog, IconButton, Skeleton, SegmentedControl, Input, Select } from "@rightkit/react-shell/react";
-import { setPref } from "@rightkit/mail-ui/lib/preferences";
-import { useAppStore } from "@rightkit/mail-ui/store/index";
-import { useDrive, FOLDER_MIME } from "@rightkit/mail-ui/hooks/useDrive";
+import { useDrive, FOLDER_MIME } from "../hooks/useDrive.js";
 import { DriveFileMenu } from "./DriveFileMenu.js";
 import { DrivePreviewModal } from "./DrivePreviewModal.js";
 import { fileGlyph } from "./driveFileGlyph.js";
-import {
-  listDriveFiles,
-  driveStorageQuota,
-  driveMove,
-  driveShare,
-  driveListPermissions,
-  driveRevokePermission,
-  type DriveFile,
-  type DrivePermission,
-} from "@rightkit/mail-ui/lib/ipc";
+import { HostAccountSwitcher, useWorkspaceClient, useWorkspaceHost, useWorkspaceState } from "../host.js";
+import type { DriveFile, DrivePermission } from "../client.js";
 
 /** Native button that carries the keyboard/AT semantics of a file card or row;
  *  the mouse click is handled by the card itself. */
@@ -48,20 +37,22 @@ const SHELF_LABEL: Record<string, string> = {
 };
 function DriveViewInner() {
   const drive = useDrive();
-  const setErr = useAppStore((s) => s.setErr);
-  const showUndo = useAppStore((s) => s.showUndo);
-  const setDrivePath = useAppStore((s) => s.setDrivePath);
-  const setDriveQuery = useAppStore((s) => s.setDriveQuery);
-  const driveFiles = useAppStore((s) => s.driveFiles);
-  const setDriveFiles = useAppStore((s) => s.setDriveFiles);
-  const driveToken = useAppStore((s) => s.driveToken);
-  const setDriveToken = useAppStore((s) => s.setDriveToken);
-  const drivePreview = useAppStore((s) => s.drivePreview);
-  const setDrivePreview = useAppStore((s) => s.setDrivePreview);
-  const driveViewMode = useAppStore((s) => s.driveViewMode);
-  const setDriveViewMode = useAppStore((s) => s.setDriveViewMode);
-  const setDriveQuota = useAppStore((s) => s.setDriveQuota);
-  const driveBusy = useAppStore((s) => s.driveBusy);
+  const { listDriveFiles, driveStorageQuota, driveMove, driveShare, driveListPermissions, driveRevokePermission } = useWorkspaceClient();
+  const setPref = useWorkspaceHost().savePreference;
+  const setErr = useWorkspaceHost().reportError;
+  const showUndo = useWorkspaceHost().notify;
+  const setDrivePath = useWorkspaceState((s) => s.setDrivePath);
+  const setDriveQuery = useWorkspaceState((s) => s.setDriveQuery);
+  const driveFiles = useWorkspaceState((s) => s.driveFiles);
+  const setDriveFiles = useWorkspaceState((s) => s.setDriveFiles);
+  const driveToken = useWorkspaceState((s) => s.driveToken);
+  const setDriveToken = useWorkspaceState((s) => s.setDriveToken);
+  const drivePreview = useWorkspaceState((s) => s.drivePreview);
+  const setDrivePreview = useWorkspaceState((s) => s.setDrivePreview);
+  const driveViewMode = useWorkspaceState((s) => s.driveViewMode);
+  const setDriveViewMode = useWorkspaceState((s) => s.setDriveViewMode);
+  const setDriveQuota = useWorkspaceState((s) => s.setDriveQuota);
+  const driveBusy = useWorkspaceState((s) => s.driveBusy);
   const { activeAccount, driveShelf, drivePath, driveQuery, driveType } = drive;
   // Transient UI state: the open ⋮ menu, the move/share modals, drag-over state.
   const [menuFor, setMenuFor] = useState<string | null>(null);
@@ -96,7 +87,7 @@ function DriveViewInner() {
     const oldParent = driveShelf === "my" ? drive.currentFolderId() ?? "root" : undefined;
     driveMove(activeAccount, moveFile.id, targetId, oldParent)
       .then(() => {
-        showUndo(`Moved to ${targetName}`, [], "");
+        showUndo(`Moved to ${targetName}`);
         setMoveFile(null);
         drive.refresh();
       })
@@ -115,7 +106,7 @@ function DriveViewInner() {
     if (!activeAccount || !shareFile || !shareEmail.trim()) return;
     driveShare(activeAccount, shareFile.id, shareEmail.trim(), shareRole)
       .then(() => {
-        showUndo(`Shared with ${shareEmail.trim()} (${shareRole})`, [], "");
+        showUndo(`Shared with ${shareEmail.trim()} (${shareRole})`);
         setShareEmail("");
         driveListPermissions(activeAccount, shareFile.id).then(setPerms).catch(() => {});
       })
@@ -126,7 +117,7 @@ function DriveViewInner() {
     driveRevokePermission(activeAccount, shareFile.id, permId)
       .then(() => {
         setPerms((prev) => prev.filter((p) => p.id !== permId));
-        showUndo("Access removed", [], "");
+        showUndo("Access removed");
       })
       .catch((e) => setErr(String(e)));
   }
@@ -192,7 +183,7 @@ function DriveViewInner() {
             onChange={(m) => { setDriveViewMode(m); setPref("driveViewMode", m); }}
           />
         </div>
-        <AccountSwitcher />
+        <HostAccountSwitcher />
       </div>
       <div
         className={`drive-scroll ${dragOver ? "drag-over" : ""}`}

@@ -1,24 +1,23 @@
 [package]
 name = "rightkit-google-identity"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
-description = "Sign in with Google protocol pieces for Right Suite apps: OAuth PKCE request and redirect handling, token response and ID-token claim checks, and refresh-token storage in rightkit-credentials."
+description = "Deprecated, unpublished: re-exports the Google sign-in of rightkit-oauth (feature `google`). Use rightkit-oauth."
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["google", "oauth", "pkce", "identity"]
+# Deprecated and unpublished from 0.3.0 (shape matrix decision 9): its PKCE and ID-token verification duplicated
+# rightkit-oauth (feature `google`), which rightkit-google-apis uses. No dependant; 0.1.0 stays on crates.io.
+publish = false
 include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.154"
-sha2 = "0.11"
-getrandom = "0.4"
-rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials" }
+rightkit-oauth = { version = "0.10.5", path = "../rightkit-oauth", default-features = false, features = ["google"] }
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "protocol helpers: pure string and JSON functions plus one credential-store call per invocation; spawns no thread, timer, listener or watcher and performs no network I/O (the app owns the browser launch and the HTTP calls)"
+continuous_reason = "re-export only; the runtime behaviour is that of rightkit-oauth, whose own continuous_reason applies"
 
 # One Cargo workspace and lock per crate (rightkit#1285).

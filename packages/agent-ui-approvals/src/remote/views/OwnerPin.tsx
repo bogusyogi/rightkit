@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Button, Input } from "@rightkit/react-shell/react";
 import { SettingRow, SettingsGroup } from "@rightkit/settings-ui/core";
 import { invoke } from "@tauri-apps/api/core";
-import { OWNER_CHECK_CODES, type OwnerProof } from "@rightkit/system-ui/api";
+import { OWNER_CHECK_CODES, type OwnerProof } from "../api.js";
 import { getPlatform } from "@rightkit/platform-ui";
 
 /** The words of an owner-check refusal (wrong, missing or locked PIN), or null for any other error. */

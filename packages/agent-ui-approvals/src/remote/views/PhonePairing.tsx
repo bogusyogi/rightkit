@@ -1,19 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button, Select } from "@rightkit/react-shell/react";
-import {
-  devicesApi,
-  isListenOff,
-  LISTEN_OFF_SENTENCE,
-  setNotchSetting,
-  type OwnerProof,
-  type PairingStarted,
-  type PhoneAccess,
-  type PhoneAccessResult,
-  type PhoneAsk,
-  type PhoneReadMode,
-  type PhoneSendMode,
-} from "@rightkit/system-ui/api";
-import { qrMatrix, qrSvgPath } from "@rightkit/system-ui/lib/qr";
+import { devicesApi, isListenOff, LISTEN_OFF_SENTENCE, setNotchSetting, type OwnerProof, type PairingStarted, type PhoneAccess, type PhoneAccessResult, type PhoneAsk, type PhoneReadMode, type PhoneSendMode } from "../api.js";
+import { qrMatrix, qrSvgPath } from "../lib/qr.js";
 import { clearVisibleInterval, visibleInterval } from "@rightkit/system-ui/visible";
 import { SettingRow, SettingsGroup } from "@rightkit/settings-ui/core";
 import { OwnerPinCard, onMac, ownerProblem, touchIdProof } from "./OwnerPin.js";

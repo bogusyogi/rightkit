@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import { ContextMenu, type MenuItem } from "@rightkit/react-shell/react";
-import { useDrive } from "@rightkit/mail-ui/hooks/useDrive";
-import { openExternal, type DriveFile } from "@rightkit/mail-ui/lib/ipc";
-import { useAppStore } from "@rightkit/mail-ui/store/index";
+import { useDrive } from "../hooks/useDrive.js";
+import { useWorkspaceClient, useWorkspaceHost } from "../host.js";
+import type { DriveFile } from "../client.js";
 
 type DriveFileMenuProps = {
   f: DriveFile;
@@ -16,7 +16,8 @@ type DriveFileMenuProps = {
 
 /** The per-file dropdown (preview/open/download/attach/rename/move/share/trash). */
 export function DriveFileMenu({ f, anchor, onClose, onPreview, drive, onMove, onShare }: DriveFileMenuProps) {
-  const setErr = useAppStore((s) => s.setErr);
+  const { openExternal } = useWorkspaceClient();
+  const setErr = useWorkspaceHost().reportError;
 
   const items = useMemo<MenuItem[]>(() => {
     const list: MenuItem[] = [];

@@ -1,4 +1,6 @@
 import { invoke } from "./invoke.js";
+import type { Recipient, ContactFull, ContactGroup } from "@rightkit/workspace-ui/client";
+export type { Recipient, ContactFull, ContactGroup };
 
 export interface ContactCard {
   display_name: string;
@@ -11,30 +13,12 @@ export function lookupContact(accountId: string, email: string): Promise<Contact
   return invoke<ContactCard | null>("lookup_contact", { accountId, email });
 }
 
-export interface Recipient {
-  name: string;
-  email: string;
-  photo_url: string;
-}
-
 export function searchRecipients(accountId: string, query: string): Promise<Recipient[]> {
   return invoke<Recipient[]>("search_recipients", { accountId, query });
 }
 
 export function warmPeopleCache(accountId: string): Promise<void> {
   return invoke<void>("warm_people_cache", { accountId });
-}
-
-export interface ContactFull {
-  resource_name: string;
-  etag: string;
-  display_name: string;
-  given_name: string;
-  family_name: string;
-  emails: string[];
-  phones: string[];
-  org: string;
-  photo_url: string;
 }
 
 export function listAllContacts(accountId: string): Promise<ContactFull[]> {
@@ -63,12 +47,6 @@ export function updateContact(
 
 export function deleteContact(accountId: string, resourceName: string): Promise<void> {
   return invoke<void>("delete_contact", { accountId, resourceName });
-}
-
-export interface ContactGroup {
-  resource_name: string;
-  name: string;
-  member_count: number;
 }
 
 export function listContactGroups(accountId: string): Promise<ContactGroup[]> {

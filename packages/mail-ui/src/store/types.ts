@@ -1,4 +1,5 @@
 import type { ImageRule } from "../lib/imageTrust.js";
+import type { ContactDupes, EventForm, TaskCreate } from "@rightkit/workspace-ui/client";
 import type { Folder } from "../lib/mail.js";
 import type {
   DbHealth,
@@ -133,7 +134,6 @@ export type FilterBuilder = {
   trash: boolean;
   labelId: string;
 };
-export type TaskCreate = { title: string; notes: string };
 export type CtxMenu = {
   x: number;
   y: number;
@@ -141,27 +141,12 @@ export type CtxMenu = {
   t?: Thread;
   labelId?: string;
 };
-export type EventForm = {
-  id?: string;
-  summary: string;
-  start: string;
-  end: string;
-  allDay: boolean;
-  attendees: string;
-  reminderMinutes: string;
-  addMeet: boolean;
-  recurrence: string;
-  recurEnd: "never" | "until" | "count";
-  recurUntil: string;
-  recurCount: string;
-  recurByday: string[];
-};
 export type RecipientSug = {
   field: "to" | "cc" | "bcc";
   items: Recipient[];
   groups: ContactGroup[];
 };
-export type ContactDupes = { primary: ContactFull; dups: ContactFull[] }[];
+export type { ContactDupes, EventForm, TaskCreate };
 export type SavedSearch = { name: string; query: string };
 
 type Set<T> = (v: T | ((prev: T) => T)) => void;

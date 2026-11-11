@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Button, Toggle, Input } from "@rightkit/react-shell/react";
-import { secureBoxApi, type SecureItem, type SecureList } from "@rightkit/system-ui/api";
+import { secureBoxApi, type SecureItem, type SecureList } from "../api.js";
 import { SettingRow, SettingsGroup, SettingsItem } from "@rightkit/settings-ui/core";
 
 type Published = Record<string, unknown>;
