@@ -6211,7 +6211,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-browser"
-version = "0.3.10"
+version = "0.3.11"
 dependencies = [
  "async-tungstenite 0.35.0",
  "chromiumoxide",
@@ -6418,7 +6418,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.13"
+version = "0.4.14"
 dependencies = [
  "libc",
  "sha2 0.11.1",
@@ -6718,7 +6718,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.10.6"
+version = "0.10.7"
 dependencies = [
  "getrandom 0.4.3",
  "png",

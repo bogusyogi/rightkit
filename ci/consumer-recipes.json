@@ -1882,7 +1882,7 @@
       "pkId": "PK01",
       "id": "ci/consumers/rightkit-fs/src/main.rs",
       "files": {
-        "Cargo.toml": "e8b0b5b6ca6f770a49ccf688c6810f2a91e8723684eb8d69e3824bd0dfa3ce23",
+        "Cargo.toml": "c71e01670c24c058ec23ebe9a7dce07cddc69c39537b9201fb78f33a92137a3b",
         "README.md": "1e8c1f28c4b7e9d594c89bf23b6881c9b51a3d226091823cda07971d3e3da1bf",
         "src/main.rs": "457e4dbf3385980a7e39f91b020318df0c44a3159c155cfdffceda2b8c6c6794"
       }
@@ -1960,7 +1960,7 @@
       "pkId": "PK12",
       "id": "ci/consumers/rightkit-browser/src/main.rs",
       "files": {
-        "Cargo.toml": "99037e8001ebecec7adb5671c2d1db154548e2b249887900b3aa5429cfde3af2",
+        "Cargo.toml": "93c40d0edee2840839c4ddd952720582c6fe1ebd15c3dbb26494ca1852bee781",
         "README.md": "8515f8481c8a4fb81582afc0acfa1638aaafe61364656e050bd1e5abb920bc82",
         "src/main.rs": "a719e9badfca191c21ee3491b4f184a342eea93140f514050897cd0af8d520e9"
       },
@@ -2306,7 +2306,7 @@
       "gateEvidence": "no assets needed; in-memory values only; default features only; no ci/asset-gated.json entry needed",
       "consumes": "PK14-4 named QA glue consumers per 01-packages.md: MailRight tauri_run.rs:109 QA registration, HeardRight and ScrapeRight journey runners; exercised modules: scenario, config, settings, check, storage, util (crates/rightkit-qa/src/lib.rs)",
       "files": {
-        "Cargo.toml": "fe3f84c6cbd96c131f8236d0a95832550aad80f692c06496a3b767eb80404d91",
+        "Cargo.toml": "abb14f05865ad4e2b3bc3d7c699da49ad7fde76978773401288ef17fbb94ae33",
         "README.md": "d5b3c9c5f502f2e2f9280ca0b946ef3159fcbe912ba7cd1eaea71432e163c231",
         "src/main.rs": "54f47a8ce81f6de0adda7336320487ee8d70039a03a03e57c5bb05c3c1858817"
       },
