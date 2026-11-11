@@ -46,7 +46,7 @@
 //! a lease that does not hold. Windows is not supported by this module.
 //!
 //! A lease releases what it froze when released or dropped. The optional journal
-//! ([`SealSpec::journal`]) names the paths it is about to freeze (those not already immutable) so [`ToolchainLease::recover`] can clear them
+//! ([`SealSpec::journal`]) names the paths it is about to freeze (those not already immutable) so `ToolchainLease::recover` (Unix) can clear them
 //! after a crash.
 
 // The sealing walk is unix-only; the Windows build keeps the types without a caller.
@@ -74,7 +74,7 @@ pub struct SealSpec {
     pub ttl: Duration,
     /// Entry cap over all roots; sealing fails with [`FsError::TooManyEntries`] past it.
     pub max_entries: usize,
-    /// Where to record the paths this lease froze, for [`ToolchainLease::recover`].
+    /// Where to record the paths this lease froze, for `ToolchainLease::recover` (Unix).
     pub journal: Option<PathBuf>,
 }
 
