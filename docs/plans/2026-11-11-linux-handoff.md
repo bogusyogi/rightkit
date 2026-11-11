@@ -8,10 +8,12 @@ Written by fabdell (Claude, Dell) for whoever continues on a Linux cloud box. Ad
 - **Windows, through gate and broker, green.** Dell, commit `09aaf01e1`: 46 passed of 46 (the 45 patch-bumped crates and `rightkit-tts-qwen-sys` 0.1.5). Warm run 17.6 min.
 - `origin/main` carries all of it. RustRight `origin/main` is `18c1f534`.
 
+- **Linux cloud container, through the gate, 45 of the 46 green (2026-11-11).** A fresh Ubuntu 24.04 container prepared only by `scripts/linux-cloud-setup.sh` (4 cores, 15 GB), commit `fb11f21df`: gate exit 0, 45 passed of 45, 726 compile rows, 14 min 35 s warm. The 46th, `rightkit-tts-qwen-sys`, builds only for macOS arm64 and Windows MSVC (checked-in bindings), so it is scoped off Linux in `ci/gate.config.json`; a Linux unit list that names it is refused ("no executable publisher compile requirements").
+- What that run needed and now has: the setup script installs pnpm and the workspace before the setup command, fills the pnpm store without build scripts, reinstalls after the store fill, installs the GTK and WebKit system libraries, and can be run twice; rustdoc links in `rightkit-daemon`, `rightkit-credentials`, `rightkit-agent-tools` and `rightkit-bench` that failed with warnings denied are fixed. All on branch `claude/busy-hypatia-e30h7l`, not on `main`.
+
 ## What is not proven
 
-- Only two small crates have been compiled on Linux. The 46-crate list, and crates with C code (`rightkit-db` with SQLCipher, `rightkit-tts-qwen-sys`), have not run there.
-- `scripts/linux-cloud-setup.sh` has not been run end to end on an empty box. Each step in it was run by hand on WSL2; steps 1 and 2 were already in place there.
+- The Linux run above is on the branch, not on `main`; `main` still has the five failures it fixed.
 - On Linux the gate runs the older per-crate path (direct, no broker). The build-together path is used only on the Mac and the Dell.
 - A Linux run cannot publish: a direct host writes its result but dispatch publication is held (`RK_DIRECT_RELEASE_HELD`, `packages/release/unit-gate.mjs`). No signing and no macOS or Windows builds on Linux; it lints those targets only.
 
