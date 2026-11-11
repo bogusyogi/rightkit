@@ -859,6 +859,21 @@ jobs:
         env:
           CREDENTIALS_HELPER_SIGNED_ROOT: ${{ runner.temp }}/credentials-helper-signed
         run: node scripts/ci/provision-credentials-helper-env.mjs
+      # A hosted macOS runner has no default keychain, so a consumer that stores real items through the OS credential
+      # store (rightkit-oauth's credential contract, rightkit#1437: no dummy backend) fails with errSecNoDefaultKeychain
+      # (-25307). A throwaway, unlocked keychain with a random password becomes the default for this job only.
+      - name: Provide a throwaway default keychain for credential-store consumers
+        if: ${{ runner.os == 'macOS' && needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-oauth ') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          keychain_path="$RUNNER_TEMP/rk-consumer.keychain-db"
+          password="$(openssl rand -hex 24)"
+          security create-keychain -p "$password" "$keychain_path"
+          security set-keychain-settings -lut 3600 "$keychain_path"
+          security unlock-keychain -p "$password" "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+          security default-keychain -d user -s "$keychain_path"
       - name: Mount mandatory FS qualification volumes
         if: ${{ needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-fs ') }}
         shell: bash
@@ -906,6 +921,10 @@ jobs:
           RK_CONSUMER_HELPER_NAME: ${{ env.RK_CONSUMER_HELPER_NAME }}
           RK_CONSUMER_HELPER_TEAM_ID: ${{ env.RK_CONSUMER_HELPER_TEAM_ID }}
         run: node scripts/ci/publish.mjs verify
+      - name: Remove the throwaway default keychain
+        if: ${{ always() && runner.os == 'macOS' && needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-oauth ') }}
+        shell: bash
+        run: security delete-keychain "$RUNNER_TEMP/rk-consumer.keychain-db" || true
       - name: Detach FS qualification volumes & remove bounded fixture state
         if: ${{ always() && needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-fs ') }}
         env:
