@@ -1,0 +1,22 @@
+[package]
+name = "rightkit-agent-telemetry"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Agent runtime telemetry for an agent host: resource metrics, turn latency, round trips, prompt overhead, context ceiling, evidence and repair counters."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["agent", "telemetry", "metrics", "latency"]
+categories = ["development-tools::profiling"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[features]
+default = []
+
+[dependencies]
+rightkit-logs = { version = "0.4.0", path = "../rightkit-logs", default-features = false, features = ["tracing"] }
+rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "digest"] }
+rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
+serde = { version = "1", features = ["derive"] }
+tracing = { version = "0.1", default-features = false, features = ["std"] }

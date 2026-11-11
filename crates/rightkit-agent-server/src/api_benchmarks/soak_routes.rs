@@ -15,7 +15,7 @@ use axum::{extract::State, response::Json, routing::post, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use rightkit_logs::agent_telemetry::measurement::{HostGauges, MeasurementScenario};
+use rightkit_agent_telemetry::measurement::{HostGauges, MeasurementScenario};
 
 use super::soak_driver::{drive_soak, SoakDriveConfig};
 use super::soak_harness::{SoakConfig, SoakHarness};
@@ -200,7 +200,7 @@ async fn run_soak_handler(
         "receiptCount": valid_receipts.len(),
         "receipts": valid_receipts,
         "performanceMarkdown":
-            rightkit_logs::agent_telemetry::measurement::MeasurementReceipt::render_performance_markdown(
+            rightkit_agent_telemetry::measurement::MeasurementReceipt::render_performance_markdown(
                 &report.receipts,
             ),
     }))

@@ -262,8 +262,8 @@ MCP servers: {}",
     let live_ids: std::collections::HashSet<&str> =
         live.iter().map(|session| session.id.as_str()).collect();
     output.push_str(&host_delivery_inventory_section(
-        &rightkit_logs::agent_telemetry::evidence::provider_turn_evidence_ring(),
-        &rightkit_logs::agent_telemetry::remaining_context_ceilings(),
+        &rightkit_agent_telemetry::evidence::provider_turn_evidence_ring(),
+        &rightkit_agent_telemetry::remaining_context_ceilings(),
         &live_ids,
     ));
 
@@ -278,11 +278,11 @@ MCP servers: {}",
 /// `unavailable`, never as zero, and only live sessions are listed. Pure so it
 /// is unit-testable without a daemon.
 pub(crate) fn host_delivery_inventory_section(
-    ring: &rightkit_logs::agent_telemetry::evidence::ProviderTurnEvidenceRingV1,
-    ceilings: &[rightkit_logs::agent_telemetry::RemainingContextCeilingV1],
+    ring: &rightkit_agent_telemetry::evidence::ProviderTurnEvidenceRingV1,
+    ceilings: &[rightkit_agent_telemetry::RemainingContextCeilingV1],
     live_ids: &std::collections::HashSet<&str>,
 ) -> String {
-    use rightkit_logs::agent_telemetry::evidence::ObservationCoverage as Coverage;
+    use rightkit_agent_telemetry::evidence::ObservationCoverage as Coverage;
 
     let mut out =
         String::from("\n\nHost request budget (H8) and retained delivery inventory (H9):");

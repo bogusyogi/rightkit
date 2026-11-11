@@ -34,7 +34,7 @@ diagnostics = ["dep:tracing", "rightkit-logs/tracing"]
 [dependencies]
 rightkit-crypto = { version = "0.1.1", path = "../rightkit-crypto" }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs"] }
-rightkit-logs = { version = "0.3.9", path = "../rightkit-logs", default-features = false }
+rightkit-logs = { version = "0.4.0", path = "../rightkit-logs", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = { version = "0.1", default-features = false, features = ["std"], optional = true }
@@ -87,4 +87,4 @@ static_note = "DUMP_LOCK is one Mutex<()> serialising DbgHelp dumps: no data, ca
 # One Cargo workspace and lock per crate (rightkit#1285).
 
 [dev-dependencies]
-rightkit-logs = { version = "0.3.9", path = "../rightkit-logs", features = ["http"] }
+rightkit-logs = { version = "0.4.0", path = "../rightkit-logs", features = ["http"] }

@@ -10027,13 +10027,13 @@ dependencies = [
  "rightkit-agent-engine-runtime-middleware",
  "rightkit-agent-host-traits",
  "rightkit-agent-policy",
+ "rightkit-agent-telemetry",
  "rightkit-agent-tools",
  "rightkit-cache",
  "rightkit-child-process",
  "rightkit-crypto",
  "rightkit-fs",
  "rightkit-hooks",
- "rightkit-logs",
  "rightkit-mcp",
  "rightkit-sandbox",
  "rquickjs",
@@ -10159,6 +10159,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-agent-local-models"
+version = "0.1.0"
+dependencies = [
+ "rightkit-models",
+ "rightkit-sandbox",
+ "serde",
+ "tokio",
+]
+
+[[package]]
 name = "rightkit-agent-orchestration"
 version = "0.1.1"
 dependencies = [
@@ -10168,6 +10178,7 @@ dependencies = [
  "rightkit-agent-engine-protocol",
  "rightkit-agent-engine-tasks",
  "rightkit-agent-host-traits",
+ "rightkit-agent-telemetry",
  "rightkit-agent-tools",
  "rightkit-cache",
  "rightkit-code-audit-provider-sdk",
@@ -10176,7 +10187,6 @@ dependencies = [
  "rightkit-evidence-contracts",
  "rightkit-fs",
  "rightkit-llm",
- "rightkit-logs",
  "rightkit-repo-graph",
  "rightkit-sandbox",
  "serde",
@@ -10277,10 +10287,12 @@ dependencies = [
  "rightkit-agent-engine-storage",
  "rightkit-agent-engine-tasks",
  "rightkit-agent-host-traits",
+ "rightkit-agent-local-models",
  "rightkit-agent-orchestration",
  "rightkit-agent-plugins",
  "rightkit-agent-policy",
  "rightkit-agent-recipes",
+ "rightkit-agent-telemetry",
  "rightkit-agent-tools",
  "rightkit-agents",
  "rightkit-bot-messaging",
@@ -10302,7 +10314,6 @@ dependencies = [
  "rightkit-logs",
  "rightkit-mcp",
  "rightkit-memory",
- "rightkit-models",
  "rightkit-oauth",
  "rightkit-onnx",
  "rightkit-sandbox",
@@ -10340,6 +10351,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-agent-telemetry"
+version = "0.1.0"
+dependencies = [
+ "rightkit-crypto",
+ "rightkit-fs",
+ "rightkit-logs",
+ "serde",
+ "tracing",
+]
+
+[[package]]
 name = "rightkit-agent-tools"
 version = "0.3.4"
 dependencies = [
@@ -10362,6 +10384,7 @@ dependencies = [
  "rightkit-agent-host-traits",
  "rightkit-agent-plugins",
  "rightkit-agent-policy",
+ "rightkit-agent-telemetry",
  "rightkit-automation",
  "rightkit-browser",
  "rightkit-child-process",
@@ -10373,7 +10396,6 @@ dependencies = [
  "rightkit-fs",
  "rightkit-http",
  "rightkit-llm",
- "rightkit-logs",
  "rightkit-mcp",
  "rightkit-ocr",
  "rightkit-sandbox",
@@ -11935,7 +11957,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.10"
+version = "0.4.0"
 dependencies = [
  "getrandom 0.4.3",
  "libc 0.2.191",
@@ -11945,7 +11967,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 2.0.21",
  "tracing",
  "tracing-log",
  "tracing-subscriber",
@@ -12149,7 +12170,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-models"
-version = "0.5.9"
+version = "0.6.0"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -12160,11 +12181,9 @@ dependencies = [
  "rightkit-daemon",
  "rightkit-fs",
  "rightkit-http",
- "rightkit-sandbox",
  "serde",
  "serde_json",
  "tar",
- "tokio",
  "ureq",
  "url",
  "zip",

@@ -60,16 +60,14 @@ async fn wait_for_interrupt_signal(mut rx: tokio::sync::watch::Receiver<bool>) {
 impl SessionEngine {
     /// One user turn, from submission to the run's final outcome (including
     /// every early error exit). Wall-clock duration of the whole span is
-    /// recorded per turn via `rightkit_logs::agent_telemetry::record_turn_latency`, so
+    /// recorded per turn via `rightkit_agent_telemetry::record_turn_latency`, so
     /// this wrapper owns the timer and the inner body keeps every return path.
     pub async fn submit_user_message(&mut self, text: &str) -> Result<String, EngineError> {
         let turn_started = std::time::Instant::now();
         let result = self.submit_user_message_turn(text).await;
-        rightkit_logs::agent_telemetry::record_turn_latency(
-            rightkit_logs::agent_telemetry::TurnLatencyEvent {
-                latency_ms: u64::try_from(turn_started.elapsed().as_millis()).unwrap_or(u64::MAX),
-            },
-        );
+        rightkit_agent_telemetry::record_turn_latency(rightkit_agent_telemetry::TurnLatencyEvent {
+            latency_ms: u64::try_from(turn_started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        });
         // ENG-73: `submit_user_message_turn` is the single call site of
         // `begin_run_changes` (which unconditionally starts the idle-grace
         // turn via `idle_grace.begin_turn()` before it can fail on a missing
@@ -762,8 +760,8 @@ impl SessionEngine {
                         // return `Err` below and are deliberately NOT counted:
                         // `RoundTripEvent` carries no success flag, so counting
                         // them here would silently inflate per-task totals.
-                        rightkit_logs::agent_telemetry::record_round_trip(
-                            rightkit_logs::agent_telemetry::RoundTripEvent { task: sid.clone() },
+                        rightkit_agent_telemetry::record_round_trip(
+                            rightkit_agent_telemetry::RoundTripEvent { task: sid.clone() },
                         );
                         result
                     }

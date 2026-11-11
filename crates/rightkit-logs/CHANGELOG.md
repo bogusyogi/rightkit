@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0 (unpublished)
+
+- **Breaking:** removed the `agent_telemetry` feature and the `agent_telemetry` module. The agent runtime telemetry is now its own crate, `rightkit-agent-telemetry` 0.1.0: `rightkit_agent_telemetry::X` becomes `rightkit_agent_telemetry::X`. It is CodeRight agent product code, not logging (2026-11-11 shape review, docs/audits/2026-11-11-shape-matrix/reports/family-foundation-runtime.md). The optional `thiserror` dependency is gone with it (it was unused); `rightkit-crypto` and `tracing` stay optional for `token-hash` and `tracing`. The logging API is unchanged.
+
 ## 0.3.10
 
 - Publishes the source changes made since 0.3.9 was published under the same version number (src/agent_telemetry/layer.rs, src/agent_telemetry/resource_report.rs).

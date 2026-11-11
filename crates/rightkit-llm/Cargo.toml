@@ -28,7 +28,7 @@ rightkit-http = { version = "0.3.9", path = "../rightkit-http", features = ["gzi
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-rightkit-logs = {version = "0.3.7", default-features = false, features = ["tracing"], path = "../rightkit-logs", optional = true}
+rightkit-logs = {version = "0.4.0", default-features = false, features = ["tracing"], path = "../rightkit-logs", optional = true}
 rightkit-agent-engine-protocol = {version = "0.1.0", path = "../rightkit-agent-engine-protocol", optional = true}
 rightkit-agent-policy = {version = "0.1.0", path = "../rightkit-agent-policy", optional = true}
 rightkit-agent-config = { version = "0.1.0", path = "../rightkit-agent-config", optional = true }

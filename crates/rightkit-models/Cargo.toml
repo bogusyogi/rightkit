@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-models"
-version = "0.5.9"
+version = "0.6.0"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -22,7 +22,6 @@ rightapps = ["dep:ed25519-dalek", "dep:base64", "dep:url", "dep:chrono"]
 # host and port be reached for a local debug worker. Never enable it in a release build; without
 # it the allowance is ignored and loopback stays refused.
 dev-worker-override = []
-agent_local_models = ["dep:rightkit-sandbox", "dep:tokio"]
 
 [dependencies]
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["digest", "fs", "lock"] }
@@ -42,8 +41,6 @@ flate2 = "1"
 dirs = "7"
 getrandom = "0.4"
 zip = { version = "9", default-features = false, features = ["deflate"] }
-rightkit-sandbox = {version = "0.6.3", path = "../rightkit-sandbox", features = ["execution"], optional = true}
-tokio = {version = "1", features = ["io-util", "macros", "time"], optional = true}
 
 [package.metadata.rightkit]
 continuous = false

@@ -1,3 +1,9 @@
+//! Agent runtime telemetry for an agent host: resource metrics, turn latency, provider round trips,
+//! SQLite op latency, wakeups, prompt overhead, context ceiling, evidence, repair counters and the
+//! resource-report contract. See README.md.
+
+#![deny(unsafe_code)]
+
 pub mod agent_observability;
 pub mod layer;
 pub mod measurement;
@@ -23,11 +29,11 @@ pub mod resource_report;
 /// - `p50_ms` / `p95_ms` — turn wall-clock latency, milliseconds (nearest-rank
 ///   percentiles over the bounded recent-sample window).
 /// - `round_trips` — total provider round-trips observed since sink creation
-///   (per-task breakdown: [`crate::agent_telemetry::resource::round_trip_aggregates`] and the
+///   (per-task breakdown: [`crate::resource::round_trip_aggregates`] and the
 ///   `/runtime/resource-metrics` endpoint).
 /// - `wakeups_per_s` — daemon wakeups per second over the observation window.
 /// - `prompt_overhead_est_tokens` — mean estimated tokens (bytes / 4,
-///   conservative — see [`crate::agent_telemetry::prompt_overhead::estimate_tokens`]) of base
+///   conservative — see [`crate::prompt_overhead::estimate_tokens`]) of base
 ///   system prompt + tool prelude per provider request.
 /// - `rss_bytes` — daemon resident set size, bytes. Live gauge: only readable
 ///   inside the daemon process; always `None` from this crate.
@@ -45,10 +51,8 @@ pub mod resource_report;
 /// `rustright cargo test --manifest-path engine/Cargo.toml -p host_telemetry`
 /// exercises snapshot, render, and the recorder wiring end-to-end.
 pub mod baseline {
-    use crate::agent_telemetry::prompt_overhead::prompt_overhead_aggregates;
-    use crate::agent_telemetry::resource::{
-        round_trip_aggregates, turn_latency_percentiles, wakeup_summary,
-    };
+    use crate::prompt_overhead::prompt_overhead_aggregates;
+    use crate::resource::{round_trip_aggregates, turn_latency_percentiles, wakeup_summary};
 
     /// One row of the S0/S1/S10/S50 baseline table. Every metric cell starts as
     /// `None` = "not measured"; only an observed run turns it into `Some`.
@@ -132,7 +136,7 @@ pub mod baseline {
     /// (provider, model) rows: summed estimated tokens over summed
     /// observations. `None` until at least one request was recorded.
     pub(crate) fn mean_overhead_tokens(
-        rows: &[crate::agent_telemetry::prompt_overhead::PromptOverheadRow],
+        rows: &[crate::prompt_overhead::PromptOverheadRow],
     ) -> Option<u64> {
         let total_tokens: u64 = rows
             .iter()
@@ -189,22 +193,18 @@ pub mod baseline {
     ///
     /// Never call this in the daemon process: the sinks are process-global and
     /// synthetic events would contaminate real measurements. Pair with
-    /// [`crate::agent_telemetry::resource::reset_resource_telemetry`] before and after.
+    /// [`crate::resource::reset_resource_telemetry`] before and after.
     ///
     /// - `turns` synthetic turn-latency samples of 1..=`turns` ms
     /// - `tasks` distinct synthetic task identities, one round-trip each
     /// - `wakeups` synthetic daemon wakeups
     pub fn record_synthetic_reference_load(turns: u64, tasks: u64, wakeups: u64) {
-        use crate::agent_telemetry::resource::{
-            record_round_trip, record_turn_latency, record_wakeup,
-        };
+        use crate::resource::{record_round_trip, record_turn_latency, record_wakeup};
         for ms in 1..=turns {
-            record_turn_latency(crate::agent_telemetry::resource::TurnLatencyEvent {
-                latency_ms: ms,
-            });
+            record_turn_latency(crate::resource::TurnLatencyEvent { latency_ms: ms });
         }
         for t in 1..=tasks {
-            record_round_trip(crate::agent_telemetry::resource::RoundTripEvent {
+            record_round_trip(crate::resource::RoundTripEvent {
                 task: format!("synthetic-reference-{t}"),
             });
         }

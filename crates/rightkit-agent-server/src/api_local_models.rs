@@ -24,7 +24,7 @@ pub(crate) fn local_model_routes() -> Router<DaemonState> {
 }
 
 async fn get_local_model_hardware(
-) -> Result<Json<rightkit_models::agent_local_models::HardwareReport>, StatusCode> {
+) -> Result<Json<rightkit_agent_local_models::HardwareReport>, StatusCode> {
     let adapter = crate::main_runtime::governed_child_process_launcher()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let context = rightkit_sandbox::execution::ProcessLaunchContext {
@@ -37,16 +37,12 @@ async fn get_local_model_hardware(
         network_required: false,
     };
     Ok(Json(
-        rightkit_models::agent_local_models::probe_hardware_with_adapter(
-            adapter.as_ref(),
-            &context,
-        )
-        .await,
+        rightkit_agent_local_models::probe_hardware_with_adapter(adapter.as_ref(), &context).await,
     ))
 }
 
 async fn get_local_model_catalog(
-) -> Result<Json<rightkit_models::agent_local_models::LocalModelCatalog>, StatusCode> {
+) -> Result<Json<rightkit_agent_local_models::LocalModelCatalog>, StatusCode> {
     let adapter = crate::main_runtime::governed_child_process_launcher()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let context = rightkit_sandbox::execution::ProcessLaunchContext {
@@ -58,12 +54,8 @@ async fn get_local_model_catalog(
         sandbox_required: true,
         network_required: false,
     };
-    Ok(Json(rightkit_models::agent_local_models::model_catalog(
-        rightkit_models::agent_local_models::probe_hardware_with_adapter(
-            adapter.as_ref(),
-            &context,
-        )
-        .await,
+    Ok(Json(rightkit_agent_local_models::model_catalog(
+        rightkit_agent_local_models::probe_hardware_with_adapter(adapter.as_ref(), &context).await,
     )))
 }
 
@@ -141,7 +133,7 @@ struct AddProviderRequest {
 #[serde(rename_all = "camelCase")]
 struct AddProviderResponse {
     #[serde(flatten)]
-    suggestion: rightkit_models::agent_local_models::ProviderRouteSuggestion,
+    suggestion: rightkit_agent_local_models::ProviderRouteSuggestion,
     /// Live in the running daemon. Always false: the engine provider is
     /// resolved once at boot, so a freshly written route needs a restart.
     applied: bool,
@@ -330,7 +322,7 @@ async fn add_local_model_provider(
                 ),
             )
         })?;
-    let suggestion = rightkit_models::agent_local_models::provider_route_suggestion(
+    let suggestion = rightkit_agent_local_models::provider_route_suggestion(
         body.provider_id,
         body.base_url,
         body.model,

@@ -449,44 +449,44 @@ impl HostRequestAuthority {
         }
         let state = match submission.state {
             rightkit_llm::agent_providers::transport::SubmissionState::Submitted => {
-                rightkit_logs::agent_telemetry::evidence::ProviderSubmissionStateV1::Submitted
+                rightkit_agent_telemetry::evidence::ProviderSubmissionStateV1::Submitted
             }
             rightkit_llm::agent_providers::transport::SubmissionState::Rejected => {
-                rightkit_logs::agent_telemetry::evidence::ProviderSubmissionStateV1::Rejected
+                rightkit_agent_telemetry::evidence::ProviderSubmissionStateV1::Rejected
             }
             rightkit_llm::agent_providers::transport::SubmissionState::SubmissionUnknown => {
-                rightkit_logs::agent_telemetry::evidence::ProviderSubmissionStateV1::SubmissionUnknown
+                rightkit_agent_telemetry::evidence::ProviderSubmissionStateV1::SubmissionUnknown
             }
         };
         let unavailable = match state {
-            rightkit_logs::agent_telemetry::evidence::ProviderSubmissionStateV1::Rejected => {
-                rightkit_logs::agent_telemetry::UnavailableReason::SubmissionRejected
+            rightkit_agent_telemetry::evidence::ProviderSubmissionStateV1::Rejected => {
+                rightkit_agent_telemetry::UnavailableReason::SubmissionRejected
             }
-            rightkit_logs::agent_telemetry::evidence::ProviderSubmissionStateV1::SubmissionUnknown => {
-                rightkit_logs::agent_telemetry::UnavailableReason::SubmissionUnknown
+            rightkit_agent_telemetry::evidence::ProviderSubmissionStateV1::SubmissionUnknown => {
+                rightkit_agent_telemetry::UnavailableReason::SubmissionUnknown
             }
-            rightkit_logs::agent_telemetry::evidence::ProviderSubmissionStateV1::Unavailable => {
-                rightkit_logs::agent_telemetry::UnavailableReason::SubmissionUnavailable
+            rightkit_agent_telemetry::evidence::ProviderSubmissionStateV1::Unavailable => {
+                rightkit_agent_telemetry::UnavailableReason::SubmissionUnavailable
             }
-            rightkit_logs::agent_telemetry::evidence::ProviderSubmissionStateV1::Submitted => {
-                rightkit_logs::agent_telemetry::UnavailableReason::InputNotProvided
+            rightkit_agent_telemetry::evidence::ProviderSubmissionStateV1::Submitted => {
+                rightkit_agent_telemetry::UnavailableReason::InputNotProvided
             }
         };
         let tool_catalog_generation = submission.prepared.tool_catalog_generation.map_or_else(
             || {
-                rightkit_logs::agent_telemetry::evidence::ProviderEvidenceValueV1::unavailable(
-                    rightkit_logs::agent_telemetry::UnavailableReason::InputNotProvided,
+                rightkit_agent_telemetry::evidence::ProviderEvidenceValueV1::unavailable(
+                    rightkit_agent_telemetry::UnavailableReason::InputNotProvided,
                 )
             },
-            rightkit_logs::agent_telemetry::evidence::ProviderEvidenceValueV1::complete,
+            rightkit_agent_telemetry::evidence::ProviderEvidenceValueV1::complete,
         );
         let delivered_digest = lock_recover(&self.delivered, "delivered context digests")
             .get(authorization_id)
             .cloned();
         let (loaded_context_identities, retained_representation_digest) =
             context_evidence_values(state, delivered_digest, unavailable);
-        let evidence = rightkit_logs::agent_telemetry::evidence::ProviderTurnEvidenceV1 {
-            schema_version: rightkit_logs::agent_telemetry::evidence::PROVIDER_TURN_EVIDENCE_SCHEMA
+        let evidence = rightkit_agent_telemetry::evidence::ProviderTurnEvidenceV1 {
+            schema_version: rightkit_agent_telemetry::evidence::PROVIDER_TURN_EVIDENCE_SCHEMA
                 .to_string(),
             session_id: identity.session_id.clone(),
             task_id: identity.task_id.clone(),
@@ -508,14 +508,14 @@ impl HostRequestAuthority {
             submission_state: state,
             loaded_context_identities,
             retained_representation_digest,
-            provenance: rightkit_logs::agent_telemetry::ProvenanceV1::from_evidence(
+            provenance: rightkit_agent_telemetry::ProvenanceV1::from_evidence(
                 "provider_submission_boundary",
                 vec![authorization_id.to_string()],
             ),
         };
-        if let Err(error) = rightkit_logs::agent_telemetry::evidence::record_provider_turn_evidence(
-            evidence.clone(),
-        ) {
+        if let Err(error) =
+            rightkit_agent_telemetry::evidence::record_provider_turn_evidence(evidence.clone())
+        {
             tracing::warn!(?error, %authorization_id, "provider turn evidence rejected");
             return;
         }
@@ -550,14 +550,14 @@ fn context_envelope_digest(envelope: &str) -> String {
 /// actually submitted and a context envelope was delivered in its request;
 /// every other case stays typed-unavailable with `unavailable`.
 fn context_evidence_values(
-    state: rightkit_logs::agent_telemetry::evidence::ProviderSubmissionStateV1,
+    state: rightkit_agent_telemetry::evidence::ProviderSubmissionStateV1,
     delivered_digest: Option<String>,
-    unavailable: rightkit_logs::agent_telemetry::UnavailableReason,
+    unavailable: rightkit_agent_telemetry::UnavailableReason,
 ) -> (
-    rightkit_logs::agent_telemetry::evidence::ProviderEvidenceValueV1<Vec<String>>,
-    rightkit_logs::agent_telemetry::evidence::ProviderEvidenceValueV1<String>,
+    rightkit_agent_telemetry::evidence::ProviderEvidenceValueV1<Vec<String>>,
+    rightkit_agent_telemetry::evidence::ProviderEvidenceValueV1<String>,
 ) {
-    use rightkit_logs::agent_telemetry::evidence::{
+    use rightkit_agent_telemetry::evidence::{
         ProviderEvidenceValueV1 as Value, ProviderSubmissionStateV1,
     };
     match (state, delivered_digest) {
@@ -1322,8 +1322,8 @@ impl ProviderLlmClient {
             .map(|encoded| encoded.len())
             .unwrap_or_default();
         let (provider, model) = self.telemetry_attribution();
-        rightkit_logs::agent_telemetry::record_prompt_overhead(
-            rightkit_logs::agent_telemetry::PromptOverheadEvent {
+        rightkit_agent_telemetry::record_prompt_overhead(
+            rightkit_agent_telemetry::PromptOverheadEvent {
                 provider,
                 model,
                 system_prompt_bytes,
@@ -1368,45 +1368,43 @@ impl ProviderLlmClient {
                     });
             let results_complete = counts.results_complete;
             let bytes_complete = counts.bytes_complete;
-            let pending_reason = rightkit_logs::agent_telemetry::UnavailableReason::PendingResult;
+            let pending_reason = rightkit_agent_telemetry::UnavailableReason::PendingResult;
             let (success_count, failure_count) = if results_complete {
                 (
-                    rightkit_logs::agent_telemetry::CountObservationV1::observed(counts.successes),
-                    rightkit_logs::agent_telemetry::CountObservationV1::observed(counts.failures),
+                    rightkit_agent_telemetry::CountObservationV1::observed(counts.successes),
+                    rightkit_agent_telemetry::CountObservationV1::observed(counts.failures),
                 )
             } else {
                 (
-                    rightkit_logs::agent_telemetry::CountObservationV1::unavailable(pending_reason),
-                    rightkit_logs::agent_telemetry::CountObservationV1::unavailable(pending_reason),
+                    rightkit_agent_telemetry::CountObservationV1::unavailable(pending_reason),
+                    rightkit_agent_telemetry::CountObservationV1::unavailable(pending_reason),
                 )
             };
             let result_bytes_total = if bytes_complete {
                 counts
                     .result_bytes
-                    .map(rightkit_logs::agent_telemetry::CountObservationV1::observed)
+                    .map(rightkit_agent_telemetry::CountObservationV1::observed)
                     .unwrap_or_else(|| {
-                        rightkit_logs::agent_telemetry::CountObservationV1::unavailable(
-                            rightkit_logs::agent_telemetry::UnavailableReason::NotInstrumented,
+                        rightkit_agent_telemetry::CountObservationV1::unavailable(
+                            rightkit_agent_telemetry::UnavailableReason::NotInstrumented,
                         )
                     })
             } else {
-                rightkit_logs::agent_telemetry::CountObservationV1::unavailable(pending_reason)
+                rightkit_agent_telemetry::CountObservationV1::unavailable(pending_reason)
             };
-            rightkit_logs::agent_telemetry::record_tool_schema_observation(
-                rightkit_logs::agent_telemetry::ToolSchemaObservationV1::from_schema_bytes(
+            rightkit_agent_telemetry::record_tool_schema_observation(
+                rightkit_agent_telemetry::ToolSchemaObservationV1::from_schema_bytes(
                     name,
                     name,
                     &schema_bytes,
                     !promoted_names.contains(name),
                     visible_turn_ids.clone(),
-                    rightkit_logs::agent_telemetry::CountObservationV1::observed(
-                        counts.invocations,
-                    ),
+                    rightkit_agent_telemetry::CountObservationV1::observed(counts.invocations),
                     success_count,
                     failure_count,
                     result_bytes_total,
                     Vec::new(),
-                    rightkit_logs::agent_telemetry::ProvenanceV1::from_evidence(
+                    rightkit_agent_telemetry::ProvenanceV1::from_evidence(
                         "provider_request_transcript",
                         visible_turn_ids.clone(),
                     ),
@@ -1420,7 +1418,7 @@ impl ProviderLlmClient {
     /// bytes, the promoted count, cumulative promotion events this session,
     /// and the cache-prefix generation with an attributable reason on
     /// change. Kept as a separate sink from `PromptOverheadEvent` (see
-    /// `rightkit_logs::agent_telemetry::prompt_overhead::CachePrefixEvent` for why).
+    /// `rightkit_agent_telemetry::prompt_overhead::CachePrefixEvent` for why).
     #[allow(clippy::too_many_arguments)]
     fn record_cache_prefix_metric(
         &self,
@@ -1454,8 +1452,8 @@ impl ProviderLlmClient {
                 .fetch_add(promotion_events_this_turn.len() as u64, Ordering::AcqRel);
         }
         let (provider, model) = self.telemetry_attribution();
-        rightkit_logs::agent_telemetry::prompt_overhead::record_cache_prefix_event(
-            rightkit_logs::agent_telemetry::prompt_overhead::CachePrefixEvent {
+        rightkit_agent_telemetry::prompt_overhead::record_cache_prefix_event(
+            rightkit_agent_telemetry::prompt_overhead::CachePrefixEvent {
                 provider,
                 model,
                 core_bytes,

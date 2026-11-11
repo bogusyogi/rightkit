@@ -57,7 +57,7 @@ zeroize = "1"
 # Atomic store writes and hex (mailbox/store.rs, caps.rs, util.rs).
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "digest"] }
 # Structured mailbox event lines (mailbox/server.rs, bin/rightkit-mesh-mailbox.rs).
-rightkit-logs = { version = "0.3.7", path = "../rightkit-logs", default-features = false }
+rightkit-logs = { version = "0.4.0", path = "../rightkit-logs", default-features = false }
 
 # Device link (src/devicelink), behind the `devicelink` feature.
 rightkit-device-link-types = { version = "0.1.0", path = "../rightkit-device-link-types", optional = true }

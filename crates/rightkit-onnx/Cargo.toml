@@ -73,7 +73,7 @@ sha2 = "0.11"
 # `catalog` and `provision`: the native-library catalog. `provision` also needs the vetted download and
 # archive extraction.
 rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.3.0", optional = true }
-rightkit-models = { path = "../rightkit-models", version = "0.5.3", optional = true, default-features = false }
+rightkit-models = { path = "../rightkit-models", version = "0.6.0", optional = true, default-features = false }
 
 # Platform accelerators. ort rc.15 compiles an execution provider only when its
 # Cargo feature is on, so each OS enables its own EP on the same pinned dep:

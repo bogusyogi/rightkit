@@ -16,7 +16,7 @@ path = "src/lib.rs"
 [dependencies]
 rightkit-local-gen = { version = "0.1.0", path = "../rightkit-local-gen" }
 rightkit-tts = { version = "0.2.3", default-features = false, features = ["client"], path = "../rightkit-tts" }
-rightkit-models = { version = "0.5.3", path = "../rightkit-models" }
+rightkit-models = { version = "0.6.0", path = "../rightkit-models" }
 rightkit-compose = { version = "0.2.1", features = ["still-finish"], path = "../rightkit-compose" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
@@ -24,7 +24,7 @@ rightkit-db = { version = "0.5.3", features = ["bundled", "statement-cache"], pa
 rightkit-job-queue = { version = "0.5.1", features = ["store", "service", "supervisor"], path = "../rightkit-job-queue" }
 rightkit-spend = { version = "0.2.0", path = "../rightkit-spend" }
 rightkit-app-settings = { version = "0.4.0", default-features = false, features = ["sql"], path = "../rightkit-app-settings" }
-rightkit-logs = { version = "0.3.7", default-features = false, path = "../rightkit-logs" }
+rightkit-logs = { version = "0.4.0", default-features = false, path = "../rightkit-logs" }
 rightkit-device = { version = "0.4.0", default-features = false, path = "../rightkit-device" }
 rightkit-search = { version = "0.4.1", path = "../rightkit-search" }
 uuid = { version = "1", features = ["v4"] }

@@ -1,0 +1,21 @@
+[package]
+name = "rightkit-agent-local-models"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Local model primitives for an agent host: hardware report, runtime detection, local model catalog and fit, provider route suggestion and a bounded local inference seam."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["agent", "models", "local", "hardware"]
+categories = ["hardware-support"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[features]
+default = []
+
+[dependencies]
+rightkit-models = { version = "0.6.0", path = "../rightkit-models" }
+rightkit-sandbox = { version = "0.6.3", path = "../rightkit-sandbox", features = ["execution"] }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["io-util", "macros", "time"] }

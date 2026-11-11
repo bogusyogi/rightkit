@@ -23,8 +23,8 @@ rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 rand = { version = "0.10" }
 time = { version = "0.3", features = ["formatting"] }
 rightkit-db = { version = "0.5.3", features = ["bundled", "statement-cache"], path = "../rightkit-db" }
-rightkit-logs = { version = "0.3.7", path = "../rightkit-logs" }
-rightkit-models = { version = "0.5.3", path = "../rightkit-models" }
+rightkit-logs = { version = "0.4.0", path = "../rightkit-logs" }
+rightkit-models = { version = "0.6.0", path = "../rightkit-models" }
 rightkit-job-queue = { version = "0.5.1", features = ["store", "service", "supervisor"], path = "../rightkit-job-queue" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-daemon = { version = "0.5.1", path = "../rightkit-daemon" }

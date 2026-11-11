@@ -872,15 +872,15 @@ impl DaemonState {
             .iter()
             .find(|task| task.state == rightkit_agent_engine_protocol::TaskState::InProgress)
             .map(|task| task.id.clone());
-        rightkit_logs::agent_telemetry::record_remaining_context_ceiling(
-            rightkit_logs::agent_telemetry::RemainingContextInput {
+        rightkit_agent_telemetry::record_remaining_context_ceiling(
+            rightkit_agent_telemetry::RemainingContextInput {
                 session_id: h8_session_id.clone(),
                 task_id: active_task_id,
                 model_id: policy.model_id,
                 context_window_tokens: policy.context_window_tokens,
                 reserve_tokens: policy.reserve_tokens,
                 observed_context_tokens: u64::try_from(context_tokens).ok(),
-                requested_at_unix_ms: rightkit_logs::agent_telemetry::now_unix_ms(),
+                requested_at_unix_ms: rightkit_agent_telemetry::now_unix_ms(),
             },
         );
         }
@@ -1197,13 +1197,13 @@ impl DaemonState {
         // Before the first completed provider turn there is no measured
         // conversation footprint. Emit that state explicitly instead of
         // exposing a fabricated zero-capacity value.
-        rightkit_logs::agent_telemetry::record_remaining_context_ceiling(
-            rightkit_logs::agent_telemetry::RemainingContextInput::unavailable_for_session(
+        rightkit_agent_telemetry::record_remaining_context_ceiling(
+            rightkit_agent_telemetry::RemainingContextInput::unavailable_for_session(
                 id.to_string(),
                 active_compaction_policy.model_id,
                 active_compaction_policy.context_window_tokens,
                 active_compaction_policy.reserve_tokens,
-                rightkit_logs::agent_telemetry::now_unix_ms(),
+                rightkit_agent_telemetry::now_unix_ms(),
             ),
         );
         let role_pack_persona = (!options.bare).then_some(role).flatten().and_then(|role| {
@@ -2117,13 +2117,13 @@ impl DaemonState {
         });
         crate::daemon_state::supervise_session_engine_task_persisting(engine_task, panic_watch_conduit, panic_watch_session_id, storage_for_supervisor.clone());
         Some(tx) } else {
-        rightkit_logs::agent_telemetry::record_remaining_context_ceiling(
-            rightkit_logs::agent_telemetry::RemainingContextInput::unavailable_for_session(
+        rightkit_agent_telemetry::record_remaining_context_ceiling(
+            rightkit_agent_telemetry::RemainingContextInput::unavailable_for_session(
                 id.to_string(),
                 model_label.clone(),
                 None,
                 None,
-                rightkit_logs::agent_telemetry::now_unix_ms(),
+                rightkit_agent_telemetry::now_unix_ms(),
             ),
         );
         // r5.21: Inline MCP is also available in providerless sessions. Keep

@@ -22,7 +22,7 @@ rightkit-automation = { version = "0.6.4", path = "../rightkit-automation", feat
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
-rightkit-logs = { version = "0.3.7", default-features = false, path = "../rightkit-logs" }
+rightkit-logs = { version = "0.4.0", default-features = false, path = "../rightkit-logs" }
 tracing = { version = "0.1" }
 chrono = { version = "0.4" }
 image = { version = "0.25", default-features = false, features = ["png"] }

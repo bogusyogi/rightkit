@@ -748,7 +748,7 @@ async fn serve(
     let _idle_eviction_loop = crate::daemon::idle_eviction::IdleEvictionLoop::start(
         std::time::Duration::from_secs(60),
         move || {
-            rightkit_logs::agent_telemetry::record_wakeup();
+            rightkit_agent_telemetry::record_wakeup();
             let _ = crate::api_clients::reap_expired_clients(&idle_state);
             let report = crate::api_clients::run_daemon_idle_eviction_sweep(
                 &idle_state,
@@ -840,12 +840,12 @@ async fn serve(
                                 // whether any continuation or cron job is
                                 // actually due, so it counts toward idle cost
                                 // the same way the presence reaper does.
-                                rightkit_logs::agent_telemetry::record_wakeup();
+                                rightkit_agent_telemetry::record_wakeup();
                                 // OPS-003 event-loop stall probe: the interval
                                 // resolves to its scheduled deadline; the gap
                                 // between that deadline and now is scheduler
                                 // delay, the honest stall measure.
-                                rightkit_logs::agent_telemetry::record_event_loop_delay(
+                                rightkit_agent_telemetry::record_event_loop_delay(
                                     std::time::Instant::now()
                                         .saturating_duration_since(tick_instant.into()),
                                 );
@@ -1086,7 +1086,7 @@ fn load_persisted_projection(
 include!("main_runtime_server_client_presence.rs");
 
 fn init_daemon_telemetry() {
-    rightkit_logs::agent_telemetry::init();
+    rightkit_agent_telemetry::init();
 }
 
 fn resolve_configured_model_alias(

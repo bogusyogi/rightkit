@@ -1,7 +1,5 @@
 #![deny(unsafe_code)]
 
-#[cfg(feature = "agent_telemetry")]
-pub mod agent_telemetry;
 pub mod android;
 mod atomic;
 mod classes;

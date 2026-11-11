@@ -20,7 +20,7 @@ rightkit-mail = { version = "0.1.1", path = "../rightkit-mail" }
 rightkit-google-apis = { version = "0.1.0", path = "../rightkit-google-apis" }
 rightkit-cache = { version = "0.2.3", path = "../rightkit-cache" }
 rightkit-embed = { version = "0.6.2", path = "../rightkit-embed" }
-rightkit-models = { version = "0.5.3", path = "../rightkit-models" }
+rightkit-models = { version = "0.6.0", path = "../rightkit-models" }
 rightkit-onnx = { version = "0.2.9", default-features = false, path = "../rightkit-onnx" }
 rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "app-dirs", "digest", "lock"], path = "../rightkit-fs" }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }

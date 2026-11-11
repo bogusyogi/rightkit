@@ -140,13 +140,13 @@ impl ProviderTurnRetentionV1 {
         // that missing fact as unavailable so pre-send serialization cannot
         // become Complete H9/H10 evidence.
         self.validate_for_submission(
-            rightkit_logs::agent_telemetry::evidence::ProviderSubmissionStateV1::Unavailable,
+            rightkit_agent_telemetry::evidence::ProviderSubmissionStateV1::Unavailable,
         )
     }
 
     pub fn validate_for_submission(
         &self,
-        submission_state: rightkit_logs::agent_telemetry::evidence::ProviderSubmissionStateV1,
+        submission_state: rightkit_agent_telemetry::evidence::ProviderSubmissionStateV1,
     ) -> Result<(), &'static str> {
         if self.request_id.trim().is_empty() || self.serialized_request_digest.trim().is_empty() {
             return Err("provider retention identity is incomplete");
@@ -170,7 +170,7 @@ impl ProviderTurnRetentionV1 {
             return Err("complete loaded context identity is empty");
         }
         if submission_state
-            != rightkit_logs::agent_telemetry::evidence::ProviderSubmissionStateV1::Submitted
+            != rightkit_agent_telemetry::evidence::ProviderSubmissionStateV1::Submitted
             && (self.retained_representation_digest.coverage == HostObservationCoverageV1::Complete
                 || self.loaded_context_identities.coverage == HostObservationCoverageV1::Complete)
         {
@@ -216,7 +216,7 @@ pub fn provider_turn_retention_observation(
 pub fn provider_turn_evidence_observation(
     observation_id: impl Into<String>,
     observed_at_unix_ms: u64,
-    evidence: rightkit_logs::agent_telemetry::evidence::ProviderTurnEvidenceV1,
+    evidence: rightkit_agent_telemetry::evidence::ProviderTurnEvidenceV1,
     receipt: HostObservationProvenanceV1,
 ) -> Result<HostObservationV1, &'static str> {
     evidence

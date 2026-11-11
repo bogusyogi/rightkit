@@ -32,7 +32,8 @@ rightkit-hooks = { version = "0.2.3", path = "../rightkit-hooks", features = ["a
 rightkit-llm = { version = "0.3.2", path = "../rightkit-llm", features = ["agent_providers", "agent_providers-host-env", "agent_router"] }
 rightkit-memory = { version = "0.1.1", path = "../rightkit-memory", features = ["agent_host"] }
 rightkit-agent-policy = { version = "0.1.0", path = "../rightkit-agent-policy" }
-rightkit-logs = { version = "0.3.9", path = "../rightkit-logs", features = ["agent_telemetry", "tracing"], default-features = false }
+rightkit-logs = { version = "0.4.0", path = "../rightkit-logs", features = ["tracing"], default-features = false }
+rightkit-agent-telemetry = { version = "0.1.0", path = "../rightkit-agent-telemetry" }
 rightkit-agent-tools = { version = "0.3.3", path = "../rightkit-agent-tools", features = ["coding_tools"] }
 rightkit-agent-config = { version = "0.1.0", path = "../rightkit-agent-config", features = ["host-env"] }
 rightkit-agent-orchestration = { version = "0.1.1", path = "../rightkit-agent-orchestration" , features = ["coding", "coding-host"] }
@@ -41,7 +42,7 @@ rightkit-terminal-ui = { version = "0.1.0", path = "../rightkit-terminal-ui" }
 rightkit-agent-engine-tasks = { version = "0.1.0", path = "../rightkit-agent-engine-tasks" }
 rightkit-evidence = { version = "0.1.0", path = "../rightkit-evidence" }
 rightkit-sandbox = { version = "0.6.2", path = "../rightkit-sandbox", features = ["execution"] }
-rightkit-models = { version = "0.5.3", path = "../rightkit-models", features = ["agent_local_models"] }
+rightkit-agent-local-models = { version = "0.1.0", path = "../rightkit-agent-local-models" }
 rightkit-agent-engine-runtime-middleware = { version = "0.1.0", path = "../rightkit-agent-engine-runtime-middleware" }
 rightkit-agent-engine-runtime-resources = { version = "0.1.0", path = "../rightkit-agent-engine-runtime-resources" }
 rightkit-agent-engine-storage = { version = "0.1.1", path = "../rightkit-agent-engine-storage", features = ["workflow"] }

@@ -60,16 +60,14 @@ pub(crate) fn parse_tool_arguments_attributed(
     attribution: Option<&(Option<String>, Option<String>)>,
 ) -> (serde_json::Value, Option<String>) {
     let record = |repair_kind: Option<&str>, validator_error: Option<&str>, success: bool| {
-        rightkit_logs::agent_telemetry::record_repair_event(
-            rightkit_logs::agent_telemetry::RepairEvent {
-                provider: attribution.and_then(|(provider, _)| provider.clone()),
-                model: attribution.and_then(|(_, model)| model.clone()),
-                tool: tool.map(str::to_string),
-                repair_kind: repair_kind.map(str::to_string),
-                validator_error: validator_error.map(str::to_string),
-                success,
-            },
-        );
+        rightkit_agent_telemetry::record_repair_event(rightkit_agent_telemetry::RepairEvent {
+            provider: attribution.and_then(|(provider, _)| provider.clone()),
+            model: attribution.and_then(|(_, model)| model.clone()),
+            tool: tool.map(str::to_string),
+            repair_kind: repair_kind.map(str::to_string),
+            validator_error: validator_error.map(str::to_string),
+            success,
+        });
     };
     let trimmed = arguments_json.trim();
     if trimmed.is_empty() {
@@ -120,7 +118,7 @@ pub(crate) fn parse_tool_arguments_attributed(
 }
 
 fn validator_error_kind(error: &str) -> String {
-    rightkit_logs::agent_telemetry::validator_error_kind(error)
+    rightkit_agent_telemetry::validator_error_kind(error)
 }
 
 fn validation_error(error: String, schema: &serde_json::Value) -> String {

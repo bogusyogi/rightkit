@@ -235,8 +235,8 @@ pub async fn run_executed_bakeoff(
                 .unwrap_or_default(),
             comparison_receipt_id,
         );
-        rightkit_logs::agent_telemetry::record_evaluation_outcome(candidate_outcome);
-        rightkit_logs::agent_telemetry::record_evaluation_outcome(baseline_outcome);
+        rightkit_agent_telemetry::record_evaluation_outcome(candidate_outcome);
+        rightkit_agent_telemetry::record_evaluation_outcome(baseline_outcome);
     }
     Ok(report)
 }
@@ -319,13 +319,7 @@ async fn execute_and_score(
     request: &ExecutionRequest,
     experiment_id: &str,
     role: &str,
-) -> Result<
-    (
-        RunScore,
-        rightkit_logs::agent_telemetry::EvaluationOutcomeV1,
-    ),
-    BakeoffError,
-> {
+) -> Result<(RunScore, rightkit_agent_telemetry::EvaluationOutcomeV1), BakeoffError> {
     let started = Instant::now();
     let record = executor
         .execute(request)
@@ -425,7 +419,7 @@ async fn execute_and_score(
         executor.descriptor().name,
         timestamp_unix_ms
     );
-    let mut outcome = rightkit_logs::agent_telemetry::EvaluationOutcomeV1::verified_completion(
+    let mut outcome = rightkit_agent_telemetry::EvaluationOutcomeV1::verified_completion(
         outcome_id,
         verifier.evaluator_id().map(str::to_string),
         verifier.evaluator_version().map(str::to_string),
@@ -439,7 +433,7 @@ async fn execute_and_score(
             EvidenceSource::LiveExecution => "live_execution",
             EvidenceSource::RecordedFixture => "recorded_fixture",
         },
-        rightkit_logs::agent_telemetry::ProvenanceV1::from_evidence(
+        rightkit_agent_telemetry::ProvenanceV1::from_evidence(
             "executed_bakeoff",
             vec![
                 task.id.as_str().to_string(),

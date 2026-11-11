@@ -23,7 +23,7 @@ url = "2"
 rightkit-child-process = { path = "../rightkit-child-process", version = "0.5.7" }
 sha2 = "0.11"
 # Installer (feature `install`): vetted download via rightkit-models, SHA-256 + lock via rightkit-fs, zip extraction.
-rightkit-models = { path = "../rightkit-models", version = "0.5.3", default-features = false, optional = true }
+rightkit-models = { path = "../rightkit-models", version = "0.6.0", default-features = false, optional = true }
 rightkit-fs = { path = "../rightkit-fs", version = "0.4.9", default-features = false, features = ["digest", "lock"], optional = true }
 zip = { version = "9", default-features = false, features = ["deflate"], optional = true }
 # Encrypted profile vault (feature `profile-vault`): key from the OS credential store, AEAD via ring.

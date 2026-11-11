@@ -4,9 +4,13 @@
 //! Gap: this workspace contains no on-device model weights or inference engine.
 //! The bounded seam below therefore reports [`LocalInferenceError::NoLocalModelAvailable`]
 //! until a real backend is supplied by a product-owned integration.
+//!
+//! Hardware fit and runtime detection come from `rightkit-models`. See README.md.
 
-pub use crate::FitVerdict;
-use crate::{
+#![deny(unsafe_code)]
+
+pub use rightkit_models::FitVerdict;
+use rightkit_models::{
     detect_inference_runtimes, hardware::total_memory_bytes, FitConfidence, Gpu, Hardware,
     InferenceRuntime, ProbeFuture, ProbeRunner, TieredRequirements,
 };
@@ -501,7 +505,7 @@ pub fn provider_route_suggestion(
     }
 }
 
-/// Tiered RAM+VRAM verdict, computed by `crate::Hardware::tiered_fit` (the MB figures
+/// Tiered RAM+VRAM verdict, computed by `rightkit_models::Hardware::tiered_fit` (the MB figures
 /// are converted to the GB it takes).
 fn fit_for_resources(
     total_memory_mb: Option<u64>,

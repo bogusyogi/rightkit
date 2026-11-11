@@ -93,27 +93,23 @@ impl Tool for SkillTool {
 }
 
 fn record_skill_asset_observation(slug: &str, content: &str, applied: bool) {
-    rightkit_logs::agent_telemetry::record_procedural_asset_observation(
-        rightkit_logs::agent_telemetry::ProceduralAssetObservationV1::from_bytes(
+    rightkit_agent_telemetry::record_procedural_asset_observation(
+        rightkit_agent_telemetry::ProceduralAssetObservationV1::from_bytes(
             slug,
-            rightkit_logs::agent_telemetry::ProceduralAssetKind::Skill,
+            rightkit_agent_telemetry::ProceduralAssetKind::Skill,
             content.as_bytes(),
             false,
             Vec::new(),
-            rightkit_logs::agent_telemetry::CountObservationV1::unavailable(
-                rightkit_logs::agent_telemetry::UnavailableReason::NotInstrumented,
+            rightkit_agent_telemetry::CountObservationV1::unavailable(
+                rightkit_agent_telemetry::UnavailableReason::NotInstrumented,
             ),
-            rightkit_logs::agent_telemetry::CountObservationV1::observed(1),
-            rightkit_logs::agent_telemetry::CountObservationV1::observed(if applied {
-                1
-            } else {
-                0
-            }),
-            rightkit_logs::agent_telemetry::CountObservationV1::unavailable(
-                rightkit_logs::agent_telemetry::UnavailableReason::NotInstrumented,
+            rightkit_agent_telemetry::CountObservationV1::observed(1),
+            rightkit_agent_telemetry::CountObservationV1::observed(if applied { 1 } else { 0 }),
+            rightkit_agent_telemetry::CountObservationV1::unavailable(
+                rightkit_agent_telemetry::UnavailableReason::NotInstrumented,
             ),
             None,
-            rightkit_logs::agent_telemetry::ProvenanceV1::from_evidence(
+            rightkit_agent_telemetry::ProvenanceV1::from_evidence(
                 "skill_tool",
                 vec![format!("skill:{slug}")],
             ),

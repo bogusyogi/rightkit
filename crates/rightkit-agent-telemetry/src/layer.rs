@@ -4,5 +4,5 @@
 /// exists.
 pub fn init() {
     // A second install fails because a subscriber already exists; that is documented as a no-op.
-    let _already_installed = crate::install_stderr_tracing("info");
+    let _already_installed = rightkit_logs::install_stderr_tracing("info");
 }

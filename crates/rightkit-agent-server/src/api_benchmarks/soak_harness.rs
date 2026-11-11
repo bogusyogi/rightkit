@@ -8,7 +8,7 @@
 //! receipt. The module is registered by `api_benchmarks/mod.rs` by the
 //! integration owner.
 
-use rightkit_logs::agent_telemetry::{
+use rightkit_agent_telemetry::{
     HostGauges, MeasurementError, MeasurementObservation, MeasurementReceipt, MeasurementScenario,
 };
 use serde::{Deserialize, Serialize};
@@ -48,7 +48,7 @@ impl SoakConfig {
         if run_id.trim().is_empty() {
             return Err(SoakError::EmptyRunId);
         }
-        if run_id.len() > rightkit_logs::agent_telemetry::measurement::MAX_RUN_ID_BYTES {
+        if run_id.len() > rightkit_agent_telemetry::measurement::MAX_RUN_ID_BYTES {
             return Err(SoakError::RunIdTooLong);
         }
         let mut accepted = Vec::with_capacity(scenarios.len());

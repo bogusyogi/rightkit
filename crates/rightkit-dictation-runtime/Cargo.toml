@@ -29,7 +29,7 @@ rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process"
 rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
 rightkit-job-queue = { version = "0.5.1", default-features = false, features = ["protocol"], path = "../rightkit-job-queue" }
 rightkit-crash = { version = "0.3.6", default-features = false, path = "../rightkit-crash" }
-rightkit-logs = { version = "0.3.7", default-features = false, features = ["tracing"], path = "../rightkit-logs" }
+rightkit-logs = { version = "0.4.0", default-features = false, features = ["tracing"], path = "../rightkit-logs" }
 rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs"], path = "../rightkit-fs" }
 rightkit-audio = { version = "0.3.1", default-features = false, features = ["capture"], path = "../rightkit-audio" }
 serde = { version = "1", features = ["derive"] }

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-logs"
-version = "0.3.10"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Privacy-safe local JSONL logging and diagnostics for Right Suite desktop apps."
@@ -24,7 +24,6 @@ tracing = ["dep:tracing", "dep:tracing-subscriber"]
 log-bridge = ["tracing", "dep:tracing-log"]
 # `scrub::redact_key_tokens`: stable salted tokens for `key=value` pairs in text lines (rightkit#520).
 token-hash = ["dep:rightkit-crypto"]
-agent_telemetry = ["rightkit-fs/lock", "rightkit-fs/json", "rightkit-fs/digest", "rightkit-fs/transaction", "dep:rightkit-crypto", "dep:thiserror", "dep:tracing"]
 
 [dependencies]
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs"] }
@@ -37,7 +36,6 @@ tracing = { version = "0.1", default-features = false, features = ["std"], optio
 tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "registry", "fmt", "json", "env-filter"], optional = true }
 tracing-log = { version = "0.2", default-features = false, features = ["std", "log-tracer"], optional = true }
 rightkit-crypto = {version = "0.1.0", path = "../rightkit-crypto", optional = true}
-thiserror = {version = "2", optional = true}
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"

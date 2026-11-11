@@ -14,7 +14,7 @@ name = "rightkit_memory_store"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-logs = { version = "0.3.7", default-features = false, path = "../rightkit-logs" }
+rightkit-logs = { version = "0.4.0", default-features = false, path = "../rightkit-logs" }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 rightkit-context-protocol = { version = "0.1.0", path = "../rightkit-context-protocol" }
 rightkit-db = { version = "0.5.3", features = ["bundled"], path = "../rightkit-db" }

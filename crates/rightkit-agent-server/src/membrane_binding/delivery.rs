@@ -4,7 +4,7 @@
 //! planning semantics remain in Membrane.
 
 use super::unavailable::UnavailableStateV1;
-use rightkit_logs::agent_telemetry::{
+use rightkit_agent_telemetry::{
     ContextObservationCoverage as ObservationCoverage, RemainingContextCeilingV1,
 };
 use serde::{Deserialize, Serialize};

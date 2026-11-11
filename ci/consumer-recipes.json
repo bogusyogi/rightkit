@@ -1967,8 +1967,8 @@
       "pkId": "PK11",
       "id": "ci/consumers/rightkit-logs/src/main.rs",
       "files": {
-        "Cargo.toml": "a27ce8d0acd29c34232f85ea2c7b1a1edd43c1da2254ef9edbafea8fcbc7d78d",
-        "src/main.rs": "aa68d6ba446ddc85efd441a3ec2c0d49eaa34953fc55774d67bf40950087d9de"
+        "Cargo.toml": "77438834f4d7e50a2c74bdfa1dbedb623762ed4467fbfd1c38b27445e4efb21c",
+        "src/main.rs": "8885136e0cd221c32355fb9d80d1b29fc622eedfe5af98e78dd79de25335c80e"
       }
     },
     "rightkit-credentials": {
@@ -2192,9 +2192,9 @@
       "pkId": "PK12",
       "id": "ci/consumers/rightkit-models/src/main.rs",
       "files": {
-        "Cargo.toml": "69eef97f38161627fdc849b00385b93f9659a6e9da5f98fe3ff38d002344d0f4",
-        "README.md": "c1fa37786c9c088f54b140ad0200105283cc3de5c2e410e471212e9c8fccba31",
-        "src/main.rs": "c753afe035d2c628522b84c424f2252ed4c64f53e9921737b916ed86c9db8fab"
+        "Cargo.toml": "c74614a504430c769062413a6f5fc905d602e4cabafa69446661159b52499d69",
+        "README.md": "818c7e806f0737b91a0da3c9e2bbc783f134415488c16869b5612b524880d4c8",
+        "src/main.rs": "e20d0f5294a8fd1a346c9f1cd155f78613282b964ba1cb0ae291a44ca5775260"
       }
     },
     "rightkit-automation": {
@@ -3680,6 +3680,24 @@
         "Cargo.toml": "b920a20733e108a23b232fbff592da13edf1b68b1ffcc2dc8e5ca3f339ffd7ae",
         "README.md": "3984ef056715cbe8ff96724cc683965c04b9f169f77ff563025d8f49bc2eaa06",
         "src/main.rs": "bfc261c30754b0491e15ae7a462cb06ad67005a5833bd228750370964ee7fb4c"
+      }
+    },
+    "rightkit-agent-telemetry": {
+      "pkId": "PK212",
+      "id": "ci/consumers/rightkit-agent-telemetry/src/main.rs",
+      "files": {
+        "Cargo.toml": "2339823747ff8413f1c156a3a761dc291a4e348ea1611bc75dc2e024e8da1ff4",
+        "README.md": "d643dc32931eda63c6c8d04852f959460a0ac951a755390ef25d78ebd6d54128",
+        "src/main.rs": "654b6f7c0721cfa5780314c85f0c75ace8ea6839ffa86e79357dea8b850a732a"
+      }
+    },
+    "rightkit-agent-local-models": {
+      "pkId": "PK213",
+      "id": "ci/consumers/rightkit-agent-local-models/src/main.rs",
+      "files": {
+        "Cargo.toml": "846ab60df378412a34cce6ee29aaec6e475dbcb3be7ae0e33264f89c67ee303d",
+        "README.md": "d838471aa475ec4d331714a3c9dd9cde8ae41d398e5dd0cb48fe866d8d5e0f69",
+        "src/main.rs": "898054505d363edde6a089bf374cf53ddf9ad07223b681a8c81ed92260fe0cf1"
       }
     },
     "rightkit-agent-demo": {

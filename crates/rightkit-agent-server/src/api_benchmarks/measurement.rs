@@ -1,4 +1,4 @@
-use rightkit_logs::agent_telemetry::{
+use rightkit_agent_telemetry::{
     MeasurementObservation, MeasurementReceipt, MeasurementScenario,
 };
 
@@ -12,7 +12,7 @@ pub(crate) fn long_run_scenarios() -> &'static [MeasurementScenario; 6] {
 pub(crate) fn measurement_receipt(
     run_id: impl Into<String>,
     observation: MeasurementObservation,
-) -> Result<MeasurementReceipt, rightkit_logs::agent_telemetry::MeasurementError> {
+) -> Result<MeasurementReceipt, rightkit_agent_telemetry::MeasurementError> {
     MeasurementReceipt::issue(run_id, observation)
 }
 

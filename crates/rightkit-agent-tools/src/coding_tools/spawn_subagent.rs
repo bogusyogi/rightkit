@@ -24,9 +24,7 @@ use crate::coding_tools::context::{
     SubagentWaitOutcome, SubagentWorktreeOptions, ToolContext,
 };
 use crate::coding_tools::tool_trait::{Tool, ToolResult};
-use rightkit_logs::agent_telemetry::agent_observability::{
-    record_agent_observation, AgentObservationV1,
-};
+use rightkit_agent_telemetry::agent_observability::{record_agent_observation, AgentObservationV1};
 use serde_json::{json, Value};
 
 pub struct SpawnSubagentTool;
@@ -196,7 +194,7 @@ impl Tool for SpawnSubagentTool {
                         ctx.session_id.clone(),
                         spawned_at_unix_ms,
                         observation_now_unix_ms(),
-                        rightkit_logs::agent_telemetry::agent_observability::AgentOutcome::Completed,
+                        rightkit_agent_telemetry::agent_observability::AgentOutcome::Completed,
                     ));
                     ToolResult::ok(result)
                 }

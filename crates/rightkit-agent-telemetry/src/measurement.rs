@@ -4,7 +4,7 @@
 //! counters and carries host-only gauges as optional values. Missing gauges
 //! remain missing; this type never manufactures a measurement.
 
-use crate::agent_telemetry::resource::snapshot_resource_telemetry;
+use crate::resource::snapshot_resource_telemetry;
 use serde::{Deserialize, Serialize};
 
 pub const MEASUREMENT_SCHEMA: &str = "coderight.long-run-measurement.v1";

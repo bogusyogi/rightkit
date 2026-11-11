@@ -30,7 +30,7 @@ rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials" }
 rightkit-daemon = { version = "0.5.1", path = "../rightkit-daemon" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs"] }
-rightkit-logs = { version = "0.3.7", path = "../rightkit-logs", default-features = false }
+rightkit-logs = { version = "0.4.0", path = "../rightkit-logs", default-features = false }
 rightkit-tauri-shell = { version = "0.7.0", path = "../rightkit-tauri-shell", default-features = false, features = ["wv2-0_39"] }
 
 [[example]]

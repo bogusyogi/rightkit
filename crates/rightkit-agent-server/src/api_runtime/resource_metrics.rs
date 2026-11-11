@@ -4,7 +4,7 @@
 /// consumers.
 ///
 /// Recorded metrics (turn latency, round trips, wakeups) come from
-/// `rightkit_logs::agent_telemetry::resource`; live gauges (RSS, streams, inference
+/// `rightkit_agent_telemetry::resource`; live gauges (RSS, streams, inference
 /// load, pool sizes, child agents) are read at request time. H4/H6/H8/H9/H10 evidence
 /// is exposed additively under `membraneEvidence` from bounded host sinks.
 ///
@@ -65,11 +65,11 @@ pub(crate) async fn capture_resource_sample(state: &DaemonState) {
     let child_count = enumerate_child_pids().map(|children| children.len());
     let (threads, handles) = self_threads_and_handles();
     let sqlite_latency_ms = [
-        rightkit_logs::agent_telemetry::SqliteOpKind::AppendEvent,
-        rightkit_logs::agent_telemetry::SqliteOpKind::ReadEvents,
+        rightkit_agent_telemetry::SqliteOpKind::AppendEvent,
+        rightkit_agent_telemetry::SqliteOpKind::ReadEvents,
     ]
     .into_iter()
-    .filter_map(rightkit_logs::agent_telemetry::sqlite_latency_summary)
+    .filter_map(rightkit_agent_telemetry::sqlite_latency_summary)
     .map(|summary| summary.p95_us)
     .max()
     .map(|p95_us| p95_us as f64 / 1000.0);
@@ -82,8 +82,8 @@ pub(crate) async fn capture_resource_sample(state: &DaemonState) {
             let started = std::time::Instant::now();
             store.events_after("__resource_probe__", 0).ok()?;
             let elapsed = started.elapsed();
-            rightkit_logs::agent_telemetry::record_sqlite_op(
-                rightkit_logs::agent_telemetry::SqliteOpKind::ReadEvents,
+            rightkit_agent_telemetry::record_sqlite_op(
+                rightkit_agent_telemetry::SqliteOpKind::ReadEvents,
                 elapsed,
             );
             Some(elapsed.as_secs_f64() * 1000.0)
@@ -192,7 +192,7 @@ async fn get_resource_metrics(
 /// report them; a missing figure is never rendered as zero.
 #[cfg(target_os = "linux")]
 fn self_threads_and_handles() -> (Option<u32>, Option<u32>) {
-    let sample = rightkit_logs::agent_telemetry::resource_report::procfs::sample_self();
+    let sample = rightkit_agent_telemetry::resource_report::procfs::sample_self();
     (sample.threads, sample.open_descriptors)
 }
 
@@ -341,24 +341,24 @@ pub(crate) async fn resource_metrics_json(state: &DaemonState) -> serde_json::Va
 
     let mcp_pool_size = state.mcp_pool.snapshot().len();
 
-    let latency = rightkit_logs::agent_telemetry::turn_latency_percentiles();
-    let latency_raw = rightkit_logs::agent_telemetry::latency_raw_samples();
-    let wakeups = rightkit_logs::agent_telemetry::wakeup_summary();
-    let round_trips = rightkit_logs::agent_telemetry::round_trip_aggregates();
+    let latency = rightkit_agent_telemetry::turn_latency_percentiles();
+    let latency_raw = rightkit_agent_telemetry::latency_raw_samples();
+    let wakeups = rightkit_agent_telemetry::wakeup_summary();
+    let round_trips = rightkit_agent_telemetry::round_trip_aggregates();
     let round_trips_total: u64 = round_trips.iter().map(|(_, count)| *count).sum();
-    let prompt_overhead = rightkit_logs::agent_telemetry::prompt_overhead_aggregates();
-    let cache_prefix_events = rightkit_logs::agent_telemetry::cache_prefix_events();
-    let tool_schema_observations = rightkit_logs::agent_telemetry::tool_schema_observations();
+    let prompt_overhead = rightkit_agent_telemetry::prompt_overhead_aggregates();
+    let cache_prefix_events = rightkit_agent_telemetry::cache_prefix_events();
+    let tool_schema_observations = rightkit_agent_telemetry::tool_schema_observations();
     let procedural_asset_observations =
-        rightkit_logs::agent_telemetry::procedural_asset_observations();
-    let evaluation_outcomes = rightkit_logs::agent_telemetry::evaluation_outcomes();
+        rightkit_agent_telemetry::procedural_asset_observations();
+    let evaluation_outcomes = rightkit_agent_telemetry::evaluation_outcomes();
     let provider_turn_evidence =
-        rightkit_logs::agent_telemetry::evidence::provider_turn_evidence_ring();
+        rightkit_agent_telemetry::evidence::provider_turn_evidence_ring();
     let live_session_ids: std::collections::HashSet<&str> = session_handles
         .iter()
         .map(|session| session.id.as_str())
         .collect();
-    let remaining_context_ceilings = rightkit_logs::agent_telemetry::remaining_context_ceilings()
+    let remaining_context_ceilings = rightkit_agent_telemetry::remaining_context_ceilings()
         .into_iter()
         .filter(|row| live_session_ids.contains(row.session_id.as_str()))
         .collect::<Vec<_>>();
@@ -392,7 +392,7 @@ pub(crate) async fn resource_metrics_json(state: &DaemonState) -> serde_json::Va
         // `submit_user_message` wrapper, one round trip per completed LLM
         // response attributed to the session. Counters are bounded
         // (`MAX_LATENCY_SAMPLES=1024`, `MAX_DISTINCT_ROWS=512` in
-        // `rightkit_logs::agent_telemetry::resource`); excess samples evict oldest-first,
+        // `rightkit_agent_telemetry::resource`); excess samples evict oldest-first,
         // excess distinct task rows increment `droppedRows` rather than growing
         // unbounded. Reset/snapshot semantics are explicit: the sink is
         // process-global until `reset_resource_telemetry` clears it or a
@@ -416,7 +416,7 @@ pub(crate) async fn resource_metrics_json(state: &DaemonState) -> serde_json::Va
                 .into_iter()
                 .map(|(task, count)| serde_json::json!({ "task": task, "roundTrips": count }))
                 .collect::<Vec<_>>(),
-            "droppedRows": rightkit_logs::agent_telemetry::resource_dropped_rows(),
+            "droppedRows": rightkit_agent_telemetry::resource_dropped_rows(),
         },
         "promptOverhead": {
             "available": !prompt_overhead.is_empty(),
@@ -430,7 +430,7 @@ pub(crate) async fn resource_metrics_json(state: &DaemonState) -> serde_json::Va
                 "maxSystemPromptEstTokens": aggregate.max_system_prompt_est_tokens,
                 "maxToolPreludeEstTokens": aggregate.max_tool_prelude_est_tokens,
             })).collect::<Vec<_>>(),
-            "droppedRows": rightkit_logs::agent_telemetry::prompt_overhead_dropped_rows(),
+            "droppedRows": rightkit_agent_telemetry::prompt_overhead_dropped_rows(),
         },
         "cachePrefix": {
             "available": !cache_prefix_events.is_empty(),
@@ -473,10 +473,10 @@ pub(crate) async fn resource_metrics_json(state: &DaemonState) -> serde_json::Va
             // authority (append_event / all_events); bounded windows.
             "sqliteLatency": {
                 "appendEvent": sqlite_latency_json(
-                    rightkit_logs::agent_telemetry::SqliteOpKind::AppendEvent,
+                    rightkit_agent_telemetry::SqliteOpKind::AppendEvent,
                 ),
                 "readEvents": sqlite_latency_json(
-                    rightkit_logs::agent_telemetry::SqliteOpKind::ReadEvents,
+                    rightkit_agent_telemetry::SqliteOpKind::ReadEvents,
                 ),
                 "note": "microseconds; measured inside Storage ops via SqliteOpTimer, every exit path recorded",
             },
@@ -512,7 +512,7 @@ pub(crate) async fn resource_metrics_json(state: &DaemonState) -> serde_json::Va
 /// exposing prepared request bytes. Both projections retain identical causal,
 /// authorization, measurement, physical-attempt, and submission identities.
 fn provider_turn_evidence_json(
-    ring: &rightkit_logs::agent_telemetry::evidence::ProviderTurnEvidenceRingV1,
+    ring: &rightkit_agent_telemetry::evidence::ProviderTurnEvidenceRingV1,
     h9: bool,
 ) -> serde_json::Value {
     let rows = ring
@@ -562,7 +562,7 @@ fn provider_turn_evidence_json(
 
     serde_json::json!({
         "available": !rows.is_empty(),
-        "schemaVersion": rightkit_logs::agent_telemetry::evidence::PROVIDER_TURN_EVIDENCE_SCHEMA,
+        "schemaVersion": rightkit_agent_telemetry::evidence::PROVIDER_TURN_EVIDENCE_SCHEMA,
         "capacity": ring.capacity,
         "retainedRows": rows.len(),
         "droppedRows": ring.dropped_rows,
@@ -573,8 +573,8 @@ fn provider_turn_evidence_json(
 
 /// OPS-003 SQLite latency projection: `None`/absent stays typed-unavailable
 /// rather than rendering a fabricated zero.
-fn sqlite_latency_json(kind: rightkit_logs::agent_telemetry::SqliteOpKind) -> serde_json::Value {
-    match rightkit_logs::agent_telemetry::sqlite_latency_summary(kind) {
+fn sqlite_latency_json(kind: rightkit_agent_telemetry::SqliteOpKind) -> serde_json::Value {
+    match rightkit_agent_telemetry::sqlite_latency_summary(kind) {
         Some(summary) => serde_json::json!({
             "available": true,
             "samples": summary.samples,
@@ -591,7 +591,7 @@ fn sqlite_latency_json(kind: rightkit_logs::agent_telemetry::SqliteOpKind) -> se
 
 /// OPS-003 event-loop stall projection over the bounded delay window.
 fn event_loop_delay_json() -> serde_json::Value {
-    match rightkit_logs::agent_telemetry::event_loop_delay_summary() {
+    match rightkit_agent_telemetry::event_loop_delay_summary() {
         Some(summary) => serde_json::json!({
             "available": true,
             "samples": summary.samples,
@@ -612,7 +612,7 @@ fn event_loop_delay_json() -> serde_json::Value {
 /// fabricated zero-child topology.
 #[cfg(unix)]
 fn enumerate_child_pids() -> Option<Vec<u32>> {
-    rightkit_logs::agent_telemetry::resource_report::platform_topology::children_of(
+    rightkit_agent_telemetry::resource_report::platform_topology::children_of(
         std::process::id(),
     )
 }
@@ -678,17 +678,17 @@ fn enumerate_child_pids() -> Option<Vec<u32>> {
 /// observations. Every real child is sampled where the platform supports it;
 /// children are helpers regardless of which host binary they are.
 fn observe_coderight_helpers(
-    report: &mut rightkit_logs::agent_telemetry::resource_report::ResourceReport,
+    report: &mut rightkit_agent_telemetry::resource_report::ResourceReport,
 ) -> Vec<u32> {
-    use rightkit_logs::agent_telemetry::resource_report::{LabelledProcess, ProcessOwnership};
+    use rightkit_agent_telemetry::resource_report::{LabelledProcess, ProcessOwnership};
     let children = enumerate_child_pids().unwrap_or_default();
     for &pid in &children {
         #[cfg(unix)]
-        let sample = rightkit_logs::agent_telemetry::resource_report::procfs::sample_pid(pid);
+        let sample = rightkit_agent_telemetry::resource_report::procfs::sample_pid(pid);
         #[cfg(windows)]
         let sample = sample_child_windows(pid);
         #[cfg(not(any(unix, windows)))]
-        let sample = rightkit_logs::agent_telemetry::resource_report::ProcessResourceSample {
+        let sample = rightkit_agent_telemetry::resource_report::ProcessResourceSample {
             pid: Some(pid),
             ..Default::default()
         };
@@ -704,7 +704,7 @@ fn observe_coderight_helpers(
 #[cfg(windows)]
 fn sample_child_windows(
     pid: u32,
-) -> rightkit_logs::agent_telemetry::resource_report::ProcessResourceSample {
+) -> rightkit_agent_telemetry::resource_report::ProcessResourceSample {
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::System::ProcessStatus::{
         GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
@@ -718,7 +718,7 @@ fn sample_child_windows(
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, 0, pid);
         if handle.is_null() {
-            return rightkit_logs::agent_telemetry::resource_report::ProcessResourceSample {
+            return rightkit_agent_telemetry::resource_report::ProcessResourceSample {
                 pid: Some(pid),
                 ..Default::default()
             };
@@ -735,7 +735,7 @@ fn sample_child_windows(
                 (None, None)
             };
         CloseHandle(handle);
-        rightkit_logs::agent_telemetry::resource_report::ProcessResourceSample {
+        rightkit_agent_telemetry::resource_report::ProcessResourceSample {
             pid: Some(pid),
             rss_bytes,
             commit_bytes,
@@ -772,18 +772,18 @@ fn process_topology_json() -> serde_json::Value {
 /// combined claim is therefore REFUSED rather than silently reported as the
 /// RightKit-only total. That refusal is the point of the atom.
 fn ops009_resource_report() -> serde_json::Value {
-    use rightkit_logs::agent_telemetry::resource_report::{
+    use rightkit_agent_telemetry::resource_report::{
         LabelledProcess, ProcessOwnership, ReclamationPoint, ResourceReport,
     };
 
     let mut report = ResourceReport::new(ReclamationPoint::DuringTask);
     // /proc exists only on Linux; macOS samples RSS through task_info.
     #[cfg(target_os = "linux")]
-    let sample = rightkit_logs::agent_telemetry::resource_report::procfs::sample_self();
+    let sample = rightkit_agent_telemetry::resource_report::procfs::sample_self();
     #[cfg(windows)]
     let sample = sample_child_windows(std::process::id());
     #[cfg(not(any(target_os = "linux", windows)))]
-    let sample = rightkit_logs::agent_telemetry::resource_report::ProcessResourceSample {
+    let sample = rightkit_agent_telemetry::resource_report::ProcessResourceSample {
         pid: Some(std::process::id()),
         rss_bytes: daemon_rss_bytes(),
         ..Default::default()

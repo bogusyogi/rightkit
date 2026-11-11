@@ -62,7 +62,7 @@ fn spawn_client_presence_reaper(state: DaemonState) {
             // the idle cost the S0 baseline is meant to expose -- a daemon that
             // wakes constantly with no clients attached is the thing the
             // wakeups-per-second column exists to catch.
-            rightkit_logs::agent_telemetry::record_wakeup();
+            rightkit_agent_telemetry::record_wakeup();
             crate::api_clients::reap_expired_clients(&state);
             let any_running = any_session_running(&state).await;
             // Honor the keep-daemon-resident setting OR any enabled schedule
