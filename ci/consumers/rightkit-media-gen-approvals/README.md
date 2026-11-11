@@ -1,6 +1,6 @@
 # rightkit-media-gen-approvals 0.1.0 registry consumer
 
-Standalone consumer, outside the workspace, pinning `rightkit-media-gen-approvals =0.1.0` exactly with its default features. It installs the crate from the sealed archive through the offline directory registry and runs `src/main.rs`, which prints `ok:` lines and exits 1 on the first failed check. The checks are the ones the `rightkit-approvals` 0.1.0 recipe ran: that code moved here when `rightkit-approvals` 0.2.0 became the one approvals core.
+Standalone consumer, outside the workspace, pinning `rightkit-media-gen-approvals =0.1.0` exactly with its default features, beside `rightkit-media-gen =0.1.2` (the crate takes the eyes hash and record rule from it). It installs the crate from the sealed archive through the offline directory registry and runs `src/main.rs`, which prints `ok:` lines and exits 1 on the first failed check. The checks are the ones the `rightkit-approvals` 0.1.0 recipe ran: that code moved here when `rightkit-approvals` 0.2.0 became the one approvals core.
 
 ## What it proves
 

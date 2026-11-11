@@ -9,69 +9,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::HistoryRecord;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-/// What a history row was extracted from. The snake_case tag is what the store persists.
-pub enum Kind {
-    Reel,
-    InstagramPost,
-    Carousel,
-    #[serde(rename = "youtube")]
-    YouTube,
-    #[serde(rename = "tiktok")]
-    TikTok,
-    Threads,
-    Facebook,
-    VideoUrl,
-    MediaUrl,
-    Article,
-    LocalFile,
-    Unknown,
-}
-
-impl Kind {
-    /// snake_case tag stored in the history DB (matches the serde rename).
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Kind::Reel => "reel",
-            Kind::InstagramPost => "instagram_post",
-            Kind::Carousel => "carousel",
-            Kind::YouTube => "youtube",
-            Kind::TikTok => "tiktok",
-            Kind::Threads => "threads",
-            Kind::Facebook => "facebook",
-            Kind::VideoUrl => "video_url",
-            Kind::MediaUrl => "media_url",
-            Kind::Article => "article",
-            Kind::LocalFile => "local_file",
-            Kind::Unknown => "unknown",
-        }
-    }
-
-    pub fn from_tag(s: &str) -> Kind {
-        match s {
-            "reel" => Kind::Reel,
-            "instagram_post" => Kind::InstagramPost,
-            "carousel" => Kind::Carousel,
-            "youtube" => Kind::YouTube,
-            "tiktok" => Kind::TikTok,
-            "threads" => Kind::Threads,
-            "facebook" => Kind::Facebook,
-            "video_url" => Kind::VideoUrl,
-            "media_url" => Kind::MediaUrl,
-            "article" => Kind::Article,
-            "local_file" => Kind::LocalFile,
-            _ => Kind::Unknown,
-        }
-    }
-}
-
 /// One history row as the client sees it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryRow {
     pub id: String,
     pub url: String,
-    pub kind: Kind,
+    /// The host's kind tag, as stored (see [`HistoryRecord::kind`]).
+    pub kind: String,
     pub title: Option<String>,
     pub lang: Option<String>,
     pub duration_s: Option<f64>,
@@ -91,7 +35,8 @@ pub struct HistoryRow {
 pub struct TranscriptDetail {
     pub id: String,
     pub url: String,
-    pub kind: Kind,
+    /// The host's kind tag, as stored (see [`HistoryRecord::kind`]).
+    pub kind: String,
     pub title: Option<String>,
     /// Full text on `GetTranscriptFull`; a bounded preview on `GetTranscript`
     /// (see `variants` and `GetTranscriptVariant` for the full text).
@@ -112,8 +57,8 @@ pub struct TranscriptDetail {
     /// Per-variant availability and byte size. Empty on `GetTranscriptFull`.
     #[serde(default)]
     pub variants: Vec<TranscriptVariantInfo>,
-    /// Seconds into the source where Free-tier transcription stopped. `None`
-    /// means the transcript covers the full source (Pro or shorter than cap).
+    /// Seconds into the source where transcription stopped, when the host capped it. `None`
+    /// means the transcript covers the full source.
     #[serde(default)]
     pub truncated_at_s: Option<f64>,
 }
@@ -220,7 +165,7 @@ impl From<HistoryRecord> for HistoryRow {
         HistoryRow {
             id: r.id,
             url: r.url,
-            kind: Kind::from_tag(&r.kind),
+            kind: r.kind,
             title: r.title,
             lang: r.lang,
             duration_s: r.duration_s,

@@ -1,3 +1,12 @@
+//! The gallery index: GenRight's media listing over output folders, with each file's generation
+//! metadata, asset facts, caller, brand and review state (eyes and jury sidecars).
+//!
+//! Moved from `rightkit-library` (where it sat as an undeclared, never-compiled `artifacts.rs`)
+//! in 0.1.2. It reads the sidecars this crate writes: [`crate::host::CALLER_SIDECAR_SUFFIX`],
+//! the library's `facts.json` and [`crate::provenance::sibling_facts_path`], the library's
+//! `pair.json`, and the eyes record checked by [`crate::host::approval::eyes_record_bound`].
+//! Results are JSON values, the shape the gallery front end reads.
+
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -5,7 +14,11 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::path_policy::normalize_lossy;
+use crate::host::approval::{eyes_file_hash, eyes_record_bound};
+use crate::host::asset_facts::AssetFacts;
+use crate::host::CALLER_SIDECAR_SUFFIX;
+use crate::library::PAIR_FILE;
+use crate::provenance::sibling_facts_path;
 use std::time::Instant;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -208,10 +221,6 @@ pub struct IndexFilter {
     pub caller: Option<String>,
 }
 
-/// Sidecar naming the engine caller that registered a file. Must stay identical to
-/// `rightkit_media_gen::host::CALLER_SIDECAR_SUFFIX`.
-pub const CALLER_SIDECAR_SUFFIX: &str = ".caller.json";
-
 /// `(slug, label)` from `<file>.caller.json` (`{"caller": slug, "label": text}`); `None` when the
 /// file has no readable sidecar. The slug must be a plain lowercase token: anything else is ignored.
 fn caller_of(path: &Path) -> Option<(String, String)> {
@@ -374,7 +383,7 @@ fn visit_root(
 
 /// True when `path` is a library clone whose `pair.json` marker records a finalized gallery file that
 /// still exists inside a scanned root (and would itself be listed). That gallery file is then the
-/// listing for the image. The marker is read as plain JSON: this crate does not depend on rightkit-media-gen.
+/// listing for the image.
 fn superseded_by_gallery_file(
     path: &Path,
     scanned: &[PathBuf],
@@ -383,7 +392,7 @@ fn superseded_by_gallery_file(
     let Some(dir) = path.parent() else {
         return false;
     };
-    let Some(pair) = fs::read(dir.join("pair.json"))
+    let Some(pair) = fs::read(dir.join(PAIR_FILE))
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
     else {
@@ -427,7 +436,7 @@ fn project_slug_of(path: &Path) -> String {
 }
 
 /// Shape of an asset id: five lowercase hex groups of 8-4-4-4-12. This matches a UUID and the
-/// deterministic id `rightkit-media-gen` derives for adopted worker output (`adopt_path_asset`).
+/// deterministic id this crate derives for adopted worker output (`adopt_path_asset`).
 fn is_asset_id(name: &str) -> bool {
     let groups: Vec<&str> = name.split('-').collect();
     groups.len() == 5
@@ -442,8 +451,8 @@ fn is_asset_id(name: &str) -> bool {
 /// Eyes approvals are bound to the bytes they were given for, and to the engine's approval record.
 /// An `approved` sidecar reads `approved` only when its recorded `hash` matches the file's current
 /// bytes AND its `approval` record has the shape the engine's eyes gate writes and is bound to those
-/// bytes (`approval_record_bound`); the gate in `rightkit-media-gen-approvals` (`eyes::gate_state`) applies the same
-/// rule. A recorded hash that no longer matches reads `stale`; an APPROVE without a bound record reads
+/// bytes ([`eyes_record_bound`]); the gate in `rightkit-media-gen-approvals` (`eyes::gate_state`) applies the same
+/// function. A recorded hash that no longer matches reads `stale`; an APPROVE without a bound record reads
 /// `pending`, so a bare sidecar cannot pass the Gallery's eyes filter. Both block like a pending review.
 ///
 /// Cost: every `approved` record a listing returns or that an eyes filter matches is hashed once,
@@ -456,11 +465,11 @@ fn mark_stale_approval(artifact: &mut Value) {
         return;
     };
     let raw = artifact["raw_sidecars"]["eyes"].clone();
-    let current = file_hash(Path::new(&path));
+    let current = eyes_file_hash(Path::new(&path));
     let recorded = raw["hash"].as_str();
     let state = if recorded.is_some_and(|hash| current.as_deref() != Some(hash)) {
         "stale"
-    } else if !approval_record_bound(&raw, current.as_deref()) {
+    } else if !eyes_record_bound(&raw, current.as_deref()) {
         "pending"
     } else {
         return;
@@ -469,37 +478,6 @@ fn mark_stale_approval(artifact: &mut Value) {
     if artifact["approval"]["overall"] == "approved" {
         artifact["approval"]["overall"] = json!("needs_review");
     }
-}
-
-/// True when the sidecar's `approval` record has the shape `rightkit-media-gen-approvals` writes
-/// (non-empty `channel`, `nonce`, `approved_at`, a 64-hex `input_hash`, and a `legacy_hash` equal to
-/// the file's current hash). Shape only: it cannot prove who wrote the record. Must stay identical to
-/// `rightkit_media_gen_approvals::eyes` approval-record check.
-fn approval_record_bound(raw: &Value, current: Option<&str>) -> bool {
-    let Some(record) = raw.get("approval").and_then(Value::as_object) else {
-        return false;
-    };
-    let text = |key: &str| {
-        record
-            .get(key)
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-    };
-    let input_hash_ok = text("input_hash")
-        .is_some_and(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()));
-    input_hash_ok
-        && text("channel").is_some()
-        && text("nonce").is_some()
-        && text("approved_at").is_some()
-        && matches!((text("legacy_hash"), current), (Some(bound), Some(now)) if bound == now)
-}
-
-/// `sha256:` plus the first 16 hex digits of the file's bytes, the form the eyes gate records.
-/// Must stay identical to `rightkit_media_gen_approvals::eyes::file_hash`. `None` when the file cannot be read.
-fn file_hash(path: &Path) -> Option<String> {
-    let hex = rightkit_fs::digest::sha256_file(path).ok()?;
-    Some(format!("sha256:{}", &hex[..16]))
 }
 
 fn artifact_json(path: &Path, kind: ArtifactKind, visibility: &str) -> Value {
@@ -573,35 +551,24 @@ fn artifact_json(path: &Path, kind: ArtifactKind, visibility: &str) -> Value {
     artifact
 }
 
-/// The unknown facts an asset without a recorded `facts.json` reads as (the shape of
-/// `rightkit_media_gen::host::asset_facts::AssetFacts::unknown()`, which this crate does not depend on).
-fn unknown_asset_facts() -> Value {
-    json!({
-        "origin": {"kind": "unknown", "provider": null, "model": null, "job_id": null, "source": null, "parents": []},
-        "evidence": "unknown",
-        "rights": {"status": "unknown", "licence_evidence": [], "source": null, "attribution": null,
-                   "permitted_uses": [], "consent_refs": []},
-    })
-}
-
 /// Largest facts file the gallery reads (a folder `facts.json` or a `<file>.facts.json` sidecar).
 const MAX_FACTS_BYTES: u64 = 256 * 1024;
 
 /// Origin, evidentiary meaning, rights and scope for an asset. A folder `facts.json` beside the file
 /// (the library's asset folder) covers it when it is present and valid. Otherwise the file's own
-/// `<file>.facts.json` sidecar is read, the one `rightkit_media_gen::provenance::write_sibling_facts`
+/// `<file>.facts.json` sidecar is read, the one [`crate::provenance::write_sibling_facts`]
 /// writes beside a file that is not in the library. A file with neither (older assets, plain
 /// gallery files) reads as explicit `unknown`. Sidecars are JSON, so `classify` never lists them.
 fn apply_asset_facts(path: &Path, artifact: &mut Value) {
     let recorded = read_facts_file(&path.with_file_name("facts.json"))
-        .or_else(|| read_facts_file(&facts_sidecar_path(path)));
+        .or_else(|| read_facts_file(&sibling_facts_path(path)));
     match recorded {
         Some(v) => {
             artifact["asset_facts"] = v["facts"].clone();
             artifact["scope"] = v.get("scope").cloned().unwrap_or(Value::Null);
         }
         None => {
-            artifact["asset_facts"] = unknown_asset_facts();
+            artifact["asset_facts"] = AssetFacts::unknown().to_value();
             artifact["scope"] = Value::Null;
         }
     }
@@ -616,16 +583,6 @@ fn read_facts_file(path: &Path) -> Option<Value> {
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
         .filter(|v| v.get("facts").is_some_and(Value::is_object))
-}
-
-/// `<file>.facts.json` beside `path`: the file name with `.facts.json` appended.
-fn facts_sidecar_path(path: &Path) -> PathBuf {
-    let mut name = path
-        .file_name()
-        .map(|n| n.to_os_string())
-        .unwrap_or_default();
-    name.push(".facts.json");
-    path.with_file_name(name)
 }
 
 // ---- Brand codes (host-registered catalogue) ----
@@ -962,4 +919,22 @@ fn chrono_like_now() -> String {
         .unwrap_or_default()
         .as_secs();
     format!("{seconds}")
+}
+
+/// `path` with `\\` read as `/`, `.` dropped and `..` popping a component, without touching the
+/// filesystem. Roots arrive from the front end in either separator style.
+fn normalize_lossy(path: impl AsRef<str>) -> PathBuf {
+    let path = path.as_ref().replace('\\', "/");
+    let source = Path::new(&path);
+    let mut out = PathBuf::new();
+    for component in source.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
 }

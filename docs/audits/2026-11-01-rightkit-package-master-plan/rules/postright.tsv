@@ -10,7 +10,8 @@ engine/src/api_versions\.rs	rightkit-platform-rules	EXTEND	pinned platform API v
 engine/src/calendar_time\.rs	rightkit-time	EXTEND	local wall time -> UTC for calendars (tz-aware)
 (engine|protocol)/src/calendar\.rs	rightkit-content-calendar	NEW	brief & calendar entry cache, proposals
 (engine|protocol)/src/(channels|memory)\.rs	rightkit-channel-memory	EXTEND	channel store & channel memory document (schema already in RK)
-(engine|protocol)/src/content\.rs	rightkit-library	NEW	reusable media records with occurrence ids & expiry
+# corrected 2026-11-11 (shape review, docs/audits/2026-11-11-shape-matrix/reports/library-and-swift-mapping-redraw.md): content.rs is content planning, not a library
+(engine|protocol)/src/content\.rs	rightkit-content-plan	NEW	reusable media records with occurrence ids & expiry
 (engine|protocol)/src/contracts_io\.rs	rightkit-contracts	EXTEND	contract.check & delivery envelope IO at app boundary
 engine/src/daemon_host\.rs	rightkit-daemon	EXTEND	headless server role (scheduler, public listener, remote host)
 (engine|protocol)/src/heartbeat\.rs	rightkit-daemon	ADOPT	heartbeat record already owned by rightkit-daemon
@@ -45,7 +46,7 @@ tests/scenarios[^/]*/(acquisition|proof)	rightkit-content-proof	NEW	tests
 tests/scenarios[^/]*/(brief|drafts|hook|text)	rightkit-content-briefs	NEW	tests
 tests/scenarios[^/]*/(calendar)	rightkit-content-calendar	NEW	tests
 tests/scenarios[^/]*/(channel)	rightkit-channel-memory	EXTEND	tests
-tests/scenarios[^/]*/(content)	rightkit-library	NEW	tests
+tests/scenarios[^/]*/(content)	rightkit-content-plan	NEW	tests
 tests/scenarios[^/]*/(contracts)	rightkit-contracts	EXTEND	tests
 tests/scenarios[^/]*/(daemon|heartbeat)	rightkit-daemon	EXTEND	tests
 tests/scenarios[^/]*/(digest|reddit)	rightkit-research	NEW	tests

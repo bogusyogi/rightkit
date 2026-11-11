@@ -6,11 +6,13 @@ Package names are final, after cross-app merging (see master plan in RightKit `d
 
 ## Summary
 
+Corrected 2026-11-11 by the shape review (`docs/audits/2026-11-11-shape-matrix/reports/library-and-swift-mapping-redraw.md`): GenRight's media library and gallery index re-pointed from `rightkit-library` (ScrapeRight's extraction-artifact index) to `rightkit-media-gen`. Totals below are recomputed from the corrected rows; the per-file list in the app repo was not changed here.
+
 | Action | Meaning | Files | Lines |
 |---|---|---:|---:|
-| NEW | new RightKit package (or new piece of one) | 232 | 108,784 |
+| NEW | new RightKit package (or new piece of one) | 225 | 104,188 |
 | EXTEND | existing RightKit package gains this | 70 | 25,482 |
-| ADOPT | RightKit already ships it; delete app copy & use owner | 40 | 4,118 |
+| ADOPT | RightKit already ships it; delete app copy & use owner | 47 | 8,714 |
 | APPTEST | app journey/e2e test: stays with the app (P7, §6), runs on rightkit-qa | 86 | 27,033 |
 | DROP | delete | 64 | 8,627 |
 | SHELL | thin app composition that stays in app | 16 | 629 |
@@ -18,7 +20,7 @@ Package names are final, after cross-app merging (see master plan in RightKit `d
 | NOTCODE | docs/data, not code | 3 | 7,261 |
 | **Total** | | **520** | **182,186** |
 
-Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **147,011 lines**. Staying in the app as product code: **0 lines**; as shell/config: **881 lines** (0% of code), plus **27,033 lines** of app journey/e2e tests.
+Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **147,011 lines**. Staying in the app as product code: **0 lines**; as shell/config: **881 lines** (1% of code), plus **27,033 lines** of app journey/e2e tests.
 
 ## Mapping table
 
@@ -30,7 +32,6 @@ Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **147,011 
 | `rightkit-blender-worker` | crate | NEW | Blender render worker (Python, runs inside Blender): scene, materials, product registration/review, finish profiles, contract | 29 | 4,386 | `workers/blender/`, `workers/blender/renderright/`, `workers/blender/tests/` +1 dirs |
 | `rightkit-doctor` | crate | NEW | doctor command | 1 | 184 | `crates/genright-engine/src/` |
 | `rightkit-engine-host` | crate | NEW | engine binary framework: sidecar + headless CLI modes, command registration, contract export & TS codegen, human/JSON presentation, engine client | 7 | 2,813 | `crates/genright-core/src/`, `crates/genright-engine/src/`, `crates/genright-protocol/src/` |
-| `rightkit-library` | crate | NEW | owned media library: import w/ provenance, asset facts (origin/evidence/rights), FTS search, artifact index | 7 | 4,596 | `crates/genright-core/src/`, `crates/genright-engine/src/`, `crates/genright-gen/src/` +1 dirs |
 | `rightkit-local-gen` | crate | NEW | keyless local image gen: sd.cpp server runtime, memory modes, profiles, job store, artifacts | 15 | 9,532 | `crates/genright-engine/src/`, `crates/genright-gen/src/providers/`, `crates/genright-local-image/` +1 dirs |
 | `rightkit-local-gen` | crate | NEW | local Wav2Lip talking-head lip-sync on ONNX | 1 | 1,244 | `crates/genright-gen/src/providers/` |
 | `rightkit-local-gen` | crate | NEW | local MusicGen ONNX music generation | 1 | 952 | `crates/genright-gen/src/providers/` |
@@ -73,6 +74,7 @@ Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **147,011 
 | `rightkit-http` | crate | ADOPT | outbound HTTP policy | 1 | 176 | `crates/genright-protocol/src/` |
 | `rightkit-license` | crate | ADOPT | Pro gate & trial | 2 | 203 | `crates/genright-engine/src/`, `crates/genright-gen/src/` |
 | `rightkit-logs` | crate | ADOPT | diagnostics events | 2 | 62 | `crates/genright-protocol/src/`, `src-tauri/src/` |
+| `rightkit-media-gen` | crate | ADOPT | owned media library: import w/ provenance, asset facts (origin/evidence/rights), FTS search, artifact index (was `rightkit-library`; the store, search, import and library are in `rightkit-media-gen`, and the gallery index is `rightkit_media_gen::gallery` since 0.1.2) | 7 | 4,596 | `crates/genright-core/src/`, `crates/genright-engine/src/`, `crates/genright-gen/src/` +1 dirs |
 | `rightkit-models` | crate | ADOPT | model store glue | 1 | 67 | `crates/genright-protocol/src/` |
 | `rightkit-tauri-shell` | crate | ADOPT | engine host | 2 | 280 | `src-tauri/src/` |
 | `rightkit-tts` | crate | ADOPT | local Qwen3-TTS voice | 7 | 1,054 | `crates/genright-gen/src/providers/`, `crates/genright-qts/`, `crates/genright-qts/examples/` +2 dirs |

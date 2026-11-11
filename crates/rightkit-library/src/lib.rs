@@ -39,9 +39,9 @@ pub mod history;
 pub mod history_types;
 
 pub use history_types::{
-    HistoryPage, HistoryRow, HistorySettings, HistorySort, Kind, TranscriptDetail,
-    TranscriptImport, TranscriptVariant, TranscriptVariantInfo, TranscriptVariantKind,
-    HISTORY_PAGE_MAX, HISTORY_PAGE_SIZE,
+    HistoryPage, HistoryRow, HistorySettings, HistorySort, TranscriptDetail, TranscriptImport,
+    TranscriptVariant, TranscriptVariantInfo, TranscriptVariantKind, HISTORY_PAGE_MAX,
+    HISTORY_PAGE_SIZE,
 };
 
 use std::path::Path;
@@ -64,7 +64,9 @@ use rightkit_db::{
 pub struct HistoryRecord {
     pub id: String,
     pub url: String,
-    /// Serialised kind string, e.g. `"youtube"`, `"reel"`, `"local_file"`.
+    /// The host's kind tag, stored verbatim (for example `"youtube"`, `"article"`,
+    /// `"local_file"`). The library defines no kinds: an extraction host passes its own tag
+    /// (ScrapeRight: `rightkit_media_fetch::protocol::Kind::as_str`).
     pub kind: String,
     pub title: Option<String>,
     pub lang: Option<String>,
@@ -85,12 +87,12 @@ pub struct HistoryRecord {
     /// JSON metadata for downloaded media (container, bytes, requested kind).
     pub media_meta: Option<String>,
     pub media_action: Option<String>,
-    /// SRT caption body kept on the record itself. Free-tier jobs never write
-    /// timed-format files (those are a Pro export surface), so the reader's
-    /// timestamp view and any later export derive from this stored copy.
-    /// Pro rows may also keep it — detail reads prefer the file when present.
+    /// SRT caption body kept on the record itself. A host that writes no timed-format
+    /// files for a record keeps the SRT here, and the reader's timestamp view and any later
+    /// export derive from this stored copy. Which records get files is the host's rule; detail
+    /// reads prefer the file when present.
     pub srt_text: Option<String>,
-    /// Seconds into the source where transcription stopped (Free-tier cap).
+    /// Seconds into the source where transcription stopped, when the host capped it.
     /// `None` means the transcript covers the full source.
     pub truncated_at_s: Option<f64>,
 }
@@ -290,8 +292,8 @@ impl Store {
     /// never modified; rows that already exist in the destination are not
     /// counted as merged.
     ///
-    /// Used by `crates/engine/src/history::merge_history` to carry the prior
-    /// library forward when the user changes `output_dir`. Since
+    /// Used by [`history::merge_history`] to carry the prior library forward when the user
+    /// changes `output_dir`. Since
     /// `HistoryRecord` rows represent immutable past-job facts, "destination
     /// wins" is fine: any pre-existing row in the new store is the more
     /// recent fact (the new-dir was the live library between switches).

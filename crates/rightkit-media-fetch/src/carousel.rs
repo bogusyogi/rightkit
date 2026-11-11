@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
+use rightkit_fs::publish_replacing;
 use rightkit_web_extract::browser::{BrowserConfig, BrowserHost, HeadlessBrowser, HostPin};
 use rightkit_web_extract::ArticleFetcher;
 
@@ -28,24 +29,6 @@ impl CarouselEnv<'_> {
     fn browsers(&self) -> &dyn BrowserHost {
         self.fetcher.browsers
     }
-}
-
-/// Publish `from` at `to`, replacing an existing file. On Windows the replace retries a sharing
-/// violation or access-denied error (five attempts, 100 ms apart); inert elsewhere.
-fn publish_replacing(from: &Path, to: &Path) -> rightkit_fs::Result<()> {
-    use rightkit_fs::atomic::{
-        publish_file_with_access_denied_retry, AccessDeniedRetry, AtomicWriteOptions, ReplaceMode,
-        RetryPolicy,
-    };
-    publish_file_with_access_denied_retry(
-        from,
-        to,
-        AtomicWriteOptions {
-            replace: ReplaceMode::MoveWriteThrough,
-            ..AtomicWriteOptions::default()
-        },
-        AccessDeniedRetry::new(RetryPolicy::new(4, std::time::Duration::from_millis(100))),
-    )
 }
 
 const MAX_SLIDES: usize = 30;

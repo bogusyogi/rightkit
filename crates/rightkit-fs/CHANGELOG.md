@@ -43,6 +43,7 @@ Issues #823, #1083. Source only: not compiled or run here; the root integration 
 - Added `secret_file::read_secret_file(env_name, max_bytes) -> Result<Zeroizing<String>, SecretFileError>` (#1083): the path comes from the named environment variable, the file must pass `verify_owner_only`, is read through a bounded reader, and must be one line of non-control UTF-8 (one final line break is removed). New dependency `zeroize = "1.9"` (enabled by the `fs` feature).
 
 ## 0.4.13
+- Added `atomic::publish_replacing(from, to)` (re-exported at the root): publish over an existing file with the write-through move and the bounded Windows access-denied retry (five attempts, 100 ms apart). `rightkit-library` and `rightkit-media-fetch` each carried their own copy (two in media-fetch); they now call this one. Shape review 2026-11-11, `rightkit-library` row; taken on the recommended option, pending the owner's confirmation.
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 
 ## 0.4.10 (unpublished)

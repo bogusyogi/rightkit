@@ -20,8 +20,13 @@ use serde::{Deserialize, Serialize};
 pub struct EnrichmentInput<'a> {
     /// Original source URL (or local file path).
     pub source_url: &'a str,
-    /// Modality / kind string (e.g. "youtube", "reel", "carousel", "article").
+    /// The host's kind tag (e.g. "youtube", "reel", "carousel", "article"); copied to
+    /// [`SourceMetadata::kind`] and the tags. The library gives no kind a meaning.
     pub kind: &'a str,
+    /// The source's short code when the host knows one (for example an Instagram post code from
+    /// `rightkit_media_fetch::detect::instagram_shortcode`); copied to
+    /// [`SourceMetadata::shortcode`].
+    pub shortcode: Option<&'a str>,
     /// Title or caption, if known.
     pub title: Option<&'a str>,
     /// Extracted plain text (transcript, OCR, article body, etc.).
@@ -256,12 +261,7 @@ pub fn enrich(input: &EnrichmentInput<'_>) -> Enrichment {
     let possible_ctas = extract_ctas(&sentences);
     let sections = extract_sections(input);
 
-    let mut source_metadata = build_source_metadata(input);
-    // Extract Instagram shortcode if applicable
-    if is_instagram_kind(input.kind) {
-        source_metadata.shortcode = extract_shortcode(input.source_url);
-    }
-    source_metadata.domain = extract_domain(input.source_url);
+    let source_metadata = build_source_metadata(input);
 
     let mut enrichment = Enrichment {
         links,
@@ -295,11 +295,9 @@ mod enrichment_text;
 
 use enrichment_content::{extract_claims, extract_ctas, extract_keywords, extract_sections};
 use enrichment_primitives::{
-    extract_dates, extract_hashtags_and_mentions, extract_links, extract_numbers,
+    extract_dates, extract_hashtags_and_mentions, extract_links, extract_numbers, normalize_url,
 };
-use enrichment_source::{
-    build_source_metadata, build_tags, extract_domain, extract_shortcode, is_instagram_kind,
-};
+use enrichment_source::{build_source_metadata, build_tags};
 use enrichment_text::{
     cached_regex, find_containing_sentence, regex_captures_iter, split_sentences,
 };

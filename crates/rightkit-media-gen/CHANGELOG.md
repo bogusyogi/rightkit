@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2
+
+- Added `gallery`: GenRight's gallery index (`index_roots`, `IndexFilter`, `GalleryResponse`, `GalleryReport`, `classify`, the brand catalogue and the eyes and jury state lists). It sat in `rightkit-library` as `src/artifacts.rs`, undeclared and never compiled; the shape review (2026-11-11, `rightkit-library` row) gave it its home here, next to the sidecars it reads. Its copies of this crate's names are gone: it uses `host::CALLER_SIDECAR_SUFFIX`, `AssetFacts::unknown()`, `library`'s `pair.json` name and the new `provenance::sibling_facts_path`.
+- Added `host::approval::eyes_file_hash` and `host::approval::eyes_record_bound`: the eyes gate's hash and approval-record rule, which `rightkit-media-gen-approvals` and the gallery each had a copy of. `rightkit-media-gen-approvals` 0.1.0 now calls these.
+- Added `provenance::sibling_facts_path`; `write_sibling_facts` uses it.
+- Additive. Taken on the recommended option, pending the owner's confirmation.
+
 ## 0.1.1 (unpublished)
 
 - Removed: the `dev-overrides` feature. ffmpeg and ffprobe resolve only through the catalog-verified bundled binary (`host::ffmpeg::trust` is always `verified`); the `<PREFIX>_FFMPEG`/`PATH` fallback and the `ORT_DYLIB_PATH` developer candidate in `qts::models` are gone. Adrian, 2026-11-03: "dev mode, is mine. im the fucking owner, my data. no dummy data, no fucking made up shit. real data. snapshot and restore." Needs rightkit-ffmpeg 0.2.16 and rightkit-onnx 0.2.10 (the resolver loses its `dev`/`mode` arguments).

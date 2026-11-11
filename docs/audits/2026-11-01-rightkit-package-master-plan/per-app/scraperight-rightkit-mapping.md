@@ -6,19 +6,21 @@ Package names are final, after cross-app merging (see master plan in RightKit `d
 
 ## Summary
 
+Corrected 2026-11-11 by the shape review (`docs/audits/2026-11-11-shape-matrix/reports/library-and-swift-mapping-redraw.md`): nothing is planned into `RightKitUI` (settings and app entry are app screens); the iOS E2E seeds and tests stay with the app, never `RightKitHubQA`. `rightkit-library` rows unchanged: it is ScrapeRight's index. Totals below are recomputed from the corrected rows; the per-file list in the app repo was not changed here.
+
 | Action | Meaning | Files | Lines |
 |---|---|---:|---:|
 | NEW | new RightKit package (or new piece of one) | 140 | 46,095 |
-| EXTEND | existing RightKit package gains this | 116 | 34,291 |
+| EXTEND | existing RightKit package gains this | 112 | 33,581 |
 | ADOPT | RightKit already ships it; delete app copy & use owner | 80 | 11,537 |
 | APPTEST | app journey/e2e test: stays with the app (P7, §6), runs on rightkit-qa | 37 | 8,510 |
 | DROP | delete | 6 | 2,573 |
-| SHELL | thin app composition that stays in app | 9 | 379 |
+| SHELL | thin app composition that stays in app | 13 | 1,089 |
 | CONFIG | app manifest/config that stays | 1 | 34 |
 | NOTCODE | docs/data, not code | 6 | 16,745 |
 | **Total** | | **395** | **120,164** |
 
-Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **94,496 lines**. Staying in the app as product code: **0 lines**; as shell/config: **413 lines** (0% of code), plus **8,510 lines** of app journey/e2e tests.
+Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **93,786 lines**. Staying in the app as product code: **0 lines**; as shell/config: **1,123 lines** (1% of code), plus **8,510 lines** of app journey/e2e tests.
 
 ## Mapping table
 
@@ -52,8 +54,6 @@ Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **94,496 l
 | `@rightkit/settings-ui` | npm | EXTEND | runtime/doctor sections & prefs | 10 | 1,858 | `src/views/`, `src/views/settings/` |
 | `@rightkit/theme` | npm | EXTEND | Swift brand tokens generated from brand.json | 3 | 138 | `ios-native/ScrapeRight/Theme/` |
 | `RightKitImportQueue` | Swift | EXTEND | universal serial job queue & runner | 4 | 623 | `ios-native/ScrapeRight/Queue/` |
-| `RightKitUI` | Swift | EXTEND | SwiftUI settings sections | 1 | 422 | `ios-native/ScrapeRight/Views/` |
-| `RightKitUI` | Swift | EXTEND | iOS app scaffold: app entry, content/tab views, sheets, menus, settings & account, update, haptics, shortcuts, widgets, file provider | 3 | 288 | `ios-native/ScrapeRight/` |
 | `rightkit-asr` | crate | EXTEND | API gap first: api-gap: rightkit-transcript 0.4.0 export::stamp is private; see docs/rightkit-exceptions/outside-M-rows.md#it | 1 | 788 | `crates/engine/src/` |
 | `rightkit-asr` | crate | EXTEND | API gap first: api-gap: rightkit-speech-client 0.4.0 transcribe_via_service_policy lacks running-host, capability, window-fit | 1 | 391 | `crates/speech/src/` |
 | `rightkit-browser` | crate | EXTEND | API gap first: api-gap: rightkit-browser 0.3.6 BrowserPage has no user-agent or extra-headers setter; see docs/rightkit-excep | 1 | 654 | `crates/engine/src/browser/` |
@@ -107,6 +107,8 @@ Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **94,496 l
 | `none` | other | DROP | static design mockups, not shipped code | 6 | 2,573 | `_mockups/scraperight-redesign/`, `_mockups/scraperight-settings/`, `_mockups/scraperight-simple/` |
 | `app-shell` | other | APPTEST | app journey/e2e tests | 32 | 7,847 | `crates/scraperight-ui-e2e/`, `crates/scraperight-ui-e2e/src/`, `crates/scraperight-ui-e2e/tests/` +6 dirs |
 | `app-shell` | other | APPTEST | app journey/e2e/unit tests of the app binary | 5 | 663 | `crates/engine/examples/`, `crates/engine/src/`, `crates/engine/tests/` |
+| `app-shell` | other | SHELL | settings screen (was `RightKitUI`) | 1 | 422 | `ios-native/ScrapeRight/Views/` |
+| `app-shell` | other | SHELL | iOS app entry & views (was `RightKitUI`) | 3 | 288 | `ios-native/ScrapeRight/` |
 | `app-shell` | other | SHELL | app composition & IPC contract | 6 | 187 | `./`, `src/`, `src/lib/ipc/` |
 | `app-shell` | other | SHELL | engine binary, headless CLI & app wire contract | 2 | 112 | `crates/engine/`, `crates/protocol/` |
 | `app-shell` | other | SHELL | tauri entry & command surface | 1 | 80 | `src-tauri/` |

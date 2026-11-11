@@ -2,7 +2,7 @@
 
 Generated 2026-11-11T17:49Z from RightKit 55b330d.
 
-Packages: 306 (223 crates, 53 npm, 30 Swift). Reviewed for shape: 306 (best 67, gaps 202, wrong 30, missing 7). Not yet reviewed: 0.
+Packages: 306 (223 crates, 53 npm, 30 Swift). Reviewed for shape: 306 (best 68, gaps 205, wrong 26, missing 7). Not yet reviewed: 0.
 
 Cell: review fit · pin state on the app's main · planned lines and the share found in the package. Empty means the app has nothing for the package.
 
@@ -201,7 +201,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-license` | cargo | yes | gaps | built from HeardRight's licence code | gaps · local · 1840L 5% | fits · ahead · 320L 2% | fits · ahead | gaps · ahead · 3623L 3% | fits · ahead · 301L 3% | gaps · ahead · 858L 2% | ahead · 1468L 2% | ahead · 126L 0% | ahead |  |
 | `rightkit-tauri-shell` | cargo | yes | gaps | fresh; absorbed each app's host needs as modules | gaps · ahead · 5658L 5% | fits · ahead · 2641L 7% | fits · ahead · 2033L 7% | gaps · ahead · 4608L 6% | fits · ahead · 280L 9% | fits · ahead · 902L 7% | ahead · 901L 5% | ahead · 276L 7% | ahead |  |
 | `rightkit-theme` | cargo | yes | best | fresh Rust port of the npm resolver, unpublished |  |  |  |  |  |  |  |  |  |  |
-| `RightKitUI` | swift | n/a | wrong | fresh, two files (glass surface, contrast) | 1563L 0% |  | wrong · 2745L 0% | wrong · 835L 0% |  |  | 422L 0% |  |  |  |
+| `RightKitUI` | swift | n/a | gaps | fresh, two files (glass surface, contrast); mapping corrected 2026-11-11 | fits · 1563L 0% |  | 2745L 0% | 835L 0% |  |  | 422L 0% |  |  |  |
 
 ## Generative media (13)
 
@@ -254,7 +254,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `RightKitCredentials` | swift | n/a | best | rewritten code, not copied | fits |  |  |  |  |  |  |  |  |  |
 | `RightKitDiagnostics` | swift | n/a | gaps | JSONLDiagnosticStore is an extraction of HeardRight's DogfoodTraceStore; the rest is rewritten | gaps · 463L 3% |  |  | 886L 2% |  |  | 18L 8% |  |  |  |
 | `RightKitDictation` | swift | n/a | missing | does not exist; HeardRight iOS code (30 files / 10,514 lines on main) is the only implementation | gaps · 10514L 0% |  |  |  |  |  |  |  |  |  |
-| `RightKitHubQA` | swift | n/a | wrong | fresh implementation of desktop Hub fakes; holds no HeardRight code | wrong · 16048L 0% |  | 3531L 1% |  |  |  |  |  |  |  |
+| `RightKitHubQA` | swift | n/a | gaps | desktop Hub fakes (Pulse's three files, identical); holds no HeardRight code; mapping corrected 2026-11-11 | 16048L 0% |  | fits · 3531L 1% |  |  |  |  |  |  |  |
 | `RightKitImportQueue` | swift | n/a | best | rewritten code, not copied | fits |  |  |  |  |  | 680L 2% |  |  |  |
 | `RightKitIntents` | swift | n/a | gaps | rewritten thin seam (1 file, 139 lines) | gaps · 1224L 2% |  |  |  |  |  |  |  |  |  |
 | `RightKitLicense` | swift | n/a | gaps | rewritten code, not copied; verification and HTTP moved out of HeardRight | gaps · 1456L 6% |  |  | 1759L 6% |  |  | 753L 8% |  |  |  |
@@ -263,7 +263,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `RightKitPurchases` | swift | n/a | best | rewritten code, not copied | fits |  |  |  |  |  |  |  |  |  |
 | `RightKitSpeech` | swift | n/a | gaps | rewritten code, not copied; replaced HeardRight's own Parakeet and Whisper runtime (14 files, 2,322 lines) | gaps · 5217L 8% |  |  | 121L  |  |  | 327L 5% |  |  |  |
 | `RightKitStore` | swift | n/a | best | rewritten code, not copied; AppGroupFileLock is the same flock loop as live HeardRight | fits |  |  |  |  |  |  |  |  |  |
-| `RightKitWatch` | swift | n/a | wrong | fresh implementation of a macOS FSEvents file watcher; holds no HeardRight code | wrong · 3476L 1% |  |  |  |  |  |  |  |  |  |
+| `RightKitWatch` | swift | n/a | best | macOS FSEvents file watcher; holds no HeardRight code; mapping corrected 2026-11-11 | 3476L 1% |  |  |  |  |  |  |  |  |  |
 | `RightKitWatchBridge` | swift | n/a | gaps | rewritten code, not copied | gaps |  |  |  |  |  |  |  |  |  |
 
 ## Ingest & library (11)
@@ -275,7 +275,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-catalog` | cargo | yes | best | fresh implementation (localisation catalog generator) |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-feed` | cargo | yes | best | fresh implementation (RSS/Atom parser) |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-fsindex` | cargo | yes | best | own implementation; Pulse already depends on 0.5.0 |  |  | fits · ahead · 2980L 5% |  |  |  |  |  |  |  |
-| `rightkit-library` | cargo | yes | wrong | ScrapeRight store, history reader and enrichment only | wrong · 6049L 1% |  |  |  | wrong · 4596L 23% |  | fits · 4280L 75% |  | wrong · 1836L 4% |  |
+| `rightkit-library` | cargo | yes | gaps | ScrapeRight's extraction-artifact index and enrichment, kind tag and short code from the host (0.2.0, branch); GenRight's gallery index moved to rightkit-media-gen, the publish helper to rightkit-fs | 6049L 1% |  |  |  | 4596L 23% |  | fits · 4280L 75% |  | 1836L 4% |  |
 | `rightkit-media-fetch` | cargo | yes | gaps | ScrapeRight audio/detect crates and extraction modules behind host traits |  |  |  |  | 1362L 2% |  | fits · 8515L 55% |  |  |  |
 | `rightkit-transcript-library` | cargo | yes | gaps | HeardRight heardright_core delivery/history/net (near-identical to live build) | gaps · ahead |  |  |  |  |  |  |  |  |  |
 | `rightkit-web-extract` | cargo | yes | best | ScrapeRight article extraction ladder over ArticleNet/BrowserHost traits |  |  |  |  |  |  | fits · ahead · 2734L 40% |  |  |  |
@@ -387,7 +387,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-video-project` | cargo | yes | gaps | CutRight cutright-project moved (project, ingest, render, source, probe, worker, loudness, lock, audio_sync, still) |  |  |  |  |  |  |  | gaps · ahead · 14524L 35% |  |  |
 | `RightKitMedia` | swift | n/a | missing | not in RightKit |  |  |  |  |  |  |  | gaps · 1859L 0% |  |  |
 
-## Wrong shape (27 packages; sub-crates that inherit a family verdict are not repeated)
+## Wrong shape (23 packages; sub-crates that inherit a family verdict are not repeated)
 
 | Package | Why | Reference app |
 |---|---|---|
@@ -405,7 +405,6 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-engine-host` | Built from a tier-4 app and not compared with HeardRight's engine supervisor or CodeRight's daemon; should not be mandatory until it is. Low confidence: README only. | heardright |
 | `rightkit-google-identity` | Duplicates PKCE and ID-token verification already in rightkit-oauth (which google-apis uses); no dependant; endpoints marked unverified. | none |
 | `rightkit-launcher` | The crate is Pulse's Windows launcher product (Pulse pages, strings, data folder) rather than a launcher core; the portable logic should be split from the Win32 panel. | pulse |
-| `rightkit-library` | Plan merged four different capabilities under one name; the crate holds only ScrapeRight's artifact index, with a fixed social Kind enum and tier rules. | heardright |
 | `rightkit-media-gen` | A 34,600-line crate that is the GenRight engine: 18 provider adapters, jobs, catalogue, routing, library, credentials, spend layer, voices, and private copies of code other RightKit crates own. Its API is JSON Value in and out, so a second app adopts it only as "GenRight embedded". | genright |
 | `rightkit-memory` | Not two competing engines: Pulse's engine and CodeRight's client of that engine. But the crate named rightkit-memory is the client, it does not use the engine crates' types, and it carries a dead second retrieval router. | pulse |
 | `rightkit-ml-lab` | A private, unbuilt file dump of one product's experiments: no entry points, no dependency manifest, machine paths, dated experiment folders. Not a shared package and not publishable. | heardright |
@@ -415,9 +414,6 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-qa-driver` | Superseded by rightkit-qa; no surveyed app imports it. It should not be in the set apps adopt. | none |
 | `rightkit-remote-compute` | Rented GPU worker lifecycle (SSH, Vast.ai) with a time-billed spend bracket is a clear package. Half the crate is local model management, and worker records live in media-gen's settings table. | genright |
 | `rightkit-social-analytics` | CutRight's retention-to-timeline-cuts command is video editing and drags video-project, timeline, autoedit and engine-host into a social crate. | postright |
-| `RightKitHubQA` | Wrong shape: it is three files of fakes for the desktop Hub and depends on RightKitHub. The 48 iOS test files mapped to it stay with the app, as the mapping document's own APPTEST rows say. | heardright |
-| `RightKitUI` | The module is fine for what it holds, but about 5.5k planned lines mapped to it are settings models, app entry points, File Provider and widget code, none of which is UI kit. | heardright |
-| `RightKitWatch` | Wrong shape: it is an FSEvents file watcher (the target is empty on iOS), not Apple Watch code. The 19 Apple Watch files mapped to it belong with RightKitWatchBridge, RightKitAudio and a new watch-recording home. | heardright |
 
 ## Missing (7)
 
@@ -560,7 +556,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 - `rightkit-instance` (best): publish
 - `rightkit-job-queue` (gaps): Decide one engine supervisor (job-queue vs daemon) and re-export from the other; Add a registry/read-model hook so ScrapeRight can drop its parallel in-memory job authority, or record it as an app need; Carry the HeardRight gaps from hr-review-process-runtime; Worst-case quit can take about 6 s instead of 3 s (J4, suspicion); Write ack 2 s became send timeout 5 s (J5); Bump pin 0.5.1 to 0.5.4
 - `rightkit-launcher` (wrong): Split portable core (calc, config, notes, rates, files, commands) from the Win32 panel; Product pages and strings via host; Single json module; Move response_layout; Decide Mac: FFI to core or Swift module
-- `rightkit-library` (wrong): remove or properly home artifacts.rs/path_policy.rs; host-supplied kind; delete duplicate Kind; drop media-fetch dependency; single publish_replacing in rightkit-fs; move tier rules to host; port ScrapeRight history tests; correct plan mapping for HeardRight, GenRight, PostRight
+- `rightkit-library` (gaps): typed errors instead of Result<_, String>; take the store path from the host instead of HistorySettings; host-chosen table and file names; ScrapeRight depends on it (it keeps its own copy today) and keeps its Kind and tier rules; ScrapeRight's history tests as an end-to-end recipe (no unit tests, by the owner's rule); document against rightkit-transcript-library (both export history::HistoryPage); owner to confirm the library redraw; publish 0.2.0
 - `rightkit-license` (gaps): publish 0.2.9; publish shell link and account commands; add the Apple credential helper driver; resolve lease expiry in view vs native gate; Publish 0.2.9 and bump main from =0.2.8 (K10, K11: Pro refused during a launch-time renew); Decide K8: native gate also enforces lease expiry plus grace, or the status view stops doing so; Replace license/trial.rs with request_trial_for and license/removal.rs with the release-queue API; Publish the shell account and link commands, then drop account_session.rs and license/link.rs; Check publication state: INDEX.md lists 0.2.5
 - `rightkit-llm` (gaps): Move agent_providers and agent_router to rightkit-agent-llm; keep rightkit-llm as the wire clients both use; Compare MailRight's four files with the plain client and adopt or drop
 - `rightkit-local-gen` (gaps): Either rename to rightkit-local-image or receive the local providers from media-gen; One local model catalogue (with remote-compute/models and rightkit-models)
@@ -641,7 +637,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 - `RightKitDictation` (missing): Create the module: command plane and snapshot first, then coordinator and transcriber, then audio session and policy; Decide whether a RightKitDictationUI view target is wanted; Decide whether a watchOS slice here is the watch-recording home
 - `RightKitHTTP` (gaps): Add an SSE frame parser over the existing `stream` transport (HTTPTransport.swift:39), taking CodeRight's parser as the reference; Remap DaemonClient and CallbackURLHandler in the plan
 - `RightKitHub` (gaps): Add RightKitPresentation to RightKitSwift (or decide it belongs to the agent UI family) so Pulse can drop the local package; Reconcile AttachedEngine.swift with Pulse's copy and say which side is current; Pulse then replaces `path: ../../swift/RightKitHub` with the RightKitSwift products; Split the plan row into Hub, EngineClient, Engine and Presentation
-- `RightKitHubQA` (wrong): Correct the mapping so the iOS tests stay with the app
+- `RightKitHubQA` (gaps): move Pulse's Hub fixtures, renderer and AX tour in (2,277 lines); Pulse takes RightKitHub and RightKitHubQA from the RightKitSwift pin, not its local copy; the HeardRight tree's inventory JSON still maps its iOS tests here: correct it there
 - `RightKitIntents` (gaps): HeardRight: use RightKitRecordingBridge.dispatch; Share the recording intent bodies only if the owner wants; AppIntent declarations stay in the app
 - `RightKitLibrary` (missing): create transcript library module from HeardRight on RightKitStore/RightKitCloudSync; remap settings views; Create the module: store and library first, then the cloud adapter, then the history view (RightKitLibraryUI); Verify the shared data model with ScrapeRight
 - `RightKitLicense` (gaps): Tag a version containing ContinuityBridgeClient and move the iOS pin from 0.8.1; HeardRight: delete its controller, removal queue, link-code call and bridge client for the RightKit owners
@@ -655,7 +651,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 - `RightKitStore` (best): iOS pin is 0.8.1 while the Mac pill pins 0.9.0; move to one published pin
 - `RightKitSwift` (gaps): Release 0.9.1 (tree is ahead of every app's pin); Create or reassign the six missing modules before any app is told to move code: Agent and Dictation first, they carry the most lines; Remove app tests from the RightKitHubQA and RightKitWatch targets in the plan; app tests stay with the app; Add RightKitPresentation; bring RightKitMeshLink under the same version; One repository URL in every app manifest
 - `RightKitSystemUI` (missing): Create section by section after the React package's client contract is settled
-- `RightKitUI` (wrong): re-map; generate Swift tokens from rightkit-theme instead of hand-written contrast; Add onboarding and settings scaffolds only if a second app will use them; otherwise they are app screens; Make the mapping document and inventory JSON agree
+- `RightKitUI` (gaps): generate Swift tokens and contrast from rightkit-theme instead of hand-written contrast; one shared test vector file meanwhile; add onboarding or settings scaffolds only when a second app needs them; the HeardRight tree's inventory JSON already marks the scaffold app-shell; nothing to change there
 - `RightKitUpdate` (gaps): Port Pulse's journalled swap, install lock and finishPendingSwap into MacAppInstaller before Pulse adopts it; Keep verifier identifiers as parameters (already so); Check the manifest and tier names against rightkit-app-update
-- `RightKitWatch` (wrong): Correct the mapping so no file is planned into RightKitWatch; Choose a watch-recording home that is not this module
+- `RightKitWatch` (best): create RightKitWatchRecording when HeardRight's watch code moves (planned; not this module); the HeardRight tree's inventory JSON still maps the watch files here: correct it there
 - `RightKitWatchBridge` (gaps): Decide the watch-recording home: extend this module with the two WCSessionDelegate halves or add a watchOS slice to RightKitDictation; Add a recovery store

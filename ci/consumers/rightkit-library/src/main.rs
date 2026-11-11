@@ -1,4 +1,4 @@
-//! Registry consumer for rightkit-library 0.1.1: builds against the published API only.
+//! Registry consumer for rightkit-library 0.2.0: builds against the published API only.
 use rightkit_library::enrichment::{enrich, EnrichmentInput};
 use rightkit_library::{HistoryRecord, Store};
 
@@ -40,6 +40,7 @@ fn main() {
     let input = EnrichmentInput {
         source_url: "https://example.com/post",
         kind: "article",
+        shortcode: Some("Cx1_ab"),
         title: Some("Rust release notes"),
         text: "Read more at https://example.com/notes #rustlang",
         markdown_text: None,
@@ -54,6 +55,22 @@ fn main() {
         !out.links.is_empty(),
         "enrichment finds the link in the text",
     );
+    check(
+        out.source_metadata.shortcode.as_deref() == Some("Cx1_ab")
+            && out.source_metadata.domain.as_deref() == Some("example.com")
+            && out.source_metadata.kind == "article",
+        "the host's kind and short code are kept; the domain comes from the source URL",
+    );
+    let local = enrich(&EnrichmentInput {
+        source_url: "clip.mp4",
+        kind: "local_file",
+        shortcode: None,
+        ..input
+    });
+    check(
+        local.source_metadata.domain.is_none(),
+        "a local file name is not a domain",
+    );
     let dir =
         std::env::temp_dir().join(format!("rightkit-library-consumer-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&dir);
@@ -66,6 +83,25 @@ fn main() {
             .map(|page| page.rows.is_empty() && page.total == Some(0))
             .unwrap_or(false),
         "an empty library pages as empty with a zero total",
+    );
+    // The library defines no kinds: a tag it has never seen reads back as written.
+    let indexed = Store::open(&dir.join("history.db")).expect("open the library index");
+    check(
+        indexed
+            .upsert(&HistoryRecord {
+                id: "consumer-2".into(),
+                kind: "podcast_episode".into(),
+                ..rec.clone()
+            })
+            .is_ok(),
+        "a record with a host-defined kind is stored",
+    );
+    drop(indexed);
+    check(
+        rightkit_library::history::get_history_page(&settings, None, None, None, None)
+            .map(|page| page.rows.len() == 1 && page.rows[0].kind == "podcast_episode")
+            .unwrap_or(false),
+        "the history page returns the host's kind tag unchanged",
     );
     let _ = std::fs::remove_dir_all(&dir);
     println!("rightkit-library consumer: all checks passed");

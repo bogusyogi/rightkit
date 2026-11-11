@@ -2,6 +2,7 @@
 
 ## 0.1.0 (unpublished)
 
+- `eyes::file_hash` is a re-export of `rightkit_media_gen::host::approval::eyes_file_hash`, and the approval-record check calls `eyes_record_bound` there (needs `rightkit-media-gen` 0.1.2): one copy, shared with the gallery index that moved from `rightkit-library` to `rightkit_media_gen::gallery`.
 - New crate. GenRight's approvals (`rightkit-approvals` 0.1.0: the launch-secret token gate, `arm` and parent binding, `issue`, `consume`, `register_kind`, the `studio.approvals.challenge` and `studio.blender.spec.*` commands, and `eyes`, the human-eyes gate) moved here when `rightkit-approvals` 0.2.0 became the one approvals core. Decision 3 of the 2026-11-11 shape review (docs/audits/2026-11-11-shape-matrix/README.md, "Approvals") taken on the recommended option, pending the owner's confirmation; the review found the shared crate name held one app's draft kinds and depended on `rightkit-media-gen`, so no other app could use it (docs/audits/2026-11-11-shape-matrix/reports/family-agent-platform.md, rightkit-approvals section).
 - Paths: `rightkit_approvals::X` is `rightkit_media_gen_approvals::X` with the same names and signatures.
 - On the core: a challenge is a core `Request` in the core's `FileStore` (id = nonce; binding = input hash, draft id and expiry); the token is the core `Proof`; `consume` is the core's `rules::take`, so the single-use marker is the core store's `.used` file. Deleted as duplicates: the challenge path, safe-name check, `.used` marker creation and expiry check of 0.1.0.

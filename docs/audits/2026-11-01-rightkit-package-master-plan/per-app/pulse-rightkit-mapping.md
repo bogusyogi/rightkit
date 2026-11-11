@@ -6,20 +6,22 @@ Package names are final, after cross-app merging (see master plan in RightKit `d
 
 ## Summary
 
+Corrected 2026-11-11 by the shape review (`docs/audits/2026-11-11-shape-matrix/reports/library-and-swift-mapping-redraw.md`): nothing is planned into `RightKitUI` (settings and app entry are app code), and the Notch view snapshots stay with the app; `RightKitHubQA` keeps only the Hub fixtures, renderer and AX tour, which are Hub QA tooling like the three fakes it already holds. Totals below are recomputed from the corrected rows; the per-file list in the app repo was not changed here.
+
 | Action | Meaning | Files | Lines |
 |---|---|---:|---:|
 | NEW | new RightKit package (or new piece of one) | 988 | 447,784 |
-| EXTEND | existing RightKit package gains this | 195 | 83,563 |
+| EXTEND | existing RightKit package gains this | 174 | 78,719 |
 | ADOPT | RightKit already ships it; delete app copy & use owner | 96 | 34,679 |
-| APPTEST | app journey/e2e test: stays with the app (P7, §6), runs on rightkit-qa | 25 | 11,480 |
+| APPTEST | app journey/e2e test: stays with the app (P7, §6), runs on rightkit-qa | 26 | 12,734 |
 | VENDOR-KEEP | vendored 3rd-party: keep as plain dependency, delete vendored copy | 18 | 71,409 |
 | DROP | delete | 4 | 23,187 |
-| SHELL | thin app composition that stays in app | 17 | 813 |
+| SHELL | thin app composition that stays in app | 37 | 4,403 |
 | CONFIG | app manifest/config that stays | 5 | 181 |
 | NOTCODE | docs/data, not code | 25 | 4,528 |
 | **Total** | | **1,373** | **677,624** |
 
-Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **660,622 lines**. Staying in the app as product code: **0 lines**; as shell/config: **994 lines** (0% of code), plus **11,480 lines** of app journey/e2e tests.
+Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **655,778 lines**. Staying in the app as product code: **0 lines**; as shell/config: **4,584 lines** (1% of code), plus **12,734 lines** of app journey/e2e tests.
 
 ## Mapping table
 
@@ -89,9 +91,6 @@ Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **660,622 
 | `@rightkit/theme` | npm | EXTEND | app stylesheet: brand tokens & shell css from @rightkit/theme / react-shell | 3 | 335 | `hub/src/` |
 | `RightKitHub` | Swift | EXTEND | API gap first: see docs/rightkit-exceptions/M6.md#b8 | 1 | 437 | `swift/RightKitHub/Sources/RightKitEngineClient/` |
 | `RightKitHubQA` | Swift | EXTEND | hub fixtures, renderer, AX tour | 16 | 2,277 | `mac/Hub/Sources/PulseHubFixtures/`, `mac/Hub/Sources/pulse-hub-render/`, `mac/Hub/Sources/pulse-hub-tour/` |
-| `RightKitHubQA` | Swift | EXTEND | view snapshots | 1 | 1,254 | `mac/Notch/Sources/App/` |
-| `RightKitUI` | Swift | EXTEND | SwiftUI settings | 14 | 2,745 | `mac/Notch/Sources/Settings/` |
-| `RightKitUI` | Swift | EXTEND | iOS app scaffold: app entry, content/tab views, sheets, menus, settings & account, update, haptics, shortcuts, widgets, file provider | 6 | 845 | `ios/Sources/App/`, `ios/Tests/` |
 | `rightkit-agents` | crate | EXTEND | Claude Code/Codex transcript discovery & normalisation | 15 | 2,835 | `membrane/engine/crates/membrane-transcript/`, `membrane/engine/crates/membrane-transcript/src/`, `membrane/engine/crates/membrane-transcript/tests/` |
 | `rightkit-android` | crate | EXTEND | Android app scaffold: activity, permissions, screens, QR scanner, mesh client | 13 | 1,334 | `android/app/src/main/kotlin/dev/orthic/pulse/android/`, `android/app/src/main/kotlin/dev/orthic/pulse/android/mesh/`, `android/app/src/main/kotlin/dev/orthic/pulse/android/ui/` |
 | `rightkit-app-settings` | crate | EXTEND | cross-platform settings manifest + codegen (Rust/Swift/Win32/React) | 5 | 7,270 | `hub/src/`, `scripts/`, `settings/` +1 dirs |
@@ -129,6 +128,9 @@ Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **660,622 
 | `none` | other | DROP | hand-rolled zstd/json & vendored zstd: use crates/system lib | 4 | 23,187 | `mac/Notch/Sources/Vendor/zstd/`, `windows/src/` |
 | `app-shell` | other | APPTEST | app journey/e2e tests | 5 | 6,539 | `hub/qa-e2e/`, `hub/qa-e2e/tests/`, `qa/release/installed/` +1 dirs |
 | `app-shell` | other | APPTEST | app journey/e2e/unit tests of the app binary | 20 | 4,941 | `core/examples/`, `core/tests/`, `ios/UITests/` |
+| `app-shell` | other | APPTEST | Notch view snapshots (was `RightKitHubQA`, which holds Hub fakes; app view snapshots stay with the app) | 1 | 1,254 | `mac/Notch/Sources/App/` |
+| `app-shell` | other | SHELL | Notch settings screens and the `Preferences` model (was `RightKitUI`; the settings model moves to generated settings on `RightKitStore` once those exist) | 14 | 2,745 | `mac/Notch/Sources/Settings/` |
+| `app-shell` | other | SHELL | iOS app entry & views (was `RightKitUI`) | 6 | 845 | `ios/Sources/App/`, `ios/Tests/` |
 | `app-shell` | other | SHELL | hub app entry | 9 | 272 | `hub/`, `hub/src/`, `hub/src-tauri/` +1 dirs |
 | `app-shell` | other | SHELL | engine manifest | 1 | 130 | `engine/` |
 | `app-shell` | other | SHELL | core tests/examples | 1 | 127 | `core/` |

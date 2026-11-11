@@ -143,7 +143,7 @@ pub use atomic::{
     atomic_write, atomic_write_private, atomic_write_reporting, atomic_write_with,
     atomic_write_with_access_denied_retry, atomic_write_with_options, durable_sync,
     durable_sync_with, publication_durability, publish_file, publish_file_first_free,
-    publish_file_with, publish_file_with_access_denied_retry, rename_exclusive,
+    publish_file_with, publish_file_with_access_denied_retry, publish_replacing, rename_exclusive,
     rename_exclusive_reporting, sweep_stale_temps, sweep_stale_temps_report, try_sync_dir,
     AccessDeniedRetry, AtomicOptions, AtomicWriteOptions, AtomicWriter, ExclusiveMethod, Privacy,
     PublicationDurability, ReplaceMode, RetryPolicy, SweepReport, SyncLevel, SyncPolicy,

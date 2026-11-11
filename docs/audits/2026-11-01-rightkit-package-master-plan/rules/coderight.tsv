@@ -80,7 +80,8 @@ apps/coderight-ios/CodeRight/(Widgets)/	RightKitLiveActivity	EXTEND	widgets
 apps/coderight-ios/CodeRight/(Theme)/	@rightkit/theme	EXTEND	Swift tokens
 apps/coderight-ios/CodeRight/LocalRuntime/(GitHub|Cloudflare|LocalFlyio|CloudForge|CloudEndpoint|LocalGit|LocalPullRequest|LocalClone)	rightkit-github	NEW	Swift forge connectors: GitHub, Cloudflare, Fly.io, git, PRs
 apps/coderight-ios/CodeRight/(LocalRuntime|Porting|Approvals|CommandPalette|Views|Models|Recovery|Routing|Sharing|TextChecking|Usage|Demo)/	RightKitAgent	NEW	Swift agent client: local runtime bridge, chat library, code editor, diff walkthrough, plan review, markdown rendering, approvals
-apps/coderight-ios/(Tests|UITests)/	RightKitHubQA	EXTEND	iOS tests
+# corrected 2026-11-11 (shape review, docs/audits/2026-11-11-shape-matrix/reports/library-and-swift-mapping-redraw.md): iOS tests stay with the app; RightKitHubQA is desktop Hub fakes
+apps/coderight-ios/(Tests|UITests)/	app-shell	APPTEST	iOS tests
 apps/coderight-ios/	app-shell	SHELL	iOS app entry
 ^scripts/	@rightkit/release	EXTEND	repo scripts
 (rustfmt\.toml|\.cargo/|vite\.config\.ts|about\.toml|eslint|deny\.toml|rust-toolchain)	@rightkit/config	NEW	shared presets

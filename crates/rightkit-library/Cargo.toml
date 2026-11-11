@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-library"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Local artifact library: SQLite-backed history/search index (files stay the source of truth) and a deterministic non-LLM enrichment pass (keywords, links, tags, segmentation)."
@@ -17,8 +17,7 @@ path = "src/lib.rs"
 serde = { version = "1.0.229", features = ["derive"] }
 regex = { version = "1.13.1" }
 rightkit-db = { version = "0.5.3", features = ["bundled", "statement-cache"], path = "../rightkit-db" }
-rightkit-media-fetch = { version = "0.1.0", path = "../rightkit-media-fetch" }
-rightkit-fs = { version = "0.4.8", default-features = false, features = ["fs"], path = "../rightkit-fs" }
+rightkit-fs = { version = "0.4.13", default-features = false, features = ["fs"], path = "../rightkit-fs" }
 rightkit-search = { version = "0.4.1", path = "../rightkit-search" }
 rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
 tracing = { version = "0.1.44" }

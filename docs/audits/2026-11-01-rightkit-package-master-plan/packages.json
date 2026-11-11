@@ -43,22 +43,22 @@
  "app-shell": {
   "repos": {
    "postright": 72734,
-   "scraperight": 8923,
+   "scraperight": 9633,
    "mailright": 2182,
    "viewright": 36212,
    "genright": 27914,
    "CutRight": 41056,
-   "pulse": 12474,
-   "heardright": 36824,
-   "coderight": 67321,
+   "pulse": 17318,
+   "heardright": 42980,
+   "coderight": 68156,
    "legion": 18007
   },
-  "loc": 323647,
-  "files": 1515,
+  "loc": 336192,
+  "files": 1580,
   "actions": {
    "CONFIG": 4158,
-   "APPTEST": 314794,
-   "SHELL": 4695
+   "APPTEST": 316221,
+   "SHELL": 15813
   },
   "merged": [
    "@rightkit/document-workspace",
@@ -215,7 +215,10 @@
     "pulse"
    ],
    "iOS app entry & views": [
-    "heardright"
+    "coderight",
+    "heardright",
+    "pulse",
+    "scraperight"
    ],
    "shell entry & commands": [
     "heardright"
@@ -235,6 +238,24 @@
    ],
    "legion CLI & dev generators": [
     "legion"
+   ],
+   "onboarding screens": [
+    "heardright"
+   ],
+   "Notch settings screens & Preferences model": [
+    "pulse"
+   ],
+   "settings screen": [
+    "scraperight"
+   ],
+   "Notch view snapshots": [
+    "pulse"
+   ],
+   "watch app entry & recording intent declarations": [
+    "heardright"
+   ],
+   "watch recording smoke tests": [
+    "heardright"
    ]
   },
   "ext": {
@@ -243,7 +264,7 @@
    ".html": 887,
    ".tsx": 128,
    ".ts": 1452,
-   ".swift": 16175,
+   ".swift": 28720,
    ".py": 9654,
    ".mjs": 38866,
    ".js": 191,
@@ -417,12 +438,12 @@
  },
  "rightkit-content-plan": {
   "repos": {
-   "postright": 4599
+   "postright": 6435
   },
-  "loc": 4599,
-  "files": 8,
+  "loc": 6435,
+  "files": 10,
   "actions": {
-   "NEW": 4599
+   "NEW": 6435
   },
   "merged": [
    "rightkit-content-briefs",
@@ -434,10 +455,13 @@
    ],
    "typed briefs, platform variants, hook tests, manual drafts": [
     "postright"
+   ],
+   "reusable media records with occurrence ids, cooldowns & expiry": [
+    "postright"
    ]
   },
   "ext": {
-   ".rs": 4599
+   ".rs": 6435
   },
   "wave": 3,
   "tier": "public"
@@ -532,42 +556,31 @@
  },
  "rightkit-library": {
   "repos": {
-   "postright": 1836,
-   "scraperight": 4280,
-   "genright": 4596,
-   "heardright": 3676
+   "scraperight": 4280
   },
-  "loc": 14388,
-  "files": 33,
+  "loc": 4280,
+  "files": 8,
   "actions": {
-   "NEW": 14388
+   "NEW": 4280
   },
   "merged": [
    "rightkit-text-enrich"
   ],
   "caps": {
-   "reusable media records with occurrence ids & expiry": [
-    "postright"
-   ],
    "non-LLM enrichment: keywords, links, source tags, text segmentation": [
     "scraperight"
    ],
    "local artifact library: history authority, SQLite FTS index, delete/restore": [
     "scraperight"
-   ],
-   "owned media library: import w/ provenance, asset facts (origin/evidence/rights), FTS search, artifact index": [
-    "genright"
-   ],
-   "transcript history: SQLCipher store, key rotation, retention, recovery, export": [
-    "heardright"
    ]
   },
   "ext": {
-   ".rs": 14375,
+   ".rs": 4267,
    ".toml": 13
   },
   "wave": 2,
-  "tier": "public"
+  "tier": "public",
+  "corrected": "2026-11-11 shape review: docs/audits/2026-11-11-shape-matrix/reports/library-and-swift-mapping-redraw.md"
  },
  "rightkit-contracts": {
   "repos": {
@@ -2279,42 +2292,18 @@
   "tier": "existing"
  },
  "RightKitUI": {
-  "repos": {
-   "scraperight": 710,
-   "pulse": 3590,
-   "heardright": 5466,
-   "coderight": 835
-  },
-  "loc": 10601,
-  "files": 60,
-  "actions": {
-   "EXTEND": 10601
-  },
+  "repos": {},
+  "loc": 0,
+  "files": 0,
+  "actions": {},
   "merged": [
    "app-shell"
   ],
-  "caps": {
-   "iOS app scaffold: app entry, content/tab views, sheets, menus, settings & account, update, haptics, shortcuts, widgets, file provider": [
-    "coderight",
-    "heardright",
-    "pulse",
-    "scraperight"
-   ],
-   "SwiftUI settings sections": [
-    "scraperight"
-   ],
-   "SwiftUI settings": [
-    "pulse"
-   ],
-   "onboarding": [
-    "heardright"
-   ]
-  },
-  "ext": {
-   ".swift": 10601
-  },
+  "caps": {},
+  "ext": {},
   "wave": 1,
-  "tier": "existing"
+  "tier": "existing",
+  "corrected": "2026-11-11 shape review: docs/audits/2026-11-11-shape-matrix/reports/library-and-swift-mapping-redraw.md"
  },
  "RightKitDiagnostics": {
   "repos": {
@@ -3669,21 +3658,25 @@
  },
  "rightkit-media-gen": {
   "repos": {
-   "genright": 34258
+   "genright": 38854
   },
-  "loc": 34258,
-  "files": 25,
+  "loc": 38854,
+  "files": 32,
   "actions": {
-   "NEW": 34258
+   "NEW": 34258,
+   "ADOPT": 4596
   },
   "merged": [],
   "caps": {
    "generative media providers (fal, WaveSpeed, Veo/Gemini, OpenAI Images, ElevenLabs, HeyGen avatars, EvoLink, Higgsfield, Muapi, NanoBanana, Replicate, Wan2GP, Blender), model catalogue & facts, routing, durable gen jobs, result descriptors, balances": [
     "genright"
+   ],
+   "owned media library: import w/ provenance, asset facts (origin/evidence/rights), FTS search, artifact index": [
+    "genright"
    ]
   },
   "ext": {
-   ".rs": 34258
+   ".rs": 38854
   },
   "wave": 3,
   "tier": "public"
@@ -4767,27 +4760,25 @@
  },
  "RightKitHubQA": {
   "repos": {
-   "pulse": 3531
+   "pulse": 2277
   },
-  "loc": 3531,
-  "files": 17,
+  "loc": 2277,
+  "files": 16,
   "actions": {
-   "EXTEND": 3531
+   "EXTEND": 2277
   },
   "merged": [],
   "caps": {
    "hub fixtures, renderer, AX tour": [
     "pulse"
-   ],
-   "view snapshots": [
-    "pulse"
    ]
   },
   "ext": {
-   ".swift": 3531
+   ".swift": 2277
   },
   "wave": 1,
-  "tier": "existing"
+  "tier": "existing",
+  "corrected": "2026-11-11 shape review: docs/audits/2026-11-11-shape-matrix/reports/library-and-swift-mapping-redraw.md"
  },
  "RightKitNotch": {
   "repos": {
@@ -5217,25 +5208,16 @@
   "tier": "public"
  },
  "RightKitWatch": {
-  "repos": {
-   "heardright": 3476
-  },
-  "loc": 3476,
-  "files": 19,
-  "actions": {
-   "EXTEND": 3476
-  },
+  "repos": {},
+  "loc": 0,
+  "files": 0,
+  "actions": {},
   "merged": [],
-  "caps": {
-   "watch recording capture, transfer & intents": [
-    "heardright"
-   ]
-  },
-  "ext": {
-   ".swift": 3476
-  },
+  "caps": {},
+  "ext": {},
   "wave": 1,
-  "tier": "existing"
+  "tier": "existing",
+  "corrected": "2026-11-11 shape review: docs/audits/2026-11-11-shape-matrix/reports/library-and-swift-mapping-redraw.md"
  },
  "RightKitLiveActivity": {
   "repos": {
@@ -6006,5 +5988,89 @@
   },
   "wave": 3,
   "tier": "public"
+ },
+ "rightkit-transcript-library": {
+  "repos": {
+   "heardright": 3676
+  },
+  "loc": 3676,
+  "files": 16,
+  "actions": {
+   "EXTEND": 3676
+  },
+  "merged": [],
+  "caps": {
+   "transcript history: SQLCipher store, key rotation, retention, recovery, export": [
+    "heardright"
+   ]
+  },
+  "ext": {
+   ".rs": 3676
+  },
+  "wave": 2,
+  "tier": "public"
+ },
+ "RightKitWatchRecording": {
+  "repos": {
+   "heardright": 1787
+  },
+  "loc": 1787,
+  "files": 11,
+  "actions": {
+   "NEW": 1787
+  },
+  "merged": [],
+  "caps": {
+   "watch recording (planned module)": [
+    "heardright"
+   ]
+  },
+  "ext": {
+   ".swift": 1787
+  },
+  "wave": 1,
+  "tier": "planned"
+ },
+ "RightKitWatchBridge": {
+  "repos": {
+   "heardright": 972
+  },
+  "loc": 972,
+  "files": 3,
+  "actions": {
+   "EXTEND": 972
+  },
+  "merged": [],
+  "caps": {
+   "watch transfer: WCSession halves & delivery": [
+    "heardright"
+   ]
+  },
+  "ext": {
+   ".swift": 972
+  },
+  "wave": 1,
+  "tier": "existing"
+ },
+ "RightKitAudio": {
+  "repos": {
+   "heardright": 27
+  },
+  "loc": 27,
+  "files": 1,
+  "actions": {
+   "ADOPT": 27
+  },
+  "merged": [],
+  "caps": {
+   "watch recording meter": [
+    "heardright"
+   ]
+  },
+  "ext": {
+   ".swift": 27
+  },
+  "wave": 1,
+  "tier": "existing"
  }
 }

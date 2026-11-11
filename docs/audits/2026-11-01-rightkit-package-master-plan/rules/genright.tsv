@@ -9,7 +9,8 @@ gen/src/providers/realesrgan	rightkit-upscale	NEW	local Real-ESRGAN image upscal
 gen/src/providers/qts|crates/genright-qts/	rightkit-tts	ADOPT	local Qwen3-TTS voice
 gen/src/(providers/|catalogue|capabilities|routing|jobs|descriptor|fal_storage|api|lib)|studio/src/(balances|avatars)	rightkit-media-gen	NEW	generative media providers (fal, WaveSpeed, Veo/Gemini, OpenAI Images, ElevenLabs, HeyGen avatars, EvoLink, Higgsfield, Muapi, NanoBanana, Replicate, Wan2GP, Blender), model catalogue & facts, routing, durable gen jobs, result descriptors, balances
 gen/src/stock	rightkit-stock-media	NEW	stock & archive acquisition (Pexels, Pixabay, Internet Archive) w/ licence facts
-gen/src/(library|import|provenance|search|store)|core/src/artifacts|engine/src/reference_cmd|protocol/src/asset_facts	rightkit-library	NEW	owned media library: import w/ provenance, asset facts (origin/evidence/rights), FTS search, artifact index
+# corrected 2026-11-11 (shape review, docs/audits/2026-11-11-shape-matrix/reports/library-and-swift-mapping-redraw.md): media library and gallery index are in rightkit-media-gen (gallery since 0.1.2), not rightkit-library
+gen/src/(library|import|provenance|search|store)|core/src/artifacts|engine/src/reference_cmd|protocol/src/asset_facts	rightkit-media-gen	ADOPT	owned media library: import w/ provenance, asset facts (origin/evidence/rights), FTS search, artifact index
 gen/src/media\.rs	rightkit-media-probe	NEW	pure-Rust media probe (dims, duration, codec)
 gen/src/ledger	rightkit-spend	EXTEND	gen spend ledger GUI+CLI
 gen/src/credentials|protocol/src/keychain	rightkit-credentials	ADOPT	provider API keys

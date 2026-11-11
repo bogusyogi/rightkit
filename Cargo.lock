@@ -11912,12 +11912,11 @@ dependencies = [
 
 [[package]]
 name = "rightkit-library"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "regex",
  "rightkit-db",
  "rightkit-fs",
- "rightkit-media-fetch",
  "rightkit-search",
  "rightkit-transcript",
  "serde",
@@ -12066,7 +12065,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-media-fetch"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "rightkit-child-process",
  "rightkit-ffmpeg",
@@ -12082,7 +12081,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-media-gen"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "image",
  "rightkit-app-settings",

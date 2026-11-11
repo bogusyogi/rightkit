@@ -1,6 +1,7 @@
 heardright_core/src/settings/	rightkit-app-settings	EXTEND	settings blob & patch
 heardright_core/src/app_paths	app-shell	SHELL	app data dir name over rightkit-fs
-src-tauri/tests/(history|draft_history)	rightkit-library	NEW	tests
+# corrected 2026-11-11 (shape review, docs/audits/2026-11-11-shape-matrix/reports/library-and-swift-mapping-redraw.md): HeardRight history goes to rightkit-transcript-library, not rightkit-library (an extraction-artifact index)
+src-tauri/tests/(history|draft_history)	rightkit-transcript-library	EXTEND	tests
 src-tauri/tests/pill	rightkit-overlay	EXTEND	tests
 src-tauri/tests/(paste|delivery|streaming)	rightkit-automation	EXTEND	tests
 src-tauri/tests/telemetry	rightkit-crash	EXTEND	tests
@@ -23,7 +24,7 @@ src-tauri/src/(fn_hotkey|hotkey|hotkey_setup)	rightkit-hotkeys	ADOPT	push-to-tal
 tauri-app-next/heardright-(runtime|engine|app-runtime)/|heardright_core/src/(engine|controller|state|audio_conditioning|mic_selection|wake|kws_ffi|ffi)|src-tauri/src/(runtime|engine|dictation_|controller|recording_cancel|wake_lab|start_sequence|state|runtime_lock)	rightkit-dictation	NEW	dictation runtime: mic capture & conditioning, session state machine, JSON-RPC sidecar worker, wake listener, recording lifecycle
 tauri-app-next/heardright-telemetry/|tauri-app-next/heardright-dump-helper/|src-tauri/src/(crash_report|diagnostic_log_migration)|commands/(diagnostics|feedback)	rightkit-crash	EXTEND	out-of-process minidump writer, user feedback, diagnostics transport
 tauri-app-next/heardright-dev-env/	rightkit-qa	EXTEND	test-only env switches
-heardright_core/src/(history|settings|app_paths|credential|net)|src-tauri/src/history	rightkit-library	NEW	transcript history: SQLCipher store, key rotation, retention, recovery, export
+heardright_core/src/(history|settings|app_paths|credential|net)|src-tauri/src/history	rightkit-transcript-library	EXTEND	transcript history: SQLCipher store, key rotation, retention, recovery, export
 src-tauri/src/(cloud_sync)	rightkit-sync	EXTEND	CloudKit transcript sync scheduler
 src-tauri/src/(pill|pill_)|heardright_core/src/pill|tauri-app-next/macos-native/	rightkit-overlay	EXTEND	recording pill overlay (native Win/Mac, dispatch queue)
 src-tauri/src/media_control	rightkit-media-control	NEW	system media playback pause/resume while dictating (Mac/Win)
@@ -53,13 +54,19 @@ ios-native/HeardRight/(Transcript|WeeklyInsights)|ios-native/Shared/(SharedTrans
 ios-native/HeardRight/(License|ProEntitlement|StoreKit|ModelGrant)|ios-native/Shared/(LicenseEntitlement|ProAccess|ProBridge)	RightKitLicense	ADOPT	licence & purchases
 ios-native/HeardRight/(DevicePairing|DeviceManagement|AccountSession)	rightkit-mesh	NEW	device pairing (Swift)
 ios-native/Shared/AppleSyncedCredential	RightKitAppleCredentials	ADOPT	credentials
-ios-native/HeardRight/Onboarding	RightKitUI	EXTEND	onboarding
-ios-native/HeardRight/(Watch)|ios-native/HeardRightWatch/|ios-native/Shared/Watch	RightKitWatch	EXTEND	watch recording capture, transfer & intents
+# corrected 2026-11-11 (shape review, docs/audits/2026-11-11-shape-matrix/reports/library-and-swift-mapping-redraw.md): onboarding is HeardRight screens; RightKitWatch is the macOS FSEvents file watcher, so Apple Watch code goes elsewhere
+ios-native/HeardRight/Onboarding	app-shell	SHELL	onboarding screens
+ios-native/HeardRightWatch/WatchRecordingControllerSmokeTests	app-shell	APPTEST	watch recording smoke tests
+ios-native/HeardRightWatch/(HeardRightWatchApp|WatchRecordingIntents)|ios-native/Shared/WatchRecordingControlIntent	app-shell	SHELL	watch app entry & recording intent declarations
+ios-native/HeardRightWatch/WatchRecordingTransfer|ios-native/HeardRight/WatchRecordingInbox|ios-native/Shared/WatchRecordingDelivery	RightKitWatchBridge	EXTEND	watch transfer: WCSession halves & delivery
+ios-native/HeardRightWatch/WatchRecordingMeter	RightKitAudio	ADOPT	watch recording meter
+ios-native/HeardRight/(Watch)|ios-native/HeardRightWatch/|ios-native/Shared/Watch	RightKitWatchRecording	NEW	watch recording (planned module)
 ios-native/HeardRightSharedUI/	RightKitLiveActivity	EXTEND	recording live activity views
 ios-native/Shared/(HeardRightAppIntents|HeardRightStartNeeded|IOSVoiceCommand)	RightKitIntents	EXTEND	app intents & voice commands
 ios-native/Shared/(Diagnostics|MobileDiagnostic|DogfoodTrace)	RightKitDiagnostics	ADOPT	diagnostics
 ios-native/HeardRight/(Color|Font|AppMark)	@rightkit/theme	EXTEND	Swift brand tokens
-ios-native/(Tests|HeardRightUITests|HeardRightSyncTests)/|ios-native/scripts/	RightKitHubQA	EXTEND	iOS tests & scripts
+# corrected 2026-11-11 (shape review, docs/audits/2026-11-11-shape-matrix/reports/library-and-swift-mapping-redraw.md): iOS tests stay with the app; RightKitHubQA is desktop Hub fakes
+ios-native/(Tests|HeardRightUITests|HeardRightSyncTests)/|ios-native/scripts/	app-shell	APPTEST	iOS tests & scripts
 ios-native/	app-shell	SHELL	iOS app entry & views
 tauri-app-next/scripts/(lib|test-|check-|verify-|qa)	@rightkit/qa	EXTEND	contract tests & QA scripts
 tauri-app-next/scripts/	@rightkit/release	EXTEND	build/package/release scripts

@@ -1,8 +1,8 @@
-// rightkit-media-gen 0.1.0 consumed by exact registry pin (default features), outside the workspace.
+// rightkit-media-gen 0.1.2 consumed by exact registry pin (default features), outside the workspace.
 // Cheap checks on the public surface; no provider keys, no network, no models.
 use std::collections::BTreeSet;
 
-use rightkit_media_gen::{credentials, host, providers, Context};
+use rightkit_media_gen::{credentials, gallery, host, providers, Context};
 
 fn check(ok: bool, what: &str) {
     if ok {
@@ -51,4 +51,73 @@ fn main() {
         credentials::service() == "dev.rightkit.app",
         "neutral default keychain service",
     );
+
+    // The gallery index (0.1.2): one image with a caller sidecar, in a per-process folder.
+    let shots =
+        std::env::temp_dir().join(format!("rightkit-media-gen-gallery-{}", std::process::id()));
+    let project = shots.join("launch");
+    std::fs::create_dir_all(&project).expect("gallery folder");
+    let image = project.join("hero.png");
+    std::fs::write(&image, b"not really a png").expect("image file");
+    let mut caller_name = image.file_name().unwrap().to_os_string();
+    caller_name.push(host::CALLER_SIDECAR_SUFFIX);
+    std::fs::write(
+        image.with_file_name(caller_name),
+        br#"{"caller":"my-app","label":"My App"}"#,
+    )
+    .expect("caller sidecar");
+    let roots = vec![shots.to_string_lossy().into_owned()];
+    let listing = gallery::index_roots(
+        &roots,
+        None,
+        None,
+        None,
+        false,
+        &gallery::IndexFilter::default(),
+    )
+    .expect("index the gallery");
+    check(
+        listing.report.total_available == 1 && listing.artifacts.len() == 1,
+        "the gallery lists the one image",
+    );
+    let art = &listing.artifacts[0];
+    check(
+        art["project_slug"] == "launch" && art["caller"] == "my-app",
+        "project from the folder, caller from the sidecar",
+    );
+    check(
+        art["asset_facts"] == host::asset_facts::AssetFacts::unknown().to_value(),
+        "an asset without facts reads as unknown",
+    );
+    let filtered = gallery::index_roots(
+        &roots,
+        None,
+        None,
+        None,
+        false,
+        &gallery::IndexFilter {
+            caller: Some("other".into()),
+            ..Default::default()
+        },
+    )
+    .expect("filtered index");
+    check(
+        filtered.report.total_available == 0,
+        "the caller filter narrows the listing",
+    );
+    check(
+        host::approval::eyes_file_hash(&image)
+            .is_some_and(|h| h.starts_with("sha256:") && h.len() == 23),
+        "the eyes hash is sha256: plus 16 hex digits",
+    );
+    check(
+        gallery::IndexFilter {
+            eyes: Some("maybe".into()),
+            ..Default::default()
+        }
+        .validate()
+        .is_err(),
+        "an eyes state the index never reports is refused",
+    );
+    let _ = std::fs::remove_dir_all(&shots);
 }

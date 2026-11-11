@@ -232,15 +232,21 @@ pub fn supplied_unknown(source: Option<String>, consent_refs: Vec<String>) -> As
     )
 }
 
-/// Write `facts` as `<file>.facts.json` beside a file that is not in the library (the gallery
-/// reads only the library's per-folder `facts.json`). Returns the sidecar path.
-pub fn write_sibling_facts(file: &Path, facts: &AssetFacts) -> GenResult<PathBuf> {
+/// `<file>.facts.json` beside `file`: the file name with `.facts.json` appended. Written by
+/// [`write_sibling_facts`], read by [`crate::gallery`].
+pub fn sibling_facts_path(file: &Path) -> PathBuf {
     let mut name = file
         .file_name()
         .map(|n| n.to_os_string())
         .unwrap_or_default();
     name.push(".facts.json");
-    let path = file.with_file_name(name);
+    file.with_file_name(name)
+}
+
+/// Write `facts` as `<file>.facts.json` beside a file that is not in the library (the gallery
+/// reads only the library's per-folder `facts.json`). Returns the sidecar path.
+pub fn write_sibling_facts(file: &Path, facts: &AssetFacts) -> GenResult<PathBuf> {
+    let path = sibling_facts_path(file);
     rightkit_fs::atomic_write(
         &path,
         json!({"facts": facts.to_value(), "scope": Value::Null})

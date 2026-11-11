@@ -4,23 +4,20 @@ pub(super) fn build_source_metadata(input: &EnrichmentInput<'_>) -> SourceMetada
     SourceMetadata {
         kind: input.kind.to_string(),
         domain: extract_domain(input.source_url),
-        shortcode: None,
+        shortcode: input.shortcode.map(str::to_string),
         duration_s: input.duration_s,
         language: input.language.map(|s| s.to_string()),
     }
 }
 
+/// Lowercased host of an http(s) source URL without `www.`, credentials or port, when it has a
+/// dot; `None` for a local file path or another scheme. The link normaliser's host rule.
 pub(super) fn extract_domain(url: &str) -> Option<String> {
-    let host = rightkit_media_fetch::detect::host(url)?;
-    host.contains('.').then_some(host)
-}
-
-pub(super) fn is_instagram_kind(kind: &str) -> bool {
-    matches!(kind, "reel" | "instagram_post" | "carousel")
-}
-
-pub(super) fn extract_shortcode(url: &str) -> Option<String> {
-    rightkit_media_fetch::detect::instagram_shortcode(url)
+    let (_, host) = normalize_url(url.trim())?;
+    let host = host.rsplit_once('@').map_or(host.as_str(), |(_, h)| h);
+    let host = host.split(['?', '#']).next().unwrap_or_default();
+    let host = host.split_once(':').map_or(host, |(h, _)| h);
+    host.contains('.').then(|| host.to_string())
 }
 
 pub(super) fn build_tags(enrichment: &Enrichment) -> String {

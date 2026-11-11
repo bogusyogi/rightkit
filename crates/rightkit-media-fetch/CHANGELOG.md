@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3
+
+- `extraction::publish_replacing` is now a re-export of `rightkit_fs::publish_replacing` (needs `rightkit-fs` 0.4.13), and the private copy in `carousel` is gone: one implementation, in `rightkit-fs`. Same signature and behaviour.
+- `protocol::Kind` is now the only copy of the job-kind enum: `rightkit-library` 0.2.0 deleted its duplicate and stores the host's tag string (`Kind::as_str`).
+- Shape review 2026-11-11 (`rightkit-library` row), taken on the recommended option, pending the owner's confirmation.
+
 ## 0.1.2 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

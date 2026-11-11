@@ -139,23 +139,9 @@ pub fn remove_dir_all_retrying(path: &Path) -> std::io::Result<()> {
     }
 }
 
-/// Publish `from` at `to`, replacing an existing file. On Windows the replace retries a sharing
-/// violation or access-denied error (five attempts, 100 ms apart); inert elsewhere.
-pub fn publish_replacing(from: &Path, to: &Path) -> rightkit_fs::Result<()> {
-    use rightkit_fs::atomic::{
-        publish_file_with_access_denied_retry, AccessDeniedRetry, AtomicWriteOptions, ReplaceMode,
-        RetryPolicy,
-    };
-    publish_file_with_access_denied_retry(
-        from,
-        to,
-        AtomicWriteOptions {
-            replace: ReplaceMode::MoveWriteThrough,
-            ..AtomicWriteOptions::default()
-        },
-        AccessDeniedRetry::new(RetryPolicy::new(4, std::time::Duration::from_millis(100))),
-    )
-}
+/// Publish `from` at `to`, replacing an existing file (bounded Windows retry). Re-exported from
+/// `rightkit-fs`, which holds the one implementation.
+pub use rightkit_fs::publish_replacing;
 
 /// Removes a `_work` scratch dir on drop unless `disarm`ed — covers the
 /// error/cancel returns that used to leave `<id>`-named dirs behind.

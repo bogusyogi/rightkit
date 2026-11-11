@@ -81,12 +81,10 @@ pub fn sidecar_path(artifact: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
-/// `sha256:` plus the first 16 hex digits of the artifact bytes, as the JS
-/// gate records it. `None` when the file is missing.
-pub fn file_hash(path: &Path) -> Option<String> {
-    let hex = rightkit_fs::digest::sha256_file(path).ok()?;
-    Some(format!("sha256:{}", &hex[..16]))
-}
+/// `sha256:` plus the first 16 hex digits of the artifact bytes, as the JS gate records it. `None`
+/// when the file is missing. Re-exported from `rightkit-media-gen`, which holds the one copy (the
+/// gallery index reads the same hash).
+pub use rightkit_media_gen::host::approval::eyes_file_hash as file_hash;
 
 fn now_iso() -> String {
     let now = time::OffsetDateTime::now_utc();
@@ -117,25 +115,10 @@ fn is_media(path: &Path) -> bool {
 }
 
 /// True when the sidecar's `approval` record has the shape [`record_with`] writes and is bound to
-/// the asset's current content hash. Shape only: it cannot prove who wrote it (module doc).
+/// the asset's current content hash. Shape only: it cannot prove who wrote it (module doc). The rule
+/// is `rightkit_media_gen::host::approval::eyes_record_bound`, shared with the gallery index.
 fn approval_record_valid(decision: &Value, current: Option<&str>) -> bool {
-    let Some(record) = decision.get("approval").and_then(Value::as_object) else {
-        return false;
-    };
-    let text = |key: &str| {
-        record
-            .get(key)
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-    };
-    let input_hash_ok = text("input_hash")
-        .is_some_and(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()));
-    input_hash_ok
-        && text("channel").is_some()
-        && text("nonce").is_some()
-        && text("approved_at").is_some()
-        && matches!((text("legacy_hash"), current), (Some(bound), Some(now)) if bound == now)
+    rightkit_media_gen::host::approval::eyes_record_bound(decision, current)
 }
 
 /// Gate state for one artifact: `approved` is the only exportable state.

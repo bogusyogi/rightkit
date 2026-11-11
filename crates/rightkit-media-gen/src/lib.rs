@@ -23,6 +23,7 @@ pub mod credentials;
 pub mod descriptor;
 pub mod entitlement;
 pub mod fal_storage;
+pub mod gallery;
 pub mod host;
 pub mod import;
 pub mod jobs;

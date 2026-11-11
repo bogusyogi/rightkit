@@ -6,19 +6,21 @@ Goal: no app code outside RightKit except a thin app shell (entry points, comman
 
 ## Coverage by app
 
+Corrected 2026-11-11 (shape review, `docs/audits/2026-11-11-shape-matrix/reports/library-and-swift-mapping-redraw.md`): the rows below for ScrapeRight, GenRight, Pulse, HeardRight and CodeRight, the `rightkit-library`, `RightKitUI`, `RightKitHubQA` and `RightKitWatch` rows further down, the per-app tables in `2026-11-01-rightkit-package-master-plan/per-app/`, their path rules in `rules/` and `packages.json`. `rightkit-library` is ScrapeRight's extraction-artifact index only (HeardRight's history goes to `rightkit-transcript-library`, GenRight's media library and gallery to `rightkit-media-gen`, PostRight's content records to `rightkit-content-plan`); app scaffold, settings and onboarding Swift stays in the apps instead of `RightKitUI`; app tests stay in the apps instead of `RightKitHubQA`; the Apple Watch files go to `RightKitWatchBridge`, `RightKitAudio`, a planned `RightKitWatchRecording` and the app instead of `RightKitWatch` (the macOS file watcher). The per-file JSON in each app repo was not changed.
+
 | App | Code lines | NEW | EXTEND | ADOPT | To Legion | Vendor | DROP | App recipes (stay) | App tests (stay) | Shell+config (stay) | Shell % |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | PostRight | 147,942 | 57,710 | 15,658 | 1,372 | 0 | 0 | 468 | 0 | 72,363 | 371 | 0.3% |
-| ScrapeRight | 103,419 | 46,095 | 34,291 | 11,537 | 0 | 0 | 2,573 | 0 | 8,510 | 413 | 0.4% |
+| ScrapeRight | 103,419 | 46,095 | 33,581 | 11,537 | 0 | 0 | 2,573 | 0 | 8,510 | 1,123 | 1.1% |
 | MailRight | 113,155 | 80,218 | 26,927 | 3,664 | 0 | 0 | 164 | 0 | 1,868 | 314 | 0.3% |
 | ViewRight | 363,273 | 83,202 | 19,440 | 1,823 | 0 | 208,933 | 13,663 | 0 | 34,140 | 2,072 | 0.6% |
-| GenRight | 174,925 | 108,784 | 25,482 | 4,118 | 0 | 0 | 8,627 | 0 | 27,033 | 881 | 0.5% |
+| GenRight | 174,925 | 104,188 | 25,482 | 8,714 | 0 | 0 | 8,627 | 0 | 27,033 | 881 | 0.5% |
 | CutRight | 210,742 | 94,577 | 23,802 | 1,332 | 0 | 6,675 | 513 | 42,787 | 40,422 | 634 | 0.3% |
-| Pulse | 673,096 | 447,784 | 83,563 | 34,679 | 0 | 71,409 | 23,187 | 0 | 11,480 | 994 | 0.1% |
-| HeardRight | 460,166 | 174,797 | 148,766 | 17,457 | 0 | 50,957 | 31,365 | 0 | 35,811 | 1,013 | 0.2% |
-| CodeRight | 963,727 | 571,755 | 257,545 | 27,012 | 0 | 26,679 | 13,415 | 0 | 66,200 | 1,121 | 0.1% |
+| Pulse | 673,096 | 447,784 | 78,719 | 34,679 | 0 | 71,409 | 23,187 | 0 | 12,734 | 4,584 | 0.7% |
+| HeardRight | 460,166 | 172,908 | 144,472 | 17,484 | 0 | 50,957 | 31,365 | 0 | 35,984 | 6,996 | 1.5% |
+| CodeRight | 963,727 | 571,755 | 256,710 | 27,012 | 0 | 26,679 | 13,415 | 0 | 66,200 | 1,956 | 0.2% |
 | Legion | 663,533 | 374,578 | 198,531 | 1,357 | 71,060 | 0 | 0 | 0 | 16,967 | 1,040 | 0.2% |
-| **All** | **3,873,978** | **2,039,500** | **834,005** | **104,351** | **71,060** | **364,653** | **93,975** | **42,787** | **314,794** | **8,853** | **0.2%** |
+| **All** | **3,873,978** | **2,033,015** | **823,322** | **108,974** | **71,060** | **364,653** | **93,975** | **42,787** | **316,221** | **19,971** | **0.5%** |
 
 Every capability goes to RightKit, single-app ones included. The app keeps only its look and composition of the shared shell (shell/config), declared per-app exceptions, and its journey tests. Unit tests move with their code; app journey/e2e tests stay with the app. Generated third-party notices, docs and data are not counted.
 
@@ -112,7 +114,7 @@ Every capability goes to RightKit, single-app ones included. The app keeps only 
 
 | Package | Kind | Wave | Used by | Lines moving in | Also ships | Merged from | What it owns |
 |---|---|---|---|---:|---|---|---|
-| `rightkit-library` | crate | 2 | PostRight, ScrapeRight, GenRight, HeardRight | 14,388 |  | `rightkit-text-enrich` | reusable media records with occurrence ids & expiry; non-LLM enrichment: keywords, links, source tags, text segmentation; local artifact library: history authority, SQLite FTS index, delete/restore; owned media library: import w/ provenance, asset facts (origin/evidence/rights), FTS search, artifact index; transcript history: SQLCipher store, key rotation, retention, recovery, export |
+| `rightkit-library` | crate | 2 | ScrapeRight | 4,280 |  | `rightkit-text-enrich` | non-LLM enrichment: keywords, links, source tags, text segmentation; local artifact library: history authority, SQLite FTS index, delete/restore. Corrected 2026-11-11: HeardRight's transcript history (3,676) goes to `rightkit-transcript-library`, GenRight's owned media library and artifact index (4,596) to `rightkit-media-gen`, PostRight's reusable media records (1,836) to `rightkit-content-plan` |
 | `@rightkit/library-ui` | npm | 2 | ScrapeRight, HeardRight | 11,064 |  | `@rightkit/queue-ui` | job queue UI: paste bar, drop overlay, job cards, queue board, engine event hook; library list, transcript/article reader, find-in-document, workbench; transcript history & file transcribe |
 | `rightkit-media-fetch` | crate | 2 | ScrapeRight, GenRight | 9,877 | Swift | `rightkit-source-detect`, `rightkit-stock-media` | yt-dlp download/normalize, playlists & channels, X/TikTok/Instagram post, carousel & image capture; URL/file job classifier, media-type table, URL & host helpers; fetch-pool vs compute-lane split; Swift port of detect; replace with UniFFI binding; stock & archive acquisition (Pexels, Pixabay, Internet Archive) w/ licence facts |
 | `RightKitLibrary` | Swift | 2 | ScrapeRight, HeardRight | 6,056 | Swift | `RightKitLibraryUI` | Swift artifact library & markdown export; SwiftUI queue, library, result detail, receive views; SwiftUI history & settings views; Swift transcript library, insights, cloud sync |
@@ -193,7 +195,7 @@ Every capability goes to RightKit, single-app ones included. The app keeps only 
 | `rightkit-review` | 1 | shared | PostRight, GenRight, CutRight, Legion | 12,623 | deterministic text quality/approval gate with policy revisions; phone review & pause surface over daemon; human-eyes review gate; final-render QA gate & social packaging checks; independent review & minimal-diff review |
 | `rightkit-hooks` | 1 | shared | CodeRight, Legion | 12,490 | lifecycle hook bus & runner; hook binary |
 | `rightkit-spend` | 1 | shared | PostRight, GenRight, CutRight, Pulse | 11,027 | app spend layer over rightkit-spend ledger; gen spend ledger GUI+CLI; productivity/command ledger & preference policy; per-project spend budgets |
-| `RightKitUI` | 1 | shared | ScrapeRight, Pulse, HeardRight, CodeRight | 10,601 | iOS app scaffold: app entry, content/tab views, sheets, menus, settings & account, update, haptics, shortcuts, widgets, file provider; SwiftUI settings sections; SwiftUI settings; onboarding |
+| `RightKitUI` | 1 | shared | none | 0 | nothing planned (corrected 2026-11-11: the 10,601 lines of iOS app scaffold, settings and onboarding stay in the apps; RightKitUI is a UI kit: glass surface and contrast) |
 | `@rightkit/pdf-ui` | 1 | shared | MailRight, ViewRight | 10,411 | pdf preview; PDF editor UI: annotate, text edit, OCR overlay, page ops |
 | `rightkit-sync` | 1 | shared | ScrapeRight, HeardRight | 8,935 | CloudKit transport, phone-to-Mac queue relay, sync settings & runtime; CloudKit transcript sync scheduler |
 | `rightkit-qa` | 1 | shared | PostRight, MailRight, HeardRight, CodeRight | 8,821 | fake editor engine & fake Claude/Codex CLI; mock server already rightkit-qa MockServer; test sandbox; process-wide test sandbox; test-only env switches (+3 more) |
@@ -207,8 +209,8 @@ Every capability goes to RightKit, single-app ones included. The app keeps only 
 | `@rightkit/onboarding` | 1 | shared | ScrapeRight, GenRight, Pulse, HeardRight, CodeRight | 4,328 | models intro & setup gate; onboarding, legal, licence plan, device allowance; onboarding/legal/licence; mic & calibration onboarding steps; onboarding pages (+1 more) |
 | `rightkit-browser` | 1 | shared | ScrapeRight, CodeRight | 4,114 | API gap first: api-gap: rightkit-browser 0.3.6 BrowserPage has no user-agent or extra-headers setter; see docs/rightkit-excep; CDP browser backend & address pin; browser workspace for agents |
 | `rightkit-db` | 1 | shared | PostRight, MailRight | 3,763 | SQLite store backup, verify & restore; compaction w/ rowid verify, background WAL checkpoints, verified pre-migration backup, migration gate, lock-order gate |
-| `RightKitHubQA` | 1 | single | Pulse | 3,531 | hub fixtures, renderer, AX tour; view snapshots |
-| `RightKitWatch` | 1 | single | HeardRight | 3,476 | watch recording capture, transfer & intents |
+| `RightKitHubQA` | 1 | single | Pulse | 2,277 | hub fixtures, renderer, AX tour (corrected 2026-11-11: Pulse's Notch view snapshots, 1,254, and every app's iOS tests stay with the app) |
+| `RightKitWatch` | 1 | single | none | 0 | nothing planned (corrected 2026-11-11: it is the macOS FSEvents file watcher; HeardRight's 3,476 lines of Apple Watch code go to `RightKitWatchBridge` 972, `RightKitAudio` 27, a planned `RightKitWatchRecording` 1,787 and the app 690) |
 | `rightkit-tts` | 1 | single | GenRight | 3,284 | local Qwen3-TTS voice; voice library: clones, presets, provider voices |
 | `rightkit-motion` | 1 | shared | GenRight, CutRight | 3,245 | HyperFrames HTML composition render: loopback host, headless Chrome capture, encode; contact sheets & thumbnails |
 | `rightkit-ffmpeg` | 1 | shared | GenRight, CutRight, CodeRight | 3,213 | pure-Rust media probe (dims, duration, codec); ffmpeg discovery; single H.264 encoder rule; ffmpeg editing build staging & qualification; media tool adapters (+1 more) |

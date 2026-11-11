@@ -6,6 +6,8 @@ Package names are final, after cross-app merging (see master plan in RightKit `d
 
 ## Summary
 
+Corrected 2026-11-11 by the shape review (`docs/audits/2026-11-11-shape-matrix/reports/library-and-swift-mapping-redraw.md`): `content.rs` re-pointed from `rightkit-library` (an extraction-artifact index) to `rightkit-content-plan`. Totals below are recomputed from the corrected rows; the per-file list in the app repo was not changed here.
+
 | Action | Meaning | Files | Lines |
 |---|---|---:|---:|
 | NEW | new RightKit package (or new piece of one) | 116 | 57,710 |
@@ -31,12 +33,12 @@ Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **75,208 l
 | `@rightkit/social-ui` | npm | NEW | analytics, campaigns & links screens | 3 | 757 | `src/screens/` |
 | `@rightkit/social-ui` | npm | NEW | shared labels & scope select | 3 | 509 | `src/components/`, `src/screens/` |
 | `rightkit-content-plan` | crate | NEW | typed briefs, platform variants, hook tests, manual drafts | 6 | 3,127 | `crates/engine/src/`, `crates/protocol/src/` |
+| `rightkit-content-plan` | crate | NEW | reusable media records with occurrence ids, cooldowns & expiry (was `rightkit-library`; content planning, not a library) | 2 | 1,836 | `crates/engine/src/`, `crates/protocol/src/` |
 | `rightkit-content-plan` | crate | NEW | brief & calendar entry cache, proposals | 2 | 1,472 | `crates/engine/src/`, `crates/protocol/src/` |
 | `rightkit-content-proof` | crate | NEW | acquisition chain gates & claim/proof semantics | 4 | 3,681 | `crates/engine/src/`, `crates/protocol/src/` |
 | `rightkit-content-proof` | crate | NEW | engine data assets (catalogues) | 3 | 139 | `crates/engine/assets/review/` |
 | `rightkit-doctor` | crate | NEW | capability health probes behind doctor command | 1 | 338 | `crates/engine/src/` |
 | `rightkit-engine-host` | crate | NEW | engine binary framework: sidecar + headless CLI modes, command registration, contract export & TS codegen, human/JSON presentation, engine client | 3 | 703 | `crates/engine/src/`, `crates/protocol/src/` |
-| `rightkit-library` | crate | NEW | reusable media records with occurrence ids & expiry | 2 | 1,836 | `crates/engine/src/`, `crates/protocol/src/` |
 | `rightkit-pipeline` | crate | NEW | dispatch of content briefs to another engine as external process | 2 | 2,521 | `crates/engine/src/`, `crates/protocol/src/` |
 | `rightkit-research` | crate | NEW | dated research digests & source readers (Reddit) | 4 | 1,572 | `crates/engine/src/`, `crates/protocol/src/` |
 | `rightkit-social-analytics` | crate | NEW | analytics pull/store, manual metric import, calendar optimisation proposals | 6 | 3,806 | `crates/engine/src/`, `crates/protocol/src/` |

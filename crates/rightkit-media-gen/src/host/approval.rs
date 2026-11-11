@@ -223,3 +223,36 @@ pub fn receipt_valid(
     marker.push(".used");
     path.with_file_name(marker).is_file()
 }
+
+/// `sha256:` plus the first 16 hex digits of a file's bytes: the hash the human-eyes gate records
+/// in `<file>.eyes.json` and checks against the current bytes. `None` when the file cannot be read.
+/// The one copy: `rightkit_media_gen_approvals::eyes::file_hash` and [`crate::gallery`] use it.
+pub fn eyes_file_hash(path: &std::path::Path) -> Option<String> {
+    let hex = rightkit_fs::digest::sha256_file(path).ok()?;
+    Some(format!("sha256:{}", &hex[..16]))
+}
+
+/// True when an eyes sidecar's `approval` record has the shape the eyes gate writes (non-empty
+/// `channel`, `nonce`, `approved_at`, a 64-hex `input_hash`) and its `legacy_hash` equals
+/// `current`, the file's [`eyes_file_hash`]. Shape only: it cannot prove who wrote the record.
+/// The one copy: the gate (`rightkit_media_gen_approvals::eyes::gate_state`) and the gallery's
+/// stale check use it.
+pub fn eyes_record_bound(decision: &Value, current: Option<&str>) -> bool {
+    let Some(record) = decision.get("approval").and_then(Value::as_object) else {
+        return false;
+    };
+    let text = |key: &str| {
+        record
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+    };
+    let input_hash_ok = text("input_hash")
+        .is_some_and(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()));
+    input_hash_ok
+        && text("channel").is_some()
+        && text("nonce").is_some()
+        && text("approved_at").is_some()
+        && matches!((text("legacy_hash"), current), (Some(bound), Some(now)) if bound == now)
+}

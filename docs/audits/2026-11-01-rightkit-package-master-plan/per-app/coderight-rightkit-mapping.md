@@ -6,20 +6,22 @@ Package names are final, after cross-app merging (see master plan in RightKit `d
 
 ## Summary
 
+Corrected 2026-11-11 by the shape review (`docs/audits/2026-11-11-shape-matrix/reports/library-and-swift-mapping-redraw.md`): nothing is planned into `RightKitUI`: the iOS app entry, File Provider extension and widgets are app code. The iOS tests stay with the app (APPTEST), never `RightKitHubQA`. Totals below are recomputed from the corrected rows; the per-file list in the app repo was not changed here.
+
 | Action | Meaning | Files | Lines |
 |---|---|---:|---:|
 | NEW | new RightKit package (or new piece of one) | 2,027 | 571,755 |
-| EXTEND | existing RightKit package gains this | 617 | 257,545 |
+| EXTEND | existing RightKit package gains this | 609 | 256,710 |
 | ADOPT | RightKit already ships it; delete app copy & use owner | 106 | 27,012 |
 | APPTEST | app journey/e2e test: stays with the app (P7, §6), runs on rightkit-qa | 282 | 66,200 |
 | VENDOR-KEEP | vendored 3rd-party: keep as plain dependency, delete vendored copy | 66 | 26,679 |
 | DROP | delete | 46 | 13,415 |
-| SHELL | thin app composition that stays in app | 12 | 568 |
+| SHELL | thin app composition that stays in app | 20 | 1,403 |
 | CONFIG | app manifest/config that stays | 12 | 553 |
 | NOTCODE | docs/data, not code | 25 | 28,911 |
 | **Total** | | **3,193** | **992,638** |
 
-Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **896,406 lines**. Staying in the app as product code: **0 lines**; as shell/config: **1,121 lines** (0% of code), plus **66,200 lines** of app journey/e2e tests.
+Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **895,571 lines**. Staying in the app as product code: **0 lines**; as shell/config: **1,956 lines** (0% of code), plus **66,200 lines** of app journey/e2e tests.
 
 ## Mapping table
 
@@ -68,7 +70,6 @@ Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **896,406 
 | `RightKitHTTP` | Swift | EXTEND | API gap first: M7.md B3 iOS SSE frame parser and replay: RightKitSwift 0.8.1 has no SSE client. | 1 | 67 | `apps/coderight-ios/CodeRight/Networking/` |
 | `RightKitLicense` | Swift | EXTEND | API gap first: M12.md B5 iOS ContinuityBridgeClient: in the RightKit working tree but untagged; RightKitSwift 0.8.1 is the la | 1 | 183 | `apps/coderight-ios/CodeRight/Purchases/` |
 | `RightKitLiveActivity` | Swift | EXTEND | widgets | 2 | 173 | `apps/coderight-ios/CodeRight/Widgets/` |
-| `RightKitUI` | Swift | EXTEND | iOS app scaffold: app entry, content/tab views, sheets, menus, settings & account, update, haptics, shortcuts, widgets, file provider | 8 | 835 | `apps/coderight-ios/CodeRight/`, `apps/coderight-ios/CodeRightWidgets/`, `apps/coderight-ios/FileProviderExtension/` |
 | `rightkit-agent-tools` | crate | EXTEND | coding tool suite: fs read/edit, shell, search, git, LSP, web, browser, MCP bridge, media | 194 | 86,121 | `engine/crates/tools/`, `engine/crates/tools/examples/`, `engine/crates/tools/src/` +18 dirs |
 | `rightkit-agent-tools` | crate | EXTEND | LSP API | 1 | 162 | `engine/bins/coderight/src/` |
 | `rightkit-agents` | crate | EXTEND | vendor coding drivers (Claude Code, Codex, Cursor, Cline, Grok, ACP), resumable NDJSON & JSON-RPC transports, login routes | 80 | 42,659 | `engine/bins/coderight/src/`, `engine/bins/coderight/src/acp/`, `engine/bins/coderight/src/api_drivers/` +11 dirs |
@@ -121,6 +122,7 @@ Code leaving the app (NEW + EXTEND + ADOPT + LEGION + vendor + DROP): **896,406 
 | `none` | other | DROP | unreachable mini chat | 2 | 217 | `apps/coderight-tauri/src/components/` |
 | `app-shell` | other | APPTEST | app journey/e2e tests | 242 | 56,262 | `apps/coderight-ios/Tests/`, `apps/coderight-ios/UITests/`, `apps/coderight-ios/UITests/Fixtures/` +16 dirs |
 | `app-shell` | other | APPTEST | app journey/e2e/unit tests of the app binary | 40 | 9,938 | `apps/coderight-tauri/src/`, `apps/coderight-tauri/src-tauri/capabilities/`, `apps/coderight-tauri/tests/` +7 dirs |
+| `app-shell` | other | SHELL | iOS app entry, File Provider extension, widgets (was `RightKitUI`, a UI kit) | 8 | 835 | `apps/coderight-ios/CodeRight/`, `apps/coderight-ios/CodeRightWidgets/`, `apps/coderight-ios/FileProviderExtension/` |
 | `app-shell` | other | SHELL | tauri app | 8 | 421 | `apps/coderight-tauri/`, `apps/coderight-tauri/src-tauri/`, `apps/coderight-tauri/src-tauri/.cargo/` +1 dirs |
 | `app-shell` | other | SHELL | CLI definitions, main runtime, interactive session host | 1 | 126 | `engine/bins/coderight/` |
 | `app-shell` | other | SHELL | app entry | 3 | 21 | `apps/coderight-tauri/src/` |

@@ -413,7 +413,7 @@ impl LinkKind {
 }
 
 /// Marker file in a library asset folder tying it to its finalized gallery file.
-const PAIR_FILE: &str = "pair.json";
+pub(crate) const PAIR_FILE: &str = "pair.json";
 
 /// Content root of local-image outputs (`<content>/<content subdir>/local-images`): the only
 /// place a paired gallery file may live and be deleted from.

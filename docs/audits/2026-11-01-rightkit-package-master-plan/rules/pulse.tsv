@@ -1,6 +1,7 @@
 ^settings/|windows/src/(settings|settings_gen)\.rs|hub/src/settings\.gen|scripts/gen-settings	rightkit-app-settings	EXTEND	cross-platform settings manifest + codegen (Rust/Swift/Win32/React)
 windows/src/agent\.rs	rightkit-agent-runtime	NEW	windows agent glue
-mac/Notch/Sources/App/ViewShots	RightKitHubQA	EXTEND	view snapshots
+# corrected 2026-11-11 (shape review, docs/audits/2026-11-11-shape-matrix/reports/library-and-swift-mapping-redraw.md): Notch view snapshots are app tests; RightKitHubQA keeps the Hub fixtures, renderer and tour
+mac/Notch/Sources/App/ViewShots	app-shell	APPTEST	Notch view snapshots
 core/tests/(chat|codex|claude)	rightkit-chat-bridge	NEW	tests
 core/tests/(rule|store|scan|cleanup|dupl|growth)	rightkit-disk-cleanup	NEW	tests
 core/tests/(device|link|pair|mesh)	rightkit-mesh	NEW	tests
@@ -58,7 +59,8 @@ mac/Notch/Sources/(Notch|DesignSystem|Presentation|Features|Model|Face)/|^mac/No
 mac/Notch/Sources/Agent/	rightkit-agent-runtime	NEW	Swift agent UI/bridge
 mac/Notch/Sources/Sessions/	rightkit-claude-accounts	NEW	Claude sessions (Swift)
 mac/Notch/Sources/Devices/	rightkit-mesh	NEW	Swift devices
-mac/Notch/Sources/Settings/	RightKitUI	EXTEND	SwiftUI settings
+# corrected 2026-11-11 (shape review, docs/audits/2026-11-11-shape-matrix/reports/library-and-swift-mapping-redraw.md): Notch settings stay in the app until generated settings on RightKitStore exist; RightKitUI is a UI kit
+mac/Notch/Sources/Settings/	app-shell	SHELL	Notch settings screens & Preferences model
 mac/Notch/Sources/Updater/	RightKitUpdate	ADOPT	updater
 mac/Notch/Sources/Keyboard/	RightKitHotkeys	ADOPT	keyboard
 mac/Notch/Sources/System/	app-shell	SHELL	engine/hub launch glue

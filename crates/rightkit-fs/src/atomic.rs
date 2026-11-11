@@ -507,6 +507,23 @@ pub fn publish_file_with_access_denied_retry(
     publish_file_impl(from, to, options, Some(retry), true)
 }
 
+/// Publish the finished file `from` at `to`, replacing an existing file, with the write-through
+/// move and the bounded Windows retry: a sharing violation or access-denied refusal (another
+/// process holding the old file open) is retried, five attempts in total, 100 ms apart. Inert
+/// elsewhere. The one copy of the helper that `rightkit-library` and `rightkit-media-fetch`
+/// each defined.
+pub fn publish_replacing(from: &Path, to: &Path) -> Result<()> {
+    publish_file_with_access_denied_retry(
+        from,
+        to,
+        AtomicWriteOptions {
+            replace: ReplaceMode::MoveWriteThrough,
+            ..AtomicWriteOptions::default()
+        },
+        AccessDeniedRetry::new(RetryPolicy::new(4, Duration::from_millis(100))),
+    )
+}
+
 /// Publish the finished file `from` at the first of `candidates` that is free, without rewriting
 /// it. For a caller that wants "`name.dng`, else `name-1.dng`, else ..." next to its inputs.
 ///

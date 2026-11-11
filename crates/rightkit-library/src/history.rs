@@ -8,34 +8,15 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use crate::history_types::{
-    HistoryPage, HistoryRow, HistorySettings, HistorySort, Kind, TranscriptDetail,
-    TranscriptImport, TranscriptVariant, TranscriptVariantInfo, TranscriptVariantKind,
-    HISTORY_PAGE_MAX, HISTORY_PAGE_SIZE,
+    HistoryPage, HistoryRow, HistorySettings, HistorySort, TranscriptDetail, TranscriptImport,
+    TranscriptVariant, TranscriptVariantInfo, TranscriptVariantKind, HISTORY_PAGE_MAX,
+    HISTORY_PAGE_SIZE,
 };
 use crate::{HistoryOrder, HistoryRecord, PageKey, Store};
 use rightkit_search::{read_text_prefix, scan_page, Cursor, Param, Query, ScanBudget, TextMatcher};
 
 fn path_to_string(path: &Path) -> String {
     path.to_string_lossy().to_string()
-}
-
-/// Publish `from` at `to`, replacing an existing file. On Windows `MoveFileExW` refuses the
-/// replace with a sharing violation or access-denied error while another process holds the old
-/// file open, so this retries: five attempts in total, 100 ms apart (inert elsewhere).
-pub fn publish_replacing(from: &Path, to: &Path) -> rightkit_fs::Result<()> {
-    use rightkit_fs::atomic::{
-        publish_file_with_access_denied_retry, AccessDeniedRetry, AtomicWriteOptions, ReplaceMode,
-        RetryPolicy,
-    };
-    publish_file_with_access_denied_retry(
-        from,
-        to,
-        AtomicWriteOptions {
-            replace: ReplaceMode::MoveWriteThrough,
-            ..AtomicWriteOptions::default()
-        },
-        AccessDeniedRetry::new(RetryPolicy::new(4, std::time::Duration::from_millis(100))),
-    )
 }
 
 /// Timed plain-text and Markdown renderings of SRT text (`[hh:mm:ss] text` lines and
@@ -123,11 +104,11 @@ pub fn db_path(settings: &HistorySettings) -> Result<PathBuf, String> {
 
 /// Merge rows from `old_dir/history.db` into `new_dir/history.db`.
 ///
-/// Lane S-10: when the user changes `output_dir`, the engine would otherwise
+/// When the user changes `output_dir`, the host would otherwise
 /// open a fresh empty index in the new directory — silently orphaning the
 /// prior library. This helper carries the prior rows forward so the user's
-/// history stays visible. The merge runs on the engine side (never the
-/// shell), is non-fatal, never deletes or modifies the source file (the old
+/// history stays visible. The merge runs in the process that owns the index (never
+/// the UI shell), is non-fatal, never deletes or modifies the source file (the old
 /// directory may still be a valid library the user switches back to), and
 /// uses destination-wins semantics: rows already present in the new store
 /// keep their current values.
@@ -754,7 +735,7 @@ pub fn get_transcript(settings: &HistorySettings, id: &str) -> Result<Transcript
     Ok(TranscriptDetail {
         id: rec.id,
         url: rec.url,
-        kind: Kind::from_tag(&rec.kind),
+        kind: rec.kind,
         title: rec.title,
         text: preview,
         md_text: None,
@@ -1282,8 +1263,8 @@ pub fn attach_transcript_to_media_staged(
             if let Some(duration_s) = attach.duration_s {
                 rec.duration_s = Some(duration_s);
             }
-            // Attach only ever runs under Pro, which never truncates — the
-            // attempt's value (None) is authoritative.
+            // The attempt's cap is authoritative: an attach replaces the transcript, so its
+            // `truncated_at_s` (usually `None`) replaces the row's.
             rec.truncated_at_s = attach.truncated_at_s;
             rec.media_action = Some(media_action_for_attach(&rec).to_string());
             // Publish: back up any live final, rename each temporary over its
@@ -1334,7 +1315,7 @@ pub fn attach_transcript_to_media_staged(
                         break;
                     }
                 }
-                match publish_replacing(tmp, final_path) {
+                match rightkit_fs::publish_replacing(tmp, final_path) {
                     Ok(()) => {}
                     // The owner reports a failed directory sync or temp cleanup AFTER the
                     // replacement (`target_replaced()`): the new file IS in place, so this pair
@@ -1555,8 +1536,8 @@ fn transcript_detail_from_record(rec: HistoryRecord) -> Result<TranscriptDetail,
         .as_ref()
         .and_then(|p| std::fs::read_to_string(p).ok())
         .unwrap_or_default();
-    // Pro rows keep timed artifacts on disk; Free rows keep the SRT on the
-    // record itself. Either way the reader gets the same timed surfaces.
+    // A row keeps its timed artifacts on disk or its SRT on the record itself (the host
+    // decides which). Either way the reader gets the same timed surfaces.
     let srt = rec
         .srt_path
         .as_ref()
@@ -1583,7 +1564,7 @@ fn transcript_detail_from_record(rec: HistoryRecord) -> Result<TranscriptDetail,
     Ok(TranscriptDetail {
         id: rec.id,
         url: rec.url,
-        kind: Kind::from_tag(&rec.kind),
+        kind: rec.kind,
         title: rec.title,
         text,
         md_text,

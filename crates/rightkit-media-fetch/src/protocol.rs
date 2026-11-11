@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 use crate::detect::JobKind;
 use crate::{MediaAction, MediaSpec, VideoQuality};
 
-/// What a job was classified as. The snake_case tag is what a library store persists.
+/// What a job was classified as. The snake_case tag ([`Kind::as_str`]) is what the host hands
+/// `rightkit-library` as a record's kind; that crate keeps the tag as a string and has no enum.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Kind {
