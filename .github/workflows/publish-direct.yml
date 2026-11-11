@@ -66,6 +66,9 @@ jobs:
             /pnpm-lock.yaml
             packages/*/package.json
             packages/release/scan-digest.mjs
+            packages/release/feature-sets.mjs
+            packages/release/protected-credentials.mjs
+            packages/release/runtime-manifest-refresh.mjs
             packages/release/adapter-env.mjs
             packages/release/adhoc-entitlements.mjs
             packages/release/admission-host.mjs
