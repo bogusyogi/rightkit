@@ -98,9 +98,10 @@ export function setup({ root, home = homedir(), arch = process.arch, run, fetchT
   for (const lr of lockroots) {
     const dir = resolve(root, lr);
     log(`pnpm store: ${lr}`);
-    // The throwaway virtual store keeps `pnpm fetch` from touching the root's node_modules.
+    // A throwaway virtual store and modules directory keep `pnpm fetch` from touching the root's node_modules (pnpm 12.16.1
+    // prunes it when only --virtual-store-dir points elsewhere).
     const vstore = dryRun ? join(tmpdir(), "rk-vstore") : mkdtempSync(join(tmpdir(), "rk-vstore-"));
-    try { sh("pnpm", ["fetch", "--ignore-scripts", "--virtual-store-dir", vstore], { cwd: dir }); } finally { if (!dryRun) rmSync(vstore, { recursive: true, force: true }); }
+    try { sh("pnpm", ["fetch", "--ignore-scripts", "--virtual-store-dir", vstore, "--modules-dir", join(vstore, "node_modules")], { cwd: dir }); } finally { if (!dryRun) rmSync(vstore, { recursive: true, force: true }); }
   }
   return { pins, lockroots, steps };
 }

@@ -50,10 +50,6 @@ fi
 # 2b. rustup with the pinned toolchain, and the pnpm store (the existing setup command).
 node "$RELEASE/bin/rightkit-linux-setup.mjs" --root "$REPO"
 
-# 2c. The store fill's `pnpm fetch --virtual-store-dir` empties the root node_modules/.pnpm (pnpm 12.16.1), which leaves every
-# workspace link dangling and the gate blocked on "Cannot find module 'smol-toml'". Install again, from the store it just filled.
-(cd "$REPO" && pnpm install --frozen-lockfile --offline)
-
 # 3. The other operating systems' targets: the gate lints every crate for macOS and Windows from Linux.
 rustup target add aarch64-apple-darwin x86_64-pc-windows-msvc x86_64-pc-windows-gnu
 
