@@ -15293,10 +15293,10 @@
      "crates/rightkit-models"
     ],
     "feeds": {},
-    "basis": "two independent stores; CodeRight's agent local-model code moved out in 0.6.0",
+    "basis": "HeardRight's suite layout is the one store; Store is a facade over it (0.7.0, branch)",
     "referenceApp": "heardright",
-    "shape": "wrong",
-    "shapeReason": "Agent local-model code moved to rightkit-agent-local-models (0.6.0). Still wrong: two independent on-disk stores and APIs (Store for MailRight and GenRight, suite::* for HeardRight, ScrapeRight and CutRight).",
+    "shape": "gaps",
+    "shapeReason": "One on-disk store since 0.7.0: Store writes HeardRight's suite layout (<root>/<id>/ plus manifest.json, the suite lock, refs, leases, staging and aside recovery) and migrates MailRight's and GenRight's old revisioned entries in place. Agent local-model code moved out in 0.6.0. Remaining items are gaps.",
     "apps": {
      "heardright": {
       "fit": "gaps",
@@ -15350,20 +15350,13 @@
      "Whole heardright-model-store has a twin in rightkit-dictation-models; iOS Packages/SharedModelRoot is mapped here"
     ],
     "actions": [
-     "pick the suite layout (HeardRight's live layout) as the one store and migrate Store users, or give Store a suite backend",
      "move the trusted catalog entries to data each app or a catalog crate supplies",
      "resolve rightkit-dictation-models vs heardright-model-store",
-     "Pick the suite layout as the one store and migrate Store users (MailRight, GenRight) or give Store a suite backend",
-     "Move the trusted catalog entries to data each app or a catalog crate supplies",
-     "Move agent_local_models to an agent crate",
-     "Resolve rightkit-dictation-models vs heardright-model-store",
-     "HeardRight M7 full-hash-on-launch",
-     "Add HeardRight's legacy_dirs and retired_legacy_paths to parakeet_ultra_spec before HeardRight drops ultra_model.rs",
-     "Decide the per-launch full hash of 363 to 433 MB (M7); stat-receipt fix is switched off",
+     "decide the per-launch full hash (HeardRight M7)",
      "suite::whisper must install the macOS CoreML bundle",
-     "HeardRight: use suite::grant (it also parses Retry-After)",
-     "Verify the download engine keeps live retry and resume rules",
-     "Bump pin 0.5.3 to 0.5.9"
+     "add HeardRight's legacy_dirs and retired_legacy_paths to parakeet_ultra_spec",
+     "owner to confirm: Store loses multi-revision rollback (NoRollback)",
+     "publish 0.7.0"
     ],
     "depth": "deep",
     "confidence": "medium",

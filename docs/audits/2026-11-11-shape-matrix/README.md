@@ -61,6 +61,21 @@ These cannot be settled from code.
 6. **Swift:** fix the mapping, one published pin, create `RightKitDictation` and `RightKitLibrary` (`reports/hr-review-ios-swift.md`).
 7. Everything else per the action list in `matrix.md`.
 
+## Redraws made on the branch (`claude/busy-hypatia-e30h7l`, not on `main`)
+
+Each follows the recommendation above. Decisions 3 to 8 were not answered while Adrian was travelling, so these were made by the agent on the recommended option, are recorded as pending his confirmation in each crate's CHANGELOG, and can be reverted commit by commit.
+
+| Change | Crates | Decision |
+|---|---|---|
+| CodeRight's agent configuration out of the settings store | `rightkit-app-settings` 0.4.0, new `rightkit-agent-config` 0.1.0 | 6 |
+| CodeRight's telemetry out of logging | `rightkit-logs` 0.4.0, new `rightkit-agent-telemetry` 0.1.0 | 6 |
+| Agent local-model code out of the model store | `rightkit-models` 0.6.0, new `rightkit-agent-local-models` 0.1.0 | 6 |
+| One on-disk model store: `Store` writes HeardRight's suite layout and migrates MailRight's and GenRight's entries in place; multi-revision rollback is dropped | `rightkit-models` 0.7.0 and eleven consumers | model store (`reports/family-foundation-runtime.md`) |
+| Agent runtime out of the daemon; remote access and app roots split out | `rightkit-daemon` 0.6.0 to 0.8.0, new `rightkit-agent-daemon`, `rightkit-daemon-remote`, `rightkit-roots` 0.1.0 | 6 and the daemon split |
+| One neutral Tauri client; per-app wrappers deprecated | `@rightkit/tauri` 0.4.0 | `@rightkit/tauri` row |
+
+Still to redraw: approvals (decision 3), the agent engine (decision 4), documents (decision 7 and the documents review).
+
 ## Publication state (measured 2026-11-11)
 
 - crates.io: 164 of 210 publishable crates have their repository version published; 46 do not. npm: 28 of 49 public packages published; 21 do not. `packages/release/rightkit-versions.json` still lists 210 crates as staged, which is why generated docs print "not published" for crates that are live.

@@ -2,7 +2,7 @@
 
 Generated 2026-11-11T17:49Z from RightKit 55b330d.
 
-Packages: 305 (222 crates, 53 npm, 30 Swift). Reviewed for shape: 305 (best 67, gaps 178, wrong 53, missing 7). Not yet reviewed: 0.
+Packages: 305 (222 crates, 53 npm, 30 Swift). Reviewed for shape: 305 (best 67, gaps 179, wrong 52, missing 7). Not yet reviewed: 0.
 
 Cell: review fit · pin state on the app's main · planned lines and the share found in the package. Empty means the app has nothing for the package.
 
@@ -303,7 +303,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-app-settings` | cargo | no (0.3.5, registry 0.3.4) | gaps | store core serving every app; CodeRight's agent configuration moved out in 0.4.0 | fits · ahead · 1470L 7% | fits · ahead | gaps · ahead · 7270L 1% | wrong · ahead · 10622L 47% | fits · ahead · 222L 4% | fits · ahead · 1032L 1% | fits · ahead · 163L 2% | ahead | ahead · 66L 2% | missing |
 | `rightkit-daemon` | cargo | no (0.5.4, registry 0.5.3) | wrong | local service plus several other products; CodeRight's agent daemon code moved out in 0.6.0 | gaps · ahead | fits · ahead | fits · ahead | gaps · ahead · 13142L 15% | gaps · ahead · 384L 17% | fits · ahead · 5589L 3% | fits · ahead | gaps · ahead · 567L 4% | fits · ahead · 2628L 3% |  |
 | `rightkit-logs` | cargo | no (0.3.10, registry 0.3.9) | gaps | logging core serving all nine apps; CodeRight's agent telemetry moved out in 0.4.0 | fits · local | fits · ahead · 166L 3% | fits · ahead · 845L 6% | gaps · ahead · 4075L 95% | fits · ahead · 62L 5% | fits · ahead · 314L 0% | fits · ahead · 686L 2% | fits · ahead · 105L 8% | fits · ahead · 166L 1% | missing |
-| `rightkit-models` | cargo | no (0.5.9, registry 0.5.8) | wrong | two independent stores; CodeRight's agent local-model code moved out in 0.6.0 | gaps · ahead · 6182L 10% |  |  | fits · ahead · 1853L 47% | gaps · ahead · 3008L 2% | gaps · ahead · 340L 0% | fits · ahead · 1838L 6% | fits · ahead · 908L 1% |  |  |
+| `rightkit-models` | cargo | no (0.5.9, registry 0.5.8) | gaps | HeardRight's suite layout is the one store; Store is a facade over it (0.7.0, branch) | gaps · ahead · 6182L 10% |  |  | fits · ahead · 1853L 47% | gaps · ahead · 3008L 2% | gaps · ahead · 340L 0% | fits · ahead · 1838L 6% | fits · ahead · 908L 1% |  |  |
 
 ## Remaining packages (24)
 
@@ -386,7 +386,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-video-project` | cargo | yes | gaps | CutRight cutright-project moved (project, ingest, render, source, probe, worker, loudness, lock, audio_sync, still) |  |  |  |  |  |  |  | gaps · ahead · 14524L 35% |  |  |
 | `RightKitMedia` | swift | n/a | missing | not in RightKit |  |  |  |  |  |  |  | gaps · 1859L 0% |  |  |
 
-## Wrong shape (36 packages; sub-crates that inherit a family verdict are not repeated)
+## Wrong shape (35 packages; sub-crates that inherit a family verdict are not repeated)
 
 | Package | Why | Reference app |
 |---|---|---|
@@ -415,7 +415,6 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-media-gen` | A 34,600-line crate that is the GenRight engine: 18 provider adapters, jobs, catalogue, routing, library, credentials, spend layer, voices, and private copies of code other RightKit crates own. Its API is JSON Value in and out, so a second app adopts it only as "GenRight embedded". | genright |
 | `rightkit-memory` | Not two competing engines: Pulse's engine and CodeRight's client of that engine. But the crate named rightkit-memory is the client, it does not use the engine crates' types, and it carries a dead second retrieval router. | pulse |
 | `rightkit-ml-lab` | A private, unbuilt file dump of one product's experiments: no entry points, no dependency manifest, machine paths, dated experiment folders. Not a shared package and not publishable. | heardright |
-| `rightkit-models` | Agent local-model code moved to rightkit-agent-local-models (0.6.0). Still wrong: two independent on-disk stores and APIs (Store for MailRight and GenRight, suite::* for HeardRight, ScrapeRight and CutRight). | heardright |
 | `rightkit-notch-ui` | The cell and mark set is Pulse's AI-usage product (Cell::Claude, Cell::Codex, accounts); a second app would inherit it. | pulse |
 | `rightkit-owner-approvals` | Conclusion taken from family-agent-platform.md (section `rightkit-approvals (with rightkit-owner-approvals)`, lines 269-293): approvals exist as three unconnected implementations in four crates; this crate should become the `signed` proof of a redrawn rightkit-approvals core, with its redact.rs and audit.rs moved out. | pulse |
 | `rightkit-pipeline` | Not in the assigned list but flagged in the task: it holds one app's client for one other app's CLI. The three feeders implement three sides of engine-to-engine calls and only CutRight's is here. | postright |
@@ -584,7 +583,7 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 - `rightkit-mesh` (gaps): Add a desktop host layer: controller, registry-backed PeerTrust, pairing session runner, ALPN dispatcher with app handlers; Make vault service and relay caps host-supplied; Move or generalise policy.rs; Decide and document the pulse-* wire names; Fix stale crate header
 - `rightkit-mesh-ffi` (gaps): Take the link ALPN from the caller or the host-layer crate
 - `rightkit-ml-lab` (wrong): do not publish; keep experiments (bakeoff/*, tools/zephyr_*, local-model-training) in a HeardRight research repository; extract only reusable pieces: WER scoring and ASR adapter harness to the bench package, CoreML/ONNX conversion to a model-tools package with a pinned Python manifest
-- `rightkit-models` (wrong): pick the suite layout (HeardRight's live layout) as the one store and migrate Store users, or give Store a suite backend; move the trusted catalog entries to data each app or a catalog crate supplies; resolve rightkit-dictation-models vs heardright-model-store; Pick the suite layout as the one store and migrate Store users (MailRight, GenRight) or give Store a suite backend; Move the trusted catalog entries to data each app or a catalog crate supplies; Move agent_local_models to an agent crate; Resolve rightkit-dictation-models vs heardright-model-store; HeardRight M7 full-hash-on-launch; Add HeardRight's legacy_dirs and retired_legacy_paths to parakeet_ultra_spec before HeardRight drops ultra_model.rs; Decide the per-launch full hash of 363 to 433 MB (M7); stat-receipt fix is switched off; suite::whisper must install the macOS CoreML bundle; HeardRight: use suite::grant (it also parses Retry-After); Verify the download engine keeps live retry and resume rules; Bump pin 0.5.3 to 0.5.9
+- `rightkit-models` (gaps): move the trusted catalog entries to data each app or a catalog crate supplies; resolve rightkit-dictation-models vs heardright-model-store; decide the per-launch full hash (HeardRight M7); suite::whisper must install the macOS CoreML bundle; add HeardRight's legacy_dirs and retired_legacy_paths to parakeet_ultra_spec; owner to confirm: Store loses multi-revision rollback (NoRollback); publish 0.7.0
 - `rightkit-motion` (gaps): Move cmd/ to the video-project command layer; have it lay out tiles with sheet::plan_sheets; Remove the engine-commands feature and its four optional deps; pick_encoder delegates to the single rightkit-ffmpeg policy; Decide owner of HyperFrames templates/plan (media-pipeline motion)
 - `rightkit-notch-ui` (wrong): Make cells and marks host-defined; Keep AI rings in Pulse or an AI-accounts UI crate
 - `rightkit-notifications` (gaps): Confirm a sound-only alert call exists
