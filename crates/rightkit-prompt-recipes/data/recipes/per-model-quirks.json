@@ -17,38 +17,6 @@
     ],
     "interpolation_rule": "Items in this library are NOT prompt fragments — they're INPUT-SHAPING spec. The composer reads `negative_compile_strategy` etc. and builds the request body / prompt accordingly. Backend code does NOT consult these directly; it receives params from the composer."
   },
-  "_brand_defaults": {
-    "DD": {
-      "item_key": "nano-banana-pro",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md DD: premium tier — text/photoreal/product moats matter"
-    },
-    "RH": {
-      "item_key": "flux-2-pro",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md RH: lifestyle photoreal at $0.025/MP"
-    },
-    "TS": {
-      "item_key": "qwen-image",
-      "status": "provisional_from_memory",
-      "seeded_from": "A/B 2026-05-04: Qwen wins TS streetwear (cleaner concept-art look)"
-    },
-    "HR": {
-      "item_key": "gpt-image-2",
-      "status": "provisional_from_memory",
-      "seeded_from": "HR brand UI mockups + structured layouts — text_premium intent"
-    },
-    "DV": {
-      "item_key": "flux-2-dev",
-      "status": "unknown_needs_owner_input",
-      "seeded_from": "no source yet"
-    },
-    "SS": {
-      "item_key": "nano-banana-pro",
-      "status": "owner_approved",
-      "seeded_from": "CLAUDE.md SS: photography passion — premium photoreal"
-    }
-  },
   "items": {
     "nano-banana-pro": {
       "name": "Nano Banana Pro (Gemini 3 Pro Image)",

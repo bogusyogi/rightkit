@@ -1,6 +1,6 @@
-// rightkit-remote-compute 0.1.0 consumed by exact registry pin (default features), outside the workspace.
+// rightkit-remote-compute 0.2.0 consumed by exact registry pin (default features), outside the workspace.
 // Pure decisions only; no provider key, no network, no SSH.
-use rightkit_remote_compute::{remote, rental, WORKERS_KEY};
+use rightkit_remote_compute::{commands, remote, rental, SettingsWorkerStore, WorkerStore, WORKERS_KEY};
 use serde_json::json;
 
 fn check(ok: bool, what: &str) {
@@ -40,4 +40,13 @@ fn main() {
         "rental label uses the host namespace",
     );
     check(WORKERS_KEY == "models.rented_workers", "worker records key");
+    check(
+        commands::COMMANDS.len() == 5
+            && commands::COMMANDS.contains(&"studio.models.worker.action")
+            && !commands::COMMANDS.contains(&"studio.models.catalog"),
+        "the rented-worker commands, and no local model command",
+    );
+    let store: &dyn WorkerStore = &SettingsWorkerStore;
+    let _ = store;
+    println!("ok: the settings table is a worker store");
 }

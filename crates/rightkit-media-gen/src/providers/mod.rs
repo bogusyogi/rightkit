@@ -21,12 +21,12 @@ pub mod realesrgan;
 pub mod replicate;
 pub mod wavespeed;
 
-/// The organisation root for this OS: where installed local tools live. It is the organisation
-/// folder every RightKit app nests under, so it is the parent of any app's resolved `local` folder
-/// (`rightkit_fs::AppDirs`: `%LOCALAPPDATA%`, `~/Library/Application Support`, or the XDG data
-/// folder, each joined with the organisation name). The app name only supplies the child that is
-/// dropped.
-pub fn orthic_root() -> Option<std::path::PathBuf> {
+/// The shared tools root for this OS: where installed local tools (Blender, Wan2GP, Real-ESRGAN)
+/// live. It is the parent of any RightKit app's resolved `local` folder (`rightkit_fs::AppDirs`:
+/// `%LOCALAPPDATA%`, `~/Library/Application Support`, or the XDG data folder, each joined with the
+/// organisation folder), so every app on the machine finds the same tools. The app name only
+/// supplies the child that is dropped.
+pub fn tools_root() -> Option<std::path::PathBuf> {
     let dirs = rightkit_fs::AppDirs::resolve(rightkit_fs::AppId::new("RightKit")).ok()?;
     Some(dirs.local.parent()?.to_path_buf())
 }

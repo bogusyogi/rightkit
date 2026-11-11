@@ -1,4 +1,4 @@
-//! The gallery index: GenRight's media listing over output folders, with each file's generation
+//! The gallery index: the media listing over output folders, with each file's generation
 //! metadata, asset facts, caller, brand and review state (eyes and jury sidecars).
 //!
 //! Moved from `rightkit-library` (where it sat as an undeclared, never-compiled `artifacts.rs`)

@@ -2393,10 +2393,10 @@
     "feeds": {
      "genright": 21626
     },
-    "basis": "GenRight src/ moved whole (generated index)",
+    "basis": "0.2.0 on the branch: shell, legal, onboarding, licence, update, KDP, brand data and every mock removed; host-supplied client and brands; masks on media-ui",
     "referenceApp": "genright",
-    "shape": "wrong",
-    "shapeReason": "The GenRight application frontend including a 4,003-line browser mock of the engine, legal documents, onboarding/license/app-update wiring and brand data.",
+    "shape": "gaps",
+    "shapeReason": "Media-generation panels (generate, jobs, gallery, voices, models, rentals, routes, spend, recipes, templates, production) over a MediaGenClient the host supplies (tauriClient by default). The app shell, legal documents, onboarding, licence and update wiring, the KDP view, brand data and the 4,003-line browser mock are not in the package, and the mask step uses media-ui MaskPainter. Left: the root is still a generated export-everything barrel, logs and clipboard bind to Tauri, and the production builders send the wire value genright_campaign_stack.",
     "apps": {
      "genright": {
       "fit": "fits",
@@ -2423,10 +2423,10 @@
      "CutRight video-ui has its own PromptPanel/genright.ts for the same engine"
     ],
     "actions": [
-     "Split into components a second app can mount (Generate form from gen-params, JobCard/Jobs, Gallery, Voices, ModelsPanel) over an injected API client; shell stays in GenRight",
-     "Move the mock to a dev-only entry or the app",
-     "Use MaskPainter; delete MaskBrush",
-     "One generation client shared with video-ui"
+     "Replace the generated barrel with a deliberate API",
+     "Route logs and clipboard through the client",
+     "One generation client shared with video-ui",
+     "Owner to confirm the GenRight redraw"
     ],
     "depth": "deep",
     "confidence": "high",
@@ -2480,10 +2480,10 @@
      "genright": 282,
      "scraperight": 698
     },
-    "basis": "Brand-neutral MediaPlayer, image viewer/editor, MaskPainter, VoiceCallBar (RightKit implementation)",
-    "referenceApp": "viewright (not compared here)",
-    "shape": "gaps",
-    "shapeReason": "Component library with injected adapters and no shell dependencies: the shape the two big UI packages should follow. MaskPainter lacks the invert control GenRight's MaskBrush has.",
+    "basis": "0.3.5 (unpublished) on the branch: MaskExportOptions.invert added; media-gen-ui's MaskBrush deleted in favour of MaskPainter",
+    "referenceApp": "genright",
+    "shape": "best",
+    "shapeReason": "Component library with injected adapters and no shell dependencies. MaskPainter now exports an inverted mask, so the one mask painter in RightKit is this one; media-gen-ui 0.2.0 uses it.",
     "apps": {
      "genright": {
       "fit": "gaps",
@@ -2507,8 +2507,8 @@
      "media-gen-ui still exports its own MaskBrush"
     ],
     "actions": [
-     "Add invert to MaskPainter/exportMaskPng",
-     "Remove MaskBrush from media-gen-ui"
+     "Publish 0.3.5",
+     "Owner to confirm the GenRight redraw"
     ],
     "depth": "deep",
     "confidence": "medium",
@@ -16900,10 +16900,10 @@
     "feeds": {
      "genright": 34258
     },
-    "basis": "GenRight genright-gen moved whole with a `host` seam, plus studio voices, avatars, balances, stock, search",
+    "basis": "0.2.0 on the branch: copies of rightkit-ffmpeg deleted, typed API added, host-supplied names; read against rightkit-ffmpeg, rightkit-spend and rightkit-tts",
     "referenceApp": "genright",
-    "shape": "wrong",
-    "shapeReason": "A 34,600-line crate that is the GenRight engine: 18 provider adapters, jobs, catalogue, routing, library, credentials, spend layer, voices, and private copies of code other RightKit crates own. Its API is JSON Value in and out, so a second app adopts it only as \"GenRight embedded\".",
+    "shape": "gaps",
+    "shapeReason": "The private copies are gone: the container probe and the H.264 rule are rightkit-ffmpeg's (media.rs and host/h264.rs deleted), and one JSON-setting helper replaces four copies. A typed API (typed::MediaGen: GenerateRequest to a job to Assets) sits beside the JSON commands on the same path, so a Rust host no longer adopts it as GenRight embedded. The token domain, ledger table names and tools root are host-neutral. Left: the spend layer still implements the three-cap reserve, device epochs, invoice reconciliation and caller budgets beside rightkit-spend, and the provider adapters, voices and local providers are still in the engine crate.",
     "apps": {
      "genright": {
       "fit": "fits",
@@ -16936,9 +16936,9 @@
      "api.rs: every function is (ctx, &Value) -> GenResult<Value>"
     ],
     "actions": [
-     "Split by owner: provider trait + remote adapters + routing + catalogue (media-gen core); jobs on rightkit-job-queue; spend layer thinned onto rightkit-spend; voices to rightkit-tts; local providers to rightkit-local-gen; library onto rightkit-library; delete media.rs and host/h264.rs",
-     "Add a typed request/result API beside the JSON command surface",
-     "Remove organisation and app names from paths, table names and context strings (host supplies them)"
+     "Thin ledger.rs onto rightkit-spend with a data migration qualified on real data",
+     "Split provider adapters from the core behind the typed boundary; voices to rightkit-tts; local providers to rightkit-local-gen",
+     "Owner to confirm the GenRight redraw"
     ],
     "depth": "deep",
     "confidence": "high",
@@ -17006,6 +17006,62 @@
      "one typed contract module (job record, result and asset descriptors) shared by rightkit-media-gen and this client",
      "brief dispatcher and brief-run caller runner on rightkit-engine-host::call",
      "publish 0.1.0 after rightkit-engine-host 0.2.0"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+   }
+  },
+  {
+   "package": "rightkit-media-gen-models",
+   "kind": "cargo",
+   "dir": "crates/rightkit-media-gen-models",
+   "class": null,
+   "domain": "other",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "no",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {},
+   "review": {
+    "package": "rightkit-media-gen-models",
+    "kind": "cargo",
+    "family": "Redraws on the branch, 2026-11-11",
+    "existsAs": [
+     "crates/rightkit-media-gen-models"
+    ],
+    "feeds": {},
+    "basis": "new 0.1.0 (PK240): rightkit-remote-compute 0.1.0 models/ moved with git mv, minus the worker actions",
+    "referenceApp": "genright",
+    "shape": "gaps",
+    "shapeReason": "The media-generation engine's local model management: studio.models.* commands joining hardware fit, rightkit-models installs, the memory-aware governor and per-capability routes over a rightkit_media_gen::Context. Installs and hardware are rightkit-models', the sd.cpp profiles rightkit-local-gen's (no copy). It is engine glue in the media-gen-approvals pattern; the governor (admission of heavy local models) is a reusable capability that could sit lower once it no longer stores grants in the engine's settings.",
+    "apps": {
+     "genright": {
+      "fit": "fits",
+      "note": "source of the module"
+     },
+     "heardright": {
+      "fit": "n/a",
+      "note": "local models through rightkit-models"
+     }
+    },
+    "boundary": [
+     "governor.rs keeps grants in the media-gen settings table, so the governor needs a media-gen Context"
+    ],
+    "actions": [
+     "Give the governor a store seam and consider moving it below media-gen",
+     "Owner to confirm the GenRight redraw"
     ],
     "depth": "deep",
     "confidence": "medium"
@@ -19135,10 +19191,10 @@
     "feeds": {
      "genright": 12135
     },
-    "basis": "GenRight genright-studio recipes, video_templates, contracts, characters, swap_templates, kdp, brands, catalog moved with their JSON data",
+    "basis": "0.2.0 on the branch: default build is the pure library; studio handlers behind feature commands; brands host-supplied; KDP left with the app",
     "referenceApp": "genright",
-    "shape": "wrong",
-    "shapeReason": "Prompt contracts per model and the recipe composer are reusable. The crate also ships the owner's brand list and a Kindle colouring-page workflow, and every module is a `studio.<area>.*` command handler bound to rightkit_media_gen::Context.",
+    "shape": "gaps",
+    "shapeReason": "The default build is contracts, validator, recipe composer, image catalogue, character data and video templates over embedded data, with no rightkit-media-gen in the build. The studio.* handlers are a thin adapter behind feature commands. The owner's brand list, brand defaults and venture list are gone from code and data (brands::set_brands), and the KDP workflow is not in the package. Left: contract and model catalogue data that ages is still compiled in rather than versioned data.",
     "apps": {
      "genright": {
       "fit": "fits",
@@ -19168,9 +19224,8 @@
      "Depends on rightkit-media-gen and rightkit-approvals to run commands"
     ],
     "actions": [
-     "Keep contracts + validator + recipe composer + video templates as a pure library over data",
-     "Brands become host-supplied data; KDP moves to the GenRight app (or a recipes data pack)",
-     "Command handlers move to the engine layer"
+     "Serve contract and model data as versioned data (as platform-rules does)",
+     "Owner to confirm the GenRight redraw"
     ],
     "depth": "deep",
     "confidence": "medium",
@@ -19619,10 +19674,10 @@
     "feeds": {
      "genright": 2681
     },
-    "basis": "GenRight model_management/remote.rs + rental.rs, plus models/ (local model catalogue, installs, governor, hardware, blender/sdcpp/wan2gp)",
+    "basis": "0.2.0 on the branch: local model management moved out to rightkit-media-gen-models; worker commands and a WorkerStore trait added",
     "referenceApp": "genright",
-    "shape": "wrong",
-    "shapeReason": "Rented GPU worker lifecycle (SSH, Vast.ai) with a time-billed spend bracket is a clear package. Half the crate is local model management, and worker records live in media-gen's settings table.",
+    "shape": "gaps",
+    "shapeReason": "Rented GPU workers only: SSH and Vast.ai drivers, lifecycle, the time-billed spend bracket and the rented-worker commands. Worker records go through a WorkerStore (default: the media-gen settings table, replaceable by the host). The rental still reserves through rightkit-media-gen's ledger so it counts against the same daily, monthly and device limits; it moves to rightkit-spend with that ledger.",
     "apps": {
      "genright": {
       "fit": "fits",
@@ -19647,9 +19702,8 @@
      "rental.rs reserves and settles spend: should be on rightkit-spend directly (not read in detail; suspicion that it goes through media-gen ledger)"
     ],
     "actions": [
-     "Move models/ to rightkit-local-gen (or rightkit-models for catalogue/install)",
-     "Worker registry behind a small store trait",
-     "Spend bracket on rightkit-spend"
+     "Move the bracket to rightkit-spend together with the media-gen ledger",
+     "Owner to confirm the GenRight redraw"
     ],
     "depth": "light",
     "confidence": "medium",

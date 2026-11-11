@@ -13,38 +13,6 @@
     "category": "video",
     "subcategory": "camera-moves"
   },
-  "_brand_defaults": {
-    "DD": {
-      "item_key": "slow_push_in",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md DD motion principles: \"Slow is premium\""
-    },
-    "RH": {
-      "item_key": "lateral_track_lr",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md RH lifestyle pacing"
-    },
-    "TS": {
-      "item_key": "whip_pan_right",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md TS counter-culture energy"
-    },
-    "HR": {
-      "item_key": "handheld_documentary",
-      "status": "provisional_from_memory",
-      "seeded_from": "D:\\Claude\\heardright\\brand.md V3 founder-direct voice"
-    },
-    "DV": {
-      "item_key": "handheld_documentary",
-      "status": "unknown_needs_owner_input",
-      "seeded_from": "no source yet"
-    },
-    "SS": {
-      "item_key": "extreme_close_up",
-      "status": "owner_approved",
-      "seeded_from": "photography brand — macro detail focus"
-    }
-  },
   "categories": {
     "static": {
       "_label": "Static shots — angle as storytelling",

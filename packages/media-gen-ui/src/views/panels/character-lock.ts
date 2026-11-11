@@ -1,4 +1,4 @@
-import { errorCode, errorDetails, errorMessage, errorText } from '../../lib/engine-error.js';
+import { errorCode, errorDetails, errorText } from '../../lib/engine-error.js';
 import { isUnconfirmedPrice } from '../../lib/gen-params.js';
 
 // Logic for the character/LoRA panel: character catalog, references, aesthetic
@@ -255,16 +255,8 @@ export function lockRefusal(error: unknown): LockRefusal {
 // ---------------------------------------------------------------------------
 
 async function call<T>(verb: string, input: Record<string, unknown> = {}): Promise<T> {
-  try {
-    const { studio } = await import('../../lib/api.js');
-    return await studio<T>(`characters.${verb}`, input);
-  } catch (error) {
-    if (import.meta.env?.DEV && /Unsupported browser QA mock/i.test(errorMessage(error))) {
-      const { mockCharacters } = await import('./character-mock.js');
-      return (await mockCharacters(verb, input)) as T;
-    }
-    throw error;
-  }
+  const { studio } = await import('../../lib/api.js');
+  return await studio<T>(`characters.${verb}`, input);
 }
 
 export const characters = {
@@ -283,16 +275,8 @@ export const characters = {
    * request it was made from.
    */
   train: async (plan: TrainPlan, input: Record<string, unknown>): Promise<TrainStatus> => {
-    try {
-      const { approveDraft } = await import('../../lib/api.js');
-      return await approveDraft<TrainStatus>('character_training', plan.plan_id, plan.plan_id, input);
-    } catch (error) {
-      if (import.meta.env?.DEV && /Unsupported browser QA mock/i.test(errorMessage(error))) {
-        const { mockCharacters } = await import('./character-mock.js');
-        return (await mockCharacters('train_approved', input)) as TrainStatus;
-      }
-      throw error;
-    }
+    const { approveDraft } = await import('../../lib/api.js');
+    return await approveDraft<TrainStatus>('character_training', plan.plan_id, plan.plan_id, input);
   },
   trainStatus: (input: TrainStatusInput) => call<TrainStatus>('train_status', { ...input })
 };

@@ -1,6 +1,6 @@
-// rightkit-local-gen 0.1.0 consumed by exact registry pin (default features), outside the workspace.
+// rightkit-local-gen 0.1.2 consumed by exact registry pin (default features), outside the workspace.
 // Cheap checks on the pure public surface; no model files, no sd-server, no network.
-use rightkit_local_gen::{host, memory, model_store, roots};
+use rightkit_local_gen::{host, memory, model_store, profiles, roots};
 
 fn check(ok: bool, what: &str) {
     if ok {
@@ -59,4 +59,13 @@ fn main() {
         "content root default",
     );
     check(roots::tools_root(&env) == "/ws/tools", "tools root default");
+
+    let shipped: serde_json::Value =
+        serde_json::from_str(profiles::CATALOGUE_JSON).expect("the shipped catalogue parses");
+    let parsed = profiles::catalogue().expect("catalogue");
+    check(
+        shipped["profiles"].as_array().map(Vec::len) == Some(parsed.profiles.len())
+            && !parsed.profiles.is_empty(),
+        "CATALOGUE_JSON is the catalogue profiles::catalogue parses",
+    );
 }

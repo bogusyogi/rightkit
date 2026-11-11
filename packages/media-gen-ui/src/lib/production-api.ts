@@ -1,5 +1,4 @@
-import { isTauri, studio } from './api.js';
-import { hostAppName } from "../appName.js";
+import { studio } from './api.js';
 
 export type LockStatus = 'ready' | 'missing' | 'optional';
 export type HandoffStatus = 'ready' | 'ready_with_warnings' | 'blocked';
@@ -198,11 +197,9 @@ export interface SavedPack {
   manifest_path: string;
 }
 
-/** Engine commands `studio.production.*`; browser mode (no Tauri) uses a local stand-in with the same shapes. */
+/** Engine commands `studio.production.*` through the host's client. */
 function call<T>(verb: string, input: Record<string, unknown> = {}): Promise<T> {
-  if (isTauri()) return studio<T>(`production.${verb}`, input);
-  if (import.meta.env?.DEV) return import('./production-mock.js').then((m) => m.mockProduction(verb, input) as Promise<T>);
-  return Promise.reject(new Error(`${hostAppName()} needs the desktop app.`));
+  return studio<T>(`production.${verb}`, input);
 }
 
 export const productionApi = {

@@ -14,38 +14,6 @@
     ],
     "interpolation_rule": "Editing prompts compose differently from generation prompts. Composer must detect edit intent (presence of `image_urls` + edit endpoint) and switch to editing.json templates instead of aesthetics.json."
   },
-  "_brand_defaults": {
-    "DD": {
-      "item_key": "background_swap",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md DD: product hero shots — subject locked, background swap is most common edit"
-    },
-    "RH": {
-      "item_key": "color_grade_only",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md RH: muted earth tone consistency across editorial imagery"
-    },
-    "TS": {
-      "item_key": "color_grade_only",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md TS: toxic-green palette match across drops"
-    },
-    "HR": {
-      "item_key": "preserve_change",
-      "status": "provisional_from_memory",
-      "seeded_from": "HR brand UI mockups — preserve UI exactly, change only backgrounds/copy"
-    },
-    "DV": {
-      "item_key": "preserve_change",
-      "status": "unknown_needs_owner_input",
-      "seeded_from": "no source yet"
-    },
-    "SS": {
-      "item_key": "object_remove",
-      "status": "owner_approved",
-      "seeded_from": "CLAUDE.md SS: documentary photography — remove distractions, keep moment"
-    }
-  },
   "items": {
     "preserve_change": {
       "name": "Preserve / Change (FLUX Kontext canonical)",

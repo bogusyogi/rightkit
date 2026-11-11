@@ -7,39 +7,6 @@
     "category": "video",
     "subcategory": "aesthetics"
   },
-  "_brand_defaults": {
-    "DD": {
-      "item_key": "lifestyle",
-      "status": "provisional_from_memory",
-      "seeded_from": "D:\\Claude\\CLAUDE.md DD section + ad_pipeline learnings (premium_product is wrong for social per neuroscience research)",
-      "notes": "Use premium_product ONLY for brand pages / keynotes, never social"
-    },
-    "RH": {
-      "item_key": "lifestyle",
-      "status": "provisional_from_memory",
-      "seeded_from": "D:\\Claude\\CLAUDE.md RH section + D:\\Claude\\SEO\\blog-posts\\rottenhand\\"
-    },
-    "TS": {
-      "item_key": "raw_street",
-      "status": "provisional_from_memory",
-      "seeded_from": "G:\\My Drive\\Toxic Sundae\\Branding\\Brand Identity\\Brand Book.pdf"
-    },
-    "HR": {
-      "item_key": "documentary",
-      "status": "provisional_from_memory",
-      "seeded_from": "D:\\Claude\\heardright\\brand.md (V3 voice command center positioning, locked 2026-05-03)"
-    },
-    "DV": {
-      "item_key": "documentary",
-      "status": "unknown_needs_owner_input",
-      "seeded_from": "no source yet — Damned Ventures founder brand"
-    },
-    "SS": {
-      "item_key": "documentary",
-      "status": "owner_approved",
-      "seeded_from": "D:\\Claude\\CLAUDE.md SS section"
-    }
-  },
   "items": {
     "ugc": {
       "name": "UGC handheld (highest social conversion per 2026 neuroscience)",
@@ -126,7 +93,7 @@
     },
     "anime_stylized": {
       "name": "Anime / illustrated (stylized non-real)",
-      "use": "Toxic Sundae or any brand with illustrated identity. Avoids uncanny valley entirely.",
+      "use": "Any brand with an illustrated identity. Avoids uncanny valley entirely.",
       "fragment": "anime style illustration, hand-drawn aesthetic, bold flat colors, dynamic composition, NOT photorealistic, stylized characters",
       "feel": "Studio Ghibli / Spider-Verse — clearly illustrated, avoids uncanny",
       "lighting": "stylized illustrated lighting, no real-world physics required",
@@ -135,8 +102,8 @@
       "tags": []
     },
     "raw_street": {
-      "name": "Raw street / underground (Toxic Sundae, counter-culture brands)",
-      "use": "Counter-culture, streetwear, DIY brand vibes — Toxic Sundae specifically",
+      "name": "Raw street / underground (counter-culture brands)",
+      "use": "Counter-culture, streetwear, DIY brand vibes",
       "fragment": "raw street style, urban environment, gritty texture, fluorescent or sodium lighting, slight underexposure, dynamic handheld energy, anti-corporate aesthetic",
       "feel": "Skate video, warehouse documentary, unfiltered urban",
       "lighting": "fluorescent / sodium / streetlight — embrace mixed temperatures",

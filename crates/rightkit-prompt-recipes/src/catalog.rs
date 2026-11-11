@@ -12,8 +12,12 @@ use std::sync::OnceLock;
 use serde_json::{json, Value};
 
 use crate::contracts;
-use rightkit_media_gen::{Context, GenError, GenResult};
+#[cfg(feature = "commands")]
+use crate::{RecipeError, RecipeResult};
+#[cfg(feature = "commands")]
+use rightkit_media_gen::Context;
 
+#[cfg(feature = "commands")]
 pub const COMMANDS: &[&str] = &[
     "studio.catalog.image",
     "studio.catalog.group",
@@ -44,18 +48,14 @@ pub fn reference_limit() -> usize {
         .unwrap_or(14) as usize
 }
 
-/// Brand codes a request may carry (anything else becomes `NA`).
+/// Brand codes a request may carry (anything else becomes `NA`): the host's brands
+/// ([`crate::brands::set_brands`]) and `NA`.
 pub fn brands() -> Vec<String> {
-    intents_doc()
-        .get("brands")
-        .and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
+    crate::brands::codes()
+        .iter()
+        .cloned()
+        .chain(std::iter::once(crate::brands::NO_BRAND.to_string()))
+        .collect()
 }
 
 /// Intent route (`bottom|mid|premium|cartoon|vector|...`) or `None`.
@@ -100,6 +100,7 @@ pub fn engine_model_for_contract(slug: &str) -> Option<&'static str> {
     })
 }
 
+#[cfg(feature = "commands")]
 /// The engine route that runs a contract's LoRAs, when the engine serves one. `flux-2-dev` resolves
 /// to `fal-ai/flux-2/klein/9b` for plain text-to-image (its contract fields fit that route), but Klein
 /// is a different base model (`FLUX.2-Klein-9B`) and takes no `loras`; FLUX.2-dev LoRAs run on
@@ -167,6 +168,17 @@ pub fn contract_for_engine_model(model: &str) -> Option<&'static str> {
     contracts::has_contract(slug).then_some(slug)
 }
 
+/// The served LoRA route, which only the engine's registry knows (feature `commands`).
+#[cfg(feature = "commands")]
+fn engine_lora_model(slug: &str) -> Option<&'static str> {
+    engine_lora_model_for_contract(slug)
+}
+
+#[cfg(not(feature = "commands"))]
+fn engine_lora_model(_slug: &str) -> Option<&'static str> {
+    None
+}
+
 /// A model slug joined with its contract: version, negative-prompt strategy,
 /// reference cap, invoice-backed cost, and the intents that route to it.
 fn model_ref(slug: &str) -> Value {
@@ -184,7 +196,7 @@ fn model_ref(slug: &str) -> Value {
         "slug": slug,
         "engine_model": engine_model_for_contract(slug),
         "engine_model_reason": engine_unavailable_reason(slug),
-        "engine_lora_model": engine_lora_model_for_contract(slug),
+        "engine_lora_model": engine_lora_model(slug),
         "has_contract": contract.is_some(),
         "contract_version": meta.and_then(|m| m.get("version")),
         "negative_strategy": contract.and_then(|c| c.get("negative_prompt_policy")).and_then(|p| p.get("strategy")),
@@ -275,7 +287,8 @@ pub fn image_catalog() -> Value {
     })
 }
 
-pub fn handle(_ctx: &Context, name: &str, input: &Value) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+pub fn handle(_ctx: &Context, name: &str, input: &Value) -> RecipeResult<Value> {
     match name {
         "studio.catalog.image" => Ok(image_catalog()),
         "studio.catalog.group" => {
@@ -289,7 +302,7 @@ pub fn handle(_ctx: &Context, name: &str, input: &Value) -> GenResult<Value> {
                 })
                 .map(annotated_group)
                 .ok_or_else(|| {
-                    GenError::new("group_not_found", format!("no image workflow group: {id}"))
+                    RecipeError::new("group_not_found", format!("no image workflow group: {id}"))
                 })
         }
         "studio.catalog.intents" => Ok(json!({
@@ -304,7 +317,7 @@ pub fn handle(_ctx: &Context, name: &str, input: &Value) -> GenResult<Value> {
                 .unwrap_or_default();
             Ok(json!({"model": model, "contract": contract_for_engine_model(model)}))
         }
-        _ => Err(GenError::new(
+        _ => Err(RecipeError::new(
             "unknown_command",
             format!("unknown command: {name}"),
         )),

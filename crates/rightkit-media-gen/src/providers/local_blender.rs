@@ -119,7 +119,7 @@ pub struct LocalBlender {
 
 fn default_blender() -> Option<PathBuf> {
     #[cfg(windows)]
-    if let Some(root) = super::orthic_root() {
+    if let Some(root) = super::tools_root() {
         let version_root = root.join("shared/tools/blender/5.2.2");
         let preferred = version_root.join("blender-5.2.2-windows-x64/blender.exe");
         if preferred.is_file() {
@@ -155,7 +155,8 @@ fn default_blender() -> Option<PathBuf> {
 }
 
 fn default_worker() -> PathBuf {
-    let root = super::orthic_root().unwrap_or_else(|| std::env::temp_dir().join("Orthic Labs"));
+    let root = super::tools_root()
+        .unwrap_or_else(|| std::env::temp_dir().join(&crate::host::config().machine_dir_name));
     let mut candidates = Vec::new();
     for tools_root in [root.join("shared/tools"), root.join("tools")] {
         let direct = tools_root.join("renderright");

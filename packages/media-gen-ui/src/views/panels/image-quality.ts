@@ -1,4 +1,3 @@
-import { errorMessage } from '../../lib/engine-error.js';
 
 // Logic for the image quality panel: intents, contract, recipe picks and the
 // guarded preflight → approve flow (studio.recipes.*). Kept free of React.
@@ -132,16 +131,8 @@ export function guardReason(g: ImageGuardInput): string | null {
 // ---------------------------------------------------------------------------
 
 async function call<T>(verb: string, input: Record<string, unknown> = {}): Promise<T> {
-  try {
-    const { studio } = await import('../../lib/api.js');
-    return await studio<T>(verb, input);
-  } catch (error) {
-    if (import.meta.env?.DEV && /Unsupported browser QA mock/i.test(errorMessage(error))) {
-      const { mockImageQuality } = await import('./image-quality-mock.js');
-      return (await mockImageQuality(verb, input)) as T;
-    }
-    throw error;
-  }
+  const { studio } = await import('../../lib/api.js');
+  return await studio<T>(verb, input);
 }
 
 export const imageQuality = {
@@ -155,15 +146,7 @@ export const imageQuality = {
    * token (`approve_draft`). `displayedHash` is the draft's `request_hash` as shown.
    */
   approve: async (draftId: string, displayedHash: string): Promise<ApproveResult> => {
-    try {
-      const { approveDraft } = await import('../../lib/api.js');
-      return await approveDraft<ApproveResult>('recipes', draftId, displayedHash);
-    } catch (error) {
-      if (import.meta.env?.DEV && /Unsupported browser QA mock/i.test(errorMessage(error))) {
-        const { mockImageQuality } = await import('./image-quality-mock.js');
-        return (await mockImageQuality('approve_draft', { draft_id: draftId, displayed_hash: displayedHash })) as ApproveResult;
-      }
-      throw error;
-    }
+    const { approveDraft } = await import('../../lib/api.js');
+    return await approveDraft<ApproveResult>('recipes', draftId, displayedHash);
   }
 };

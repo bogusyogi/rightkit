@@ -947,16 +947,7 @@ fn review_for<'a>(reviews: &'a [Value], key: &str, id: &str) -> Option<&'a Value
 
 /// The persisted `models.routes` selection for one capability (`avatar`).
 fn selected_route(ctx: &Context, capability: &str) -> GenResult<Value> {
-    let conn = store::open(ctx)?;
-    let routes = conn
-        .read(|c| {
-            store::settings()
-                .get(c, MODEL_ROUTES_KEY)
-                .map_err(store::settings_err)
-        })
-        .map_err(store::je)?
-        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
-        .unwrap_or_else(|| json!({}));
+    let routes = store::setting_json(ctx, MODEL_ROUTES_KEY, json!({}))?;
     Ok(routes.get(capability).cloned().unwrap_or(Value::Null))
 }
 

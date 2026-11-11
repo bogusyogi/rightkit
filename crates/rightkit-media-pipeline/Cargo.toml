@@ -19,7 +19,7 @@ path = "src/lib.rs"
 motion = ["dep:rightkit-browser", "dep:rightkit-motion", "dep:tokio", "dep:serde"]
 
 [dependencies]
-rightkit-media-gen = { version = "0.1.0", path = "../rightkit-media-gen" }
+rightkit-media-gen = { version = "0.2.0", path = "../rightkit-media-gen" }
 rightkit-local-gen = { version = "0.1.0", path = "../rightkit-local-gen" }
 rightkit-media-gen-approvals = { version = "0.1.0", path = "../rightkit-media-gen-approvals" }
 rightkit-contracts = { version = "0.1.8", path = "../rightkit-contracts" }

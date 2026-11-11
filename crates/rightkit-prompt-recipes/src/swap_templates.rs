@@ -18,7 +18,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Map, Value};
 
-use rightkit_media_gen::{Context, GenError, GenResult};
+use crate::{RecipeError, RecipeResult};
+use rightkit_media_gen::Context;
 
 pub const COMMANDS: &[&str] = &[
     "templates.list",
@@ -46,8 +47,8 @@ const UNSERVED: &[(&str, &str, &str)] = &[
     ),
 ];
 
-fn bad(m: impl Into<String>) -> GenError {
-    GenError::new("invalid_input", m)
+fn bad(m: impl Into<String>) -> RecipeError {
+    RecipeError::new("invalid_input", m)
 }
 
 fn root(ctx: &Context) -> PathBuf {
@@ -96,11 +97,11 @@ fn text(v: &Value, key: &str) -> Option<String> {
         .map(String::from)
 }
 
-fn write(path: &Path, v: &Value) -> GenResult<()> {
+fn write(path: &Path, v: &Value) -> RecipeResult<()> {
     let body = serde_json::to_string_pretty(v)
-        .map_err(|e| GenError::new("template_write", e.to_string()))?;
+        .map_err(|e| RecipeError::new("template_write", e.to_string()))?;
     rightkit_fs::atomic_write(path, body.as_bytes())
-        .map_err(|e| GenError::new("template_write", format!("{}: {e}", path.display())))
+        .map_err(|e| RecipeError::new("template_write", format!("{}: {e}", path.display())))
 }
 
 fn now() -> String {
@@ -110,13 +111,14 @@ fn now() -> String {
         .unwrap_or_default()
 }
 
-fn load(ctx: &Context, id: &str) -> GenResult<Value> {
+fn load(ctx: &Context, id: &str) -> RecipeResult<Value> {
     if !valid_id(id) {
         return Err(bad("template id is not valid"));
     }
     let body = fs::read_to_string(root(ctx).join(id).join("template.json"))
-        .map_err(|_| GenError::new("template_not_found", format!("No template \"{id}\"")))?;
-    serde_json::from_str(&body).map_err(|e| GenError::new("template_invalid", format!("{id}: {e}")))
+        .map_err(|_| RecipeError::new("template_not_found", format!("No template \"{id}\"")))?;
+    serde_json::from_str(&body)
+        .map_err(|e| RecipeError::new("template_invalid", format!("{id}: {e}")))
 }
 
 fn list(ctx: &Context) -> Value {
@@ -146,7 +148,7 @@ fn unserved() -> Value {
     )
 }
 
-fn parse_slots(kind: &str, input: &Value) -> GenResult<Vec<Value>> {
+fn parse_slots(kind: &str, input: &Value) -> RecipeResult<Vec<Value>> {
     let raw: Vec<Value> = match input.get("slots") {
         Some(Value::Array(a)) if !a.is_empty() => a.clone(),
         None | Some(Value::Null) => {
@@ -181,7 +183,7 @@ fn parse_slots(kind: &str, input: &Value) -> GenResult<Vec<Value>> {
 }
 
 /// `templates.save`: create or replace a template. A local base file is copied into the store.
-fn save(ctx: &Context, input: &Value) -> GenResult<Value> {
+fn save(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     let name = text(input, "name").ok_or_else(|| bad("name is required"))?;
     let id = text(input, "id").unwrap_or_else(|| slug(&name));
     if !valid_id(&id) {
@@ -201,7 +203,7 @@ fn save(ctx: &Context, input: &Value) -> GenResult<Value> {
     } else if let Some(path) = text(base, "path") {
         let src = PathBuf::from(&path);
         if !src.is_file() {
-            return Err(GenError::new(
+            return Err(RecipeError::new(
                 "file_not_found",
                 format!("base file not found: {path}"),
             ));
@@ -215,19 +217,19 @@ fn save(ctx: &Context, input: &Value) -> GenResult<Value> {
             .unwrap_or_default();
         let dir = root(ctx).join(&id);
         rightkit_fs::ensure_private_dir(&dir)
-            .map_err(|e| GenError::new("template_write", format!("{}: {e}", dir.display())))?;
+            .map_err(|e| RecipeError::new("template_write", format!("{}: {e}", dir.display())))?;
         let dest = dir.join(format!("base.{ext}"));
         // The base file is user-chosen and may be a symlink: resolve it with the owner's `canonicalize_plain`, then copy
         // it verified and atomically (rightkit-fs `copy_verified`) so a half-copied base never sits in the template.
         let canonical = rightkit_fs::canonicalize_plain(&src)
-            .map_err(|e| GenError::new("template_write", format!("{}: {e}", src.display())))?;
+            .map_err(|e| RecipeError::new("template_write", format!("{}: {e}", src.display())))?;
         rightkit_fs::copy_verified(
             &canonical,
             &dest,
             rightkit_fs::AtomicWriteOptions::default(),
             None,
         )
-        .map_err(|e| GenError::new("template_write", format!("{}: {e}", dest.display())))?;
+        .map_err(|e| RecipeError::new("template_write", format!("{}: {e}", dest.display())))?;
         (json!({"path": dest.to_string_lossy()}), t)
     } else {
         return Err(bad("base needs a path or a url"));
@@ -258,12 +260,12 @@ fn save(ctx: &Context, input: &Value) -> GenResult<Value> {
         "created_at": created, "updated_at": now(),
     });
     rightkit_fs::ensure_private_dir(&root(ctx).join(&id))
-        .map_err(|e| GenError::new("template_write", e.to_string()))?;
+        .map_err(|e| RecipeError::new("template_write", e.to_string()))?;
     write(&root(ctx).join(&id).join("template.json"), &doc)?;
     Ok(json!({"ok": true, "template": doc}))
 }
 
-fn delete(ctx: &Context, input: &Value) -> GenResult<Value> {
+fn delete(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     let id = text(input, "id").ok_or_else(|| bad("id is required"))?;
     if !valid_id(&id) {
         return Err(bad("template id is not valid"));
@@ -272,7 +274,7 @@ fn delete(ctx: &Context, input: &Value) -> GenResult<Value> {
     let existed = dir.join("template.json").is_file();
     if existed {
         fs::remove_dir_all(&dir)
-            .map_err(|e| GenError::new("template_delete", format!("{}: {e}", dir.display())))?;
+            .map_err(|e| RecipeError::new("template_delete", format!("{}: {e}", dir.display())))?;
     }
     Ok(json!({"ok": true, "id": id, "deleted": existed}))
 }
@@ -280,8 +282,8 @@ fn delete(ctx: &Context, input: &Value) -> GenResult<Value> {
 /// URL import needs a downloader the host provides; this crate ships none, so a URL import
 /// is a typed refusal rather than a guessed invocation. Callers inject their own downloader
 /// through `import_with`.
-fn url_download(_url: &str) -> Result<PathBuf, GenError> {
-    Err(GenError::new(
+fn url_download(_url: &str) -> Result<PathBuf, RecipeError> {
+    Err(RecipeError::new(
         "downloader_contract_unavailable",
         "URL import needs a downloader this host does not provide. Import a local file instead.",
     ))
@@ -291,8 +293,8 @@ fn url_download(_url: &str) -> Result<PathBuf, GenError> {
 fn import_with(
     ctx: &Context,
     input: &Value,
-    download: &dyn Fn(&str) -> Result<PathBuf, GenError>,
-) -> GenResult<Value> {
+    download: &dyn Fn(&str) -> Result<PathBuf, RecipeError>,
+) -> RecipeResult<Value> {
     let mut input = input.clone();
     if let Some(url) = text(&input, "url") {
         let file = download(&url)?;
@@ -451,7 +453,7 @@ fn video_request(
 /// `templates.swap_preflight`: template + slot media -> a priced, unapproved template draft.
 /// Route: explicit `provider`+`model`, else the template's default model, else the cheapest
 /// candidate by the engine's dry-run estimate.
-fn swap_preflight(ctx: &Context, input: &Value) -> GenResult<Value> {
+fn swap_preflight(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     let id = text(input, "template_id")
         .or_else(|| text(input, "id"))
         .ok_or_else(|| bad("template_id is required"))?;
@@ -465,7 +467,7 @@ fn swap_preflight(ctx: &Context, input: &Value) -> GenResult<Value> {
         .keys()
         .find(|k| !decls.iter().any(|d| d["name"] == k.as_str()))
     {
-        return Err(GenError::new(
+        return Err(RecipeError::new(
             "unknown_slot",
             format!("template \"{id}\" has no slot \"{k}\""),
         ));
@@ -481,7 +483,7 @@ fn swap_preflight(ctx: &Context, input: &Value) -> GenResult<Value> {
         {
             Some(v) => {
                 if media_type(v) != d["type"].as_str() {
-                    return Err(GenError::new(
+                    return Err(RecipeError::new(
                         "slot_type",
                         format!(
                             "slot \"{name}\" takes {} media; got {v}",
@@ -490,7 +492,7 @@ fn swap_preflight(ctx: &Context, input: &Value) -> GenResult<Value> {
                     ));
                 }
                 if !is_url(v) && !Path::new(v).is_file() {
-                    return Err(GenError::new(
+                    return Err(RecipeError::new(
                         "file_not_found",
                         format!("slot \"{name}\": file not found: {v}"),
                     ));
@@ -499,7 +501,7 @@ fn swap_preflight(ctx: &Context, input: &Value) -> GenResult<Value> {
             }
             None if d["required"] == false => {}
             None => {
-                return Err(GenError::new(
+                return Err(RecipeError::new(
                     "slot_missing",
                     format!("slot \"{name}\" is required"),
                 ))
@@ -583,14 +585,14 @@ fn swap_preflight(ctx: &Context, input: &Value) -> GenResult<Value> {
     }))
 }
 
-pub fn handle(ctx: &Context, name: &str, input: &Value) -> GenResult<Value> {
+pub fn handle(ctx: &Context, name: &str, input: &Value) -> RecipeResult<Value> {
     match name {
         "templates.list" => Ok(list(ctx)),
         "templates.save" => save(ctx, input),
         "templates.delete" => delete(ctx, input),
         "templates.import" => import_with(ctx, input, &url_download),
         "templates.swap_preflight" => swap_preflight(ctx, input),
-        _ => Err(GenError::new(
+        _ => Err(RecipeError::new(
             "unknown_command",
             format!("unknown command: {name}"),
         )),

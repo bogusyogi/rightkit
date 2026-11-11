@@ -107,45 +107,6 @@ export interface ImageStudioReferencesResponse {
   }>;
 }
 
-export interface KdpThumbnailStyle {
-  id: 'crayon' | 'marker' | 'colored_pencil';
-  label: string;
-  prompt_fragment: string;
-}
-
-export interface KdpThumbnailReference {
-  path: string;
-  basename: string;
-  label: string;
-  source: 'kdp' | 'codex_generated';
-  project_slug: string;
-  brand: 'KDP';
-  kind: 'image';
-  size_bytes: number;
-}
-
-export interface KdpThumbnailReferencesResponse {
-  styles: KdpThumbnailStyle[];
-  references: KdpThumbnailReference[];
-  reference_cap: number;
-  roots: string[];
-  diagnostics: Array<{
-    severity: string;
-    path?: string;
-    message: string;
-  }>;
-}
-
-export interface KdpCreditSummary {
-  provider: 'NB2';
-  available: boolean;
-  credits: number | null;
-  endpoint: string | null;
-  estimated_credits: number;
-  estimated_cost_usd: number;
-  error: string | null;
-}
-
 export interface ProviderCreditSummary {
   provider: string;
   label: string;
@@ -164,10 +125,4 @@ export interface ProviderCreditsResponse {
   schema_version: '1.0.0';
   generated_at: string;
   providers: ProviderCreditSummary[];
-}
-
-export interface KdpColorThumbnailRequest {
-  source_path: string;
-  style: KdpThumbnailStyle['id'];
-  project_slug?: string;
 }

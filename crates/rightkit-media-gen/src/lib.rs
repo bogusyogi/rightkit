@@ -1,6 +1,8 @@
 //! Generation core: provider adapters, durable jobs (§4.3), the
 //! spend ledger (§4.2), credentials (OS keychain), and result descriptors
-//! (§4.4). The engine CLI and the app sidecar both drive it through [`api`].
+//! (§4.4). A Rust host drives it through the typed API in [`typed`]
+//! ([`typed::GenerateRequest`] to a job to [`typed::Asset`]s); an engine CLI or app sidecar
+//! answers JSON commands through [`api`]. Both are the same path.
 // Provider adapters are ported as written; these style lints would only churn the moved code.
 #![allow(
     clippy::too_many_arguments,
@@ -30,7 +32,6 @@ pub mod jobs;
 pub mod lease;
 pub mod ledger;
 pub mod library;
-pub mod media;
 pub mod media_commands;
 pub mod provenance;
 pub mod providers;
@@ -41,6 +42,7 @@ pub mod runner;
 pub mod search;
 pub mod stock;
 pub mod store;
+pub mod typed;
 pub mod voices;
 
 /// ONNX Runtime readiness for the engine's `doctor` (resolve + load probe).

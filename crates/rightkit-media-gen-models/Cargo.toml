@@ -1,0 +1,21 @@
+[package]
+name = "rightkit-media-gen-models"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Local model management for the media-generation engine: hardware fit, installs through the rightkit-models store, a memory-aware governor for heavy local models, per-capability routes and the studio.models.* commands"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_media_gen_models"
+path = "src/lib.rs"
+
+[dependencies]
+rightkit-media-gen = { version = "0.2.0", path = "../rightkit-media-gen" }
+rightkit-local-gen = { version = "0.1.2", path = "../rightkit-local-gen" }
+rightkit-models = { version = "0.7.0", path = "../rightkit-models" }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }

@@ -1,7 +1,6 @@
-export type ViewId = 'kdp' | 'production' | 'image' | 'video' | 'avatars' | 'motion' | 'voice' | 'voices' | 'recipes' | 'swap' | 'gallery' | 'jobs' | 'settings' | 'music' | 'sfx' | 'upscale' | 'lipsync';
+export type ViewId = 'production' | 'image' | 'video' | 'avatars' | 'motion' | 'voice' | 'voices' | 'recipes' | 'swap' | 'gallery' | 'jobs' | 'settings' | 'music' | 'sfx' | 'upscale' | 'lipsync';
 
 export const VIEW_TITLES: Record<ViewId, string> = {
-  kdp: 'KDP',
   production: 'Production',
   image: 'Image',
   video: 'Video',

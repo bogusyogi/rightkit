@@ -2,28 +2,17 @@
 @import "@rightkit/media-ui/styles.css";
 @import "./views/gallery.css";
 @import "./views/workspace.css";
-@import "./views/kdp.css";
 @import "./views/models-panel.css";
 @import "./views/motion.css";
-@import "@rightkit/onboarding/onboarding.css";
 @import "./views/pipeline-workflows.css";
 @import "./views/production.css";
 @import "./views/route-panel.css";
-@import "@rightkit/settings-ui/settings.css";
 @import "./views/voices.css";
 @import "./views/local/local.css";
 @import "./views/panels/video.css";
 @import "tailwindcss";
 @import "@rightkit/react-shell/shell.css";
 @import "@rightkit/react-shell/suite-aliases.css";
-@import "./brand.css";
-@import "./shell.css";
 /* Confirmation dialog body (lib/confirm via react-shell confirm). */
 .confirm-files { color: var(--ink-3); font-size: 12px; word-break: break-all; }
 .confirm-note { color: var(--ink-3); font-size: 12px; }
-/* Legal document dialog (ModalShell surface). */
-.legal-doc { max-height: 85vh; overflow: auto; padding: 22px 26px; }
-.legal-doc-head { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 14px; }
-.legal-doc-head > div { flex: 1; min-width: 0; }
-.legal-doc-head h1 { font-size: 20px; font-weight: 600; margin: 0; letter-spacing: -.01em; }
-.legal-doc-head p { margin: 4px 0 0; color: var(--rk-ink-2); font-size: 12.5px; }

@@ -1,8 +1,8 @@
 /**
  * Pure helpers that turn the engine's `models` catalog plus form values into
  * `generate` params. The engine's per-model facts (`needs_key`, `default`, `inputs`, `settings`, see
- * crates/genright-gen/src/capabilities.rs) decide; the rule each helper falls back to for a row that
- * lacks them mirrors the Rust adapters in crates/genright-gen/src/providers/*.rs.
+ * crates/rightkit-media-gen/src/capabilities.rs) decide; the rule each helper falls back to for a row that
+ * lacks them mirrors the Rust adapters in crates/rightkit-media-gen/src/providers/*.rs.
  * No imports on purpose: node --test loads this file directly.
  */
 
@@ -25,7 +25,7 @@ export interface LengthFact {
 }
 
 /**
- * Facts the engine's `models` rows state per model (crates/genright-gen/src/capabilities.rs, capability
+ * Facts the engine's `models` rows state per model (crates/rightkit-media-gen/src/capabilities.rs, capability
  * `models.facts`). Every field is optional: a row from an older engine lacks it and the helpers below fall
  * back to the rule the UI used before, field by field.
  */
@@ -639,7 +639,7 @@ export const REFERENCE_MAX = 8;
 
 /**
  * Providers whose image models read `params.image_urls` as reference images (mirrors
- * crates/genright-gen/src/providers/nanobanana.rs and evolink.rs). fal and WaveSpeed
+ * crates/rightkit-media-gen/src/providers/nanobanana.rs and evolink.rs). fal and WaveSpeed
  * reference support varies by model, so they are not listed; the engine can declare it per model.
  */
 const REFERENCE_PROVIDERS = new Set(['nanobanana', 'evolink']);
@@ -653,7 +653,7 @@ export interface ReferenceCaps {
   local_upload?: 'fal_storage' | 'none';
 }
 
-/** The engine's `references` field on an image model row (crates/genright-gen/src/providers/mod.rs `ReferenceInput`). */
+/** The engine's `references` field on an image model row (crates/rightkit-media-gen/src/providers/mod.rs `ReferenceInput`). */
 export interface EngineReferences {
   param: string;
   max?: number;
@@ -706,7 +706,7 @@ export function withReferenceParams(params: Record<string, unknown>, refs: strin
 // ---------------------------------------------------------------- price facts (media modalities)
 
 /**
- * Price facts the engine states per model in `media modalities` (crates/genright-gen/src/catalogue.rs,
+ * Price facts the engine states per model in `media modalities` (crates/rightkit-media-gen/src/catalogue.rs,
  * `describe`: `reconciled` at the top of a model row, `pricing.rounding` on per-megapixel prices). The
  * `models` rows do not carry them. Absent fields mean the engine states nothing about that fact.
  */

@@ -11,38 +11,6 @@
     ],
     "interpolation_rule": "Paste fragment verbatim into the color clause. emotion_keys is consulted ONLY when caller passes colorPsychology='auto' + an emotion."
   },
-  "_brand_defaults": {
-    "DD": {
-      "item_key": "intimacy_warm_skin_tones",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md DD: copper accent + warm earth tones"
-    },
-    "RH": {
-      "item_key": "nostalgia_warm_sepia",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md RH: muted earth tones, slow fashion grounded"
-    },
-    "TS": {
-      "item_key": "tension_red_amber",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md TS: counter-culture defiant emotional palette"
-    },
-    "HR": {
-      "item_key": "calm_blue_grey",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md HR: Linear/Cron/Arc visual peers, structured calm"
-    },
-    "DV": {
-      "item_key": "intimacy_warm_skin_tones",
-      "status": "unknown_needs_owner_input",
-      "seeded_from": "no source yet — Damned Ventures (Professor founder mode)"
-    },
-    "SS": {
-      "item_key": "intimacy_warm_skin_tones",
-      "status": "owner_approved",
-      "seeded_from": "CLAUDE.md SS: photography passion, warm honest portraiture"
-    }
-  },
   "items": {
     "tension_red_amber": {
       "name": "Tension red / amber",

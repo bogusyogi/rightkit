@@ -16,7 +16,6 @@ pub mod approval;
 pub mod asset_facts;
 pub mod diag;
 pub mod ffmpeg;
-pub mod h264;
 pub mod keychain;
 
 /// The app data root: `<PREFIX>_APP_DATA` when set and non-empty, else the per-user data folder

@@ -1,9 +1,9 @@
 [package]
 name = "rightkit-prompt-recipes"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
-description = "Prompt contracts and validator, recipe composer and catalogue, character and LoRA lock, video quality templates, template swap, brand codes and the KDP workflow."
+description = "Prompt contracts and validator, recipe composer, image workflow catalogue, character and LoRA lock data and video shot-contract templates over embedded JSON; host-supplied brands; optional studio command adapter over rightkit-media-gen."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
@@ -14,12 +14,22 @@ name = "rightkit_prompt_recipes"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-media-gen = { version = "0.1.0", path = "../rightkit-media-gen" }
-rightkit-media-gen-approvals = { version = "0.1.0", path = "../rightkit-media-gen-approvals" }
-rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "lock", "digest", "app-dirs"], path = "../rightkit-fs" }
-rightkit-logs = { version = "0.4.0", default-features = false, path = "../rightkit-logs" }
+rightkit-media-gen = { version = "0.2.0", path = "../rightkit-media-gen", optional = true }
+rightkit-media-gen-approvals = { version = "0.1.0", path = "../rightkit-media-gen-approvals", optional = true }
+rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "lock", "digest", "app-dirs"], path = "../rightkit-fs", optional = true }
+rightkit-logs = { version = "0.4.0", default-features = false, path = "../rightkit-logs", optional = true }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 regex = { version = "1" }
 time = { version = "0.3", features = ["formatting", "macros"] }
+
+[features]
+default = []
+# The `studio.<area>.*` command handlers over a rightkit-media-gen Context and its approval gate.
+commands = [
+    "dep:rightkit-media-gen",
+    "dep:rightkit-media-gen-approvals",
+    "dep:rightkit-fs",
+    "dep:rightkit-logs",
+]

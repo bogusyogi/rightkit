@@ -527,7 +527,7 @@ export function ModelsPanel() {
                     <Input aria-label="SSH user" placeholder="SSH user (root)" value={sshUser} onChange={(e) => setSshUser(e.target.value)} />
                     <Input aria-label="SSH port" placeholder="Port (22)" inputMode="numeric" value={sshPort} onChange={(e) => setSshPort(e.target.value)} />
                     <Input aria-label="SSH key path" placeholder="Key path (~/.ssh/id_ed25519)" value={sshKey} onChange={(e) => setSshKey(e.target.value)} />
-                    <Input aria-label="Remote workdir" placeholder="Remote workdir (~/genright)" value={sshWorkdir} onChange={(e) => setSshWorkdir(e.target.value)} />
+                    <Input aria-label="Remote workdir" placeholder="Remote workdir (~/media-gen)" value={sshWorkdir} onChange={(e) => setSshWorkdir(e.target.value)} />
                   </>
                 ) : null}
                 {regDriver === 'vast' ? (

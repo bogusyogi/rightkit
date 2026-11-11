@@ -1,8 +1,8 @@
-// rightkit-media-gen 0.1.2 consumed by exact registry pin (default features), outside the workspace.
+// rightkit-media-gen 0.2.0 consumed by exact registry pin (default features), outside the workspace.
 // Cheap checks on the public surface; no provider keys, no network, no models.
 use std::collections::BTreeSet;
 
-use rightkit_media_gen::{credentials, gallery, host, providers, Context};
+use rightkit_media_gen::{credentials, gallery, host, providers, typed, Context};
 
 fn check(ok: bool, what: &str) {
     if ok {
@@ -120,4 +120,33 @@ fn main() {
         "an eyes state the index never reports is refused",
     );
     let _ = std::fs::remove_dir_all(&shots);
+
+    // The typed request (0.2.0) is the `generate` input of the JSON surface.
+    let request = typed::GenerateRequest::new(
+        providers::Kind::Image,
+        "fal",
+        "fal-ai/flux/dev",
+        "a lighthouse at dawn",
+    )
+    .with_param("aspect", serde_json::json!("16:9"))
+    .with_request_id("r-1")
+    .with_scope(typed::Scope {
+        venture: "acme".into(),
+        channel: "web".into(),
+        account: "main".into(),
+    });
+    let input = request.to_input();
+    check(
+        input["kind"] == "image"
+            && input["model"] == "fal-ai/flux/dev"
+            && input["params"]["aspect"] == "16:9"
+            && input["request_id"] == "r-1"
+            && input["venture"] == "acme",
+        "a typed request is the generate input",
+    );
+    check(
+        host::approval::token_domain() == host::approval::DEFAULT_TOKEN_DOMAIN
+            && host::approval::DEFAULT_TOKEN_DOMAIN == "rightkit-approval-v1",
+        "the approval token domain is neutral until the host sets one",
+    );
 }

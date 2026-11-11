@@ -208,7 +208,7 @@ export function ImportPanel({ onClose, onImported }: ImportPanelProps) {
           <textarea className="rk-input" rows={2} value={form.licenceEvidence} placeholder="One per line: a receipt, licence id or URL. Required for cleared rights." onChange={(e) => change({ licenceEvidence: e.target.value })} aria-invalid={Boolean(errors.licence)} />
         </Field>
         <Field label="Venture">
-          <Input value={form.venture} placeholder="e.g. orthic" onChange={(e) => change({ venture: e.target.value })} />
+          <Input value={form.venture} placeholder="e.g. acme" onChange={(e) => change({ venture: e.target.value })} />
         </Field>
         <Field label="Channel">
           <Input value={form.channel} placeholder="e.g. cutright-how-to" onChange={(e) => change({ channel: e.target.value })} />

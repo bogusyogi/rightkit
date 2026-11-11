@@ -1,17 +1,9 @@
-import { convertFileSrc, invoke, isTauri } from '@tauri-apps/api/core';
+import { mediaGenClient } from './client.js';
 
-export { isTauri };
-/**
- * Browser-preview mock: reachable only in `vite` dev (`import.meta.env?.DEV`). Release builds replace the flag with
- * `false`, so the mock module is neither imported nor bundled. Outside Tauri a release build has no engine to call.
- */
-type BrowserMock = typeof import('./browser-mock-api.js');
-export function loadBrowserMock(): Promise<BrowserMock> {
-  if (import.meta.env?.DEV) return import('./browser-mock-api.js');
-  return Promise.reject(new Error(`${hostAppName()} needs the desktop app.`));
-}
-let devMockScene: ((seed: number) => string) | undefined;
-if (import.meta.env?.DEV) void import('./browser-mock-api.js').then((m) => { devMockScene = m.mockScene; });
+export { mediaGenClient, setMediaGenClient, tauriClient, type MediaGenClient } from './client.js';
+
+/** True when the host's client reaches an engine on this machine (desktop-only features). */
+export const isTauri = (): boolean => mediaGenClient().isDesktop();
 import { toError } from './engine-error.js';
 import { priceFactsFromModalities, type ModelFacts, type ModelPriceFacts } from './gen-params.js';
 export type { ModelPriceFacts } from './gen-params.js';
@@ -27,8 +19,6 @@ import type {
   LocalImageRuntimeStatus,
   LocalImageSubmitRequest
 } from './types.js';
-import { hostAppName } from "../appName.js";
-
 export { EngineError, errorCode, errorDetails, errorMessage, errorText, toError } from './engine-error.js';
 export type { EngineErrorDetails } from './engine-error.js';
 
@@ -273,15 +263,8 @@ export interface InstalledApp {
 }
 
 async function engine<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-  if (!isTauri()) {
-    try {
-      return await (await loadBrowserMock()).mockEngine<T>(method, params);
-    } catch (error) {
-      throw toError(error);
-    }
-  }
   try {
-    return await invoke<T>('engine_request', { command: { method, params } });
+    return await mediaGenClient().request<T>(method, params);
   } catch (error) {
     throw toError(error);
   }
@@ -303,21 +286,14 @@ export type ApprovalKind = 'recipes' | 'video_templates' | 'recipe_templates' | 
  * then writes the confirmation into the spec. No other kind takes `params`.
  */
 export async function approveDraft<T>(kind: ApprovalKind, draftId: string, displayedHash: string, params?: Record<string, unknown>): Promise<T> {
-  if (!isTauri()) {
-    try {
-      return await (await loadBrowserMock()).mockApproveDraft<T>(kind, draftId, displayedHash, params);
-    } catch (error) {
-      throw toError(error);
-    }
-  }
   try {
-    return await invoke<T>('approve_draft', { request: { kind, draftId, displayedHash, ...(params ? { params } : {}) } });
+    return await mediaGenClient().approveDraft<T>({ kind, draftId, displayedHash, ...(params ? { params } : {}) });
   } catch (error) {
     throw toError(error);
   }
 }
 
-/** Call a `studio.<area>.<verb>` engine command (see crates/genright-studio). */
+/** Call a `studio.<area>.<verb>` engine command (the studio crates: rightkit-prompt-recipes, rightkit-media-gen-models, ...). */
 export function studio<T>(name: string, input: Record<string, unknown> = {}): Promise<T> {
   return command<T>(name.startsWith('studio.') ? name : `studio.${name}`, input);
 }
@@ -517,15 +493,7 @@ export const deleteAsset = (target: { asset_id?: string; path?: string }) =>
 
 /* ---------- Library search and asset import (engine `library.search` and `asset.import`) ---------- */
 
-/** Routes to the browser mock outside Tauri, and to the engine command otherwise. */
-async function libraryCommand<T>(name: string, input: Record<string, unknown>): Promise<T> {
-  if (!isTauri()) {
-    try {
-      return await (await loadBrowserMock()).mockLibraryCommand<T>(name, input);
-    } catch (error) {
-      throw toError(error);
-    }
-  }
+function libraryCommand<T>(name: string, input: Record<string, unknown>): Promise<T> {
   return command<T>(name, input);
 }
 
@@ -551,11 +519,10 @@ export function importAsset(request: AssetImportRequest): Promise<AssetImportRes
   return libraryCommand<AssetImportResult>('asset.import', { ...request, dry_run: false });
 }
 
-/** URL a webview can load for an on-disk asset (or an inline data/mock asset). */
+/** URL a webview can load for an on-disk asset (inline data, blob and http URLs pass through). */
 export function assetUrl(path: string): string {
   if (path.startsWith('data:') || path.startsWith('blob:') || /^https?:/.test(path)) return path;
-  if (import.meta.env?.DEV && path.startsWith('browser-qa-mock://')) return devMockScene ? devMockScene(path.length) : '';
-  return isTauri() ? convertFileSrc(path) : `/api/artifact?path=${encodeURIComponent(path)}`;
+  return mediaGenClient().assetUrl(path);
 }
 
 // Local image: the engine's `local_image.*` commands, reached through the same `command` path as the rest of the engine.
@@ -666,14 +633,7 @@ export interface RoutePrefsResult {
 /** `media.route` input. Provider and model are sent only when the user picked a route. Never submits. */
 export type RouteInput = { kind: MediaKind; provider?: string; model?: string; privacy?: 'local_only' };
 
-async function routingCommand<T>(method: 'media.route' | 'media.route_prefs', input: Record<string, unknown>): Promise<T> {
-  if (!isTauri()) {
-    try {
-      return await (await loadBrowserMock()).mockRouting<T>(method, input);
-    } catch (error) {
-      throw toError(error);
-    }
-  }
+function routingCommand<T>(method: 'media.route' | 'media.route_prefs', input: Record<string, unknown>): Promise<T> {
   return command<T>(method, input);
 }
 
@@ -933,7 +893,7 @@ export interface RecipeBatchDecision {
 
 function recipeCall<T>(name: string, input: Record<string, unknown> = {}): Promise<T> {
   const full = name.startsWith('studio.') ? name : `studio.${name}`;
-  return isTauri() ? studio<T>(full, input) : loadBrowserMock().then((m) => m.mockRecipeTemplates<T>(full, input));
+  return studio<T>(full, input);
 }
 
 export function recipeTemplatesList(): Promise<RecipeTemplatesResult> {
@@ -949,11 +909,10 @@ export function recipeTemplatePreflight(input: RecipeTemplateInput): Promise<Rec
 }
 
 /**
- * Approve one recipe-template draft as the user. In the app this is approveDraft('recipe_templates', ...),
- * which the app's Tauri command turns into the engine's token-bound approval. Outside Tauri it goes to the mock.
+ * Approve one recipe-template draft as the user: approveDraft('recipe_templates', ...), which the host
+ * turns into the engine's token-bound approval.
  */
 export function approveRecipeTemplateDraft(draftId: string, displayedHash: string): Promise<RecipeApproveResult> {
-  if (!isTauri()) return loadBrowserMock().then((m) => m.mockRecipeTemplateApprove<RecipeApproveResult>(draftId, displayedHash));
   return approveDraft<RecipeApproveResult>('recipe_templates', draftId, displayedHash);
 }
 
@@ -1003,6 +962,8 @@ export interface RecipeCatalogueNodeStatus {
   params_checked?: boolean;
   /** For unserved nodes: the preferred route first, then the alternatives. Empty otherwise. */
   missing_routes: RecipeCatalogueRoute[];
+  /** The node ids this node reads (engine `rightkit-prompt-recipes` 0.2.0 and later). */
+  depends_on?: string[];
 }
 
 export interface RecipeCatalogueGraph {
@@ -1041,7 +1002,7 @@ export interface RecipeCatalogueValidation {
 
 function recipeCatalogueCall<T>(name: string, input: Record<string, unknown> = {}): Promise<T> {
   const full = name.startsWith('studio.') ? name : `studio.${name}`;
-  return isTauri() ? studio<T>(full, input) : loadBrowserMock().then((m) => m.mockRecipeCatalogue<T>(full, input));
+  return studio<T>(full, input);
 }
 
 /** Every seeded recipe graph, with validity, served status per node and the plan's named recipes. */
@@ -1056,7 +1017,7 @@ export function recipeCatalogueValidate(id: string): Promise<RecipeCatalogueVali
 
 // RENTALS (begin): the rented-worker rentals panel. These calls never rent: a rental is created only by
 // `studio.models.worker.action` `provision` (authorized, budgeted, spend-reserved), which the panel does not send.
-// Engine: crates/genright-studio/src/model_management/mod.rs (worker_action: teardown, resolve_rental) and rental.rs.
+// Engine: crates/rightkit-remote-compute/src/commands.rs (worker_action: teardown, resolve_rental) and rental.rs.
 
 /** Every Vast rental with elapsed, accrued, the three limits (time left) and warnings. Read only. */
 export const rentalsList = () => studio<RentalsListing>('models.rentals');

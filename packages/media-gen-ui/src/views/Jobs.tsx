@@ -1,17 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import {
   assetUrl,
   errorMessage,
   fetchJobStatus,
   isHeldJob,
-  isTauri,
   toError,
   type GenerateRequest,
   type JobStatus,
   type MediaKind
 } from '../lib/api.js';
-import { loadBrowserMock } from '../lib/api.js';
+import { mediaGenClient } from '../lib/client.js';
 import { jobIsActive, useApp, type SessionJob } from '../lib/app-state.js';
 import { JobOutputs, statusText } from '../components/JobCard.js';
 import { heldActionLabel, heldActions, heldConsequence, heldExplanation, heldLabel, isRecoveredCode, type HeldAction } from '../lib/held-job.js';
@@ -71,15 +69,8 @@ function bucket(job: SessionJob): Filter {
  * Kept here so this view has no dependency beyond the command surface. */
 async function runEngineJob(jobId: string): Promise<JobStatus> {
   const input = { job_id: jobId };
-  if (!isTauri()) {
-    try {
-      return (await (await loadBrowserMock()).mockEngine('command', { name: 'job.run', input })) as JobStatus;
-    } catch (error) {
-      throw toError(error);
-    }
-  }
   try {
-    return await invoke<JobStatus>('engine_request', { command: { method: 'command', params: { name: 'job.run', input } } });
+    return await mediaGenClient().request<JobStatus>('command', { name: 'job.run', input });
   } catch (error) {
     throw toError(error);
   }

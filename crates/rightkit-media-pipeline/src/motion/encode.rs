@@ -7,9 +7,9 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use rightkit_ffmpeg::h264_rule as h264;
 use rightkit_ffmpeg::{EncoderInventory, FfmpegBinary};
 use rightkit_media_gen::host::ffmpeg::FfmpegHandle;
-use rightkit_media_gen::host::h264;
 use rightkit_motion::{EncoderKind, RenderError};
 use serde::Serialize;
 

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { errorMessage, studio } from '../lib/api.js';
 import { Card, Badge, Button, EmptyState, Notice, SegmentedControl, Select } from '@rightkit/react-shell/react';
 import { Kv } from '../components/ui.js';
-import brandCatalog from '../studio-data/brands/brands.json' with { type: "json" };
+import { hostBrandCodes } from '../lib/brands.js';
 import { RecipeTemplatesArea } from './RecipeTemplates.js';
 import { RecipeCatalogueArea } from './RecipeCatalogue.js';
 
@@ -48,7 +48,6 @@ interface ComposeResult {
 }
 
 const ASPECTS = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'];
-const BRANDS: string[] = (brandCatalog.brands as Array<{ code: string }>).map((b) => b.code);
 const COMPOSE_SLOTS = ['aesthetic', 'composition', 'lens', 'lighting', 'depth', 'color', 'skin'];
 
 export function Recipes() {
@@ -150,7 +149,7 @@ export function Recipes() {
                 </div>
                 <div>
                   <label>Brand</label>
-                  <Select label="Brand" value={brand} onChange={setBrand} options={[{ value: '', label: 'None' }, ...BRANDS.map((b) => ({ value: b, label: b }))]} />
+                  <Select label="Brand" value={brand} onChange={setBrand} options={[{ value: '', label: 'None' }, ...hostBrandCodes().map((b) => ({ value: b, label: b }))]} />
                 </div>
                 <div>
                   <label>Aspect</label>

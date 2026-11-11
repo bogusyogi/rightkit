@@ -40,7 +40,8 @@ use crate::host::http::{Http, Request};
 use serde_json::{json, Value};
 
 use crate::store::{self, io_err};
-use crate::{credentials, library, media, provenance, Context, GenError, GenResult};
+use crate::{credentials, library, provenance, Context, GenError, GenResult};
+use rightkit_ffmpeg::quickprobe as media;
 
 /// Providers `asset.acquire` accepts, in the order the issue names them.
 pub const PROVIDERS: &[&str] = &["pexels", "pixabay", "archive", "nasa", "wikimedia"];

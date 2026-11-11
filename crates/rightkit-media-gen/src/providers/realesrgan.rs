@@ -136,7 +136,7 @@ fn version_key(v: &str) -> Vec<u64> {
 impl RealEsrgan {
     pub fn new() -> Self {
         Self {
-            root: super::orthic_root(),
+            root: super::tools_root(),
         }
     }
 

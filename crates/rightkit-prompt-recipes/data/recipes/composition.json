@@ -11,38 +11,6 @@
     ],
     "interpolation_rule": "Paste fragment verbatim into the composition clause."
   },
-  "_brand_defaults": {
-    "DD": {
-      "item_key": "golden_ratio",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md DD: premium product elegance, considered framing"
-    },
-    "RH": {
-      "item_key": "rule_of_thirds_left",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md RH: editorial-magazine default"
-    },
-    "TS": {
-      "item_key": "dutch_angle",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md TS: defiant counter-culture tension"
-    },
-    "HR": {
-      "item_key": "centered_static",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md HR: Linear/Cron deliberate structured symmetry"
-    },
-    "DV": {
-      "item_key": "rule_of_thirds_left",
-      "status": "unknown_needs_owner_input",
-      "seeded_from": "no source yet"
-    },
-    "SS": {
-      "item_key": "golden_ratio",
-      "status": "owner_approved",
-      "seeded_from": "CLAUDE.md SS: fine-art photography editorial framing"
-    }
-  },
   "items": {
     "rule_of_thirds_left": {
       "name": "Rule of thirds — subject left",

@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.3.5 (unpublished)
+## 0.3.6 (unpublished)
+
+- `MaskExportOptions.invert` (and so `MaskPainter`'s `exportPng({ invert: true })` and `exportMaskPng`): the unpainted pixels become the edit region. `@rightkit/media-gen-ui` 0.2.0 paints its masks with `MaskPainter` and deleted its own `MaskBrush`, which had this option (shape review 2026-11-11, `@rightkit/media-ui` row). Additive. Taken on the recommended option, pending the owner's confirmation.
+
+## 0.3.5 (2026-11-11)
 
 - Removed (Adrian, 2026-11-03: end-to-end tests only; a built harness page on a dev server is not end to end): the real-browser tests against a harness page, their harness, `test/` (harness, fixture media), the `test:browser` script and the devDependencies `@rightkit/qa-chrome` and `esbuild`. Nothing shipped changes.
 

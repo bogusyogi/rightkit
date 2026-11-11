@@ -1624,30 +1624,23 @@
         "install": {
           "react": "19.3.1",
           "react-dom": "19.3.1",
-          "@rightkit/app-update": "0.4.2",
-          "@rightkit/legal": "0.6.3",
-          "@rightkit/legal-ui": "0.4.1",
-          "@rightkit/license": "0.3.0",
           "@rightkit/logs": "0.1.6",
-          "@rightkit/media-ui": "0.3.4",
+          "@rightkit/media-ui": "0.3.6",
           "@rightkit/onboarding": "0.6.3",
           "@rightkit/platform-ui": "0.4.0",
           "@rightkit/react-shell": "0.7.2",
           "@rightkit/settings-ui": "0.7.0",
-          "@rightkit/tauri-shell": "0.1.3",
-          "@rightkit/theme": "0.3.1"
+          "@rightkit/tauri-shell": "0.1.3"
         },
         "declaredOnly": [
           "@tauri-apps/api",
-          "@tauri-apps/plugin-process",
-          "@tauri-apps/plugin-updater",
           "tailwindcss"
         ]
       },
       "files": {
-        "ci/consumers/npm/media-gen-ui/README.md": "a95700534bf253dbb7f8cab40292e619580bee1d57a0883d9820b9340b6f8e86",
-        "ci/consumers/npm/media-gen-ui/consumer.mjs": "38f8d6aa2a8e4d503e59ac88976cc135d75608ec7ea6e4bc8dd1beda8ee07fd6",
-        "ci/consumers/npm/media-gen-ui/package.json": "6bc1af09dda93af4ad5180bf12d2389878aaf2ee1e8248a3f4d8218dbd8b0dc1",
+        "ci/consumers/npm/media-gen-ui/README.md": "6b049111b18fe9f79d18fedf0318621245f4dd600b21881835b23234faf4b249",
+        "ci/consumers/npm/media-gen-ui/consumer.mjs": "7964c962df0dc90460cdb31fd00a3d09c7d7d7280b4f9e25b5d6e339079ca5e7",
+        "ci/consumers/npm/media-gen-ui/package.json": "16f119b0cbbd3a831ad4bc10285b06f2f9ccdd1c533574ce125e5e9971d3aa65",
         "ci/consumers/npm/media-gen-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "fc160695e1dc97dc7e32e746c9e4471e2d85168b097623de818befeb00ee438c"
       }
@@ -3158,9 +3151,9 @@
       "pkId": "PK103",
       "id": "ci/consumers/rightkit-local-gen/src/main.rs",
       "files": {
-        "Cargo.toml": "cecd087d2875dcb62b1380156f78fc08cd78cb859186e1b8f733083021e393dd",
-        "README.md": "c478887674563d48cae2d3a466ed9b625e917096375390c8827ad26bf0c157d7",
-        "src/main.rs": "9ef9d908b04562786af926808739ee33653d90069e9ad047eed46ef5f289e392"
+        "Cargo.toml": "7933dd9468e7641fb2f9c3661c61e88d60b11ba985db56724ee80c6b49a28c3e",
+        "README.md": "24bc590a63627654778b5d8d62d9cf514ac7978b28544a7f611d90fe244c17c6",
+        "src/main.rs": "137e9b9e375b3891561a9b359e0372680120310e7fd7267490db5e11c80431ac"
       }
     },
     "rightkit-mail": {
@@ -3185,9 +3178,9 @@
       "pkId": "PK106",
       "id": "ci/consumers/rightkit-media-gen/src/main.rs",
       "files": {
-        "Cargo.toml": "41d3d7d03aea38a52d345edf3ac110f3c554cb3eacef0a895b80cdd5b1e6aa0b",
-        "README.md": "ceaa555d89bddaf21642d8fa8476809e209db206f5af39967d936f747bd2181a",
-        "src/main.rs": "cf31c30603fd1d9d9a5b610d5c00b4d852448a95f8a44378762a8dba1d560da4"
+        "Cargo.toml": "bce40ecb812178dbf44a95bbb152d29608c69872898a70278484d8706ed5d32b",
+        "README.md": "51b5f936fd39c03520cd82f6395fa7c8e6f5ea7730e6aa93cbc89f7acb99e4a2",
+        "src/main.rs": "a079c9cf56c4c27887972bcf6416faf683616df6f75b571c52e0a10b1caecea1"
       }
     },
     "rightkit-media-pipeline": {
@@ -3239,9 +3232,9 @@
       "pkId": "PK112",
       "id": "ci/consumers/rightkit-remote-compute/src/main.rs",
       "files": {
-        "Cargo.toml": "772a37ce5f4e38550466bd7492715ddd1c5b26554ecfe9532338bf702d1f25d8",
-        "README.md": "316d9dc9eeca7574999c90beb488821bca52bdff402b1c13fb726f4f4fedbd15",
-        "src/main.rs": "bc0b6cfecf34231cb9cae9dca2ff475690f5d89fd5ecf1c19a5f3d951ec6d832"
+        "Cargo.toml": "59448017a2bc494abe310297b64a34503f1d22b7d102a4376a96f6ddb2fc31a5",
+        "README.md": "69a4d2f742a85422b82c07cb5365adfd69e86becacf014a1832ea9d8901bd46d",
+        "src/main.rs": "56fe0e952deea432f0993749e947547a4719c9ccca288b9d1cf154cfafb3e540"
       }
     },
     "rightkit-repo-graph-grammars": {
@@ -3635,9 +3628,18 @@
       "pkId": "PK217",
       "id": "ci/consumers/rightkit-media-gen-approvals/src/main.rs",
       "files": {
-        "Cargo.toml": "f2222eab831d482a449dcb20468bad82e77bdf1cb2b2df8e4736340f5b6819c6",
-        "README.md": "ed3a0a4c7300c48d83b6746256d388cf6f2df167eb9937096c7734ccf2b66c85",
+        "Cargo.toml": "f1f4ef1ebee28028a82a169301f950f81e4e85edb5ba89436968f0d22211aff8",
+        "README.md": "371509569c21dcbba869cb34e490250b834d7a3900a7ecbd1e45035b9d4338c7",
         "src/main.rs": "31d1a15d9172d1424003002b7ff70938298a82e2883472a2dd10c7e25129af3c"
+      }
+    },
+    "rightkit-media-gen-models": {
+      "pkId": "PK240",
+      "id": "ci/consumers/rightkit-media-gen-models/src/main.rs",
+      "files": {
+        "Cargo.toml": "f484141b91d6a0218988087c9a20524b0d336c9df294e06b817b03e4154e8ccc",
+        "README.md": "68ec762cef1123c648f375ec5b6dbcda5f83f68b43eb31f0d0bc613aed9e382a",
+        "src/main.rs": "bb2948a06fd515efe8192168fb931dcfc9356b2e8f1d125592d00334370faffd"
       }
     },
     "rightkit-agent-task-contract": {
@@ -3869,9 +3871,9 @@
       "pkId": "PK187",
       "id": "ci/consumers/rightkit-prompt-recipes/src/main.rs",
       "files": {
-        "Cargo.toml": "147b969e6d45ea3007e63b9c8d4e21b44d1a31d2202f45c41e0e264a925c3831",
-        "README.md": "e8ac98c42bb6b1e2d8870e33915dc2c13a3c3c558dc48c6cb28ba7151e41fb9e",
-        "src/main.rs": "6b3bc060d7402ff92d073d859ad24ccdbcb015828e31db0164aa05040d170431"
+        "Cargo.toml": "7a9b3d08552116868565bf980bbb977d73951b0f74adbc68c56698bb1387d014",
+        "README.md": "eed35fa585bb4194d2e0163648e8f09f32e808de6ff2752960e53331573b4c58",
+        "src/main.rs": "69ba60728ee875c5a2f23bb59934d2e5e19b2b4510dd208afcc2ecc251458fbc"
       }
     },
     "rightkit-win-ui": {

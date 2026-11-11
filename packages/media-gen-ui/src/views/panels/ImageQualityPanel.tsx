@@ -22,7 +22,7 @@ import { readUiSetting, writeUiSetting } from '../../lib/settings-backend.js';
 
 export const ImageQualityPanelKinds: string[] = ['image'];
 
-const GUARD_KEY = 'genright.image.guard';
+const GUARD_KEY = 'media-gen.image.guard';
 
 const ASPECTS = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'];
 

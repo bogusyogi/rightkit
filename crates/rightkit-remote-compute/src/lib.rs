@@ -1,45 +1,65 @@
 // JobStore closures return rightkit-job-queue's JobResult, whose JobError is large by design (that crate allows this lint for the same reason).
 #![allow(clippy::result_large_err)]
-//! Local and rented model compute. [`models`] is the local model catalogue, hardware fit, the
-//! memory-aware governor for heavy local models, installs and the `studio.models.*` commands.
 //! Rented GPU workers: the register, stage, run and teardown lifecycle of remote workers, the
-//! drivers behind it ([`remote`]: SSH, Vast.ai and, in tests, a local folder stand-in) and the
+//! drivers behind it ([`remote`]: SSH, Vast.ai and, in tests, a local folder stand-in), the
 //! time-billed spend bracket around a rental ([`rental`]: reserve before the create, settle at
-//! destroy, enforcement of duration, budget and idle limits).
+//! destroy, enforcement of duration, budget and idle limits) and the rented-worker commands
+//! ([`commands`]). Local model management is `rightkit-media-gen-models`.
 //!
-//! Worker records live as one JSON array in the job store's settings table under
-//! [`WORKERS_KEY`]. Every read-modify-write of that array should run under
-//! [`rental::RentalLock`].
+//! Worker records are one JSON array kept by a [`WorkerStore`]. The default store is the media-gen
+//! job database's settings table under [`WORKERS_KEY`], beside the spend ledger the rental bracket
+//! reserves in; a host that keeps workers elsewhere installs its own with [`set_worker_store`].
+//! Every read-modify-write of the array should run under [`rental::RentalLock`].
+
+use std::sync::OnceLock;
 
 use serde_json::{json, Value};
 
 use rightkit_media_gen::{store, Context, GenResult};
 
-pub mod models;
+pub mod commands;
 pub mod remote;
 pub mod rental;
 
-/// Settings key of the worker records array.
+/// Settings key of the worker records array in the default store.
 pub const WORKERS_KEY: &str = "models.rented_workers";
 
-/// Read a JSON setting, or `default` when it is absent or unreadable.
-pub fn get_json(ctx: &Context, key: &str, default: Value) -> GenResult<Value> {
-    let conn = store::open(ctx)?;
-    Ok(conn
-        .read(|c| store::settings().get(c, key).map_err(store::settings_err))
-        .map_err(store::je)?
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or(default))
+/// Where worker records live. Both calls see the whole array; callers serialise read-modify-write
+/// cycles with [`rental::RentalLock`].
+pub trait WorkerStore: Send + Sync {
+    fn load(&self, ctx: &Context) -> GenResult<Vec<Value>>;
+    fn save(&self, ctx: &Context, workers: &[Value]) -> GenResult<()>;
 }
 
-pub fn set_json(ctx: &Context, key: &str, value: &Value) -> GenResult<()> {
-    let conn = store::open(ctx)?;
-    conn.write(|c| {
-        store::settings()
-            .set(c, key, &value.to_string())
-            .map_err(store::settings_err)
-    })
-    .map_err(store::je)
+/// The default store: the media-gen settings table, key [`WORKERS_KEY`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SettingsWorkerStore;
+
+impl WorkerStore for SettingsWorkerStore {
+    fn load(&self, ctx: &Context) -> GenResult<Vec<Value>> {
+        Ok(store::setting_json(ctx, WORKERS_KEY, json!([]))?
+            .as_array()
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    fn save(&self, ctx: &Context, workers: &[Value]) -> GenResult<()> {
+        store::set_setting_json(ctx, WORKERS_KEY, &Value::Array(workers.to_vec()))
+    }
+}
+
+static WORKER_STORE: OnceLock<Box<dyn WorkerStore>> = OnceLock::new();
+
+/// Install the host's worker store once, before the first worker is read. Returns the rejected
+/// store when one is already in force.
+pub fn set_worker_store(store: Box<dyn WorkerStore>) -> Result<(), Box<dyn WorkerStore>> {
+    WORKER_STORE.set(store)
+}
+
+fn worker_store() -> &'static dyn WorkerStore {
+    WORKER_STORE
+        .get_or_init(|| Box::new(SettingsWorkerStore))
+        .as_ref()
 }
 
 /// Worker ids from the owner's random identifier (`rightkit-logs` `identity::random_uuid`).
@@ -48,14 +68,11 @@ pub fn new_worker_id() -> String {
 }
 
 pub fn load_workers(ctx: &Context) -> GenResult<Vec<Value>> {
-    Ok(get_json(ctx, WORKERS_KEY, json!([]))?
-        .as_array()
-        .cloned()
-        .unwrap_or_default())
+    worker_store().load(ctx)
 }
 
 pub fn save_workers(ctx: &Context, workers: &[Value]) -> GenResult<()> {
-    set_json(ctx, WORKERS_KEY, &Value::Array(workers.to_vec()))
+    worker_store().save(ctx, workers)
 }
 
 pub fn worker_event(worker: &mut Value, action: &str, from: &str, to: &str, detail: Value) {

@@ -6,8 +6,8 @@
 
 use std::path::{Path, PathBuf};
 
+use rightkit_ffmpeg::h264_rule as h264;
 use rightkit_media_gen::host::ffmpeg::{trust, FfmpegBinary, FfmpegHandle, FfprobeHandle};
-use rightkit_media_gen::host::h264;
 use serde_json::{json, Value};
 
 use crate::{GenError, GenResult};
@@ -209,7 +209,7 @@ impl FfCaps {
             .any(|l| l.split_whitespace().nth(1) == Some(name))
     }
     /// Video encoder + whether it is real H.264, for readiness checks: the shared rule
-    /// (`rightkit_media_gen::host::h264`) with MPEG-4 counted as usable. Compose itself decides
+    /// (`rightkit_ffmpeg::h264_rule`) with MPEG-4 counted as usable. Compose itself decides
     /// through the same rule and requires an explicit opt-in for MPEG-4 output.
     pub fn pick_video_encoder(&self) -> GenResult<(&'static str, bool)> {
         match h264::decide(&self.encoders, None, true) {

@@ -40,9 +40,9 @@ use super::{
     model_load_failed, ort_init_failure, Durations, GenRequest, Kind, ModelInfo, Output,
     PollOutcome, Provider, ProviderError, SubmitOutcome,
 };
-use crate::host::h264;
 use image::{imageops, RgbImage};
 use rightkit_child_process::{run as run_captured, RunOptions};
+use rightkit_ffmpeg::h264_rule as h264;
 use rightkit_ffmpeg::{FfmpegBinary, FfmpegCommand};
 use rightkit_onnx::ort::session::{builder::GraphOptimizationLevel, Session};
 use rightkit_onnx::ort::value::Tensor;
@@ -732,7 +732,7 @@ fn h264_unavailable(listing: &str, ffmpeg_message: Option<&str>) -> ProviderErro
     )
 }
 
-/// Renders the lip-sync video through the shared H.264 rule (`crate::host::h264`): the
+/// Renders the lip-sync video through the shared H.264 rule (`rightkit_ffmpeg::h264_rule`): the
 /// platform hardware encoder; an encoder that refuses to start (an initialisation error in
 /// ffmpeg's own output) gets one more H.264 candidate, if any. Lip-sync never produces MPEG-4:
 /// the provider output has no field that could report the fallback, so the typed error is the

@@ -9,8 +9,8 @@ use serde_json::{json, Value};
 
 use rightkit_audio::filter::render_chain;
 use rightkit_audio::Filter;
+use rightkit_ffmpeg::h264_rule as h264;
 use rightkit_ffmpeg::{FfmpegArg, FfmpegBinary, FfmpegCommand};
-use rightkit_media_gen::host::h264;
 
 use super::media;
 use crate::{GenError, GenResult};
@@ -418,7 +418,7 @@ fn build_args(
             .texts(["-c:s", "mov_text"]);
     }
 
-    // One H.264 rule, shared with Motion and lip-sync (rightkit_media_gen::host::h264): the platform
+    // One H.264 rule, shared with Motion and lip-sync (rightkit_ffmpeg::h264_rule): the platform
     // hardware encoder, else a typed error. MPEG-4 only when the caller asked for it, and never
     // when require_h264 is set.
     let require_h264 = input["require_h264"] == true;

@@ -7,6 +7,8 @@ export interface MaskExportOptions {
    * image-edit endpoints read from the alpha channel.
    */
   transparentEdit?: boolean;
+  /** `true`: the unpainted pixels are the edit region (paint what to keep). Default `false`. */
+  invert?: boolean;
 }
 
 /** A pixel counts as painted when its alpha reaches half coverage. */
@@ -24,8 +26,9 @@ export function maskHasPaint(rgba: Uint8ClampedArray): boolean {
 export function maskPixels(rgba: Uint8ClampedArray, options: MaskExportOptions = {}): Uint8ClampedArray {
   const out = new Uint8ClampedArray(rgba.length);
   const transparentEdit = options.transparentEdit === true;
+  const invert = options.invert === true;
   for (let i = 0; i < rgba.length; i += 4) {
-    const painted = rgba[i + 3]! >= PAINTED_ALPHA;
+    const painted = (rgba[i + 3]! >= PAINTED_ALPHA) !== invert;
     if (transparentEdit) {
       out[i] = 0;
       out[i + 1] = 0;

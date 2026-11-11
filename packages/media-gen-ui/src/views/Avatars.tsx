@@ -93,7 +93,7 @@ const TYPES: Array<{ id: AvatarType; label: string; blurb: string }> = [
   { id: 'prompt', label: 'Prompt avatar', blurb: 'Generate a new avatar from a text description. Nobody real is depicted.' }
 ];
 
-/** Mirrors the engine's `cost_notice` (genright-studio avatars.rs PRICE_NOTICE); the engine is the authority and repeats it in every create result and refusal. */
+/** Mirrors the engine's `cost_notice` (rightkit-media-gen avatars.rs PRICE_NOTICE); the engine is the authority and repeats it in every create result and refusal. */
 const PRICE_NOTICE =
   `Price not published: HeyGen does not publish an API price for avatar creation, so ${hostAppName()} cannot estimate or reserve it. It may use your HeyGen plan credits or bill your account, and it is not counted against ${hostAppName()}\u2019s daily cap.`;
 

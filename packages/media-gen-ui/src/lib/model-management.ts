@@ -1,6 +1,6 @@
 // Model-management helpers shared by the Models panel and its tests. Pure
 // logic only — engine calls live in `ModelsPanel.tsx` via `studio()`.
-// Contract: `studio.models.*` (crates/genright-studio/src/model_management.rs,
+// Contract: `studio.models.*` (crates/rightkit-media-gen-models/src/lib.rs,
 // docs/MODEL-MANAGEMENT.md).
 
 export type EngineKind =

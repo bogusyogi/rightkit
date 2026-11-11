@@ -9,7 +9,7 @@ const result = { recipeId, schemaVersion: 1, ok: false, host: { platform: proces
 const failure = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error) });
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
 const surface = [".", "./package.json", "./styles.css"];
-const expected = ["setHostAppName", "hostAppName", "Balances"];
+const expected = ["setHostAppName", "hostAppName", "Balances", "setMediaGenClient", "tauriClient", "setHostBrands", "MaskEditor"];
 
 try {
   const archive = path.resolve(required('RIGHTKIT_CONSUMER_ARTIFACT'));

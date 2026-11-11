@@ -636,6 +636,27 @@ pub fn settings_err(e: rightkit_app_settings::SqlError) -> JobError {
     JobError::new("db", e.to_string())
 }
 
+/// A JSON setting from the `settings` table, or `default` when it is absent or unreadable.
+pub fn setting_json(ctx: &Context, key: &str, default: Value) -> GenResult<Value> {
+    let conn = open(ctx)?;
+    Ok(conn
+        .read(|c| settings().get(c, key).map_err(settings_err))
+        .map_err(je)?
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or(default))
+}
+
+/// Store a JSON setting in the `settings` table.
+pub fn set_setting_json(ctx: &Context, key: &str, value: &Value) -> GenResult<()> {
+    let conn = open(ctx)?;
+    conn.write(|c| {
+        settings()
+            .set(c, key, &value.to_string())
+            .map_err(settings_err)
+    })
+    .map_err(je)
+}
+
 /// Append a progress event; its status and attempt are the job's current ones.
 /// Returns the wire form.
 pub fn add_event(db: &Db, job_id: &str, stage: &str, message: Option<&str>) -> GenResult<Value> {

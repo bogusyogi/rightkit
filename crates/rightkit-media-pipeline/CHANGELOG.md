@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0
+
+- Requires `rightkit-media-gen` 0.2.0 (breaking: the media-gen types this crate exposes come from the new major). The H.264 rule is `rightkit_ffmpeg::h264_rule` (compose, motion encode, media capabilities); `rightkit_media_gen::host::h264` was a copy and is gone. Same rule, same behaviour.
+- Taken on the recommended option of the 2026-11-11 shape review, pending the owner's confirmation (docs/audits/2026-11-11-shape-matrix/reports/genright-redraw.md).
+
 ## Unreleased
 
 - Breaking (feature `motion`): requires `rightkit-motion` 0.4.0, whose `Encoder` `motion::encode::pick_encoder` and `pick_alpha_encoder` return. Version 0.2.0. Taken on the recommended option of the shape review (`docs/audits/2026-11-11-shape-matrix/reports/cut-post-redraw.md`), pending the owner's confirmation.

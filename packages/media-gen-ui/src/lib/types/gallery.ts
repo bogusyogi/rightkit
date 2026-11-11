@@ -1,7 +1,8 @@
 import type { AssetFacts, AssetScope } from './library.js';
 
 export type ArtifactType = 'image' | 'video' | 'audio' | 'unknown';
-export type Brand = 'DD' | 'RH' | 'TS' | 'HR' | 'DV' | 'KDP' | 'NA';
+/** A host brand code (setHostBrands), or 'NA' for none. */
+export type Brand = string;
 export type Visibility = 'primary' | 'intermediate';
 export type MetadataStatus = 'complete' | 'incomplete' | 'malformed' | 'missing_media';
 export type EyesStatus = 'unknown' | 'pending' | 'approved' | 'rejected' | 'rework' | 'stale';

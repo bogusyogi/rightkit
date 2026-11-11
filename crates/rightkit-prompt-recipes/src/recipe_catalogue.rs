@@ -87,7 +87,8 @@ use std::sync::OnceLock;
 use rightkit_media_gen::catalogue::{Catalogue, Entry, InputType, Role};
 use serde_json::{json, Map, Value};
 
-use rightkit_media_gen::{Context, GenError, GenResult};
+use crate::{RecipeError, RecipeResult};
+use rightkit_media_gen::Context;
 
 pub const COMMANDS: &[&str] = &[
     "studio.recipes.catalogue",
@@ -188,28 +189,30 @@ fn index() -> &'static Value {
     })
 }
 
-pub fn handle(_ctx: &Context, name: &str, input: &Value) -> GenResult<Value> {
+pub fn handle(_ctx: &Context, name: &str, input: &Value) -> RecipeResult<Value> {
     match name {
         "studio.recipes.catalogue" => Ok(catalogue()),
         "studio.recipes.catalogue_validate" => validate_command(input),
-        other => Err(GenError::new(
+        other => Err(RecipeError::new(
             "unknown_command",
             format!("not a recipe catalogue command: {other}"),
         )),
     }
 }
 
-fn validate_command(input: &Value) -> GenResult<Value> {
+fn validate_command(input: &Value) -> RecipeResult<Value> {
     if let Some(id) = input.get("id").and_then(Value::as_str) {
         let (_, graph) = seeded()
             .iter()
             .find(|(k, _)| k.as_str() == id)
-            .ok_or_else(|| GenError::new("not_found", format!("no seeded recipe graph {id:?}")))?;
+            .ok_or_else(|| {
+                RecipeError::new("not_found", format!("no seeded recipe graph {id:?}"))
+            })?;
         return Ok(validate(graph));
     }
     match input.get("graph") {
         Some(graph) if graph.is_object() => Ok(validate(graph)),
-        _ => Err(GenError::new(
+        _ => Err(RecipeError::new(
             "invalid_input",
             "pass {id} for a seeded graph or {graph} for an inline graph",
         )),
@@ -484,6 +487,7 @@ fn validate(graph: &Value) -> Value {
         st["id"] = json!(nid);
         st["kind"] = json!(kind);
         st["output"] = json!(out_type.get(nid).cloned().flatten());
+        st["depends_on"] = n.get("depends_on").cloned().unwrap_or_else(|| json!([]));
         statuses.push(st);
     }
 

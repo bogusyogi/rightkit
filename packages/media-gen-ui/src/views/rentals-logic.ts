@@ -1,6 +1,6 @@
 /**
  * Pure helpers for the rented-workers rentals panel (RentalsPanel.tsx). The shapes mirror
- * crates/genright-studio/src/model_management/rental.rs (`list`, `limits`, `settle`,
+ * crates/rightkit-remote-compute/src/rental.rs (`list`, `limits`, `settle`,
  * `enforce_rentals`) and mod.rs (`worker_action`: `teardown`, `resolve_rental`). Nothing here
  * contacts the engine and nothing here rents anything.
  */

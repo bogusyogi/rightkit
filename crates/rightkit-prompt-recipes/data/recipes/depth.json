@@ -10,38 +10,6 @@
     ],
     "interpolation_rule": "Paste fragment verbatim into the depth clause. Caller may need to specify what occupies each layer in the brief if the recipe doesn't infer it."
   },
-  "_brand_defaults": {
-    "DD": {
-      "item_key": "mid_ground_anchor",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md DD: product placed cleanly with environment context"
-    },
-    "RH": {
-      "item_key": "mid_ground_anchor",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md RH: lifestyle subject in real environment"
-    },
-    "TS": {
-      "item_key": "foreground_object_blur",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md TS: atmospheric neon-noir layered depth"
-    },
-    "HR": {
-      "item_key": "deep_focus_three_layer",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md HR: UI demos need everything readable"
-    },
-    "DV": {
-      "item_key": "mid_ground_anchor",
-      "status": "unknown_needs_owner_input",
-      "seeded_from": "no source yet"
-    },
-    "SS": {
-      "item_key": "silhouette_layered_back",
-      "status": "owner_approved",
-      "seeded_from": "CLAUDE.md SS: photography contre-jour layered back-light"
-    }
-  },
   "items": {
     "deep_focus_three_layer": {
       "name": "Deep three-layer composition",

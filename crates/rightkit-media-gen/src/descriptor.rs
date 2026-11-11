@@ -10,19 +10,21 @@ use crate::store::{self, je, Job};
 use crate::{library, Context, GenError, GenResult};
 
 fn media(kind: &str, data: &[u8]) -> Value {
-    media_json(kind, crate::media::probe(data))
+    media_json(kind, rightkit_ffmpeg::quickprobe::probe(data))
 }
 
-fn media_json(kind: &str, p: crate::media::Probe) -> Value {
+fn media_json(kind: &str, p: rightkit_ffmpeg::quickprobe::Probe) -> Value {
     json!({"kind": kind, "width": p.width, "height": p.height, "duration_s": p.duration_s})
 }
 
 /// Probe an adopted library file from its leading bytes, at most
 /// `PROBE_PREFIX_BYTES`. A read failure keeps the fields null; it never fails the job.
 fn adopted_media(kind: &str, path: &Path, total_len: u64) -> Value {
-    let probed = match read_prefix(path, crate::media::PROBE_PREFIX_BYTES) {
-        Ok(prefix) => crate::media::probe_media(path, &prefix, total_len).unwrap_or_default(),
-        Err(_) => crate::media::Probe::default(),
+    let probed = match read_prefix(path, rightkit_ffmpeg::quickprobe::PROBE_PREFIX_BYTES) {
+        Ok(prefix) => {
+            rightkit_ffmpeg::quickprobe::probe_media(path, &prefix, total_len).unwrap_or_default()
+        }
+        Err(_) => rightkit_ffmpeg::quickprobe::Probe::default(),
     };
     media_json(kind, probed)
 }

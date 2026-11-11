@@ -54,8 +54,8 @@ pub struct Wan2GpInstall {
 }
 
 /// Candidate checkout directories for the platform, in preference order.
-fn candidate_roots(orthic_root: Option<PathBuf>) -> Vec<PathBuf> {
-    let Some(root) = orthic_root else {
+fn candidate_roots(tools_root: Option<PathBuf>) -> Vec<PathBuf> {
+    let Some(root) = tools_root else {
         return Vec::new();
     };
     vec![
@@ -66,11 +66,11 @@ fn candidate_roots(orthic_root: Option<PathBuf>) -> Vec<PathBuf> {
 
 /// The checkout to use: `RIGHTKIT_WAN2GP_DIR` when set and non-empty (passed through, so a bad
 /// path fails with its own error), otherwise the first default that contains `wgp.py`.
-pub fn resolve_root(env: Option<OsString>, orthic_root: Option<PathBuf>) -> Option<PathBuf> {
+pub fn resolve_root(env: Option<OsString>, tools_root: Option<PathBuf>) -> Option<PathBuf> {
     if let Some(value) = env.filter(|v| !v.to_string_lossy().trim().is_empty()) {
         return Some(PathBuf::from(value));
     }
-    candidate_roots(orthic_root)
+    candidate_roots(tools_root)
         .into_iter()
         .find(|root| root.join(ENTRY).is_file())
 }
@@ -183,9 +183,9 @@ pub fn discover(root: &Path, python: &Path) -> Result<Wan2GpInstall, ProviderErr
 
 /// Discover from the environment and platform defaults. `None` when no checkout is found.
 pub fn discover_from_env(
-    orthic_root: Option<PathBuf>,
+    tools_root: Option<PathBuf>,
 ) -> Option<Result<Wan2GpInstall, ProviderError>> {
-    let root = resolve_root(std::env::var_os(DIR_ENV), orthic_root)?;
+    let root = resolve_root(std::env::var_os(DIR_ENV), tools_root)?;
     let python = std::env::var_os(PYTHON_ENV)
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("python"));
@@ -234,7 +234,7 @@ pub fn jobs_dir() -> Option<PathBuf> {
     std::env::var_os(JOBS_ENV)
         .filter(|v| !v.to_string_lossy().trim().is_empty())
         .map(PathBuf::from)
-        .or_else(|| super::orthic_root().map(|r| r.join("wan2gp-jobs")))
+        .or_else(|| super::tools_root().map(|r| r.join("wan2gp-jobs")))
 }
 
 pub struct LocalWan2Gp {
@@ -258,7 +258,7 @@ impl LocalWan2Gp {
     }
 
     fn install(&self) -> Result<Wan2GpInstall, ProviderError> {
-        discover_from_env(super::orthic_root()).unwrap_or_else(|| {
+        discover_from_env(super::tools_root()).unwrap_or_else(|| {
             Err(unavailable(format!(
                 "Wan2GP is not installed; set {DIR_ENV} to your Wan2GP checkout"
             )))

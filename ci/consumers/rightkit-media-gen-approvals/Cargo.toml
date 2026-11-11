@@ -9,4 +9,4 @@ publish = false
 [dependencies]
 rightkit-media-gen-approvals = { version = "=0.1.0" }
 serde_json = "1"
-rightkit-media-gen = { version = "=0.1.2" }
+rightkit-media-gen = { version = "=0.2.0" }

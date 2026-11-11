@@ -13,8 +13,17 @@ ledger venture), the environment prefix (`RIGHTKIT` by default; `RIGHTKIT_*` nam
 as a fallback) and the content subfolder for local outputs. `Context::with_db_file_name` names the
 job-store database file (default `media-gen.sqlite3`).
 
-On-disk schema ids that existing data depends on are kept unchanged: the `genright_spend_*` ledger
-tables and the `genright-approval-v1` approval token domain.
+The approval token domain is the host's (`host::approval::set_token_domain`, default
+`rightkit-approval-v1`). The spend ledger's sidecar tables are `media_gen_spend_*`; a database with the
+donor's `genright_spend_*` tables is renamed in place on first attach.
+
+## Two ways in
+
+- Typed (`typed`): `MediaGen::new(ctx)`, then `estimate`, `submit` (`GenerateRequest` to a job),
+  `wait`/`status`, `result` (`Asset`s), `cancel`, `ack`.
+- JSON commands (`api`, `media_commands`): what an engine CLI or app sidecar answers. Same path.
+
+Container probing and the H.264 encoder rule are `rightkit-ffmpeg`'s (`quickprobe`, `h264_rule`).
 
 ## Asset-gated tests
 

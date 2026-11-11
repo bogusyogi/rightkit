@@ -17,7 +17,8 @@ use crate::host::asset_facts::{AssetFacts, EvidenceKind, OriginKind, Rights, Rig
 use serde_json::{json, Value};
 
 use crate::store::{self, io_err};
-use crate::{library, media, provenance, Context, GenError, GenResult};
+use crate::{library, provenance, Context, GenError, GenResult};
+use rightkit_ffmpeg::quickprobe as media;
 
 /// Top-level keys `asset.import` accepts; anything else is refused by name.
 pub const IMPORT_KEYS: &[&str] = &[

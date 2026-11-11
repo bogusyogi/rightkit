@@ -1971,7 +1971,7 @@ impl Entry {
     }
 
     /// The input whose media length prices this entry (a `derived` timed price), when it has one.
-    /// A caller that holds the source as bytes measures it with [`crate::media::probe_file`] and
+    /// A caller that holds the source as bytes measures it with [`rightkit_ffmpeg::quickprobe::probe_file`] and
     /// prices with [`Entry::price_with`]. The declared adapters take https URLs only and have no
     /// upload step, so they cannot measure and reserve the entry's cap through [`Entry::price`].
     pub fn derived_source_param(&self) -> Option<&str> {

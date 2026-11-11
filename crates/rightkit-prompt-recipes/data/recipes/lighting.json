@@ -11,38 +11,6 @@
     ],
     "interpolation_rule": "Paste fragment verbatim into the lighting clause of the composed prompt."
   },
-  "_brand_defaults": {
-    "DD": {
-      "item_key": "rim_back_separation",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md DD: premium product hero separation"
-    },
-    "RH": {
-      "item_key": "soft_window_north",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md RH: slow fashion gentle indoor light"
-    },
-    "TS": {
-      "item_key": "practicals_only",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md TS: neon-noir lit by in-scene practicals"
-    },
-    "HR": {
-      "item_key": "soft_window_north",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md HR: calm structured indoor like Linear app screenshots"
-    },
-    "DV": {
-      "item_key": "motivated_key",
-      "status": "unknown_needs_owner_input",
-      "seeded_from": "no source yet"
-    },
-    "SS": {
-      "item_key": "golden_hour_warm",
-      "status": "owner_approved",
-      "seeded_from": "CLAUDE.md SS: photography golden-hour aspirational"
-    }
-  },
   "items": {
     "motivated_key": {
       "name": "Motivated key light",

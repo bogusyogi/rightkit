@@ -10,9 +10,6 @@ import {
 import { Card, Badge, Button, EmptyState, Notice } from '@rightkit/react-shell/react';
 import { Kv } from '../components/ui.js';
 import { EngineError, toError } from '../lib/engine-error.js';
-import motionTransfer from '../studio-data/recipes/catalogue/motion_transfer.json' with { type: "json" };
-import objectReplacement from '../studio-data/recipes/catalogue/object_replacement.json' with { type: "json" };
-import voxDirector from '../studio-data/recipes/catalogue/vox_director.json' with { type: "json" };
 import {
   errorsByNode,
   missingRoutesText,
@@ -26,19 +23,6 @@ import {
   unbuiltPlanned,
   validationSummary
 } from './recipe-catalogue-logic.js';
-
-interface DefinitionNode {
-  id: string;
-  depends_on?: string[];
-}
-
-// The engine's listing reports each node's status but not its depends_on. The seeded files here are the
-// same ones the engine embeds at build time, so the dependency edges are read from them.
-const DEFINITION_NODES: Record<string, DefinitionNode[]> = {
-  motion_transfer: (motionTransfer as unknown as { nodes: DefinitionNode[] }).nodes,
-  object_replacement: (objectReplacement as unknown as { nodes: DefinitionNode[] }).nodes,
-  vox_director: (voxDirector as unknown as { nodes: DefinitionNode[] }).nodes
-};
 
 type CheckState =
   | { phase: 'busy' }
@@ -127,9 +111,8 @@ function GraphCard({
   check: CheckState | undefined;
   onValidate: () => void;
 }) {
-  const defs = DEFINITION_NODES[graph.id] ?? [];
-  const dependsOn = new Map(defs.map((n) => [n.id, n.depends_on ?? []]));
-  const withDeps = graph.nodes.map((n) => ({ ...n, depends_on: dependsOn.get(n.id) ?? [] }));
+  // The engine's listing carries each node's dependency edges (`depends_on`).
+  const withDeps = graph.nodes.map((n) => ({ ...n, depends_on: n.depends_on ?? [] }));
   const ordered = orderNodes(withDeps);
   const depth = nodeDepths(withDeps);
   const nodeIds = graph.nodes.map((n) => n.id);
