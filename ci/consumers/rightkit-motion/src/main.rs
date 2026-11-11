@@ -1,4 +1,4 @@
-// rightkit-motion 0.2.0 consumed by exact registry pin, outside the workspace.
+// rightkit-motion 0.4.0 consumed by exact registry pin, outside the workspace.
 //
 // Proves the planning and encoding surface GenRight would adopt (genright-engine
 // motion_service.rs:219 pending-adoption comment; motion_encode.rs:157 pick_encoder and :231
@@ -85,6 +85,8 @@ fn main() {
         quality: Quality::Standard,
         audio: Vec::new(),
         output: PathBuf::from("out.mp4"),
+        vp9_crf: None,
+        audio_codec: None,
     };
     let command = build_command(&spec).expect("command for the picked encoder");
     assert!(
@@ -95,5 +97,5 @@ fn main() {
         "the picked encoder name is an ffmpeg argument"
     );
 
-    println!("OK rightkit-motion 0.2.0 (registry consumer, encode feature, no ffmpeg run)");
+    println!("OK rightkit-motion 0.4.0 (registry consumer, encode feature, no ffmpeg run)");
 }

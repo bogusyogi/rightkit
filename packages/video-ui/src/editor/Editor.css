@@ -1,0 +1,546 @@
+/* Editor layout (timeline, inspector, transcript, changes). Colour and type come from the @rightkit/theme
+   tokens; spacing and radius read the host's --s1..--s5 and --r-* tokens with the suite's 4px-grid values as fallbacks. */
+
+.fe {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--rk-chrome);
+  color: var(--rk-ink);
+}
+
+/* Header bar */
+.fe-header {
+  flex: none;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  gap: var(--s3, 12px);
+  padding: 0 var(--s4, 16px);
+  border-bottom: 1px solid var(--rk-line);
+  background: var(--rk-plane);
+}
+.fe-header__left,
+.fe-header__right {
+  display: flex;
+  align-items: center;
+  gap: var(--s2, 8px);
+  min-width: 0;
+}
+.fe-header__right { margin-left: auto; flex-wrap: nowrap; overflow: hidden; }
+.fe-header__mid { flex: none; }
+.fe-header__name { font-size: 13px; font-weight: 600; white-space: nowrap; }
+.fe-header .rk-badge { flex: none; }
+
+/* Main row: stage column + side panel */
+.fe-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* ---- stage column ---- */
+
+.fe-stage-col {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--s4, 16px) var(--s5, 20px);
+  gap: var(--s3, 12px);
+}
+
+.fe-stage {
+  position: relative;
+  flex: 1;
+  min-height: 120px;
+  background: var(--cr-stage, #0b0c0d);
+  border-radius: var(--r-xl, 14px);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+
+.fe-stage canvas,
+.fe-stage img.fe-stage-fallback {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  display: block;
+}
+
+.fe-stage__tag {
+  position: absolute;
+  top: var(--s3, 12px);
+  left: var(--s3, 12px);
+  font-size: 11px;
+  color: var(--rk-ink-2);
+}
+
+.fe-stage__chips {
+  position: absolute;
+  top: var(--s3, 12px);
+  right: var(--s3, 12px);
+  display: flex;
+  gap: var(--s2, 8px);
+  align-items: center;
+}
+
+.fe-stage__caption {
+  position: absolute;
+  left: 50%;
+  bottom: var(--s5, 20px);
+  transform: translateX(-50%);
+  max-width: 80%;
+  padding: var(--s1, 4px) var(--s3, 12px);
+  border-radius: var(--r-sm, 6px);
+  background: rgb(0 0 0 / 0.55);
+  color: #fff;
+  font: 600 15px/1.4 var(--rk-font-body);
+  text-align: center;
+  white-space: pre-line;
+  pointer-events: none;
+}
+
+.fe-stage__loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--rk-ink-2);
+}
+
+/* Over the fallback frame the message needs its own ground to stay readable. */
+.fe-stage__loading[role="alert"] {
+  background: rgb(0 0 0 / 0.65);
+  color: #fff;
+  padding: 0 16px;
+  text-align: center;
+}
+
+/* ---- transport ---- */
+
+.fe-transport {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2, 8px);
+}
+
+.fe-transport__row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s3, 12px);
+  position: relative;
+}
+
+.fe-play {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--rk-ink);
+  color: var(--rk-chrome);
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+  flex: none;
+}
+.fe-play:disabled { opacity: 0.4; cursor: not-allowed; }
+.fe-play svg { width: 16px; height: 16px; }
+.fe-play:focus-visible { outline: 2px solid var(--rk-accent); outline-offset: 2px; }
+
+.fe-transport__tc {
+  font-family: var(--rk-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--rk-ink-2);
+  white-space: nowrap;
+}
+.fe-transport__tc strong { color: var(--rk-ink); font-weight: 500; }
+
+.fe-transport__right {
+  position: absolute;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s2, 8px);
+}
+
+/* ---- side panel ---- */
+
+.fe-side {
+  flex: none;
+  width: 300px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--rk-line);
+  background: var(--rk-plane);
+}
+
+.fe-side__tabs {
+  flex: none;
+  display: flex;
+  gap: var(--s1, 4px);
+  padding: var(--s3, 12px) var(--s3, 12px) 0;
+  border-bottom: 1px solid var(--rk-line);
+}
+.fe-side__tab {
+  border: 0;
+  background: transparent;
+  color: var(--rk-ink-2);
+  font-size: 12px;
+  padding: var(--s1, 4px) var(--s2, 8px);
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+.fe-side__tab:hover { color: var(--rk-ink); }
+.fe-side__tab--active {
+  color: var(--rk-ink);
+  border-bottom-color: var(--rk-accent);
+}
+
+.fe-side__hint {
+  flex: none;
+  padding: var(--s2, 8px) var(--s4, 16px) 0;
+  font-size: 11px;
+  color: var(--rk-ink-2);
+}
+
+.fe-side__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--s3, 12px) var(--s4, 16px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2, 8px);
+}
+
+.fe-side__foot {
+  flex: none;
+  border-top: 1px solid var(--rk-line);
+  padding: var(--s3, 12px) var(--s4, 16px);
+  font-size: 11px;
+  color: var(--rk-ink-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Transcript cue lines */
+.fe-cue {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: var(--s2, 8px);
+  padding: var(--s2, 8px);
+  border: 0;
+  border-radius: var(--r-sm, 6px);
+  background: transparent;
+  color: var(--rk-ink);
+  text-align: left;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.65;
+}
+.fe-cue:hover { background: var(--rk-fill-2); }
+.fe-cue--current { background: var(--rk-accent-soft); }
+.fe-cue__stamp {
+  font-family: var(--rk-font-mono);
+  font-size: 10px;
+  color: var(--rk-ink-2);
+  padding-top: 3px;
+  white-space: nowrap;
+}
+
+/* Word editing rows (Edit mode transcript) */
+.fe-words { line-height: 1.9; font-size: 13px; }
+.fe-word {
+  border: 0;
+  background: transparent;
+  color: var(--rk-ink);
+  padding: 1px 2px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.fe-word:hover { background: var(--rk-fill-2); }
+.fe-word--cut { color: var(--rk-ink-3); text-decoration: line-through; }
+.fe-word--sel { background: var(--rk-accent); color: var(--rk-accent-ink); }
+
+/* Changes list */
+.fe-change-group { display: flex; flex-direction: column; gap: var(--s1, 4px); }
+.fe-change-group__head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2, 8px);
+  padding: var(--s2, 8px) var(--s1, 4px) 0;
+}
+.fe-change-group__head h4 {
+  margin: 0;
+  font: 500 11px/1 var(--rk-font-body);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--rk-ink-2);
+}
+.fe-change {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1, 4px);
+  padding: var(--s2, 8px);
+  border-radius: var(--r-sm, 6px);
+  border: 1px solid var(--rk-line);
+  background: var(--rk-elevated);
+  color: var(--rk-ink);
+  font-size: 12px;
+}
+.fe-change[data-state="rejected"] { opacity: 0.6; }
+.fe-change__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2, 8px);
+}
+.fe-change__label {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--rk-ink);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fe-change__reason {
+  margin: 0;
+  color: var(--rk-ink-2);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.fe-change__actions { display: flex; flex-wrap: wrap; gap: var(--s2, 8px); }
+.fe-change__alts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1, 4px);
+  border-top: 1px solid var(--rk-line);
+  padding-top: var(--s2, 8px);
+}
+.fe-take {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2, 8px);
+  padding: var(--s1, 4px) var(--s2, 8px);
+  border-radius: var(--r-sm, 6px);
+  font-size: 12px;
+}
+.fe-take--current { background: var(--rk-accent-soft); }
+.fe-take__label { color: var(--rk-ink-2); }
+.fe-take--current .fe-take__label { color: var(--rk-ink); }
+
+/* ---- timeline ---- */
+
+.fe-tl {
+  flex: none;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--rk-line);
+  background: var(--rk-plane);
+}
+.fe-tl__resizebtn {
+  position: absolute;
+  top: -14px;
+  right: var(--s3, 12px);
+  z-index: 9;
+}
+
+.fe-tl__resize {
+  flex: none;
+  height: 6px;
+  cursor: row-resize;
+}
+.fe-tl__resize:hover { background: var(--rk-fill-2); }
+
+.fe-tl__bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s2, 8px);
+  padding: var(--s1, 4px) var(--s4, 16px);
+}
+
+.fe-tl__zoom {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s2, 8px);
+  color: var(--rk-ink-2);
+}
+.fe-tl__zoom input[type="range"] { width: 112px; accent-color: var(--rk-accent); }
+
+.fe-tl__viewport {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+}
+
+.fe-tl__ruler {
+  position: sticky;
+  top: 0;
+  z-index: 7;
+  display: flex;
+  height: 24px;
+  background: var(--rk-plane);
+  border-bottom: 1px solid var(--rk-line);
+  user-select: none;
+  cursor: ew-resize;
+}
+.fe-tl__ruler-tick { position: absolute; bottom: 0; width: 1px; height: 6px; background: var(--rk-line); }
+.fe-tl__ruler-major { position: absolute; top: 0; }
+.fe-tl__ruler-major i { display: block; width: 1px; height: 24px; background: var(--rk-line); }
+.fe-tl__ruler-major span {
+  position: absolute;
+  left: 5px;
+  top: 5px;
+  font-family: var(--rk-font-mono);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--rk-ink-2);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.fe-lane { display: flex; }
+.fe-lane__label {
+  position: sticky;
+  left: 0;
+  z-index: 6;
+  flex: none;
+  width: 72px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--s2, 8px);
+  background: var(--rk-plane);
+  border-right: 1px solid var(--rk-line);
+  font-size: 12px;
+  color: var(--rk-ink-2);
+  overflow: hidden;
+}
+.fe-lane__label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fe-lane__track {
+  position: relative;
+  height: 32px;
+  background: var(--rk-fill);
+  border-bottom: 1px solid var(--rk-line);
+}
+
+.fe-clip {
+  position: absolute;
+  top: 3px;
+  height: 26px;
+  border-radius: var(--r-sm, 6px);
+  background: var(--rk-fill-3);
+  border: 1px solid var(--rk-line);
+  color: var(--rk-ink);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  font-size: 11px;
+  cursor: default;
+}
+.fe-clip--sel { border-color: var(--rk-accent); box-shadow: 0 0 0 1px var(--rk-accent); }
+.fe-clip--pending { opacity: 0.6; }
+.fe-clip--caption { background: var(--caption-clip); }
+.fe-clip__thumbs { position: absolute; inset: 0; display: flex; opacity: 0.55; }
+.fe-clip__thumbs img { height: 100%; flex: 1; min-width: 0; object-fit: cover; }
+.fe-clip__label {
+  position: relative;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.5);
+}
+.fe-clip__handle {
+  position: absolute;
+  top: 0;
+  width: 6px;
+  height: 100%;
+  border: 0;
+  padding: 0;
+  background: var(--rk-accent);
+  opacity: 0;
+  cursor: ew-resize;
+}
+.fe-clip__handle--in { left: 0; }
+.fe-clip__handle--out { right: 0; }
+.fe-clip:hover .fe-clip__handle,
+.fe-clip__handle:focus-visible { opacity: 1; }
+
+.fe-clip__wave {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 0 3px;
+}
+.fe-clip__wave i {
+  flex: 1;
+  min-width: 1px;
+  border-radius: 1px;
+  background: var(--rk-accent);
+  opacity: 0.6;
+}
+
+.fe-tl__playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--rk-accent);
+  pointer-events: none;
+  z-index: 8;
+}
+.fe-tl__playhead::before {
+  content: "";
+  position: absolute;
+  top: 17px;
+  left: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--rk-accent);
+}
+
+/* ---- context menu: the shell's ContextMenu; only the disabled-reason text is ours ---- */
+
+.fe-menu__reason {
+  margin-left: var(--s2, 8px);
+  max-width: 160px;
+  display: inline-block;
+  vertical-align: bottom;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--rk-ink-2);
+}
+
+/* ---- inspect ---- */
+
+.fe-inspect { display: flex; flex-direction: column; gap: var(--s3, 12px); }
+.fe-inspect__row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s3, 12px); }
+.rk-input.fe-inspect__range { padding: 0; border: 0; background: none; box-shadow: none; height: auto; }
+.fe-inspect__range { accent-color: var(--rk-accent); width: 100%; }

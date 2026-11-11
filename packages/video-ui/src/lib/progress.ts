@@ -1,11 +1,11 @@
 // Folds engine events into UI progress. Event names and fields are the engine's
-// (genright_cmd.rs, cutright-genright orchestrator/engine, project_cmd.rs `progress_line`):
+// (the video engine's commands, rightkit-media-gen-client events, `progress_line`):
 //
 //   assemble.started  {shots, narration, resumed, requests:{label:request_id}, assemble_id}
-//   genright.request  {request_id, state: journaled|submitted, job_id?}
-//   genright.job      {request_id, job_id, status, attempts, error}
-//   genright.job_progress {request_id?, job_id, status, stage, attempt, at, message?}
-//   genright.import   {request_id, job_id, asset_id, media_path, sha256}
+//   media_gen.request  {request_id, state: journaled|submitted, job_id?}
+//   media_gen.job      {request_id, job_id, status, attempts, error}
+//   media_gen.job_progress {request_id?, job_id, status, stage, attempt, at, message?}
+//   media_gen.import   {request_id, job_id, asset_id, media_path, sha256}
 //   import.done       {item (label), request_id, job_id, path, blake3, needs_probe} (assemble)
 //                     {request_id, job_id, asset_id, path, source_id, needs_probe}  (generate)
 //   timeline.built    {video_clips, added_clips, titles, total_frames, revision}
@@ -122,11 +122,11 @@ export function reduceFrame(state: ProgressState, frame: EngineFrame): ProgressS
         cancelled: false,
       };
     }
-    case "genright.request":
+    case "media_gen.request":
       if (!requestId) return next;
       next.jobs = upsertJob(state, requestId, { request: str(ev.state), jobId: str(ev.job_id) });
       return next;
-    case "genright.job":
+    case "media_gen.job":
       if (!requestId) return next;
       next.jobs = upsertJob(state, requestId, {
         jobId: str(ev.job_id),
@@ -134,7 +134,7 @@ export function reduceFrame(state: ProgressState, frame: EngineFrame): ProgressS
         message: isObj(ev.error) ? str(ev.error.message) : str(ev.error),
       });
       return next;
-    case "genright.job_progress": {
+    case "media_gen.job_progress": {
       // job_progress carries request_id only when the orchestrator forwards it; fall back
       // to matching the job id.
       const jobId = str(ev.job_id);
@@ -148,7 +148,7 @@ export function reduceFrame(state: ProgressState, frame: EngineFrame): ProgressS
       });
       return next;
     }
-    case "genright.import":
+    case "media_gen.import":
     case "import.done": {
       if (requestId && state.jobs[requestId]) next.jobs = upsertJob(state, requestId, { imported: true });
       if (str(ev.event) === "import.done") next.imports = state.imports + 1;

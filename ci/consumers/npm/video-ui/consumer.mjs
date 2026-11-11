@@ -9,7 +9,7 @@ const result = { recipeId, schemaVersion: 1, ok: false, host: { platform: proces
 const failure = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error) });
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
 const surface = [".", "./package.json", "./styles.css"];
-const expected = ["setHostAppName", "hostAppName", "recentLabel"];
+const expected = ["installVideoHost", "videoHost", "TimelineEditorView", "Timeline", "NativePlayer", "engineCall", "projectShow", "timecode"];
 
 try {
   const archive = path.resolve(required('RIGHTKIT_CONSUMER_ARTIFACT'));
@@ -36,7 +36,18 @@ try {
     assert.deepEqual(Object.keys(manifest.exports ?? {}).sort(), surface);
     const mod = await import(provenance.entries['@rightkit/video-ui']);
     for (const key of expected) assert.ok(key in mod, `missing root export ${key}`);
-    return { checked: expected, exportKeys: surface.length };
+    for (const gone of ["setHostAppName", "hostAppName", "Home", "SettingsView", "DesktopWorkspace"]) assert.ok(!(gone in mod), `app shell export ${gone} is still present`);
+    assert.throws(() => mod.videoHost(), /installVideoHost/);
+    const calls = [];
+    mod.installVideoHost({
+      engine: { call: async (method, params) => { calls.push([method, params]); return { ok: true }; }, onEvent: async () => () => {}, status: async () => ({ state: 'ready', hello: null, restarts: 0, last_error: null }) },
+      playback: {}, assetUrl: p => `asset://${p}`, allowMediaScope: async () => {}, mediaSourceId: async p => p, revealPath: async () => {},
+    });
+    assert.deepEqual(await mod.engineCall('project.show', { dir: '/p' }), { ok: true });
+    assert.deepEqual(calls, [['project.show', { dir: '/p' }]]);
+    assert.equal(mod.assetUrl('/a.png'), 'asset:///a.png');
+    assert.equal(mod.timecode(61000), '01:01');
+    return { checked: expected, exportKeys: surface.length, engineCalls: calls.length };
   });
 
   assert.equal(result.scenarios.length, 1);

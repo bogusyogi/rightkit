@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0 (unpublished)
+
+Taken on the recommended option of the shape review (`docs/audits/2026-11-11-shape-matrix/reports/cut-post-redraw.md`), pending the owner's confirmation.
+
+- Breaking: requires `rightkit-engine-host` 0.2.0; `spec`, `register`, `run` and `wrap` take and return its `CommandSpec`, `CommandRegistry`, `EngineError` and `Handler`. No behaviour change.
+
 ## 0.1.2 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

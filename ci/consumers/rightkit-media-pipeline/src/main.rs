@@ -1,4 +1,4 @@
-// rightkit-media-pipeline 0.1.0 consumed by exact registry pin (default features), outside the workspace.
+// rightkit-media-pipeline 0.2.0 consumed by exact registry pin (default features), outside the workspace.
 // Pure, embedded-data commands only: no provider keys, no network, no ffmpeg.
 use rightkit_media_pipeline::{commands, handle, Context};
 use serde_json::json;

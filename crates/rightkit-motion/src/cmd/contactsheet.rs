@@ -21,7 +21,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use rightkit_engine_host::env::Env;
-use rightkit_engine_host::project::{bad, io_err, media_tools};
+use rightkit_video_project::engine::{bad, io_err, media_tools};
 
 use super::thumb::m_media_thumbnail;
 

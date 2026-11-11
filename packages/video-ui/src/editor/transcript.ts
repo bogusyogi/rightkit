@@ -1,6 +1,6 @@
 /**
  * Source↔output time mapping for transcript-driven editing. Mirrors
- * `clip_ranges` in crates/cutright-engine/src/media_cmd.rs: every placed clip
+ * `clip_ranges` in rightkit-video-project (`engine::clip_ranges`): every placed clip
  * range (video gapless accumulation, audio explicit starts) maps a source-ms
  * window onto output seconds. Word-edge evidence stays in the engine's
  * validated `transcript.show` payload — this module only maps numbers.

@@ -4190,10 +4190,10 @@
     "feeds": {
      "cutright": 16336
     },
-    "basis": "CutRight src/ moved whole (generated index exporting every module)",
+    "basis": "0.2.0 on branch redraw-cut-post: CutRight's frontend reduced to the editing components over an installed VideoHost; read in full",
     "referenceApp": "cutright",
-    "shape": "wrong",
-    "shapeReason": "It is the CutRight application frontend, not a component library: Home, Settings, legal config, demo mode, app name, GenRight client, and Tauri invokes of commands that exist only in the CutRight shell.",
+    "shape": "gaps",
+    "shapeReason": "The editing components (TimelineEditorView, Timeline, Inspector, ColourInspector, CaptionInspector, TranscriptPanel, ChangesPanel, NativePlayer/StagePlayer, RangePreview) and the typed video engine client run over a VideoHost the app installs (engine call, events and status; native preview session; asset URLs, media scope, registered media ids, reveal). No Tauri import, no pages, settings, legal, onboarding, demo, app name or GenRight client; a deliberate index; dependencies are media-ui and react-shell only; icons are react-shell's Icon with nine editing glyphs. A second app can mount the editor without CutRight's shell. Remaining items are gaps.",
     "apps": {
      "cutright": {
       "fit": "fits",
@@ -4220,9 +4220,10 @@
      "editor/vendor/hyperframes vendored helpers also relevant to media-gen-ui motion"
     ],
     "actions": [
-     "Split: (1) editor components (Timeline, Inspector, ColourInspector, CaptionInspector, TranscriptPanel, Player, RangePreview) taking an injected engine adapter with no Tauri import; (2) the CutRight shell (views, settings, legal, demo) stays in the app",
-     "Replace the generated export-everything index with a deliberate API",
-     "Move genright.ts to a generation client package shared with media-gen-ui"
+     "owner to confirm the redraw",
+     "provide a Tauri VideoHost implementation (in the app or a tauri adapter) over @rightkit/tauri-shell",
+     "build the preview-session crate the family review proposes and point the playback host at it",
+     "publish 0.2.0 after media-ui 0.3.5, platform-ui 0.4.1 and react-shell 0.7.3"
     ],
     "depth": "deep",
     "confidence": "high",
@@ -13987,10 +13988,10 @@
      "crates/rightkit-engine-host"
     ],
     "feeds": {},
-    "basis": "GenRight's engine framework, moved 2026-11-01",
-    "referenceApp": "heardright",
-    "shape": "wrong",
-    "shapeReason": "Built from a tier-4 app and not compared with HeardRight's engine supervisor or CodeRight's daemon; should not be mandatory until it is. Low confidence: README only.",
+    "basis": "0.2.0 on branch redraw-cut-post; read in full and compared with HeardRight's engine supervision and rightkit-daemon's contract",
+    "referenceApp": "genright",
+    "shape": "gaps",
+    "shapeReason": "The engine-binary framework for command engines, both sides of one CLI: the registry served as a JSON CLI and a stdio sidecar over rightkit-job-queue, and call (absolute path, stdin switch, capped capture, error envelope, contract and capability handshake) for engine-to-engine calls. The video project layer moved to rightkit-video-project (engine-commands); its doctor report was a duplicate of rightkit-doctor and is deleted, with one resource-folder rule (env::resource_dir). HeardRight's engine uses typed frames over rightkit-job-queue directly and CodeRight's service is rightkit-daemon's authorised contract, so this is the shape for the command engines (CutRight, GenRight, ScrapeRight, PostRight, MailRight), not a mandatory owner; it is not on the mandatory set.",
     "apps": {
      "genright": {
       "fit": "fits",
@@ -14037,11 +14038,11 @@
      "plan gives 19,720 lines from 8 apps but no inventory file has a row with this target"
     ],
     "actions": [
-     "compare with HeardRight and CodeRight engine hosting before publishing as mandatory",
-     "move project.rs to rightkit-video-project",
-     "keep one doctor report (in rightkit-doctor) and delete engine-host/src/doctor.rs",
-     "produce per-app inventory rows so adoption can be measured",
-     "check HeardRight and Pulse engine entry points against the registry before publication"
+     "owner to confirm the redraw",
+     "keep it off the mandatory set",
+     "move apps.rs to the suite launcher crate",
+     "produce per-app inventory rows",
+     "publish 0.2.0"
     ],
     "depth": "light",
     "confidence": "low",
@@ -16888,6 +16889,72 @@
    }
   },
   {
+   "package": "rightkit-media-gen-client",
+   "kind": "cargo",
+   "dir": "crates/rightkit-media-gen-client",
+   "class": null,
+   "domain": "other",
+   "rowsOwned": [],
+   "version": null,
+   "registryLatest": null,
+   "published": "no",
+   "pins": {
+    "heardright": "-",
+    "viewright": "-",
+    "pulse": "-",
+    "coderight": "-",
+    "genright": "-",
+    "mailright": "-",
+    "scraperight": "-",
+    "cutright": "-",
+    "postright": "-",
+    "legion": "-"
+   },
+   "plan": {},
+   "review": {
+    "package": "rightkit-media-gen-client",
+    "kind": "cargo",
+    "family": "Redraws on the branch, 2026-11-11",
+    "existsAs": [
+     "crates/rightkit-media-gen-client"
+    ],
+    "feeds": {
+     "cutright": 13753,
+     "postright": 2521
+    },
+    "basis": "new 0.1.0 on branch redraw-cut-post: rightkit-pipeline's generation engine client moved with git mv; process call from rightkit-engine-host::call",
+    "referenceApp": "postright",
+    "shape": "gaps",
+    "shapeReason": "The client of the media-generation engine contract (the CLI rightkit-media-gen serves): GenerationClient, Orchestrator with crash-safe journal and recovery, model catalog checks, generated-source import. The process call is rightkit-engine-host::call, the one caller-side implementation every engine-to-engine call uses; events are media_gen.*, errors name no product. Any app that calls the generation engine (CutRight's editor, PostRight's dispatch) can adopt it. Remaining items are gaps.",
+    "apps": {
+     "cutright": {
+      "fit": "fits",
+      "note": "its cutright-genright, renamed; GenRightClient is GenerationClient, events media_gen.*"
+     },
+     "postright": {
+      "fit": "gaps",
+      "note": "engine/dispatch.rs dispatches briefs; its attempt-row and process-identity discipline needs its store and is not here"
+     },
+     "genright": {
+      "fit": "n/a",
+      "note": "callee; serves the contract through rightkit-media-gen"
+     }
+    },
+    "boundary": [
+     "the reply types are typed only on the client side; rightkit-media-gen's descriptor::build writes untyped JSON",
+     "imported file names keep the genright- prefix earlier builds wrote (on-disk compatibility)"
+    ],
+    "actions": [
+     "owner to confirm the redraw",
+     "one typed contract module (job record, result and asset descriptors) shared by rightkit-media-gen and this client",
+     "brief dispatcher and brief-run caller runner on rightkit-engine-host::call",
+     "publish 0.1.0 after rightkit-engine-host 0.2.0"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+   }
+  },
+  {
    "package": "rightkit-media-pipeline",
    "kind": "cargo",
    "dir": "crates/rightkit-media-pipeline",
@@ -18548,10 +18615,10 @@
      "postright": 2521,
      "genright": 1701
     },
-    "basis": "CutRight cutright-genright moved whole (GenRightClient, Orchestrator, Journal, ModelCatalog, generated_source) + channel_recipe",
+    "basis": "0.2.0 on branch redraw-cut-post: deprecated re-export of rightkit-media-gen-client for one release",
     "referenceApp": "postright",
-    "shape": "wrong",
-    "shapeReason": "Not in the assigned list but flagged in the task: it holds one app's client for one other app's CLI. The three feeders implement three sides of engine-to-engine calls and only CutRight's is here.",
+    "shape": "gaps",
+    "shapeReason": "Deprecated name. The generation engine client moved with git mv to rightkit-media-gen-client (named for the contract it calls), the process call to rightkit-engine-host::call, channel_recipe to rightkit-video-project; 0.2.0 only re-exports the client (GenRightClient is a deprecated alias), as rightkit-adapt-taste does. Retire after one release.",
     "apps": {
      "cutright": {
       "fit": "fits",
@@ -18585,12 +18652,8 @@
      "CutRight and GenRight duplicate brief helpers (write_json, rel, envelope id)"
     ],
     "actions": [
-     "Redraw as engine-to-engine calling: (a) owned engine call with PostRight's attempt/sweep discipline and CutRight's contract/capability handshake, (b) generate client (submit, wait, import, journal) named for the contract, (c) brief dispatcher, (d) shared `brief run` skeleton (CLI, envelope validation and writing) with per-engine deliverable producers",
-     "Move channel_recipe to the video side",
-     "add brief-run caller runner and executor harness",
-     "rename or add genright module",
-     "move channel_recipe out",
-     "port orchestration tests and fake engine"
+     "owner to confirm the redraw",
+     "retire the crate after one release"
     ],
     "depth": "deep",
     "confidence": "medium",
@@ -20454,10 +20517,10 @@
      "postright": 5186,
      "cutright": 1300
     },
-    "basis": "PostRight links/analytics/metric_import/optimise plus CutRight retention command under a feature",
+    "basis": "0.2.0 on branch redraw-cut-post: the retention-to-cuts commands moved to rightkit-autoedit; read in full",
     "referenceApp": "postright",
-    "shape": "wrong",
-    "shapeReason": "CutRight's retention-to-timeline-cuts command is video editing and drags video-project, timeline, autoedit and engine-host into a social crate.",
+    "shape": "gaps",
+    "shapeReason": "Store-free social campaign analytics only: links, analytics pull and metric registry, metric import, optimise proposals, over host stores. The video-editing retention commands are rightkit_autoedit::cmd::retention (moved unchanged), so the crate has no video, engine-host, timeline or transcript dependency. README names what it holds. Remaining items are gaps.",
     "apps": {
      "postright": {
       "fit": "gaps",
@@ -20474,10 +20537,9 @@
      "README stale"
     ],
     "actions": [
-     "move cmd/retention.rs to video/autoedit family",
+     "owner to confirm the redraw",
      "shared social core types crate",
-     "README",
-     "tests"
+     "end-to-end tests"
     ],
     "depth": "deep",
     "confidence": "medium",

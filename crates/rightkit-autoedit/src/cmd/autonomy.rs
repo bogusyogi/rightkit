@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use rightkit_engine_host::env::Env;
-use rightkit_engine_host::project::{bad, settings_object, write_json};
+use rightkit_video_project::engine::{bad, settings_object, write_json};
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

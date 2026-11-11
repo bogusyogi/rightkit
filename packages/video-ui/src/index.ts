@@ -1,58 +1,85 @@
-// Generated entry: every module whose exports do not collide with an earlier one.
-// Every module is also importable directly by subpath, e.g. `<package>/lib/foo`.
+// Video editing components over a host-supplied video engine and preview session.
+// Install the host once (`installVideoHost`) before rendering.
 
-export * from "./appName.js";
-export * from "./components/DesktopWorkspace.js";
-export * from "./components/Player.js";
-export * from "./components/RangePreview.js";
-export * from "./demo/DemoSettings.js";
-export * from "./demo/bindings.js";
-export * from "./demo/useDemo.js";
-export * from "./editor/CaptionInspector.js";
-export * from "./editor/ChangesPanel.js";
-export * from "./editor/ColourInspector.js";
-export * from "./editor/Inspector.js";
-export * from "./editor/Timeline.js";
-export * from "./editor/TranscriptPanel.js";
-export * from "./editor/actions.js";
-export * from "./editor/adapter.js";
-export * from "./editor/capabilities.js";
-export * from "./editor/gesture.js";
-export * from "./editor/keys.js";
+// Host contract.
+export {
+  installVideoHost,
+  videoHost,
+  type VideoHost,
+  type VideoEngineTransport,
+  type VideoEngineStatus,
+  type VideoEngineState,
+  type VideoEngineHello,
+  type VideoPlaybackHost,
+  type PlaybackMeta,
+} from "./host.js";
+
+// Editor.
+export { TimelineEditorView, type PreviewHost } from "./editor/TimelineEditorView.js";
+export { Timeline, type PreviewSeek } from "./editor/Timeline.js";
+export { Inspector } from "./editor/Inspector.js";
+export { ColourInspector } from "./editor/ColourInspector.js";
+export { CaptionInspector } from "./editor/CaptionInspector.js";
+export { TranscriptPanel } from "./editor/TranscriptPanel.js";
+export { ChangesPanel } from "./editor/ChangesPanel.js";
+export { EditSession, StaleEditError, EngineEditError, type EngineCall, type EditResponse, type RevisionInfo } from "./editor/adapter.js";
+export type { EditAction } from "./editor/actions.js";
+export * as actions from "./editor/actions.js";
 export * from "./editor/model.js";
-export * from "./editor/vendor/hyperframes/PlayheadIndicator.js";
-export * from "./editor/vendor/hyperframes/audioWaveformPeaks.js";
-export * from "./editor/vendor/hyperframes/rulerGeometry.js";
-export * from "./editor/vendor/hyperframes/useInspectorGestureTransaction.js";
-export * from "./hooks/useEngine.js";
-export * from "./hooks/useHdrToSdr.js";
-export * from "./hooks/useProgress.js";
-export * from "./legal/legalConfig.js";
-export * from "./lib/assemble.js";
-export * from "./lib/asset.js";
-export * from "./lib/dialog.js";
-export * from "./lib/genright.js";
-export * from "./lib/mediaAdapters.js";
-export * from "./lib/mic.js";
-export * from "./lib/models.js";
-export * from "./lib/modelsBackend.js";
-export * from "./lib/services.js";
-export * from "./lib/settingsBackend.js";
-export * from "./lib/shell.js";
-export * from "./ui/icons.js";
-export * from "./views/AssetsView.js";
-export * from "./views/AutoEditView.js";
-export * from "./views/BatchDelivery.js";
-export * from "./views/BundleExport.js";
-export * from "./views/ExportsView.js";
-export * from "./views/Home.js";
-export * from "./views/OnboardingGate.js";
-export * from "./views/PhrasesView.js";
-export * from "./views/ProgressView.js";
-export * from "./views/PromptPanel.js";
-export * from "./views/RecipeLibrary.js";
-export * from "./views/RetentionView.js";
-export * from "./views/SettingsView.js";
-export * from "./views/ShortsView.js";
-export * from "./views/SourcesView.js";
-export * from "./views/TimelineView.js";
+export * from "./editor/capabilities.js";
+export * from "./editor/keys.js";
+export * from "./editor/gesture.js";
+export * from "./editor/transcript.js";
+
+// Preview.
+export { NativePlayer, StagePlayer, useTimelinePreview, type PreviewHost as PlayerPreviewHost } from "./components/Player.js";
+export { RangePreview } from "./components/RangePreview.js";
+
+// Typed client of the video engine, over the host.
+export {
+  engineCall,
+  engineStatus,
+  engineDoctor,
+  engineBusy,
+  onEngineEvent,
+  revealPath,
+  errorCode,
+  errorMessage,
+  type EngineState,
+  type EngineHello,
+  type EngineStatus,
+  type DoctorCheck,
+  type DoctorReport,
+  type EngineCallError,
+} from "./lib/engine.js";
+export * from "./lib/media.js";
+export {
+  TICKS_PER_SECOND,
+  secondsToTicks,
+  ticksToSeconds,
+  titleLabel,
+  projectShow,
+  appendClip,
+  projectInit,
+  fpsValue,
+  formatSeconds,
+  baseName,
+  newClipId,
+  type SourceInfo,
+  type VideoClip,
+  type AudioClip,
+  type TitleTemplate,
+  type OverlayClip,
+  type Timeline as ProjectTimeline,
+  type ProjectShow,
+} from "./lib/project.js";
+export * from "./lib/progress.js";
+export { assetUrl } from "./lib/asset.js";
+export { mediaSourceId, useMediaPlaybackId, isPlayable, mediaKind } from "./lib/mediaAdapters.js";
+
+// Hooks.
+export { useEngine, subscribeDoctor, getDoctor } from "./hooks/useEngine.js";
+export { useHdrToSdr, HDR_COLOR_PRESETS, HDR_UNAVAILABLE_NOTICE } from "./hooks/useHdrToSdr.js";
+
+// Small UI pieces the components share.
+export * from "./ui/index.js";

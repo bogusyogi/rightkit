@@ -1,6 +1,6 @@
 import { engineCall } from "./engine.js";
 
-/** Timeline ticks per second (cutright-timeline TICKS_PER_SECOND). */
+/** Timeline ticks per second (rightkit-timeline TICKS_PER_SECOND). */
 export const TICKS_PER_SECOND = 705_600_000;
 
 export const secondsToTicks = (seconds: number) => Math.round(seconds * TICKS_PER_SECOND);

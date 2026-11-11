@@ -1,9 +1,9 @@
 [package]
 name = "rightkit-social-analytics"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
-description = "Store-free social campaign analytics pieces: tracked short links with public-https destination checks, UTM tagging, deterministic link ids and redirect-route rules."
+description = "Social campaign analytics without a store: tracked short links (public-https destination checks, UTM tagging, deterministic link ids, redirect-route rules), platform insight pulls and the metric registry, manual metric CSV import and calendar change proposals, over host-implemented stores."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
@@ -13,21 +13,9 @@ include = ["src/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LIC
 name = "rightkit_social_analytics"
 path = "src/lib.rs"
 
-[features]
-default = []
-# Engine command handlers (`cmd`): retention feedback import, listing, proposals and apply, over a video project.
-engine-commands = ["dep:rightkit-engine-host", "dep:rightkit-video-project", "dep:rightkit-timeline", "dep:rightkit-transcript", "dep:rightkit-autoedit"]
-
 [dependencies]
-rightkit-engine-host = { version = "0.1.1", path = "../rightkit-engine-host", features = ["project-cmd"], optional = true }
-rightkit-video-project = { version = "0.1.0", path = "../rightkit-video-project", optional = true }
-rightkit-timeline = { version = "0.1.0", path = "../rightkit-timeline", optional = true }
-rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript", optional = true }
-rightkit-autoedit = { version = "0.1.1", path = "../rightkit-autoedit", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 rightkit-social-publish = { version = "0.1.1", path = "../rightkit-social-publish" }
 rightkit-http = { version = "0.3.9", path = "../rightkit-http" }
 rightkit-fs = { version = "0.4.8", default-features = false, features = ["digest"], path = "../rightkit-fs" }
-
-# Citationberg is pulled by rightkit-typeset through rightkit-captions (video-project); see the vendored fix.

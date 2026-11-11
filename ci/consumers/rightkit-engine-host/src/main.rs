@@ -1,4 +1,4 @@
-// rightkit-engine-host 0.1.0 consumed by exact registry pin (default features), outside the workspace.
+// rightkit-engine-host 0.2.0 consumed by exact registry pin (default features), outside the workspace.
 use std::sync::Arc;
 
 use rightkit_engine_host::{
@@ -88,5 +88,39 @@ fn main() {
     check(
         caller.slug == "consumer-app" && rightkit_engine_host::caller::parse_caller("a/b").is_err(),
         "caller names become slugs and unsafe names are refused",
+    );
+
+    let raw = rightkit_engine_host::call::RawOutput {
+        stdout: r#"{"error":{"code":"bad_input","message":"no"}}"#.into(),
+        stderr: "{\"event\":\"p\"}\nplain\n".into(),
+        code: Some(1),
+    };
+    check(
+        matches!(
+            rightkit_engine_host::call::parse_reply("x", &raw),
+            Err(rightkit_engine_host::call::CallError::Engine(ref e)) if e.code == "bad_input"
+        ),
+        "call: the error envelope becomes an engine error",
+    );
+    check(
+        rightkit_engine_host::call::json_lines(&raw.stderr).count() == 1,
+        "call: only JSON stderr lines are progress",
+    );
+    let report = json!({
+        "app_version": "1.0.0", "contract_version": 2,
+        "capabilities": [{"name": "generate", "version": 1}], "commands": ["generate"]
+    });
+    check(
+        rightkit_engine_host::call::handshake(&report, 2, &[("generate", 1)]).is_ok()
+            && rightkit_engine_host::call::handshake(&report, 3, &[]).is_err()
+            && rightkit_engine_host::call::handshake(&report, 2, &[("job.ack", 1)]).is_err(),
+        "call: contract and capability handshake",
+    );
+    use rightkit_engine_host::call::Runner;
+    check(
+        rightkit_engine_host::call::EngineProcess::new("relative-engine")
+            .run(&["doctor"], None)
+            .is_err(),
+        "call: a relative engine path is refused",
     );
 }

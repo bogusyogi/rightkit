@@ -3,8 +3,8 @@
  * packages/studio @ 1d9b3673fade7511dd13cde5c3776a0e45e47ca3.
  * Upstream file: packages/studio/src/player/components/PlayheadIndicator.tsx.
  * Modifications: inlined PLAYHEAD_HEAD_W (from ./timelineLayout); retargeted
- * the colour props at the host app shell tokens; removed the radial-gradient glow —
- * the fused the host app/the host app shell is flat with no gradients.
+ * the colour props at the shell tokens; removed the radial-gradient glow (the
+ * shell is flat, with no gradients).
  * See src/editor/NOTICES.md for the licence text and provenance.
  */
 

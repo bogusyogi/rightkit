@@ -1,8 +1,8 @@
-import { invoke } from "@tauri-apps/api/core";
+import { videoHost } from "../host.js";
 import { engineCall } from "./engine.js";
 
-// Typed client for the media workflow methods served by cutright-engine
-// (crates/cutright-engine/src/media_cmd.rs).
+// Typed client for the video engine methods (served by the host's engine over the RightKit video
+// crates: rightkit-video-project, rightkit-autoedit, rightkit-shorts, rightkit-motion, ...).
 
 export type CutPreset = "tight" | "natural" | "punchy" | "fast";
 
@@ -121,7 +121,7 @@ export type ShortProposal = {
   platform_fit?: { platform: string; duration_fit?: number; fits: boolean }[];
 };
 
-/** How the proposals were ranked (`RankingInfo` in cutright-shorts). */
+/** How the proposals were ranked (`RankingInfo` in rightkit-shorts). */
 export type ShortsRanking = {
   /** `"llm"` or `"heuristic"`. */
   method: string;
@@ -406,7 +406,7 @@ export const settingsGet = (dir?: string) =>
 
 /** Fired on `window` after a finishing setting is saved. `detail.dir` is the project it was saved
  *  to, or absent for an app-wide save, so a listener for one project can tell them apart. */
-export const SETTINGS_CHANGED = "cutright:settings-changed";
+export const SETTINGS_CHANGED = "rightkit-video-ui:settings-changed";
 
 const notifySettingsChanged = (dir?: string) =>
   window.dispatchEvent(new CustomEvent<{ dir?: string }>(SETTINGS_CHANGED, { detail: { dir } }));
@@ -625,56 +625,42 @@ export const captionsPreview = (
   opts: { style?: string; preset?: string; source?: string } = {},
 ) => engineCall<CaptionPreview>("captions.preview", { dir, ...opts });
 
-// ---- Native playback (Rust decode + wgpu composite; frames over IPC) ----
+// ---- Native playback (the host's preview session; frames over IPC) ----
 
-export type PlaybackMeta = {
-  kind: "timeline" | "file";
-  playing: boolean;
-  position_ms: number;
-  frame: number;
-  total_frames: number;
-  duration_ms: number;
-  fps: { num: number; den: number };
-  width: number;
-  height: number;
-  audio: string;
-  speed: number;
-  loop?: { start_ms: number; end_ms: number } | null;
-  revision: number;
-};
+export type { PlaybackMeta } from "../host.js";
 
-export const playbackOpen = (params: {
-  dir?: string;
-  file?: string;
-  width?: number;
-  height?: number;
-}) => invoke<PlaybackMeta>("playback_open", { params, toolsDir: null });
+export const playbackOpen = (params: { dir?: string; file?: string; width?: number; height?: number }) =>
+  videoHost().playback.open(params);
+
+/** Fired on `window` after the preview session was rebuilt; a paused player repaints on it. */
+export const PLAYBACK_REFRESHED = "rightkit-video-ui:playback-refreshed";
 
 /** Rebuilds the open timeline preview with freshly fetched colour chains and restores the
  *  playhead. A grade change does not change the revision, so the revision-keyed reopen misses it.
  *  Resolves null when no timeline preview is open. */
-/** Fired on `window` after the preview session was rebuilt; a paused player repaints on it. */
-export const PLAYBACK_REFRESHED = "cutright:playback-refreshed";
-
 export const playbackRefreshFinishing = (dir: string) =>
-  invoke<PlaybackMeta | null>("playback_refresh_finishing", { dir, toolsDir: null }).then((meta) => {
-    window.dispatchEvent(new Event(PLAYBACK_REFRESHED));
-    return meta;
-  });
+  videoHost()
+    .playback.refreshFinishing(dir)
+    .then((meta) => {
+      window.dispatchEvent(new Event(PLAYBACK_REFRESHED));
+      return meta;
+    });
 
-export const playbackClose = () => invoke<void>("playback_close");
+export const playbackClose = () => videoHost().playback.close();
 
-export const playbackStatus = () => invoke<PlaybackMeta>("playback_status");
+export const playbackStatus = () => videoHost().playback.status();
 
 export const playbackControl = (cmd: string, value?: number, value2?: number) =>
-  invoke<PlaybackMeta>("playback_control", { cmd, value: value ?? 0, value2: value2 ?? 0 });
+  videoHost().playback.control(cmd, value ?? 0, value2 ?? 0);
 
 /** Binary frame reply: `[u32 w][u32 h][u32 frame][u32 total][f64 pts]` + RGBA8. */
-export const playbackFrame = () => invoke<ArrayBuffer | Uint8Array>("playback_frame");
+export const playbackFrame = () => videoHost().playback.frame();
 
-/** Runtime asset-protocol scope grant (project dirs, referenced media). */
-export const mediaScopeAllow = (paths: string[], recursive?: boolean) =>
-  invoke<void>("media_scope_allow", { paths, recursive: recursive ?? null });
+/** Preview-only output gain (0.0..=1.0, 0 mutes); export and render code never read it. */
+export const playbackSetGain = (value: number) => videoHost().playback.setGain(value);
+
+/** Runtime media-scope grant (project folders, referenced media). */
+export const mediaScopeAllow = (paths: string[], recursive?: boolean) => videoHost().allowMediaScope(paths, recursive);
 
 /** One cached JPEG frame (`media.thumbnail`); `path` is local — show via `assetUrl`. */
 export type ThumbFrame = { at_ms: number; path: string };
@@ -718,7 +704,7 @@ export type QaReportRow = {
 
 export const qaList = (dir: string) => engineCall<{ reports: QaReportRow[] }>("qa.list", { dir });
 
-// ---- Platform packages (package.build; crates/cutright-qa/src/package.rs) ----
+// ---- Platform packages (package.build) ----
 
 export type PackagePlatform = "youtube" | "shorts" | "reels" | "tiktok";
 

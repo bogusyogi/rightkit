@@ -1,7 +1,7 @@
 {
   "name": "@rightkit/video-ui",
-  "version": "0.1.1",
-  "description": "Video editor UI: timeline, inspector, preview and project views.",
+  "version": "0.2.0",
+  "description": "Video editing components (timeline, inspector, colour and caption inspectors, transcript, changes, native preview player) over a host-supplied video engine and preview session.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
   "main": "dist/index.js",
@@ -25,23 +25,8 @@
     "*.css"
   ],
   "dependencies": {
-    "@rightkit/app-update": "workspace:^",
-    "@rightkit/legal": "workspace:^",
-    "@rightkit/legal-ui": "workspace:^",
-    "@rightkit/license": "workspace:^",
-    "@rightkit/logs": "workspace:^",
     "@rightkit/media-ui": "workspace:^",
-    "@rightkit/onboarding": "workspace:^",
-    "@rightkit/platform-ui": "workspace:^",
-    "@rightkit/react-shell": "workspace:^",
-    "@rightkit/settings-ui": "workspace:^",
-    "@rightkit/tauri": "workspace:^",
-    "@rightkit/tauri-shell": "workspace:^",
-    "@rightkit/theme": "workspace:^",
-    "@tauri-apps/api": "^2.12.4",
-    "@tauri-apps/plugin-dialog": "^2.8.3",
-    "@tauri-apps/plugin-process": "^2.4.0",
-    "@tauri-apps/plugin-updater": "^2.14.0"
+    "@rightkit/react-shell": "workspace:^"
   },
   "peerDependencies": {
     "react": ">=18 <21"
@@ -52,8 +37,7 @@
     "@types/react-dom": "^19.3.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "typescript": "^7.0.2",
-    "vite": "^8.3.4"
+    "typescript": "^7.0.2"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",

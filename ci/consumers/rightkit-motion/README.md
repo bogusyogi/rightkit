@@ -1,6 +1,6 @@
-# rightkit-motion 0.2.0 registry consumer (draft, PK19)
+# rightkit-motion 0.4.0 registry consumer (draft, PK19)
 
-Standalone consumer, outside the workspace, pinning `rightkit-motion =0.2.0` exactly with the
+Standalone consumer, outside the workspace, pinning `rightkit-motion =0.4.0` exactly with the
 `encode` feature. It exercises the beat snap, the storyboard sheet plan, the bitrate map, the
 encoder pick from a listed ffmpeg inventory, and the ffmpeg argument vector. This is the surface
 GenRight's local encoder code (`motion_encode.rs`) would be replaced by.

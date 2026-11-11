@@ -1,4 +1,4 @@
-// rightkit-doctor 0.1.0 consumed by exact registry pin (default features), outside the workspace.
+// rightkit-doctor 0.2.0 consumed by exact registry pin (default features), outside the workspace.
 use rightkit_doctor::command::{run, DoctorHost};
 use rightkit_doctor::report::Identity;
 use rightkit_doctor::row::{readiness, Row};

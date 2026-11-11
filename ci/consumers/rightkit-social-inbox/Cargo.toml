@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-social-inbox = { version = "=0.1.2" }
+rightkit-social-inbox = { version = "=0.2.0" }
 

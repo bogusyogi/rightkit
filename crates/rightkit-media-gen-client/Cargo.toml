@@ -1,0 +1,22 @@
+[package]
+name = "rightkit-media-gen-client"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Client of the generation engine contract: drive an installed media-generation engine (submit, follow, import) with a crash-safe journal and recovery, model catalog checks and generated-source import, over rightkit-engine-host's engine call."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_media_gen_client"
+path = "src/lib.rs"
+
+[dependencies]
+rightkit-engine-host = { version = "0.2.0", path = "../rightkit-engine-host" }
+rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "lock", "digest", "blake3"], path = "../rightkit-fs" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0" }
+tempfile = { version = "3" }
+thiserror = { version = "2.0" }

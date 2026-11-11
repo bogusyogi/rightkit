@@ -1,5 +1,5 @@
 /**
- * Finished edit workspace (docs/design/app-ui.md §3.4).
+ * Finished edit workspace.
  *
  * Layout: app-sidebar · [ headerbar | stage col (stage + transport) + side
  * panel (Transcript / Changes / Inspect tabs) | timeline ].
@@ -369,7 +369,7 @@ export function TimelineEditorView({
       </div>
 
       {panelError && (
-        <p role="alert" className="cr-muted" style={{ margin: 0, padding: "0 var(--s4)", fontSize: 12 }}>
+        <p role="alert" className="cr-muted" style={{ margin: 0, padding: "0 var(--s4, 16px)", fontSize: 12 }}>
           {panelError}
         </p>
       )}

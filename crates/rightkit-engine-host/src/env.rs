@@ -35,23 +35,30 @@ impl Env {
         }
     }
 
-    /// macOS bundle `<App>.app/Contents/MacOS/<exe>` -> `Contents/Resources`;
-    /// Windows -> the exe's directory. Anything else is unresolved (None).
+    /// The folder the engine's bundled resources resolve from: see [`resource_dir`].
     pub fn resource_dir(&self) -> Option<PathBuf> {
-        let dir = self.exe.as_deref()?.parent()?;
-        match self.os.as_str() {
-            "macos" => {
-                let in_bundle = dir.ends_with("Contents/MacOS")
-                    && dir
-                        .parent()
-                        .and_then(Path::parent)
-                        .is_some_and(|app| app.extension().is_some_and(|e| e == "app"));
-                in_bundle
-                    .then(|| dir.parent().map(|c| c.join("Resources")))
-                    .flatten()
-            }
-            "windows" => Some(dir.to_path_buf()),
-            _ => None,
+        resource_dir(&self.os, self.exe.as_deref()?)
+    }
+}
+
+/// Where an executable's bundled resources resolve from. On `macos`, an executable in a bundle
+/// (`<App>.app/Contents/MacOS/<exe>`) resolves to `Contents/Resources`; on `windows`, to the
+/// executable's folder. Anything else (a bare macOS binary, another system) is unresolved (`None`).
+/// The one rule for engines and their `doctor` report.
+pub fn resource_dir(os: &str, exe: &Path) -> Option<PathBuf> {
+    let dir = exe.parent()?;
+    match os {
+        "macos" => {
+            let in_bundle = dir.ends_with("Contents/MacOS")
+                && dir
+                    .parent()
+                    .and_then(Path::parent)
+                    .is_some_and(|app| app.extension().is_some_and(|e| e == "app"));
+            in_bundle
+                .then(|| dir.parent().map(|c| c.join("Resources")))
+                .flatten()
         }
+        "windows" => Some(dir.to_path_buf()),
+        _ => None,
     }
 }

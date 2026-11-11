@@ -22,7 +22,7 @@ use rightkit_video_project::ProjectError;
 use serde_json::{json, Map, Value};
 
 use rightkit_engine_host::env::Env;
-use rightkit_engine_host::project::{bad, open_settings, settings_object, settings_path};
+use rightkit_video_project::engine::{bad, open_settings, settings_object, settings_path};
 
 /// Settings key that holds the stored rule list.
 const KEY: &str = "editing_rules";

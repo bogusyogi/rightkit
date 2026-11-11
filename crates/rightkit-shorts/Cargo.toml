@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-shorts"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shorts finder for Right Suite video apps: candidate moments from a long video's transcript, scored and ranked (heuristics plus an optional BYOK LLM pass), with hooks, captions and edit plans per short."
@@ -16,18 +16,18 @@ path = "src/lib.rs"
 [features]
 default = []
 # Engine command handlers (`cmd`): `moments.ocr_index` and `moments.search`. Adds OCR, text search, ffmpeg and the engine host.
-engine-commands = ["dep:rightkit-engine-host", "dep:chrono", "dep:rightkit-ocr", "dep:rightkit-search", "dep:rightkit-video-project", "dep:rightkit-ffmpeg", "dep:rightkit-fs"]
+engine-commands = ["dep:rightkit-engine-host", "dep:chrono", "dep:rightkit-ocr", "dep:rightkit-search", "rightkit-video-project/engine-commands", "dep:rightkit-ffmpeg", "dep:rightkit-fs"]
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde", "clock"], optional = true }
-rightkit-engine-host = { version = "0.1.1", path = "../rightkit-engine-host", features = ["project-cmd"], optional = true }
+rightkit-engine-host = { version = "0.2.0", path = "../rightkit-engine-host", optional = true }
 rightkit-ocr = { version = "0.2.3", path = "../rightkit-ocr", optional = true }
 rightkit-search = { version = "0.4.1", path = "../rightkit-search", optional = true }
-rightkit-video-project = { version = "0.1.0", path = "../rightkit-video-project", optional = true }
+rightkit-video-project = { version = "0.1.3", path = "../rightkit-video-project", optional = true }
 rightkit-ffmpeg = { version = "0.3.0", path = "../rightkit-ffmpeg", default-features = false, optional = true }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "digest"], optional = true }
 rightkit-captions = { version = "0.1.0", path = "../rightkit-captions" }
-rightkit-autoedit = { version = "0.1.0", path = "../rightkit-autoedit" }
+rightkit-autoedit = { version = "0.2.0", path = "../rightkit-autoedit" }
 rightkit-timeline = { version = "0.1.0", path = "../rightkit-timeline" }
 rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
 serde = { version = "1.0", features = ["derive"] }

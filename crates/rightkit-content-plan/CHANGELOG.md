@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3 (unpublished)
+
+Taken on the recommended option of the shape review (`docs/audits/2026-11-11-shape-matrix/reports/cut-post-redraw.md`), pending the owner's confirmation.
+
+- Requires `rightkit-social-analytics` 0.2.0 (its video-editing retention commands moved to `rightkit-autoedit`); only `links::public_https` is used, and no type of it is in this crate's API. No behaviour change.
+
 ## 0.1.2 (unpublished)
 
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.

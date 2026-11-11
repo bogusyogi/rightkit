@@ -1,5 +1,4 @@
 import { Button, IconButton, Select, Slider } from "@rightkit/react-shell/react";
-import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../lib/engine.js";
 import {
@@ -8,16 +7,12 @@ import {
   playbackControl,
   playbackFrame,
   playbackOpen,
+  playbackSetGain,
   PLAYBACK_REFRESHED,
 } from "../lib/media.js";
 import { formatSeconds } from "../lib/project.js";
 import { Icon, timecode } from "../ui/index.js";
 
-/**
- * Preview-only output gain (0.0..=1.0, 0 mutes). Drives the native transport's
- * audio callback; export/render code never reads it.
- */
-const playbackSetGain = (value: number) => invoke<number>("playback_set_gain", { value });
 
 /** Draw one binary frame reply onto the canvas; returns the decoded header. */
 function drawFrame(canvas: HTMLCanvasElement, buf: ArrayBuffer | Uint8Array) {

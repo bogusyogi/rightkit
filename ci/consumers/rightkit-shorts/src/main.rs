@@ -1,4 +1,4 @@
-// rightkit-shorts 0.1.0 consumed by exact registry pin, outside the workspace.
+// rightkit-shorts 0.2.0 consumed by exact registry pin, outside the workspace.
 //
 // Proves the configuration and budgeting a host relies on: the default profile validates, names
 // a primary platform whose duration window is ordered, round-trips through JSON, refuses an

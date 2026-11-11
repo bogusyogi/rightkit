@@ -1,21 +1,8 @@
 /* Every stylesheet this package's components use. Hosts import "<package>/styles.css" once (Node cannot import CSS from JS). */
-@import "./components/Workspace.css";
-@import "./demo/demo.css";
 @import "./ui/ui.css";
-@import "./views/Assets.css";
-@import "./views/Recipe.css";
-@import "./views/Exports.css";
-@import "./views/Home.css";
-@import "@rightkit/onboarding/onboarding.css";
-@import "./views/Phrases.css";
-@import "./views/Prompt.css";
-@import "./views/Retention.css";
-@import "@rightkit/settings-ui/settings.css";
-@import "./views/Shorts.css";
-@import "./views/Media.css";
-@import "./views/FinishedEdit.css";
+@import "./editor/Editor.css";
 
-/* Caption clip surface (CutRight #38): the caption track's clip fill, tuned per mode. */
+/* Caption clip surface: the caption track's clip fill, tuned per mode. */
 :root { --caption-clip: color-mix(in srgb, var(--rk-accent) 18%, transparent); }
 :root:not([data-theme="light"]) { --caption-clip: color-mix(in srgb, var(--rk-accent) 26%, transparent); }
 @media (prefers-color-scheme: dark) {
