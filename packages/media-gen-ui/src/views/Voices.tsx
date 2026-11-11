@@ -33,20 +33,9 @@ import {
 } from './voices-logic.js';
 import { hostAppName } from "../appName.js";
 
-/** The in-memory studio.voices.* stand-in: a DEV build's browser mode only; a release build never contains it. */
-type VoicesMock = ReturnType<typeof import('./voices-mock.js').createMockVoicesEngine>;
-let mock: Promise<VoicesMock> | undefined;
-function loadMock(): Promise<VoicesMock> {
-  if (!import.meta.env?.DEV) return Promise.reject(new Error(`${hostAppName()} needs the desktop app.`));
-  mock ??= import('./voices-mock.js').then((m) => m.createMockVoicesEngine());
-  return mock;
-}
-
-/** studio.voices.* through the engine; an in-memory stand-in in a plain browser (DEV only). */
-async function call<T>(verb: string, input: Record<string, unknown> = {}): Promise<T> {
-  const name = `studio.voices.${verb}`;
-  if (!isTauri()) return (await loadMock())(name, input) as T;
-  return studio<T>(name, input);
+/** studio.voices.* through the engine. */
+function call<T>(verb: string, input: Record<string, unknown> = {}): Promise<T> {
+  return studio<T>(`studio.voices.${verb}`, input);
 }
 
 type Tab = 'library' | 'batch' | 'clone';

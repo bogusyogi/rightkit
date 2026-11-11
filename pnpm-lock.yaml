@@ -1274,18 +1274,6 @@ importers:
 
   packages/media-gen-ui:
     dependencies:
-      '@rightkit/app-update':
-        specifier: workspace:^
-        version: link:../app-update
-      '@rightkit/legal':
-        specifier: workspace:^
-        version: link:../legal
-      '@rightkit/legal-ui':
-        specifier: workspace:^
-        version: link:../legal-ui
-      '@rightkit/license':
-        specifier: workspace:^
-        version: link:../license
       '@rightkit/logs':
         specifier: workspace:^
         version: link:../logs
@@ -1307,18 +1295,9 @@ importers:
       '@rightkit/tauri-shell':
         specifier: workspace:^
         version: link:../tauri-shell
-      '@rightkit/theme':
-        specifier: workspace:^
-        version: link:../theme
       '@tauri-apps/api':
         specifier: ^2.12.4
         version: 2.12.4
-      '@tauri-apps/plugin-process':
-        specifier: ^2.4.0
-        version: 2.4.0
-      '@tauri-apps/plugin-updater':
-        specifier: ^2.14.0
-        version: 2.14.1
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3

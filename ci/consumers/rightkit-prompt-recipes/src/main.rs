@@ -1,14 +1,12 @@
-// rightkit-prompt-recipes 0.1.0 consumed by exact registry pin (`=0.1.0`), outside the workspace.
+// rightkit-prompt-recipes 0.2.0 consumed by exact registry pin (`=0.2.0`), outside the workspace.
 //
-// Proves, through the public API only, the command table and the embedded catalogue lookups:
-// - commands() lists the catalogue's studio command names, including studio.catalog.intents;
-// - catalog::COMMANDS is a non-empty static table;
-// - catalog::reference_limit is a positive count;
-// - catalog::intent_model refuses an unknown intent name.
-// No recipe is dispatched: dispatch needs a media-generation Context and would call the generator.
-// No network, no file, no process spawn. Exits 1 on the first failed check.
-use rightkit_prompt_recipes::catalog;
-use rightkit_prompt_recipes::commands;
+// Proves, through the public API of the default (pure library) build:
+// - catalog::reference_limit is a positive count and an unknown intent has no model;
+// - contracts::list_contracts names the shipped contracts;
+// - the crate ships no brands: catalog::brands() is only `NA` until the host sets its own;
+// - after brands::set_brands, the host's code is a catalogue brand and a video venture, and an unknown one is refused.
+// No engine, no network, no file, no process spawn. Exits 1 on the first failed check.
+use rightkit_prompt_recipes::{brands, catalog, contracts, video_templates};
 
 fn check(ok: bool, what: &str) {
     if ok {
@@ -21,14 +19,6 @@ fn check(ok: bool, what: &str) {
 
 fn main() {
     check(
-        commands().contains(&"studio.catalog.intents"),
-        "commands() lists studio.catalog.intents",
-    );
-    check(
-        !catalog::COMMANDS.is_empty(),
-        "the catalogue command table is non-empty",
-    );
-    check(
         catalog::reference_limit() > 0,
         "a reference limit is a positive count",
     );
@@ -36,5 +26,27 @@ fn main() {
         catalog::intent_model("no-such-intent-rightkit").is_none(),
         "an unknown intent has no model",
     );
-    println!("OK rightkit-prompt-recipes 0.1.0 (registry consumer)");
+    check(
+        !contracts::list_contracts().is_empty(),
+        "the shipped prompt contracts are listed",
+    );
+    check(
+        catalog::brands() == vec!["NA".to_string()],
+        "no brands ship: only NA",
+    );
+    brands::set_brands(brands::Brands {
+        codes: vec!["acme".into()],
+        defaults: serde_json::json!({}),
+    })
+    .expect("brands set once");
+    check(
+        catalog::brands().contains(&"ACME".to_string()) && brands::is_known("Acme"),
+        "the host's brand is accepted",
+    );
+    check(
+        video_templates::normalize_venture("ACME").ok().as_deref() == Some("acme")
+            && video_templates::normalize_venture("zz").is_err(),
+        "a video venture is a host brand",
+    );
+    println!("OK rightkit-prompt-recipes 0.2.0 (registry consumer)");
 }

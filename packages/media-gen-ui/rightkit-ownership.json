@@ -3,7 +3,7 @@
   "capabilities": [
     {
       "capability": "media-gen-ui",
-      "summary": "Generative media studio UI: generate, jobs, gallery, recipes, voices and production panels.",
+      "summary": "Media-generation UI components (generate form, jobs, gallery, voices, models, recipes and production panels) over a host-supplied engine client.",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

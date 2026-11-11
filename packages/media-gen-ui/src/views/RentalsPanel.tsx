@@ -117,7 +117,7 @@ export function RentalsPanel() {
     const ok = await confirm({
       title: 'Find this worker at Vast.ai?',
       paragraphs: [
-        `Vast.ai may have started a computer for this worker. ${hostAppName()} looks for Vast.ai computers labelled genright-${e.worker_id}, using your Vast.ai API key, and changes nothing else.`,
+        `Vast.ai may have started a computer for this worker. ${hostAppName()} looks for Vast.ai computers labelled ${e.label ?? e.worker_id}, using your Vast.ai API key, and changes nothing else.`,
         `One computer found: ${hostAppName()} takes it over. The worker becomes active again and its limits apply until it is destroyed.`,
         'Several found: nothing changes. Destroy the extra computers on Vast.ai first, then look again.',
         'None found: nothing changes. You will be asked separately before the reserved budget is released.',
@@ -148,7 +148,7 @@ export function RentalsPanel() {
     const ok = await confirm({
       title: 'Release the reserved budget?',
       paragraphs: [
-        `Confirm that no Vast.ai computer exists labelled genright-${e.worker_id}. ${hostAppName()} releases the reserved budget only when its own search also finds none; if it finds one, nothing changes.`,
+        `Confirm that no Vast.ai computer exists labelled ${e.label ?? e.worker_id}. ${hostAppName()} releases the reserved budget only when its own search also finds none; if it finds one, nothing changes.`,
         'After release the worker is no longer tracked, and its reserved budget goes back to the daily cap, the monthly cap and this device\'s allowance.',
       ],
       subject: e.label ?? e.worker_id,

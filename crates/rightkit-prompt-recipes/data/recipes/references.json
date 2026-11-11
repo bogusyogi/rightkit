@@ -16,38 +16,6 @@
     ],
     "interpolation_rule": "References are NOT prompt fragments — they're URL-threaded inputs that go in the model's reference field. Composer reads per-model-quirks.json `reference_field` + `reference_max` to thread correctly. Mention the reference role in prompt only if model-specific guide recommends it (NB2 uses inline @img1; FLUX/Imagen describe style in prose AND attach ref)."
   },
-  "_brand_defaults": {
-    "DD": {
-      "item_key": "product_ref_appearance_lock",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md DD: Puck v3 lesson — product appearance MUST lock via reference"
-    },
-    "RH": {
-      "item_key": "style_ref_locked_aesthetic",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md RH: editorial spread consistency across blog imagery"
-    },
-    "TS": {
-      "item_key": "style_ref_locked_aesthetic",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md TS: counter-culture aesthetic must persist across drops"
-    },
-    "HR": {
-      "item_key": "product_ref_appearance_lock",
-      "status": "provisional_from_memory",
-      "seeded_from": "HR dictation-device shots: lock device appearance via reference"
-    },
-    "DV": {
-      "item_key": "style_ref_locked_aesthetic",
-      "status": "unknown_needs_owner_input",
-      "seeded_from": "no source yet"
-    },
-    "SS": {
-      "item_key": "character_ref_identity_lock",
-      "status": "owner_approved",
-      "seeded_from": "CLAUDE.md SS: photography subject identity preserved across series"
-    }
-  },
   "items": {
     "style_ref_locked_aesthetic": {
       "name": "Style reference (locked aesthetic across batch)",

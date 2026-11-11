@@ -1,7 +1,7 @@
 {
   "name": "@rightkit/media-gen-ui",
-  "version": "0.1.0",
-  "description": "Generative media studio UI: generate, jobs, gallery, recipes, voices and production panels.",
+  "version": "0.2.0",
+  "description": "Media-generation UI components (generate form, jobs, gallery, voices, models, recipes and production panels) over a host-supplied engine client.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
   "main": "dist/index.js",
@@ -25,10 +25,6 @@
     "*.css"
   ],
   "dependencies": {
-    "@rightkit/app-update": "workspace:^",
-    "@rightkit/legal": "workspace:^",
-    "@rightkit/legal-ui": "workspace:^",
-    "@rightkit/license": "workspace:^",
     "@rightkit/logs": "workspace:^",
     "@rightkit/media-ui": "workspace:^",
     "@rightkit/onboarding": "workspace:^",
@@ -36,10 +32,7 @@
     "@rightkit/react-shell": "workspace:^",
     "@rightkit/settings-ui": "workspace:^",
     "@rightkit/tauri-shell": "workspace:^",
-    "@rightkit/theme": "workspace:^",
     "@tauri-apps/api": "^2.12.4",
-    "@tauri-apps/plugin-process": "^2.4.0",
-    "@tauri-apps/plugin-updater": "^2.14.0",
     "tailwindcss": "^4.3.3"
   },
   "peerDependencies": {

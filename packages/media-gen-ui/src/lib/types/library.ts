@@ -1,6 +1,6 @@
 // Asset facts, scope, library search and asset import, as the engine returns them.
 // Field names follow docs/ENGINE-CLI.md ("asset import", "library search") and
-// crates/genright-e2e/tests/fast_asset_facts.rs. The three facts are never merged into one status.
+// the engine's asset facts (rightkit-media-gen host::asset_facts). The three facts are never merged into one status.
 
 export type AssetOriginKind = 'unknown' | 'generated' | 'captured' | 'acquired' | 'supplied';
 export type AssetEvidence = 'unknown' | 'authentic' | 'illustrative';

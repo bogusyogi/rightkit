@@ -11,38 +11,6 @@
     ],
     "interpolation_rule": "Paste fragment verbatim into the lens clause."
   },
-  "_brand_defaults": {
-    "DD": {
-      "item_key": "85mm_f1.4_portrait_compressed",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md DD: premium product compressed depth, classic portrait"
-    },
-    "RH": {
-      "item_key": "50mm_f1.8_natural_eye",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md RH: lifestyle natural-eye perspective"
-    },
-    "TS": {
-      "item_key": "anamorphic_widescreen",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md TS: cinematic dystopian widescreen"
-    },
-    "HR": {
-      "item_key": "35mm_f2_environmental",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md HR: dictation device + environment, UI-friendly framing"
-    },
-    "DV": {
-      "item_key": "50mm_f1.8_natural_eye",
-      "status": "unknown_needs_owner_input",
-      "seeded_from": "no source yet"
-    },
-    "SS": {
-      "item_key": "85mm_f1.4_portrait_compressed",
-      "status": "owner_approved",
-      "seeded_from": "CLAUDE.md SS: photography portrait compression"
-    }
-  },
   "items": {
     "35mm_f2_environmental": {
       "name": "35mm f/2 environmental",

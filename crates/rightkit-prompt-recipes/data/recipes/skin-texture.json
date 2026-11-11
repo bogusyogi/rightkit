@@ -11,38 +11,6 @@
     ],
     "interpolation_rule": "Paste fragment verbatim into the skin-texture clause. Composer skips this entirely if subject_type is product/environment."
   },
-  "_brand_defaults": {
-    "DD": {
-      "item_key": "natural_pores_subtle_imperfection",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md DD: premium honest skin (when humans appear)"
-    },
-    "RH": {
-      "item_key": "documentary_unretouched",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md RH: slow fashion real-people honest portraiture"
-    },
-    "TS": {
-      "item_key": "cinematic_film_grain_skin",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md TS: counter-culture film-grain aesthetic"
-    },
-    "HR": {
-      "item_key": "soft_portrait_smooth_no_plastic",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md HR: brand creatives soft skin without plastic"
-    },
-    "DV": {
-      "item_key": "natural_pores_subtle_imperfection",
-      "status": "unknown_needs_owner_input",
-      "seeded_from": "no source yet"
-    },
-    "SS": {
-      "item_key": "natural_pores_subtle_imperfection",
-      "status": "owner_approved",
-      "seeded_from": "CLAUDE.md SS: photography honest skin"
-    }
-  },
   "items": {
     "natural_pores_subtle_imperfection": {
       "name": "Natural pores, subtle imperfection",

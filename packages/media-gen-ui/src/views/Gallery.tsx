@@ -9,7 +9,7 @@ import { MediaPlayer } from '@rightkit/media-ui';
 import { ImageViewer } from '@rightkit/media-ui/image';
 import { useConfirm } from '../lib/confirm.js';
 import { formatDuration } from '../lib/gen-params.js';
-import brandCatalog from '../studio-data/brands/brands.json' with { type: "json" };
+import { hostBrands } from '../lib/brands.js';
 import {
   ALL,
   EYES_STATES,
@@ -28,7 +28,6 @@ import {
   serverFilters,
   stateLabel,
   stateTone,
-  type BrandInfo,
   type FilterFields,
   type GalleryFilters
 } from '../lib/gallery-filters.js';
@@ -41,8 +40,6 @@ const GALLERY_PAGE = 200;
 /** Library hits per page: the engine's own default for library.search. */
 const LIBRARY_PAGE = 20;
 
-const BRANDS: BrandInfo[] = brandCatalog.brands;
-const BRAND_CODES = BRANDS.map((b) => b.code);
 
 /** Library kinds shown as video or audio in the inspector; every other kind is an image. */
 const VIDEO_KINDS = new Set(['video', 'lipsync', 'avatar', 'extend', 'motion_control', 'replace_object', 'restyle']);
@@ -96,7 +93,7 @@ function fromArtifact(a: GalleryArtifact): Item {
     scope: a.scope ?? null,
     rows: [
       ['Project', projectLabel(a.project_slug)],
-      ['Brand', brandLabel(a.brand, BRANDS)],
+      ['Brand', brandLabel(a.brand, hostBrands())],
       ...(a.caller ? [['Registered by', a.caller_label ?? a.caller] as [string, string]] : []),
       ['Provider', a.generation.provider ?? 'unknown'],
       ['Model', a.generation.model ?? 'unknown'],
@@ -382,7 +379,7 @@ export function Gallery() {
     [...generated, ...unfiltered.map(fromArtifact)],
     isServerFiltered(remote)
   );
-  const brandOptions = optionsFor(optionItems.map((i) => i.brand), BRAND_CODES, (c) => brandLabel(c, BRANDS));
+  const brandOptions = optionsFor(optionItems.map((i) => i.brand), hostBrands().map((b) => b.code), (c) => brandLabel(c, hostBrands()));
   const eyesOptions = optionsFor(optionItems.map((i) => i.eyes), EYES_STATES, stateLabel);
   const juryOptions = optionsFor(optionItems.map((i) => i.jury), JURY_STATES, humanize);
   const metaOptions = optionsFor(optionItems.map((i) => i.metadata), METADATA_STATES, humanize);
@@ -390,7 +387,7 @@ export function Gallery() {
   const callerLabels = new Map(optionItems.filter((i) => i.caller).map((i) => [i.caller, i.callerLabel] as [string, string]));
   const callerOptions = optionsFor(optionItems.map((i) => i.caller).filter(Boolean), [], (slug) => callerLabel(slug, callerLabels));
   const projectOptions = optionsFor(optionItems.map((i) => i.project), [NO_PROJECT_FILTER], projectLabel);
-  const brandInfo = current ? BRANDS.find((b) => b.code === current.brand) : undefined;
+  const brandInfo = current ? hostBrands().find((b) => b.code === current.brand) : undefined;
   const a = current?.artifact ?? null;
   const searching = libraryQuery !== null;
   // Remote and inline previews have no file on disk for the engine to remove; a missing library file has nothing to delete.

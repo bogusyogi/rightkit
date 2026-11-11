@@ -1,98 +1,86 @@
-//! studio.brands: the seven brand codes (DD, RH, TS, HR, DV, KDP, NA) and their metadata,
-//! ported from the Media Console baseline (a7271cf `src/lib/types/gallery.ts` `Brand`,
-//! `compat-lib/media-probe.mjs` `inferProject`). Data lives in `data/brands/brands.json`;
-//! Hosts that stamp a brand code on indexed artifacts embed the same file.
+//! The host's brands: which brand codes a request may carry and what each brand picks by default
+//! from each library. The crate ships no brands; a host installs its own once at startup with
+//! [`set_brands`], before the first composition.
 //!
-//! Commands:
-//! - `studio.brands.list`: `{brands:[{code,name,descriptor,name_verified,segments,...}], default_code}`.
-//! - `studio.brands.get`: `{code}` -> one brand; `unknown_brand` for any other code.
-//! - `studio.brands.infer`: `{path}` -> `{code, brand}` from the file's folder location.
+//! Defaults are keyed by library and then by brand code, with the same entry shape the libraries
+//! use (`{"item_key": "..."}` for a recipe library, a library-specific spec for a video one):
+//!
+//! ```json
+//! {
+//!   "recipes/aesthetics": {"ACME": {"item_key": "premium_product"}},
+//!   "recipes/models": {"ACME": {"item_key": "flux-2-pro"}},
+//!   "video/camera_moves": {"ACME": {"camera_key": "slow_push_in"}}
+//! }
+//! ```
+//!
+//! Recipe library names: `aesthetics`, `composition`, `lens`, `lighting`, `depth`, `color`,
+//! `skin`, `references`, `editing`, `models`. Video library names are the file stems under
+//! `data/video_templates/` (`camera_moves`, `ad_patterns`, `aesthetics`, ...).
+//!
+//! Without brands, a request names its model and items explicitly; the brand code `NA` (no brand)
+//! is always accepted and has no defaults.
 
-use serde_json::{json, Value};
+use std::sync::OnceLock;
 
-use rightkit_media_gen::{Context, GenError, GenResult};
+use serde_json::Value;
 
-pub const COMMANDS: &[&str] = &[
-    "studio.brands.list",
-    "studio.brands.get",
-    "studio.brands.infer",
-];
+/// The brand code that means "no brand"; always accepted, never has defaults.
+pub const NO_BRAND: &str = "NA";
 
-const BRANDS_JSON: &str = include_str!("../data/brands/brands.json");
-
-fn catalog() -> &'static Value {
-    static CATALOG: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
-    CATALOG.get_or_init(|| serde_json::from_str(BRANDS_JSON).expect("brands.json"))
+/// A host's brand set.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Brands {
+    /// Upper-case brand codes a request may carry (besides [`NO_BRAND`]).
+    pub codes: Vec<String>,
+    /// `{"recipes/<library>" | "video/<library>": {"<CODE>": <default entry>}}`.
+    pub defaults: Value,
 }
 
-/// Brand code for a file location: the first catalogue brand whose consecutive path-segment
-/// sequence (or segment prefix) matches; the catalogue's `default_code` when none does.
-pub fn infer_brand_code(path: &str) -> String {
-    let lower = path.replace('\\', "/").to_ascii_lowercase();
-    let segs: Vec<&str> = lower.split('/').filter(|s| !s.is_empty()).collect();
-    let catalog = catalog();
-    let default = catalog["default_code"].as_str().unwrap_or("NA");
-    for brand in catalog["brands"].as_array().into_iter().flatten() {
-        let code = brand["code"].as_str().unwrap_or_default();
-        let by_sequence = brand["segments"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|seq| {
-                let seq: Vec<&str> = seq
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_str)
-                    .collect();
-                !seq.is_empty() && segs.windows(seq.len()).any(|w| w == seq.as_slice())
-            });
-        let by_prefix = brand["segment_prefixes"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .any(|p| segs.iter().any(|s| s.starts_with(p)));
-        if by_sequence || by_prefix {
-            return code.to_string();
-        }
+static BRANDS: OnceLock<Brands> = OnceLock::new();
+
+/// Install the host's brands once. Returns the rejected value when brands are already set. Call it
+/// before the first composition: each library takes its brand defaults when it is first loaded.
+pub fn set_brands(brands: Brands) -> Result<(), Box<Brands>> {
+    let brands = Brands {
+        codes: brands
+            .codes
+            .iter()
+            .map(|c| c.trim().to_ascii_uppercase())
+            .filter(|c| !c.is_empty() && c != NO_BRAND)
+            .collect(),
+        defaults: brands.defaults,
+    };
+    BRANDS.set(brands).map_err(Box::new)
+}
+
+/// The brands in force (empty until [`set_brands`]).
+pub fn brands() -> &'static Brands {
+    static NONE: OnceLock<Brands> = OnceLock::new();
+    BRANDS
+        .get()
+        .unwrap_or_else(|| NONE.get_or_init(Brands::default))
+}
+
+/// The host's brand codes, without [`NO_BRAND`].
+pub fn codes() -> &'static [String] {
+    &brands().codes
+}
+
+/// True for a host brand code or [`NO_BRAND`] (case-insensitive).
+pub fn is_known(code: &str) -> bool {
+    let code = code.trim().to_ascii_uppercase();
+    code == NO_BRAND || codes().contains(&code)
+}
+
+/// The per-brand defaults of one library (`recipes/<name>` or `video/<name>`), if the host gave any.
+pub fn defaults_for(library: &str) -> Option<&'static Value> {
+    brands().defaults.get(library).filter(|v| v.is_object())
+}
+
+/// `json` with the host's defaults for `library` under `_brand_defaults`, the key the composers read.
+pub(crate) fn with_defaults(library: &str, mut json: Value) -> Value {
+    if let (Some(defaults), Some(map)) = (defaults_for(library), json.as_object_mut()) {
+        map.insert("_brand_defaults".to_string(), defaults.clone());
     }
-    default.to_string()
-}
-
-fn find(code: &str) -> Option<Value> {
-    let wanted = code.trim().to_ascii_uppercase();
-    catalog()["brands"]
-        .as_array()?
-        .iter()
-        .find(|b| b["code"] == wanted.as_str())
-        .cloned()
-}
-
-pub fn handle(_ctx: &Context, name: &str, input: &Value) -> GenResult<Value> {
-    match name {
-        "studio.brands.list" => Ok(json!({
-            "brands": catalog()["brands"],
-            "default_code": catalog()["default_code"],
-        })),
-        "studio.brands.get" => {
-            let code = input.get("code").and_then(Value::as_str).unwrap_or("");
-            find(code).ok_or_else(|| {
-                GenError::new("unknown_brand", format!("unknown brand code: {code:?}"))
-            })
-        }
-        "studio.brands.infer" => {
-            let path = input
-                .get("path")
-                .and_then(Value::as_str)
-                .filter(|p| !p.trim().is_empty())
-                .ok_or_else(|| GenError::new("invalid_input", "path is required"))?;
-            let code = infer_brand_code(path);
-            Ok(json!({"code": code, "brand": find(&code)}))
-        }
-        _ => Err(GenError::new(
-            "unknown_command",
-            format!("unknown command: {name}"),
-        )),
-    }
+    json
 }

@@ -18,14 +18,19 @@
 //! Commands are named `studio.video_templates.<verb>`.
 
 use std::collections::BTreeMap;
+#[cfg(feature = "commands")]
 use std::path::{Path, PathBuf};
+#[cfg(feature = "commands")]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 
 use serde_json::{json, Map, Value};
 
-use rightkit_media_gen::{Context, GenError, GenResult};
+use crate::{RecipeError, RecipeResult};
+#[cfg(feature = "commands")]
+use rightkit_media_gen::Context;
 
+#[cfg(feature = "commands")]
 pub const COMMANDS: &[&str] = &[
     "studio.video_templates.templates",
     "studio.video_templates.template",
@@ -43,8 +48,6 @@ pub const COMMANDS: &[&str] = &[
 pub const CONTRACT_VERSION: &str = "1.1.0";
 pub const RENDERER_VERSION: &str = "1.1.0";
 
-const ALLOWED_VENTURES: &[&str] = &["dd", "rh", "ts", "hr", "kdp", "dv", "na"];
-const VIDEO_BRANDS: &[&str] = &["DD", "RH", "TS", "HR", "KDP", "DV"];
 const UNSAFE_MERGE_KEYS: &[&str] = &["__proto__", "constructor", "prototype"];
 
 const REQUIRED_TOP_FIELDS: &[&str] = &[
@@ -88,6 +91,7 @@ const MAX_NEGATIVES: usize = 12;
 // ---------------------------------------------------------------------------
 
 struct Lib {
+    #[cfg_attr(not(feature = "commands"), allow(dead_code))]
     src: &'static str,
     json: Value,
 }
@@ -98,9 +102,11 @@ macro_rules! lib {
             static CELL: OnceLock<Lib> = OnceLock::new();
             CELL.get_or_init(|| {
                 let src: &'static str = include_str!(concat!("../data/video_templates/", $file));
+                let json = serde_json::from_str(src).expect(concat!($file, " is valid JSON"));
+                let stem = $file.strip_suffix(".json").unwrap_or($file);
                 Lib {
                     src,
-                    json: serde_json::from_str(src).expect(concat!($file, " is valid JSON")),
+                    json: crate::brands::with_defaults(&format!("video/{stem}"), json),
                 }
             })
         }
@@ -118,12 +124,15 @@ lib!(subject_motion_lib, "subject_motion.json");
 lib!(scene_motion_lib, "scene_motion.json");
 lib!(continuity_lib, "continuity.json");
 lib!(quirks_lib, "per_model_quirks.json");
+#[cfg(feature = "commands")]
 lib!(templates_lib, "shot_contract_templates.json");
 lib!(routes_lib, "model_routes.json");
 lib!(camera_params_lib, "camera_params.json");
 
+#[cfg(feature = "commands")]
 type LibraryEntry = (&'static str, &'static str, fn() -> &'static Lib);
 
+#[cfg(feature = "commands")]
 /// (library id, label, loader). The order is the order shown in the UI.
 const LIBRARIES: &[LibraryEntry] = &[
     ("camera_moves", "Camera moves", camera_moves_lib),
@@ -138,6 +147,7 @@ const LIBRARIES: &[LibraryEntry] = &[
     ("continuity", "Continuity locks", continuity_lib),
 ];
 
+#[cfg(feature = "commands")]
 fn library(id: &str) -> Option<&'static Lib> {
     LIBRARIES
         .iter()
@@ -195,6 +205,7 @@ fn truthy(v: Option<&Value>) -> bool {
     }
 }
 
+#[cfg(feature = "commands")]
 fn title_case_slug(slug: &str) -> String {
     slug.split(['-', '_'])
         .filter(|p| !p.is_empty())
@@ -209,14 +220,16 @@ fn title_case_slug(slug: &str) -> String {
         .join(" ")
 }
 
-fn bad(code: &str, message: impl Into<String>) -> GenError {
-    GenError::new(code, message)
+fn bad(code: &str, message: impl Into<String>) -> RecipeError {
+    RecipeError::new(code, message)
 }
 
+#[cfg(feature = "commands")]
 fn to_slash(p: &Path) -> String {
     p.to_string_lossy().replace('\\', "/")
 }
 
+#[cfg(feature = "commands")]
 /// Sort `keys` by where each first appears in the JSON source, which keeps the
 /// authored order even when `serde_json` maps are alphabetical.
 fn source_order(src: &str, keys: &mut [String]) {
@@ -242,6 +255,7 @@ fn iso_now() -> String {
     )
 }
 
+#[cfg(feature = "commands")]
 fn fnv64(s: &str) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in s.as_bytes() {
@@ -284,9 +298,10 @@ fn stable_stringify(v: &Value) -> String {
 // Ventures, content root, templates
 // ---------------------------------------------------------------------------
 
-pub fn normalize_venture(venture: &str) -> GenResult<String> {
+pub fn normalize_venture(venture: &str) -> RecipeResult<String> {
     let n = venture.trim().to_lowercase();
-    if !ALLOWED_VENTURES.contains(&n.as_str()) {
+    // A venture is a host brand code in lower case, or `na` (no brand).
+    if !crate::brands::is_known(&n) {
         return Err(bad(
             "invalid_input",
             format!("Invalid video venture \"{venture}\""),
@@ -295,7 +310,8 @@ pub fn normalize_venture(venture: &str) -> GenResult<String> {
     Ok(n)
 }
 
-fn normalize_template_slug(slug: &str) -> GenResult<String> {
+#[cfg(feature = "commands")]
+fn normalize_template_slug(slug: &str) -> RecipeResult<String> {
     let n = slug.trim();
     let ok = !n.is_empty()
         && n.chars()
@@ -309,6 +325,7 @@ fn normalize_template_slug(slug: &str) -> GenResult<String> {
     Ok(n.to_string())
 }
 
+#[cfg(feature = "commands")]
 /// Input `content_root`, else `RIGHTKIT_CONTENT_ROOT`, else `<data_dir>/Content`.
 fn content_root(ctx: &Context, input: &Value) -> PathBuf {
     if let Some(p) = nonblank(input.get("content_root")) {
@@ -320,8 +337,9 @@ fn content_root(ctx: &Context, input: &Value) -> PathBuf {
     ctx.data_dir.join("Content")
 }
 
+#[cfg(feature = "commands")]
 /// Refuse any path that escapes `root`.
-fn resolve_inside(root: &Path, parts: &[&str]) -> GenResult<PathBuf> {
+fn resolve_inside(root: &Path, parts: &[&str]) -> RecipeResult<PathBuf> {
     let mut candidate = root.to_path_buf();
     for p in parts {
         candidate.push(p);
@@ -345,6 +363,7 @@ fn resolve_inside(root: &Path, parts: &[&str]) -> GenResult<PathBuf> {
     Ok(candidate)
 }
 
+#[cfg(feature = "commands")]
 fn unwrap_shot_contract(parsed: &Value) -> &Value {
     match parsed.get("shot_contract") {
         Some(c) if truthy(Some(c)) => c,
@@ -352,6 +371,7 @@ fn unwrap_shot_contract(parsed: &Value) -> &Value {
     }
 }
 
+#[cfg(feature = "commands")]
 fn has_time_segments(contract: &Value) -> bool {
     contract
         .get("time_segments")
@@ -370,6 +390,7 @@ pub struct Template {
 }
 
 impl Template {
+    #[cfg(feature = "commands")]
     fn to_json(&self, with_contract: bool) -> Value {
         let mut v = json!({
             "slug": self.slug,
@@ -385,6 +406,7 @@ impl Template {
     }
 }
 
+#[cfg(feature = "commands")]
 fn template_from_parsed(
     slug: &str,
     parsed: &Value,
@@ -412,11 +434,12 @@ fn template_from_parsed(
     })
 }
 
+#[cfg(feature = "commands")]
 /// Templates stored on disk for one venture, with the files that were skipped.
 pub fn list_disk_templates(
     content_root: &Path,
     venture: &str,
-) -> GenResult<(Vec<Template>, Vec<Value>)> {
+) -> RecipeResult<(Vec<Template>, Vec<Value>)> {
     let venture = normalize_venture(venture)?;
     let dir = resolve_inside(content_root, &[&venture, "shot_contract_templates"])?;
     let mut out = Vec::new();
@@ -450,6 +473,7 @@ pub fn list_disk_templates(
     Ok((out, skipped))
 }
 
+#[cfg(feature = "commands")]
 fn builtin_templates(venture: &str) -> Vec<Template> {
     let list = templates_lib()
         .json
@@ -473,11 +497,12 @@ fn builtin_templates(venture: &str) -> Vec<Template> {
         .collect()
 }
 
+#[cfg(feature = "commands")]
 /// Built-in starters plus the venture's on-disk templates; disk wins on a slug clash.
 pub fn list_templates(
     content_root: &Path,
     venture: &str,
-) -> GenResult<(Vec<Template>, Vec<Value>)> {
+) -> RecipeResult<(Vec<Template>, Vec<Value>)> {
     let venture = normalize_venture(venture)?;
     let (disk, skipped) = list_disk_templates(content_root, &venture)?;
     let mut all: Vec<Template> = builtin_templates(&venture)
@@ -489,7 +514,8 @@ pub fn list_templates(
     Ok((all, skipped))
 }
 
-pub fn read_template(content_root: &Path, venture: &str, slug: &str) -> GenResult<Template> {
+#[cfg(feature = "commands")]
+pub fn read_template(content_root: &Path, venture: &str, slug: &str) -> RecipeResult<Template> {
     let venture = normalize_venture(venture)?;
     let slug = normalize_template_slug(slug)?;
     let path = resolve_inside(
@@ -526,7 +552,7 @@ pub fn read_template(content_root: &Path, venture: &str, slug: &str) -> GenResul
 // Deep merge (arrays replace, objects merge, unsafe keys refused)
 // ---------------------------------------------------------------------------
 
-fn assert_no_unsafe_merge_keys(v: &Value, trail: &mut Vec<String>) -> GenResult<()> {
+fn assert_no_unsafe_merge_keys(v: &Value, trail: &mut Vec<String>) -> RecipeResult<()> {
     match v {
         Value::Object(o) => {
             for (k, child) in o {
@@ -581,7 +607,7 @@ fn merge_plain(template: Option<&Value>, over: Option<&Value>) -> Option<Value> 
     }
 }
 
-pub fn merge_shot_contract(template: &Value, over: &Value) -> GenResult<Value> {
+pub fn merge_shot_contract(template: &Value, over: &Value) -> RecipeResult<Value> {
     assert_no_unsafe_merge_keys(over, &mut Vec::new())?;
     Ok(merge_plain(Some(template), Some(over)).unwrap_or(Value::Null))
 }
@@ -750,6 +776,7 @@ pub struct Route {
 }
 
 impl Route {
+    #[cfg(feature = "commands")]
     fn to_json(&self) -> Value {
         json!({
             "model": self.model, "family": self.family, "quirks": self.quirks,
@@ -762,7 +789,7 @@ impl Route {
 /// Exact, case-insensitive model-id match against `model_routes.json`. A model
 /// with no entry, or an entry without a family, is refused; nothing is guessed
 /// from substrings.
-pub fn resolve_route(model: &str) -> GenResult<Route> {
+pub fn resolve_route(model: &str) -> RecipeResult<Route> {
     let key = model.trim().to_lowercase();
     let routes = routes_lib()
         .json
@@ -1277,7 +1304,7 @@ pub fn render_shot_contract(
     model: &str,
     cinema_studio: bool,
     extra_warnings: &[String],
-) -> GenResult<Rendered> {
+) -> RecipeResult<Rendered> {
     let route = resolve_route(model)?;
     let mut family = route.family.clone();
     let cinema = cinema_studio
@@ -1347,6 +1374,7 @@ pub fn render_shot_contract(
 // Recipe libraries
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "commands")]
 fn normalize_recipe_item(slug: &str, item: &Value, extras: &[(&str, Value)]) -> Value {
     let mut o: Map<String, Value> = item.as_object().cloned().unwrap_or_default();
     for (k, v) in extras {
@@ -1366,12 +1394,14 @@ fn normalize_recipe_item(slug: &str, item: &Value, extras: &[(&str, Value)]) -> 
     Value::Object(o)
 }
 
+#[cfg(feature = "commands")]
 fn ordered_keys(src: &str, obj: &Map<String, Value>) -> Vec<String> {
     let mut keys: Vec<String> = obj.keys().cloned().collect();
     source_order(src, &mut keys);
     keys
 }
 
+#[cfg(feature = "commands")]
 /// Every item of a library, flattened, in the authored order.
 fn flatten_library(lib: &Lib) -> Vec<Value> {
     let mut out = Vec::new();
@@ -1401,6 +1431,7 @@ fn flatten_library(lib: &Lib) -> Vec<Value> {
     out
 }
 
+#[cfg(feature = "commands")]
 fn category_meta(lib: &Lib) -> Vec<Value> {
     let Some(cats) = lib.json.get("categories").and_then(Value::as_object) else {
         return Vec::new();
@@ -1419,6 +1450,7 @@ fn category_meta(lib: &Lib) -> Vec<Value> {
         .collect()
 }
 
+#[cfg(feature = "commands")]
 fn library_view(id: &str, lib: &Lib) -> Value {
     let items = flatten_library(lib);
     let meta = lib.json.get("_meta");
@@ -1448,6 +1480,7 @@ fn find_in_categories(lib: &Lib, key: &str) -> Option<(String, Value)> {
     None
 }
 
+#[cfg(feature = "commands")]
 fn brand_default(lib: &Lib, brand: &str) -> Option<Value> {
     lib.json
         .get("_brand_defaults")
@@ -1703,11 +1736,12 @@ pub fn compose_prompt(p: &Value) -> Result<(String, Value), String> {
 // Preflight
 // ---------------------------------------------------------------------------
 
-fn require_string(input: &Value, key: &str) -> GenResult<String> {
+#[cfg(feature = "commands")]
+fn require_string(input: &Value, key: &str) -> RecipeResult<String> {
     nonblank(input.get(key)).ok_or_else(|| bad("invalid_input", format!("{key} is required")))
 }
 
-pub fn slugify(value: &str) -> GenResult<String> {
+pub fn slugify(value: &str) -> RecipeResult<String> {
     let mut out = String::new();
     let mut dash = false;
     for c in value.trim().to_lowercase().chars() {
@@ -1733,8 +1767,10 @@ pub fn slugify(value: &str) -> GenResult<String> {
     Ok(slug)
 }
 
+#[cfg(feature = "commands")]
 const REF_FIELDS: &[&str] = &["start_frame_url", "end_frame_url", "ingredient_refs"];
 
+#[cfg(feature = "commands")]
 fn present(v: Option<&Value>) -> bool {
     match v {
         None | Some(Value::Null) => false,
@@ -1744,7 +1780,8 @@ fn present(v: Option<&Value>) -> bool {
     }
 }
 
-fn reject_unexpected_refs(input: &Value, allowed: &[&str], ref_kind: &str) -> GenResult<()> {
+#[cfg(feature = "commands")]
+fn reject_unexpected_refs(input: &Value, allowed: &[&str], ref_kind: &str) -> RecipeResult<()> {
     for f in REF_FIELDS {
         if !allowed.contains(f) && present(input.get(f)) {
             return Err(bad(
@@ -1756,8 +1793,9 @@ fn reject_unexpected_refs(input: &Value, allowed: &[&str], ref_kind: &str) -> Ge
     Ok(())
 }
 
+#[cfg(feature = "commands")]
 /// A reference must be an https URL of an image (the engine takes URLs).
-fn normalize_image_ref(raw: Option<&Value>, field: &str) -> GenResult<String> {
+fn normalize_image_ref(raw: Option<&Value>, field: &str) -> RecipeResult<String> {
     let Some(s) = raw
         .and_then(Value::as_str)
         .map(str::trim)
@@ -1784,8 +1822,9 @@ fn normalize_image_ref(raw: Option<&Value>, field: &str) -> GenResult<String> {
     Ok(s.to_string())
 }
 
+#[cfg(feature = "commands")]
 /// Validate the frame references the route needs. Returns `(refs, engine params)`.
-fn resolve_refs(input: &Value, route: &Route) -> GenResult<(Value, Map<String, Value>)> {
+fn resolve_refs(input: &Value, route: &Route) -> RecipeResult<(Value, Map<String, Value>)> {
     let mut params = Map::new();
     match route.ref_kind.as_str() {
         "flf" => {
@@ -1825,7 +1864,7 @@ fn resolve_refs(input: &Value, route: &Route) -> GenResult<(Value, Map<String, V
                 .iter()
                 .enumerate()
                 .map(|(i, r)| normalize_image_ref(Some(r), &format!("ingredient_refs[{i}]")))
-                .collect::<GenResult<Vec<_>>>()?;
+                .collect::<RecipeResult<Vec<_>>>()?;
             params.insert("reference_image_urls".into(), json!(urls));
             Ok((json!({"ref_kind": "ingredient", "ingredient": {"ingredient_refs": urls}}), params))
         }
@@ -1839,7 +1878,8 @@ fn resolve_refs(input: &Value, route: &Route) -> GenResult<(Value, Map<String, V
     }
 }
 
-fn resolve_contract(ctx: &Context, input: &Value) -> GenResult<(Value, Option<String>)> {
+#[cfg(feature = "commands")]
+fn resolve_contract(ctx: &Context, input: &Value) -> RecipeResult<(Value, Option<String>)> {
     let template = nonblank(input.get("shot_contract_template"));
     let inline = field(input, "shot_contract_inline");
     let overrides = field(input, "shot_contract_overrides");
@@ -1875,8 +1915,9 @@ fn resolve_contract(ctx: &Context, input: &Value) -> GenResult<(Value, Option<St
     Ok((contract, Some(t.slug)))
 }
 
+#[cfg(feature = "commands")]
 /// The prompt and meta composed from the request fields and the contract.
-fn compose_for_request(request: &Value, contract: &Value) -> GenResult<(String, Value)> {
+fn compose_for_request(request: &Value, contract: &Value) -> RecipeResult<(String, Value)> {
     let brand = request.get("brand").and_then(Value::as_str).unwrap_or("");
     let mut defaults_used = Map::new();
     let mut pick = |key: &str, lib: &Lib, fallback: &str| -> String {
@@ -1945,18 +1986,22 @@ fn compose_for_request(request: &Value, contract: &Value) -> GenResult<(String, 
         );
     }
     let (prompt, mut meta) = compose_prompt(&p).map_err(|m| bad("invalid_input", m))?;
-    meta["source"] = json!("genright_video_preflight");
+    meta["source"] = json!("video_preflight");
     meta["defaults_used"] = Value::Object(defaults_used);
     Ok((prompt, meta))
 }
 
-fn normalize_request(input: &Value) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn normalize_request(input: &Value) -> RecipeResult<Value> {
     let prompt = require_string(input, "prompt")?;
     let brand = require_string(input, "brand")?.to_uppercase();
-    if !VIDEO_BRANDS.contains(&brand.as_str()) {
+    if brand == crate::brands::NO_BRAND || !crate::brands::is_known(&brand) {
         return Err(bad(
             "invalid_input",
-            format!("brand must be one of: {}", VIDEO_BRANDS.join(", ")),
+            format!(
+                "brand must be one of: {}",
+                crate::brands::codes().join(", ")
+            ),
         ));
     }
     let project_slug = slugify(&require_string(input, "project_slug")?)?;
@@ -2044,12 +2089,15 @@ fn normalize_request(input: &Value) -> GenResult<Value> {
     Ok(r)
 }
 
+#[cfg(feature = "commands")]
 fn drafts_dir(ctx: &Context) -> PathBuf {
     ctx.data_dir.join("video_drafts")
 }
 
+#[cfg(feature = "commands")]
 static DRAFT_SEQ: AtomicU64 = AtomicU64::new(0);
 
+#[cfg(feature = "commands")]
 fn new_draft_id(project_slug: &str) -> String {
     let stamp: String = iso_now()
         .chars()
@@ -2065,6 +2113,7 @@ fn new_draft_id(project_slug: &str) -> String {
     format!("video-{stamp}-{project_slug}-{:08x}", nonce & 0xffff_ffff)
 }
 
+#[cfg(feature = "commands")]
 fn valid_draft_id(id: &str) -> bool {
     let rest = id.strip_prefix("video-");
     rest.is_some_and(|r| {
@@ -2077,7 +2126,8 @@ fn valid_draft_id(id: &str) -> bool {
     })
 }
 
-fn draft_path(ctx: &Context, id: &str) -> GenResult<PathBuf> {
+#[cfg(feature = "commands")]
+fn draft_path(ctx: &Context, id: &str) -> RecipeResult<PathBuf> {
     if !valid_draft_id(id) {
         return Err(bad(
             "invalid_input",
@@ -2087,14 +2137,16 @@ fn draft_path(ctx: &Context, id: &str) -> GenResult<PathBuf> {
     Ok(drafts_dir(ctx).join(format!("{id}.json")))
 }
 
-fn read_draft(ctx: &Context, id: &str) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn read_draft(ctx: &Context, id: &str) -> RecipeResult<Value> {
     let path = draft_path(ctx, id)?;
     let s = std::fs::read_to_string(&path)
         .map_err(|_| bad("not_found", format!("video draft not found: {id}")))?;
     serde_json::from_str(&s).map_err(|e| bad("io", format!("video draft {id} is unreadable: {e}")))
 }
 
-fn write_draft(ctx: &Context, draft: &Value) -> GenResult<()> {
+#[cfg(feature = "commands")]
+fn write_draft(ctx: &Context, draft: &Value) -> RecipeResult<()> {
     let id = draft
         .get("draft_id")
         .and_then(Value::as_str)
@@ -2110,12 +2162,14 @@ fn write_draft(ctx: &Context, draft: &Value) -> GenResult<()> {
     .map_err(|e| bad("io", e.to_string()))
 }
 
+#[cfg(feature = "commands")]
 fn engine_fingerprint(engine_request: &Value) -> String {
     format!("{:016x}", fnv64(&stable_stringify(engine_request)))
 }
 
+#[cfg(feature = "commands")]
 /// The guarded preflight. Validates and composes only; nothing is submitted.
-pub fn preflight(ctx: &Context, input: &Value) -> GenResult<Value> {
+pub fn preflight(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     let mut request = normalize_request(input)?;
     let model = request["model"].as_str().unwrap_or_default().to_string();
     let route = resolve_route(&model)?;
@@ -2203,6 +2257,7 @@ pub fn preflight(ctx: &Context, input: &Value) -> GenResult<Value> {
     Ok(draft)
 }
 
+#[cfg(feature = "commands")]
 /// The draft fields an approval binds (the SHA-256 in `approvals` covers all of them), plus the
 /// draft's existing audit hash for the UI to compare.
 fn approval_inputs_of(draft: &Value) -> (Value, String) {
@@ -2224,11 +2279,12 @@ fn approval_inputs_of(draft: &Value) -> (Value, String) {
     )
 }
 
+#[cfg(feature = "commands")]
 /// Record the user's in-app approval of a draft. Needs an approval token only the app shell can
 /// mint (`approvals`); `operator_approved` alone is refused. Refuses a draft whose engine request
 /// no longer matches the fingerprint taken at preflight, and one whose approval inputs changed
 /// since the challenge was issued.
-pub fn approve(ctx: &Context, input: &Value) -> GenResult<Value> {
+pub fn approve(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     let gate = rightkit_media_gen_approvals::gate(input)?;
     let id = require_string(input, "draft_id")?;
     let mut draft = read_draft(ctx, &id)?;
@@ -2270,7 +2326,8 @@ pub fn approve(ctx: &Context, input: &Value) -> GenResult<Value> {
 // Commands
 // ---------------------------------------------------------------------------
 
-fn handle_templates(ctx: &Context, input: &Value) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn handle_templates(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     let venture = normalize_venture(
         &require_string(input, "venture")
             .map_err(|_| bad("invalid_input", "Invalid video venture \"\""))?,
@@ -2285,13 +2342,15 @@ fn handle_templates(ctx: &Context, input: &Value) -> GenResult<Value> {
     }))
 }
 
-fn handle_template(ctx: &Context, input: &Value) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn handle_template(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     let venture = normalize_venture(&nonblank(input.get("venture")).unwrap_or_default())?;
     let slug = nonblank(input.get("slug")).unwrap_or_default();
     Ok(read_template(&content_root(ctx, input), &venture, &slug)?.to_json(true))
 }
 
-fn handle_library_list(id: &str, key: &str) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn handle_library_list(id: &str, key: &str) -> RecipeResult<Value> {
     let lib = library(id).ok_or_else(|| {
         bad(
             "invalid_input",
@@ -2303,7 +2362,8 @@ fn handle_library_list(id: &str, key: &str) -> GenResult<Value> {
     Ok(v)
 }
 
-fn handle_recipes(input: &Value) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn handle_recipes(input: &Value) -> RecipeResult<Value> {
     match nonblank(input.get("library")) {
         None => Ok(json!({
             "libraries": LIBRARIES.iter().map(|(id, label, f)| json!({"library": id, "label": label, "count": flatten_library(f()).len()})).collect::<Vec<_>>(),
@@ -2312,7 +2372,8 @@ fn handle_recipes(input: &Value) -> GenResult<Value> {
     }
 }
 
-fn handle_validate(input: &Value) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn handle_validate(input: &Value) -> RecipeResult<Value> {
     let contract = input.get("contract").cloned().unwrap_or(Value::Null);
     let shot = nonblank(input.get("shot_id")).unwrap_or_else(|| "<unknown>".into());
     Ok(match validate_shot_contract(&contract, &shot) {
@@ -2321,7 +2382,8 @@ fn handle_validate(input: &Value) -> GenResult<Value> {
     })
 }
 
-fn handle_render(ctx: &Context, input: &Value) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn handle_render(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     let model = require_string(input, "model")?;
     let contract = match field(input, "contract") {
         Some(c) => c.clone(),
@@ -2359,7 +2421,7 @@ fn handle_render(ctx: &Context, input: &Value) -> GenResult<Value> {
 /// "native" when the model has a documented/unverified native field and the move maps to it,
 /// else "prompt_only". Adapters apply `params` only when `status` is "documented" (or
 /// "unverified" with explicit opt-in).
-pub fn camera_param_overlay(model: &str, camera_key: &str) -> GenResult<Value> {
+pub fn camera_param_overlay(model: &str, camera_key: &str) -> RecipeResult<Value> {
     let route = resolve_route(model)?;
     let lib = camera_params_lib();
     if find_in_categories(camera_moves_lib(), camera_key).is_none() {
@@ -2394,13 +2456,15 @@ pub fn camera_param_overlay(model: &str, camera_key: &str) -> GenResult<Value> {
     Ok(out)
 }
 
-fn handle_camera_params(input: &Value) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn handle_camera_params(input: &Value) -> RecipeResult<Value> {
     let model = require_string(input, "model")?;
     let key = require_string(input, "camera_move")?;
     camera_param_overlay(&model, &key)
 }
 
-pub fn handle(ctx: &Context, name: &str, input: &Value) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+pub fn handle(ctx: &Context, name: &str, input: &Value) -> RecipeResult<Value> {
     match name {
         "studio.video_templates.templates" => handle_templates(ctx, input),
         "studio.video_templates.template" => handle_template(ctx, input),

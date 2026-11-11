@@ -8,7 +8,7 @@ import { errorMessage } from './engine-error.js';
  *
  * The pure planning/state helpers below (`topoSchedule`, `planSegments`,
  * `validateWorkflow`, `readySteps`, `settleStep`) mirror the Rust
- * implementation in `crates/genright-studio/src/pipeline_workflows.rs` and are
+ * implementation in `crates/rightkit-media-pipeline/src/pipeline_workflows.rs` and are
  * unit-tested directly under `node --test`. The engine owns every stored workflow and run; the app keeps no
  * browser-side copy.
  */

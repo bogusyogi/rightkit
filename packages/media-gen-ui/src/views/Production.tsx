@@ -108,7 +108,7 @@ const HANDOFF_LABEL = { image: 'Image', video: 'Video', voice: 'Voice' } as cons
 
 function navigateTo(view: ViewId, onNavigate?: (v: ViewId) => void) {
   if (onNavigate) onNavigate(view);
-  else window.dispatchEvent(new CustomEvent('genright:navigate', { detail: view }));
+  else window.dispatchEvent(new CustomEvent('media-gen:navigate', { detail: view }));
 }
 
 export function Production({ onNavigate }: { onNavigate?: (view: ViewId) => void }) {

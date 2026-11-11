@@ -10,10 +10,10 @@
 //! per-allowance reports, in integer micro-USD (`spend_*` tables, versioned in
 //! `rightkit_spend_meta`). the host keeps only what the crate documents as the app's job: the
 //! allowance amounts (the settings below), the mapping from a job attempt to its reservations
-//! (`genright_spend_attempts`, one row per attempt, which also backs the per-job, per-day and
+//! (`media_gen_spend_attempts`, one row per attempt, which also backs the per-job, per-day and
 //! per-provider reports and the invoice reconciliation no allowance report covers), the audit
 //! rows, and the estimate arithmetic. The schema of those tables is versioned with
-//! `rightkit_db::migrate` in `genright_spend_meta`.
+//! `rightkit_db::migrate` in `media_gen_spend_meta`.
 //!
 //! THREE LIMITS, one path. A reservation is made against EACH of these allowances in turn, inside
 //! the one transaction (a refusal rolls the whole attempt back, so the earlier reservations never
@@ -331,7 +331,7 @@ fn db_gerr(e: DbError) -> GenError {
 
 // RightKit ruling 12b1a381: #12 pending RightKit fix (attempt index)
 const SIDECAR_SCHEMA: &str = "
-CREATE TABLE IF NOT EXISTS genright_spend_attempts (
+CREATE TABLE IF NOT EXISTS media_gen_spend_attempts (
   job_id TEXT NOT NULL,
   attempt INTEGER NOT NULL,
   day TEXT NOT NULL,
@@ -348,8 +348,8 @@ CREATE TABLE IF NOT EXISTS genright_spend_attempts (
   at TEXT NOT NULL,
   PRIMARY KEY (job_id, attempt)
 );
-CREATE INDEX IF NOT EXISTS genright_spend_attempts_day ON genright_spend_attempts(day);
-CREATE INDEX IF NOT EXISTS genright_spend_attempts_state ON genright_spend_attempts(state, day);
+CREATE INDEX IF NOT EXISTS media_gen_spend_attempts_day ON media_gen_spend_attempts(day);
+CREATE INDEX IF NOT EXISTS media_gen_spend_attempts_state ON media_gen_spend_attempts(state, day);
 ";
 
 const MIGRATIONS: &[Migration] = &[Migration::sql(1, "spend-attempt-index", SIDECAR_SCHEMA)];
@@ -373,13 +373,36 @@ pub(crate) fn attach(path: &Path) -> GenResult<SpendHandle> {
     try_attach(path).map(|l| Arc::new(Mutex::new(l)))
 }
 
+/// Table names the ledger's sidecar tables had before 0.2.0, when they carried the donor app's
+/// name. A database that still has them is renamed in place on attach (one transaction), so its
+/// attempts and schema version carry over unchanged.
+const LEGACY_TABLES: [(&str, &str); 2] = [
+    ("genright_spend_meta", "media_gen_spend_meta"),
+    ("genright_spend_attempts", "media_gen_spend_attempts"),
+];
+
+fn rename_legacy_tables(conn: &Connection) -> rightkit_db::rusqlite::Result<()> {
+    if !has_table(conn, LEGACY_TABLES[0].0)? || has_table(conn, LEGACY_TABLES[0].1)? {
+        return Ok(());
+    }
+    let tx = conn.unchecked_transaction()?;
+    for (old, new) in LEGACY_TABLES {
+        if has_table(&tx, old)? && !has_table(&tx, new)? {
+            tx.execute_batch(&format!("ALTER TABLE {old} RENAME TO {new}"))?;
+        }
+    }
+    tx.commit()
+}
+
 fn try_attach(path: &Path) -> GenResult<Ledger> {
     let open = || DbOptions::new(path).open_writer().map_err(db_gerr);
     let ledger = Ledger::attach(open()?).map_err(spend_gerr)?;
     let side = open()?;
+    rename_legacy_tables(&side)
+        .map_err(|e| GenError::new("db", format!("spend ledger table rename: {e}")))?;
     let options = MigrateOptions {
         version_storage: VersionStorage::Table {
-            table: "genright_spend_meta".to_owned(),
+            table: "media_gen_spend_meta".to_owned(),
             key: "schema".to_owned(),
         },
         backup: false,
@@ -485,7 +508,7 @@ fn limits_in(
     let cap_usd = cap_in(conn)?;
     let monthly_cap_usd = monthly_cap_in(conn)?;
     let carried_micro: i64 = conn.query_row(
-        "SELECT COALESCE(SUM(est_micro),0) FROM genright_spend_attempts WHERE state='open' AND day < ?1",
+        "SELECT COALESCE(SUM(est_micro),0) FROM media_gen_spend_attempts WHERE state='open' AND day < ?1",
         [day],
         |r| r.get(0),
     )?;
@@ -874,7 +897,7 @@ fn attempt_row_in(
 ) -> rightkit_db::rusqlite::Result<Option<AttemptRow>> {
     conn.query_row(
         "SELECT day, est_micro, state, actual_micro, daily_rid, monthly_rid, device_rid, job_budget_rid, run_budget_rid
-         FROM genright_spend_attempts WHERE job_id=?1 AND attempt=?2",
+         FROM media_gen_spend_attempts WHERE job_id=?1 AND attempt=?2",
         params![job_id, attempt],
         |r| {
             let rids: Vec<String> = (4usize..9).filter_map(|i| r.get::<_, Option<String>>(i).transpose()).collect::<Result<_, _>>()?;
@@ -1041,7 +1064,7 @@ pub(crate) fn reserve_attempt_on(l: &Ledger, conn: &Connection, a: &Attempt) -> 
     };
 
     conn.execute(
-        "INSERT INTO genright_spend_attempts(job_id, attempt, day, est_micro, state, daily_rid, monthly_rid, device_rid,
+        "INSERT INTO media_gen_spend_attempts(job_id, attempt, day, est_micro, state, daily_rid, monthly_rid, device_rid,
              job_budget_rid, run_budget_rid, at) VALUES (?1,?2,?3,?4,'open',?5,?6,?7,?8,?9,?10)",
         params![
             a.job_id,
@@ -1138,7 +1161,7 @@ fn settle_rids(
 fn mirror_total_in(conn: &Connection, job_id: &str) -> rightkit_db::rusqlite::Result<()> {
     conn.execute(
         "UPDATE jobs SET actual_usd=(SELECT CAST(COALESCE(SUM(actual_micro),0) AS REAL)/1000000.0
-                                     FROM genright_spend_attempts WHERE job_id=?1), updated_at=?2 WHERE job_id=?1",
+                                     FROM media_gen_spend_attempts WHERE job_id=?1), updated_at=?2 WHERE job_id=?1",
         params![job_id, now()],
     )?;
     Ok(())
@@ -1175,7 +1198,7 @@ fn settle_in(
     let rids: Vec<&str> = row.rids.iter().map(String::as_str).collect();
     let over = settle_rids(l, conn, &rids, actual_micro).map_err(spend_jerr)?;
     conn.execute(
-        "UPDATE genright_spend_attempts SET state=?3, actual_micro=?4, overrun=?5 WHERE job_id=?1 AND attempt=?2",
+        "UPDATE media_gen_spend_attempts SET state=?3, actual_micro=?4, overrun=?5 WHERE job_id=?1 AND attempt=?2",
         params![job_id, attempt, if actual_micro == 0 { "released" } else { "settled" }, actual_micro, i64::from(over)],
     )?;
     mirror_total_in(conn, job_id)?;
@@ -1269,7 +1292,7 @@ pub fn attempt_row(db: &Db, job_id: &str, attempt: i64) -> GenResult<Option<(f64
 pub fn attempt_count(db: &Db, job_id: &str) -> GenResult<i64> {
     db.read(|c| {
         Ok(c.query_row(
-            "SELECT COUNT(*) FROM genright_spend_attempts WHERE job_id=?1",
+            "SELECT COUNT(*) FROM media_gen_spend_attempts WHERE job_id=?1",
             [job_id],
             |r| r.get(0),
         )?)
@@ -1281,7 +1304,7 @@ pub fn attempt_count(db: &Db, job_id: &str) -> GenResult<i64> {
 /// first. An open reservation means the call may have run: its outcome is unknown.
 pub fn open_attempts(db: &Db, job_id: &str) -> GenResult<Vec<i64>> {
     db.read(|c| {
-        let mut st = c.prepare("SELECT attempt FROM genright_spend_attempts WHERE job_id=?1 AND state='open' ORDER BY attempt")?;
+        let mut st = c.prepare("SELECT attempt FROM media_gen_spend_attempts WHERE job_id=?1 AND state='open' ORDER BY attempt")?;
         let attempts = st
             .query_map([job_id], |r| r.get::<_, i64>(0))?
             .collect::<Result<Vec<_>, _>>()?;
@@ -1296,7 +1319,7 @@ pub fn release_unreconciled(db: &mut Db, job_id: &str) -> GenResult<()> {
     let h = db.spend().clone();
     db.write(|c| {
         let open: Vec<i64> = {
-            let mut st = c.prepare("SELECT attempt FROM genright_spend_attempts WHERE job_id=?1 AND state='open' ORDER BY attempt")?;
+            let mut st = c.prepare("SELECT attempt FROM media_gen_spend_attempts WHERE job_id=?1 AND state='open' ORDER BY attempt")?;
             let rows = st.query_map([job_id], |r| r.get::<_, i64>(0))?.collect::<Result<Vec<_>, _>>()?;
             rows
         };
@@ -1370,7 +1393,7 @@ pub fn acknowledge_overruns(db: &Db, note: Option<&str>) -> GenResult<Value> {
     let acknowledged = db
         .write(|c| {
             let rows: Vec<(String, i64, Vec<String>)> = {
-                let mut st = c.prepare("SELECT job_id, attempt FROM genright_spend_attempts WHERE overrun=1 AND acked=0")?;
+                let mut st = c.prepare("SELECT job_id, attempt FROM media_gen_spend_attempts WHERE overrun=1 AND acked=0")?;
                 let keys = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?.collect::<Result<Vec<_>, _>>()?;
                 let mut out = Vec::new();
                 for (job, attempt) in keys {
@@ -1391,7 +1414,7 @@ pub fn acknowledge_overruns(db: &Db, note: Option<&str>) -> GenResult<Value> {
                         Err(e) => return Err(spend_jerr(e)),
                     }
                 }
-                c.execute("UPDATE genright_spend_attempts SET acked=1 WHERE job_id=?1 AND attempt=?2", params![job, attempt])?;
+                c.execute("UPDATE media_gen_spend_attempts SET acked=1 WHERE job_id=?1 AND attempt=?2", params![job, attempt])?;
             }
             audit_in(c, "spend.acknowledge_overrun", &json!({"acknowledged": n, "note": note}))?;
             Ok(n)
@@ -1561,7 +1584,7 @@ fn aggregate_in(
                 COALESCE(SUM(CASE WHEN a.provider_reported_usd IS NOT NULL THEN COALESCE(l.actual_micro,0) END),0),
                 COUNT(a.invoice_reconciled_usd), COALESCE(SUM(a.invoice_reconciled_usd),0),
                 COALESCE(SUM(CASE WHEN a.invoice_reconciled_usd IS NOT NULL THEN COALESCE(l.actual_micro,0) END),0)
-         FROM genright_spend_attempts l
+         FROM media_gen_spend_attempts l
          LEFT JOIN jobs j ON j.job_id = l.job_id
          LEFT JOIN {} a ON a.job_id = l.job_id AND a.attempt = l.attempt
          WHERE l.day >= ?1 AND l.day <= ?2 AND (?3 IS NULL OR j.provider = ?3)",
@@ -1619,7 +1642,7 @@ pub fn attempt_amounts(db: &Db, job_id: &str, attempt: i64) -> GenResult<Option<
     db.read(|c| {
         let sql = format!(
             "SELECT j.est_usd, l.est_micro, l.state, l.actual_micro, a.provider_reported_usd, a.provider_reported_source, a.invoice_reconciled_usd
-             FROM genright_spend_attempts l
+             FROM media_gen_spend_attempts l
              LEFT JOIN jobs j ON j.job_id = l.job_id
              LEFT JOIN {} a ON a.job_id = l.job_id AND a.attempt = l.attempt
              WHERE l.job_id = ?1 AND l.attempt = ?2",
@@ -1891,7 +1914,7 @@ pub fn reconcile_invoice(db: &Db, input: &Value) -> GenResult<Value> {
                     _ => continue,
                 };
                 let sql = format!(
-                    "SELECT l.job_id, l.attempt, COALESCE(l.actual_micro,0) FROM genright_spend_attempts l JOIN jobs j ON j.job_id=l.job_id
+                    "SELECT l.job_id, l.attempt, COALESCE(l.actual_micro,0) FROM media_gen_spend_attempts l JOIN jobs j ON j.job_id=l.job_id
                      WHERE {col}=?1 AND j.provider=?2 AND l.day>=?3 AND l.day<=?4 ORDER BY l.attempt"
                 );
                 let mut st = c.prepare(&sql)?;
@@ -1947,7 +1970,7 @@ pub fn reconcile_invoice(db: &Db, input: &Value) -> GenResult<Value> {
                 vec![]
             } else {
                 let mut st = c.prepare(
-                    "SELECT l.job_id, l.attempt, l.state, l.actual_micro, l.est_micro FROM genright_spend_attempts l JOIN jobs j ON j.job_id=l.job_id
+                    "SELECT l.job_id, l.attempt, l.state, l.actual_micro, l.est_micro FROM media_gen_spend_attempts l JOIN jobs j ON j.job_id=l.job_id
                      LEFT JOIN ledger_amounts a ON a.job_id=l.job_id AND a.attempt=l.attempt
                      WHERE j.provider=?1 AND l.day>=?2 AND l.day<=?3 AND a.invoice_reconciled_usd IS NULL
                        AND COALESCE(l.actual_micro, l.est_micro) > 0
@@ -2214,7 +2237,7 @@ pub(crate) fn process_snapshot() -> Option<(CallerBudget, String)> {
 fn job_totals_in(conn: &Connection, job_id: &str) -> rightkit_db::rusqlite::Result<(i64, i64)> {
     conn.query_row(
         "SELECT COALESCE(SUM(CASE WHEN state != 'released' THEN est_micro ELSE 0 END),0), COALESCE(SUM(actual_micro),0)
-         FROM genright_spend_attempts WHERE job_id=?1",
+         FROM media_gen_spend_attempts WHERE job_id=?1",
         [job_id],
         |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
     )

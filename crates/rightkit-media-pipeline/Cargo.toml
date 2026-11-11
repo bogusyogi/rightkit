@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-media-pipeline"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Named production pipelines on rightkit-media-gen: compose, dubbing with retiming, translation with terminology, fan-out multi-job steps, finishing hand-off and the campaign production stack"
@@ -19,7 +19,7 @@ path = "src/lib.rs"
 motion = ["dep:rightkit-browser", "dep:rightkit-motion", "dep:tokio", "dep:serde"]
 
 [dependencies]
-rightkit-media-gen = { version = "0.1.0", path = "../rightkit-media-gen" }
+rightkit-media-gen = { version = "0.2.0", path = "../rightkit-media-gen" }
 rightkit-local-gen = { version = "0.1.0", path = "../rightkit-local-gen" }
 rightkit-media-gen-approvals = { version = "0.1.0", path = "../rightkit-media-gen-approvals" }
 rightkit-contracts = { version = "0.1.8", path = "../rightkit-contracts" }

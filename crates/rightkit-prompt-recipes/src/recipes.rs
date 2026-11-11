@@ -21,17 +21,26 @@
 //! character reference batch with a data-only contact-sheet review
 //! (`studio.recipes.{character_batch,batch_review}`).
 
+#[cfg(feature = "commands")]
 use std::fs;
+#[cfg(feature = "commands")]
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use regex::Regex;
 use serde_json::{json, Map, Value};
 
+#[cfg(feature = "commands")]
 use crate::catalog;
-use crate::contracts::{self, first_present, first_truthy, js_str, slot, truthy, ContractError};
-use rightkit_media_gen::{Context, GenError, GenResult};
+#[cfg(feature = "commands")]
+use crate::contracts::slot;
+use crate::contracts::{self, first_present, first_truthy, js_str, truthy, ContractError};
+#[cfg(feature = "commands")]
+use crate::{RecipeError, RecipeResult};
+#[cfg(feature = "commands")]
+use rightkit_media_gen::Context;
 
+#[cfg(feature = "commands")]
 pub const COMMANDS: &[&str] = &[
     "studio.recipes.libraries",
     "studio.recipes.compose",
@@ -99,7 +108,10 @@ fn libs() -> &'static Vec<(&'static str, Value)> {
             .map(|(name, text)| {
                 let v = serde_json::from_str(text)
                     .unwrap_or_else(|e| panic!("embedded recipe library {name}: {e}"));
-                (*name, v)
+                (
+                    *name,
+                    crate::brands::with_defaults(&format!("recipes/{name}"), v),
+                )
             })
             .collect()
     })
@@ -854,6 +866,7 @@ fn slot_for_library(name: &str) -> &'static str {
 
 // ── preflight request normalisation (studio-image-request.mjs) ────────────
 
+#[cfg(feature = "commands")]
 fn slugify(value: &str, fallback: &str) -> String {
     let mut out = String::new();
     let mut dash = false;
@@ -898,6 +911,7 @@ pub fn normalize_aspect(value: &str) -> Option<String> {
     None
 }
 
+#[cfg(feature = "commands")]
 fn image_ext(path: &Path) -> bool {
     path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
         [
@@ -907,8 +921,9 @@ fn image_ext(path: &Path) -> bool {
     })
 }
 
-fn normalize_references(refs: Option<&Value>) -> GenResult<Vec<String>> {
-    let bad = |m: String| GenError::new("invalid_input", m);
+#[cfg(feature = "commands")]
+fn normalize_references(refs: Option<&Value>) -> RecipeResult<Vec<String>> {
+    let bad = |m: String| RecipeError::new("invalid_input", m);
     let Some(refs) = refs.filter(|v| !v.is_null()) else {
         return Ok(vec![]);
     };
@@ -940,6 +955,7 @@ fn normalize_references(refs: Option<&Value>) -> GenResult<Vec<String>> {
     Ok(out)
 }
 
+#[cfg(feature = "commands")]
 fn opt_string(v: Option<&Value>) -> Option<String> {
     v.and_then(Value::as_str)
         .map(str::trim)
@@ -947,6 +963,7 @@ fn opt_string(v: Option<&Value>) -> Option<String> {
         .map(str::to_string)
 }
 
+#[cfg(feature = "commands")]
 fn is_param_value(v: &Value) -> bool {
     match v {
         Value::Null => false,
@@ -957,6 +974,7 @@ fn is_param_value(v: &Value) -> bool {
     }
 }
 
+#[cfg(feature = "commands")]
 /// A normalized, validated image request: what the operator asked for.
 struct ImageRequest {
     json: Value,
@@ -968,8 +986,9 @@ struct ImageRequest {
     generation_params: Map<String, Value>,
 }
 
-fn normalize_request(input: &Value) -> GenResult<ImageRequest> {
-    let bad = |m: &str| GenError::new("invalid_input", m.to_string());
+#[cfg(feature = "commands")]
+fn normalize_request(input: &Value) -> RecipeResult<ImageRequest> {
+    let bad = |m: &str| RecipeError::new("invalid_input", m.to_string());
     let g = |k: &str| get(input, k);
     let prompt = opt_string(g("prompt"));
     let fields: Map<String, Value> = g("fields")
@@ -1012,14 +1031,14 @@ fn normalize_request(input: &Value) -> GenResult<ImageRequest> {
             .unwrap_or_else(|| "mid".into()),
     };
     let Some(route_model) = catalog::intent_model(&intent) else {
-        return Err(GenError::new(
+        return Err(RecipeError::new(
             "invalid_input",
             format!("Unsupported image intent \"{intent}\""),
         ));
     };
     let model = explicit.unwrap_or_else(|| route_model.to_string());
     if !contracts::has_contract(&model) {
-        return Err(GenError::new(
+        return Err(RecipeError::new(
             "contract_not_found",
             format!("Image model contract not found: {model}"),
         ));
@@ -1107,6 +1126,7 @@ fn normalize_request(input: &Value) -> GenResult<ImageRequest> {
 
 // ── building a draft ──────────────────────────────────────────────────────
 
+#[cfg(feature = "commands")]
 /// Slot text for the composer's `subject` when the operator filled contract
 /// fields instead of typing a subject.
 fn subject_from(req: &ImageRequest) -> String {
@@ -1130,6 +1150,7 @@ fn subject_from(req: &ImageRequest) -> String {
     req.prompt.clone().unwrap_or_default()
 }
 
+#[cfg(feature = "commands")]
 fn recipe_opts(req: &ImageRequest, subject: &str) -> Value {
     let mut o = Map::new();
     o.insert("brand".into(), req.json["brand"].clone());
@@ -1189,6 +1210,7 @@ fn recipe_opts(req: &ImageRequest, subject: &str) -> Value {
     Value::Object(o)
 }
 
+#[cfg(feature = "commands")]
 /// The internal brief the contract renderer takes: slot fields plus every
 /// operator-chosen param, with the request aspect carried for renderers that use it.
 fn render_internal(req: &ImageRequest) -> Value {
@@ -1214,6 +1236,7 @@ fn render_internal(req: &ImageRequest) -> Value {
     Value::Object(internal)
 }
 
+#[cfg(feature = "commands")]
 struct Built {
     prompt: String,
     params: Map<String, Value>,
@@ -1221,6 +1244,7 @@ struct Built {
     pipeline: &'static str,
 }
 
+#[cfg(feature = "commands")]
 fn build(req: &ImageRequest) -> Result<Built, ComposeError> {
     if req.compose {
         let subject = subject_from(req);
@@ -1278,10 +1302,12 @@ fn build(req: &ImageRequest) -> Result<Built, ComposeError> {
     })
 }
 
+#[cfg(feature = "commands")]
 fn sha_hex(text: &str) -> String {
     rightkit_fs::digest::sha256_bytes(text.as_bytes())
 }
 
+#[cfg(feature = "commands")]
 /// Hash of exactly what a run would send: model, prompt, params, references.
 fn request_hash(
     model: &str,
@@ -1311,6 +1337,7 @@ fn request_hash(
     sha_hex(&doc.to_string())
 }
 
+#[cfg(feature = "commands")]
 /// What the run costs: the engine's per-image estimate when the caller names
 /// the engine model, else the contract's invoice-backed price.
 fn cost_of(ctx: &Context, req: &ImageRequest, params: &Map<String, Value>) -> Value {
@@ -1359,6 +1386,7 @@ fn cost_of(ctx: &Context, req: &ImageRequest, params: &Map<String, Value>) -> Va
     }
 }
 
+#[cfg(feature = "commands")]
 fn filter_engine_params(model: &str, params: &Map<String, Value>) -> Map<String, Value> {
     let accepted = contracts::model_param_fields(model);
     params
@@ -1370,22 +1398,28 @@ fn filter_engine_params(model: &str, params: &Map<String, Value>) -> Map<String,
         .collect()
 }
 
+#[cfg(feature = "commands")]
 fn draft_dir(ctx: &Context) -> PathBuf {
     ctx.data_dir.join("studio-requests").join("image")
 }
 
-fn draft_path(ctx: &Context, id: &str) -> GenResult<PathBuf> {
+#[cfg(feature = "commands")]
+fn draft_path(ctx: &Context, id: &str) -> RecipeResult<PathBuf> {
     if id.is_empty()
         || !id
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     {
-        return Err(GenError::new("invalid_input", "draft_id is not a valid id"));
+        return Err(RecipeError::new(
+            "invalid_input",
+            "draft_id is not a valid id",
+        ));
     }
     Ok(draft_dir(ctx).join(format!("{id}.json")))
 }
 
-fn make_draft(ctx: &Context, input: &Value, persist: bool) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn make_draft(ctx: &Context, input: &Value, persist: bool) -> RecipeResult<Value> {
     let req = normalize_request(input)?;
     let built = match build(&req) {
         Ok(b) => b,
@@ -1465,7 +1499,7 @@ fn make_draft(ctx: &Context, input: &Value, persist: bool) -> GenResult<Value> {
     if persist {
         let dir = draft_dir(ctx);
         rightkit_fs::ensure_private_dir(&dir)
-            .map_err(|e| GenError::new("draft_write", format!("{}: {e}", dir.display())))?;
+            .map_err(|e| RecipeError::new("draft_write", format!("{}: {e}", dir.display())))?;
         let path = draft_path(ctx, &id)?;
         draft["manifest_path"] = json!(path.to_string_lossy());
         write_json(&path, &draft)?;
@@ -1474,24 +1508,27 @@ fn make_draft(ctx: &Context, input: &Value, persist: bool) -> GenResult<Value> {
     Ok(draft)
 }
 
-fn write_json(path: &Path, value: &Value) -> GenResult<()> {
+#[cfg(feature = "commands")]
+fn write_json(path: &Path, value: &Value) -> RecipeResult<()> {
     let body = serde_json::to_string_pretty(value)
-        .map_err(|e| GenError::new("draft_write", e.to_string()))?;
+        .map_err(|e| RecipeError::new("draft_write", e.to_string()))?;
     rightkit_fs::atomic_write(path, body.as_bytes())
-        .map_err(|e| GenError::new("draft_write", format!("{}: {e}", path.display())))
+        .map_err(|e| RecipeError::new("draft_write", format!("{}: {e}", path.display())))
 }
 
-fn read_draft(ctx: &Context, id: &str) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn read_draft(ctx: &Context, id: &str) -> RecipeResult<Value> {
     let path = draft_path(ctx, id)?;
     let text = fs::read_to_string(&path).map_err(|_| {
-        GenError::new(
+        RecipeError::new(
             "draft_not_found",
             format!("Image run draft not found: {id}"),
         )
     })?;
-    serde_json::from_str(&text).map_err(|e| GenError::new("draft_invalid", format!("{id}: {e}")))
+    serde_json::from_str(&text).map_err(|e| RecipeError::new("draft_invalid", format!("{id}: {e}")))
 }
 
+#[cfg(feature = "commands")]
 /// The draft's hash recomputed from what it now says; a hand-edited draft
 /// no longer matches the hash recorded at preflight.
 fn draft_matches_its_hash(draft: &Value) -> bool {
@@ -1508,6 +1545,7 @@ fn draft_matches_its_hash(draft: &Value) -> bool {
     draft["request_hash"].as_str() == Some(request_hash(model, prompt, &params, &refs).as_str())
 }
 
+#[cfg(feature = "commands")]
 /// The draft fields an approval binds (the SHA-256 in `approvals` covers all of them), plus the
 /// draft's existing audit hash for the UI to compare.
 fn approval_inputs_of(draft: &Value) -> (Value, String) {
@@ -1528,8 +1566,9 @@ fn approval_inputs_of(draft: &Value) -> (Value, String) {
     )
 }
 
+#[cfg(feature = "commands")]
 /// Preflight plus the single-use approval challenge (returned with the response, not stored in the draft).
-fn preflight_with_challenge(ctx: &Context, input: &Value) -> GenResult<Value> {
+fn preflight_with_challenge(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     let mut draft = make_draft(ctx, input, true)?;
     if let Some(id) = draft["draft_id"].as_str().map(str::to_string) {
         let (inputs, legacy) = approval_inputs_of(&draft);
@@ -1539,9 +1578,10 @@ fn preflight_with_challenge(ctx: &Context, input: &Value) -> GenResult<Value> {
     Ok(draft)
 }
 
+#[cfg(feature = "commands")]
 /// Record the user's in-app approval. Needs an approval token only the app shell can mint
 /// (`approvals`); `operator_approved` alone is refused.
-fn approve(ctx: &Context, input: &Value) -> GenResult<Value> {
+fn approve(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     let gate = rightkit_media_gen_approvals::gate(input)?;
     let id = get(input, "draft_id")
         .or_else(|| get(input, "id"))
@@ -1550,7 +1590,7 @@ fn approve(ctx: &Context, input: &Value) -> GenResult<Value> {
     let mut draft = read_draft(ctx, id)?;
     let status = draft["status"].as_str().unwrap_or("");
     if status != "draft" && status != "approved" {
-        return Err(GenError::new(
+        return Err(RecipeError::new(
             "draft_invalid",
             "Image run can only execute a preflight draft manifest",
         ));
@@ -1561,20 +1601,20 @@ fn approve(ctx: &Context, input: &Value) -> GenResult<Value> {
         .is_empty()
         || draft["request"]["intent"].as_str().is_none()
     {
-        return Err(GenError::new(
+        return Err(RecipeError::new(
             "draft_invalid",
             "Image run draft is missing prompt or intent",
         ));
     }
     if !draft_matches_its_hash(&draft) {
-        return Err(GenError::new(
+        return Err(RecipeError::new(
             "draft_tampered",
             "The draft changed after preflight; preflight again",
         ));
     }
     if let Some(expected) = get(input, "request_hash").and_then(Value::as_str) {
         if draft["request_hash"].as_str() != Some(expected) {
-            return Err(GenError::new(
+            return Err(RecipeError::new(
                 "draft_stale",
                 "The draft is not the one that was shown; preflight again",
             ));
@@ -1601,6 +1641,7 @@ fn approve(ctx: &Context, input: &Value) -> GenResult<Value> {
 
 // ── commands ──────────────────────────────────────────────────────────────
 
+#[cfg(feature = "commands")]
 fn opts_of(input: &Value) -> Value {
     get(input, "opts")
         .filter(|o| o.is_object())
@@ -1608,7 +1649,8 @@ fn opts_of(input: &Value) -> Value {
         .unwrap_or_else(|| input.clone())
 }
 
-pub fn handle(ctx: &Context, name: &str, input: &Value) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+pub fn handle(ctx: &Context, name: &str, input: &Value) -> RecipeResult<Value> {
     match name {
         "studio.recipes.libraries" => Ok(libraries()),
         "studio.recipes.compose" => Ok(match compose(&opts_of(input)) {
@@ -1639,7 +1681,7 @@ pub fn handle(ctx: &Context, name: &str, input: &Value) -> GenResult<Value> {
         "studio.recipes.template_approve" => template_approve(ctx, input),
         "studio.recipes.character_batch" => character_batch(ctx, input),
         "studio.recipes.batch_review" => batch_review(ctx, input),
-        _ => Err(GenError::new(
+        _ => Err(RecipeError::new(
             "unknown_command",
             format!("unknown command: {name}"),
         )),
@@ -1652,10 +1694,13 @@ pub fn handle(ctx: &Context, name: &str, input: &Value) -> GenResult<Value> {
 // use the engine's own dry run (validates against the served catalogue entry and prices, no key,
 // no spend, nothing stored).
 
+#[cfg(feature = "commands")]
 use rightkit_media_gen::catalogue::{Catalogue, Entry, InputType, Role};
 
+#[cfg(feature = "commands")]
 const TEMPLATES_SRC: &str = include_str!("../data/recipes/templates.json");
 
+#[cfg(feature = "commands")]
 fn template_data() -> &'static Value {
     static T: OnceLock<Value> = OnceLock::new();
     T.get_or_init(|| {
@@ -1664,15 +1709,18 @@ fn template_data() -> &'static Value {
     })
 }
 
+#[cfg(feature = "commands")]
 /// A refusal as a result body (not a command error), the same shape `compose` uses.
 fn tpl_fail(code: &str, message: impl Into<String>, violations: Vec<Value>) -> Value {
     json!({"ok": false, "code": code, "message": message.into(), "violations": violations})
 }
 
+#[cfg(feature = "commands")]
 fn violation(position: usize, name: &str, code: &str, problem: impl Into<String>) -> Value {
     json!({"position": position, "slot": name, "code": code, "problem": problem.into()})
 }
 
+#[cfg(feature = "commands")]
 fn kind_name(e: &Entry) -> String {
     serde_json::to_value(e.kind)
         .ok()
@@ -1680,6 +1728,7 @@ fn kind_name(e: &Entry) -> String {
         .unwrap_or_default()
 }
 
+#[cfg(feature = "commands")]
 fn role_of(name: &str) -> Option<Role> {
     match name {
         "reference" => Some(Role::Reference),
@@ -1692,6 +1741,7 @@ fn role_of(name: &str) -> Option<Role> {
     }
 }
 
+#[cfg(feature = "commands")]
 /// `image` or `video` when the URL or path ends in a recognised extension, else `None`.
 fn media_type_of(value: &str) -> Option<&'static str> {
     let path = value.split(['?', '#']).next().unwrap_or("");
@@ -1705,6 +1755,7 @@ fn media_type_of(value: &str) -> Option<&'static str> {
     }
 }
 
+#[cfg(feature = "commands")]
 fn template_routes(t: &Value) -> Vec<(String, String)> {
     t["routes"]
         .as_array()
@@ -1721,6 +1772,7 @@ fn template_routes(t: &Value) -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 
+#[cfg(feature = "commands")]
 fn moderation_guide(t: &Value) -> Value {
     let generic = template_data()["generic_moderation"].clone();
     json!({
@@ -1730,6 +1782,7 @@ fn moderation_guide(t: &Value) -> Value {
     })
 }
 
+#[cfg(feature = "commands")]
 /// `studio.recipes.templates`: every template with its slots, moderation guide and which routes
 /// the catalogue serves right now.
 fn templates_list() -> Value {
@@ -1767,6 +1820,7 @@ fn templates_list() -> Value {
     json!({"ok": true, "templates": templates, "batches": data["batches"], "slot_rules": data["_meta"]["slot_rules"]})
 }
 
+#[cfg(feature = "commands")]
 /// Check the supplied slots against the template's declared order and types. Returns the
 /// `(declared slot, value)` pairs, or every violation by slot name.
 fn check_slots<'a>(t: &'a Value, input: &Value) -> Result<Vec<(&'a Value, String)>, Value> {
@@ -1877,6 +1931,7 @@ fn check_slots<'a>(t: &'a Value, input: &Value) -> Result<Vec<(&'a Value, String
     ))
 }
 
+#[cfg(feature = "commands")]
 /// Pick the first route of the template that the catalogue serves for the template's kind.
 fn pick_route(name: &str, t: &Value, input: &Value) -> Result<&'static Entry, Value> {
     let kind = t["kind"].as_str().unwrap_or("");
@@ -1937,11 +1992,13 @@ fn pick_route(name: &str, t: &Value, input: &Value) -> Result<&'static Entry, Va
     }))
 }
 
+#[cfg(feature = "commands")]
 fn resolution_rank(s: &str) -> Option<u64> {
     let digits: String = s.chars().take_while(char::is_ascii_digit).collect();
     digits.parse().ok()
 }
 
+#[cfg(feature = "commands")]
 /// Draft at the lowest resolution the route serves, final at the requested one.
 fn staged_plan(t: &Value, entry: &Entry, params: &Map<String, Value>) -> Value {
     let param = t["staged_resolution"]["param"]
@@ -2000,11 +2057,13 @@ fn staged_plan(t: &Value, entry: &Entry, params: &Map<String, Value>) -> Value {
     })
 }
 
+#[cfg(feature = "commands")]
 fn dry_run(ctx: &Context, request: &Value) -> Result<Value, Value> {
     rightkit_media_gen::api::generate(ctx, request, true)
         .map_err(|e| tpl_fail(&e.code, e.message, vec![]))
 }
 
+#[cfg(feature = "commands")]
 /// `studio.recipes.template_compose`: validate the slots, map them to the served route's
 /// parameters through its catalogue entry, build the prompt, and price it with the engine dry run.
 fn compose_template(ctx: &Context, input: &Value) -> Value {
@@ -2184,35 +2243,44 @@ fn compose_template(ctx: &Context, input: &Value) -> Value {
 
 // ── template drafts (a request per draft; the second stage depends on the first's approval) ─────
 
+#[cfg(feature = "commands")]
 fn tpl_dir(ctx: &Context) -> PathBuf {
     ctx.data_dir.join("studio-requests").join("template")
 }
 
-fn tpl_path(ctx: &Context, id: &str) -> GenResult<PathBuf> {
+#[cfg(feature = "commands")]
+fn tpl_path(ctx: &Context, id: &str) -> RecipeResult<PathBuf> {
     if id.is_empty()
         || !id
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     {
-        return Err(GenError::new("invalid_input", "draft_id is not a valid id"));
+        return Err(RecipeError::new(
+            "invalid_input",
+            "draft_id is not a valid id",
+        ));
     }
     Ok(tpl_dir(ctx).join(format!("{id}.json")))
 }
 
-fn tpl_read(ctx: &Context, id: &str) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn tpl_read(ctx: &Context, id: &str) -> RecipeResult<Value> {
     let path = tpl_path(ctx, id)?;
-    let text = fs::read_to_string(&path)
-        .map_err(|_| GenError::new("draft_not_found", format!("Template draft not found: {id}")))?;
-    serde_json::from_str(&text).map_err(|e| GenError::new("draft_invalid", format!("{id}: {e}")))
+    let text = fs::read_to_string(&path).map_err(|_| {
+        RecipeError::new("draft_not_found", format!("Template draft not found: {id}"))
+    })?;
+    serde_json::from_str(&text).map_err(|e| RecipeError::new("draft_invalid", format!("{id}: {e}")))
 }
 
-fn tpl_write(ctx: &Context, doc: &Value) -> GenResult<()> {
+#[cfg(feature = "commands")]
+fn tpl_write(ctx: &Context, doc: &Value) -> RecipeResult<()> {
     let id = doc["draft_id"].as_str().unwrap_or("");
     rightkit_fs::ensure_private_dir(&tpl_dir(ctx))
-        .map_err(|e| GenError::new("draft_write", format!("{}: {e}", tpl_dir(ctx).display())))?;
+        .map_err(|e| RecipeError::new("draft_write", format!("{}: {e}", tpl_dir(ctx).display())))?;
     write_json(&tpl_path(ctx, id)?, doc)
 }
 
+#[cfg(feature = "commands")]
 /// The hash of exactly the engine request a draft would send.
 fn tpl_request_hash(request: &Value) -> String {
     let params = request["params"].as_object().cloned().unwrap_or_default();
@@ -2224,6 +2292,7 @@ fn tpl_request_hash(request: &Value) -> String {
     )
 }
 
+#[cfg(feature = "commands")]
 fn new_tpl_id(prefix: &str, hash: &str, salt: &str) -> String {
     let created = now_iso();
     let stamp: String = created
@@ -2238,7 +2307,8 @@ fn new_tpl_id(prefix: &str, hash: &str, salt: &str) -> String {
     format!("{prefix}-{stamp}-{}", &nonce[..8])
 }
 
-fn template_preflight(ctx: &Context, input: &Value) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn template_preflight(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     let composed = compose_template(ctx, input);
     if composed["ok"] != true {
         return Ok(composed);
@@ -2332,6 +2402,7 @@ fn template_preflight(ctx: &Context, input: &Value) -> GenResult<Value> {
     }))
 }
 
+#[cfg(feature = "commands")]
 /// One single-stage template draft for a request built outside `templates.json` (a saved swap
 /// template). Same store, hash and challenge as `template_preflight`, so
 /// `studio.recipes.template_approve` and the approval gates apply unchanged.
@@ -2342,9 +2413,9 @@ pub(crate) fn single_stage_draft(
     slots: Value,
     route: Value,
     warnings: Value,
-) -> GenResult<Value> {
+) -> RecipeResult<Value> {
     let estimate = dry_run(ctx, request).map_err(|e| {
-        GenError::new(
+        RecipeError::new(
             e["code"].as_str().unwrap_or("estimate_failed"),
             e["message"]
                 .as_str()
@@ -2374,6 +2445,7 @@ pub(crate) fn single_stage_draft(
     }))
 }
 
+#[cfg(feature = "commands")]
 /// The template draft fields an approval binds (the SHA-256 in `approvals` covers all of them),
 /// plus the draft's request hash for the UI to compare.
 fn tpl_approval_inputs_of(doc: &Value) -> (Value, String) {
@@ -2390,13 +2462,16 @@ fn tpl_approval_inputs_of(doc: &Value) -> (Value, String) {
     )
 }
 
+#[cfg(feature = "commands")]
 /// The single-use approval challenge for one template draft (returned with the response, never stored in the draft).
-fn tpl_challenge(ctx: &Context, doc: &Value) -> GenResult<Value> {
+fn tpl_challenge(ctx: &Context, doc: &Value) -> RecipeResult<Value> {
     let id = doc["draft_id"].as_str().unwrap_or_default();
     let (inputs, legacy) = tpl_approval_inputs_of(doc);
     rightkit_media_gen_approvals::issue(ctx, "recipe_templates", id, &inputs, &legacy)
+        .map_err(Into::into)
 }
 
+#[cfg(feature = "commands")]
 /// Approve one template draft: hash-bound, token-bound, and a final stage needs its draft stage
 /// approved first. `gate` is the caller's already-checked approval presentation; the token is
 /// consumed only after every integrity check passes.
@@ -2404,31 +2479,31 @@ fn approve_template_draft(
     ctx: &Context,
     id: &str,
     gate: &rightkit_media_gen_approvals::Gate,
-) -> GenResult<Value> {
+) -> RecipeResult<Value> {
     let mut doc = tpl_read(ctx, id)?;
     match doc["status"].as_str().unwrap_or("") {
         "draft" | "approved" => {}
         "rejected" => {
-            return Err(GenError::new(
+            return Err(RecipeError::new(
                 "draft_rejected",
                 format!("Draft {id} was rejected; preflight again"),
             ))
         }
         _ => {
-            return Err(GenError::new(
+            return Err(RecipeError::new(
                 "draft_invalid",
                 "Only a preflight draft can be approved",
             ))
         }
     }
     if doc["request_hash"].as_str() != Some(tpl_request_hash(&doc["request"]).as_str()) {
-        return Err(GenError::new(
+        return Err(RecipeError::new(
             "draft_tampered",
             "The draft changed after preflight; preflight again",
         ));
     }
     if doc["identity_attached"] == false {
-        return Err(GenError::new(
+        return Err(RecipeError::new(
             "identity_not_attached",
             format!("Draft {id} has no character identity attached (local references are not uploaded); rebuild the batch with https references or upload:true"),
         ));
@@ -2436,7 +2511,7 @@ fn approve_template_draft(
     if let Some(dep) = doc["requires_approval_of"].as_str() {
         let dep_doc = tpl_read(ctx, dep)?;
         if dep_doc["status"] != "approved" {
-            return Err(GenError::new(
+            return Err(RecipeError::new(
                 "dependency_unapproved",
                 format!(
                     "Draft {id} is the {} stage; approve its draft stage {dep} first",
@@ -2458,9 +2533,10 @@ fn approve_template_draft(
     Ok(doc)
 }
 
+#[cfg(feature = "commands")]
 /// Needs an approval token only the app shell can mint (`approvals`, kind `recipe_templates`);
 /// `operator_approved` is ignored. Input: `{draft_id, approval_token, approval_nonce}`.
-fn template_approve(ctx: &Context, input: &Value) -> GenResult<Value> {
+fn template_approve(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     let gate = rightkit_media_gen_approvals::gate(input)?;
     let id = get(input, "draft_id")
         .or_else(|| get(input, "id"))
@@ -2478,33 +2554,40 @@ fn template_approve(ctx: &Context, input: &Value) -> GenResult<Value> {
 // through the same draft store and hash-bound approval as every template draft. No image
 // compositing happens in this slice.
 
+#[cfg(feature = "commands")]
 fn batch_dir(ctx: &Context) -> PathBuf {
     ctx.data_dir.join("studio-requests").join("character-batch")
 }
 
-fn batch_path(ctx: &Context, id: &str) -> GenResult<PathBuf> {
+#[cfg(feature = "commands")]
+fn batch_path(ctx: &Context, id: &str) -> RecipeResult<PathBuf> {
     if id.is_empty()
         || !id
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     {
-        return Err(GenError::new("invalid_input", "batch_id is not a valid id"));
+        return Err(RecipeError::new(
+            "invalid_input",
+            "batch_id is not a valid id",
+        ));
     }
     Ok(batch_dir(ctx).join(format!("{id}.json")))
 }
 
-fn batch_read(ctx: &Context, id: &str) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn batch_read(ctx: &Context, id: &str) -> RecipeResult<Value> {
     let text = fs::read_to_string(batch_path(ctx, id)?).map_err(|_| {
-        GenError::new(
+        RecipeError::new(
             "batch_not_found",
             format!("Character batch not found: {id}"),
         )
     })?;
-    serde_json::from_str(&text).map_err(|e| GenError::new("batch_invalid", format!("{id}: {e}")))
+    serde_json::from_str(&text).map_err(|e| RecipeError::new("batch_invalid", format!("{id}: {e}")))
 }
 
-fn character_batch(ctx: &Context, input: &Value) -> GenResult<Value> {
-    let bad = |m: &str| GenError::new("invalid_input", m.to_string());
+#[cfg(feature = "commands")]
+fn character_batch(ctx: &Context, input: &Value) -> RecipeResult<Value> {
+    let bad = |m: &str| RecipeError::new("invalid_input", m.to_string());
     let b = &template_data()["batches"]["character_reference_batch"];
     let character_id =
         opt_string(get(input, "character_id")).ok_or_else(|| bad("character_id is required"))?;
@@ -2517,7 +2600,7 @@ fn character_batch(ctx: &Context, input: &Value) -> GenResult<Value> {
         .map(|s| {
             opt_string(Some(s)).ok_or_else(|| bad("every scenario line must be non-empty text"))
         })
-        .collect::<Result<Vec<String>, GenError>>()?;
+        .collect::<Result<Vec<String>, RecipeError>>()?;
     let max = b["max_items"].as_u64().unwrap_or(24) as usize;
     if scenarios.is_empty() || scenarios.len() > max {
         return Err(bad(&format!("scenarios must hold 1 to {max} lines")));
@@ -2627,8 +2710,9 @@ fn character_batch(ctx: &Context, input: &Value) -> GenResult<Value> {
         "items": items,
         "review": b["review"],
     });
-    rightkit_fs::ensure_private_dir(&batch_dir(ctx))
-        .map_err(|e| GenError::new("draft_write", format!("{}: {e}", batch_dir(ctx).display())))?;
+    rightkit_fs::ensure_private_dir(&batch_dir(ctx)).map_err(|e| {
+        RecipeError::new("draft_write", format!("{}: {e}", batch_dir(ctx).display()))
+    })?;
     write_json(&batch_path(ctx, &batch_id)?, &manifest)?;
     let mut view = batch_view(ctx, &manifest)?;
     // Each item's single-use approval challenge rides with the creation response only.
@@ -2642,8 +2726,9 @@ fn character_batch(ctx: &Context, input: &Value) -> GenResult<Value> {
     Ok(view)
 }
 
+#[cfg(feature = "commands")]
 /// The contact-sheet review as data: each item with its state read back from its draft.
-fn batch_view(ctx: &Context, manifest: &Value) -> GenResult<Value> {
+fn batch_view(ctx: &Context, manifest: &Value) -> RecipeResult<Value> {
     let mut rows: Vec<Value> = Vec::new();
     let (mut pending, mut approved, mut rejected, mut refused) = (0, 0, 0, 0);
     for item in manifest["items"].as_array().cloned().unwrap_or_default() {
@@ -2685,12 +2770,13 @@ fn batch_view(ctx: &Context, manifest: &Value) -> GenResult<Value> {
     }))
 }
 
+#[cfg(feature = "commands")]
 /// `studio.recipes.batch_review {batch_id, decisions?: [{item, decision: approve|reject, asset?, approval_token?, approval_nonce?}]}`.
 /// Without decisions it reads the review back. A reject needs no token and is final (an item
 /// rejected here can never be approved: `decision_final`). An approve decision needs the approval
 /// token and nonce of that item's draft challenge (kind `recipe_templates`) inside the decision;
 /// `operator_approved` is ignored.
-fn batch_review(ctx: &Context, input: &Value) -> GenResult<Value> {
+fn batch_review(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     let id = get(input, "batch_id")
         .or_else(|| get(input, "id"))
         .and_then(Value::as_str)
@@ -2713,20 +2799,20 @@ fn batch_review(ctx: &Context, input: &Value) -> GenResult<Value> {
             .as_array()
             .and_then(|a| a.iter().find(|i| i["index"].as_u64() == Some(index)));
         let Some(item) = item else {
-            return Err(GenError::new(
+            return Err(RecipeError::new(
                 "item_not_found",
                 format!("Batch {id} has no item {index}"),
             ));
         };
         let Some(draft_id) = item["draft_id"].as_str() else {
-            return Err(GenError::new(
+            return Err(RecipeError::new(
                 "item_refused",
                 format!("Item {index} was refused by the character lock and cannot be reviewed"),
             ));
         };
         let decision = d.get("decision").and_then(Value::as_str).unwrap_or("");
         if !["approve", "reject"].contains(&decision) {
-            return Err(GenError::new(
+            return Err(RecipeError::new(
                 "invalid_input",
                 "decision must be approve or reject",
             ));
@@ -2743,7 +2829,7 @@ fn batch_review(ctx: &Context, input: &Value) -> GenResult<Value> {
         if (decision == "approve" && status == "rejected")
             || (decision == "reject" && status == "approved")
         {
-            return Err(GenError::new(
+            return Err(RecipeError::new(
                 "decision_final",
                 format!("Item {index} is already {status}; preflight a new batch to change it"),
             ));

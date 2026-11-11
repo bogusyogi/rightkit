@@ -26,7 +26,7 @@ import {
 import { logs } from '../lib/logs.js';
 import { readUiSetting, writeUiSetting } from '../lib/settings-backend.js';
 
-const BATCH_KEY = 'genright.recipes.characterBatch';
+const BATCH_KEY = 'media-gen.recipes.characterBatch';
 
 function saveBatch(id: string | null): void {
   writeUiSetting(BATCH_KEY, id).catch((e) => logs.error('ui_setting_write_failed', { key: BATCH_KEY, message: errorText(e) }));

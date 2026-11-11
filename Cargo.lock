@@ -11987,7 +11987,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-local-gen"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "image",
  "rand 0.10.3",
@@ -12101,7 +12101,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-media-gen"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "image",
  "rightkit-app-settings",
@@ -12142,8 +12142,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-media-pipeline"
+name = "rightkit-media-gen-models"
 version = "0.1.0"
+dependencies = [
+ "rightkit-child-process",
+ "rightkit-local-gen",
+ "rightkit-media-gen",
+ "rightkit-models",
+ "serde_json",
+]
+
+[[package]]
+name = "rightkit-media-pipeline"
+version = "0.2.0"
 dependencies = [
  "image",
  "rightkit-audio",
@@ -12529,7 +12540,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-prompt-recipes"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "regex",
  "rightkit-fs",
@@ -12626,15 +12637,13 @@ dependencies = [
 
 [[package]]
 name = "rightkit-remote-compute"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rightkit-child-process",
  "rightkit-crypto",
  "rightkit-fs",
- "rightkit-local-gen",
  "rightkit-logs",
  "rightkit-media-gen",
- "rightkit-models",
  "serde_json",
 ]
 

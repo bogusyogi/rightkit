@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0
+
+- Requires `rightkit-media-gen` 0.2.0 (breaking: the media-gen types this crate exposes come from the new major). The H.264 rule is `rightkit_ffmpeg::h264_rule` (compose, motion encode, media capabilities); `rightkit_media_gen::host::h264` was a copy and is gone. Same rule, same behaviour.
+- Taken on the recommended option of the 2026-11-11 shape review, pending the owner's confirmation (docs/audits/2026-11-11-shape-matrix/reports/genright-redraw.md).
+
 ## Unreleased
 
 - The human-eyes gate (`eyes::review_gate`) comes from `rightkit-media-gen-approvals` 0.1.0, where the GenRight approvals moved when `rightkit-approvals` 0.2.0 became the one approvals core (decision 3 of the 2026-11-11 shape review, taken on the recommended option, pending the owner's confirmation). Same code, same behaviour.

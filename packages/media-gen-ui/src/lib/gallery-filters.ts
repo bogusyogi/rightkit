@@ -98,7 +98,7 @@ export function callerLabel(slug: string, labels: ReadonlyMap<string, string>): 
   return `From ${labels.get(slug) ?? slug}`;
 }
 
-/** "DD · Damned Designs"; unknown codes fall back to the bare code. */
+/** "AC · Acme"; unknown codes fall back to the bare code. */
 export function brandLabel(code: string, brands: BrandInfo[]): string {
   const b = brands.find((x) => x.code === code);
   return b && b.name !== b.code ? `${b.code} · ${b.name}` : code;

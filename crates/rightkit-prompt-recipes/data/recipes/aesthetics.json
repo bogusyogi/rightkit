@@ -16,14 +16,6 @@
     "interpolation_rule": "Paste fragment as the OPENING clause of the composed prompt before subject/composition/lighting. Negative constraints compile per the model's negative_compile_strategy declared in per-model-quirks.json — never paste 'no X' verbatim into prompts for models that prefer positive rewriting (Runway, FLUX)."
   },
 
-  "_brand_defaults": {
-    "DD": { "item_key": "premium_product",     "status": "provisional_from_memory", "seeded_from": "D:\\Claude\\CLAUDE.md Damned Designs section (premium EDC, dark considered, copper accent)" },
-    "RH": { "item_key": "lifestyle",           "status": "provisional_from_memory", "seeded_from": "D:\\Claude\\CLAUDE.md Rotten Hand section (slow fashion, honest grounded)" },
-    "TS": { "item_key": "cyberpunk_anime",     "status": "provisional_from_memory", "seeded_from": "D:\\Claude\\CLAUDE.md Toxic Sundae section + brand book (counter-culture, dystopian)" },
-    "HR": { "item_key": "brand_aware_layout",  "status": "provisional_from_memory", "seeded_from": "D:\\Claude\\heardright\\brand.md V3 (local voice control, structured UI)" },
-    "DV": { "item_key": "documentary_editorial","status": "unknown_needs_owner_input", "seeded_from": "no source yet — Damned Ventures (Professor founder mode)" },
-    "SS": { "item_key": "documentary_editorial","status": "owner_approved",            "seeded_from": "D:\\Claude\\CLAUDE.md SS section (photography passion, documentary style)" }
-  },
 
   "items": {
     "premium_product": {

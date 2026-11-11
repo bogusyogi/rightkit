@@ -1,5 +1,5 @@
 // Pure helpers for the Voice library view (no imports at runtime, so node tests load it directly).
-// Command contracts: crates/genright-studio/src/voices.rs.
+// Command contracts: crates/rightkit-media-gen/src/voices.rs.
 
 export interface VoiceEntry {
   id: string;
@@ -202,7 +202,7 @@ export function batchBlocker(args: { lines: number; voice: VoiceEntry | undefine
   return null;
 }
 
-/** Mirrors the engine's `cost_notice` for an ElevenLabs instant clone (genright-studio voices.rs CLONE_COST_NOTICE). */
+/** Mirrors the engine's `cost_notice` for an ElevenLabs instant clone (rightkit-media-gen voices.rs CLONE_COST_NOTICE). */
 export const CLONE_COST_NOTICE = 'No per-call charge; uses a plan voice slot.';
 
 export function cloneBlocker(args: { name: string; path: string; consent: boolean; canClone: boolean | null }): string | null {

@@ -24,21 +24,31 @@
 //! cap unless `override_cap` was part of the approved plan. A plan id alone, or
 //! `operator_approved`, approves nothing.
 
+#[cfg(feature = "commands")]
 use std::collections::BTreeSet;
+#[cfg(feature = "commands")]
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Map, Value};
 
+use crate::{RecipeError, RecipeResult};
+#[cfg(feature = "commands")]
 use rightkit_media_gen::catalogue::{Catalogue, Entry, InputType};
+#[cfg(feature = "commands")]
 use rightkit_media_gen::library::sha256_hex;
+#[cfg(feature = "commands")]
+use rightkit_media_gen::Context;
+#[cfg(feature = "commands")]
 use rightkit_media_gen::{credentials, ledger, store};
-use rightkit_media_gen::{Context, GenError, GenResult};
 
+#[cfg(feature = "commands")]
 use crate::recipe_catalogue::registry_served;
+#[cfg(feature = "commands")]
 use rightkit_media_gen::fal_storage::{
     fal_get, fal_key, fal_post_checked, http_error, is_image, redact, upload_bytes, upload_file,
 };
 
+#[cfg(feature = "commands")]
 pub const COMMANDS: &[&str] = &[
     "studio.characters.list",
     "studio.characters.create",
@@ -54,25 +64,32 @@ pub const COMMANDS: &[&str] = &[
 ];
 
 const BASE_MODELS: &str = include_str!("../data/characters/base_models.json");
+#[cfg(feature = "commands")]
 const AESTHETIC: &str = include_str!("../data/characters/aesthetic_loras.json");
+#[cfg(feature = "commands")]
 const IMAGE_MODELS: &str = include_str!("../data/characters/image_models.json");
+#[cfg(feature = "commands")]
 const TRAINERS: &str = include_str!("../data/characters/trainers.json");
 
+#[cfg(feature = "commands")]
 const KNOWN_BRANDS: [&str; 8] = ["DD", "RH", "TS", "HR", "DV", "SS", "KDP", "NA"];
+#[cfg(feature = "commands")]
 const LORA_MANIFEST: &str = "flux-character-fal.json";
 
-fn err(code: &str, message: impl Into<String>) -> GenError {
-    GenError::new(code, message)
+fn err(code: &str, message: impl Into<String>) -> RecipeError {
+    RecipeError::new(code, message)
 }
 
 fn embedded(src: &str) -> Value {
     serde_json::from_str(src).expect("embedded characters data is valid JSON")
 }
 
-fn io(e: std::io::Error) -> GenError {
-    store::io_err(e)
+#[cfg(feature = "commands")]
+fn io(e: std::io::Error) -> RecipeError {
+    store::io_err(e).into()
 }
 
+#[cfg(feature = "commands")]
 fn root(ctx: &Context) -> PathBuf {
     ctx.data_dir.join("characters")
 }
@@ -85,10 +102,12 @@ fn text<'a>(input: &'a Value, key: &str) -> Option<&'a str> {
         .filter(|s| !s.is_empty())
 }
 
+#[cfg(feature = "commands")]
 fn flag(input: &Value, key: &str) -> bool {
     input.get(key).and_then(Value::as_bool).unwrap_or(false)
 }
 
+#[cfg(feature = "commands")]
 fn valid_id(s: &str) -> bool {
     !s.is_empty()
         && s.chars()
@@ -96,7 +115,8 @@ fn valid_id(s: &str) -> bool {
         && !s.starts_with('.')
 }
 
-fn write_json(path: &Path, v: &Value) -> GenResult<()> {
+#[cfg(feature = "commands")]
+fn write_json(path: &Path, v: &Value) -> RecipeResult<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(io)?;
     }
@@ -104,6 +124,7 @@ fn write_json(path: &Path, v: &Value) -> GenResult<()> {
         .map_err(|e| io(std::io::Error::other(e)))
 }
 
+#[cfg(feature = "commands")]
 fn read_json(path: &Path) -> Option<Value> {
     serde_json::from_slice(&std::fs::read(path).ok()?).ok()
 }
@@ -124,7 +145,7 @@ pub fn known_base_models() -> Vec<String> {
 }
 
 /// Reject any base model id the registry does not know (write-time guard).
-pub fn assert_known_base(base: &str, context: &str) -> GenResult<String> {
+pub fn assert_known_base(base: &str, context: &str) -> RecipeResult<String> {
     let base = base.trim();
     let known = known_base_models();
     if known.iter().any(|k| k == base) {
@@ -142,7 +163,7 @@ pub fn assert_known_base(base: &str, context: &str) -> GenResult<String> {
 }
 
 /// Every LoRA must name a known base model equal to the selected model's base.
-pub fn normalize_lora_weights(loras: &[Value], selected_base: &str) -> GenResult<Vec<Value>> {
+pub fn normalize_lora_weights(loras: &[Value], selected_base: &str) -> RecipeResult<Vec<Value>> {
     let selected = assert_known_base(selected_base, "selected generation model")?;
     let mut out = Vec::new();
     for (i, l) in loras.iter().enumerate() {
@@ -171,6 +192,7 @@ pub fn normalize_lora_weights(loras: &[Value], selected_base: &str) -> GenResult
     Ok(out)
 }
 
+#[cfg(feature = "commands")]
 fn model_entry(provider: &str, model: &str) -> Option<Value> {
     embedded(IMAGE_MODELS)["models"]
         .get(format!("{provider}/{model}"))
@@ -181,6 +203,7 @@ fn model_entry(provider: &str, model: &str) -> Option<Value> {
 // Engine routes: what the engine serves is read from the engine, not from a hand flag
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "commands")]
 /// One model row of the engine registry (the rows `models` lists), reduced to what the lock needs.
 struct EngineRoute {
     id: String,
@@ -189,6 +212,7 @@ struct EngineRoute {
     references: Option<(String, Option<u32>, String)>,
 }
 
+#[cfg(feature = "commands")]
 /// Every model the engine's provider registry lists, with the `references` field the model list
 /// carries (`Provider::references`, else the adapter's capabilities). Read once. No key, network or
 /// keychain access: the registry is static.
@@ -217,6 +241,7 @@ fn engine_routes() -> &'static [EngineRoute] {
     })
 }
 
+#[cfg(feature = "commands")]
 fn engine_route(provider: &str, model: &str, kind: &str) -> Option<&'static EngineRoute> {
     let id = format!("{provider}/{model}");
     engine_routes()
@@ -224,18 +249,22 @@ fn engine_route(provider: &str, model: &str, kind: &str) -> Option<&'static Engi
         .find(|r| r.id == id && r.kind == kind)
 }
 
+#[cfg(feature = "commands")]
 /// The declared engine catalogue entry (models.json or the user override) for a route.
 fn declared_entry(provider: &str, model: &str) -> Option<&'static Entry> {
     Catalogue::get().find(provider, model)
 }
 
+#[cfg(feature = "commands")]
 /// `Some(false)` when the engine reports the route's price and schema as not yet confirmed by a live run.
 fn engine_reconciled(provider: &str, model: &str) -> Option<bool> {
     declared_entry(provider, model).and_then(|e| e.reconciled)
 }
 
+#[cfg(feature = "commands")]
 const UNRECONCILED_NOTICE: &str = "price not yet confirmed by a live run";
 
+#[cfg(feature = "commands")]
 /// Routes of kind `image` the engine lists with a `references` field, as `provider/model`, sorted.
 fn reference_capable_routes() -> Vec<String> {
     let mut routes: Vec<String> = engine_routes()
@@ -247,6 +276,7 @@ fn reference_capable_routes() -> Vec<String> {
     routes
 }
 
+#[cfg(feature = "commands")]
 /// Where the studio table and the engine disagree. The studio table (`image_models.json`) holds only
 /// studio facts (LoRA base model); whether a route is served is the engine's answer, and a table that
 /// claims otherwise is reported here, never silently picked. Empty when they agree.
@@ -313,6 +343,7 @@ pub fn route_inconsistencies() -> Vec<Value> {
     out
 }
 
+#[cfg(feature = "commands")]
 /// The `loras` input the engine entry declares (type json), with its byte cap.
 fn lora_input(provider: &str, model: &str) -> Option<(&'static str, Option<usize>)> {
     let e = declared_entry(provider, model)?;
@@ -323,9 +354,10 @@ fn lora_input(provider: &str, model: &str) -> Option<(&'static str, Option<usize
     Some((i.param.as_str(), i.max_bytes))
 }
 
+#[cfg(feature = "commands")]
 /// LoRAs only run on routes the engine serves AND declares a `loras` input for, at the studio table's
 /// base model for that route.
-pub fn assert_loras_compatible(loras: &[Value], provider: &str, model: &str) -> GenResult<()> {
+pub fn assert_loras_compatible(loras: &[Value], provider: &str, model: &str) -> RecipeResult<()> {
     if loras.is_empty() {
         return Ok(());
     }
@@ -354,8 +386,9 @@ pub fn assert_loras_compatible(loras: &[Value], provider: &str, model: &str) -> 
     normalize_lora_weights(loras, base).map(|_| ())
 }
 
+#[cfg(feature = "commands")]
 /// Every LoRA must be an https URL the provider can fetch. A local file is refused, never uploaded.
-fn assert_loras_hosted(loras: &[Value], whose: &str) -> GenResult<()> {
+fn assert_loras_hosted(loras: &[Value], whose: &str) -> RecipeResult<()> {
     for l in loras {
         let path = l["path"].as_str().unwrap_or("");
         if !path.starts_with("https://") {
@@ -372,7 +405,8 @@ fn assert_loras_hosted(loras: &[Value], whose: &str) -> GenResult<()> {
     Ok(())
 }
 
-fn base_lock(input: &Value) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn base_lock(input: &Value) -> RecipeResult<Value> {
     let provider = text(input, "provider").unwrap_or("");
     let model = text(input, "model").unwrap_or("");
     let entries = embedded(IMAGE_MODELS);
@@ -419,6 +453,7 @@ fn base_lock(input: &Value) -> GenResult<Value> {
 // Characters and references
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "commands")]
 struct Character {
     id: String,
     character_id: String,
@@ -437,6 +472,7 @@ struct Character {
     has_consent: bool,
 }
 
+#[cfg(feature = "commands")]
 impl Character {
     fn public(&self) -> Value {
         json!({
@@ -458,6 +494,7 @@ impl Character {
     }
 }
 
+#[cfg(feature = "commands")]
 fn normalize_brand(value: Option<&str>, venture: &str) -> String {
     let b = value.unwrap_or("").trim().to_ascii_uppercase();
     if KNOWN_BRANDS.contains(&b.as_str()) {
@@ -471,6 +508,7 @@ fn normalize_brand(value: Option<&str>, venture: &str) -> String {
     }
 }
 
+#[cfg(feature = "commands")]
 fn slug(value: &str) -> String {
     let mut out = String::new();
     for c in value.trim().to_ascii_lowercase().chars() {
@@ -488,6 +526,7 @@ fn slug(value: &str) -> String {
     }
 }
 
+#[cfg(feature = "commands")]
 fn list_images(dir: &Path) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
         .map(|rd| {
@@ -501,6 +540,7 @@ fn list_images(dir: &Path) -> Vec<PathBuf> {
     v
 }
 
+#[cfg(feature = "commands")]
 fn read_lora_manifest(
     dir: &Path,
     diagnostics: &mut Vec<Value>,
@@ -509,7 +549,7 @@ fn read_lora_manifest(
     if !path.exists() {
         return (None, None, 1.0);
     }
-    let parsed = (|| -> GenResult<(String, String, f64)> {
+    let parsed = (|| -> RecipeResult<(String, String, f64)> {
         let m = read_json(&path)
             .ok_or_else(|| err("bad_manifest", "LoRA manifest is not valid JSON"))?;
         // A hosted https URL is what the provider can fetch; a local path is kept as written so the
@@ -534,6 +574,7 @@ fn read_lora_manifest(
     }
 }
 
+#[cfg(feature = "commands")]
 fn read_character(
     venture: &str,
     dir_name: &str,
@@ -577,6 +618,7 @@ fn read_character(
     }
 }
 
+#[cfg(feature = "commands")]
 fn read_characters(ctx: &Context) -> (Vec<Character>, Vec<Value>) {
     let mut diagnostics = Vec::new();
     let mut out = Vec::new();
@@ -619,7 +661,8 @@ fn read_characters(ctx: &Context) -> (Vec<Character>, Vec<Value>) {
     (out, diagnostics)
 }
 
-fn resolve_character(ctx: &Context, requested: &str) -> GenResult<Character> {
+#[cfg(feature = "commands")]
+fn resolve_character(ctx: &Context, requested: &str) -> RecipeResult<Character> {
     let requested = requested.trim();
     if requested.is_empty() {
         return Err(err("invalid_input", "character_id is required"));
@@ -650,7 +693,8 @@ fn resolve_character(ctx: &Context, requested: &str) -> GenResult<Character> {
     }
 }
 
-fn list(ctx: &Context) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn list(ctx: &Context) -> RecipeResult<Value> {
     let (chars, diagnostics) = read_characters(ctx);
     Ok(json!({
         "characters": chars.iter().map(Character::public).collect::<Vec<_>>(),
@@ -659,7 +703,8 @@ fn list(ctx: &Context) -> GenResult<Value> {
     }))
 }
 
-fn create(ctx: &Context, input: &Value) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn create(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     let cid = text(input, "character_id").unwrap_or("");
     if !valid_id(cid) {
         return Err(err(
@@ -701,7 +746,8 @@ fn create(ctx: &Context, input: &Value) -> GenResult<Value> {
     Ok(json!({"character": c.public()}))
 }
 
-fn add_image(ctx: &Context, input: &Value) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn add_image(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     let src =
         PathBuf::from(text(input, "path").ok_or_else(|| err("invalid_input", "path is required"))?);
     if !src.is_file() {
@@ -755,7 +801,8 @@ fn add_image(ctx: &Context, input: &Value) -> GenResult<Value> {
     Ok(json!({"path": dest.to_string_lossy(), "kind": kind, "facts": facts.to_value()}))
 }
 
-fn references(ctx: &Context, input: &Value) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn references(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     let limit = input
         .get("limit")
         .and_then(Value::as_u64)
@@ -838,6 +885,7 @@ fn references(ctx: &Context, input: &Value) -> GenResult<Value> {
 // Aesthetic LoRAs (aesthetic-lora-registry.mjs)
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "commands")]
 fn aesthetic_registry() -> (Vec<Value>, Vec<String>) {
     let d = embedded(AESTHETIC);
     let loras = d["loras"].as_array().cloned().unwrap_or_default();
@@ -852,6 +900,7 @@ fn aesthetic_registry() -> (Vec<Value>, Vec<String>) {
     (loras, brands)
 }
 
+#[cfg(feature = "commands")]
 fn licence_status(e: &Value) -> &'static str {
     if e["commercial_ok"].as_bool() != Some(true) {
         "blocked_noncommercial"
@@ -862,7 +911,8 @@ fn licence_status(e: &Value) -> &'static str {
     }
 }
 
-fn public_aesthetic(e: &Value, commercial: &[String], brand: Option<&str>) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn public_aesthetic(e: &Value, commercial: &[String], brand: Option<&str>) -> RecipeResult<Value> {
     let id = e["id"].as_str().unwrap_or("").trim().to_string();
     let base = assert_known_base(
         e["base_model"].as_str().unwrap_or(""),
@@ -900,16 +950,18 @@ fn public_aesthetic(e: &Value, commercial: &[String], brand: Option<&str>) -> Ge
     }))
 }
 
-fn loras(input: &Value) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn loras(input: &Value) -> RecipeResult<Value> {
     let (reg, commercial) = aesthetic_registry();
     let brand = text(input, "brand");
-    let rows: GenResult<Vec<Value>> = reg
+    let rows: RecipeResult<Vec<Value>> = reg
         .iter()
         .map(|e| public_aesthetic(e, &commercial, brand))
         .collect();
     Ok(json!({"aesthetic_loras": rows?, "diagnostics": []}))
 }
 
+#[cfg(feature = "commands")]
 /// Resolve an aesthetic LoRA for generation: unknown, unknown base, non
 /// commercial on a commercial brand, and unvetted entries are all refused.
 fn resolve_aesthetic(
@@ -917,7 +969,7 @@ fn resolve_aesthetic(
     commercial: &[String],
     id: &str,
     brand: Option<&str>,
-) -> GenResult<Value> {
+) -> RecipeResult<Value> {
     let id = id.trim();
     let e = registry
         .iter()
@@ -958,9 +1010,10 @@ fn resolve_aesthetic(
 // Character lock
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "commands")]
 /// Typed refusal for a character with no usable LoRA on a route that takes no reference images.
 /// Locking it would generate without identity, so the lock refuses instead of dropping the references.
-fn reference_route_refusal(provider: &str, model: &str, character_id: &str) -> GenError {
+fn reference_route_refusal(provider: &str, model: &str, character_id: &str) -> RecipeError {
     let head = if model == "fal-ai/flux-2-max" {
         "The served FLUX.2 Pro route (fal-ai/flux-2-max) takes no reference images".to_string()
     } else {
@@ -981,15 +1034,17 @@ fn reference_route_refusal(provider: &str, model: &str, character_id: &str) -> G
     )
 }
 
+#[cfg(feature = "commands")]
 fn diag(d: &mut Vec<Value>, severity: &str, message: String) {
     d.push(json!({"severity": severity, "message": message}));
 }
 
+#[cfg(feature = "commands")]
 /// The two sibling routes of one LoRA family (`X` and `X/edit`): both must carry a LoRA base model in
 /// the studio table. A character LoRA with caller-supplied reference images belongs on the `/edit`
 /// route (its `image_urls` input), without them on the plain route. Resolved between the pair only,
 /// reported in the lock result (`requested_model`), never to another model family.
-fn lora_sibling(provider: &str, model: &str, with_refs: bool) -> GenResult<Option<String>> {
+fn lora_sibling(provider: &str, model: &str, with_refs: bool) -> RecipeResult<Option<String>> {
     let base = model.strip_suffix("/edit").unwrap_or(model);
     let edit = format!("{base}/edit");
     let has_lora =
@@ -1014,9 +1069,10 @@ fn lora_sibling(provider: &str, model: &str, with_refs: bool) -> GenResult<Optio
     Ok(Some(target))
 }
 
+#[cfg(feature = "commands")]
 /// Output size input (`width` / `height`) of a declared route: the caller's value, else the entry's
 /// default, within the entry's declared `min`/`max`. `None` when the entry declares no such input.
-fn dimension(input: &Value, entry: &Entry, name: &str) -> GenResult<Option<Value>> {
+fn dimension(input: &Value, entry: &Entry, name: &str) -> RecipeResult<Option<Value>> {
     let Some(i) = entry.inputs.iter().find(|i| i.param == name && i.send) else {
         return Ok(None);
     };
@@ -1055,17 +1111,19 @@ fn dimension(input: &Value, entry: &Entry, name: &str) -> GenResult<Option<Value
     Ok(Some(json!(n)))
 }
 
-fn lock(ctx: &Context, input: &Value) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn lock(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     let (reg, commercial) = aesthetic_registry();
     lock_with(ctx, input, &reg, &commercial)
 }
 
+#[cfg(feature = "commands")]
 fn lock_with(
     ctx: &Context,
     input: &Value,
     registry: &[Value],
     commercial: &[String],
-) -> GenResult<Value> {
+) -> RecipeResult<Value> {
     let provider = text(input, "provider").unwrap_or("");
     let requested_model = text(input, "model").unwrap_or("");
     let brand = text(input, "brand");
@@ -1377,6 +1435,7 @@ fn lock_with(
 // fal HTTP (storage upload, training queue)
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "commands")]
 fn queue_base() -> String {
     rightkit_media_gen::providers::base_url_override(
         "RIGHTKIT_FAL_QUEUE_BASE",
@@ -1392,11 +1451,13 @@ fn queue_base() -> String {
 // Training
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "commands")]
 fn trainers() -> Value {
     embedded(TRAINERS)
 }
 
-fn find_trainer(id: Option<&str>) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn find_trainer(id: Option<&str>) -> RecipeResult<Value> {
     let t = trainers();
     let id = id
         .unwrap_or_else(|| t["default_trainer"].as_str().unwrap_or(""))
@@ -1418,6 +1479,7 @@ pub fn estimate_training_cost(trainer: &Value, steps: u64) -> f64 {
     round_usd((steps as f64 * per).max(min))
 }
 
+#[cfg(feature = "commands")]
 struct Dataset {
     dir: PathBuf,
     images: Vec<PathBuf>,
@@ -1425,6 +1487,7 @@ struct Dataset {
     hash: String,
 }
 
+#[cfg(feature = "commands")]
 fn inspect_dataset(dir: &Path) -> Dataset {
     let images = list_images(dir);
     let mut captions: Vec<PathBuf> = std::fs::read_dir(dir)
@@ -1450,9 +1513,10 @@ fn inspect_dataset(dir: &Path) -> Dataset {
     }
 }
 
+#[cfg(feature = "commands")]
 /// Everything `train` needs, with blockers instead of errors for things the
 /// user can still fix in the dialog (cost cap, key, daily cap).
-fn plan(ctx: &Context, input: &Value) -> GenResult<Value> {
+fn plan(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     let character = resolve_character(ctx, text(input, "character_id").unwrap_or(""))?;
     let trainer = find_trainer(text(input, "trainer"))?;
     let defaults = trainers();
@@ -1568,6 +1632,7 @@ fn plan(ctx: &Context, input: &Value) -> GenResult<Value> {
     }))
 }
 
+#[cfg(feature = "commands")]
 /// The inputs a `character_training` approval is bound to: everything that decides what is
 /// trained and what it costs. Any change (a photo or caption edited, steps, trainer, cost,
 /// cap, trigger) changes the hash, so a token never covers a different run.
@@ -1588,6 +1653,7 @@ fn training_approval_view(plan: &Value) -> Value {
     })
 }
 
+#[cfg(feature = "commands")]
 /// For `studio.approvals.challenge` (kind `character_training`): the approval inputs and the
 /// displayed hash of the plan `params` describe right now. `draft_id` must be that plan's id, so
 /// a challenge can only be requested for the plan the user was shown, and only while it is ready.
@@ -1595,7 +1661,7 @@ pub fn training_approval_inputs(
     ctx: &Context,
     params: &Value,
     draft_id: &str,
-) -> GenResult<(Value, String)> {
+) -> RecipeResult<(Value, String)> {
     let p = plan(ctx, params)?;
     let plan_id = p["plan_id"].as_str().unwrap_or("");
     if plan_id != draft_id {
@@ -1607,6 +1673,7 @@ pub fn training_approval_inputs(
     Ok((training_approval_view(&p), plan_id.to_string()))
 }
 
+#[cfg(feature = "commands")]
 /// A stored (uncompressed) zip archive, written by RightKit's deterministic stored-zip writer.
 fn zip_stored(files: &[(String, Vec<u8>)]) -> std::io::Result<Vec<u8>> {
     let entries: Vec<(&str, &[u8])> = files
@@ -1616,14 +1683,17 @@ fn zip_stored(files: &[(String, Vec<u8>)]) -> std::io::Result<Vec<u8>> {
     rightkit_fs::stored_zip_bytes(&entries)
 }
 
+#[cfg(feature = "commands")]
 fn training_path(ctx: &Context, id: &str) -> PathBuf {
     root(ctx).join("_trainings").join(format!("{id}.json"))
 }
 
+#[cfg(feature = "commands")]
 fn terminal(status: &str) -> bool {
     matches!(status, "complete" | "failed")
 }
 
+#[cfg(feature = "commands")]
 /// The plan id a training record was started for (`approval_token` on records written before
 /// approval moved to the app-minted token).
 fn plan_of(rec: &Value) -> Option<&str> {
@@ -1632,18 +1702,20 @@ fn plan_of(rec: &Value) -> Option<&str> {
         .or_else(|| rec["approval_token"].as_str())
 }
 
+#[cfg(feature = "commands")]
 /// A training submit that may have reached fal and cannot be repeated blindly. Not
 /// terminal, never retried: only `train_status` with `resolve` leaves it. The same
 /// rule as a held generate job (`outcome_unknown` in the media-gen job store).
 const HELD: &str = "outcome_unknown";
 
+#[cfg(feature = "commands")]
 /// The `outcome_unknown` refusal for a held training record: what is held, how much
 /// stays reserved, and how to resolve it.
-fn held_error(rec: &Value) -> GenError {
+fn held_error(rec: &Value) -> RecipeError {
     let reserved = rec["reserved_usd"].as_f64().unwrap_or(0.0);
     if rec["held_settled"].as_bool() == Some(true) {
         // fal finished the training and charged; its result could not be used. Settled, not retried.
-        return GenError::new(
+        return RecipeError::new(
             HELD,
             format!(
                 "training {} for {} finished at fal but its result could not be used ({}); ${reserved:.2} is counted as spent and it is not retried. Call train_status with training_id {} and resolve=\"abandon\" to close it, then train again if you want.",
@@ -1661,7 +1733,7 @@ fn held_error(rec: &Value) -> GenError {
             "resolve": ["abandon"],
         }));
     }
-    GenError::new(
+    RecipeError::new(
         HELD,
         format!(
             "training {} for {} was sent to fal at {} and its outcome is unknown ({}); ${reserved:.2} stays reserved as {} and it is not retried. Check your fal dashboard, then call train_status with training_id {} and resolve=\"release\" (nothing started at fal) or resolve=\"abandon\" (it started, or may have; the amount stays counted as spent).",
@@ -1682,6 +1754,7 @@ fn held_error(rec: &Value) -> GenError {
     }))
 }
 
+#[cfg(feature = "commands")]
 /// `train_status` with `resolve` on a held training: `release` (the user checked fal and
 /// nothing started) reconciles the reservation to zero; `abandon` (it started, or may
 /// have) keeps the reserved amount as spent. Either ends the record as `failed`, so a
@@ -1691,7 +1764,7 @@ fn resolve_held(
     path: &Path,
     mut rec: Value,
     resolve: Option<&str>,
-) -> GenResult<Value> {
+) -> RecipeResult<Value> {
     let settled = rec["held_settled"].as_bool() == Some(true);
     let Some(action) = resolve else {
         rec["resolve"] = if settled {
@@ -1728,7 +1801,8 @@ fn resolve_held(
     Ok(rec)
 }
 
-fn train_preflight(ctx: &Context, input: &Value) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn train_preflight(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     let mut p = plan(ctx, input)?;
     p["approval_challenge"] = Value::Null;
     if p["ready"].as_bool() == Some(true) {
@@ -1744,7 +1818,8 @@ fn train_preflight(ctx: &Context, input: &Value) -> GenResult<Value> {
     Ok(p)
 }
 
-fn train(ctx: &Context, input: &Value) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn train(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     // Spend gate: only a token the running app minted starts a paid run. Checked before the plan
     // is read, so a caller without the app's secret learns nothing; `operator_approved`, a plan id
     // or the old echoed token approve nothing.
@@ -1801,7 +1876,7 @@ fn train(ctx: &Context, input: &Value) -> GenResult<Value> {
     let job_id = format!("training:{training_id}");
     let mut conn = store::open(ctx)?;
     ledger::reserve(&mut conn, &job_id, 1, cost)?;
-    let fail = |conn: &mut _, e: GenError| {
+    let fail = |conn: &mut _, e: RecipeError| {
         let _ = ledger::reconcile(conn, &job_id, 1, 0.0);
         e
     };
@@ -1830,7 +1905,7 @@ fn train(ctx: &Context, input: &Value) -> GenResult<Value> {
         "application/zip",
     ) {
         Ok(u) => u,
-        Err(e) => return Err(fail(&mut conn, e)),
+        Err(e) => return Err(fail(&mut conn, e.into())),
     };
 
     let mut body = Map::new();
@@ -1864,7 +1939,7 @@ fn train(ctx: &Context, input: &Value) -> GenResult<Value> {
     ) {
         Ok(v) => v,
         // Connect failure or a definite rejection: nothing was started, so release the reservation.
-        Err((e, false)) => return Err(fail(&mut conn, e)),
+        Err((e, false)) => return Err(fail(&mut conn, e.into())),
         // The POST may have been accepted (timeout or drop after send, 408/429/5xx, unreadable
         // reply): keep the reservation at its estimate, record the training as held and never
         // send it again on its own.
@@ -1924,6 +1999,7 @@ fn train(ctx: &Context, input: &Value) -> GenResult<Value> {
     Ok(record)
 }
 
+#[cfg(feature = "commands")]
 fn extract_url(v: &Value) -> Option<String> {
     match v {
         Value::String(s) if s.starts_with("http://") || s.starts_with("https://") => {
@@ -1937,7 +2013,8 @@ fn extract_url(v: &Value) -> Option<String> {
     }
 }
 
-fn train_status(ctx: &Context, input: &Value) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+fn train_status(ctx: &Context, input: &Value) -> RecipeResult<Value> {
     let id = match text(input, "training_id") {
         Some(i) => i.to_string(),
         None => {
@@ -1982,7 +2059,7 @@ fn train_status(ctx: &Context, input: &Value) -> GenResult<Value> {
     let status_url = rec["status_url"].as_str().unwrap_or("").to_string();
     let (code, status, raw) = fal_get(&status_url, &key)?;
     if !(200..300).contains(&code) {
-        return Err(http_error(code, &raw, &key));
+        return Err(http_error(code, &raw, &key).into());
     }
     let fal_status = status["status"].as_str().unwrap_or("").to_string();
     rec["fal_status"] = json!(fal_status);
@@ -2075,7 +2152,8 @@ fn train_status(ctx: &Context, input: &Value) -> GenResult<Value> {
     Ok(rec)
 }
 
-pub fn handle(ctx: &Context, name: &str, input: &Value) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+pub fn handle(ctx: &Context, name: &str, input: &Value) -> RecipeResult<Value> {
     match name {
         "studio.characters.list" => list(ctx),
         "studio.characters.create" => create(ctx, input),
@@ -2088,7 +2166,7 @@ pub fn handle(ctx: &Context, name: &str, input: &Value) -> GenResult<Value> {
         "studio.characters.train_preflight" => train_preflight(ctx, input),
         "studio.characters.train" => train(ctx, input),
         "studio.characters.train_status" => train_status(ctx, input),
-        _ => Err(GenError::new(
+        _ => Err(RecipeError::new(
             "unknown_command",
             format!("unknown command: {name}"),
         )),

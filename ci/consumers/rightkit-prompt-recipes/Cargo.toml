@@ -7,4 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-prompt-recipes = { version = "=0.1.0" }
+rightkit-prompt-recipes = { version = "=0.2.0" }
+serde_json = "1"

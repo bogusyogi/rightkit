@@ -24,38 +24,6 @@
     "category": "video",
     "subcategory": "ad-patterns"
   },
-  "_brand_defaults": {
-    "DD": {
-      "item_key": "asmr_macro",
-      "status": "provisional_from_memory",
-      "seeded_from": "CLAUDE.md DD: premium tactile EDC products — sensory category"
-    },
-    "RH": {
-      "item_key": "before_after_bridge",
-      "status": "provisional_from_memory",
-      "seeded_from": "RH slow fashion vs fast fashion narrative"
-    },
-    "TS": {
-      "item_key": "comedy_juxtaposition",
-      "status": "provisional_from_memory",
-      "seeded_from": "TS counter-culture / dystopian humor brand book"
-    },
-    "HR": {
-      "item_key": "demo_reveal",
-      "status": "provisional_from_memory",
-      "seeded_from": "HR V3: voice command center demo IS the proof asset (marketing-plan §2)"
-    },
-    "DV": {
-      "item_key": "founder_story",
-      "status": "unknown_needs_owner_input",
-      "seeded_from": "no source yet — DV is founder brand by definition"
-    },
-    "SS": {
-      "item_key": "asmr_macro",
-      "status": "owner_approved",
-      "seeded_from": "photography brand — texture appreciation fits"
-    }
-  },
   "items": {
     "hook_problem_solution_cta": {
       "name": "Hook → Problem → Solution → CTA",
@@ -594,12 +562,11 @@
     "founder_story": {
       "name": "Founder story (POV)",
       "use": "Solo-founder brand, Kickstarter, indie products. Audience cares WHO made it.",
-      "fragment": "Ad pattern: Founder story (POV). Beat structure: founder_face_hook(3s) → why_built_it(6s) → what_it_does(6s) → first_user_proof(5s) → founder_cta(3s) → lockup(2s). Total length: 25s. Best for: indie hardware, Kickstarter, solo SaaS, Damned Designs / Heard Right / Toxic Sundae.",
+      "fragment": "Ad pattern: Founder story (POV). Beat structure: founder_face_hook(3s) → why_built_it(6s) → what_it_does(6s) → first_user_proof(5s) → founder_cta(3s) → lockup(2s). Total length: 25s. Best for: indie hardware, Kickstarter, solo SaaS.",
       "best_for": [
         "indie hardware",
         "Kickstarter",
-        "solo SaaS",
-        "Damned Designs / Heard Right / Toxic Sundae"
+        "solo SaaS"
       ],
       "ideal_length_s": 25,
       "beats": [
@@ -648,12 +615,11 @@
     "asmr_macro": {
       "name": "ASMR macro / texture appreciation",
       "use": "Premium tactile products. Watches, EDC, leather goods, knives. Sensory-driven categories.",
-      "fragment": "Ad pattern: ASMR macro / texture appreciation. Beat structure: texture_open(3s) → build_reveal(5s) → interaction(6s) → hero_static(4s) → lockup(2s). Total length: 20s. Best for: EDC, premium accessories, luxury goods, Damned Designs.",
+      "fragment": "Ad pattern: ASMR macro / texture appreciation. Beat structure: texture_open(3s) → build_reveal(5s) → interaction(6s) → hero_static(4s) → lockup(2s). Total length: 20s. Best for: EDC, premium accessories, luxury goods.",
       "best_for": [
         "EDC",
         "premium accessories",
-        "luxury goods",
-        "Damned Designs"
+        "luxury goods"
       ],
       "ideal_length_s": 20,
       "beats": [

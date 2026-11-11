@@ -15,8 +15,11 @@ use std::sync::OnceLock;
 
 use serde_json::{json, Map, Value};
 
-use rightkit_media_gen::{Context, GenError, GenResult};
+use crate::{RecipeError, RecipeResult};
+#[cfg(feature = "commands")]
+use rightkit_media_gen::Context;
 
+#[cfg(feature = "commands")]
 pub const COMMANDS: &[&str] = &[
     "studio.contracts.list",
     "studio.contracts.schema",
@@ -1789,9 +1792,9 @@ pub fn base_model_for_image_model(slug: &str) -> Option<&'static str> {
     }
 }
 
-pub fn assert_image_model_supports_loras(slug: &str) -> GenResult<&'static str> {
+pub fn assert_image_model_supports_loras(slug: &str) -> RecipeResult<&'static str> {
     base_model_for_image_model(slug).ok_or_else(|| {
-        GenError::new(
+        RecipeError::new(
             "lora_unsupported",
             format!("Image model \"{slug}\" does not support LoRA weights in the locked router"),
         )
@@ -1817,15 +1820,15 @@ fn deep_merge(base: &Value, over: &Value) -> Value {
     }
 }
 
-fn resolve_contract(slug: &str, seen: &mut Vec<String>) -> GenResult<(Value, Vec<String>)> {
+fn resolve_contract(slug: &str, seen: &mut Vec<String>) -> RecipeResult<(Value, Vec<String>)> {
     if seen.iter().any(|s| s == slug) {
-        return Err(GenError::new(
+        return Err(RecipeError::new(
             "contract_cycle",
             format!("Image contract inheritance cycle at {slug}"),
         ));
     }
     let contract = contracts_map().get(slug).ok_or_else(|| {
-        GenError::new(
+        RecipeError::new(
             "contract_not_found",
             format!("Image model contract not found: {slug}"),
         )
@@ -1857,8 +1860,8 @@ fn is_rgb_object_format(f: Option<&str>) -> bool {
     f.is_some_and(|f| f.to_lowercase().replace(' ', "").contains("{rgb:[r,g,b]}"))
 }
 
-fn derive_form_field(field: &str, spec: &Value, block_required: bool) -> GenResult<Value> {
-    let fail = |why: &str| GenError::new("form_schema", format!("{field}: {why}"));
+fn derive_form_field(field: &str, spec: &Value, block_required: bool) -> RecipeResult<Value> {
+    let fail = |why: &str| RecipeError::new("form_schema", format!("{field}: {why}"));
     let Some(obj) = spec.as_object() else {
         return Err(fail("field metadata must be an object"));
     };
@@ -1970,10 +1973,10 @@ fn derive_form_field(field: &str, spec: &Value, block_required: bool) -> GenResu
 
 /// Form fields for a model; `negative_prompt` is exposed only for models whose
 /// policy has an explicit negative field.
-pub fn model_form_schema(model: &str) -> GenResult<Value> {
+pub fn model_form_schema(model: &str) -> RecipeResult<Value> {
     let slug = model.trim();
     if slug.is_empty() {
-        return Err(GenError::new(
+        return Err(RecipeError::new(
             "invalid_input",
             "Image model slug is required",
         ));
@@ -2031,16 +2034,18 @@ pub fn model_param_fields(model: &str) -> Vec<String> {
 
 // ── Commands ──────────────────────────────────────────────────────────────
 
-fn need_model(input: &Value) -> GenResult<String> {
+#[cfg(feature = "commands")]
+fn need_model(input: &Value) -> RecipeResult<String> {
     input
         .get("model")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
-        .ok_or_else(|| GenError::new("invalid_input", "model is required"))
+        .ok_or_else(|| RecipeError::new("invalid_input", "model is required"))
 }
 
+#[cfg(feature = "commands")]
 fn ctx_of(input: &Value) -> Value {
     input
         .get("ctx")
@@ -2049,7 +2054,8 @@ fn ctx_of(input: &Value) -> Value {
         .unwrap_or_else(|| json!({}))
 }
 
-pub fn handle(_ctx: &Context, name: &str, input: &Value) -> GenResult<Value> {
+#[cfg(feature = "commands")]
+pub fn handle(_ctx: &Context, name: &str, input: &Value) -> RecipeResult<Value> {
     match name {
         "studio.contracts.list" => {
             let rows: Vec<Value> = list_contracts()
@@ -2081,7 +2087,7 @@ pub fn handle(_ctx: &Context, name: &str, input: &Value) -> GenResult<Value> {
             match validate_contract(&model, &payload, &ctx_of(input)) {
                 Ok(()) => Ok(json!({"ok": true, "model": model, "violations": []})),
                 Err(e) if e.rule_id() == "contract_missing" => {
-                    Err(GenError::new("contract_not_found", e.message()))
+                    Err(RecipeError::new("contract_not_found", e.message()))
                 }
                 Err(e) => Ok(e.to_json()),
             }
@@ -2097,7 +2103,7 @@ pub fn handle(_ctx: &Context, name: &str, input: &Value) -> GenResult<Value> {
                     Ok(v)
                 }
                 Err(e) if e.rule_id() == "contract_missing" => {
-                    Err(GenError::new("contract_not_found", e.message()))
+                    Err(RecipeError::new("contract_not_found", e.message()))
                 }
                 Err(e) => Ok(e.to_json()),
             }
@@ -2113,7 +2119,7 @@ pub fn handle(_ctx: &Context, name: &str, input: &Value) -> GenResult<Value> {
             input.get("params").unwrap_or(&json!({})),
         )),
         "studio.contracts.health" => Ok(contract_health()),
-        _ => Err(GenError::new(
+        _ => Err(RecipeError::new(
             "unknown_command",
             format!("unknown command: {name}"),
         )),

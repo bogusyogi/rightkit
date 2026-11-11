@@ -7,7 +7,6 @@ import { errorText } from '../../lib/engine-error.js';
 import {
   ASPECTS,
   RECIPE_PICKERS,
-  VENTURES,
   appendPromptFragment,
   approvedParams,
   beatLine,
@@ -26,10 +25,11 @@ import {
 } from './video-quality.js';
 import { Badge, Button, Checkbox, Input, Notice, Pill, Select as RkSelect, Toggle } from '@rightkit/react-shell/react';
 import { readUiSetting, writeUiSetting } from '../../lib/settings-backend.js';
+import { hostBrandCodes } from '../../lib/brands.js';
 
 export const VideoShotPanelKinds: string[] = ['video'];
 
-const GUARD_KEY = 'genright.video.guard';
+const GUARD_KEY = 'media-gen.video.guard';
 
 function Select({ label, value, onChange, children, options, hint }: { label: string; value: string; onChange: (v: string) => void; children?: React.ReactNode; options?: { value: string; label: string }[]; hint?: React.ReactNode }) {
   return (
@@ -73,7 +73,7 @@ export function VideoShotPanel({ provider, model, prompt, setPrompt, setParams, 
   const [libs, setLibs] = useState<Partial<Record<string, RecipeLibrary>>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [venture, setVenture] = useState<Venture>('HR');
+  const [venture, setVenture] = useState<Venture>(() => hostBrandCodes()[0] ?? '');
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
   const [template, setTemplate] = useState('');
   const [overridesText, setOverridesText] = useState('');
@@ -304,7 +304,7 @@ export function VideoShotPanel({ provider, model, prompt, setPrompt, setParams, 
       {enabled ? (
         <div className="vq-guard">
           <div className="vq-row">
-            <Select label="Venture" value={venture} onChange={(v) => setVenture(v as Venture)} options={VENTURES.map((v) => ({ value: v, label: v }))} />
+            <Select label="Venture" value={venture} onChange={(v) => setVenture(v as Venture)} options={hostBrandCodes().map((v) => ({ value: v, label: v }))} />
             <label className="vq-field">
               <span>Project slug</span>
               <Input value={projectSlug} placeholder="spring-launch" onChange={(e) => setProjectSlug(e.target.value)} />

@@ -123,7 +123,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | file-watching | `rightkit-file-watch` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-file-watch: published 0.4.1 (crates.io) |
 | framed-sidecar | `rightkit-sidecar` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-sidecar: published 0.3.0 (crates.io) |
 | generation-pipeline | `rightkit-pipeline` | none | declaration-only | 0 | rightkit-pipeline: staged 0.1.2, not published |
-| generative-media | `rightkit-media-gen` | none | declaration-only | 0 | rightkit-media-gen: staged 0.1.2, not published |
+| generative-media | `rightkit-media-gen` | none | declaration-only | 0 | rightkit-media-gen: staged 0.2.0, not published |
 | github | `rightkit-github` | none | declaration-only | 0 | rightkit-github: staged 0.1.1, not published |
 | github-workflows | `@rightkit/ci` | none | declaration-only | 0 | @rightkit/ci: published 0.3.1 (npm) |
 | global-hotkeys | `rightkit-hotkeys` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-hotkeys: published 0.1.2 (crates.io) |
@@ -140,7 +140,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | lifecycle-hooks | `@rightkit/hooks`, `rightkit-hooks` | none | declaration-only | 0 | @rightkit/hooks: published 0.1.2 (npm); rightkit-hooks: published 0.2.0 (crates.io) |
 | llm-providers | `rightkit-llm` | advise | fingerprinted | 6 (0 block, 6 advise) | rightkit-llm: published 0.3.1 (crates.io) |
 | local-artifact-library | `rightkit-library` | none | declaration-only | 0 | rightkit-library: staged 0.2.0, not published |
-| local-image-generation | `rightkit-local-gen` | none | declaration-only | 0 | rightkit-local-gen: staged 0.1.1, not published |
+| local-image-generation | `rightkit-local-gen` | none | declaration-only | 0 | rightkit-local-gen: staged 0.1.2, not published |
 | local-services | `rightkit-daemon` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-daemon: published 0.4.0 (crates.io) |
 | localization | `@rightkit/i18n` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/i18n: published 0.2.0 (npm) |
 | mail-client-core | `rightkit-mail` | none | declaration-only | 0 | rightkit-mail: staged 0.1.2, not published |
@@ -148,10 +148,10 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | markdown-editor | `@rightkit/markdown-editor` | none | declaration-only | 0 | @rightkit/markdown-editor: staged 0.2.0, not published |
 | mcp | `rightkit-mcp` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-mcp: published 0.7.0 (crates.io) |
 | media-fetch | `rightkit-media-fetch` | none | declaration-only | 0 | rightkit-media-fetch: staged 0.1.3, not published |
-| media-gen-ui | `@rightkit/media-gen-ui` | none | declaration-only | 0 | @rightkit/media-gen-ui: staged 0.1.0, not published |
+| media-gen-ui | `@rightkit/media-gen-ui` | none | declaration-only | 0 | @rightkit/media-gen-ui: staged 0.2.0, not published |
 | media-pipelines | `rightkit-ffmpeg` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-ffmpeg: published 0.2.10 (crates.io) |
 | media-playback | `rightkit-playback` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-playback: published 0.3.0 (crates.io) |
-| media-production-pipelines | `rightkit-media-pipeline` | none | declaration-only | 0 | rightkit-media-pipeline: staged 0.1.0, not published |
+| media-production-pipelines | `rightkit-media-pipeline` | none | declaration-only | 0 | rightkit-media-pipeline: staged 0.2.0, not published |
 | media-ui | `@rightkit/media-ui` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/media-ui: published 0.3.4 (npm) |
 | model-installation | `rightkit-models` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-models: published 0.5.1 (crates.io) |
 | motion-beat-sync | `rightkit-motion` | none | declaration-only | 0 | rightkit-motion: published 0.2.0 (crates.io) |
@@ -178,7 +178,7 @@ Capabilities: 222 (58 with fingerprints, 164 declaration-only). Internal owners 
 | qa-evidence | `@rightkit/qa` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/qa: published 0.6.1 (npm) |
 | release-tooling | `@rightkit/release` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/release: published 0.6.13 (npm) |
 | remote-agent-gateway | `rightkit-remote-gateway` | none | declaration-only | 0 | rightkit-remote-gateway: staged 0.1.3, not published |
-| remote-compute | `rightkit-remote-compute` | none | declaration-only | 0 | rightkit-remote-compute: staged 0.1.0, not published |
+| remote-compute | `rightkit-remote-compute` | none | declaration-only | 0 | rightkit-remote-compute: staged 0.2.0, not published |
 | repo-graph | `rightkit-repo-graph` | none | declaration-only | 0 | rightkit-repo-graph: staged 0.1.0, not published |
 | repo-graph-grammars | `rightkit-repo-graph-grammars` | none | declaration-only | 0 | rightkit-repo-graph-grammars: staged 0.1.1, not published |
 | research | `rightkit-research` | none | declaration-only | 0 | rightkit-research: staged 0.1.2, not published |

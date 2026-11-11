@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-media-gen-models",
+  "capabilities": [
+    {
+      "capability": "media-gen-models",
+      "summary": "Local model management for the media-generation engine (hardware fit, installs, memory governor, routes, studio.models.* commands); declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

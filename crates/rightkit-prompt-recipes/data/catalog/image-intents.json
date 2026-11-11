@@ -1,14 +1,5 @@
 {
   "reference_limit": 14,
-  "brands": [
-    "DD",
-    "RH",
-    "TS",
-    "HR",
-    "DV",
-    "KDP",
-    "NA"
-  ],
   "intents": {
     "bottom": {
       "model": "flux-2-dev",

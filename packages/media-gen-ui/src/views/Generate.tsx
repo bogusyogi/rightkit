@@ -8,8 +8,8 @@ import { jobIsActive, useApp, type SessionJob } from '../lib/app-state.js';
 import type { SettingsSectionId, ViewId } from '../lib/nav.js';
 import { JobMeta, JobOutputs } from '../components/JobCard.js';
 import { IconPlay } from '../components/icons.js';
-import { MaskBrush } from '../components/MaskBrush.js';
-import { maskInputOf, startInputOf, withMaskParam, withStartParam } from '../lib/mask-export.js';
+import { MaskEditor } from '../components/MaskEditor.js';
+import { maskInputOf, startInputOf, withMaskParam, withStartParam } from '../lib/mask-params.js';
 import { Card, Badge, Button, Checkbox, EmptyState, IconButton, Input, Notice, Popover, ProgressBar, SegmentedControl, Select } from '@rightkit/react-shell/react';
 import { useListNavigation } from '@rightkit/platform-ui/headless';
 import { Kv, baseName, formatBytes, providerName, usd } from '../components/ui.js';
@@ -51,7 +51,7 @@ const COPY: Record<MediaKind, { title: string; eyebrow: string; picker: string; 
 };
 
 const WORKFLOW_TEMPLATES: Record<MediaKind, Array<[string, string]>> = {
-  image: [['Product on seamless', 'Hero shot, soft shadow'], ['Book cover draft', 'KDP 6×9 with title safe area'], ['Social square set', '4 variations, brand palette'], ['Character sheet', 'Front / side / back']],
+  image: [['Product on seamless', 'Hero shot, soft shadow'], ['Book cover draft', '6×9 with title safe area'], ['Social square set', '4 variations, brand palette'], ['Character sheet', 'Front / side / back']],
   video: [['Image to clip', 'Animate a Gallery image'], ['First → last frame', 'Morph between two stills'], ['Product orbit', '360° turn from one shot'], ['Storyboard', 'Shot list to clips']],
   voice: [],
   avatar: [],
@@ -641,7 +641,7 @@ export function Generate({ kind: viewKind, onNavigate }: { kind: MediaKind; onNa
             {handoffNote ? <Notice tone="info" className="gen-handoff">{handoffNote}</Notice> : null}
             {refMax > 0 ? <ReferenceImages refs={references} max={refMax} onChange={setReferences} /> : null}
             {maskInput && references[0] ? (
-              <MaskBrush src={assetUrl(references[0])} onSave={(png) => saveReferencePng(png, 'mask.png')} onChange={setMaskPath} />
+              <MaskEditor src={assetUrl(references[0])} onSave={(png) => saveReferencePng(png, 'mask.png')} onChange={setMaskPath} />
             ) : null}
             {inputFirst ? (
               <>

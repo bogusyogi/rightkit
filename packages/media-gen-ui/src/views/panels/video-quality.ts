@@ -4,8 +4,8 @@ import { errorMessage } from '../../lib/engine-error.js';
 // prompt helpers, the preflight request builder and the approval guard.
 // Kept free of React so src/tests/video-quality.test.mjs can load it directly.
 
-export const VENTURES = ['DD', 'RH', 'TS', 'HR', 'KDP', 'DV'] as const;
-export type Venture = (typeof VENTURES)[number];
+/** A host brand code (setHostBrands); the engine checks it against the brands it was given. */
+export type Venture = string;
 export const ASPECTS = ['9:16', '16:9'] as const;
 
 export interface Recipe {
@@ -198,16 +198,8 @@ export function usd(n: number | null | undefined): string {
 // ---------------------------------------------------------------------------
 
 async function call<T>(verb: string, input: Record<string, unknown> = {}): Promise<T> {
-  try {
-    const { studio } = await import('../../lib/api.js');
-    return await studio<T>(`video_templates.${verb}`, input);
-  } catch (error) {
-    if (import.meta.env?.DEV && /Unsupported browser QA mock/i.test(errorMessage(error))) {
-      const { mockVideoQuality } = await import('./video-quality-mock.js');
-      return (await mockVideoQuality(verb, input)) as T;
-    }
-    throw error;
-  }
+  const { studio } = await import('../../lib/api.js');
+  return await studio<T>(`video_templates.${verb}`, input);
 }
 
 export const videoQuality = {
@@ -221,15 +213,7 @@ export const videoQuality = {
    * token (`approve_draft`). `displayedHash` is the draft's `fingerprint` as shown.
    */
   approve: async (draftId: string, displayedHash: string): Promise<Draft> => {
-    try {
-      const { approveDraft } = await import('../../lib/api.js');
-      return await approveDraft<Draft>('video_templates', draftId, displayedHash);
-    } catch (error) {
-      if (import.meta.env?.DEV && /Unsupported browser QA mock/i.test(errorMessage(error))) {
-        const { mockVideoQuality } = await import('./video-quality-mock.js');
-        return (await mockVideoQuality('approve_draft', { draft_id: draftId, displayed_hash: displayedHash })) as Draft;
-      }
-      throw error;
-    }
+    const { approveDraft } = await import('../../lib/api.js');
+    return await approveDraft<Draft>('video_templates', draftId, displayedHash);
   }
 };

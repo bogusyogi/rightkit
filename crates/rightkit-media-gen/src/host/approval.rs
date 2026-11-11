@@ -22,8 +22,25 @@
 
 use rightkit_crypto::{approval as rk, hex_encode, sha256};
 
-/// Domain separator and version of the token message.
-pub const TOKEN_DOMAIN: &str = "genright-approval-v1";
+/// Default domain separator and version of the token message. A host whose approval clients
+/// already mint tokens under another domain installs it with [`set_token_domain`].
+pub const DEFAULT_TOKEN_DOMAIN: &str = "rightkit-approval-v1";
+
+static TOKEN_DOMAIN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Install the host's token domain once, before the first token is minted or checked. Returns the
+/// rejected value when a domain is already set. The domain is part of every token's message, so
+/// changing it invalidates tokens minted under the old one.
+pub fn set_token_domain(domain: impl Into<String>) -> Result<(), String> {
+    TOKEN_DOMAIN.set(domain.into())
+}
+
+/// The token domain in force: the host's, else [`DEFAULT_TOKEN_DOMAIN`].
+pub fn token_domain() -> &'static str {
+    TOKEN_DOMAIN
+        .get_or_init(|| DEFAULT_TOKEN_DOMAIN.to_string())
+        .as_str()
+}
 
 /// Shortest secret an engine accepts (hex characters).
 pub const MIN_SECRET_LEN: usize = 32;
@@ -44,7 +61,7 @@ fn unix_now() -> u64 {
 
 /// Token purpose: the domain separator plus the approval kind.
 fn purpose(kind: &str) -> String {
-    format!("{TOKEN_DOMAIN}:{kind}")
+    format!("{}:{kind}", token_domain())
 }
 
 /// Token subject: draft id, input hash and nonce, each length-prefixed so field edges are unambiguous.
