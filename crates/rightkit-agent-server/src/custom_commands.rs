@@ -170,12 +170,11 @@ pub(crate) fn roots_for(
 /// Load commands visible from `workspace` using the persisted trust store and
 /// the real user state root.
 pub(crate) fn load(workspace: &Path) -> Vec<CustomCommand> {
-    let trusted =
-        rightkit_app_settings::agent_config::workspace_trust::is_workspace_trusted(workspace);
+    let trusted = rightkit_agent_config::workspace_trust::is_workspace_trusted(workspace);
     discover(&roots_for(
         workspace,
         trusted,
-        rightkit_app_settings::agent_config::state_root::state_root(),
+        rightkit_agent_config::state_root::state_root(),
     ))
 }
 

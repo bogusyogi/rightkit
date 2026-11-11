@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 /// Environment override for the trust store location (shared with the daemon).
 /// Present only in `host-env` builds.
-#[cfg(feature = "agent_config-host-env")]
+#[cfg(feature = "host-env")]
 pub const WORKSPACE_TRUST_STORE_ENV: &str = "RIGHTKIT_WORKSPACE_TRUST_STORE";
 
 /// Canonical key for a workspace root: trimmed, forward-slash separators.
@@ -25,13 +25,13 @@ pub fn workspace_trust_key(workspace_root: &str) -> String {
 
 /// Location of the persisted workspace-trust store.
 pub fn workspace_trust_store_path() -> PathBuf {
-    #[cfg(feature = "agent_config-host-env")]
+    #[cfg(feature = "host-env")]
     {
         if let Some(path) = std::env::var_os(WORKSPACE_TRUST_STORE_ENV) {
             return PathBuf::from(path);
         }
     }
-    crate::agent_config::state_root()
+    crate::state_root()
         .unwrap_or_else(|| {
             std::env::current_dir()
                 .unwrap_or_else(|_| PathBuf::from("."))

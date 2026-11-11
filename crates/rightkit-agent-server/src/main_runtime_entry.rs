@@ -116,9 +116,9 @@ fn run_main() {
                 .clone()
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-            let resolved = rightkit_app_settings::agent_config::presets::load_presets(&workspace)
+            let resolved = rightkit_agent_config::presets::load_presets(&workspace)
                 .and_then(|all| {
-                    rightkit_app_settings::agent_config::presets::resolve_preset(&all, &name)
+                    rightkit_agent_config::presets::resolve_preset(&all, &name)
                 });
             match resolved {
                 Ok(preset) => {
@@ -453,7 +453,7 @@ fn cli_acquisition_v1_enabled() -> bool {
 }
 
 fn cli_acquisition_v1_enabled_from_config(
-    config: &rightkit_app_settings::agent_config::HostConfig,
+    config: &rightkit_agent_config::HostConfig,
 ) -> bool {
     config.features.cli_acquisition_v1.unwrap_or(true)
 }

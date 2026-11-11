@@ -1,4 +1,4 @@
-// rightkit-app-settings 0.3.0 consumed by exact registry pin, outside the workspace.
+// rightkit-app-settings 0.4.0 consumed by exact registry pin, outside the workspace.
 //
 // Proves atomic_write, the public settings-file publication: the first write creates the file with
 // the exact bytes, and a second write replaces them whole and reads back. Public API only.
@@ -31,5 +31,5 @@ fn main() {
     );
 
     fs::remove_dir_all(&dir).expect("remove consumer temp dir");
-    println!("OK rightkit-app-settings 0.3.0 (registry consumer)");
+    println!("OK rightkit-app-settings 0.4.0 (registry consumer)");
 }

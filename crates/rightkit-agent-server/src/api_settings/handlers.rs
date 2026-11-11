@@ -507,7 +507,7 @@ async fn reload_settings(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     enforce_trusted_source_authority(&headers)?;
     let workspace = workspace_path(&q);
-    let cfg = rightkit_app_settings::agent_config::ConfigLoader::new()
+    let cfg = rightkit_agent_config::ConfigLoader::new()
         .load_files_for_workspace(&workspace);
     {
         let mut store = lock_recover(&state.settings, "state.settings");
@@ -531,7 +531,7 @@ async fn list_settings_toolsets(
     let workspace = workspace_path(&q);
     let workspace_config =
         load_workspace_config_only(&workspace).map_err(|_| StatusCode::BAD_REQUEST)?;
-    let effective_config = rightkit_app_settings::agent_config::ConfigLoader::new()
+    let effective_config = rightkit_agent_config::ConfigLoader::new()
         .load_files_for_workspace(&workspace);
     let configured = configured_toolset_profiles(&workspace_config);
     let effective = toolset_profiles_for_config(&effective_config);
@@ -552,7 +552,7 @@ async fn save_settings_toolset(
     enforce_trusted_source_authority(&headers)?;
     validate_toolset_id(&id).map_err(|_| StatusCode::BAD_REQUEST)?;
     let workspace = workspace_path(&q);
-    let profile = rightkit_app_settings::agent_config::ToolsetConfig {
+    let profile = rightkit_agent_config::ToolsetConfig {
         name: body.name.unwrap_or_else(|| id.clone()).trim().to_string(),
         description: body.description.unwrap_or_default().trim().to_string(),
         allowed_tools: clean_list(body.allowed_tools.unwrap_or_default()),
@@ -605,7 +605,7 @@ async fn delete_settings_toolset(
 fn settings_response(state: &DaemonState, q: &WorkspaceQuery) -> serde_json::Value {
     let store = lock_recover(&state.settings, "state.settings").clone();
     let registry = &state.agent_registry;
-    let persisted_config = rightkit_app_settings::agent_config::ConfigLoader::new()
+    let persisted_config = rightkit_agent_config::ConfigLoader::new()
         .load_files_for_workspace(&workspace_path(q));
     let role_model_split_available =
         crate::model_policy::split_entitled(|feature| state.has_license_feature(feature));
@@ -706,25 +706,25 @@ fn settings_response(state: &DaemonState, q: &WorkspaceQuery) -> serde_json::Val
             "telegramAllowedUsers": persisted_config.remote.telegram_allowed_users,
             "webEnabled": persisted_config.remote.web_enabled(),
             "webEnabledConfigured": persisted_config.remote.web_enabled,
-            "webEnabledSource": rightkit_app_settings::agent_config::ConfigSource::effective_for_workspace(
+            "webEnabledSource": rightkit_agent_config::ConfigSource::effective_for_workspace(
                 &workspace_path(q),
-                rightkit_app_settings::agent_config::BooleanSetting::RemoteWebEnabled,
+                rightkit_agent_config::BooleanSetting::RemoteWebEnabled,
             ),
         },
         "orchestration": {
             "conductorRouting": persisted_config.orchestration.conductor_routing(),
             "conductorRoutingConfigured": persisted_config.orchestration.conductor_routing,
-            "conductorRoutingSource": rightkit_app_settings::agent_config::ConfigSource::effective_for_workspace(
+            "conductorRoutingSource": rightkit_agent_config::ConfigSource::effective_for_workspace(
                 &workspace_path(q),
-                rightkit_app_settings::agent_config::BooleanSetting::ConductorRouting,
+                rightkit_agent_config::BooleanSetting::ConductorRouting,
             ),
         },
         "routing": {
             "capabilityRouter": persisted_config.orchestration.routing.capability_router(),
             "capabilityRouterConfigured": persisted_config.orchestration.routing.capability_router,
-            "capabilityRouterSource": rightkit_app_settings::agent_config::ConfigSource::effective_for_workspace(
+            "capabilityRouterSource": rightkit_agent_config::ConfigSource::effective_for_workspace(
                 &workspace_path(q),
-                rightkit_app_settings::agent_config::BooleanSetting::CapabilityRouter,
+                rightkit_agent_config::BooleanSetting::CapabilityRouter,
             ),
             "aggressiveness": if persisted_config.orchestration.routing.aggressiveness.trim().is_empty() {
                 "conservative".to_string()
@@ -740,7 +740,7 @@ fn settings_response(state: &DaemonState, q: &WorkspaceQuery) -> serde_json::Val
 /// that names one field cannot overwrite the others with a stale in-memory copy.
 fn apply_budget_patch(
     patch: &serde_json::Value,
-    budget: &mut rightkit_app_settings::agent_config::BudgetConfig,
+    budget: &mut rightkit_agent_config::BudgetConfig,
 ) {
     let f = |k: &str| patch.get(k).and_then(|v| v.as_f64());
     let u = |k: &str| patch.get(k).and_then(|v| v.as_u64()).map(|v| v as u32);
@@ -831,7 +831,7 @@ async fn save_settings(
     // Persist the requested fields to ~/.coderight/config.toml so budgets and the
     // orchestrator model all survive a daemon restart.
     {
-        use rightkit_app_settings::agent_config::ConfigLoader;
+        use rightkit_agent_config::ConfigLoader;
         let loader = ConfigLoader::new();
         // Read-modify-write under the config lock on a blocking thread (the lock wait can last five
         // seconds and must not park an async worker): a concurrent save from another process is merged
@@ -870,7 +870,7 @@ async fn save_settings(
                                     .entry(agent.clone())
                                     .and_modify(|o| o.model_id = slug.to_string())
                                     .or_insert_with(|| {
-                                        rightkit_app_settings::agent_config::AgentOverride {
+                                        rightkit_agent_config::AgentOverride {
                                             model_id: slug.to_string(),
                                             provider_id: "openrouter".to_string(),
                                         }
@@ -896,7 +896,7 @@ async fn save_settings(
                     }
                     if let Some(routing) = body.routing {
                         cfg.orchestration.routing =
-                            rightkit_app_settings::agent_config::RoutingConfig {
+                            rightkit_agent_config::RoutingConfig {
                                 capability_router: Some(routing.capability_router),
                                 aggressiveness: routing.aggressiveness,
                             };

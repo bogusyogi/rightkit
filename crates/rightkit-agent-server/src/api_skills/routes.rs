@@ -23,7 +23,7 @@ pub(crate) fn default_skills_dirs() -> Vec<PathBuf> {
             dirs.push(PathBuf::from(trimmed));
         }
     }
-    if let Some(root) = rightkit_app_settings::agent_config::state_root() {
+    if let Some(root) = rightkit_agent_config::state_root() {
         dirs.push(root.join("skills"));
     }
     let bundled = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

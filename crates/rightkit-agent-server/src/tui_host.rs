@@ -3620,7 +3620,7 @@ pub async fn drive(host: impl TurnHost) -> i32 {
     let mut composer = Composer::new();
     // Lane 4: cross-session prompt history (Up / Ctrl+R) and the shared
     // input-pause handle Ctrl+G's editor hand-off needs.
-    if let Some(state_root) = rightkit_app_settings::agent_config::state_root() {
+    if let Some(state_root) = rightkit_agent_config::state_root() {
         composer.enable_persistent_history(rightkit_terminal_ui::composer::default_history_path(
             &state_root,
         ));

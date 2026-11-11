@@ -153,7 +153,7 @@ impl DaemonState {
     fn build_llm_for_role_in_workspace(
         &self,
         role: &str,
-        workspace_config: &rightkit_app_settings::agent_config::HostConfig,
+        workspace_config: &rightkit_agent_config::HostConfig,
         selected_model: Option<&str>,
     ) -> Result<Arc<dyn LlmClient>, String> {
         use rightkit_agent_tools::coding_tools::ToolRegistry;

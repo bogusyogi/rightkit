@@ -11,7 +11,7 @@ pub fn default_plugin_dir() -> PathBuf {
     }
     // No fallback location: a missing state root fails, it never redirects plugins into the
     // working directory.
-    rightkit_app_settings::agent_config::state_root()
+    rightkit_agent_config::state_root()
         .unwrap_or_else(|| {
             eprintln!("rightkit: cannot continue without a state directory; refusing to fall back");
             std::process::exit(2)
@@ -43,10 +43,7 @@ pub fn plugin_manifest_json(
 pub fn default_plugin_marketplace_path() -> PathBuf {
     std::env::var_os("RIGHTKIT_PLUGIN_MARKETPLACE")
         .map(PathBuf::from)
-        .or_else(|| {
-            rightkit_app_settings::agent_config::state_root()
-                .map(|root| root.join("marketplace.json"))
-        })
+        .or_else(|| rightkit_agent_config::state_root().map(|root| root.join("marketplace.json")))
         .unwrap_or_else(|| {
             std::env::current_dir()
                 .unwrap_or_else(|_| PathBuf::from("."))

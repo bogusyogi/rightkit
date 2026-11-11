@@ -34,7 +34,7 @@ rightkit-memory = { version = "0.1.1", path = "../rightkit-memory", features = [
 rightkit-agent-policy = { version = "0.1.0", path = "../rightkit-agent-policy" }
 rightkit-logs = { version = "0.3.9", path = "../rightkit-logs", features = ["agent_telemetry", "tracing"], default-features = false }
 rightkit-agent-tools = { version = "0.3.3", path = "../rightkit-agent-tools", features = ["coding_tools"] }
-rightkit-app-settings = { version = "0.3.1", path = "../rightkit-app-settings", features = ["agent_config", "agent_config-host-env"] }
+rightkit-agent-config = { version = "0.1.0", path = "../rightkit-agent-config", features = ["host-env"] }
 rightkit-agent-orchestration = { version = "0.1.1", path = "../rightkit-agent-orchestration" , features = ["coding", "coding-host"] }
 rightkit-adapt = { version = "0.1.0", path = "../rightkit-adapt" }
 rightkit-terminal-ui = { version = "0.1.0", path = "../rightkit-terminal-ui" }

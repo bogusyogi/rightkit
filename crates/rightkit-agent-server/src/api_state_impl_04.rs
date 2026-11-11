@@ -1,7 +1,7 @@
 /// Effective deny-glob lists: built-in defaults plus `[permissions]
 /// deny-read-globs` / `deny-write-globs`. `None` when nothing is configured.
 fn deny_globs_for_config(
-    config: &rightkit_app_settings::agent_config::HostConfig,
+    config: &rightkit_agent_config::HostConfig,
 ) -> Option<Arc<rightkit_agent_policy::DenyGlobSet>> {
     let permissions = &config.permissions;
     if permissions.deny_read_globs.is_empty() && permissions.deny_write_globs.is_empty() {
@@ -1706,7 +1706,7 @@ impl DaemonState {
             if options.bare || workspace_trust != rightkit_agent_policy::WorkspaceTrust::Trusted {
                 (false, false)
             } else {
-                let features = rightkit_app_settings::agent_config::ConfigLoader::new()
+                let features = rightkit_agent_config::ConfigLoader::new()
                     .load_files_for_workspace(std::path::Path::new(&workspace))
                     .features;
                 (

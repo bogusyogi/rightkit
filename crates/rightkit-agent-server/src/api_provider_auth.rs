@@ -107,7 +107,7 @@ impl PendingLogin {
 /// Cross-process refresh-lock directory for the subscription sign-ins:
 /// `<state root>/locks/oauth`.
 fn oauth_lock_dir() -> std::path::PathBuf {
-    rightkit_app_settings::agent_config::state_root()
+    rightkit_agent_config::state_root()
         .unwrap_or_else(|| std::env::temp_dir().join("coderight"))
         .join("locks")
         .join("oauth")

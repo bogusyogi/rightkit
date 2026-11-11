@@ -159,14 +159,14 @@ pub(crate) fn load_instruction_context(workspace_root: &str) -> Option<String> {
 pub(crate) fn discover_instruction_files(
     workspace_root: &str,
 ) -> (
-    rightkit_app_settings::agent_config::InstructionLoader,
-    Vec<rightkit_app_settings::agent_config::InstructionFile>,
+    rightkit_agent_config::InstructionLoader,
+    Vec<rightkit_agent_config::InstructionFile>,
 ) {
-    let mut loader = rightkit_app_settings::agent_config::InstructionLoader::new();
+    let mut loader = rightkit_agent_config::InstructionLoader::new();
 
-    if let Some(home) = rightkit_app_settings::agent_config::os_home_dir() {
+    if let Some(home) = rightkit_agent_config::os_home_dir() {
         loader.add_root(
-            rightkit_app_settings::agent_config::InstructionScope::User,
+            rightkit_agent_config::InstructionScope::User,
             home.join(".config/coderight"),
         );
     }
@@ -174,11 +174,11 @@ pub(crate) fn discover_instruction_files(
     if !workspace_root.is_empty() {
         let workspace = std::path::Path::new(workspace_root);
         loader.add_root(
-            rightkit_app_settings::agent_config::InstructionScope::Project,
+            rightkit_agent_config::InstructionScope::Project,
             workspace.to_path_buf(),
         );
         loader.add_root(
-            rightkit_app_settings::agent_config::InstructionScope::Local,
+            rightkit_agent_config::InstructionScope::Local,
             workspace.join(".coderight"),
         );
     }
@@ -186,9 +186,7 @@ pub(crate) fn discover_instruction_files(
     // Only `.claude/rules` is trust-gated; root files stay ungated (#131).
     let files = loader.discover_gated(|_| {
         !workspace_root.is_empty()
-            && rightkit_app_settings::agent_config::is_workspace_trusted(std::path::Path::new(
-                workspace_root,
-            ))
+            && rightkit_agent_config::is_workspace_trusted(std::path::Path::new(workspace_root))
     });
     (loader, files)
 }
@@ -639,5 +637,5 @@ fn scan_declaration_risks(body: &str) -> Vec<&'static str> {
 }
 
 fn state_dir_for_discovery() -> Option<std::path::PathBuf> {
-    rightkit_app_settings::agent_config::state_root()
+    rightkit_agent_config::state_root()
 }

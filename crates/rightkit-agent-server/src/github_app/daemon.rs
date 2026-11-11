@@ -37,7 +37,7 @@ pub fn github_app_state_path(database_path: &str) -> PathBuf {
             .unwrap_or_else(|| Path::new("."))
             .join("github-app-state.json");
     }
-    rightkit_app_settings::agent_config::state_root()
+    rightkit_agent_config::state_root()
         .unwrap_or_else(|| PathBuf::from(".").join(".coderight"))
         .join("github-app-state.json")
 }

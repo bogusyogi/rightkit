@@ -98,7 +98,7 @@ pub fn is_route_key_name(name: &str) -> bool {
             .chars()
             .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
         && !credential_env_names().contains(name)
-        && !rightkit_app_settings::agent_config::licence_env::is_licence_env_name(name)
+        && !rightkit_agent_config::licence_env::is_licence_env_name(name)
 }
 
 /// Whether a variable must be removed from every child process's environment (R46): a credential
@@ -109,5 +109,5 @@ pub fn is_credential_env_name(name: &str) -> bool {
         || is_route_key_name(name)
         || SCRUB_ONLY_NAMES.contains(&name)
         || DAEMON_SECRET_NAMES.contains(&name)
-        || rightkit_app_settings::agent_config::licence_env::is_licence_env_name(name)
+        || rightkit_agent_config::licence_env::is_licence_env_name(name)
 }

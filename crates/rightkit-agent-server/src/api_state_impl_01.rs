@@ -236,7 +236,7 @@ impl DaemonState {
 
     pub fn with_telegram_remote_config(
         mut self,
-        config: rightkit_app_settings::agent_config::RemoteConfig,
+        config: rightkit_agent_config::RemoteConfig,
     ) -> Self {
         let token_configured = config
             .telegram_token

@@ -32,7 +32,7 @@ fn provider_key_status_for(provider: &str) -> Result<ProviderKeyStatus, String> 
 
 fn provider_key_path(provider: &str) -> Result<PathBuf, String> {
     validate_provider(provider)?;
-    let root = rightkit_app_settings::agent_config::state_root()
+    let root = rightkit_agent_config::state_root()
         .ok_or_else(|| "could not locate user home directory".to_string())?;
     Ok(root.join(format!("{provider}.key")))
 }

@@ -297,9 +297,9 @@ pub fn load_from_dir(config_dir: &Path) -> Vec<ModelCapability> {
 }
 
 /// Resolve the user config directory the same way `host_config` does
-/// (`rightkit_app_settings::agent_config::state_root()`).
+/// (`rightkit_agent_config::state_root()`).
 fn default_config_dir() -> Option<PathBuf> {
-    rightkit_app_settings::agent_config::state_root()
+    rightkit_agent_config::state_root()
 }
 
 static TABLE: OnceLock<CatalogLoad> = OnceLock::new();

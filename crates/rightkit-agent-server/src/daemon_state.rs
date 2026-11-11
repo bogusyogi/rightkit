@@ -618,7 +618,7 @@ impl DaemonState {
                     return Err(e);
                 }
             };
-            let fork_workspace_config = rightkit_app_settings::agent_config::ConfigLoader::new()
+            let fork_workspace_config = rightkit_agent_config::ConfigLoader::new()
                 .load_files_for_workspace(std::path::Path::new(&workspace));
             // Per-agent TOML scoping (`.coderight/agents/<role>.toml`): role,
             // optional model override, and agent-scoped MCP servers. The
@@ -627,10 +627,9 @@ impl DaemonState {
             // remain authoritative). The model override here wins over the
             // inherited model when present, mirroring the per-agent
             // override precedence already used in the spawn-seam router.
-            let agent_mcp_cfg = rightkit_app_settings::agent_config::find_agents_dir(
-                std::path::Path::new(&workspace),
-            );
-            let agent_mcp = rightkit_app_settings::agent_config::AgentMcpConfig::load_or_err(
+            let agent_mcp_cfg =
+                rightkit_agent_config::find_agents_dir(std::path::Path::new(&workspace));
+            let agent_mcp = rightkit_agent_config::AgentMcpConfig::load_or_err(
                 &agent_mcp_cfg,
                 &role,
             )

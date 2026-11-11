@@ -1,6 +1,6 @@
 fn apply_budget_to_store(
     store: &mut crate::api::DaemonSettingsStore,
-    budget: &rightkit_app_settings::agent_config::BudgetConfig,
+    budget: &rightkit_agent_config::BudgetConfig,
 ) {
     store.per_task_max_usd = budget.per_task_max_usd;
     store.per_goal_max_usd = budget.per_goal_max_usd;
@@ -13,7 +13,7 @@ fn apply_budget_to_store(
 }
 
 fn configured_toolset_profiles(
-    config: &rightkit_app_settings::agent_config::HostConfig,
+    config: &rightkit_agent_config::HostConfig,
 ) -> Vec<ToolsetSettingsProfile> {
     config
         .toolsets
@@ -26,7 +26,7 @@ fn configured_toolset_profiles(
 
 fn toolset_settings_profile(
     id: &str,
-    profile: &rightkit_app_settings::agent_config::ToolsetConfig,
+    profile: &rightkit_agent_config::ToolsetConfig,
 ) -> ToolsetSettingsProfile {
     ToolsetSettingsProfile {
         id: id.to_string(),

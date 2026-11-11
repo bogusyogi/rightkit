@@ -26,7 +26,7 @@ pub struct ExecutionJournal {
 impl ExecutionJournal {
     /// Locate the journals directory under `~/.coderight/journals/`.
     pub fn journals_dir() -> Option<PathBuf> {
-        rightkit_app_settings::agent_config::state_root().map(|root| root.join("journals"))
+        rightkit_agent_config::state_root().map(|root| root.join("journals"))
     }
 
     fn path_for(journals_dir: &Path, session_id: &str) -> PathBuf {

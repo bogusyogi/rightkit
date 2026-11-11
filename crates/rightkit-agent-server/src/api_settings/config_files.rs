@@ -1,16 +1,16 @@
 fn load_workspace_config_only(
     workspace: &FsPath,
 ) -> Result<
-    rightkit_app_settings::agent_config::HostConfig,
-    rightkit_app_settings::agent_config::ConfigError,
+    rightkit_agent_config::HostConfig,
+    rightkit_agent_config::ConfigError,
 > {
     let path = workspace_config_path(workspace);
     match fs::read_to_string(&path) {
-        Ok(content) => rightkit_app_settings::agent_config::ConfigLoader::new().load_str(&content),
+        Ok(content) => rightkit_agent_config::ConfigLoader::new().load_str(&content),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            Ok(rightkit_app_settings::agent_config::HostConfig::default())
+            Ok(rightkit_agent_config::HostConfig::default())
         }
-        Err(err) => Err(rightkit_app_settings::agent_config::ConfigError::Io(
+        Err(err) => Err(rightkit_agent_config::ConfigError::Io(
             err.to_string(),
         )),
     }
@@ -102,7 +102,7 @@ fn workspace_root_string(q: &WorkspaceQuery) -> String {
 }
 
 fn config_state_dir() -> Option<PathBuf> {
-    rightkit_app_settings::agent_config::state_root()
+    rightkit_agent_config::state_root()
 }
 
 /// Read-modify-write of the workspace config under its cross-process lock, on a blocking thread: the
@@ -110,11 +110,11 @@ fn config_state_dir() -> Option<PathBuf> {
 /// (the file is malformed), a lock or write failure a server error.
 async fn update_workspace_config_blocking(
     workspace: std::path::PathBuf,
-    edit: impl FnOnce(&mut rightkit_app_settings::agent_config::HostConfig) + Send + 'static,
+    edit: impl FnOnce(&mut rightkit_agent_config::HostConfig) + Send + 'static,
 ) -> Result<(), StatusCode> {
     let outcome = tokio::task::spawn_blocking(move || {
         let read_failed = std::cell::Cell::new(false);
-        let result = rightkit_app_settings::agent_config::ConfigLoader::new()
+        let result = rightkit_agent_config::ConfigLoader::new()
             .update_workspace_from(
                 &workspace,
                 || {

@@ -32,7 +32,7 @@ pub(crate) fn default_discovery_path() -> Option<PathBuf> {
 }
 
 fn default_daemon_dir() -> Option<PathBuf> {
-    rightkit_app_settings::agent_config::state_root()
+    rightkit_agent_config::state_root()
 }
 
 /// Canonical spelling of a database path for lock-name derivation. The file

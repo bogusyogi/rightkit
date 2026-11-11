@@ -864,7 +864,7 @@ fn trigger_store_path(state: &DaemonState) -> PathBuf {
             .unwrap_or_else(|| FsPath::new("."))
             .join("triggers.json");
     }
-    rightkit_app_settings::agent_config::state_root()
+    rightkit_agent_config::state_root()
         .unwrap_or_else(|| {
             std::env::current_dir()
                 .unwrap_or_else(|_| PathBuf::from("."))

@@ -496,6 +496,7 @@
   "stagedCargo": {
     "rightkit-adapt": "0.1.2",
     "rightkit-adapt-taste": "0.1.2",
+    "rightkit-agent-config": "0.1.0",
     "rightkit-agent-demo": "0.1.0",
     "rightkit-agent-engine": "0.1.0",
     "rightkit-agent-engine-api-integrations": "0.1.2",
@@ -529,7 +530,7 @@
     "rightkit-app-host": "0.1.1",
     "rightkit-app-lock": "0.1.0",
     "rightkit-app-manager": "0.1.2",
-    "rightkit-app-settings": "0.3.5",
+    "rightkit-app-settings": "0.4.0",
     "rightkit-app-update": "0.1.0",
     "rightkit-apple-ops": "0.1.2",
     "rightkit-approvals": "0.1.0",

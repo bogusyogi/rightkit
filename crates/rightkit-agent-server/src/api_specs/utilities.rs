@@ -249,7 +249,7 @@ fn resolve_constitution_source(
 }
 
 fn state_dir() -> Option<PathBuf> {
-    rightkit_app_settings::agent_config::state_root()
+    rightkit_agent_config::state_root()
 }
 
 fn first_sentence(value: &str) -> String {

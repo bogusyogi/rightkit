@@ -143,7 +143,7 @@ impl ProcessLaunchAdapter for LocalProcessLaunchAdapter {
 /// R46, D39). The one launcher applies this to every child: tools, hooks, plugins, MCP stdio
 /// servers, LSP servers, vendor CLI drivers and the browser.
 fn is_scrubbed_env_name(name: &str) -> bool {
-    rightkit_app_settings::agent_config::licence_env::is_licence_env_name(name)
+    rightkit_agent_config::licence_env::is_licence_env_name(name)
         || rightkit_llm::agent_providers::host_credentials::is_credential_env_name(name)
 }
 

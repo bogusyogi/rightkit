@@ -97,7 +97,7 @@ pub fn find_agents_dir(workspace: &Path) -> PathBuf {
     if local.is_dir() {
         return local;
     }
-    crate::agent_config::state_root::state_root()
+    crate::state_root::state_root()
         .unwrap_or_else(|| PathBuf::from("/tmp").join(".rightkit"))
         .join("agents")
 }

@@ -70,7 +70,7 @@ tracing = {version = "0.1", optional = true}
 rightkit-agent-engine-runtime-resources = {version = "0.1.0", path = "../rightkit-agent-engine-runtime-resources", optional = true}
 rightkit-sandbox = {version = "0.6.3", path = "../rightkit-sandbox", features = ["execution"], optional = true}
 rightkit-agent-engine-protocol = {version = "0.1.1", path = "../rightkit-agent-engine-protocol", optional = true}
-rightkit-app-settings = {version = "0.3.1", path = "../rightkit-app-settings", features = ["agent_config"], optional = true}
+rightkit-agent-config = { version = "0.1.0", path = "../rightkit-agent-config", optional = true }
 
 [features]
 default = []
@@ -84,8 +84,8 @@ advanced-http = ["dep:tokio", "dep:http", "dep:futures-util", "rightkit-http/asy
 # dependency graph and changes number round-tripping for every crate.
 exact-json-ids = ["serde_json/arbitrary_precision"]
 agent_mcp-os-keyring = ["agent_mcp", "dep:rightkit-credentials", "dep:rightkit-oauth"]
-agent_mcp-host-env = ["agent_mcp", "rightkit-app-settings/agent_config-host-env"]
-agent_mcp = ["rightkit-fs/lock", "rightkit-fs/json", "rightkit-fs/transaction", "rightkit-http/gzip", "rightkit-http/untrusted", "rightkit-http/async", "dep:thiserror", "dep:async-trait", "dep:tokio", "tokio/full", "dep:futures", "dep:tracing", "dep:rightkit-agent-engine-runtime-resources", "dep:rightkit-sandbox", "dep:rightkit-agent-engine-protocol", "dep:rightkit-app-settings", "agent_mcp-os-keyring"]
+agent_mcp-host-env = ["agent_mcp", "rightkit-agent-config/host-env"]
+agent_mcp = ["rightkit-fs/lock", "rightkit-fs/json", "rightkit-fs/transaction", "rightkit-http/gzip", "rightkit-http/untrusted", "rightkit-http/async", "dep:thiserror", "dep:async-trait", "dep:tokio", "tokio/full", "dep:futures", "dep:tracing", "dep:rightkit-agent-engine-runtime-resources", "dep:rightkit-sandbox", "dep:rightkit-agent-engine-protocol", "dep:rightkit-agent-config", "agent_mcp-os-keyring"]
 
 [[example]]
 name = "example_server"

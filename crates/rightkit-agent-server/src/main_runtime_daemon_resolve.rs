@@ -46,7 +46,7 @@ fn resolve_daemon_state() -> DaemonResolution {
     let url = std::env::var("RIGHTKIT_DAEMON_URL").ok();
     let tok = std::env::var("RIGHTKIT_DAEMON_TOKEN").ok();
     let state_dir =
-        rightkit_app_settings::agent_config::state_root().map(|p| p.display().to_string());
+        rightkit_agent_config::state_root().map(|p| p.display().to_string());
     resolve_daemon_state_from_sources(url, tok, state_dir.as_deref())
 }
 

@@ -53,7 +53,7 @@ pub(crate) fn repository_policy_kind(path: &Path) -> Option<DurableWriteKind> {
 /// component. Classify the same names there as the workspace `<state-dir>/` rules do. `parts` is
 /// the lower-cased, `..`-resolved component list built by [`repository_policy_kind`].
 fn state_root_policy_kind(parts: &[String]) -> Option<DurableWriteKind> {
-    let root = rightkit_app_settings::agent_config::state_root()?;
+    let root = rightkit_agent_config::state_root()?;
     let mut root_parts: Vec<String> = Vec::new();
     for component in root.components() {
         match component {

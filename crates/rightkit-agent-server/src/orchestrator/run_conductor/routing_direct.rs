@@ -67,7 +67,7 @@ impl DaemonState {
         &self,
         session_id: &str,
         goal: &str,
-        workspace_config: &rightkit_app_settings::agent_config::HostConfig,
+        workspace_config: &rightkit_agent_config::HostConfig,
     ) -> Result<Option<RunOutcome>, String> {
         let session = self
             .get_session(session_id)

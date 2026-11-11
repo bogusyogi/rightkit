@@ -80,7 +80,7 @@ impl DaemonState {
         session_id: &str,
         session: &LiveSession,
         conduit: &rightkit_agent_engine_core::Conduit,
-        workspace_config: &rightkit_app_settings::agent_config::HostConfig,
+        workspace_config: &rightkit_agent_config::HostConfig,
     ) -> Option<RunOutcome> {
         let pre_gate_specs =
             crate::pre_gate::specs_from_config(&workspace_config.orchestration.pre_gate_checks);
@@ -134,7 +134,7 @@ impl DaemonState {
         graph: &mut TaskGraph,
         registry: &AgentRegistry,
         router: &AgentRouter,
-        budget_cfg: &rightkit_app_settings::agent_config::BudgetConfig,
+        budget_cfg: &rightkit_agent_config::BudgetConfig,
         team_preset: Option<&TeamExecutionPreset>,
         conduit: &Arc<rightkit_agent_engine_core::Conduit>,
     ) -> Result<RunOutcome, String> {

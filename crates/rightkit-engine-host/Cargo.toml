@@ -22,7 +22,7 @@ rightkit-daemon = { version = "0.5.1", path = "../rightkit-daemon" }
 rightkit-video-project = { version = "0.1.0", path = "../rightkit-video-project", optional = true }
 rightkit-timeline = { version = "0.1.0", path = "../rightkit-timeline", optional = true }
 rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript", optional = true }
-rightkit-app-settings = { version = "0.3.1", path = "../rightkit-app-settings", optional = true }
+rightkit-app-settings = { version = "0.4.0", path = "../rightkit-app-settings", optional = true }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "blake3"], optional = true }
 rightkit-cache = { version = "0.2.3", path = "../rightkit-cache", optional = true }
 

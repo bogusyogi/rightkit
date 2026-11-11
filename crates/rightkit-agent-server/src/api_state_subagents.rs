@@ -2,7 +2,7 @@
 /// provider's stored key. Another route's (global) key is never reused.
 fn configured_provider_api_key(
     provider_id: &str,
-    route: &rightkit_app_settings::agent_config::ProviderRouteConfig,
+    route: &rightkit_agent_config::ProviderRouteConfig,
     _fallback: &EngineConfig,
 ) -> String {
     configured_provider_api_key_without_fallback(provider_id, route)
@@ -10,7 +10,7 @@ fn configured_provider_api_key(
 
 pub(crate) fn configured_provider_api_key_without_fallback(
     provider_id: &str,
-    route: &rightkit_app_settings::agent_config::ProviderRouteConfig,
+    route: &rightkit_agent_config::ProviderRouteConfig,
 ) -> String {
     if let Some(env_name) = route
         .api_key_env

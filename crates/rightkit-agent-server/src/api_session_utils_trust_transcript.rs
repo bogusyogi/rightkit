@@ -353,7 +353,7 @@ async fn update_session_route_inner(
                     .map(str::to_string);
             } else {
                 if let Some(provider) = provider_id.as_deref() {
-                    let workspace_config = rightkit_app_settings::agent_config::ConfigLoader::new()
+                    let workspace_config = rightkit_agent_config::ConfigLoader::new()
                         .load_files_for_workspace(FsPath::new(row.workspace_root.trim()));
                     let known = workspace_config.provider_routes.contains_key(provider)
                         || rightkit_llm::agent_providers::find_provider(provider).is_some();
@@ -362,7 +362,7 @@ async fn update_session_route_inner(
                     }
                 }
                 if provider_id.is_none() {
-                    let workspace_config = rightkit_app_settings::agent_config::ConfigLoader::new()
+                    let workspace_config = rightkit_agent_config::ConfigLoader::new()
                         .load_files_for_workspace(FsPath::new(row.workspace_root.trim()));
                     durable_provider_id =
                         state.resolved_provider_id_for_model(&workspace_config, &model);
@@ -392,7 +392,7 @@ async fn update_session_route_inner(
             // refuse it before effects instead of leaving state split-brained.
             return Err(StatusCode::BAD_REQUEST);
         } else {
-            let workspace_config = rightkit_app_settings::agent_config::ConfigLoader::new()
+            let workspace_config = rightkit_agent_config::ConfigLoader::new()
                 .load_files_for_workspace(FsPath::new(session.workspace_root.trim()));
             if preserve_route {
                 // Effort-only: read the committed model and provider pin

@@ -31,9 +31,7 @@ pub struct Ed25519PackageVerifier {
 }
 
 impl Ed25519PackageVerifier {
-    pub fn from_config(
-        keys: &[rightkit_app_settings::agent_config::WorkflowImportTrustedPublicKey],
-    ) -> Self {
+    pub fn from_config(keys: &[rightkit_agent_config::WorkflowImportTrustedPublicKey]) -> Self {
         let keys = keys
             .iter()
             .filter_map(|entry| {
@@ -93,7 +91,7 @@ pub struct WorkflowApiState {
     /// `WorkflowRepository`.
     pub storage: SharedStorage,
     /// Resolved workflow feature gate (mirrors
-    /// `rightkit_app_settings::agent_config::FeatureConfig::workflows_enabled`). Every handler
+    /// `rightkit_agent_config::FeatureConfig::workflows_enabled`). Every handler
     /// calls `feature.is_enabled()` before doing any work.
     pub feature: FeatureGate,
     /// Injected cryptographic package verifier. Default rejects imports until

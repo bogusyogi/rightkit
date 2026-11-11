@@ -360,7 +360,7 @@ async fn serve(
     // Persist learning under the state root so self-improvement accumulates across
     // restarts; fall back to in-memory if there is no state directory.
     let evo_path =
-        rightkit_app_settings::agent_config::state_root().map(|root| root.join("evolution.db"));
+        rightkit_agent_config::state_root().map(|root| root.join("evolution.db"));
     if let Some(p) = evo_path.as_ref() {
         if let Some(dir) = p.parent() {
             let _ = std::fs::create_dir_all(dir);
@@ -1123,7 +1123,7 @@ fn normalized_agent_override_provider_id(provider_id: String) -> String {
 /// write never leaves a half-written `daemon.port` and the previously
 /// valid one is preserved intact.
 fn write_daemon_port_file(info: &LoopbackRecord) {
-    let Some(dir) = rightkit_app_settings::agent_config::state_root() else {
+    let Some(dir) = rightkit_agent_config::state_root() else {
         eprintln!("[daemon.port] cannot resolve private daemon home");
         std::process::exit(1);
     };

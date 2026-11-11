@@ -18,7 +18,7 @@ serde = { version = "1", features = ["derive"] }
 walkdir = { version = "2.5.0" }
 rightkit-db = { version = "0.5.3", features = ["bundled", "statement-cache"], path = "../rightkit-db" }
 rightkit-fs = { version = "0.4.8", default-features = false, features = ["fs", "digest"], path = "../rightkit-fs" }
-rightkit-app-settings = { version = "0.3.0", path = "../rightkit-app-settings" }
+rightkit-app-settings = { version = "0.4.0", path = "../rightkit-app-settings" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
 serde_json = "1.0.154"

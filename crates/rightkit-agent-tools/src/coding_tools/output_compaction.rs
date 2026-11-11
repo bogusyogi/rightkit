@@ -37,7 +37,7 @@ pub fn reduce_output(raw: &str, success: bool, command: &str) -> String {
 /// `<state root>/sessions`. Each session writes
 /// under `<root>/<session>/shell-output/`. Never inside a user workspace.
 pub fn session_store_root() -> Option<std::path::PathBuf> {
-    Some(rightkit_app_settings::agent_config::state_root()?.join("sessions"))
+    Some(rightkit_agent_config::state_root()?.join("sessions"))
 }
 
 /// True when `path` canonically resolves inside a `shell-output` recovery

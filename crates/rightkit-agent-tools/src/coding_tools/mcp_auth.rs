@@ -77,7 +77,7 @@ impl Tool for McpAuthTool {
             None => return ToolResult::error("mcp_auth: 'credential' is required"),
         };
 
-        let root = match rightkit_app_settings::agent_config::state_root() {
+        let root = match rightkit_agent_config::state_root() {
             Some(root) => root,
             None => return ToolResult::error("mcp_auth: neither HOME nor USERPROFILE is set"),
         };

@@ -31,7 +31,7 @@
 //! read once at process start and removed from the daemon's own environment
 //! ([`capture_launch_locators`]);
 //! child processes and `${VAR}` expansion additionally refuse any licence-named variable
-//! (`rightkit_app_settings::agent_config::licence_env`).
+//! (`rightkit_agent_config::licence_env`).
 
 use std::collections::HashSet;
 use std::io::Cursor;
@@ -39,7 +39,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use rightkit_app_settings::agent_config::licence_env::{is_licence_env_name, ENV_LICENSE_DIR};
+use rightkit_agent_config::licence_env::{is_licence_env_name, ENV_LICENSE_DIR};
 use rightkit_credentials::handoff::{
     receive_snapshot_delivery, write_message, Limits, Message, SnapshotDelivery,
 };

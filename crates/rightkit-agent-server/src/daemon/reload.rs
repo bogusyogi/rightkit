@@ -68,7 +68,7 @@ impl ReloadStore {
     }
 
     pub fn default_for_user() -> Option<Self> {
-        let root = rightkit_app_settings::agent_config::state_root()?;
+        let root = rightkit_agent_config::state_root()?;
         Some(Self::new(root.join(RELOAD_STATE_FILE)))
     }
 

@@ -109,7 +109,7 @@ impl ConsentStore {
 
     /// The product store: `<state_root>/browser-consent`.
     pub fn product() -> Result<Self, String> {
-        let root = rightkit_app_settings::agent_config::state_root()
+        let root = rightkit_agent_config::state_root()
             .ok_or_else(|| "the state directory is unavailable".to_string())?;
         Ok(Self::at(root.join(CONSENT_DIR)))
     }

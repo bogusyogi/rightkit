@@ -350,7 +350,7 @@ async fn add_local_model_provider(
     let workspace = workspace_path(&q);
     let route = (
         suggestion.provider_id.clone(),
-        rightkit_app_settings::agent_config::ProviderRouteConfig {
+        rightkit_agent_config::ProviderRouteConfig {
             display_name: suggestion.display_name.clone(),
             base_url: suggestion.base_url.clone(),
             model: suggestion.model.clone(),
@@ -361,7 +361,7 @@ async fn add_local_model_provider(
     );
     let set_default = body.set_default;
     let default_model = suggestion.model.clone();
-    let apply = move |config: &mut rightkit_app_settings::agent_config::HostConfig| {
+    let apply = move |config: &mut rightkit_agent_config::HostConfig| {
         config.provider_routes.insert(route.0, route.1);
         if set_default {
             config.model.default_model = default_model;
@@ -374,14 +374,14 @@ async fn add_local_model_provider(
             // Read-modify-write of the user file under the config lock, starting from the user
             // layer alone, so a concurrent save elsewhere is merged in rather than overwritten.
             tokio::task::spawn_blocking(move || {
-                rightkit_app_settings::agent_config::ConfigLoader::new()
+                rightkit_agent_config::ConfigLoader::new()
                     .update_user_from(|_| load_user_config_only(), apply)
             })
             .await
             .unwrap_or_else(|e| {
-                Err(rightkit_app_settings::agent_config::ConfigError::Io(
-                    format!("config writer stopped: {e}"),
-                ))
+                Err(rightkit_agent_config::ConfigError::Io(format!(
+                    "config writer stopped: {e}"
+                )))
             })
             .map_err(|err| {
                 route_error(
@@ -396,24 +396,23 @@ async fn add_local_model_provider(
             let target = workspace.clone();
             let (result, read_failed) = tokio::task::spawn_blocking(move || {
                 let read_failed = std::cell::Cell::new(false);
-                let result = rightkit_app_settings::agent_config::ConfigLoader::new()
-                    .update_workspace_from(
-                        &target,
-                        || {
-                            load_workspace_config_only(&target).inspect_err(|_| {
-                                read_failed.set(true);
-                            })
-                        },
-                        apply,
-                    );
+                let result = rightkit_agent_config::ConfigLoader::new().update_workspace_from(
+                    &target,
+                    || {
+                        load_workspace_config_only(&target).inspect_err(|_| {
+                            read_failed.set(true);
+                        })
+                    },
+                    apply,
+                );
                 (result.map(|_| ()), read_failed.get())
             })
             .await
             .unwrap_or_else(|e| {
                 (
-                    Err(rightkit_app_settings::agent_config::ConfigError::Io(
-                        format!("config writer stopped: {e}"),
-                    )),
+                    Err(rightkit_agent_config::ConfigError::Io(format!(
+                        "config writer stopped: {e}"
+                    ))),
                     false,
                 )
             });
@@ -463,24 +462,20 @@ fn user_config_path_display() -> String {
 }
 
 fn user_config_path() -> Option<std::path::PathBuf> {
-    rightkit_app_settings::agent_config::state_root().map(|root| root.join("config.toml"))
+    rightkit_agent_config::state_root().map(|root| root.join("config.toml"))
 }
 
-fn load_user_config_only() -> Result<
-    rightkit_app_settings::agent_config::HostConfig,
-    rightkit_app_settings::agent_config::ConfigError,
-> {
+fn load_user_config_only(
+) -> Result<rightkit_agent_config::HostConfig, rightkit_agent_config::ConfigError> {
     let Some(path) = user_config_path() else {
-        return Ok(rightkit_app_settings::agent_config::HostConfig::default());
+        return Ok(rightkit_agent_config::HostConfig::default());
     };
     match std::fs::read_to_string(&path) {
-        Ok(content) => rightkit_app_settings::agent_config::ConfigLoader::new().load_str(&content),
+        Ok(content) => rightkit_agent_config::ConfigLoader::new().load_str(&content),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            Ok(rightkit_app_settings::agent_config::HostConfig::default())
+            Ok(rightkit_agent_config::HostConfig::default())
         }
-        Err(err) => Err(rightkit_app_settings::agent_config::ConfigError::Io(
-            err.to_string(),
-        )),
+        Err(err) => Err(rightkit_agent_config::ConfigError::Io(err.to_string())),
     }
 }
 
@@ -717,18 +712,13 @@ fn workspace_config_path(workspace: &std::path::Path) -> std::path::PathBuf {
 
 fn load_workspace_config_only(
     workspace: &std::path::Path,
-) -> Result<
-    rightkit_app_settings::agent_config::HostConfig,
-    rightkit_app_settings::agent_config::ConfigError,
-> {
+) -> Result<rightkit_agent_config::HostConfig, rightkit_agent_config::ConfigError> {
     let path = workspace_config_path(workspace);
     match std::fs::read_to_string(&path) {
-        Ok(content) => rightkit_app_settings::agent_config::ConfigLoader::new().load_str(&content),
+        Ok(content) => rightkit_agent_config::ConfigLoader::new().load_str(&content),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            Ok(rightkit_app_settings::agent_config::HostConfig::default())
+            Ok(rightkit_agent_config::HostConfig::default())
         }
-        Err(err) => Err(rightkit_app_settings::agent_config::ConfigError::Io(
-            err.to_string(),
-        )),
+        Err(err) => Err(rightkit_agent_config::ConfigError::Io(err.to_string())),
     }
 }

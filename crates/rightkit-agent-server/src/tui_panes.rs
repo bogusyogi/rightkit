@@ -153,7 +153,7 @@ impl PaneState {
         if self.revert_pending {
             self.revert_pending = false;
             if key.code == KeyCode::Char('y') && key.modifiers == KeyModifiers::NONE {
-                let Some(root) = rightkit_app_settings::agent_config::state_root() else {
+                let Some(root) = rightkit_agent_config::state_root() else {
                     return Some(PaneAction::Notice(
                         "Revert cancelled: no state root for the backup patch.".into(),
                     ));

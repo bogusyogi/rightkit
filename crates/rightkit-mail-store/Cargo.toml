@@ -25,7 +25,7 @@ rightkit-onnx = { version = "0.2.9", default-features = false, path = "../rightk
 rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "app-dirs", "digest", "lock"], path = "../rightkit-fs" }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 rightkit-job-queue = { version = "0.5.1", features = ["store"], path = "../rightkit-job-queue" }
-rightkit-app-settings = { version = "0.3.1", default-features = false, features = ["sql"], path = "../rightkit-app-settings" }
+rightkit-app-settings = { version = "0.4.0", default-features = false, features = ["sql"], path = "../rightkit-app-settings" }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1.54.1", default-features = false, features = ["rt"] }
 serde_json = { version = "1" }

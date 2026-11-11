@@ -122,7 +122,7 @@ mod workflow;
 /// stay local under `<state root>/crash`; nothing is uploaded. When the state
 /// root cannot be resolved the crate's private temp fallback is used.
 fn install_crash_capture() {
-    let crash_dir = rightkit_app_settings::agent_config::state_root()
+    let crash_dir = rightkit_agent_config::state_root()
         .map(|root| root.join("crash"))
         .unwrap_or_else(|| rightkit_crash::fallback_crash_dir("RightKit"));
     rightkit_crash::install_process_hook(

@@ -1,5 +1,5 @@
+use rightkit_agent_config::HostConfig;
 use rightkit_agent_orchestration::coding::registry::AgentRegistry;
-use rightkit_app_settings::agent_config::HostConfig;
 
 pub(crate) const ROLE_MODEL_MODE_SINGLE: &str = "single";
 pub(crate) const ROLE_MODEL_MODE_SPLIT: &str = "split";

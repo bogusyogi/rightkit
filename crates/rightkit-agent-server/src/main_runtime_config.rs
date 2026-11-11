@@ -8,8 +8,8 @@
 pub(crate) fn default_db_path() -> String {
     // A QA/test build with an isolated state root keeps the database inside it; a release
     // build never has one.
-    let isolated_root = if rightkit_app_settings::agent_config::state_root_is_isolated() {
-        rightkit_app_settings::agent_config::state_root()
+    let isolated_root = if rightkit_agent_config::state_root_is_isolated() {
+        rightkit_agent_config::state_root()
     } else {
         None
     };
@@ -103,7 +103,7 @@ fn spec_store_path(db_path: &str) -> std::path::PathBuf {
 /// The user's last explicit model selection, remembered across launches.
 /// There is no built-in default model; until one is selected the TUI asks.
 pub(crate) fn model_selection_path() -> Option<std::path::PathBuf> {
-    let root = rightkit_app_settings::agent_config::state_root()?;
+    let root = rightkit_agent_config::state_root()?;
     Some(root.join("state").join("model-selection.json"))
 }
 
@@ -269,14 +269,14 @@ fn set_model_hidden_at(
     save_model_visibility_at(path, &map)
 }
 
-pub(crate) fn load_current_merged_config() -> rightkit_app_settings::agent_config::HostConfig {
+pub(crate) fn load_current_merged_config() -> rightkit_agent_config::HostConfig {
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let env_vars: std::collections::HashMap<String, String> = std::env::vars().collect();
     load_merged_config_for_workspace(&cwd, &env_vars)
 }
 
 fn web_search_config_from_config(
-    config: &rightkit_app_settings::agent_config::HostConfig,
+    config: &rightkit_agent_config::HostConfig,
 ) -> Option<rightkit_agent_tools::coding_tools::WebSearchConfig> {
     let provider = config
         .tools
@@ -308,7 +308,7 @@ fn web_search_config_from_config(
 }
 
 pub(crate) fn resolve_engine_config(
-    config: &rightkit_app_settings::agent_config::HostConfig,
+    config: &rightkit_agent_config::HostConfig,
     requested_model: Option<&str>,
     requested_provider: Option<&str>,
 ) -> Option<api::EngineConfig> {
@@ -415,7 +415,7 @@ where
 /// provider with a stored key, then the hosted default. Callers that only
 /// need a provider *id* (not a full engine config) — such as the bare
 /// interactive REPL — use this instead of hardcoding one.
-fn resolve_default_provider_id(config: &rightkit_app_settings::agent_config::HostConfig) -> String {
+fn resolve_default_provider_id(config: &rightkit_agent_config::HostConfig) -> String {
     let default_model = config.model.default_model.trim();
     if !default_model.is_empty() {
         if let Some((provider_id, _)) = config
@@ -444,7 +444,7 @@ fn resolve_default_provider_id(config: &rightkit_app_settings::agent_config::Hos
 /// instead of `resolve_default_provider_id`, whose fallback return value
 /// stays unchanged for its own existing callers.
 fn resolve_default_provider_id_checked(
-    config: &rightkit_app_settings::agent_config::HostConfig,
+    config: &rightkit_agent_config::HostConfig,
 ) -> Option<String> {
     let default_model = config.model.default_model.trim();
     if !default_model.is_empty() {
@@ -470,7 +470,7 @@ fn resolve_default_provider_id_checked(
 /// the hosted default). The resolved credential never leaves this function;
 /// `coderight doctor` reports presence only.
 pub(crate) fn default_route_auth(
-    config: &rightkit_app_settings::agent_config::HostConfig,
+    config: &rightkit_agent_config::HostConfig,
 ) -> Option<(String, crate::doctor::RouteAuth)> {
     let default_model = config.model.default_model.trim();
     if default_model.is_empty() {
@@ -495,7 +495,7 @@ pub(crate) fn default_route_auth(
 
 fn engine_config_from_configured_route(
     provider_id: &str,
-    route: &rightkit_app_settings::agent_config::ProviderRouteConfig,
+    route: &rightkit_agent_config::ProviderRouteConfig,
     requested_model: Option<&str>,
 ) -> Option<api::EngineConfig> {
     let base_url = route.base_url.trim().trim_end_matches('/');
@@ -573,7 +573,7 @@ pub(crate) fn missing_required_route_key(
 
 fn configured_route_api_key<EnvLookup, SavedLookup>(
     provider_id: &str,
-    route: &rightkit_app_settings::agent_config::ProviderRouteConfig,
+    route: &rightkit_agent_config::ProviderRouteConfig,
     env_lookup: EnvLookup,
     mut saved_lookup: SavedLookup,
 ) -> Option<String>
@@ -603,7 +603,7 @@ where
 /// resolution uses the existing credential resolver. Native OpenAI routes
 /// remain owned by the broker's account catalog. Sorted for stable order.
 fn configured_catalog_routes(
-    config: &rightkit_app_settings::agent_config::HostConfig,
+    config: &rightkit_agent_config::HostConfig,
 ) -> Vec<(String, String)> {
     let mut rows: Vec<(String, String)> = config
         .provider_routes
@@ -626,8 +626,8 @@ fn configured_catalog_routes(
 fn load_merged_config_for_workspace(
     workspace: &std::path::Path,
     env_vars: &std::collections::HashMap<String, String>,
-) -> rightkit_app_settings::agent_config::HostConfig {
-    let loader = rightkit_app_settings::agent_config::ConfigLoader::new();
+) -> rightkit_agent_config::HostConfig {
+    let loader = rightkit_agent_config::ConfigLoader::new();
     let base = loader.load_files_for_workspace(workspace);
     loader.apply_env(base, env_vars)
 }
@@ -638,19 +638,19 @@ pub(crate) fn load_cli_instruction_context(
 ) -> Option<String> {
     let mut parts = Vec::new();
 
-    let mut base_loader = rightkit_app_settings::agent_config::InstructionLoader::new();
-    if let Some(home) = rightkit_app_settings::agent_config::os_home_dir() {
+    let mut base_loader = rightkit_agent_config::InstructionLoader::new();
+    if let Some(home) = rightkit_agent_config::os_home_dir() {
         base_loader.add_root(
-            rightkit_app_settings::agent_config::InstructionScope::User,
+            rightkit_agent_config::InstructionScope::User,
             home.join(".config/coderight"),
         );
     }
     base_loader.add_root(
-        rightkit_app_settings::agent_config::InstructionScope::Project,
+        rightkit_agent_config::InstructionScope::Project,
         workspace_root.to_path_buf(),
     );
     base_loader.add_root(
-        rightkit_app_settings::agent_config::InstructionScope::Local,
+        rightkit_agent_config::InstructionScope::Local,
         workspace_root.join(".coderight"),
     );
 
@@ -660,9 +660,9 @@ pub(crate) fn load_cli_instruction_context(
     }
 
     for dir in add_dir {
-        let mut extra_loader = rightkit_app_settings::agent_config::InstructionLoader::new();
+        let mut extra_loader = rightkit_agent_config::InstructionLoader::new();
         extra_loader.add_root(
-            rightkit_app_settings::agent_config::InstructionScope::Local,
+            rightkit_agent_config::InstructionScope::Local,
             workspace_root.join(dir),
         );
         let files = extra_loader.discover();

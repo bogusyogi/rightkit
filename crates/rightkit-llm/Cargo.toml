@@ -16,10 +16,10 @@ default = []
 # Provider that drives an installed, signed-in CLI assistant as a bounded child process.
 cli = ["dep:rightkit-child-process"]
 agent_providers-os-keyring = ["agent_providers", "dep:rightkit-credentials", "rightkit-oauth/secrets"]
-agent_providers-host-env = ["agent_providers", "rightkit-app-settings/agent_config-host-env"]
+agent_providers-host-env = ["agent_providers", "rightkit-agent-config/host-env"]
 agent_providers-replay-record = ["agent_providers", "agent_providers-host-env"]
 tokens = ["dep:tiktoken-rs"]
-agent_providers = ["dep:rightkit-logs", "dep:rightkit-agent-engine-protocol", "dep:rightkit-agent-policy", "dep:rightkit-app-settings", "dep:thiserror", "dep:tokio", "dep:futures", "dep:rightkit-oauth", "rightkit-http/untrusted", "rightkit-http/async", "dep:rightkit-crypto", "dep:rightkit-fs", "dep:rightkit-time", "dep:url", "dep:bytes", "dep:async-stream", "dep:toml", "dep:dirs", "dep:tiktoken-rs", "agent_providers-os-keyring"]
+agent_providers = ["dep:rightkit-logs", "dep:rightkit-agent-engine-protocol", "dep:rightkit-agent-policy", "dep:rightkit-agent-config", "dep:thiserror", "dep:tokio", "dep:futures", "dep:rightkit-oauth", "rightkit-http/untrusted", "rightkit-http/async", "dep:rightkit-crypto", "dep:rightkit-fs", "dep:rightkit-time", "dep:url", "dep:bytes", "dep:async-stream", "dep:toml", "dep:dirs", "dep:tiktoken-rs", "agent_providers-os-keyring"]
 agent_router-os-keyring = ["agent_router", "agent_providers-os-keyring"]
 agent_router = ["agent_providers", "dep:thiserror", "dep:toml", "agent_router-os-keyring"]
 
@@ -31,7 +31,7 @@ serde_json = "1.0.154"
 rightkit-logs = {version = "0.3.7", default-features = false, features = ["tracing"], path = "../rightkit-logs", optional = true}
 rightkit-agent-engine-protocol = {version = "0.1.0", path = "../rightkit-agent-engine-protocol", optional = true}
 rightkit-agent-policy = {version = "0.1.0", path = "../rightkit-agent-policy", optional = true}
-rightkit-app-settings = {version = "0.3.1", path = "../rightkit-app-settings", features = ["agent_config"], optional = true}
+rightkit-agent-config = { version = "0.1.0", path = "../rightkit-agent-config", optional = true }
 thiserror = {version = "2", optional = true}
 tokio = {version = "1", features = ["full"], optional = true}
 futures = {version = "0.3", optional = true}

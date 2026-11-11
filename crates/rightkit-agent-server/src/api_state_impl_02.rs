@@ -300,7 +300,7 @@ impl DaemonState {
     #[allow(clippy::too_many_arguments)]
     fn configured_provider_route(
         &self,
-        config: &rightkit_app_settings::agent_config::HostConfig,
+        config: &rightkit_agent_config::HostConfig,
         provider_id: &str,
         model: &str,
         fallback: &EngineConfig,
@@ -334,7 +334,7 @@ impl DaemonState {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn configured_provider_route_exact(
         &self,
-        config: &rightkit_app_settings::agent_config::HostConfig,
+        config: &rightkit_agent_config::HostConfig,
         provider_id: &str,
         model: &str,
         _fallback: &EngineConfig,
@@ -365,7 +365,7 @@ impl DaemonState {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn explicit_provider_route(
         &self,
-        config: &rightkit_app_settings::agent_config::HostConfig,
+        config: &rightkit_agent_config::HostConfig,
         provider_id: &str,
         model: &str,
         fallback: &EngineConfig,
@@ -397,7 +397,7 @@ impl DaemonState {
 
     pub(crate) fn provider_route_for_model(
         &self,
-        workspace_config: &rightkit_app_settings::agent_config::HostConfig,
+        workspace_config: &rightkit_agent_config::HostConfig,
         model: &str,
         fallback: &EngineConfig,
         effort: Option<String>,
@@ -487,7 +487,7 @@ impl DaemonState {
     /// persist `providerId` alongside model-only route updates.
     pub(crate) fn resolved_provider_id_for_model(
         &self,
-        workspace_config: &rightkit_app_settings::agent_config::HostConfig,
+        workspace_config: &rightkit_agent_config::HostConfig,
         model: &str,
     ) -> Option<String> {
         let trimmed = model.trim();
@@ -523,7 +523,7 @@ impl DaemonState {
 
     pub(crate) fn agent_registry_with_workspace_config(
         &self,
-        workspace_config: &rightkit_app_settings::agent_config::HostConfig,
+        workspace_config: &rightkit_agent_config::HostConfig,
     ) -> AgentRegistry {
         let mut registry = AgentRegistry::new();
         for descriptor in self.agent_registry.all() {
@@ -559,7 +559,7 @@ impl DaemonState {
 
     pub(crate) fn agent_descriptor_with_workspace_config(
         &self,
-        workspace_config: &rightkit_app_settings::agent_config::HostConfig,
+        workspace_config: &rightkit_agent_config::HostConfig,
         role: &str,
     ) -> Option<rightkit_agent_orchestration::coding::registry::AgentDescriptor> {
         self.agent_registry_with_workspace_config(workspace_config)

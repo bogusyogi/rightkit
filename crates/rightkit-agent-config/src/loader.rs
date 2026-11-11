@@ -2,8 +2,8 @@
 
 use thiserror::Error;
 
-use crate::agent_config::merge::merge;
-use crate::agent_config::types::HostConfig;
+use crate::merge::merge;
+use crate::types::HostConfig;
 use std::collections::HashMap;
 
 /// Errors that can occur while loading configuration.
@@ -56,7 +56,7 @@ impl ConfigLoader {
         let mut layers = vec![];
 
         // User-global config.
-        if let Some(root) = crate::agent_config::state_root() {
+        if let Some(root) = crate::state_root() {
             if let Some(cfg) = self.load_layer_file(&root.join("config.toml")) {
                 layers.push(cfg);
             }
@@ -164,13 +164,13 @@ impl ConfigLoader {
     /// Persist a config to the user-global `<state root>/config.toml`.
     /// Creates the directory if it does not exist.
     pub fn save_user(&self, config: &HostConfig) -> Result<(), ConfigError> {
-        let dir = crate::agent_config::state_root()
+        let dir = crate::state_root()
             .ok_or_else(|| ConfigError::Io("cannot determine the Agent state directory".into()))?;
         std::fs::create_dir_all(&dir).map_err(|e| ConfigError::Io(e.to_string()))?;
         let path = dir.join("config.toml");
         let content =
             toml::to_string_pretty(config).map_err(|e| ConfigError::Toml(e.to_string()))?;
-        crate::atomic_write(&path, content.as_bytes())
+        rightkit_app_settings::atomic_write(&path, content.as_bytes())
             .map_err(|e| ConfigError::Io(e.to_string()))?;
         Ok(())
     }
@@ -198,7 +198,7 @@ impl ConfigLoader {
         base: impl FnOnce(&Self) -> Result<HostConfig, ConfigError>,
         edit: impl FnOnce(&mut HostConfig),
     ) -> Result<HostConfig, ConfigError> {
-        let dir = crate::agent_config::state_root()
+        let dir = crate::state_root()
             .ok_or_else(|| ConfigError::Io("cannot determine the Agent state directory".into()))?;
         std::fs::create_dir_all(&dir).map_err(|e| ConfigError::Io(e.to_string()))?;
         let _lock = lock_config(&dir, CONFIG_LOCK_WAIT)?;
@@ -253,7 +253,7 @@ impl ConfigLoader {
         let path = dir.join("config.toml");
         let content =
             toml::to_string_pretty(config).map_err(|e| ConfigError::Toml(e.to_string()))?;
-        crate::atomic_write(&path, content.as_bytes())
+        rightkit_app_settings::atomic_write(&path, content.as_bytes())
             .map_err(|e| ConfigError::Io(e.to_string()))?;
         Ok(())
     }

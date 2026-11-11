@@ -152,7 +152,7 @@ pub(crate) struct DiagnosticsBundleDownload {
 }
 
 fn diagnostics_bundle_dir() -> Option<PathBuf> {
-    rightkit_app_settings::agent_config::state_root().map(|root| root.join("diagnostics"))
+    rightkit_agent_config::state_root().map(|root| root.join("diagnostics"))
 }
 
 fn safe_bundle_id(id: &str) -> Option<&str> {
@@ -176,7 +176,7 @@ async fn create_diagnostics_bundle(
         .unwrap_or_default();
     let bundle_id = format!("bundle-{nanos}-{}", std::process::id());
     let destination = dir.join(format!("{bundle_id}.zip"));
-    let crash_dir = rightkit_app_settings::agent_config::state_root()
+    let crash_dir = rightkit_agent_config::state_root()
         .map(|root| root.join("crash"))
         .unwrap_or_else(|| rightkit_crash::fallback_crash_dir("RightKit"));
     let options = rightkit_crash::SupportBundleOptions {

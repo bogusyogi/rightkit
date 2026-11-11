@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::path::{Path as FsPath, PathBuf};
 
 fn coderight_state_file(name: &str) -> PathBuf {
-    rightkit_app_settings::agent_config::state_root()
+    rightkit_agent_config::state_root()
         .unwrap_or_else(|| {
             std::env::current_dir()
                 .unwrap_or_else(|_| PathBuf::from("."))

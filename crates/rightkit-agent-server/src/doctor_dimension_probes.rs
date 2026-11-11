@@ -335,7 +335,7 @@ pub(crate) fn probe_learning(verbose: bool) -> Dimension {
 
 /// Helper: locate the RightKit state directory (the rightkit-daemon AppRoot).
 pub(crate) fn coderight_home() -> Option<PathBuf> {
-    rightkit_app_settings::agent_config::state_root()
+    rightkit_agent_config::state_root()
 }
 
 /// Helper: candidate locations for `destructive-guard.toml`.

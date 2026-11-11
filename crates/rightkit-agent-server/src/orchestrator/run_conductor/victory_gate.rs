@@ -76,7 +76,7 @@ impl DaemonState {
         goal: &str,
         outcome: &RunOutcome,
         gds: f64,
-        workspace_config: &rightkit_app_settings::agent_config::HostConfig,
+        workspace_config: &rightkit_agent_config::HostConfig,
         initial_git_ref: Option<&str>,
     ) -> (
         rightkit_agent_orchestration::coding::CompletionState,

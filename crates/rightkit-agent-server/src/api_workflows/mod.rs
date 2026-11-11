@@ -2,7 +2,7 @@
 //! plane (WP-09 — ADR-0021).
 //!
 //! Every handler enforces the feature gate (`features.workflows_enabled`)
-//! from `rightkit_app_settings::agent_config::FeatureConfig::workflows_enabled()` and emits
+//! from `rightkit_agent_config::FeatureConfig::workflows_enabled()` and emits
 //! `WorkflowApiError` on rejection. State-changing endpoints call the
 //! harness (WP-03) and let it write through the journal writer; routes
 //! never mutate `workflow_*` rows directly.

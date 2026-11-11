@@ -101,7 +101,7 @@ impl DaemonState {
 
         // Evolution harness: traces every worker result to ~/.coderight/traces/<session_id>.jsonl
         // and tracks failures for the ratchet loop.
-        let traces_dir = rightkit_app_settings::agent_config::state_root()
+        let traces_dir = rightkit_agent_config::state_root()
             .map(|root| root.join("traces"))
             .unwrap_or_else(|| std::path::PathBuf::from("/tmp/coderight/traces"));
         let mut evolution_harness = EvolutionHarness::new(traces_dir, session_id);

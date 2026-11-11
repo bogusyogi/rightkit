@@ -59,8 +59,9 @@ impl ProjectTrust {
         match self {
             Self::Trusted => true,
             Self::Untrusted => false,
-            Self::Resolve => workspace_root
-                .is_some_and(rightkit_app_settings::agent_config::is_workspace_trusted),
+            Self::Resolve => {
+                workspace_root.is_some_and(rightkit_agent_config::is_workspace_trusted)
+            }
         }
     }
 }
@@ -539,7 +540,7 @@ fn expand_env_placeholders(value: &str, env_vars: &HashMap<String, String>) -> S
         // `${VAR}`, whatever map the caller built from the process environment: such a name is
         // left as the literal placeholder, exactly like an unset one.
         if is_env_placeholder_name(name)
-            && !rightkit_app_settings::agent_config::licence_env::is_licence_env_name(name)
+            && !rightkit_agent_config::licence_env::is_licence_env_name(name)
         {
             match env_vars.get(name) {
                 Some(replacement) => expanded.push_str(replacement),
@@ -591,7 +592,7 @@ pub fn config_paths(workspace_root: Option<&Path>) -> Vec<PathBuf> {
 }
 
 fn home_dir() -> Option<PathBuf> {
-    rightkit_app_settings::agent_config::os_home_dir()
+    rightkit_agent_config::os_home_dir()
 }
 
 /// Construct the concrete transport for one server config (FM-100 helper).

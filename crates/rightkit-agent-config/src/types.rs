@@ -24,8 +24,8 @@ pub enum BooleanSetting {
 
 impl ConfigSource {
     pub fn effective_for_workspace(workspace: &Path, setting: BooleanSetting) -> Self {
-        let loader = crate::agent_config::ConfigLoader::new();
-        let user = crate::agent_config::state_root::state_root()
+        let loader = crate::ConfigLoader::new();
+        let user = crate::state_root::state_root()
             .map(|root| root.join("config.toml"))
             .and_then(|path| std::fs::read_to_string(path).ok())
             .and_then(|content| loader.load_str(&content).ok());

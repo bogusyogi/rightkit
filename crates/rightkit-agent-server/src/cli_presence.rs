@@ -456,7 +456,7 @@ async fn daemon_health_ok_with(base_url: &str) -> bool {
 }
 
 fn coderight_home_dir() -> Option<std::path::PathBuf> {
-    rightkit_app_settings::agent_config::state_root()
+    rightkit_agent_config::state_root()
 }
 
 /// Held for the duration of the spawn; dropping releases the `rightkit_fs`

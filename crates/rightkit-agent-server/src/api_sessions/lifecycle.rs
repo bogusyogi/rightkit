@@ -518,7 +518,7 @@ pub(crate) async fn create_session_handler(
     if state.get_session(&id).is_some() {
         return Err(StatusCode::CONFLICT);
     }
-    let workspace_config = rightkit_app_settings::agent_config::ConfigLoader::new()
+    let workspace_config = rightkit_agent_config::ConfigLoader::new()
         .load_files_for_workspace(FsPath::new(body.workspace_root.trim()));
     let requested_model = body.model.clone();
     let inference_selection = body.inference_selection.clone();
@@ -882,7 +882,7 @@ async fn fork_session_once(
         .unwrap_or_else(|| format!("Fork of {parent_title}"));
     options.forked_from_session_id = Some(parent_id.clone());
     if !options.brief_default {
-        options.brief_default = rightkit_app_settings::agent_config::ConfigLoader::new()
+        options.brief_default = rightkit_agent_config::ConfigLoader::new()
             .load_files_for_workspace(FsPath::new(workspace_root.trim()))
             .prompt
             .brief_default();

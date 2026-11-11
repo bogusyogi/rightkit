@@ -25,13 +25,13 @@ fn with_model_profile(
 }
 
 pub(crate) fn model_interface_from_config(
-    config: rightkit_app_settings::agent_config::ModelToolInterfaceConfig,
+    config: rightkit_agent_config::ModelToolInterfaceConfig,
 ) -> rightkit_agent_tools::coding_tools::ModelToolInterface {
     match config {
-        rightkit_app_settings::agent_config::ModelToolInterfaceConfig::LegacyPromoted => {
+        rightkit_agent_config::ModelToolInterfaceConfig::LegacyPromoted => {
             rightkit_agent_tools::coding_tools::ModelToolInterface::LegacyPromoted
         }
-        rightkit_app_settings::agent_config::ModelToolInterfaceConfig::FixedV1 => {
+        rightkit_agent_config::ModelToolInterfaceConfig::FixedV1 => {
             rightkit_agent_tools::coding_tools::ModelToolInterface::FixedV1
         }
     }

@@ -12,12 +12,13 @@ Flagged mismatches: 1.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
-## Rust crates (213)
+## Rust crates (214)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
 | `rightkit-adapt` | crates.io | 0.1.2 | none recorded | 0.1.2 | staged, never published | adapt | Adaptive agent learning: outcome observation, guidance proposals, application receipts and scoring |
 | `rightkit-adapt-taste` | crates.io | 0.1.2 | none recorded | 0.1.2 | staged, never published | adaptive-learning | Governed behavioural learning from agent transcripts (taste preferences and insights), deterministic and model-free. |
+| `rightkit-agent-config` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Layered TOML configuration for an agent host: defaults, user, workspace, environment and session layers, state root, workspace trust, instructions and presets. |
 | `rightkit-agent-demo` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | agent-demo-mode | Consented agent demo mode for Tauri hosts: an agent drives one catalog app through rightkit-automation while the host records that app's window into a sealed bundle, with an always-visible badge, a kill hotkey and a tray stop item. |
 | `rightkit-agent-engine` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Always-on agent contracts: task envelope and transitions, principals, intents, effects, device and approval binding, voice hand-off. |
 | `rightkit-agent-engine-api-integrations` | crates.io | 0.1.2 | none recorded | 0.1.2 | staged, never published | agent-api-integrations | Agent engine integrations HTTP API: plugin discovery, manifest projection and plugin middleware wiring |
@@ -52,7 +53,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-app-host` | crates.io | 0.1.1 | none recorded | 0.1.1 | staged, never published | app-host | Host services a desktop app gives RightKit companion crates (state folder, account home, published UI state and settings), installed once per process, with neutral defaults. |
 | `rightkit-app-lock` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Application lock: lock state machine types, preference fail-closed rules, OS user verification (Windows Hello, Touch ID) and the shell-side unlock flow against an engine transport. |
 | `rightkit-app-manager` | crates.io | 0.1.2 | none recorded | 0.1.2 | staged, never published | app-manager | Installed-app management: inventory, icons, usage, updates, safe uninstall with leftovers to the Trash, and app quit/force-quit with system and self protection. |
-| `rightkit-app-settings` | crates.io | 0.3.5 | 0.3.0 | 0.3.5 | staged, not yet published | settings-persistence | Versioned per-app settings persistence: migrations, typed defaults, atomic writes, corruption recovery, change events. |
+| `rightkit-app-settings` | crates.io | 0.4.0 | 0.3.0 | 0.4.0 | staged, not yet published | settings-persistence | Versioned per-app settings persistence: migrations, typed defaults, atomic writes, corruption recovery, change events. |
 | `rightkit-app-update` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Native half of Right Suite app updates that the Tauri shell does not carry: the failed-boot sentinel and BootStage probation after an update, and an allowlisted, redacted fetch bridge over rightkit-http. |
 | `rightkit-apple-ops` | crates.io | 0.1.2 | none recorded | 0.1.2 | staged, never published | apple-ops | Apple ops: App Store Connect API and upload, build analysis, preflight, profiling and SwiftUI traces |
 | `rightkit-approvals` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | approvals | In-app approval of paid drafts and deliveries: single-use challenges, launch-secret tokens minted by the shell and verified by the engine, parent binding, host-registered draft kinds |

@@ -74,7 +74,7 @@ pub struct TuiSettings {
 }
 
 impl TuiSettings {
-    pub fn from_config(config: &rightkit_app_settings::agent_config::TuiConfig) -> Self {
+    pub fn from_config(config: &rightkit_agent_config::TuiConfig) -> Self {
         let norm = |s: &str| s.trim().to_ascii_lowercase();
         Self {
             theme: norm(&config.theme),
@@ -509,7 +509,7 @@ pub fn build_config_with_notice(settings: &TuiSettings, notice: Option<&str>) ->
 
 /// Applies one validated TUI setting to `config`; the error names an unknown key or bad value.
 pub fn apply_tui_setting(
-    config: &mut rightkit_app_settings::agent_config::HostConfig,
+    config: &mut rightkit_agent_config::HostConfig,
     key: &str,
     value: &str,
 ) -> Result<(), String> {
@@ -637,9 +637,9 @@ pub fn config_value(key: &str, value: &str) -> Result<toml::Value, String> {
     }
 }
 
-/// `<state root>/config.toml` (`rightkit_app_settings::agent_config::state_root()`).
+/// `<state root>/config.toml` (`rightkit_agent_config::state_root()`).
 pub fn user_config_path() -> Option<std::path::PathBuf> {
-    Some(rightkit_app_settings::agent_config::state_root()?.join("config.toml"))
+    Some(rightkit_agent_config::state_root()?.join("config.toml"))
 }
 
 // ---------------------------------------------------------------------------

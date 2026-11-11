@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0 (unpublished)
+
+- **Breaking:** removed the `agent_config` and `agent_config-host-env` features and the `agent_config` module. The agent host configuration is now its own crate, `rightkit-agent-config` 0.1.0: `rightkit_app_settings::agent_config::X` becomes `rightkit_agent_config::X`, and `agent_config-host-env` becomes its `host-env` feature. It is agent product configuration, not app settings (2026-11-11 shape review, docs/audits/2026-11-11-shape-matrix/reports/family-foundation-shell-ui.md). The optional `rightkit-daemon`, `rightkit-agent-policy`, `toml` and `dirs` dependencies are gone with it. The settings API is unchanged.
+
 ## 0.3.5
 - Fixed: `agent_config::agent_config` tripped clippy's `module_inception` under `-D warnings`; the lint is allowed on that declaration, the public path is unchanged.
 

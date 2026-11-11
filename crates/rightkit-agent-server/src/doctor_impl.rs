@@ -351,7 +351,7 @@ fn evolution_db_is_readable(path: &std::path::Path) -> bool {
 
 /// Gather facts from the environment (the only I/O in this module).
 pub(crate) fn gather() -> Facts {
-    let state_dir = rightkit_app_settings::agent_config::state_root();
+    let state_dir = rightkit_agent_config::state_root();
 
     let provider = match crate::main_runtime::default_route_auth(
         &crate::main_runtime::load_current_merged_config(),

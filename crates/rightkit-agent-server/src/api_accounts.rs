@@ -21,11 +21,11 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
+use rightkit_agent_config::accounts::{
+    account_kind_of, AccountKind, AccountStore, AccountsError, ApiKeyAccountEntry,
+};
 use rightkit_agents::driver_host::cli_runtime::account_identity::{
     list_subscription_accounts, SubscriptionAccount,
-};
-use rightkit_app_settings::agent_config::accounts::{
-    account_kind_of, AccountKind, AccountStore, AccountsError, ApiKeyAccountEntry,
 };
 use rightkit_llm::agent_providers::client::{
     account_key_present_with, delete_account_key_with, store_account_key_with,
@@ -330,7 +330,7 @@ async fn remove_api_key_account(
     Path((provider, slug)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     let keys = os_keys();
-    let id = rightkit_app_settings::agent_config::accounts::api_key_account_id(&provider, &slug);
+    let id = rightkit_agent_config::accounts::api_key_account_id(&provider, &slug);
     Ctx::live(&keys)?.remove_api_key(&id)?;
     Ok(Json(json!({ "ok": true })))
 }

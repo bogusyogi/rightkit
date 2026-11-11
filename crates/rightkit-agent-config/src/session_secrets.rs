@@ -1,6 +1,6 @@
 //! Session-scoped secrets/environment values (ENG-106).
 //!
-//! Distinct from `crate::agent_config::migrations` and the rest of this crate's on-disk
+//! Distinct from `crate::migrations` and the rest of this crate's on-disk
 //! `CodeRightConfig`: a [`SessionSecrets`] value is **never serialized**,
 //! never written to the config TOML, never durable across process restarts,
 //! and scoped to exactly one running session. It exists to answer one

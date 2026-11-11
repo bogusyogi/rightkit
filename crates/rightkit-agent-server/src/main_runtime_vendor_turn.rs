@@ -317,9 +317,9 @@ pub(crate) fn resolve_provider_account(
     project: &str,
 ) -> Result<Option<ResolvedClaudeAccount>, String> {
     let store =
-        match rightkit_app_settings::agent_config::accounts::AccountStore::default_location() {
+        match rightkit_agent_config::accounts::AccountStore::default_location() {
             Ok(store) => store,
-            Err(rightkit_app_settings::agent_config::accounts::AccountsError::NoStateRoot) => {
+            Err(rightkit_agent_config::accounts::AccountsError::NoStateRoot) => {
                 return Ok(None)
             }
             Err(error) => return Err(error.to_string()),
@@ -370,7 +370,7 @@ pub(crate) fn resolve_provider_account(
 fn apply_api_key_label(
     identity: &mut ClaudeAccountIdentity,
     account_id: &str,
-    store: &rightkit_app_settings::agent_config::accounts::AccountStore,
+    store: &rightkit_agent_config::accounts::AccountStore,
 ) {
     if identity.kind.as_deref() != Some("api_key") {
         return;

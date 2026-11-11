@@ -8,7 +8,7 @@ pub struct TeamCreateTool;
 pub struct TeamDeleteTool;
 
 fn teams_dir() -> String {
-    match rightkit_app_settings::agent_config::state_root() {
+    match rightkit_agent_config::state_root() {
         Some(root) => root.join("teams").to_string_lossy().into_owned(),
         None => "/tmp/.rightkit/teams".to_string(),
     }

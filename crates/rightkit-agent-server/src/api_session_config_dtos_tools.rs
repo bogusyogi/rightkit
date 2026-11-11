@@ -235,15 +235,15 @@ pub(crate) fn build_session_tool_registry_for_plugins(
 
 pub(crate) fn load_workspace_config_with_env(
     workspace: &FsPath,
-) -> rightkit_app_settings::agent_config::HostConfig {
-    let loader = rightkit_app_settings::agent_config::ConfigLoader::new();
+) -> rightkit_agent_config::HostConfig {
+    let loader = rightkit_agent_config::ConfigLoader::new();
     let base = loader.load_files_for_workspace(workspace);
     let env_vars: HashMap<String, String> = std::env::vars().collect();
     loader.apply_env(base, &env_vars)
 }
 
 pub(crate) fn web_search_config_from_config(
-    config: &rightkit_app_settings::agent_config::HostConfig,
+    config: &rightkit_agent_config::HostConfig,
 ) -> Option<rightkit_agent_tools::coding_tools::WebSearchConfig> {
     let provider = config
         .tools

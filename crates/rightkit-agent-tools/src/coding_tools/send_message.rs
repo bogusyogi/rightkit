@@ -90,7 +90,7 @@ impl Tool for SendMessageTool {
 
         // `RIGHTKIT_MESSAGES_DIR` relocates the message directory in `host`
         // builds only; the mobile profile always uses the state root.
-        let default_dir = || match rightkit_app_settings::agent_config::state_root() {
+        let default_dir = || match rightkit_agent_config::state_root() {
             Some(root) => root.join("messages").to_string_lossy().into_owned(),
             None => "/tmp/.rightkit/messages".to_string(),
         };

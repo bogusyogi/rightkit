@@ -5691,20 +5691,20 @@ mod interactive_session {
             // Validate against a scratch config first, so an invalid key or value never reaches the
             // locked read-modify-write below.
             crate::tui_projects::apply_tui_setting(
-                &mut rightkit_app_settings::agent_config::HostConfig::default(),
+                &mut rightkit_agent_config::HostConfig::default(),
                 key,
                 value,
             )?;
-            let loader = rightkit_app_settings::agent_config::ConfigLoader::new();
+            let loader = rightkit_agent_config::ConfigLoader::new();
             // The user file alone, edited under the config lock shared with every other writer.
             loader
                 .update_user_from(
                     |loader| match std::fs::read_to_string(&config_path) {
                         Ok(contents) => loader.load_str(&contents),
                         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                            Ok(rightkit_app_settings::agent_config::HostConfig::default())
+                            Ok(rightkit_agent_config::HostConfig::default())
                         }
-                        Err(error) => Err(rightkit_app_settings::agent_config::ConfigError::Io(
+                        Err(error) => Err(rightkit_agent_config::ConfigError::Io(
                             error.to_string(),
                         )),
                     },

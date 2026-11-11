@@ -3,7 +3,7 @@
 /// unreachable daemon, or an unhealthy response all proceed — see
 /// `api_clients::startup_guard_decision` for the pure decision logic.
 async fn run_startup_guard(db_path: &str) -> Result<(), String> {
-    let Some(state_dir) = rightkit_app_settings::agent_config::state_root() else {
+    let Some(state_dir) = rightkit_agent_config::state_root() else {
         return Ok(());
     };
     let port_file = state_dir.join("daemon.port");
@@ -38,7 +38,7 @@ async fn run_startup_guard(db_path: &str) -> Result<(), String> {
 /// this process published: a successor's record is never deleted by a daemon late to exit.
 fn remove_daemon_port_file() {
     if let (Some(state_dir), Some(record)) = (
-        rightkit_app_settings::agent_config::state_root(),
+        rightkit_agent_config::state_root(),
         DAEMON_RECORD.get(),
     ) {
         record.remove_if_ours(&state_dir.join("daemon.port"));

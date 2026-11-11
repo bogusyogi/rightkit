@@ -17,7 +17,7 @@ path = "src/lib.rs"
 serde = {version = "1", features = ["derive"]}
 serde_json = {version = "1"}
 rightkit-agent-plugins = {version = "0.1.0", path = "../rightkit-agent-plugins"}
-rightkit-app-settings = {version = "0.3.1", path = "../rightkit-app-settings", features = ["agent_config", "agent_config-host-env"]}
+rightkit-agent-config = { version = "0.1.0", path = "../rightkit-agent-config", features = ["host-env"] }
 rightkit-agent-engine-runtime-middleware = {version = "0.1.0", path = "../rightkit-agent-engine-runtime-middleware"}
 
 [features]

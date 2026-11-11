@@ -55,11 +55,11 @@ pub struct ActiveWorker {
 ///
 /// Deliberately resolves the home directory through the same helper the
 /// lockfile uses, so both daemon-owned files land in one directory and honour
-/// the same `rightkit_app_settings::agent_config::state_root()` (in QA, the isolated `RIGHTKIT_SUITE_ROOT`). Callers that run against a non-default
+/// the same `rightkit_agent_config::state_root()` (in QA, the isolated `RIGHTKIT_SUITE_ROOT`). Callers that run against a non-default
 /// database (QA, dev snapshots) should pass an explicit path instead — an
 /// auxiliary daemon must not sweep the primary daemon's journal.
 pub fn default_journal_path() -> Option<PathBuf> {
-    let root = rightkit_app_settings::agent_config::state_root()?;
+    let root = rightkit_agent_config::state_root()?;
     Some(root.join("worker-journal.jsonl"))
 }
 

@@ -1,5 +1,5 @@
 use axum::{http::StatusCode, response::Json, routing::get, Router};
-use rightkit_app_settings::agent_config::{HostConfig, ToolsetConfig};
+use rightkit_agent_config::{HostConfig, ToolsetConfig};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashSet};
@@ -47,7 +47,7 @@ struct ToolGatewayToolStatus {
 }
 
 async fn list_toolsets_handler() -> Json<Vec<ToolsetProfile>> {
-    let config = rightkit_app_settings::agent_config::ConfigLoader::new().load_files_default();
+    let config = rightkit_agent_config::ConfigLoader::new().load_files_default();
     Json(toolset_profiles_for_config(&config))
 }
 
@@ -58,7 +58,7 @@ struct ToolGatewayStatusResponse {
 }
 
 async fn list_toolset_gateways_handler() -> Json<ToolGatewayStatusResponse> {
-    let config = rightkit_app_settings::agent_config::ConfigLoader::new().load_files_default();
+    let config = rightkit_agent_config::ConfigLoader::new().load_files_default();
     Json(ToolGatewayStatusResponse {
         gateways: tool_gateway_statuses(&config),
     })

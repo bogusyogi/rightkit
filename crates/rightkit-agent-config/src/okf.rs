@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::agent_config::{Frontmatter, InstructionFile, InstructionLoader, InstructionScope};
+use crate::{Frontmatter, InstructionFile, InstructionLoader, InstructionScope};
 
 pub const OKF_VERSION: &str = "0.1";
 

@@ -45,7 +45,7 @@ fn status_timestamp() -> String {
 fn resolve_configured_telegram_token(
     env_vars: &std::collections::HashMap<String, String>,
 ) -> Option<String> {
-    let loader = rightkit_app_settings::agent_config::ConfigLoader::new();
+    let loader = rightkit_agent_config::ConfigLoader::new();
     let config = loader.apply_env(loader.load_files_default(), env_vars);
     config
         .remote
@@ -175,7 +175,7 @@ fn remote_channels_payload(
         Vec<rightkit_bot_messaging::RemoteChannelDeliverySummary>,
     >,
 ) -> serde_json::Value {
-    let config = rightkit_app_settings::agent_config::ConfigLoader::new().load_files_default();
+    let config = rightkit_agent_config::ConfigLoader::new().load_files_default();
     let mut stored_by_id = stored_channels
         .iter()
         .map(|row| (row.id.as_str(), row))

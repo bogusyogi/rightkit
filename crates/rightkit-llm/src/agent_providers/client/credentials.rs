@@ -60,7 +60,7 @@ fn load_api_key_from_store(provider_id: &str) -> Option<String> {
 // API-key accounts (multi-account model)
 //
 // An API-key account is a registry entry (label, provider; see
-// `rightkit_app_settings::agent_config::accounts`) plus one secret in the OS credential store. The
+// `rightkit_agent_config::accounts`) plus one secret in the OS credential store. The
 // secret is keyed by account id, never by provider alone, so several accounts
 // per provider coexist. Nothing here reads the environment: an account either
 // has its stored key or it has none (no fallback to another account or to an
@@ -76,8 +76,8 @@ pub const ACCOUNT_KEY_SERVICE: &str = "rightkit-agent";
 /// `api_key/openai/work`. Returns `None` for any id that is not a well-formed
 /// API-key account id.
 pub fn account_key_name(account_id: &str) -> Option<String> {
-    if rightkit_app_settings::agent_config::accounts::account_kind_of(account_id)?
-        != rightkit_app_settings::agent_config::accounts::AccountKind::ApiKey
+    if rightkit_agent_config::accounts::account_kind_of(account_id)?
+        != rightkit_agent_config::accounts::AccountKind::ApiKey
     {
         return None;
     }

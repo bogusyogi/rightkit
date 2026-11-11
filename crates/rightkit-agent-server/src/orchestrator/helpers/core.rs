@@ -145,7 +145,7 @@ fn push_artifact(session: &LiveSession, artifact: ProtocolArtifact) {
 /// Persist a promoted model as a per-agent override in `~/.coderight/config.toml`
 /// so it becomes the role's model on the next daemon start.
 fn persist_agent_model(role: &str, model_id: &str) {
-    use rightkit_app_settings::agent_config::{AgentOverride, ConfigLoader};
+    use rightkit_agent_config::{AgentOverride, ConfigLoader};
     let loader = ConfigLoader::new();
     // Read-modify-write under the shared config lock: a concurrent save is merged in.
     let saved = loader.update_user(|cfg| {

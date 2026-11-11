@@ -178,7 +178,7 @@ pub fn sanitize_label(label: &str) -> Result<&str, ProfileStoreError> {
 /// The canonical root for managed profiles. Each provider gets its
 /// own subdirectory; per-profile directories live beneath that.
 pub fn managed_profile_root() -> PathBuf {
-    rightkit_app_settings::agent_config::state_root()
+    rightkit_agent_config::state_root()
         .unwrap_or_else(|| PathBuf::from(".").join(".rightkit"))
         .join("cli-profiles")
 }

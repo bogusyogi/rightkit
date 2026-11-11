@@ -25,7 +25,7 @@ sysinfo = { version = "0.40" }
 rightkit-app-host = { version = "0.1.0", path = "../rightkit-app-host" }
 rightkit-ai-accounts = { version = "0.1.0", path = "../rightkit-ai-accounts" }
 rightkit-device-link-types = { version = "0.1.0", path = "../rightkit-device-link-types" }
-rightkit-app-settings = { version = "0.3.0", path = "../rightkit-app-settings" }
+rightkit-app-settings = { version = "0.4.0", path = "../rightkit-app-settings" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
 rightkit-daemon = { version = "0.5.0", default-features = false, path = "../rightkit-daemon" }

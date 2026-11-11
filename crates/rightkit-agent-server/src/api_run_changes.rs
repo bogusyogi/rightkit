@@ -2079,14 +2079,13 @@ fn resolve_run_changes_root() -> PathBuf {
 }
 
 fn dirs_default_home() -> PathBuf {
-    if rightkit_app_settings::agent_config::state_root_is_isolated() {
-        if let Some(root) = rightkit_app_settings::agent_config::state_root() {
+    if rightkit_agent_config::state_root_is_isolated() {
+        if let Some(root) = rightkit_agent_config::state_root() {
             return root;
         }
     }
     {
-        rightkit_app_settings::agent_config::state_root()
-            .unwrap_or_else(|| PathBuf::from(".coderight"))
+        rightkit_agent_config::state_root().unwrap_or_else(|| PathBuf::from(".coderight"))
     }
 }
 

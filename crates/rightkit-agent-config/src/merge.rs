@@ -1,6 +1,6 @@
 //! Layered merge logic for [`CodeRightConfig`].
 
-use crate::agent_config::types::{
+use crate::types::{
     BudgetConfig, FeatureConfig, HostConfig, MemoryConfig, ModelConfig, OrchestrationConfig,
     PermissionsConfig, PromptConfig, RemoteConfig, SessionConfig, ToolsConfig, TuiConfig,
 };
@@ -25,7 +25,7 @@ pub fn extend_dedup<T: PartialEq + Clone>(base: Vec<T>, overlay: Vec<T>) -> Vec<
 /// strings and numbers but NOT for `bool`: `false` is both a legitimate value
 /// and `bool::default()`, so an overlay can turn a flag on but never off. Use
 /// `Option<bool>` plus [`option_scalar`] for flags instead — see
-/// [`crate::agent_config::ToolsConfig::lazy_tool_loading`].
+/// [`crate::ToolsConfig::lazy_tool_loading`].
 fn scalar<T: PartialEq + Default>(base: T, overlay: T) -> T {
     if overlay != T::default() {
         overlay
@@ -192,7 +192,7 @@ fn merge_orchestration(
         pre_gate_checks,
         conductor_routing: option_scalar(base.conductor_routing, overlay.conductor_routing),
         eval_hack_advisory: option_scalar(base.eval_hack_advisory, overlay.eval_hack_advisory),
-        routing: crate::agent_config::types::RoutingConfig {
+        routing: crate::types::RoutingConfig {
             capability_router: option_scalar(
                 base.routing.capability_router,
                 overlay.routing.capability_router,
@@ -236,7 +236,7 @@ pub struct MergeConflict {
 #[derive(Debug, Default, Clone)]
 pub struct MergeReport {
     pub conflicts: Vec<MergeConflict>,
-    pub provenance: HashMap<String, crate::agent_config::types::Provenance>,
+    pub provenance: HashMap<String, crate::types::Provenance>,
 }
 
 impl MergeReport {
@@ -262,8 +262,8 @@ pub trait TypedMerge: Sized {
 
 /// Validate a config after merging — fail-closed on any bounded-domain violation.
 pub fn validate_config(
-    config: &crate::agent_config::types::HostConfig,
-) -> Result<(), Vec<crate::agent_config::types::ValidationError>> {
+    config: &crate::types::HostConfig,
+) -> Result<(), Vec<crate::types::ValidationError>> {
     config.validate()
 }
 
@@ -331,13 +331,13 @@ pub fn merge_with_report(
                 overlay_source: overlay_source.to_string(),
             });
         }
-        let provenance = crate::agent_config::types::Provenance::new(
+        let provenance = crate::types::Provenance::new(
             if overlay_val.is_some() {
-                crate::agent_config::types::ConfigSource::Workspace
+                crate::types::ConfigSource::Workspace
             } else if base_val.is_some() {
-                crate::agent_config::types::ConfigSource::User
+                crate::types::ConfigSource::User
             } else {
-                crate::agent_config::types::ConfigSource::Default
+                crate::types::ConfigSource::Default
             },
             field,
         );

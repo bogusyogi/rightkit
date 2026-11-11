@@ -154,7 +154,7 @@ fn default_skill_dirs() -> Vec<PathBuf> {
             }
         }
     }
-    if let Some(root) = rightkit_app_settings::agent_config::state_root() {
+    if let Some(root) = rightkit_agent_config::state_root() {
         dirs.push(root.join("skills"));
     }
     dirs

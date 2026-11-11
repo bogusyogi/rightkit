@@ -100,7 +100,7 @@ pub(crate) fn runtime_task_signals_from_parts(
 #[derive(Debug, Clone)]
 pub struct RoutingInputs<'a> {
     pub role: Option<&'a str>,
-    pub workspace_config: &'a rightkit_app_settings::agent_config::HostConfig,
+    pub workspace_config: &'a rightkit_agent_config::HostConfig,
     pub goal_text: &'a str,
     pub scoped_files: &'a [String],
     pub tool_call_density: u32,

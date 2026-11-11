@@ -39,7 +39,7 @@ fn cli_remote_setup(
     enable_web: bool,
     disable_web: bool,
 ) -> i32 {
-    let loader = rightkit_app_settings::agent_config::ConfigLoader::new();
+    let loader = rightkit_agent_config::ConfigLoader::new();
     // Read-modify-write under the shared config lock: a concurrent save is merged in.
     let next = match loader.update_user(|config| {
         let current = std::mem::take(config);
@@ -64,7 +64,7 @@ fn cli_remote_setup(
 }
 
 fn remote_setup_summary_payload(
-    cfg: &rightkit_app_settings::agent_config::HostConfig,
+    cfg: &rightkit_agent_config::HostConfig,
 ) -> serde_json::Value {
     serde_json::json!({
         "saved": true,
@@ -80,7 +80,7 @@ fn remote_setup_summary_payload(
 }
 
 fn remote_setup_next_steps(
-    cfg: &rightkit_app_settings::agent_config::HostConfig,
+    cfg: &rightkit_agent_config::HostConfig,
 ) -> Vec<&'static str> {
     if cfg.remote.telegram_token.is_none() {
         return vec![
@@ -107,13 +107,13 @@ fn remote_setup_next_steps(
 }
 
 fn apply_remote_setup_to_config(
-    mut cfg: rightkit_app_settings::agent_config::HostConfig,
+    mut cfg: rightkit_agent_config::HostConfig,
     telegram_token: Option<&str>,
     allowed_users: &[u64],
     clear_token: bool,
     enable_web: bool,
     disable_web: bool,
-) -> rightkit_app_settings::agent_config::HostConfig {
+) -> rightkit_agent_config::HostConfig {
     if clear_token {
         cfg.remote.telegram_token = None;
     } else if let Some(token) = telegram_token
@@ -134,7 +134,7 @@ fn apply_remote_setup_to_config(
 }
 
 fn user_config_path() -> Option<std::path::PathBuf> {
-    rightkit_app_settings::agent_config::state_root().map(|root| root.join("config.toml"))
+    rightkit_agent_config::state_root().map(|root| root.join("config.toml"))
 }
 
 async fn cli_remote_validate(telegram_token: Option<String>, api_base: &str) -> i32 {

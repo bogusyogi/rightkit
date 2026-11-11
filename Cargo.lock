@@ -9918,6 +9918,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-agent-config"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "rightkit-agent-policy",
+ "rightkit-app-settings",
+ "rightkit-daemon",
+ "rightkit-fs",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "toml 1.2.0+spec-1.1.0",
+]
+
+[[package]]
 name = "rightkit-agent-demo"
 version = "0.1.0"
 dependencies = [
@@ -9952,9 +9967,9 @@ dependencies = [
 name = "rightkit-agent-engine-api-integrations"
 version = "0.1.2"
 dependencies = [
+ "rightkit-agent-config",
  "rightkit-agent-engine-runtime-middleware",
  "rightkit-agent-plugins",
- "rightkit-app-settings",
  "serde",
  "serde_json",
 ]
@@ -10248,6 +10263,7 @@ dependencies = [
  "libc 0.2.191",
  "mach2",
  "rightkit-adapt",
+ "rightkit-agent-config",
  "rightkit-agent-engine-api-integrations",
  "rightkit-agent-engine-api-platform",
  "rightkit-agent-engine-api-sessions",
@@ -10267,7 +10283,6 @@ dependencies = [
  "rightkit-agent-recipes",
  "rightkit-agent-tools",
  "rightkit-agents",
- "rightkit-app-settings",
  "rightkit-bot-messaging",
  "rightkit-child-process",
  "rightkit-crash",
@@ -10340,13 +10355,13 @@ dependencies = [
  "libc 0.2.191",
  "portable-pty",
  "regex",
+ "rightkit-agent-config",
  "rightkit-agent-engine-history",
  "rightkit-agent-engine-protocol",
  "rightkit-agent-engine-runtime-resources",
  "rightkit-agent-host-traits",
  "rightkit-agent-plugins",
  "rightkit-agent-policy",
- "rightkit-app-settings",
  "rightkit-automation",
  "rightkit-browser",
  "rightkit-child-process",
@@ -10394,9 +10409,9 @@ version = "0.2.4"
 dependencies = [
  "async-trait",
  "libc 0.2.191",
+ "rightkit-agent-config",
  "rightkit-agent-engine-protocol",
  "rightkit-agent-tools",
- "rightkit-app-settings",
  "rightkit-child-process",
  "rightkit-crypto",
  "rightkit-fs",
@@ -10482,18 +10497,14 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-settings"
-version = "0.3.5"
+version = "0.4.0"
 dependencies = [
- "dirs",
- "rightkit-agent-policy",
  "rightkit-credentials",
- "rightkit-daemon",
  "rightkit-db",
  "rightkit-fs",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
- "toml 1.2.0+spec-1.1.0",
 ]
 
 [[package]]
@@ -11880,9 +11891,9 @@ dependencies = [
  "bytes",
  "dirs",
  "futures",
+ "rightkit-agent-config",
  "rightkit-agent-engine-protocol",
  "rightkit-agent-policy",
- "rightkit-app-settings",
  "rightkit-child-process",
  "rightkit-credentials",
  "rightkit-crypto",
@@ -11982,9 +11993,9 @@ dependencies = [
  "futures-util",
  "getrandom 0.4.3",
  "http",
+ "rightkit-agent-config",
  "rightkit-agent-engine-protocol",
  "rightkit-agent-engine-runtime-resources",
- "rightkit-app-settings",
  "rightkit-credentials",
  "rightkit-fs",
  "rightkit-http",
@@ -12076,7 +12087,6 @@ dependencies = [
  "rightkit-agent-engine-runtime-resources",
  "rightkit-agent-policy",
  "rightkit-agent-tools",
- "rightkit-app-settings",
  "rightkit-child-process",
  "rightkit-time",
  "serde",

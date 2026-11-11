@@ -17,7 +17,7 @@ pub(crate) fn default_mcp_user_config_path() -> PathBuf {
     std::env::var_os("RIGHTKIT_MCP_CONFIG")
         .map(PathBuf::from)
         .or_else(|| {
-            rightkit_app_settings::agent_config::os_home_dir()
+            rightkit_agent_config::os_home_dir()
                 .map(|home| home.join(".config").join("coderight").join("mcp.json"))
         })
         .unwrap_or_else(|| {
@@ -234,7 +234,7 @@ fn mcp_trust_presets_json() -> serde_json::Value {
 /// Home directory used to locate the persisted MCP trust-approval store,
 /// mirroring `rightkit_mcp::agent_mcp::config::home_dir` (crates/mcp/src/config.rs).
 fn mcp_trust_store_home_dir() -> Option<PathBuf> {
-    rightkit_app_settings::agent_config::os_home_dir()
+    rightkit_agent_config::os_home_dir()
 }
 
 /// Whether the workspace is explicitly trusted in the persisted workspace-trust
@@ -243,8 +243,8 @@ fn mcp_trust_store_home_dir() -> Option<PathBuf> {
 /// contacted from a trusted workspace; an unknown, blank or non-`trusted`
 /// workspace fails closed (A203).
 pub(crate) fn workspace_project_config_trusted(workspace_root: &str) -> bool {
-    rightkit_app_settings::agent_config::is_workspace_trusted_in(
-        &rightkit_app_settings::agent_config::workspace_trust_store_path(),
+    rightkit_agent_config::is_workspace_trusted_in(
+        &rightkit_agent_config::workspace_trust_store_path(),
         workspace_root,
     )
 }

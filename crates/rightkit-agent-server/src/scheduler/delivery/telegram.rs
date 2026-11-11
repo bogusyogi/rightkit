@@ -58,7 +58,7 @@ pub(super) fn telegram_chat_id(target: Option<&str>) -> Result<i64, String> {
 
 fn resolve_configured_telegram_token() -> Option<String> {
     let env_vars = std::env::vars().collect::<HashMap<_, _>>();
-    let loader = rightkit_app_settings::agent_config::ConfigLoader::new();
+    let loader = rightkit_agent_config::ConfigLoader::new();
     let config = loader.apply_env(loader.load_files_default(), &env_vars);
     config
         .remote

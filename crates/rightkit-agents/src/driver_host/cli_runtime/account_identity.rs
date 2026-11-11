@@ -176,7 +176,7 @@ pub fn list_subscription_accounts() -> Vec<SubscriptionAccount> {
             };
             let fingerprint = identity.as_ref().and_then(|i| i.fingerprint(provider));
             out.push(SubscriptionAccount {
-                id: rightkit_app_settings::agent_config::accounts::subscription_account_id(
+                id: rightkit_agent_config::accounts::subscription_account_id(
                     provider,
                     &record.label,
                 ),
@@ -225,9 +225,9 @@ pub fn identity_for_profile(profile_id: &str) -> Option<crate::driver_host::Clau
         provider_id: provider.to_string(),
         email: identity.as_ref().and_then(|i| i.email.clone()),
         organization: identity.and_then(|i| i.organization),
-        account_id: Some(
-            rightkit_app_settings::agent_config::accounts::subscription_account_id(provider, label),
-        ),
+        account_id: Some(rightkit_agent_config::accounts::subscription_account_id(
+            provider, label,
+        )),
         label: Some(label.to_string()),
         kind: Some("subscription".to_string()),
     })

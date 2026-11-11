@@ -283,7 +283,7 @@ pub fn trust_store_for(
     if let Some(store) = &ctx.trust_store {
         return Ok(store.clone());
     }
-    if rightkit_app_settings::agent_config::is_workspace_trusted_in(
+    if rightkit_agent_config::is_workspace_trusted_in(
         trust_store_path,
         &ctx.workspace_root.to_string_lossy(),
     ) {

@@ -1,4 +1,4 @@
-//! host_config — layered TOML configuration for the host app.
+//! Layered TOML configuration for an agent host app. See README.md.
 //!
 //! Merge precedence (later overrides earlier for scalars; lists extend):
 //! 1. built-in defaults
@@ -8,7 +8,6 @@
 //! 5. session overrides (a passed-in map)
 
 pub mod accounts;
-#[allow(clippy::module_inception)] // public path agent_config::agent_config is part of the API
 pub mod agent_config;
 pub mod instructions;
 pub mod licence_env;

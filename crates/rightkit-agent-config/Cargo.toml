@@ -1,0 +1,28 @@
+[package]
+name = "rightkit-agent-config"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Layered TOML configuration for an agent host: defaults, user, workspace, environment and session layers, state root, workspace trust, instructions and presets."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["agent", "config", "toml", "layered"]
+categories = ["config"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[features]
+default = []
+# Read host environment overrides (for example `RIGHTKIT_WORKSPACE_TRUST_STORE`); was rightkit-app-settings `agent_config-host-env`.
+host-env = []
+
+[dependencies]
+rightkit-app-settings = { version = "0.4.0", path = "../rightkit-app-settings" }
+rightkit-agent-policy = { version = "0.1.0", path = "../rightkit-agent-policy" }
+rightkit-daemon = { version = "0.5.1", default-features = false, features = ["local"], path = "../rightkit-daemon" }
+rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "lock", "json", "digest", "transaction"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["raw_value"] }
+thiserror = "2"
+toml = "1.1"
+dirs = "7"

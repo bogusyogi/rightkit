@@ -183,7 +183,7 @@ impl AccountStore {
 
     /// `<state_root>/accounts.json`.
     pub fn default_location() -> Result<Self, AccountsError> {
-        let root = crate::agent_config::state_root().ok_or(AccountsError::NoStateRoot)?;
+        let root = crate::state_root().ok_or(AccountsError::NoStateRoot)?;
         Ok(Self::at(root.join(FILE_NAME)))
     }
 
@@ -207,7 +207,7 @@ impl AccountStore {
         }
         let body = serde_json::to_string_pretty(file)
             .map_err(|e| AccountsError::Malformed(e.to_string()))?;
-        crate::atomic_write(&self.path, body.as_bytes())?;
+        rightkit_app_settings::atomic_write(&self.path, body.as_bytes())?;
         Ok(())
     }
 
