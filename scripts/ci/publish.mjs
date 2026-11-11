@@ -28,6 +28,7 @@ import { readIncompleteReport } from "./exports-import-effects.mjs";
 import { NATIVE_HELPER } from "./consumer-recipes.mjs";
 import { stageSourceVersions } from "../../packages/release/rightkit-sync.mjs";
 import { crateWorkspaces } from "../../packages/release/crate-workspaces.mjs";
+import { owningWorkspace } from "./crate-scan-workspaces.mjs";
 import { pnpmBuildClosureArgs } from "./select.mjs";
 import { archiveScanProblems, checkNpmTarball, childEnv, integrity, LINUX_HOST, linuxRequiredFor, loadSealed, PASS_STATUSES, sha, TOKEN_VARS } from "./upload.mjs";
 import { registrySpecProblem } from "./registry-spec.mjs";
@@ -139,8 +140,8 @@ export function crateWorkspaceFromMetadata(meta, { prefix = "" } = {}) {
     if (members.size && !members.has(pkg.id)) continue;
     const manifest = String(pkg.manifest_path).replace(/\\/g, "/");
     const manifestDir = path.posix.dirname(manifest);
-    // `prefix` is the workspace root's repository-relative directory (crates/<x>): each crate is its own workspace, so the
-    // package sits at the workspace root and its unit dir is the prefix itself (#1285).
+    // `prefix` is the workspace root's repository-relative directory: empty for the repository's root workspace (rightkit#1505), whose
+    // members sit below it (crates/<x>), and crates/<x> for a crate that is its own workspace, whose package sits at the workspace root.
     const dir = prefix
       ? (manifestDir.startsWith(`${root}/`) ? `${prefix}/${manifestDir.slice(root.length + 1)}` : prefix)
       : (manifestDir.startsWith(`${root}/`) ? manifestDir.slice(root.length + 1) : manifestDir);
@@ -161,17 +162,32 @@ export function readCargoMetadata(root = ROOT, spawn = spawnSync, args = []) {
   return JSON.parse(result.stdout);
 }
 
-/** `cargo metadata` of every crate workspace (each crates/<x> is its own workspace and lock): Map crate name -> { dir, lock, metadata }. */
+/**
+ * `cargo metadata` of the Cargo workspace that owns each crate: Map crate name -> { dir, workspace, lock, metadata }. RightKit is one
+ * workspace with one root Cargo.lock (rightkit#1505), so its members share one metadata read and `workspace` is "."; a crate that declares
+ * its own `[workspace]` (crates/rightkit-mesh-ffi) keeps its own directory and lock (crate-scan-workspaces.mjs owningWorkspace, as gate.mjs).
+ */
 export function readCrateMetadata(root = ROOT, spawn = spawnSync) {
   const out = new Map();
-  for (const w of crateWorkspaces(root)) out.set(w.name, { dir: w.dir, lock: w.lock, metadata: readCargoMetadata(path.join(root, w.dir), spawn) });
+  const byWorkspace = new Map();
+  for (const w of crateWorkspaces(root)) {
+    const workspace = owningWorkspace(root, w.dir);
+    if (!byWorkspace.has(workspace)) byWorkspace.set(workspace, readCargoMetadata(path.join(root, workspace), spawn));
+    out.set(w.name, { dir: w.dir, workspace, lock: path.posix.join(workspace, "Cargo.lock"), metadata: byWorkspace.get(workspace) });
+  }
   return out;
 }
 
-/** The units of every crate workspace: Map crate name -> unit (dir is crates/<x>). */
+/** The units of every crate workspace: Map crate name -> unit (dir is the crate's own repository-relative directory, crates/<x>). */
 export function crateUnitsFromMetadata(perCrate) {
   const units = new Map();
-  for (const { dir, metadata } of perCrate.values()) for (const [name, unit] of crateWorkspaceFromMetadata(metadata, { prefix: dir })) units.set(name, unit);
+  const seen = new Set();
+  for (const { dir, workspace = dir, metadata } of perCrate.values()) {
+    // One metadata document per workspace: its members are read once, each at its own directory below the workspace root.
+    if (seen.has(workspace)) continue;
+    seen.add(workspace);
+    for (const [name, unit] of crateWorkspaceFromMetadata(metadata, { prefix: workspace === "." ? "" : workspace })) units.set(name, unit);
+  }
   return units;
 }
 
@@ -535,7 +551,8 @@ function packCrates({ units, root, outDir, env, spawn, perCrate }) {
       const crate = `${unit.name}-${unit.version}.crate`;
       const owner = perCrate.get(unit.name);
       if (!owner) throw new Error(`${unit.name}: no crate workspace metadata`);
-      // Each crate is its own workspace with its own Cargo.lock (#1285): package from that workspace root, into its own target directory.
+      // Package from the crate's directory of the export: cargo finds the workspace that owns it (the root workspace and its one Cargo.lock,
+      // rightkit#1505; the crate's own for a crate that declares one) and builds into that workspace's checkout target directory.
       const packed = spawn("cargo", ["package", "--locked", "-p", unit.name], { cwd: path.join(exported, owner.dir), stdio: "inherit", env: { ...env, CARGO_TARGET_DIR: owner.metadata.target_directory } });
       if (packed.error || packed.status !== 0) throw new Error(`cargo package failed for ${unit.name}; it compiles and verifies the crate without any token`);
       const source = path.join(owner.metadata.target_directory, "package", crate);
@@ -651,7 +668,8 @@ function gateEvidence(env, spawn, registry, commit) {
   return { unitEvidence, summary, sourceGate: { summarySha256, unitEvidenceSha256, dependentClosure: unitEvidence.dependentClosure ?? null, tree } };
 }
 
-function canonicalPublicationEvidence({ unit, row, summary, registry, commit, tree, env }) {
+/** The native run record of one verified unit, from the gate's own summary of this host (exported for its test). */
+export function canonicalPublicationEvidence({ unit, row, summary, registry, commit, tree, env }) {
   if (!row) throw new Error(`${unit.name}: no gate unit evidence exists for publication verification`);
   if (["allowed-exclusion", "allowed-no-test"].includes(row.status)) {
     return { publicationEvidence: null, publicationEvidenceWaiver: row.status };
@@ -665,8 +683,11 @@ function canonicalPublicationEvidence({ unit, row, summary, registry, commit, tr
   }
   const passed = results.reduce((sum, result) => sum + result.executed, 0);
   const failed = results.reduce((sum, result) => sum + result.failed, 0);
-  if (passed <= 0 || failed !== 0 || results.some((result) => result.ok !== true)) {
-    throw new Error(`${unit.name}: gate summary does not prove a positive passing native test run`);
+  // End-to-end tests only (GATE-CONTRACT GC-A08; Adrian, 2026-11-03): a unit whose test commands ran no test, with no failure, skip or ignore,
+  // qualifies as the gate's own verdict says (test-results.mjs judgeUnit). Zero tests beside a skip or an ignore is never a pass.
+  const ranNone = passed === 0 && results.every((result) => !(result.skipped > 0) && !(result.ignored > 0));
+  if (!(passed > 0 || ranNone) || failed !== 0 || results.some((result) => result.ok !== true)) {
+    throw new Error(`${unit.name}: gate summary does not prove a passing native test run (a positive count, or no test with nothing failed, skipped or ignored)`);
   }
   const features = featureLabels(registry, unit.name, results.map((result) => result.command));
   const operator = `${env.GITHUB_ACTOR ?? ""}/${env.GITHUB_JOB ?? ""}`;

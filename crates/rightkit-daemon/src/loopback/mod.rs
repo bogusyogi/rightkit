@@ -17,7 +17,7 @@
 //!   `remote`; it gets its own rule for this feature.
 //!
 //! What it reuses from the rest of the crate rather than re-implementing: the typed error and its
-//! status table ([`ServiceError`](crate::ServiceError), `contract::status_for_error`), the
+//! status table ([`ServiceError`], `contract::status_for_error`), the
 //! failed-authentication limiter (`FailLimiter`), the JSON depth and node guard (`chunk`), the
 //! atomic owner-only record write (`record::write_atomic`), and the process-birth identity check
 //! (`rightkit-child-process`). The `remote` router itself is axum and device-signature bound, so it

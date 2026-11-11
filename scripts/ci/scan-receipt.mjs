@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { digestScanSet, requiredScanIds, requiredScanProblems } from "../../packages/release/scan-digest.mjs";
 import { effectiveCrateFeatures } from "../../packages/release/feature-coverage.mjs";
 import { LOCAL_HOST_OS, LOCAL_SCAN_CLASSES, LOCAL_SCAN_SCHEMA, localScanShapeProblems } from "./upload.mjs";
+import { owningWorkspace } from "./crate-scan-workspaces.mjs";
 
 export const SCAN_RECEIPT_SCHEMA = "rightkit.scan-receipt/2";
 export const SCAN_RECEIPT_FILE = "scan-receipt.json";
@@ -18,33 +19,42 @@ export const SCAN_TOOL_PINS = Object.freeze({ "cargo-deny": "0.20.2", "cargo-aud
 export const ACTIONLINT_SHA256 = "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8";
 // A plan always contains these, whatever the units (workflows and their YAML); a receipt without them is not evidence.
 export const REQUIRED_SCAN_IDS = Object.freeze(["actionlint", "yaml-parse"]);
-// Every crate is its own Cargo workspace (rightkit#1285), so these three run once per crate unit and carry the crate name
-// (`cargo-metadata:<crate>`, packages/release/scan-digest.mjs requiredScanIds per-crate mode). A candidate's crate units are the keys of its
-// per-crate lock binding, so a receipt must hold each of them for every bound crate and nothing weaker satisfies it.
+// These three run once per Cargo workspace. RightKit is one workspace with one root Cargo.lock (rightkit#1505): a crate unit bound to the
+// root lock owes the root workspace's scans, whose ids carry no suffix (`cargo-metadata`), as planScans names them and as
+// packages/release/scan-digest.mjs requiredScanIds does for a root workspace. A crate that is its own workspace (its own lock,
+// crates/rightkit-mesh-ffi) owes its own, which carry the crate name (`cargo-metadata:<crate>`). A candidate's crate units are the keys
+// of its lock binding, so a receipt must hold the scans of the workspace of every bound crate and nothing weaker satisfies it.
 export const CRATE_SCAN_PREFIXES = Object.freeze(["cargo-metadata", "cargo-deny", "cargo-audit"]);
-/** The per-crate scan ids of crate `units`, sorted. */
+/** The lock of the repository's root Cargo workspace. */
+export const ROOT_CARGO_LOCK = "Cargo.lock";
+/** The per-crate scan ids of crate `units` that are their own Cargo workspace, sorted. */
 export const crateScanIds = (units) => [...new Set(units)].sort().flatMap((unit) => CRATE_SCAN_PREFIXES.map((prefix) => `${prefix}:${unit}`));
-/** Every scan id a receipt must hold for a candidate whose crate units are the keys of `cargoLocks`. */
-export const requiredReceiptScanIds = (cargoLocks) => [...REQUIRED_SCAN_IDS, ...crateScanIds(Object.keys(cargoLocks ?? {}))];
+/** Every scan id a receipt must hold for a candidate whose crate units are the keys of `cargoLocks` ({ "<unit>": { path, sha256 } }). */
+export const requiredReceiptScanIds = (cargoLocks) => {
+  const names = Object.keys(cargoLocks ?? {});
+  const own = names.filter((name) => cargoLocks[name]?.path !== ROOT_CARGO_LOCK);
+  return [...REQUIRED_SCAN_IDS, ...(own.length < names.length ? CRATE_SCAN_PREFIXES : []), ...crateScanIds(own)];
+};
 // The scans job runs on Ubuntu and proves class A only. Class B (compile, lint) runs in the native verify jobs on their own
 // hosts, because native crates do not build on Linux. A receipt that records any other class set is not this job's evidence.
 export const SCAN_RECEIPT_CLASSES = Object.freeze(["A"]);
 
-// rightkit#1285: every crate is its own Cargo workspace with its own lock. A receipt binds each crate unit to that lock:
-// cargoLocks = { "<unit>": { path: "crates/<x>/Cargo.lock", sha256 } }. npm units have no Cargo lock and add nothing.
+// A receipt binds each crate unit to the lock of the Cargo workspace that owns it: the root Cargo.lock for a member of the root
+// workspace (rightkit#1505), crates/<x>/Cargo.lock for a crate that is its own workspace:
+// cargoLocks = { "<unit>": { path: "Cargo.lock" | "crates/<x>/Cargo.lock", sha256 } }. npm units have no Cargo lock and add nothing.
 const sortedLocks = (locks) => JSON.stringify(Object.keys(locks ?? {}).sort().map((name) => [name, locks[name]?.path, locks[name]?.sha256]));
 
 /**
- * The per-crate lock bindings of `units`: for every unit that is a crate workspace of `workspaces` (crateWorkspaces()), the
- * lock path and the SHA-256 of `read(lockPath)` (a Buffer; throws or returns null when absent). With registry "crates" every
- * unit must be a crate workspace with a lock; npm units are skipped.
+ * The per-crate lock bindings of `units`: for every unit that is a crate of `workspaces` ([{ name, lock }], candidateCrateWorkspaces()),
+ * the path of the lock that governs it and the SHA-256 of `read(lockPath)` (a Buffer; throws or returns null when absent). With
+ * registry "crates" every unit must be a crate with a governing lock; npm units are skipped.
  */
 export function cargoLocksFor({ units, registry, workspaces, read }) {
   const out = {};
   const byName = new Map(workspaces.map((w) => [w.name, w]));
   for (const name of [...units].sort()) {
     const workspace = byName.get(name);
-    if (!workspace) { requireThat(registry !== "crates", `crate unit ${name} has no crates/<x> workspace to bind`); continue; }
+    if (!workspace) { requireThat(registry !== "crates", `crate unit ${name} has no crates/<x> manifest to bind`); continue; }
     let bytes = null;
     try { bytes = read(workspace.lock); } catch { bytes = null; }
     requireThat(bytes !== null && bytes !== undefined, `crate unit ${name} has no ${workspace.lock} to bind`);
@@ -54,9 +64,12 @@ export function cargoLocksFor({ units, registry, workspaces, read }) {
 }
 
 /**
- * `[{ name, dir, lock }]` of every crates/<x>/Cargo.toml in a checked-out candidate. The package name is read with the same
- * pattern gate.mjs rustMembers uses, not a TOML parser: this module runs in jobs whose sparse checkout holds only the crate
- * manifests and locks (crates/<x>/Cargo.toml and crates/<x>/Cargo.lock) and installs nothing.
+ * `[{ name, dir, workspace, lock }]` of every crates/<x>/Cargo.toml in a checked-out candidate. `workspace` is the Cargo workspace that
+ * owns the crate (crate-scan-workspaces.mjs owningWorkspace, as gate.mjs and run-deterministic-scans.mjs plan its scans): "." for a
+ * member of the root workspace, whose lock is the root Cargo.lock (rightkit#1505), the crate's own directory for a crate that declares
+ * `[workspace]` or holds its own lock. The package name is read with the same pattern gate.mjs rustMembers uses, not a TOML parser: this
+ * module runs in jobs whose sparse checkout holds only the root and crate manifests and locks (Cargo.toml, Cargo.lock,
+ * crates/<x>/Cargo.toml and crates/<x>/Cargo.lock) and installs nothing.
  */
 export function candidateCrateWorkspaces(candidateDir) {
   const cratesDir = path.join(candidateDir, "crates");
@@ -67,7 +80,9 @@ export function candidateCrateWorkspaces(candidateDir) {
     const manifest = path.join(cratesDir, entry, "Cargo.toml");
     if (!fs.existsSync(manifest)) continue;
     const name = /^\[package\][^[]*?^name\s*=\s*"([^"]+)"/ms.exec(fs.readFileSync(manifest, "utf8"))?.[1];
-    if (name) out.push({ name, dir: `crates/${entry}`, lock: `crates/${entry}/Cargo.lock` });
+    if (!name) continue;
+    const workspace = owningWorkspace(candidateDir, `crates/${entry}`);
+    out.push({ name, dir: `crates/${entry}`, workspace, lock: workspace === "." ? ROOT_CARGO_LOCK : `${workspace}/Cargo.lock` });
   }
   return out;
 }

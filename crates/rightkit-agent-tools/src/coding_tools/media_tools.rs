@@ -1,6 +1,7 @@
 //! `media_tools` — registers the `host_media` crate's native media
 //! tools (OCR / web-extract / media-fetch / ffmpeg-extract)
-//! as first-class agent tools in the [`ToolRegistry`].
+//! as first-class agent tools in the
+//! [`ToolRegistry`](crate::coding_tools::registry::ToolRegistry).
 //!
 //! WS-7, FEATURE-MATRIX `media / HR-SR tool coverage`. The
 //! `host_media` crate already builds the `NativeMediaTool`

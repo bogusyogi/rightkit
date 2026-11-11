@@ -1,5 +1,5 @@
 //! Event streams that resume from the last sequence seen (rightkit#1120): the host side over
-//! [`EventLog`](crate::event_log::EventLog) and the client [`ReplayStream`].
+//! [`EventLog`] and the client replay stream ([`run_replay_stream`]).
 //!
 //! The contract both halves keep:
 //!
@@ -103,7 +103,7 @@ pub fn replay_response(log: Arc<EventLog>, request: &Request, topics: Vec<String
     }))
 }
 
-/// What a [`ReplayStream`] reports.
+/// What a replay stream ([`run_replay_stream`]) reports.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum ReplayEvent {
@@ -122,7 +122,7 @@ pub enum ReplayEvent {
     Disconnected { error: String, retry_in: Duration },
 }
 
-/// How a [`ReplayStream`] connects and backs off.
+/// How a replay stream ([`run_replay_stream`]) connects and backs off.
 #[derive(Debug, Clone)]
 pub struct ReplayConfig {
     /// The daemon's loopback port.

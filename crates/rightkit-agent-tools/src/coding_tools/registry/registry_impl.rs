@@ -1251,7 +1251,7 @@ fn advertised_builtin_names() -> std::collections::HashSet<&'static str> {
 
 /// Metadata-only view of the default tool catalog. Frontends consume this
 /// instead of constructing the executable registry authority themselves —
-/// it is answered from [`BUILTIN_CAPABILITY_META`], so no tool handler is
+/// it is answered from `BUILTIN_CAPABILITY_META`, so no tool handler is
 /// instantiated for a capability listing.
 pub fn default_tool_capabilities() -> Vec<ToolCapability> {
     let advertised = advertised_builtin_names();

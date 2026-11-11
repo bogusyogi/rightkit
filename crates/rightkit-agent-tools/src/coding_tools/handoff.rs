@@ -9,7 +9,7 @@
 //!
 //! # Never both own it
 //!
-//! [`HandoffController`] tracks one [`HandoffState`] per session. A handoff
+//! [`HandoffController`] tracks one `HandoffState` per session. A handoff
 //! goes through two phases before the destination is allowed to
 //! resume:
 //!

@@ -1,0 +1,1152 @@
+[
+  {
+    "package": "rightkit-tauri-shell",
+    "kind": "cargo",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "crates/rightkit-tauri-shell"
+    ],
+    "feeds": {
+      "scraperight": 901,
+      "mailright": 902,
+      "viewright": 2641,
+      "genright": 280,
+      "cutright": 276,
+      "pulse": 2033,
+      "heardright": 5658,
+      "coderight": 4608
+    },
+    "basis": "fresh; absorbed each app's host needs as modules",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right design and all apps call it, but one 25k-line mandatory crate also holds viewer, overlay and engine hosting; tray and IPC-policy gaps remain.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "hr-review-settings-onboarding-shell.md s4: tray left-click hook (H5), close-behaviour setting (H9); used lifecycle-only"
+      },
+      "viewright": {
+        "fit": "fits",
+        "note": "uses preview/site/stream/broker/pdf_host/update/host; app files are configuration and menus"
+      },
+      "pulse": {
+        "fit": "fits",
+        "note": "hub fits; the non-Tauri Windows notch cannot use this crate (see autostart, app-update)"
+      },
+      "coderight": {
+        "fit": "gaps",
+        "note": "own ipc_policy.rs allowlist beside the shell caller gate; still on tauri http/dialog/process plugins"
+      },
+      "mailright": {
+        "fit": "fits",
+        "note": "instance, open_url, notify, idle"
+      },
+      "genright": {
+        "fit": "fits",
+        "note": "Shell::builder, engine"
+      }
+    },
+    "boundary": [
+      "viewer hosting (preview, site, stream, broker, pdf_host, print) used by ViewRight only; should be a feature group or sibling crate",
+      "engine.rs may overlap rightkit-engine-host and rightkit-sidecar (suspicion)",
+      "mapped files that are not shell code: HeardRight helper files (H15), Pulse hub license/legal/onboarding hosts, CodeRight api_notifications.rs",
+      "apps still carry Tauri plugins the shell should replace (dialog, http, os, process)"
+    ],
+    "actions": [
+      "add a custom tray left-click action",
+      "state core vs optional host modules; gate or split viewer and overlay hosts",
+      "settle one IPC allowlist model against CodeRight ipc_policy.rs",
+      "publish 0.7.x"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "@rightkit/tauri-shell",
+    "kind": "npm",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "packages/tauri-shell"
+    ],
+    "feeds": {},
+    "basis": "fresh typed renderer bridge for the crate",
+    "referenceApp": "viewright",
+    "shape": "best",
+    "shapeReason": "Every app that uses it calls createShell the same way; no divergence found.",
+    "apps": {
+      "heardright": {
+        "fit": "n/a",
+        "note": "not covered by the HeardRight reviews"
+      },
+      "viewright": {
+        "fit": "fits",
+        "note": "createShell, EVENTS, PREVIEW_COMMANDS"
+      },
+      "pulse": {
+        "fit": "fits",
+        "note": "createShell"
+      },
+      "coderight": {
+        "fit": "fits",
+        "note": "createShell, tauriTransport"
+      },
+      "genright": {
+        "fit": "fits",
+        "note": "createShell"
+      },
+      "mailright": {
+        "fit": "n/a",
+        "note": "uses @rightkit/tauri instead"
+      }
+    },
+    "boundary": [
+      "overlaps @rightkit/tauri: two renderer bridges for one native shell"
+    ],
+    "actions": [],
+    "depth": "light",
+    "confidence": "medium"
+  },
+  {
+    "package": "@rightkit/tauri",
+    "kind": "npm",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "packages/tauri"
+    ],
+    "feeds": {
+      "postright": 133,
+      "scraperight": 248,
+      "mailright": 559,
+      "genright": 192
+    },
+    "basis": "fresh typed adapters for device, logs, diagnostics commands",
+    "referenceApp": "pulse",
+    "shape": "wrong",
+    "shapeReason": "Exports one constructor per product (createViewRightTauriClient, createHeardRightTauriClient, ...), so the shared package names its consumers. The generic constructor is the right API.",
+    "apps": {
+      "heardright": {
+        "fit": "n/a",
+        "note": "not covered by the HeardRight reviews"
+      },
+      "viewright": {
+        "fit": "n/a",
+        "note": "live pinned 0.1.1; survey tree no longer imports it"
+      },
+      "pulse": {
+        "fit": "fits",
+        "note": "generic createRightKitTauriClient"
+      },
+      "coderight": {
+        "fit": "n/a",
+        "note": "dependency declared, not imported"
+      },
+      "mailright": {
+        "fit": "gaps",
+        "note": "uses per-app constructor createMailRightTauriClient"
+      }
+    },
+    "boundary": [
+      "per-app constructors and rightSuiteTauriAppConfigs are product knowledge in the package",
+      "duplicates the role of @rightkit/tauri-shell"
+    ],
+    "actions": [
+      "remove per-app constructors",
+      "merge into @rightkit/tauri-shell or reduce to defineTauriCommands and createNativeFetch"
+    ],
+    "depth": "light",
+    "confidence": "medium"
+  },
+  {
+    "package": "@rightkit/react-shell",
+    "kind": "npm",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "packages/react-shell"
+    ],
+    "feeds": {
+      "postright": 350,
+      "scraperight": 4155,
+      "mailright": 2464,
+      "genright": 788,
+      "coderight": 4054
+    },
+    "basis": "fresh component set",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "AppShell, AppFrame and bare Titlebar cover all three frame styles in use; small gaps and three overlapping theme entry points.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "hr-review-settings-onboarding-shell.md s5: maximise option on CaptionControls (R3), --ink token clash (R5)"
+      },
+      "viewright": {
+        "fit": "fits",
+        "note": "AppFrame + Titlebar + Plane, 35 files"
+      },
+      "pulse": {
+        "fit": "fits",
+        "note": "AppShell, ShellProvider, useTheme"
+      },
+      "coderight": {
+        "fit": "gaps",
+        "note": "own sidebar and task switcher are product; palette recents, pane error boundary, confirm hook look duplicated (suspicion)"
+      },
+      "genright": {
+        "fit": "fits",
+        "note": "AppShell"
+      },
+      "mailright": {
+        "fit": "fits",
+        "note": "AppShell"
+      }
+    },
+    "boundary": [
+      "theme state in both react-shell (createThemeStore, useTheme, applyBodyFont) and @rightkit/theme (applyBrand, applyTokens, themeBootScript)"
+    ],
+    "actions": [
+      "add maximizable option to CaptionControls",
+      "document one theme path and drop the others",
+      "consider a palette-recents hook"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "@rightkit/platform-ui",
+    "kind": "npm",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "packages/platform-ui"
+    ],
+    "feeds": {
+      "viewright": 160
+    },
+    "basis": "fresh headless helpers",
+    "referenceApp": "viewright",
+    "shape": "best",
+    "shapeReason": "Used uniformly by every app read; no app-specific behaviour.",
+    "apps": {
+      "heardright": {
+        "fit": "n/a",
+        "note": "not covered by the HeardRight reviews"
+      },
+      "viewright": {
+        "fit": "fits",
+        "note": "52 files; should drop leftover src/platform.ts"
+      },
+      "pulse": {
+        "fit": "fits",
+        "note": "formatChord, getPlatform"
+      },
+      "coderight": {
+        "fit": "fits",
+        "note": "list navigation, dismiss, chords"
+      },
+      "genright": {
+        "fit": "fits",
+        "note": ""
+      },
+      "mailright": {
+        "fit": "fits",
+        "note": ""
+      }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "high"
+  },
+  {
+    "package": "@rightkit/theme",
+    "kind": "npm",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "packages/theme"
+    ],
+    "feeds": {
+      "postright": 10,
+      "scraperight": 166,
+      "mailright": 74,
+      "viewright": 290,
+      "genright": 199,
+      "pulse": 445,
+      "heardright": 271,
+      "coderight": 4133
+    },
+    "basis": "fresh brand-to-token generator",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right for web; most mapped lines are check scripts, unrelated tools and iOS Swift files that the package cannot hold.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "hr-review-settings-onboarding-shell.md s6: fits on web; three iOS Swift files have no target (T4); palette and default font changed from live (T1, T3)"
+      },
+      "viewright": {
+        "fit": "fits",
+        "note": "TokenPreset, mix; themes.ts presets stay product"
+      },
+      "pulse": {
+        "fit": "fits",
+        "note": "applyBrand, applyTokens, brandFromAccent"
+      },
+      "coderight": {
+        "fit": "gaps",
+        "note": "web fits; iOS theme files and a11y/motion check scripts are mis-mapped"
+      },
+      "genright": {
+        "fit": "n/a",
+        "note": "no source import"
+      },
+      "mailright": {
+        "fit": "fits",
+        "note": "colour maths"
+      }
+    },
+    "boundary": [
+      "a11y, motion and target-size check scripts belong to a QA package",
+      "no Swift output for iOS theme files"
+    ],
+    "actions": [
+      "add Swift token output or generate from rightkit-theme",
+      "re-map scripts"
+    ],
+    "depth": "light",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-theme",
+    "kind": "cargo",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "crates/rightkit-theme"
+    ],
+    "feeds": {},
+    "basis": "fresh Rust port of the npm resolver, unpublished",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Correct boundary for non-web UIs; no app uses it yet and parity with the npm resolver was not verified.",
+    "apps": {
+      "heardright": {
+        "fit": "n/a",
+        "note": "not verified in this review"
+      },
+      "viewright": {
+        "fit": "n/a",
+        "note": "web only"
+      },
+      "pulse": {
+        "fit": "n/a",
+        "note": "not verified in this review"
+      },
+      "coderight": {
+        "fit": "n/a",
+        "note": "not verified in this review"
+      }
+    },
+    "boundary": [
+      "second resolver for one algorithm; parity asserted, not verified"
+    ],
+    "actions": [
+      "publish with a parity test against @rightkit/theme"
+    ],
+    "depth": "light",
+    "confidence": "low"
+  },
+  {
+    "package": "@rightkit/settings-ui",
+    "kind": "npm",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "packages/settings-ui"
+    ],
+    "feeds": {
+      "postright": 522,
+      "scraperight": 2072,
+      "mailright": 3465,
+      "viewright": 2684,
+      "genright": 3617,
+      "pulse": 4666,
+      "heardright": 6175
+    },
+    "basis": "fresh frame, primitives, standard sections, backend port",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Primitives and the optional panel are right; section factories read fixed key names, so the three priority apps each wrote an adapter.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "hr-review-settings-onboarding-shell.md s2: frame and rows only; revision typed as number (U3); standard sections unused (U2); theme vocabulary adapter (U4)"
+      },
+      "viewright": {
+        "fit": "gaps",
+        "note": "own panel; hosts package section bodies through a fake SettingsContext for one key"
+      },
+      "pulse": {
+        "fit": "fits",
+        "note": "primitives and search only; Settings.tsx is product"
+      },
+      "coderight": {
+        "fit": "fits",
+        "note": "SettingsPanel, appearanceSection, licenseSection"
+      },
+      "genright": {
+        "fit": "fits",
+        "note": "SettingsPanel + standardSections"
+      },
+      "mailright": {
+        "fit": "fits",
+        "note": "SettingsPanel + standard sections"
+      }
+    },
+    "boundary": [
+      "most planned lines are product sections that will not move"
+    ],
+    "actions": [
+      "section factories accept a key map or direct props",
+      "revision as string or opaque token",
+      "theme vocabulary option on appearance section"
+    ],
+    "depth": "deep",
+    "confidence": "high"
+  },
+  {
+    "package": "rightkit-app-settings",
+    "kind": "cargo",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "crates/rightkit-app-settings"
+    ],
+    "feeds": {
+      "postright": 66,
+      "scraperight": 163,
+      "mailright": 1032,
+      "genright": 222,
+      "pulse": 7270,
+      "heardright": 1470,
+      "coderight": 10622
+    },
+    "basis": "fresh store plus CodeRight's coderight-config moved in as feature agent_config",
+    "referenceApp": "heardright",
+    "shape": "wrong",
+    "shapeReason": "The store API serves every app, but 3,775 of 8,768 lines are CodeRight's layered TOML agent configuration (the whole 47% match), which is a different capability and one app's schema.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "hr-review-settings-onboarding-shell.md s1: FileFormat::Flat keeps settings.json compatible; needs 0.3.3+ for the snapshot read (S11)"
+      },
+      "viewright": {
+        "fit": "fits",
+        "note": "opaque Document with revision CAS; live used localStorage + SQLite mirror, mirror is not read on upgrade"
+      },
+      "pulse": {
+        "fit": "gaps",
+        "note": "Store fits; keeps its own TOML manifest and generator because the package manifest lacks per-platform defaults and ranges"
+      },
+      "coderight": {
+        "fit": "wrong",
+        "note": "its 10.6k mapped lines are agent config and HTTP handlers, not app settings; uses only atomic_write and Document"
+      },
+      "genright": {
+        "fit": "fits",
+        "note": "typed Store and SqlSettings"
+      },
+      "mailright": {
+        "fit": "fits",
+        "note": "Document and SqlSettings"
+      },
+      "scraperight": {
+        "fit": "fits",
+        "note": "should stop driving FileBackend by hand"
+      }
+    },
+    "boundary": [
+      "agent_config is one app's product schema inside a mandatory crate; pulls rightkit-daemon and rightkit-agent-policy",
+      "agent_config/licence_env.rs and accounts.rs belong with licence and account crates (suspicion)",
+      "CodeRight api_settings/* rows are HTTP handlers",
+      "two settings manifest dialects (package JSON, Pulse TOML)"
+    ],
+    "actions": [
+      "move agent_config to its own crate",
+      "extend the manifest for per-platform defaults and ranges, or retire one generator",
+      "publish 0.3.3+",
+      "document Document vs Store<T>"
+    ],
+    "depth": "deep",
+    "confidence": "high"
+  },
+  {
+    "package": "@rightkit/onboarding",
+    "kind": "npm",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "packages/onboarding"
+    ],
+    "feeds": {
+      "scraperight": 384,
+      "genright": 662,
+      "pulse": 920,
+      "heardright": 4328,
+      "coderight": 789
+    },
+    "basis": "fresh frame with legal gate and built-in steps",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "One frame serves all apps; needs function-valued labels and hints, the published card frame and a natively owned completion port.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "hr-review-settings-onboarding-shell.md s3: dynamic labels and hints lost (O2), card frame unpublished (O3), CSS overrides (O4)"
+      },
+      "viewright": {
+        "fit": "fits",
+        "note": "used as the legal gate only"
+      },
+      "pulse": {
+        "fit": "fits",
+        "note": "four app steps; drives continueLabel dynamically by rebuilding the step"
+      },
+      "coderight": {
+        "fit": "gaps",
+        "note": "keeps a Rust-owned onboarding.json for a two-window race beside the package's onboarding.state"
+      },
+      "genright": {
+        "fit": "fits",
+        "note": "modelsStep"
+      },
+      "mailright": {
+        "fit": "fits",
+        "note": "legal gate"
+      }
+    },
+    "boundary": [
+      "native onboarding Rust has no home (HeardRight O17, Pulse and CodeRight onboarding.rs mapped to the shell)",
+      "permissionsStep and signInStep have no user in the trees read (suspicion)"
+    ],
+    "actions": [
+      "continueLabel and blockedHint accept a function of step context",
+      "publish 0.6.4 card frame",
+      "add a native completion-flag port"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "@rightkit/legal",
+    "kind": "npm",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "packages/legal"
+    ],
+    "feeds": {
+      "scraperight": 313,
+      "mailright": 564,
+      "viewright": 312,
+      "cutright": 395,
+      "coderight": 111
+    },
+    "basis": "fresh manifest and receipt primitives",
+    "referenceApp": "viewright",
+    "shape": "best",
+    "shapeReason": "Pure primitives used the same way by every app; ViewRight has shipped on it since live.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "hr-review-settings-onboarding-shell.md O11: uses the deprecated renderer-stamped write port"
+      },
+      "viewright": {
+        "fit": "fits",
+        "note": "live used 0.3.1; still on the older receipt port"
+      },
+      "pulse": {
+        "fit": "fits",
+        "note": "LegalManifest"
+      },
+      "coderight": {
+        "fit": "fits",
+        "note": "native receipt port, acceptance digest"
+      },
+      "genright": {
+        "fit": "fits",
+        "note": "createAcceptanceReceipt"
+      },
+      "mailright": {
+        "fit": "fits",
+        "note": ""
+      }
+    },
+    "boundary": [
+      "mapped check-legal-contracts scripts are release checks"
+    ],
+    "actions": [
+      "remove the deprecated write port once HeardRight and ViewRight move"
+    ],
+    "depth": "light",
+    "confidence": "medium"
+  },
+  {
+    "package": "@rightkit/legal-ui",
+    "kind": "npm",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "packages/legal-ui"
+    ],
+    "feeds": {
+      "scraperight": 237,
+      "mailright": 201
+    },
+    "basis": "fresh LegalGate screen",
+    "referenceApp": "viewright",
+    "shape": "best",
+    "shapeReason": "One gate screen; apps differ only in theme and documents.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "hr-review-settings-onboarding-shell.md O12: first-run uses the onboarding gate, re-acceptance a standalone page"
+      },
+      "viewright": {
+        "fit": "fits",
+        "note": "LegalGateTheme"
+      },
+      "pulse": {
+        "fit": "fits",
+        "note": "policyGateDocuments"
+      },
+      "coderight": {
+        "fit": "fits",
+        "note": "LegalGate"
+      },
+      "genright": {
+        "fit": "fits",
+        "note": "LegalDocumentBody"
+      },
+      "mailright": {
+        "fit": "n/a",
+        "note": "via onboarding"
+      }
+    },
+    "boundary": [
+      "legal gate reachable three ways (legal-ui, onboarding legal step, app page); not verified that onboarding composes legal-ui"
+    ],
+    "actions": [],
+    "depth": "light",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-license",
+    "kind": "cargo",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "crates/rightkit-license"
+    ],
+    "feeds": {
+      "scraperight": 1468,
+      "mailright": 858,
+      "viewright": 320,
+      "genright": 301,
+      "cutright": 126,
+      "heardright": 1840,
+      "coderight": 3623
+    },
+    "basis": "built from HeardRight's licence code",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "One LicenseClient plus the shell commands serves every app by configuration; the Apple credential helper driver and link and account commands are still app code.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "hr-review-crash-logs-license.md s3: needs 0.2.9 (K10, K11), lease-expiry disagreement (K8), about 600 lines still app-side"
+      },
+      "viewright": {
+        "fit": "fits",
+        "note": "license_host.rs is configuration; licence gates update eligibility"
+      },
+      "pulse": {
+        "fit": "fits",
+        "note": "configuration from the credential store; disabled when unprovisioned"
+      },
+      "coderight": {
+        "fit": "gaps",
+        "note": "pro_bridge.rs (914 lines) ported from HeardRight; own Windows link-code command; daemon handoff is configuration"
+      },
+      "genright": {
+        "fit": "fits",
+        "note": "LicenseClient"
+      },
+      "mailright": {
+        "fit": "gaps",
+        "note": "calls verify_token directly beside LicenseClient (not read)"
+      }
+    },
+    "boundary": [
+      "macOS Pro bridge helper driver duplicated in HeardRight and CodeRight; neither rightkit-license nor RightKitAppleCredentials holds the Rust driver",
+      "CodeRight engine onboarding.rs, auth.rs, startup.rs mapped here by path"
+    ],
+    "actions": [
+      "publish 0.2.9",
+      "publish shell link and account commands",
+      "add the Apple credential helper driver",
+      "resolve lease expiry in view vs native gate"
+    ],
+    "depth": "deep",
+    "confidence": "medium"
+  },
+  {
+    "package": "@rightkit/license",
+    "kind": "npm",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "packages/license"
+    ],
+    "feeds": {
+      "scraperight": 192
+    },
+    "basis": "fresh renderer client over native commands",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Same createLicenseClient everywhere; 0.3.1 with link and account clients is unpublished.",
+    "apps": {
+      "heardright": {
+        "fit": "gaps",
+        "note": "hr-review-crash-logs-license.md s3: account and link clients only in unpublished 0.3.1"
+      },
+      "viewright": {
+        "fit": "fits",
+        "note": "createLicenseClient, isPro, licenseMessage"
+      },
+      "pulse": {
+        "fit": "fits",
+        "note": ""
+      },
+      "coderight": {
+        "fit": "fits",
+        "note": "via settings-ui licenseSection"
+      },
+      "genright": {
+        "fit": "fits",
+        "note": ""
+      },
+      "mailright": {
+        "fit": "fits",
+        "note": ""
+      }
+    },
+    "boundary": [],
+    "actions": [
+      "publish 0.3.1"
+    ],
+    "depth": "light",
+    "confidence": "medium"
+  },
+  {
+    "package": "@rightkit/app-update",
+    "kind": "npm",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "packages/app-update"
+    ],
+    "feeds": {
+      "scraperight": 218
+    },
+    "basis": "fresh update-policy helper and UI pieces",
+    "referenceApp": "viewright",
+    "shape": "gaps",
+    "shapeReason": "Works for Tauri apps; update logic is split over three packages and nothing serves a non-Tauri app.",
+    "apps": {
+      "heardright": {
+        "fit": "n/a",
+        "note": "hr-review-settings-onboarding-shell.md 4.4: update flow is own code; not reviewed"
+      },
+      "viewright": {
+        "fit": "fits",
+        "note": "publicInstallerUrl; patch/update eligibility through the shell host"
+      },
+      "pulse": {
+        "fit": "gaps",
+        "note": "hub fits; notch updaters (Windows, Mac) are own code"
+      },
+      "coderight": {
+        "fit": "fits",
+        "note": "consent card, overlay, boot probation"
+      },
+      "genright": {
+        "fit": "fits",
+        "note": "createAutoUpdateClient"
+      }
+    },
+    "boundary": [
+      "update logic spread over shell update module, this package and rightkit-app-update"
+    ],
+    "actions": [
+      "see rightkit-app-update"
+    ],
+    "depth": "light",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-app-update",
+    "kind": "cargo",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "crates/rightkit-app-update"
+    ],
+    "feeds": {},
+    "basis": "fresh: boot probation and fetch bridge only",
+    "referenceApp": "pulse",
+    "shape": "gaps",
+    "shapeReason": "Holds the smallest part of updating; check, download and verification live in the Tauri shell, so Pulse's native notch keeps a 1.3k-line updater.",
+    "apps": {
+      "heardright": {
+        "fit": "n/a",
+        "note": "not verified in this review"
+      },
+      "viewright": {
+        "fit": "n/a",
+        "note": "uses the shell update host"
+      },
+      "pulse": {
+        "fit": "gaps",
+        "note": "Windows notch updater (feed, digest, Authenticode, pinned signer) has no package home"
+      },
+      "coderight": {
+        "fit": "n/a",
+        "note": "uses the shell update commands"
+      }
+    },
+    "boundary": [
+      "runtime signature and signer verification has no shared home outside the Tauri shell"
+    ],
+    "actions": [
+      "move the runtime-neutral update core out of rightkit-tauri-shell into this crate; use Pulse windows/src/update.rs as the Windows reference"
+    ],
+    "depth": "light",
+    "confidence": "medium"
+  },
+  {
+    "package": "@rightkit/i18n",
+    "kind": "npm",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "packages/i18n"
+    ],
+    "feeds": {
+      "postright": 150,
+      "pulse": 7215
+    },
+    "basis": "fresh React i18n runtime",
+    "referenceApp": "pulse",
+    "shape": "gaps",
+    "shapeReason": "Runtime is fine; Pulse's 7.2k mapped lines are a Rust translation table whose consumer is the crate, and CodeRight keeps its own module.",
+    "apps": {
+      "heardright": {
+        "fit": "n/a",
+        "note": "not covered"
+      },
+      "viewright": {
+        "fit": "n/a",
+        "note": "English only"
+      },
+      "pulse": {
+        "fit": "gaps",
+        "note": "hub uses createI18n; Windows table and Mac xcstrings are separate catalogs"
+      },
+      "coderight": {
+        "fit": "gaps",
+        "note": "own src/i18n module; package declared but not imported"
+      }
+    },
+    "boundary": [
+      "catalog data mapped as package code",
+      "no xcstrings import, so Mac and Windows copy are hand-synchronised"
+    ],
+    "actions": [
+      "add xcstrings import or generate xcstrings from JSON",
+      "re-map Pulse table to rightkit-i18n"
+    ],
+    "depth": "light",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-i18n",
+    "kind": "cargo",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "crates/rightkit-i18n"
+    ],
+    "feeds": {},
+    "basis": "fresh Rust runtime for the same JSON catalogs, unpublished",
+    "referenceApp": "pulse",
+    "shape": "gaps",
+    "shapeReason": "Right boundary; unpublished and unused, and Pulse's notch still says RightKit has no Rust runtime.",
+    "apps": {
+      "heardright": {
+        "fit": "n/a",
+        "note": ""
+      },
+      "viewright": {
+        "fit": "n/a",
+        "note": ""
+      },
+      "pulse": {
+        "fit": "gaps",
+        "note": "windows/src/i18n.rs compiled-in table should load catalogs through this crate"
+      },
+      "coderight": {
+        "fit": "n/a",
+        "note": ""
+      }
+    },
+    "boundary": [],
+    "actions": [
+      "publish",
+      "provide catalog conversion from Pulse's table"
+    ],
+    "depth": "light",
+    "confidence": "low"
+  },
+  {
+    "package": "rightkit-deep-link",
+    "kind": "cargo",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "crates/rightkit-deep-link"
+    ],
+    "feeds": {},
+    "basis": "split from the shell, unpublished",
+    "referenceApp": "coderight",
+    "shape": "best",
+    "shapeReason": "Small runtime-neutral parser and queue; only CodeRight registers a scheme.",
+    "apps": {
+      "heardright": {
+        "fit": "n/a",
+        "note": "hr-review-settings-onboarding-shell.md 4.1: no deep links"
+      },
+      "viewright": {
+        "fit": "n/a",
+        "note": "uses shell open_url for files"
+      },
+      "pulse": {
+        "fit": "n/a",
+        "note": ""
+      },
+      "coderight": {
+        "fit": "fits",
+        "note": "deep_link::register_scheme via the shell"
+      }
+    },
+    "boundary": [],
+    "actions": [
+      "publish"
+    ],
+    "depth": "light",
+    "confidence": "low"
+  },
+  {
+    "package": "rightkit-instance",
+    "kind": "cargo",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "crates/rightkit-instance"
+    ],
+    "feeds": {},
+    "basis": "split from the shell, unpublished; carries HeardRight's legacy-plugin handoff",
+    "referenceApp": "heardright",
+    "shape": "best",
+    "shapeReason": "Runtime-neutral single-instance arbitration verified right for HeardRight and used by Pulse and MailRight.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "hr-review-settings-onboarding-shell.md H1, H2: legacy handoff from the Tauri plugin"
+      },
+      "viewright": {
+        "fit": "n/a",
+        "note": "no call found"
+      },
+      "pulse": {
+        "fit": "fits",
+        "note": "SingleInstanceGuard in the hub"
+      },
+      "coderight": {
+        "fit": "n/a",
+        "note": "no call found"
+      },
+      "mailright": {
+        "fit": "fits",
+        "note": ""
+      }
+    },
+    "boundary": [],
+    "actions": [
+      "publish"
+    ],
+    "depth": "light",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-autostart",
+    "kind": "cargo",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "crates/rightkit-autostart"
+    ],
+    "feeds": {},
+    "basis": "split from the shell, unpublished; carries HeardRight's plugin-entry migration",
+    "referenceApp": "heardright",
+    "shape": "gaps",
+    "shapeReason": "Right boundary and verified for HeardRight; Pulse's native notch still hand-rolls the registry code and parity was not checked.",
+    "apps": {
+      "heardright": {
+        "fit": "fits",
+        "note": "hr-review-settings-onboarding-shell.md H3, H4: migration and installed-location refusal"
+      },
+      "viewright": {
+        "fit": "n/a",
+        "note": ""
+      },
+      "pulse": {
+        "fit": "gaps",
+        "note": "windows/src/autostart.rs (342 lines) own registry code incl. Startup-approved state"
+      },
+      "coderight": {
+        "fit": "n/a",
+        "note": ""
+      }
+    },
+    "boundary": [],
+    "actions": [
+      "publish",
+      "check against pulse/windows/src/autostart.rs so the notch can adopt it"
+    ],
+    "depth": "light",
+    "confidence": "medium"
+  },
+  {
+    "package": "rightkit-app-host",
+    "kind": "cargo",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "crates/rightkit-app-host"
+    ],
+    "feeds": {},
+    "basis": "seam for companion crates moved out of Pulse",
+    "referenceApp": "pulse",
+    "shape": "wrong",
+    "shapeReason": "A process-global host registry created by moving Pulse code; not a capability every desktop app adopts, so it should not sit in the mandatory set. Low confidence: README only.",
+    "apps": {
+      "heardright": {
+        "fit": "n/a",
+        "note": "not verified in this review"
+      },
+      "viewright": {
+        "fit": "n/a",
+        "note": "not verified in this review"
+      },
+      "pulse": {
+        "fit": "fits",
+        "note": "source of the seam (not verified at call sites)"
+      },
+      "coderight": {
+        "fit": "n/a",
+        "note": "not verified in this review"
+      }
+    },
+    "boundary": [
+      "overlaps agent_config::state_root / set_app_name in rightkit-app-settings (suspicion)"
+    ],
+    "actions": [
+      "decide whether it is mandatory",
+      "reconcile with agent_config state root"
+    ],
+    "depth": "light",
+    "confidence": "low"
+  },
+  {
+    "package": "rightkit-engine-host",
+    "kind": "cargo",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "crates/rightkit-engine-host"
+    ],
+    "feeds": {},
+    "basis": "GenRight's engine framework, moved 2026-11-01",
+    "referenceApp": "heardright",
+    "shape": "wrong",
+    "shapeReason": "Built from a tier-4 app and not compared with HeardRight's engine supervisor or CodeRight's daemon; should not be mandatory until it is. Low confidence: README only.",
+    "apps": {
+      "heardright": {
+        "fit": "n/a",
+        "note": "not verified in this review"
+      },
+      "viewright": {
+        "fit": "n/a",
+        "note": "not verified in this review"
+      },
+      "pulse": {
+        "fit": "n/a",
+        "note": "not verified in this review"
+      },
+      "coderight": {
+        "fit": "n/a",
+        "note": "not verified in this review"
+      },
+      "genright": {
+        "fit": "fits",
+        "note": "source of the code"
+      }
+    },
+    "boundary": [
+      "may overlap rightkit-tauri-shell engine.rs and rightkit-sidecar (suspicion)"
+    ],
+    "actions": [
+      "compare with HeardRight and CodeRight engine hosting before publishing as mandatory"
+    ],
+    "depth": "light",
+    "confidence": "low"
+  },
+  {
+    "package": "RightKitUI",
+    "kind": "swift",
+    "family": "Foundation: shell and UI",
+    "existsAs": [
+      "swift/RightKitSwift/Sources/RightKitUI"
+    ],
+    "feeds": {
+      "scraperight": 422,
+      "pulse": 2745,
+      "heardright": 1563,
+      "coderight": 835
+    },
+    "basis": "fresh, two files (glass surface, contrast)",
+    "referenceApp": "heardright",
+    "shape": "wrong",
+    "shapeReason": "The module is fine for what it holds, but about 5.5k planned lines mapped to it are settings models, app entry points, File Provider and widget code, none of which is UI kit.",
+    "apps": {
+      "heardright": {
+        "fit": "n/a",
+        "note": "see hr-review-ios-swift.md; not covered by the two reviews used here"
+      },
+      "viewright": {
+        "fit": "n/a",
+        "note": ""
+      },
+      "pulse": {
+        "fit": "wrong",
+        "note": "Mac notch Preferences.swift and settings enums belong with RightKitStore and generated settings, or stay app-side"
+      },
+      "coderight": {
+        "fit": "wrong",
+        "note": "iOS app entry, File Provider extension and widgets are not UI kit"
+      }
+    },
+    "boundary": [
+      "mapping error throughout",
+      "contrast maths now in three languages (TypeScript, Rust, Swift)"
+    ],
+    "actions": [
+      "re-map",
+      "generate Swift tokens from rightkit-theme instead of hand-written contrast"
+    ],
+    "depth": "light",
+    "confidence": "medium"
+  }
+]

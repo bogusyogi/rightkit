@@ -232,7 +232,8 @@ export const SIGN_CREDENTIALS_ARTIFACT = "rightkit-credentials-helper-signed";
 // The licence gate (rightkit#264) lives in plan, which every later job needs, so nothing can pack or upload past a failure.
 export const DENY_IF = "${{ inputs.registry == 'crates' && contains(format(' {0} ', steps.plan.outputs.units), ' rightkit-typeset ') }}";
 export const DENY_TOOL = "cargo-deny@0.20.2";
-export const DENY_RUN = "cargo deny --manifest-path crates/rightkit-typeset/Cargo.toml check --config crates/rightkit-typeset/deny.toml licenses";
+// The policy is the workspace's one deny.toml at the repository root (rightkit#1505); crates/rightkit-typeset keeps none.
+export const DENY_RUN = "cargo deny --manifest-path crates/rightkit-typeset/Cargo.toml check --config deny.toml licenses";
 // Job 0 (rightkit#888): the shared deterministic scans run over requested publication units & shared inputs before plan and every build lane,
 // and publish-reviewed.yml refuses a candidate whose scan receipt is missing. Pins mirror SCAN_TOOL_PINS in scan-receipt.mjs
 // (scan-receipt.test.mjs proves they agree) and the actionlint release checksum.

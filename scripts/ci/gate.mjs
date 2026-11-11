@@ -118,13 +118,20 @@ function crateDependents() {
   return (names) => reverseDependents(names, deps);
 }
 
-/** name -> its own package entry in its own crates/<x>/Cargo.lock; a crate with no readable lock is absent (selectUnits then refuses it). */
+/**
+ * name -> its own package entry in the lock that governs it: the root Cargo.lock for a member of the root workspace (rightkit#1505), its own
+ * crates/<x>/Cargo.lock for a crate that is its own workspace (crate-scan-workspaces.mjs). A crate whose lock is unreadable or does not
+ * list it is absent (selectUnits then refuses it).
+ */
 function crateLockGraph() {
   const graph = new Map();
-  for (const w of workspaces()) {
+  const locks = new Map();
+  for (const unit of scanRustUnits(ROOT, workspaces())) {
+    const file = unit.cargoDir === "." ? "Cargo.lock" : `${unit.cargoDir}/Cargo.lock`;
     try {
-      const entry = parseLock(fs.readFileSync(path.join(ROOT, w.lock), "utf8")).get(w.name);
-      if (entry) graph.set(w.name, entry);
+      if (!locks.has(file)) locks.set(file, parseLock(fs.readFileSync(path.join(ROOT, file), "utf8")));
+      const entry = locks.get(file).get(unit.crate);
+      if (entry) graph.set(unit.crate, entry);
     } catch { /* no lock: the crate is missing from the graph */ }
   }
   return graph;

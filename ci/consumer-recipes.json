@@ -3560,7 +3560,7 @@
       "pkId": "PK144",
       "id": "ci/consumers/rightkit-dictation-models/src/main.rs",
       "files": {
-        "Cargo.toml": "c3b459b3a2936487023d921e0f66a222d82dd9d227b79621bc095ac0ea7f2e03",
+        "Cargo.toml": "8d5b074f998b097aacf27e371b959b1f731fbde5a0e5847e1e006336a40db092",
         "README.md": "d34a2cdd83beafcdd984ae88a09b0340482df751004919b4d15018d1ecdfc93a",
         "src/main.rs": "0647b32fda446f5e9aa3ef3b5c94b58591d471ae15522a30e739cfc843b7a39c"
       }

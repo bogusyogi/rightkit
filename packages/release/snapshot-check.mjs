@@ -428,11 +428,14 @@ export function verifySnapshotStore({ checkout, snapshot, commit, tree, ledger, 
     if (!version) throw new CheckError("pnpm is not runnable on this host; the snapshot's dependencies cannot be checked against the store");
     if (pin && version !== pin) throw new CheckError(`pnpm ${version} is on PATH, but root ${root} of the commit pins pnpm@${pin} (packageManager); install the pinned pnpm`);
     fs.mkdirSync(tmpRoot, { recursive: true });
+    // Both the virtual store and the modules directory are throwaway: pnpm 12.16.1 prunes the root's own node_modules when only
+    // --virtual-store-dir points elsewhere, which emptied the snapshot's installed dependencies (the exports import probe then
+    // could not resolve smol-toml).
     const virtualStore = fs.mkdtempSync(path.join(tmpRoot, "rightkit-store-check-"));
     const started = now();
     let r;
     try {
-      r = spawn("pnpm", ["fetch", "--offline", "--ignore-scripts", "--ignore-pnpmfile", "--store-dir", storeDir, "--virtual-store-dir", path.join(virtualStore, ".pnpm"), "--config.enable-global-virtual-store=false", "--reporter", "append-only"], {
+      r = spawn("pnpm", ["fetch", "--offline", "--ignore-scripts", "--ignore-pnpmfile", "--store-dir", storeDir, "--virtual-store-dir", path.join(virtualStore, ".pnpm"), "--modules-dir", path.join(virtualStore, "node_modules"), "--config.enable-global-virtual-store=false", "--reporter", "append-only"], {
         cwd: dir, env: { ...env, COREPACK_ENABLE_AUTO_PIN: "0", CI: "true" }, maxBuffer: 1 << 28,
       });
     } catch (error) { r = { error }; } finally { fs.rmSync(virtualStore, { recursive: true, force: true }); }

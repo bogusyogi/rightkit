@@ -1,8 +1,11 @@
 //! TinyFish REST backend — Search and Fetch.
 //!
-//! Contract verified against https://docs.tinyfish.ai (2026-07-15):
+//! Contract verified against <https://docs.tinyfish.ai> (2026-07-15):
+//!
+//! ```text
 //!   Search: GET  https://api.search.tinyfish.ai/  ?query=<q>  [&page=0..10]
 //!   Fetch:  POST https://api.fetch.tinyfish.ai/   {"urls":[..1..10], "format":"markdown"}
+//! ```
 //!
 //! Auth is `X-API-Key` on both. Search and Fetch are free (30 queries/min,
 //! 150 URLs/min); TinyFish's Browser and Agent APIs are separate paid products

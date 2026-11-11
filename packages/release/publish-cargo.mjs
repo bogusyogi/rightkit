@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { enforcePublicationGate, defaultEvidencePath, provenGateSteps, singleHostOfPolicy, batchClippyMissingForHost } from "./publication-gate.mjs";
+import { enforcePublicationGate, defaultEvidencePath, provenGateSteps, ranTestsOrNone, singleHostOfPolicy, batchClippyMissingForHost } from "./publication-gate.mjs";
 import { runCargoSync } from "./managed-cargo.mjs";
 import { assertPublishCapability, refuseHostUpload } from "./host-upload-refusal.mjs";
 import { spawnSync } from "./background-process.mjs";
@@ -432,7 +432,7 @@ export async function runCargoPublish(options, execute = (_command, args, settin
       const expected = localTestPlan({ kind: "cargo", unit: options.crate, dir: `crates/${options.crate}`, config, batch: Boolean(run.batch), platform: proofHost });
       for (const step of expected.steps) {
         const text = `${step.command} ${step.args.join(" ")}`;
-        if (!run.steps.some((row) => row.command === text && row.ok === true && (!step.test || (row.executed > 0 && row.failed === 0)))) {
+        if (!run.steps.some((row) => row.command === text && row.ok === true && (!step.test || (ranTestsOrNone(row.executed, row) && row.failed === 0)))) {
           throw new Error(`--from-evidence missing configured qualification step: ${text}`);
         }
       }

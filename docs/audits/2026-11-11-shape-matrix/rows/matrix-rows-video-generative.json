@@ -1,0 +1,1341 @@
+[
+ {
+  "package": "rightkit-spend",
+  "kind": "cargo",
+  "family": "Generative media",
+  "existsAs": [
+   "crates/rightkit-spend"
+  ],
+  "feeds": {
+   "cutright": 4345,
+   "genright": 2755,
+   "postright": 2272,
+   "pulse": 1655
+  },
+  "basis": "Fresh generic ledger (0.2.3); PostRight shims absorbed in 0.1.1, GenRight ledger semantics in 0.2.0, Pulse approved budgets in 0.2.2",
+  "referenceApp": "pulse",
+  "shape": "gaps",
+  "shapeReason": "The reserve/commit ledger with multi-cap, device epoch, caller budget, invoice reconcile and sealed approved budgets is the right general shape and no app code sits in it. Pulse (the highest-priority feeder) still needs partial reports and a per-allowance lifetime that the approved-budget API lacks.",
+  "apps": {
+   "pulse": {
+    "fit": "gaps",
+    "note": "core/src/budget.rs is already a layer on the crate (=0.2.0); crate approved.rs covers create/approve/seal/audit, but Pulse report(.., final_report) takes several reports per allowance and issue() has a per-allowance TTL; report_approved_spend commits once"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "ledger.rs is a layer on 0.2.0 written before reserve_multi, set_device_allowance, reconcile_invoice and Budget existed; all four are now native, so the layer shrinks to settings, estimate rounding and the job-attempt map"
+   },
+   "postright": {
+    "fit": "fits",
+    "note": "engine/spend.rs keeps price catalogue, safety factor, variance and ceiling model, which the crate documents as the app/rightkit-llm side; covered-overrun auto-acknowledge maps to with_overrun_gate or stays as is"
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": "cutright-ledger is not a spend ledger (decision ledger, edit plans, palette, prefs, relink); mis-mapped"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "cutright-ledger (4,345 lines) mapped here is an editorial decision ledger, agent edit-plan contract, command palette, preference recommender and source relink: none of it is spend, and none of it is in RightKit today",
+   "pulse membrane-core/src/budget.rs (191 lines) is a token attention budget, not money: mis-mapped",
+   "rightkit-media-gen/src/ledger.rs (2,278 lines) is GenRight ledger.rs moved whole: it re-implements three-cap reserve, device-allowance epochs, invoice reconciliation and caller budgets beside the crate that now has them (two packages, same capability)",
+   "PostRight price rows and their 60-day qualification: crate docs point at rightkit-llm catalogue; not decided which package owns non-LLM prices"
+  ],
+  "actions": [
+   "Add non-final (partial) spend reports and a per-reservation expiry to the approved-budget API (Pulse report final_report, issue ttl_seconds)",
+   "Re-map cutright-ledger out of spend (decision ledger/edit-plan to video-project or a new rightkit-decisions; palette to a UI/command package)",
+   "Reduce rightkit-media-gen ledger.rs to a thin layer over reserve_multi / set_device_allowance / reconcile_invoice / Budget",
+   "Apps pin =0.2.0; publish 0.2.3 and move the three adopters"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-ffmpeg",
+  "kind": "cargo",
+  "family": "Video editing",
+  "existsAs": [
+   "crates/rightkit-ffmpeg"
+  ],
+  "feeds": {
+   "coderight": 997,
+   "cutright": 1338,
+   "genright": 971
+  },
+  "basis": "Fresh RightKit core (resolve, verify, runner, probe, loudnorm); plus GenRight media probe and H.264 rule, CutRight delivery/intermediate policy, CodeRight agent media tools",
+  "referenceApp": "genright",
+  "shape": "gaps",
+  "shapeReason": "The binary resolution, runner and probe core is shared and sound. Around it sit three H.264 selection policies, a CodeRight agent-tool module that is not ffmpeg, and a container probe that is duplicated in rightkit-media-gen.",
+  "apps": {
+   "genright": {
+    "fit": "fits",
+    "note": "h264.rs and media.rs were donated (h264_rule.rs, quickprobe.rs); GenRight then deletes genright-protocol/h264.rs and genright-gen/media.rs"
+   },
+   "cutright": {
+    "fit": "fits",
+    "note": "cutright-project/render.rs:98-135 already calls rk::pick_h264 + hardware_usable; the 1,338 planned lines are .mjs/.py qualification scripts, not library code"
+   },
+   "coderight": {
+    "fit": "gaps",
+    "note": "engine/crates/media/lib.rs is present as feature agent_media; source tree not available to compare; module belongs in rightkit-agent-tools"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": "not reviewed in this family"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "agent_media (651 lines, feature-gated, depends on rightkit-agent-policy + tokio): tesseract, scrape, yt-dlp and ffmpeg shell-out tools for an agent; only rightkit-agent-tools uses it; it is not ffmpeg library code",
+   "Three H.264 pickers in one crate: encoders::pick_h264 (callback), encoders::select_delivery / select_qualified_delivery (doc says \"matching CutRight's policy\"), h264_rule::decide (GenRight: MPEG-4 only on opt-in, typed h264_encoder_unavailable); rightkit-motion::pick_encoder is a fourth wrapper and rightkit-media-gen/src/host/h264.rs is a near copy of h264_rule.rs (19 differing lines)",
+   "quickprobe.rs and rightkit-media-gen/src/media.rs are both GenRight media.rs (two packages, same code; the ffmpeg copy is the extended one)",
+   "rightkit-timeline::ffmpeg::Encoder duplicates encoders::Encoder (minus OpenH264)",
+   "CutRight tools/qualify/*.mjs, tools/ffmpeg-editing/*.mjs mapped EXTEND are app qualification scripts (APPTEST), not package code",
+   "`native` module (native-library catalogue for asr/ort/vad) is default-on in an ffmpeg crate"
+  ],
+  "actions": [
+   "Move agent_media to rightkit-agent-tools; drop the agent-policy/tokio optional deps",
+   "One encoder decision API: keep pick_h264 + qualify_encoder as the mechanism and one policy function with options {qualify, allow_software, allow_mpeg4}; h264_rule keeps only the error code/details/is_init_failure; delete select_delivery vs select_qualified_delivery split",
+   "Delete rightkit-media-gen media.rs and host/h264.rs in favour of this crate",
+   "rightkit-timeline uses encoders::Encoder"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-compose",
+  "kind": "cargo",
+  "family": "Video editing",
+  "existsAs": [
+   "crates/rightkit-compose"
+  ],
+  "feeds": {
+   "cutright": 5679,
+   "genright": 614
+  },
+  "basis": "Fresh composition model (ticks, layers, eval; ScreenRight camera curve) + CutRight cutright-compose as feature `native` + GenRight still_finish as feature `still-finish`",
+  "referenceApp": "cutright",
+  "shape": "gaps",
+  "shapeReason": "The pure composition document and evaluate() are app-neutral. The two app donations are different capabilities sharing a word: CutRight's is a timeline-to-wgpu frame pipeline, GenRight's is logo stamping on PNG stills, which has nothing to do with the model.",
+  "apps": {
+   "cutright": {
+    "fit": "fits",
+    "note": "native/ is cutright-compose nearly line for line (decode, mapper, base_eval, snapshot, pcm, clock, scheduler)"
+   },
+   "genright": {
+    "fit": "gaps",
+    "note": "still_finish.rs fits as code but is in the wrong crate; GenRight's real \"compose\" (pipeline_workflows/compose.rs: ffmpeg assemble of cards, clips, narration, music, subtitles, loudnorm) lives in rightkit-media-pipeline and does not use the composition model"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "still_finish (518 lines, image + crypto + time deps) is a keyless stills finisher returning serde_json::Value with stable codes: belongs with media-pipeline finish steps or a small rightkit-stills, not here",
+   "Two tick types on the same 705,600,000/s clock: rightkit-compose::ticks::Ticks(u64) and rightkit-timeline::time::Ticks(i64); native/ imports the timeline one while the model uses its own",
+   "feature `native` makes compose depend on compositor + timeline + video-project + ffmpeg: it is a preview/render adapter for the CutRight project model, not part of the composition model; candidate for its own crate together with the missing playback session",
+   "GenRight ffmpeg compose and CutRight timeline render (rightkit-timeline::ffmpeg) are two \"assemble clips to a file\" paths with no shared layer"
+  ],
+  "actions": [
+   "Move still_finish out (media-pipeline or media-gen finish)",
+   "One Ticks/Fps/Rational definition used by compose and timeline",
+   "Split `native` into a crate (e.g. rightkit-video-preview) that also receives CutRight playback.rs session logic"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-motion",
+  "kind": "cargo",
+  "family": "Generative media",
+  "existsAs": [
+   "crates/rightkit-motion"
+  ],
+  "feeds": {
+   "cutright": 626,
+   "genright": 2619
+  },
+  "basis": "Fresh neutral design (beats, sheet, FrameSource render driver, encoder) that GenRight already builds on; GenRight project_server/composition doc donated; CutRight contactsheet and thumbnail engine commands added under feature engine-commands",
+  "referenceApp": "genright",
+  "shape": "gaps",
+  "shapeReason": "The FrameSource driver + project server + browser source is a clean seam and GenRight already adopts it. The CutRight commands in cmd/ are project-bound engine handlers with a cutright schema name and are not motion.",
+  "apps": {
+   "genright": {
+    "fit": "fits",
+    "note": "motion_service.rs/motion_encode.rs already call rightkit_motion::{render, pick_encoder, probe_inventory}; motion_server.rs and motion_doc.rs are in the crate; studio motion.rs (templates, scaffold, plan) is not, by design or omission"
+   },
+   "cutright": {
+    "fit": "wrong",
+    "note": "contactsheet_cmd.rs and thumb_cmd.rs are present verbatim in cmd/ but they are video-project commands (revision-bound contact sheet, thumbnail cache), mapped to the wrong package"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "cmd/contactsheet.rs + cmd/thumb.rs pull rightkit-engine-host, rightkit-video-project, rightkit-cache into a motion crate and write schema `cutright.contactsheet.v1`",
+   "Two contact-sheet implementations in one crate: sheet.rs (pure plan + `assemble`, 2x3 tiles of 960x540, min tile 480 px because \"330 px tiles miss defects\") and cmd/contactsheet.rs (ffmpeg tile filter, default 320 px tiles, up to 64); the CutRight default is below the minimum the neutral module enforces",
+   "encoder.rs pick_encoder repeats the H.264/MPEG-4 rule of rightkit-ffmpeg::h264_rule",
+   "GenRight studio.motion templates/scaffold/plan (653 lines) has no home; media-pipeline/src/motion holds the service"
+  ],
+  "actions": [
+   "Move cmd/ to the video-project command layer; have it lay out tiles with sheet::plan_sheets",
+   "Remove the engine-commands feature and its four optional deps",
+   "pick_encoder delegates to the single rightkit-ffmpeg policy",
+   "Decide owner of HyperFrames templates/plan (media-pipeline motion)"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-review",
+  "kind": "cargo",
+  "family": "Video editing",
+  "existsAs": [
+   "crates/rightkit-review"
+  ],
+  "feeds": {
+   "cutright": 5035,
+   "genright": 683,
+   "postright": 2409
+  },
+  "basis": "Fresh shared core (Subject, RuleSet, Verdict, disposition, repair loop, ladder, qa, delivery) that CutRight and PostRight already call; CutRight cutright-qa moved as feature render-qa; PostRight phone surface as feature phone; Legion code review as features code/minimize",
+  "referenceApp": "postright",
+  "shape": "gaps",
+  "shapeReason": "The verdict/rule/disposition core is the shared shape and both apps use it unchanged. The render-qa feature is CutRight's whole QA + social packaging with embedded platform limits and a hard dependency on the CutRight project model.",
+  "apps": {
+   "cutright": {
+    "fit": "fits",
+    "note": "cutright-qa is in render_qa/ (run, package, probe, critic, receipt, spec, retranscribe)"
+   },
+   "postright": {
+    "fit": "fits",
+    "note": "engine/gate.rs is an app layer over rightkit_review text rules with its own policy store and two extension rules; review_surface.rs is feature phone; both adopt as is"
+   },
+   "genright": {
+    "fit": "n/a",
+    "note": "eyes.rs (human-eyes approval sidecar) is an approval, now in rightkit-approvals/src/eyes.rs; mapping to review was wrong"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "render_qa/package.rs embeds per-platform limits (aspects, max duration, title/description/tag lengths) for YouTube/Shorts/Reels/TikTok as compiled JSON; rightkit-platform-rules exists with the rule \"code never holds a platform limit\"",
+   "Social packaging (package_render, zip, thumbnail, metadata) is publishing, not review: overlaps PostRight/social-publish territory",
+   "render-qa depends on rightkit-video-project (worker::spawn_ffmpeg, probe::spawn_ffprobe) and rightkit-timeline (Preset, Timeline) only to run ffmpeg and read presets, so a GenRight render cannot be QA-gated without a CutRight project",
+   "Schema ids `cutright.qa.receipt`, `cutright.social-package`, `cutright.qa.geometry` in a shared package",
+   "One crate with five optional subsystems (render-qa, phone, code, minimize + core) and unrelated dependency sets (daemon+ring, evidence contracts, video-project)"
+  ],
+  "actions": [
+   "render_qa takes a file + a spec, running ffmpeg through rightkit-ffmpeg directly; drop the video-project/timeline deps",
+   "Move package.rs to the publishing side (social-publish or video-project exports) and read limits from rightkit-platform-rules",
+   "Rename cutright.* schema ids (no live users)",
+   "Consider splitting code/minimize (Legion) into rightkit-code-review; they share nothing with media review"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-playback",
+  "kind": "cargo",
+  "family": "Video editing",
+  "existsAs": [
+   "crates/rightkit-playback"
+  ],
+  "feeds": {
+   "cutright": 1819,
+   "scraperight": 276
+  },
+  "basis": "ScrapeRight compatibility-remux playback (source registry, cancel registry, fingerprinted cache, Tauri commands)",
+  "referenceApp": "scraperight",
+  "shape": "gaps",
+  "shapeReason": "For what it is (make a file playable in a webview without re-encoding video) it is complete and ScrapeRight already uses it. CutRight's planned 1,819 lines are a different capability, a native timeline preview session, and none of it is in RightKit although @rightkit/video-ui calls its commands.",
+  "apps": {
+   "scraperight": {
+    "fit": "fits",
+    "note": "crates/engine/src/playback.rs is a thin policy layer over compatibility_copy/PlaybackRegistry"
+   },
+   "cutright": {
+    "fit": "wrong",
+    "note": "apps/cutright/src-tauri/src/playback.rs is decode + wgpu composite + audio feeder + prefetch + A/V clock for a timeline revision; 17 of 1,059 distinctive lines match; adopting this crate would not give it a preview"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "CutRight playback.rs is mapped EXTEND here but belongs with rightkit-compose `native` (it is that module's only real consumer): session, prefetch workers, audio feeder, finishing refresh",
+   "@rightkit/video-ui lib/media.ts:651-673 invokes playback_open/_control/_frame/_status/_close/_refresh_finishing: the Rust side of those commands exists only in the CutRight app shell"
+  ],
+  "actions": [
+   "Do not extend this crate with timeline preview; create the preview-session crate (see rightkit-compose) with the Tauri commands behind a feature, as this crate does with tauri_commands",
+   "Publish as is for ScrapeRight"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-pipeline",
+  "kind": "cargo",
+  "family": "Generative media",
+  "existsAs": [
+   "crates/rightkit-pipeline"
+  ],
+  "feeds": {
+   "cutright": 13753,
+   "postright": 2521,
+   "genright": 1701
+  },
+  "basis": "CutRight cutright-genright moved whole (GenRightClient, Orchestrator, Journal, ModelCatalog, generated_source) + channel_recipe",
+  "referenceApp": "postright",
+  "shape": "wrong",
+  "shapeReason": "Not in the assigned list but flagged in the task: it holds one app's client for one other app's CLI. The three feeders implement three sides of engine-to-engine calls and only CutRight's is here.",
+  "apps": {
+   "cutright": {
+    "fit": "fits",
+    "note": "its own crate; 8,597 lines of engine commands (genright_cmd 3,868, batch, recipe, brief) are not ported"
+   },
+   "postright": {
+    "fit": "wrong",
+    "note": "engine/dispatch.rs (dispatch a content brief to cutright-engine or genright-engine, attempt rows, identity-checked sweep) has 26 matching lines; nothing here serves it"
+   },
+   "genright": {
+    "fit": "wrong",
+    "note": "engine/brief.rs is the callee side (`brief run`), now in rightkit-media-pipeline/src/brief.rs, not here"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "Types are named for the callee (GenRightClient, DEFAULT_CONSUMER = \"cutright\")",
+   "Owned-engine-process mechanics exist twice: CutRight engine.rs (stdin/arg size switch, output caps, contract-version + capability check) and PostRight dispatch.rs (absolute path only, attempt row before spawn, process-identity sweep, no silent rerun); neither is shared",
+   "`brief run` executors exist per engine (CutRight brief_cmd.rs 1,170 lines unported; GenRight in media-pipeline) with one CLI contract and no shared skeleton",
+   "channel_recipe feature pulls captions + color + audio into an orchestration crate",
+   "Name collides in meaning with rightkit-media-pipeline"
+  ],
+  "actions": [
+   "Redraw as engine-to-engine calling: (a) owned engine call with PostRight's attempt/sweep discipline and CutRight's contract/capability handshake, (b) generate client (submit, wait, import, journal) named for the contract, (c) brief dispatcher, (d) shared `brief run` skeleton (CLI, envelope validation and writing) with per-engine deliverable producers",
+   "Move channel_recipe to the video side"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-video-project",
+  "kind": "cargo",
+  "family": "Video editing",
+  "existsAs": [
+   "crates/rightkit-video-project"
+  ],
+  "feeds": {
+   "cutright": 14524
+  },
+  "basis": "CutRight cutright-project moved (project, ingest, render, source, probe, worker, loudness, lock, audio_sync, still)",
+  "referenceApp": "cutright",
+  "shape": "gaps",
+  "shapeReason": "A sound project layer (directory layout, lock, BLAKE3 source identity, ingest, render orchestration) that a second editing app could adopt. Half the planned lines, the engine command layer, are not ported, and one module is duplicated in rightkit-reframe.",
+  "apps": {
+   "cutright": {
+    "fit": "gaps",
+    "note": "cutright-project is present; media_cmd.rs (4,167), bundle_cmd.rs (1,428), project_cmd.rs (1,030), outputs/storage/slot cmds are absent (43, 31, 21 matching lines)"
+   },
+   "genright": {
+    "fit": "n/a",
+    "note": "no project model; could use it for finishing hand-off"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "reframe_track.rs (602 lines) is the same module as rightkit-reframe/src/track.rs (51 differing lines); nothing outside its own crate imports the video-project copy",
+   "Engine command handlers are inconsistent across the family: autoedit, shorts and motion carry `engine-commands` features with cmd/ modules; video-project, captions and color do not, and rightkit-engine-host has a `project-cmd` feature depending back on video-project",
+   "Docs and ids say CutRight (`cutright.project`, `cutright.render.v1`, `cutright.derived`, env `CUTRIGHT_FFMPEG`/`CUTRIGHT_FFPROBE`)",
+   "cutright-ledger (decision ledger, edit plans, plan intents, source relink) depends on cutright-project + cutright-timeline and has no RightKit home"
+  ],
+  "actions": [
+   "Delete reframe_track.rs here",
+   "Pick one rule for engine commands (recommended: a `cmd` module per domain crate behind `engine-commands`, engine-host stays free of video deps) and port media/bundle/project/outputs/storage/slot commands under it",
+   "Rename ids and env prefixes to an app-supplied prefix",
+   "Give decision ledger + edit plan + relink a home (here as modules, or rightkit-decisions)"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-timeline",
+  "kind": "cargo",
+  "family": "Video editing",
+  "existsAs": [
+   "crates/rightkit-timeline"
+  ],
+  "feeds": {
+   "cutright": 8011
+  },
+  "basis": "CutRight cutright-timeline + cutright-fcpxml + cutright-otio merged",
+  "referenceApp": "cutright",
+  "shape": "gaps",
+  "shapeReason": "Typed actions with inverses, revision store, render plan and typed ffmpeg args are a good general timeline core. It defines its own tick, encoder and platform-preset types that other RightKit crates also define.",
+  "apps": {
+   "cutright": {
+    "fit": "fits",
+    "note": "model, action, plan, ffmpeg, title, store, fcpxml, otio all present (3,403 of 4,428 distinctive lines; rest is tests)"
+   },
+   "genright": {
+    "fit": "n/a",
+    "note": "would become a consumer if compose workflows emit timelines"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "time::Ticks(i64) vs rightkit-compose::ticks::Ticks(u64), same clock, two types",
+   "ffmpeg::Encoder (VideoToolbox, Nvenc, MediaFoundation) duplicates rightkit-ffmpeg::encoders::Encoder",
+   "ffmpeg::Preset (YouTube, Reels, TikTok, Square) is a platform list in code; rightkit-review render_qa Platform and rightkit-captions safe_zones.json are two more",
+   "ffmpeg.rs (1,220 lines) is render-plan-to-ffmpeg and title.rs builds drawtext: rendering concerns inside the model crate, though pure (no execution)"
+  ],
+  "actions": [
+   "Share Ticks/Fps with compose (one small time module, either crate re-exports)",
+   "Use rightkit-ffmpeg Encoder",
+   "Presets as data (name, size, safe zone id) resolved against rightkit-platform-rules ids"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-autoedit",
+  "kind": "cargo",
+  "family": "Video editing",
+  "existsAs": [
+   "crates/rightkit-autoedit"
+  ],
+  "feeds": {
+   "cutright": 14279
+  },
+  "basis": "CutRight cutright-cuts, -editorial, -variants, -rules merged, plus cmd/ (autoedit, rules, autonomy, mic, style)",
+  "referenceApp": "cutright",
+  "shape": "gaps",
+  "shapeReason": "Transcript-driven cut planning with scoped rules is reusable by any app with a transcript and a timeline. Read at structure level only; the cmd/ layer and CutRight schema ids are the visible issues.",
+  "apps": {
+   "cutright": {
+    "fit": "fits",
+    "note": "5,190 of 7,927 distinctive lines present; missing are tests and plan_cmd/editplan_cmd"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": "has transcripts but no editing"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "genright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "cmd/mic.rs (213 lines, microphone command) sits in an auto-edit crate: suspicion that it is recording, not editing (not read)",
+   "editplan_cmd.rs / plan_cmd.rs (805 lines) not ported: they drive cutright-ledger edit plans, which have no home",
+   "rules/ladder.rs here and rightkit-review/src/ladder.rs are both \"autonomy ladder\" modules (review doc cites cutright-rules::ladder): possible duplicate, not verified",
+   "Schema ids cutright.editorial.v1, cutright.variant, cutright.variant-compare.v1"
+  ],
+  "actions": [
+   "Compare rules/ladder.rs with rightkit-review ladder and keep one",
+   "Move or justify cmd/mic.rs",
+   "Rename schema ids",
+   "Port edit-plan commands once the decision ledger has a home"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-shorts",
+  "kind": "cargo",
+  "family": "Video editing",
+  "existsAs": [
+   "crates/rightkit-shorts"
+  ],
+  "feeds": {
+   "cutright": 4992
+  },
+  "basis": "CutRight cutright-shorts moved, plus cmd/moments (OCR index, search)",
+  "referenceApp": "cutright",
+  "shape": "gaps",
+  "shapeReason": "Scoring profile as versioned JSON and LLM ranking validated onto word boundaries is reusable. A default model id is compiled in.",
+  "apps": {
+   "cutright": {
+    "fit": "fits",
+    "note": "1,928 of 2,935 distinctive lines present"
+   },
+   "postright": {
+    "fit": "n/a",
+    "note": "likely future consumer"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "genright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "llm.rs:30 DEFAULT_MODEL = \"claude-sonnet-5-5\": a model choice in a library; rightkit-llm owns the catalogue",
+   "cmd/moments (OCR index + text search over a project) is moment search, not shorts; pulls ocr + search + engine-host",
+   "Depends on rightkit-autoedit and rightkit-captions for short.rs (accepted proposal to timeline actions)"
+  ],
+  "actions": [
+   "Model id from caller or rightkit-llm default",
+   "Move moments search to the project command layer",
+   "Rename cutright.shorts.proposals.v1"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-reframe",
+  "kind": "cargo",
+  "family": "Video editing",
+  "existsAs": [
+   "crates/rightkit-reframe"
+  ],
+  "feeds": {
+   "cutright": 4222
+  },
+  "basis": "CutRight cutright-reframe moved (YuNet face detection via ONNX Runtime, tracker, plan, approval, render)",
+  "referenceApp": "cutright",
+  "shape": "gaps",
+  "shapeReason": "Evidence -> plan -> approval -> render with a pinned, hashed model download is a clean package. Its smoothing core also exists in rightkit-video-project.",
+  "apps": {
+   "cutright": {
+    "fit": "fits",
+    "note": "1,662 of 2,501 distinctive lines present"
+   },
+   "genright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "track.rs duplicated as rightkit-video-project/src/reframe_track.rs",
+   "The \"no vertical render without an approved plan\" invariant is a product rule compiled into the library (plan::approve): acceptable as a safety default, should be stated as overridable or not",
+   "Schema ids cutright.reframe.*, cutright.transcript.v1"
+  ],
+  "actions": [
+   "Single copy of track.rs (here)",
+   "Rename schema ids",
+   "Decide whether approval is mandatory at library level"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-color",
+  "kind": "cargo",
+  "family": "Video editing",
+  "existsAs": [
+   "crates/rightkit-color"
+  ],
+  "feeds": {
+   "cutright": 4108
+  },
+  "basis": "CutRight cutright-color moved",
+  "referenceApp": "cutright",
+  "shape": "best",
+  "shapeReason": "Pure plan-to-filter-chain library (colour space detection, HDR/Apple Log to SDR, cube LUTs, auto correct, shot match, grade) with only ffmpeg and fs deps; nothing product-specific found beyond doc wording.",
+  "apps": {
+   "cutright": {
+    "fit": "fits",
+    "note": "library present; colour_cmd.rs (765 lines) is command layer, unported"
+   },
+   "genright": {
+    "fit": "n/a",
+    "note": "could use sdr/space for finishing"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "colour_cmd.rs awaits the family command-layer decision"
+  ],
+  "actions": [
+   "none for the library; port colour_cmd under the chosen command rule"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-captions",
+  "kind": "cargo",
+  "family": "Video editing",
+  "existsAs": [
+   "crates/rightkit-captions"
+  ],
+  "feeds": {
+   "cutright": 3177
+  },
+  "basis": "CutRight cutright-captions moved; words/align/export are re-exports of rightkit-transcript",
+  "referenceApp": "cutright",
+  "shape": "gaps",
+  "shapeReason": "Cue building, style presets and drawtext burn-in on top of rightkit-transcript and rightkit-typeset is the right layering. Platform safe zones are shipped as crate data, a third place platform facts live.",
+  "apps": {
+   "cutright": {
+    "fit": "gaps",
+    "note": "library present (855 of 1,787); captions_cmd, caption_sets_cmd, caption_styles_cmd, caption_placement (1,045 lines) unported"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": "SRT/VTT export already via rightkit-transcript"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "postright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "data/safe_zones.json per platform vs rightkit-platform-rules vs timeline Preset",
+   "Depends on rightkit-timeline for presets only (suspicion, from Cargo)"
+  ],
+  "actions": [
+   "Safe zones keyed by platform-rules ids or moved there",
+   "Port caption commands under the chosen command rule",
+   "Rename cutright.caption-cue.v1"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-compositor",
+  "kind": "cargo",
+  "family": "Video editing",
+  "existsAs": [
+   "crates/rightkit-compositor"
+  ],
+  "feeds": {
+   "cutright": 3088
+  },
+  "basis": "CutRight cutright-compositor, -gpu, -effects, -masks merged (adapted from OpenCut Classic, MIT)",
+  "referenceApp": "cutright",
+  "shape": "gaps",
+  "shapeReason": "A self-contained wgpu layer compositor with no RightKit dependencies. It creates its own device context while rightkit-gpu exists to be the suite's one wgpu context.",
+  "apps": {
+   "cutright": {
+    "fit": "fits",
+    "note": "1,713 of 1,748 distinctive lines present"
+   },
+   "genright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "gpu/context.rs (516 lines) builds instance/adapter/device itself; rightkit-gpu (backend policy, crash sentinel, exit gate, memory budget) has no dependents and its docs say CutRight moves to it",
+   "Both pin wgpu 30"
+  ],
+  "actions": [
+   "GpuContext::from(rightkit_gpu::GpuContext) so device creation, backend policy and the crash sentinel come from rightkit-gpu; keep pipelines/samplers here"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-gpu",
+  "kind": "cargo",
+  "family": "Video editing",
+  "existsAs": [
+   "crates/rightkit-gpu"
+  ],
+  "feeds": {},
+  "basis": "Adapted from Ember crates/gpu; no surveyed app feeds it",
+  "referenceApp": "ember (not surveyed)",
+  "shape": "gaps",
+  "shapeReason": "Right idea (one device policy for the suite) but nothing in RightKit or the surveyed apps depends on it, so the shape is unproven.",
+  "apps": {
+   "cutright": {
+    "fit": "gaps",
+    "note": "would adopt through rightkit-compositor"
+   },
+   "genright": {
+    "fit": "n/a",
+    "note": "local generation runs out of process"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "Unused by rightkit-compositor"
+  ],
+  "actions": [
+   "Wire into rightkit-compositor before publishing as the adopted shape"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "@rightkit/video-ui",
+  "kind": "npm",
+  "family": "Video editing",
+  "existsAs": [
+   "packages/video-ui"
+  ],
+  "feeds": {
+   "cutright": 16336
+  },
+  "basis": "CutRight src/ moved whole (generated index exporting every module)",
+  "referenceApp": "cutright",
+  "shape": "wrong",
+  "shapeReason": "It is the CutRight application frontend, not a component library: Home, Settings, legal config, demo mode, app name, GenRight client, and Tauri invokes of commands that exist only in the CutRight shell.",
+  "apps": {
+   "cutright": {
+    "fit": "fits",
+    "note": "8,694 of 9,022 distinctive lines present"
+   },
+   "genright": {
+    "fit": "wrong",
+    "note": "could not take the timeline or player without the CutRight engine contract, settings backend and playback commands"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "Depends on app-update, legal, legal-ui, license, onboarding, settings-ui, tauri-shell: an app shell's dependency set",
+   "lib/media.ts:651-677 invokes playback_* and media_scope_allow Tauri commands with no RightKit Rust side",
+   "lib/genright.ts (253 lines) is the CutRight->GenRight UI client inside a video package",
+   "views/Home, SettingsView, legal/legalConfig, demo/*, appName are shell",
+   "editor/vendor/hyperframes vendored helpers also relevant to media-gen-ui motion"
+  ],
+  "actions": [
+   "Split: (1) editor components (Timeline, Inspector, ColourInspector, CaptionInspector, TranscriptPanel, Player, RangePreview) taking an injected engine adapter with no Tauri import; (2) the CutRight shell (views, settings, legal, demo) stays in the app",
+   "Replace the generated export-everything index with a deliberate API",
+   "Move genright.ts to a generation client package shared with media-gen-ui"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "RightKitMedia",
+  "kind": "swift",
+  "family": "Video editing",
+  "existsAs": [],
+  "feeds": {
+   "cutright": 1859
+  },
+  "basis": "not in RightKit",
+  "referenceApp": "cutright",
+  "shape": "missing",
+  "shapeReason": "No RightKitMedia module in swift/RightKitSwift/Sources or Package.swift. CutRight's macOS media worker (AVFoundation timeline render, Vision, audio finish) has 46 matching lines anywhere.",
+  "apps": {
+   "cutright": {
+    "fit": "gaps",
+    "note": "sidecars/macos-media-worker/*.swift (TimelineRenderService 683 lines) unported"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": "uses RightKitAudio/RightKitSpeech"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "genright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "rightkit-reframe states \"all Rust, no Swift\" and replaced the Vision anchor worker; the Swift render/vision services may be superseded by the Rust path (suspicion; decide before porting)",
+   "silero-vad-macos.swift duplicates rightkit-vad (suspicion, 8 lines)"
+  ],
+  "actions": [
+   "Decide whether the macOS worker is still CutRight's render path; if superseded mark DROP, otherwise create the module from AssetService/AudioService/VisionService with the wire Protocol.swift"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-media-gen",
+  "kind": "cargo",
+  "family": "Generative media",
+  "existsAs": [
+   "crates/rightkit-media-gen"
+  ],
+  "feeds": {
+   "genright": 34258
+  },
+  "basis": "GenRight genright-gen moved whole with a `host` seam, plus studio voices, avatars, balances, stock, search",
+  "referenceApp": "genright",
+  "shape": "wrong",
+  "shapeReason": "A 34,600-line crate that is the GenRight engine: 18 provider adapters, jobs, catalogue, routing, library, credentials, spend layer, voices, and private copies of code other RightKit crates own. Its API is JSON Value in and out, so a second app adopts it only as \"GenRight embedded\".",
+  "apps": {
+   "genright": {
+    "fit": "fits",
+    "note": "11,442 of 18,501 distinctive lines present"
+   },
+   "cutright": {
+    "fit": "wrong",
+    "note": "consumes generation through the engine CLI (rightkit-pipeline); a typed Rust API (GenRequest -> job -> asset) is not offered"
+   },
+   "postright": {
+    "fit": "wrong",
+    "note": "same; dispatches briefs to the engine binary"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "ledger.rs (2,278 lines): three-cap reserve, device epochs, invoice reconciliation, caller budget over reserve_on, with tables genright_spend_attempts / genright_spend_meta; rightkit-spend has all four natively",
+   "media.rs duplicates rightkit-ffmpeg quickprobe; host/h264.rs duplicates rightkit-ffmpeg h264_rule (19 differing lines)",
+   "voices.rs (2,094) and qts/ and providers/qts.rs are the TTS product layer the plan maps to rightkit-tts",
+   "library.rs (1,257) is a second artifact library beside rightkit-library",
+   "providers/local_blender.rs (2,040), local_wan2gp, local_image, local_lipsync, musicgen, realesrgan are local generation, planned for rightkit-local-gen, which this crate depends on",
+   "providers::orthic_root() and a temp fallback named \"Orthic Labs\" (local_blender.rs:158); \"genright-approval-v1\" context string",
+   "api.rs: every function is (ctx, &Value) -> GenResult<Value>"
+  ],
+  "actions": [
+   "Split by owner: provider trait + remote adapters + routing + catalogue (media-gen core); jobs on rightkit-job-queue; spend layer thinned onto rightkit-spend; voices to rightkit-tts; local providers to rightkit-local-gen; library onto rightkit-library; delete media.rs and host/h264.rs",
+   "Add a typed request/result API beside the JSON command surface",
+   "Remove organisation and app names from paths, table names and context strings (host supplies them)"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "@rightkit/media-gen-ui",
+  "kind": "npm",
+  "family": "Generative media",
+  "existsAs": [
+   "packages/media-gen-ui"
+  ],
+  "feeds": {
+   "genright": 21626
+  },
+  "basis": "GenRight src/ moved whole (generated index)",
+  "referenceApp": "genright",
+  "shape": "wrong",
+  "shapeReason": "The GenRight application frontend including a 4,003-line browser mock of the engine, legal documents, onboarding/license/app-update wiring and brand data.",
+  "apps": {
+   "genright": {
+    "fit": "fits",
+    "note": "10,752 of 13,694 distinctive lines present"
+   },
+   "cutright": {
+    "fit": "wrong",
+    "note": "needs a generate panel and job list (it has its own PromptPanel + genright.ts) and cannot take them without the whole studio"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "lib/browser-mock-api.ts (4,003 lines) is test/demo scaffolding exported from a published package",
+   "studio-data/brands/brands.json and production/templates.json duplicate rightkit-prompt-recipes/data and name the owner's brands",
+   "components/MaskBrush + lib/mask-export duplicate @rightkit/media-ui MaskPainter + mask.ts",
+   "legal/documents, lib/license, lib/onboarding, lib/app-update*, appName are shell",
+   "CutRight video-ui has its own PromptPanel/genright.ts for the same engine"
+  ],
+  "actions": [
+   "Split into components a second app can mount (Generate form from gen-params, JobCard/Jobs, Gallery, Voices, ModelsPanel) over an injected API client; shell stays in GenRight",
+   "Move the mock to a dev-only entry or the app",
+   "Use MaskPainter; delete MaskBrush",
+   "One generation client shared with video-ui"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-local-gen",
+  "kind": "cargo",
+  "family": "Generative media",
+  "existsAs": [
+   "crates/rightkit-local-gen"
+  ],
+  "feeds": {
+   "genright": 12312
+  },
+  "basis": "GenRight genright-local-image moved (profiles, runtime, store, machine fit, memory, artifacts) + service_host/http",
+  "referenceApp": "genright",
+  "shape": "gaps",
+  "shapeReason": "Local image generation runtime with machine fit and memory accounting is a coherent package. It is named for all local generation but holds only the image runtime; the other local providers are in rightkit-media-gen.",
+  "apps": {
+   "genright": {
+    "fit": "fits",
+    "note": "4,945 of 7,227 distinctive lines present; the absent ones are local_lipsync, musicgen, local_image, realesrgan providers, which are in rightkit-media-gen instead"
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "Planned content split across two crates (see media-gen)",
+   "model_store.rs/paths.rs beside rightkit-models; remote-compute/models holds a second local model catalogue",
+   "lib.rs is 1,950 lines"
+  ],
+  "actions": [
+   "Either rename to rightkit-local-image or receive the local providers from media-gen",
+   "One local model catalogue (with remote-compute/models and rightkit-models)"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-prompt-recipes",
+  "kind": "cargo",
+  "family": "Generative media",
+  "existsAs": [
+   "crates/rightkit-prompt-recipes"
+  ],
+  "feeds": {
+   "genright": 12135
+  },
+  "basis": "GenRight genright-studio recipes, video_templates, contracts, characters, swap_templates, kdp, brands, catalog moved with their JSON data",
+  "referenceApp": "genright",
+  "shape": "wrong",
+  "shapeReason": "Prompt contracts per model and the recipe composer are reusable. The crate also ships the owner's brand list and a Kindle colouring-page workflow, and every module is a `studio.<area>.*` command handler bound to rightkit_media_gen::Context.",
+  "apps": {
+   "genright": {
+    "fit": "fits",
+    "note": "6,566 of 6,911 distinctive lines present"
+   },
+   "cutright": {
+    "fit": "wrong",
+    "note": "would inherit brand codes and KDP to get prompt contracts"
+   },
+   "postright": {
+    "fit": "n/a",
+    "note": "has its own brand/venture model"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "data/brands/brands.json names real brands (\"Damned Designs\", \"Rotten Hand\") with folder-matching segments: owner data in a library",
+   "kdp.rs + data/kdp: one product workflow (locked NB2 prompt, 2K, 1:1)",
+   "characters.rs data lists trainers, base models, LoRAs: catalogue data that ages; contracts/*.json per model likewise (should be versioned data, as platform-rules does)",
+   "Depends on rightkit-media-gen and rightkit-approvals to run commands"
+  ],
+  "actions": [
+   "Keep contracts + validator + recipe composer + video templates as a pure library over data",
+   "Brands become host-supplied data; KDP moves to the GenRight app (or a recipes data pack)",
+   "Command handlers move to the engine layer"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-media-pipeline",
+  "kind": "cargo",
+  "family": "Generative media",
+  "existsAs": [
+   "crates/rightkit-media-pipeline"
+  ],
+  "feeds": {
+   "genright": 9149
+  },
+  "basis": "GenRight pipeline_workflows (+compose, translate, dubbing, fanout, media, finish, asr), production stack, brief run, motion service",
+  "referenceApp": "genright",
+  "shape": "gaps",
+  "shapeReason": "Editable step DAGs over media-gen with fan-out and native subtitle/compose steps is a reasonable package. It also carries the engine's `brief run`, the HyperFrames motion service and the deterministic \"production stack\" planner, three different things.",
+  "apps": {
+   "genright": {
+    "fit": "fits",
+    "note": "4,707 of 5,127 distinctive lines present"
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": "its brief_cmd/recipe_cmd/batch_cmd were mapped to rightkit-pipeline"
+   },
+   "postright": {
+    "fit": "n/a",
+    "note": "dispatcher side, see rightkit-pipeline"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "brief.rs (1,473) is the callee side of the content-brief contract; CutRight implements the same CLI in brief_cmd.rs; no shared skeleton",
+   "pipeline_workflows/compose.rs builds ffmpeg filter graphs for assembling a video, separate from rightkit-timeline rendering",
+   "production.rs (campaign factory, brand-kit check, packs) is content planning: nearer rightkit-content-plan / PostRight than media",
+   "motion/ (812 + 147) is the engine motion service; rightkit-motion is the library",
+   "API is handle(ctx, name, &Value) by `studio.*` command name"
+  ],
+  "actions": [
+   "Move brief.rs to the shared brief-run skeleton (see rightkit-pipeline)",
+   "Decide owner of production.rs against rightkit-content-plan",
+   "Rename so it is distinguishable from rightkit-pipeline"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-blender-worker",
+  "kind": "npm",
+  "family": "Generative media",
+  "existsAs": [
+   "packages/blender-worker (@rightkit/blender-worker, Python source, GPL-3.0-or-later)"
+  ],
+  "feeds": {
+   "genright": 4386
+  },
+  "basis": "GenRight workers/blender moved 2026-11-01 (npm wrapper around Python)",
+  "referenceApp": "genright",
+  "shape": "gaps",
+  "shapeReason": "Job protocol, schemas and scene authoring are a usable worker. It also ships one product's geometry and look development.",
+  "apps": {
+   "genright": {
+    "fit": "fits",
+    "note": "3,216 of 3,493 distinctive lines present in RightKit (coverage tgt shows 0 only because the package name differs from the planned crate name)"
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "fenrir_geometry.py, fenrir registration reference, recipes/samples/fenrir-sample-product.json, stonewash.py + build_stonewash_library, editorial_look/premium_look/approved_materials: 296 \"fenrir\" and 164 \"stonewash\" occurrences; job.schema.json mentions fenrir",
+   "Python package named `renderright`",
+   "GPL-3.0 package beside MIT/Apache crates; providers/local_blender.rs (2,040 lines, in media-gen) is its MIT-side driver: licence boundary is the process boundary and should be stated",
+   "Planned as cargo `rightkit-blender-worker`; exists as npm"
+  ],
+  "actions": [
+   "Split generic worker (contract, worker, scene, pngcheck, install, qualify, schemas) from product look-dev (fenrir, stonewash, product_* modules) which becomes a host-supplied assets/recipes pack via RIGHTKIT_BLENDER_ASSETS_DIR",
+   "Fix the plan name to the npm package"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-remote-compute",
+  "kind": "cargo",
+  "family": "Generative media",
+  "existsAs": [
+   "crates/rightkit-remote-compute"
+  ],
+  "feeds": {
+   "genright": 2681
+  },
+  "basis": "GenRight model_management/remote.rs + rental.rs, plus models/ (local model catalogue, installs, governor, hardware, blender/sdcpp/wan2gp)",
+  "referenceApp": "genright",
+  "shape": "wrong",
+  "shapeReason": "Rented GPU worker lifecycle (SSH, Vast.ai) with a time-billed spend bracket is a clear package. Half the crate is local model management, and worker records live in media-gen's settings table.",
+  "apps": {
+   "genright": {
+    "fit": "fits",
+    "note": "remote.rs 628/889, rental.rs 640/664 present"
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": "local models through rightkit-models"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "models/ (2,667 lines: catalogue, install, memory governor, hardware fit, `studio.models.*` commands, qts install) is local, not remote",
+   "lib.rs get_json/set_json read rightkit_media_gen::store settings: remote compute cannot be used without media-gen's database",
+   "rental.rs reserves and settles spend: should be on rightkit-spend directly (not read in detail; suspicion that it goes through media-gen ledger)"
+  ],
+  "actions": [
+   "Move models/ to rightkit-local-gen (or rightkit-models for catalogue/install)",
+   "Worker registry behind a small store trait",
+   "Spend bracket on rightkit-spend"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-tts",
+  "kind": "cargo",
+  "family": "Generative media",
+  "existsAs": [
+   "crates/rightkit-tts"
+  ],
+  "feeds": {
+   "genright": 4338
+  },
+  "basis": "RightKit runtime (system voices, QTS worker client, model manifest, chunking) that GenRight's genright-qts already wraps (=0.2.3)",
+  "referenceApp": "genright",
+  "shape": "best",
+  "shapeReason": "Clean feature boundaries (system / client / engine) and GenRight already adopts it through a 700-line facade. The 3,284-line studio voices layer was not put here but in rightkit-media-gen.",
+  "apps": {
+   "genright": {
+    "fit": "fits",
+    "note": "genright-qts is a facade over the crate; voices.rs is product layer"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": "Swift RightKitTTS; not compared"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "voices.rs (voice library, cloning, studio commands) planned EXTEND here; it is in rightkit-media-gen/src/voices.rs (2,094 lines). Either is defensible; the plan and the code disagree",
+   "rightkit-media-gen/src/qts/* re-exports rightkit_tts under GenRight paths: a facade inside a shared crate"
+  ],
+  "actions": [
+   "Decide owner of the voice library (recommended: a `voices` module here, since it needs no provider code) and drop the qts facade from media-gen"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-tts-qwen",
+  "kind": "cargo",
+  "family": "Generative media",
+  "existsAs": [
+   "crates/rightkit-tts-qwen"
+  ],
+  "feeds": {},
+  "basis": "Vendored Qwen3-TTS native inference (GGUF/GGML); no app feeds it directly",
+  "referenceApp": "none",
+  "shape": "best",
+  "shapeReason": "Engine crate behind rightkit-tts `engine`; no app code and no app decisions found at the level read.",
+  "apps": {
+   "genright": {
+    "fit": "fits",
+    "note": "through rightkit-tts engine feature"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [],
+  "actions": [],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-tts-qwen-sys",
+  "kind": "cargo",
+  "family": "Generative media",
+  "existsAs": [
+   "crates/rightkit-tts-qwen-sys"
+  ],
+  "feeds": {},
+  "basis": "Generated bindings (macOS arm64, Windows x64) + build script",
+  "referenceApp": "none",
+  "shape": "best",
+  "shapeReason": "FFI crate; nothing to compare.",
+  "apps": {
+   "genright": {
+    "fit": "fits",
+    "note": "transitive"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": ""
+   },
+   "cutright": {
+    "fit": "n/a",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "Bindings exist for two targets only"
+  ],
+  "actions": [],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "@rightkit/media-ui",
+  "kind": "npm",
+  "family": "Video editing",
+  "existsAs": [
+   "packages/media-ui"
+  ],
+  "feeds": {
+   "genright": 282,
+   "scraperight": 698
+  },
+  "basis": "Brand-neutral MediaPlayer, image viewer/editor, MaskPainter, VoiceCallBar (RightKit implementation)",
+  "referenceApp": "viewright (not compared here)",
+  "shape": "gaps",
+  "shapeReason": "Component library with injected adapters and no shell dependencies: the shape the two big UI packages should follow. MaskPainter lacks the invert control GenRight's MaskBrush has.",
+  "apps": {
+   "genright": {
+    "fit": "gaps",
+    "note": "MaskBrush.tsx (brush, eraser, size, invert, clear) vs MaskPainter (brush, erase, size, clear): no `invert` in MaskPainter.tsx or mask.ts; GenRight already imports canvasToArrayBuffer/validateExportCanvasSize from the package"
+   },
+   "scraperight": {
+    "fit": "n/a",
+    "note": "mediaSelection.ts is download-mode selection for the queue, lives in @rightkit/library-ui; tests are app tests; mis-mapped"
+   },
+   "heardright": {
+    "fit": "n/a",
+    "note": "not compared"
+   },
+   "viewright": {
+    "fit": "n/a",
+    "note": "not compared in this family"
+   }
+  },
+  "boundary": [
+   "ScrapeRight mediaSelection/mediaAdapters mapped ADOPT here belong to library-ui (already there)",
+   "media-gen-ui still exports its own MaskBrush"
+  ],
+  "actions": [
+   "Add invert to MaskPainter/exportMaskPng",
+   "Remove MaskBrush from media-gen-ui"
+  ],
+  "depth": "deep",
+  "confidence": "medium"
+ }
+]

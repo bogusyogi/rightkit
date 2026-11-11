@@ -1,0 +1,745 @@
+[
+ {
+  "package": "rightkit-code-audit",
+  "kind": "cargo",
+  "family": "Context, memory & code intelligence",
+  "existsAs": [
+   "crates/rightkit-code-audit-engine",
+   "crates/rightkit-code-audit-commands",
+   "crates/rightkit-code-audit-provider-sdk",
+   "crates/rightkit-code-audit-qualification"
+  ],
+  "feeds": {
+   "legion": 254890
+  },
+  "basis": "Legion legion-audit, CLI commands and legion-dev modules, moved 1 Nov",
+  "referenceApp": "legion",
+  "shape": "gaps",
+  "shapeReason": "Four-crate split (provider SDK, engine, commands, qualification) is sound, but it could not be compared with Legion (source unavailable) and still carries Legion names and one dead file.",
+  "apps": {
+   "legion": {
+    "fit": "gaps",
+    "note": "not comparable; plan says 254,890 lines, crates hold about 150,000"
+   }
+  },
+  "boundary": [
+   "engine depends on rightkit-ownership, rightkit-agents, rightkit-agent-tools, rightkit-browser",
+   "rightkit-research depends on code-audit-provider-sdk only for an error type",
+   "423 'legion' strings in engine src (paths such as legion-audit/src/wf_port)"
+  ],
+  "actions": [
+   "delete or wire orphan native_providers/security/history_qualification_record.rs (408 lines, no mod declaration)",
+   "replace Legion names in paths, ids and messages or document them as fixed schema ids",
+   "explain the 100k-line difference from the plan (tests, fixtures or code not moved)",
+   "split 5,399-line commands/audit.rs and 6,423-line reasoning/ingest.rs"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-context",
+  "kind": "cargo",
+  "family": "Context, memory & code intelligence",
+  "existsAs": [
+   "crates/rightkit-context",
+   "crates/rightkit-context-client",
+   "crates/rightkit-context-core",
+   "crates/rightkit-context-federation",
+   "crates/rightkit-context-protocol",
+   "crates/rightkit-context-provider-sdk",
+   "crates/rightkit-context-runtime"
+  ],
+  "feeds": {
+   "pulse": 98511
+  },
+  "basis": "Pulse membrane engine crates, moved crate for crate",
+  "referenceApp": "pulse",
+  "shape": "gaps",
+  "shapeReason": "Pulse's seven-crate layout carried over one to one and is the reference; a second host can only use it as the external membrane binary, and the binary's client lives in rightkit-memory, not here.",
+  "apps": {
+   "pulse": {
+    "fit": "fits",
+    "note": "same code (54,026 of 60,591 distinctive lines found in the package)"
+   },
+   "coderight": {
+    "fit": "gaps",
+    "note": "uses it through the CLI client that sits in rightkit-memory::membrane"
+   }
+  },
+  "boundary": [
+   "rightkit-context-client (185 lines, resident socket) and rightkit-memory::membrane (1,087 lines, CLI) are two clients of one engine in two packages",
+   "3,429-line context_telemetry.rs sits in rightkit-memory-store",
+   "context-runtime (62k lines) depends on 20 RightKit crates including adapt-taste, repo-graph, sync, onnx"
+  ],
+  "actions": [
+   "move the membrane CLI client from rightkit-memory into rightkit-context-client",
+   "move context_telemetry out of memory-store into context-runtime or its own module crate",
+   "Pulse host files (engine/src/membrane_child.rs, membrane_enroll.rs, membrane_cmds.rs, 2,151 lines) need a supervisor API in the package"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-repo-graph",
+  "kind": "cargo",
+  "family": "Context, memory & code intelligence",
+  "existsAs": [
+   "crates/rightkit-repo-graph",
+   "crates/rightkit-repo-graph-grammars"
+  ],
+  "feeds": {
+   "pulse": 37279,
+   "coderight": 600
+  },
+  "basis": "Pulse membrane-blueprint plus CodeRight skeletonization as one added module",
+  "referenceApp": "pulse",
+  "shape": "gaps",
+  "shapeReason": "Pulse's graph is the package and fits Pulse; CodeRight's skeletonizer was added beside it with its own four-language table instead of using the graph's 30+ language extraction.",
+  "apps": {
+   "pulse": {
+    "fit": "fits",
+    "note": "same code"
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": "skeletonization.rs is its code (200 of 201 distinctive lines)"
+   }
+  },
+  "boundary": [
+   "skeletonization.rs has a private Lang enum (Rust, Python, JS, TS) beside the graph's own language registry",
+   "repo-graph depends on rightkit-context-core and rightkit-context-protocol, so it cannot be used without the context protocol",
+   "pulls rightkit-embed and rightkit-onnx unconditionally"
+  ],
+  "actions": [
+   "drive skeletonization from the graph's language registry and grammars crate",
+   "put embed/onnx behind a feature",
+   "state in README whether repo-graph is usable without the membrane resident"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-memory",
+  "kind": "cargo",
+  "family": "Context, memory & code intelligence",
+  "existsAs": [
+   "crates/rightkit-memory",
+   "crates/rightkit-memory-core",
+   "crates/rightkit-memory-store"
+  ],
+  "feeds": {
+   "pulse": 14843,
+   "coderight": 9759
+  },
+  "basis": "memory-core and memory-store are Pulse cortex-core and cortex-store; rightkit-memory is CodeRight's client of Pulse's membrane CLI plus its mobile in-memory store",
+  "referenceApp": "pulse",
+  "shape": "wrong",
+  "shapeReason": "Not two competing engines: Pulse's engine and CodeRight's client of that engine. But the crate named rightkit-memory is the client, it does not use the engine crates' types, and it carries a dead second retrieval router.",
+  "apps": {
+   "pulse": {
+    "fit": "fits",
+    "note": "memory-core and memory-store are its code unchanged"
+   },
+   "coderight": {
+    "fit": "gaps",
+    "note": "backend and CLI client held; bin-side binding code (membrane_binding/*, api_memory.rs, about 3,000 lines) is in agent-server, not here"
+   }
+  },
+  "boundary": [
+   "MemoryTier and MemoryEntry declared twice (rightkit-memory/src/backend/types.rs:76,103 and rightkit-memory-core/src/types.rs:8,26)",
+   "rightkit-memory/src/retriever.rs (486 lines) is not declared in lib.rs and duplicates memory-core routing",
+   "membrane.rs is the client for context pull, blueprint, adapt and transcript commands, not only memory",
+   "membrane.rs:420-460 hard-codes Pulse.app install paths and notch-state.json",
+   "store.rs is a third, in-memory BTreeMap store for mobile",
+   "agent_host feature pulls axum and four agent crates into a memory crate",
+   "memory-store depends on rightkit-context-protocol"
+  ],
+  "actions": [
+   "delete retriever.rs",
+   "move membrane.rs to rightkit-context-client; keep MemoryBackend trait and native backend as rightkit-memory-client or a feature of it",
+   "re-export MemoryTier/MemoryEntry from memory-core instead of redeclaring",
+   "make the membrane binary locations a host-supplied list",
+   "move agent_host modules (memory_save_tool, blueprint_tools, memory_provenance, api_memright) to rightkit-agent-server",
+   "decide whether rightkit-memory becomes a facade over core+store or is renamed"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-adapt",
+  "kind": "cargo",
+  "family": "Context, memory & code intelligence",
+  "existsAs": [
+   "crates/rightkit-adapt",
+   "crates/rightkit-adapt-taste"
+  ],
+  "feeds": {
+   "pulse": 15823,
+   "coderight": 8073
+  },
+  "basis": "rightkit-adapt is CodeRight's coderight-learning crate; rightkit-adapt-taste is Pulse's membrane-adapt",
+  "referenceApp": "pulse",
+  "shape": "wrong",
+  "shapeReason": "Two unrelated subsystems under one name with no shared type and no dependency between them; the Pulse one (the reference) has the suffixed name.",
+  "apps": {
+   "pulse": {
+    "fit": "fits",
+    "note": "adapt-taste is its code unchanged (9,686 of 10,046 distinctive lines)"
+   },
+   "coderight": {
+    "fit": "gaps",
+    "note": "learning crate held verbatim; bin-side learning/* and adapt_application_host.rs are not in the package"
+   }
+  },
+  "boundary": [
+   "three Proposal types: rightkit-adapt types::Proposal, proposals::Proposal (exported as WorkflowProposal), adapt-taste proposal.rs",
+   "two in-memory proposal stores inside rightkit-adapt (store.rs LearningProposalStore, proposal_store.rs ProposalStore)",
+   "harness_radar.rs (532 lines) is CodeRight's product backlog feed",
+   "skill_opt, skill_synthesis, meta_skill, skill_bundle are agent-skill optimisation, closer to rightkit-agent-skills",
+   "eval_gate name used in rightkit-adapt and rightkit-memory-core for different things",
+   "CodeRight reaches Pulse's adapt through membrane CLI calls in rightkit-memory/src/membrane.rs:229-256"
+  ],
+  "actions": [
+   "rename rightkit-adapt-taste to rightkit-adapt (Pulse governed learning is the reference)",
+   "move CodeRight learning to its own crate (for example rightkit-agent-learning) or into rightkit-agent-skills",
+   "move harness_radar back to CodeRight or to a neutral watch-list crate",
+   "collapse the two proposal stores"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-research",
+  "kind": "cargo",
+  "family": "Context, memory & code intelligence",
+  "existsAs": [
+   "crates/rightkit-research"
+  ],
+  "feeds": {
+   "postright": 1572,
+   "legion": 10090
+  },
+  "basis": "Legion legion-research; no PostRight code",
+  "referenceApp": "legion",
+  "shape": "gaps",
+  "shapeReason": "The crate is Legion's sources-claims-evidence pipeline; PostRight's digest code is a calendar-drafting feature mapped here by name and does not belong.",
+  "apps": {
+   "postright": {
+    "fit": "wrong",
+    "note": "digest.rs turns dated findings into calendar drafts (content-plan); reddit_reader is a source reader with no home in the crate"
+   },
+   "legion": {
+    "fit": "gaps",
+    "note": "not comparable"
+   }
+  },
+  "boundary": [
+   "PostRight digest.rs belongs in rightkit-content-plan",
+   "depends on rightkit-code-audit-provider-sdk for ProviderError (src/error.rs:53)"
+  ],
+  "actions": [
+   "remap PostRight digest to rightkit-content-plan",
+   "decide whether reddit_reader becomes a source in rightkit-research::source or stays in media-fetch",
+   "remove the code-audit-provider-sdk dependency"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-embed",
+  "kind": "cargo",
+  "family": "Context, memory & code intelligence",
+  "existsAs": [
+   "crates/rightkit-embed"
+  ],
+  "feeds": {
+   "mailright": 398
+  },
+  "basis": "pre-existing RightKit crate (0.6.5)",
+  "referenceApp": "mailright",
+  "shape": "best",
+  "shapeReason": "Embedder plus SQLite vector store; MailRight's 398 lines are a background job and Tauri command over it, which is app glue.",
+  "apps": {
+   "mailright": {
+    "fit": "fits",
+    "note": "semantic_job.rs is a job wrapper; nothing to add to the crate"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": "memory-core and context-runtime already depend on it"
+   }
+  },
+  "boundary": [
+   "MailRight semantic_job.rs maps better to rightkit-job-queue usage than to this crate"
+  ],
+  "actions": [],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-search",
+  "kind": "cargo",
+  "family": "Context, memory & code intelligence",
+  "existsAs": [
+   "crates/rightkit-search"
+  ],
+  "feeds": {
+   "mailright": 944
+  },
+  "basis": "pre-existing RightKit crate (0.4.5); holds MailRight's html-to-text",
+  "referenceApp": "mailright",
+  "shape": "best",
+  "shapeReason": "Query language, FTS5 builder and html_text are in place; MailRight's FTS index maintenance is schema-bound app code.",
+  "apps": {
+   "mailright": {
+    "fit": "fits",
+    "note": "fts_text.rs held (68 of 82 lines); fts_index.rs and fts_rebuild_job.rs are MailRight schema"
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": "already pins rightkit-search 0.4.0"
+   }
+  },
+  "boundary": [
+   "grep feature (workspace content search, CodeRight port) is a different capability from query compilation"
+  ],
+  "actions": [],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-vault",
+  "kind": "cargo",
+  "family": "Context, memory & code intelligence",
+  "existsAs": [
+   "crates/rightkit-vault"
+  ],
+  "feeds": {
+   "pulse": 1984
+  },
+  "basis": "fresh implementation of split-key secret sync; README says written without a build or test run",
+  "referenceApp": "pulse",
+  "shape": "gaps",
+  "shapeReason": "The crate is a different capability from the Pulse file mapped to it; Pulse's agent logins and payment box is already in rightkit-remote-gateway.",
+  "apps": {
+   "pulse": {
+    "fit": "n/a",
+    "note": "agent_secrets.rs is held in rightkit-remote-gateway/src/agent_secrets.rs, not here"
+   }
+  },
+  "boundary": [
+   "plan mapping wrong: Pulse agent_secrets (login.fill, payment.fill) is not split-key sync"
+  ],
+  "actions": [
+   "remap Pulse agent_secrets to rightkit-remote-gateway",
+   "build and test the crate before publication (README states it never compiled)",
+   "depends on entitlement endpoints that must exist first"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-channel-memory",
+  "kind": "cargo",
+  "family": "Context, memory & code intelligence",
+  "existsAs": [
+   "crates/rightkit-channel-memory"
+  ],
+  "feeds": {
+   "postright": 1618
+  },
+  "basis": "pre-existing RightKit contract crate (0.2.3)",
+  "referenceApp": "postright",
+  "shape": "best",
+  "shapeReason": "Schema, validation and write gate; PostRight already imports it and keeps only its SQLite revisions table.",
+  "apps": {
+   "postright": {
+    "fit": "fits",
+    "note": "memory.rs already uses rightkit_channel_memory"
+   },
+   "genright": {
+    "fit": "fits",
+    "note": "named consumer G7; not verified"
+   }
+  },
+  "boundary": [
+   "shares the word memory with rightkit-memory but is unrelated (content channel document)"
+  ],
+  "actions": [],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-ml-lab",
+  "kind": "npm",
+  "family": "Foundation & tooling",
+  "existsAs": [
+   "packages/ml-lab"
+  ],
+  "feeds": {
+   "heardright": 53827
+  },
+  "basis": "HeardRight training and evaluation scripts copied with their directory layout",
+  "referenceApp": "heardright",
+  "shape": "wrong",
+  "shapeReason": "A private, unbuilt file dump of one product's experiments: no entry points, no dependency manifest, machine paths, dated experiment folders. Not a shared package and not publishable.",
+  "apps": {
+   "heardright": {
+    "fit": "wrong",
+    "note": "moving the scripts here gives nothing; they still refer to heardright-engine source files and D:\\Claude\\heardright paths"
+   }
+  },
+  "boundary": [
+   "60 files hold machine paths (D:\\Claude 86 times, E:\\heardright_archive, /Users/<name>)",
+   "183 files refer to heardright; schema ids heardright.l1.*",
+   "scripts read ../../heardright-engine/src/*.rs which is not in the package",
+   "23 PowerShell scripts delete or quarantine training data on a specific machine",
+   "no requirements.txt or pyproject for 158 Python files (torch, numpy)",
+   "score-asr-wer.mjs and the ASR adapter harness overlap the bench receipt shape",
+   "plan lists it as a crate; it is an npm package marked private"
+  ],
+  "actions": [
+   "do not publish",
+   "keep experiments (bakeoff/*, tools/zephyr_*, local-model-training) in a HeardRight research repository",
+   "extract only reusable pieces: WER scoring and ASR adapter harness to the bench package, CoreML/ONNX conversion to a model-tools package with a pinned Python manifest"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-bench",
+  "kind": "cargo",
+  "family": "Foundation & tooling",
+  "existsAs": [
+   "crates/rightkit-bench"
+  ],
+  "feeds": {
+   "scraperight": 15276,
+   "mailright": 4191,
+   "viewright": 2725,
+   "coderight": 5329
+  },
+  "basis": "MailRight timing helpers and ScrapeRight article scorer, plus fresh load driver and real-database probes",
+  "referenceApp": "viewright",
+  "shape": "gaps",
+  "shapeReason": "Holds timing primitives only. The shape the apps share (case manifest, run, receipt JSON and Markdown, validate or gate) is not in it, and three of four apps' bench code is Node or agent-server code that a Rust crate cannot hold.",
+  "apps": {
+   "viewright": {
+    "fit": "gaps",
+    "note": "matrix runners are .mjs on @rightkit/qa; need an npm receipt/validate library; pdf_bench.rs counters are ViewRight's"
+   },
+   "mailright": {
+    "fit": "wrong",
+    "note": "perf_proof seeds a 100k synthetic mailbox; crate states no synthetic corpus and real data only"
+   },
+   "scraperight": {
+    "fit": "gaps",
+    "note": "article scorer held; receipts and claim-gate scripts are not"
+   },
+   "coderight": {
+    "fit": "n/a",
+    "note": "agent bake-off and soak routes are held in rightkit-agent-server/src/api_benchmarks"
+   }
+  },
+  "boundary": [
+   "14,135 of ScrapeRight's 15,276 planned lines are golden HTML fixtures, not code",
+   "article.rs readable_text duplicates rightkit-web-extract/src/parse.rs:47",
+   "CodeRight api_benchmarks is agent evaluation over HTTP, already in rightkit-agent-server and rightkit-agent-orchestration",
+   "ViewRight association matrix is a LaunchServices QA harness, closer to @rightkit/qa",
+   "real-data-only rule (owner.rs WriteGate) is a policy that excludes MailRight's hermetic seeded proof"
+  ],
+  "actions": [
+   "add the shared shape: Manifest{cases}, CaseResult, Receipt (JSON + Markdown), validate(receipt), Gate(thresholds)",
+   "ship the same receipt schema as an npm module (@rightkit/qa/bench or @rightkit/bench) for the .mjs runners",
+   "remove readable_text and depend on rightkit-web-extract",
+   "allow a seeded temporary database path alongside owner probes",
+   "remap CodeRight api_benchmarks to rightkit-agent-server"
+  ],
+  "depth": "deep",
+  "confidence": "high"
+ },
+ {
+  "package": "rightkit-engine-host",
+  "kind": "cargo",
+  "family": "Foundation & tooling",
+  "existsAs": [
+   "crates/rightkit-engine-host"
+  ],
+  "feeds": {
+   "postright": 0,
+   "scraperight": 0,
+   "mailright": 0,
+   "genright": 0,
+   "cutright": 0,
+   "pulse": 0,
+   "heardright": 0,
+   "legion": 0
+  },
+  "basis": "framework pieces of GenRight's engine and protocol",
+  "referenceApp": "heardright",
+  "shape": "gaps",
+  "shapeReason": "Command registry served as CLI and stdio sidecar is the right shape and its error envelope matches GenRight and ScrapeRight; it was built from a low-priority app and not checked against HeardRight or Pulse, and it carries a video-project feature.",
+  "apps": {
+   "genright": {
+    "fit": "fits",
+    "note": "donor"
+   },
+   "scraperight": {
+    "fit": "fits",
+    "note": "EngineError {code,message,details} identical (crates/protocol/src/engine.rs:47)"
+   },
+   "cutright": {
+    "fit": "gaps",
+    "note": "its EngineError has no details field"
+   },
+   "mailright": {
+    "fit": "gaps",
+    "note": "engine_api uses an enum error and a second envelope with static codes"
+   },
+   "postright": {
+    "fit": "gaps",
+    "note": "not verified"
+   },
+   "heardright": {
+    "fit": "gaps",
+    "note": "not verified; no inventory rows"
+   },
+   "pulse": {
+    "fit": "gaps",
+    "note": "not verified; no inventory rows"
+   }
+  },
+  "boundary": [
+   "project.rs (505 lines, feature project-cmd) ties the host to rightkit-video-project, timeline and transcript",
+   "doctor.rs report duplicates rightkit-doctor/src/report.rs",
+   "apps.rs installed-app discovery is a suite launcher concern",
+   "plan gives 19,720 lines from 8 apps but no inventory file has a row with this target"
+  ],
+  "actions": [
+   "move project.rs to rightkit-video-project",
+   "keep one doctor report (in rightkit-doctor) and delete engine-host/src/doctor.rs",
+   "produce per-app inventory rows so adoption can be measured",
+   "check HeardRight and Pulse engine entry points against the registry before publication"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-apple-ops",
+  "kind": "cargo",
+  "family": "Foundation & tooling",
+  "existsAs": [
+   "crates/rightkit-apple-ops"
+  ],
+  "feeds": {
+   "legion": 11306
+  },
+  "basis": "Legion legion-apple, moved 1 Nov",
+  "referenceApp": "legion",
+  "shape": "gaps",
+  "shapeReason": "Self-contained and free of Legion names; judged alone because Legion source is unavailable. One crate mixes App Store Connect API, build analysis, profiling and a 2,857-line mobile module.",
+  "apps": {
+   "legion": {
+    "fit": "gaps",
+    "note": "not comparable"
+   }
+  },
+  "boundary": [
+   "App Store Connect client overlaps release tooling in packages/release (suspicion, not verified)",
+   "mobile.rs is not described in the crate summary"
+  ],
+  "actions": [
+   "confirm no overlap with packages/release upload code",
+   "split App Store Connect client from build analysis and profiling if a second consumer needs only one"
+  ],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-doctor",
+  "kind": "cargo",
+  "family": "Foundation & tooling",
+  "existsAs": [
+   "crates/rightkit-doctor"
+  ],
+  "feeds": {
+   "coderight": 1652,
+   "postright": 338,
+   "cutright": 177,
+   "mailright": 95,
+   "genright": 0,
+   "legion": 0
+  },
+  "basis": "fresh framework shaped on the engine doctor rows the apps share",
+  "referenceApp": "postright",
+  "shape": "gaps",
+  "shapeReason": "Row {id, required, status, detail} and the readiness roll-up are exactly what CutRight and MailRight hand-roll; CodeRight's dimension probes are not in it and the report exists twice.",
+  "apps": {
+   "cutright": {
+    "fit": "fits",
+    "note": "same check JSON (crates/cutright-engine/src/doctor.rs:12,139)"
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": "same check JSON (src-tauri/engine/src/doctor.rs:28,84)"
+   },
+   "postright": {
+    "fit": "gaps",
+    "note": "child-process and API-version probes; not compared in detail"
+   },
+   "coderight": {
+    "fit": "gaps",
+    "note": "doctor_dimension_probes.rs and doctor_impl.rs (790 lines) mostly held elsewhere, 63 lines here"
+   }
+  },
+  "boundary": [
+   "engine doctor report built in both rightkit-doctor/src/report.rs and rightkit-engine-host/src/doctor.rs",
+   "clock.rs lifecycle lines and clipboard copy are not doctor concerns",
+   "MailRight readiness requires every row ok; crate requires only required rows"
+  ],
+  "actions": [
+   "single report builder",
+   "decide where CodeRight's doctor dimensions live",
+   "move clipboard copy to rightkit-clipboard"
+  ],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "@rightkit/config",
+  "kind": "npm",
+  "family": "Foundation & tooling",
+  "existsAs": [
+   "packages/config"
+  ],
+  "feeds": {
+   "heardright": 159,
+   "viewright": 304,
+   "pulse": 58,
+   "scraperight": 171,
+   "mailright": 114,
+   "postright": 101,
+   "genright": 96,
+   "cutright": 57,
+   "coderight": 4
+  },
+  "basis": "fresh presets (tsconfig, eslint, vite, Rust toml files)",
+  "referenceApp": "heardright",
+  "shape": "best",
+  "shapeReason": "Small preset package; the app files mapped to it are near-identical deny, audit, about, toolchain and vite files.",
+  "apps": {
+   "heardright": {
+    "fit": "fits",
+    "note": "8 preset files"
+   },
+   "viewright": {
+    "fit": "gaps",
+    "note": "275-line vite.config.ts has app-specific build logic that stays in the app"
+   },
+   "pulse": {
+    "fit": "fits",
+    "note": ""
+   },
+   "scraperight": {
+    "fit": "fits",
+    "note": ""
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": ""
+   },
+   "postright": {
+    "fit": "fits",
+    "note": ""
+   },
+   "genright": {
+    "fit": "fits",
+    "note": ""
+   },
+   "cutright": {
+    "fit": "fits",
+    "note": ""
+   },
+   "coderight": {
+    "fit": "fits",
+    "note": ""
+   }
+  },
+  "boundary": [
+   "cargo toml presets (deny, audit, rust-toolchain) cannot be imported, only copied; needs a sync check (suspicion, mechanism not verified)"
+  ],
+  "actions": [],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "@rightkit/waitlist-worker",
+  "kind": "npm",
+  "family": "Foundation & tooling",
+  "existsAs": [
+   "packages/waitlist-worker"
+  ],
+  "feeds": {
+   "viewright": 218,
+   "mailright": 311
+  },
+  "basis": "config-driven factory generalising the ViewRight and MailRight workers",
+  "referenceApp": "viewright",
+  "shape": "best",
+  "shapeReason": "createWaitlistWorker(config) covers both: ViewRight's source field (recordSource) and MailRight's two free-text fields (detailFields), same KV, rate limit, IP hash and Resend bindings.",
+  "apps": {
+   "viewright": {
+    "fit": "fits",
+    "note": "record fields and bindings match"
+   },
+   "mailright": {
+    "fit": "fits",
+    "note": "current_tool and biggest_frustration become detailFields"
+   }
+  },
+  "boundary": [],
+  "actions": [],
+  "depth": "light",
+  "confidence": "medium"
+ },
+ {
+  "package": "rightkit-ownership",
+  "kind": "cargo",
+  "family": "Foundation & tooling",
+  "existsAs": [
+   "crates/rightkit-ownership"
+  ],
+  "feeds": {},
+  "basis": "RightKit's own scanner, Rust port of the Node scanner in packages/release",
+  "referenceApp": "rightkit",
+  "shape": "best",
+  "shapeReason": "RightKit infrastructure, not fed by any app and not in the master plan; no app shape to reconcile.",
+  "apps": {},
+  "boundary": [
+   "rightkit-code-audit-engine depends on it"
+  ],
+  "actions": [],
+  "depth": "light",
+  "confidence": "low"
+ },
+ {
+  "package": "rightkit-connector-gen",
+  "kind": "cargo",
+  "family": "Foundation & tooling",
+  "existsAs": [
+   "crates/rightkit-connector-gen"
+  ],
+  "feeds": {},
+  "basis": "fresh, std-only generator from an engine contract",
+  "referenceApp": "rightkit",
+  "shape": "best",
+  "shapeReason": "528 lines, no app code feeds it and it is not in the master plan; its input is the rightkit-job-queue method list.",
+  "apps": {},
+  "boundary": [
+   "takes its own Contract type instead of rightkit-engine-host's contract export (suspicion)"
+  ],
+  "actions": [],
+  "depth": "light",
+  "confidence": "low"
+ }
+]

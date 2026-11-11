@@ -29,7 +29,7 @@
 //!
 //! They do compose: a slow tool can register a [`DeferredToolCall`] here for
 //! its own eventual return value, *and* have its completion callback also
-//! post a summary into the session's [`crate::coding_tools::async_inbox::AsyncInbox`] so
+//! post a summary into the session's async inbox ([`crate::coding_tools::async_inbox::push`]) so
 //! the agent notices the resolution even if it never re-checks the specific
 //! `tool_call_id`. `async_inbox.rs` depends on this module's `ResolutionKind`
 //! only for that composition; it does not depend on the registry itself.

@@ -12,6 +12,7 @@ import { parseUnitNames, readCrateWorkspace, readNpmWorkspace } from "./publish.
 import { externalInputs } from "../../packages/release/bin/rightkit-gate.mjs";
 import { planScans, runScans, scanDeferrals, scanFailures, scanToolPolicyFromPipeline } from "../../packages/release/deterministic-scans.mjs";
 import { brokerManagedHost } from "../../packages/release/cargo-contract.mjs";
+import { owningWorkspace, scanUnitName } from "./crate-scan-workspaces.mjs";
 import { buildScanReceipt, candidateCargoLocks, observeToolVersions, resultProblems, SCAN_RECEIPT_FILE, toolVersionProblems } from "./scan-receipt.mjs";
 
 const git = (cwd, ...args) => {
@@ -46,13 +47,19 @@ export function publicationContent({ registry, units: text, files, workspace, cr
       if (reach.unresolved) throw new Error(`publication scan inputs unresolved for ${name}: ${reach.unresolved}`);
       dirs.push(...reach.paths);
     }
-    // Each crate is its own Cargo workspace with its own lock (#1285): its cargo scans run in its directory, as ci.yml's gate plans them.
-    return registry === "npm" ? { name: path.posix.basename(unit.dir), dir: unit.dir } : { name, dir: unit.dir, cargoDir: unit.dir, crate: name };
+    if (registry === "npm") return { name: path.posix.basename(unit.dir), dir: unit.dir };
+    // The cargo scans (cargo-metadata, cargo-deny, cargo-audit) run in the Cargo workspace that owns the crate, as ci.yml's gate plans them
+    // (gate.mjs scansGate, crate-scan-workspaces.mjs): the repository root for a member of the one root workspace and its one Cargo.lock
+    // (rightkit#1505), the crate's own directory for a crate that declares its own `[workspace]` (crates/rightkit-mesh-ffi).
+    // Read from the candidate's tracked files alone (`files`, `readBlob`), never from an untracked file of the checkout.
+    const tracked = (p) => p.split(path.sep).join("/");
+    const cargoDir = owningWorkspace("", unit.dir, { exists: (p) => files.includes(tracked(p)), readFile: (p) => readBlob(tracked(p)) });
+    return { name: scanUnitName(cargoDir, name), dir: unit.dir, cargoDir, crate: name };
   });
-  // An npm publication has no Cargo workspace: RightKit has had no root workspace since #1285 (one per crate), so a Cargo manifest, lock or
-  // `.cargo` config in its scope (a test fixture's, packages/release/fixtures/...) only made the planner fall back to the root `.` and run
-  // cargo-metadata, cargo-deny and cargo-audit where no Cargo.toml exists (every npm publish.yml scans job, 2026-11-01). The crates' own
-  // manifests are scanned by their own publications and by ci.yml's whole-repository gate.
+  // An npm publication scans no Cargo workspace: a Cargo manifest, lock or `.cargo` config in its scope (a test fixture's,
+  // packages/release/fixtures/...) only made the planner fall back to the root `.` and run cargo-metadata, cargo-deny and cargo-audit
+  // there for a publication that ships no crate (every npm publish.yml scans job, 2026-11-01). The crates' own manifests are scanned by
+  // their own publications and by ci.yml's whole-repository gate.
   const rustConfig = (f) => /(^|\/)Cargo\.(toml|lock)$/.test(f) || f.startsWith(".cargo/") || f.includes("/.cargo/");
   return {
     scope: { registry, units },
@@ -87,7 +94,7 @@ export async function runCandidateScans({ contentRoot, liveRoot, outDir, env = p
   const result = await runScans(plan, { classes: ["A"], toolPolicy });
   for (const line of scanDeferrals(result)) console.log(`DEFERRED ${line}`);
   for (const line of scanFailures(result)) console.log(`FAIL ${line}`);
-  // Each crate unit is bound to its own crates/<x>/Cargo.lock (#1285): no root lock exists.
+  // Each crate unit is bound to the lock of the workspace that owns it: the root Cargo.lock for a member of the root workspace (rightkit#1505).
   const cargoLocks = candidateCargoLocks({ candidateDir: contentRoot, units: selection.scope.units, registry: selection.scope.registry });
   const receipt = buildScanReceipt({
     result, plannedClassA, sourceCommit, headCommit: head, observedTools, scope: selection.scope, cargoLocks,
