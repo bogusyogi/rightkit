@@ -1,22 +1,44 @@
 # RightKit shape matrix
 
-Generated 2026-11-11T09:44Z from RightKit 55b330d.
+Generated 2026-11-11T09:46Z from RightKit 55b330d.
 
-Packages: 301 (218 crates, 53 npm, 30 Swift). Reviewed for shape: 234 (best 61, gaps 132, wrong 34, missing 7). Not yet reviewed: 67.
+Packages: 301 (218 crates, 53 npm, 30 Swift). Reviewed for shape: 277 (best 61, gaps 158, wrong 51, missing 7). Not yet reviewed: 24.
 
 Cell: review fit · pin state on the app's main · planned lines and the share found in the package. Empty means the app has nothing for the package.
 
-## Agent platform (31)
+## Agent platform (60)
 
 | Package | Kind | Published | Shape | Basis | heardright | viewright | pulse | coderight | genright | mailright | scraperight | cutright | postright | legion |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `@rightkit/agent-ui` | npm | n/a | gaps | CodeRight's desktop UI split into six packages; agent-ui-approvals is MailRight's approval card/queue and Pulse's hub remote views placed side by side, not merged |  |  | gaps · 1308L 98% | fits · 118530L 95% |  | gaps · 1395L 73% |  |  |  |  |
+| `@rightkit/agent-ui-approvals` | npm | yes | gaps (family) | family verdict of @rightkit/agent-ui |  |  | gaps | fits |  | gaps · ahead |  |  |  |  |
+| `@rightkit/agent-ui-components` | npm | yes | gaps (family) | family verdict of @rightkit/agent-ui |  |  | gaps | fits |  | gaps |  |  |  |  |
+| `@rightkit/agent-ui-core` | npm | yes | gaps (family) | family verdict of @rightkit/agent-ui |  |  | gaps | fits |  | gaps |  |  |  |  |
+| `@rightkit/agent-ui-hooks` | npm | yes | gaps (family) | family verdict of @rightkit/agent-ui |  |  | gaps | fits |  | gaps |  |  |  |  |
+| `@rightkit/agent-ui-settings` | npm | yes | gaps (family) | family verdict of @rightkit/agent-ui |  |  | gaps | fits |  | gaps |  |  |  |  |
+| `@rightkit/agent-ui-web` | npm | yes | gaps (family) | family verdict of @rightkit/agent-ui |  |  | gaps | fits |  | gaps |  |  |  |  |
+| `@rightkit/agent-ui-workbench` | npm | yes | gaps (family) | family verdict of @rightkit/agent-ui |  |  | gaps | fits |  | gaps |  |  |  |  |
 | `@rightkit/terminal-ui` | npm | yes | best | CodeRight's web terminal component |  |  |  | fits · 1370L 98% |  |  |  |  |  |  |
 | `rightkit-agent-demo` | cargo | yes | gaps | CutRight's agent demo mode |  |  |  |  |  |  |  | fits · 4434L 79% |  |  |
 | `rightkit-agent-engine` | cargo | yes | wrong | Two unrelated things under one name: the base crate is Pulse's always-on task contract (core/src/agent); the 14 -* crates are CodeRight's turn-loop engine |  |  | gaps · 5097L 13% | gaps · 124089L 82% |  |  |  |  |  |  |
+| `rightkit-agent-engine-api-integrations` | cargo | no (0.1.2, registry 0.1.1) | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine-api-platform` | cargo | no (0.1.2, registry 0.1.1) | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine-api-sessions` | cargo | yes | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine-api-workflows` | cargo | yes | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine-attention` | cargo | no (0.1.2, registry 0.1.1) | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine-cli` | cargo | yes | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps · ahead |  |  |  |  |  |  |
+| `rightkit-agent-engine-core` | cargo | yes | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine-history` | cargo | no (0.1.2, registry 0.1.1) | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine-mobile-runtime` | cargo | yes | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine-protocol` | cargo | no (0.1.2, registry 0.1.1) | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine-runtime-middleware` | cargo | no (0.1.2, registry 0.1.1) | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine-runtime-resources` | cargo | yes | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps · ahead |  |  |  |  |  |  |
+| `rightkit-agent-engine-storage` | cargo | yes | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
+| `rightkit-agent-engine-tasks` | cargo | yes | wrong (family) | family verdict of rightkit-agent-engine |  |  | gaps | gaps |  |  |  |  |  |  |
 | `rightkit-agent-gateway` | cargo | yes | wrong | rightkit-agent-gateway is MailRight's mail gateway (drafts, forward, send-with-approval, Gmail seams); Pulse's gateway is a separate crate, rightkit-remote-gateway |  |  | wrong · 20758L 1% |  |  | fits · ahead · 14620L 34% |  |  |  |  |
 | `rightkit-agent-host-traits` | cargo | no (0.1.3, registry 0.1.2) | best | CodeRight host seam traits (not fed by a plan target) |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-agent-orchestration` | cargo | yes | gaps | CodeRight's orchestration crate; -handoff also matches some Pulse transcript lines |  |  |  | fits · 37870L 80% |  |  |  |  |  |  |
+| `rightkit-agent-orchestration-handoff` | cargo | yes | gaps (family) | family verdict of rightkit-agent-orchestration |  |  |  | fits |  |  |  |  |  | ahead |
 | `rightkit-agent-plugins` | cargo | no (0.1.2, registry 0.1.1) | best | CodeRight plugin discovery |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-agent-policy` | cargo | no (0.1.2, registry 0.1.1) | gaps | CodeRight's policy crate |  |  |  | fits · 16018L 85% |  |  |  |  |  |  |
 | `rightkit-agent-recipes` | cargo | yes | best | CodeRight recipes |  |  |  |  |  |  |  |  |  |  |
@@ -30,6 +52,13 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-bot-messaging` | cargo | yes | gaps | Under half of CodeRight's bot messaging; the rest and the Telegram client are in agent-server |  |  |  | gaps · 6489L 47% |  |  |  |  |  |  |
 | `rightkit-chat-bridge` | cargo | yes | gaps | Pulse's chat-between-chats code |  |  | fits · 26856L 75% |  |  |  |  |  |  |  |
 | `rightkit-evidence` | cargo | yes | gaps | rightkit-evidence holds a quarter of CodeRight's planned evidence code; most (1.8k of 2.2k lines) is in agent-server. The seven -* crates (27k lines) are not fed by any planned app file in this family |  |  |  | gaps · ahead · 5738L 26% |  |  |  |  |  |  |
+| `rightkit-evidence-application` | cargo | yes | gaps (family) | family verdict of rightkit-evidence |  |  |  | gaps |  |  |  |  |  |  |
+| `rightkit-evidence-commands` | cargo | yes | gaps (family) | family verdict of rightkit-evidence |  |  |  | gaps |  |  |  |  |  |  |
+| `rightkit-evidence-contracts` | cargo | yes | gaps (family) | family verdict of rightkit-evidence |  |  |  | gaps |  |  |  |  |  | ahead |
+| `rightkit-evidence-decisions` | cargo | yes | gaps (family) | family verdict of rightkit-evidence |  |  |  | gaps |  |  |  |  |  | ahead |
+| `rightkit-evidence-effects` | cargo | yes | gaps (family) | family verdict of rightkit-evidence |  |  |  | gaps |  |  |  |  |  | ahead |
+| `rightkit-evidence-governance` | cargo | yes | gaps (family) | family verdict of rightkit-evidence |  |  |  | gaps |  |  |  |  |  | ahead |
+| `rightkit-evidence-report` | cargo | yes | gaps (family) | family verdict of rightkit-evidence |  |  |  | gaps |  |  |  |  |  | ahead |
 | `rightkit-github` | cargo | yes | gaps | CodeRight's GitHub App module |  |  |  | gaps · 8586L 50% |  |  |  |  |  |  |
 | `rightkit-hooks` | cargo | no (0.2.4, registry 0.2.3) | gaps | Claude Code/Codex hook payloads; CodeRight 66% in; also used by Pulse's chat-bridge |  |  | ahead | fits · exception · 5423L 66% |  |  |  |  |  |  |
 | `rightkit-llm` | cargo | no (0.3.5, registry 0.3.4) | gaps | RightKit's original BYOK clients (anthropic.rs, openai.rs, failover) plus CodeRight's agent_providers and agent_router (15.7k lines) behind features | ahead |  | ahead | gaps · ahead · 33990L 67% |  | gaps · ahead · 941L 5% |  |  |  |  |
@@ -53,17 +82,31 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `rightkit-social-inbox` | cargo | yes | gaps | PostRight webhook inbox and keyword automation over store traits |  |  |  |  |  |  |  |  | gaps · 3070L 48% |  |
 | `rightkit-social-publish` | cargo | yes | gaps | PostRight publish adapters, phase machine, quota, accounts over store traits |  |  |  |  |  |  |  |  | gaps · ahead · 16930L 62% |  |
 
-## Context, memory & code intelligence (10)
+## Context, memory & code intelligence (24)
 
 | Package | Kind | Published | Shape | Basis | heardright | viewright | pulse | coderight | genright | mailright | scraperight | cutright | postright | legion |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `rightkit-adapt` | cargo | no (0.1.2, registry 0.1.1) | wrong | rightkit-adapt is CodeRight's coderight-learning crate; rightkit-adapt-taste is Pulse's membrane-adapt |  |  | fits · 15823L 96% | gaps · 8073L 76% |  |  |  |  |  |  |
+| `rightkit-adapt-taste` | cargo | no (0.1.2, registry 0.1.1) | wrong (family) | family verdict of rightkit-adapt |  |  | fits · ahead | gaps |  |  |  |  |  |  |
 | `rightkit-channel-memory` | cargo | yes | best | pre-existing RightKit contract crate (0.2.3) |  |  |  |  | fits |  |  |  | fits · ahead · 1618L 2% |  |
 | `rightkit-code-audit` | cargo | n/a | gaps | Legion legion-audit, CLI commands and legion-dev modules, moved 1 Nov |  |  |  |  |  |  |  |  |  | gaps |
+| `rightkit-code-audit-commands` | cargo | yes | gaps (family) | family verdict of rightkit-code-audit |  |  |  |  |  |  |  |  |  | gaps |
+| `rightkit-code-audit-engine` | cargo | yes | gaps (family) | family verdict of rightkit-code-audit |  |  |  |  |  |  |  |  |  | gaps |
+| `rightkit-code-audit-provider-sdk` | cargo | yes | gaps (family) | family verdict of rightkit-code-audit |  |  |  |  |  |  |  |  |  | gaps · ahead |
+| `rightkit-code-audit-qualification` | cargo | yes | gaps (family) | family verdict of rightkit-code-audit |  |  |  |  |  |  |  |  |  | gaps |
 | `rightkit-context` | cargo | yes | gaps | Pulse membrane engine crates, moved crate for crate |  |  | fits · 98511L 89% | gaps |  |  |  |  |  |  |
+| `rightkit-context-client` | cargo | yes | gaps (family) | family verdict of rightkit-context |  |  | fits · ahead | gaps |  |  |  |  |  |  |
+| `rightkit-context-core` | cargo | yes | gaps (family) | family verdict of rightkit-context |  |  | fits · ahead | gaps |  |  |  |  |  |  |
+| `rightkit-context-federation` | cargo | yes | gaps (family) | family verdict of rightkit-context |  |  | fits | gaps |  |  |  |  |  |  |
+| `rightkit-context-protocol` | cargo | yes | gaps (family) | family verdict of rightkit-context |  |  | fits · ahead | gaps |  |  |  |  |  |  |
+| `rightkit-context-provider-sdk` | cargo | yes | gaps (family) | family verdict of rightkit-context |  |  | fits · ahead | gaps |  |  |  |  |  |  |
+| `rightkit-context-runtime` | cargo | yes | gaps (family) | family verdict of rightkit-context |  |  | fits | gaps |  |  |  |  |  |  |
 | `rightkit-embed` | cargo | no (0.6.5, registry 0.6.4) | best | pre-existing RightKit crate (0.6.5) |  |  | fits · ahead |  |  | fits · ahead · 398L 0% |  |  |  |  |
 | `rightkit-memory` | cargo | yes | wrong | memory-core and memory-store are Pulse cortex-core and cortex-store; rightkit-memory is CodeRight's client of Pulse's membrane CLI plus its mobile in-memory store |  |  | fits · 14843L 99% | gaps · ahead · 9759L 62% |  |  |  |  |  |  |
+| `rightkit-memory-core` | cargo | yes | wrong (family) | family verdict of rightkit-memory |  |  | fits | gaps |  |  |  |  |  |  |
+| `rightkit-memory-store` | cargo | yes | wrong (family) | family verdict of rightkit-memory |  |  | fits | gaps |  |  |  |  |  |  |
 | `rightkit-repo-graph` | cargo | yes | gaps | Pulse membrane-blueprint plus CodeRight skeletonization as one added module |  |  | fits · 37279L 96% | fits · 600L 95% |  |  |  |  |  |  |
+| `rightkit-repo-graph-grammars` | cargo | yes | gaps (family) | family verdict of rightkit-repo-graph |  |  | fits | fits |  |  |  |  |  |  |
 | `rightkit-research` | cargo | yes | gaps | Legion legion-research; no PostRight code |  |  |  |  |  |  |  |  | wrong · 1572L 2% | gaps · ahead |
 | `rightkit-search` | cargo | yes | best | pre-existing RightKit crate (0.4.5); holds MailRight's html-to-text |  |  | exception | fits · ahead | ahead | fits · ahead · 944L 13% | ahead | ahead |  |  |
 | `rightkit-vault` | cargo | yes | gaps | fresh implementation of split-key secret sync; README says written without a build or test run |  |  | 1984L 0% |  |  |  |  |  |  |  |
@@ -330,60 +373,17 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `@rightkit/sync-worker` | npm | private | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 
-## other (52)
+## other (9)
 
 | Package | Kind | Published | Shape | Basis | heardright | viewright | pulse | coderight | genright | mailright | scraperight | cutright | postright | legion |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `@rightkit/agent-ui-approvals` | npm | yes | not reviewed |  |  |  |  |  |  | ahead |  |  |  |  |
-| `@rightkit/agent-ui-components` | npm | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `@rightkit/agent-ui-core` | npm | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `@rightkit/agent-ui-hooks` | npm | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `@rightkit/agent-ui-settings` | npm | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `@rightkit/agent-ui-web` | npm | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `@rightkit/agent-ui-workbench` | npm | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `@rightkit/blender-worker` | npm | yes | not reviewed |  |  |  |  |  | ahead |  |  |  |  |  |
 | `@rightkit/dictation-ui` | npm | yes | not reviewed |  | 8675L 96% |  |  | 1090L  |  |  |  |  |  |  |
 | `@rightkit/ml-lab` | npm | private | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `@rightkit/send-ui` | npm | no (0.1.0, registry none) | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-adapt-taste` | cargo | no (0.1.2, registry 0.1.1) | not reviewed |  |  |  | ahead |  |  |  |  |  |  |  |
-| `rightkit-agent-engine-api-integrations` | cargo | no (0.1.2, registry 0.1.1) | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-agent-engine-api-platform` | cargo | no (0.1.2, registry 0.1.1) | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-agent-engine-api-sessions` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-agent-engine-api-workflows` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-agent-engine-attention` | cargo | no (0.1.2, registry 0.1.1) | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-agent-engine-cli` | cargo | yes | not reviewed |  |  |  |  | ahead |  |  |  |  |  |  |
-| `rightkit-agent-engine-core` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-agent-engine-history` | cargo | no (0.1.2, registry 0.1.1) | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-agent-engine-mobile-runtime` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-agent-engine-protocol` | cargo | no (0.1.2, registry 0.1.1) | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-agent-engine-runtime-middleware` | cargo | no (0.1.2, registry 0.1.1) | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-agent-engine-runtime-resources` | cargo | yes | not reviewed |  |  |  |  | ahead |  |  |  |  |  |  |
-| `rightkit-agent-engine-storage` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-agent-engine-tasks` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-agent-orchestration-handoff` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  | ahead |
-| `rightkit-code-audit-commands` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-code-audit-engine` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-code-audit-provider-sdk` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  | ahead |
-| `rightkit-code-audit-qualification` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-context-client` | cargo | yes | not reviewed |  |  |  | ahead |  |  |  |  |  |  |  |
-| `rightkit-context-core` | cargo | yes | not reviewed |  |  |  | ahead |  |  |  |  |  |  |  |
-| `rightkit-context-federation` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-context-protocol` | cargo | yes | not reviewed |  |  |  | ahead |  |  |  |  |  |  |  |
-| `rightkit-context-provider-sdk` | cargo | yes | not reviewed |  |  |  | ahead |  |  |  |  |  |  |  |
-| `rightkit-context-runtime` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-contrast` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-evidence-application` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-evidence-commands` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-evidence-contracts` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  | ahead |
-| `rightkit-evidence-decisions` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  | ahead |
-| `rightkit-evidence-effects` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  | ahead |
-| `rightkit-evidence-governance` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  | ahead |
-| `rightkit-evidence-report` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  | ahead |
-| `rightkit-memory-core` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
-| `rightkit-memory-store` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-owner-approvals` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-policy-rules` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  | ahead |
-| `rightkit-repo-graph-grammars` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-signal` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 | `rightkit-sysmem` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  |  |  |
 
@@ -406,6 +406,57 @@ Cell: review fit · pin state on the app's main · planned lines and the share f
 | `@rightkit/issues-tracker` | npm | yes | not reviewed |  | adopted |  | adopted |  |  | adopted · 88L 93% | adopted |  | adopted · 88L 93% |  |
 | `@rightkit/outdated` | npm | no (0.3.1, registry 0.3.0) | not reviewed |  |  |  | 324L 1% |  |  |  |  |  |  |  |
 | `rightkit-platform-rules` | cargo | yes | not reviewed |  |  |  |  |  |  |  |  |  | adopted · 107L 3% |  |
+
+## Wrong shape (34 packages; sub-crates that inherit a family verdict are not repeated)
+
+| Package | Why | Reference app |
+|---|---|---|
+| `@rightkit/document-core` | A catch-all created to break an import cycle. Adopting any editor pulls in ViewRight's concrete Tauri bridge (57 command names), settings schema, theme list and PDF editor. | viewright |
+| `@rightkit/document-workspace` | It is the whole ViewRight application: hard-coded legal gate, licence and update settings, format list, and a generated barrel exporting every module. A second app would inherit ViewRight's product decisions. | viewright |
+| `@rightkit/library-ui` | Two apps' screens in two folders with no shared component, literal Tauri command names and one app's theme, licence and title bar. | heardright |
+| `@rightkit/media-gen-ui` | The GenRight application frontend including a 4,003-line browser mock of the engine, legal documents, onboarding/license/app-update wiring and brand data. | genright |
+| `@rightkit/system-ui` | Views call Tauri invoke directly with Pulse command names, carry Pulse strings and bundle chat, nearby, launcher settings, onboarding and legal; a second app cannot adopt it. | pulse |
+| `@rightkit/tauri` | Exports one constructor per product (createViewRightTauriClient, createHeardRightTauriClient, ...), so the shared package names its consumers. The generic constructor is the right API. | pulse |
+| `@rightkit/video-ui` | It is the CutRight application frontend, not a component library: Home, Settings, legal config, demo mode, app name, GenRight client, and Tauri invokes of commands that exist only in the CutRight shell. | cutright |
+| `@rightkit/workspace-ui` | Every view imports mail-ui internals (store, hooks, ipc, icons), so the package cannot be used without the mail app's state. | mailright |
+| `rightkit-adapt` | Two unrelated subsystems under one name with no shared type and no dependency between them; the Pulse one (the reference) has the suffixed name. | pulse |
+| `rightkit-agent-engine` | The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types. | coderight for the turn loop; pulse for the task/authority contract |
+| `rightkit-agent-gateway` | The package named 'agent gateway' is a mail product: it depends on rightkit-mail and its methods are mail verbs. Pulse's gateway shares none of its code. The common part (pairing, gate pipeline, audit, pending approvals, untrusted-content wrapping, redaction) exists twice and is not factored out. | pulse for gate order, approval binding, redaction and refusal codes; mailright for the paired-agent registry and SQL audit (the more general design: several agents, each with a profile and account scope) |
+| `rightkit-agent-server` | It is CodeRight's application binary under a library name: 532 'coderight' strings, benchmarks, harness-radar data, and its own copies of the scheduler (3.0k), GitHub App (3.5k), workflow (7.2k) and Telegram (0.7k) modules. It does not depend on rightkit-scheduler or rightkit-github. | coderight |
+| `rightkit-app-host` | A process-global host registry created by moving Pulse code; not a capability every desktop app adopts, so it should not sit in the mandatory set. Low confidence: README only. | pulse |
+| `rightkit-app-settings` | The store API serves every app, but 3,775 of 8,768 lines are CodeRight's layered TOML agent configuration (the whole 47% match), which is a different capability and one app's schema. | heardright |
+| `rightkit-approvals` | Three apps, three unconnected approval implementations in four crates; the crate with the shared name depends on rightkit-media-gen and has GenRight draft kinds built in, so no other app can use it. | pulse |
+| `rightkit-daemon` | The local same-user service API is right and Pulse, MailRight, CutRight and GenRight host on it unchanged. But the crate is eight things: local service, remote HTTPS host, loopback bearer HTTP, relay, run mode and app roots, root migration/cutover, installed-app discovery, approval, and CodeRight's lifecycle authority. ViewRight and ScrapeRight link it only for mode/AppRoot/Suite, and rightkit-models links it only for Suite::resolve. | pulse |
+| `rightkit-desktop-tweaks` | The crate holds the Windows keyboard hook wired to screenshots, snippets, wheel and strip, not the planned Mac Finder and window tweaks. | pulse |
+| `rightkit-engine-host` | Built from a tier-4 app and not compared with HeardRight's engine supervisor or CodeRight's daemon; should not be mandatory until it is. Low confidence: README only. | heardright |
+| `rightkit-google-identity` | Duplicates PKCE and ID-token verification already in rightkit-oauth (which google-apis uses); no dependant; endpoints marked unverified. | none |
+| `rightkit-launcher` | The crate is Pulse's Windows launcher product (Pulse pages, strings, data folder) rather than a launcher core; the portable logic should be split from the Win32 panel. | pulse |
+| `rightkit-library` | Plan merged four different capabilities under one name; the crate holds only ScrapeRight's artifact index, with a fixed social Kind enum and tier rules. | heardright |
+| `rightkit-media-gen` | A 34,600-line crate that is the GenRight engine: 18 provider adapters, jobs, catalogue, routing, library, credentials, spend layer, voices, and private copies of code other RightKit crates own. Its API is JSON Value in and out, so a second app adopts it only as "GenRight embedded". | genright |
+| `rightkit-memory` | Not two competing engines: Pulse's engine and CodeRight's client of that engine. But the crate named rightkit-memory is the client, it does not use the engine crates' types, and it carries a dead second retrieval router. | pulse |
+| `rightkit-ml-lab` | A private, unbuilt file dump of one product's experiments: no entry points, no dependency manifest, machine paths, dated experiment folders. Not a shared package and not publishable. | heardright |
+| `rightkit-models` | The crate has two independent on-disk layouts and two APIs (suite/mod.rs:20-24). MailRight and GenRight install through Store/ModelSpec/InstallOptions; HeardRight, ScrapeRight and CutRight through suite::*; CodeRight uses only hardware fit. No duplicate code needs one store, and the live app's layout is the suite one. | heardright |
+| `rightkit-notch-ui` | The cell and mark set is Pulse's AI-usage product (Cell::Claude, Cell::Codex, accounts); a second app would inherit it. | pulse |
+| `rightkit-pipeline` | Not in the assigned list but flagged in the task: it holds one app's client for one other app's CLI. The three feeders implement three sides of engine-to-engine calls and only CutRight's is here. | postright |
+| `rightkit-prompt-recipes` | Prompt contracts per model and the recipe composer are reusable. The crate also ships the owner's brand list and a Kindle colouring-page workflow, and every module is a `studio.<area>.*` command handler bound to rightkit_media_gen::Context. | genright |
+| `rightkit-qa-driver` | Superseded by rightkit-qa; no surveyed app imports it. It should not be in the set apps adopt. | none |
+| `rightkit-remote-compute` | Rented GPU worker lifecycle (SSH, Vast.ai) with a time-billed spend bracket is a clear package. Half the crate is local model management, and worker records live in media-gen's settings table. | genright |
+| `rightkit-social-analytics` | CutRight's retention-to-timeline-cuts command is video editing and drags video-project, timeline, autoedit and engine-host into a social crate. | postright |
+| `RightKitHubQA` | Wrong shape: it is three files of fakes for the desktop Hub and depends on RightKitHub. The 48 iOS test files mapped to it stay with the app, as the mapping document's own APPTEST rows say. | heardright |
+| `RightKitUI` | The module is fine for what it holds, but about 5.5k planned lines mapped to it are settings models, app entry points, File Provider and widget code, none of which is UI kit. | heardright |
+| `RightKitWatch` | Wrong shape: it is an FSEvents file watcher (the target is empty on iOS), not Apple Watch code. The 19 Apple Watch files mapped to it belong with RightKitWatchBridge, RightKitAudio and a new watch-recording home. | heardright |
+
+## Missing (7)
+
+| Package | Note |
+|---|---|
+| `rightkit-media-control` | Planned in the inventory as NEW and not in RightKit. The delivery design recommends a small separate crate, or rightkit-now-playing gaining a control-other-players half, rather than rightkit-automation. |
+| `RightKitAgent` | No Swift module exists. CodeRight's 30.7k lines are its whole iOS app; Pulse's are iOS screens. The reusable part is small: provider protocol, budgeted loop step, approval gate with device-lock confirmation, pairing. |
+| `RightKitDictation` | Planned NEW and not in RightKitSwift. One of only two missing Swift packages HeardRight needs; it is the iOS dictation runtime built on RightKitAudio, RightKitSpeech, RightKitStore and RightKitLiveActivity. |
+| `RightKitLibrary` | No Swift module exists; HeardRight's transcript store with tombstones and CloudKit sync and ScrapeRight's small artifact store are different things. |
+| `RightKitMedia` | No RightKitMedia module in swift/RightKitSwift/Sources or Package.swift. CutRight's macOS media worker (AVFoundation timeline render, Vision, audio finish) has 46 matching lines anywhere. |
+| `RightKitNotch` | No module in RightKitSwift; should be a generic notch surface, not a lift of Pulse's Features and Model. |
+| `RightKitSystemUI` | No module in RightKitSwift; it is the SwiftUI twin of @rightkit/system-ui and should share that package's contract. |
 
 ## Actions before publication
 

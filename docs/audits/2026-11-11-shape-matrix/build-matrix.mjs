@@ -34,6 +34,12 @@ for (const name of new Set([...plan.keys(), ...verdict.keys()])) {
   const v = verdict.get(name) ?? null;
   rows.push({ package: name, kind: name.startsWith("@") ? "npm" : name.startsWith("RightKit") ? "swift" : "cargo", dir: v?.existsAs?.join(", ") ?? null, class: "planned", domain: "planned", rowsOwned: [], version: null, registryLatest: null, published: "n/a", pins: Object.fromEntries(APPS.map((a) => [a, "-"])), plan: plan.get(name) ?? {}, review: v });
 }
+// a sub-crate with no verdict of its own takes its family's (rightkit-agent-engine-core <- rightkit-agent-engine)
+for (const r of rows) {
+  if (r.review) continue;
+  const fam = [...verdict.keys()].filter((k) => r.package.startsWith(k + "-")).sort((a, b) => b.length - a.length)[0];
+  if (fam) { const v = verdict.get(fam); r.review = { ...v, package: r.package, inheritedFrom: fam, basis: `family verdict of ${fam}`, actions: [], boundary: [] }; }
+}
 rows.sort((a, b) => a.package.localeCompare(b.package));
 writeFileSync(OUT_JSON, JSON.stringify({ generated: new Date().toISOString(), rightkitHead: pm.rightkitHead, apps: APPS, rows }, null, 1));
 
@@ -48,10 +54,15 @@ md += `Cell: review fit · pin state on the app's main · planned lines and the 
 const byDomain = new Map(); for (const r of rows) { const k = r.review?.family ?? r.domain ?? "other"; (byDomain.get(k) ?? byDomain.set(k, []).get(k)).push(r); }
 for (const [d, list] of [...byDomain].sort()) {
   md += `## ${d} (${list.length})\n\n| Package | Kind | Published | Shape | Basis | ${APPS.join(" | ")} |\n|---|---|---|---|---|${APPS.map(() => "---").join("|")}|\n`;
-  for (const r of list) md += `| \`${r.package}\` | ${r.kind} | ${r.published}${r.published === "no" ? ` (${r.version}, registry ${r.registryLatest ?? "none"})` : ""} | ${r.review?.shape ?? "not reviewed"} | ${(r.review?.basis ?? "").replace(/\|/g, "/")} | ${APPS.map((a) => cell(r, a)).join(" | ")} |\n`;
+  for (const r of list) md += `| \`${r.package}\` | ${r.kind} | ${r.published}${r.published === "no" ? ` (${r.version}, registry ${r.registryLatest ?? "none"})` : ""} | ${r.review ? r.review.shape + (r.review.inheritedFrom ? " (family)" : "") : "not reviewed"} | ${(r.review?.basis ?? "").replace(/\|/g, "/")} | ${APPS.map((a) => cell(r, a)).join(" | ")} |\n`;
   md += "\n";
 }
-md += `## Actions before publication\n\n`;
+const own = (k) => rows.filter((r) => r.review && !r.review.inheritedFrom && r.review.shape === k);
+md += `## Wrong shape (${own("wrong").length} packages; sub-crates that inherit a family verdict are not repeated)\n\n| Package | Why | Reference app |\n|---|---|---|\n`;
+for (const r of own("wrong")) md += `| \`${r.package}\` | ${(r.review.shapeReason ?? "").replace(/\|/g, "/").replace(/\n/g, " ")} | ${r.review.referenceApp ?? ""} |\n`;
+md += `\n## Missing (${own("missing").length})\n\n| Package | Note |\n|---|---|\n`;
+for (const r of own("missing")) md += `| \`${r.package}\` | ${(r.review.shapeReason ?? "").replace(/\|/g, "/").replace(/\n/g, " ")} |\n`;
+md += `\n## Actions before publication\n\n`;
 for (const r of reviewed.filter((r) => (r.review.actions ?? []).length)) md += `- \`${r.package}\` (${r.review.shape}): ${r.review.actions.join("; ")}\n`;
 writeFileSync(OUT_MD, md);
 console.log(`rows ${rows.length}, reviewed ${reviewed.length}, best ${count("best")}, gaps ${count("gaps")}, wrong ${count("wrong")}, missing ${count("missing")}`);

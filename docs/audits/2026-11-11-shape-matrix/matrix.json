@@ -1,5 +1,5 @@
 {
- "generated": "2026-11-11T09:44:39.891Z",
+ "generated": "2026-11-11T09:46:01.522Z",
  "rightkitHead": "55b330d",
  "apps": [
   "heardright",
@@ -131,7 +131,49 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "@rightkit/agent-ui-approvals",
+    "kind": "npm",
+    "family": "Agent platform",
+    "existsAs": [
+     "packages/agent-ui-core",
+     "packages/agent-ui-components",
+     "packages/agent-ui-hooks",
+     "packages/agent-ui-settings",
+     "packages/agent-ui-web",
+     "packages/agent-ui-workbench",
+     "packages/agent-ui-approvals"
+    ],
+    "feeds": {
+     "coderight": 118530,
+     "mailright": 1395,
+     "pulse": 1308
+    },
+    "basis": "family verdict of @rightkit/agent-ui",
+    "referenceApp": "pulse for approvals behaviour; coderight for the workbench",
+    "shape": "gaps",
+    "shapeReason": "Six CodeRight packages are a faithful lift (95% of lines found). agent-ui-approvals is two apps' screens in two folders with no shared approval model, depends on @rightkit/mail-ui and carries 134 Pulse strings.",
+    "apps": {
+     "coderight": {
+      "fit": "fits",
+      "note": "its own code; 74 'coderight' strings remain in the six packages"
+     },
+     "mailright": {
+      "fit": "gaps",
+      "note": "card, queue and settings are in; IPC client (agentApprovals.ts) landed in mail-ui"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "views are in verbatim under remote/, still Pulse-branded"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "@rightkit/agent-ui"
+   }
   },
   {
    "package": "@rightkit/agent-ui-components",
@@ -156,7 +198,49 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "@rightkit/agent-ui-components",
+    "kind": "npm",
+    "family": "Agent platform",
+    "existsAs": [
+     "packages/agent-ui-core",
+     "packages/agent-ui-components",
+     "packages/agent-ui-hooks",
+     "packages/agent-ui-settings",
+     "packages/agent-ui-web",
+     "packages/agent-ui-workbench",
+     "packages/agent-ui-approvals"
+    ],
+    "feeds": {
+     "coderight": 118530,
+     "mailright": 1395,
+     "pulse": 1308
+    },
+    "basis": "family verdict of @rightkit/agent-ui",
+    "referenceApp": "pulse for approvals behaviour; coderight for the workbench",
+    "shape": "gaps",
+    "shapeReason": "Six CodeRight packages are a faithful lift (95% of lines found). agent-ui-approvals is two apps' screens in two folders with no shared approval model, depends on @rightkit/mail-ui and carries 134 Pulse strings.",
+    "apps": {
+     "coderight": {
+      "fit": "fits",
+      "note": "its own code; 74 'coderight' strings remain in the six packages"
+     },
+     "mailright": {
+      "fit": "gaps",
+      "note": "card, queue and settings are in; IPC client (agentApprovals.ts) landed in mail-ui"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "views are in verbatim under remote/, still Pulse-branded"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "@rightkit/agent-ui"
+   }
   },
   {
    "package": "@rightkit/agent-ui-core",
@@ -181,7 +265,49 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "@rightkit/agent-ui-core",
+    "kind": "npm",
+    "family": "Agent platform",
+    "existsAs": [
+     "packages/agent-ui-core",
+     "packages/agent-ui-components",
+     "packages/agent-ui-hooks",
+     "packages/agent-ui-settings",
+     "packages/agent-ui-web",
+     "packages/agent-ui-workbench",
+     "packages/agent-ui-approvals"
+    ],
+    "feeds": {
+     "coderight": 118530,
+     "mailright": 1395,
+     "pulse": 1308
+    },
+    "basis": "family verdict of @rightkit/agent-ui",
+    "referenceApp": "pulse for approvals behaviour; coderight for the workbench",
+    "shape": "gaps",
+    "shapeReason": "Six CodeRight packages are a faithful lift (95% of lines found). agent-ui-approvals is two apps' screens in two folders with no shared approval model, depends on @rightkit/mail-ui and carries 134 Pulse strings.",
+    "apps": {
+     "coderight": {
+      "fit": "fits",
+      "note": "its own code; 74 'coderight' strings remain in the six packages"
+     },
+     "mailright": {
+      "fit": "gaps",
+      "note": "card, queue and settings are in; IPC client (agentApprovals.ts) landed in mail-ui"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "views are in verbatim under remote/, still Pulse-branded"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "@rightkit/agent-ui"
+   }
   },
   {
    "package": "@rightkit/agent-ui-hooks",
@@ -206,7 +332,49 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "@rightkit/agent-ui-hooks",
+    "kind": "npm",
+    "family": "Agent platform",
+    "existsAs": [
+     "packages/agent-ui-core",
+     "packages/agent-ui-components",
+     "packages/agent-ui-hooks",
+     "packages/agent-ui-settings",
+     "packages/agent-ui-web",
+     "packages/agent-ui-workbench",
+     "packages/agent-ui-approvals"
+    ],
+    "feeds": {
+     "coderight": 118530,
+     "mailright": 1395,
+     "pulse": 1308
+    },
+    "basis": "family verdict of @rightkit/agent-ui",
+    "referenceApp": "pulse for approvals behaviour; coderight for the workbench",
+    "shape": "gaps",
+    "shapeReason": "Six CodeRight packages are a faithful lift (95% of lines found). agent-ui-approvals is two apps' screens in two folders with no shared approval model, depends on @rightkit/mail-ui and carries 134 Pulse strings.",
+    "apps": {
+     "coderight": {
+      "fit": "fits",
+      "note": "its own code; 74 'coderight' strings remain in the six packages"
+     },
+     "mailright": {
+      "fit": "gaps",
+      "note": "card, queue and settings are in; IPC client (agentApprovals.ts) landed in mail-ui"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "views are in verbatim under remote/, still Pulse-branded"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "@rightkit/agent-ui"
+   }
   },
   {
    "package": "@rightkit/agent-ui-settings",
@@ -231,7 +399,49 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "@rightkit/agent-ui-settings",
+    "kind": "npm",
+    "family": "Agent platform",
+    "existsAs": [
+     "packages/agent-ui-core",
+     "packages/agent-ui-components",
+     "packages/agent-ui-hooks",
+     "packages/agent-ui-settings",
+     "packages/agent-ui-web",
+     "packages/agent-ui-workbench",
+     "packages/agent-ui-approvals"
+    ],
+    "feeds": {
+     "coderight": 118530,
+     "mailright": 1395,
+     "pulse": 1308
+    },
+    "basis": "family verdict of @rightkit/agent-ui",
+    "referenceApp": "pulse for approvals behaviour; coderight for the workbench",
+    "shape": "gaps",
+    "shapeReason": "Six CodeRight packages are a faithful lift (95% of lines found). agent-ui-approvals is two apps' screens in two folders with no shared approval model, depends on @rightkit/mail-ui and carries 134 Pulse strings.",
+    "apps": {
+     "coderight": {
+      "fit": "fits",
+      "note": "its own code; 74 'coderight' strings remain in the six packages"
+     },
+     "mailright": {
+      "fit": "gaps",
+      "note": "card, queue and settings are in; IPC client (agentApprovals.ts) landed in mail-ui"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "views are in verbatim under remote/, still Pulse-branded"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "@rightkit/agent-ui"
+   }
   },
   {
    "package": "@rightkit/agent-ui-web",
@@ -256,7 +466,49 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "@rightkit/agent-ui-web",
+    "kind": "npm",
+    "family": "Agent platform",
+    "existsAs": [
+     "packages/agent-ui-core",
+     "packages/agent-ui-components",
+     "packages/agent-ui-hooks",
+     "packages/agent-ui-settings",
+     "packages/agent-ui-web",
+     "packages/agent-ui-workbench",
+     "packages/agent-ui-approvals"
+    ],
+    "feeds": {
+     "coderight": 118530,
+     "mailright": 1395,
+     "pulse": 1308
+    },
+    "basis": "family verdict of @rightkit/agent-ui",
+    "referenceApp": "pulse for approvals behaviour; coderight for the workbench",
+    "shape": "gaps",
+    "shapeReason": "Six CodeRight packages are a faithful lift (95% of lines found). agent-ui-approvals is two apps' screens in two folders with no shared approval model, depends on @rightkit/mail-ui and carries 134 Pulse strings.",
+    "apps": {
+     "coderight": {
+      "fit": "fits",
+      "note": "its own code; 74 'coderight' strings remain in the six packages"
+     },
+     "mailright": {
+      "fit": "gaps",
+      "note": "card, queue and settings are in; IPC client (agentApprovals.ts) landed in mail-ui"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "views are in verbatim under remote/, still Pulse-branded"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "@rightkit/agent-ui"
+   }
   },
   {
    "package": "@rightkit/agent-ui-workbench",
@@ -281,7 +533,49 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "@rightkit/agent-ui-workbench",
+    "kind": "npm",
+    "family": "Agent platform",
+    "existsAs": [
+     "packages/agent-ui-core",
+     "packages/agent-ui-components",
+     "packages/agent-ui-hooks",
+     "packages/agent-ui-settings",
+     "packages/agent-ui-web",
+     "packages/agent-ui-workbench",
+     "packages/agent-ui-approvals"
+    ],
+    "feeds": {
+     "coderight": 118530,
+     "mailright": 1395,
+     "pulse": 1308
+    },
+    "basis": "family verdict of @rightkit/agent-ui",
+    "referenceApp": "pulse for approvals behaviour; coderight for the workbench",
+    "shape": "gaps",
+    "shapeReason": "Six CodeRight packages are a faithful lift (95% of lines found). agent-ui-approvals is two apps' screens in two folders with no shared approval model, depends on @rightkit/mail-ui and carries 134 Pulse strings.",
+    "apps": {
+     "coderight": {
+      "fit": "fits",
+      "note": "its own code; 74 'coderight' strings remain in the six packages"
+     },
+     "mailright": {
+      "fit": "gaps",
+      "note": "card, queue and settings are in; IPC client (agentApprovals.ts) landed in mail-ui"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "views are in verbatim under remote/, still Pulse-branded"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "@rightkit/agent-ui"
+   }
   },
   {
    "package": "@rightkit/app-update",
@@ -3795,7 +4089,39 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-adapt-taste",
+    "kind": "cargo",
+    "family": "Context, memory & code intelligence",
+    "existsAs": [
+     "crates/rightkit-adapt",
+     "crates/rightkit-adapt-taste"
+    ],
+    "feeds": {
+     "pulse": 15823,
+     "coderight": 8073
+    },
+    "basis": "family verdict of rightkit-adapt",
+    "referenceApp": "pulse",
+    "shape": "wrong",
+    "shapeReason": "Two unrelated subsystems under one name with no shared type and no dependency between them; the Pulse one (the reference) has the suffixed name.",
+    "apps": {
+     "pulse": {
+      "fit": "fits",
+      "note": "adapt-taste is its code unchanged (9,686 of 10,046 distinctive lines)"
+     },
+     "coderight": {
+      "fit": "gaps",
+      "note": "learning crate held verbatim; bin-side learning/* and adapt_application_host.rs are not in the package"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-context-tooling.json",
+    "inheritedFrom": "rightkit-adapt"
+   }
   },
   {
    "package": "rightkit-agent-demo",
@@ -3979,7 +4305,52 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-agent-engine-api-integrations",
+    "kind": "cargo",
+    "family": "Agent platform",
+    "existsAs": [
+     "crates/rightkit-agent-engine",
+     "crates/rightkit-agent-engine-core",
+     "crates/rightkit-agent-engine-protocol",
+     "crates/rightkit-agent-engine-storage",
+     "crates/rightkit-agent-engine-history",
+     "crates/rightkit-agent-engine-tasks",
+     "crates/rightkit-agent-engine-mobile-runtime",
+     "crates/rightkit-agent-engine-runtime-middleware",
+     "crates/rightkit-agent-engine-runtime-resources",
+     "crates/rightkit-agent-engine-attention",
+     "crates/rightkit-agent-engine-cli",
+     "crates/rightkit-agent-engine-api-sessions",
+     "crates/rightkit-agent-engine-api-workflows",
+     "crates/rightkit-agent-engine-api-integrations",
+     "crates/rightkit-agent-engine-api-platform"
+    ],
+    "feeds": {
+     "coderight": 124089,
+     "pulse": 5097
+    },
+    "basis": "family verdict of rightkit-agent-engine",
+    "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
+    "shape": "wrong",
+    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "loop, protocol, storage are its code; 11.7k of its engine lines sit in agent-server instead"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "only core/src/agent contracts (452 lines) are in; Swift iOS loop, budget ledger, approval gate and Windows engine supervisor are not, and most of that is app shell or belongs to RightKitAgent/daemon"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "rightkit-agent-engine"
+   }
   },
   {
    "package": "rightkit-agent-engine-api-platform",
@@ -4004,7 +4375,52 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-agent-engine-api-platform",
+    "kind": "cargo",
+    "family": "Agent platform",
+    "existsAs": [
+     "crates/rightkit-agent-engine",
+     "crates/rightkit-agent-engine-core",
+     "crates/rightkit-agent-engine-protocol",
+     "crates/rightkit-agent-engine-storage",
+     "crates/rightkit-agent-engine-history",
+     "crates/rightkit-agent-engine-tasks",
+     "crates/rightkit-agent-engine-mobile-runtime",
+     "crates/rightkit-agent-engine-runtime-middleware",
+     "crates/rightkit-agent-engine-runtime-resources",
+     "crates/rightkit-agent-engine-attention",
+     "crates/rightkit-agent-engine-cli",
+     "crates/rightkit-agent-engine-api-sessions",
+     "crates/rightkit-agent-engine-api-workflows",
+     "crates/rightkit-agent-engine-api-integrations",
+     "crates/rightkit-agent-engine-api-platform"
+    ],
+    "feeds": {
+     "coderight": 124089,
+     "pulse": 5097
+    },
+    "basis": "family verdict of rightkit-agent-engine",
+    "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
+    "shape": "wrong",
+    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "loop, protocol, storage are its code; 11.7k of its engine lines sit in agent-server instead"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "only core/src/agent contracts (452 lines) are in; Swift iOS loop, budget ledger, approval gate and Windows engine supervisor are not, and most of that is app shell or belongs to RightKitAgent/daemon"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "rightkit-agent-engine"
+   }
   },
   {
    "package": "rightkit-agent-engine-api-sessions",
@@ -4029,7 +4445,52 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-agent-engine-api-sessions",
+    "kind": "cargo",
+    "family": "Agent platform",
+    "existsAs": [
+     "crates/rightkit-agent-engine",
+     "crates/rightkit-agent-engine-core",
+     "crates/rightkit-agent-engine-protocol",
+     "crates/rightkit-agent-engine-storage",
+     "crates/rightkit-agent-engine-history",
+     "crates/rightkit-agent-engine-tasks",
+     "crates/rightkit-agent-engine-mobile-runtime",
+     "crates/rightkit-agent-engine-runtime-middleware",
+     "crates/rightkit-agent-engine-runtime-resources",
+     "crates/rightkit-agent-engine-attention",
+     "crates/rightkit-agent-engine-cli",
+     "crates/rightkit-agent-engine-api-sessions",
+     "crates/rightkit-agent-engine-api-workflows",
+     "crates/rightkit-agent-engine-api-integrations",
+     "crates/rightkit-agent-engine-api-platform"
+    ],
+    "feeds": {
+     "coderight": 124089,
+     "pulse": 5097
+    },
+    "basis": "family verdict of rightkit-agent-engine",
+    "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
+    "shape": "wrong",
+    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "loop, protocol, storage are its code; 11.7k of its engine lines sit in agent-server instead"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "only core/src/agent contracts (452 lines) are in; Swift iOS loop, budget ledger, approval gate and Windows engine supervisor are not, and most of that is app shell or belongs to RightKitAgent/daemon"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "rightkit-agent-engine"
+   }
   },
   {
    "package": "rightkit-agent-engine-api-workflows",
@@ -4054,7 +4515,52 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-agent-engine-api-workflows",
+    "kind": "cargo",
+    "family": "Agent platform",
+    "existsAs": [
+     "crates/rightkit-agent-engine",
+     "crates/rightkit-agent-engine-core",
+     "crates/rightkit-agent-engine-protocol",
+     "crates/rightkit-agent-engine-storage",
+     "crates/rightkit-agent-engine-history",
+     "crates/rightkit-agent-engine-tasks",
+     "crates/rightkit-agent-engine-mobile-runtime",
+     "crates/rightkit-agent-engine-runtime-middleware",
+     "crates/rightkit-agent-engine-runtime-resources",
+     "crates/rightkit-agent-engine-attention",
+     "crates/rightkit-agent-engine-cli",
+     "crates/rightkit-agent-engine-api-sessions",
+     "crates/rightkit-agent-engine-api-workflows",
+     "crates/rightkit-agent-engine-api-integrations",
+     "crates/rightkit-agent-engine-api-platform"
+    ],
+    "feeds": {
+     "coderight": 124089,
+     "pulse": 5097
+    },
+    "basis": "family verdict of rightkit-agent-engine",
+    "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
+    "shape": "wrong",
+    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "loop, protocol, storage are its code; 11.7k of its engine lines sit in agent-server instead"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "only core/src/agent contracts (452 lines) are in; Swift iOS loop, budget ledger, approval gate and Windows engine supervisor are not, and most of that is app shell or belongs to RightKitAgent/daemon"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "rightkit-agent-engine"
+   }
   },
   {
    "package": "rightkit-agent-engine-attention",
@@ -4079,7 +4585,52 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-agent-engine-attention",
+    "kind": "cargo",
+    "family": "Agent platform",
+    "existsAs": [
+     "crates/rightkit-agent-engine",
+     "crates/rightkit-agent-engine-core",
+     "crates/rightkit-agent-engine-protocol",
+     "crates/rightkit-agent-engine-storage",
+     "crates/rightkit-agent-engine-history",
+     "crates/rightkit-agent-engine-tasks",
+     "crates/rightkit-agent-engine-mobile-runtime",
+     "crates/rightkit-agent-engine-runtime-middleware",
+     "crates/rightkit-agent-engine-runtime-resources",
+     "crates/rightkit-agent-engine-attention",
+     "crates/rightkit-agent-engine-cli",
+     "crates/rightkit-agent-engine-api-sessions",
+     "crates/rightkit-agent-engine-api-workflows",
+     "crates/rightkit-agent-engine-api-integrations",
+     "crates/rightkit-agent-engine-api-platform"
+    ],
+    "feeds": {
+     "coderight": 124089,
+     "pulse": 5097
+    },
+    "basis": "family verdict of rightkit-agent-engine",
+    "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
+    "shape": "wrong",
+    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "loop, protocol, storage are its code; 11.7k of its engine lines sit in agent-server instead"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "only core/src/agent contracts (452 lines) are in; Swift iOS loop, budget ledger, approval gate and Windows engine supervisor are not, and most of that is app shell or belongs to RightKitAgent/daemon"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "rightkit-agent-engine"
+   }
   },
   {
    "package": "rightkit-agent-engine-cli",
@@ -4104,7 +4655,52 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-agent-engine-cli",
+    "kind": "cargo",
+    "family": "Agent platform",
+    "existsAs": [
+     "crates/rightkit-agent-engine",
+     "crates/rightkit-agent-engine-core",
+     "crates/rightkit-agent-engine-protocol",
+     "crates/rightkit-agent-engine-storage",
+     "crates/rightkit-agent-engine-history",
+     "crates/rightkit-agent-engine-tasks",
+     "crates/rightkit-agent-engine-mobile-runtime",
+     "crates/rightkit-agent-engine-runtime-middleware",
+     "crates/rightkit-agent-engine-runtime-resources",
+     "crates/rightkit-agent-engine-attention",
+     "crates/rightkit-agent-engine-cli",
+     "crates/rightkit-agent-engine-api-sessions",
+     "crates/rightkit-agent-engine-api-workflows",
+     "crates/rightkit-agent-engine-api-integrations",
+     "crates/rightkit-agent-engine-api-platform"
+    ],
+    "feeds": {
+     "coderight": 124089,
+     "pulse": 5097
+    },
+    "basis": "family verdict of rightkit-agent-engine",
+    "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
+    "shape": "wrong",
+    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "loop, protocol, storage are its code; 11.7k of its engine lines sit in agent-server instead"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "only core/src/agent contracts (452 lines) are in; Swift iOS loop, budget ledger, approval gate and Windows engine supervisor are not, and most of that is app shell or belongs to RightKitAgent/daemon"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "rightkit-agent-engine"
+   }
   },
   {
    "package": "rightkit-agent-engine-core",
@@ -4129,7 +4725,52 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-agent-engine-core",
+    "kind": "cargo",
+    "family": "Agent platform",
+    "existsAs": [
+     "crates/rightkit-agent-engine",
+     "crates/rightkit-agent-engine-core",
+     "crates/rightkit-agent-engine-protocol",
+     "crates/rightkit-agent-engine-storage",
+     "crates/rightkit-agent-engine-history",
+     "crates/rightkit-agent-engine-tasks",
+     "crates/rightkit-agent-engine-mobile-runtime",
+     "crates/rightkit-agent-engine-runtime-middleware",
+     "crates/rightkit-agent-engine-runtime-resources",
+     "crates/rightkit-agent-engine-attention",
+     "crates/rightkit-agent-engine-cli",
+     "crates/rightkit-agent-engine-api-sessions",
+     "crates/rightkit-agent-engine-api-workflows",
+     "crates/rightkit-agent-engine-api-integrations",
+     "crates/rightkit-agent-engine-api-platform"
+    ],
+    "feeds": {
+     "coderight": 124089,
+     "pulse": 5097
+    },
+    "basis": "family verdict of rightkit-agent-engine",
+    "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
+    "shape": "wrong",
+    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "loop, protocol, storage are its code; 11.7k of its engine lines sit in agent-server instead"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "only core/src/agent contracts (452 lines) are in; Swift iOS loop, budget ledger, approval gate and Windows engine supervisor are not, and most of that is app shell or belongs to RightKitAgent/daemon"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "rightkit-agent-engine"
+   }
   },
   {
    "package": "rightkit-agent-engine-history",
@@ -4154,7 +4795,52 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-agent-engine-history",
+    "kind": "cargo",
+    "family": "Agent platform",
+    "existsAs": [
+     "crates/rightkit-agent-engine",
+     "crates/rightkit-agent-engine-core",
+     "crates/rightkit-agent-engine-protocol",
+     "crates/rightkit-agent-engine-storage",
+     "crates/rightkit-agent-engine-history",
+     "crates/rightkit-agent-engine-tasks",
+     "crates/rightkit-agent-engine-mobile-runtime",
+     "crates/rightkit-agent-engine-runtime-middleware",
+     "crates/rightkit-agent-engine-runtime-resources",
+     "crates/rightkit-agent-engine-attention",
+     "crates/rightkit-agent-engine-cli",
+     "crates/rightkit-agent-engine-api-sessions",
+     "crates/rightkit-agent-engine-api-workflows",
+     "crates/rightkit-agent-engine-api-integrations",
+     "crates/rightkit-agent-engine-api-platform"
+    ],
+    "feeds": {
+     "coderight": 124089,
+     "pulse": 5097
+    },
+    "basis": "family verdict of rightkit-agent-engine",
+    "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
+    "shape": "wrong",
+    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "loop, protocol, storage are its code; 11.7k of its engine lines sit in agent-server instead"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "only core/src/agent contracts (452 lines) are in; Swift iOS loop, budget ledger, approval gate and Windows engine supervisor are not, and most of that is app shell or belongs to RightKitAgent/daemon"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "rightkit-agent-engine"
+   }
   },
   {
    "package": "rightkit-agent-engine-mobile-runtime",
@@ -4179,7 +4865,52 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-agent-engine-mobile-runtime",
+    "kind": "cargo",
+    "family": "Agent platform",
+    "existsAs": [
+     "crates/rightkit-agent-engine",
+     "crates/rightkit-agent-engine-core",
+     "crates/rightkit-agent-engine-protocol",
+     "crates/rightkit-agent-engine-storage",
+     "crates/rightkit-agent-engine-history",
+     "crates/rightkit-agent-engine-tasks",
+     "crates/rightkit-agent-engine-mobile-runtime",
+     "crates/rightkit-agent-engine-runtime-middleware",
+     "crates/rightkit-agent-engine-runtime-resources",
+     "crates/rightkit-agent-engine-attention",
+     "crates/rightkit-agent-engine-cli",
+     "crates/rightkit-agent-engine-api-sessions",
+     "crates/rightkit-agent-engine-api-workflows",
+     "crates/rightkit-agent-engine-api-integrations",
+     "crates/rightkit-agent-engine-api-platform"
+    ],
+    "feeds": {
+     "coderight": 124089,
+     "pulse": 5097
+    },
+    "basis": "family verdict of rightkit-agent-engine",
+    "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
+    "shape": "wrong",
+    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "loop, protocol, storage are its code; 11.7k of its engine lines sit in agent-server instead"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "only core/src/agent contracts (452 lines) are in; Swift iOS loop, budget ledger, approval gate and Windows engine supervisor are not, and most of that is app shell or belongs to RightKitAgent/daemon"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "rightkit-agent-engine"
+   }
   },
   {
    "package": "rightkit-agent-engine-protocol",
@@ -4204,7 +4935,52 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-agent-engine-protocol",
+    "kind": "cargo",
+    "family": "Agent platform",
+    "existsAs": [
+     "crates/rightkit-agent-engine",
+     "crates/rightkit-agent-engine-core",
+     "crates/rightkit-agent-engine-protocol",
+     "crates/rightkit-agent-engine-storage",
+     "crates/rightkit-agent-engine-history",
+     "crates/rightkit-agent-engine-tasks",
+     "crates/rightkit-agent-engine-mobile-runtime",
+     "crates/rightkit-agent-engine-runtime-middleware",
+     "crates/rightkit-agent-engine-runtime-resources",
+     "crates/rightkit-agent-engine-attention",
+     "crates/rightkit-agent-engine-cli",
+     "crates/rightkit-agent-engine-api-sessions",
+     "crates/rightkit-agent-engine-api-workflows",
+     "crates/rightkit-agent-engine-api-integrations",
+     "crates/rightkit-agent-engine-api-platform"
+    ],
+    "feeds": {
+     "coderight": 124089,
+     "pulse": 5097
+    },
+    "basis": "family verdict of rightkit-agent-engine",
+    "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
+    "shape": "wrong",
+    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "loop, protocol, storage are its code; 11.7k of its engine lines sit in agent-server instead"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "only core/src/agent contracts (452 lines) are in; Swift iOS loop, budget ledger, approval gate and Windows engine supervisor are not, and most of that is app shell or belongs to RightKitAgent/daemon"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "rightkit-agent-engine"
+   }
   },
   {
    "package": "rightkit-agent-engine-runtime-middleware",
@@ -4229,7 +5005,52 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-agent-engine-runtime-middleware",
+    "kind": "cargo",
+    "family": "Agent platform",
+    "existsAs": [
+     "crates/rightkit-agent-engine",
+     "crates/rightkit-agent-engine-core",
+     "crates/rightkit-agent-engine-protocol",
+     "crates/rightkit-agent-engine-storage",
+     "crates/rightkit-agent-engine-history",
+     "crates/rightkit-agent-engine-tasks",
+     "crates/rightkit-agent-engine-mobile-runtime",
+     "crates/rightkit-agent-engine-runtime-middleware",
+     "crates/rightkit-agent-engine-runtime-resources",
+     "crates/rightkit-agent-engine-attention",
+     "crates/rightkit-agent-engine-cli",
+     "crates/rightkit-agent-engine-api-sessions",
+     "crates/rightkit-agent-engine-api-workflows",
+     "crates/rightkit-agent-engine-api-integrations",
+     "crates/rightkit-agent-engine-api-platform"
+    ],
+    "feeds": {
+     "coderight": 124089,
+     "pulse": 5097
+    },
+    "basis": "family verdict of rightkit-agent-engine",
+    "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
+    "shape": "wrong",
+    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "loop, protocol, storage are its code; 11.7k of its engine lines sit in agent-server instead"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "only core/src/agent contracts (452 lines) are in; Swift iOS loop, budget ledger, approval gate and Windows engine supervisor are not, and most of that is app shell or belongs to RightKitAgent/daemon"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "rightkit-agent-engine"
+   }
   },
   {
    "package": "rightkit-agent-engine-runtime-resources",
@@ -4254,7 +5075,52 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-agent-engine-runtime-resources",
+    "kind": "cargo",
+    "family": "Agent platform",
+    "existsAs": [
+     "crates/rightkit-agent-engine",
+     "crates/rightkit-agent-engine-core",
+     "crates/rightkit-agent-engine-protocol",
+     "crates/rightkit-agent-engine-storage",
+     "crates/rightkit-agent-engine-history",
+     "crates/rightkit-agent-engine-tasks",
+     "crates/rightkit-agent-engine-mobile-runtime",
+     "crates/rightkit-agent-engine-runtime-middleware",
+     "crates/rightkit-agent-engine-runtime-resources",
+     "crates/rightkit-agent-engine-attention",
+     "crates/rightkit-agent-engine-cli",
+     "crates/rightkit-agent-engine-api-sessions",
+     "crates/rightkit-agent-engine-api-workflows",
+     "crates/rightkit-agent-engine-api-integrations",
+     "crates/rightkit-agent-engine-api-platform"
+    ],
+    "feeds": {
+     "coderight": 124089,
+     "pulse": 5097
+    },
+    "basis": "family verdict of rightkit-agent-engine",
+    "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
+    "shape": "wrong",
+    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "loop, protocol, storage are its code; 11.7k of its engine lines sit in agent-server instead"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "only core/src/agent contracts (452 lines) are in; Swift iOS loop, budget ledger, approval gate and Windows engine supervisor are not, and most of that is app shell or belongs to RightKitAgent/daemon"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "rightkit-agent-engine"
+   }
   },
   {
    "package": "rightkit-agent-engine-storage",
@@ -4279,7 +5145,52 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-agent-engine-storage",
+    "kind": "cargo",
+    "family": "Agent platform",
+    "existsAs": [
+     "crates/rightkit-agent-engine",
+     "crates/rightkit-agent-engine-core",
+     "crates/rightkit-agent-engine-protocol",
+     "crates/rightkit-agent-engine-storage",
+     "crates/rightkit-agent-engine-history",
+     "crates/rightkit-agent-engine-tasks",
+     "crates/rightkit-agent-engine-mobile-runtime",
+     "crates/rightkit-agent-engine-runtime-middleware",
+     "crates/rightkit-agent-engine-runtime-resources",
+     "crates/rightkit-agent-engine-attention",
+     "crates/rightkit-agent-engine-cli",
+     "crates/rightkit-agent-engine-api-sessions",
+     "crates/rightkit-agent-engine-api-workflows",
+     "crates/rightkit-agent-engine-api-integrations",
+     "crates/rightkit-agent-engine-api-platform"
+    ],
+    "feeds": {
+     "coderight": 124089,
+     "pulse": 5097
+    },
+    "basis": "family verdict of rightkit-agent-engine",
+    "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
+    "shape": "wrong",
+    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "loop, protocol, storage are its code; 11.7k of its engine lines sit in agent-server instead"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "only core/src/agent contracts (452 lines) are in; Swift iOS loop, budget ledger, approval gate and Windows engine supervisor are not, and most of that is app shell or belongs to RightKitAgent/daemon"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "rightkit-agent-engine"
+   }
   },
   {
    "package": "rightkit-agent-engine-tasks",
@@ -4304,7 +5215,52 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-agent-engine-tasks",
+    "kind": "cargo",
+    "family": "Agent platform",
+    "existsAs": [
+     "crates/rightkit-agent-engine",
+     "crates/rightkit-agent-engine-core",
+     "crates/rightkit-agent-engine-protocol",
+     "crates/rightkit-agent-engine-storage",
+     "crates/rightkit-agent-engine-history",
+     "crates/rightkit-agent-engine-tasks",
+     "crates/rightkit-agent-engine-mobile-runtime",
+     "crates/rightkit-agent-engine-runtime-middleware",
+     "crates/rightkit-agent-engine-runtime-resources",
+     "crates/rightkit-agent-engine-attention",
+     "crates/rightkit-agent-engine-cli",
+     "crates/rightkit-agent-engine-api-sessions",
+     "crates/rightkit-agent-engine-api-workflows",
+     "crates/rightkit-agent-engine-api-integrations",
+     "crates/rightkit-agent-engine-api-platform"
+    ],
+    "feeds": {
+     "coderight": 124089,
+     "pulse": 5097
+    },
+    "basis": "family verdict of rightkit-agent-engine",
+    "referenceApp": "coderight for the turn loop; pulse for the task/authority contract",
+    "shape": "wrong",
+    "shapeReason": "The base crate and the -* family share a name but no code or dependency; nothing depends on the base crate. Task, approval and effect types exist twice with different meanings, and Principal/DeviceRef/EffectClass are copied in rightkit-device-link-types.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "loop, protocol, storage are its code; 11.7k of its engine lines sit in agent-server instead"
+     },
+     "pulse": {
+      "fit": "gaps",
+      "note": "only core/src/agent contracts (452 lines) are in; Swift iOS loop, budget ledger, approval gate and Windows engine supervisor are not, and most of that is app shell or belongs to RightKitAgent/daemon"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "rightkit-agent-engine"
+   }
   },
   {
    "package": "rightkit-agent-gateway",
@@ -4517,7 +5473,34 @@
     "legion": "ahead"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-agent-orchestration-handoff",
+    "kind": "cargo",
+    "family": "Agent platform",
+    "existsAs": [
+     "crates/rightkit-agent-orchestration",
+     "crates/rightkit-agent-orchestration-handoff"
+    ],
+    "feeds": {
+     "coderight": 37870
+    },
+    "basis": "family verdict of rightkit-agent-orchestration",
+    "referenceApp": "coderight",
+    "shape": "gaps",
+    "shapeReason": "80% of CodeRight's lines present; single app, 57k lines, 14 RightKit deps including repo-graph and code-audit-provider-sdk, which makes it a coding-agent orchestration, not a general one.",
+    "apps": {
+     "coderight": {
+      "fit": "fits",
+      "note": "3.7k lines still in agent-server"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "low",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "rightkit-agent-orchestration"
+   }
   },
   {
    "package": "rightkit-agent-plugins",
@@ -6988,7 +7971,36 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-code-audit-commands",
+    "kind": "cargo",
+    "family": "Context, memory & code intelligence",
+    "existsAs": [
+     "crates/rightkit-code-audit-engine",
+     "crates/rightkit-code-audit-commands",
+     "crates/rightkit-code-audit-provider-sdk",
+     "crates/rightkit-code-audit-qualification"
+    ],
+    "feeds": {
+     "legion": 254890
+    },
+    "basis": "family verdict of rightkit-code-audit",
+    "referenceApp": "legion",
+    "shape": "gaps",
+    "shapeReason": "Four-crate split (provider SDK, engine, commands, qualification) is sound, but it could not be compared with Legion (source unavailable) and still carries Legion names and one dead file.",
+    "apps": {
+     "legion": {
+      "fit": "gaps",
+      "note": "not comparable; plan says 254,890 lines, crates hold about 150,000"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "low",
+    "source": "matrix-rows-context-tooling.json",
+    "inheritedFrom": "rightkit-code-audit"
+   }
   },
   {
    "package": "rightkit-code-audit-engine",
@@ -7013,7 +8025,36 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-code-audit-engine",
+    "kind": "cargo",
+    "family": "Context, memory & code intelligence",
+    "existsAs": [
+     "crates/rightkit-code-audit-engine",
+     "crates/rightkit-code-audit-commands",
+     "crates/rightkit-code-audit-provider-sdk",
+     "crates/rightkit-code-audit-qualification"
+    ],
+    "feeds": {
+     "legion": 254890
+    },
+    "basis": "family verdict of rightkit-code-audit",
+    "referenceApp": "legion",
+    "shape": "gaps",
+    "shapeReason": "Four-crate split (provider SDK, engine, commands, qualification) is sound, but it could not be compared with Legion (source unavailable) and still carries Legion names and one dead file.",
+    "apps": {
+     "legion": {
+      "fit": "gaps",
+      "note": "not comparable; plan says 254,890 lines, crates hold about 150,000"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "low",
+    "source": "matrix-rows-context-tooling.json",
+    "inheritedFrom": "rightkit-code-audit"
+   }
   },
   {
    "package": "rightkit-code-audit-provider-sdk",
@@ -7038,7 +8079,36 @@
     "legion": "ahead"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-code-audit-provider-sdk",
+    "kind": "cargo",
+    "family": "Context, memory & code intelligence",
+    "existsAs": [
+     "crates/rightkit-code-audit-engine",
+     "crates/rightkit-code-audit-commands",
+     "crates/rightkit-code-audit-provider-sdk",
+     "crates/rightkit-code-audit-qualification"
+    ],
+    "feeds": {
+     "legion": 254890
+    },
+    "basis": "family verdict of rightkit-code-audit",
+    "referenceApp": "legion",
+    "shape": "gaps",
+    "shapeReason": "Four-crate split (provider SDK, engine, commands, qualification) is sound, but it could not be compared with Legion (source unavailable) and still carries Legion names and one dead file.",
+    "apps": {
+     "legion": {
+      "fit": "gaps",
+      "note": "not comparable; plan says 254,890 lines, crates hold about 150,000"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "low",
+    "source": "matrix-rows-context-tooling.json",
+    "inheritedFrom": "rightkit-code-audit"
+   }
   },
   {
    "package": "rightkit-code-audit-qualification",
@@ -7063,7 +8133,36 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-code-audit-qualification",
+    "kind": "cargo",
+    "family": "Context, memory & code intelligence",
+    "existsAs": [
+     "crates/rightkit-code-audit-engine",
+     "crates/rightkit-code-audit-commands",
+     "crates/rightkit-code-audit-provider-sdk",
+     "crates/rightkit-code-audit-qualification"
+    ],
+    "feeds": {
+     "legion": 254890
+    },
+    "basis": "family verdict of rightkit-code-audit",
+    "referenceApp": "legion",
+    "shape": "gaps",
+    "shapeReason": "Four-crate split (provider SDK, engine, commands, qualification) is sound, but it could not be compared with Legion (source unavailable) and still carries Legion names and one dead file.",
+    "apps": {
+     "legion": {
+      "fit": "gaps",
+      "note": "not comparable; plan says 254,890 lines, crates hold about 150,000"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "low",
+    "source": "matrix-rows-context-tooling.json",
+    "inheritedFrom": "rightkit-code-audit"
+   }
   },
   {
    "package": "rightkit-color",
@@ -7566,7 +8665,43 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-context-client",
+    "kind": "cargo",
+    "family": "Context, memory & code intelligence",
+    "existsAs": [
+     "crates/rightkit-context",
+     "crates/rightkit-context-client",
+     "crates/rightkit-context-core",
+     "crates/rightkit-context-federation",
+     "crates/rightkit-context-protocol",
+     "crates/rightkit-context-provider-sdk",
+     "crates/rightkit-context-runtime"
+    ],
+    "feeds": {
+     "pulse": 98511
+    },
+    "basis": "family verdict of rightkit-context",
+    "referenceApp": "pulse",
+    "shape": "gaps",
+    "shapeReason": "Pulse's seven-crate layout carried over one to one and is the reference; a second host can only use it as the external membrane binary, and the binary's client lives in rightkit-memory, not here.",
+    "apps": {
+     "pulse": {
+      "fit": "fits",
+      "note": "same code (54,026 of 60,591 distinctive lines found in the package)"
+     },
+     "coderight": {
+      "fit": "gaps",
+      "note": "uses it through the CLI client that sits in rightkit-memory::membrane"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-context-tooling.json",
+    "inheritedFrom": "rightkit-context"
+   }
   },
   {
    "package": "rightkit-context-core",
@@ -7591,7 +8726,43 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-context-core",
+    "kind": "cargo",
+    "family": "Context, memory & code intelligence",
+    "existsAs": [
+     "crates/rightkit-context",
+     "crates/rightkit-context-client",
+     "crates/rightkit-context-core",
+     "crates/rightkit-context-federation",
+     "crates/rightkit-context-protocol",
+     "crates/rightkit-context-provider-sdk",
+     "crates/rightkit-context-runtime"
+    ],
+    "feeds": {
+     "pulse": 98511
+    },
+    "basis": "family verdict of rightkit-context",
+    "referenceApp": "pulse",
+    "shape": "gaps",
+    "shapeReason": "Pulse's seven-crate layout carried over one to one and is the reference; a second host can only use it as the external membrane binary, and the binary's client lives in rightkit-memory, not here.",
+    "apps": {
+     "pulse": {
+      "fit": "fits",
+      "note": "same code (54,026 of 60,591 distinctive lines found in the package)"
+     },
+     "coderight": {
+      "fit": "gaps",
+      "note": "uses it through the CLI client that sits in rightkit-memory::membrane"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-context-tooling.json",
+    "inheritedFrom": "rightkit-context"
+   }
   },
   {
    "package": "rightkit-context-federation",
@@ -7616,7 +8787,43 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-context-federation",
+    "kind": "cargo",
+    "family": "Context, memory & code intelligence",
+    "existsAs": [
+     "crates/rightkit-context",
+     "crates/rightkit-context-client",
+     "crates/rightkit-context-core",
+     "crates/rightkit-context-federation",
+     "crates/rightkit-context-protocol",
+     "crates/rightkit-context-provider-sdk",
+     "crates/rightkit-context-runtime"
+    ],
+    "feeds": {
+     "pulse": 98511
+    },
+    "basis": "family verdict of rightkit-context",
+    "referenceApp": "pulse",
+    "shape": "gaps",
+    "shapeReason": "Pulse's seven-crate layout carried over one to one and is the reference; a second host can only use it as the external membrane binary, and the binary's client lives in rightkit-memory, not here.",
+    "apps": {
+     "pulse": {
+      "fit": "fits",
+      "note": "same code (54,026 of 60,591 distinctive lines found in the package)"
+     },
+     "coderight": {
+      "fit": "gaps",
+      "note": "uses it through the CLI client that sits in rightkit-memory::membrane"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-context-tooling.json",
+    "inheritedFrom": "rightkit-context"
+   }
   },
   {
    "package": "rightkit-context-protocol",
@@ -7641,7 +8848,43 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-context-protocol",
+    "kind": "cargo",
+    "family": "Context, memory & code intelligence",
+    "existsAs": [
+     "crates/rightkit-context",
+     "crates/rightkit-context-client",
+     "crates/rightkit-context-core",
+     "crates/rightkit-context-federation",
+     "crates/rightkit-context-protocol",
+     "crates/rightkit-context-provider-sdk",
+     "crates/rightkit-context-runtime"
+    ],
+    "feeds": {
+     "pulse": 98511
+    },
+    "basis": "family verdict of rightkit-context",
+    "referenceApp": "pulse",
+    "shape": "gaps",
+    "shapeReason": "Pulse's seven-crate layout carried over one to one and is the reference; a second host can only use it as the external membrane binary, and the binary's client lives in rightkit-memory, not here.",
+    "apps": {
+     "pulse": {
+      "fit": "fits",
+      "note": "same code (54,026 of 60,591 distinctive lines found in the package)"
+     },
+     "coderight": {
+      "fit": "gaps",
+      "note": "uses it through the CLI client that sits in rightkit-memory::membrane"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-context-tooling.json",
+    "inheritedFrom": "rightkit-context"
+   }
   },
   {
    "package": "rightkit-context-provider-sdk",
@@ -7666,7 +8909,43 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-context-provider-sdk",
+    "kind": "cargo",
+    "family": "Context, memory & code intelligence",
+    "existsAs": [
+     "crates/rightkit-context",
+     "crates/rightkit-context-client",
+     "crates/rightkit-context-core",
+     "crates/rightkit-context-federation",
+     "crates/rightkit-context-protocol",
+     "crates/rightkit-context-provider-sdk",
+     "crates/rightkit-context-runtime"
+    ],
+    "feeds": {
+     "pulse": 98511
+    },
+    "basis": "family verdict of rightkit-context",
+    "referenceApp": "pulse",
+    "shape": "gaps",
+    "shapeReason": "Pulse's seven-crate layout carried over one to one and is the reference; a second host can only use it as the external membrane binary, and the binary's client lives in rightkit-memory, not here.",
+    "apps": {
+     "pulse": {
+      "fit": "fits",
+      "note": "same code (54,026 of 60,591 distinctive lines found in the package)"
+     },
+     "coderight": {
+      "fit": "gaps",
+      "note": "uses it through the CLI client that sits in rightkit-memory::membrane"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-context-tooling.json",
+    "inheritedFrom": "rightkit-context"
+   }
   },
   {
    "package": "rightkit-context-runtime",
@@ -7691,7 +8970,43 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-context-runtime",
+    "kind": "cargo",
+    "family": "Context, memory & code intelligence",
+    "existsAs": [
+     "crates/rightkit-context",
+     "crates/rightkit-context-client",
+     "crates/rightkit-context-core",
+     "crates/rightkit-context-federation",
+     "crates/rightkit-context-protocol",
+     "crates/rightkit-context-provider-sdk",
+     "crates/rightkit-context-runtime"
+    ],
+    "feeds": {
+     "pulse": 98511
+    },
+    "basis": "family verdict of rightkit-context",
+    "referenceApp": "pulse",
+    "shape": "gaps",
+    "shapeReason": "Pulse's seven-crate layout carried over one to one and is the reference; a second host can only use it as the external membrane binary, and the binary's client lives in rightkit-memory, not here.",
+    "apps": {
+     "pulse": {
+      "fit": "fits",
+      "note": "same code (54,026 of 60,591 distinctive lines found in the package)"
+     },
+     "coderight": {
+      "fit": "gaps",
+      "note": "uses it through the CLI client that sits in rightkit-memory::membrane"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-context-tooling.json",
+    "inheritedFrom": "rightkit-context"
+   }
   },
   {
    "package": "rightkit-contracts",
@@ -10009,7 +11324,40 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-evidence-application",
+    "kind": "cargo",
+    "family": "Agent platform",
+    "existsAs": [
+     "crates/rightkit-evidence",
+     "crates/rightkit-evidence-application",
+     "crates/rightkit-evidence-commands",
+     "crates/rightkit-evidence-contracts",
+     "crates/rightkit-evidence-decisions",
+     "crates/rightkit-evidence-effects",
+     "crates/rightkit-evidence-governance",
+     "crates/rightkit-evidence-report"
+    ],
+    "feeds": {
+     "coderight": 5738
+    },
+    "basis": "family verdict of rightkit-evidence",
+    "referenceApp": "coderight",
+    "shape": "gaps",
+    "shapeReason": "Planned code is mostly in agent-server; the family's larger crates have no surveyed app source to compare against.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "move evidence modules out of agent-server"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "low",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "rightkit-evidence"
+   }
   },
   {
    "package": "rightkit-evidence-commands",
@@ -10034,7 +11382,40 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-evidence-commands",
+    "kind": "cargo",
+    "family": "Agent platform",
+    "existsAs": [
+     "crates/rightkit-evidence",
+     "crates/rightkit-evidence-application",
+     "crates/rightkit-evidence-commands",
+     "crates/rightkit-evidence-contracts",
+     "crates/rightkit-evidence-decisions",
+     "crates/rightkit-evidence-effects",
+     "crates/rightkit-evidence-governance",
+     "crates/rightkit-evidence-report"
+    ],
+    "feeds": {
+     "coderight": 5738
+    },
+    "basis": "family verdict of rightkit-evidence",
+    "referenceApp": "coderight",
+    "shape": "gaps",
+    "shapeReason": "Planned code is mostly in agent-server; the family's larger crates have no surveyed app source to compare against.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "move evidence modules out of agent-server"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "low",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "rightkit-evidence"
+   }
   },
   {
    "package": "rightkit-evidence-contracts",
@@ -10059,7 +11440,40 @@
     "legion": "ahead"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-evidence-contracts",
+    "kind": "cargo",
+    "family": "Agent platform",
+    "existsAs": [
+     "crates/rightkit-evidence",
+     "crates/rightkit-evidence-application",
+     "crates/rightkit-evidence-commands",
+     "crates/rightkit-evidence-contracts",
+     "crates/rightkit-evidence-decisions",
+     "crates/rightkit-evidence-effects",
+     "crates/rightkit-evidence-governance",
+     "crates/rightkit-evidence-report"
+    ],
+    "feeds": {
+     "coderight": 5738
+    },
+    "basis": "family verdict of rightkit-evidence",
+    "referenceApp": "coderight",
+    "shape": "gaps",
+    "shapeReason": "Planned code is mostly in agent-server; the family's larger crates have no surveyed app source to compare against.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "move evidence modules out of agent-server"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "low",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "rightkit-evidence"
+   }
   },
   {
    "package": "rightkit-evidence-decisions",
@@ -10084,7 +11498,40 @@
     "legion": "ahead"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-evidence-decisions",
+    "kind": "cargo",
+    "family": "Agent platform",
+    "existsAs": [
+     "crates/rightkit-evidence",
+     "crates/rightkit-evidence-application",
+     "crates/rightkit-evidence-commands",
+     "crates/rightkit-evidence-contracts",
+     "crates/rightkit-evidence-decisions",
+     "crates/rightkit-evidence-effects",
+     "crates/rightkit-evidence-governance",
+     "crates/rightkit-evidence-report"
+    ],
+    "feeds": {
+     "coderight": 5738
+    },
+    "basis": "family verdict of rightkit-evidence",
+    "referenceApp": "coderight",
+    "shape": "gaps",
+    "shapeReason": "Planned code is mostly in agent-server; the family's larger crates have no surveyed app source to compare against.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "move evidence modules out of agent-server"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "low",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "rightkit-evidence"
+   }
   },
   {
    "package": "rightkit-evidence-effects",
@@ -10109,7 +11556,40 @@
     "legion": "ahead"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-evidence-effects",
+    "kind": "cargo",
+    "family": "Agent platform",
+    "existsAs": [
+     "crates/rightkit-evidence",
+     "crates/rightkit-evidence-application",
+     "crates/rightkit-evidence-commands",
+     "crates/rightkit-evidence-contracts",
+     "crates/rightkit-evidence-decisions",
+     "crates/rightkit-evidence-effects",
+     "crates/rightkit-evidence-governance",
+     "crates/rightkit-evidence-report"
+    ],
+    "feeds": {
+     "coderight": 5738
+    },
+    "basis": "family verdict of rightkit-evidence",
+    "referenceApp": "coderight",
+    "shape": "gaps",
+    "shapeReason": "Planned code is mostly in agent-server; the family's larger crates have no surveyed app source to compare against.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "move evidence modules out of agent-server"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "low",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "rightkit-evidence"
+   }
   },
   {
    "package": "rightkit-evidence-governance",
@@ -10134,7 +11614,40 @@
     "legion": "ahead"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-evidence-governance",
+    "kind": "cargo",
+    "family": "Agent platform",
+    "existsAs": [
+     "crates/rightkit-evidence",
+     "crates/rightkit-evidence-application",
+     "crates/rightkit-evidence-commands",
+     "crates/rightkit-evidence-contracts",
+     "crates/rightkit-evidence-decisions",
+     "crates/rightkit-evidence-effects",
+     "crates/rightkit-evidence-governance",
+     "crates/rightkit-evidence-report"
+    ],
+    "feeds": {
+     "coderight": 5738
+    },
+    "basis": "family verdict of rightkit-evidence",
+    "referenceApp": "coderight",
+    "shape": "gaps",
+    "shapeReason": "Planned code is mostly in agent-server; the family's larger crates have no surveyed app source to compare against.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "move evidence modules out of agent-server"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "low",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "rightkit-evidence"
+   }
   },
   {
    "package": "rightkit-evidence-report",
@@ -10159,7 +11672,40 @@
     "legion": "ahead"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-evidence-report",
+    "kind": "cargo",
+    "family": "Agent platform",
+    "existsAs": [
+     "crates/rightkit-evidence",
+     "crates/rightkit-evidence-application",
+     "crates/rightkit-evidence-commands",
+     "crates/rightkit-evidence-contracts",
+     "crates/rightkit-evidence-decisions",
+     "crates/rightkit-evidence-effects",
+     "crates/rightkit-evidence-governance",
+     "crates/rightkit-evidence-report"
+    ],
+    "feeds": {
+     "coderight": 5738
+    },
+    "basis": "family verdict of rightkit-evidence",
+    "referenceApp": "coderight",
+    "shape": "gaps",
+    "shapeReason": "Planned code is mostly in agent-server; the family's larger crates have no surveyed app source to compare against.",
+    "apps": {
+     "coderight": {
+      "fit": "gaps",
+      "note": "move evidence modules out of agent-server"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "low",
+    "source": "matrix-rows-agent-platform.json",
+    "inheritedFrom": "rightkit-evidence"
+   }
   },
   {
    "package": "rightkit-feed",
@@ -12671,7 +14217,40 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-memory-core",
+    "kind": "cargo",
+    "family": "Context, memory & code intelligence",
+    "existsAs": [
+     "crates/rightkit-memory",
+     "crates/rightkit-memory-core",
+     "crates/rightkit-memory-store"
+    ],
+    "feeds": {
+     "pulse": 14843,
+     "coderight": 9759
+    },
+    "basis": "family verdict of rightkit-memory",
+    "referenceApp": "pulse",
+    "shape": "wrong",
+    "shapeReason": "Not two competing engines: Pulse's engine and CodeRight's client of that engine. But the crate named rightkit-memory is the client, it does not use the engine crates' types, and it carries a dead second retrieval router.",
+    "apps": {
+     "pulse": {
+      "fit": "fits",
+      "note": "memory-core and memory-store are its code unchanged"
+     },
+     "coderight": {
+      "fit": "gaps",
+      "note": "backend and CLI client held; bin-side binding code (membrane_binding/*, api_memory.rs, about 3,000 lines) is in agent-server, not here"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-context-tooling.json",
+    "inheritedFrom": "rightkit-memory"
+   }
   },
   {
    "package": "rightkit-memory-store",
@@ -12696,7 +14275,40 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-memory-store",
+    "kind": "cargo",
+    "family": "Context, memory & code intelligence",
+    "existsAs": [
+     "crates/rightkit-memory",
+     "crates/rightkit-memory-core",
+     "crates/rightkit-memory-store"
+    ],
+    "feeds": {
+     "pulse": 14843,
+     "coderight": 9759
+    },
+    "basis": "family verdict of rightkit-memory",
+    "referenceApp": "pulse",
+    "shape": "wrong",
+    "shapeReason": "Not two competing engines: Pulse's engine and CodeRight's client of that engine. But the crate named rightkit-memory is the client, it does not use the engine crates' types, and it carries a dead second retrieval router.",
+    "apps": {
+     "pulse": {
+      "fit": "fits",
+      "note": "memory-core and memory-store are its code unchanged"
+     },
+     "coderight": {
+      "fit": "gaps",
+      "note": "backend and CLI client held; bin-side binding code (membrane_binding/*, api_memory.rs, about 3,000 lines) is in agent-server, not here"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "deep",
+    "confidence": "high",
+    "source": "matrix-rows-context-tooling.json",
+    "inheritedFrom": "rightkit-memory"
+   }
   },
   {
    "package": "rightkit-mesh",
@@ -15055,7 +16667,39 @@
     "legion": "unused"
    },
    "plan": {},
-   "review": null
+   "review": {
+    "package": "rightkit-repo-graph-grammars",
+    "kind": "cargo",
+    "family": "Context, memory & code intelligence",
+    "existsAs": [
+     "crates/rightkit-repo-graph",
+     "crates/rightkit-repo-graph-grammars"
+    ],
+    "feeds": {
+     "pulse": 37279,
+     "coderight": 600
+    },
+    "basis": "family verdict of rightkit-repo-graph",
+    "referenceApp": "pulse",
+    "shape": "gaps",
+    "shapeReason": "Pulse's graph is the package and fits Pulse; CodeRight's skeletonizer was added beside it with its own four-language table instead of using the graph's 30+ language extraction.",
+    "apps": {
+     "pulse": {
+      "fit": "fits",
+      "note": "same code"
+     },
+     "coderight": {
+      "fit": "fits",
+      "note": "skeletonization.rs is its code (200 of 201 distinctive lines)"
+     }
+    },
+    "boundary": [],
+    "actions": [],
+    "depth": "light",
+    "confidence": "medium",
+    "source": "matrix-rows-context-tooling.json",
+    "inheritedFrom": "rightkit-repo-graph"
+   }
   },
   {
    "package": "rightkit-research",
